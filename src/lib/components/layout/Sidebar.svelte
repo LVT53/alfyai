@@ -7,7 +7,9 @@ import { t } from "$lib/i18n";
 import {
 	sidebarOpen,
 	sidebarCollapsed,
+	sidebarFoldedForPanel,
 	sidebarWidth,
+	toggleSidebarCollapsed,
 	clampSidebarWidth,
 	SIDEBAR_DEFAULT_WIDTH,
 	currentConversationId,
@@ -66,7 +68,9 @@ let showLogoutConfirm = $state(false);
 let transitionsEnabled = $state(false);
 let resizing = $state(false);
 
-const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
+const isCollapsed = $derived(
+	isDesktop && ($sidebarCollapsed || $sidebarFoldedForPanel),
+);
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
@@ -150,7 +154,7 @@ function handleSearchShortcut(event: KeyboardEvent) {
 
 function toggleCollapse() {
 	if (isDesktop) {
-		sidebarCollapsed.update((v) => !v);
+		toggleSidebarCollapsed();
 	}
 }
 
@@ -580,6 +584,17 @@ onMount(() => {
 	.search-shortcut-hint {
 		background: color-mix(in srgb, var(--border-default) 14%, transparent 86%);
 		line-height: 1.4;
+	}
+
+	/* No keyboard chord on a touch screen (FB-9): the chip is plain wasted space
+	   there, and its width goes back to the label. The query is the one
+	   `isTouchDevice()` asks (`chordsAreDrawn()` in keyboard-shortcuts.ts); a
+	   rule here, not a conditional, because the sidebar is rendered on the
+	   server, which cannot know the pointer. */
+	@media (hover: none) and (pointer: coarse) {
+		.search-shortcut-hint {
+			display: none;
+		}
 	}
 
 	/* Collapsed-rail active-conversation indicator (ADR-0043 #3): a small

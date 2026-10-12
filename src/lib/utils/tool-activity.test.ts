@@ -1009,6 +1009,127 @@ describe("buildToolActivityItem — journey row", () => {
 	// create_artifact/edit_artifact render ArtifactCard's body once the tool
 	// call actually made or changed something — never for a call that is
 	// still running, was refused, or came back malformed.
+	// F22 (ruling 77): every Alfy-edit turn showed a read step as "Eszköz e4d471c7-
+	// b5de-488d-b7fb-a4f..." (the generic tool label and the item's id) beside a good
+	// "Szerkesztve Bécsi hétvége – tábla"; a produced file's read-back showed
+	// "Eszköz becsi-hetvegi-utiterv-szombat-es-vasarnap.docx". A read names the item.
+	describe("read_artifact / read_generated_file — the read row names the item (F22)", () => {
+		const readOf = (overrides: Partial<ToolCallSegment>) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "read_artifact",
+					input: { artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4" },
+					...overrides,
+				}),
+				"k-read",
+				translate,
+			);
+
+		it("reads 'Read <title>' from the item's own title, never its id", () => {
+			const item = readOf({
+				metadata: {
+					ok: true,
+					found: true,
+					artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4",
+					artifactKind: "canvas",
+					artifactTitle: "Vienna weekend board",
+				},
+			});
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("Vienna weekend board");
+			expect(item.title).toBe("Read: Vienna weekend board");
+			expect(
+				JSON.stringify([item.verb, item.object, item.title]),
+			).not.toContain("e4d471c7");
+			expect(item.iconType).toBe("generic");
+		});
+
+		it("says 'Reading' while it runs, with no object yet and never the id", () => {
+			const item = readOf({ status: "running" });
+
+			expect(item.verb).toBe("Reading");
+			expect(item.object).toBe("");
+			expect(
+				JSON.stringify([item.verb, item.object, item.title]),
+			).not.toContain("e4d471c7");
+		});
+
+		it("says only that it read when an older record carries no title, and never the id", () => {
+			const item = readOf({ metadata: { ok: true, found: true } });
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("");
+			expect(item.title).toBe("Read");
+		});
+
+		it("names a produced file by its request title, else by its file name", () => {
+			const byTitle = buildToolActivityItem(
+				toolCall({
+					name: "read_generated_file",
+					input: {
+						requestTitle: "Vienna weekend itinerary",
+						query: "Belvedere",
+					},
+				}),
+				"k-file-1",
+				translate,
+			);
+			const byName = buildToolActivityItem(
+				toolCall({
+					name: "read_generated_file",
+					input: { filename: "vienna-weekend.docx" },
+				}),
+				"k-file-2",
+				translate,
+			);
+
+			expect(byTitle.verb).toBe("Read");
+			expect(byTitle.object).toBe("Vienna weekend itinerary");
+			expect(byName.object).toBe("vienna-weekend.docx");
+		});
+
+		it("groups repeated reads under 'Read', not under the generic tool label", () => {
+			const reads = [1, 2].map((n) =>
+				readOf({ metadata: { ok: true, artifactTitle: `Board ${n}` } }),
+			);
+
+			expect(buildToolActivitySummary(reads, translate)).toEqual([
+				expect.objectContaining({ label: "Read ×2" }),
+			]);
+		});
+
+		it("is Hungarian in a Hungarian turn: 'Elolvasva <title>', never 'Eszköz' and never the id", async () => {
+			const { uiLanguage } = await import("$lib/stores/settings");
+			uiLanguage.set("hu");
+			try {
+				const huTranslate = get(t);
+				const item = buildToolActivityItem(
+					toolCall({
+						name: "read_artifact",
+						input: { artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4" },
+						metadata: {
+							ok: true,
+							artifactKind: "canvas",
+							artifactTitle: "Bécsi hétvége – tábla",
+						},
+					}),
+					"k-read-hu",
+					huTranslate,
+				);
+
+				expect(item.verb).toBe("Elolvasva");
+				expect(item.object).toBe("Bécsi hétvége – tábla");
+				expect(item.title).toBe("Elolvasva: Bécsi hétvége – tábla");
+				expect(JSON.stringify([item.verb, item.object])).not.toMatch(
+					/Eszköz|e4d471c7/,
+				);
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+	});
+
 	describe("create_artifact / edit_artifact — the in-chat card", () => {
 		it("renders a pinned, always-open card from a successful create_artifact's own metadata", () => {
 			const item = buildToolActivityItem(
@@ -1234,6 +1355,228 @@ describe("buildToolActivityItem — journey row", () => {
 			);
 
 			expect(item.body?.kind).not.toBe("artifact");
+		});
+	});
+});
+
+// RC-A #2: the model the audit walked fails two or three edits a Document turn. A
+// failed call printed "Tool <id>", opened on `patches: [object Object]` and the
+// English refusal the model was written; it names what it tried now, folded, with
+// the model's words behind "Details".
+describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
+	const failedEdit = (overrides: Partial<ToolCallSegment> = {}) =>
+		toolCall({
+			name: "edit_artifact",
+			input: {
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				patches: [{ op: "replace", text: "Szombat" }],
+				summary: "Javította a szombati bekezdést",
+			},
+			status: "done",
+			outputSummary:
+				'One or more patch ops were malformed. Documents use patches (not ops); each op\'s "op" must be one of: replaceBlock, insertText',
+			metadata: {
+				ok: false,
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				artifactKind: "document",
+				artifactTitle: "Bécsi hétvége",
+			},
+			...overrides,
+		});
+
+	it("names what it tried and on what, as a failed row folded behind Details", () => {
+		const item = buildToolActivityItem(
+			failedEdit(),
+			"k-failed-edit",
+			translate,
+		);
+
+		expect(item.status).toBe("failed");
+		expect(item.verb).toBe("Couldn't edit:");
+		expect(item.object).toBe("Bécsi hétvége");
+		expect(item.title).toBe("Couldn't edit: Bécsi hétvége");
+		expect(item.meta).toBe("Details");
+		expect(item.pinned).toBe(false);
+		expect(item.alwaysOpen).toBe(false);
+		expect(item.artifact).toEqual({
+			id: "0d394ede-c37a-4238-9059-77d01300da4e",
+			failed: true,
+		});
+	});
+
+	it("keeps the model's words in the body and the parameters out of everything", () => {
+		const item = buildToolActivityItem(
+			failedEdit(),
+			"k-failed-edit",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "error",
+			reason: expect.stringContaining("patch ops were malformed"),
+		});
+		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|Tool /);
+		expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
+			/0d394ede/,
+		);
+	});
+
+	it("is Hungarian in a Hungarian turn: 'Nem sikerült szerkeszteni: <title>', never 'Eszköz' and never the id", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			const huTranslate = get(t);
+			const item = buildToolActivityItem(
+				failedEdit(),
+				"k-failed-edit-hu",
+				huTranslate,
+			);
+
+			expect(item.verb).toBe("Nem sikerült szerkeszteni:");
+			expect(item.object).toBe("Bécsi hétvége");
+			expect(item.title).toBe("Nem sikerült szerkeszteni: Bécsi hétvége");
+			expect(item.meta).toBe("Részletek");
+			expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
+				/Eszköz|0d394ede/,
+			);
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("says what kind of item it was when the record has no title (an older message)", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			const item = buildToolActivityItem(
+				failedEdit({
+					metadata: { ok: false, artifactId: "a-1", artifactKind: "app" },
+				}),
+				"k-failed-edit-old",
+				get(t),
+			);
+
+			expect(item.verb).toBe("Nem sikerült szerkeszteni:");
+			expect(item.object).toBe("Alkalmazás");
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("is the verb alone when nothing says which item it was", () => {
+		const item = buildToolActivityItem(
+			failedEdit({ metadata: { ok: false } }),
+			"k-failed-edit-bare",
+			translate,
+		);
+
+		expect(item.verb).toBe("Couldn't edit");
+		expect(item.object).toBe("");
+		expect(item.title).toBe("Couldn't edit");
+	});
+
+	it("is the same row when the call threw instead of being refused", () => {
+		const item = buildToolActivityItem(
+			failedEdit({
+				status: "failed",
+				metadata: undefined,
+				outputSummary: "The request timed out.",
+			}),
+			"k-failed-threw",
+			translate,
+		);
+
+		expect(item.status).toBe("failed");
+		expect(item.verb).toBe("Couldn't edit");
+		expect(item.object).toBe("");
+		expect(item.meta).toBe("Details");
+		expect(item.body).toEqual({
+			kind: "error",
+			reason: "The request timed out.",
+		});
+		expect(item.artifact).toEqual({
+			id: "0d394ede-c37a-4238-9059-77d01300da4e",
+			failed: true,
+		});
+	});
+
+	it("has no Details to open when the call left no words", () => {
+		const item = buildToolActivityItem(
+			failedEdit({ outputSummary: undefined }),
+			"k-failed-silent",
+			translate,
+		);
+
+		expect(item.body).toBeNull();
+		expect(item.meta).toBe("");
+	});
+
+	it("names a create that failed by the title it was given", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "create_artifact",
+				input: { artifactType: "document", title: "Trip plan" },
+				status: "failed",
+				outputSummary: "Timed out.",
+			}),
+			"k-failed-create",
+			translate,
+		);
+
+		expect(item.verb).toBe("Couldn't create:");
+		expect(item.object).toBe("Trip plan");
+		expect(item.artifact).toEqual({ id: null, failed: true });
+	});
+
+	it("says 'Editing' alone while an edit that carries only an id is running, never 'Tool <id>'", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "edit_artifact",
+				input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+				status: "running",
+			}),
+			"k-running-bare",
+			translate,
+		);
+
+		expect(item.status).toBe("running");
+		expect(item.verb).toBe("Editing");
+		expect(item.object).toBe("");
+		expect(item.body).toBeNull();
+	});
+
+	it("counts repeats of the same failure as repeats, not as '… failed' twice over", () => {
+		const items = [1, 2].map((n) =>
+			buildToolActivityItem(failedEdit(), `k-failed-${n}`, translate),
+		);
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			expect.objectContaining({ label: "Couldn't edit ×2" }),
+		]);
+		expect(buildToolActivitySummary(items.slice(0, 1), translate)).toEqual([
+			expect.objectContaining({ label: "Couldn't edit" }),
+		]);
+	});
+
+	it("never prints '[object Object]' for a list or an object argument of another tool", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "some_other_tool",
+				input: { filters: { year: 2026 }, ids: ["a", "b"], note: "plain" },
+				status: "done",
+			}),
+			"k-generic-args",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "generic",
+			args: [
+				{ key: "filters", value: '{"year":2026}' },
+				{ key: "ids", value: '["a","b"]' },
+				{ key: "note", value: "plain" },
+			],
+			result: null,
 		});
 	});
 });

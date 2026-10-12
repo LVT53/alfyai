@@ -29,6 +29,7 @@ import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import {
 	historyAriaKeyShortcuts,
 	historyShortcutLabel,
+	withChord,
 } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { t } from "$lib/i18n";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
@@ -143,10 +144,10 @@ async function pick(
 }
 
 let undoLabel = $derived(
-	`${$t("artifacts.canvas.undo")} (${historyShortcutLabel("undo")})`,
+	withChord($t("artifacts.canvas.undo"), historyShortcutLabel("undo")),
 );
 let redoLabel = $derived(
-	`${$t("artifacts.canvas.redo")} (${historyShortcutLabel("redo")})`,
+	withChord($t("artifacts.canvas.redo"), historyShortcutLabel("redo")),
 );
 </script>
 

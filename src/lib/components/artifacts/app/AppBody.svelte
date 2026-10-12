@@ -34,7 +34,9 @@ import DialogShell, {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { emptyStateLine } from "$lib/components/artifacts/empty-state";
+import DownloadSheet from "$lib/components/artifacts/document/DownloadSheet.svelte";
 import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
@@ -48,7 +50,6 @@ import {
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
 import {
-	downloadAppAsHtml,
 	fetchArtifact,
 	regenerateApp,
 	restoreArtifactVersion,
@@ -70,6 +71,8 @@ interface Props {
 	conversationId?: string | null;
 	/** Wave 2.5 Step 13: hands the panel header a direct download trigger, and History (ruling 76) what it needs of a body: `reload`, to load the stored App after a restore. See `ArtifactBodyProps`'s own doc comment. */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/** What a chat turn is doing to an item (`ArtifactBodyProps.alfyActivity`): here, a rebuild of THIS App (F2, ruling 77), which veils the frame while it runs and loads the new version when it lands. */
+	alfyActivity?: DocumentAlfyActivity | null;
 	/** The App tour's summary (`ArtifactBodyProps.tourSummary`): what an App with nothing in it says. */
 	tourSummary?: LocalizedText | null;
 	/** Shows the App tour again (`ArtifactBodyProps.onReplayTour`): the empty state's link, only when the panel supplies it. */
@@ -81,6 +84,7 @@ let {
 	title,
 	conversationId = null,
 	registerPanelActions,
+	alfyActivity = null,
 	tourSummary = null,
 	onReplayTour,
 }: Props = $props();
@@ -92,12 +96,24 @@ let highlightedCode = $state<string | null>(null);
 let copyLabel = $state<"copy" | "copied">("copy");
 let noteOpen = $state(false);
 
-let downloadBusy = $state(false);
-let downloadError = $state<string | null>(null);
+/** The header's Download: the same popover the Document's offers (`DownloadSheet`), with the App's one file. */
+let downloadSheetOpen = $state(false);
 
 let regeneratePopoverOpen = $state(false);
 let regeneratePromptText = $state("");
 let regenerateBusy = $state(false);
+// A chat turn rebuilding THIS App (F2, ruling 77): `edit_artifact` with an
+// `instruction`. The frame is veiled the way the panel's own rebuild veils it, and
+// the stored App is loaded when the rebuild lands (the frame reloads on its new
+// version), so the reader sees the change in the panel they already have open.
+let chatRebuildRunning = $derived(
+	alfyActivity !== null &&
+		alfyActivity.artifactId === artifactId &&
+		alfyActivity.toolName === "edit_artifact" &&
+		alfyActivity.status === "running",
+);
+/** Either rebuild is running: the veil, the inert frame and the disabled trigger follow it. */
+let rebuilding = $derived(regenerateBusy || chatRebuildRunning);
 let regenerateError = $state<string | null>(null);
 let regenerateTriggerEl = $state<HTMLButtonElement | null>(null);
 let regenerateTextareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -123,6 +139,7 @@ async function load(id: string): Promise<void> {
 		// bleed onto the next one.
 		noteOpen = false;
 		activeTab = "preview";
+		downloadSheetOpen = false;
 		regeneratePopoverOpen = false;
 		regenerateError = null;
 		regenerateBusy = false;
@@ -139,6 +156,23 @@ async function load(id: string): Promise<void> {
 
 $effect(() => {
 	void load(artifactId);
+});
+
+// The settled call is loaded once, however often the page hands it down again.
+let loadedForCallKey: string | null = null;
+$effect(() => {
+	const activity = alfyActivity;
+	if (
+		!activity ||
+		activity.artifactId !== artifactId ||
+		activity.toolName !== "edit_artifact" ||
+		activity.status !== "applied" ||
+		loadedForCallKey === activity.key
+	) {
+		return;
+	}
+	loadedForCallKey = activity.key;
+	untrack(() => void load(artifactId));
 });
 
 let htmlBody = $derived(detail?.artifact.body ?? "");
@@ -228,20 +262,6 @@ async function copyCode(): Promise<void> {
 	}
 }
 
-async function handleDownload(): Promise<void> {
-	if (!artifactConversationId || downloadBusy) return;
-	downloadBusy = true;
-	downloadError = null;
-	try {
-		const result = await downloadAppAsHtml(artifactId, conversationId);
-		if (!result.ok) downloadError = result.reason;
-	} catch {
-		downloadError = "failed";
-	} finally {
-		downloadBusy = false;
-	}
-}
-
 /**
  * Wave 2.5 Step 13: hands the panel header a download trigger whenever the
  * App actually has one to save (registered `undefined` otherwise, so the
@@ -254,7 +274,9 @@ async function handleDownload(): Promise<void> {
  */
 $effect(() => {
 	registerPanelActions?.({
-		openDownload: artifactConversationId ? handleDownload : undefined,
+		openDownload: artifactConversationId
+			? () => (downloadSheetOpen = true)
+			: undefined,
 		// After a restore in History the stored App is another one: load it, so the
 		// frame runs it and the next rebuild is checked against its version.
 		reload: () => void load(artifactId),
@@ -267,23 +289,6 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 	tool_call: "artifacts.app.failed.toolCall",
 	too_long: "artifacts.app.failed.tooLong",
 };
-
-/**
- * Ruling 58: the download error is always a localized sentence, never
- * `result.reason` (a wire-level reason/intake-error code) or the bare word
- * "failed" shown straight to the user. `conversation_required` is the
- * server's own backstop for the same case the disabled button already
- * explains proactively (no conversation), so it reuses that copy; every
- * other reason — a race where the artifact vanished, a file-production
- * intake failure, the request itself throwing — falls back to one generic
- * "could not prepare this for download" sentence.
- */
-const DOWNLOAD_FAILURE_KEYS: Partial<Record<string, I18nKey>> = {
-	conversation_required: "artifacts.app.download.unavailable",
-};
-function localizeDownloadFailure(reason: string): string {
-	return $t(DOWNLOAD_FAILURE_KEYS[reason] ?? "artifacts.app.download.failed");
-}
 
 /** The main "Change this app…" button — starts clean (empty prompt, no stale error from a previous attempt). */
 function openRegeneratePopoverFresh(): void {
@@ -302,7 +307,7 @@ function closeRegeneratePopover(): void {
 }
 
 async function submitRegenerate(): Promise<void> {
-	if (!regeneratePromptText.trim() || regenerateBusy) return;
+	if (!regeneratePromptText.trim() || rebuilding) return;
 	// Snapshotted so a switch to a DIFFERENT App while this call is still in
 	// flight can never write this call's result onto the wrong App's UI —
 	// `load()`'s own id check already guards its half; every write below is
@@ -496,7 +501,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 		     above Preview/Code — never inside the preview tab panel, so it stays
 		     visible (and meaningful) on the Code tab too. -->
 		<div class="app-status" data-testid="app-status-row">
-			{#if regenerateBusy}
+			{#if rebuilding}
 				<div class="app-status-row" role="status" aria-live="polite">
 					<span class="app-status-spinner" aria-hidden="true"></span>
 					<span>{$t('artifacts.app.verify.checking')}</span>
@@ -606,7 +611,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 				bind:this={regenerateTriggerEl}
 				aria-haspopup="dialog"
 				aria-expanded={regeneratePopoverOpen}
-				disabled={regenerateBusy}
+				disabled={rebuilding}
 				onclick={openRegeneratePopoverFresh}
 			>
 				<Sparkles size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -619,11 +624,6 @@ const regeneratePopoverFocusTrap = focusTrap({
 				{$t('artifacts.app.download.unavailable')}
 			</p>
 		{/if}
-		{#if downloadError}
-			<p class="app-body-hint app-body-error-text">
-				{localizeDownloadFailure(downloadError)}
-			</p>
-		{/if}
 
 		<div class="app-stage">
 			{#if activeTab === 'preview'}
@@ -632,7 +632,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 					role="tabpanel"
 					aria-labelledby="app-tab-preview-{artifactId}"
 					class="app-body-frame-wrap"
-					inert={regenerateBusy}
+					inert={rebuilding}
 				>
 					{#if appEmpty}
 						<div class="app-body-state app-body-empty">
@@ -683,14 +683,14 @@ const regeneratePopoverFocusTrap = focusTrap({
 				aria-live="polite"
 				data-testid="app-busy-announcer"
 			>
-				{regenerateBusy ? $t('artifacts.app.regenerate.building') : ''}
+				{rebuilding ? $t('artifacts.app.regenerate.building') : ''}
 			</div>
 
 			<!-- Redesign §6.2/§6.4: non-blocking — the current version stays visible,
 			     dimmed, under this veil while the new one is built; the frame itself is `inert` above so
 			     keyboard users cannot type into an app about to be replaced. Never
 			     traps focus (no focusTrap here on purpose). -->
-			{#if regenerateBusy}
+			{#if rebuilding}
 				<div class="app-busy-veil" data-testid="app-busy-veil">
 					<div class="app-busy-card">
 						<Sparkles size={20} strokeWidth={1.75} class="app-busy-spark" aria-hidden="true" />
@@ -702,6 +702,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 		</div>
 	{/if}
 </div>
+
+{#if downloadSheetOpen}
+	<DownloadSheet
+		kind="app"
+		{artifactId}
+		{title}
+		{conversationId}
+		onClose={() => (downloadSheetOpen = false)}
+	/>
+{/if}
 
 {#if regeneratePopoverOpen}
 	{#if isPhone}
@@ -1092,11 +1102,6 @@ const regeneratePopoverFocusTrap = focusTrap({
 	.app-body-code-block :global(pre) {
 		margin: 0;
 		padding: var(--space-sm);
-	}
-
-	.app-body-error-text {
-		color: var(--danger);
-		font-size: var(--text-xs);
 	}
 
 	/* ── The regenerate popover (desktop) ────────────────────────── */

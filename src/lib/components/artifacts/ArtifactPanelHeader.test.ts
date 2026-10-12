@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { createRawSnippet } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import ArtifactPanelHeader from "./ArtifactPanelHeader.svelte";
 
 afterEach(() => {
 	cleanup();
+	uiLanguage.set("en");
 });
 
 function actionsWith(html: string) {
@@ -114,20 +116,23 @@ describe("ArtifactPanelHeader", () => {
 		).toHaveTextContent("12 min ago");
 	});
 
-	it("the breadcrumb calls onBack and its accessible name carries the item count", async () => {
+	it("the breadcrumb calls onBack, and its accessible name says where it goes", async () => {
 		const onBack = vi.fn();
 		render(ArtifactPanelHeader, {
 			kind: "document",
 			title: "Vienna trip plan",
-			itemCount: 3,
 			onBack,
 		});
 
 		const crumb = screen.getByRole("button", {
-			name: "Back to This chat (3 items)",
+			name: "Back to this chat's items",
 		});
 		await fireEvent.click(crumb);
 		expect(onBack).toHaveBeenCalledOnce();
+		// The list says how many; the crumb is only the way back (F28).
+		expect(
+			crumb.querySelector(".artifact-panel-header-crumb-count"),
+		).toBeNull();
 	});
 
 	it("draws no breadcrumb where there is nowhere to go back to", () => {
@@ -147,15 +152,24 @@ describe("ArtifactPanelHeader", () => {
 		expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
 	});
 
-	it("falls back to the plain eyebrow label when no item count is given", () => {
+	it("says 'This chat' in English and 'Vissza' in Hungarian, one short word the header never wraps (F28)", () => {
 		render(ArtifactPanelHeader, {
 			kind: "document",
 			title: "Vienna trip plan",
 			onBack: vi.fn(),
 		});
-		expect(
-			screen.getByRole("button", { name: "This chat" }),
-		).toBeInTheDocument();
+		expect(screen.getByRole("button")).toHaveTextContent("This chat");
+		cleanup();
+		uiLanguage.set("hu");
+		render(ArtifactPanelHeader, {
+			kind: "document",
+			title: "Bécsi utazás",
+			onBack: vi.fn(),
+		});
+		const crumb = screen.getByRole("button", {
+			name: "Vissza a beszélgetés elemeihez",
+		});
+		expect(crumb).toHaveTextContent("Vissza");
 	});
 
 	it("renders the caller's actions snippet", () => {

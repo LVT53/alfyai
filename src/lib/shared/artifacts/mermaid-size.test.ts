@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DIAGRAM_RESERVED_HEIGHT } from "./canvas-blocks";
-import { estimatedDiagramHeight } from "./mermaid-size";
+import { estimatedDiagramHeight, readableDiagramSource } from "./mermaid-size";
 
 /**
  * What the board drew, measured in headless Chromium on 2026-10-07 (Mermaid
@@ -387,5 +387,83 @@ describe("estimatedDiagramHeight — how the layout is read", () => {
 			expect(height).toBeGreaterThanOrEqual(80);
 			expect(height).toBeLessThanOrEqual(3000);
 		}
+	});
+});
+
+// F11 (the friction audit): a flowchart written left to right whose five boxes
+// carry real words is 1,200 units wide, and in a 480-wide block it was scaled to a
+// third, so its text was drawn at 5 px. A block that is too narrow for a flowchart
+// across draws it down, where the same words are read at their own size; a block
+// wide enough keeps what was written.
+describe("a wide flowchart is drawn where it can be read (F11)", () => {
+	/** The audit's own: the way from the airport to the hotel, five boxes across. */
+	const AIRPORT = [
+		"flowchart LR",
+		"  A[Bécs-Schwechat reptér] --> B[S-Bahn S7 vagy CAT]",
+		"  B --> C[Wien Mitte]",
+		"  C --> D[Metró vagy villamos]",
+		"  D --> E[Szálloda a belvárosban]",
+	].join("\n");
+	const DOWN = AIRPORT.replace("flowchart LR", "flowchart TD");
+
+	it("draws the audit's flowchart down in a block of the usual width, and says so in the source it hands to be drawn", () => {
+		expect(readableDiagramSource(AIRPORT, BLOCK_WIDTH)).toBe(DOWN);
+	});
+
+	it("reserves the height of what is drawn: the same as the flowchart written down", () => {
+		expect(estimatedDiagramHeight(AIRPORT, BLOCK_WIDTH)).toBe(
+			estimatedDiagramHeight(DOWN, BLOCK_WIDTH),
+		);
+		// Five ranks down, not the 100 px strip it was reserved as across.
+		expect(estimatedDiagramHeight(AIRPORT, BLOCK_WIDTH)).toBeGreaterThan(400);
+	});
+
+	it("keeps what was written in a block wide enough to read it across", () => {
+		expect(readableDiagramSource(AIRPORT, 1400)).toBe(AIRPORT);
+		expect(estimatedDiagramHeight(AIRPORT, 1400)).toBeLessThan(200);
+	});
+
+	it("leaves a flowchart that reads well across where it is (five short words fit a usual block at 0.6 of their size)", () => {
+		const short =
+			"flowchart LR\n  A[Plan] --> B[Build] --> C[Test] --> D[Deploy] --> E[Monitor]";
+		expect(readableDiagramSource(short, BLOCK_WIDTH)).toBe(short);
+	});
+
+	it("turns a right-to-left flowchart bottom-to-top and takes the header after front matter and comments", () => {
+		const source = `---\ntitle: Trip\n---\n%% the way in\n${AIRPORT.replace("flowchart LR", "graph RL")}`;
+		const drawn = readableDiagramSource(source, BLOCK_WIDTH);
+		expect(drawn).toContain("graph BT");
+		expect(drawn).not.toContain("graph RL");
+		// Everything but the direction is the source's own.
+		expect(drawn.replace("graph BT", "graph RL")).toBe(source);
+	});
+
+	it("does not turn what is wide both ways: a fan of long chains is as wide down as across", () => {
+		const chains = Array.from(
+			{ length: 6 },
+			(_, chain) =>
+				`  S${chain}0[Hosszú lépésnév ${chain}0] --> S${chain}1[Hosszú lépésnév ${chain}1] --> S${chain}2[Hosszú lépésnév ${chain}2] --> S${chain}3[Hosszú lépésnév ${chain}3]`,
+		).join("\n");
+		const source = `flowchart LR\n${chains}`;
+		expect(readableDiagramSource(source, BLOCK_WIDTH)).toBe(source);
+	});
+
+	it("touches nothing that is not a flowchart written across, and gives back the very string it was given", () => {
+		for (const source of [
+			DOWN,
+			"sequenceDiagram\n  A->>B: Hello",
+			"gantt\n  title Plan\n  section One\n  Task :a1, 2026-01-01, 3d",
+			"not a diagram at all",
+			"",
+		]) {
+			expect(readableDiagramSource(source, BLOCK_WIDTH)).toBe(source);
+		}
+	});
+
+	it("does not mistake a node called graph for the header", () => {
+		const source = `${AIRPORT}\n  graph[Graph LR] --> A`;
+		const drawn = readableDiagramSource(source, BLOCK_WIDTH);
+		expect(drawn.startsWith("flowchart TD")).toBe(true);
+		expect(drawn).toContain("graph[Graph LR] --> A");
 	});
 });

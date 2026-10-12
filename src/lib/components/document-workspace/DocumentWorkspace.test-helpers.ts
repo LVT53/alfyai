@@ -15,6 +15,11 @@ type WorkspaceList = {
 	open: boolean;
 	items: DocumentWorkspaceItem[];
 	title?: string;
+	pending?: ReadonlyArray<{
+		id: string;
+		kind: "document" | "app" | "canvas" | "slides" | "file";
+		title: string;
+	}>;
 } | null;
 
 type WorkspaceRenderOptions = {
@@ -40,6 +45,8 @@ type WorkspaceRenderOptions = {
 	onJumpToSource?: JumpToSourceCallback;
 	onPresentationChange?: PresentationChangeCallback;
 	onListOpenChange?: ListOpenChangeCallback;
+	historyWanted?: boolean;
+	onHistoryOpenChange?: (open: boolean) => void;
 	onToggleDocumentTask?: (
 		artifactId: string,
 		blockId: string,

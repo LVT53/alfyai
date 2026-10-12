@@ -71,7 +71,9 @@ test.describe("the first-open tours", () => {
 			"Step 1 of 3",
 		);
 
-		// In the panel's content area, above the artifact, not floating over it.
+		// In the panel's content area, above the artifact, covering none of it (FX-2, RC-A #4:
+		// laid over the top of the item it hid the toolbar and the first lines). That it does
+		// not move the page either is `artifact-tours-arrival.spec.ts`'s.
 		const shell = panelShell(page);
 		const editor = shell.locator(".document-editor-host .ProseMirror");
 		await expect(editor).toBeVisible();
@@ -83,7 +85,7 @@ test.describe("the first-open tours", () => {
 		expect(shellBox).not.toBeNull();
 		expect(cardBox?.y ?? 0).toBeGreaterThanOrEqual(shellBox?.y ?? 0);
 		expect((cardBox?.y ?? 0) + (cardBox?.height ?? 0)).toBeLessThanOrEqual(
-			(editorBox?.y ?? 0) + 1,
+			editorBox?.y ?? 0,
 		);
 
 		// All of it shows, buttons included: nothing scrolls inside the card.
@@ -151,8 +153,9 @@ test.describe("the first-open tours", () => {
 		expect(requests.posts()).toHaveLength(0);
 		expect(await tourRows(user.id)).toEqual([]);
 
-		// Not seen, so met again, from the start: the reader did not finish it.
-		await openItem(page, ITEM_TITLES.document);
+		// Not seen, so met again, from the start: the reader did not finish it. (The count
+		// button brings back the item the panel was closed on: FB-3, F26.)
+		await page.getByTestId("artifact-count-button").click();
 		const again = tourCard(page);
 		await expect(again).toBeVisible({ timeout: 20_000 });
 		await expect(again.getByTestId("artifact-tour-step")).toHaveText(
@@ -431,11 +434,12 @@ test.describe("the first-open tours", () => {
 		const user = await createTourUser();
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, "document");
-		await reopenChat(page, chatId);
 		const warnings: string[] = [];
 		page.on("console", (message) => {
 			if (message.type() === "warning") warnings.push(message.text());
 		});
+		// Failing from the start of the page: the panel asks as soon as the chat has the
+		// item (and says nothing if that fails), then asks again as the item opens.
 		await page.route("**/api/artifact-tours/**", (route) =>
 			route.fulfill({
 				status: 500,
@@ -443,6 +447,7 @@ test.describe("the first-open tours", () => {
 				body: JSON.stringify({ error: "boom" }),
 			}),
 		);
+		await reopenChat(page, chatId);
 
 		const answered = waitForTourAnswer(page, "document");
 		await openItem(page, ITEM_TITLES.document);

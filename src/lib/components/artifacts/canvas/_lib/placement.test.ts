@@ -1,168 +1,444 @@
 import { describe, expect, it } from "vitest";
 import type { Rect } from "./board";
-import { placeBesideBlocks, placeInsertedBlock } from "./placement";
+import {
+	type InsertRequest,
+	insertPanePlan,
+	type PlacedBlock,
+	placeInsertedBlock,
+} from "./placement";
 
-const size = { width: 200, height: 100 };
+// Where a block the reader inserts goes (F8, the friction audit): on free ground the
+// reader can see and use, never over the block put there a moment before, and when
+// the pane has no such ground the block goes on the nearest there is and the camera
+// is asked to bring it into view. Everything here is in board units.
 
-describe("placing an inserted block", () => {
-	it("centres it on what the reader is looking at", () => {
-		expect(
-			placeInsertedBlock({ center: { x: 500, y: 300 }, size, taken: [] }),
-		).toEqual({ x: 400, y: 250 });
-	});
+const NOTE = { width: 200, height: 110 };
+const FRAME = { width: 360, height: 260 };
+const CHART = { width: 360, height: 228 };
+const CHECKLIST = { width: 340, height: 98 };
 
-	it("rounds to whole board units", () => {
-		expect(
-			placeInsertedBlock({ center: { x: 500.4, y: 300.7 }, size, taken: [] }),
-		).toEqual({ x: 400, y: 251 });
-	});
+/** The audit's pane: 945 x 778 at 100%, from the board's origin. */
+const PANE: Rect = { x: 0, y: 0, width: 945, height: 778 };
+/** What the pane keeps clear: room above for a block's own toolbar, the board's toolbar along the bottom. */
+const INSET = { top: 64, right: 24, bottom: 112, left: 24 };
 
-	it("staggers it off a block already at that spot, however many there are", () => {
-		const first = placeInsertedBlock({
-			center: { x: 500, y: 300 },
-			size,
-			taken: [],
-		});
-		const second = placeInsertedBlock({
-			center: { x: 500, y: 300 },
-			size,
-			taken: [first],
-		});
-		const third = placeInsertedBlock({
-			center: { x: 500, y: 300 },
-			size,
-			taken: [first, second],
-		});
-		expect(second).toEqual({ x: first.x + 28, y: first.y + 28 });
-		expect(third).toEqual({ x: first.x + 56, y: first.y + 56 });
-	});
+const overlaps = (a: Rect, b: Rect): boolean =>
+	a.x < b.x + b.width &&
+	b.x < a.x + a.width &&
+	a.y < b.y + b.height &&
+	b.y < a.y + a.height;
 
-	it("leaves a block alone that only sits near, not on, the spot", () => {
-		expect(
-			placeInsertedBlock({
-				center: { x: 500, y: 300 },
-				size,
-				taken: [{ x: 300, y: 250 }],
-			}),
-		).toEqual({ x: 400, y: 250 });
-	});
+const inside = (rect: Rect, region: Rect): boolean =>
+	rect.x >= region.x &&
+	rect.y >= region.y &&
+	rect.x + rect.width <= region.x + region.width &&
+	rect.y + rect.height <= region.y + region.height;
 
-	it("gives up staggering rather than looping when the board is full of blocks all the way down", () => {
-		const taken = Array.from({ length: 200 }, (_, index) => ({
-			x: 400 + index * 28,
-			y: 250 + index * 28,
-		}));
-		const spot = placeInsertedBlock({
-			center: { x: 500, y: 300 },
-			size,
-			taken,
-		});
-		expect(Number.isFinite(spot.x) && Number.isFinite(spot.y)).toBe(true);
-	});
-});
+const VIEW: Rect = {
+	x: PANE.x + INSET.left,
+	y: PANE.y + INSET.top,
+	width: PANE.width - INSET.left - INSET.right,
+	height: PANE.height - INSET.top - INSET.bottom,
+};
 
-// The blocks made from the chat are big (an App is 400 x 340), so the note's
-// 28-unit stagger would pile them on one another: an App laid over an App takes
-// the clicks of the one under it. They are placed on free ground instead, as near
-// the centre of the view as there is any.
-describe("placing a block made from the chat", () => {
-	const app = { width: 400, height: 340 };
-	const centre = { x: 800, y: 500 };
-	const spot = (occupied: Rect[], visible?: Rect) =>
-		placeBesideBlocks({ center: centre, size: app, occupied, visible });
-	const rectAt = (at: { x: number; y: number }, size = app): Rect => ({
-		...at,
+function request(overrides: Partial<InsertRequest> = {}): InsertRequest {
+	return {
+		size: NOTE,
+		blocks: [],
+		pane: PANE,
+		inset: INSET,
+		...overrides,
+	};
+}
+
+/** The rectangle the block takes once it is placed, in absolute board units. */
+function rectOf(
+	placed: PlacedBlock,
+	size: { width: number; height: number },
+	blocks: InsertRequest["blocks"] = [],
+): Rect {
+	const parent = blocks.find((block) => block.id === placed.parentId);
+	return {
+		x: placed.position.x + (parent?.rect.x ?? 0),
+		y: placed.position.y + (parent?.rect.y ?? 0),
 		...size,
-	});
-	const overlaps = (a: Rect, b: Rect) =>
-		a.x < b.x + b.width &&
-		b.x < a.x + a.width &&
-		a.y < b.y + b.height &&
-		b.y < a.y + a.height;
+	};
+}
 
-	it("centres it on the view when nothing is there", () => {
-		expect(spot([])).toEqual({ x: 600, y: 330 });
-	});
-
-	it("leaves a block that only sits near the centre alone", () => {
-		// Its edge stops short of where the new block would start.
-		expect(spot([{ x: 100, y: 330, width: 400, height: 340 }])).toEqual({
-			x: 600,
-			y: 330,
+describe("placing a block the reader inserted", () => {
+	it("centres it in what the pane leaves clear when nothing is in the way", () => {
+		const placed = placeInsertedBlock(request());
+		expect(placed.position).toEqual({
+			x: Math.round(VIEW.x + VIEW.width / 2 - NOTE.width / 2),
+			y: Math.round(VIEW.y + VIEW.height / 2 - NOTE.height / 2),
 		});
+		expect(placed.pan).toBeUndefined();
+		expect(placed.parentId).toBeUndefined();
 	});
 
-	it("moves off a block that is in the way, without touching it", () => {
-		const taken = rectAt({ x: 600, y: 330 });
-		const at = spot([taken]);
-		expect(overlaps(rectAt(at), taken)).toBe(false);
-		// Whole numbers, so the saved board carries no float noise.
-		expect(Number.isInteger(at.x) && Number.isInteger(at.y)).toBe(true);
+	it("puts it where the camera is, not at the board's origin: the pane is wherever the reader has gone", () => {
+		const pane: Rect = { x: 4_000, y: -2_000, width: 945, height: 778 };
+		const placed = placeInsertedBlock(request({ pane }));
+		expect(placed.position.x).toBeGreaterThan(4_000);
+		expect(placed.position.y).toBeGreaterThan(-2_000);
+		expect(placed.position.x).toBeLessThan(4_000 + 945);
 	});
 
-	it("leaves a gap between blocks, not an edge laid against an edge", () => {
-		const taken = rectAt({ x: 600, y: 330 });
-		const placed = rectAt(spot([taken]));
+	it("gives whole numbers, so a saved board carries no pointer noise", () => {
+		const placed = placeInsertedBlock(
+			request({ pane: { x: 0.4, y: 0.7, width: 945.3, height: 778.9 } }),
+		);
+		expect(Number.isInteger(placed.position.x)).toBe(true);
+		expect(Number.isInteger(placed.position.y)).toBe(true);
+	});
+
+	it("keeps a gap between it and a block already there, not an edge laid against an edge", () => {
+		const centred = placeInsertedBlock(request()).position;
+		const taken: Rect = { x: centred.x, y: centred.y, ...NOTE };
+		const placed = placeInsertedBlock(
+			request({ blocks: [{ id: "a", rect: taken }] }),
+		);
+		const rect = rectOf(placed, NOTE);
 		const gapX = Math.max(
-			taken.x - (placed.x + placed.width),
-			placed.x - (taken.x + taken.width),
+			taken.x - (rect.x + rect.width),
+			rect.x - (taken.x + taken.width),
 		);
 		const gapY = Math.max(
-			taken.y - (placed.y + placed.height),
-			placed.y - (taken.y + taken.height),
+			taken.y - (rect.y + rect.height),
+			rect.y - (taken.y + taken.height),
 		);
 		expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(24);
 	});
 
-	it("keeps clear of several blocks, one after another, however many it puts down", () => {
-		const occupied: Rect[] = [];
-		for (let index = 0; index < 6; index += 1) {
-			const at = spot(occupied);
-			const rect = rectAt(at);
-			expect(occupied.some((other) => overlaps(rect, other))).toBe(false);
-			occupied.push(rect);
+	it("goes to the nearest free ground: a step of about one block, never a ring further out", () => {
+		const centred = placeInsertedBlock(request()).position;
+		const taken: Rect = { x: centred.x, y: centred.y, ...NOTE };
+		const placed = placeInsertedBlock(
+			request({ blocks: [{ id: "a", rect: taken }] }),
+		);
+		const step = Math.hypot(
+			placed.position.x - centred.x,
+			placed.position.y - centred.y,
+		);
+		expect(step).toBeLessThan(Math.hypot(2 * NOTE.width, 2 * NOTE.height));
+	});
+
+	it("stays wholly inside what the pane leaves clear, whatever else it has to avoid", () => {
+		const blocks: InsertRequest["blocks"] = [
+			{ id: "a", rect: { x: 300, y: 250, ...NOTE } },
+			{ id: "b", rect: { x: 520, y: 250, ...NOTE } },
+			{ id: "c", rect: { x: 300, y: 400, ...NOTE } },
+		];
+		const placed = placeInsertedBlock(request({ blocks }));
+		expect(inside(rectOf(placed, NOTE), VIEW)).toBe(true);
+		for (const block of blocks) {
+			expect(overlaps(rectOf(placed, NOTE), block.rect)).toBe(false);
 		}
+		expect(placed.pan).toBeUndefined();
 	});
 
-	it("goes to the nearest free ground: the first block moved aside is the smallest step away", () => {
-		const taken = rectAt({ x: 600, y: 330 });
-		const at = spot([taken]);
-		const step = Math.hypot(at.x - 600, at.y - 330);
-		// Beside or below, one block plus a gap away; never a ring further out.
-		expect(step).toBeLessThan(Math.hypot(2 * app.width, 2 * app.height));
+	it("keeps clear of what floats over the pane: the board's toolbar, the overview in the corner", () => {
+		const toolbar: Rect = { x: 250, y: 690, width: 450, height: 56 };
+		const overview: Rect = { x: 780, y: 540, width: 132, height: 200 };
+		const placed = placeInsertedBlock(
+			request({
+				size: CHART,
+				chrome: [toolbar, overview],
+				// Ground the blocks leave free: the lower half only.
+				blocks: [
+					{ id: "top", rect: { x: 24, y: 64, width: 897, height: 330 } },
+				],
+			}),
+		);
+		const rect = rectOf(placed, CHART);
+		expect(overlaps(rect, toolbar)).toBe(false);
+		expect(overlaps(rect, overview)).toBe(false);
+	});
+});
+
+describe("a block put where a frame stands", () => {
+	const frame = (
+		rect: Rect,
+		id = "frame",
+	): InsertRequest["blocks"][number] => ({
+		id,
+		rect,
+		frame: true,
 	});
 
-	it("prefers ground the reader can see over ground off the edge of the view", () => {
-		const taken = rectAt({ x: 600, y: 330 });
-		// The view ends just right of the taken block: only the left, above and below stay in view.
-		const visible: Rect = { x: 0, y: 0, width: 1_040, height: 900 };
-		const at = spot([taken], visible);
-		expect(at.x).toBeLessThan(600 + app.width);
-		const seen =
-			at.x < visible.x + visible.width && at.x + app.width > visible.x;
-		expect(seen).toBe(true);
+	it("never lies across a frame it does not fit in: a chart is not put over the frame made a moment before", () => {
+		// The audit: a frame 360 x 260 at the middle, and the next block, a chart 360 x 228,
+		// put at the very same place, across it. Neither side of such a frame leaves a chart
+		// room in a pane this size, so the chart goes beside it and the camera shows it.
+		const centred = placeInsertedBlock(request({ size: FRAME, asFrame: true }));
+		const made = frame({ ...centred.position, ...FRAME });
+		const placed = placeInsertedBlock(request({ size: CHART, blocks: [made] }));
+		const rect = rectOf(placed, CHART);
+		expect(overlaps(rect, made.rect)).toBe(false);
+		expect(placed.parentId).toBeUndefined();
+		const shown: Rect = {
+			...VIEW,
+			x: VIEW.x + (placed.pan?.x ?? 0),
+			y: VIEW.y + (placed.pan?.y ?? 0),
+		};
+		expect(inside(rect, shown)).toBe(true);
+		// And only as far as it has to: the nearest edge, not across the board.
+		expect(Math.hypot(placed.pan?.x ?? 0, placed.pan?.y ?? 0)).toBeLessThan(
+			200,
+		);
 	});
 
-	it("prefers ground that is wholly in view over ground the reader would only half see", () => {
-		const taken = rectAt({ x: 600, y: 330 });
-		// The pane starts a little above the row above the taken block and ends far
-		// below it: the ground above is only partly in view, the ground below is all
-		// of it, though it is not the nearer.
-		const visible: Rect = { x: 0, y: 100, width: 1_600, height: 1_200 };
-		const at = spot([taken], visible);
-		expect(at.y).toBeGreaterThanOrEqual(visible.y);
-		expect(at.y + app.height).toBeLessThanOrEqual(visible.y + visible.height);
+	it("is wholly in view, next to the frame, when the pane has the room", () => {
+		const roomy: Rect = { x: 0, y: 0, width: 1_800, height: 1_000 };
+		const centred = placeInsertedBlock(
+			request({ pane: roomy, size: FRAME, asFrame: true }),
+		);
+		const made = frame({ ...centred.position, ...FRAME });
+		const placed = placeInsertedBlock(
+			request({ pane: roomy, size: CHART, blocks: [made] }),
+		);
+		expect(overlaps(rectOf(placed, CHART), made.rect)).toBe(false);
+		expect(placed.pan).toBeUndefined();
 	});
 
-	it("falls back to the centre, staggered like a note, when there is no free ground to be found", () => {
-		// One block the size of the whole board: nowhere is clear.
+	it("goes inside a frame it fits in, as that frame's own, in the frame's space", () => {
+		const big = frame({ x: 100, y: 100, width: 700, height: 520 });
+		const placed = placeInsertedBlock(request({ blocks: [big] }));
+		expect(placed.parentId).toBe("frame");
+		const rect = rectOf(placed, NOTE, [big]);
+		// Wholly inside the frame, clear of its title band and its edges.
+		expect(rect.x).toBeGreaterThanOrEqual(big.rect.x + 20);
+		expect(rect.y).toBeGreaterThanOrEqual(big.rect.y + 56);
+		expect(rect.x + rect.width).toBeLessThanOrEqual(
+			big.rect.x + big.rect.width - 20,
+		);
+		expect(rect.y + rect.height).toBeLessThanOrEqual(
+			big.rect.y + big.rect.height - 20,
+		);
+	});
+
+	it("goes in the innermost frame that holds it", () => {
+		const outer = frame({ x: 50, y: 70, width: 800, height: 600 }, "outer");
+		const inner = frame({ x: 200, y: 200, width: 500, height: 380 }, "inner");
+		const placed = placeInsertedBlock(request({ blocks: [outer, inner] }));
+		expect(placed.parentId).toBe("inner");
+	});
+
+	it("keeps off the blocks that are in a frame as it does off any block", () => {
+		const big = frame({ x: 100, y: 100, width: 700, height: 520 });
+		const inside1: InsertRequest["blocks"][number] = {
+			id: "n1",
+			rect: { x: 300, y: 250, ...NOTE },
+		};
+		const placed = placeInsertedBlock(request({ blocks: [big, inside1] }));
+		expect(overlaps(rectOf(placed, NOTE, [big]), inside1.rect)).toBe(false);
+	});
+
+	it("keeps a new frame off everything, frames too, and in no frame", () => {
+		const centred = placeInsertedBlock(request({ size: FRAME, asFrame: true }));
+		const made = frame({ ...centred.position, ...FRAME });
+		const placed = placeInsertedBlock(
+			request({ size: FRAME, asFrame: true, blocks: [made] }),
+		);
+		expect(overlaps(rectOf(placed, FRAME), made.rect)).toBe(false);
+		expect(placed.parentId).toBeUndefined();
+	});
+});
+
+describe("when the pane has no free ground", () => {
+	/** A pane full of blocks: a grid that leaves a gap between its cells narrower than a block. */
+	function crowded(): InsertRequest["blocks"] {
+		const blocks: InsertRequest["blocks"][number][] = [];
+		for (let column = 0; column < 4; column += 1) {
+			for (let row = 0; row < 5; row += 1) {
+				blocks.push({
+					id: `b${column}${row}`,
+					rect: {
+						x: 24 + column * 232,
+						y: 64 + row * 120,
+						width: 200,
+						height: 100,
+					},
+				});
+			}
+		}
+		return blocks;
+	}
+
+	it("puts the block on the nearest free ground beyond it and asks the camera to bring it in, by the least distance", () => {
+		const blocks = crowded();
+		const placed = placeInsertedBlock(request({ blocks }));
+		const rect = rectOf(placed, NOTE);
+		for (const block of blocks) expect(overlaps(rect, block.rect)).toBe(false);
+		expect(inside(rect, VIEW)).toBe(false);
+		expect(placed.pan).toBeDefined();
+		// After the camera has moved, the block is wholly in what the pane leaves clear.
+		const moved: Rect = {
+			...VIEW,
+			x: VIEW.x + (placed.pan?.x ?? 0),
+			y: VIEW.y + (placed.pan?.y ?? 0),
+		};
+		expect(inside(rect, moved)).toBe(true);
+		// The least distance: the block ends against the edge it was beyond, with nothing to spare.
+		const slack = Math.min(
+			rect.x - moved.x,
+			rect.y - moved.y,
+			moved.x + moved.width - (rect.x + rect.width),
+			moved.y + moved.height - (rect.y + rect.height),
+		);
+		expect(slack).toBe(0);
+	});
+
+	it("goes past the content when the ground around the pane is all taken, never over a block (a board of charts, one after another, in a camera that follows the last)", () => {
+		// A grid of blocks wider and taller than anything the search around the pane reaches:
+		// the only free ground is beyond it.
+		const blocks: InsertRequest["blocks"][number][] = [];
+		for (let column = 0; column < 14; column += 1) {
+			for (let row = 0; row < 14; row += 1) {
+				blocks.push({
+					id: `g${column}-${row}`,
+					rect: {
+						x: -1_200 + column * 232,
+						y: -800 + row * 120,
+						width: 200,
+						height: 100,
+					},
+				});
+			}
+		}
+		const placed = placeInsertedBlock(request({ blocks }));
+		const rect = rectOf(placed, NOTE);
+		for (const block of blocks) expect(overlaps(rect, block.rect)).toBe(false);
+		// And the camera is asked to show it.
+		expect(placed.pan).toBeDefined();
+		const moved: Rect = {
+			...VIEW,
+			x: VIEW.x + (placed.pan?.x ?? 0),
+			y: VIEW.y + (placed.pan?.y ?? 0),
+		};
+		expect(inside(rect, moved)).toBe(true);
+	});
+
+	it("starts a block wider than the pane at the pane's own edge, the part it can show", () => {
+		const wide = { width: 1_400, height: 200 };
+		const placed = placeInsertedBlock(request({ size: wide }));
+		expect(placed.position.x).toBe(VIEW.x);
+		expect(placed.pan).toBeUndefined();
+	});
+
+	it("falls back to the centre, staggered like a note, when there is no free ground to be found at all", () => {
 		const everything: Rect = {
 			x: -50_000,
 			y: -50_000,
 			width: 100_000,
 			height: 100_000,
 		};
-		const at = spot([everything]);
-		expect(at).toEqual({ x: 600, y: 330 });
+		const first = placeInsertedBlock(
+			request({ blocks: [{ id: "all", rect: everything }] }),
+		);
+		const centred = {
+			x: Math.round(VIEW.x + VIEW.width / 2 - NOTE.width / 2),
+			y: Math.round(VIEW.y + VIEW.height / 2 - NOTE.height / 2),
+		};
+		expect(first.position).toEqual(centred);
+		expect(first.pan).toBeUndefined();
+	});
+
+	it("is finite for every size and every board, and never loops", () => {
+		const many = Array.from({ length: 400 }, (_, index) => ({
+			id: `m${index}`,
+			rect: {
+				x: (index % 20) * 60,
+				y: Math.floor(index / 20) * 60,
+				width: 50,
+				height: 50,
+			},
+		}));
+		const placed = placeInsertedBlock(request({ size: CHART, blocks: many }));
+		expect(Number.isFinite(placed.position.x)).toBe(true);
+		expect(Number.isFinite(placed.position.y)).toBe(true);
+	});
+});
+
+describe("five blocks in a row on a populated board (the audit's own)", () => {
+	it("puts each one clear of the others, wholly in what the pane leaves clear, with nothing stacked", () => {
+		// What the audit's board held: two frames with notes, a chart and a diagram.
+		const blocks: InsertRequest["blocks"][number][] = [
+			{
+				id: "sat",
+				frame: true,
+				rect: { x: 24, y: 150, width: 440, height: 250 },
+			},
+			{
+				id: "sun",
+				frame: true,
+				rect: { x: 500, y: 150, width: 420, height: 250 },
+			},
+			{ id: "n1", rect: { x: 60, y: 220, width: 190, height: 70 } },
+			{ id: "n2", rect: { x: 300, y: 220, width: 190, height: 70 } },
+			{ id: "n3", rect: { x: 540, y: 220, width: 190, height: 70 } },
+			{ id: "chart", rect: { x: 40, y: 480, width: 360, height: 220 } },
+			{ id: "flow", rect: { x: 440, y: 480, width: 480, height: 83 } },
+		];
+		const placed: Rect[] = [];
+		let view = VIEW;
+		const sizes: { width: number; height: number; frame?: boolean }[] = [
+			NOTE,
+			{ width: 240, height: 60 },
+			{ ...FRAME, frame: true },
+			CHART,
+			CHECKLIST,
+		];
+		for (const size of sizes) {
+			const result = placeInsertedBlock(
+				request({
+					size,
+					asFrame: size.frame === true,
+					blocks,
+					pane: {
+						x: view.x - INSET.left,
+						y: view.y - INSET.top,
+						width: PANE.width,
+						height: PANE.height,
+					},
+				}),
+			);
+			const rect = rectOf(result, size, blocks);
+			if (result.pan) {
+				view = { ...view, x: view.x + result.pan.x, y: view.y + result.pan.y };
+			}
+			expect(inside(rect, view), `${size.width}x${size.height}`).toBe(true);
+			// Not over anything already there, a frame it is not in included.
+			for (const block of blocks) {
+				const parentOf = result.parentId === block.id;
+				if (block.frame && parentOf) continue;
+				expect(
+					overlaps(rect, block.rect),
+					`${size.width}x${size.height} on ${block.id}`,
+				).toBe(false);
+			}
+			blocks.push({
+				id: `new${placed.length}`,
+				rect,
+				frame: size.frame === true,
+			});
+			placed.push(rect);
+		}
+		expect(placed).toHaveLength(5);
+	});
+});
+
+describe("the camera a plan asks for", () => {
+	it("moves nothing when the block is already in view", () => {
+		const plan = insertPanePlan({ x: 10, y: 20, zoom: 0.5 }, undefined);
+		expect(plan).toBeNull();
+	});
+
+	it("moves the camera against the pan, at the camera's own zoom: looking further right moves the board left", () => {
+		const plan = insertPanePlan(
+			{ x: 10, y: 20, zoom: 0.5 },
+			{ x: 100, y: -40 },
+		);
+		expect(plan).toEqual({ x: 10 - 100 * 0.5, y: 20 + 40 * 0.5, zoom: 0.5 });
 	});
 });

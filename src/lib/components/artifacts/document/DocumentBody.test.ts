@@ -62,6 +62,22 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	exportArtifactDocument: mockExportArtifactDocument,
 	fetchDocumentReviewState: mockFetchDocumentReviewState,
 	acknowledgeDocumentReviewBlocks: mockAcknowledgeDocumentReviewBlocks,
+	// The sheet imports the App's call as well (it serves both kinds).
+	downloadAppAsHtml: vi.fn(),
+}));
+
+// The download sheet follows the started job to a file and starts the browser's
+// download (`downloadProducedFile`, tested in `client/downloads.test.ts`); here
+// it answers what it would once the file was ready.
+vi.mock("$lib/client/downloads", () => ({
+	downloadProducedFile: async (
+		start: () => Promise<{ ok: boolean; reason?: string }>,
+	) => {
+		const started = await start();
+		return started.ok
+			? { ok: true, filename: "trip-plan.pdf" }
+			: { ok: false, reason: started.reason };
+	},
 }));
 
 // Wave 2.5 Step 8: jsdom's default `window.innerWidth` (1024) already means
@@ -974,19 +990,31 @@ describe("DocumentBody", () => {
 			};
 		}
 
-		it("shows the margin's empty state with no comments", async () => {
+		// F24 (ruling 77): with nothing to list there is no column, only a quiet strip
+		// that opens it on purpose; the first comment brings it by itself.
+		it("takes no column while there are no comments, and shows the empty state once it is opened on purpose", async () => {
+			const registerPanelActions = vi.fn();
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
+				registerPanelActions,
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
+			expect(document.querySelector(".document-content-rail")).toBeNull();
 			expect(
-				screen.getByText("No comments yet. Select text to start one."),
+				screen.getByTestId("document-comments-affordance"),
 			).toBeInTheDocument();
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+
+			await fireEvent.click(screen.getByTestId("document-comments-affordance"));
+			expect(
+				await screen.findByText("No comments yet. Select text to start one."),
+			).toBeInTheDocument();
+			expect(screen.queryByTestId("document-comments-affordance")).toBeNull();
 		});
 
 		it("renders a fetched comment in the margin", async () => {
@@ -1247,6 +1275,75 @@ describe("DocumentBody", () => {
 					"Alfy replied.",
 				),
 			);
+		});
+
+		// F14 (ruling 77): the comment is posted and the composer closes at once; Alfy's
+		// reply is awaited behind it, with the thread saying so, and asked only once.
+		it("closes the composer when the comment is posted, not when Alfy has answered, and asks Alfy once", async () => {
+			// The new thread is brought into view in the column (jsdom has no layout).
+			Element.prototype.scrollIntoView = vi.fn();
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			let answer: (value: unknown) => void = () => {};
+			mockAskAlfyInComment.mockReturnValue(
+				new Promise((resolve) => {
+					answer = resolve;
+				}),
+			);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [commentFixture({ body: "@Alfy change it." })]),
+			);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+
+			// Alfy has not answered: the composer is gone, and the thread says it is replying.
+			await waitFor(() =>
+				expect(screen.queryByTestId("selection-bubble")).toBeNull(),
+			);
+			expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1);
+			expect(await screen.findByText("Alfy is replying…")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Reply" })).toBeDisabled();
+
+			answer({
+				outcome: "replied",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			await waitFor(() =>
+				expect(screen.queryByText("Alfy is replying…")).toBeNull(),
+			);
+			expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1);
 		});
 
 		it("reloads the editor's content once Alfy's reply bumps the version", async () => {
@@ -1936,12 +2033,17 @@ describe("DocumentBody", () => {
 		});
 
 		it("the header's toggle hides and shows the inline column, remembers it, and reports its state", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			const registerPanelActions = vi.fn();
 			const onCommentsShownChange = vi.fn();
 			mount({ registerPanelActions, onCommentsShownChange });
 			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
 			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
-			expect(document.querySelector(".document-content-rail")).not.toBeNull();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
 			await waitFor(() =>
 				expect(onCommentsShownChange).toHaveBeenLastCalledWith(true),
 			);
@@ -2037,6 +2139,9 @@ describe("DocumentBody", () => {
 
 		it("gives the column the full 300px on a roomy panel", async () => {
 			stubPanelWidth(1000);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			mount();
 			await waitFor(() =>
 				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
@@ -2049,6 +2154,9 @@ describe("DocumentBody", () => {
 
 		it("narrows the column, not the text, on a laptop-sized panel", async () => {
 			stubPanelWidth(750);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			mount();
 			await waitFor(() =>
 				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
@@ -2363,9 +2471,22 @@ describe("DocumentBody", () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({ body: TWO_BLOCK_BODY }),
 			);
+			// The "Alfy is at work" strip's slot slides away when it goes (F6); jsdom has
+			// no Web Animations to finish that, so these tests run as a reader who asked
+			// for less motion, for whom it is gone at once.
+			vi.stubGlobal("matchMedia", (query: string) => ({
+				matches: query.includes("prefers-reduced-motion"),
+				media: query,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}));
 		});
 
-		it("shows 'Alfy is writing: {label}' while a matching edit_artifact call is running", async () => {
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("shows 'Alfy is working on the document: {label}' while a matching edit_artifact call is running", async () => {
 			const { rerender } = render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
@@ -2386,8 +2507,183 @@ describe("DocumentBody", () => {
 			});
 
 			expect(
-				screen.getByText("Alfy is writing: Add packing list"),
+				screen.getByText("Alfy is working on the document: Add packing list"),
 			).toBeInTheDocument();
+		});
+
+		// F6 (ruling 77): the strip is the panel's "Alfy is at work" for the whole of the
+		// wait, which starts at Alfy's first look at the Document, not at the edit call.
+		it("says Alfy is going through the document from a read of it, and is gone when the turn hands nothing on", async () => {
+			const props = {
+				artifactId: "artifact-1",
+				kind: "document" as const,
+				title: "Trip plan",
+				body: null,
+			};
+			const { rerender } = render(DocumentBody, {
+				...props,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				...props,
+				alfyActivity: runningActivity({
+					key: "read:call-r",
+					toolName: "read_artifact",
+					label: null,
+				}),
+			});
+			expect(screen.getByTestId("alfy-writing")).toHaveTextContent(
+				"Alfy is going through the document…",
+			);
+
+			// The turn is over (stopped, failed or finished): the page hands nothing on.
+			await rerender({ ...props, alfyActivity: null });
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
+		});
+
+		// A turn that only read the Document and then ended hands the page back to the
+		// last settled call of an EARLIER turn, which this body has long since landed:
+		// the strip a read left behind must still go.
+		it("does not leave the strip standing when a read-only turn ends and the page falls back to an earlier, already landed call", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-5-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const props = {
+				artifactId: "artifact-1",
+				kind: "document" as const,
+				title: "Trip plan",
+				body: null,
+			};
+			const earlier: DocumentAlfyActivity = {
+				...runningActivity({ key: "call-5" }),
+				status: "applied",
+				patches: [
+					{
+						op: "replaceBlock",
+						blockId: "p1",
+						baseHash: "h1",
+						text: "First, edited.",
+					},
+				],
+				appliedCount: 1,
+			};
+			const { rerender } = render(DocumentBody, {
+				...props,
+				alfyActivity: runningActivity({ key: "call-5" }),
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+					versionNumber: 2,
+				}),
+			);
+			await rerender({ ...props, alfyActivity: earlier });
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
+
+			// The next turn reads the Document: the strip shows.
+			await rerender({
+				...props,
+				alfyActivity: runningActivity({
+					key: "read:call-r",
+					toolName: "read_artifact",
+					label: null,
+				}),
+			});
+			expect(screen.getByTestId("alfy-writing")).toBeInTheDocument();
+
+			// It ends without an edit: the page hands the earlier call back.
+			await rerender({ ...props, alfyActivity: earlier });
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
+			expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1);
+		});
+
+		it("keeps the strip until the change has landed in the panel, not only until the call settles", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-4-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const props = {
+				artifactId: "artifact-1",
+				kind: "document" as const,
+				title: "Trip plan",
+				body: null,
+			};
+			const { rerender } = render(DocumentBody, {
+				...props,
+				alfyActivity: runningActivity({ key: "call-4" }),
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			// The read of the new version is held: the call has settled, nothing is in the
+			// panel yet.
+			const landing: {
+				resolve: ((detail: ReturnType<typeof ARTIFACT_DETAIL>) => void) | null;
+			} = { resolve: null };
+			mockFetchArtifact.mockImplementationOnce(
+				() =>
+					new Promise<ReturnType<typeof ARTIFACT_DETAIL>>((resolve) => {
+						landing.resolve = resolve;
+					}),
+			);
+			await rerender({
+				...props,
+				alfyActivity: {
+					...runningActivity({ key: "call-4" }),
+					status: "applied",
+					patches: [
+						{
+							op: "replaceBlock",
+							blockId: "p1",
+							baseHash: "h1",
+							text: "First, edited.",
+						},
+					],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() => expect(landing.resolve).not.toBeNull());
+			expect(screen.getByTestId("alfy-writing")).toBeInTheDocument();
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+
+			landing.resolve?.(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+					versionNumber: 2,
+				}),
+			);
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
 		});
 
 		it("never shows the shimmer for a call targeting a DIFFERENT artifact", async () => {
@@ -2410,7 +2706,9 @@ describe("DocumentBody", () => {
 				alfyActivity: runningActivity({ artifactId: "some-other-artifact" }),
 			});
 
-			expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument();
+			expect(
+				screen.queryByText(/Alfy is working on the document/),
+			).not.toBeInTheDocument();
 		});
 
 		it("clears the shimmer and applies change marks once a matching call lands applied", async () => {
@@ -2433,7 +2731,7 @@ describe("DocumentBody", () => {
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 			expect(
-				screen.getByText("Alfy is writing: Add packing list"),
+				screen.getByText("Alfy is working on the document: Add packing list"),
 			).toBeInTheDocument();
 
 			mockFetchArtifact.mockResolvedValue(
@@ -2464,7 +2762,9 @@ describe("DocumentBody", () => {
 			});
 
 			await waitFor(() =>
-				expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument(),
+				expect(
+					screen.queryByText(/Alfy is working on the document/),
+				).not.toBeInTheDocument(),
 			);
 			await waitFor(() =>
 				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
@@ -3510,7 +3810,7 @@ describe("DocumentBody", () => {
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 			expect(
-				screen.getByText("Alfy is writing: Add packing list"),
+				screen.getByText("Alfy is working on the document: Add packing list"),
 			).toBeInTheDocument();
 
 			await rerender({
@@ -3522,7 +3822,9 @@ describe("DocumentBody", () => {
 			});
 
 			await waitFor(() =>
-				expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument(),
+				expect(
+					screen.queryByText(/Alfy is working on the document/),
+				).not.toBeInTheDocument(),
 			);
 			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
 			expect(mockSetChangePills).not.toHaveBeenCalledWith(

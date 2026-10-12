@@ -802,7 +802,9 @@ test.describe("everyday redesign screens", () => {
 			page,
 		}) => {
 			await stubMemory(page);
-			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await page.goto("/knowledge?tab=memory", {
+				waitUntil: "domcontentloaded",
+			});
 			await waitForHydration(page);
 			await setTheme(page, theme);
 

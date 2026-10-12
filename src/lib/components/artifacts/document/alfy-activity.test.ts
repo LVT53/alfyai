@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
 import {
 	buildDocumentAlfyActivity,
+	buildDocumentReadActivity,
 	type RawAlfyToolCallSegment,
 	reconstructDocumentPatch,
 } from "./alfy-activity";
@@ -228,6 +229,57 @@ describe("buildDocumentAlfyActivity", () => {
 		};
 		expect(() => buildDocumentAlfyActivity(segment)).not.toThrow();
 		expect(buildDocumentAlfyActivity(segment)?.refusedBlocks).toEqual([]);
+	});
+});
+
+// F6 (ruling 77): a read of a Document in a running turn is the earliest sign Alfy is on it.
+describe("buildDocumentReadActivity", () => {
+	const read = (
+		overrides: Partial<RawAlfyToolCallSegment> = {},
+	): RawAlfyToolCallSegment => ({
+		name: "read_artifact",
+		callId: "call-read",
+		status: "done",
+		input: { artifactId: "doc-1", detail: "blocks" },
+		metadata: { ok: true, artifactId: "doc-1", artifactKind: "document" },
+		...overrides,
+	});
+
+	it("is a running activity on the Document that was read, keyed by the call", () => {
+		expect(buildDocumentReadActivity(read())).toEqual({
+			key: "read:call-read",
+			artifactId: "doc-1",
+			toolName: "read_artifact",
+			status: "running",
+			label: null,
+			patches: [],
+			refusedBlocks: [],
+			appliedCount: 0,
+		});
+	});
+
+	it("takes the id from the call's input when the metadata lacks it", () => {
+		const segment = read({ metadata: { ok: true, artifactKind: "document" } });
+		expect(buildDocumentReadActivity(segment)?.artifactId).toBe("doc-1");
+	});
+
+	it("is nothing for another tool, a read still running (its kind is not known), a failed read, or another kind", () => {
+		expect(
+			buildDocumentReadActivity(read({ name: "edit_artifact" })),
+		).toBeNull();
+		expect(buildDocumentReadActivity(read({ status: "running" }))).toBeNull();
+		expect(
+			buildDocumentReadActivity(
+				read({ metadata: { ok: false, artifactKind: "document" } }),
+			),
+		).toBeNull();
+		for (const kind of ["canvas", "app", "file"]) {
+			expect(
+				buildDocumentReadActivity(
+					read({ metadata: { ok: true, artifactId: "x", artifactKind: kind } }),
+				),
+			).toBeNull();
+		}
 	});
 });
 

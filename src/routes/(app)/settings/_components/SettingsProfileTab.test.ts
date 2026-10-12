@@ -495,7 +495,7 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 
 		const link = screen.getByLabelText("Open Knowledge Base");
 		expect(link.tagName).toBe("A");
-		expect(link).toHaveAttribute("href", "/knowledge");
+		expect(link).toHaveAttribute("href", "/knowledge?tab=memory");
 	});
 
 	it("opens the re-homed Skills manager and comes back", async () => {

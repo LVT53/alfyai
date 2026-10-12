@@ -16,6 +16,7 @@ vi.mock("$lib/server/services/artifacts", async (importOriginal) => {
 });
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
+	ARTIFACT_EXPORT_JOB_ORIGIN: "artifact_export",
 }));
 
 import { getArtifact } from "$lib/server/services/artifacts";
@@ -112,6 +113,80 @@ describe("POST /api/artifacts/[id]/export", () => {
 		expect(mockSubmitIntake).not.toHaveBeenCalled();
 	});
 
+	// FB-8 (FB-1's concern 1): the same item, as it is now, in the same format is the
+	// same job, so a repeated press is handed the file the last one made.
+	it("asks for the same job for the same document and format, and never for a failed one", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture());
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-1", status: "queued" },
+			reused: false,
+		});
+
+		await POST(makeEvent({}));
+		await POST(makeEvent({}));
+		await POST(makeEvent({ body: { format: "docx" } }));
+
+		const calls = mockSubmitIntake.mock.calls.map(([call]) => call);
+		const keys = calls.map((call) => call.body.idempotencyKey as string);
+		expect(keys[0]).toMatch(
+			/^artifact-export:artifact-1:pdf:v\d+:[0-9a-f]{32}$/,
+		);
+		expect(keys[1]).toBe(keys[0]);
+		// Another format is another file.
+		expect(keys[2]).toMatch(
+			/^artifact-export:artifact-1:docx:v\d+:[0-9a-f]{32}$/,
+		);
+		for (const call of calls) expect(call.reuse).toBe("usable");
+	});
+
+	// RV-B M2: the press that is handed a job an earlier press made must know it, as the
+	// App's route already says, so it does not stop a job that is not its own.
+	it("says whether the job is one an earlier press made", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture());
+		for (const reused of [false, true]) {
+			mockSubmitIntake.mockResolvedValue({
+				ok: true,
+				status: 202,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+
+			const response = await POST(makeEvent({}));
+
+			await expect(response.json()).resolves.toEqual({
+				ok: true,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+		}
+	});
+
+	it("asks for a new job once the document's words or its title have changed, and only then", async () => {
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-1", status: "queued" },
+			reused: false,
+		});
+		const keyFor = async (overrides: Record<string, unknown>) => {
+			mockSubmitIntake.mockClear();
+			mockGetArtifact.mockResolvedValue(artifactFixture(overrides));
+			await POST(makeEvent({}));
+			return mockSubmitIntake.mock.calls[0][0].body.idempotencyKey as string;
+		};
+
+		const base = await keyFor({});
+		// A coalesced save keeps the version number and changes the words (RC-V M-1).
+		expect(
+			await keyFor({ body: `${DOCUMENT_BODY} Window seat.`, versionNumber: 1 }),
+		).not.toBe(base);
+		expect(await keyFor({ title: "Vienna, 10–13 October" })).not.toBe(base);
+		// What does not change the file does not change the key.
+		expect(await keyFor({ versionNumber: 2, updatedAt: 99 })).toBe(base);
+	});
+
 	it("submits a document_source intake for pdf, with requestedOutputs (never outputs)", async () => {
 		mockGetArtifact.mockResolvedValue(artifactFixture());
 		mockSubmitIntake.mockResolvedValue({
@@ -129,11 +204,14 @@ describe("POST /api/artifacts/[id]/export", () => {
 		await expect(response.json()).resolves.toEqual({
 			ok: true,
 			job: { id: "job-1" },
+			reused: false,
 		});
 
 		expect(mockSubmitIntake).toHaveBeenCalledTimes(1);
 		const call = mockSubmitIntake.mock.calls[0][0];
 		expect(call.userId).toBe("owner-user");
+		// The reader's own export, never a reply's card (friction audit F1).
+		expect(call.origin).toBe("artifact_export");
 		expect(call.body.conversationId).toBe("conv-1");
 		expect(call.body.sourceMode).toBe("document_source");
 		expect(call.body.documentSource.template).toBe("alfyai_standard_report");

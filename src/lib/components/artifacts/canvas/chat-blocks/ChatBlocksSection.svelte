@@ -16,6 +16,7 @@ import { onMount, tick } from "svelte";
 import type { SearchCanvasWebResult } from "$lib/client/api/artifacts";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import { LABEL_MAX_CHARS } from "$lib/shared/artifacts/canvas-limits";
@@ -137,7 +138,7 @@ async function submitWebSearch(event: SubmitEvent): Promise<void> {
 }
 
 let groups = $derived(
-	phase.name === "ready" ? chatBlockGroups(phase.listing, $t) : [],
+	phase.name === "ready" ? chatBlockGroups(phase.listing, $t, $uiLanguage) : [],
 );
 </script>
 
@@ -227,7 +228,7 @@ let groups = $derived(
 							{/if}
 						</span>
 						<span class="chat-blocks__name" title={row.name}>{row.name}</span>
-						{#if row.meta}<span class="chat-blocks__meta">{row.meta}</span>{/if}
+						{#if row.meta}<span class="chat-blocks__meta" title={row.meta}>{row.meta}</span>{/if}
 					</button>
 				{/each}
 			</div>
@@ -355,7 +356,8 @@ let groups = $derived(
 
 	.chat-blocks__meta {
 		flex: none;
-		max-width: 45%;
+		/* Room for a type, a size and the time that tells two alike rows apart. */
+		max-width: 60%;
 		overflow: hidden;
 		color: var(--text-muted);
 		font-size: var(--text-xs);

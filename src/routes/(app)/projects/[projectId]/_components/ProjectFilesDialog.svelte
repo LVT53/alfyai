@@ -446,8 +446,14 @@ $effect(() => {
 							{/if}
 						</span>
 						<span class="files-name-cell">
-							<span class="files-name" data-testid="project-file-name"
-								>{file.name}</span
+							<!-- The name reads like a link, so it is one: it opens the item as the
+							     icon at the right of the row does (friction audit F27). -->
+							<button
+								type="button"
+								class="files-name"
+								data-testid="project-file-name"
+								title={openLabel}
+								onclick={() => void preview(file)}>{file.name}</button
 							>
 							{#if file.artifactKind && file.sourceConversationTitle}
 								<!-- Which chat made it: what tells "the Document I asked for in
@@ -669,11 +675,34 @@ $effect(() => {
 		gap: 2px;
 	}
 
+	/* A button that reads as the name it is: the row's own text, an underline when
+	   it is pointed at or focused, and the focus ring a link has. */
 	.files-name {
+		display: block;
+		min-width: 0;
+		max-width: 100%;
+		padding: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		text-align: left;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
+		cursor: pointer;
+	}
+
+	.files-name:hover {
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.files-name:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 2px;
+		border-radius: 3px;
+		text-decoration: underline;
 	}
 
 	/* The line under a made item's name: which chat made it. */

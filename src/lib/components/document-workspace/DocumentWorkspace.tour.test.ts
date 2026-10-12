@@ -34,6 +34,7 @@ import {
 
 const tourClient = vi.hoisted(() => ({
 	getArtifactTour: vi.fn(),
+	peekArtifactTour: vi.fn(),
 	refreshArtifactTour: vi.fn(),
 	markArtifactTourSeen: vi.fn(),
 	keepArtifactToursFor: vi.fn(),
@@ -115,6 +116,8 @@ beforeEach(() => {
 	tourClient.refreshArtifactTour.mockImplementation(
 		async (kind: ShippedArtifactTourType) => answer(kind),
 	);
+	// Nothing is settled unless a test says so: the card then grows in once the answer comes.
+	tourClient.peekArtifactTour.mockReturnValue(undefined);
 	tourClient.markArtifactTourSeen.mockResolvedValue({
 		ok: true,
 		alreadyRecorded: false,
@@ -185,7 +188,7 @@ function animationsOn(element: Element) {
 }
 
 describe("DocumentWorkspace: the first-open tour", () => {
-	it("asks for the open item's kind and shows the card above the item", async () => {
+	it("asks for the open item's kind and shows the card over the item", async () => {
 		openDocument();
 
 		const tour = await card();
@@ -195,14 +198,18 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		expect(screen.getByTestId("artifact-tour-title")).toHaveTextContent(
 			"document title 1",
 		);
-		// Above the artifact, inside the panel's content area.
+		// A row of the panel's own stage, ahead of the artifact in the page's flow and in
+		// the tab order: the artifact starts under it, so the card covers nothing.
 		const body = await screen.findByTestId("fake-replay-body");
 		expect(
 			tour.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
-		expect(
-			tour.closest('[data-testid="page-scroll-container"]'),
-		).not.toBeNull();
+		const slot = tour.closest(".workspace-tour-slot");
+		expect(slot).not.toBeNull();
+		expect(slot?.parentElement).toHaveClass("workspace-stage");
+		expect(slot?.nextElementSibling).toBe(
+			screen.getByTestId("page-scroll-container"),
+		);
 		// Showing it wrote nothing.
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
 	});
@@ -260,7 +267,8 @@ describe("DocumentWorkspace: the first-open tour", () => {
 	it("hands the summary on while the card shows, and after it has gone", async () => {
 		openDocument();
 		const tour = await card();
-		const body = screen.getByTestId("fake-replay-body");
+		// The card can be ready before the body's own lazy chunk is.
+		const body = await screen.findByTestId("fake-replay-body");
 		await waitFor(() =>
 			expect(body).toHaveAttribute("data-tour-summary", "Empty."),
 		);
@@ -360,25 +368,73 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		);
 	});
 
-	it("does not ask while the panel is closed or showing its list", async () => {
-		const { rerender } = openDocument({ open: false });
+	it("asks for the kinds of the chat's items as soon as the chat has them, before any item is open", async () => {
+		const file = makeWorkspaceDocument({
+			id: "file-1",
+			artifactId: "file-1",
+			kind: "file",
+			title: "Summary.pdf",
+		});
+		// The panel is closed, and the list is not even showing.
+		openDocument({
+			open: false,
+			documents: [],
+			activeDocumentId: null,
+			list: { open: false, items: [documentItem(), appItem(), file] },
+		});
+		await waitFor(() =>
+			expect(
+				tourClient.getArtifactTour.mock.calls.map(([kind]) => kind).sort(),
+			).toEqual(["app", "document"]),
+		);
+		await settle();
+		// Once each; a File never asks; nothing was written or shown.
+		expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(2);
+		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("artifact-tour")).toBeNull();
+	});
+
+	it("asks for nothing for a chat that has no items yet, and nothing at all in an incognito chat", async () => {
+		const { rerender } = openDocument({
+			open: false,
+			documents: [],
+			activeDocumentId: null,
+			list: { open: false, items: [] },
+		});
 		await settle();
 		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
 
-		await rerender({
-			open: true,
+		// The first item arrives (a turn made it): now the kind is asked for.
+		await rerender({ list: { open: false, items: [documentItem()] } });
+		await waitFor(() =>
+			expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(1),
+		);
+		cleanup();
+		vi.clearAllMocks();
+		tourClient.getArtifactTour.mockImplementation(
+			async (kind: ShippedArtifactTourType) => answer(kind),
+		);
+		tourClient.peekArtifactTour.mockReturnValue(undefined);
+
+		openDocument({
+			incognito: true,
 			list: { open: true, items: [documentItem()] },
 		});
 		await settle();
 		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
+	});
 
-		// Closing the list onto the item is the open.
-		await rerender({
-			open: true,
+	it("brings the card in when the reader owes the tour, so the open has it in hand", async () => {
+		const { loadedTourCard } = await import(
+			"$lib/components/artifacts/tour/tour-card"
+		);
+		openDocument({
+			open: false,
+			documents: [],
+			activeDocumentId: null,
 			list: { open: false, items: [documentItem()] },
 		});
-		await card();
-		expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(loadedTourCard()).not.toBeNull());
 	});
 
 	it("writes 'completed' with the key and the last slide when the reader finishes, once", async () => {
@@ -622,7 +678,9 @@ describe("DocumentWorkspace: replaying a tour", () => {
 			onListOpenChange,
 		});
 		await settle();
-		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
+		// The chat's two kinds were asked for when the chat had them; no item is open.
+		expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(2);
+		expect(screen.queryByTestId("artifact-tour")).toBeNull();
 
 		await fireEvent.click(
 			await within(await screen.findByTestId("artifact-panel-list")).findByRole(
@@ -726,6 +784,67 @@ describe("DocumentWorkspace: how the card arrives and leaves", () => {
 		await waitFor(() =>
 			expect(screen.queryByTestId("artifact-tour")).toBeNull(),
 		);
+	});
+
+	it("is in the page with the item, and does not grow in, when the answer and the card were in hand", async () => {
+		const { loadTourCard } = await import(
+			"$lib/components/artifacts/tour/tour-card"
+		);
+		await loadTourCard();
+		tourClient.peekArtifactTour.mockImplementation(
+			(kind: ShippedArtifactTourType) => answer(kind),
+		);
+		openDocument();
+
+		// Not a frame later and not after an await: the card is in the page the
+		// moment the item is, so nothing the reader sees ever moves for it.
+		const tour = screen.getByTestId("artifact-tour");
+		expect(tour).toHaveAttribute("data-kind", "document");
+		const wrapper = tour.closest(".tour-reveal") as HTMLElement;
+		expect(animationsOn(wrapper)).toEqual([]);
+		// The answer was known, so nothing was asked for.
+		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
+
+		// Leaving it is still a height that shrinks away.
+		await fireEvent.click(screen.getByTestId("artifact-tour-skip"));
+		expect(animationsOn(wrapper).length).toBeGreaterThan(0);
+		finishAnimations();
+		await waitFor(() =>
+			expect(screen.queryByTestId("artifact-tour")).toBeNull(),
+		);
+	});
+
+	it("still hands the summary on, and shows no card, when the answer in hand says the tour was seen", async () => {
+		const { loadTourCard } = await import(
+			"$lib/components/artifacts/tour/tour-card"
+		);
+		await loadTourCard();
+		tourClient.peekArtifactTour.mockImplementation(
+			(kind: ShippedArtifactTourType) => answer(kind, { seen: true }),
+		);
+		openDocument();
+
+		const body = await screen.findByTestId("fake-replay-body");
+		expect(screen.queryByTestId("artifact-tour")).toBeNull();
+		expect(body).toHaveAttribute("data-tour-summary", "Empty.");
+		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
+	});
+
+	it("goes at once with its item: a card that is left by the item, not by the reader, does not shrink away", async () => {
+		const { rerender } = openDocument();
+		await card();
+		finishAnimations();
+
+		// The reader opens another item. Its answer is not in hand, so no new card yet.
+		await rerender({
+			documents: [documentItem(), appItem()],
+			activeDocumentId: "app-1",
+		});
+		expect(
+			screen
+				.queryAllByTestId("artifact-tour")
+				.filter((found) => found.getAttribute("data-kind") === "document"),
+		).toEqual([]);
 	});
 
 	it("brings the tour back as a new card at its first slide when the copy changed while the old one was leaving", async () => {

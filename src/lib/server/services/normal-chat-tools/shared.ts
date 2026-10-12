@@ -237,9 +237,11 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	// round trip rather than a database write (decisions.md ruling 40). This
 	// is the ONE row for create_artifact; no type slice writes a second one.
 	create_artifact: 120_000,
-	// A validation pass (the same validator the type's ops route uses) and one
-	// version row.
-	edit_artifact: 20_000,
+	// Sized like create_artifact's, for the same reason: the name covers the App,
+	// whose rebuild is a model call plus the fact-verification pass inside the call
+	// (F2, ruling 77), where a Document patch or a board diff is a validation pass
+	// and one version row. One row per tool, as ruling 40 says.
+	edit_artifact: 120_000,
 	// The same as read_generated_file: a read, not a computation.
 	read_artifact: 10_000,
 };

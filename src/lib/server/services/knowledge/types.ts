@@ -117,6 +117,15 @@ export interface KnowledgeDocumentItem {
 	originConversationId?: string | null;
 	originAssistantMessageId?: string | null;
 	sourceChatFileId?: string | null;
+	/**
+	 * The name and type of the chat file a generated row downloads (what
+	 * `sourceChatFileId` names). A source-first document's own row is the source it
+	 * was rendered from (`application/vnd.alfyai.generated-document+json`), which no
+	 * preview can draw; the file it hands out is what opening it must show. Absent
+	 * when the row names no file the user still has.
+	 */
+	generatedFileName?: string | null;
+	generatedFileMimeType?: string | null;
 	tokenEstimate?: number;
 	pageCount?: number;
 	/** What `pageCount` counts. See `ArtifactSummary.pageCountKind`. */
@@ -296,6 +305,12 @@ export interface DocumentWorkspaceItem {
 	 * chat can really make again. Optional: unset means no source is known.
 	 */
 	canRegenerate?: boolean;
+	/**
+	 * A produced file's size in bytes, carried through so the panel list's row can
+	 * say it ("PDF · 363.1 KB"): with the extension it is what tells two files of
+	 * one name apart (FB-5, F9). Unset for anything that is not a produced file.
+	 */
+	sizeBytes?: number | null;
 	downloadUrl?: string | null;
 	/**
 	 * The artifact family kind (ADR-0066). Optional and defaults to `"file"`:

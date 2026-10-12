@@ -23,6 +23,7 @@ import { t } from "$lib/i18n";
 import {
 	alfyChangeAriaKeyShortcuts,
 	alfyChangeShortcutLabel,
+	chordsAreDrawn,
 } from "./keyboard-shortcuts";
 
 let {
@@ -98,7 +99,7 @@ $effect(() => {
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.undoA11y')}
 			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('undo')}
-			title={$t('artifacts.document.change.undoWithShortcut', { shortcut: alfyChangeShortcutLabel('undo') })}
+			title={chordsAreDrawn() ? $t('artifacts.document.change.undoWithShortcut', { shortcut: alfyChangeShortcutLabel('undo') }) : undefined}
 			onclick={onUndo}
 		>
 			<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
@@ -116,7 +117,7 @@ $effect(() => {
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.redoA11y')}
 			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('redo')}
-			title={$t('artifacts.document.change.redoWithShortcut', { shortcut: alfyChangeShortcutLabel('redo') })}
+			title={chordsAreDrawn() ? $t('artifacts.document.change.redoWithShortcut', { shortcut: alfyChangeShortcutLabel('redo') }) : undefined}
 			onclick={onRedo}
 		>
 			{$t('artifacts.document.change.redo')}
@@ -167,6 +168,11 @@ $effect(() => {
 		color: var(--text-muted);
 		border-color: var(--border-default);
 		box-shadow: none;
+		/* F18: as wide as the pending pill it replaces (`change-pill-decoration.ts`
+		   sets the variable), so a pill that wrapped onto a line of its own stays
+		   there and the text below does not come up the moment Keep is pressed. */
+		min-width: var(--change-pill-hold-width, 0px);
+		justify-content: center;
 	}
 
 	.alfy-change-bar-who {
@@ -236,6 +242,15 @@ $effect(() => {
 	   an `::after` inset (redesign §4.4: "on phones they get a 44px hit
 	   area"), matching the mockup's own `[data-device="mobile"]` rule. */
 	@media (max-width: 480px) {
+		/* ...and the room for that area (FX-2): the pill sits 3px under the line it is
+		   about and a status chip on that line has a 44px area of its own (9px past its
+		   pill), so the two areas shared pixels, and the same between a pill and the next
+		   line's chip. 12px of the button's reach + 9px of the chip's need 21px between
+		   them; the pill takes the room itself (an inline box's margins count in its line). */
+		.alfy-change-bar {
+			margin-block: 18px 9px;
+		}
+
 		.alfy-change-bar-action {
 			position: relative;
 		}

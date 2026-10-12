@@ -628,6 +628,10 @@ test.describe("History mode: what changed, restore and names", () => {
 
 		// Tab from the rail reaches the preview toolbar (past the rail's own "Got it" while
 		// its hint shows); Name opens a field, Enter saves.
+		// With a keyboard, the hint names the key.
+		await expect(region.getByTestId("history-help")).toContainText(
+			/(⌘Z|Ctrl\+Z) undoes your last steps/,
+		);
 		await page.keyboard.press("Tab");
 		await expect(
 			region.getByTestId("history-help").getByRole("button"),
@@ -786,6 +790,33 @@ test.describe("History mode: what changed, restore and names", () => {
 
 test.describe("History mode on a phone", () => {
 	test.use({ hasTouch: true });
+
+	test("the hint at the foot of the list leaves out the keyboard on a touch screen (the owner, 2026-10-12)", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "History hint");
+		await seedDocument(conversationId, "History hint", THREE_VERSIONS);
+		await openChat(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").tap();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.tap({ timeout: 30_000 });
+		await historyButton(page).tap();
+		const sheet = page.getByRole("dialog", { name: "History" });
+		const help = sheet.getByTestId("history-help");
+		await expect(help).toBeVisible();
+		// What undoing and restoring mean stays; the chord, which a finger cannot press, goes.
+		await expect(help).toContainText("Restore brings back a whole version.");
+		await expect(help).toContainText(
+			"Undo on Alfy's change undoes just that change.",
+		);
+		await expect(help).not.toContainText("undoes your last steps");
+		await expect(help).not.toContainText(/⌘|Ctrl/);
+	});
 
 	test("is a sheet: tap a moment, see its preview, step through the moments, go back, close (T4)", async ({
 		page,
@@ -1411,6 +1442,74 @@ test.describe("History mode: an App", () => {
 				.frameLocator("iframe")
 				.getByTestId("app-heading"),
 		).toHaveText("Trip budget, second version");
+	});
+
+	test("Restore waits for the runnable check, so a question never opens on a version that turns out Code only (RC-V M-2)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway probe",
+		);
+		await seedApp(conversationId, "Trip budget", [
+			{
+				html: SECOND_APP_HTML,
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: RUNAWAY_APP_HTML,
+				summary: regeneratedAppSummary("make it dramatic"),
+			},
+			{
+				html: FIRST_APP_HTML.replace("first version", "third"),
+				summary: regeneratedAppSummary("calm it down"),
+			},
+		]);
+		// The preview asks the version route whether it runs now (a HEAD): hold the
+		// answer back, the way a slow connection does.
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(
+			/\/api\/artifacts\/[^/]+\/versions\/[^/]+\/app/,
+			async (route) => {
+				if (route.request().method() !== "HEAD") return route.continue();
+				await held;
+				await route.continue();
+			},
+		);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await historyButton(page).click();
+		const region = historyRegion(page, "Trip budget");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+
+		// The middle version cannot run now, but nobody knows it yet: Restore is not
+		// offered, and the reader is told it is being checked.
+		await options.nth(1).click();
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"Checking that it can still run…",
+		);
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+
+		// The answer comes: it is Code only, and the note says why. Restore never showed.
+		release();
+		await expect(region.getByTestId("history-app-code-only")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"It can't run any more, so it can't be restored.",
+		);
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+
+		// A version that runs gets its Restore once the check has answered.
+		await options.nth(2).click();
+		await expect(region.getByTestId("history-restore")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveCount(0);
+		await region.getByTestId("history-restore").click();
+		await expect(region.getByTestId("history-restore-question")).toContainText(
+			"What you have now stays in History.",
+		);
 	});
 
 	test("the server refuses to restore a version the rules now forbid, and the live App keeps the version it had (ruling 58, RV-V I-2)", async ({

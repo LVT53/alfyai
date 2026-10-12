@@ -46,6 +46,7 @@ import {
 import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { prefersReducedMotion } from "$lib/utils/motion";
+import { isPhoneViewport } from "$lib/utils/viewport.svelte";
 import type {
 	AlfyRawBoardOp,
 	DocumentAlfyActivity,
@@ -217,10 +218,13 @@ export class CanvasReviewController {
 		if (!change) return "";
 		const changed = change.touched.length;
 		if (changed > 0 && change.removedCount > 0) {
-			return say("artifacts.canvas.review.summaryBoth", {
-				changed,
-				removed: change.removedCount,
-			});
+			// A phone's bar leaves the sentence about 126 px: the long form took three lines.
+			return say(
+				isPhoneViewport()
+					? "artifacts.canvas.review.summaryBothShort"
+					: "artifacts.canvas.review.summaryBoth",
+				{ changed, removed: change.removedCount },
+			);
 		}
 		return changed > 0
 			? say("artifacts.canvas.review.summary", { count: changed })

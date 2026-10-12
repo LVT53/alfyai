@@ -852,3 +852,38 @@ questions. The owner may overrule any of them at the next check.
 - **Build:** the split of `versioning.md` §12 (server; History shell + Document; Canvas + App previews), Sonnet, then
   one Opus review of the batch (the new routes' ownership and incognito scope, the old-App route's sandbox, the restore
   guard) before `dev`.
+
+## 77. The friction audit is built whole, with these product calls (owner + orchestrator, 2026-10-12)
+
+*Owner, after the M4 milestone and the friction audit (`phase-5/fa-report.md`, 30 findings): "Do all honestly, they all
+seem important."* Every finding F1–F30 is fixed, with the leftovers of the versioning round (RC-V's M-1/M-2, FG's app
+defects, LV's App brief). Where a fix needed a product call, the orchestrator made it here; the owner may overrule any
+at the next check.
+- **F2** A chat request to change an App changes that App in place: `edit_artifact` on an App runs the same rebuild the
+  panel's "Módosítás…" runs (instruction → generate → verify → the contract audit; rulings 52, 58), as one new Alfy
+  version. The tool text and the composer stop telling the model that Apps are not edited here.
+- **F10** "A document" without a file format or a download asked for is the in-app Document (`create_artifact`);
+  `produce_file` only when a format (PDF, DOCX, XLSX, …) or a downloadable file is asked for, and one job per requested
+  output in a turn (a repeated identical request is deduplicated).
+- **F4 (with F15, F18, F19, F25, F26)** One motion language: a layout change and what it makes room for move together.
+  The chat column and the panel change width on the same curve and duration (`MOTION_DURATION`), nothing paints into a
+  space before the space is made, and reduced motion makes both instant. Deleting the open item shows the list without
+  closing the panel; X in the expanded view closes the panel; the tour card's room is reserved before the body paints.
+- **F3** While the panel is docked and the chat column would fall below a floor, the sidebar folds to its rail and comes
+  back when the panel closes; the panel gives up width before the chat goes under the floor.
+- **F7** Opening the panel or an item adds one history entry; Back closes the top layer (item, then list, then panel)
+  before it leaves the chat, on phones and desktops.
+- **F12** A board change is counted and worded as the reader sees it: one note added is one change, a rewrite is a
+  change (not "removed and added"), a frame that grew to make room is part of the addition. The camera stays still
+  unless the change is off-screen.
+- **F17** Follow-up chips show at rest on every device, quietly, not only on hover.
+- **F23** The Knowledge page opens on Dokumentumok.
+- **F28** The "Svelte Flow" attribution stays (xyflow asks users to keep it) but becomes unobtrusive; resize handles
+  keep their small dot and get a finger-sized hit area.
+- **Amended by the owner (2026-10-12):** the panel's Hungarian crumb "Ez a beszélgetés" reads **"Vissza"** (desktop and
+  phone), "so it's short and doesn't crowd the interface. These are the small UI changes that make it look mature." The
+  principle stands for every label: short, natural Hungarian that does not crowd a row; the final re-check looks for
+  other crowded labels (for example the phone review bar's clipped-looking "Megtart" / "Visszavon").
+- **Two more from the owner (2026-10-12):** on a phone, the open sidebar's three-dots button and the project folder's
+  counter collide; and keyboard shortcuts drawn on a touch screen are "plain wasted space": on a coarse pointer no
+  surface draws a keyboard chord (the shortcuts and `aria-keyshortcuts` stay). → FB-9 (and FB-8 for History's help line).

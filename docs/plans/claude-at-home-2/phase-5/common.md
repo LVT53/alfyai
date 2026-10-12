@@ -32,6 +32,8 @@ the changes below. Where they disagree, this file wins.
 - **Reports and screenshots** go to the orchestrator's scratchpad,
   `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/f7d2fd3b-f0d9-4b30-80c5-6cbea0e7a6a4/scratchpad/p5/`,
   under the names your brief gives. Never under `docs/plans/**`, never as files Fallow would see.
+- **Stop only processes you started, by their PID** (keep the PIDs your scripts print). Never `pkill`/`killall` by a
+  pattern: two or three agents run servers and browsers on this Mac at once, and a pattern kills theirs (it happened).
 - **Do not dispatch any subagent or reviewer.** Never push, merge or rebase; never touch `main`, `dev`,
   `feat/artifacts` or another agent's worktree.
 

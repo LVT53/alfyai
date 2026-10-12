@@ -198,12 +198,15 @@ function filesLabel(project: HomeProjectCard): string {
 		white-space: nowrap;
 	}
 
+	/* Whole, on as many lines as it needs (F28): "1 csevegés · aktív: 3 órája" used to
+	   end in an ellipsis in a narrow card, with the time it was active behind it and no
+	   way to read it. The name above stays one ellipsised line; this is what the card
+	   knows. */
 	.home-project-stats {
 		font-size: 0.72rem;
+		line-height: 1.35;
 		color: var(--text-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow-wrap: anywhere;
 	}
 
 	.home-project-meta {

@@ -17,6 +17,7 @@ import type {
 	ArtifactRecord,
 	ArtifactVersionSummary,
 } from "$lib/server/services/artifacts/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	buildIndex,
 	parseDocument,
@@ -578,7 +579,7 @@ export async function regenerateApp(
 }
 
 export type DownloadAppResult =
-	| { ok: true; job: unknown; reused: boolean }
+	| { ok: true; job: FileProductionJob; reused: boolean }
 	| { ok: false; reason: string };
 
 /**
@@ -1002,7 +1003,8 @@ export class VersionRestoreRefusedError extends Error {
  * Restores an older version as a NEW version (never coalesced — ruling 47) and
  * returns its version number. `guard` is what the History page showed: a
  * restore over a version that arrived since is refused `version_conflict`
- * (`expectVersion`), and the restore toast's Undo names the restore it reverses
+ * (`expectVersion`), as is one over a save that coalesced into the newest version
+ * (`expectHash`, its body hash), and the restore toast's Undo names the restore it reverses
  * (`undoOf`) so the two fold into one quiet moment. Throws
  * `VersionRestoreRefusedError` for a documented refusal and a plain `Error` for
  * any other failure.
@@ -1016,7 +1018,9 @@ export async function restoreArtifactVersion(
 ): Promise<number> {
 	const hasGuard =
 		guard !== undefined &&
-		(guard.expectVersion !== undefined || guard.undoOf !== undefined);
+		(guard.expectVersion !== undefined ||
+			guard.expectHash !== undefined ||
+			guard.undoOf !== undefined);
 	const response = await requestResponse(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/restore${withConversationQuery(conversationId)}`,
 		hasGuard
@@ -1026,6 +1030,9 @@ export async function restoreArtifactVersion(
 					body: JSON.stringify({
 						...(guard.expectVersion !== undefined
 							? { expectVersion: guard.expectVersion }
+							: {}),
+						...(guard.expectHash !== undefined
+							? { expectHash: guard.expectHash }
 							: {}),
 						...(guard.undoOf !== undefined ? { undoOf: guard.undoOf } : {}),
 					}),
@@ -1208,10 +1215,23 @@ export async function askAlfyInComment(
 	};
 }
 
-export type ExportArtifactDocumentFormat = "pdf" | "docx" | "markdown";
+/** The formats a Document is exported in: the export route's `format`, in the order the Download offers them. */
+export const EXPORT_ARTIFACT_DOCUMENT_FORMATS = [
+	"pdf",
+	"docx",
+	"markdown",
+] as const;
+
+export type ExportArtifactDocumentFormat =
+	(typeof EXPORT_ARTIFACT_DOCUMENT_FORMATS)[number];
 
 export type ExportArtifactDocumentResult =
-	| { ok: true; job: { id: string } }
+	| {
+			ok: true;
+			job: FileProductionJob;
+			/** The job is one an earlier press made (RV-B M2): the press handed it does not own it. */
+			reused?: boolean;
+	  }
 	| {
 			ok: false;
 			reason:
@@ -1223,11 +1243,12 @@ export type ExportArtifactDocumentResult =
 	  };
 
 /**
- * Export through `produce_file` (T12). Mirrors `saveArtifactBody`: a
- * documented refusal (a limit, a missing conversation, a foreign artifact)
- * is a normal return value, never a thrown `ApiError` — `DownloadSheet`
- * decides what each reason means, the same way the editor decides what a
- * save conflict means.
+ * Starts an export through `produce_file` (T12): the job, not yet the file.
+ * `downloadProducedFile` (`client/downloads.ts`) follows it to the end and
+ * starts the browser's download. Mirrors `saveArtifactBody`: a documented
+ * refusal (a limit, a missing conversation, a foreign artifact) is a normal
+ * return value, never a thrown `ApiError` — `DownloadSheet` decides what each
+ * reason means, the same way the editor decides what a save conflict means.
  */
 export async function exportArtifactDocument(
 	artifactId: string,

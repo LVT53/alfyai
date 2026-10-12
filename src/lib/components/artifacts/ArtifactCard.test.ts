@@ -533,6 +533,70 @@ describe("ArtifactCard", () => {
 					}),
 				).toBeInTheDocument();
 			});
+
+			it("names what tells a row from another of its name (F9): the extension, the size, the time", () => {
+				render(ArtifactCard, {
+					view: view({
+						kind: "file",
+						title: "itinerary.docx",
+						rowFacts: "DOCX · 10.4 KB · 14:32",
+						updatedAtLabel: "2 min ago",
+						openTargetId: "artifact-1",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "itinerary.docx, File, DOCX, 10.4 KB, 14:32, 2 min ago",
+					}),
+				).toBeInTheDocument();
+			});
+		});
+
+		it("prints the row's facts after its kind on the second line (F9)", () => {
+			render(ArtifactCard, {
+				view: view({
+					kind: "file",
+					title: "itinerary.docx",
+					rowFacts: "DOCX · 10.4 KB",
+					openTargetId: "artifact-1",
+				}),
+				chrome: "row",
+			});
+			expect(
+				screen.getByTestId("artifact-row").querySelector(".artifact-row-sub"),
+			).toHaveTextContent("File · DOCX · 10.4 KB");
+		});
+
+		it("stands for an item being made: a spinner, the words, busy, and no button to press yet (F29)", () => {
+			render(ArtifactCard, {
+				view: view({
+					kind: "app",
+					title: "Tip calculator",
+					rowFacts: "Regenerating…",
+					working: true,
+					openTargetId: null,
+				}),
+				chrome: "row",
+			});
+			const row = screen.getByTestId("artifact-row");
+			expect(row).toBeDisabled();
+			expect(row).toHaveAttribute("aria-busy", "true");
+			expect(row).toHaveClass("artifact-row-working");
+			expect(row.querySelector(".artifact-row-sub")).toHaveTextContent(
+				"App · Regenerating…",
+			);
+			expect(row).toHaveAccessibleName("Tip calculator, App, Regenerating…");
+		});
+
+		it("prints nothing after the kind when the row has no facts (F9)", () => {
+			render(ArtifactCard, {
+				view: view({ kind: "app", title: "Tip calculator", rowFacts: null }),
+				chrome: "row",
+			});
+			expect(
+				screen.getByTestId("artifact-row").querySelector(".artifact-row-sub"),
+			).toHaveTextContent(/^App$/);
 		});
 
 		it("falls back to the bare kind label when the caller gives no subtitle (App, File, …)", () => {

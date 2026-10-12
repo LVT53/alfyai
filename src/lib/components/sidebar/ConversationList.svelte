@@ -37,6 +37,7 @@ import {
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
 import { t } from "$lib/i18n";
+import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import {
 	ChevronRight,
 	Folder,
@@ -734,7 +735,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 					{#each pinnedConversations as conversation (conversation.id)}
 						<SidebarReorderRow
 							id={conversation.id}
-							label={conversation.title}
+							label={conversationDisplayTitle(conversation.title, $t('chat.untitledConversation'))}
 							active={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
 							onDragStart={handlePinnedConversationReorderStart}
 							onDragEnd={handleSidebarReorderEnd}

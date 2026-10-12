@@ -31,7 +31,10 @@ import type {
 	PatchSet,
 } from "$lib/shared/artifact-document/patch";
 
-export type DocumentAlfyToolName = "create_artifact" | "edit_artifact";
+export type DocumentAlfyToolName =
+	| "create_artifact"
+	| "edit_artifact"
+	| "read_artifact";
 
 /**
  * `"running"` while the call is in flight; once it settles, `"applied"` (ok,
@@ -274,6 +277,42 @@ export function buildDocumentAlfyActivity(
 		...(typeof metadata.versionId === "string" && metadata.versionId !== ""
 			? { versionId: metadata.versionId }
 			: {}),
+	};
+}
+
+/**
+ * F6 (ruling 77): Alfy has read the open Document in a turn that is still running.
+ * The browser hears nothing of an `edit_artifact` call until the model has written
+ * the whole of it (seconds, with a real model), and the call itself answers in a
+ * few milliseconds, so "running" alone left the panel silent for the whole of the
+ * wait. Reading the Document is the first thing every edit turn does, so a read of
+ * THIS kind of item is the earliest honest sign that Alfy is on it. It is only a
+ * "running" activity: it never settles, never lands anything, and the caller stops
+ * handing it on the moment the turn is over (stopped, failed or finished), which is
+ * what keeps the state from sticking. A read of a board or an App (its metadata
+ * names the kind once the read is done) is not this body's.
+ */
+export function buildDocumentReadActivity(
+	segment: RawAlfyToolCallSegment,
+): DocumentAlfyActivity | null {
+	if (segment.name !== "read_artifact" || segment.status !== "done")
+		return null;
+	const metadata = segment.metadata ?? {};
+	if (metadata.ok === false || metadata.artifactKind !== "document")
+		return null;
+	const artifactId =
+		(typeof metadata.artifactId === "string" ? metadata.artifactId : null) ??
+		stringField(segment.input, "artifactId");
+	if (!artifactId) return null;
+	return {
+		key: `read:${segment.callId ?? artifactId}`,
+		artifactId,
+		toolName: "read_artifact",
+		status: "running",
+		label: null,
+		patches: [],
+		refusedBlocks: [],
+		appliedCount: 0,
 	};
 }
 

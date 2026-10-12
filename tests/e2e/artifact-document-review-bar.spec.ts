@@ -215,7 +215,29 @@ test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Impo
 		const pageErrors: string[] = [];
 		page.on("pageerror", (error) => pageErrors.push(error.message));
 
-		await seedPendingChanges(conversationId, paragraphs, 2);
+		const artifactId = await seedPendingChanges(conversationId, paragraphs, 2);
+		// The column beside the text is there once there is a comment in it (F24, ruling
+		// 77: an empty Document takes no column), and the bar must never cover it.
+		const userId = await testUserId();
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId,
+			conversationId,
+		});
+		const commented = read.blocks[3];
+		await createComment({
+			userId,
+			artifactId,
+			anchor: {
+				kind: "text",
+				blockId: commented.blockId,
+				quote: "Filler",
+				prefix: "",
+				suffix: commented.text.slice("Filler".length),
+			},
+			author: "user",
+			body: "A comment for the column",
+		});
 		await openChatAndReload(page, conversationId);
 		const shell = await openDocumentFromPanel(page);
 

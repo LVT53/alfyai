@@ -547,7 +547,7 @@ const knowledgeDict = {
 		"filePreview.pageInfo": "{current}. oldal / {total}",
 		"filePreview.pdfPagesRegion": "PDF-oldalak",
 		"filePreview.resetZoom": "Nagyítás visszaállítása",
-		"filePreview.retry": "Újrapróbálkozás",
+		"filePreview.retry": "Újrapróbálom",
 		"filePreview.title": "Fájlelőnézet",
 		"filePreview.zoomIn": "Nagyítás",
 		"filePreview.zoomOut": "Kicsinyítés",

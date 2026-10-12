@@ -6,6 +6,16 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+	AI_SMOKE_LATE_CARD_FINAL_DELAY_MS,
+	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_INTRO,
+	AI_SMOKE_LATE_CARD_MARKDOWN,
+	AI_SMOKE_LATE_CARD_MARKER,
+	AI_SMOKE_LATE_CARD_PIECE_DELAY_MS,
+	AI_SMOKE_LATE_CARD_TITLE,
+	AI_SMOKE_LATE_CARD_WRITING_MS,
+} from "../../fixtures/ai/late-card-scenario";
+import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
 	AI_SMOKE_CANVAS_EDIT_MARKER,
@@ -13,8 +23,13 @@ import {
 	AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
 	AI_SMOKE_CREATE_ARTIFACT_MARKER,
 	AI_SMOKE_CREATE_ARTIFACT_TITLE,
+	AI_SMOKE_EDIT_APP_FINAL_TEXT,
+	AI_SMOKE_EDIT_APP_INSTRUCTION,
+	AI_SMOKE_EDIT_APP_MARKER,
 	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
@@ -22,6 +37,9 @@ import {
 	AI_SMOKE_READ_PROJECT_FILE_MARKER,
 	AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME,
 	AI_SMOKE_REASONING_TEXT,
+	AI_SMOKE_REBUILT_APP_HTML,
+	AI_SMOKE_REFUSE_SLOWLY_DELAY_MS,
+	AI_SMOKE_REFUSE_SLOWLY_MARKER,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
 	AI_SMOKE_STANDING_INSTRUCTION_MARKER,
@@ -33,8 +51,11 @@ import {
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
 	decodeCanvasEditScenarioPayload,
+	decodeEditAppScenarioArtifactId,
 	decodeEditArtifactScenarioPayload,
+	decodeEditDocumentSlowlyPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
+import { scriptedChatTurnReply } from "./chat-turn-scripts";
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
@@ -45,8 +66,11 @@ const SUGGEST_INSTRUCTION_CALL_INPUT = {
 	scope: "personal",
 };
 const EDIT_ARTIFACT_CALL_ID = "call_fake_edit_artifact_1";
+const SLOW_DOCUMENT_READ_CALL_ID = "call_fake_slow_document_read_1";
+const SLOW_DOCUMENT_EDIT_CALL_ID = "call_fake_slow_document_edit_1";
 const CANVAS_EDIT_CALL_ID = "call_fake_canvas_edit_1";
 const CREATE_ARTIFACT_CALL_ID = "call_fake_create_artifact_1";
+const EDIT_APP_CALL_ID = "call_fake_edit_app_1";
 
 export interface CapturedOpenAICompatibleRequest {
 	id: number;
@@ -675,6 +699,86 @@ function buildEditArtifactFinalStreamResponse(): Response {
 }
 
 /**
+ * F6 (ruling 77): the slow document turn (see the marker's comment in the fixtures).
+ * Three requests of one turn, told apart by what the last message is: none (read the
+ * document), the read's result (wait, then the patch), the patch's result (say so).
+ */
+function toolResultCallId(body: unknown): string | null {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return null;
+	const last = body.messages.at(-1);
+	return isJsonObject(last) &&
+		last.role === "tool" &&
+		typeof last.tool_call_id === "string"
+		? last.tool_call_id
+		: null;
+}
+
+function buildSingleToolCallStreamResponse(
+	callId: string,
+	name: string,
+	args: unknown,
+): Response {
+	const chunkBase = {
+		id: `chatcmpl_fake_${callId}`,
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: callId,
+								type: "function",
+								function: { name, arguments: JSON.stringify(args) },
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildSlowDocumentFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_slow_document_final",
+		object: "chat.completion.chunk",
+		created: 1_700_000_014,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * Slice 3 T6: a real `edit_artifact` call on a board. The scenario belongs to THIS
  * turn's own message, never to anything the request merely carries. The app does
  * not send the conversation as messages: it sends ONE user message, a context
@@ -797,6 +901,128 @@ function buildCanvasEditFinalStreamResponse(): Response {
 }
 
 /**
+ * F2 (ruling 77): a real `edit_artifact` call on an App, and the App generator's
+ * own request, which the handler's rebuild sends to this same fake. The chat turn
+ * is told by the marker in the LAST user message; the generator by the App
+ * contract's system prompt and the scripted instruction in its one user message.
+ */
+function bodyAsksForEditApp(body: unknown): boolean {
+	return currentTurnText(body)?.includes(AI_SMOKE_EDIT_APP_MARKER) === true;
+}
+
+function bodyIsTheAppGenerator(body: unknown): boolean {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return false;
+	const system = body.messages.find(
+		(message) => isJsonObject(message) && message.role === "system",
+	);
+	const systemText =
+		isJsonObject(system) && typeof system.content === "string"
+			? system.content
+			: "";
+	return (
+		systemText.startsWith(
+			"You write small, self-contained interactive web apps",
+		) &&
+		(lastUserMessageText(body) ?? "").includes(AI_SMOKE_EDIT_APP_INSTRUCTION)
+	);
+}
+
+function buildAppGeneratorStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_app_generator_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						content: `\`\`\`html\n${AI_SMOKE_REBUILT_APP_HTML}\n\`\`\``,
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 31, completion_tokens: 40, total_tokens: 71 },
+		},
+	]);
+}
+
+function buildEditAppToolCallStreamResponse(artifactId: string): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_app_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_011,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: EDIT_APP_CALL_ID,
+								type: "function",
+								function: {
+									name: "edit_artifact",
+									arguments: JSON.stringify({
+										artifactId,
+										instruction: AI_SMOKE_EDIT_APP_INSTRUCTION,
+									}),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildEditAppFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_app_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_012,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_EDIT_APP_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
  * call, scripted with a fixed title/body — unlike T8 live's `edit_artifact`,
  * nothing here depends on ids or hashes the test's own setup resolved first.
@@ -873,6 +1099,117 @@ function buildCreateArtifactFinalStreamResponse(): Response {
 			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
 		},
 	]);
+}
+
+/**
+ * F16: the card that arrives late. The first request streams a few sentences, goes
+ * quiet while the model "writes the document", then makes the `create_artifact` call;
+ * the request that carries the tool result streams the closing sentence after a pause.
+ */
+function bodyAsksForLateCard(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_LATE_CARD_MARKER);
+}
+
+function lateCardStreamResponse(
+	phase: "call" | "final",
+	signal: AbortSignal,
+): Response {
+	const encoder = new TextEncoder();
+	const chunkBase = {
+		id: `chatcmpl_fake_late_card_${phase}`,
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const stream = new ReadableStream<Uint8Array>({
+		start: async (controller) => {
+			signal.addEventListener(
+				"abort",
+				() =>
+					controller.error(
+						signal.reason instanceof DOMException
+							? signal.reason
+							: new DOMException("The operation was aborted.", "AbortError"),
+					),
+				{ once: true },
+			);
+			const write = (frame: unknown) =>
+				controller.enqueue(encoder.encode(toEventLine(frame)));
+			const text = (content: string) =>
+				write({
+					...chunkBase,
+					choices: [{ index: 0, delta: { content }, finish_reason: null }],
+				});
+			try {
+				write({
+					...chunkBase,
+					choices: [
+						{ index: 0, delta: { role: "assistant" }, finish_reason: null },
+					],
+				});
+				if (phase === "call") {
+					for (const piece of AI_SMOKE_LATE_CARD_INTRO) {
+						await delay(AI_SMOKE_LATE_CARD_PIECE_DELAY_MS);
+						text(piece);
+					}
+					await delay(AI_SMOKE_LATE_CARD_WRITING_MS);
+					write({
+						...chunkBase,
+						choices: [
+							{
+								index: 0,
+								delta: {
+									tool_calls: [
+										{
+											index: 0,
+											id: CREATE_ARTIFACT_CALL_ID,
+											type: "function",
+											function: {
+												name: "create_artifact",
+												arguments: JSON.stringify({
+													artifactType: "document",
+													title: AI_SMOKE_LATE_CARD_TITLE,
+													body: AI_SMOKE_LATE_CARD_MARKDOWN,
+												}),
+											},
+										},
+									],
+								},
+								finish_reason: null,
+							},
+						],
+					});
+					write({
+						...chunkBase,
+						choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					});
+				} else {
+					await delay(AI_SMOKE_LATE_CARD_FINAL_DELAY_MS);
+					// A new paragraph, as a model starts its answer after a tool.
+					text(`\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`);
+					write({
+						...chunkBase,
+						choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+						usage: {
+							prompt_tokens: 21,
+							completion_tokens: 9,
+							total_tokens: 30,
+						},
+					});
+				}
+				controller.enqueue(encoder.encode(toEventLine("[DONE]")));
+				controller.close();
+			} catch (error) {
+				controller.error(error);
+			}
+		},
+	});
+	return new Response(stream, { status: 200, headers: STREAM_HEADERS });
 }
 
 /**
@@ -1124,7 +1461,30 @@ export function createOpenAICompatibleProviderHarness(
 				);
 			}
 
+			if (
+				currentTurnText(body)?.includes(AI_SMOKE_REFUSE_SLOWLY_MARKER) === true
+			) {
+				// The streaming attempt and the non-streaming fallback alike: refused, but
+				// only after a pause, so the turn is still failing when a reader reloads.
+				await delay(AI_SMOKE_REFUSE_SLOWLY_DELAY_MS);
+				return jsonResponse(
+					{
+						error: {
+							message: "Fake provider refused this request after a pause.",
+							type: "server_error",
+							code: "internal_server_error",
+						},
+					},
+					500,
+				);
+			}
+
 			if (isJsonObject(body) && body.stream === true) {
+				const scripted = scriptedChatTurnReply(body);
+				if (scripted) {
+					if (scripted.delayMs) await delay(scripted.delayMs);
+					return streamResponse(scripted.frames);
+				}
 				if (bodyAsksToReadProjectFile(body)) {
 					return buildReadProjectFileStreamResponse(body);
 				}
@@ -1133,6 +1493,19 @@ export function createOpenAICompatibleProviderHarness(
 						return buildSuggestInstructionFinalStreamResponse();
 					}
 					return buildSuggestInstructionToolCallStreamResponse();
+				}
+				if (bodyIsTheAppGenerator(body)) {
+					return buildAppGeneratorStreamResponse();
+				}
+				if (bodyAsksForEditApp(body)) {
+					if (lastMessageIsToolResult(body)) {
+						return buildEditAppFinalStreamResponse();
+					}
+					const artifactId = decodeEditAppScenarioArtifactId(
+						currentTurnText(body) ?? "",
+					);
+					if (artifactId) return buildEditAppToolCallStreamResponse(artifactId);
+					return buildTextStreamResponse();
 				}
 				if (bodyAsksForCanvasEdit(body)) {
 					if (lastMessageIsToolResult(body)) {
@@ -1144,6 +1517,45 @@ export function createOpenAICompatibleProviderHarness(
 					if (payload) return buildCanvasEditToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
 				}
+				if (
+					currentTurnText(body)?.includes(
+						AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+					) === true
+				) {
+					const payload = decodeEditDocumentSlowlyPayload(
+						currentTurnText(body) ?? "",
+					);
+					const answeredCallId = toolResultCallId(body);
+					if (!payload) return buildTextStreamResponse();
+					if (answeredCallId === SLOW_DOCUMENT_EDIT_CALL_ID) {
+						return buildSlowDocumentFinalStreamResponse();
+					}
+					if (answeredCallId === SLOW_DOCUMENT_READ_CALL_ID) {
+						// The model is writing its patch: the browser hears nothing meanwhile.
+						await delay(payload.delayMs);
+						return buildSingleToolCallStreamResponse(
+							SLOW_DOCUMENT_EDIT_CALL_ID,
+							"edit_artifact",
+							{
+								artifactId: payload.artifactId,
+								summary: "Scripted slow edit",
+								patches: [
+									{
+										op: "replaceBlock",
+										blockId: payload.blockId,
+										baseHash: payload.baseHash,
+										text: payload.text,
+									},
+								],
+							},
+						);
+					}
+					return buildSingleToolCallStreamResponse(
+						SLOW_DOCUMENT_READ_CALL_ID,
+						"read_artifact",
+						{ artifactId: payload.artifactId, detail: "blocks" },
+					);
+				}
 				if (bodyAsksForEditArtifact(body)) {
 					if (hasToolResultMessage(body)) {
 						return buildEditArtifactFinalStreamResponse();
@@ -1151,6 +1563,12 @@ export function createOpenAICompatibleProviderHarness(
 					const payload = findEditArtifactPayload(body);
 					if (payload) return buildEditArtifactToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
+				}
+				if (bodyAsksForLateCard(body)) {
+					return lateCardStreamResponse(
+						hasToolResultMessage(body) ? "final" : "call",
+						request.signal ?? new AbortController().signal,
+					);
 				}
 				if (bodyAsksForCreateArtifact(body)) {
 					if (hasToolResultMessage(body)) {

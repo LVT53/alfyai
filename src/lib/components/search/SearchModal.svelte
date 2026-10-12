@@ -4,8 +4,10 @@ import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
+import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import { getFocusableElements } from "$lib/utils/focus-trap";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
+import { chordsAreDrawn } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { reducedMotionAware } from "$lib/utils/motion";
 import {
 	AppWindow,
@@ -380,6 +382,10 @@ function moveActiveRow(offset: number) {
 function activeOrFirstRow() {
 	return visibleRows.find((row) => row.id === activeRowId) ?? visibleRows[0];
 }
+
+// The legend of keys at the foot is not drawn where the primary pointer is a
+// finger (FB-9): the modal opens on the reader's action, so the pointer is known.
+const showsKeyLegend = chordsAreDrawn();
 
 // ⌘ on a Mac, Ctrl everywhere else — the same detection the sidebar's ⌘K
 // chip uses. Computed once; the platform does not change mid-session.
@@ -817,7 +823,7 @@ onDestroy(() => {
 													<div class="min-w-0 flex-1">
 														<div class="flex min-w-0 items-center gap-2">
 															<div class="truncate text-[13px] font-sans font-medium text-text-primary">
-																{#each highlightParts(row.conversation.title) as part}
+																{#each highlightParts(conversationDisplayTitle(row.conversation.title, $t('chat.untitledConversation'))) as part}
 																	<span class:search-highlight={part.highlight}>{part.text}</span>
 																{/each}
 															</div>
@@ -946,7 +952,10 @@ onDestroy(() => {
 				{/if}
 			</div>
 
-			<div class="search-modal-footer border-t px-4 py-2" aria-label={$t('searchModal.keyboardHelp')}>
+			<!-- The legend of keys is not drawn on a touch screen (FB-9); the result count stays. -->
+			{#if showsKeyLegend || (isQueryMode && hasResults)}
+			<div class="search-modal-footer border-t px-4 py-2" aria-label={showsKeyLegend ? $t('searchModal.keyboardHelp') : undefined}>
+				{#if showsKeyLegend}
 				<span class="search-key-hint">
 					<kbd class="search-kbd">&uarr;</kbd><kbd class="search-kbd">&darr;</kbd>
 					{$t('searchModal.keyMove')}
@@ -965,6 +974,7 @@ onDestroy(() => {
 					<kbd class="search-kbd">esc</kbd>
 					{$t('searchModal.keyClose')}
 				</span>
+				{/if}
 				{#if isQueryMode && hasResults}
 					<span class="search-result-count" data-testid="search-result-count">
 						{resultSummary.results === 1
@@ -976,6 +986,7 @@ onDestroy(() => {
 					</span>
 				{/if}
 			</div>
+			{/if}
 		</div>
 	</div>
 {/if}

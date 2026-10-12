@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/svelte";
+import {
+	cleanup,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedArtifactTour } from "$lib/shared/artifacts/tours";
@@ -493,8 +499,10 @@ describe("ArtifactTour", () => {
 		before.focus();
 
 		const { user } = renderTour();
-		expect(document.activeElement).toBe(
-			screen.getByRole("region", { name: "How this kind works" }),
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("region", { name: "How this kind works" }),
+			),
 		);
 		await user.click(screen.getByRole("button", { name: "Skip" }));
 
@@ -514,7 +522,8 @@ describe("ArtifactTour", () => {
 
 		const { user, unmount } = renderTour();
 		const region = screen.getByRole("region", { name: "How this kind works" });
-		expect(document.activeElement).toBe(region);
+		// A task after it shows, once the panel has landed its own focus (see the card).
+		await waitFor(() => expect(document.activeElement).toBe(region));
 
 		await user.click(screen.getByRole("button", { name: "Skip" }));
 		unmount();
@@ -523,7 +532,7 @@ describe("ArtifactTour", () => {
 		before.remove();
 	});
 
-	it("leaves the reader's focus alone when they are already typing", () => {
+	it("leaves the reader's focus alone when they are already typing", async () => {
 		const field = document.createElement("div");
 		field.setAttribute("contenteditable", "true");
 		field.tabIndex = 0;
@@ -531,6 +540,7 @@ describe("ArtifactTour", () => {
 		field.focus();
 
 		renderTour();
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(document.activeElement).toBe(field);
 
 		field.remove();

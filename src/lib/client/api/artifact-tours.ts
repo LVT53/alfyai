@@ -18,7 +18,10 @@
  * once, two opens in a row share a request still on the wire, and the answer an
  * item needs is in hand when it opens. A failed read is not kept; a reader who
  * finishes or skips a tour is taken as having seen it at once; a refused or
- * failed write, and a replay, go back to the server. A `fetchImpl` a caller
+ * failed write, and a replay, go back to the server. What a settled answer said
+ * can also be read without waiting (`peekArtifactTour`): the panel decides in the
+ * flush that opens an item, before the item has painted, and a promise cannot
+ * answer in that flush. A `fetchImpl` a caller
  * hands in (a test's) is never kept. Logging in and out are client-side
  * navigations, so the page outlives a reader: the panel says whose answers
  * these are (`keepArtifactToursFor`) and a different reader starts clean.
@@ -39,6 +42,8 @@ const jsonHeaders = { "Content-Type": "application/json" };
  * shares it, which is also what lets a caller ask before it knows it needs to.
  */
 const kept = new Map<ShippedArtifactTourType, Promise<ArtifactTourResponse>>();
+/** What each kept promise came to, once it has: the same answers, readable in the flush that wants them (`peekArtifactTour`). Dropped with the promise it came from. */
+const settled = new Map<ShippedArtifactTourType, ArtifactTourResponse>();
 /** Whose answers `kept` holds: undefined until someone is named. */
 let keptFor: string | null | undefined;
 
@@ -48,11 +53,13 @@ export function keepArtifactToursFor(userId: string | null | undefined): void {
 	if (reader === keptFor) return;
 	keptFor = reader;
 	kept.clear();
+	settled.clear();
 }
 
 /** Forgets everything this page load was told and whose it was: the account the tab was signed in to is gone (`clearClientAccountState`), so what its reader had seen is no one's. A host that names no reader cannot tell the next account from this one, which is why this is not left to `keepArtifactToursFor`. */
 export function forgetArtifactTours(): void {
 	kept.clear();
+	settled.clear();
 	keptFor = undefined;
 }
 
@@ -93,12 +100,30 @@ export function getArtifactTour(
 		const asked = ask(artifactType, fetchImpl);
 		answer = asked;
 		kept.set(artifactType, asked);
-		// A failure is not a fact about the kind: the next ask goes to the server.
-		asked.catch(() => {
-			if (kept.get(artifactType) === asked) kept.delete(artifactType);
-		});
+		asked.then(
+			(value) => {
+				if (kept.get(artifactType) === asked) settled.set(artifactType, value);
+			},
+			// A failure is not a fact about the kind: the next ask goes to the server.
+			() => {
+				if (kept.get(artifactType) === asked) kept.delete(artifactType);
+			},
+		);
 	}
 	return answer;
+}
+
+/**
+ * The kind's answer if this page load already has it, without waiting for
+ * anything: `undefined` when it was never asked for, is still on the wire, failed,
+ * or was asked for by a caller that brought its own `fetchImpl`. The panel reads
+ * it in the flush that opens an item, so a tour the reader owes is in the page in
+ * the item's first frame; the asking itself is `getArtifactTour`'s.
+ */
+export function peekArtifactTour(
+	artifactType: ShippedArtifactTourType,
+): ArtifactTourResponse | undefined {
+	return settled.get(artifactType);
 }
 
 /** The kind's tour from the server again, past what this page load kept: a replay shows the copy as it is now, and what comes back is what is kept. */
@@ -107,6 +132,7 @@ export function refreshArtifactTour(
 	fetchImpl: FetchLike = fetch,
 ): Promise<ArtifactTourResponse> {
 	kept.delete(artifactType);
+	settled.delete(artifactType);
 	return getArtifactTour(artifactType, fetchImpl);
 }
 
@@ -134,7 +160,20 @@ export async function markArtifactTourSeen(
 	);
 	if (marked) {
 		kept.set(artifactType, marked);
-		marked.catch(() => {});
+		const known = settled.get(artifactType);
+		if (known && known.tour.contentKey === payload.contentKey) {
+			settled.set(artifactType, {
+				...known,
+				seen: true,
+				lastSlide: payload.lastSlide,
+			});
+		}
+		marked.then(
+			(value) => {
+				if (kept.get(artifactType) === marked) settled.set(artifactType, value);
+			},
+			() => {},
+		);
 	}
 	try {
 		return await requestJson<ArtifactTourSeenResponse>(
@@ -154,7 +193,10 @@ export async function markArtifactTourSeen(
 	} catch (error) {
 		// Refused (the copy moved on) or not written: what was kept is no longer
 		// the server's word, so the next ask is the server's.
-		if (kept.get(artifactType) === marked) kept.delete(artifactType);
+		if (kept.get(artifactType) === marked) {
+			kept.delete(artifactType);
+			settled.delete(artifactType);
+		}
 		throw error;
 	}
 }

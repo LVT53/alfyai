@@ -5,6 +5,7 @@ import {
 	formatConnectionToolAction,
 	getHumanReadableToolNameKey,
 	getToolCallIconType,
+	isArtifactToolCall,
 	isConnectionToolName,
 	isConnectionWriteToolName,
 	isFileProductionToolName,
@@ -168,5 +169,24 @@ describe("tool-calls utils", () => {
 
 		expect(isVisibleThinkingToolCall(visibleToolCall)).toBe(true);
 		expect(isVisibleThinkingToolCall(hiddenToolCall)).toBe(false);
+	});
+	// F16: what a turn MADE is drawn after its text, not in the rail above it.
+	it("names the calls whose row and card are what the turn made", () => {
+		const call = (name: string): ThinkingSegment => ({
+			type: "tool_call",
+			input: {},
+			name,
+			status: "done",
+		});
+
+		expect(isArtifactToolCall(call("create_artifact"))).toBe(true);
+		expect(isArtifactToolCall(call("edit_artifact"))).toBe(true);
+		// Reading something is a step, and so is every other tool.
+		expect(isArtifactToolCall(call("read_artifact"))).toBe(false);
+		expect(isArtifactToolCall(call("research_web"))).toBe(false);
+		expect(isArtifactToolCall(call("produce_file"))).toBe(false);
+		expect(
+			isArtifactToolCall({ type: "text", content: "create_artifact" }),
+		).toBe(false);
 	});
 });

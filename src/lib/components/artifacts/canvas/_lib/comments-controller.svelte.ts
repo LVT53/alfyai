@@ -310,6 +310,9 @@ export function pinsProps(
 		goto: controller.goto,
 		oncenter: api.centerOn,
 		onselect: (commentId: string) => controller.select(commentId),
+		// The column takes room from the pane when it opens (RC-A #7).
+		open: controller.open,
+		size: api.size,
 	};
 }
 

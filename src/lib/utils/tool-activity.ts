@@ -151,6 +151,13 @@ export type ToolActivityItem = {
 	body: ToolActivityBody | null;
 	/** Full text for the row's native tooltip. */
 	title: string;
+	/**
+	 * The item a create_artifact / edit_artifact row is about, and whether the
+	 * call failed. A reply draws one card per item however many calls worked on it,
+	 * and a failed attempt that a later call made good is no row of the reply
+	 * (`foldArtifactDeliverables`): both need to know which item a row is about.
+	 */
+	artifact?: { id: string | null; failed: boolean };
 };
 
 const VERB_KEYS = {
@@ -174,6 +181,8 @@ const VERB_KEYS = {
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
+	editFailed: "toolActivity.editFailed",
+	createFailed: "toolActivity.createFailed",
 	usedSkill: "toolActivity.usedSkill",
 	usingSkill: "toolActivity.usingSkill",
 	recalled: "toolActivity.recalled",
@@ -268,6 +277,7 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.program",
 	"toolActivity.output",
 	"toolActivity.expandActivity",
+	"toolActivity.failureDetails",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
 	// they ride the same resolution test rather than a second one of their own.
 	"routeItinerary.directions",
@@ -489,11 +499,24 @@ function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
 		.slice(0, 8);
 }
 
+/** What a call's argument reads as: a list or an object is its JSON, never "[object Object]". */
+function argumentText(value: unknown): string {
+	if (value === null || value === undefined) return "";
+	if (typeof value === "object") {
+		try {
+			return JSON.stringify(value) ?? "";
+		} catch {
+			return "";
+		}
+	}
+	return String(value).trim();
+}
+
 function genericArguments(
 	input: Record<string, unknown>,
 ): { key: string; value: string }[] {
 	return Object.entries(input ?? {})
-		.map(([key, value]) => [key, String(value ?? "").trim()] as const)
+		.map(([key, value]) => [key, argumentText(value)] as const)
 		.filter(([, value]) => value.length > 0)
 		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
 }
@@ -520,7 +543,9 @@ export function buildToolActivityItem(
 	translate: Translate,
 ): ToolActivityItem {
 	const item = buildSettledToolActivityItem(segment, key, translate);
-	if (segment.status !== "failed") return item;
+	// A failed create/edit names what it tried and keeps the model's words behind
+	// "Details" (its own item below); nothing else is added to it.
+	if (segment.status !== "failed" || item.artifact?.failed) return item;
 	const failedMeta = translate("toolCalls.failed");
 	const reason = toolFailureReason(segment);
 	return {
@@ -764,6 +789,10 @@ function buildSettledToolActivityItem(
 			ARTIFACT_KINDS.includes(rawInputArtifactKind as ArtifactKind)
 				? (rawInputArtifactKind as ArtifactKind)
 				: undefined;
+		const inputArtifactId =
+			typeof segment.input?.artifactId === "string"
+				? segment.input.artifactId
+				: undefined;
 		const object = artifactTitle ?? inputTitle ?? "";
 		const actionVerb = verb(
 			translate,
@@ -775,6 +804,7 @@ function buildSettledToolActivityItem(
 		if (hasCard) {
 			return {
 				...base,
+				artifact: { id: artifactId, failed: false },
 				verb: actionVerb,
 				object,
 				// Redesign §5.1 problem 7 / §9.2: an artifact card reads like a log
@@ -791,13 +821,15 @@ function buildSettledToolActivityItem(
 				body: { kind: "artifact", artifactId, artifactKind, artifactTitle },
 			};
 		}
-		if (status === "running" && object) {
+		if (status === "running") {
 			// Wave 2.5 Step 12/13: create_artifact only (isEdit is false and its
 			// own call arguments carry a kind) gets the skeleton standalone card;
 			// edit_artifact keeps today's row (no card yet, body: null) — the
-			// brief's own "edit_artifact keeps today's row" line.
+			// brief's own "edit_artifact keeps today's row" line. A running call
+			// that names nothing (an edit carries only the item's id) is its verb
+			// alone, never "Tool <id>".
 			const creatingBody: ToolActivityBody | null =
-				!isEdit && inputArtifactKind
+				!isEdit && inputArtifactKind && object
 					? {
 							kind: "artifact-creating",
 							artifactKind: inputArtifactKind,
@@ -854,12 +886,42 @@ function buildSettledToolActivityItem(
 				},
 			};
 		}
-		// A refusal (ok: false) with no usable kind, or a settled call whose
-		// success metadata came back malformed: never fabricate a card for
-		// something that did not, in fact, happen. Falls through to the generic
-		// identity/body below, which already shows the row's own failure —
-		// outputSummary carries the model-facing refusal reason (create.ts/
-		// edit.ts's own English text) into the body's "result" line.
+		// A call that failed (a thrown error) or was refused (`ok: false`) and made
+		// no card (RC-A #2): the row says what was tried and on what, in the
+		// reader's language, red like any failed row, folded, with the model's own
+		// words (English, written for the model) behind "Details" and never the
+		// call's parameters. It used to fall through to the generic identity below:
+		// "Tool <id>", opened on `patches: [object Object]`.
+		if (status === "failed" || metadata?.ok === false) {
+			const failedVerb = translate(
+				VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
+			);
+			// The item by its title (the record carries it for a refusal since this
+			// row learned to), else the call's own title, else its kind.
+			const named =
+				artifactTitle ??
+				inputTitle ??
+				(artifactKind
+					? translate(`artifacts.type.${artifactKind}` as I18nKey)
+					: "");
+			const reason = toolFailureReason(segment);
+			return {
+				...base,
+				status: "failed",
+				verb: named ? `${failedVerb}:` : failedVerb,
+				object: named,
+				meta: reason ? translate("toolActivity.failureDetails") : "",
+				summaryLabel: failedVerb,
+				title: named ? `${failedVerb}: ${named}` : failedVerb,
+				pinned: false,
+				alwaysOpen: false,
+				body: reason ? { kind: "error", reason } : null,
+				artifact: { id: artifactId ?? inputArtifactId ?? null, failed: true },
+			};
+		}
+		// A settled call whose success metadata came back malformed: never
+		// fabricate a card for something that did not, in fact, happen. Falls
+		// through to the generic identity/body below.
 	}
 
 	if (iconType === "memory") {
@@ -888,6 +950,25 @@ function buildSettledToolActivityItem(
 		};
 	}
 
+	// A read names the item it read (F22): its title, never its id. The generic row
+	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...".
+	if (
+		segment.name === "read_artifact" ||
+		segment.name === "read_generated_file"
+	) {
+		const readVerb = verb(translate, "reading", "read", status);
+		const object = readItemName(segment);
+		return {
+			...base,
+			verb: readVerb,
+			object,
+			meta: elapsed ?? "",
+			summaryLabel: readVerb,
+			title: object ? `${readVerb}: ${object}` : readVerb,
+			body: genericBody(segment),
+		};
+	}
+
 	const identity = describeToolIdentity(segment, translate);
 	return {
 		...base,
@@ -898,6 +979,21 @@ function buildSettledToolActivityItem(
 		title: identity.title,
 		body: genericBody(segment),
 	};
+}
+
+/**
+ * What a read of an item names (F22): the item's own title (the record carries it
+ * since this row learned to), a produced file by its request title, else its file
+ * name. Never an id; an older record with none names nothing.
+ */
+function readItemName(segment: ToolCallSegment): string {
+	const title = segment.metadata?.artifactTitle;
+	if (typeof title === "string" && title.trim() !== "") return title.trim();
+	for (const key of ["requestTitle", "filename"] as const) {
+		const value = segment.input?.[key];
+		if (typeof value === "string" && value.trim() !== "") return value.trim();
+	}
+	return "";
 }
 
 /**
@@ -984,7 +1080,9 @@ function summaryGroupLabel(
 ): string {
 	// One call of a tool reads exactly as it did before aggregation.
 	if (group.occurrences === 1) return group.first.summaryLabel;
-	if (group.failed) {
+	// A row that says in its own words what failed ("Couldn't edit") is not "… 2
+	// failed": it repeats like any other.
+	if (group.failed && !group.first.artifact?.failed) {
 		return translate("toolActivity.summaryFailedCount", {
 			verb: group.verb,
 			count: group.occurrences,
@@ -1052,7 +1150,10 @@ export function buildToolActivitySummary(
 		groups.set(groupKey, {
 			key: item.key,
 			iconType: item.iconType,
-			verb: item.verb,
+			// A row may end its verb in a colon to introduce a free-form title (the
+			// Hungarian way to attach one without a case ending); the strip says
+			// the verb alone.
+			verb: item.verb.replace(/:$/, ""),
 			failed,
 			first: item,
 			occurrences: 1,

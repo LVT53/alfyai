@@ -405,7 +405,7 @@ function handleToggle() {
 		{/if}
 	</span>
 	{#if item.meta}
-		<span class="act-meta">{item.meta}</span>
+		<span class="act-meta" class:act-meta-quiet={item.artifact?.failed}>{item.meta}</span>
 	{/if}
 	{#if isInteractive}
 		<ChevronDown class="act-chevron" size={14} strokeWidth={2} aria-hidden="true" />
@@ -758,6 +758,12 @@ function handleToggle() {
 
 	.act-row.is-failed .act-meta {
 		color: var(--danger);
+	}
+
+	/* A failed create/edit already says so in its words and its red glyph; what
+	   stands on the right is only "Details", the way to the model's own account. */
+	.act-row.is-failed .act-meta.act-meta-quiet {
+		color: var(--text-muted);
 	}
 
 	:global(.act-chevron) {

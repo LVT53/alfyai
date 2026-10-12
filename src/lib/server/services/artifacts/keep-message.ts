@@ -19,10 +19,51 @@ type KeepMessageAsDocumentResult =
 	| { ok: true; artifactId: string; title: string; created: boolean }
 	| { ok: false; reason: "not_found" };
 
+/** A title ends at a sentence or a word, near this many characters (F20). */
+const TITLE_TARGET_CHARS = 60;
+/** A first sentence that ends by here is taken whole, so a title may run to about this. */
+const TITLE_SENTENCE_REACH_CHARS = 80;
+/** ... but not a sentence shorter than this: "Szia!" is not what a reply is about. */
+const TITLE_SENTENCE_MIN_CHARS = 20;
+const SENTENCE_END = /[.!?]+(?=\s|$)/g;
+const TRAILING_CONNECTIVE = /[\s,;:–—-]+$/;
+
 /**
- * The first non-empty line's TEXT, capped for a title: heading markers and
- * inline Markdown removed (a reply that opens with "**Weekend plan**" was
- * titled with the asterisks, RV-1A).
+ * A title from the first line's text (F20: it was the first 120 characters,
+ * which in a one-paragraph reply ended mid-word, "... kiváló k", in a two-line
+ * header and again in the composer's placeholder). A line that fits is the
+ * title. A longer one is its first sentence when that ends within reach, else
+ * the words that fit near the target, with an ellipsis, never leaving a bracket
+ * open. A first "word" that is longer than a title (an address) is cut at the
+ * target: it has no end to cut at.
+ */
+function clipTitle(text: string): string {
+	if (text.length <= TITLE_TARGET_CHARS) return text;
+	for (const match of text.matchAll(SENTENCE_END)) {
+		const end = (match.index ?? 0) + match[0].length;
+		if (end > TITLE_SENTENCE_REACH_CHARS) break;
+		if (end < TITLE_SENTENCE_MIN_CHARS) continue;
+		// A question or an exclamation keeps its mark; a title does not end in a period.
+		return text.slice(0, end).replace(/\.+$/, "");
+	}
+	const lastSpace = text.lastIndexOf(" ", TITLE_TARGET_CHARS);
+	let clipped =
+		lastSpace > 0
+			? text.slice(0, lastSpace)
+			: text.slice(0, TITLE_TARGET_CHARS);
+	clipped = clipped.replace(TRAILING_CONNECTIVE, "");
+	while (clipped.split("(").length > clipped.split(")").length) {
+		clipped = clipped
+			.slice(0, clipped.lastIndexOf("("))
+			.replace(TRAILING_CONNECTIVE, "");
+	}
+	return `${clipped}…`;
+}
+
+/**
+ * The first non-empty line's TEXT, cut for a title (`clipTitle`): heading
+ * markers and inline Markdown removed (a reply that opens with "**Weekend plan**"
+ * was titled with the asterisks, RV-1A).
  */
 function deriveTitle(content: string, fallback: string): string {
 	const firstLine =
@@ -30,7 +71,7 @@ function deriveTitle(content: string, fallback: string): string {
 	const cleaned = inlinePlainText(firstLine.replace(/^#{1,6}\s*/, ""))
 		.replace(/\s+/g, " ")
 		.trim();
-	return cleaned.length > 0 ? cleaned.slice(0, 120) : fallback;
+	return cleaned.length > 0 ? clipTitle(cleaned) : fallback;
 }
 
 const keeping = new Map<string, Promise<KeepMessageAsDocumentResult>>();

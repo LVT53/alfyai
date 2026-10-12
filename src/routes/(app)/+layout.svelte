@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, onDestroy } from "svelte";
+import { onMount, onDestroy, untrack } from "svelte";
 import { page, navigating, updated } from "$app/state";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
@@ -77,6 +77,19 @@ import {
 } from "./layout-title";
 
 let { data, children }: LayoutProps = $props();
+
+// The reader's language is known before the first byte is drawn: the shell
+// load reads it from their profile. Setting it here, in the script and not in
+// `onMount`, means the server-rendered page and the first hydrated frame are
+// already in it. Until `onMount` applied it, every page of the shell was drawn
+// in English first, and the first message's bootstrap view with it (F5).
+//
+// Safe on the server: a render is synchronous, so this write and every `$t`
+// read that follows in the same request happen before anything else can run,
+// and the root layout puts the baseline back at the start of the next render.
+// Only the first value is wanted: a later change is the reader's own, through
+// the language setting.
+uiLanguage.set(untrack(() => data.userUiLanguage));
 
 type ImportChatGPTModalProps = {
 	show: boolean;

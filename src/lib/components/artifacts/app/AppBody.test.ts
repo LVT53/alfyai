@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import AppBody from "./AppBody.svelte";
+import AppBodyActivityHarness from "./AppBodyActivityHarness.test.svelte";
 
 // The dictionary itself is not exported by $lib/i18n (only the `t` store and
 // the `I18nKey` type are) — these are copied from the artifacts.app.* table
@@ -34,9 +37,29 @@ const fetchArtifact = vi.fn();
 const downloadAppAsHtml = vi.fn();
 const regenerateApp = vi.fn();
 const restoreArtifactVersion = vi.fn();
+// The header's Download opens the popover the Document's Download uses
+// (`DownloadSheet`, kind "app"). Following the job to a file and starting the
+// browser's download is `downloadProducedFile`'s own (`client/downloads.test.ts`);
+// here it answers what it would once the file was ready, or the refusal the start gave.
+vi.mock("$lib/client/downloads", () => ({
+	downloadProducedFile: async (
+		start: () => Promise<{ ok: boolean; reason?: string }>,
+	) => {
+		try {
+			const started = await start();
+			return started.ok
+				? { ok: true, filename: "app.html" }
+				: { ok: false, reason: started.reason };
+		} catch {
+			return { ok: false, reason: "failed" };
+		}
+	},
+}));
+
 vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifact: (...args: unknown[]) => fetchArtifact(...args),
 	downloadAppAsHtml: (...args: unknown[]) => downloadAppAsHtml(...args),
+	exportArtifactDocument: vi.fn(),
 	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
 	restoreArtifactVersion: (...args: unknown[]) =>
 		restoreArtifactVersion(...args),
@@ -607,6 +630,14 @@ describe("AppBody — download (registered with the panel header)", () => {
 		return { registerPanelActions, latest: () => calls.at(-1) };
 	}
 
+	/** What the header's button does: one press, and the App's one file is on its way (there is nothing to choose in the popover). */
+	async function pressDownload(
+		latest: () => { openDownload?: () => void } | undefined,
+	) {
+		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
+		latest()?.openDownload?.();
+	}
+
 	it("registers no download trigger, and shows the unavailable copy, for a project-linked App (no conversation)", async () => {
 		fetchArtifact.mockResolvedValue(baseDetail({ conversationId: null }));
 		const { registerPanelActions, latest } = captureActions();
@@ -621,6 +652,33 @@ describe("AppBody — download (registered with the panel header)", () => {
 		await screen.findByTestId("app-download-unavailable-hint");
 		await waitFor(() => expect(latest()?.openDownload).toBeUndefined());
 		expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument();
+	});
+
+	// RC-A: one press. The popover has no format to offer an App, so it opens already
+	// making the file.
+	it("the header's button opens the popover and the download starts with that one press", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: true,
+			job: { id: "job-1" },
+			reused: false,
+		});
+		const { registerPanelActions, latest } = captureActions();
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Tip calculator",
+			body: null,
+			registerPanelActions,
+		});
+
+		await pressDownload(latest);
+
+		await waitFor(() =>
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
+		);
 	});
 
 	it("requests a download with the artifact id and the PANEL's conversation id, not the artifact's own", async () => {
@@ -642,8 +700,7 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
 		await waitFor(() =>
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", "panel-conv"),
@@ -668,8 +725,7 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
 		await waitFor(() =>
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
@@ -692,15 +748,12 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(screen.queryByText("rate_limited")).not.toBeInTheDocument(),
-		);
 		expect(
-			screen.getByText("Could not prepare this app for download."),
+			await screen.findByText("Could not prepare this app for download."),
 		).toBeInTheDocument();
+		expect(screen.queryByText("rate_limited")).not.toBeInTheDocument();
 	});
 
 	it("reuses the download-unavailable copy for the server's conversation_required backstop", async () => {
@@ -720,11 +773,10 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument(),
+		expect(await screen.findAllByText(en.downloadUnavailable)).not.toHaveLength(
+			0,
 		);
 	});
 
@@ -742,14 +794,11 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(
-				screen.getByText("Could not prepare this app for download."),
-			).toBeInTheDocument(),
-		);
+		expect(
+			await screen.findByText("Could not prepare this app for download."),
+		).toBeInTheDocument();
 		expect(screen.queryByText("failed")).not.toBeInTheDocument();
 	});
 });
@@ -1191,5 +1240,80 @@ describe("AppBody — an app with nothing in it", () => {
 		expect(screen.getByTestId("app-empty-replay")).toHaveTextContent(
 			"Újra megnézem",
 		);
+	});
+});
+
+// F2 (ruling 77): "change this App" typed in the chat rebuilds the App that is
+// open in the panel, as one new version. The panel must show it: veil the frame
+// while the turn rebuilds it (the way its own "Change this app" does), and load
+// the stored App when the rebuild lands, so the frame runs the new version.
+describe("AppBody — a chat turn that changes this App", () => {
+	const activity = (
+		overrides: Record<string, unknown> = {},
+	): DocumentAlfyActivity => ({
+		key: "call-1",
+		artifactId: "app-1",
+		toolName: "edit_artifact",
+		status: "running",
+		label: null,
+		patches: [],
+		refusedBlocks: [],
+		appliedCount: 0,
+		...overrides,
+	});
+
+	async function mountHarness() {
+		const controller: { set?: (a: DocumentAlfyActivity | null) => void } = {};
+		render(AppBodyActivityHarness, { controller });
+		await screen.findByRole("tab", { name: /Preview/ });
+		return async (next: DocumentAlfyActivity | null) => {
+			controller.set?.(next);
+			await tick();
+		};
+	}
+
+	it("veils the frame while the turn rebuilds it, and announces it", async () => {
+		const set = await mountHarness();
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+
+		await set(activity());
+
+		expect(await screen.findByTestId("app-busy-veil")).toBeInTheDocument();
+		expect(screen.getByTestId("app-busy-announcer")).toHaveTextContent(
+			en.regenerateBuilding,
+		);
+	});
+
+	it("loads the stored App when the rebuild lands, once, and the veil goes", async () => {
+		const set = await mountHarness();
+		await set(activity());
+		await screen.findByTestId("app-busy-veil");
+		expect(fetchArtifact).toHaveBeenCalledTimes(1);
+		fetchArtifact.mockResolvedValue(baseDetail({ versionNumber: 3 }));
+
+		await set(activity({ status: "applied", versionId: "version-3" }));
+
+		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(document.querySelector("iframe")?.getAttribute("src")).toContain(
+				"v=3",
+			),
+		);
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+		// The same settled call, handed down again, does not load again.
+		await set(activity({ status: "applied", versionId: "version-3" }));
+		await set(activity({ status: "applied", versionId: "version-3" }));
+		expect(fetchArtifact).toHaveBeenCalledTimes(2);
+	});
+
+	it("does nothing for a rebuild of another App, or one that failed", async () => {
+		const set = await mountHarness();
+
+		await set(activity({ artifactId: "app-2" }));
+		await set(activity({ artifactId: "app-2", status: "applied" }));
+		await set(activity({ key: "call-2", status: "failed" }));
+
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+		expect(fetchArtifact).toHaveBeenCalledTimes(1);
 	});
 });

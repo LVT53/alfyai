@@ -8,6 +8,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 |------|---------|
 | `schema.ts` | Table definitions: users, sessions, conversations, messages, artifacts, chunks, projects, task states, memory events, semantic embeddings |
 | `index.ts` | Connection bootstrap - exports `db` instance |
+| `write-lock.ts` | Connection policy: every transaction takes SQLite's write lock at BEGIN, so a read-then-write transaction waits for a second writer of the file (a script, a backup) instead of failing `database is locked`. Applied once in `index.ts`; a service passes no `behavior` |
 | `compat.ts` | Narrow compatibility helpers for bounded DB repair/cleanup cases |
 
 ## Schema Overview

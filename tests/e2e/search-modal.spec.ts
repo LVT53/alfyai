@@ -4,9 +4,75 @@ import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	conversations,
+	messages,
 	users,
 } from "../../src/lib/server/db/schema";
+import { DEFAULT_CONVERSATION_TITLE } from "../../src/lib/shared/conversation-title";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
+
+// RC-A new #9 (FX-1 item 6): a chat nobody has named yet is stored as the English
+// default, and every surface prints the reader's own language for it ("Új
+// beszélgetés"); the search modal still printed the stored sentence. Only the
+// Hungarian UI shows it (the English label is the stored default itself).
+test.describe("Search Modal untitled conversations", () => {
+	test("an untitled conversation reads 'Új beszélgetés' in a Hungarian reader's results", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-search-untitled-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: DEFAULT_CONVERSATION_TITLE,
+			createdAt: now,
+			updatedAt: now,
+		});
+		// What the reader asked, which is what finds a chat nobody has named.
+		await db.insert(messages).values({
+			id: `${conversationId}-q`,
+			conversationId,
+			messageSequence: 1,
+			role: "user",
+			content: "Szombati programtippek zz-e2e-untitled bécsi hétvégére",
+			createdAt: now,
+		});
+		await db
+			.update(users)
+			.set({ uiLanguage: "hu" })
+			.where(eq(users.email, TEST_EMAIL));
+		try {
+			await login(page);
+			await waitForHydration(page);
+			await page
+				.getByRole("button", {
+					name: "Keresés beszélgetések és dokumentumok között",
+				})
+				.click();
+			const modal = page.getByRole("dialog", { name: "Munkaterület keresése" });
+			await modal.waitFor({ state: "visible" });
+
+			await modal.locator("input").first().fill("zz-e2e-untitled");
+			// The untitled chat is found by what was asked in it, and named in the
+			// reader's own words, never by the stored English sentence.
+			const result = modal.getByRole("button", { name: /zz-e2e-untitled/ });
+			await expect(result).toBeVisible();
+			await expect(result).toContainText("Új beszélgetés");
+			await expect(result).not.toContainText(DEFAULT_CONVERSATION_TITLE);
+		} finally {
+			await db
+				.update(users)
+				.set({ uiLanguage: "en" })
+				.where(eq(users.email, TEST_EMAIL));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+});
 
 test.describe("Search Modal Visual Tests", () => {
 	test.beforeEach(async ({ page }) => {

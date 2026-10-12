@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { rowVersionLabel } from "./row-version-label";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import { t } from "$lib/i18n";
@@ -37,13 +38,7 @@ function getDocumentTitle(document: DocumentWorkspaceItem): string {
 function getDocumentVersionLabel(
 	document: DocumentWorkspaceItem,
 ): string | null {
-	const versionNumber =
-		document.versionNumber && document.versionNumber > 0
-			? document.versionNumber
-			: document.source === "chat_generated_file"
-				? 1
-				: null;
-	return versionNumber ? `v${versionNumber}` : null;
+	return rowVersionLabel(document, documents);
 }
 
 function isAiGeneratedDocument(document: DocumentWorkspaceItem): boolean {

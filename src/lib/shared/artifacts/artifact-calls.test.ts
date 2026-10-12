@@ -4,6 +4,7 @@ import {
 	artifactCallOf,
 	artifactCallsFromSegments,
 	artifactVersionMessagesFromMessages,
+	createdArtifactOf,
 	markRegenerable,
 } from "./artifact-calls";
 
@@ -130,5 +131,95 @@ describe("artifactVersionMessagesFromMessages", () => {
 			message("m3", []),
 		] as never);
 		expect(map.size).toBe(0);
+	});
+});
+
+describe("createdArtifactOf", () => {
+	const message = (calls: ToolCallEntry[]) => ({
+		thinkingSegments: calls.map((call) => ({
+			type: "tool_call" as const,
+			...call,
+		})),
+	});
+	const created = (
+		artifactId: string,
+		input: Record<string, unknown>,
+		overrides: Partial<ToolCallEntry> = {},
+	): ToolCallEntry => ({
+		callId: `call-${artifactId}`,
+		name: "create_artifact",
+		input,
+		status: "done",
+		metadata: { ok: true, artifactId },
+		...overrides,
+	});
+
+	it("is the kind and the title the chat's own create call gave the item", () => {
+		const messages = [
+			message([
+				created("app-1", { artifactType: "app", title: "Tip calculator" }),
+			]),
+		];
+		expect(createdArtifactOf(messages, "app-1")).toEqual({
+			kind: "app",
+			title: "Tip calculator",
+		});
+	});
+
+	it("is nothing for an item no create call of the chat made", () => {
+		const messages = [
+			message([
+				created("app-1", { artifactType: "app", title: "Tip calculator" }),
+			]),
+		];
+		expect(createdArtifactOf(messages, "other")).toBeNull();
+		expect(createdArtifactOf([], "app-1")).toBeNull();
+	});
+
+	it("is nothing for an edit, a refused call, or a call without a title or a kind that ships", () => {
+		expect(
+			createdArtifactOf(
+				[
+					message([
+						created(
+							"doc-1",
+							{ artifactType: "document", title: "Plan" },
+							{ name: "edit_artifact" },
+						),
+					]),
+				],
+				"doc-1",
+			),
+		).toBeNull();
+		expect(
+			createdArtifactOf(
+				[
+					message([
+						created(
+							"doc-2",
+							{ artifactType: "document", title: "Plan" },
+							{ status: "failed" },
+						),
+					]),
+				],
+				"doc-2",
+			),
+		).toBeNull();
+		expect(
+			createdArtifactOf(
+				[message([created("doc-3", { artifactType: "document" })])],
+				"doc-3",
+			),
+		).toBeNull();
+		expect(
+			createdArtifactOf(
+				[
+					message([
+						created("doc-4", { artifactType: "slides", title: "Deck" }),
+					]),
+				],
+				"doc-4",
+			),
+		).toBeNull();
 	});
 });

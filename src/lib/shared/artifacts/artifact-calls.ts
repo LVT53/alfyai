@@ -3,6 +3,7 @@ import type {
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
+import { isShippedArtifactKind, type ShippedArtifactKind } from "./kinds";
 
 // What the messages a chat holds say about the artifacts their own tool calls
 // made or edited. Pure, so the server (`conversation-detail/read-model.ts`, on
@@ -123,6 +124,37 @@ export function regenerableArtifactIdsFromMessages(
 		if (message.documentArtifactId) ids.add(message.documentArtifactId);
 	}
 	return [...ids];
+}
+
+/**
+ * The kind and the title the chat's own successful `create_artifact` call gave an
+ * item, read off the messages the caller already holds: what a row that stands for
+ * the item before it exists again can say (Regenerate, FB-5 F29: the panel's list
+ * shows the item being made while its card's button shows the work). `null` for an
+ * item no create call of these messages made (an edit never counts: it holds a
+ * summary, not the item), or one whose arguments name no title or no kind that
+ * ships.
+ */
+export function createdArtifactOf(
+	messageList: ReadonlyArray<Pick<ChatMessage, "thinkingSegments">>,
+	artifactId: string,
+): { kind: ShippedArtifactKind; title: string } | null {
+	for (const message of messageList) {
+		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
+			if (call.name !== "create_artifact" || call.artifactId !== artifactId) {
+				continue;
+			}
+			const { artifactType, title } = call.input;
+			if (
+				isShippedArtifactKind(artifactType) &&
+				typeof title === "string" &&
+				title.trim() !== ""
+			) {
+				return { kind: artifactType, title: title.trim() };
+			}
+		}
+	}
+	return null;
 }
 
 /**

@@ -31,6 +31,8 @@ export type RegenerateAppResult =
 	| {
 			ok: true;
 			version: number;
+			/** The version row this call wrote: the chat tool puts it on its call's record (ruling 76). */
+			versionId: string;
 			title: string;
 			verification: AppMetadataVerification;
 	  }
@@ -91,6 +93,10 @@ export async function regenerateApp(
 		// the user to rename it through; only the app's own <title>/<h1> could
 		// change it, and this call keeps the existing one deliberately.
 		title: current.title,
+		// The change is made to the app that exists (F2, ruling 77): the generator
+		// is handed it, and the prompt is only what to change. Without it a
+		// request like "make the background dark" came back as another app.
+		currentHtml: current.body ?? undefined,
 		modelId: input.modelId,
 		abortSignal: input.abortSignal,
 	});
@@ -116,15 +122,26 @@ export async function regenerateApp(
 		author: "alfy",
 		summary: regeneratedAppSummary(input.prompt),
 		metadataPatch: { glitchRuleIds, verification },
+		// Written on top of the version this call read and generated from: a write
+		// that landed meanwhile (the panel's own rebuild, a restore, a second call
+		// of the same turn) is refused rather than silently stacked under this one.
+		expectVersion: current.versionNumber,
 	});
 	if (!written.ok) {
 		// The artifact vanished, or a concurrent write already moved the
 		// version past what we read at the top of this call — either way, the
-		// caller's own version guard is the honest reason to report.
+		// caller's own version guard is the honest reason to report, with the
+		// version that is current now.
+		const now = await getArtifact({
+			userId: input.userId,
+			artifactId: input.artifactId,
+			conversationId: input.conversationId,
+			includeIncognito: input.includeIncognito,
+		});
 		return {
 			ok: false,
 			reason: "version_conflict",
-			version: current.versionNumber,
+			version: now?.versionNumber ?? current.versionNumber,
 		};
 	}
 
@@ -139,9 +156,9 @@ export async function regenerateApp(
 
 	return {
 		ok: true,
-		// updateArtifactBody always appends exactly one version (record.ts);
-		// re-deriving from what was already read avoids a second round trip.
-		version: current.versionNumber + 1,
+		// updateArtifactBody appends exactly one version (record.ts) and says which.
+		version: written.versionNumber,
+		versionId: written.versionId,
 		title: current.title,
 		verification,
 	};

@@ -68,6 +68,15 @@ let pdfjsLib: typeof import("pdfjs-dist") | null = null;
 let pdfDoc = $state<PdfDocumentProxy | null>(null);
 let scrollContainerRef = $state<HTMLDivElement | null>(null);
 let canvasRefs = $state<(HTMLCanvasElement | null)[]>([]);
+/**
+ * The CSS size each page's canvas has (friction audit F25). A canvas that is not
+ * sized is a 300x150 box (316x166 with its padding) and the page jumped from that
+ * to its real size when its first render began, so the size is known and set
+ * before the canvases are in the document: from the first page for every page, then
+ * each page's own as it is drawn. Never written to the canvas element by hand, or
+ * Svelte's own style would undo it.
+ */
+let pageBoxes = $state<({ width: number; height: number } | null)[]>([]);
 let isRendering = $state(false);
 let lastObservedPage = $state(1);
 let zoom = $state(1.0);
@@ -245,6 +254,7 @@ async function renderPdf(nextBlob: Blob) {
 
 	pdfDoc = null;
 	canvasRefs = [];
+	pageBoxes = [];
 	currentPage = 1;
 	totalPages = 0;
 	lastObservedPage = 1;
@@ -277,6 +287,28 @@ async function renderPdf(nextBlob: Blob) {
 			return;
 		}
 
+		// The size every page will have, from the first page and the width the region
+		// has, BEFORE the canvases are in the document (F25: they used to appear as a
+		// default-sized box and jump when the first render began).
+		const firstPage =
+			nextPdfDoc.numPages > 0 ? await nextPdfDoc.getPage(1) : null;
+		if (pdfRenderVersion !== currentVersion) return;
+		if (scrollContainerRef && firstPage) {
+			const unscaledViewport = firstPage.getViewport({ scale: 1.0 });
+			const containerWidth = scrollContainerRef.clientWidth - 48;
+			baseScale =
+				containerWidth > 0 && unscaledViewport.width > 0
+					? containerWidth / unscaledViewport.width
+					: 1.0;
+		}
+		if (firstPage) {
+			const firstViewport = firstPage.getViewport({ scale: baseScale * zoom });
+			pageBoxes = Array.from({ length: nextPdfDoc.numPages }, () => ({
+				width: Math.floor(firstViewport.width),
+				height: Math.floor(firstViewport.height),
+			}));
+		}
+
 		pdfDoc = nextPdfDoc;
 		totalPages = nextPdfDoc.numPages;
 		canvasRefs = new Array(totalPages).fill(null);
@@ -288,18 +320,6 @@ async function renderPdf(nextBlob: Blob) {
 		await tick();
 		await new Promise((resolve) => requestAnimationFrame(resolve));
 		if (pdfRenderVersion !== currentVersion) return;
-
-		if (scrollContainerRef && totalPages > 0) {
-			const page = await nextPdfDoc.getPage(1);
-			if (pdfRenderVersion !== currentVersion) return;
-
-			const unscaledViewport = page.getViewport({ scale: 1.0 });
-			const containerWidth = scrollContainerRef.clientWidth - 48;
-			baseScale =
-				containerWidth > 0 && unscaledViewport.width > 0
-					? containerWidth / unscaledViewport.width
-					: 1.0;
-		}
 
 		const firstCanvas = canvasRefs[0];
 		if (firstCanvas) {
@@ -412,8 +432,10 @@ async function renderPage(
 		const outputScale = window.devicePixelRatio || 1;
 		canvas.width = Math.floor(viewport.width * outputScale);
 		canvas.height = Math.floor(viewport.height * outputScale);
-		canvas.style.width = `${Math.floor(viewport.width)}px`;
-		canvas.style.height = `${Math.floor(viewport.height)}px`;
+		pageBoxes[pageNumber - 1] = {
+			width: Math.floor(viewport.width),
+			height: Math.floor(viewport.height),
+		};
 
 		renderTask = page.render({
 			canvasContext: context,
@@ -648,6 +670,8 @@ function setupPageObserver() {
 							bind:this={canvasRefs[i]}
 							class="pdf-canvas"
 							data-page={i + 1}
+							style:width={pageBoxes[i] ? `${pageBoxes[i]?.width}px` : undefined}
+							style:height={pageBoxes[i] ? `${pageBoxes[i]?.height}px` : undefined}
 						></canvas>
 					</div>
 				{/each}

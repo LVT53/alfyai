@@ -16,7 +16,9 @@ import {
 	cloneSendPayload,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
+	FILE_LIST_RETRY_DELAYS_MS,
 	failPendingFileProductionJobPlaceholder,
+	filesWaitingForTheList,
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
@@ -494,6 +496,97 @@ describe("file production chat helpers", () => {
 				makeJob("cancelled", "cancelled"),
 			]),
 		).toBe(false);
+	});
+
+	describe("a file the chat shows a card for that is not yet in the panel's list", () => {
+		const NOW = 1_000_000;
+		const madeFile = (artifactId: string | null) => ({
+			id: `file-${artifactId ?? "none"}`,
+			filename: "plan.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 100,
+			downloadUrl: "/api/chat/files/file-1/download",
+			previewUrl: null,
+			artifactId,
+		});
+		const done = (
+			overrides: Partial<FileProductionJob> = {},
+		): FileProductionJob => ({
+			...makeJob("job-1", "succeeded"),
+			updatedAt: NOW - 5_000,
+			files: [madeFile("artifact-1")],
+			...overrides,
+		});
+
+		it("waits for a succeeded job of a reply whose file is not a row yet", () => {
+			expect(filesWaitingForTheList([done()], new Set(), NOW)).toBe(true);
+		});
+
+		it("is done once the list has the file, or the reader deleted it", () => {
+			expect(
+				filesWaitingForTheList([done()], new Set(["artifact-1"]), NOW),
+			).toBe(false);
+		});
+
+		it("does not wait for a job that is still running, failed, or belongs to no reply", () => {
+			expect(
+				filesWaitingForTheList([done({ status: "running" })], new Set(), NOW),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList([done({ status: "failed" })], new Set(), NOW),
+			).toBe(false);
+			// An export, and any job the server has not given to a reply: listed nowhere by design.
+			expect(
+				filesWaitingForTheList(
+					[done({ assistantMessageId: null })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("does not wait for a dismissed job, a deleted file or a file with no row of its own", () => {
+			expect(
+				filesWaitingForTheList([done({ dismissed: true })], new Set(), NOW),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList(
+					[done({ filesDeleted: { canRegenerate: true } })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList(
+					[done({ files: [madeFile(null)] })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("does not make the page ask on every visit about an old job", () => {
+			expect(
+				filesWaitingForTheList(
+					[done({ updatedAt: NOW - 10 * 60_000 })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("asks soon, then less often, and stops", () => {
+			expect(FILE_LIST_RETRY_DELAYS_MS[0]).toBeLessThanOrEqual(500);
+			expect([...FILE_LIST_RETRY_DELAYS_MS]).toEqual(
+				[...FILE_LIST_RETRY_DELAYS_MS].sort((a, b) => a - b),
+			);
+			const total = FILE_LIST_RETRY_DELAYS_MS.reduce(
+				(sum, delay) => sum + delay,
+				0,
+			);
+			expect(total).toBeGreaterThanOrEqual(10_000);
+			expect(total).toBeLessThanOrEqual(30_000);
+		});
 	});
 
 	it("merges an updated job into the existing chat state without duplicating cards", () => {
@@ -1410,6 +1503,37 @@ describe("file production chat helpers", () => {
 		]);
 	});
 
+	// Friction audit F1: every job of the conversation that hung from no reply was
+	// stamped on the reply that finished, so a job an earlier Download had left came
+	// back as a card of a reply that never made it. The turn's own jobs are the ones
+	// made since it began.
+	it("stamps only the jobs made since the turn began, never one that hung from no reply before it", () => {
+		const turnBegan = 1_000_000;
+		const jobs = [
+			makeUnassignedJob("job-before-the-turn", {
+				createdAt: turnBegan - 60_000,
+			}),
+			makeUnassignedJob("job-this-turn", { createdAt: turnBegan + 2_000 }),
+		];
+
+		const attached = attachUnassignedFileProductionJobsToAssistant(jobs, {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-server",
+			createdSince: turnBegan - 30_000,
+		});
+
+		expect(attached).toEqual([
+			expect.objectContaining({
+				id: "job-before-the-turn",
+				assistantMessageId: null,
+			}),
+			expect.objectContaining({
+				id: "job-this-turn",
+				assistantMessageId: "assistant-server",
+			}),
+		]);
+	});
+
 	it("keeps a newly proposed pending write attached when the streaming placeholder becomes the server assistant message (Issue 7.5)", () => {
 		const writes = [
 			makeUnassignedWrite("pw-new"),
@@ -1551,6 +1675,137 @@ describe("findLiveDocumentAlfyActivity", () => {
 		});
 
 		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	// F6 (ruling 77): the browser hears nothing of an edit call until the model has
+	// written all of it, so a Document Alfy has READ in a turn that is still running is
+	// "being worked on" for as long as the turn runs.
+	describe("a Document the running turn has read", () => {
+		function readOf(
+			list: ChatMessage[],
+			kind: string,
+			status: "running" | "done",
+		) {
+			return applyToolCallUpdateToMessageList(list, {
+				placeholderId: "assistant-1",
+				name: "read_artifact",
+				input: { artifactId: "doc-1", detail: "blocks" },
+				status,
+				details:
+					status === "done"
+						? {
+								callId: "call-read",
+								metadata: { ok: true, artifactId: "doc-1", artifactKind: kind },
+							}
+						: { callId: "call-read" },
+			});
+		}
+
+		it("is being worked on from the read until the turn ends, and nothing else", () => {
+			let list = [createAssistantPlaceholder("assistant-1")];
+			// The read itself, still running: nothing yet (the kind is not known).
+			list = readOf(list, "document", "running");
+			expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+
+			list = readOf(list, "document", "done");
+			expect(findLiveDocumentAlfyActivity(list)).toEqual(
+				expect.objectContaining({
+					key: "read:call-read",
+					artifactId: "doc-1",
+					toolName: "read_artifact",
+					status: "running",
+					label: null,
+					appliedCount: 0,
+				}),
+			);
+
+			// The stream is over (stopped, failed or finished): nothing is handed on.
+			expect(
+				findLiveDocumentAlfyActivity(
+					list.map((message) => ({ ...message, isStreaming: false })),
+				),
+			).toBeNull();
+		});
+
+		it("gives way to the edit call once there is one, running and settled", () => {
+			let list = readOf(
+				[createAssistantPlaceholder("assistant-1")],
+				"document",
+				"done",
+			);
+			list = applyToolCallUpdateToMessageList(list, {
+				placeholderId: "assistant-1",
+				name: "edit_artifact",
+				input: {
+					artifactId: "doc-1",
+					summary: "Shorten Saturday",
+					patches: [],
+				},
+				status: "running",
+				details: { callId: "call-edit" },
+			});
+			expect(findLiveDocumentAlfyActivity(list)).toEqual(
+				expect.objectContaining({
+					key: "call-edit",
+					status: "running",
+					label: "Shorten Saturday",
+				}),
+			);
+		});
+
+		it("is not a board's or an App's to show", () => {
+			for (const kind of ["canvas", "app", "file"]) {
+				const list = readOf(
+					[createAssistantPlaceholder("assistant-1")],
+					kind,
+					"done",
+				);
+				expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+			}
+		});
+	});
+
+	// F2 (ruling 77): an App is changed from the chat, and the open panel is told.
+	it("finds a rebuild of an App by its instruction, running and landed", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", instruction: "Add a Reset button." },
+			status: "running",
+			details: { callId: "call-app" },
+		});
+		expect(findLiveDocumentAlfyActivity(list)).toEqual(
+			expect.objectContaining({
+				artifactId: "app-1",
+				key: "call-app",
+				status: "running",
+			}),
+		);
+
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", instruction: "Add a Reset button." },
+			status: "done",
+			details: {
+				callId: "call-app",
+				metadata: {
+					ok: true,
+					artifactId: "app-1",
+					artifactKind: "app",
+					versionId: "version-2",
+				},
+			},
+		});
+		expect(findLiveDocumentAlfyActivity(list)).toEqual(
+			expect.objectContaining({
+				artifactId: "app-1",
+				key: "call-app",
+				status: "applied",
+				versionId: "version-2",
+			}),
+		);
 	});
 
 	it("finds an in-flight edit of a board by its ops, before the server has said what it is", () => {

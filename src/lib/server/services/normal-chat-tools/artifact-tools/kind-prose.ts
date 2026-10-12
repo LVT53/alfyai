@@ -160,11 +160,12 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 			"app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz",
 		useCaseEn: "small interactive tool",
 		useCaseHu: "kis interaktív eszközhöz",
-		bodyFormatEn: "Apps: the HTML document.",
+		bodyFormatEn:
+			"Apps: a brief of what the app is for and does, in the user's words — never HTML (the app is built from it).",
 		editRuleEn:
-			"Apps are not edited here — make a new App with the changes instead.",
+			"Apps: send instruction — what to change, in one call (no read first); the whole App is rebuilt before the call returns.",
 		editRuleHu:
-			"Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal.",
+			"Alkalmazásoknál: küldj instruction-t — mit változtass, egy hívásban (olvasás nélkül); az egész alkalmazás újraépül, mire a hívás visszatér.",
 	},
 	canvas: {
 		labelEn: "Canvas",
@@ -387,9 +388,21 @@ export const EDIT_ARTIFACT_CANVAS_EXAMPLE = {
 	summary: "Planned Sunday",
 } as const;
 
+/**
+ * edit_artifact's ONE worked example for an App (F2, ruling 77): an App is
+ * changed by saying what to change, and the whole App is rebuilt from the
+ * current one (`regenerateApp`, the same function the panel's "Change this app"
+ * runs). Exported for the same reason the others are: the test feeds this value
+ * to the executed schema (`editArtifactInputSchema`) and to the advertised one.
+ */
+export const EDIT_ARTIFACT_APP_EXAMPLE = {
+	artifactId: "a3",
+	instruction: "Add a Reset button.",
+} as const;
+
 /** edit_artifact's compact worked examples, one per kind that edits in place
- *  and is advertised: the Document's, then the Canvas's. Slides would need its
- *  own once it has a create handler and an op schema of its own. */
+ *  and is advertised: the Document's, the Canvas's, then the App's. Slides would
+ *  need its own once it has a create handler and an op schema of its own. */
 export function editArtifactExampleClause(
 	kinds: readonly CreatableArtifactKind[],
 	lang: "en" | "hu",
@@ -403,6 +416,12 @@ export function editArtifactExampleClause(
 		const json = JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE);
 		examples.push(
 			lang === "en" ? `Canvas example: ${json}.` : `Tábla-példa: ${json}.`,
+		);
+	}
+	if (kinds.includes("app")) {
+		const json = JSON.stringify(EDIT_ARTIFACT_APP_EXAMPLE);
+		examples.push(
+			lang === "en" ? `App example: ${json}.` : `Alkalmazás-példa: ${json}.`,
 		);
 	}
 	return examples.join(" ");
@@ -432,4 +451,13 @@ export function editArtifactOpsFieldDescription(
 ): string | undefined {
 	if (!kinds.includes("canvas")) return undefined;
 	return "Canvas only, one op per change to the board — each op's exact fields are in this array's own schema. Address nodes and edges by the ids read_artifact gave; you choose the id of anything you add.";
+}
+
+/** edit_artifact's `instruction` field description (EN only), or undefined while
+ *  no App can be made: it is the App's one field, and says what the call is. */
+export function editArtifactInstructionFieldDescription(
+	kinds: readonly CreatableArtifactKind[],
+): string | undefined {
+	if (!kinds.includes("app")) return undefined;
+	return "Apps only: what to change, in the user's own words (never HTML) — the App is rebuilt from the current one and this.";
 }

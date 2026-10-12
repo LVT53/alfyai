@@ -42,6 +42,7 @@ export {
 	waitForFileProductionJobVerdict,
 } from "./job-wait";
 export type { FileProductionJobState } from "./read-model";
+export { ARTIFACT_EXPORT_JOB_ORIGIN } from "./types";
 export type {
 	DrainFileProductionWorkerInput,
 	ExecuteNextFileProductionJobInput,
@@ -161,6 +162,13 @@ export async function getConversationFileProductionJob(
 ): ReturnType<ReadModelModule["getConversationFileProductionJob"]> {
 	const { getConversationFileProductionJob } = await loadReadModel();
 	return getConversationFileProductionJob(...args);
+}
+
+export async function getFileProductionJobForUser(
+	...args: Parameters<ReadModelModule["getFileProductionJobForUser"]>
+): ReturnType<ReadModelModule["getFileProductionJobForUser"]> {
+	const { getFileProductionJobForUser } = await loadReadModel();
+	return getFileProductionJobForUser(...args);
 }
 
 export async function listConversationFileProductionJobStates(

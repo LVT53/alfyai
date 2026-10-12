@@ -259,6 +259,7 @@ vi.mock("$app/navigation", () => ({
 	goto: vi.fn(),
 	invalidate: vi.fn(),
 	invalidateAll: vi.fn(),
+	pushState: vi.fn(),
 	replaceState: vi.fn(),
 }));
 
@@ -1021,9 +1022,14 @@ describe("chat page runtime integration", () => {
 		expect(
 			within(shell).getByText("Vienna trip summary.pdf"),
 		).toBeInTheDocument();
+		// The same header the panel's list opens for a File (F21): the title and the
+		// kind in the standard header, not the older one with its provenance chip.
+		expect(within(shell).getByTestId("artifact-panel-title")).toHaveTextContent(
+			"Vienna trip summary.pdf",
+		);
 		expect(
-			within(shell).getByTestId("document-provenance"),
-		).toBeInTheDocument();
+			within(shell).queryByTestId("document-provenance"),
+		).not.toBeInTheDocument();
 		expect(
 			within(shell).getByTestId("page-scroll-container"),
 		).toBeInTheDocument();
@@ -1424,7 +1430,9 @@ describe("chat page runtime integration", () => {
 
 			// Back to the list: its row says the same time, and never a number.
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			const listAgain = await screen.findByTestId("artifact-panel-list");
 			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
@@ -1649,7 +1657,9 @@ describe("chat page runtime integration", () => {
 			});
 
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			const listAgain = await screen.findByTestId("artifact-panel-list");
 			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(

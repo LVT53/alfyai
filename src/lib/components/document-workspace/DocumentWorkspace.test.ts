@@ -19,6 +19,16 @@ vi.mock("$lib/services/markdown", () => ({
 	),
 }));
 
+/**
+ * The width the docked panel asks for. The dock arithmetic is CSS now (the
+ * browser resolves it against the stage), so the width the reader dragged to
+ * is read out of the `--workspace-dock-width` it is spelled in.
+ */
+function askedWidth(shell: HTMLElement): string {
+	const spelled = shell.style.getPropertyValue("--workspace-dock-width");
+	return spelled.match(/min\((\d+(?:\.\d+)?px), 68%/)?.[1] ?? "";
+}
+
 describe("DocumentWorkspace", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -106,7 +116,12 @@ describe("DocumentWorkspace", () => {
 		expect(global.fetch).not.toHaveBeenCalled();
 
 		await rerender({ open: false, documents: [], activeDocumentId: null });
-		expect(screen.queryByText("Preview not available")).not.toBeInTheDocument();
+		// The column is taken out of the page when it has finished shrinking.
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Preview not available"),
+			).not.toBeInTheDocument();
+		});
 
 		await rerender({
 			open: true,
@@ -361,13 +376,15 @@ describe("DocumentWorkspace", () => {
 			name: WORKSPACE_LANDMARK,
 		});
 		frames.shift()?.(0);
-		await tick();
-		expect(desktopWorkspace.style.opacity).toBe("1");
+		await waitFor(() => {
+			expect(desktopWorkspace).toHaveClass("workspace-fade-in");
+		});
 
 		await rerender({ activeDocumentId: "doc-2" });
 		await tick();
 
-		expect(desktopWorkspace.style.opacity).toBe("1");
+		// Still the open column: switching documents is not the panel arriving again.
+		expect(desktopWorkspace).toHaveClass("workspace-fade-in");
 	});
 
 	it("uses an expanded workspace layout with rail and preview column sharing the extra width", async () => {
@@ -409,14 +426,67 @@ describe("DocumentWorkspace", () => {
 		expect(main).toHaveAttribute("data-presentation", "expanded");
 		expect(main).toHaveAttribute("data-layout", "rail-and-preview");
 		expect(desktopWorkspace.style.transform).toContain("scale");
+		// The X closes the expanded panel (below), so the way back to the dock is
+		// a button of its own, beside it.
 		expect(
-			within(desktopWorkspace).queryByRole("button", {
+			within(desktopWorkspace).getByRole("button", {
 				name: /return .* docked workspace/i,
 			}),
-		).not.toBeInTheDocument();
+		).toBeInTheDocument();
 		expect(
 			within(main).getByTestId("workspace-document-column"),
 		).toBeInTheDocument();
+	});
+
+	it("closes an expanded workspace from its X instead of docking it, and docks it from its own button, Escape and a press outside", async () => {
+		const onCloseWorkspace = vi.fn();
+		const onPresentationChange = vi.fn();
+		const props = {
+			open: true,
+			presentation: "expanded" as const,
+			documents: [
+				{
+					id: "doc-1",
+					source: "knowledge_artifact" as const,
+					filename: "document.pdf",
+					title: "Document",
+					mimeType: "application/pdf",
+					artifactId: "artifact-1",
+				},
+			],
+			availableDocuments: [],
+			activeDocumentId: "doc-1",
+			onSelectDocument: vi.fn(),
+			onOpenDocument: vi.fn(),
+			onCloseDocument: vi.fn(),
+			onCloseWorkspace,
+			onPresentationChange,
+		};
+		renderWorkspace(props);
+		const desktopWorkspace = screen.getByRole("complementary", {
+			name: WORKSPACE_LANDMARK,
+		});
+
+		await fireEvent.click(
+			within(desktopWorkspace).getByRole("button", {
+				name: "Close document workspace",
+			}),
+		);
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+		expect(onPresentationChange).not.toHaveBeenCalled();
+
+		await fireEvent.click(
+			within(desktopWorkspace).getByRole("button", {
+				name: /return .* docked workspace/i,
+			}),
+		);
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await fireEvent.pointerDown(document.body);
+		await waitFor(() => {
+			expect(onPresentationChange).toHaveBeenCalledTimes(3);
+		});
+		expect(onPresentationChange).toHaveBeenCalledWith("docked");
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
 	});
 
 	it("closes an expanded workspace when Escape is pressed", async () => {
@@ -777,7 +847,7 @@ describe("DocumentWorkspace", () => {
 				name: WORKSPACE_LANDMARK,
 			});
 
-			expect(desktopWorkspace.style.width).toBe("950px");
+			expect(askedWidth(desktopWorkspace)).toBe("950px");
 		});
 
 		it("can be dragged to resize to a new width", async () => {
@@ -820,7 +890,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			expect(desktopWorkspace.style.width).toMatch(/\d+px/);
+			expect(askedWidth(desktopWorkspace)).toMatch(/\d+px/);
 		});
 
 		it("resets the docked workspace width when the resize handle is double-clicked", async () => {
@@ -861,12 +931,12 @@ describe("DocumentWorkspace", () => {
 			);
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
-			expect(desktopWorkspace.style.width).not.toBe("950px");
+			expect(askedWidth(desktopWorkspace)).not.toBe("950px");
 
 			await fireEvent.dblClick(resizeHandle);
 			await tick();
 
-			expect(desktopWorkspace.style.width).toBe("950px");
+			expect(askedWidth(desktopWorkspace)).toBe("950px");
 		});
 
 		it("respects minimum width constraint during resize", async () => {
@@ -909,7 +979,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			const width = parseInt(desktopWorkspace.style.width, 10);
+			const width = parseInt(askedWidth(desktopWorkspace), 10);
 			expect(width).toBeGreaterThanOrEqual(620);
 		});
 
@@ -953,7 +1023,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			const width = parseInt(desktopWorkspace.style.width, 10);
+			const width = parseInt(askedWidth(desktopWorkspace), 10);
 			const maxWidth = window.innerWidth * 0.68;
 			expect(width).toBeLessThanOrEqual(Math.ceil(maxWidth));
 		});
@@ -1024,8 +1094,10 @@ describe("DocumentWorkspace", () => {
 				name: WORKSPACE_LANDMARK,
 			});
 
-			const style = window.getComputedStyle(desktopWorkspace);
-			expect(style.transition).toMatch(/opacity|transform/);
+			// The open state is the column's width (its transition is in the stylesheet).
+			await waitFor(() => {
+				expect(desktopWorkspace).toHaveClass("workspace-fade-in");
+			});
 		});
 	});
 
@@ -1752,6 +1824,87 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			).toBeInTheDocument();
 		});
 
+		it("tells rows of one name apart (F9): a file says its extension and size, a shared name says when", async () => {
+			const madeAt = new Date(2026, 9, 12, 14, 32).getTime();
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [
+						makeWorkspaceDocument({
+							id: "file-1",
+							title: "itinerary.docx",
+							filename: "itinerary.docx",
+							kind: "file",
+							sizeBytes: 10_650,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-1",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-2",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt - 20 * 60_000,
+						}),
+						makeWorkspaceDocument({
+							id: "board-1",
+							title: "Weekend board",
+							kind: "canvas",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+					],
+					title: "What this chat made",
+				},
+			});
+			// The phone's list and the desktop's are both in the document: read one.
+			const rows = within(
+				await screen.findByTestId("artifact-panel-list"),
+			).getAllByTestId("artifact-row");
+			const sub = (row: HTMLElement) =>
+				row.querySelector(".artifact-row-sub")?.textContent?.trim();
+			const byTitle = (title: string) =>
+				rows.filter((row) => row.textContent?.includes(title));
+			expect(sub(byTitle("itinerary.docx")[0])).toBe("File · DOCX · 10.4 KB");
+			const apps = byTitle("Tip calculator").map(sub);
+			expect(apps).toHaveLength(2);
+			for (const line of apps) expect(line).toMatch(/^App · .*\d{2}:\d{2}$/);
+			expect(new Set(apps).size).toBe(2);
+			// A name nobody shares says no time.
+			expect(sub(byTitle("Weekend board")[0])).not.toMatch(/\d{2}:\d{2}/);
+		});
+
+		it("lists an item being made again as a row that says so, above the rest, even when nothing else is listed (F29)", async () => {
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [],
+					title: "What this chat made",
+					pending: [{ id: "app-1", kind: "app", title: "Tip calculator" }],
+				},
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+			const rows = within(list).getAllByTestId("artifact-row");
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toHaveTextContent("Tip calculator");
+			expect(rows[0]).toHaveTextContent("Regenerating…");
+			expect(rows[0]).toBeDisabled();
+			// Not the empty list's line: something is being made.
+			expect(
+				within(list).queryByText("Nothing made here yet."),
+			).not.toBeInTheDocument();
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
@@ -2127,7 +2280,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
-			within(shell).getByRole("button", { name: /This chat/ }),
+			within(shell).getByRole("button", { name: "Back to this chat's items" }),
 		);
 
 		expect(onListOpenChange).toHaveBeenCalledWith(true);
@@ -2153,11 +2306,13 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 		for (const shell of shells) {
 			expect(
-				within(shell).queryByRole("button", { name: /This chat/ }),
+				within(shell).queryByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			).not.toBeInTheDocument();
 		}
 		expect(
-			screen.queryByRole("button", { name: /This chat/ }),
+			screen.queryByRole("button", { name: "Back to this chat's items" }),
 		).not.toBeInTheDocument();
 	});
 
@@ -2254,7 +2409,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("enters the content from the right, 60ms after the panel's own first open", async () => {
+	it("enters the content from the right, with the panel's own first open", async () => {
 		renderWorkspace({
 			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
 			activeDocumentId: "doc-1",
@@ -2266,7 +2421,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				{ opacity: 0, transform: "translateX(32px)" },
 				{ opacity: 1, transform: "translateX(0)" },
 			],
-			expect.objectContaining({ delay: 60 }),
+			expect.objectContaining({ delay: 0 }),
 		);
 	});
 
@@ -2351,7 +2506,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			await rerender({
 				documents: [doc],
@@ -2405,7 +2562,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			expect(onListOpenChange).toHaveBeenCalledWith(true);
 

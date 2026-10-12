@@ -36,7 +36,9 @@ const artifactsDict = {
 		// generic "ask about" every other kind uses.
 		"artifacts.chat.composerPlaceholderApp": "Ask Alfy to change {title}…",
 		// The panel's list state (surface 2).
-		"artifacts.panel.eyebrow": "This chat",
+		// The header's way back to the list: short, so it never wraps (FB-5, F28); the
+		// Hungarian says "Back" and the name says where it goes.
+		"artifacts.panel.crumb": "This chat",
 		"artifacts.panel.title": "What this chat made",
 		"artifacts.panel.count":
 			"{count} {count, plural, one {item} other {items}} · newest first",
@@ -65,8 +67,7 @@ const artifactsDict = {
 		// `oneLeft`/`revLeft` copy family.
 		"artifacts.panel.leftAlone":
 			"{count} {count, plural, one {part} other {parts}} left alone",
-		"artifacts.panel.backA11y":
-			"Back to This chat ({count} {count, plural, one {item} other {items}})",
+		"artifacts.panel.backA11y": "Back to this chat's items",
 		// First-open tours (Wave 4, TR-B/TR-C): the card's chrome, the panel list's
 		// replay row and the empty states' link. The tour's own words (titles,
 		// bodies, the summary line) are content — the code-owned copy or a
@@ -277,6 +278,8 @@ const artifactsDict = {
 		// reuses download.unavailable above, since that is the same case the
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
+		// The App's Download is one press: its one file starts as the popover opens
+		// (`DownloadSheet`, which shares the Document's title and notices).
 		"artifacts.app.open.cta": "Make an app",
 		// The old Versions sheet is gone (ruling 76: History replaces it); these three
 		// keys outlived it. The two author names are the ones a comment and a margin
@@ -389,8 +392,19 @@ const artifactsDict = {
 		"artifacts.document.review.next": "Next change",
 		"artifacts.document.review.keepAll": "Keep all",
 		"artifacts.document.review.undoAll": "Undo all",
-		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
-		"artifacts.document.planned.writing": "Alfy is writing: {label}",
+		// FB-6, F13 (ruling 77): what the two buttons say on a phone, where the bar is one
+		// row; their accessible names stay "Keep all" and "Undo all".
+		"artifacts.document.review.keepShort": "Keep",
+		"artifacts.document.review.undoShort": "Undo",
+		// The quiet "Alfy is at work" strip above the text: from Alfy's first look at the
+		// open Document in a turn until its change has landed (Slice 1, T8; FB-6, F6,
+		// ruling 77: the board's "arranging" strings are its model). Until the edit call
+		// says what it is doing the line stands for a read as much as for an edit (a turn
+		// that only reads shows it too), so it says Alfy is going through the document,
+		// not that it is changing it (FX-2, the owner's call on F6).
+		"artifacts.document.working": "Alfy is going through the document…",
+		"artifacts.document.workingSummary":
+			"Alfy is working on the document: {summary}",
 		// Tabs (Slice 1, T9).
 		"artifacts.document.cardSubtitle":
 			"Document · {count} {count, plural, one {tab} other {tabs}}",
@@ -458,6 +472,9 @@ const artifactsDict = {
 		"artifacts.document.comment.changeUndone": "Undone",
 		"artifacts.document.comment.seeChange": "See change",
 		"artifacts.document.comment.alfyTyping": "Alfy is writing…",
+		// FB-6, F14 (ruling 77): the thread's pending row from the moment a comment that
+		// asked Alfy something is posted until its reply is in.
+		"artifacts.document.comment.alfyAnswering": "Alfy is replying…",
 		"artifacts.document.comment.replyPlaceholder": "Reply, or ask @Alfy…",
 		"artifacts.document.comment.askAlfyHint":
 			"Alfy answers here and can edit the text. You keep or undo the change.",
@@ -544,6 +561,9 @@ const artifactsDict = {
 		"artifacts.document.export.markdown": "Markdown",
 		"artifacts.document.export.preparing": "Preparing your file…",
 		"artifacts.document.export.failed": "Could not create this file.",
+		// The file was still being made when the wait ran out (the job is stopped).
+		"artifacts.document.export.timeout":
+			"This is taking longer than expected. Try again in a moment.",
 		"artifacts.document.export.tooLarge":
 			"This document is too long to export.",
 		"artifacts.document.export.noConversation":
@@ -689,6 +709,10 @@ const artifactsDict = {
 			"Alfy removed {count} {count, plural, one {block} other {blocks}}.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy changed {changed} {changed, plural, one {block} other {blocks}} and removed {removed}.",
+		// What a phone's bar says instead: its sentence has about 126 px beside the two
+		// buttons, and the long one took three lines there.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} changed, {removed} removed.",
 		"artifacts.canvas.review.landed": "{summary} Review it below the board.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} Left {left} alone. Review it below the board.",
@@ -931,6 +955,8 @@ const artifactsDict = {
 			"Changes you and Alfy make will appear here.",
 		"artifacts.history.help":
 			"{keys} undoes your last steps. Undo on Alfy's change undoes just that change. Restore brings back a whole version.",
+		"artifacts.history.helpTouch":
+			"Undo on Alfy's change undoes just that change. Restore brings back a whole version.",
 		"artifacts.history.helpDismiss": "Got it",
 		"artifacts.history.deleted.document": "This document was deleted.",
 		"artifacts.history.deleted.app": "This app was deleted.",
@@ -1026,6 +1052,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "You're offline",
 		"artifacts.history.restoreNotRunnable":
 			"It can't run any more, so it can't be restored.",
+		"artifacts.history.restoreChecking": "Checking that it can still run…",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -1069,9 +1096,8 @@ const artifactsDict = {
 		// függne, ami egy dinamikus értéknél nem garantálható.
 		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
 		// Same colon trick as above, for the same reason.
-		"artifacts.chat.composerPlaceholderApp":
-			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
-		"artifacts.panel.eyebrow": "Ez a beszélgetés",
+		"artifacts.chat.composerPlaceholderApp": "Kérj módosítást: {title}",
+		"artifacts.panel.crumb": "Vissza",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
 		"artifacts.panel.list": "Lista megjelenítése",
@@ -1084,7 +1110,7 @@ const artifactsDict = {
 		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian
 		// nouns after a numeral stay singular.
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",
-		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
+		"artifacts.panel.backA11y": "Vissza a beszélgetés elemeihez",
 		"artifacts.tour.region": "Így működik ez a típus",
 		"artifacts.tour.stepOf": "{n}. lépés / {m}",
 		// A számnév után a főnév egyes számban marad: nincs többes szám.
@@ -1331,7 +1357,20 @@ const artifactsDict = {
 		"artifacts.document.review.next": "Következő módosítás",
 		"artifacts.document.review.keepAll": "Mindet megtartom",
 		"artifacts.document.review.undoAll": "Mindet visszavonom",
-		"artifacts.document.planned.writing": "Alfy írja: {label}",
+		// FB-6, F13 (ruling 77): a telefonon egy sor a sáv; a gombok neve ugyanaz marad.
+		// FB-9: a „Megtart” / „Visszavon” csonka igetőnek hatott; a szavak a módosítás
+		// jelvényének saját szavai („Megtartom”, „Visszavonom”).
+		"artifacts.document.review.keepShort": "Megtartom",
+		"artifacts.document.review.undoShort": "Visszavonom",
+		// A szöveg fölötti halk „Alfy dolgozik” sáv: attól, hogy Alfy először ránéz a
+		// megnyitott dokumentumra egy körben, addig, amíg a módosítása meg nem érkezett
+		// (FB-6, F6, 77. döntés: a tábla „dolgozik a táblán” szövegei a mintája). Amíg a
+		// módosító hívás nem mondja meg, mit csinál, a sor olvasásra is igaz, nem csak
+		// szerkesztésre (csak olvasó kör is ezt mutatja), ezért átnézésről szól, nem
+		// munkáról (FX-2, a tulajdonos döntése az F6-ról).
+		"artifacts.document.working": "Alfy átnézi a dokumentumot…",
+		"artifacts.document.workingSummary":
+			"Alfy dolgozik a dokumentumon: {summary}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
@@ -1380,6 +1419,9 @@ const artifactsDict = {
 		"artifacts.document.comment.changeUndone": "Visszavonva",
 		"artifacts.document.comment.seeChange": "Módosítás mutatása",
 		"artifacts.document.comment.alfyTyping": "Alfy ír…",
+		// FB-6, F14 (ruling 77): a szál függő sora attól, hogy a kérdező megjegyzés
+		// elment, addig, amíg a válasz meg nem érkezik.
+		"artifacts.document.comment.alfyAnswering": "Alfy válaszol…",
 		"artifacts.document.comment.replyPlaceholder":
 			"Válasz, vagy kérdezd: @Alfy…",
 		"artifacts.document.comment.askAlfyHint":
@@ -1431,6 +1473,8 @@ const artifactsDict = {
 		"artifacts.document.export.markdown": "Markdown",
 		"artifacts.document.export.preparing": "A fájl előkészítése…",
 		"artifacts.document.export.failed": "Nem sikerült létrehozni ezt a fájlt.",
+		"artifacts.document.export.timeout":
+			"Ez a vártnál tovább tart. Próbáld újra egy kicsit később.",
 		"artifacts.document.export.tooLarge":
 			"Ez a dokumentum túl hosszú az exportáláshoz.",
 		"artifacts.document.export.noConversation":
@@ -1505,7 +1549,7 @@ const artifactsDict = {
 			"Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.",
 		"artifacts.canvas.loading": "Tábla megnyitása…",
 		"artifacts.canvas.loadFailed": "Nem sikerült megnyitni a táblát.",
-		"artifacts.canvas.retry": "Újra",
+		"artifacts.canvas.retry": "Újrapróbálom",
 		"artifacts.canvas.reload": "Újratöltés",
 		"artifacts.canvas.saved": "Mentve",
 		"artifacts.canvas.saving": "Mentés…",
@@ -1573,6 +1617,9 @@ const artifactsDict = {
 			"Alfy {count} blokkot eltávolított.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
+		// A telefon sávjában a mondatnak ~126 px jut a két gomb mellett; a hosszú három sort kért.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} módosítva, {removed} eltávolítva.",
 		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
@@ -1615,7 +1662,7 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty":
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
-		"artifacts.canvas.chat.retry": "Újra",
+		"artifacts.canvas.chat.retry": "Újrapróbálom",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
@@ -1708,7 +1755,7 @@ const artifactsDict = {
 		"artifacts.canvas.export.saved": "A kép a beszélgetés fájljai között van.",
 		"artifacts.canvas.export.again": "Letöltés újra",
 		"artifacts.canvas.export.failed": "Nem sikerült exportálni a táblát.",
-		"artifacts.canvas.export.tryAgain": "Próbáld újra",
+		"artifacts.canvas.export.tryAgain": "Újrapróbálom",
 		"artifacts.canvas.export.empty": "A táblán még nincs mit exportálni.",
 		"artifacts.canvas.export.noConversation":
 			"Ez a tábla nem tartozik beszélgetéshez, ezért nem exportálható.",
@@ -1804,6 +1851,8 @@ const artifactsDict = {
 			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
 		"artifacts.history.help":
 			"{keys}: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
+		"artifacts.history.helpTouch":
+			"Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
 		"artifacts.history.helpDismiss": "Értem",
 		"artifacts.history.deleted.document": "Ezt a dokumentumot törölték.",
 		"artifacts.history.deleted.app": "Ezt az alkalmazást törölték.",
@@ -1895,6 +1944,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "Nem vagy online",
 		"artifacts.history.restoreNotRunnable":
 			"Már nem futtatható, ezért nem állítható vissza.",
+		"artifacts.history.restoreChecking": "Ellenőrzöm, hogy még futtatható-e…",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",

@@ -297,7 +297,7 @@ export async function openItem(page: Page, title: string) {
 /** The header's breadcrumb: from an open item back to the list. */
 export async function backToList(page: Page) {
 	await panelShell(page)
-		.getByRole("button", { name: /^Back to This chat/ })
+		.getByRole("button", { name: "Back to this chat's items" })
 		.click();
 	await expect(panelList(page)).toBeVisible();
 }

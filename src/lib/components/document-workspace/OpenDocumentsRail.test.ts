@@ -18,7 +18,9 @@ function makeDocument(
 }
 
 describe("OpenDocumentsRail", () => {
-	it("shows a v1 badge for generated files while persisted version metadata is pending", () => {
+	// Ruling 76 (Q2) and FB-8: a generated file's row is not "v1". A number is
+	// printed only where it tells a later copy of a document from an earlier one.
+	it("prints no bare v1 for generated files, whether or not their version metadata has arrived", () => {
 		render(OpenDocumentsRail, {
 			props: {
 				documents: [
@@ -31,6 +33,8 @@ describe("OpenDocumentsRail", () => {
 						id: "file-2",
 						filename: "slides.pptx",
 						title: "Slides",
+						versionNumber: 1,
+						documentFamilyId: "family-slides",
 					}),
 				],
 				activeDocumentId: "file-1",
@@ -39,7 +43,34 @@ describe("OpenDocumentsRail", () => {
 			},
 		});
 
-		expect(screen.getAllByText("v1")).toHaveLength(2);
+		expect(screen.queryByText("v1")).not.toBeInTheDocument();
+	});
+
+	it("prints the versions of a document when two of them are open, so they can be told apart", () => {
+		render(OpenDocumentsRail, {
+			props: {
+				documents: [
+					makeDocument({
+						id: "report-2",
+						title: "Report",
+						versionNumber: 2,
+						documentFamilyId: "family-report",
+					}),
+					makeDocument({
+						id: "report-1",
+						title: "Report",
+						versionNumber: 1,
+						documentFamilyId: "family-report",
+					}),
+				],
+				activeDocumentId: "report-2",
+				onSelectDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText("v1")).toBeInTheDocument();
+		expect(screen.getByText("v2")).toBeInTheDocument();
 	});
 
 	it("renders AI provenance as a compact badge", () => {

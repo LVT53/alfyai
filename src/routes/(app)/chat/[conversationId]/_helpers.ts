@@ -1,6 +1,8 @@
+import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebuild-activity";
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
 	buildDocumentAlfyActivity,
+	buildDocumentReadActivity,
 	type DocumentAlfyActivity,
 } from "$lib/components/artifacts/document/alfy-activity";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
@@ -338,6 +340,51 @@ export function hasActiveFileProductionJobs(
 	);
 }
 
+/** How long after a job last changed the page still expects its files to be rows of the list. */
+const FILE_LIST_EXPECTED_WITHIN_MS = 120_000;
+
+/**
+ * When the page asks the server for the chat again after a turn made a file and
+ * the file is not yet a row of the panel's list: soon, then less and less often,
+ * then it stops (a file that is not there after this long is not coming).
+ */
+export const FILE_LIST_RETRY_DELAYS_MS: readonly number[] = [
+	300, 700, 1_200, 2_000, 3_000, 4_500, 6_000,
+];
+
+/**
+ * A file the chat shows a card for that is not yet a row of the panel's list or a
+ * step of the header's count. The server links a produced file to its reply when
+ * the turn has ended, after the terminal frame (the deferred post-turn projection)
+ * and the list only has files that hang from a reply, so the read the page made
+ * when the tool finished could not have had it and the stream says nothing more:
+ * every file request left the list stale until a reload (RC-A).
+ *
+ * Only a succeeded job of a reply counts, a recent one (an old job whose files are
+ * not listed for some other reason must not make the page ask on every visit),
+ * with files that were not deleted (`knownArtifactIds` holds the ids the list has
+ * and the ones this browser deleted).
+ */
+export function filesWaitingForTheList(
+	jobs: FileProductionJob[],
+	knownArtifactIds: ReadonlySet<string>,
+	nowMs: number,
+): boolean {
+	return jobs.some(
+		(job) =>
+			job.status === "succeeded" &&
+			Boolean(job.assistantMessageId) &&
+			!job.dismissed &&
+			!job.filesDeleted &&
+			nowMs - job.updatedAt < FILE_LIST_EXPECTED_WITHIN_MS &&
+			job.files.some(
+				(file) =>
+					Boolean(file.artifactId) &&
+					!knownArtifactIds.has(file.artifactId ?? ""),
+			),
+	);
+}
+
 export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	return jobs.some(
 		(job) => job.status === "queued" || job.status === "running",
@@ -509,13 +556,27 @@ export function dropPendingFileProductionJobs(
 	return currentJobs.filter((job) => !isPendingFileProductionJobId(job.id));
 }
 
+/**
+ * The optimistic mirror of what the server assigns when a turn finishes: the jobs
+ * this turn made, stamped with the reply that made them. `createdSince` is what
+ * keeps it to that. The server assigns only jobs made after the turn began, but
+ * this used to stamp EVERY job of the conversation that hung from no reply, so a
+ * job an earlier Download had left (or one whose intake failed) came back as a
+ * card of a reply that never made it, until the next reload (friction audit F1).
+ * Left out, every unassigned job of the conversation is stamped, as before.
+ */
 export function attachUnassignedFileProductionJobsToAssistant(
 	currentJobs: FileProductionJob[],
-	params: { conversationId: string; assistantMessageId: string },
+	params: {
+		conversationId: string;
+		assistantMessageId: string;
+		createdSince?: number;
+	},
 ): FileProductionJob[] {
 	return currentJobs.map((job) =>
 		job.conversationId === params.conversationId &&
-		job.assistantMessageId === null
+		job.assistantMessageId === null &&
+		(params.createdSince === undefined || job.createdAt >= params.createdSince)
 			? { ...job, assistantMessageId: params.assistantMessageId }
 			: job,
 	);
@@ -1094,9 +1155,26 @@ export function findLiveDocumentAlfyActivity(
 			) {
 				continue;
 			}
+			// An App's rebuild first (F2, ruling 77): its call is told by its
+			// `instruction`, and the Document reading would take the running call for a
+			// Document's and drop the settled one.
 			const activity =
-				buildCanvasAlfyActivity(segment) ?? buildDocumentAlfyActivity(segment);
+				buildAppRebuildActivity(segment) ??
+				buildCanvasAlfyActivity(segment) ??
+				buildDocumentAlfyActivity(segment);
 			if (activity) return activity;
+		}
+		// F6 (ruling 77): a turn that is still running and has read a Document but has
+		// not (as far as the browser can hear) begun to change it: the model is writing
+		// its patch. Only while the message streams, so a stopped, failed or finished
+		// turn hands nothing on and the panel's "Alfy is at work" never outlives it.
+		if (messages[i]?.isStreaming) {
+			for (let j = segments.length - 1; j >= 0; j -= 1) {
+				const segment = segments[j];
+				if (segment.type !== "tool_call") continue;
+				const reading = buildDocumentReadActivity(segment);
+				if (reading) return reading;
+			}
 		}
 	}
 	return null;

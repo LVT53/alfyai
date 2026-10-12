@@ -81,6 +81,31 @@ describe("Mermaid", () => {
 		expect(container.querySelector(".markdown-diagram-error")).toBeNull();
 	});
 
+	// F11: a board's block is not for reading the source, so it asks for a quiet bar
+	// while the drawing is made; a source that cannot be drawn is still shown.
+	it("shows a quiet bar and no source before the diagram resolves when asked to (a board's block)", async () => {
+		renderMermaid.mockReturnValueOnce(new Promise<{ svg: string }>(() => {}));
+		const { container } = render(Mermaid, {
+			props: { code: "graph TD\nA-->B", quiet: true },
+		});
+		expect(container.querySelector(".markdown-mermaid-pending")).toBeTruthy();
+		expect(container.querySelector(".markdown-mermaid-placeholder")).toBeNull();
+		expect(container.textContent).not.toContain("graph TD");
+	});
+
+	it("still shows the source and its note when a quiet diagram cannot be drawn", async () => {
+		renderMermaid.mockRejectedValue(new Error("Parse error on line 1"));
+		const { container } = render(Mermaid, {
+			props: { code: "graph TD\nA--!!-->B", quiet: true },
+		});
+		await waitFor(() => {
+			expect(container.querySelector(".markdown-diagram-error")).toBeTruthy();
+		});
+		expect(
+			container.querySelector(".markdown-diagram-source")?.textContent,
+		).toContain("A--!!-->B");
+	});
+
 	// Mermaid's default theme inks lines, arrows and labels dark, which a dark
 	// page swallows: the diagram is drawn in the reader's theme (the chat and a
 	// Canvas block both draw it through this component).

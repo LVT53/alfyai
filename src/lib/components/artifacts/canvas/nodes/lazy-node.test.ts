@@ -261,7 +261,9 @@ describe("the loading wrapper", () => {
 		expect(
 			await screen.findByText("Ezt a blokkot nem sikerült betölteni."),
 		).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Újra" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Újrapróbálom" }),
+		).toBeInTheDocument();
 	});
 
 	it("draws the missing-kind card for a kind it has no loader for, and stays a real node", () => {

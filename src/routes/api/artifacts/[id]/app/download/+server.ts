@@ -1,7 +1,13 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { getArtifact } from "$lib/server/services/artifacts";
-import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import {
+	artifactExportIdempotencyKey,
+	getArtifact,
+} from "$lib/server/services/artifacts";
+import {
+	ARTIFACT_EXPORT_JOB_ORIGIN,
+	submitFileProductionIntake,
+} from "$lib/server/services/file-production";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -58,9 +64,20 @@ export const POST: RequestHandler = async (event) => {
 	const base64Html = Buffer.from(artifact.body, "utf8").toString("base64");
 	const result = await submitFileProductionIntake({
 		userId: user.id,
+		// The reader's own export, not a reply's (see the Document export route).
+		origin: ARTIFACT_EXPORT_JOB_ORIGIN,
+		// The same App, as it is now, is the same file: a press after one that worked
+		// is handed the file it made. A job an earlier press left failed (no sandbox, a
+		// timeout) is not handed back to every press after it as the same failure.
+		reuse: "usable",
 		body: {
 			conversationId: artifact.conversationId,
-			idempotencyKey: `app-html:${artifact.id}:${artifact.versionNumber}`,
+			idempotencyKey: artifactExportIdempotencyKey({
+				artifactId: artifact.id,
+				format: "html",
+				title: artifact.title,
+				body: artifact.body,
+			}),
 			requestTitle: `${artifact.title} — app source`,
 			sourceMode: "program",
 			program: {

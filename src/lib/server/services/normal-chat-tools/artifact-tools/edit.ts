@@ -1,8 +1,8 @@
-// edit_artifact: patch a Document/Slides item by block/field, or apply a
-// Canvas diff. A refusal is the feature, not the failure: the user's own
-// concurrent edit wins, and the model is told why so it can act rather than
-// retry blind. See docs/plans/claude-at-home-2/slice-5.md §The three tools
-// and decisions.md ruling 43.
+// edit_artifact: patch a Document/Slides item by block/field, apply a Canvas
+// diff, or rebuild an App from an instruction. A refusal is the feature, not the
+// failure: the user's own concurrent edit wins, and the model is told why so it
+// can act rather than retry blind. See docs/plans/claude-at-home-2/slice-5.md
+// §The three tools and decisions.md ruling 43 (the App's rebuild: ruling 77, F2).
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -14,6 +14,10 @@ import {
 	listVersions,
 	type OpsEnvelopeResult,
 } from "$lib/server/services/artifacts";
+import {
+	type RegenerateAppResult,
+	regenerateApp,
+} from "$lib/server/services/artifacts/app/regenerate";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { parseDocument } from "$lib/shared/artifact-document/blocks";
 import {
@@ -39,6 +43,7 @@ import {
 	lastKnownBoardVersion,
 } from "./canvas-model";
 import {
+	editArtifactInstructionFieldDescription,
 	editArtifactOpsFieldDescription,
 	editArtifactPatchesFieldDescription,
 } from "./kind-prose";
@@ -46,7 +51,7 @@ import {
 	advertisedArtifactKinds,
 	type CreatableArtifactKind,
 } from "./kind-registry";
-import { jsonArrayArg } from "./tool-args";
+import { appInstructionSchema, jsonArrayArg } from "./tool-args";
 
 /**
  * `patches`'s real, executed shape (Document's five ops — `patchOpInputSchema`
@@ -62,6 +67,14 @@ export const documentPatchesArraySchema = z
 	.array(patchOpInputSchema)
 	.min(1)
 	.max(40);
+
+/**
+ * An App is changed by an instruction, and the whole App is rebuilt from the
+ * current one (F2, ruling 77). A rebuild is a model call of tens of seconds, so a
+ * turn gets this many (an attempt counts, a failed one cost the call too): the
+ * same reason `create_artifact` is capped per turn (ruling 53).
+ */
+export const MAX_APP_REBUILDS_PER_TURN = 2;
 
 /**
  * Advertised to the model, and — via `compactToolInputSchema`'s `shown`
@@ -92,6 +105,10 @@ export function buildEditArtifactModelInputSchema(
 		kinds.includes("canvas") ? boardOpsArraySchema : z.array(z.unknown())
 	).optional();
 	const opsDescription = editArtifactOpsFieldDescription(kinds);
+	// An App: the instruction schema the handler's own call is validated with
+	// (below), described once an App can be made.
+	const instruction = appInstructionSchema.optional();
+	const instructionDescription = editArtifactInstructionFieldDescription(kinds);
 	return z.object({
 		artifactId: z
 			.string()
@@ -103,6 +120,9 @@ export function buildEditArtifactModelInputSchema(
 			? patches.describe(patchesDescription)
 			: patches,
 		ops: opsDescription ? ops.describe(opsDescription) : ops,
+		instruction: instructionDescription
+			? instruction.describe(instructionDescription)
+			: instruction,
 		summary: z
 			.string()
 			.min(1)
@@ -119,6 +139,7 @@ export const editArtifactInputSchema = z.object({
 	artifactId: z.string().min(1),
 	patches: jsonArrayArg("patches").min(1).max(40).optional(),
 	ops: jsonArrayArg("ops").min(1).max(40).optional(),
+	instruction: appInstructionSchema.optional(),
 	summary: z.string().min(1).max(200).optional(),
 });
 
@@ -174,6 +195,8 @@ export type EditArtifactModelPayload =
 			refused: ArtifactRefusal[];
 			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74): the block's own place, and what became of its frame. */
 			placed?: PlacedNote[];
+			/** What the model should know about the outcome beyond the numbers: an App's rebuild is finished when this call returns (F2). */
+			note?: string;
 	  }
 	| {
 			success: false;
@@ -197,17 +220,23 @@ export interface EditArtifactHandlerParams {
 	title: string;
 	patches?: unknown[];
 	ops?: unknown[];
+	/** An App: what to change (F2, ruling 77). */
+	instruction?: string;
+	/** The turn's resolved language (ruling 55), for the one kind that generates text of its own: an App's rebuild writes its labels in it. */
+	language?: "en" | "hu";
 	summary?: string;
 	/**
 	 * What this turn has already done, for a kind that judges an edit against what
 	 * the model last read (Canvas, ruling 67): the recorder's entries, the same
 	 * seam a create handler is handed, and the words of each board the turn read
 	 * (`knownBoards`, in memory, never on a record). Optional: without it every op
-	 * is judged against the item as it is now.
+	 * is judged against the item as it is now. An App's rebuild counts against this
+	 * turn's `appRebuildBudget`, when the turn keeps one.
 	 */
 	turnContext?: {
 		sources: readonly ToolCallEntry[];
 		knownBoards?: KnownBoards;
+		appRebuildBudget?: { used: number };
 	};
 	/**
 	 * Fires on the tool's own timeout (20s, TOOL_TIMEOUTS_MS.edit_artifact) or
@@ -233,6 +262,8 @@ export interface EditArtifactHandlerSuccess {
 	baseVersionId?: string;
 	/** Canvas: where the app put what was added (ruling 74). */
 	placed?: PlacedNote[];
+	/** An App's rebuild is done when the call returns: the model is told so (F2), or it says the new version is still on its way. */
+	note?: string;
 }
 
 /**
@@ -468,7 +499,84 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			},
 		};
 	},
+	/**
+	 * An App is changed by rebuilding it (F2, ruling 77): `regenerateApp`, the one
+	 * function the panel's own "Change this app" runs, so a request made in the
+	 * chat and one made in the panel go through the same pipeline. The generator is
+	 * handed the App as it is and the instruction (`generateApp`), the document it
+	 * writes is audited against the sandbox contract and a violation is retried
+	 * once, then refused (`generateApp`'s `auditAppHtml`, ruling 58), the fact
+	 * verifier's repair is audited again before it can become the body
+	 * (`generateAndVerifyApp`'s `appViolations`, rulings 52 and 58), and one new
+	 * Alfy version is written on top of the version the call started from
+	 * (`updateArtifactBody` with `expectVersion`), which History shows as a rebuild.
+	 * A call that was cancelled or failed writes nothing (ruling 53), and the App is
+	 * never made again as a second one.
+	 */
+	app: async (params) => {
+		if (params.abortSignal.aborted) {
+			return { ok: false, error: "The request was cancelled." };
+		}
+		const instruction = params.instruction?.trim();
+		if (params.patches || params.ops || !instruction) {
+			return { ok: false, error: APP_NEEDS_INSTRUCTION_MESSAGE };
+		}
+		const budget = params.turnContext?.appRebuildBudget;
+		if (budget) {
+			if (budget.used >= MAX_APP_REBUILDS_PER_TURN) {
+				return {
+					ok: false,
+					error: `This turn has already rebuilt an App ${budget.used} times, which is the limit. Stop rebuilding: tell the user what you changed and what is still open.`,
+				};
+			}
+			// An attempt counts whether or not it lands: the model call was made.
+			budget.used += 1;
+		}
+		const result = await regenerateApp({
+			userId: params.userId,
+			artifactId: params.artifactId,
+			conversationId: params.conversationId,
+			prompt: instruction,
+			language: params.language ?? "en",
+			abortSignal: params.abortSignal,
+		});
+		if (!result.ok) {
+			return { ok: false, error: appRebuildFailureMessage(result) };
+		}
+		return {
+			ok: true,
+			value: {
+				versionId: result.versionId,
+				applied: 1,
+				refused: [],
+				note: APP_REBUILT_NOTE,
+			},
+		};
+	},
 };
+
+/** The rebuild has finished when the call returns, and the open panel already shows it: said, so the model does not tell the user it is still on its way. */
+const APP_REBUILT_NOTE =
+	"The App has been rebuilt and the new version is open now. Tell the user what changed, as the change they asked for; nothing is still pending.";
+
+const APP_NEEDS_INSTRUCTION_MESSAGE =
+	"An App is changed with `instruction`: say what should change, in the user's words (patches and ops are for a Document and a board). The whole App is rebuilt from the current one.";
+
+/** What the model is told when a rebuild did not land: what happened, that nothing changed, and that the answer is never a second App. */
+function appRebuildFailureMessage(
+	result: Exclude<RegenerateAppResult, { ok: true }>,
+): string {
+	switch (result.reason) {
+		case "not_found":
+			return "This App could not be found.";
+		case "aborted":
+			return "The request was cancelled.";
+		case "version_conflict":
+			return `The App changed while it was being rebuilt (it is at version ${result.version} now). Nothing was written. Tell the user, or call edit_artifact once more to rebuild from the current version.`;
+		default:
+			return `The App could not be rebuilt (${result.detail}). The current version is unchanged. Tell the user, and do not make a new App instead.`;
+	}
+}
 
 /**
  * An edit landed as a version on top of another. When the board its ops were
@@ -532,22 +640,8 @@ async function applyBoardOps(
 	return { outcome, baseVersionId: newest.id };
 }
 
-// English only (see create.ts's identical note): App gets its own framing
-// because "edited in place" will never be true for it even once Slice 2
-// lands — an App's whole HTML is one generated unit, regenerated as a whole,
-// never patched field-by-field the way a Document or Slides deck is. The
-// other three kinds get the honest "not yet" message because they will.
-const UNSUPPORTED_KIND_MESSAGES: Partial<
-	Record<CreatableArtifactKind, string>
-> = {
-	app: "Apps are not edited in place — create a new App with the changes instead of patching this one.",
-};
-
-function unsupportedKindMessage(kind: CreatableArtifactKind): string {
-	return (
-		UNSUPPORTED_KIND_MESSAGES[kind] ??
-		`This item's edits are not supported yet. Say so, and offer the closest alternative you can actually do.`
-	);
+function unsupportedKindMessage(): string {
+	return "This item's edits are not supported yet. Say so, and offer the closest alternative you can actually do.";
 }
 
 export interface EditArtifactRunResult {
@@ -588,6 +682,8 @@ export async function runEditArtifactTool(params: {
 	artifactId: string;
 	patches?: unknown[];
 	ops?: unknown[];
+	instruction?: string;
+	language?: "en" | "hu";
 	summary?: string;
 	turnContext?: EditArtifactHandlerParams["turnContext"];
 	abortSignal: AbortSignal;
@@ -600,9 +696,18 @@ export async function runEditArtifactTool(params: {
 			metadata: { ok: false },
 		};
 	}
-	if (!params.patches && !params.ops) {
+	if (params.instruction && (params.patches || params.ops)) {
 		const error =
-			"Send patches (Document/Slides) or ops (Canvas) — this call had neither.";
+			"Send instruction (an App) or patches/ops (a Document, a board), never both in the same call.";
+		return {
+			modelPayload: { success: false, error },
+			outputSummary: error,
+			metadata: { ok: false },
+		};
+	}
+	if (!params.patches && !params.ops && !params.instruction) {
+		const error =
+			"Send patches (Document/Slides), ops (Canvas) or instruction (App) — this call had none of them.";
 		return {
 			modelPayload: { success: false, error },
 			outputSummary: error,
@@ -640,13 +745,14 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: "file",
+				artifactTitle: record.title,
 			},
 		};
 	}
 
-	const handler = EDIT_ARTIFACT_HANDLERS[record.kind];
-	if (!handler) {
-		const error = unsupportedKindMessage(record.kind);
+	if (params.instruction && record.kind !== "app") {
+		const field = record.kind === "canvas" ? "ops" : "patches";
+		const error = `instruction is for Apps only. This item is a ${record.kind}: send ${field}.`;
 		const refusal: ArtifactRefusal = {
 			target: record.id,
 			reason: "unsupported_kind",
@@ -658,6 +764,26 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				artifactTitle: record.title,
+			},
+		};
+	}
+
+	const handler = EDIT_ARTIFACT_HANDLERS[record.kind];
+	if (!handler) {
+		const error = unsupportedKindMessage();
+		const refusal: ArtifactRefusal = {
+			target: record.id,
+			reason: "unsupported_kind",
+		};
+		return {
+			modelPayload: { success: false, error, refused: [refusal] },
+			outputSummary: truncateText(error, 200),
+			metadata: {
+				ok: false,
+				artifactId: record.id,
+				artifactKind: record.kind,
+				artifactTitle: record.title,
 			},
 		};
 	}
@@ -670,6 +796,8 @@ export async function runEditArtifactTool(params: {
 		title: record.title,
 		patches: params.patches,
 		ops: params.ops,
+		instruction: params.instruction,
+		language: params.language,
 		summary: params.summary,
 		turnContext: params.turnContext,
 		abortSignal: params.abortSignal,
@@ -692,6 +820,8 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				// The chat's row for a refused edit names the item by it (RC-A #2).
+				artifactTitle: record.title,
 				...(perOp.length > 0
 					? {
 							refusedBlocksJson: JSON.stringify(
@@ -708,9 +838,12 @@ export async function runEditArtifactTool(params: {
 	}
 
 	const refusedCount = result.value.refused.length;
-	const outputSummary = `Edited ${record.kind} "${record.title}" (${result.value.applied} applied${
-		refusedCount > 0 ? `, ${refusedCount} refused` : ""
-	})`;
+	const outputSummary =
+		record.kind === "app"
+			? `Rebuilt app "${record.title}"`
+			: `Edited ${record.kind} "${record.title}" (${result.value.applied} applied${
+					refusedCount > 0 ? `, ${refusedCount} refused` : ""
+				})`;
 	return {
 		modelPayload: {
 			success: true,
@@ -719,6 +852,7 @@ export async function runEditArtifactTool(params: {
 			applied: result.value.applied,
 			refused: result.value.refused,
 			...(result.value.placed ? { placed: result.value.placed } : {}),
+			...(result.value.note ? { note: result.value.note } : {}),
 		},
 		outputSummary,
 		metadata: {

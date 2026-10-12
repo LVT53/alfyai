@@ -52,9 +52,10 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  * one tears down the first editor and mounts a fresh one against the new id
  * — the module stays cached (above), only the per-document state reloads.
  */
+import { MessageSquare } from "@lucide/svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { cubicIn, cubicOut } from "svelte/easing";
-import { fly } from "svelte/transition";
+import { fly, slide } from "svelte/transition";
 import {
 	acknowledgeDocumentReviewBlocks,
 	askAlfyInComment,
@@ -100,6 +101,7 @@ import AlfyWriting from "./AlfyWriting.svelte";
 import { BLOCK_ID_ATTR } from "./block-attrs";
 import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
+import { removeChangePillSmoothly } from "./change-pill-removal";
 import {
 	type AnchorBox,
 	commentAnchorTargets,
@@ -344,14 +346,14 @@ let commentsOverlayOpen = $state(false);
 /** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
 let commentFilter = $state<"open" | "all">("open");
 let commentOrphanedGroupOpen = $state(false);
-/** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
-let commentsRailShown = $derived(
-	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
-);
-/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
-let commentsShown = $derived(
-	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
-);
+/**
+ * F14 (ruling 77): the threads Alfy is replying in right now. A comment that asks
+ * Alfy something is posted at once (the composer closes, the reader's words are in
+ * the thread) and the reply is awaited in the background; the thread shows a
+ * pending row for exactly as long as its id is here, and a second ask on a thread
+ * that is already being answered sends nothing.
+ */
+let answeringThreadIds = $state<ReadonlySet<string>>(new Set());
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -365,7 +367,7 @@ let changeChipByCommentId = $derived.by(() => {
 // ---- end redesign §3.2 -----------------------------------------------
 
 // ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
-// `alfyWritingLabel` drives the shimmer; `pendingChanges` drives the inline
+// `alfyWriting` drives the "Alfy is at work" strip; `pendingChanges` drives the inline
 // pill (one per applied op, keyed by `changeId`) AND the review bar;
 // `refusalNotice` is `null` until a landed call actually refused something.
 // `handledActivityKey` guards against reprocessing the SAME settled call
@@ -388,6 +390,8 @@ const UNDO_SETTLE_MS = 5000;
  * pill-arrival animation in `ChangeBar.svelte`, which needs no such wrapper).
  */
 const reviewBarFly = reducedMotionAware(fly);
+/** The "Alfy is at work" strip's slot (F6): the room it takes is made and given back over a moment. */
+const workingSlide = reducedMotionAware(slide);
 
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
@@ -419,7 +423,18 @@ interface PendingAlfyChange {
 	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
 	fallbackPos?: number;
 }
-let alfyWritingLabel = $state<string | null>(null);
+/**
+ * "Alfy is at work" (F6): which call it is for (so a call that has landed clears only
+ * its own) and what to say once the call's own summary is known. Null: nothing to show.
+ */
+let alfyWriting = $state<{
+	key: string;
+	summary: string | null;
+	/** From a read of the Document, before any edit call is known: whatever call lands next takes this one over. */
+	reading: boolean;
+} | null>(null);
+/** The call whose change is being put into the panel right now (`landAlfyActivity`): the strip is its until it is done. Not reactive: the effect below only compares it. */
+let landingActivityKey: string | null = null;
 /**
  * rd/review-2-5.md:217-222: one shared, visually hidden `aria-live="polite"`
  * region (rendered once, near the top of this component's template),
@@ -465,6 +480,39 @@ let refusalNotice = $state<{
 	refusedBlockIds: string[];
 } | null>(null);
 let handledActivityKey = "";
+
+// ---- F24 (ruling 77): the comment column takes no room until it has something -
+/**
+ * The inline column beside the text is for what is listed in it: a comment, or
+ * the "your words win" card. An empty Document used to spend 300 px (440 px of
+ * text at 1440 with the sidebar open) on "No comments yet", so until the first
+ * comment a quiet strip stands in its place (`commentsAffordanceShown`) and the
+ * reader opens the empty column on purpose (`railPinned`, this body's own, closed
+ * again by the header's button). The first comment brings the column by itself.
+ */
+let railPinned = $state(false);
+let railHasContent = $derived(comments.length > 0 || refusalNotice !== null);
+/** The inline column beside the text: room for it, not on a phone, not switched off on this device, and something to list (or opened on purpose). */
+let commentsRailShown = $derived(
+	!isPhone &&
+		!isNarrowPanel &&
+		!$documentCommentsRailHidden &&
+		(railHasContent || railPinned),
+);
+/** The strip that stands in for the column while it has nothing to list. */
+let commentsAffordanceShown = $derived(
+	!isPhone &&
+		!isNarrowPanel &&
+		!$documentCommentsRailHidden &&
+		!railHasContent &&
+		!railPinned,
+);
+/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
+let commentsShown = $derived(
+	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
+);
+// ---- end F24 ----------------------------------------------------------------
+
 // ---- end T8 live -----------------------------------------------------
 
 function updateBlocksFromMarkdown(markdown: string): void {
@@ -663,7 +711,30 @@ function findThreadBlockId(commentId: string): string | null {
  * whole block is the honest, always-correct representation of "this block
  * changed," not a guess at a narrower range.
  */
+/** The reply runs detached from the press that asked for it (F14), so nothing awaits it to hear it fail. */
+function warnAlfyReplyFailed(error: unknown): void {
+	console.warn("[DOCUMENT] an @Alfy reply could not be finished", error);
+}
+
 async function maybeAskAlfy(
+	commentId: string,
+	blockId: string | null,
+	threadId: string,
+): Promise<void> {
+	// One answer at a time per thread: a second press (or a second tab's) while Alfy
+	// is already replying here asks for nothing more.
+	if (answeringThreadIds.has(threadId)) return;
+	answeringThreadIds = new Set(answeringThreadIds).add(threadId);
+	try {
+		await askAlfyAboutComment(commentId, blockId);
+	} finally {
+		const next = new Set(answeringThreadIds);
+		next.delete(threadId);
+		answeringThreadIds = next;
+	}
+}
+
+async function askAlfyAboutComment(
 	commentId: string,
 	blockId: string | null,
 ): Promise<void> {
@@ -764,8 +835,12 @@ async function postComment(anchor: Anchor, body: string): Promise<string> {
 	);
 	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
+	// F14: the comment is in; Alfy's reply is awaited in the background (the thread
+	// shows "Alfy is replying…"), so the composer does not sit open over the text.
 	if (mentionsAlfy(body)) {
-		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
+		void maybeAskAlfy(created.id, textAnchorBlockId(anchor), created.id).catch(
+			warnAlfyReplyFailed,
+		);
 	}
 	return created.id;
 }
@@ -861,7 +936,9 @@ async function postReply(parentId: string, body: string): Promise<void> {
 	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
-		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
+		void maybeAskAlfy(created.id, findThreadBlockId(parentId), parentId).catch(
+			warnAlfyReplyFailed,
+		);
 	}
 }
 
@@ -925,31 +1002,66 @@ $effect(() => {
 	const activity = alfyActivity;
 	if (!activity || activity.artifactId !== boundArtifactId) {
 		// Fully derived, not just "nothing to do": a document switch (or the
-		// activity moving on to a different artifact) must not leave a stale
-		// shimmer from whatever was showing a moment ago.
-		alfyWritingLabel = null;
+		// activity moving on to a different artifact), or a turn that is over (the
+		// chat page stops handing its activity on), must not leave a stale strip
+		// from whatever was showing a moment ago.
+		alfyWriting = null;
 		return;
 	}
 
 	if (activity.status === "running") {
-		alfyWritingLabel = activity.label ?? title;
+		// F6: from Alfy's first look at the Document (a read) through the edit call's
+		// own run; the strip goes only when the change has landed (below).
+		alfyWriting = {
+			key: activity.key,
+			summary: activity.label,
+			reading: activity.toolName === "read_artifact",
+		};
 		return;
 	}
-	// Settled (applied/refused/failed): the shimmer never outlives its call
-	// (T8.6), whatever else this activity turns out to mean.
-	alfyWritingLabel = null;
 	// Settled before this body existed: the server's review state owns it.
-	if (activity.key === settledActivityKeyAtMount) return;
+	if (activity.key === settledActivityKeyAtMount) {
+		alfyWriting = null;
+		return;
+	}
 
 	const key = `${activity.key}:${activity.status}`;
-	if (key === handledActivityKey) return;
+	if (key === handledActivityKey) {
+		// Landing now (its own `finally` takes the strip down), or landed long ago and
+		// handed back by the page because a later turn that only read the Document is
+		// over (stopped, failed or finished): the strip that turn's read left goes now.
+		if (landingActivityKey !== activity.key) alfyWriting = null;
+		return;
+	}
 	// The call stays un-handled (and this effect will re-run and retry) until
-	// the editor can actually receive it — see this effect's own comment.
-	if (!editorReady) return;
+	// the editor can actually receive it — see this effect's own comment. The
+	// strip stays until then too (the change has not landed in the panel yet),
+	// unless the Document can never load.
+	if (!editorReady) {
+		if (loadState === "load_error" || loadState === "not_found") {
+			alfyWriting = null;
+		}
+		return;
+	}
 	handledActivityKey = key;
 
-	if (activity.status === "failed") return;
-	void landAlfyActivity(activity);
+	if (activity.status === "failed") {
+		alfyWriting = null;
+		return;
+	}
+	// Applied or refused: the strip is Alfy's change on its way and goes once the
+	// panel shows it (its marks, its pills), never before (T8.6): its own, or the
+	// read's that came before it when the edit call was too quick to be seen running.
+	landingActivityKey = activity.key;
+	void landAlfyActivity(activity).finally(() => {
+		if (landingActivityKey === activity.key) landingActivityKey = null;
+		if (
+			alfyWriting !== null &&
+			(alfyWriting.reading || alfyWriting.key === activity.key)
+		) {
+			alfyWriting = null;
+		}
+	});
 });
 
 /**
@@ -1111,8 +1223,12 @@ function handleKeepChange(changeId: string): void {
 	void acknowledgeReview([pending.entry.blockId]);
 	void focusAfterKeep();
 	setTimeout(() => {
-		if (editor && keepChangeFn) keepChangeFn(editor, changeId);
-		removePendingChange(changeId);
+		// F18: a pill on a line of its own takes that line with it; what is below
+		// comes up over a moment instead of by a line in one frame.
+		void removeChangePillSmoothly(documentBodyEl ?? document, changeId, () => {
+			if (editor && keepChangeFn) keepChangeFn(editor, changeId);
+			removePendingChange(changeId);
+		});
 	}, KEEP_SETTLE_MS);
 }
 
@@ -1765,6 +1881,14 @@ function openCommentsOverlay(): void {
 function toggleComments(): void {
 	if (isPhone || isNarrowPanel) {
 		commentsOverlayOpen = !commentsOverlayOpen;
+		return;
+	}
+	// Nothing to list (F24): the column is the reader's to open and to close, for
+	// this body only; with something in it, the device-wide choice as before.
+	if (!railHasContent) {
+		const opening = !commentsRailShown;
+		railPinned = opening;
+		if (opening) documentCommentsRailHidden.set(false);
 		return;
 	}
 	documentCommentsRailHidden.update((hidden) => !hidden);
@@ -2463,13 +2587,17 @@ function saveNoticeText(notice: SaveNotice): string {
 				onAction={handleToolbarAction}
 			/>
 		</div>
-		<!-- T8 live: the planned-section shimmer while a matching create_artifact/
-		     edit_artifact call is in flight. It sits above the content row so it
-		     neither depends on — nor fights with — the editor's own layout. (The
-		     refusal notice used to sit here too; it is a card in the comment
-		     list now, beside the line it is about.) -->
-		{#if alfyWritingLabel !== null}
-			<AlfyWriting label={alfyWritingLabel} />
+		<!-- T8 live / F6: the quiet "Alfy is at work" strip, from Alfy's first look at
+		     this Document in a turn until its change has landed. It sits above the
+		     content row so it neither depends on — nor fights with — the editor's own
+		     layout, and its slot slides so the text makes room for it and gives the
+		     room back over a moment rather than by a jump. (The refusal notice used
+		     to sit here too; it is a card in the comment list now, beside the line
+		     it is about.) -->
+		{#if alfyWriting !== null}
+			<div class="document-working-slot" transition:workingSlide={{ duration: MOTION_DURATION.standard }}>
+				<AlfyWriting summary={alfyWriting.summary} />
+			</div>
 		{/if}
 		<!-- The text and its comments, side by side. `.document-content` is a
 		     plain row that does not scroll; the TEXT column inside it is the one
@@ -2606,6 +2734,21 @@ function saveNoticeText(notice: SaveNotice): string {
 			     480 px; below that there is no column, the header's Comments
 			     button opens the drawer instead. Switched off per device by the
 			     same button. -->
+			{#if commentsAffordanceShown}
+				<!-- F24: a quiet strip where the column will be, until the first comment. -->
+				<div class="document-rail-collapsed">
+					<button
+						type="button"
+						class="document-rail-collapsed-button"
+						data-testid="document-comments-affordance"
+						aria-label={$t('artifacts.document.margin.show')}
+						title={$t('artifacts.document.margin.show')}
+						onclick={toggleComments}
+					>
+						<MessageSquare size={16} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</div>
+			{/if}
 			{#if commentsRailShown}
 				<aside
 					class="document-content-rail"
@@ -2624,6 +2767,7 @@ function saveNoticeText(notice: SaveNotice): string {
 						{activeTabId}
 						refusal={marginRefusal}
 						changeStateByCommentId={changeChipByCommentId}
+						{answeringThreadIds}
 						{activeCommentId}
 						focusRequest={focusCommentRequest}
 						revealRequest={revealCommentRequest}
@@ -2657,6 +2801,7 @@ function saveNoticeText(notice: SaveNotice): string {
 					{activeTabId}
 					refusal={marginRefusal}
 					changeStateByCommentId={changeChipByCommentId}
+					{answeringThreadIds}
 					{activeCommentId}
 					focusRequest={focusCommentRequest}
 					onResolve={handleCommentResolve}
@@ -2749,6 +2894,42 @@ function saveNoticeText(notice: SaveNotice): string {
 		display: flex;
 		flex-direction: column;
 		min-height: 100%;
+	}
+
+	/* F24: what stands where the comment column will be while it has nothing to
+	   list: one quiet, finger-sized button in a hairline strip. */
+	.document-rail-collapsed {
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		align-items: center;
+		width: 2.5rem;
+		padding-top: 0.5rem;
+		border-left: 1px solid var(--border-subtle);
+		background-color: var(--surface-page);
+	}
+
+	.document-rail-collapsed-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: none;
+		border-radius: var(--radius-md);
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.document-rail-collapsed-button:hover {
+		background-color: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.document-rail-collapsed-button:focus-visible {
+		outline: 2px solid var(--border-focus);
+		outline-offset: 1px;
 	}
 
 	/* The comment column: its own height, its own scrolling list

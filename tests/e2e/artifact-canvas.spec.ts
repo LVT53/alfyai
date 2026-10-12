@@ -1641,7 +1641,10 @@ test.describe("the Canvas kind, in the panel", () => {
 // RV-3 Minor 3: a finger is not a pointer. The connection anchors of a selected block
 // are 9 px (5 px at a phone's fit zoom) and its resize corners 8 px, and neither had a
 // larger hit area, so connecting or resizing with a finger was impractical. Each gets an
-// invisible hit area of about 24 px on the screen, whatever the zoom, on a touch screen only.
+// invisible hit area of about 24 px on the screen, whatever the zoom, on a touch screen.
+// F28 (ruling 77): a pointer is not a pin either. The resize corners keep their small dot
+// and have that 24 px (the least WCAG 2.2 asks of a target) for a mouse too, and 44 px for
+// a finger; the anchors, which a mouse has no need of, keep to the finger's alone.
 /** The handles a selected block shows, and the ones a point 10 px from their centre does not reach. */
 async function handlesMissedFromTenPixels(page: Page, id: string) {
 	return page.evaluate((nodeId) => {
@@ -1689,7 +1692,9 @@ test.describe("a selected block's handles, by pointer", () => {
 		await login(page);
 	});
 
-	test("keep their own small hit area with a mouse", async ({ page }) => {
+	test("have a hit area of their own with a mouse: the resize corners are reached from 10 px, the anchors are not", async ({
+		page,
+	}) => {
 		const conversationId = await createEmptyConversation(page, "Mouse handles");
 		await seedCanvas(conversationId, oneNoteBoard());
 		await openChatAndReload(page, conversationId);
@@ -1704,7 +1709,9 @@ test.describe("a selected block's handles, by pointer", () => {
 			"note-alone",
 		);
 		expect(total).toBe(8);
-		expect(missed).toHaveLength(total);
+		// The four connection anchors are missed from 10 px; the four resize corners are not.
+		expect(missed).toHaveLength(4);
+		expect(missed.every((name) => name.includes("canvas-anchor"))).toBe(true);
 	});
 });
 

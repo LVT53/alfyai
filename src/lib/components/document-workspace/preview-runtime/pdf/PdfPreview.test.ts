@@ -287,6 +287,72 @@ describe("PdfPreview", () => {
 		});
 	});
 
+	// Friction audit F25: the page was a default-sized canvas box (300x150 plus its
+	// padding: 316x166) until the first render began, and then jumped to its real size
+	// under the reader's eyes. The size a page will have is known as soon as the
+	// document and its first page are, so every canvas is in the document with it.
+	it("puts each canvas in the document at the size the page will have, never at the default box that then jumps", async () => {
+		const clientWidth = Object.getOwnPropertyDescriptor(
+			Element.prototype,
+			"clientWidth",
+		);
+		// A 548 px wide region leaves 500 px for the page (48 px of padding), so the
+		// 640x480 page is shown at a scale of 500/640.
+		Object.defineProperty(Element.prototype, "clientWidth", {
+			configurable: true,
+			get: () => 548,
+		});
+		const firstSeen: Array<{
+			page: string | null;
+			width: string;
+			height: string;
+		}> = [];
+		const observer = new MutationObserver((records) => {
+			for (const record of records) {
+				for (const node of record.addedNodes) {
+					if (!(node instanceof Element)) continue;
+					for (const canvas of node.querySelectorAll("canvas")) {
+						firstSeen.push({
+							page: canvas.getAttribute("data-page"),
+							width: (canvas as HTMLCanvasElement).style.width,
+							height: (canvas as HTMLCanvasElement).style.height,
+						});
+					}
+				}
+			}
+		});
+		observer.observe(document.body, { childList: true, subtree: true });
+
+		try {
+			render(PdfPreview, {
+				props: {
+					blob: new Blob(["%PDF-1.7 reserved"], { type: "application/pdf" }),
+					filename: "reserved.pdf",
+				},
+			});
+			await waitFor(() => {
+				expect(mockPdfRender).toHaveBeenCalled();
+			});
+		} finally {
+			observer.disconnect();
+			if (clientWidth) {
+				Object.defineProperty(Element.prototype, "clientWidth", clientWidth);
+			}
+		}
+
+		// Both pages of the document, each with the box the first page gives.
+		expect(firstSeen).toEqual([
+			{ page: "1", width: "500px", height: "375px" },
+			{ page: "2", width: "500px", height: "375px" },
+		]);
+		// ...and rendering them leaves that size as it is.
+		const canvas = document.querySelector<HTMLCanvasElement>(
+			'canvas[data-page="1"]',
+		);
+		expect(canvas?.style.width).toBe("500px");
+		expect(canvas?.style.height).toBe("375px");
+	});
+
 	it("sizes canvases for the device pixel ratio while rendering at logical viewport size", async () => {
 		Object.defineProperty(window, "devicePixelRatio", {
 			value: 2,

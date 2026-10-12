@@ -138,6 +138,8 @@ export async function persistAssistantRailSummary(params: {
 		cleanup: {
 			maxChars: RAIL_SUMMARY_MAX_CHARS,
 			maxWords: RAIL_SUMMARY_MAX_WORDS,
+			// A headline never carries an id, a slug or a field name (F22).
+			rejectIdentifiers: true,
 		},
 	});
 	// Honesty (ADR-0056): a null/rejected summary persists nothing — the rail's

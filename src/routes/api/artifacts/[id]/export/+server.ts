@@ -1,12 +1,15 @@
-import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import {
+	artifactExportIdempotencyKey,
 	buildGeneratedDocumentSource,
 	getArtifact,
 	sanitizeDocumentFilename,
 } from "$lib/server/services/artifacts";
-import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import {
+	ARTIFACT_EXPORT_JOB_ORIGIN,
+	submitFileProductionIntake,
+} from "$lib/server/services/file-production";
 import {
 	parseDocument,
 	stripEmptyTabAnchorPlaceholder,
@@ -35,8 +38,11 @@ const DOCUMENT_SOURCE_OUTPUT_TYPE: Record<"pdf" | "docx", string> = {
 // builds the source/inline-text request from the artifact's OWN current
 // stored body — never a client-sent one — and hands it to
 // submitFileProductionIntake in-process, exactly as
-// api/chat/files/produce/+server.ts does. The resulting job is an ordinary
-// produced file, so the panel and the File card need nothing export-specific.
+// api/chat/files/produce/+server.ts does. The job is the reader's own, not a
+// reply's (`ARTIFACT_EXPORT_JOB_ORIGIN`): the Download that asked follows it to
+// the end (`GET /api/chat/files/jobs/[id]`) and starts the browser's download of
+// the file, and no reply is ever handed it as a card (friction audit F1). A press
+// for the same item version and format hands back the file the last one made.
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const artifactId = event.params.id;
@@ -67,7 +73,15 @@ export const POST: RequestHandler = async (event) => {
 
 	const blocks = parseDocument(artifact.body ?? "", { mint: false }).blocks;
 	const filename = sanitizeDocumentFilename(artifact.title);
-	const idempotencyKey = randomUUID();
+	// The same item, as it is now, in the same format is the same job: a press after
+	// one that worked is handed the file it made, not a second copy (and a job that
+	// failed is not handed back, `reuse: "usable"` below).
+	const idempotencyKey = artifactExportIdempotencyKey({
+		artifactId: artifact.id,
+		format,
+		title: artifact.title,
+		body: artifact.body ?? "",
+	});
 
 	const body =
 		format === "markdown"
@@ -107,9 +121,17 @@ export const POST: RequestHandler = async (event) => {
 					requestedOutputs: [{ type: DOCUMENT_SOURCE_OUTPUT_TYPE[format] }],
 				};
 
-	const result = await submitFileProductionIntake({ userId: user.id, body });
+	const result = await submitFileProductionIntake({
+		userId: user.id,
+		body,
+		origin: ARTIFACT_EXPORT_JOB_ORIGIN,
+		reuse: "usable",
+	});
 	if (!result.ok) {
 		return json({ ok: false, reason: result.code }, { status: result.status });
 	}
-	return json({ ok: true, job: result.job }, { status: result.status });
+	return json(
+		{ ok: true, job: result.job, reused: result.reused },
+		{ status: result.status },
+	);
 };

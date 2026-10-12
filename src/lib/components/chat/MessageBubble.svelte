@@ -9,9 +9,12 @@ import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
 import {
+	isArtifactToolCall,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
+import { foldArtifactDeliverables } from "$lib/utils/artifact-deliverables";
+import { buildToolActivityItem } from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { intlLocale } from "$lib/utils/locale";
@@ -46,9 +49,11 @@ import type {
 	ChatAttachment,
 	ChatMessage,
 	ChatTurnCompletionWarningCode,
+	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
+import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
@@ -74,6 +79,9 @@ import {
 	X,
 } from "@lucide/svelte";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+
+// One shared empty list, so "no segments" is the same value on every render.
+const NO_SEGMENTS: ThinkingSegment[] = [];
 
 let {
 	message,
@@ -268,7 +276,62 @@ let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
 let liveResponseActivityEntries = $derived(
 	!isUser && markdownIsStreaming ? (message.responseActivity ?? []) : [],
 );
-let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
+// What the turn made (a create_artifact / edit_artifact call: its row and its
+// card) is drawn after the text, below; the rail above the text keeps the
+// steps. A card that arrived above the text pushed the words being read down
+// by its own height, and the model writes the whole item before the call is
+// complete, so it always arrived late (F16).
+// `rawThinkingSegments` is the memo point: the message object is replaced on
+// every streamed token but its segment array is not, so the two lists below
+// (and the rail's derived rows, which hang off `thinkingSegmentsForDisplay`)
+// are rebuilt only when a tool call really changed.
+let rawThinkingSegments = $derived(message.thinkingSegments ?? NO_SEGMENTS);
+let deliverableSegments = $derived(
+	rawThinkingSegments.filter(isArtifactToolCall),
+);
+let hasDeliverables = $derived(deliverableSegments.length > 0);
+// One row per call, then what the reply shows of them: one card per item however
+// many calls worked on it, and a failed attempt only when it is what the turn
+// ended on for that item (RC-A #2, the owner's call on F16). The attempts a later
+// call made good stay steps of the turn, in its rail.
+let foldedDeliverables = $derived(
+	foldArtifactDeliverables(
+		deliverableSegments.map((segment, index) => ({
+			segment,
+			item: buildToolActivityItem(
+				segment,
+				segment.callId ??
+					`${segment.name + JSON.stringify(segment.input)}-${index}`,
+				$t,
+			),
+		})),
+	),
+);
+let retriedAttempts = $derived(new Set(foldedDeliverables.retried));
+let thinkingSegmentsForDisplay = $derived(
+	rawThinkingSegments.filter(
+		(segment) => !isArtifactToolCall(segment) || retriedAttempts.has(segment),
+	),
+);
+// The same item a rail row would be, plus the preview the conversation's own
+// artifact list holds for it (once a reload or a later refresh has it).
+let deliverableItems = $derived(
+	foldedDeliverables.shown.map((item) => {
+		const body = item.body;
+		if (body?.kind !== "artifact") return item;
+		const preview = conversationArtifacts.find(
+			(candidate) => candidate.id === body.artifactId,
+		);
+		return preview ? { ...item, body: { ...body, preview } } : item;
+	}),
+);
+// A card is always open; a failed row is folded until the reader presses it.
+let openedDeliverableKeys = $state.raw<Set<string>>(new Set());
+function toggleDeliverable(key: string) {
+	const next = new Set(openedDeliverableKeys);
+	if (!next.delete(key)) next.add(key);
+	openedDeliverableKeys = next;
+}
 // Tier B2 — the thought-step / tool-progress classification predicates
 // (isThoughtStepActivityEntry, isToolProgressActivity) live in the shared
 // pure `activity-presentation.ts`, consumed identically by ThinkingBlock, so
@@ -435,6 +498,7 @@ let showPreparingStatus = $derived(
 		!hasVisibleContent &&
 		!hasThinking &&
 		!hasVisibleThinkingSegments &&
+		!hasDeliverables &&
 		liveToolProgressActivityEntries.length === 0 &&
 		skillDrafts.length === 0 &&
 		!hasFileProductionCards &&
@@ -959,7 +1023,7 @@ function sendFollowUp(question: string) {
 				? 'w-full min-w-0 max-w-full rounded-md bg-[var(--surface-message-user)] p-md text-text-primary'
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 	>
-		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
+		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasDeliverables)}
 			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
 				<Brain class="reasoning-depth-icon" size={14} strokeWidth={2} aria-hidden="true" />
 				<span>{reasoningDepthIndicatorLabel}</span>
@@ -1103,6 +1167,26 @@ function sendFollowUp(question: string) {
 				compactExternalLinks
 			/>
 			</div>
+			{#if hasDeliverables}
+				<!-- What the turn made, after what it said: the words above never move
+				     when this arrives (F16). Same rows and cards as the rail draws for
+				     any other tool; these two kinds are always open, so there is
+				     nothing to toggle. -->
+				<div class="message-deliverables" data-testid="message-deliverables">
+					<ToolActivityList
+						items={deliverableItems}
+						openKeys={openedDeliverableKeys}
+						onToggle={toggleDeliverable}
+						testId="tool-activity-deliverables"
+						{onOpenDocument}
+						{conversationId}
+						{onToggleDocumentTask}
+						{alfyActivity}
+						{activeArtifactId}
+						{deletedArtifacts}
+					/>
+				</div>
+			{/if}
 			{#if completionWarningCodes.length > 0}
 				<div class="completion-warning-notice" role="status">
 					{#each completionWarningCodes as code (code)}
@@ -1279,6 +1363,12 @@ function sendFollowUp(question: string) {
 	     assistant message with a report attached, so copy / feedback /
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
 	{#if !message.isStreaming && !isEditing}
+		<!-- Two rows with two rules. The action row (copy, regenerate, ...) is
+		     hover-only on a wide screen: it is reference, not an invitation. The
+		     follow-up chips are the way to the next question, so they live in a
+		     row of their own that is never hidden (F17); they used to be children
+		     of the action row and went invisible with it on every desktop. -->
+		<div class="message-actions">
 		<div
 			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
 			class:justify-end={isUser}
@@ -1475,8 +1565,9 @@ function sendFollowUp(question: string) {
 				</div>
 			</div>
 
-			{#if followUpChips.length > 0}
-				<span class="follow-up-divider" aria-hidden="true"></span>
+		</div>
+		{#if followUpChips.length > 0}
+			<div class="follow-up-row" data-testid="follow-up-chips">
 				{#each followUpChips as question (question)}
 					<button
 						type="button"
@@ -1487,7 +1578,8 @@ function sendFollowUp(question: string) {
 						{question}
 					</button>
 				{/each}
-			{/if}
+			</div>
+		{/if}
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -1679,14 +1771,11 @@ function sendFollowUp(question: string) {
 	.fade-in {
 		animation: fadeIn var(--duration-micro) var(--ease-out) forwards;
 	}
-	/* The row wraps at ANY width (it used to wrap only under 480px): a
-	   follow-up chip now shows its whole question instead of five words and
-	   an ellipsis, so two chips plus the icon buttons rarely fit one line.
-	   The icon buttons keep the first line — they come first in DOM order and
-	   never shrink — and the chips flow onto the following lines. The
-	   hover-reveal (`md:opacity-0 md:group-hover:opacity-100` in the class
-	   list) is untouched: it animates opacity on this same element, so a
-	   taller, wrapped row reveals exactly as the one-line row did. */
+	/* The action row wraps at ANY width: its icon buttons never shrink, and a
+	   long list of them (info, regenerate, fork, keep, copy, ...) must have
+	   somewhere to go. The hover-reveal (`md:opacity-0
+	   md:group-hover:opacity-100` in the class list) is on this element alone:
+	   the follow-up chips are not in it (see `.follow-up-row`). */
 	/* Chips redesign — what the message was sent with, and what the answer
 	   was made with. Both are chip rows; they differ only in where they sit. */
 	.user-bubble-chips {
@@ -1726,8 +1815,25 @@ function sendFollowUp(question: string) {
 		color: var(--text-muted);
 	}
 
-	.copy-action-row {
+	/* What the turn made (the rows and cards of create_artifact / edit_artifact),
+	   after the text. The same quiet gap the rail keeps above the text. */
+	.message-deliverables {
+		width: 100%;
+		min-width: 0;
+		margin-top: var(--space-md);
+	}
+
+	/* The action row and the chips below it: one block under the message with
+	   the old spacing (a margin, then a small gap between the two rows). */
+	.message-actions {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
 		margin-top: var(--space-sm);
+		row-gap: var(--space-xs);
+	}
+
+	.copy-action-row {
 		flex-wrap: wrap;
 		row-gap: var(--space-xs);
 	}
@@ -2045,19 +2151,18 @@ function sendFollowUp(question: string) {
 		display: inline-flex;
 	}
 
-	/* Owner idea (variant A) — the action row's follow-up chips. A 1px
-	   vertical divider separates them from the icon buttons; each chip is a
-	   quiet, pill-shaped outline button (never filled) that only picks up
-	   surface/text color on hover, matching the mockup exactly. Visibility
-	   follows the row's own existing opacity rule — no separate rule needed
-	   here since these render as ordinary flex children of .copy-action-row. */
-	.follow-up-divider {
-		display: inline-block;
-		width: 1px;
-		height: 14px;
-		margin: 0 var(--space-xs);
-		background: var(--border-default);
-		flex-shrink: 0;
+	/* Owner idea (variant A) — the follow-up chips. Each chip is a quiet,
+	   pill-shaped outline button (never filled) that only picks up
+	   surface/text color on hover, matching the mockup exactly. They have a row
+	   of their own under the action row, and that row is always drawn: at rest
+	   on a desktop too, where the action row above it waits for the pointer
+	   (F17, ruling 77). */
+	.follow-up-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: var(--space-xs);
+		width: 100%;
 	}
 
 	/* The chip shows the WHOLE question. It used to clip at 220px with an
@@ -2096,20 +2201,10 @@ function sendFollowUp(question: string) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* Narrow viewports: the chips get the whole width to themselves. The
-	   divider becomes a zero-height full-width break, forcing every chip onto
-	   its own line under the icon buttons rather than sharing one. (Wider
-	   viewports wrap too — see .copy-action-row above — but there the divider
-	   stays a real 1px rule and the chips only break when they must.) */
+	/* Narrow viewports: the chips get the whole width to themselves, each on
+	   its own line under the icon buttons. (Wider viewports let them share a
+	   line and only break when they must.) */
 	@media (max-width: 480px) {
-		.follow-up-divider {
-			flex-basis: 100%;
-			width: 100%;
-			height: 0;
-			margin: 0;
-			background: transparent;
-		}
-
 		.follow-up-chip {
 			flex-basis: 100%;
 		}

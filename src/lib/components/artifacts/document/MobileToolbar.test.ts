@@ -10,11 +10,14 @@ import { DOCUMENT_TOOLBAR_ACTIONS } from "./toolbar-actions";
 // Stubbing `prefers-reduced-motion: reduce` here collapses them to 0ms so a
 // close is reflected in the DOM by the very next `tick()`/render flush,
 // exactly like every other reduced-motion-aware component test in this repo.
-function stubReducedMotion() {
+function stubReducedMotion(options: { coarse?: boolean } = {}) {
 	vi.stubGlobal(
 		"matchMedia",
 		vi.fn((query: string) => ({
-			matches: true,
+			// Reduced motion, and only when asked a touch screen: FB-9's rule draws no
+			// keyboard chord on a coarse pointer, and the narrow toolbar is also what a
+			// narrow desktop window gets.
+			matches: /reduced-motion/.test(query) || options.coarse === true,
 			media: query,
 			onchange: null,
 			addListener: () => undefined,
@@ -123,6 +126,23 @@ describe("MobileToolbar", () => {
 			expect(redo).not.toBeNull();
 			expect(redo).toHaveTextContent("Redo");
 			expect(redo?.textContent).not.toContain("Ctrl");
+		} finally {
+			Reflect.deleteProperty(window.navigator, "platform");
+		}
+	});
+
+	// FB-9: the same toolbar on a touch screen says the words alone.
+	it("draws no keys on a touch screen, and keeps aria-keyshortcuts", () => {
+		stubReducedMotion({ coarse: true });
+		Object.defineProperty(window.navigator, "platform", {
+			value: "Win32",
+			configurable: true,
+		});
+		try {
+			render(MobileToolbar, { onAction: vi.fn() });
+			const undo = screen.getByRole("button", { name: "Undo" });
+			expect(undo).toHaveAttribute("title", "Undo");
+			expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Z");
 		} finally {
 			Reflect.deleteProperty(window.navigator, "platform");
 		}

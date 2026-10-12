@@ -18,6 +18,9 @@ import {
 	validateGeneratedDocumentSource,
 } from "./source-schema";
 
+/** The origin of a job `produce_file` (or the produce route) made; an export's differs, see `SubmitFileProductionIntakeInput.origin`. */
+const UNIFIED_PRODUCE_ORIGIN = "unified_produce";
+
 type ProduceProgramLanguage = "python" | "javascript";
 
 interface NormalizedIntakeBase {
@@ -70,6 +73,8 @@ interface CreateOrReuseFileProductionJobInput {
 	requestJson: unknown;
 	sourceMode: string;
 	documentIntent?: string | null;
+	/** Which job under the key may be handed back; the ledger's own definition (`job-ledger.ts`). */
+	reuse?: "any" | "usable";
 	now?: Date;
 }
 
@@ -97,6 +102,19 @@ interface CreateFailedFileProductionJobInput {
 export interface SubmitFileProductionIntakeInput {
 	userId: string;
 	body: unknown;
+	/**
+	 * What made the job, `file_production_jobs.origin`. Set by the server-side
+	 * caller and never read from `body`, which a client writes: the artifact
+	 * export routes pass `ARTIFACT_EXPORT_JOB_ORIGIN`, every other caller gets
+	 * the unified `produce_file` origin.
+	 */
+	origin?: string;
+	/**
+	 * Which job under the request's idempotency key may be handed back (see
+	 * `CreateOrReuseFileProductionJobInput.reuse`). An export that is asked for again
+	 * passes `"usable"`: the file it made, but never a failure it left.
+	 */
+	reuse?: "any" | "usable";
 	now?: Date;
 	wakeWorker?: () => void | Promise<void>;
 	signal?: AbortSignal;
@@ -685,7 +703,7 @@ export async function submitFileProductionIntakeWithDependencies(
 				conversationId: normalized.failureDraft.conversationId,
 				assistantMessageId: normalized.failureDraft.assistantMessageId,
 				title: normalized.failureDraft.requestTitle,
-				origin: "unified_produce",
+				origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 				idempotencyKey: normalized.failureDraft.idempotencyKey,
 				sourceMode: normalized.failureDraft.sourceMode,
 				documentIntent: normalized.failureDraft.documentIntent,
@@ -728,7 +746,7 @@ export async function submitFileProductionIntakeWithDependencies(
 			conversationId: request.conversationId,
 			assistantMessageId: request.assistantMessageId,
 			title: request.requestTitle,
-			origin: "unified_produce",
+			origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 			idempotencyKey: request.idempotencyKey,
 			sourceMode: request.sourceMode,
 			documentIntent: request.documentIntent,
@@ -760,11 +778,12 @@ export async function submitFileProductionIntakeWithDependencies(
 		conversationId: request.conversationId,
 		assistantMessageId: request.assistantMessageId,
 		title: request.requestTitle,
-		origin: "unified_produce",
+		origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 		idempotencyKey: request.idempotencyKey,
 		sourceMode: request.sourceMode,
 		documentIntent: request.documentIntent,
 		requestJson,
+		reuse: input.reuse,
 		now: input.now,
 	});
 

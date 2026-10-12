@@ -259,3 +259,46 @@ describe("where the selection's pill sits above a block whose toolbar is above i
 		expect(withBelow.lift).toBeUndefined();
 	});
 });
+
+// RC-A #10 (FB-4's concern 6): on a narrow pane the zoom control stands over the board's
+// toolbar, which the pill's bottom reserve (the toolbar's 72 px) does not count, so a
+// block low on a full board had its pill hung under the zoom control.
+describe("where the selection's pill stands clear of the controls over the board's corners", () => {
+	const PHONE_PANE = { width: 390, height: 640 };
+	const SIZE = { width: 240, height: 38 };
+	/** A block whose pill, below it, would stand where the stacked zoom control is: 514 to 552 against a control at 530 to 580 (the board's toolbar is under that). */
+	const LOW_BLOCK = { x: 60, y: 400, width: 200, height: 100 };
+	const ZOOM = { left: 120, top: 530, right: 380, bottom: 580 };
+
+	it("hangs below a block with room under it when nothing is in the way, as before", () => {
+		const placement = selectionPillPlacement(LOW_BLOCK, CAMERA, PHONE_PANE, {
+			size: SIZE,
+		});
+		expect(placement.side).toBe("below");
+	});
+
+	it("goes above the block when its place below would be on the zoom control", () => {
+		const placement = selectionPillPlacement(LOW_BLOCK, CAMERA, PHONE_PANE, {
+			size: SIZE,
+			controls: [ZOOM],
+		});
+		expect(placement.side).toBe("above");
+	});
+
+	it("stays below when the control is somewhere else", () => {
+		const placement = selectionPillPlacement(LOW_BLOCK, CAMERA, PHONE_PANE, {
+			size: SIZE,
+			controls: [{ left: 0, top: 10, right: 60, bottom: 50 }],
+		});
+		expect(placement.side).toBe("below");
+	});
+
+	it("falls back to the preferred side when both are covered, as it does for the change pill", () => {
+		const everywhere = { left: 0, top: 0, right: 390, bottom: 640 };
+		const placement = selectionPillPlacement(LOW_BLOCK, CAMERA, PHONE_PANE, {
+			size: SIZE,
+			controls: [everywhere],
+		});
+		expect(placement.side).toBe("below");
+	});
+});

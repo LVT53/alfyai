@@ -9,7 +9,7 @@
 import type { ModelId } from "$lib/model-types";
 import { createComment } from "../comments";
 import type { ArtifactScopeOptions } from "../types";
-import { appViolations } from "./audit";
+import { appViolations, auditAppHtml, glitchRuleIdsOf } from "./audit";
 import type { AppContractRuleId } from "./contract";
 import type { AppGenerationFailureReason } from "./generate";
 import { generateApp } from "./generate";
@@ -49,6 +49,8 @@ export interface GenerateAndVerifyAppParams {
 	language: "en" | "hu";
 	/** When the caller already knows it (a regeneration keeps the old title unless the app's own `<title>`/`<h1>` changes it). */
 	title?: string | null;
+	/** A change to an App that exists: the app as it is now, with `prompt` as the change (see `AppGenerationRequest.currentHtml`). */
+	currentHtml?: string;
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
 }
@@ -69,6 +71,7 @@ export async function generateAndVerifyApp(
 		prompt: params.prompt,
 		language: params.language,
 		title: params.title,
+		currentHtml: params.currentHtml,
 		modelId: params.modelId,
 		abortSignal: params.abortSignal,
 	});
@@ -98,9 +101,10 @@ export async function generateAndVerifyApp(
 	const finalHtml = repairRuns ? repair : generation.html;
 	const verdict =
 		repair !== null && !repairRuns ? "uncertain" : verification.verdict;
-	const glitchRuleIds = generation.checks
-		.filter((check) => check.severity === "glitch" && !check.passed)
-		.map((check) => check.rule);
+	// The hints on the card describe the body that goes live (RV-B M3), as a restore's
+	// do (`appMetadataAfterRestore`): an accepted repair is that body, so what was said
+	// of the draft it replaced neither stays nor hides a glitch the repair brought in.
+	const glitchRuleIds = glitchRuleIdsOf(auditAppHtml(finalHtml));
 
 	return {
 		ok: true,

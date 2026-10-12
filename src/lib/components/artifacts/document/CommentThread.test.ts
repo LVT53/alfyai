@@ -291,6 +291,20 @@ describe("CommentThread", () => {
 			resolveSubmit();
 		});
 
+		// F14 (ruling 77): a reply Alfy has not given yet shows as a pending row, with the
+		// words the caller names, and there is no second question to ask until it is in.
+		it("shows the pending row with the caller's words while Alfy is replying, and holds the Reply button", () => {
+			render(CommentThread, {
+				thread: makeThread(),
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+				alfyBusy: true,
+				busyLabel: "Alfy is replying…",
+			});
+			expect(screen.getByText("Alfy is replying…")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Reply" })).toBeDisabled();
+		});
+
 		it("cmd/ctrl+Enter sends the reply", async () => {
 			const onSubmitReply = vi.fn().mockResolvedValue(undefined);
 			render(CommentThread, {

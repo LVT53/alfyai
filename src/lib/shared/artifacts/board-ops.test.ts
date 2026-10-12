@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import artifactsDict from "$lib/i18n/artifacts";
+import { diffBoards } from "./board-diff";
 import {
 	applyOp,
 	BOARD_OP_NAMES,
@@ -24,6 +25,7 @@ import type { CanvasBody, CanvasNode } from "./canvas";
 import { defaultNodeWidth, NODE_WIDTH } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
 import { sampleBoard } from "./canvas-fixtures.test-helpers";
+import { plannedNodeSize } from "./node-size";
 import { runOps } from "./ops";
 
 function diff(...ops: BoardOp[]): BoardDiff {
@@ -1004,6 +1006,266 @@ describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)
 			fillBoard(MAX_NODES_PER_BOARD),
 		);
 		expect(refused[0]).toMatchObject({ reason: "limit_exceeded" });
+	});
+});
+
+// RC-A #3: the model has no "replace", so it rewrites a note by taking it away and
+// adding another under a new id, in either order. The audit's @Alfy rewrite of
+// "15:00 Belváros…" put the new note at (-174, 40), beside the Saturday frame and not in
+// it, because the judge placed the add while the old note still held its slot, and the
+// bar said "1 changed and 1 removed". A block that stands in for another goes where the
+// other was, whichever op comes first, and reads as one block changed.
+describe("validateBoardDiff — a note rewritten under a new id takes the place of the one it replaces (RC-A #3)", () => {
+	/** The audit's weekend board: Saturday boxed in by Sunday on its right and a note 40 units under it. */
+	function weekend(): CanvasBody {
+		const frame = (id: string, label: string, x: number) => ({
+			id,
+			type: "frame" as const,
+			position: { x, y: 40 },
+			width: 340,
+			height: 340,
+			data: {
+				kind: "frame" as const,
+				label,
+				width: 340,
+				height: 340,
+			},
+		});
+		const note = (id: string, parentId: string, y: number, text: string) => ({
+			id,
+			type: "sticky" as const,
+			parentId,
+			position: { x: 20, y },
+			width: 190,
+			data: { kind: "sticky" as const, text, tone: "yellow" as const },
+		});
+		return {
+			...sampleBoard(),
+			nodes: [
+				frame("frame-sat", "Saturday", 40),
+				note(
+					"note-sat-1",
+					"frame-sat",
+					56,
+					"9:00 Schönbrunn, the palace garden",
+				),
+				note(
+					"note-sat-2",
+					"frame-sat",
+					200,
+					"15:00 Belváros: Stephansdom, Hofburg, a museum and a café, a heuriger at night",
+				),
+				frame("frame-sun", "Sunday", 420),
+				note("note-sun-1", "frame-sun", 56, "9:30 Belvedere"),
+				{
+					id: "note-costs",
+					type: "sticky" as const,
+					position: { x: 40, y: 420 },
+					width: 190,
+					data: {
+						kind: "sticky" as const,
+						text: "Costs: 130 EUR",
+						tone: "mint" as const,
+					},
+				},
+			],
+			edges: [],
+			annotations: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+		};
+	}
+
+	const LONGER =
+		"15:00 Belváros: Stephansdom (open 9:00-17:30), Hofburg (9:00-17:30), the Kunsthistorisches (10:00-18:00), a café, a heuriger at night";
+	const remove = (id: string) => ({ op: "remove_node", id }) as BoardOp;
+	const rewrite = (extra: Record<string, unknown> = {}) =>
+		({
+			op: "add_node",
+			node: {
+				id: "note-sat-2-new",
+				type: "sticky",
+				data: { kind: "sticky", text: LONGER, tone: "yellow" },
+				...extra,
+			},
+		}) as BoardOp;
+
+	/** The note ends in the frame it replaced, and the board reads it as one rewrite: the old note's place is where the diff finds the new one. */
+	function expectOneRewrite(ops: BoardOp[]) {
+		const before = weekend();
+		const run = land(before, ...ops);
+		expect(run.refused).toEqual([]);
+		const placed = node(run.doc, "note-sat-2-new");
+		expect(placed.parentId, "its frame").toBe("frame-sat");
+		const delta = diffBoards(before, run.doc);
+		expect(delta.replacedNodes).toEqual([
+			{ from: "note-sat-2", to: "note-sat-2-new" },
+		]);
+		expect(delta.touched).toEqual(["note-sat-2-new"]);
+		// Nothing else on the board moved or changed for it.
+		expect(node(run.doc, "frame-sun").position).toEqual({ x: 420, y: 40 });
+		expect(node(run.doc, "note-costs").position).toEqual({ x: 40, y: 420 });
+		return { run, placed };
+	}
+
+	it("puts the new note where the old one was when the add comes first and names the frame", () => {
+		expectOneRewrite([
+			rewrite({ parentId: "frame-sat" }),
+			remove("note-sat-2"),
+		]);
+	});
+
+	it("puts it there when the add comes first and repeats the old note's own place", () => {
+		// A little longer than the old note, so it still fits the frame where it stood.
+		const { placed } = expectOneRewrite([
+			rewrite({
+				parentId: "frame-sat",
+				position: { x: 20, y: 200 },
+				data: {
+					kind: "sticky",
+					text: "15:00 Belváros: Stephansdom, Hofburg, a museum and a café, a heuriger (open until 23:00)",
+					tone: "yellow",
+				},
+			}),
+			remove("note-sat-2"),
+		]);
+		expect(placed.position).toEqual({ x: 20, y: 200 });
+	});
+
+	it("puts it there when the remove comes first and the add names only the frame", () => {
+		expectOneRewrite([
+			remove("note-sat-2"),
+			rewrite({ parentId: "frame-sat" }),
+		]);
+	});
+
+	it("gives it the old note's frame when the add names no frame and no place at all", () => {
+		expectOneRewrite([rewrite(), remove("note-sat-2")]);
+		expectOneRewrite([remove("note-sat-2"), rewrite()]);
+	});
+
+	it("takes the place of the note it asks to be beside, when that note is the one being removed", () => {
+		expectOneRewrite([rewrite({ near: "note-sat-2" }), remove("note-sat-2")]);
+	});
+
+	it("keeps a longer rewrite where the old note started and lets the frame grow, when the ground under it is free", () => {
+		// Nothing under Saturday: the cost note and Sunday are out of the way.
+		const roomy = weekend();
+		roomy.nodes = roomy.nodes.filter(
+			(n) =>
+				n.id !== "note-costs" && n.id !== "frame-sun" && n.id !== "note-sun-1",
+		);
+		const run = land(
+			roomy,
+			rewrite({ parentId: "frame-sat" }),
+			remove("note-sat-2"),
+		);
+		const placed = node(run.doc, "note-sat-2-new");
+		expect(run.refused).toEqual([]);
+		expect(placed.parentId).toBe("frame-sat");
+		expect(placed.position).toEqual({ x: 20, y: 200 });
+		// The frame grew to hold it: the note is inside it.
+		const frameSize = plannedNodeSize(node(run.doc, "frame-sat"));
+		const noteSize = plannedNodeSize(placed);
+		expect(placed.position.y + noteSize.height).toBeLessThanOrEqual(
+			frameSize.height,
+		);
+		expect(frameSize.height).toBeGreaterThan(340);
+		expect(diffBoards(roomy, run.doc).replacedNodes).toEqual([
+			{ from: "note-sat-2", to: "note-sat-2-new" },
+		]);
+	});
+
+	it("keeps a rewrite that is taller than the note it replaces in the frame when the frame is boxed in, a little higher if it must", () => {
+		const before = weekend();
+		const taller = plannedNodeSize({
+			type: "sticky",
+			width: 190,
+			data: { kind: "sticky", text: LONGER, tone: "yellow" },
+		});
+		expect(taller.height).toBeGreaterThan(
+			plannedNodeSize(node(before, "note-sat-2")).height,
+		);
+		const { run, placed } = expectOneRewrite([
+			rewrite({ parentId: "frame-sat" }),
+			remove("note-sat-2"),
+		]);
+		// Inside the frame it ended up in, which could not grow: Sunday and the cost note are in the way.
+		const frameSize = plannedNodeSize(node(run.doc, "frame-sat"));
+		expect(frameSize.height).toBe(340);
+		expect(placed.position.y + taller.height).toBeLessThanOrEqual(
+			frameSize.height,
+		);
+	});
+
+	it("is not a stand-in when the new note goes to another frame, beside another block or in another kind", () => {
+		const elsewhere = land(
+			weekend(),
+			remove("note-sat-2"),
+			rewrite({ parentId: "frame-sun" }),
+		);
+		expect(node(elsewhere.doc, "note-sat-2-new").parentId).toBe("frame-sun");
+		expect(diffBoards(weekend(), elsewhere.doc).replacedNodes).toEqual([]);
+
+		const beside = land(
+			weekend(),
+			rewrite({ near: "note-sun-1" }),
+			remove("note-sat-2"),
+		);
+		expect(node(beside.doc, "note-sat-2-new").parentId).toBe("frame-sun");
+
+		const asText = land(weekend(), remove("note-sat-2"), {
+			op: "add_node",
+			node: {
+				id: "text-new",
+				type: "text",
+				data: { kind: "text", text: "Saturday afternoon" },
+			},
+		} as BoardOp);
+		expect(node(asText.doc, "text-new").parentId).not.toBe("frame-sat");
+	});
+
+	it("does not take the place of a block that stays on the board", () => {
+		// No removal: the add is an addition, put on free ground and never over the note.
+		const run = land(weekend(), rewrite({ parentId: "frame-sat" }));
+		const placed = node(run.doc, "note-sat-2-new");
+		expect(
+			placed.parentId === "frame-sat" &&
+				placed.position.x === 20 &&
+				placed.position.y === 200,
+		).toBe(false);
+		expect(diffBoards(weekend(), run.doc).replacedNodes).toEqual([]);
+	});
+
+	it("pairs each new note with its own old one when two are rewritten in one change", () => {
+		const before = weekend();
+		const run = land(
+			before,
+			rewrite({ parentId: "frame-sat" }),
+			{
+				op: "add_node",
+				node: {
+					id: "note-sat-1-new",
+					type: "sticky",
+					parentId: "frame-sat",
+					data: {
+						kind: "sticky",
+						text: "9:00 Schönbrunn, tickets booked",
+						tone: "yellow",
+					},
+				},
+			} as BoardOp,
+			remove("note-sat-2"),
+			remove("note-sat-1"),
+		);
+		expect(run.refused).toEqual([]);
+		expect(
+			diffBoards(before, run.doc).replacedNodes.sort((a, b) =>
+				a.from.localeCompare(b.from),
+			),
+		).toEqual([
+			{ from: "note-sat-1", to: "note-sat-1-new" },
+			{ from: "note-sat-2", to: "note-sat-2-new" },
+		]);
 	});
 });
 

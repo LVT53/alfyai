@@ -4,7 +4,7 @@ import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import { page } from "$app/state";
-import { goto, invalidate, replaceState } from "$app/navigation";
+import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
@@ -72,10 +72,15 @@ import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import {
 	artifactVersionMessagesFromMessages,
+	createdArtifactOf,
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
+import {
+	conversationDisplayTitle,
+	DEFAULT_CONVERSATION_TITLE,
+} from "$lib/shared/conversation-title";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import {
@@ -88,7 +93,18 @@ import {
 	confirmWrite as confirmWriteRequest,
 	fetchConversationPendingWrites,
 } from "$lib/client/api/connection-writes";
-import { currentConversationId } from "$lib/stores/ui";
+import { chatWouldBeSqueezed } from "$lib/client/workspace-dock";
+import {
+	createPanelHistory,
+	type PanelLayer,
+	panelPageState,
+} from "$lib/client/panel-history";
+import {
+	currentConversationId,
+	setSidebarFoldNeeded,
+	sidebarWidth,
+} from "$lib/stores/ui";
+import { viewportStore } from "$lib/utils/viewport.svelte";
 import { projects } from "$lib/stores/projects";
 import {
 	selectedModel,
@@ -189,6 +205,8 @@ import {
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
+	FILE_LIST_RETRY_DELAYS_MS,
+	filesWaitingForTheList,
 	hasActiveAtlasJobs,
 	liveDocumentAlfyActivityExcluding,
 	hasActiveFileProductionJobs,
@@ -350,6 +368,14 @@ let effectiveConversationTitle = $derived(
 	$conversations.find((item) => item.id === data.conversation.id)?.title ??
 		data.conversation?.title ??
 		"",
+);
+// The same title as a reader sees it: until something names the conversation
+// it is "Új beszélgetés" in a Hungarian UI, not the stored English default (F5).
+let displayConversationTitle = $derived(
+	conversationDisplayTitle(
+		effectiveConversationTitle,
+		$t("chat.untitledConversation"),
+	),
 );
 
 // Project breadcrumb for the desktop title bar (see the chat-title-bar
@@ -608,6 +634,17 @@ let unreachableArtifactIds = $state.raw<readonly string[]>(
 // and which the server said cannot be (nothing stored to make them from).
 let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
 let unavailableArtifactIds = $state.raw<readonly string[]>([]);
+// The panel's list shows the item being made again as a row of its own (F29), not
+// only the card's button: titled and kinded by the chat's own create call, and
+// gone the moment the real row is there.
+let regeneratingRows = $derived.by(() => {
+	if (regeneratingArtifactIds.length === 0) return [];
+	return regeneratingArtifactIds.flatMap((id) => {
+		if (artifacts.some((row) => row.id === id)) return [];
+		const made = createdArtifactOf($messages, id);
+		return made ? [{ id, ...made }] : [];
+	});
+});
 let deletedArtifactsForCards = $derived<DeletedArtifacts>({
 	deletedIds: deletedArtifactIds,
 	unreachableIds: unreachableArtifactIds,
@@ -654,7 +691,25 @@ let liveArtifacts = $derived(
 		regenerableFromMessages,
 	),
 );
+// A file the chat shows a card for that the panel's list does not have yet: the
+// server links a produced file to its reply after the turn's terminal frame, so
+// the page asks again until the list agrees with the card (see
+// filesWaitingForTheList, and the effect that asks, next to the jobs' own poll).
+let filesWaitingForList = $derived(
+	filesWaitingForTheList(
+		fileProductionJobs,
+		new Set([...artifacts.map((row) => row.id), ...deletedArtifactIds]),
+		Date.now(),
+	),
+);
 let artifactListOpen = $state(false);
+/**
+ * Whether the open item is in History, the panel's mode (ruling 76): what the panel
+ * has told us (`onHistoryOpenChange`) and what the browser's Back and Forward ask of
+ * it (`applyPanelLayer`). It is a layer of the panel's history entries like the list
+ * and the item are (FX-2), so a Back leaves History before it closes the item.
+ */
+let artifactHistoryOpen = $state(false);
 // Read by closeWorkspace() to return focus to the button that opens "what
 // this chat made" when the panel closes — both refs exist because the
 // desktop and compact buttons are both always in the DOM (CSS decides which
@@ -1021,6 +1076,7 @@ let availableWorkspaceDocuments = $derived(
 			file.originAssistantMessageId ?? file.assistantMessageId ?? null,
 		sourceChatFileId: file.sourceChatFileId ?? file.id,
 		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
 		previewUrl: `/api/chat/files/${file.id}/preview`,
 		artifactId: file.artifactId ?? null,
 		conversationId: file.conversationId,
@@ -1048,6 +1104,27 @@ let artifactCount = $derived(liveArtifacts.length);
 let isArtifactPanelOpen = $derived(
 	workspaceOpen && (artifactListOpen || workspaceDocuments.length > 0),
 );
+
+// While the panel is docked beside the chat, the chat column keeps a floor
+// (`CHAT_COLUMN_FLOOR`): the panel gives up width before the chat goes under it
+// (the panel's own CSS), and when the chat would be under it anyway because the
+// sidebar is open, the sidebar folds to its rail and comes back when the panel
+// goes (FB-3, F3). The reader's own choice of sidebar is never changed by the
+// fold, and the page says what the panel needs whatever that choice is (a press on
+// the reader's own rail has to be able to stand: FB-9).
+let windowWidth = $state(browser ? window.innerWidth : 0);
+let dockPreferredWidth = $state(950);
+let sidebarNeededForPanel = $derived(
+	browser &&
+		isArtifactPanelOpen &&
+		viewportStore.tier === "desktop" &&
+		windowWidth > 0 &&
+		chatWouldBeSqueezed(dockPreferredWidth, windowWidth - $sidebarWidth),
+);
+$effect(() => {
+	setSidebarFoldNeeded(sidebarNeededForPanel);
+});
+onDestroy(() => setSidebarFoldNeeded(false));
 
 /**
  * Wave 2.5 Step 12/13 (redesign §9.2): the panel's own open item — looked up
@@ -1321,7 +1398,27 @@ function handleArtifactCountButtonClick() {
 		closeWorkspace();
 		return;
 	}
+	// A panel closed on an item is brought back on that item, if it is still
+	// there; otherwise (it was the list, or the item has been deleted since) it
+	// is the list that comes back (FB-3, F26).
+	const closedItem = lastClosedItem;
+	lastClosedItem = null;
+	if (closedItem && isWorkspaceItemStillThere(closedItem)) {
+		openWorkspaceDocument(closedItem, { preservePresentation: true });
+		return;
+	}
 	openArtifactList();
+}
+
+/** The item the panel showed when it was last closed, which the count button brings back. In memory only: a new visit starts from the list. */
+let lastClosedItem = $state.raw<DocumentWorkspaceItem | null>(null);
+
+function isWorkspaceItemStillThere(item: DocumentWorkspaceItem): boolean {
+	return item.artifactId
+		? liveArtifacts.some((row) => row.id === item.artifactId)
+		: availableWorkspaceDocumentsWithArtifacts.some(
+				(candidate) => candidate.id === item.id,
+			);
 }
 
 /** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
@@ -1358,6 +1455,8 @@ function triggerForkOpeningTransition() {
 
 function restorePersistedWorkspaceState() {
 	workspaceConversation = getWorkspaceConversation();
+	lastClosedItem = null;
+	artifactHistoryOpen = false;
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1387,13 +1486,42 @@ $effect(() => {
 	});
 });
 
-function openWorkspaceDocument(
+/**
+ * A produced file opened from a chat card is the same File the panel's list opens
+ * (FB-5, F21): it carries the kind and the moment its row in the list carries. The
+ * card builds its item from the job's file and knows neither, and the panel draws
+ * its standard header (a way back, the title, the kind) for an item that has a
+ * kind, so without this the same file got the older "Active document" header with
+ * an AI chip from the card.
+ */
+function asArtifactFile(
 	document: DocumentWorkspaceItem,
+): DocumentWorkspaceItem {
+	if (
+		document.kind ||
+		document.source !== "chat_generated_file" ||
+		!document.artifactId
+	) {
+		return document;
+	}
+	const row = liveArtifacts.find((entry) => entry.id === document.artifactId);
+	return {
+		...document,
+		kind: "file",
+		...(row
+			? { updatedAt: row.updatedAt, canRegenerate: row.regenerable }
+			: {}),
+	};
+}
+
+function openWorkspaceDocument(
+	opened: DocumentWorkspaceItem,
 	options: {
 		preservePresentation?: boolean;
 		presentation?: "docked" | "expanded";
 	} = {},
 ) {
+	const document = asArtifactFile(opened);
 	const result = reduceWorkspaceDocumentOpen(workspaceDocuments, document);
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;
@@ -1493,6 +1621,8 @@ function closeWorkspaceDocument(documentId: string) {
  * made later under the same id (Regenerate) starts from its own numbers.
  */
 function handleArtifactDeleted(artifactId: string) {
+	// The panel is on this very item right now (before anything below changes it).
+	const panelWasOnIt = activeWorkspaceDocument?.artifactId === artifactId;
 	observedArtifactMoments = forgetObservedArtifact(
 		observedArtifactMoments,
 		artifactId,
@@ -1503,6 +1633,14 @@ function handleArtifactDeleted(artifactId: string) {
 		(entry) => entry.artifactId === artifactId,
 	)) {
 		closeWorkspaceDocument(document.id);
+	}
+	if (lastClosedItem?.artifactId === artifactId) lastClosedItem = null;
+	// Deleting the open item shows what is left, in the same breath: the panel
+	// does not close and open again around a frame of a full-width chat. Only
+	// when nothing is left is there nothing to list, and the panel goes.
+	if (panelWasOnIt && artifacts.length > 0) {
+		artifactListOpen = true;
+		workspaceOpen = true;
 	}
 }
 
@@ -1668,6 +1806,7 @@ async function handleRegenerateArtifact(artifactId: string) {
 }
 
 function closeWorkspace() {
+	lastClosedItem = activeWorkspaceDocument;
 	const result = reduceWorkspaceClose(
 		workspaceDocuments,
 		activeWorkspaceDocumentId,
@@ -1685,6 +1824,60 @@ function closeWorkspace() {
 	artifactCountButtonEl?.focus();
 	artifactCountButtonCompactEl?.focus();
 }
+
+// The browser's Back and Forward close and reopen the panel's layers one at a time
+// (FB-5, ruling 77: F7). `panelLayer` is what the panel shows, `applyPanelLayer`
+// the one way the history puts it somewhere (through the same functions a click
+// uses, never the flags), and `client/panel-history.ts` plans the entries.
+let panelLayer = $derived.by<PanelLayer | null>(() => {
+	if (!isArtifactPanelOpen) return null;
+	if (artifactListOpen) return { kind: "list" };
+	const itemId = activeWorkspaceDocument?.id ?? workspaceDocuments[0]?.id;
+	if (!itemId) return null;
+	return artifactHistoryOpen
+		? { kind: "item", itemId, history: true }
+		: { kind: "item", itemId };
+});
+
+function applyPanelLayer(layer: PanelLayer | null) {
+	if (layer?.kind === "list") {
+		artifactHistoryOpen = false;
+		openArtifactList();
+		return;
+	}
+	if (layer?.kind === "item") {
+		const known =
+			workspaceDocuments.some((entry) => entry.id === layer.itemId) ||
+			availableWorkspaceDocumentsWithArtifacts.some(
+				(entry) => entry.id === layer.itemId,
+			);
+		if (known) {
+			// History is the panel's to open and close (it flushes the body first and
+			// loads its own chunk): the wish goes down as a prop, and what the panel did
+			// comes back through `onHistoryOpenChange`.
+			artifactHistoryOpen = layer.history === true;
+			selectWorkspaceDocument(layer.itemId);
+			return;
+		}
+		// The item is gone since the entry was made: the panel shows what is left.
+		if (artifactWorkspaceItems.length > 0) {
+			artifactHistoryOpen = false;
+			openArtifactList();
+			return;
+		}
+	}
+	artifactHistoryOpen = false;
+	if (isArtifactPanelOpen) closeWorkspace();
+}
+
+const panelHistory = createPanelHistory({
+	current: () => panelLayer,
+	apply: applyPanelLayer,
+	push: (entry) => pushState("", panelPageState(entry)),
+	replace: (entry) => replaceState("", panelPageState(entry)),
+	isThisPage: () =>
+		window.location.pathname === `/chat/${data.conversation.id}`,
+});
 
 function handleWorkspaceConversationDeleted(conversationId: string) {
 	const nextState = reduceWorkspaceDocumentsForDeletedConversation(
@@ -1965,6 +2158,19 @@ $effect(() => {
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
+});
+
+// The panel's entries in the browser's history follow the panel (FB-5, F7). After
+// the reset above: a switch to another chat is an arrival, where what the entry
+// the browser is on says wins over what this tab remembered of that chat's panel.
+onMount(() => panelHistory.start());
+$effect(() => {
+	void panelLayer;
+	untrack(() => panelHistory.sync());
+});
+$effect(() => {
+	void data.conversation.id;
+	untrack(() => panelHistory.arrive());
 });
 
 // Declared after the reset above so that it runs after it: resetState()
@@ -2392,14 +2598,28 @@ async function hydrateConversationDetail(conversationId: string) {
 	void refreshPendingWrites();
 }
 
+/** The placeholder's time is the browser's and a job's is the server's: the room the two clocks may differ by. */
+const TURN_CLOCK_SLACK_MS = 30_000;
+
 function attachFileProductionJobsToAssistantMessage(
 	assistantMessageId: string,
 ) {
+	// Only what this turn made (see attachUnassignedFileProductionJobsToAssistant):
+	// the turn began when the streaming reply's placeholder was made.
+	let turnStartedAt: number | undefined;
+	for (const message of get(messages)) {
+		if (message.role === "assistant" && message.isStreaming) {
+			turnStartedAt = message.timestamp;
+		}
+	}
 	fileProductionJobs = attachUnassignedFileProductionJobsToAssistant(
 		fileProductionJobs,
 		{
 			conversationId: data.conversation.id,
 			assistantMessageId,
+			...(turnStartedAt !== undefined
+				? { createdSince: turnStartedAt - TURN_CLOCK_SLACK_MS }
+				: {}),
 		},
 	);
 	// Issue 7.5 — same zero-latency optimistic stamp as above, applied to
@@ -2538,6 +2758,28 @@ $effect(() => {
 	};
 });
 
+// The file a turn made is a row of the panel's list and a step of the header's
+// count once the server has linked it to the reply, which is after the turn has
+// ended; the stream says nothing more and the jobs are done, so nothing else would
+// read the chat again (RC-A: every file request left both stale until a reload).
+// Asking is bounded: soon, then less often, then it stops.
+$effect(() => {
+	const conversationId = data.conversation?.id;
+	if (!browser || !conversationId || !filesWaitingForList) return;
+	let attempt = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const askAgain = () => {
+		if (attempt >= FILE_LIST_RETRY_DELAYS_MS.length) return;
+		timer = setTimeout(() => {
+			attempt += 1;
+			void hydrateConversationDetail(conversationId);
+			askAgain();
+		}, FILE_LIST_RETRY_DELAYS_MS[attempt]);
+	};
+	askAgain();
+	return () => clearTimeout(timer);
+});
+
 let initializedGeneratedFilesData = false;
 let prevGeneratedFilesData: typeof data.generatedFiles;
 $effect(() => {
@@ -2666,7 +2908,7 @@ function maybeTriggerTitleGeneration(
 ) {
 	if (
 		titleGenerationTriggered ||
-		effectiveConversationTitle !== "New Conversation"
+		effectiveConversationTitle !== DEFAULT_CONVERSATION_TITLE
 	) {
 		return;
 	}
@@ -3660,8 +3902,10 @@ function handleDrop(event: DragEvent) {
 }
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <svelte:head>
-	<title>{effectiveConversationTitle}</title>
+	<title>{displayConversationTitle}</title>
 </svelte:head>
 
 <div
@@ -3680,7 +3924,10 @@ function handleDrop(event: DragEvent) {
 		class:stage--incognito={data.conversation.memoryIncognito}
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
-			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
+			<div
+				class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex"
+				class:chat-title-bar-counted={artifactCount > 0}
+			>
 				<!-- Leading spacer: equal flex-basis to the trailing actions column
 				     keeps the title visually centred whether or not the count
 				     button is drawn, instead of the title drifting sideways. -->
@@ -3688,8 +3935,8 @@ function handleDrop(event: DragEvent) {
 				<h1
 					class="flex min-w-0 max-w-[min(42rem,72vw)] items-baseline justify-center text-center text-[13px] font-medium leading-5 text-text-primary"
 					title={activeProjectName
-						? `${activeProjectName} / ${effectiveConversationTitle}`
-						: effectiveConversationTitle}
+						? `${activeProjectName} / ${displayConversationTitle}`
+						: displayConversationTitle}
 					aria-live="polite"
 				>
 					{#if activeProjectName}
@@ -3760,9 +4007,21 @@ function handleDrop(event: DragEvent) {
 
 			<div class="chat-messages flex flex-1 flex-col overflow-hidden">
 				{#if showInitialLoading}
-					<div class="flex flex-1 items-center justify-center">
+					<!-- The first message of a new conversation lands on a fresh
+					     document (the landing sends with a full navigation), so for the
+					     moment between its first paint and the stored message being sent
+					     there is nothing of the conversation to draw. This area stays
+					     part of the chat, quiet and empty, instead of being a second page
+					     with a spinner in it for a few frames; the "starting" mark only
+					     fades in when the wait lasts (a slow connection, a cold cache). -->
+					<div
+						class="starting-conversation flex flex-1 items-center justify-center"
+						role="status"
+						aria-live="polite"
+						data-testid="starting-conversation"
+					>
 						<div class="flex flex-col items-center gap-3">
-							<div class="spinner-large"></div>
+							<div class="spinner-large" aria-hidden="true"></div>
 							<span class="text-sm text-text-muted">{$t('chat.startingConversation')}</span>
 						</div>
 					</div>
@@ -3870,6 +4129,8 @@ function handleDrop(event: DragEvent) {
 			open={workspaceOpen}
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
+			reserveDock
+			onDockPreferredChange={(width) => (dockPreferredWidth = width)}
 			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
@@ -3880,6 +4141,7 @@ function handleDrop(event: DragEvent) {
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
 				title: $t('artifacts.panel.title'),
+				pending: regeneratingRows,
 			}}
 			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {
@@ -3889,6 +4151,8 @@ function handleDrop(event: DragEvent) {
 				// leave a closed panel behind.
 				if (open) workspaceOpen = true;
 			}}
+			historyWanted={artifactHistoryOpen}
+			onHistoryOpenChange={(open) => (artifactHistoryOpen = open)}
 			onSelectDocument={selectWorkspaceDocument}
 			onOpenDocument={(document) =>
 				openWorkspaceDocument(document, { preservePresentation: true })}
@@ -3973,6 +4237,15 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar-actions {
 		justify-content: flex-end;
+	}
+
+	/* The count chip hangs off the bar's right column, and the spacer opposite keeps
+	   the title centred: while the chip is drawn both columns keep the room it takes
+	   (its 58 px, less the 12 px it leans into the bar's gutter, and a gap), so a long
+	   title gives way (it truncates) instead of running under the chip: 4 px at 1280
+	   and 19 px at 1100 beside a docked panel in a project chat (RC-A). */
+	.chat-title-bar-counted .chat-title-bar-side {
+		min-width: 4rem;
 	}
 
 	/* Wave 2.5 polish G1-B (owner: "pushed a bit more to the right"): the
@@ -4088,5 +4361,17 @@ function handleDrop(event: DragEvent) {
 
 	@keyframes spin {
 		to { transform: rotate(360deg); }
+	}
+
+	/* Invisible for the first moments, then in: a bootstrap that takes the
+	   usual few dozen milliseconds never shows it. */
+	.starting-conversation {
+		opacity: 0;
+		animation: starting-fade-in var(--duration-emphasis) var(--ease-out) 600ms
+			forwards;
+	}
+
+	@keyframes starting-fade-in {
+		to { opacity: 1; }
 	}
 </style>

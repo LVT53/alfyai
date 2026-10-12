@@ -1081,6 +1081,133 @@ describe("file production service", () => {
 		});
 	});
 
+	// FB-8 (FB-1's concern 1): an export that is asked for again (the same item, the
+	// same version of it, the same format) hands back the file it made. A job that
+	// failed, was cancelled (the panel's Download gives up after 60 s) or lost its file
+	// must not be handed back to every press after it as the same failure: it lets go
+	// of the key, and a new job is made.
+	describe("an export's key, reused only while the job under it is good (reuse: usable)", () => {
+		const exportInput = (title: string) =>
+			({
+				userId: "user-1",
+				conversationId: "conv-1",
+				title,
+				origin: "artifact_export",
+				idempotencyKey: "artifact-export:doc-1:pdf:abc",
+				sourceMode: "inline_text",
+				documentIntent: null,
+				requestJson: { sourceMode: "inline_text" },
+				reuse: "usable",
+			}) as const;
+
+		async function setStatus(jobId: string, status: string) {
+			const { db } = await import("$lib/server/db");
+			await db
+				.update(schema.fileProductionJobs)
+				.set({ status: status as "failed" })
+				.where(eq(schema.fileProductionJobs.id, jobId));
+		}
+
+		async function attachFile(jobId: string) {
+			const { db } = await import("$lib/server/db");
+			const now = new Date("2026-05-03T19:32:00.000Z");
+			const fileId = `file-of-${jobId}`;
+			await db.insert(schema.chatGeneratedFiles).values({
+				id: fileId,
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				userId: "user-1",
+				filename: "trip.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 100,
+				storagePath: `conv-1/${fileId}.pdf`,
+				createdAt: now,
+			});
+			await db.insert(schema.fileProductionJobFiles).values({
+				id: `link-${jobId}`,
+				jobId,
+				chatGeneratedFileId: fileId,
+				sortOrder: 0,
+				createdAt: now,
+			});
+			return fileId;
+		}
+
+		it("hands back the job of an earlier press while it is still being made", async () => {
+			const { createOrReuseFileProductionJob } = await import("./index");
+			const first = await createOrReuseFileProductionJob(exportInput("Trip"));
+			const again = await createOrReuseFileProductionJob(exportInput("Trip"));
+			expect(again.reused).toBe(true);
+			expect(again.job.id).toBe(first.job.id);
+
+			await setStatus(first.job.id, "running");
+			const whileRunning = await createOrReuseFileProductionJob(
+				exportInput("Trip"),
+			);
+			expect(whileRunning.job.id).toBe(first.job.id);
+		});
+
+		it("hands back a finished job that still has its file: the same file, not another", async () => {
+			const { createOrReuseFileProductionJob } = await import("./index");
+			const first = await createOrReuseFileProductionJob(exportInput("Trip"));
+			await setStatus(first.job.id, "succeeded");
+			await attachFile(first.job.id);
+
+			const again = await createOrReuseFileProductionJob(exportInput("Trip"));
+			expect(again.reused).toBe(true);
+			expect(again.job.id).toBe(first.job.id);
+		});
+
+		for (const status of ["failed", "cancelled"] as const) {
+			it(`makes a new job when the one under the key ${status}, and keeps the old one`, async () => {
+				const { db } = await import("$lib/server/db");
+				const { createOrReuseFileProductionJob } = await import("./index");
+				const first = await createOrReuseFileProductionJob(exportInput("Trip"));
+				await setStatus(first.job.id, status);
+
+				const again = await createOrReuseFileProductionJob(exportInput("Trip"));
+
+				expect(again.reused).toBe(false);
+				expect(again.job.id).not.toBe(first.job.id);
+				expect(again.job.status).toBe("queued");
+				const [old] = await db
+					.select({
+						status: schema.fileProductionJobs.status,
+						key: schema.fileProductionJobs.idempotencyKey,
+					})
+					.from(schema.fileProductionJobs)
+					.where(eq(schema.fileProductionJobs.id, first.job.id));
+				expect(old.status).toBe(status);
+				expect(old.key).not.toBe("artifact-export:doc-1:pdf:abc");
+				// And the press after that is handed the new job.
+				const third = await createOrReuseFileProductionJob(exportInput("Trip"));
+				expect(third.job.id).toBe(again.job.id);
+			});
+		}
+
+		it("makes a new job when the finished one has lost its file (deleted with the chat's files)", async () => {
+			const { createOrReuseFileProductionJob } = await import("./index");
+			const first = await createOrReuseFileProductionJob(exportInput("Trip"));
+			await setStatus(first.job.id, "succeeded");
+			// Succeeded, and no file under it.
+
+			const again = await createOrReuseFileProductionJob(exportInput("Trip"));
+			expect(again.reused).toBe(false);
+			expect(again.job.id).not.toBe(first.job.id);
+		});
+
+		it("is not what a turn's produce_file asks for: without it any job under the key comes back, failed or not", async () => {
+			const { createOrReuseFileProductionJob } = await import("./index");
+			const { reuse: _reuse, ...asTurn } = exportInput("Trip");
+			const first = await createOrReuseFileProductionJob(asTurn);
+			await setStatus(first.job.id, "failed");
+
+			const again = await createOrReuseFileProductionJob(asTurn);
+			expect(again.reused).toBe(true);
+			expect(again.job.id).toBe(first.job.id);
+		});
+	});
+
 	it("reselects the queued production job when concurrent same-key creation wins the idempotency race", async () => {
 		const { db } = await import("$lib/server/db");
 		const { createOrReuseFileProductionJob } = await import("./index");

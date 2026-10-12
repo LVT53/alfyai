@@ -12,6 +12,7 @@
  * reader's marks are not compared: no op can change them.
  */
 import type { CanvasBody, CanvasEdge, CanvasNode, Pt } from "./canvas";
+import { estimatedNodeSize } from "./canvas-blocks";
 
 export interface BoardDelta {
 	addedNodes: string[];
@@ -22,16 +23,27 @@ export interface BoardDelta {
 	reparentedNodes: string[];
 	/** Its words, its fields or its size changed. */
 	changedNodes: string[];
+	/**
+	 * A block that was taken away and a like block that was put in its place: one block
+	 * rewritten, as a reader sees it (the model replaces a note by removing it and adding
+	 * another under a new id). Both are still in `removedNodes` and `addedNodes`, which
+	 * say what was written; `touched` and what waits count the new one alone.
+	 */
+	replacedNodes: { from: string; to: string }[];
 	addedEdges: string[];
 	removedEdges: string[];
 	/** The arrow now joins other blocks, or says something else. */
 	changedEdges: string[];
 	/**
-	 * The blocks ON THE NEW BOARD this change touched, in the board's own order
-	 * (a frame before what is inside it): every one that was added, moved,
-	 * re-homed or changed, and the two ends of an arrow that was added, removed
-	 * or changed, where they still exist. A block that was removed is not here:
-	 * there is nothing left to point at.
+	 * The blocks ON THE NEW BOARD this change touched, as a reader sees the change,
+	 * in the board's own order (a frame before what is inside it): every one that
+	 * was added, moved, re-homed or changed, and the two ends of an arrow that was
+	 * added, removed or changed, where they still exist. A block that was removed
+	 * is not here: there is nothing left to point at. Two things are not counted
+	 * apart from what caused them (F12): a frame that only grew or went aside in a
+	 * change that put blocks in or took them out (it made room: it is part of the
+	 * addition), and the block at the far end of an arrow drawn to a block that was
+	 * added (the arrow belongs to the new block).
 	 */
 	touched: string[];
 }
@@ -72,6 +84,72 @@ function edgeShape(edge: CanvasEdge): string {
 	});
 }
 
+/** A frame's own words and kind: everything about it but where it is and how big. */
+function frameWordsOf(node: CanvasNode): string {
+	const {
+		width: _w,
+		height: _h,
+		...words
+	} = node.data as Record<string, unknown>;
+	return stable({ type: node.type, data: words });
+}
+
+/** How far apart, in board units, a block put in the place of another may be from it and still be taken for it. */
+export const REPLACEMENT_REACH = 48;
+
+/**
+ * How far a block put in the place of `from` is from it: where the two start, or
+ * where their middles are, whichever is nearer. A rewrite that is longer than the note
+ * it replaces starts where that one started, or, when it had to move up to stay in its
+ * frame, is centred where it was.
+ */
+function placeDistance(from: CanvasNode, to: CanvasNode): number {
+	const was = estimatedNodeSize(from);
+	const now = estimatedNodeSize(to);
+	const starts = Math.hypot(
+		from.position.x - to.position.x,
+		from.position.y - to.position.y,
+	);
+	const middles = Math.hypot(
+		from.position.x + was.width / 2 - (to.position.x + now.width / 2),
+		from.position.y + was.height / 2 - (to.position.y + now.height / 2),
+	);
+	return Math.min(starts, middles);
+}
+
+/**
+ * Which added block stands in for which removed one: the same kind of block, in
+ * the same frame, starting at the same place or centred within `REPLACEMENT_REACH`
+ * of it (the nearest first; each block is taken once).
+ */
+function pairReplacements(
+	removed: readonly CanvasNode[],
+	added: readonly CanvasNode[],
+): { from: string; to: string }[] {
+	const candidates: { from: CanvasNode; to: CanvasNode; distance: number }[] =
+		[];
+	for (const from of removed) {
+		for (const to of added) {
+			if (from.type !== to.type) continue;
+			if ((from.parentId ?? null) !== (to.parentId ?? null)) continue;
+			const distance = placeDistance(from, to);
+			if (distance <= REPLACEMENT_REACH)
+				candidates.push({ from, to, distance });
+		}
+	}
+	candidates.sort((a, b) => a.distance - b.distance);
+	const takenFrom = new Set<string>();
+	const takenTo = new Set<string>();
+	const pairs: { from: string; to: string }[] = [];
+	for (const { from, to } of candidates) {
+		if (takenFrom.has(from.id) || takenTo.has(to.id)) continue;
+		takenFrom.add(from.id);
+		takenTo.add(to.id);
+		pairs.push({ from: from.id, to: to.id });
+	}
+	return pairs;
+}
+
 export function diffBoards(before: CanvasBody, after: CanvasBody): BoardDelta {
 	const beforeNodes = new Map(before.nodes.map((node) => [node.id, node]));
 	const afterNodes = new Map(after.nodes.map((node) => [node.id, node]));
@@ -84,6 +162,7 @@ export function diffBoards(before: CanvasBody, after: CanvasBody): BoardDelta {
 		movedNodes: [],
 		reparentedNodes: [],
 		changedNodes: [],
+		replacedNodes: [],
 		addedEdges: [],
 		removedEdges: [],
 		changedEdges: [],
@@ -117,17 +196,28 @@ export function diffBoards(before: CanvasBody, after: CanvasBody): BoardDelta {
 	for (const node of before.nodes) {
 		if (!afterNodes.has(node.id)) delta.removedNodes.push(node.id);
 	}
+	delta.replacedNodes = pairReplacements(
+		before.nodes.filter((node) => !afterNodes.has(node.id)),
+		after.nodes.filter((node) => !beforeNodes.has(node.id)),
+	);
 
 	const touchEnds = (edge: CanvasEdge): void => {
 		for (const end of [edge.source, edge.target]) {
 			if (afterNodes.has(end)) touched.add(end);
 		}
 	};
+	const isAdded = new Set(delta.addedNodes);
 	for (const edge of after.edges) {
 		const was = beforeEdges.get(edge.id);
 		if (!was) {
 			delta.addedEdges.push(edge.id);
-			touchEnds(edge);
+			// An arrow drawn to a block that was added belongs to that block: the block at
+			// its far end was not changed by it.
+			if (isAdded.has(edge.source) !== isAdded.has(edge.target)) {
+				touched.add(isAdded.has(edge.source) ? edge.source : edge.target);
+			} else {
+				touchEnds(edge);
+			}
 		} else if (edgeShape(was) !== edgeShape(edge)) {
 			delta.changedEdges.push(edge.id);
 			touchEnds(was);
@@ -144,9 +234,31 @@ export function diffBoards(before: CanvasBody, after: CanvasBody): BoardDelta {
 		if (!endRemoved) touchEnds(edge);
 	}
 
+	// A change that put blocks in, took them out or moved them between frames makes
+	// room for what it did: a frame that only grew or went aside in it (its words
+	// are the same) is part of that, not a change of its own.
+	const madeRoom =
+		delta.addedNodes.length > 0 ||
+		delta.removedNodes.length > 0 ||
+		delta.reparentedNodes.length > 0;
+	const resized = new Set([
+		...delta.changedNodes,
+		...delta.movedNodes.map((move) => move.id),
+	]);
+	const madeRoomFor = (node: CanvasNode): boolean => {
+		const was = beforeNodes.get(node.id);
+		return (
+			madeRoom &&
+			node.type === "frame" &&
+			resized.has(node.id) &&
+			was !== undefined &&
+			(was.parentId ?? null) === (node.parentId ?? null) &&
+			frameWordsOf(was) === frameWordsOf(node)
+		);
+	};
 	delta.touched = after.nodes
-		.map((node) => node.id)
-		.filter((id) => touched.has(id));
+		.filter((node) => touched.has(node.id) && !madeRoomFor(node))
+		.map((node) => node.id);
 	return delta;
 }
 

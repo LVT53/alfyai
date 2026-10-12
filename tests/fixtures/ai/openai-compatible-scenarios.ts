@@ -92,6 +92,71 @@ export function decodeEditArtifactScenarioPayload(
 }
 
 /**
+ * F6 (ruling 77): a real turn on the open Document, shaped like a real model's: it
+ * reads the document (`read_artifact`), takes `delayMs` to write what it will change
+ * (the provider holds its answer: a real model streams the patch for seconds, and
+ * the browser hears nothing about the call until the whole of it is there), then
+ * applies one block (`edit_artifact`) and says so. The test puts the real block id
+ * and hash in the message, as the T8 scenario does; the delay and the replacement
+ * text travel with them.
+ */
+export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER =
+	"Fake model step: read the document, think for a while, then apply the scripted patch below.";
+export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT =
+	"Read the document and applied the change after a while.";
+
+/**
+ * A model that refuses every request, but not at once: the provider holds it for
+ * `AI_SMOKE_REFUSE_SLOWLY_DELAY_MS` and answers HTTP 500, for the streaming attempt
+ * and for the non-streaming fallback alike. The turn therefore keeps running, and
+ * failing, long enough for a reader to reload the page and reconnect to it while it
+ * is still failing (FG's finding 1, `stream-reconnect-failure.spec.ts`).
+ */
+export const AI_SMOKE_REFUSE_SLOWLY_MARKER =
+	"Fake model step: refuse this request after a pause.";
+export const AI_SMOKE_REFUSE_SLOWLY_DELAY_MS = 1500;
+
+export interface EditDocumentSlowlyPayload {
+	artifactId: string;
+	blockId: string;
+	baseHash: string;
+	/** What the fake model's turn waits between the document's text and its patch. */
+	delayMs: number;
+	text: string;
+}
+
+export function encodeEditDocumentSlowlyPayload(
+	payload: EditDocumentSlowlyPayload,
+): string {
+	const json = Buffer.from(JSON.stringify(payload)).toString("base64url");
+	return `slowdoc:${json}`;
+}
+
+export function decodeEditDocumentSlowlyPayload(
+	text: string,
+): EditDocumentSlowlyPayload | null {
+	const match = [...text.matchAll(/slowdoc:([A-Za-z0-9_-]+)/g)].at(-1);
+	if (!match) return null;
+	try {
+		const decoded = JSON.parse(
+			Buffer.from(match[1], "base64url").toString("utf8"),
+		) as Partial<EditDocumentSlowlyPayload>;
+		if (
+			typeof decoded.artifactId !== "string" ||
+			typeof decoded.blockId !== "string" ||
+			typeof decoded.baseHash !== "string" ||
+			typeof decoded.delayMs !== "number" ||
+			typeof decoded.text !== "string"
+		) {
+			return null;
+		}
+		return decoded as EditDocumentSlowlyPayload;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Slice 3 T6: a real `edit_artifact` call on a BOARD, scripted with the exact ops a
  * test wants applied. The ops are JSON with quotes and braces, so they travel in
  * the user's message as base64url (`A-Za-z0-9_-`, which a JSON request body carries
@@ -154,6 +219,38 @@ export const AI_SMOKE_CREATE_ARTIFACT_TITLE = "Weekend plan";
 export const AI_SMOKE_CREATE_ARTIFACT_MARKDOWN =
 	"# Weekend plan\n\nBook the museum tickets.";
 export const AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT = "Made the document.";
+
+/**
+ * F2 (ruling 77): "change this App" in the chat. A real `edit_artifact` call on an
+ * App, scripted with the App's id (a seeded one: `aid:<id>` in the message, read from
+ * the LAST user message like the board edit's) and a fixed `instruction`. The real
+ * handler then runs the panel's own rebuild, whose generation call reaches this same
+ * fake (the spec points the `model1` provider at it): the fake recognises that
+ * request by the App contract's system prompt and the instruction in its one user
+ * message, and answers with a fenced app, so the whole path (instruction, generate,
+ * audit, one new Alfy version, the open panel loading it) runs for real.
+ */
+export const AI_SMOKE_EDIT_APP_MARKER =
+	"Fake model step: change the app as scripted below.";
+export const AI_SMOKE_EDIT_APP_INSTRUCTION =
+	"Switch the app to the dark theme (fake rebuild).";
+export const AI_SMOKE_EDIT_APP_FINAL_TEXT = "Changed the app.";
+export const AI_SMOKE_REBUILT_APP_HEADING = "Dark tip calculator";
+export const AI_SMOKE_REBUILT_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>${AI_SMOKE_REBUILT_APP_HEADING}</title>
+<style>body { background: #111; color: #eee; font-family: sans-serif; padding: 16px; }</style></head>
+<body><h1>${AI_SMOKE_REBUILT_APP_HEADING}</h1><p>Rebuilt by the fake model.</p></body>
+</html>`;
+
+export function encodeEditAppScenarioMessage(artifactId: string): string {
+	return `${AI_SMOKE_EDIT_APP_MARKER} aid:${artifactId}`;
+}
+
+export function decodeEditAppScenarioArtifactId(text: string): string | null {
+	const matches = [...text.matchAll(/aid:([\w-]+)/g)];
+	return matches.at(-1)?.[1] ?? null;
+}
 
 export const AI_SMOKE_SCENARIOS = {
 	text: "text",
