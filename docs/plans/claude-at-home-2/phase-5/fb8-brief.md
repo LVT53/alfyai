@@ -30,6 +30,13 @@ user stop and a local detach).
 6. **An App restore's metadata** (FX-V's note): restoring an App version leaves its verification and glitch metadata
    describing the version that was live before; make them describe what is live now (or clear them with a quiet line).
 
+7. **Exports (FB-1's notes, `phase-5/fb1-report.md`).** An export is a delivery: a repeated press for the same item
+   version and format reuses the file it made, and exports are not listed as separate "GENERÁLT" rows in the library
+   (they belong to their item, which already has its download); a generated file row shows no bare "V1" (ruling 76's
+   Q2: no number outside History); a failure after the Download popover has closed tells the reader (a toast), never
+   silence; a source-first generated row in Knowledge opens its preview instead of "Preview not available". FB-1 owned
+   `DownloadSheet.svelte`, the export routes and Knowledge; they are yours now for these.
+
 ## Tests and gates
 
 Red first: unit tests for 1, 5, 6; real-input Playwright for 1, 2 and 3 (3 with the e2e fake provider made to fail at
