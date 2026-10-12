@@ -61,9 +61,9 @@ happening:
 3. the `CSP_MODE` rewrite is applied **only** to a policy SvelteKit generated, identified by the
    `x-sveltekit-page: true` stamp SvelteKit puts on page responses in the same `Headers` literal
    that carries the policy. Guard 2 is not enough on its own here, because the rewrite's
-   report-only branch has to *delete* `Content-Security-Policy` in order to re-send it under the
-   report-only name — on a preview response that would both un-enforce the sandbox policy on
-   model-generated HTML and leave the trust check with no header to match.
+   report-only branch *replaces* `Content-Security-Policy` (with the frame rule alone) and re-sends
+   the full policy under the report-only name — on a preview response that would both un-enforce
+   the sandbox policy on model-generated HTML and leave the trust check with no header to match.
 
 ### Responses the hook never sees
 

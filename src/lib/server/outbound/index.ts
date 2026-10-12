@@ -8,6 +8,5 @@ export {
 	type OutboundFailureCode,
 	type OutboundFetch,
 	OutboundFetchError,
-	outboundFetch,
 } from "./fetch";
-export { isPublicAddress, isReservedHostname } from "./public-address";
+export { isReservedHostname } from "./public-address";

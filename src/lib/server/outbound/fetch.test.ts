@@ -62,6 +62,8 @@ describe("assessOutboundUrl", () => {
 		["https://0177.0.0.1/", "blocked_address"],
 		["https://2130706433/", "blocked_address"],
 		["https://127.1/", "blocked_address"],
+		["https://\uff11\uff12\uff17.\uff10.\uff10.\uff11/", "blocked_address"], // full-width digits
+		["https://127\u30020\u30020\u30021/", "blocked_address"], // ideographic full stops
 		["https://169.254.169.254/latest/meta-data/", "blocked_address"],
 		["https://[fd00::1]/", "blocked_address"],
 		["https://[64:ff9b::7f00:1]/", "blocked_address"],

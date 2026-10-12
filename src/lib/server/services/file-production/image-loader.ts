@@ -34,7 +34,11 @@ export type GeneratedDocumentImageLoadResult =
 
 export interface LoadGeneratedDocumentImageOptions {
 	maxImageBytes?: number;
-	fetchImpl?: typeof fetch;
+	/**
+	 * A test's fetch. The default is the outbound one (public addresses only);
+	 * never pass `globalThis.fetch` outside a test.
+	 */
+	fetchImpl?: OutboundFetch;
 	resolveArtifact?: (
 		artifactId: string,
 	) => Promise<{ bytes: Buffer; mimeType: string | null } | null>;
@@ -150,7 +154,7 @@ async function fetchHttpsImage(
 ): Promise<GeneratedDocumentImageLoadResult> {
 	// The default fetch connects to public addresses only, with a byte cap and a
 	// timeout of its own; a `fetchImpl` is a test's.
-	const fetchImpl: OutboundFetch =
+	const fetchImpl =
 		options.fetchImpl ??
 		createOutboundFetch(
 			{},
@@ -251,7 +255,7 @@ export async function loadGeneratedDocumentImage(
 export function createDefaultGeneratedDocumentImageLoader(params: {
 	userId: string;
 	conversationId: string;
-	fetchImpl?: typeof fetch;
+	fetchImpl?: OutboundFetch;
 }) {
 	return async (
 		source: GeneratedDocumentImageSource,

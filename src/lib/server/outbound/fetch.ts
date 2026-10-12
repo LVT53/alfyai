@@ -106,11 +106,11 @@ type UrlVerdict =
 
 /**
  * Whether a URL may be requested at all, judged without the network: an https
- * URL with no credentials whose host is neither an address that is not public
- * nor a name that can only be somebody's private network. A host name still
- * has to survive the resolution that `createOutboundFetch` makes when it
- * connects; this is the part that can be answered up front, and the answer a
- * caller that is handed some other `fetch` (a test double) can ask for.
+ * URL with no credentials, whose host is neither a non-public address nor a
+ * name that can only mean a private network. A host name still has to survive
+ * the resolution `createOutboundFetch` makes when it connects; this is the part
+ * that can be answered up front, which a caller that was handed some other
+ * `fetch` (a test double) can ask for too.
  */
 export function assessOutboundUrl(raw: string | URL): UrlVerdict {
 	let url: URL;
@@ -308,6 +308,3 @@ export function createOutboundFetch(
 		});
 	};
 }
-
-/** The shared instance for callers with no limits of their own. */
-export const outboundFetch: OutboundFetch = createOutboundFetch();
