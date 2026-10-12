@@ -62,10 +62,18 @@ const ARTIFACT_KINDS: readonly ArtifactKind[] = [
 	"file",
 ];
 
+/**
+ * A source under a search or read row. `fromInput` marks one taken from the
+ * addresses the call was GIVEN rather than from what it returned: those are the
+ * model's own words (a prompt injection can put private data in a host), so a row
+ * never asks for the favicon of such a host (docs/plans/exfil-channels).
+ */
+export type ToolWebSource = FetchedSource & { fromInput?: true };
+
 /** The opened panel under a row. One variant per tool shape in the mockup. */
 export type ToolActivityBody =
-	| { kind: "sources"; sources: FetchedSource[]; citedCount: number }
-	| { kind: "page"; sources: FetchedSource[]; excerpt: string | null }
+	| { kind: "sources"; sources: ToolWebSource[]; citedCount: number }
+	| { kind: "page"; sources: ToolWebSource[]; excerpt: string | null }
 	| { kind: "python"; program: string; output: string | null }
 	| { kind: "map"; map: ToolCallMapData; summary: string }
 	| { kind: "text"; text: string }
@@ -341,7 +349,7 @@ export function toolElapsedLabel(
  * candidates (they carry real titles, citation status and excerpts) and falls
  * back to the URLs the call was given, so a read row never renders empty.
  */
-export function getToolWebSources(segment: ToolCallSegment): FetchedSource[] {
+export function getToolWebSources(segment: ToolCallSegment): ToolWebSource[] {
 	// The URL fallback below reads the call's INPUTS, which is only meaningful
 	// for a read-a-page call. A search's query is not a source, even when it
 	// happens to contain a URL.
@@ -364,7 +372,10 @@ export function getToolWebSources(segment: ToolCallSegment): FetchedSource[] {
 		return orderCitedFirst(dedupeSourcesByUrl(fromCandidates));
 	}
 	return allowUrlInputFallback
-		? getFetchUrlSources(segment.name, segment.input)
+		? getFetchUrlSources(segment.name, segment.input).map((source) => ({
+				...source,
+				fromInput: true as const,
+			}))
 		: [];
 }
 
