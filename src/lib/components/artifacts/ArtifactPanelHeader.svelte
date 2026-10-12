@@ -30,7 +30,6 @@ let {
 	phrase = null,
 	onHistory = undefined,
 	historyOpen = false,
-	itemCount = null,
 	onBack,
 	actions = undefined,
 }: {
@@ -42,8 +41,6 @@ let {
 	onHistory?: (() => void) | undefined;
 	/** History is showing: the button reads as pressed. */
 	historyOpen?: boolean;
-	/** "What this chat made"'s total count, for the breadcrumb's badge and accessible name. `null`/omitted hides the badge and falls back to the plain "This chat" label. */
-	itemCount?: number | null;
 	/** The breadcrumb: returns to the list. A host with no list (the Knowledge page, a project's Files dialog) passes none, and the header draws no breadcrumb: it would be a button that does nothing. */
 	onBack?: (() => void) | undefined;
 	/** Header actions (Download, a divider, Expand, Close, …) — entirely caller-supplied so this file never hardcodes a kind-specific action. */
@@ -51,11 +48,6 @@ let {
 } = $props();
 
 let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
-let crumbLabel = $derived(
-	itemCount != null
-		? $t("artifacts.panel.backA11y", { count: itemCount })
-		: $t("artifacts.panel.eyebrow"),
-);
 </script>
 
 <header class="artifact-panel-header">
@@ -65,13 +57,10 @@ let crumbLabel = $derived(
 				type="button"
 				class="artifact-panel-header-crumb"
 				onclick={onBack}
-				aria-label={crumbLabel}
+				aria-label={$t('artifacts.panel.backA11y')}
 			>
 				<ChevronLeft size={14} strokeWidth={2.2} aria-hidden="true" />
-				<span>{$t('artifacts.panel.eyebrow')}</span>
-				{#if itemCount != null}
-					<span class="artifact-panel-header-crumb-count">{itemCount}</span>
-				{/if}
+				<span>{$t('artifacts.panel.crumb')}</span>
 			</button>
 		{/if}
 		<span class="artifact-panel-header-grow"></span>
@@ -170,6 +159,9 @@ let crumbLabel = $derived(
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
+		/* One line, always: a wrapped way back ("EZ A / BESZÉLGETÉS") was two lines of small capitals (F28). */
+		white-space: nowrap;
+		flex-shrink: 0;
 		cursor: pointer;
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
@@ -184,19 +176,6 @@ let crumbLabel = $derived(
 	.artifact-panel-header-crumb:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.artifact-panel-header-crumb-count {
-		display: inline-grid;
-		place-items: center;
-		min-width: 1.125rem;
-		height: 1.125rem;
-		padding: 0 0.3rem;
-		border-radius: var(--radius-full);
-		background: var(--surface-elevated);
-		font-size: 0.66rem;
-		letter-spacing: 0;
-		text-transform: none;
 	}
 
 	.artifact-panel-header-grow {

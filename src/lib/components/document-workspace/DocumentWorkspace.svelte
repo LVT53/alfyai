@@ -2475,7 +2475,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					phrase={activeMomentPhrase}
 					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 					{historyOpen}
-					itemCount={list?.items.length ?? null}
 					onBack={list ? handleBackToList : undefined}
 					actions={artifactHeaderActionsSnippet}
 				/>
@@ -2801,7 +2800,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				phrase={activeMomentPhrase}
 				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 				{historyOpen}
-				itemCount={list?.items.length ?? null}
 				onBack={list ? handleBackToList : undefined}
 				actions={artifactHeaderActionsSnippet}
 			/>

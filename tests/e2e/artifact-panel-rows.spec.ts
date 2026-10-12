@@ -5,6 +5,7 @@ import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	artifactVersions,
+	conversations,
 	fileProductionJobFiles,
 	fileProductionJobs,
 	messages,
@@ -25,6 +26,7 @@ import {
 	startChatAs,
 	type TourUser,
 } from "./artifact-tours-helpers";
+import { login } from "./helpers";
 
 /**
  * The panel's rows and headers (FB-5, ruling 77: F21, F9, F29, F28).
@@ -494,4 +496,147 @@ test.describe("Regenerate shows its work in the list on a phone (F29)", () => {
 		});
 		await expect(making).toBeEnabled();
 	});
+});
+
+for (const mode of [
+	{ name: "390 touch", viewport: { width: 390, height: 844 }, touch: true },
+	{ name: "1440 mouse", viewport: { width: 1440, height: 900 }, touch: false },
+] as const) {
+	test.describe(`the panel's way back to the list at ${mode.name} (F28)`, () => {
+		test.use({
+			viewport: mode.viewport,
+			hasTouch: mode.touch,
+			isMobile: mode.touch,
+		});
+
+		test("is 'Vissza' in Hungarian on one line, with a name that says where it goes and no count", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			await seedItem(user, chatId, "document");
+			await seedItem(user, chatId, "app");
+			await reopenChat(page, chatId);
+			const phone = mode.touch;
+			await page
+				.getByTestId(
+					phone ? "artifact-count-button-compact" : "artifact-count-button",
+				)
+				.click();
+			await panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: "Trip notes" })
+				.click();
+			const crumb = panelShell(page)
+				.locator(".artifact-panel-header-crumb:visible")
+				.first();
+			await expect(crumb).toBeVisible({ timeout: 15_000 });
+
+			await expect(crumb).toHaveText("Vissza");
+			await expect(crumb, "the name says where it goes").toHaveAccessibleName(
+				"Vissza a beszélgetés elemeihez",
+			);
+			await expect(
+				crumb.locator(".artifact-panel-header-crumb-count"),
+				"the list says how many; the crumb does not",
+			).toHaveCount(0);
+			const box = await crumb.boundingBox();
+			expect(box, "the crumb has a box").not.toBeNull();
+			// One line: a wrapped crumb is two lines of 0.7rem text and more.
+			expect(box?.height ?? 99, "one line, not two").toBeLessThan(40);
+		});
+
+		test("stays 'This chat' in English, one line, with the same kind of name", async ({
+			page,
+		}) => {
+			const user = await createTourUser("en");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			await seedItem(user, chatId, "document");
+			await reopenChat(page, chatId);
+			await page
+				.getByTestId(
+					mode.touch
+						? "artifact-count-button-compact"
+						: "artifact-count-button",
+				)
+				.click();
+			await panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: "Trip notes" })
+				.click();
+			const crumb = panelShell(page)
+				.locator(".artifact-panel-header-crumb:visible")
+				.first();
+			await expect(crumb).toHaveText("This chat", { timeout: 15_000 });
+			await expect(crumb).toHaveAccessibleName("Back to this chat's items");
+			const box = await crumb.boundingBox();
+			expect(box?.height ?? 99).toBeLessThan(40);
+		});
+	});
+}
+
+test.describe("the landing's project card says all of what it knows (F28)", () => {
+	for (const mode of [
+		{ name: "390", viewport: { width: 390, height: 844 } },
+		{ name: "1440", viewport: { width: 1440, height: 900 } },
+	] as const) {
+		test(`its chat count and its last activity are not cut off at ${mode.name}`, async ({
+			page,
+		}) => {
+			await page.setViewportSize(mode.viewport);
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			await login(page, user.email, user.password);
+			const created = await page.request.post("/api/projects", {
+				data: { name: "Bécsi hétvége" },
+			});
+			expect(created.ok(), "creating a project").toBe(true);
+			const project = (await created.json()) as { id: string };
+			const activeAt = new Date(Date.now() - 3 * 3_600_000);
+			const chatId = randomUUID();
+			await db.insert(conversations).values({
+				id: chatId,
+				userId: user.id,
+				title: "Útiterv",
+				projectId: project.id,
+				createdAt: activeAt,
+				updatedAt: activeAt,
+			});
+			await db.insert(messages).values({
+				id: `${chatId}-msg-1`,
+				conversationId: chatId,
+				messageSequence: 1,
+				role: "user" as const,
+				content: "Hol kezdjem?",
+				createdAt: activeAt,
+			});
+			await page.goto("/", { waitUntil: "networkidle" });
+
+			const card = page.getByTestId("home-project-card").first();
+			await expect(card).toBeVisible({ timeout: 30_000 });
+			const stats = card.getByTestId("home-project-stats");
+			await expect(stats).toContainText("1 csevegés");
+			await expect(stats).toContainText("aktív:");
+			const cut = await stats.evaluate((element) => ({
+				clippedAcross: element.scrollWidth > element.clientWidth + 1,
+				clippedDown: element.scrollHeight > element.clientHeight + 1,
+				ellipsis: getComputedStyle(element).textOverflow === "ellipsis",
+			}));
+			expect(
+				cut,
+				"the card's second line is whole: nothing hidden behind an ellipsis",
+			).toEqual({ clippedAcross: false, clippedDown: false, ellipsis: false });
+			// And inside its card.
+			const cardBox = await card.boundingBox();
+			const statsBox = await stats.boundingBox();
+			expect((statsBox?.x ?? 0) + (statsBox?.width ?? 0)).toBeLessThanOrEqual(
+				(cardBox?.x ?? 0) + (cardBox?.width ?? 0) + 1,
+			);
+			expect((statsBox?.y ?? 0) + (statsBox?.height ?? 0)).toBeLessThanOrEqual(
+				(cardBox?.y ?? 0) + (cardBox?.height ?? 0) + 1,
+			);
+		});
+	}
 });

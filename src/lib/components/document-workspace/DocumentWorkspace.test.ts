@@ -2280,7 +2280,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
-			within(shell).getByRole("button", { name: /This chat/ }),
+			within(shell).getByRole("button", { name: "Back to this chat's items" }),
 		);
 
 		expect(onListOpenChange).toHaveBeenCalledWith(true);
@@ -2306,11 +2306,13 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 		for (const shell of shells) {
 			expect(
-				within(shell).queryByRole("button", { name: /This chat/ }),
+				within(shell).queryByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			).not.toBeInTheDocument();
 		}
 		expect(
-			screen.queryByRole("button", { name: /This chat/ }),
+			screen.queryByRole("button", { name: "Back to this chat's items" }),
 		).not.toBeInTheDocument();
 	});
 
@@ -2504,7 +2506,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			await rerender({
 				documents: [doc],
@@ -2558,7 +2562,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			expect(onListOpenChange).toHaveBeenCalledWith(true);
 

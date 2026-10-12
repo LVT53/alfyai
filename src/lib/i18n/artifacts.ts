@@ -37,6 +37,9 @@ const artifactsDict = {
 		"artifacts.chat.composerPlaceholderApp": "Ask Alfy to change {title}…",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
+		// The header's way back to the list: short, so it never wraps (FB-5, F28); the
+		// Hungarian says "Back" and the name says where it goes.
+		"artifacts.panel.crumb": "This chat",
 		"artifacts.panel.title": "What this chat made",
 		"artifacts.panel.count":
 			"{count} {count, plural, one {item} other {items}} · newest first",
@@ -65,8 +68,7 @@ const artifactsDict = {
 		// `oneLeft`/`revLeft` copy family.
 		"artifacts.panel.leftAlone":
 			"{count} {count, plural, one {part} other {parts}} left alone",
-		"artifacts.panel.backA11y":
-			"Back to This chat ({count} {count, plural, one {item} other {items}})",
+		"artifacts.panel.backA11y": "Back to this chat's items",
 		// First-open tours (Wave 4, TR-B/TR-C): the card's chrome, the panel list's
 		// replay row and the empty states' link. The tour's own words (titles,
 		// bodies, the summary line) are content — the code-owned copy or a
@@ -1078,6 +1080,7 @@ const artifactsDict = {
 		"artifacts.chat.composerPlaceholderApp":
 			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
+		"artifacts.panel.crumb": "Vissza",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
 		"artifacts.panel.list": "Lista megjelenítése",
@@ -1090,7 +1093,7 @@ const artifactsDict = {
 		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian
 		// nouns after a numeral stay singular.
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",
-		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
+		"artifacts.panel.backA11y": "Vissza a beszélgetés elemeihez",
 		"artifacts.tour.region": "Így működik ez a típus",
 		"artifacts.tour.stepOf": "{n}. lépés / {m}",
 		// A számnév után a főnév egyes számban marad: nincs többes szám.
