@@ -684,6 +684,81 @@ export async function listRecentUserMessageTexts(
 	return rows.map((row) => row.content);
 }
 
+/**
+ * How many of a conversation's newest messages the provenance read looks at.
+ * A conversation seldom has a hundred (the open window is 100); the bound keeps
+ * a pathological one from making a single tool call read its whole history.
+ */
+export const CONVERSATION_PROVENANCE_MESSAGE_LIMIT = 1_000;
+
+/**
+ * What a conversation's stored messages say about where an address may have
+ * come from (docs/plans/exfil-channels): the user's own words, and the calls
+ * the tools answered.
+ */
+export interface ConversationProvenanceSources {
+	/** The user's own message texts, newest first. */
+	userTexts: string[];
+	/** Every tool call stored on the assistant messages, newest message first. */
+	toolCalls: Array<Extract<ThinkingSegment, { type: "tool_call" }>>;
+}
+
+/**
+ * The user's messages and the tool calls of the assistant's, for one of the
+ * user's own conversations: the one read the provenance rule needs ("did this
+ * address come from the user or from a tool?") when the turn that asks is not
+ * persisted yet. A light, dedicated query: no usage join, no attachments.
+ *
+ * Scoped to `conversationId` AND `userId` in the one statement, so a caller
+ * that forgot to check ownership still reads nothing of someone else's chat.
+ * A conversation that does not exist, or is not the user's, reads as empty.
+ */
+export async function listConversationProvenanceSources(params: {
+	conversationId: string;
+	userId: string;
+	limit?: number;
+}): Promise<ConversationProvenanceSources> {
+	const limit = Math.max(
+		1,
+		Math.min(
+			Math.trunc(params.limit ?? CONVERSATION_PROVENANCE_MESSAGE_LIMIT),
+			CONVERSATION_PROVENANCE_MESSAGE_LIMIT,
+		),
+	);
+	const rows = await db
+		.select({
+			role: messages.role,
+			content: messages.content,
+			toolCalls: messages.toolCalls,
+		})
+		.from(messages)
+		.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+		.where(
+			and(
+				eq(messages.conversationId, params.conversationId),
+				eq(conversations.userId, params.userId),
+				inArray(messages.role, ["user", "assistant"]),
+			),
+		)
+		.orderBy(...messageOrderDesc())
+		.limit(limit);
+
+	const sources: ConversationProvenanceSources = {
+		userTexts: [],
+		toolCalls: [],
+	};
+	for (const row of rows) {
+		if (row.role === "user") {
+			sources.userTexts.push(row.content);
+			continue;
+		}
+		for (const segment of readThinkingSegmentsFromRow(row) ?? []) {
+			if (segment?.type === "tool_call") sources.toolCalls.push(segment);
+		}
+	}
+	return sources;
+}
+
 export type ConversationExportMessage = {
 	role: MessageRole;
 	content: string;
