@@ -16,7 +16,7 @@ export interface PaneBox {
 }
 
 /** The room kept between the last block in view and the column. */
-export const COLUMN_MARGIN = 24;
+const COLUMN_MARGIN = 24;
 /** A column takes at least this much of the pane: a drawer over the board, or a sheet, takes none, and the board stays as it is. */
 export const MIN_COLUMN_WIDTH = 120;
 
