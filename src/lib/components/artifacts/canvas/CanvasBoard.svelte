@@ -458,6 +458,16 @@ export function land(next: CanvasBody): void {
 	syncHistoryFlags();
 }
 
+/**
+ * A column that takes room from the pane (the comments, opened by a press on the Comment
+ * tool and a block, which are presses on this board) is not the reader taking the board
+ * over: the next size the pane takes is followed again, while the camera is still where
+ * the last fit left it (F24).
+ */
+export function refollow(): void {
+	touched = false;
+}
+
 /** The board as it is drawn now, without ending the step in progress: what a landing compares the server's board against. */
 export function current(): CanvasBody {
 	return snapshot();

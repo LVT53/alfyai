@@ -737,3 +737,53 @@ test.describe("F18: Keep and Undo do not make the board's own controls jump", ()
 		}
 	});
 });
+
+// ---- F24 ------------------------------------------------------------------------
+
+test.describe("F24: opening the comments column does not cut the board", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test("a board the reader has not moved is fitted again to what the column leaves, after they used the Comment tool", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "Comments");
+		await seedCanvas(conversationId, planBoard(), "Plan board");
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		await settledCamera(page);
+		const wide = await screenBoxOf(page.getByTestId("canvas-board"));
+
+		// The reader's own way in: the Comment tool, then a block. Both are presses on the
+		// board, and neither moves the camera.
+		await page.getByTestId("canvas-tool-comment").click();
+		await expect(page.getByTestId("canvas-comment-catcher")).toBeVisible();
+		const lunch = await screenBoxOf(
+			page.locator('.svelte-flow__node[data-id="note-lunch"]'),
+		);
+		await page.mouse.click(
+			(lunch.left + lunch.right) / 2,
+			(lunch.top + lunch.bottom) / 2,
+		);
+		await expect(page.getByTestId("comment-composer")).toBeVisible();
+		await expect(page.getByTestId("canvas-comments-rail")).toBeVisible();
+
+		await settledCamera(page);
+		const narrow = await screenBoxOf(page.getByTestId("canvas-board"));
+		expect(
+			narrow.right - narrow.left,
+			"the column took room from the board",
+		).toBeLessThan(wide.right - wide.left - 200);
+		// Every block is still wholly in the pane: nothing is cut by the column.
+		const cut: string[] = [];
+		for (const block of await blocksOnScreen(page)) {
+			if (!holds(narrow, block.box)) cut.push(block.id);
+		}
+		expect(cut, `cut by the column: ${cut.join(", ")}`).toEqual([]);
+		if (SHOTS) {
+			await page.screenshot({
+				path: shot("f24-comments-column-refit-1440.png"),
+			});
+		}
+	});
+});
