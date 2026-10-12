@@ -568,6 +568,27 @@ describe("ArtifactCard", () => {
 			).toHaveTextContent("File · DOCX · 10.4 KB");
 		});
 
+		it("stands for an item being made: a spinner, the words, busy, and no button to press yet (F29)", () => {
+			render(ArtifactCard, {
+				view: view({
+					kind: "app",
+					title: "Tip calculator",
+					rowFacts: "Regenerating…",
+					working: true,
+					openTargetId: null,
+				}),
+				chrome: "row",
+			});
+			const row = screen.getByTestId("artifact-row");
+			expect(row).toBeDisabled();
+			expect(row).toHaveAttribute("aria-busy", "true");
+			expect(row).toHaveClass("artifact-row-working");
+			expect(row.querySelector(".artifact-row-sub")).toHaveTextContent(
+				"App · Regenerating…",
+			);
+			expect(row).toHaveAccessibleName("Tip calculator, App, Regenerating…");
+		});
+
 		it("prints nothing after the kind when the row has no facts (F9)", () => {
 			render(ArtifactCard, {
 				view: view({ kind: "app", title: "Tip calculator", rowFacts: null }),

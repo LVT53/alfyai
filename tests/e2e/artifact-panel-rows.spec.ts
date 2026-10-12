@@ -9,6 +9,10 @@ import {
 	fileProductionJobs,
 	messages,
 } from "../../src/lib/server/db/schema";
+import {
+	createDocumentArtifact,
+	deleteArtifact,
+} from "../../src/lib/server/services/artifacts";
 import { storeGeneratedFile } from "../../src/lib/server/services/chat-files";
 import {
 	createTourUser,
@@ -329,5 +333,165 @@ test.describe("rows with one name can be told apart (F9)", () => {
 			new Set(fileRows).size,
 			"the two file rows do not read the same",
 		).toBe(2);
+	});
+});
+
+/** A Document the chat made and the reader then deleted: the reply that made it, the model's own arguments kept on it, and the item gone. */
+async function seedDeletedDocument(
+	user: TourUser,
+	chatId: string,
+	title: string,
+): Promise<string> {
+	const made = await createDocumentArtifact({
+		userId: user.id,
+		conversationId: chatId,
+		title,
+		markdown: `# ${title}\n\nBook the museum tickets.`,
+		author: "alfy",
+		summary: "Alfy wrote the first draft",
+	});
+	await db.insert(messages).values({
+		id: randomUUID(),
+		conversationId: chatId,
+		messageSequence: 900,
+		role: "assistant",
+		content: "Made the document.",
+		toolCalls: JSON.stringify([
+			{
+				type: "tool_call",
+				callId: "e2e-create-regenerate",
+				name: "create_artifact",
+				input: {
+					artifactType: "document",
+					title,
+					body: `# ${title}\n\nBook the museum tickets.`,
+				},
+				status: "done",
+				outputSummary: `Created Document "${title}"`,
+				sourceType: "tool",
+				metadata: {
+					ok: true,
+					artifactId: made.id,
+					artifactKind: "document",
+					artifactTitle: title,
+				},
+			},
+		]),
+		createdAt: new Date(),
+	});
+	const deleted = await deleteArtifact({
+		userId: user.id,
+		artifactId: made.id,
+		conversationId: chatId,
+	});
+	expect(deleted.ok, "the seeded Document is deleted").toBe(true);
+	return made.id;
+}
+
+test.describe("Regenerate shows its work in the list too (F29)", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test("an item being made again is a row of the list with a spinner, and the real row takes its place", async ({
+		page,
+	}) => {
+		const user = await createTourUser("en");
+		await markToursSeen(user);
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "document");
+		const regeneratedId = await seedDeletedDocument(
+			user,
+			chatId,
+			"Weekend plan",
+		);
+		await reopenChat(page, chatId);
+		const card = page.getByTestId("artifact-card");
+		await expect(card).toHaveAttribute("data-state", "deleted", {
+			timeout: 30_000,
+		});
+		await openPanelList(page);
+		const rows = panelList(page).getByTestId("artifact-row");
+		await expect(rows, "the Document that is left").toHaveCount(1);
+
+		// The server's answer is held, as a model call of tens of seconds is.
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route("**/artifacts/*/regenerate", async (route) => {
+			await held;
+			await route.continue();
+		});
+		await card.getByRole("button", { name: "Regenerate Weekend plan" }).click();
+
+		const making = rows.filter({ hasText: "Weekend plan" });
+		await expect(
+			making,
+			"the list shows the item being made, not only the card's button",
+		).toHaveCount(1);
+		await expect(making).toContainText("Regenerating…");
+		await expect(making).toBeDisabled();
+		await expect(
+			card.getByTestId("artifact-card-regenerate"),
+			"the card's button still shows the work",
+		).toBeDisabled();
+
+		release();
+		await expect(card).not.toHaveAttribute("data-state", "deleted", {
+			timeout: 30_000,
+		});
+		await expect(rows).toHaveCount(2, { timeout: 30_000 });
+		const made = rows.filter({ hasText: "Weekend plan" });
+		await expect(made).toHaveCount(1);
+		await expect(made).not.toContainText("Regenerating…");
+		await expect(made, "the row is the item again: it opens").toBeEnabled();
+		expect(regeneratedId).toBeTruthy();
+	});
+});
+
+test.describe("Regenerate shows its work in the list on a phone (F29)", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("the list opened while an item is being made again has its row", async ({
+		page,
+	}) => {
+		const user = await createTourUser("en");
+		await markToursSeen(user);
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "document");
+		await seedDeletedDocument(user, chatId, "Weekend plan");
+		await reopenChat(page, chatId);
+		const card = page.getByTestId("artifact-card");
+		await expect(card).toHaveAttribute("data-state", "deleted", {
+			timeout: 30_000,
+		});
+
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route("**/artifacts/*/regenerate", async (route) => {
+			await held;
+			await route.continue();
+		});
+		await card.getByRole("button", { name: "Regenerate Weekend plan" }).tap();
+		await expect(card.getByTestId("artifact-card-regenerate")).toBeDisabled();
+
+		// The panel covers the chat on a phone: the list is opened after the press.
+		await page.getByTestId("artifact-count-button-compact").tap();
+		const making = panelList(page)
+			.getByTestId("artifact-row")
+			.filter({ hasText: "Weekend plan" });
+		await expect(making).toContainText("Regenerating…", { timeout: 15_000 });
+		await expect(making).toBeDisabled();
+
+		release();
+		await expect(making).not.toContainText("Regenerating…", {
+			timeout: 30_000,
+		});
+		await expect(making).toBeEnabled();
 	});
 });

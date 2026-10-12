@@ -72,6 +72,7 @@ import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import {
 	artifactVersionMessagesFromMessages,
+	createdArtifactOf,
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
@@ -620,6 +621,17 @@ let unreachableArtifactIds = $state.raw<readonly string[]>(
 // and which the server said cannot be (nothing stored to make them from).
 let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
 let unavailableArtifactIds = $state.raw<readonly string[]>([]);
+// The panel's list shows the item being made again as a row of its own (F29), not
+// only the card's button: titled and kinded by the chat's own create call, and
+// gone the moment the real row is there.
+let regeneratingRows = $derived.by(() => {
+	if (regeneratingArtifactIds.length === 0) return [];
+	return regeneratingArtifactIds.flatMap((id) => {
+		if (artifacts.some((row) => row.id === id)) return [];
+		const made = createdArtifactOf($messages, id);
+		return made ? [{ id, ...made }] : [];
+	});
+});
 let deletedArtifactsForCards = $derived<DeletedArtifacts>({
 	deletedIds: deletedArtifactIds,
 	unreachableIds: unreachableArtifactIds,
@@ -4049,6 +4061,7 @@ function handleDrop(event: DragEvent) {
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
 				title: $t('artifacts.panel.title'),
+				pending: regeneratingRows,
 			}}
 			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {

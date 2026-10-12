@@ -85,6 +85,13 @@ export interface ArtifactCardView {
 	 */
 	rowFacts?: string | null;
 	/**
+	 * `chrome="row"` only (FB-5, F29): the item is being made right now (Regenerate on
+	 * a deleted card): the row stands for it with a turning spinner where the kind's
+	 * icon is, not as a dimmed, disabled one, and is no button until the item exists
+	 * (`openTargetId` stays unset). `rowFacts` says so in words ("Regenerating…").
+	 */
+	working?: boolean;
+	/**
 	 * `chrome="full"` only: the card's last fact, already localised ("edited 2 min
 	 * ago"). The in-chat card used to end with the version number; it says when
 	 * it last changed instead (ruling 76, Q2: a number is not something a reader
@@ -333,13 +340,19 @@ function handleOpen(): void {
 		type="button"
 		class="artifact-row"
 		class:artifact-row-current={view.current}
+		class:artifact-row-working={view.working}
 		data-testid="artifact-row"
 		aria-label={rowAccessibleName}
+		aria-busy={view.working ? 'true' : undefined}
 		disabled={!view.openTargetId}
 		onclick={handleOpen}
 	>
 		<span class="artifact-row-icon" aria-hidden="true">
-			<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+			{#if view.working}
+				<LoaderCircle class="artifact-row-spinner" size={18} strokeWidth={1.75} aria-hidden="true" />
+			{:else}
+				<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+			{/if}
 		</span>
 		<span class="artifact-row-main">
 			<span class="artifact-row-title">{view.title}</span>
@@ -1120,6 +1133,22 @@ function handleOpen(): void {
 	.artifact-row:disabled {
 		cursor: not-allowed;
 		opacity: 0.55;
+	}
+
+	/* An item being made: not unavailable, working. The spinner turns; reduced motion leaves it still. */
+	.artifact-row-working:disabled {
+		cursor: progress;
+		opacity: 1;
+	}
+
+	.artifact-row-working :global(.artifact-row-spinner) {
+		animation: artifact-card-spin 1s linear infinite;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.artifact-row-working :global(.artifact-row-spinner) {
+			animation: none;
+		}
 	}
 
 	.artifact-row-icon {

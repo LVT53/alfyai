@@ -15,6 +15,11 @@ type WorkspaceList = {
 	open: boolean;
 	items: DocumentWorkspaceItem[];
 	title?: string;
+	pending?: ReadonlyArray<{
+		id: string;
+		kind: "document" | "app" | "canvas" | "slides" | "file";
+		title: string;
+	}>;
 } | null;
 
 type WorkspaceRenderOptions = {

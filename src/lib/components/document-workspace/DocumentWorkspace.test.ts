@@ -1882,6 +1882,29 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			expect(sub(byTitle("Weekend board")[0])).not.toMatch(/\d{2}:\d{2}/);
 		});
 
+		it("lists an item being made again as a row that says so, above the rest, even when nothing else is listed (F29)", async () => {
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [],
+					title: "What this chat made",
+					pending: [{ id: "app-1", kind: "app", title: "Tip calculator" }],
+				},
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+			const rows = within(list).getAllByTestId("artifact-row");
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toHaveTextContent("Tip calculator");
+			expect(rows[0]).toHaveTextContent("Regenerating…");
+			expect(rows[0]).toBeDisabled();
+			// Not the empty list's line: something is being made.
+			expect(
+				within(list).queryByText("Nothing made here yet."),
+			).not.toBeInTheDocument();
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
