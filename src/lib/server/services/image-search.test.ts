@@ -161,7 +161,7 @@ describe("fetchBraveThumbnail", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [address, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 		expect(address).toBe(THUMB);
-		expect(init.redirect).toBe("error");
+		expect(init.redirect).toBe("manual");
 		expect(init.signal).toBeInstanceOf(AbortSignal);
 		expect(init.credentials).toBeUndefined();
 		expect(init.headers).not.toHaveProperty("cookie");
@@ -252,6 +252,19 @@ describe("fetchBraveThumbnail", () => {
 
 			await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
 		}
+	});
+
+	it("does not follow a redirect it is answered with: the 3xx is a failure", async () => {
+		fetchMock.mockImplementationOnce(
+			async () =>
+				new Response(null, {
+					status: 302,
+					headers: { location: "https://evil.example/collect?d=secret" },
+				}),
+		);
+
+		await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("refuses a body over 2 MB, whether or not it says how long it is", async () => {

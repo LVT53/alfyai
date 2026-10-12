@@ -1,3 +1,4 @@
+import { createOutboundFetch, type OutboundFetch } from "$lib/server/outbound";
 import { isBraveThumbnailUrl } from "$lib/shared/url-provenance";
 import { getConfig } from "../config-store";
 
@@ -79,6 +80,13 @@ export async function searchImages(
 
 const THUMBNAIL_FETCH_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
+// The outbound fetch: Brave's host is fixed, but the server's own fetches all
+// take the one path that checks the address a name resolves to and never
+// follows a redirect (`$lib/server/outbound`).
+const braveThumbnailFetch = createOutboundFetch(
+	{},
+	{ timeoutMs: THUMBNAIL_FETCH_TIMEOUT_MS, maxBytes: THUMBNAIL_MAX_BYTES },
+);
 const THUMBNAIL_TYPES = [
 	"image/jpeg",
 	"image/png",
@@ -128,16 +136,16 @@ async function readCapped(
  * not a raster image of at most 2 MB. Never throws, and says nothing about why:
  * the error carries the address.
  *
- * `options.fetch` is the seam a test injects through (the default is the global
- * fetch): a test that stubs the global instead stops intercepting the day the
- * default changes, and then reaches the network.
+ * `options.fetch` is the seam a test injects through (the default is the
+ * outbound fetch): a test that stubs the global instead does not intercept it,
+ * and would reach the network.
  */
 export async function fetchBraveThumbnail(
 	address: string,
-	options: { fetch?: typeof globalThis.fetch } = {},
+	options: { fetch?: OutboundFetch } = {},
 ): Promise<BraveThumbnail | null> {
 	if (!isBraveThumbnailUrl(address)) return null;
-	const fetchImpl = options.fetch ?? globalThis.fetch;
+	const fetchImpl = options.fetch ?? braveThumbnailFetch;
 	// A fragment is never sent, and none goes into the request.
 	const target = new URL(address);
 	target.hash = "";
@@ -148,8 +156,9 @@ export async function fetchBraveThumbnail(
 			headers: {
 				accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
 			},
-			// A redirect is an address nobody listed: it fails the fetch.
-			redirect: "error",
+			// A redirect is an address nobody listed: it is never followed, and its
+			// 3xx answer is not `ok`, so it fails below.
+			redirect: "manual",
 			signal: AbortSignal.timeout(THUMBNAIL_FETCH_TIMEOUT_MS),
 		});
 	} catch {

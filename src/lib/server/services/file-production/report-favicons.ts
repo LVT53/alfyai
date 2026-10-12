@@ -27,6 +27,7 @@
 import { validateFaviconDomain } from "$lib/server/favicon/domain";
 import { fetchFavicon } from "$lib/server/favicon/fetch";
 import { FaviconCache } from "$lib/server/favicon/lru";
+import { createOutboundFetch } from "$lib/server/outbound";
 import { hostsWithKnownSource } from "$lib/server/services/url-provenance";
 import type {
 	GeneratedDocumentBlock,
@@ -55,12 +56,25 @@ const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Shared across renders in a process, exactly like the proxy route's cache. */
 const sharedCache = new FaviconCache({ maxSize: 512, ttlMs: TTL_MS });
 
+/**
+ * The fetch a report's icons are asked with: the outbound one, which reaches the
+ * public internet only (a host a tool returned can still resolve into this
+ * server's own network), held to a report's own limits.
+ */
+const reportFaviconFetch = createOutboundFetch(
+	{},
+	{ timeoutMs: TIMEOUT_MS, maxBytes: MAX_ICON_BYTES },
+);
+
 export interface ResolveReportFaviconsOptions {
 	/** Whose report this is: only hosts a tool returned to this user are fetched. */
 	userId: string;
 	/** The conversation the report belongs to: its stored tool results count too. */
 	conversationId: string;
-	/** Injectable for tests. Defaults to the global fetch. */
+	/**
+	 * Injectable for tests. The default is the outbound fetch above; never pass
+	 * `globalThis.fetch`, which would reach this server's own network.
+	 */
 	fetch?: typeof globalThis.fetch;
 	/** Injectable for tests; defaults to the module-level shared cache. */
 	cache?: FaviconCache;
@@ -163,7 +177,9 @@ async function resolveOne(
 	try {
 		const result = await fetchFavicon(host, {
 			cache: options.cache ?? sharedCache,
-			fetch: withTimeout(options.fetch ?? globalThis.fetch, options.timeoutMs),
+			fetch: options.fetch
+				? withTimeout(options.fetch, options.timeoutMs)
+				: reportFaviconFetch,
 		});
 		if (result.kind !== "image") return null;
 		// The proxy negative-caches failures AS the globe SVG; that is the
