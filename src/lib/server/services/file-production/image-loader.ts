@@ -4,6 +4,13 @@ import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
 import {
+	assessOutboundUrl,
+	createOutboundFetch,
+	type OutboundFailureCode,
+	type OutboundFetch,
+	OutboundFetchError,
+} from "$lib/server/outbound";
+import {
 	type ChatFile,
 	getChatFileByConversationOwner,
 	readChatFileContentByConversationOwner,
@@ -12,11 +19,8 @@ import { getFileProductionLimits } from "./limits";
 import type { GeneratedDocumentImageSource } from "./source-schema";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const PRIVATE_HOSTNAMES = new Set([
-	"localhost",
-	"ip6-localhost",
-	"ip6-loopback",
-]);
+/** A picture that takes longer than this is not worth holding a report render for. */
+const IMAGE_FETCH_TIMEOUT_MS = 15_000;
 
 export interface LoadedGeneratedDocumentImage {
 	bytes: Buffer;
@@ -86,46 +90,33 @@ function decodeDataImage(
 	}
 }
 
-function isPrivateIpv4(hostname: string): boolean {
-	const parts = hostname.split(".");
-	if (parts.length !== 4) return false;
-	const octets = parts.map((part) => Number.parseInt(part, 10));
-	if (
-		octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
-	)
-		return false;
-	return (
-		octets[0] === 10 ||
-		octets[0] === 127 ||
-		(octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-		(octets[0] === 192 && octets[1] === 168) ||
-		(octets[0] === 169 && octets[1] === 254) ||
-		octets[0] === 0
-	);
-}
-
-function isPrivateIpv6(hostname: string): boolean {
-	const normalized = hostname.toLowerCase();
-	return (
-		normalized === "::1" ||
-		normalized.startsWith("fc") ||
-		normalized.startsWith("fd") ||
-		normalized.startsWith("fe80:")
-	);
-}
-
+/**
+ * The up-front half of the SSRF guard: an https URL with no credentials whose
+ * host is not an address that is not public and not a name that can only be
+ * somebody's private network. It runs on every hop, before anything is sent,
+ * and the fetch itself judges the address a name resolves to when it connects
+ * (`$lib/server/outbound`), so a name that points inside is refused there.
+ */
 function validateHttpsUrl(url: string): URL | null {
-	let parsed: URL;
-	try {
-		parsed = new URL(url);
-	} catch {
-		return null;
+	const verdict = assessOutboundUrl(url);
+	return verdict.ok ? verdict.url : null;
+}
+
+/** What a failed fetch is reported as: no host, no address, no cause text. */
+function failureMessageFor(code: OutboundFailureCode): string {
+	switch (code) {
+		case "too_large":
+			return "Image bytes exceed the configured limit.";
+		case "timeout":
+			return "Image request timed out.";
+		case "bad_url":
+		case "blocked_scheme":
+		case "blocked_host":
+		case "blocked_address":
+			return "Image URL is not an allowed HTTPS URL.";
+		default:
+			return "Image request failed.";
 	}
-	const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-	if (parsed.protocol !== "https:") return null;
-	if (!hostname || PRIVATE_HOSTNAMES.has(hostname)) return null;
-	if (isPrivateIpv4(hostname) || isPrivateIpv6(hostname)) return null;
-	return parsed;
 }
 
 function validateLoadedImage(
@@ -157,16 +148,39 @@ async function fetchHttpsImage(
 	options: LoadGeneratedDocumentImageOptions,
 	maxImageBytes: number,
 ): Promise<GeneratedDocumentImageLoadResult> {
-	const fetchImpl = options.fetchImpl ?? fetch;
+	// The default fetch connects to public addresses only, with a byte cap and a
+	// timeout of its own; a `fetchImpl` is a test's.
+	const fetchImpl: OutboundFetch =
+		options.fetchImpl ??
+		createOutboundFetch(
+			{},
+			{ maxBytes: maxImageBytes, timeoutMs: IMAGE_FETCH_TIMEOUT_MS },
+		);
 	let currentUrl = validateHttpsUrl(source.url);
 	if (!currentUrl) return failure("Image URL is not an allowed HTTPS URL.");
 
 	for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
-		const response = await fetchImpl(currentUrl, { redirect: "manual" });
+		let response: Response;
+		try {
+			response = await fetchImpl(currentUrl, { redirect: "manual" });
+		} catch (error) {
+			// A refused or unreachable picture is a placeholder in the report (or
+			// a failed block when it is critical), never a failed render.
+			return failure(
+				error instanceof OutboundFetchError
+					? failureMessageFor(error.code)
+					: "Image request failed.",
+			);
+		}
 		if (response.status >= 300 && response.status < 400) {
 			const location = response.headers.get("location");
 			if (!location) return failure("Image redirect is missing a target.");
-			currentUrl = validateHttpsUrl(new URL(location, currentUrl).toString());
+			// Every hop is judged like the first request.
+			try {
+				currentUrl = validateHttpsUrl(new URL(location, currentUrl).toString());
+			} catch {
+				currentUrl = null;
+			}
 			if (!currentUrl) return failure("Image redirect target is not allowed.");
 			continue;
 		}

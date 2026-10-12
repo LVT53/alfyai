@@ -6,13 +6,19 @@
  * returns a generic globe marker. Designed to be the unit-testable seam — the
  * SvelteKit `+server.ts` is a thin adapter around `fetchFavicon`.
  *
- * SSRF hardening lives in `validateFaviconDomain` (the caller must pass an
- * already-validated hostname). Here we additionally:
+ * The host is chosen by whoever wrote a link, so SSRF is judged where it can
+ * be: the connection. `validateFaviconDomain` is the cheap first filter (the
+ * caller must pass an already-validated hostname); the real guard is the
+ * default `fetch`, the outbound one (`$lib/server/outbound`), which resolves
+ * the name, refuses it if ANY answer is not a public address and connects to
+ * the answers it checked. On top of that, here we:
  *   - force https on every outbound URL,
- *   - pass `redirect: "manual"` so a redirect to an internal address is NOT
- *     silently followed (a 3xx is treated as failure),
+ *   - ask for `redirect: "manual"` so a 3xx is treated as failure rather than
+ *     followed (the outbound fetch never follows one),
+ *   - cap the body (1 MiB) and the whole exchange (6 s),
  *   - reject non-image content-types and empty bodies.
  */
+import { createOutboundFetch, type OutboundFetch } from "$lib/server/outbound";
 import { GLOBE_FALLBACK_SVG, GLOBE_FALLBACK_SVG_BYTES } from "./globe";
 import type { FaviconCache } from "./lru";
 
@@ -23,9 +29,22 @@ export type FetchFaviconResult =
 export interface FetchFaviconOptions {
 	/** Optional shared cache; when omitted no caching is performed. */
 	cache?: FaviconCache;
-	/** Injectable for testing. Defaults to the global fetch. */
-	fetch?: typeof globalThis.fetch;
+	/**
+	 * Injectable for testing. The default is the outbound fetch, the only one
+	 * that keeps this server off its own network: never pass `globalThis.fetch`
+	 * here, it would connect to whatever a name resolves to.
+	 */
+	fetch?: OutboundFetch;
 }
+
+/** A favicon is a few KB; a megabyte is a generous ceiling, not a target. */
+const FAVICON_MAX_BYTES = 1024 * 1024;
+const FAVICON_TIMEOUT_MS = 6_000;
+
+const outboundFaviconFetch = createOutboundFetch(
+	{},
+	{ maxBytes: FAVICON_MAX_BYTES, timeoutMs: FAVICON_TIMEOUT_MS },
+);
 
 const IMAGE_TYPES = new Set([
 	"image/x-icon",
@@ -62,7 +81,7 @@ export async function fetchFavicon(
 		}
 	}
 
-	const fetchImpl = opts.fetch ?? globalThis.fetch;
+	const fetchImpl = opts.fetch ?? outboundFaviconFetch;
 
 	// Try source first, then DuckDuckGo.
 	const candidates = [SOURCE(domain), DUCK_DUCK_GO(domain)];
@@ -90,7 +109,7 @@ export async function fetchFavicon(
 }
 
 async function tryFetchImage(
-	fetchImpl: typeof globalThis.fetch,
+	fetchImpl: OutboundFetch,
 	url: string,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
 	try {

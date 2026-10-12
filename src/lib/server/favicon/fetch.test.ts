@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+	createOutboundFetch,
+	type HostResolver,
+	type OutboundFetch,
+} from "$lib/server/outbound";
+import {
+	fakeTransport,
+	resolverTo,
+} from "$lib/server/outbound/testing/fake-transport";
 import { fetchFavicon } from "./fetch";
 import type { CachedFavicon } from "./lru";
 import { FaviconCache } from "./lru";
@@ -24,16 +33,12 @@ function makeBytes(n: number): Uint8Array {
 	return b;
 }
 
+/** The injected fetch every case below runs `fetchFavicon` with; nothing here reaches the network. */
+function asOutboundFetch(mock: unknown): OutboundFetch {
+	return mock as OutboundFetch;
+}
+
 describe("fetchFavicon orchestration", () => {
-	let originalFetch: typeof globalThis.fetch;
-
-	beforeEach(() => {
-		originalFetch = globalThis.fetch;
-	});
-	afterEach(() => {
-		globalThis.fetch = originalFetch;
-	});
-
 	it("tries the source /favicon.ico first and returns its bytes", async () => {
 		const ico = makeBytes(8);
 		const fetchMock = vi.fn(async (url: string | URL) => {
@@ -42,9 +47,9 @@ describe("fetchFavicon orchestration", () => {
 			}
 			throw new Error("unexpected");
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("image");
 		if (result.kind === "image") {
 			expect(result.bytes).toEqual(ico);
@@ -69,9 +74,9 @@ describe("fetchFavicon orchestration", () => {
 			}
 			throw new Error("unexpected");
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("image");
 		if (result.kind === "image") {
 			expect(result.bytes).toEqual(ddg);
@@ -99,9 +104,9 @@ describe("fetchFavicon orchestration", () => {
 			}
 			throw new Error("unexpected");
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("image");
 		if (result.kind === "image") {
 			expect(result.contentType).toBe("image/png");
@@ -112,18 +117,20 @@ describe("fetchFavicon orchestration", () => {
 		const fetchMock = vi.fn(async () =>
 			makeResponse(new Uint8Array(), { status: 502 }),
 		);
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("globe");
 	});
 
 	it("returns the globe fallback when fetch throws", async () => {
-		globalThis.fetch = vi.fn(async () => {
-			throw new Error("network down");
-		}) as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(
+			vi.fn(async () => {
+				throw new Error("network down");
+			}),
+		);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("globe");
 	});
 
@@ -144,9 +151,9 @@ describe("fetchFavicon orchestration", () => {
 			}
 			throw new Error("unexpected");
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("globe");
 	});
 
@@ -158,9 +165,9 @@ describe("fetchFavicon orchestration", () => {
 			}
 			return makeResponse(makeBytes(3), { contentType: "image/x-icon" });
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		await fetchFavicon("example.com");
+		await fetchFavicon("example.com", { fetch: fetchImpl });
 		for (const call of fetchMock.mock.calls) {
 			expect(String(call[0]).startsWith("https://")).toBe(true);
 		}
@@ -179,9 +186,9 @@ describe("fetchFavicon orchestration", () => {
 			throw new Error("unexpected");
 		};
 		const fetchMock = vi.fn(impl);
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const result = await fetchFavicon("example.com");
+		const result = await fetchFavicon("example.com", { fetch: fetchImpl });
 		expect(result.kind).toBe("globe");
 		// Inspect that redirect:'manual' was passed.
 		const init = fetchMock.mock.calls[0][1] as RequestInit | undefined;
@@ -194,10 +201,13 @@ describe("fetchFavicon orchestration", () => {
 		const fetchMock = vi.fn(async () =>
 			makeResponse(ico, { contentType: "image/x-icon" }),
 		);
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		const first = await fetchFavicon("cached.com", { cache });
-		const second = await fetchFavicon("cached.com", { cache });
+		const first = await fetchFavicon("cached.com", { cache, fetch: fetchImpl });
+		const second = await fetchFavicon("cached.com", {
+			cache,
+			fetch: fetchImpl,
+		});
 
 		expect(first.kind).toBe("image");
 		expect(second.kind).toBe("image");
@@ -213,12 +223,12 @@ describe("fetchFavicon orchestration", () => {
 		const fetchMock = vi.fn(async () => {
 			throw new Error("offline");
 		});
-		globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+		const fetchImpl = asOutboundFetch(fetchMock);
 
-		await fetchFavicon("down.com", { cache });
+		await fetchFavicon("down.com", { cache, fetch: fetchImpl });
 		// First call hits source + DDG = 2 network attempts.
 		expect(fetchMock).toHaveBeenCalledTimes(2);
-		await fetchFavicon("down.com", { cache });
+		await fetchFavicon("down.com", { cache, fetch: fetchImpl });
 		// Second call is served entirely from the negative cache — no new fetch.
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
@@ -232,10 +242,109 @@ describe("fetchFavicon orchestration", () => {
 		};
 		cache.set("preset.com", entry);
 
-		const result = await fetchFavicon("preset.com", { cache });
+		const fetchImpl = asOutboundFetch(
+			vi.fn(async () => {
+				throw new Error("a cache hit must not fetch");
+			}),
+		);
+		const result = await fetchFavicon("preset.com", {
+			cache,
+			fetch: fetchImpl,
+		});
 		expect(result.kind).toBe("image");
 		if (result.kind === "image") {
 			expect(result.contentType).toBe("image/svg+xml");
 		}
+	});
+});
+
+describe("fetchFavicon behind the outbound guard", () => {
+	const PUBLIC = "93.184.216.34";
+	const PNG = { "content-type": "image/png" };
+
+	it("never connects to the source site when its name resolves to a private address, and falls back", async () => {
+		const resolve: HostResolver = vi.fn(async (hostname) => [
+			{
+				address: hostname === "icons.duckduckgo.com" ? PUBLIC : "127.0.0.1",
+				family: 4 as const,
+			},
+		]);
+		const { transport, calls, connectedTo } = fakeTransport({
+			headers: PNG,
+			chunks: [Buffer.from([1, 2, 3])],
+		});
+
+		const result = await fetchFavicon("rebinding.example.com", {
+			fetch: createOutboundFetch({ resolve, request: transport }),
+		});
+
+		expect(result.kind).toBe("image");
+		// Both candidates were tried; only the one whose answer was public was
+		// ever connected to.
+		expect(calls.map((call) => call.hostname)).toEqual([
+			"rebinding.example.com",
+			"icons.duckduckgo.com",
+		]);
+		expect(connectedTo).toEqual([PUBLIC]);
+	});
+
+	it.each([
+		["127.0.0.1", "loopback"],
+		["::ffff:7f00:1", "IPv4-mapped loopback"],
+		["::", "the unspecified address"],
+		["100.64.0.1", "carrier-grade NAT"],
+		["169.254.169.254", "cloud metadata"],
+		["10.0.0.5", "a private address"],
+		["fd00::1", "a unique-local address"],
+		["64:ff9b::7f00:1", "NAT64 wrapping loopback"],
+	])("answers the globe and connects to nothing when every name resolves to %s (%s)", async (address) => {
+		const { transport, connectedTo } = fakeTransport({
+			headers: PNG,
+			chunks: [Buffer.from([1])],
+		});
+
+		const result = await fetchFavicon("looks-public.example.com", {
+			fetch: createOutboundFetch({
+				resolve: resolverTo(address),
+				request: transport,
+			}),
+		});
+
+		expect(result.kind).toBe("globe");
+		expect(connectedTo).toEqual([]);
+	});
+
+	it("treats a redirect into a private range as a miss: it is returned, never followed", async () => {
+		const { transport, calls } = fakeTransport({
+			status: 302,
+			headers: { location: "https://169.254.169.254/latest/meta-data/" },
+		});
+
+		const result = await fetchFavicon("example.com", {
+			fetch: createOutboundFetch({
+				resolve: resolverTo(PUBLIC),
+				request: transport,
+			}),
+		});
+
+		expect(result.kind).toBe("globe");
+		// The source and the DuckDuckGo fallback, one request each, no third hop.
+		expect(calls).toHaveLength(2);
+	});
+
+	it("treats a body over the byte cap as a miss, not an error", async () => {
+		const { transport } = fakeTransport({
+			headers: PNG,
+			chunks: [Buffer.alloc(64)],
+		});
+
+		const result = await fetchFavicon("example.com", {
+			fetch: createOutboundFetch(
+				{ resolve: resolverTo(PUBLIC), request: transport },
+				{ maxBytes: 16 },
+			),
+		});
+
+		expect(result.kind).toBe("globe");
 	});
 });

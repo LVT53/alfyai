@@ -1,12 +1,21 @@
+import { isReservedHostname } from "$lib/server/outbound";
+
 /**
  * SSRF-hardened domain validation for the favicon proxy (ADR 0043, Slice 12).
  *
  * The favicon route forwards a user-supplied hostname into outbound HTTPS
  * requests. Without validation, an attacker could ask the server to fetch
  * `http://169.254.169.254/...` (cloud metadata) or an internal service.
- * This validator only ever permits a public, resolvable DNS hostname — never
- * an IP literal, never a private/loopback/link-local address, never a string
- * carrying a scheme/port/path.
+ * This validator only ever permits a DNS hostname that LOOKS public — never
+ * an IP literal (in any spelling a URL parser accepts), never a name under a
+ * private suffix (`*.internal`, `*.local`, ...), never a string carrying a
+ * scheme/port/path.
+ *
+ * It is a filter on the text of a name, and a name's text says nothing about
+ * where it resolves. The check that matters is the one the outbound fetch
+ * makes at connect time (`$lib/server/outbound`): every address the name
+ * resolves to must be public, and the connection goes to the address that was
+ * checked. This validator only keeps the obvious from reaching it.
  *
  * @returns the normalized (lowercased, www-stripped) hostname, or `null` if
  * the input must be rejected.
@@ -32,10 +41,10 @@ export function validateFaviconDomain(input: unknown): string | null {
 
 /**
  * A hostname is acceptable iff it is a DNS name (not an IP literal), has a
- * public suffix + at least one label, and does not resolve into a known
- * internal/private range by *shape*. (We can't see DNS here, so we block by
- * pattern; the actual fetch also forces https and does not follow redirects
- * to internal addresses — see the route handler.)
+ * top-level label that is not a number, and does not belong to a private
+ * suffix by *shape*. (We can't see DNS here, so we block by pattern; the
+ * actual fetch resolves the name itself and refuses any answer that is not a
+ * public address.)
  */
 function isAcceptableHostname(hostname: string): boolean {
 	// Every label: [a-z0-9-], no leading/trailing hyphen, 1-63 chars.
@@ -45,6 +54,16 @@ function isAcceptableHostname(hostname: string): boolean {
 
 	// Reject IP literals outright (IPv4 dotted-quad / IPv6 / bracketed).
 	if (isIpLiteral(hostname)) return false;
+
+	// A top-level label is never a number. The URL standard reads a host whose
+	// last label is one (decimal, octal, or hex with a 0x prefix) as an IPv4
+	// address: `0x7f.1`, `127.1` and `127.0x1` are all 127.0.0.1. Such a name is
+	// an address in disguise, whatever it looks like.
+	if (
+		/^(?:\d+|0x[0-9a-f]*)$/.test(hostname.slice(hostname.lastIndexOf(".") + 1))
+	) {
+		return false;
+	}
 
 	// Reject obviously-internal hostnames even if they parse as DNS-ish.
 	if (isInternalHostname(hostname)) return false;
@@ -61,14 +80,10 @@ function isIpLiteral(hostname: string): boolean {
 }
 
 function isInternalHostname(hostname: string): boolean {
-	// Common internal hostnames that are valid DNS shapes but must be blocked.
-	const blocked = new Set([
-		"localhost",
-		"localhost.localdomain",
-		"metadata",
-		"metadata.google.internal", // GCP metadata
-	]);
-	if (blocked.has(hostname)) return true;
+	// `localhost`, `*.localhost`, `*.local`, `*.internal` (cloud metadata lives
+	// under it), `*.lan`, `*.home.arpa` and the other suffixes of a private
+	// network: one list, shared with the outbound fetch.
+	if (isReservedHostname(hostname)) return true;
 
 	// IPv4 private/loopback/link-local ranges expressed as dotted-quads —
 	// these are already rejected as IP literals above, but keep an explicit

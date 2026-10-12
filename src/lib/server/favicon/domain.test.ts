@@ -83,6 +83,47 @@ describe("validateFaviconDomain", () => {
 		expect(validateFaviconDomain("169.254.169.254")).toBeNull();
 	});
 
+	// --- rejects what a URL parser reads as an address, and private suffixes ---
+	it.each([
+		["0x7f.1"], // hex first label: 127.0.0.1
+		["127.1"], // 127.0.0.1
+		["127.0x1"], // 127.0.0.1
+		["0177.0.0.1"], // octal
+		["1.0xa"],
+		["foo.123"],
+		["foo.0x"],
+		["a.b.0x7f000001"],
+	])("rejects %s: a name that ends in a number is an IPv4 address", (name) => {
+		expect(validateFaviconDomain(name)).toBeNull();
+	});
+
+	it.each([
+		["metadata.google.internal"],
+		["anything.internal"],
+		["db.internal"],
+		["printer.local"],
+		["api.localhost"],
+		["nas.lan"],
+		["router.home.arpa"],
+		["wiki.intranet"],
+		["files.corp"],
+		["tv.home"],
+		["host.localdomain"],
+	])("rejects %s: a private suffix", (name) => {
+		expect(validateFaviconDomain(name)).toBeNull();
+	});
+
+	it("still accepts names that merely contain a private word or a numeric label", () => {
+		expect(validateFaviconDomain("internal.example.com")).toBe(
+			"internal.example.com",
+		);
+		expect(validateFaviconDomain("127.example.com")).toBe("127.example.com");
+		expect(validateFaviconDomain("a1.example.org")).toBe("a1.example.org");
+		expect(validateFaviconDomain("xn--bcher-kva.example")).toBe(
+			"xn--bcher-kva.example",
+		);
+	});
+
 	// --- rejects input containing scheme / port / path / query ---
 	it("rejects a scheme-prefixed URL", () => {
 		expect(validateFaviconDomain("https://foo.com")).toBeNull();
