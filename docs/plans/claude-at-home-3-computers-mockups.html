@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Computers · mockups</title>
+<!-- Feature 3 (Computers) design target, 2026-10-12. AlfyAI tokens from src/app.css; icons are Tabler stand-ins for Lucide. Spec: claude-at-home-3-computers-spec.md -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Baskerville&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<style>
+:root{--pg:#fafaf8;--el:#f4f3ee;--paper:#ffffff;--tx:#1a1a1a;--mu:#6b6b6b;--fa:#9a978f;--bd:rgba(0,0,0,.09);--bds:rgba(0,0,0,.18);--ac:#c15f3c;--ok:#3f7a4a;--warn:#a8741a;--bad:#b3261e;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--pg)}
+body{color:var(--tx);font:15px/1.45 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif}
+main{max-width:430px;margin:0 auto;padding:20px 16px 28px}
+h1{font:400 22px/1.3 'Libre Baskerville',Georgia,serif;margin:0 0 4px}
+h2{font:400 18px/1.3 'Libre Baskerville',Georgia,serif;margin:30px 0 4px;scroll-margin-top:0}
+.lead{color:var(--mu);font-size:13.5px;margin:0 0 6px}
+.cap{font-size:11.5px;font-weight:bold;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);margin:16px 2px 8px}
+.ti{font-size:18px;flex:none;vertical-align:-3px}
+.card{background:var(--paper);border:1px solid var(--bd);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:9px}
+.pane{background:var(--el);border:1px solid var(--bd);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.t{font-weight:bold;font-size:14px}
+.s{font-size:12.5px;color:var(--mu)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.btn{font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid var(--bds);color:var(--mu);background:transparent}
+.btn.y{color:var(--ac);border-color:var(--ac)}
+.row{display:flex;align-items:center;gap:10px;min-width:0}
+.list{border:1px solid var(--bd);border-radius:11px;background:var(--paper);overflow:hidden}
+.list .row{padding:10px 12px;border-top:1px solid var(--bd)}
+.list .row:first-child{border-top:0}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+.gl{font-size:12.5px;color:var(--mu);margin:4px 2px 0}
+.frame{border:1px solid var(--bds);border-radius:24px;background:var(--el);padding:13px;display:flex;flex-direction:column;gap:9px}
+.ub{margin-left:auto;max-width:88%;background:var(--paper);border:1px solid var(--bd);border-radius:11px;padding:8px 11px;font:13.5px/1.55 'Libre Baskerville',Georgia,serif}
+.ab{font:13.5px/1.65 'Libre Baskerville',Georgia,serif;color:#2b2f36}
+.comp{border:1px solid var(--bd);border-radius:16px;background:var(--paper)}
+.comp .ph{padding:10px 13px 12px;color:var(--fa);font-size:13.5px}
+.comp .bar{display:flex;align-items:center;gap:15px;padding:8px 13px;border-top:1px solid var(--bd);color:var(--mu)}
+.note{font-size:13px;color:var(--mu);margin:8px 4px 0;line-height:1.45}
+.term{background:var(--paper);border:1px solid var(--bds);border-radius:14px;overflow:hidden}
+.term .top{display:flex;align-items:center;gap:6px;padding:8px 11px;border-bottom:1px solid var(--bd)}
+.term .top span.c{width:10px;height:10px;border-radius:50%;border:1px solid var(--bds)}
+.term .body{padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.75;color:var(--mu);word-break:break-word}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:9px;padding:2px;background:var(--el);align-self:flex-start}
+.seg span{font-size:12.5px;padding:3px 11px;border-radius:7px;color:var(--mu)}
+.seg span.on{background:var(--paper);color:var(--tx);font-weight:bold;box-shadow:0 0 0 1px var(--bd)}
+.switch{width:34px;height:19px;border-radius:999px;background:var(--ac);position:relative;display:inline-block;flex:none}
+.switch::after{content:"";position:absolute;right:2px;top:2px;width:15px;height:15px;border-radius:50%;background:#fff}
+.strip{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--bd);font-size:13px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ac);box-shadow:0 0 0 3px rgba(193,95,60,.18);flex:none}
+.pop{background:var(--paper);border:1px solid var(--bd);border-radius:12px;box-shadow:0 8px 22px rgba(0,0,0,.10);padding:6px;font-size:13.5px}
+.pop .it{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px}
+.work{background:var(--paper);border:1px solid var(--bd);border-radius:12px;padding:10px 12px;display:grid;gap:6px;font-size:13px}
+.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--bds);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--mu)}
+.scrim{background:rgba(26,26,26,.38);border-radius:24px;padding:42px 18px;display:flex;justify-content:center}
+</style>
+</head>
+<body>
+<main>
+<h1>Computers</h1>
+<p class="lead">Feature 3 design target. Alfy works on your own Mac, Linux box or Windows 11 PC from any chat, behind one checker and a fixed floor. Light theme shown; dark mode follows the app's tokens.</p>
+
+<h2 id="setup">1 · Adding a computer</h2>
+<p class="lead">One paste on the computer, then the same three words on both screens.</p>
+<p class="cap">In AlfyAI · Settings → Connections</p>
+<div class="card">
+  <div class="t">Add a computer</div>
+  <div class="seg"><span class="on">macOS · Linux</span><span>Windows</span></div>
+  <div class="s" style="font-size:13.5px">Open Terminal on the computer and paste:</div>
+  <div class="row" style="background:var(--el);border:1px solid var(--bd);border-radius:9px;padding:9px 11px">
+    <span class="mono" style="flex:1;color:var(--tx);word-break:break-word">curl -fsSL alfyai.example/api/computers/install | sh -s 7KQ-MZ4</span>
+    <i class="ti ti-copy" style="color:var(--mu)"></i>
+  </div>
+  <div class="row" style="background:var(--el);border-radius:9px;padding:8px 10px;font-size:13.5px"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span><b>MacBook Pro</b> · macOS is asking to pair</span></div>
+  <div class="s" style="font-size:13.5px">Check that these words match on the computer:</div>
+  <div style="font-weight:bold;font-size:17px">otter · lemon · bicycle</div>
+  <div class="row" style="justify-content:flex-end;gap:8px"><span class="btn">Cancel</span><span class="btn y">They match</span></div>
+</div>
+<p class="cap">On the computer · Terminal</p>
+<div class="term">
+  <div class="top"><span class="c"></span><span class="c"></span><span class="c"></span><span class="s" style="margin-left:6px">Terminal</span></div>
+  <div class="body">
+    <div style="color:var(--tx)">$ curl -fsSL alfyai.example/api/computers/install | sh -s 7KQ-MZ4</div>
+    <div>Installed in ~/.alfy-remote, Node included</div>
+    <div>Pair this Mac with levente@… (Levente) on alfyai.example?</div>
+    <div>Words: <span style="color:var(--tx)">otter · lemon · bicycle</span> [y/N] y</div>
+    <div>Folders Alfy may use (tick with space):</div>
+    <div style="color:var(--tx)">[ ] ~/Projects  [ ] ~/Documents  [ ] ~/Desktop  + other</div>
+    <div>Chosen: ~/Projects, ~/Downloads</div>
+    <div style="color:var(--ok)">Connected. Runs in the background.</div>
+    <div>alfy-remote status · pause · resume · folders · logs · remove</div>
+  </div>
+</div>
+<p class="note">Windows uses one PowerShell line. The code comes from your signed-in session, works once and expires after 10 minutes.</p>
+
+<h2 id="settings">2 · Computers in Settings</h2>
+<p class="lead">Their own group in Connections, with the same compact rows and detail window.</p>
+<div class="pane" style="margin-top:12px">
+  <div class="t" style="font-size:15px">Connections</div>
+  <div class="gl">Computers</div>
+  <div class="list">
+    <div class="row"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><div style="flex:1;min-width:0"><div class="t">MacBook Pro</div><div class="s">macOS · 2 folders</div></div><span class="s"><span class="dot" style="background:var(--ok)"></span>Online</span><i class="ti ti-dots" style="color:var(--mu)"></i></div>
+    <div class="row"><i class="ti ti-device-desktop" style="color:var(--mu)"></i><div style="flex:1;min-width:0"><div class="t">Office PC</div><div class="s">Windows 11 · 1 folder</div></div><span class="s">Offline · 2 h ago</span><i class="ti ti-dots" style="color:var(--mu)"></i></div>
+    <div class="row"><i class="ti ti-server" style="color:var(--mu)"></i><div style="flex:1;min-width:0"><div class="t">cachyos</div><div class="s">Linux · 1 folder</div></div><span class="s"><span class="dot" style="background:var(--warn)"></span>Paused</span><i class="ti ti-dots" style="color:var(--mu)"></i></div>
+    <div class="row" style="color:var(--ac)"><i class="ti ti-plus"></i><span>Add a computer</span></div>
+  </div>
+  <div class="gl">Accounts</div>
+  <div class="list">
+    <div class="row"><i class="ti ti-brand-google" style="color:var(--mu)"></i><div style="flex:1;min-width:0"><div class="t">Google</div><div class="s">Calendar, mail</div></div><span class="s"><span class="dot" style="background:var(--ok)"></span>Connected</span><i class="ti ti-dots" style="color:var(--mu)"></i></div>
+  </div>
+</div>
+<p class="cap">Opening a computer</p>
+<div class="card">
+  <div class="row"><i class="ti ti-device-laptop" style="color:var(--ac);font-size:20px"></i><span class="t" style="font-size:15px;flex:1">MacBook Pro</span><i class="ti ti-x" style="color:var(--mu)"></i></div>
+  <div class="s" style="margin-top:-6px">macOS · online · alfy-remote 1.0</div>
+  <div class="gl">Folders Alfy can use</div>
+  <div class="list">
+    <div class="row"><i class="ti ti-folder" style="color:var(--mu)"></i><span class="mono">~/Projects</span></div>
+    <div class="row"><i class="ti ti-folder" style="color:var(--mu)"></i><span class="mono">~/Downloads</span></div>
+  </div>
+  <div class="s">Changed only on the Mac itself: <span class="mono">alfy-remote folders</span></div>
+  <div class="row" style="margin-top:4px"><span style="flex:1;font-size:14px">Available in chats</span><span class="switch"></span></div>
+  <div class="gl">Recent</div>
+  <div class="s">Ran npm test · 2 min ago</div>
+  <div class="s">Edited context-budget.ts · 3 min ago</div>
+  <div class="row" style="border-top:1px solid var(--bd);padding-top:11px;margin-top:4px"><span class="btn">Pause</span><span style="margin-left:auto;font-size:13px;color:var(--bad)">Remove computer</span></div>
+</div>
+
+<h2 id="chat">3 · The computer line</h2>
+<p class="lead">Its own quiet line above the composer: which computer, which folder, and what Alfy is doing right now.</p>
+<div class="frame" style="margin-top:12px">
+  <div class="ub">Run the tests in alfyai and fix the failing one.</div>
+  <div class="ab">Found it: one test still assumed the old 131k window. Fixing it now.</div>
+  <div class="strip"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">alfyai</span><span class="s" style="margin-left:auto;display:flex;align-items:center;gap:7px"><span class="pulse"></span>Running npm test…</span></div>
+  <div class="comp"><div class="ph">Reply to Alfy…</div><div class="bar"><i class="ti ti-plus"></i><i class="ti ti-paperclip"></i><i class="ti ti-plug" style="color:var(--ac)"></i><i class="ti ti-brain"></i><i class="ti ti-arrow-up" style="margin-left:auto"></i></div></div>
+</div>
+<p class="cap">Other states</p>
+<div style="display:grid;gap:8px">
+  <div class="strip"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">alfyai</span><span class="s" style="margin-left:auto">Idle</span></div>
+  <div class="strip"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">alfyai</span><span class="s" style="margin-left:auto">Waiting for the computer</span></div>
+  <div class="strip"><i class="ti ti-device-desktop" style="color:var(--fa)"></i><span style="font-weight:bold;color:var(--mu)">Office PC</span><span class="s">Documents</span><span class="s" style="margin-left:auto"><span class="dot" style="background:var(--fa)"></span>Offline</span></div>
+  <div class="strip"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">alfyai</span><span class="s" style="margin-left:auto"><span class="dot" style="background:var(--warn)"></span>Paused · <span style="color:var(--ac)">Resume</span></span></div>
+</div>
+<p class="cap">Tapping the computer line</p>
+<div class="frame">
+  <div class="pop" style="width:270px;margin-left:auto">
+    <div class="it" style="flex-direction:column;align-items:flex-start;gap:1px"><span style="font-weight:bold">MacBook Pro</span><span class="mono s">~/Projects/alfyai</span></div>
+    <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+    <div class="it"><i class="ti ti-arrows-exchange" style="color:var(--mu)"></i>Change folder or computer</div>
+    <div class="it"><i class="ti ti-player-pause" style="color:var(--mu)"></i>Pause</div>
+    <div class="it" style="color:var(--bad)"><i class="ti ti-plug-x"></i>Let go of this computer</div>
+  </div>
+  <div class="strip"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">alfyai</span><span class="s" style="margin-left:auto">Idle</span></div>
+  <div class="comp"><div class="ph">Reply to Alfy…</div><div class="bar"><i class="ti ti-plus"></i><i class="ti ti-paperclip"></i><i class="ti ti-plug" style="color:var(--ac)"></i><i class="ti ti-brain"></i><i class="ti ti-arrow-up" style="margin-left:auto"></i></div></div>
+</div>
+
+<h2 id="ask">4 · When Alfy needs you</h2>
+<p class="lead">The computer line opens into the ask. The question and the sentence come from the checker; the facts line comes from the server; nothing on the card is written by Alfy.</p>
+<div class="frame" style="margin-top:12px">
+  <div style="border:1px solid var(--bd);border-radius:14px;background:var(--paper);overflow:hidden">
+    <div class="row" style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:13px"><i class="ti ti-device-laptop" style="color:var(--ac)"></i><span style="font-weight:bold">MacBook Pro</span><span class="s">Desktop</span><span class="s" style="margin-left:auto;color:var(--ac)">Waiting for you</span></div>
+    <div style="padding:10px 12px">
+      <div style="font-weight:bold;font-size:14px">Delete 3 screen recordings (18 GB)?</div>
+      <div class="s" style="font-size:13px;margin-top:3px">They'd be gone for good, not moved to the Trash.</div>
+      <div class="row" style="margin-top:8px;gap:6px;font-size:12px;color:var(--mu);background:var(--el);border-radius:7px;padding:5px 8px"><i class="ti ti-info-circle" style="font-size:15px"></i>Deletes 3 files · 18 GB · nothing leaves the computer</div>
+      <div class="mono" style="color:var(--fa);font-size:11.5px;margin-top:7px">› rm ~/Desktop/"Screen Recording 2026-03-"*.mov</div>
+      <div class="row" style="margin-top:10px;gap:8px"><span class="s" style="font-size:11.5px"><span class="kbd">⌘↵</span> allow · <span class="kbd">esc</span> skip</span><span class="btn" style="margin-left:auto">Skip</span><span class="btn y">Allow</span></div>
+    </div>
+  </div>
+  <div class="comp"><div class="ph">Or tell Alfy what to do instead…</div><div class="bar"><i class="ti ti-plus"></i><i class="ti ti-paperclip"></i><i class="ti ti-plug" style="color:var(--ac)"></i><i class="ti ti-brain"></i><i class="ti ti-arrow-up" style="margin-left:auto"></i></div></div>
+</div>
+<p class="note">No timeout: it waits until you answer, even across a refresh. Typing a reply and sending it skips the step and tells Alfy what to do instead. Enter alone does nothing.</p>
+<p class="cap">Meanwhile, in the sidebar</p>
+<div class="pane" style="padding:6px">
+  <div class="row" style="padding:7px 9px;border-radius:8px;background:var(--paper)"><span style="flex:1;font-size:13.5px">Making room on the Mac</span><span class="dot" style="background:var(--ac);margin:0"></span></div>
+  <div class="row" style="padding:7px 9px;font-size:13.5px;color:var(--mu)">Vienna trip costs</div>
+</div>
+
+<h2 id="after">5 · Afterwards</h2>
+<p class="lead">One quiet line per step stays in the work card. A block is always shown, with the checker's reason for you only.</p>
+<div class="frame" style="margin-top:12px">
+  <div class="work">
+    <div class="row" style="font-weight:bold"><i class="ti ti-device-laptop" style="color:var(--ac)"></i>MacBook Pro<span class="s" style="font-weight:normal">~/Desktop</span><span class="s" style="margin-left:auto;font-weight:normal;color:var(--ok)">24 GB freed</span></div>
+    <div class="row s"><i class="ti ti-check" style="color:var(--ok)"></i>Checked what's using space</div>
+    <div class="row s"><i class="ti ti-check" style="color:var(--ok)"></i>Emptied app caches, 6 GB</div>
+    <div class="row s"><i class="ti ti-check" style="color:var(--ok)"></i>Deleted 3 screen recordings · you allowed it</div>
+    <div class="row s"><i class="ti ti-ban" style="color:var(--bad)"></i><span style="flex:1">Blocked: uploading Documents to an unknown website</span><span style="color:var(--ac)">Why</span></div>
+  </div>
+  <div class="pop" style="font-size:13px;line-height:1.5;padding:10px 12px">
+    <div style="font-weight:bold;margin-bottom:3px">Why this was blocked</div>
+    <div class="s" style="font-size:13px">It would send files from Documents to paste.example.com. You didn't ask for anything to be uploaded, and you never mentioned that site.</div>
+  </div>
+  <div class="ab">Done: 24 GB free now. I left your photos and anything you opened in the last month alone.</div>
+</div>
+
+<h2 id="cloud">6 · With a cloud model</h2>
+<p class="lead">Shown once, like the Connections notice, with its own acknowledgement.</p>
+<div class="scrim" style="margin-top:12px">
+  <div class="card" style="width:100%;max-width:340px;box-shadow:0 12px 30px rgba(0,0,0,.18)">
+    <div class="row"><i class="ti ti-cloud" style="color:var(--ac);font-size:20px"></i><span class="t" style="font-size:15px">Your computer and a cloud model</span></div>
+    <div style="font-size:13.5px;line-height:1.5;color:#2b2f36">This chat uses DeepSeek, which runs on DeepSeek's servers. When Alfy works on your computer, file contents and command output will be sent there.</div>
+    <div class="s" style="font-size:13px">Your own model on alfyroot keeps everything at home.</div>
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px"><span class="btn">Not now</span><span class="btn y">Continue</span></div>
+  </div>
+</div>
+</main>
+</body>
+</html>
