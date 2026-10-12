@@ -6,7 +6,10 @@
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import AppBody from "./AppBody.svelte";
 
-let { controller }: { controller: { set?: (a: DocumentAlfyActivity | null) => void } } = $props();
+let {
+	controller,
+}: { controller: { set?: (a: DocumentAlfyActivity | null) => void } } =
+	$props();
 let activity = $state.raw<DocumentAlfyActivity | null>(null);
 // A plain assignment on the object the test holds; no prop is reassigned.
 // svelte-ignore state_referenced_locally
