@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { storeFileProductionOutputs } from "./storage-adapter";
+import {
+	type StoreGeneratedFileDependency,
+	storeFileProductionOutputs,
+} from "./storage-adapter";
 
 // What a produced file is named when it is stored. A Download of a Document is the
 // reader's own export: the file carries the title the reader wrote (RC-A, the audit's
@@ -9,26 +12,19 @@ import { storeFileProductionOutputs } from "./storage-adapter";
 const TITLE = "Bécsi hétvégi útiterv (szombat–vasárnap)";
 
 function stored(id: string) {
-	return vi.fn(
-		async (_conversationId: string, _userId: string, file: never) => {
-			const { filename, mimeType, content } = file as {
-				filename: string;
-				mimeType?: string;
-				content: Buffer;
-			};
-			return {
-				id,
-				conversationId: "conv-1",
-				assistantMessageId: null,
-				artifactId: null,
-				userId: "user-1",
-				filename,
-				mimeType: mimeType ?? null,
-				sizeBytes: content.length,
-				storagePath: `conv-1/${id}`,
-				createdAt: 1,
-			};
-		},
+	return vi.fn<StoreGeneratedFileDependency>(
+		async (_conversationId, _userId, file) => ({
+			id,
+			conversationId: "conv-1",
+			assistantMessageId: null,
+			artifactId: null,
+			userId: "user-1",
+			filename: file.filename,
+			mimeType: file.mimeType ?? null,
+			sizeBytes: Buffer.byteLength(file.content),
+			storagePath: `conv-1/${id}`,
+			createdAt: 1,
+		}),
 	);
 }
 
@@ -76,9 +72,7 @@ function run(params: {
 }
 
 const names = (storeGeneratedFile: ReturnType<typeof stored>) =>
-	storeGeneratedFile.mock.calls.map(
-		([, , file]) => (file as { filename: string }).filename,
-	);
+	storeGeneratedFile.mock.calls.map(([, , file]) => file.filename);
 
 describe("the name a produced file is stored under", () => {
 	it("names a PDF and a Word export after the item's title, accents and all", async () => {
