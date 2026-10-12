@@ -517,8 +517,18 @@ test.describe("blocks from this chat", () => {
 			.toEqual([JSON.stringify("from the habit app")]);
 		expect(await rowsOf(seeded.boardId)).toEqual([]);
 
-		// And after a reload each App still holds only its own.
-		await savedStatus(page);
+		// And after a reload each App still holds only its own. The reload needs the board saved
+		// with both Apps, which is read from the store: the status line says "Saved" for 2.5 s
+		// after a save, and the Apps' round trips above can take longer than that on a busy
+		// machine (the release gate's), when the line has already gone quiet.
+		await expect
+			.poll(
+				async () =>
+					(await storedBoard(seeded.boardId)).nodes.filter(
+						(node) => node.type === "app",
+					).length,
+			)
+			.toBe(2);
 		await page.reload({ waitUntil: "networkidle" });
 		await openBoard(page);
 		await expect(
