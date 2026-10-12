@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { asSchema } from "@ai-sdk/provider-utils";
@@ -204,6 +205,25 @@ export function createToolCallRecorder(
 	};
 }
 
+// ── Local distillation mark ────────────────────────────────────
+//
+// With a cloud chat model and local summarising on, a connector tool hands the
+// model a summary a LOCAL model wrote after reading the user's mail, events or
+// files (a stranger's email among them) in place of what the provider returned.
+// An address in it is that model's words, not a tool's result (ADR-0068), so
+// the call's entry carries `localDistilled: true` and the turn's address check
+// takes only its candidates (url-provenance/turn.ts). The summary is asked for
+// deep inside the tool, so `decideLocalDistill` marks the call it runs in and
+// `executeToolWithEnvelope` writes the mark on the entry before the result is
+// observed or recorded. Outside a tool call there is nothing to mark.
+const callInProgress = new AsyncLocalStorage<{ localDistilled: boolean }>();
+
+/** Marks the tool call running now as one whose result a local model summarised. */
+export function markCallLocallyDistilled(): void {
+	const call = callInProgress.getStore();
+	if (call) call.localDistilled = true;
+}
+
 // ── Timeout ────────────────────────────────────────────────────
 
 export const TOOL_TIMEOUTS_MS: Record<string, number> = {
@@ -389,8 +409,9 @@ export async function executeToolWithEnvelope<
 					params.options.abortSignal?.removeEventListener("abort", onAbort);
 			}
 		});
+		const call = { localDistilled: false };
 		const result = await Promise.race([
-			params.run(runSignal),
+			callInProgress.run(call, () => params.run(runSignal)),
 			timeoutOrAbort,
 		]).finally(() => {
 			if (timer) clearTimeout(timer);
@@ -408,6 +429,12 @@ export async function executeToolWithEnvelope<
 			result.entry.metadata,
 			startedAt,
 		);
+		if (call.localDistilled) {
+			result.entry.metadata = {
+				...result.entry.metadata,
+				localDistilled: true,
+			};
+		}
 		params.recorder.observeResult?.({
 			toolName: params.toolName,
 			payload: modelPayload,

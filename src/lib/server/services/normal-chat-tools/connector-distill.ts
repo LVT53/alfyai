@@ -3,6 +3,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { markCallLocallyDistilled } from "./shared";
 
 // Option A (locality) — the shared "should we distill, and if so what did the
 // local model produce" decision used by every connector-backed chat tool
@@ -41,6 +42,10 @@ export async function decideLocalDistill(params: {
 		rawText: params.rawText,
 	});
 	if ("distilled" in result) {
+		// Every summary is asked for here, by the read gate below and by the write
+		// proposals that call this directly, so this marks the tool call it goes
+		// into: an address in it is the local model's, not a tool's (ADR-0068).
+		markCallLocallyDistilled();
 		return { shouldDistill: true, distilled: result.distilled };
 	}
 	return { shouldDistill: true, unavailable: true };
