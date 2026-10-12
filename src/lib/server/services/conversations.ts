@@ -14,6 +14,7 @@ import type {
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 import { recordConversationAnalytics } from "./analytics";
 import type { ConversationForkListSummary } from "./conversation-forks";
 import { getConversationForkSummaries } from "./conversation-forks";
@@ -77,7 +78,7 @@ export async function createConversation(
 		.values({
 			id,
 			userId,
-			title: title ?? "New Conversation",
+			title: title ?? DEFAULT_CONVERSATION_TITLE,
 			projectId,
 			...(options.memoryIncognito ? { memoryIncognito: true } : {}),
 		})

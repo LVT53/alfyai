@@ -76,6 +76,10 @@ import {
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
+import {
+	conversationDisplayTitle,
+	DEFAULT_CONVERSATION_TITLE,
+} from "$lib/shared/conversation-title";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import {
@@ -357,6 +361,14 @@ let effectiveConversationTitle = $derived(
 	$conversations.find((item) => item.id === data.conversation.id)?.title ??
 		data.conversation?.title ??
 		"",
+);
+// The same title as a reader sees it: until something names the conversation
+// it is "Új beszélgetés" in a Hungarian UI, not the stored English default (F5).
+let displayConversationTitle = $derived(
+	conversationDisplayTitle(
+		effectiveConversationTitle,
+		$t("chat.untitledConversation"),
+	),
 );
 
 // Project breadcrumb for the desktop title bar (see the chat-title-bar
@@ -2739,7 +2751,7 @@ function maybeTriggerTitleGeneration(
 ) {
 	if (
 		titleGenerationTriggered ||
-		effectiveConversationTitle !== "New Conversation"
+		effectiveConversationTitle !== DEFAULT_CONVERSATION_TITLE
 	) {
 		return;
 	}
@@ -3736,7 +3748,7 @@ function handleDrop(event: DragEvent) {
 <svelte:window bind:innerWidth={windowWidth} />
 
 <svelte:head>
-	<title>{effectiveConversationTitle}</title>
+	<title>{displayConversationTitle}</title>
 </svelte:head>
 
 <div
@@ -3763,8 +3775,8 @@ function handleDrop(event: DragEvent) {
 				<h1
 					class="flex min-w-0 max-w-[min(42rem,72vw)] items-baseline justify-center text-center text-[13px] font-medium leading-5 text-text-primary"
 					title={activeProjectName
-						? `${activeProjectName} / ${effectiveConversationTitle}`
-						: effectiveConversationTitle}
+						? `${activeProjectName} / ${displayConversationTitle}`
+						: displayConversationTitle}
 					aria-live="polite"
 				>
 					{#if activeProjectName}
@@ -3835,9 +3847,21 @@ function handleDrop(event: DragEvent) {
 
 			<div class="chat-messages flex flex-1 flex-col overflow-hidden">
 				{#if showInitialLoading}
-					<div class="flex flex-1 items-center justify-center">
+					<!-- The first message of a new conversation lands on a fresh
+					     document (the landing sends with a full navigation), so for the
+					     moment between its first paint and the stored message being sent
+					     there is nothing of the conversation to draw. This area stays
+					     part of the chat, quiet and empty, instead of being a second page
+					     with a spinner in it for a few frames; the "starting" mark only
+					     fades in when the wait lasts (a slow connection, a cold cache). -->
+					<div
+						class="starting-conversation flex flex-1 items-center justify-center"
+						role="status"
+						aria-live="polite"
+						data-testid="starting-conversation"
+					>
 						<div class="flex flex-col items-center gap-3">
-							<div class="spinner-large"></div>
+							<div class="spinner-large" aria-hidden="true"></div>
 							<span class="text-sm text-text-muted">{$t('chat.startingConversation')}</span>
 						</div>
 					</div>
@@ -4165,5 +4189,17 @@ function handleDrop(event: DragEvent) {
 
 	@keyframes spin {
 		to { transform: rotate(360deg); }
+	}
+
+	/* Invisible for the first moments, then in: a bootstrap that takes the
+	   usual few dozen milliseconds never shows it. */
+	.starting-conversation {
+		opacity: 0;
+		animation: starting-fade-in var(--duration-emphasis) var(--ease-out) 600ms
+			forwards;
+	}
+
+	@keyframes starting-fade-in {
+		to { opacity: 1; }
 	}
 </style>

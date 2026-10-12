@@ -1,5 +1,6 @@
 // src/lib/server/services/title-generator.ts
 import { APICallError, generateText } from "ai";
+import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import {
@@ -295,7 +296,7 @@ function cleanTitle(title: string): string {
 function fallbackTitle(userMessage: string): string {
 	const normalized = userMessage.replace(/\s+/g, " ").trim();
 	if (!normalized) {
-		return "New Conversation";
+		return DEFAULT_CONVERSATION_TITLE;
 	}
 
 	const words = normalized.split(" ").slice(0, 8);

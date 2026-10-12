@@ -19,6 +19,7 @@ import {
 	MessageSquare,
 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
+import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import type {
 	HomeRecentConversation,
 	HomeRunningJob,
@@ -110,7 +111,7 @@ function elapsed(startedAt: number): string {
 					href={`/chat/${conversation.id}`}
 					data-testid="home-recent-line"
 				>
-					<span class="home-line-title">{conversation.title}</span>
+					<span class="home-line-title">{conversationDisplayTitle(conversation.title, $t('chat.untitledConversation'))}</span>
 					<span class="home-line-when">· {when(conversation.updatedAt)}</span>
 					<span class="home-line-mark">
 						{#if conversation.atlasFinished}
