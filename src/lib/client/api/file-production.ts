@@ -78,8 +78,16 @@ export async function waitForFileProductionJob(
 	let latest = job;
 
 	for (let reads = 0; ; reads++) {
-		if (latest.status === "succeeded")
+		// A job that finished with its file in hand is answered at once. One that
+		// finished and names none is read first: the intake's answer for a job an
+		// earlier press made (the same item, version and format) is the job and not
+		// its files, and the poll route's is the job as it is now.
+		if (
+			latest.status === "succeeded" &&
+			(latest.files.length > 0 || reads > 0)
+		) {
 			return { state: "succeeded", job: latest };
+		}
 		if (latest.status === "failed" || latest.status === "cancelled") {
 			return { state: "failed", job: latest };
 		}

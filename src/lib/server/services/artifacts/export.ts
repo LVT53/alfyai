@@ -9,6 +9,7 @@
  * no native block for, and this mapper never invents one — every Document
  * `BlockKind` maps to exactly one of heading/paragraph/list/quote/code/divider.
  */
+import { createHash } from "node:crypto";
 import type {
 	GeneratedDocumentListItem,
 	GeneratedDocumentSource,
@@ -269,4 +270,26 @@ export function sanitizeDocumentFilename(title: string): string {
 	const withoutLeadingDots = withoutSeparators.replace(/^\.+/, "");
 	const capped = withoutLeadingDots.slice(0, MAX_FILENAME_LENGTH).trim();
 	return capped.length > 0 ? capped : "document";
+}
+
+/**
+ * The idempotency key of an export job: the same item, as it is now, in the same
+ * format is the same job, so pressing Download again hands back the file it made
+ * (`reuse: "usable"` lets go of a job that failed). What an export is made of is the
+ * title and the body, so both are in the key: an edit, a coalesced save that keeps its
+ * version number and a rename each make a new file, and nothing else does.
+ */
+export function artifactExportIdempotencyKey(params: {
+	artifactId: string;
+	format: "pdf" | "docx" | "markdown" | "html";
+	title: string;
+	body: string;
+}): string {
+	const content = createHash("sha256")
+		.update(params.title, "utf8")
+		.update("\0")
+		.update(params.body, "utf8")
+		.digest("hex")
+		.slice(0, 32);
+	return `artifact-export:${params.artifactId}:${params.format}:${content}`;
 }

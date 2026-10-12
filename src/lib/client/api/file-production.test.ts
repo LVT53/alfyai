@@ -170,6 +170,17 @@ function aJob(status: string, extra: Record<string, unknown> = {}) {
 	} as never;
 }
 
+function aFile() {
+	return {
+		id: "file-1",
+		filename: "trip-plan.pdf",
+		mimeType: "application/pdf",
+		sizeBytes: 100,
+		downloadUrl: "/api/chat/files/file-1/download",
+		previewUrl: "/api/chat/files/file-1/preview",
+	};
+}
+
 function jobResponse(status: string, extra: Record<string, unknown> = {}) {
 	return new Response(JSON.stringify({ job: aJob(status, extra) }), {
 		status: 200,
@@ -245,12 +256,40 @@ describe("waitForFileProductionJob", () => {
 		expect(sleep).not.toHaveBeenCalled();
 	});
 
-	it("does not even read a job that has already finished", async () => {
+	it("does not even read a job that has already finished with its file in hand", async () => {
 		const fetchImpl = vi.fn();
 		await expect(
-			waitForFileProductionJob(aJob("succeeded"), { fetchImpl }),
+			waitForFileProductionJob(aJob("succeeded", { files: [aFile()] }), {
+				fetchImpl,
+			}),
 		).resolves.toMatchObject({ state: "succeeded" });
 		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	// FB-8 (FB-1's concern 1): a press for a Document that was exported before is
+	// answered with the job of that export, which names the job and not its files. The
+	// wait reads it once, and the file is the one the first press made.
+	it("reads a finished job once when the answer names no file (the job an earlier press made), and answers with its file", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jobResponse("succeeded", { files: [aFile()] }),
+		);
+		const result = await waitForFileProductionJob(aJob("succeeded"), {
+			fetchImpl,
+		});
+		expect(result).toMatchObject({
+			state: "succeeded",
+			job: { files: [expect.objectContaining({ id: "file-1" })] },
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads a finished job without a file once, and answers with what it finds when there is none (the file was deleted)", async () => {
+		const fetchImpl = vi.fn(async () => jobResponse("succeeded"));
+		const result = await waitForFileProductionJob(aJob("succeeded"), {
+			fetchImpl,
+		});
+		expect(result).toMatchObject({ state: "succeeded" });
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 
 	it("takes a read that failed for not-known-yet and reads again", async () => {

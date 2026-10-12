@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { getArtifact } from "$lib/server/services/artifacts";
+import {
+	artifactExportIdempotencyKey,
+	getArtifact,
+} from "$lib/server/services/artifacts";
 import {
 	ARTIFACT_EXPORT_JOB_ORIGIN,
 	submitFileProductionIntake,
@@ -64,12 +66,18 @@ export const POST: RequestHandler = async (event) => {
 		userId: user.id,
 		// The reader's own export, not a reply's (see the Document export route).
 		origin: ARTIFACT_EXPORT_JOB_ORIGIN,
+		// The same App, as it is now, is the same file: a press after one that worked
+		// is handed the file it made. A job an earlier press left failed (no sandbox, a
+		// timeout) is not handed back to every press after it as the same failure.
+		reuse: "usable",
 		body: {
 			conversationId: artifact.conversationId,
-			// One job per press: the Download that asked follows THIS job to its end,
-			// and a job an earlier press left failed (no sandbox, a timeout) must not
-			// be handed back to every press after it as the same failure.
-			idempotencyKey: `app-html:${artifact.id}:${artifact.versionNumber}:${randomUUID()}`,
+			idempotencyKey: artifactExportIdempotencyKey({
+				artifactId: artifact.id,
+				format: "html",
+				title: artifact.title,
+				body: artifact.body,
+			}),
 			requestTitle: `${artifact.title} — app source`,
 			sourceMode: "program",
 			program: {

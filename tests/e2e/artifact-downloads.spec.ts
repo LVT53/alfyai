@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, type Response, test } from "@playwright/test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { fileProductionJobs } from "../../src/lib/server/db/schema";
+import {
+	fileProductionJobFiles,
+	fileProductionJobs,
+} from "../../src/lib/server/db/schema";
+import { updateArtifactBody } from "../../src/lib/server/services/artifacts";
 import {
 	APP_HTML,
 	APP_TITLE,
@@ -204,6 +208,95 @@ test.describe("the Document's Download", () => {
 			popover.getByRole("button", { name: "Markdown", exact: true }),
 		).toBeVisible();
 		expect(downloadStarted).toBe(false);
+	});
+
+	// FB-8 (FB-1's concern 1): the same item, as it is now, in the same format is the
+	// same file. Every press used to make a new job and a new file.
+	test("a repeated press for the same version and format downloads the file it made, and a changed Document makes a new one", async ({
+		page,
+	}) => {
+		const { conversationId, artifactId } = await track(seedDocument());
+		await openDocument(page, conversationId);
+		const exportJobs = () =>
+			db
+				.select({
+					id: fileProductionJobs.id,
+					status: fileProductionJobs.status,
+				})
+				.from(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, conversationId));
+
+		async function press(name: "PDF" | "Word" | "Markdown") {
+			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+			await chooseFormat(page, name);
+			return (await downloaded).url();
+		}
+
+		const first = await press("PDF");
+		const again = await press("PDF");
+		// The same file of the same job, by the canonical route.
+		expect(again).toBe(first);
+		expect(first).toMatch(/\/api\/chat\/files\/[^/]+\/download$/);
+		expect(await exportJobs()).toHaveLength(1);
+
+		// Another format is another file.
+		const markdown = await press("Markdown");
+		expect(markdown).not.toBe(first);
+		expect(await exportJobs()).toHaveLength(2);
+
+		// An edit that keeps the version number (the reader's own save coalesces into
+		// it) is still a new file: what the PDF is made of changed.
+		await updateArtifactBody({
+			userId: await adminId(),
+			artifactId,
+			conversationId,
+			body: "Szombat: Naschmarkt, aztán a Hofburg.",
+			author: "user",
+			summary: "Edited",
+		});
+		const afterEdit = await press("PDF");
+		expect(afterEdit).not.toBe(first);
+		expect(await exportJobs()).toHaveLength(3);
+	});
+
+	test("a press after a job that failed makes a new one: the failure is not handed back for ever", async ({
+		page,
+	}) => {
+		const { conversationId } = await track(seedDocument());
+		await openDocument(page, conversationId);
+		const first = page.waitForEvent("download", { timeout: 20_000 });
+		await chooseFormat(page, "PDF");
+		const firstUrl = (await first).url();
+
+		// What an earlier press left: its job failed (no renderer, a timeout).
+		await db
+			.update(fileProductionJobs)
+			.set({ status: "failed", retryable: false, errorCode: "render_failed" })
+			.where(eq(fileProductionJobs.conversationId, conversationId));
+		await db
+			.delete(fileProductionJobFiles)
+			.where(
+				inArray(
+					fileProductionJobFiles.jobId,
+					db
+						.select({ id: fileProductionJobs.id })
+						.from(fileProductionJobs)
+						.where(eq(fileProductionJobs.conversationId, conversationId)),
+				),
+			);
+
+		const second = page.waitForEvent("download", { timeout: 20_000 });
+		await chooseFormat(page, "PDF");
+		const secondUrl = (await second).url();
+		expect(secondUrl).not.toBe(firstUrl);
+		const jobs = await db
+			.select({ status: fileProductionJobs.status })
+			.from(fileProductionJobs)
+			.where(eq(fileProductionJobs.conversationId, conversationId));
+		expect(jobs.map((job) => job.status).sort()).toEqual([
+			"failed",
+			"succeeded",
+		]);
 	});
 
 	test("a failure after the reader closed the popover is told in a toast, never silence (FB-1's concern 4)", async ({

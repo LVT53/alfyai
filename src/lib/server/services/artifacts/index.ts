@@ -61,6 +61,7 @@ export {
 	saveDocumentBody,
 } from "./document-ops";
 export {
+	artifactExportIdempotencyKey,
 	buildGeneratedDocumentSource,
 	sanitizeDocumentFilename,
 } from "./export";
