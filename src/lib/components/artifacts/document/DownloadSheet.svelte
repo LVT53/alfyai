@@ -28,7 +28,11 @@ import {
 import { downloadProducedFile } from "$lib/client/downloads";
 import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import { t } from "$lib/i18n";
-import { exportFailureKey, exportFailureOf, type ExportFailure } from "./download-failures";
+import {
+	exportFailureKey,
+	exportFailureOf,
+	type ExportFailure,
+} from "./download-failures";
 
 let {
 	artifactId,
