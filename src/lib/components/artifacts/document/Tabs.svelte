@@ -353,15 +353,16 @@ $effect(() => {
 	<!-- A single-tab document has nothing to switch between (T9.3) — but
 	     "Add a tab" must stay reachable, so a plan can still grow a second
 	     section from its first. -->
+	<!-- F28 (ruling 77): next to real tabs a bare "+" reads as "another tab";
+	     alone in an empty strip it said nothing, so here it carries its words. -->
 	<div class="document-tabs document-tabs-single" data-testid="document-tabs-single">
 		<button
 			type="button"
-			class="document-tab-add"
-			aria-label={$t('artifacts.document.tab.add')}
-			title={$t('artifacts.document.tab.add')}
+			class="document-tab-add document-tab-add-labelled"
 			onclick={addTab}
 		>
 			<Plus size={14} strokeWidth={2} aria-hidden="true" />
+			<span>{$t('artifacts.document.tab.add')}</span>
 		</button>
 	</div>
 {/if}
@@ -391,7 +392,7 @@ $effect(() => {
 	}
 
 	.document-tabs-single {
-		justify-content: flex-end;
+		justify-content: flex-start;
 		border-bottom: none;
 		padding: 0.125rem 0.5rem;
 	}
@@ -547,6 +548,17 @@ $effect(() => {
 		color: var(--text-primary);
 	}
 
+	/* The labelled form (a single-tab strip): the plus and its words, a button the
+	   width of what it says. */
+	.document-tab-add-labelled {
+		width: auto;
+		gap: 0.375rem;
+		padding-inline: 0.5rem 0.625rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		white-space: nowrap;
+	}
+
 	.document-tab-button:focus-visible,
 	.document-tab-icon-button:focus-visible,
 	.document-tab-menu-item:focus-visible,
@@ -589,6 +601,11 @@ $effect(() => {
 		.document-tab-add {
 			width: 44px;
 			height: 44px;
+		}
+
+		.document-tab-add-labelled {
+			width: auto;
+			min-width: 44px;
 		}
 	}
 

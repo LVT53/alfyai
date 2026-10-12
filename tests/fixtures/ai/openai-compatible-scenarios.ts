@@ -92,6 +92,60 @@ export function decodeEditArtifactScenarioPayload(
 }
 
 /**
+ * F6 (ruling 77): a real turn on the open Document, shaped like a real model's: it
+ * reads the document (`read_artifact`), takes `delayMs` to write what it will change
+ * (the provider holds its answer: a real model streams the patch for seconds, and
+ * the browser hears nothing about the call until the whole of it is there), then
+ * applies one block (`edit_artifact`) and says so. The test puts the real block id
+ * and hash in the message, as the T8 scenario does; the delay and the replacement
+ * text travel with them.
+ */
+export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER =
+	"Fake model step: read the document, think for a while, then apply the scripted patch below.";
+export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT =
+	"Read the document and applied the change after a while.";
+
+export interface EditDocumentSlowlyPayload {
+	artifactId: string;
+	blockId: string;
+	baseHash: string;
+	/** What the fake model's turn waits between the document's text and its patch. */
+	delayMs: number;
+	text: string;
+}
+
+export function encodeEditDocumentSlowlyPayload(
+	payload: EditDocumentSlowlyPayload,
+): string {
+	const json = Buffer.from(JSON.stringify(payload)).toString("base64url");
+	return `slowdoc:${json}`;
+}
+
+export function decodeEditDocumentSlowlyPayload(
+	text: string,
+): EditDocumentSlowlyPayload | null {
+	const match = [...text.matchAll(/slowdoc:([A-Za-z0-9_-]+)/g)].at(-1);
+	if (!match) return null;
+	try {
+		const decoded = JSON.parse(
+			Buffer.from(match[1], "base64url").toString("utf8"),
+		) as Partial<EditDocumentSlowlyPayload>;
+		if (
+			typeof decoded.artifactId !== "string" ||
+			typeof decoded.blockId !== "string" ||
+			typeof decoded.baseHash !== "string" ||
+			typeof decoded.delayMs !== "number" ||
+			typeof decoded.text !== "string"
+		) {
+			return null;
+		}
+		return decoded as EditDocumentSlowlyPayload;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Slice 3 T6: a real `edit_artifact` call on a BOARD, scripted with the exact ops a
  * test wants applied. The ops are JSON with quotes and braces, so they travel in
  * the user's message as base64url (`A-Za-z0-9_-`, which a JSON request body carries

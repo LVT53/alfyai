@@ -107,6 +107,26 @@ export function buildChangePillDecorations(
 					// The chord that undoes or redoes THIS change (DocumentBody's keyboard
 					// handler) finds the pill a focused button belongs to through this.
 					el.dataset.changeId = entry.changeId;
+					// F18: "Kept" and "Undone" are shorter than the pending pill, and a pill
+					// that had to wrap onto a line of its own used to fit on the text's last
+					// line the moment Keep was pressed: the line was gone and the text below
+					// came up by it in one frame. The new pill holds the old one's width for
+					// as long as it shows. (ProseMirror builds the new widget before it
+					// removes the old one, so the old pill is still there to measure.)
+					if (entry.status !== "pending") {
+						for (const earlier of document.querySelectorAll<HTMLElement>(
+							".change-pill-mount",
+						)) {
+							if (earlier.dataset.changeId !== entry.changeId) continue;
+							const width = earlier
+								.querySelector(".alfy-change-bar")
+								?.getBoundingClientRect().width;
+							if (width && width > 0) {
+								el.style.setProperty("--change-pill-hold-width", `${width}px`);
+							}
+							break;
+						}
+					}
 					instance = mount(ChangeBar, {
 						target: el,
 						props: {

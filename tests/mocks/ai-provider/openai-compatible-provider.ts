@@ -18,6 +18,8 @@ import {
 	AI_SMOKE_EDIT_APP_MARKER,
 	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
@@ -39,6 +41,7 @@ import {
 	decodeCanvasEditScenarioPayload,
 	decodeEditAppScenarioArtifactId,
 	decodeEditArtifactScenarioPayload,
+	decodeEditDocumentSlowlyPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 
 const TOOL_CALL_ID = "call_fake_report_1";
@@ -50,6 +53,8 @@ const SUGGEST_INSTRUCTION_CALL_INPUT = {
 	scope: "personal",
 };
 const EDIT_ARTIFACT_CALL_ID = "call_fake_edit_artifact_1";
+const SLOW_DOCUMENT_READ_CALL_ID = "call_fake_slow_document_read_1";
+const SLOW_DOCUMENT_EDIT_CALL_ID = "call_fake_slow_document_edit_1";
 const CANVAS_EDIT_CALL_ID = "call_fake_canvas_edit_1";
 const CREATE_ARTIFACT_CALL_ID = "call_fake_create_artifact_1";
 const EDIT_APP_CALL_ID = "call_fake_edit_app_1";
@@ -681,6 +686,86 @@ function buildEditArtifactFinalStreamResponse(): Response {
 }
 
 /**
+ * F6 (ruling 77): the slow document turn (see the marker's comment in the fixtures).
+ * Three requests of one turn, told apart by what the last message is: none (read the
+ * document), the read's result (wait, then the patch), the patch's result (say so).
+ */
+function toolResultCallId(body: unknown): string | null {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return null;
+	const last = body.messages.at(-1);
+	return isJsonObject(last) &&
+		last.role === "tool" &&
+		typeof last.tool_call_id === "string"
+		? last.tool_call_id
+		: null;
+}
+
+function buildSingleToolCallStreamResponse(
+	callId: string,
+	name: string,
+	args: unknown,
+): Response {
+	const chunkBase = {
+		id: `chatcmpl_fake_${callId}`,
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: callId,
+								type: "function",
+								function: { name, arguments: JSON.stringify(args) },
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildSlowDocumentFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_slow_document_final",
+		object: "chat.completion.chunk",
+		created: 1_700_000_014,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * Slice 3 T6: a real `edit_artifact` call on a board. The scenario belongs to THIS
  * turn's own message, never to anything the request merely carries. The app does
  * not send the conversation as messages: it sends ONE user message, a context
@@ -1284,6 +1369,45 @@ export function createOpenAICompatibleProviderHarness(
 					);
 					if (payload) return buildCanvasEditToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
+				}
+				if (
+					currentTurnText(body)?.includes(
+						AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+					) === true
+				) {
+					const payload = decodeEditDocumentSlowlyPayload(
+						currentTurnText(body) ?? "",
+					);
+					const answeredCallId = toolResultCallId(body);
+					if (!payload) return buildTextStreamResponse();
+					if (answeredCallId === SLOW_DOCUMENT_EDIT_CALL_ID) {
+						return buildSlowDocumentFinalStreamResponse();
+					}
+					if (answeredCallId === SLOW_DOCUMENT_READ_CALL_ID) {
+						// The model is writing its patch: the browser hears nothing meanwhile.
+						await delay(payload.delayMs);
+						return buildSingleToolCallStreamResponse(
+							SLOW_DOCUMENT_EDIT_CALL_ID,
+							"edit_artifact",
+							{
+								artifactId: payload.artifactId,
+								summary: "Scripted slow edit",
+								patches: [
+									{
+										op: "replaceBlock",
+										blockId: payload.blockId,
+										baseHash: payload.baseHash,
+										text: payload.text,
+									},
+								],
+							},
+						);
+					}
+					return buildSingleToolCallStreamResponse(
+						SLOW_DOCUMENT_READ_CALL_ID,
+						"read_artifact",
+						{ artifactId: payload.artifactId, detail: "blocks" },
+					);
 				}
 				if (bodyAsksForEditArtifact(body)) {
 					if (hasToolResultMessage(body)) {

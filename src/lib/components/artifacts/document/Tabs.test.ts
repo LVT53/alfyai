@@ -39,6 +39,23 @@ describe("Tabs", () => {
 		expect(screen.getByTestId("document-tabs-single")).toBeInTheDocument();
 	});
 
+	// F28 (ruling 77): alone in an empty strip a bare "+" said nothing.
+	it("says what the single-tab strip's button does, in words, and still adds the tab", async () => {
+		const onChange = vi.fn();
+		const onActivate = vi.fn();
+		render(Tabs, {
+			tabs: tabs("Plan"),
+			activeTabId: "tab-0",
+			onActivate,
+			onChange,
+		});
+		const add = screen.getByRole("button", { name: "Add a tab" });
+		expect(add).toHaveTextContent("Add a tab");
+		await fireEvent.click(add);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onActivate).toHaveBeenCalledTimes(1);
+	});
+
 	it("renders every tab in order with the first marked active by default", () => {
 		render(Tabs, {
 			tabs: tabs("Plan", "Budget", "Packing"),

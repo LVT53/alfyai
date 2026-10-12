@@ -7,18 +7,24 @@ afterEach(() => {
 });
 
 describe("AlfyWriting", () => {
-	it("shows the block's label while a tool call is in flight", () => {
-		render(AlfyWriting, { label: "Packing list" });
+	it("says Alfy is working on the document while nothing more is known", () => {
+		render(AlfyWriting, {});
 		expect(screen.getByTestId("alfy-writing")).toHaveTextContent(
-			"Alfy is writing: Packing list",
+			"Alfy is working on the document…",
+		);
+	});
+
+	it("names the call's own summary once it is known", () => {
+		render(AlfyWriting, { summary: "Packing list" });
+		expect(screen.getByTestId("alfy-writing")).toHaveTextContent(
+			"Alfy is working on the document: Packing list",
 		);
 	});
 
 	it("announces itself politely for screen readers", () => {
-		render(AlfyWriting, { label: "Budget" });
-		expect(screen.getByTestId("alfy-writing")).toHaveAttribute(
-			"aria-live",
-			"polite",
-		);
+		render(AlfyWriting, { summary: "Budget" });
+		const strip = screen.getByTestId("alfy-writing");
+		expect(strip).toHaveAttribute("aria-live", "polite");
+		expect(strip).toHaveAttribute("role", "status");
 	});
 });
