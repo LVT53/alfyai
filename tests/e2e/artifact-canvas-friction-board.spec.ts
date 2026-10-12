@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { artifacts, artifactVersions } from "../../src/lib/server/db/schema";
+import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	openCanvasPanel,
@@ -110,4 +111,97 @@ test.describe("F9: rows of one name are told apart in the Insert menu", () => {
 	});
 });
 
-void openCanvasPanel;
+
+// ---- F11 ---------------------------------------------------------------------
+
+/** The audit's own: the way from the airport to the hotel, five boxes across. */
+const AIRPORT = [
+	"flowchart LR",
+	"  A[Bécs-Schwechat reptér] --> B[S-Bahn S7 vagy CAT]",
+	"  B --> C[Wien Mitte]",
+	"  C --> D[Metró vagy villamos]",
+	"  D --> E[Szálloda a belvárosban]",
+].join("\n");
+
+function flowBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "flow",
+				type: "mermaid",
+				position: { x: 40, y: 40 },
+				width: 480,
+				data: { kind: "mermaid", label: "Reptér → szálloda", code: AIRPORT },
+			},
+		],
+		edges: [],
+		// A camera of its own, so the board is not fitted: 100% is what the reader gets.
+		viewport: { x: 16, y: 16, zoom: 1 },
+		annotations: [],
+	};
+}
+
+test.describe("F11: a wide flowchart is drawn where it can be read", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test("the audit's five-box flowchart is read at its own size at 100%, and its block never shows the raw source first", async ({
+		page,
+	}) => {
+		// Every moment the source of a diagram is in the block, seen from the first frame on.
+		await page.addInitScript(() => {
+			const w = window as unknown as { __rawSourceSeen: boolean };
+			w.__rawSourceSeen = false;
+			const look = () => {
+				if (
+					document.querySelector(
+						'[data-testid="canvas-mermaid"] .markdown-diagram-source, [data-testid="canvas-mermaid"] .markdown-mermaid-placeholder',
+					)
+				) {
+					w.__rawSourceSeen = true;
+				}
+			};
+			new MutationObserver(look).observe(document, {
+				childList: true,
+				subtree: true,
+			});
+		});
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "Flowchart");
+		await seedCanvas(conversationId, flowBoard(), "Flow board");
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const svg = page
+			.getByTestId("canvas-mermaid")
+			.locator(".markdown-mermaid svg");
+		await expect(svg).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("canvas-zoom-level")).toHaveText("100%");
+
+		// What the picture is drawn at, against its own size: a third made the words 5 px.
+		const drawn = await svg.evaluate((element) => {
+			const box = element.getBoundingClientRect();
+			const own = (element as unknown as SVGSVGElement).viewBox.baseVal;
+			// The smallest line of words in the picture, as it stands on the screen.
+			const heights = Array.from(element.querySelectorAll("text"))
+				.filter((text) => (text.textContent ?? "").trim() !== "")
+				.map((text) => text.getBoundingClientRect().height);
+			return {
+				scale: box.width / own.width,
+				labelHeight: heights.length > 0 ? Math.min(...heights) : 0,
+			};
+		});
+		expect(drawn.scale).toBeGreaterThan(0.7);
+		expect(drawn.labelHeight).toBeGreaterThan(14);
+
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { __rawSourceSeen: boolean }).__rawSourceSeen,
+			),
+			"the block showed the raw Mermaid source before the drawing",
+		).toBe(false);
+		if (SHOTS) {
+			await page.screenshot({ path: shot("f11-wide-flowchart-1440.png") });
+		}
+	});
+});

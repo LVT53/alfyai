@@ -9,7 +9,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import type { Component } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
@@ -17,6 +17,7 @@ import { keepInPicture } from "../_lib/poster";
 import { broken } from "../_test/broken-content";
 import ShellWithBrokenContent from "../_test/ShellWithBrokenContent.svelte";
 import WithBoard from "../_test/WithBoard.svelte";
+import { stubLayout } from "../_test/layout-stub";
 import { flowSpies, xyflowMock } from "../_test/xyflow-mock";
 import ChartNode, { chartShell } from "./ChartNode.svelte";
 import ChecklistNode, { checklistShell } from "./ChecklistNode.svelte";
@@ -743,7 +744,14 @@ describe("a chart block", () => {
 });
 
 describe("a diagram block", () => {
-	it("hands the chat's Mermaid exactly the source the chat hands it, and no other prop", () => {
+	// The block draws what fits its own width, so it is drawn in a laid-out box.
+	let undoLayout: () => void = () => {};
+	beforeEach(() => {
+		undoLayout = stubLayout(456);
+	});
+	afterEach(() => undoLayout());
+
+	it("hands the chat's Mermaid the source the chat hands it, as written when it fits, and only the quiet placeholder besides", () => {
 		const code = "flowchart TD\n  A[Start] --> B{Valid?}";
 		mount(MermaidNode, {
 			id: "diagram-1",
@@ -752,8 +760,22 @@ describe("a diagram block", () => {
 		});
 		const diagram = screen.getByTestId("mermaid-stub");
 		expect(diagram).toHaveAttribute("data-code", code);
-		expect(diagram).toHaveAttribute("data-prop-names", '["code"]');
+		expect(diagram).toHaveAttribute("data-prop-names", '["code","quiet"]');
 		expect(screen.getByTestId("canvas-mermaid")).toContainElement(diagram);
+	});
+
+	// F11: a flowchart written across that this block is too narrow to read across is
+	// drawn down; the block's data keeps what the reader wrote.
+	it("draws a wide flowchart written across top to bottom in a block too narrow for it, and keeps the data as written", () => {
+		const code =
+			"flowchart LR\n  A[Bécs-Schwechat reptér] --> B[S-Bahn S7 vagy CAT]\n  B --> C[Wien Mitte]\n  C --> D[Metró vagy villamos]\n  D --> E[Szálloda a belvárosban]";
+		const data = { kind: "mermaid" as const, label: "Reptér", code };
+		mount(MermaidNode, { id: "diagram-2", selected: false, data });
+		expect(screen.getByTestId("mermaid-stub")).toHaveAttribute(
+			"data-code",
+			code.replace("flowchart LR", "flowchart TD"),
+		);
+		expect(data.code).toBe(code);
 	});
 
 	it("dresses the shell with its label and its subtitle, and with nothing when it has neither", () => {

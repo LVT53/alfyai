@@ -46,6 +46,15 @@ const SAFETY_ADD = 6;
  * a little under what that says.
  */
 const WIDTH_BIAS = 0.88;
+/**
+ * A flowchart written left to right whose drawing would be scaled below this
+ * fraction of its own size is drawn top to bottom instead: Mermaid sets its words
+ * at 16 px, so a half-size picture reads at 8 px, and the audit's five-box
+ * airport-to-hotel chart (1,200 wide in a 480 block) was drawn at a third, 5 px.
+ */
+const READABLE_SCALE = 0.5;
+/** Down must read at least this much larger than across to be worth the height it costs. */
+const DOWN_MUST_GAIN = 1.2;
 
 const CHAR_WIDTH = 7.7;
 const WRAP_WIDTH = 200;
@@ -475,15 +484,53 @@ function naturalSizeOf(code: string): Natural {
 	return { width: 480, height: DIAGRAM_FALLBACK_HEIGHT };
 }
 
+/** The flowchart's header reads left to right (or right to left): what a narrow block turns. */
+const ACROSS_HEADER = /^(?:flowchart|graph)(?:-elk)?\s*(lr|rl)\b/i;
+
+/** What the source is drawn as in a block `inner` wide: the layout, and whether a flowchart written across is drawn down. */
+function layoutOf(
+	code: string,
+	inner: number,
+): { natural: Natural; down: boolean } {
+	const natural = naturalSizeOf(code);
+	const statements = statementsOf(code);
+	if (!ACROSS_HEADER.test(statements[0] ?? "")) return { natural, down: false };
+	const across = Math.min(1, inner / natural.width);
+	if (across >= READABLE_SCALE) return { natural, down: false };
+	const down = flowSize(statements, "down");
+	const gained = Math.min(1, inner / down.width) >= across * DOWN_MUST_GAIN;
+	return gained ? { natural: down, down: true } : { natural, down: false };
+}
+
+/**
+ * The source the block draws, for a block this wide: a flowchart written across
+ * is drawn down when across would be too small to read (`READABLE_SCALE`), and
+ * across again once the block is wide enough for it. Only the direction of the
+ * header changes (`LR` goes top to bottom, `RL` bottom to top); the source the
+ * reader keeps, edits and saves is the one they wrote. The reservation
+ * (`estimatedDiagramHeight`) reads the same layout, so the block is as tall as
+ * what was reserved for it.
+ */
+export function readableDiagramSource(code: string, width: number): string {
+	const inner = Math.max(120, width - CARD_INSET);
+	if (!layoutOf(code, inner).down) return code;
+	return code.replace(
+		/^([ \t]*(?:flowchart|graph)(?:-elk)?[ \t]+)(LR|RL)\b/im,
+		(_, head: string, direction: string) =>
+			`${head}${direction.toUpperCase() === "RL" ? "BT" : "TD"}`,
+	);
+}
+
 /**
  * The height, in board units, the block of a diagram of this source is drawn at,
  * `width` wide: its layout's own height, scaled the way the picture is when it
  * is wider than the block, plus the card around it and the slack described
- * above. Whole numbers.
+ * above. A flowchart written across that this block draws down (`readableDiagramSource`)
+ * is estimated as the down layout. Whole numbers.
  */
 export function estimatedDiagramHeight(code: string, width: number): number {
-	const natural = naturalSizeOf(code);
 	const inner = Math.max(120, width - CARD_INSET);
+	const { natural } = layoutOf(code, inner);
 	const scale = Math.min(1, inner / (natural.width * WIDTH_BIAS));
 	const drawn =
 		natural.height * scale * SAFETY_FACTOR + CARD_CHROME + SAFETY_ADD;

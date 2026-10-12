@@ -23,8 +23,15 @@ export function mermaidShell(data: MermaidShellData): LazyShell {
  * either: the block is loaded by `LazyNode` when one is on the board. What it
  * draws (sanitised SVG, or the source and a note when the source cannot be
  * drawn) is what the chat draws.
+ *
+ * Two things are the block's own (F11): a flowchart written left to right that
+ * would be scaled below what a reader can read in a block this wide is drawn top to
+ * bottom (`readableDiagramSource`: the very layout the board reserves its height
+ * from, so the block is as tall as was reserved), and until the drawing is ready the
+ * block shows a quiet bar, never the raw source.
  */
 import Mermaid from "$lib/components/chat/Mermaid.svelte";
+import { readableDiagramSource } from "$lib/shared/artifacts/mermaid-size";
 import BlockEditForm from "./BlockEditForm.svelte";
 
 let {
@@ -39,11 +46,20 @@ let {
 	editing?: boolean;
 	onclose: () => void;
 } = $props();
+
+// The block's own width, as laid out: the picture is drawn inside it. A diagram is
+// handed over once it is known, so a flowchart is never drawn across and then down.
+let boxWidth = $state(0);
+// The block's frame and the box's own: what the box's width leaves out of the block's.
+const FRAME = 2;
+let drawn = $derived(
+	boxWidth > 0 ? readableDiagramSource(data.code, boxWidth + FRAME) : "",
+);
 </script>
 
 {#snippet drawing()}
-	<div class="diagram" data-testid="canvas-mermaid">
-		<Mermaid code={data.code} />
+	<div class="diagram" bind:clientWidth={boxWidth} data-testid="canvas-mermaid">
+		{#if boxWidth > 0}<Mermaid code={drawn} quiet />{/if}
 	</div>
 {/snippet}
 
