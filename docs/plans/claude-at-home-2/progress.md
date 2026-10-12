@@ -1073,6 +1073,7 @@ the owner's review, with the fast gates measured before and after.
 | FB-5 | rows, headers and the phone: F7 (Back), F9 (rows), F21, F26 (count button), F28, F29 | `fix/friction-rows` / `art-fb5` (5400–5409) | running (from `d4e5d3ad`; step 0 fixes FB-2's eval types) |
 | FB-7 | the first message and the reply: F5, F16, F17 | `fix/friction-first-message` / `art-fb7` (5420–5429) | running (from `7d16685a`) |
 | FB-8 | the leftovers: RC-V M-1/M-2, the reconnect hang, `map-route-card`'s CSP, "database is locked", an App restore's metadata | `fix/friction-leftovers` / `art-fb8` (5440–5449) | queued, batch 3 |
+| FB-9 | phone polish (the owner's finds): the sidebar's three dots vs the project counter on a phone, no keyboard chords on a touch screen, natural Hungarian on the phone review bar, a sweep for crowded phone rows | `fix/friction-phone-polish` / `art-fb9` (5480–5489) | queued, batch 3 (when the window allows) |
 - **Batch 1 done and merged (2026-10-12 ~01:35 UTC):** FB-1 `319bb7bf`, FB-2 `b153286f` into `feat/artifacts`
   (head `ba28e745`); not on `dev` yet (the release gate runs once at the end of the friction build). Weekly budget 93 %
   after batch 1 (owner: continue when the next batch fits): one more agent would pass ~96 %, so **batch 2 (FB-3, FB-4,

@@ -884,3 +884,6 @@ at the next check.
   phone), "so it's short and doesn't crowd the interface. These are the small UI changes that make it look mature." The
   principle stands for every label: short, natural Hungarian that does not crowd a row; the final re-check looks for
   other crowded labels (for example the phone review bar's clipped-looking "Megtart" / "Visszavon").
+- **Two more from the owner (2026-10-12):** on a phone, the open sidebar's three-dots button and the project folder's
+  counter collide; and keyboard shortcuts drawn on a touch screen are "plain wasted space": on a coarse pointer no
+  surface draws a keyboard chord (the shortcuts and `aria-keyshortcuts` stay). → FB-9 (and FB-8 for History's help line).

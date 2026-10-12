@@ -37,6 +37,11 @@ user stop and a local detach).
    silence; a source-first generated row in Knowledge opens its preview instead of "Preview not available". FB-1 owned
    `DownloadSheet.svelte`, the export routes and Knowledge; they are yours now for these.
 
+8. **History's help line on a touch screen** (the owner, 2026-10-12: keyboard shortcuts drawn on a phone are "plain
+   wasted space"): on a coarse pointer the help line (`HistoryMode.svelte:326`, `artifacts.history.help` with `{keys}`)
+   leaves out the keyboard part and keeps the rest; FB-9 makes the same rule for every other surface in
+   `keyboard-shortcuts.ts`, so use its helper if it has landed, else a `(pointer: coarse)` check in the one place.
+
 ## Tests and gates
 
 Red first: unit tests for 1, 5, 6; real-input Playwright for 1, 2 and 3 (3 with the e2e fake provider made to fail at
