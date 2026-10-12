@@ -9,9 +9,11 @@ import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
 import {
+	isArtifactToolCall,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
+import { buildToolActivityItem } from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { intlLocale } from "$lib/utils/locale";
@@ -49,6 +51,7 @@ import type {
 } from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
+import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
@@ -268,7 +271,41 @@ let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
 let liveResponseActivityEntries = $derived(
 	!isUser && markdownIsStreaming ? (message.responseActivity ?? []) : [],
 );
-let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
+// What the turn made (a create_artifact / edit_artifact call: its row and its
+// card) is drawn after the text, below; the rail above the text keeps the
+// steps. A card that arrived above the text pushed the words being read down
+// by its own height, and the model writes the whole item before the call is
+// complete, so it always arrived late (F16).
+let thinkingSegmentsForDisplay = $derived(
+	(message.thinkingSegments ?? []).filter(
+		(segment) => !isArtifactToolCall(segment),
+	),
+);
+let deliverableSegments = $derived(
+	(message.thinkingSegments ?? []).filter(isArtifactToolCall),
+);
+let hasDeliverables = $derived(deliverableSegments.length > 0);
+// The same item a rail row would be, plus the preview the conversation's own
+// artifact list holds for it (once a reload or a later refresh has it).
+let deliverableItems = $derived(
+	deliverableSegments.map((segment, index) => {
+		const item = buildToolActivityItem(
+			segment,
+			segment.callId ??
+				`${segment.name + JSON.stringify(segment.input)}-${index}`,
+			$t,
+		);
+		const body = item.body;
+		if (body?.kind !== "artifact") return item;
+		const preview = conversationArtifacts.find(
+			(candidate) => candidate.id === body.artifactId,
+		);
+		return preview ? { ...item, body: { ...body, preview } } : item;
+	}),
+);
+let deliverableOpenKeys = $derived(
+	new Set(deliverableItems.map((item) => item.key)),
+);
 // Tier B2 — the thought-step / tool-progress classification predicates
 // (isThoughtStepActivityEntry, isToolProgressActivity) live in the shared
 // pure `activity-presentation.ts`, consumed identically by ThinkingBlock, so
@@ -435,6 +472,7 @@ let showPreparingStatus = $derived(
 		!hasVisibleContent &&
 		!hasThinking &&
 		!hasVisibleThinkingSegments &&
+		!hasDeliverables &&
 		liveToolProgressActivityEntries.length === 0 &&
 		skillDrafts.length === 0 &&
 		!hasFileProductionCards &&
@@ -959,7 +997,7 @@ function sendFollowUp(question: string) {
 				? 'w-full min-w-0 max-w-full rounded-md bg-[var(--surface-message-user)] p-md text-text-primary'
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 	>
-		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
+		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasDeliverables)}
 			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
 				<Brain class="reasoning-depth-icon" size={14} strokeWidth={2} aria-hidden="true" />
 				<span>{reasoningDepthIndicatorLabel}</span>
@@ -1103,6 +1141,26 @@ function sendFollowUp(question: string) {
 				compactExternalLinks
 			/>
 			</div>
+			{#if hasDeliverables}
+				<!-- What the turn made, after what it said: the words above never move
+				     when this arrives (F16). Same rows and cards as the rail draws for
+				     any other tool; these two kinds are always open, so there is
+				     nothing to toggle. -->
+				<div class="message-deliverables" data-testid="message-deliverables">
+					<ToolActivityList
+						items={deliverableItems}
+						openKeys={deliverableOpenKeys}
+						onToggle={() => {}}
+						testId="tool-activity-deliverables"
+						{onOpenDocument}
+						{conversationId}
+						{onToggleDocumentTask}
+						{alfyActivity}
+						{activeArtifactId}
+						{deletedArtifacts}
+					/>
+				</div>
+			{/if}
 			{#if completionWarningCodes.length > 0}
 				<div class="completion-warning-notice" role="status">
 					{#each completionWarningCodes as code (code)}
@@ -1729,6 +1787,14 @@ function sendFollowUp(question: string) {
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
 		color: var(--text-muted);
+	}
+
+	/* What the turn made (the rows and cards of create_artifact / edit_artifact),
+	   after the text. The same quiet gap the rail keeps above the text. */
+	.message-deliverables {
+		width: 100%;
+		min-width: 0;
+		margin-top: var(--space-md);
 	}
 
 	/* The action row and the chips below it: one block under the message with
