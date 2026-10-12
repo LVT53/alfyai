@@ -199,6 +199,8 @@ export type EditArtifactModelPayload =
 			refused: ArtifactRefusal[];
 			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74): the block's own place, and what became of its frame. */
 			placed?: PlacedNote[];
+			/** What the model should know about the outcome beyond the numbers: an App's rebuild is finished when this call returns (F2). */
+			note?: string;
 	  }
 	| {
 			success: false;
@@ -264,6 +266,8 @@ export interface EditArtifactHandlerSuccess {
 	baseVersionId?: string;
 	/** Canvas: where the app put what was added (ruling 74). */
 	placed?: PlacedNote[];
+	/** An App's rebuild is done when the call returns: the model is told so (F2), or it says the new version is still on its way. */
+	note?: string;
 }
 
 /**
@@ -545,10 +549,19 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		}
 		return {
 			ok: true,
-			value: { versionId: result.versionId, applied: 1, refused: [] },
+			value: {
+				versionId: result.versionId,
+				applied: 1,
+				refused: [],
+				note: APP_REBUILT_NOTE,
+			},
 		};
 	},
 };
+
+/** The rebuild has finished when the call returns, and the open panel already shows it: said, so the model does not tell the user it is still on its way. */
+const APP_REBUILT_NOTE =
+	"The App has been rebuilt and the new version is open now. Tell the user what changed, as the change they asked for; nothing is still pending.";
 
 const APP_NEEDS_INSTRUCTION_MESSAGE =
 	"An App is changed with `instruction`: say what should change, in the user's words (patches and ops are for a Document and a board). The whole App is rebuilt from the current one.";
@@ -834,6 +847,7 @@ export async function runEditArtifactTool(params: {
 			applied: result.value.applied,
 			refused: result.value.refused,
 			...(result.value.placed ? { placed: result.value.placed } : {}),
+			...(result.value.note ? { note: result.value.note } : {}),
 		},
 		outputSummary,
 		metadata: {

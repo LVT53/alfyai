@@ -451,6 +451,7 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			versionId: "version-2",
 			applied: 1,
 			refused: [],
+			note: expect.stringContaining("nothing is still pending"),
 		});
 		// The record carries what History's "From the chat" and the open panel need.
 		expect(result.metadata).toMatchObject({
@@ -461,6 +462,22 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			versionId: "version-2",
 		});
 		expect(result.outputSummary).toContain("Tip calculator");
+	});
+
+	// Found by the live check: told "takes about a minute", the real model answered a
+	// finished rebuild with "the rebuild may take about a minute, then you will see
+	// the new look". The call returns when the rebuild is done, and says so.
+	it("tells the model the rebuild is finished and on screen, so it does not promise a wait", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue(rebuilt);
+
+		const result = await run();
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			expect(result.modelPayload.note).toMatch(/has been rebuilt/);
+			expect(result.modelPayload.note).toMatch(/open now/);
+		}
 	});
 
 	it("needs no baseHash, no patches and no read first: the instruction is the whole call", async () => {

@@ -163,9 +163,9 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 		bodyFormatEn:
 			"Apps: a brief of what the app is for and does, in the user's words — never HTML (the app is built from it).",
 		editRuleEn:
-			"Apps: send instruction — what to change, in the user's words, in one call (no read first); the whole App is rebuilt, about a minute.",
+			"Apps: send instruction — what to change, in one call (no read first); the whole App is rebuilt before the call returns.",
 		editRuleHu:
-			"Alkalmazásoknál: küldj instruction-t — mit változtass, a felhasználó szavaival, egy hívásban (olvasás nélkül); az egész alkalmazás újraépül, kb. egy perc.",
+			"Alkalmazásoknál: küldj instruction-t — mit változtass, egy hívásban (olvasás nélkül); az egész alkalmazás újraépül, mire a hívás visszatér.",
 	},
 	canvas: {
 		labelEn: "Canvas",

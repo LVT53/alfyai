@@ -5865,12 +5865,22 @@ describe("tool description hygiene", () => {
 	// 27 hu): 5,226 en / 8,412 hu; per tool stays 865 (edit_artifact hu, 863, is
 	// still the largest).
 	//
+	// F2 follow-up (the live check): told that an App rebuild "takes about a minute",
+	// the real model answered a FINISHED rebuild with "the rebuild may take about a
+	// minute, then you will see the new look". The rule now says the whole App is
+	// rebuilt before the call returns (the payload says so too, in a `note`), and
+	// no longer repeats "in the user's words" (the `instruction` field's own
+	// description says it). Re-measured: 5,196 en / 8,379 hu (4 en / 6 hu back;
+	// edit_artifact en 564, hu 857). The ceilings below are those measurements plus
+	// the SAME margin as before (26 en / 27 hu, per tool 2): 5,222 en / 8,406 hu,
+	// and 859 per tool, so the headroom the cut freed is not left standing.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
-	const PER_TOOL_TOKEN_CEILING = 865;
-	const CATALOGUE_TOKEN_CEILING = { en: 5226, hu: 8412 } as const;
+	const PER_TOOL_TOKEN_CEILING = 859;
+	const CATALOGUE_TOKEN_CEILING = { en: 5222, hu: 8406 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
