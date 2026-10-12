@@ -118,33 +118,47 @@ describe("searchImages", () => {
 	});
 });
 
-// The route that serves a thumbnail is held to these limits by its own tests
-// (api/image-search/thumbnail); these pin the fetch itself, which the route
-// leaves to this function.
+// The fetch of Brave's thumbnail, held to the limits that make a fetched file
+// safe to serve: no redirect, a short wait, a small body, raster images only
+// (never SVG, which can carry script). Every test hands the function its own
+// `fetch`: a test that stubbed the global instead would stop intercepting the
+// day the default fetch changes, and would then reach the network.
 describe("fetchBraveThumbnail", () => {
 	const fetchMock = vi.fn();
 	const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+	const fetchThumbnail = (address: string) =>
+		fetchBraveThumbnail(address, {
+			fetch: fetchMock as unknown as typeof globalThis.fetch,
+		});
+
+	function imageResponse(
+		body: Uint8Array | string = PNG,
+		contentType: string | null = "image/png",
+		init: ResponseInit = {},
+	): Response {
+		return new Response(
+			typeof body === "string" ? body : new Uint8Array(body),
+			{
+				status: 200,
+				...init,
+				headers: {
+					...(contentType ? { "content-type": contentType } : {}),
+					...(init.headers as Record<string, string> | undefined),
+				},
+			},
+		);
+	}
 
 	beforeEach(() => {
 		fetchMock.mockReset();
-		fetchMock.mockImplementation(
-			async () =>
-				new Response(new Uint8Array(PNG), {
-					status: 200,
-					headers: { "content-type": "image/png" },
-				}),
-		);
-		vi.stubGlobal("fetch", fetchMock);
-	});
-
-	afterEach(() => {
-		vi.unstubAllGlobals();
+		fetchMock.mockImplementation(async () => imageResponse());
 	});
 
 	it("fetches Brave's address without a redirect, a cookie or a fragment, and returns the bytes and type", async () => {
-		const result = await fetchBraveThumbnail(`${THUMB}#ignored`);
+		const result = await fetchThumbnail(`${THUMB}#ignored`);
 
 		expect(result).toEqual({ bytes: PNG, contentType: "image/png" });
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [address, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 		expect(address).toBe(THUMB);
 		expect(init.redirect).toBe("error");
@@ -156,34 +170,132 @@ describe("fetchBraveThumbnail", () => {
 	it("never fetches an address that is not on Brave's image proxy", async () => {
 		for (const address of [
 			"https://example.com/cat.jpg",
+			"https://evil.example/collect?d=secret",
 			"http://imgs.search.brave.com/sig/abc",
+			"https://imgs.search.brave.com:8443/sig/abc",
 			"https://imgs.search.brave.com.evil.example/sig/abc",
+			"https://user@imgs.search.brave.com/sig/abc",
+			"javascript:alert(1)",
 			"not a url",
 			"",
 		]) {
-			await expect(fetchBraveThumbnail(address)).resolves.toBeNull();
+			await expect(fetchThumbnail(address)).resolves.toBeNull();
 		}
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("answers null, and nothing about why, when the fetch fails or the answer is not a small raster image", async () => {
-		fetchMock.mockRejectedValueOnce(new Error(`failed ${THUMB}`));
-		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
+	it("returns each of the five raster types a thumbnail comes in, with the parameters taken off the type", async () => {
+		for (const type of [
+			"image/jpeg",
+			"image/png",
+			"image/webp",
+			"image/gif",
+			"image/avif",
+		]) {
+			fetchMock.mockImplementationOnce(async () =>
+				imageResponse(PNG, `${type.toUpperCase()}; charset=binary`),
+			);
 
-		fetchMock.mockResolvedValueOnce(
-			new Response("<svg onload=alert(1)>", {
-				status: 200,
-				headers: { "content-type": "image/svg+xml" },
+			await expect(fetchThumbnail(THUMB)).resolves.toEqual({
+				bytes: PNG,
+				contentType: type,
+			});
+		}
+	});
+
+	it("returns nothing for anything but a raster image: not SVG, not HTML, not a body with no type", async () => {
+		for (const type of [
+			"image/svg+xml",
+			"text/html",
+			"application/octet-stream",
+			"application/json",
+			"image/x-icon",
+			"image/bmp",
+			"image/tiff",
+			"",
+		]) {
+			fetchMock.mockImplementationOnce(async () =>
+				imageResponse("<svg onload=alert(1)>", type || null),
+			);
+
+			await expect(fetchThumbnail(THUMB), type).resolves.toBeNull();
+		}
+	});
+
+	it("returns nothing for an empty body or an upstream that did not answer 200", async () => {
+		fetchMock.mockImplementationOnce(async () =>
+			imageResponse(new Uint8Array()),
+		);
+		await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
+
+		for (const status of [301, 403, 404, 500]) {
+			fetchMock.mockImplementationOnce(
+				async () => new Response("no", { status }),
+			);
+			await expect(fetchThumbnail(THUMB), String(status)).resolves.toBeNull();
+		}
+	});
+
+	it("returns nothing, and says nothing about why, when the fetch fails, redirects or takes too long", async () => {
+		for (const failure of [
+			new TypeError("fetch failed", {
+				cause: new Error("unexpected redirect"),
+			}),
+			Object.assign(new Error("The operation was aborted due to timeout"), {
+				name: "TimeoutError",
+			}),
+			new Error(`ECONNRESET ${THUMB}`),
+		]) {
+			fetchMock.mockImplementationOnce(async () => {
+				throw failure;
+			});
+
+			await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
+		}
+	});
+
+	it("refuses a body over 2 MB, whether or not it says how long it is", async () => {
+		const big = new Uint8Array(2 * 1024 * 1024 + 1);
+
+		fetchMock.mockImplementationOnce(async () =>
+			imageResponse(big, "image/png"),
+		);
+		await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
+
+		fetchMock.mockImplementationOnce(async () =>
+			imageResponse(PNG, "image/png", {
+				headers: { "content-length": String(big.byteLength) },
 			}),
 		);
-		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
+		await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
 
-		fetchMock.mockResolvedValueOnce(
-			new Response(new Uint8Array(2 * 1024 * 1024 + 1), {
-				status: 200,
-				headers: { "content-type": "image/png" },
-			}),
+		// A stream that never says its size and never ends is cut off at the cap.
+		let sent = 0;
+		fetchMock.mockImplementationOnce(
+			async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						pull(controller) {
+							sent += 64 * 1024;
+							controller.enqueue(new Uint8Array(64 * 1024));
+						},
+					}),
+					{ status: 200, headers: { "content-type": "image/png" } },
+				),
 		);
-		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
+		await expect(fetchThumbnail(THUMB)).resolves.toBeNull();
+		expect(sent).toBeLessThan(4 * 1024 * 1024);
+	});
+
+	it("returns a body exactly at the cap", async () => {
+		const exact = new Uint8Array(2 * 1024 * 1024);
+		fetchMock.mockImplementationOnce(async () =>
+			imageResponse(exact, "image/webp"),
+		);
+
+		const result = await fetchThumbnail(THUMB);
+
+		expect(result?.contentType).toBe("image/webp");
+		expect(result?.bytes.byteLength).toBe(exact.byteLength);
 	});
 });

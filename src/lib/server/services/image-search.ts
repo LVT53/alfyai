@@ -127,18 +127,24 @@ async function readCapped(
  * image proxy, the fetch fails or redirects, takes over 8 s, or the answer is
  * not a raster image of at most 2 MB. Never throws, and says nothing about why:
  * the error carries the address.
+ *
+ * `options.fetch` is the seam a test injects through (the default is the global
+ * fetch): a test that stubs the global instead stops intercepting the day the
+ * default changes, and then reaches the network.
  */
 export async function fetchBraveThumbnail(
 	address: string,
+	options: { fetch?: typeof globalThis.fetch } = {},
 ): Promise<BraveThumbnail | null> {
 	if (!isBraveThumbnailUrl(address)) return null;
+	const fetchImpl = options.fetch ?? globalThis.fetch;
 	// A fragment is never sent, and none goes into the request.
 	const target = new URL(address);
 	target.hash = "";
 
 	let upstream: Response;
 	try {
-		upstream = await fetch(target.href, {
+		upstream = await fetchImpl(target.href, {
 			headers: {
 				accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
 			},

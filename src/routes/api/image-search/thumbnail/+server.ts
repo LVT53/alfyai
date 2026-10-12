@@ -38,7 +38,13 @@ export const GET: RequestHandler = async (event) => {
 		return notFound();
 	}
 
-	const thumbnail = await fetchBraveThumbnail(requested);
+	let thumbnail: Awaited<ReturnType<typeof fetchBraveThumbnail>>;
+	try {
+		thumbnail = await fetchBraveThumbnail(requested);
+	} catch {
+		// It does not throw; if it ever does, not the error: it carries the address.
+		return notFound();
+	}
 	if (!thumbnail) return notFound();
 
 	return new Response(thumbnail.bytes.buffer as ArrayBuffer, {

@@ -71,6 +71,11 @@ function imageResponse(
 		headers: {
 			"content-type": contentType,
 			"cache-control": cacheControl,
+			// A site's icon can be an SVG, and an SVG can carry script. As an `<img>`
+			// it runs nothing; opened directly in a tab it must run nothing either:
+			// typed, not sniffed, and sandboxed.
+			"x-content-type-options": "nosniff",
+			"content-security-policy": "default-src 'none'; sandbox",
 			// Favicons are fetched cross-origin from our own front-end; the bytes
 			// are not credential-bearing, but be explicit.
 			"cross-origin-resource-policy": "same-site",

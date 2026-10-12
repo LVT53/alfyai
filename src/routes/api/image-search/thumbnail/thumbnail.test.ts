@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("$lib/server/services/image-search", () => ({
+	fetchBraveThumbnail: vi.fn(),
+}));
+
+import { fetchBraveThumbnail } from "$lib/server/services/image-search";
 import {
 	noteToolEntrySources,
 	resetUrlProvenanceForTests,
@@ -15,12 +21,16 @@ import { GET } from "./+server";
 // The chat shows an image_search picture as Brave's 500 px thumbnail, fetched by
 // THIS server and handed to the page from its own origin, so the page itself
 // never calls a host a search result named (docs/plans/exfil-channels). The route
-// is a narrow door: only an address a search returned to this user, only Brave's
-// image proxy, no redirects, a short wait, a small body, a real image.
+// is a narrow door: only an address a search returned to this user, and only on
+// Brave's image proxy. What the fetch itself refuses (a redirect, a long wait, a
+// large body, anything but a raster image) is `fetchBraveThumbnail`'s, held by its
+// own tests in image-search.test.ts; the fetch is mocked here, so nothing in this
+// file can reach the network.
 
 const THUMB = `https://${BRAVE_THUMBNAIL_HOST}/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn`;
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+const fetchThumbnailMock = vi.mocked(fetchBraveThumbnail);
 type ThumbnailEvent = Parameters<typeof GET>[0];
 
 function eventFor(
@@ -53,33 +63,17 @@ function listThumbnail(userId = "user-1", thumbnail = THUMB) {
 	});
 }
 
-function imageResponse(
-	body: Uint8Array | string = PNG,
-	contentType: string | null = "image/png",
-	init: ResponseInit = {},
-): Response {
-	return new Response(typeof body === "string" ? body : new Uint8Array(body), {
-		status: 200,
-		...init,
-		headers: {
-			...(contentType ? { "content-type": contentType } : {}),
-			...(init.headers as Record<string, string> | undefined),
-		},
-	});
-}
-
 describe("GET /api/image-search/thumbnail", () => {
-	const fetchMock = vi.fn();
-
 	beforeEach(() => {
 		resetUrlProvenanceForTests();
-		fetchMock.mockReset();
-		fetchMock.mockImplementation(async () => imageResponse());
-		vi.stubGlobal("fetch", fetchMock);
+		fetchThumbnailMock.mockReset();
+		fetchThumbnailMock.mockResolvedValue({
+			bytes: PNG,
+			contentType: "image/png",
+		});
 	});
 
 	afterEach(() => {
-		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 	});
 
@@ -107,7 +101,7 @@ describe("GET /api/image-search/thumbnail", () => {
 		} as unknown as ThumbnailEvent);
 
 		expect(response.status).toBe(200);
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(THUMB);
+		expect(fetchThumbnailMock).toHaveBeenCalledWith(THUMB);
 	});
 
 	it("serves the thumbnail a search returned to this user, from this origin, as an inert image", async () => {
@@ -115,12 +109,8 @@ describe("GET /api/image-search/thumbnail", () => {
 
 		const response = await GET(eventFor(THUMB));
 
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const [address, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-		expect(address).toBe(THUMB);
-		expect(init.redirect).toBe("error");
-		expect(init.signal).toBeInstanceOf(AbortSignal);
-		expect(init).not.toHaveProperty("credentials", "include");
+		expect(fetchThumbnailMock).toHaveBeenCalledTimes(1);
+		expect(fetchThumbnailMock).toHaveBeenCalledWith(THUMB);
 		expect(response.status).toBe(200);
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
 		expect(response.headers.get("content-type")).toBe("image/png");
@@ -136,27 +126,26 @@ describe("GET /api/image-search/thumbnail", () => {
 		);
 	});
 
-	it("serves each of the five raster types a thumbnail comes in, and says which it is", async () => {
+	it("says which of the raster types it is serving", async () => {
 		listThumbnail();
-		for (const type of [
+		for (const contentType of [
 			"image/jpeg",
 			"image/png",
 			"image/webp",
 			"image/gif",
 			"image/avif",
-		]) {
-			fetchMock.mockImplementationOnce(async () =>
-				imageResponse(PNG, `${type}; charset=binary`),
-			);
+		] as const) {
+			fetchThumbnailMock.mockResolvedValueOnce({ bytes: PNG, contentType });
 
 			const response = await GET(eventFor(THUMB));
 
-			expect(response.status, type).toBe(200);
-			expect(response.headers.get("content-type"), type).toBe(type);
+			expect(response.headers.get("content-type"), contentType).toBe(
+				contentType,
+			);
 		}
 	});
 
-	it("never calls out for an address that is not on Brave's image proxy, even when a tool returned it", async () => {
+	it("never asks for an address that is not on Brave's image proxy, even when a tool returned it", async () => {
 		const others = [
 			"https://example.com/cat.jpg",
 			"https://evil.example/collect?d=secret",
@@ -174,33 +163,33 @@ describe("GET /api/image-search/thumbnail", () => {
 			await expectNotFound(await GET(eventFor(other)));
 		}
 		await expectNotFound(await GET(eventFor(null)));
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(fetchThumbnailMock).not.toHaveBeenCalled();
 	});
 
-	it("never calls out for a Brave address no search returned to this user, whatever it wraps", async () => {
+	it("never asks for a Brave address no search returned to this user, whatever it wraps", async () => {
 		listThumbnail();
 		const forged = `${THUMB.slice(0, THUMB.lastIndexOf("/"))}/aHR0cHM6Ly9ldmlsLmV4YW1wbGUvP2Q9c2VjcmV0`;
 
 		await expectNotFound(await GET(eventFor(forged)));
 		await expectNotFound(await GET(eventFor(`${THUMB}?x=1`)));
 		await expectNotFound(await GET(eventFor(`${THUMB}/`)));
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(fetchThumbnailMock).not.toHaveBeenCalled();
 	});
 
-	it("asks Brave for the address a search returned, whatever fragment the page adds", async () => {
+	it("serves the address a search returned whatever fragment the page adds", async () => {
 		listThumbnail();
 
 		const response = await GET(eventFor(`${THUMB}#ignored`));
 
 		expect(response.status).toBe(200);
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(THUMB);
+		expect(fetchThumbnailMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not serve a thumbnail another user's search returned", async () => {
 		listThumbnail("user-2");
 
 		await expectNotFound(await GET(eventFor(THUMB, { id: "user-1" })));
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(fetchThumbnailMock).not.toHaveBeenCalled();
 	});
 
 	it("is refused without a session", async () => {
@@ -209,110 +198,17 @@ describe("GET /api/image-search/thumbnail", () => {
 		await expect(GET(eventFor(THUMB, null))).rejects.toMatchObject({
 			status: 401,
 		});
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(fetchThumbnailMock).not.toHaveBeenCalled();
 	});
 
-	it("serves only images: not SVG, not HTML, not a body with no type", async () => {
+	it("is a bare 404 when the fetch gave nothing to serve", async () => {
 		listThumbnail();
-		for (const type of [
-			"image/svg+xml",
-			"text/html",
-			"application/octet-stream",
-			"application/json",
-			"image/x-icon",
-			"image/bmp",
-			"",
-		]) {
-			fetchMock.mockImplementationOnce(async () =>
-				imageResponse("<svg onload=alert(1)>", type || null),
-			);
+		fetchThumbnailMock.mockResolvedValueOnce(null);
 
-			await expectNotFound(await GET(eventFor(THUMB)));
-		}
-	});
-
-	it("serves nothing for an empty body or an upstream error", async () => {
-		listThumbnail();
-		fetchMock.mockImplementationOnce(async () =>
-			imageResponse(new Uint8Array()),
-		);
 		await expectNotFound(await GET(eventFor(THUMB)));
-
-		for (const status of [301, 403, 404, 500]) {
-			fetchMock.mockImplementationOnce(
-				async () => new Response("no", { status }),
-			);
-			await expectNotFound(await GET(eventFor(THUMB)));
-		}
 	});
 
-	it("serves nothing when the upstream redirects, refuses, or takes too long", async () => {
-		listThumbnail();
-		for (const failure of [
-			new TypeError("fetch failed", {
-				cause: new Error("unexpected redirect"),
-			}),
-			Object.assign(new Error("The operation was aborted due to timeout"), {
-				name: "TimeoutError",
-			}),
-			new Error("ECONNRESET"),
-		]) {
-			fetchMock.mockImplementationOnce(async () => {
-				throw failure;
-			});
-			await expectNotFound(await GET(eventFor(THUMB)));
-		}
-	});
-
-	it("refuses a body over 2 MB, whether or not it says how long it is", async () => {
-		listThumbnail();
-		const big = new Uint8Array(2 * 1024 * 1024 + 1);
-
-		fetchMock.mockImplementationOnce(async () =>
-			imageResponse(big, "image/png"),
-		);
-		await expectNotFound(await GET(eventFor(THUMB)));
-
-		fetchMock.mockImplementationOnce(async () => {
-			const response = imageResponse(PNG, "image/png", {
-				headers: { "content-length": String(big.byteLength) },
-			});
-			return response;
-		});
-		await expectNotFound(await GET(eventFor(THUMB)));
-
-		// A stream that never says its size and never ends is cut off at the cap.
-		let sent = 0;
-		fetchMock.mockImplementationOnce(
-			async () =>
-				new Response(
-					new ReadableStream<Uint8Array>({
-						pull(controller) {
-							sent += 64 * 1024;
-							controller.enqueue(new Uint8Array(64 * 1024));
-						},
-					}),
-					{ status: 200, headers: { "content-type": "image/png" } },
-				),
-		);
-		await expectNotFound(await GET(eventFor(THUMB)));
-		expect(sent).toBeLessThan(4 * 1024 * 1024);
-	});
-
-	it("serves a body exactly at the cap", async () => {
-		listThumbnail();
-		const exact = new Uint8Array(2 * 1024 * 1024);
-		fetchMock.mockImplementationOnce(async () =>
-			imageResponse(exact, "image/webp"),
-		);
-
-		const response = await GET(eventFor(THUMB));
-
-		expect(response.status).toBe(200);
-		expect((await response.arrayBuffer()).byteLength).toBe(exact.byteLength);
-	});
-
-	it("puts no address in any log line", async () => {
+	it("is a bare 404, and logs no address, even if the fetch were ever to throw", async () => {
 		const logs = [
 			vi.spyOn(console, "log").mockImplementation(() => {}),
 			vi.spyOn(console, "info").mockImplementation(() => {}),
@@ -320,12 +216,12 @@ describe("GET /api/image-search/thumbnail", () => {
 			vi.spyOn(console, "error").mockImplementation(() => {}),
 		];
 		listThumbnail();
-		fetchMock.mockImplementationOnce(async () => {
-			throw new Error(`failed ${THUMB}`);
-		});
+		fetchThumbnailMock.mockRejectedValueOnce(new Error(`failed ${THUMB}`));
 
-		await GET(eventFor(THUMB));
-		await GET(eventFor("https://evil.example/collect?d=secret"));
+		await expectNotFound(await GET(eventFor(THUMB)));
+		await expectNotFound(
+			await GET(eventFor("https://evil.example/collect?d=secret")),
+		);
 
 		for (const log of logs) {
 			expect(JSON.stringify(log.mock.calls)).not.toContain("brave");

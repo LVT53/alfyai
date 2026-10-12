@@ -42,6 +42,14 @@ async function bodyText(response: Response): Promise<string> {
 	return new TextDecoder().decode(await response.arrayBuffer());
 }
 
+/** What an icon opened directly in a tab must be unable to do: run anything. */
+function expectInert(response: Response, label = "response") {
+	expect(response.headers.get("content-security-policy"), label).toBe(
+		"default-src 'none'; sandbox",
+	);
+	expect(response.headers.get("x-content-type-options"), label).toBe("nosniff");
+}
+
 describe("GET /api/favicon", () => {
 	beforeEach(() => {
 		resetUrlProvenanceForTests();
@@ -91,6 +99,7 @@ describe("GET /api/favicon", () => {
 		expect(response.headers.get("content-type")).toBe("image/svg+xml");
 		expect(response.headers.get("cache-control")).toBe("no-store");
 		expect(await bodyText(response)).toBe(GLOBE_FALLBACK_SVG);
+		expectInert(response);
 	});
 
 	it("does not remember a refusal: the same host is served once a tool has returned it", async () => {
@@ -119,6 +128,24 @@ describe("GET /api/favicon", () => {
 		expect(cacheControl).toContain("private");
 		expect(cacheControl).not.toContain("public");
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(ICON_BYTES);
+		expectInert(response);
+	});
+
+	it("serves a site's SVG icon as an inert image: opened directly in a tab it runs nothing", async () => {
+		noteSourceUrls("user-1", ["https://svg-icon.example/a"]);
+		const hostile = new TextEncoder().encode(
+			'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script></svg>',
+		);
+		fetchFaviconMock.mockResolvedValueOnce({
+			kind: "image",
+			bytes: hostile,
+			contentType: "image/svg+xml",
+		});
+
+		const response = await GET(eventFor("svg-icon.example"));
+
+		expect(response.headers.get("content-type")).toBe("image/svg+xml");
+		expectInert(response, "an SVG icon");
 	});
 
 	it("asks the ledger with the host as the page would, with or without www and in any case", async () => {
@@ -170,6 +197,7 @@ describe("GET /api/favicon", () => {
 		expect(response.headers.get("content-type")).toBe("image/svg+xml");
 		expect(response.headers.get("cache-control")).toBe("private, max-age=300");
 		expect(await bodyText(response)).toBe(GLOBE_FALLBACK_SVG);
+		expectInert(response);
 	});
 
 	it("is refused without a session", async () => {
