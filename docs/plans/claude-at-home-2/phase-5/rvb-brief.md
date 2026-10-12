@@ -27,6 +27,11 @@ adversarially; **you fix nothing**. Read `phase-5/common.md` first (skip its bui
    an App restore's metadata, and that nothing in FB-8's transaction change (`behavior: "immediate"`) lets a write skip
    its guard.
 
+4. **FB-8's transaction change and the export key (FB-8 asks for this look):** `db/write-lock.ts` changes every
+   transaction's BEGIN on the app's one connection: can it deadlock, starve the stream's writes, or let a nested or
+   read-only transaction misbehave? And the file-production ledger's key release (`job-ledger.ts`): can a released key
+   hand a later press a stale or another user's file?
+
 Findings by severity (Critical / Important / Minor) with file:line and the steps or input that show each; a verdict
 (**ready for `dev`** / **ready after fixes**). Final reply at most 8 lines: verdict, **your model ID**, counts, the one
 thing to know.
