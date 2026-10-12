@@ -47,7 +47,7 @@ export interface FileProductionJobWaitOptions {
 	now?: () => number;
 }
 
-export const FILE_PRODUCTION_JOB_WAIT_TIMEOUT_MS = 60_000;
+const FILE_PRODUCTION_JOB_WAIT_TIMEOUT_MS = 60_000;
 
 function defaultPollDelayMs(readsSoFar: number): number {
 	if (readsSoFar < 3) return 250;

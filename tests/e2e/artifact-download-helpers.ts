@@ -22,7 +22,7 @@ import { storeGeneratedFile } from "../../src/lib/server/services/chat-files";
  */
 
 export const TITLE = "Bécsi hétvégi útiterv";
-export const MARKDOWN = [
+const MARKDOWN = [
 	`# ${TITLE}`,
 	"",
 	"Szombat: Naschmarkt, aztán az Albertina.",
@@ -34,7 +34,7 @@ export const APP_HTML =
 	'<!doctype html><html><head><title>Tip</title></head><body><p id="x">tip app</p></body></html>';
 export const APP_TITLE = "Borravaló-kalkulátor";
 
-export async function adminId(): Promise<string> {
+async function adminId(): Promise<string> {
 	const [user] = await db
 		.select({ id: users.id })
 		.from(users)
@@ -42,7 +42,7 @@ export async function adminId(): Promise<string> {
 	return user.id;
 }
 
-export async function seedConversation(incognito = false): Promise<string> {
+async function seedConversation(incognito = false): Promise<string> {
 	const conversationId = randomUUID();
 	const now = new Date();
 	await db.insert(conversations).values({

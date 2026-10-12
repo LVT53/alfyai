@@ -19,7 +19,6 @@ import {
 	bytesOf,
 	cleanUpConversation,
 	jobDto,
-	MARKDOWN,
 	seedApp,
 	seedDocument,
 	seedSucceededAppJob,
@@ -541,7 +540,6 @@ test.describe("Knowledge page", () => {
 			expect((await bytesOf(download)).toString("utf8")).toContain(
 				"Szombat: Naschmarkt",
 			);
-			expect(MARKDOWN).toContain("Belvedere");
 
 			// Its own Open, by name, opens the Document in the panel.
 			await row.getByRole("button", { name: `Open ${TITLE}` }).click();
