@@ -1824,6 +1824,87 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			).toBeInTheDocument();
 		});
 
+		it("tells rows of one name apart (F9): a file says its extension and size, a shared name says when", async () => {
+			const madeAt = new Date(2026, 9, 12, 14, 32).getTime();
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [
+						makeWorkspaceDocument({
+							id: "file-1",
+							title: "itinerary.docx",
+							filename: "itinerary.docx",
+							kind: "file",
+							sizeBytes: 10_650,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-1",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-2",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt - 20 * 60_000,
+						}),
+						makeWorkspaceDocument({
+							id: "board-1",
+							title: "Weekend board",
+							kind: "canvas",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+					],
+					title: "What this chat made",
+				},
+			});
+			// The phone's list and the desktop's are both in the document: read one.
+			const rows = within(
+				await screen.findByTestId("artifact-panel-list"),
+			).getAllByTestId("artifact-row");
+			const sub = (row: HTMLElement) =>
+				row.querySelector(".artifact-row-sub")?.textContent?.trim();
+			const byTitle = (title: string) =>
+				rows.filter((row) => row.textContent?.includes(title));
+			expect(sub(byTitle("itinerary.docx")[0])).toBe("File · DOCX · 10.4 KB");
+			const apps = byTitle("Tip calculator").map(sub);
+			expect(apps).toHaveLength(2);
+			for (const line of apps) expect(line).toMatch(/^App · .*\d{2}:\d{2}$/);
+			expect(new Set(apps).size).toBe(2);
+			// A name nobody shares says no time.
+			expect(sub(byTitle("Weekend board")[0])).not.toMatch(/\d{2}:\d{2}/);
+		});
+
+		it("lists an item being made again as a row that says so, above the rest, even when nothing else is listed (F29)", async () => {
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [],
+					title: "What this chat made",
+					pending: [{ id: "app-1", kind: "app", title: "Tip calculator" }],
+				},
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+			const rows = within(list).getAllByTestId("artifact-row");
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toHaveTextContent("Tip calculator");
+			expect(rows[0]).toHaveTextContent("Regenerating…");
+			expect(rows[0]).toBeDisabled();
+			// Not the empty list's line: something is being made.
+			expect(
+				within(list).queryByText("Nothing made here yet."),
+			).not.toBeInTheDocument();
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
@@ -2199,7 +2280,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
-			within(shell).getByRole("button", { name: /This chat/ }),
+			within(shell).getByRole("button", { name: "Back to this chat's items" }),
 		);
 
 		expect(onListOpenChange).toHaveBeenCalledWith(true);
@@ -2225,11 +2306,13 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 		for (const shell of shells) {
 			expect(
-				within(shell).queryByRole("button", { name: /This chat/ }),
+				within(shell).queryByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			).not.toBeInTheDocument();
 		}
 		expect(
-			screen.queryByRole("button", { name: /This chat/ }),
+			screen.queryByRole("button", { name: "Back to this chat's items" }),
 		).not.toBeInTheDocument();
 	});
 
@@ -2423,7 +2506,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			await rerender({
 				documents: [doc],
@@ -2477,7 +2562,9 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", {
+					name: "Back to this chat's items",
+				}),
 			);
 			expect(onListOpenChange).toHaveBeenCalledWith(true);
 

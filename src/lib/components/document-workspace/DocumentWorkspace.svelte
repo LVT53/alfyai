@@ -41,6 +41,13 @@ import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopov
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
 import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
+import {
+	fileFacts,
+	isShared,
+	rowMadeAtLabel,
+	sharedNames,
+} from "$lib/components/artifacts/row-facts";
+import { uiLanguage } from "$lib/stores/settings";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
@@ -88,6 +95,8 @@ type WorkspaceList = {
 	open: boolean;
 	items: DocumentWorkspaceItem[];
 	title?: string;
+	/** Items being made again right now (Regenerate on a deleted card): rows that say so until the item exists (FB-5, F29). */
+	pending?: ReadonlyArray<{ id: string; kind: ArtifactKind; title: string }>;
 } | null;
 
 let {
@@ -1283,6 +1292,36 @@ function getDocumentTitle(document: DocumentWorkspaceItem): string {
 	return document.documentLabel ?? document.title ?? document.filename;
 }
 
+/** The names more than one row of the list has (FB-5, F9): those rows say when they were made. */
+let namesSharedByRows = $derived(
+	sharedNames((list?.items ?? []).map(getDocumentTitle)),
+);
+
+/**
+ * What a row says beyond its title and kind so that rows of one name can be told
+ * apart (F9): a produced file's extension and size, and, when another row has the
+ * same name, the time it was made. A version number is not it (ruling 76).
+ */
+function rowFactsFor(item: DocumentWorkspaceItem): string | null {
+	const facts: string[] = [];
+	if ((item.kind ?? "file") === "file") {
+		const file = fileFacts({
+			filename: item.filename,
+			sizeBytes: item.sizeBytes,
+		});
+		if (file) facts.push(file);
+	}
+	if (
+		item.updatedAt != null &&
+		isShared(namesSharedByRows, getDocumentTitle(item))
+	) {
+		facts.push(
+			rowMadeAtLabel(item.updatedAt, $uiLanguage === "hu" ? "hu" : "en"),
+		);
+	}
+	return facts.length > 0 ? facts.join(" · ") : null;
+}
+
 /**
  * The panel list row's own card view (T9 steps 4/7): a Document item with a
  * server preview gets the subtitle/tickable checklist through
@@ -1331,6 +1370,7 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		updatedAtLabel,
 		pendingReviewCount,
 		current: item.id === activeDocumentId,
+		rowFacts: rowFactsFor(item),
 	};
 	if (item.kind === "document" && item.documentPreview) {
 		return {
@@ -1980,10 +2020,25 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 {#if list && renderListShell}
 	{#snippet artifactListBody(testid: string | undefined)}
 		<div class="workspace-body artifact-panel-list-body" data-testid={testid}>
-			{#if list.items.length === 0}
+			{#if list.items.length === 0 && !list.pending?.length}
 				<p class="artifact-panel-empty">{$t('artifacts.panel.empty')}</p>
 			{:else}
 				<ul class="artifact-panel-list-rows">
+					{#each list.pending ?? [] as making (making.id)}
+						<li data-testid="artifact-row-pending">
+							<ArtifactCard
+								view={{
+									id: making.id,
+									kind: making.kind,
+									title: making.title,
+									openTargetId: null,
+									rowFacts: $t('artifacts.deleted.regenerating'),
+									working: true,
+								}}
+								chrome="row"
+							/>
+						</li>
+					{/each}
 					{#each list.items as item (item.id)}
 						<li>
 							{#if canDeleteItem(item)}
@@ -2420,7 +2475,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					phrase={activeMomentPhrase}
 					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 					{historyOpen}
-					itemCount={list?.items.length ?? null}
 					onBack={list ? handleBackToList : undefined}
 					actions={artifactHeaderActionsSnippet}
 				/>
@@ -2746,7 +2800,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				phrase={activeMomentPhrase}
 				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 				{historyOpen}
-				itemCount={list?.items.length ?? null}
 				onBack={list ? handleBackToList : undefined}
 				actions={artifactHeaderActionsSnippet}
 			/>

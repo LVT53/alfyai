@@ -21,7 +21,10 @@ import {
 	canvasReadBlocks,
 	parseCanvasCreateBody,
 } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
-import { jsonArrayArg } from "$lib/server/services/normal-chat-tools/artifact-tools/tool-args";
+import {
+	appInstructionSchema,
+	jsonArrayArg,
+} from "$lib/server/services/normal-chat-tools/artifact-tools/tool-args";
 import {
 	boardDiffSchema,
 	boardOpsVocabulary,
@@ -60,6 +63,7 @@ const editGate = z.object({
 	artifactId: z.string().min(1),
 	patches: jsonArrayArg("patches").min(1).max(40).optional(),
 	ops: jsonArrayArg("ops").min(1).max(40).optional(),
+	instruction: appInstructionSchema.optional(),
 	summary: z.string().min(1).max(200).optional(),
 });
 

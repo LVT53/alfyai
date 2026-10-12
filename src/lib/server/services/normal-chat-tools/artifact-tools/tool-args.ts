@@ -61,3 +61,12 @@ export function jsonArrayArg(name: string) {
 		error: (issue) => textArgProblem(name, issue.input),
 	});
 }
+
+/**
+ * The instruction of an App edit (F2, ruling 77): its one bound, in the one
+ * schema object the model is shown (`buildEditArtifactModelInputSchema`), a call
+ * is validated with (`editArtifactInputSchema`) and the eval harness's copy of the
+ * gate reads (ruling 62). It lives here, beside `jsonArrayArg`, because this file
+ * has no database behind it and the harness must not open one.
+ */
+export const appInstructionSchema = z.string().min(1).max(4000);

@@ -4,7 +4,7 @@ import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import { page } from "$app/state";
-import { goto, invalidate, replaceState } from "$app/navigation";
+import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
@@ -72,6 +72,7 @@ import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import {
 	artifactVersionMessagesFromMessages,
+	createdArtifactOf,
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
@@ -93,6 +94,11 @@ import {
 	fetchConversationPendingWrites,
 } from "$lib/client/api/connection-writes";
 import { chatWouldBeSqueezed } from "$lib/client/workspace-dock";
+import {
+	createPanelHistory,
+	type PanelLayer,
+	panelPageState,
+} from "$lib/client/panel-history";
 import {
 	currentConversationId,
 	setSidebarFoldNeeded,
@@ -627,6 +633,17 @@ let unreachableArtifactIds = $state.raw<readonly string[]>(
 // and which the server said cannot be (nothing stored to make them from).
 let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
 let unavailableArtifactIds = $state.raw<readonly string[]>([]);
+// The panel's list shows the item being made again as a row of its own (F29), not
+// only the card's button: titled and kinded by the chat's own create call, and
+// gone the moment the real row is there.
+let regeneratingRows = $derived.by(() => {
+	if (regeneratingArtifactIds.length === 0) return [];
+	return regeneratingArtifactIds.flatMap((id) => {
+		if (artifacts.some((row) => row.id === id)) return [];
+		const made = createdArtifactOf($messages, id);
+		return made ? [{ id, ...made }] : [];
+	});
+});
 let deletedArtifactsForCards = $derived<DeletedArtifacts>({
 	deletedIds: deletedArtifactIds,
 	unreachableIds: unreachableArtifactIds,
@@ -1040,6 +1057,7 @@ let availableWorkspaceDocuments = $derived(
 			file.originAssistantMessageId ?? file.assistantMessageId ?? null,
 		sourceChatFileId: file.sourceChatFileId ?? file.id,
 		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
 		previewUrl: `/api/chat/files/${file.id}/preview`,
 		artifactId: file.artifactId ?? null,
 		conversationId: file.conversationId,
@@ -1447,13 +1465,42 @@ $effect(() => {
 	});
 });
 
-function openWorkspaceDocument(
+/**
+ * A produced file opened from a chat card is the same File the panel's list opens
+ * (FB-5, F21): it carries the kind and the moment its row in the list carries. The
+ * card builds its item from the job's file and knows neither, and the panel draws
+ * its standard header (a way back, the title, the kind) for an item that has a
+ * kind, so without this the same file got the older "Active document" header with
+ * an AI chip from the card.
+ */
+function asArtifactFile(
 	document: DocumentWorkspaceItem,
+): DocumentWorkspaceItem {
+	if (
+		document.kind ||
+		document.source !== "chat_generated_file" ||
+		!document.artifactId
+	) {
+		return document;
+	}
+	const row = liveArtifacts.find((entry) => entry.id === document.artifactId);
+	return {
+		...document,
+		kind: "file",
+		...(row
+			? { updatedAt: row.updatedAt, canRegenerate: row.regenerable }
+			: {}),
+	};
+}
+
+function openWorkspaceDocument(
+	opened: DocumentWorkspaceItem,
 	options: {
 		preservePresentation?: boolean;
 		presentation?: "docked" | "expanded";
 	} = {},
 ) {
+	const document = asArtifactFile(opened);
 	const result = reduceWorkspaceDocumentOpen(workspaceDocuments, document);
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;
@@ -1757,6 +1804,50 @@ function closeWorkspace() {
 	artifactCountButtonCompactEl?.focus();
 }
 
+// The browser's Back and Forward close and reopen the panel's layers one at a time
+// (FB-5, ruling 77: F7). `panelLayer` is what the panel shows, `applyPanelLayer`
+// the one way the history puts it somewhere (through the same functions a click
+// uses, never the flags), and `client/panel-history.ts` plans the entries.
+let panelLayer = $derived.by<PanelLayer | null>(() => {
+	if (!isArtifactPanelOpen) return null;
+	if (artifactListOpen) return { kind: "list" };
+	const itemId = activeWorkspaceDocument?.id ?? workspaceDocuments[0]?.id;
+	return itemId ? { kind: "item", itemId } : null;
+});
+
+function applyPanelLayer(layer: PanelLayer | null) {
+	if (layer?.kind === "list") {
+		openArtifactList();
+		return;
+	}
+	if (layer?.kind === "item") {
+		const known =
+			workspaceDocuments.some((entry) => entry.id === layer.itemId) ||
+			availableWorkspaceDocumentsWithArtifacts.some(
+				(entry) => entry.id === layer.itemId,
+			);
+		if (known) {
+			selectWorkspaceDocument(layer.itemId);
+			return;
+		}
+		// The item is gone since the entry was made: the panel shows what is left.
+		if (artifactWorkspaceItems.length > 0) {
+			openArtifactList();
+			return;
+		}
+	}
+	if (isArtifactPanelOpen) closeWorkspace();
+}
+
+const panelHistory = createPanelHistory({
+	current: () => panelLayer,
+	apply: applyPanelLayer,
+	push: (entry) => pushState("", panelPageState(entry)),
+	replace: (entry) => replaceState("", panelPageState(entry)),
+	isThisPage: () =>
+		window.location.pathname === `/chat/${data.conversation.id}`,
+});
+
 function handleWorkspaceConversationDeleted(conversationId: string) {
 	const nextState = reduceWorkspaceDocumentsForDeletedConversation(
 		workspaceDocuments,
@@ -2036,6 +2127,19 @@ $effect(() => {
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
+});
+
+// The panel's entries in the browser's history follow the panel (FB-5, F7). After
+// the reset above: a switch to another chat is an arrival, where what the entry
+// the browser is on says wins over what this tab remembered of that chat's panel.
+onMount(() => panelHistory.start());
+$effect(() => {
+	void panelLayer;
+	untrack(() => panelHistory.sync());
+});
+$effect(() => {
+	void data.conversation.id;
+	untrack(() => panelHistory.arrive());
 });
 
 // Declared after the reset above so that it runs after it: resetState()
@@ -3981,6 +4085,7 @@ function handleDrop(event: DragEvent) {
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
 				title: $t('artifacts.panel.title'),
+				pending: regeneratingRows,
 			}}
 			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {

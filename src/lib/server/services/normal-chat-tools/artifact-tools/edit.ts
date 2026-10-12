@@ -51,7 +51,7 @@ import {
 	advertisedArtifactKinds,
 	type CreatableArtifactKind,
 } from "./kind-registry";
-import { jsonArrayArg } from "./tool-args";
+import { appInstructionSchema, jsonArrayArg } from "./tool-args";
 
 /**
  * `patches`'s real, executed shape (Document's five ops — `patchOpInputSchema`
@@ -75,10 +75,6 @@ export const documentPatchesArraySchema = z
  * same reason `create_artifact` is capped per turn (ruling 53).
  */
 export const MAX_APP_REBUILDS_PER_TURN = 2;
-
-/** The instruction's one bound, shared by the schema the model is shown and the one a call is validated with (ruling 62). */
-export const MAX_APP_INSTRUCTION_CHARS = 4000;
-const appInstructionSchema = z.string().min(1).max(MAX_APP_INSTRUCTION_CHARS);
 
 /**
  * Advertised to the model, and — via `compactToolInputSchema`'s `shown`
