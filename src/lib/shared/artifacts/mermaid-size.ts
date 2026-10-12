@@ -485,7 +485,7 @@ function naturalSizeOf(code: string): Natural {
 }
 
 /** The flowchart's header reads left to right (or right to left): what a narrow block turns. */
-const ACROSS_HEADER = /^(?:flowchart|graph)(?:-elk)?\s*(lr|rl)\b/i;
+const ACROSS_HEADER = /^(?:flowchart|graph)(?:-elk)?\s+(lr|rl)\b/i;
 
 /** What the source is drawn as in a block `inner` wide: the layout, and whether a flowchart written across is drawn down. */
 function layoutOf(
