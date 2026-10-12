@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
@@ -7,7 +7,9 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
+import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import { DEFAULT_CONVERSATION_TITLE } from "../../src/lib/shared/conversation-title";
+import { seedCanvas } from "./artifact-canvas-helpers";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 // RC-A new #9 (FX-1 item 6): a chat nobody has named yet is stored as the English
@@ -90,6 +92,12 @@ test.describe("Search Modal Visual Tests", () => {
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
+		// A query that matches nothing makes the results area a deterministic empty state:
+		// at rest the modal is as tall as the conversations and documents earlier tests left
+		// in this database make it (see the screenshot tests below), and a list that fills it
+		// puts its top at 44 px, which is where a centered modal of that height belongs.
+		await modal.locator("input").first().fill("zzz-no-such-result-xyz");
+		await page.waitForTimeout(600);
 
 		const box = await modal.boundingBox();
 		const viewport = page.viewportSize();
@@ -101,6 +109,77 @@ test.describe("Search Modal Visual Tests", () => {
 			expect(Math.abs(modalCenterX - viewportCenterX)).toBeLessThan(100);
 			expect(box.y).toBeGreaterThan(50);
 			expect(box.y).toBeLessThan(viewport.height * 0.3);
+		}
+	});
+
+	test("search modal stays centered when its list is full", async ({
+		page,
+	}) => {
+		// Three recent conversations and three recent documents are what the modal lists at
+		// rest, which with its headings and footer is the most it grows: nearly the window.
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const stamp = Date.now();
+		const conversationIds = [0, 1, 2].map(
+			(index) => `e2e-search-full-${stamp}-${index}`,
+		);
+		const now = new Date();
+		const artifactIds: string[] = [];
+		try {
+			for (const [index, id] of conversationIds.entries()) {
+				await db.insert(conversations).values({
+					id,
+					userId: user.id,
+					title: `Search modal fill ${index}`,
+					createdAt: now,
+					updatedAt: now,
+				});
+				await db.insert(messages).values({
+					id: `${id}-q`,
+					conversationId: id,
+					messageSequence: 1,
+					role: "user",
+					content: `Something to find ${index}`,
+					createdAt: now,
+				});
+				artifactIds.push(
+					await seedCanvas(
+						id,
+						emptyCanvasBody(),
+						`Search modal board ${index}`,
+					),
+				);
+			}
+			await page.reload({ waitUntil: "networkidle" });
+			await waitForHydration(page);
+			await page
+				.getByRole("button", { name: "Search conversations and documents" })
+				.click();
+			const modal = page.getByRole("dialog", { name: "Search workspace" });
+			await modal.waitFor({ state: "visible" });
+			await expect(modal.getByText("Search modal board 0")).toBeVisible();
+			await page.waitForTimeout(600);
+
+			const box = await modal.boundingBox();
+			const viewport = page.viewportSize();
+			if (!box || !viewport) throw new Error("the modal is not on screen");
+			// The list is full: the modal is most of the window tall...
+			expect(box.height).toBeGreaterThan(viewport.height * 0.8);
+			// ...and centered in it: the same room above and below, and the same left and right.
+			expect(
+				Math.abs(box.y - (viewport.height - (box.y + box.height))),
+			).toBeLessThan(2);
+			expect(
+				Math.abs(box.x - (viewport.width - (box.x + box.width))),
+			).toBeLessThan(2);
+			expect(box.y).toBeGreaterThanOrEqual(16);
+		} finally {
+			await db.delete(artifacts).where(inArray(artifacts.id, artifactIds));
+			await db
+				.delete(conversations)
+				.where(inArray(conversations.id, conversationIds));
 		}
 	});
 
