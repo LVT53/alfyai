@@ -124,7 +124,7 @@ describe("POST /api/artifacts/[id]/app/download", () => {
 
 		const calls = mockSubmitIntake.mock.calls.map(([call]) => call);
 		const keys = calls.map((call) => call.body.idempotencyKey as string);
-		expect(keys[0]).toMatch(/^artifact-export:app-1:html:[0-9a-f]{32}$/);
+		expect(keys[0]).toMatch(/^artifact-export:app-1:html:v\d+:[0-9a-f]{32}$/);
 		expect(keys[1]).toBe(keys[0]);
 		for (const call of calls) expect(call.reuse).toBe("usable");
 	});

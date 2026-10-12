@@ -130,10 +130,14 @@ describe("POST /api/artifacts/[id]/export", () => {
 
 		const calls = mockSubmitIntake.mock.calls.map(([call]) => call);
 		const keys = calls.map((call) => call.body.idempotencyKey as string);
-		expect(keys[0]).toMatch(/^artifact-export:artifact-1:pdf:[0-9a-f]{32}$/);
+		expect(keys[0]).toMatch(
+			/^artifact-export:artifact-1:pdf:v\d+:[0-9a-f]{32}$/,
+		);
 		expect(keys[1]).toBe(keys[0]);
 		// Another format is another file.
-		expect(keys[2]).toMatch(/^artifact-export:artifact-1:docx:[0-9a-f]{32}$/);
+		expect(keys[2]).toMatch(
+			/^artifact-export:artifact-1:docx:v\d+:[0-9a-f]{32}$/,
+		);
 		for (const call of calls) expect(call.reuse).toBe("usable");
 	});
 
