@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/favicon/fetch", () => ({
@@ -10,6 +12,7 @@ import {
 	noteSourceUrls,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
+import { FAVICON_ROUTE, faviconRouteUrl } from "$lib/shared/url-provenance";
 import { GET } from "./+server";
 
 // The favicon proxy fetches `https://<host>/favicon.ico` on the server. It used
@@ -52,6 +55,32 @@ describe("GET /api/favicon", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	it("is the route the shared contract names, asked the way the page asks it", async () => {
+		// The page builds the address with `faviconRouteUrl` and the server reads
+		// it here: the two must name the same route and the same parameter.
+		expect(
+			existsSync(
+				resolve(process.cwd(), `src/routes${FAVICON_ROUTE}/+server.ts`),
+			),
+		).toBe(true);
+		noteSourceUrls("user-1", ["https://asked-like-the-page.example/a"]);
+		const asked = new URL(
+			faviconRouteUrl("asked-like-the-page.example"),
+			"http://localhost",
+		);
+
+		await GET({
+			url: asked,
+			request: new Request(asked),
+			locals: { user: { id: "user-1" } },
+		} as unknown as FaviconEvent);
+
+		expect(fetchFaviconMock).toHaveBeenCalledTimes(1);
+		expect(fetchFaviconMock.mock.calls[0]?.[0]).toBe(
+			"asked-like-the-page.example",
+		);
 	});
 
 	it("never calls out for a host no tool returned to this user: the globe, never cached", async () => {

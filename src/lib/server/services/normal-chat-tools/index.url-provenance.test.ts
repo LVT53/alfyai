@@ -21,6 +21,7 @@ import {
 	PROVENANCE_RESULT_TOOLS,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
+import { IMAGE_SEARCH_TOOL } from "$lib/shared/url-provenance";
 import { createNormalChatTools } from "./index";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
@@ -244,6 +245,10 @@ describe("the tool recorder feeds the user's source ledger", () => {
 		expect(hasSourceHost("user-1", "found.example")).toBe(true);
 		expect(hasSourceHost("user-1", "exfil.example")).toBe(false);
 		expect(hasSourceHost("user-2", "found.example")).toBe(false);
+	});
+
+	it("reads pictures off the tool the server registers: the shared contract names it", () => {
+		expect(Object.keys(tools().tools)).toContain(IMAGE_SEARCH_TOOL);
 	});
 
 	it("notes the exact thumbnail an image_search result returned", async () => {

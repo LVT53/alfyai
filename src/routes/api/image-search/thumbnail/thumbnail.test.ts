@@ -1,8 +1,15 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	noteToolEntrySources,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
+import {
+	BRAVE_THUMBNAIL_HOST,
+	IMAGE_THUMBNAIL_ROUTE,
+	imageThumbnailRouteUrl,
+} from "$lib/shared/url-provenance";
 import { GET } from "./+server";
 
 // The chat shows an image_search picture as Brave's 500 px thumbnail, fetched by
@@ -11,8 +18,7 @@ import { GET } from "./+server";
 // is a narrow door: only an address a search returned to this user, only Brave's
 // image proxy, no redirects, a short wait, a small body, a real image.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = `https://${BRAVE_THUMBNAIL_HOST}/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn`;
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 type ThumbnailEvent = Parameters<typeof GET>[0];
@@ -82,6 +88,27 @@ describe("GET /api/image-search/thumbnail", () => {
 		expect(await response.text()).toBe("");
 		expect(response.headers.get("cache-control")).toBe("no-store");
 	}
+
+	it("is the route the shared contract names, asked the way the page asks it", async () => {
+		// The page builds the address with `imageThumbnailRouteUrl` and the server
+		// reads it here: the two must name the same route and the same parameter.
+		expect(
+			existsSync(
+				resolve(process.cwd(), `src/routes${IMAGE_THUMBNAIL_ROUTE}/+server.ts`),
+			),
+		).toBe(true);
+		listThumbnail();
+		const asked = new URL(imageThumbnailRouteUrl(THUMB), "http://localhost");
+
+		const response = await GET({
+			url: asked,
+			request: new Request(asked),
+			locals: { user: { id: "user-1" } },
+		} as unknown as ThumbnailEvent);
+
+		expect(response.status).toBe(200);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(THUMB);
+	});
 
 	it("serves the thumbnail a search returned to this user, from this origin, as an inert image", async () => {
 		listThumbnail();
