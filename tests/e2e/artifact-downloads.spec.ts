@@ -206,6 +206,54 @@ test.describe("the Document's Download", () => {
 		expect(downloadStarted).toBe(false);
 	});
 
+	test("a failure after the reader closed the popover is told in a toast, never silence (FB-1's concern 4)", async ({
+		page,
+	}) => {
+		const { conversationId } = await track(seedDocument());
+		await openDocument(page, conversationId);
+		let downloadStarted = false;
+		page.on("download", () => {
+			downloadStarted = true;
+		});
+		// The poll is held while the reader closes the popover; then it answers that
+		// the job failed. The popover is gone by then: nothing else could say so.
+		let fail!: () => void;
+		const failing = new Promise<void>((resolve) => {
+			fail = resolve;
+		});
+		await page.route("**/api/chat/files/jobs/*", async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			await failing;
+			const real = (await (await route.fetch()).json()) as {
+				job: Record<string, unknown>;
+			};
+			await route.fulfill({
+				json: {
+					job: {
+						...real.job,
+						status: "failed",
+						files: [],
+						error: { code: "render_failed", message: "x", retryable: true },
+					},
+				},
+			});
+		});
+
+		const popover = await chooseFormat(page, "PDF");
+		await expect(popover.getByRole("status")).toHaveText(
+			"Preparing your file…",
+		);
+		await page.keyboard.press("Escape");
+		await expect(popover).toHaveCount(0);
+		await expect(page.getByTestId("toast-entry")).toHaveCount(0);
+
+		fail();
+		await expect(page.getByTestId("toast-entry")).toHaveText(
+			"Could not create this file.",
+		);
+		expect(downloadStarted).toBe(false);
+	});
+
 	test("an incognito chat's Document downloads too: the export names the chat it is read from", async ({
 		page,
 	}) => {
