@@ -15,6 +15,7 @@ import {
 	runCreateArtifactTool,
 } from "$lib/server/services/normal-chat-tools/artifact-tools/create";
 import {
+	type EditArtifactToolInput,
 	editArtifactInputSchema,
 	runEditArtifactTool,
 } from "$lib/server/services/normal-chat-tools/artifact-tools/edit";
@@ -91,12 +92,10 @@ function editTools(board: CanvasBody) {
 	});
 }
 
-async function realEdit(input: {
-	ops?: unknown[];
-	patches?: unknown[];
-	summary?: string;
-	artifactId?: string;
-}) {
+/** What a call to `edit_artifact` may carry: the tool's own input, so a scenario cannot name a field the real tool never saw. */
+type EditInput = Partial<EditArtifactToolInput>;
+
+async function realEdit(input: EditInput) {
 	const result = await runEditArtifactTool({
 		userId,
 		conversationId,
@@ -104,6 +103,7 @@ async function realEdit(input: {
 		artifactId: input.artifactId ?? ART,
 		ops: input.ops,
 		patches: input.patches,
+		instruction: input.instruction,
 		summary: input.summary,
 		abortSignal: signal(),
 	});
@@ -157,17 +157,7 @@ describe("the eval's read answers as read_artifact does", () => {
 });
 
 describe("the eval's edit answers as edit_artifact does", () => {
-	const scenarios: Array<
-		[
-			string,
-			{
-				ops?: unknown[];
-				patches?: unknown[];
-				summary?: string;
-				artifactId?: string;
-			},
-		]
-	> = [
+	const scenarios: Array<[string, EditInput]> = [
 		[
 			"a batch that lands whole",
 			{
@@ -260,11 +250,13 @@ describe("the eval's edit answers as edit_artifact does", () => {
 		expect(simulated).toEqual(real);
 	});
 
-	it("tells the tool's own gate's message for an empty ops list, a missing id and a summary that is too long, as the tool does", () => {
+	it("tells the tool's own gate's message for an empty ops list, a missing id, an empty or too long instruction and a summary that is too long, as the tool does", () => {
 		for (const input of [
 			{ artifactId: ART, ops: [] },
 			{ ops: [move("lunch", 1, 1)] },
 			{ artifactId: ART, ops: [move("lunch", 1, 1)], summary: "x".repeat(201) },
+			{ artifactId: ART, instruction: "" },
+			{ artifactId: ART, instruction: "x".repeat(4001) },
 		]) {
 			const real = editArtifactInputSchema.safeParse(input);
 			const simulated = JSON.parse(
