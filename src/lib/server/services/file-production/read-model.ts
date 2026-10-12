@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
@@ -8,6 +8,7 @@ import {
 	fileProductionJobs,
 } from "$lib/server/db/schema";
 import {
+	ARTIFACT_EXPORT_JOB_ORIGIN,
 	type ChatGeneratedFile,
 	type FileProductionJob,
 	parseFileProductionAttemptWarnings,
@@ -504,6 +505,11 @@ export async function listConversationFileProductionJobs(
 			and(
 				eq(fileProductionJobs.userId, userId),
 				eq(fileProductionJobs.conversationId, conversationId),
+				// A file the reader asked for from a panel's Download belongs to no
+				// reply: nothing that lists a conversation's jobs (the chat's cards,
+				// the turn's start snapshot, the next reply's reconciliation) may
+				// carry it, or a reply would be handed a card it never made.
+				ne(fileProductionJobs.origin, ARTIFACT_EXPORT_JOB_ORIGIN),
 				...(includeDismissed ? [] : [eq(fileProductionJobs.dismissed, false)]),
 			),
 		)
@@ -625,6 +631,34 @@ export async function getConversationFileProductionJob(input: {
 			.map(mapChatFileToProducedFile),
 		warningsByJobId.get(job.id),
 	);
+}
+
+/**
+ * One of the user's own jobs by its id alone, for a caller that follows a job
+ * it started and holds no conversation (the panel's Download follows its
+ * export). The same single-job read, scoped by the owner: an unknown id and
+ * another user's job answer the same `null`.
+ */
+export async function getFileProductionJobForUser(input: {
+	userId: string;
+	jobId: string;
+}): Promise<FileProductionJob | null> {
+	const [owned] = await db
+		.select({ conversationId: fileProductionJobs.conversationId })
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.id, input.jobId),
+				eq(fileProductionJobs.userId, input.userId),
+			),
+		)
+		.limit(1);
+	if (!owned) return null;
+	return getConversationFileProductionJob({
+		userId: input.userId,
+		conversationId: owned.conversationId,
+		jobId: input.jobId,
+	});
 }
 
 /** A job that has no deliverable yet: still being produced, or failed. */
@@ -873,6 +907,9 @@ export async function listConversationFileProductionJobStates(input: {
 				eq(fileProductionJobs.userId, input.userId),
 				eq(fileProductionJobs.conversationId, input.conversationId),
 				eq(fileProductionJobs.dismissed, false),
+				// A panel's Download is no claim the model made: its running or failed
+				// export is not something a later turn should be told to correct.
+				ne(fileProductionJobs.origin, ARTIFACT_EXPORT_JOB_ORIGIN),
 				// Same leading columns as file_production_jobs_conversation_idx
 				// (conversation_id, created_at), so the bound narrows the index
 				// range instead of forcing a scan.

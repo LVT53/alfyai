@@ -35,6 +35,7 @@ import DialogShell, {
 } from "$lib/components/ui/DialogShell.svelte";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
 import { emptyStateLine } from "$lib/components/artifacts/empty-state";
+import DownloadSheet from "$lib/components/artifacts/document/DownloadSheet.svelte";
 import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
@@ -48,7 +49,6 @@ import {
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
 import {
-	downloadAppAsHtml,
 	fetchArtifact,
 	regenerateApp,
 	restoreArtifactVersion,
@@ -92,8 +92,8 @@ let highlightedCode = $state<string | null>(null);
 let copyLabel = $state<"copy" | "copied">("copy");
 let noteOpen = $state(false);
 
-let downloadBusy = $state(false);
-let downloadError = $state<string | null>(null);
+/** The header's Download: the same popover the Document's offers (`DownloadSheet`), with the App's one file. */
+let downloadSheetOpen = $state(false);
 
 let regeneratePopoverOpen = $state(false);
 let regeneratePromptText = $state("");
@@ -123,6 +123,7 @@ async function load(id: string): Promise<void> {
 		// bleed onto the next one.
 		noteOpen = false;
 		activeTab = "preview";
+		downloadSheetOpen = false;
 		regeneratePopoverOpen = false;
 		regenerateError = null;
 		regenerateBusy = false;
@@ -228,20 +229,6 @@ async function copyCode(): Promise<void> {
 	}
 }
 
-async function handleDownload(): Promise<void> {
-	if (!artifactConversationId || downloadBusy) return;
-	downloadBusy = true;
-	downloadError = null;
-	try {
-		const result = await downloadAppAsHtml(artifactId, conversationId);
-		if (!result.ok) downloadError = result.reason;
-	} catch {
-		downloadError = "failed";
-	} finally {
-		downloadBusy = false;
-	}
-}
-
 /**
  * Wave 2.5 Step 13: hands the panel header a download trigger whenever the
  * App actually has one to save (registered `undefined` otherwise, so the
@@ -254,7 +241,9 @@ async function handleDownload(): Promise<void> {
  */
 $effect(() => {
 	registerPanelActions?.({
-		openDownload: artifactConversationId ? handleDownload : undefined,
+		openDownload: artifactConversationId
+			? () => (downloadSheetOpen = true)
+			: undefined,
 		// After a restore in History the stored App is another one: load it, so the
 		// frame runs it and the next rebuild is checked against its version.
 		reload: () => void load(artifactId),
@@ -267,23 +256,6 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 	tool_call: "artifacts.app.failed.toolCall",
 	too_long: "artifacts.app.failed.tooLong",
 };
-
-/**
- * Ruling 58: the download error is always a localized sentence, never
- * `result.reason` (a wire-level reason/intake-error code) or the bare word
- * "failed" shown straight to the user. `conversation_required` is the
- * server's own backstop for the same case the disabled button already
- * explains proactively (no conversation), so it reuses that copy; every
- * other reason — a race where the artifact vanished, a file-production
- * intake failure, the request itself throwing — falls back to one generic
- * "could not prepare this for download" sentence.
- */
-const DOWNLOAD_FAILURE_KEYS: Partial<Record<string, I18nKey>> = {
-	conversation_required: "artifacts.app.download.unavailable",
-};
-function localizeDownloadFailure(reason: string): string {
-	return $t(DOWNLOAD_FAILURE_KEYS[reason] ?? "artifacts.app.download.failed");
-}
 
 /** The main "Change this app…" button — starts clean (empty prompt, no stale error from a previous attempt). */
 function openRegeneratePopoverFresh(): void {
@@ -619,11 +591,6 @@ const regeneratePopoverFocusTrap = focusTrap({
 				{$t('artifacts.app.download.unavailable')}
 			</p>
 		{/if}
-		{#if downloadError}
-			<p class="app-body-hint app-body-error-text">
-				{localizeDownloadFailure(downloadError)}
-			</p>
-		{/if}
 
 		<div class="app-stage">
 			{#if activeTab === 'preview'}
@@ -702,6 +669,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 		</div>
 	{/if}
 </div>
+
+{#if downloadSheetOpen}
+	<DownloadSheet
+		kind="app"
+		{artifactId}
+		{title}
+		{conversationId}
+		onClose={() => (downloadSheetOpen = false)}
+	/>
+{/if}
 
 {#if regeneratePopoverOpen}
 	{#if isPhone}
@@ -1092,11 +1069,6 @@ const regeneratePopoverFocusTrap = focusTrap({
 	.app-body-code-block :global(pre) {
 		margin: 0;
 		padding: var(--space-sm);
-	}
-
-	.app-body-error-text {
-		color: var(--danger);
-		font-size: var(--text-xs);
 	}
 
 	/* ── The regenerate popover (desktop) ────────────────────────── */

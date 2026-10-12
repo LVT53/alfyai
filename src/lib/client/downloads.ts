@@ -22,7 +22,14 @@
  * popup blocker, which is what makes it safe to click one AFTER an await.
  */
 
+import {
+	cancelFileProductionJob,
+	type FileProductionJobWaitOptions,
+	type FileProductionJobWaitResult,
+	waitForFileProductionJob,
+} from "$lib/client/api/file-production";
 import { readErrorPayload } from "$lib/client/api/http";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { clearSessionExpiry } from "$lib/stores/session";
 
 /**
@@ -154,4 +161,81 @@ export function handleDownloadAnchorClick(
 	if (isBrowserHandledClick(event)) return;
 	event.preventDefault();
 	void startAuthenticatedDownload(url, filename, fetchImpl);
+}
+
+/** What starting a produced file's job answered: the job, or the server's reason for refusing. */
+type ProducedFileStart =
+	| { ok: true; job: FileProductionJob }
+	| { ok: false; reason: string };
+
+/**
+ * `reason` is the server's own when it refused to start the job (`source_too_large`,
+ * `no_conversation`, …), else one of: `job_failed` (the job failed or is gone),
+ * `timeout` (still running when the wait ran out), `no_file` (finished with none),
+ * `session_ended` (the session ended before the download could start; the shell's
+ * signed-out row says so), `failed` (starting the job threw).
+ */
+type ProducedFileDownloadResult =
+	| { ok: true; filename: string }
+	| { ok: false; reason: string };
+
+interface ProducedFileDownloadDeps {
+	wait?: (
+		job: FileProductionJob,
+		options?: FileProductionJobWaitOptions,
+	) => Promise<FileProductionJobWaitResult>;
+	cancel?: (jobId: string) => Promise<unknown>;
+	download?: typeof startAuthenticatedDownload;
+	fetchImpl?: FetchLike;
+	waitOptions?: FileProductionJobWaitOptions;
+}
+
+/**
+ * What a Download does for a file the server has to make first (a Document's PDF,
+ * Word or Markdown, an App's `.html`): start the job, follow it until it has made
+ * the file, then hand the browser the file's own download. The one path for both,
+ * so a Download is never "started and forgotten": a file that is ready downloads,
+ * and one that is not says why (the caller shows it; friction audit F1).
+ *
+ * The download is the canonical `/api/chat/files/[id]/download`, built here from
+ * the file's id and fetched through `startAuthenticatedDownload` like every other.
+ * A job still running when the wait ran out is cancelled, so it does not finish
+ * later into a file nobody is waiting for.
+ */
+export async function downloadProducedFile(
+	start: () => Promise<ProducedFileStart>,
+	deps: ProducedFileDownloadDeps = {},
+): Promise<ProducedFileDownloadResult> {
+	let started: ProducedFileStart;
+	try {
+		started = await start();
+	} catch {
+		return { ok: false, reason: "failed" };
+	}
+	if (!started.ok) return { ok: false, reason: started.reason };
+
+	const wait = deps.wait ?? waitForFileProductionJob;
+	const settled = await wait(started.job, {
+		fetchImpl: deps.fetchImpl,
+		...deps.waitOptions,
+	});
+	if (settled.state === "timeout") {
+		const cancel = deps.cancel ?? ((jobId) => cancelFileProductionJob(jobId));
+		void Promise.resolve(cancel(started.job.id)).catch(() => undefined);
+		return { ok: false, reason: "timeout" };
+	}
+	if (settled.state !== "succeeded") return { ok: false, reason: "job_failed" };
+
+	const file = settled.job.files[0];
+	if (!file) return { ok: false, reason: "no_file" };
+
+	const download = deps.download ?? startAuthenticatedDownload;
+	const began = await download(
+		`/api/chat/files/${encodeURIComponent(file.id)}/download`,
+		file.filename,
+		deps.fetchImpl,
+	);
+	return began
+		? { ok: true, filename: file.filename }
+		: { ok: false, reason: "session_ended" };
 }

@@ -17,6 +17,7 @@ import type {
 	ArtifactRecord,
 	ArtifactVersionSummary,
 } from "$lib/server/services/artifacts/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	buildIndex,
 	parseDocument,
@@ -578,7 +579,7 @@ export async function regenerateApp(
 }
 
 export type DownloadAppResult =
-	| { ok: true; job: unknown; reused: boolean }
+	| { ok: true; job: FileProductionJob; reused: boolean }
 	| { ok: false; reason: string };
 
 /**
@@ -1211,7 +1212,7 @@ export async function askAlfyInComment(
 export type ExportArtifactDocumentFormat = "pdf" | "docx" | "markdown";
 
 export type ExportArtifactDocumentResult =
-	| { ok: true; job: { id: string } }
+	| { ok: true; job: FileProductionJob }
 	| {
 			ok: false;
 			reason:
@@ -1223,11 +1224,12 @@ export type ExportArtifactDocumentResult =
 	  };
 
 /**
- * Export through `produce_file` (T12). Mirrors `saveArtifactBody`: a
- * documented refusal (a limit, a missing conversation, a foreign artifact)
- * is a normal return value, never a thrown `ApiError` — `DownloadSheet`
- * decides what each reason means, the same way the editor decides what a
- * save conflict means.
+ * Starts an export through `produce_file` (T12): the job, not yet the file.
+ * `downloadProducedFile` (`client/downloads.ts`) follows it to the end and
+ * starts the browser's download. Mirrors `saveArtifactBody`: a documented
+ * refusal (a limit, a missing conversation, a foreign artifact) is a normal
+ * return value, never a thrown `ApiError` — `DownloadSheet` decides what each
+ * reason means, the same way the editor decides what a save conflict means.
  */
 export async function exportArtifactDocument(
 	artifactId: string,

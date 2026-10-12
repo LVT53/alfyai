@@ -16,6 +16,7 @@ vi.mock("$lib/server/services/artifacts", async (importOriginal) => {
 });
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
+	ARTIFACT_EXPORT_JOB_ORIGIN: "artifact_export",
 }));
 
 import { getArtifact } from "$lib/server/services/artifacts";
@@ -134,6 +135,8 @@ describe("POST /api/artifacts/[id]/export", () => {
 		expect(mockSubmitIntake).toHaveBeenCalledTimes(1);
 		const call = mockSubmitIntake.mock.calls[0][0];
 		expect(call.userId).toBe("owner-user");
+		// The reader's own export, never a reply's card (friction audit F1).
+		expect(call.origin).toBe("artifact_export");
 		expect(call.body.conversationId).toBe("conv-1");
 		expect(call.body.sourceMode).toBe("document_source");
 		expect(call.body.documentSource.template).toBe("alfyai_standard_report");

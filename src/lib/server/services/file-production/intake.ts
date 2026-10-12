@@ -18,6 +18,9 @@ import {
 	validateGeneratedDocumentSource,
 } from "./source-schema";
 
+/** The origin of a job `produce_file` (or the produce route) made; an export's differs, see `SubmitFileProductionIntakeInput.origin`. */
+const UNIFIED_PRODUCE_ORIGIN = "unified_produce";
+
 type ProduceProgramLanguage = "python" | "javascript";
 
 interface NormalizedIntakeBase {
@@ -97,6 +100,13 @@ interface CreateFailedFileProductionJobInput {
 export interface SubmitFileProductionIntakeInput {
 	userId: string;
 	body: unknown;
+	/**
+	 * What made the job, `file_production_jobs.origin`. Set by the server-side
+	 * caller and never read from `body`, which a client writes: the artifact
+	 * export routes pass `ARTIFACT_EXPORT_JOB_ORIGIN`, every other caller gets
+	 * the unified `produce_file` origin.
+	 */
+	origin?: string;
 	now?: Date;
 	wakeWorker?: () => void | Promise<void>;
 	signal?: AbortSignal;
@@ -685,7 +695,7 @@ export async function submitFileProductionIntakeWithDependencies(
 				conversationId: normalized.failureDraft.conversationId,
 				assistantMessageId: normalized.failureDraft.assistantMessageId,
 				title: normalized.failureDraft.requestTitle,
-				origin: "unified_produce",
+				origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 				idempotencyKey: normalized.failureDraft.idempotencyKey,
 				sourceMode: normalized.failureDraft.sourceMode,
 				documentIntent: normalized.failureDraft.documentIntent,
@@ -728,7 +738,7 @@ export async function submitFileProductionIntakeWithDependencies(
 			conversationId: request.conversationId,
 			assistantMessageId: request.assistantMessageId,
 			title: request.requestTitle,
-			origin: "unified_produce",
+			origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 			idempotencyKey: request.idempotencyKey,
 			sourceMode: request.sourceMode,
 			documentIntent: request.documentIntent,
@@ -760,7 +770,7 @@ export async function submitFileProductionIntakeWithDependencies(
 		conversationId: request.conversationId,
 		assistantMessageId: request.assistantMessageId,
 		title: request.requestTitle,
-		origin: "unified_produce",
+		origin: input.origin ?? UNIFIED_PRODUCE_ORIGIN,
 		idempotencyKey: request.idempotencyKey,
 		sourceMode: request.sourceMode,
 		documentIntent: request.documentIntent,

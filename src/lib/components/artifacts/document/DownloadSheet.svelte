@@ -1,11 +1,15 @@
 <script lang="ts">
 /**
- * Export through `produce_file` (Feature 2 · Artifacts, Slice 1, T12): PDF,
- * Word and Markdown, offered against the document's own title (never the
- * word "Artifact", ADR-0066). Submits and then gets out of the way — the
- * resulting job is an ordinary produced file, so the File card (retry,
- * progress, download) is what the user watches next, not a second progress
- * UI here (the plan's own rule: "the panel does not poll a second time").
+ * The header's Download for a Document (Feature 2 · Artifacts, Slice 1, T12) and
+ * for an App: PDF, Word and Markdown against the document's own title, the App's
+ * one `.html` file (never the word "Artifact", ADR-0066). The file is made through
+ * `produce_file` (the one export engine), and this follows the job to its end:
+ * "Preparing your file…" while it runs, the browser's own download of the file
+ * when it is ready (`downloadProducedFile`, on the canonical
+ * `/api/chat/files/[id]/download`), and a notice with Try again when it did not
+ * work. The export belongs to no reply and shows no card of its own (friction
+ * audit F1): a download is delivery, not something the chat made, so the panel's
+ * list does not grow with every press either.
  *
  * Wave 2.5 Step 8 (redesign.md §3.2/§9.2/§9.3): a popover anchored to the
  * panel header's own Download button
@@ -15,10 +19,13 @@
  * same shell the Versions popover uses, so the two look and behave alike —
  * same chrome, same placement inside the panel, same Escape and focus return.
  */
+import { onDestroy } from "svelte";
 import {
+	downloadAppAsHtml,
 	exportArtifactDocument,
 	type ExportArtifactDocumentFormat,
 } from "$lib/client/api/artifacts";
+import { downloadProducedFile } from "$lib/client/downloads";
 import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import { t } from "$lib/i18n";
 
@@ -26,55 +33,82 @@ let {
 	artifactId,
 	title,
 	conversationId = null,
+	kind = "document",
 	onClose,
 }: {
 	artifactId: string;
 	title: string;
 	conversationId?: string | null;
+	/** An App offers its one `.html` file; a Document, its three formats. */
+	kind?: "document" | "app";
 	onClose: () => void;
 } = $props();
 
-type ExportError = "failed" | "tooLarge" | "noConversation";
+type ExportError = "failed" | "tooLarge" | "noConversation" | "timeout";
 
 let submitting = $state(false);
 let error = $state<ExportError | null>(null);
+// A reader may close the popover while their file is being made; the download
+// still starts when it is ready (they asked for it), but a closed popover has
+// nothing to update and nothing to close.
+let open = true;
+onDestroy(() => {
+	open = false;
+});
 
-function errorText(kind: ExportError): string {
-	switch (kind) {
+function errorText(failure: ExportError): string {
+	switch (failure) {
 		case "tooLarge":
 			return $t("artifacts.document.export.tooLarge");
 		case "noConversation":
-			return $t("artifacts.document.export.noConversation");
+			return $t(
+				kind === "app"
+					? "artifacts.app.download.unavailable"
+					: "artifacts.document.export.noConversation",
+			);
+		case "timeout":
+			return $t("artifacts.document.export.timeout");
 		case "failed":
-			return $t("artifacts.document.export.failed");
+			return $t(
+				kind === "app"
+					? "artifacts.app.download.failed"
+					: "artifacts.document.export.failed",
+			);
 	}
 }
 
-async function download(format: ExportArtifactDocumentFormat): Promise<void> {
+function failureOf(reason: string): ExportError {
+	switch (reason) {
+		case "source_too_large":
+			return "tooLarge";
+		case "no_conversation":
+		case "conversation_required":
+			return "noConversation";
+		case "timeout":
+			return "timeout";
+		default:
+			return "failed";
+	}
+}
+
+async function download(
+	format: ExportArtifactDocumentFormat | "html",
+): Promise<void> {
 	if (submitting) return;
 	submitting = true;
 	error = null;
-	try {
-		const result = await exportArtifactDocument(
-			artifactId,
-			format,
-			conversationId,
-		);
-		if (result.ok) {
-			onClose();
-			return;
-		}
-		error =
-			result.reason === "source_too_large"
-				? "tooLarge"
-				: result.reason === "no_conversation"
-					? "noConversation"
-					: "failed";
-	} catch {
-		error = "failed";
-	} finally {
-		submitting = false;
+	const result = await downloadProducedFile(() =>
+		format === "html"
+			? downloadAppAsHtml(artifactId, conversationId)
+			: exportArtifactDocument(artifactId, format, conversationId),
+	);
+	if (!open) return;
+	submitting = false;
+	if (result.ok) {
+		onClose();
+		return;
 	}
+	error = failureOf(result.reason);
 }
 
 function retry(): void {
@@ -92,30 +126,41 @@ function retry(): void {
 		</div>
 	{:else}
 		<div class="download-popover-options">
-			<button
-				type="button"
-				class="btn-secondary"
-				disabled={submitting}
-				onclick={() => download('pdf')}
-			>
-				{$t('artifacts.document.export.pdf')}
-			</button>
-			<button
-				type="button"
-				class="btn-secondary"
-				disabled={submitting}
-				onclick={() => download('docx')}
-			>
-				{$t('artifacts.document.export.docx')}
-			</button>
-			<button
-				type="button"
-				class="btn-secondary"
-				disabled={submitting}
-				onclick={() => download('markdown')}
-			>
-				{$t('artifacts.document.export.markdown')}
-			</button>
+			{#if kind === 'app'}
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={submitting}
+					onclick={() => download('html')}
+				>
+					{$t('artifacts.app.export.html')}
+				</button>
+			{:else}
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={submitting}
+					onclick={() => download('pdf')}
+				>
+					{$t('artifacts.document.export.pdf')}
+				</button>
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={submitting}
+					onclick={() => download('docx')}
+				>
+					{$t('artifacts.document.export.docx')}
+				</button>
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={submitting}
+					onclick={() => download('markdown')}
+				>
+					{$t('artifacts.document.export.markdown')}
+				</button>
+			{/if}
 		</div>
 		{#if submitting}
 			<p class="download-popover-status" role="status">
@@ -128,7 +173,7 @@ function retry(): void {
 <AnchoredPopover
 	title={$t('artifacts.document.export.title', { title })}
 	anchorTestId="artifact-download-button"
-	popoverTestId="document-download-popover"
+	popoverTestId={kind === 'app' ? 'app-download-popover' : 'document-download-popover'}
 	closeLabel={$t('artifacts.document.export.close')}
 	width={300}
 	{onClose}

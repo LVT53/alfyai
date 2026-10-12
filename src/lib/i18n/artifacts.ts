@@ -277,6 +277,9 @@ const artifactsDict = {
 		// reuses download.unavailable above, since that is the same case the
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
+		// The App's Download offers its one format in the same popover the Document's
+		// does (`DownloadSheet`), whose title and notices it shares.
+		"artifacts.app.export.html": "HTML file",
 		"artifacts.app.open.cta": "Make an app",
 		// The old Versions sheet is gone (ruling 76: History replaces it); these three
 		// keys outlived it. The two author names are the ones a comment and a margin
@@ -544,6 +547,9 @@ const artifactsDict = {
 		"artifacts.document.export.markdown": "Markdown",
 		"artifacts.document.export.preparing": "Preparing your file…",
 		"artifacts.document.export.failed": "Could not create this file.",
+		// The file was still being made when the wait ran out (the job is stopped).
+		"artifacts.document.export.timeout":
+			"This is taking longer than expected. Try again in a moment.",
 		"artifacts.document.export.tooLarge":
 			"This document is too long to export.",
 		"artifacts.document.export.noConversation":
@@ -1249,6 +1255,7 @@ const artifactsDict = {
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
+		"artifacts.app.export.html": "HTML-fájl",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
@@ -1431,6 +1438,8 @@ const artifactsDict = {
 		"artifacts.document.export.markdown": "Markdown",
 		"artifacts.document.export.preparing": "A fájl előkészítése…",
 		"artifacts.document.export.failed": "Nem sikerült létrehozni ezt a fájlt.",
+		"artifacts.document.export.timeout":
+			"Ez a vártnál tovább tart. Próbáld újra egy kicsit később.",
 		"artifacts.document.export.tooLarge":
 			"Ez a dokumentum túl hosszú az exportáláshoz.",
 		"artifacts.document.export.noConversation":

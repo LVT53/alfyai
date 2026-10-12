@@ -477,7 +477,13 @@ test.describe("the App kind, in the panel", () => {
 			});
 		});
 
+		// The header's Download opens the popover; its one option starts the export
+		// (the full delivery, to the browser's download, is artifact-downloads.spec.ts).
 		await page.getByRole("button", { name: /Download as \.html/ }).click();
+		await page
+			.getByTestId("app-download-popover")
+			.getByRole("button", { name: "HTML file" })
+			.click();
 		await expect.poll(() => requested).toBe(true);
 	});
 
