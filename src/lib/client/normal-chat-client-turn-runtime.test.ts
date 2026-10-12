@@ -2271,6 +2271,114 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	// FB-8's note (FX-1 item 5): a reload during a first turn that FAILS reconnects to
+	// it; the reconnect ends on the server's error, the server kept nothing of the
+	// turn, and the chat showed an empty conversation that said nothing.
+	describe("a reconnected turn that fails", () => {
+		it("puts the reader's message back, says the turn failed and offers Retry when the server kept nothing", async () => {
+			const { adapters, streamInvocations, messages } = makeAdapters({
+				// What the server has: nothing of the failed turn, so the list is emptied.
+				loadPersistedData: vi.fn(async () => {
+					messages.length = 0;
+				}),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[0].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() =>
+				expect(adapters.setSendError).toHaveBeenCalledWith(
+					"The model refused.",
+				),
+			);
+
+			expect(
+				messages.map((message) => [message.role, message.content]),
+			).toEqual([["user", "Resume me"]]);
+			expect(runtime.snapshot()).toMatchObject({
+				canRetry: true,
+				lastUserMessage: "Resume me",
+				active: false,
+				isSending: false,
+			});
+		});
+
+		it("makes Retry send the message again as a new turn", async () => {
+			const { adapters, streamInvocations, messages } = makeAdapters({
+				loadPersistedData: vi.fn(async () => {
+					messages.length = 0;
+				}),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[0].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+			runtime.retry();
+
+			expect(streamInvocations).toHaveLength(2);
+			expect(streamInvocations[1].message).toBe("Resume me");
+			expect(streamInvocations[1].options).toMatchObject({
+				retryOrigin: "error_retry",
+			});
+			expect(streamInvocations[1].options?.reconnectToStreamId).toBeUndefined();
+		});
+
+		it("says it failed after earlier turns too, and does not add a message the server kept", async () => {
+			const kept = (role: "user" | "assistant", content: string) =>
+				({ id: `${role}-kept`, role, content, timestamp: 1 }) as ChatMessage;
+			const { adapters, streamInvocations, messages } = makeAdapters({
+				loadPersistedData: vi.fn(async () => {
+					messages.length = 0;
+					messages.push(kept("user", "Earlier"), kept("assistant", "Answer"));
+				}),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[0].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+			// The earlier turns are there, and the failed turn's message after them.
+			expect(messages.map((message) => message.content)).toEqual([
+				"Earlier",
+				"Answer",
+				"Resume me",
+			]);
+
+			// A server that did keep the message (it ends the persisted list) is not added to.
+			const second = makeAdapters({
+				loadPersistedData: vi.fn(async () => {
+					second.messages.length = 0;
+					second.messages.push(kept("user", "Resume me"));
+				}),
+			});
+			const secondRuntime = createNormalChatClientTurnRuntime(second.adapters);
+			await secondRuntime.reconnectToOrphanedStream("stream-2", "Resume me");
+			second.streamInvocations[0].callbacks.onError(new Error("It failed."));
+			await vi.waitFor(() =>
+				expect(second.adapters.setSendError).toHaveBeenCalledWith("It failed."),
+			);
+			expect(second.messages.map((message) => message.content)).toEqual([
+				"Resume me",
+			]);
+		});
+
+		it("still says it failed when the turn's message is not known (nothing to retry)", async () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.reconnectToOrphanedStream("stream-1", "");
+			streamInvocations[0].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() =>
+				expect(adapters.setSendError).toHaveBeenCalledWith(
+					"The model refused.",
+				),
+			);
+
+			expect(runtime.snapshot().canRetry).toBe(false);
+		});
+	});
+
 	describe("Token Display Buffer", () => {
 		beforeEach(() => {
 			vi.useRealTimers();

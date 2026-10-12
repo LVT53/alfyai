@@ -15,8 +15,9 @@ import { createEmptyConversation, login, sendMessage } from "./helpers";
 // path cleared the stream's buffer (which holds the reconnected listeners) before
 // it emitted the error, so the reconnect subscribed in the window heard nothing.
 //
-// (A reconnected turn that fails shows what the server kept of it, which for a first
-// turn that failed is nothing: the assertion is that the turn ENDS, not what it leaves.)
+// (The server keeps nothing of a turn that failed, so what a reload shows is the
+// reader's own message put back with the error and a Retry, which the last assertions
+// check, and not an empty conversation.)
 //
 // The fake provider refuses every request of the turn after 1.5 s (HTTP 500: the
 // streaming attempt and the non-streaming fallback alike), so the turn is still
@@ -98,6 +99,14 @@ test.describe("A reload while a turn is still failing", () => {
 			});
 			await expect(page.getByTestId("send-button")).toBeVisible();
 			await expect(page.getByText("Drafting response")).toHaveCount(0);
+			// And the chat says the turn failed (FX-1 item 5, FB-8's note): the server
+			// kept nothing of it, so the reader's message is put back where it was,
+			// with the error and a Retry, not an empty conversation that says nothing.
+			await expect(
+				page.getByText(`${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`),
+			).toBeVisible();
+			await expect(page.getByRole("alert")).toBeVisible();
+			await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);
