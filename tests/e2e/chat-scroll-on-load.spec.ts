@@ -14,6 +14,7 @@ import {
 	sendMessage,
 	TEST_EMAIL,
 	waitForHydration,
+	waitForMotionToSettle,
 } from "./helpers";
 
 /**
@@ -352,6 +353,11 @@ test.describe("chat scroll — opening a conversation", () => {
 			} else {
 				await ensureSidebarExpanded(page);
 			}
+			// The drawer slides in (240 ms) and its rows are pressable while it does: a press at
+			// the row's final centre that lands mid-slide hits whatever has reached that point,
+			// which on a busy machine was the row's three-dots button (the release gate's
+			// failure: the options menu open on the target row, and no navigation).
+			await waitForMotionToSettle(page);
 			await page
 				.locator(
 					`[data-testid="conversation-item"][data-conversation-id="${secondId}"]`,
