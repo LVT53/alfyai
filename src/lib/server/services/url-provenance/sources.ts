@@ -90,7 +90,7 @@ export function noteMessageSources(
 ): void {
 	noteSegments(
 		userId,
-		messages.flatMap((message) => message.thinkingSegments ?? []),
+		(messages ?? []).flatMap((message) => message?.thinkingSegments ?? []),
 	);
 }
 
@@ -135,8 +135,8 @@ export function noteAtlasJobSources(
 	userId: string,
 	jobs: ReadonlyArray<{ progress?: { details?: unknown } | null }>,
 ): void {
-	for (const job of jobs) {
-		noteAtlasProgressSources(userId, job.progress?.details);
+	for (const job of jobs ?? []) {
+		noteAtlasProgressSources(userId, job?.progress?.details);
 	}
 }
 

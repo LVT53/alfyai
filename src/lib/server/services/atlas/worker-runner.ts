@@ -3,6 +3,7 @@ import type { ModelId } from "$lib/model-types";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
 import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
+import { noteAtlasProgressSources } from "$lib/server/services/url-provenance";
 import { AtlasV3PipelineError } from "../atlas-v3/types";
 import { runAtlasV3PipelineForClaimedJob } from "../atlas-v3/worker-bindings";
 import { buildAtlasLifecycleContext } from "./checkpoints";
@@ -182,6 +183,11 @@ async function executeAtlasV3Job(input: {
 			if (!alive) {
 				throw new Error("Atlas job is no longer running.");
 			}
+			// The card draws each web source's icon through the favicon proxy, which
+			// answers only for a host a tool returned to this user: the sources this
+			// report carries are results of the run's own searches, so they are noted
+			// as the report is stored (docs/plans/exfil-channels).
+			noteAtlasProgressSources(claimed.userId, progressDetails);
 		},
 		applyGeneratedTitle: async ({ jobId, title }) => {
 			const updated = await applyAtlasGeneratedTitle({

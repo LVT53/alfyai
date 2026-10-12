@@ -34,6 +34,9 @@ vi.mock("$lib/server/services/normal-chat-tools/research-web-tool", () => ({
 	createResearchWebTool: (...args: unknown[]) => createResearchWebTool(...args),
 }));
 
+const { hasSourceHost, resetUrlProvenanceForTests } = await import(
+	"$lib/server/services/url-provenance"
+);
 const { createArtifact } = await import("./index");
 const { refreshCanvasLiveWeb, searchCanvasLiveWeb } = await import(
 	"./canvas-web"
@@ -146,6 +149,7 @@ beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 	vi.setSystemTime(NOW);
 	resetWebReadLimitForTests();
+	resetUrlProvenanceForTests();
 	executeResearch.mockReset();
 	executeResearch.mockResolvedValue(researchAnswer());
 	createResearchWebTool.mockReset();
@@ -391,6 +395,47 @@ describe("what comes back, and what a board may keep of it", () => {
 			"https://fresh8.example.com/page",
 		]);
 		for (const url of urls) expect(url).toMatch(/^https?:\/\//);
+	});
+
+	// The block shows each source's icon through the favicon proxy, which answers
+	// only for a host a tool returned to this user (docs/plans/exfil-channels). The
+	// search's answer is such a result, so the hosts of what a block KEEPS are noted
+	// for the reader before the snapshot goes back to the editor.
+	it("notes the host of every source it keeps for the reader, and only those", async () => {
+		executeResearch.mockResolvedValue(
+			researchAnswer([
+				source(1),
+				source(2, { url: "javascript:alert(1)" }),
+				source(3, { url: "https://www.Third.example.org/x" }),
+				source(4, { url: "//evil.example/x" }),
+			]),
+		);
+		const id = await boardWith();
+
+		await refresh(id);
+
+		expect(hasSourceHost(OWNER, "fresh1.example.com")).toBe(true);
+		expect(hasSourceHost(OWNER, "third.example.org")).toBe(true);
+		expect(hasSourceHost(OWNER, "evil.example")).toBe(false);
+		expect(hasSourceHost(OTHER_USER, "fresh1.example.com")).toBe(false);
+	});
+
+	it("notes the hosts of a new search from the Insert menu too", async () => {
+		const id = await boardWith();
+
+		await search(id, "new topic");
+
+		expect(hasSourceHost(OWNER, "fresh2.example.com")).toBe(true);
+	});
+
+	it("notes nothing when the search failed or found nothing usable", async () => {
+		const id = await boardWith();
+		executeResearch.mockResolvedValue(researchAnswer([]));
+		await refresh(id);
+		executeResearch.mockRejectedValue(new Error("provider down"));
+		await refresh(id);
+
+		expect(hasSourceHost(OWNER, "fresh1.example.com")).toBe(false);
 	});
 
 	it("takes nothing but the fields a block keeps from each source", async () => {

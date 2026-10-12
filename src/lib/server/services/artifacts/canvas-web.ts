@@ -17,7 +17,10 @@
 // - WHAT COMES BACK: only what a board may keep, built field by field from each
 //   source and checked against the block's own shared schema. A link that is not a
 //   web address is left out; a search that leaves nothing is `no_results` and
-//   never blanks a snapshot.
+//   never blanks a snapshot. The hosts of what is kept are noted for the reader
+//   (`url-provenance`'s source ledger) before the snapshot goes back: the block
+//   shows each source's icon through the favicon proxy, which answers only for a
+//   host a tool returned to this user.
 // - HOW MUCH: a few a minute and a couple at once per reader (`canvas-web-limit.ts`),
 //   each within a deadline, and stopped when the caller goes away.
 // - WHAT IT WRITES: nothing. The snapshot goes back to the editor, and the board's
@@ -28,6 +31,7 @@
 import { randomUUID } from "node:crypto";
 import { createResearchWebTool } from "$lib/server/services/normal-chat-tools/research-web-tool";
 import type { ToolCallRecorder } from "$lib/server/services/normal-chat-tools/shared";
+import { noteSourceUrls } from "$lib/server/services/url-provenance";
 import { isHttpSourceUrl } from "$lib/shared/artifacts/block-urls";
 import {
 	BLOCK_DATA_SCHEMAS,
@@ -245,7 +249,14 @@ async function readWeb(params: {
 			),
 			ended,
 		]);
-		return snapshotFrom(answer, params.query);
+		const snapshot = snapshotFrom(answer, params.query);
+		if (snapshot.ok) {
+			noteSourceUrls(
+				params.userId,
+				snapshot.data.sources.map((kept) => kept.url),
+			);
+		}
+		return snapshot;
 	} catch {
 		// Not the message: it can carry the provider's words, a key, the query.
 		return fail("refresh_failed");

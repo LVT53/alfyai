@@ -251,6 +251,103 @@ describe("Atlas worker runner", () => {
 		expect(mocks.failAtlasJob).not.toHaveBeenCalled();
 	});
 
+	// The Atlas card shows each web source's icon through the favicon proxy, which
+	// answers only for a host a tool returned to this user (docs/plans/exfil-channels).
+	// The pipeline reports the sources it has read as it goes, so the worker notes
+	// their hosts for the job's user as each report is stored: the card never asks
+	// for an icon the ledger cannot vouch for.
+	it("notes the web sources each progress report carries for the job's user, and no library document", async () => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		mocks.runAtlasV3PipelineForClaimedJob.mockImplementationOnce(
+			async (input: {
+				heartbeat: (progress: {
+					stage: string;
+					progressPercent: number;
+					progressDetails: unknown;
+				}) => Promise<void>;
+			}) => {
+				await input.heartbeat({
+					stage: "research",
+					progressPercent: 40,
+					progressDetails: {
+						pipelineVersion: 3,
+						evidence: {
+							sources: [
+								{ n: 1, title: "A", host: "atlas-source.example", kind: "web" },
+								{ n: 2, title: "B", host: "", kind: "local" },
+							],
+						},
+					},
+				});
+				return v3PipelineResult();
+			},
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
+		const { hasSourceHost } = await import(
+			"$lib/server/services/url-provenance"
+		);
+
+		await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
+		});
+
+		expect(hasSourceHost("user-1", "atlas-source.example")).toBe(true);
+		expect(hasSourceHost("user-2", "atlas-source.example")).toBe(false);
+	});
+
+	it("notes nothing from a progress report for a job that is no longer running", async () => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		mocks.heartbeatAtlasJob.mockResolvedValueOnce(false);
+		mocks.runAtlasV3PipelineForClaimedJob.mockImplementationOnce(
+			async (input: {
+				heartbeat: (progress: {
+					stage: string;
+					progressPercent: number;
+					progressDetails: unknown;
+				}) => Promise<void>;
+			}) => {
+				await input.heartbeat({
+					stage: "research",
+					progressPercent: 40,
+					progressDetails: {
+						evidence: {
+							sources: [{ host: "stale-job.example", kind: "web" }],
+						},
+					},
+				});
+				return v3PipelineResult();
+			},
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
+		const { hasSourceHost } = await import(
+			"$lib/server/services/url-provenance"
+		);
+
+		await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
+		});
+
+		expect(hasSourceHost("user-1", "stale-job.example")).toBe(false);
+	});
+
 	it("passes null kickoffUserMessageId through when the query cannot be traced to a user message", async () => {
 		mocks.claimNextAtlasJob.mockResolvedValueOnce({
 			job: atlasJob(),

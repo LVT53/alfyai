@@ -40,6 +40,10 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
+import {
+	noteAtlasJobSources,
+	noteMessageSources,
+} from "$lib/server/services/url-provenance";
 import { markRegenerable } from "$lib/shared/artifacts/artifact-calls";
 
 // O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
@@ -224,6 +228,13 @@ export async function getConversationDetail({
 		userId,
 		messageWindow.messages,
 	);
+	// The page asks for the icon and the picture of what a tool returned, and the
+	// server answers only for what the user's source ledger holds
+	// (docs/plans/exfil-channels). The ledger is in memory and empty after a
+	// restart, so what these messages' tool calls and these Atlas cards returned
+	// is noted before the payload that names it leaves.
+	noteMessageSources(userId, messageWindow.messages);
+	noteAtlasJobSources(userId, atlasJobs);
 	return {
 		conversation,
 		messages: messagesWithSourceForks,
@@ -300,6 +311,8 @@ export async function getOlderConversationMessages({
 		conversationId,
 		page.messages,
 	);
+	// An older page's tool calls are shown the same way as the first window's.
+	noteMessageSources(userId, page.messages);
 	return {
 		messages: messagesWithSourceForks,
 		hasMoreBefore: page.hasMoreBefore,
