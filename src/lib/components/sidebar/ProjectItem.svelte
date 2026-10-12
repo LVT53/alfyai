@@ -336,7 +336,7 @@ function startChatInProject(e: MouseEvent) {
 		>
 			<button
 				role="menuitem"
-				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				class="project-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				aria-label={$t('sidebar.createChatInProject', { name: project.name })}
 				onclick={startChatInProject}
 			>
@@ -347,7 +347,7 @@ function startChatInProject(e: MouseEvent) {
 			</button>
 			<button
 				role="menuitem"
-				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				class="project-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={startRename}
 			>
 			<span class="project-option-icon">
@@ -357,7 +357,7 @@ function startChatInProject(e: MouseEvent) {
 			</button>
 			<button
 				role="menuitem"
-				class="project-option project-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				class="project-option project-option-danger flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={handleDelete}
 			>
 			<span class="project-option-icon project-option-icon-danger">

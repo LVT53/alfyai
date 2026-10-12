@@ -27,7 +27,12 @@
  * height that grows and shrinks (a short transition, instant under
  * prefers-reduced-motion), so what is below it moves with that instead of
  * jumping a whole card's height in one frame. The panel asks; the admin's
- * preview, which is a picture, does not.
+ * preview, which is a picture, does not. Two things the card decides for itself:
+ * it enters that way only when the host says its answer was late (`entrance`: a
+ * card that was in hand when the item opened is in the page from the item's first
+ * frame, with nothing to reveal), and it leaves that way only when the reader
+ * leaves (Skip, "Got it", Escape): a card that goes because its item did goes at
+ * once, with the item.
  */
 import { onMount, tick, untrack } from "svelte";
 import type { Component } from "svelte";
@@ -54,6 +59,7 @@ let {
 	startSlide = 0,
 	replay = false,
 	animate = false,
+	entrance = "reveal",
 	onSeen,
 	onDismiss,
 	onClose = undefined,
@@ -65,6 +71,8 @@ let {
 	replay?: boolean;
 	/** Enter and leave as a height that grows and shrinks (the host asks for it; see the header). */
 	animate?: boolean;
+	/** `none`: the card was in hand when its item opened, so it is there from the first frame and does not grow in. */
+	entrance?: "reveal" | "none";
 	/** The reader finished the tour; `lastSlide` is the index of its last slide. */
 	onSeen: (lastSlide: number) => void;
 	/** The reader left before the end; `slide` is the index they were on. */
@@ -108,6 +116,8 @@ let announcement = $state("");
  * the chat shell nothing: only this lazy chunk imports it.
  */
 const reveal = reducedMotionAware(slideHeight);
+/** How long the card takes to go: the height shrinks only when the reader leaves (a plain `let`, read when the exit starts); a card that goes because its item did goes at once, with it. */
+const leaveDuration = () => (animate && ended ? MOTION_DURATION.emphasis : 0);
 /** Cubic, in and out. Not `svelte/easing`'s own: that module is in the chat shell, and the one function would ride into every chat's first load. */
 const easeInOut = (t: number) =>
 	t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
@@ -193,12 +203,8 @@ function isTextEntry(element: Element | null): boolean {
 }
 
 onMount(() => {
-	const before = document.activeElement;
-	// A card that arrives while the reader is already typing must not take their caret.
-	const taking = !isTextEntry(before);
-	const returnTo =
-		before instanceof HTMLElement && before !== document.body ? before : null;
-	if (taking) region?.focus({ preventScroll: true });
+	let taking = false;
+	let returnTo: HTMLElement | null = null;
 	let returned = false;
 	giveFocusBack = () => {
 		if (returned) return;
@@ -213,7 +219,25 @@ onMount(() => {
 			returnTo.focus({ preventScroll: true });
 		}
 	};
-	return () => giveFocusBack();
+	// A task later, not in this flush: a card that is in the page with its item
+	// (the answer was in hand) mounts in the same flush that opens the item, before
+	// the panel has moved focus to the item's title, and the title would take it
+	// back. Looking at where focus is, and keeping the way back to it, waits for the
+	// panel to have landed it.
+	const timer = setTimeout(() => {
+		const before = document.activeElement;
+		// Already inside the card (the reader got there first): theirs, and nothing to give back.
+		if (before && region?.contains(before)) return;
+		// A card that arrives while the reader is already typing must not take their caret.
+		taking = !isTextEntry(before);
+		returnTo =
+			before instanceof HTMLElement && before !== document.body ? before : null;
+		if (taking) region?.focus({ preventScroll: true });
+	}, 0);
+	return () => {
+		clearTimeout(timer);
+		giveFocusBack();
+	};
 });
 </script>
 
@@ -223,10 +247,11 @@ onMount(() => {
 	     removes the card, not this element's own block, and the exit must still play. -->
 	<div
 		class="tour-reveal"
-		transition:reveal|global={{
-			duration: animate ? MOTION_DURATION.emphasis : 0,
+		in:reveal|global={{
+			duration: animate && entrance === 'reveal' ? MOTION_DURATION.emphasis : 0,
 			easing: easeInOut,
 		}}
+		out:reveal|global={{ duration: leaveDuration(), easing: easeInOut }}
 	>
 		<section
 			bind:this={region}

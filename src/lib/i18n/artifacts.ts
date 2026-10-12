@@ -399,8 +399,11 @@ const artifactsDict = {
 		"artifacts.document.review.undoShort": "Undo",
 		// The quiet "Alfy is at work" strip above the text: from Alfy's first look at the
 		// open Document in a turn until its change has landed (Slice 1, T8; FB-6, F6,
-		// ruling 77: the board's "arranging" strings are its model).
-		"artifacts.document.working": "Alfy is working on the document…",
+		// ruling 77: the board's "arranging" strings are its model). Until the edit call
+		// says what it is doing the line stands for a read as much as for an edit (a turn
+		// that only reads shows it too), so it says Alfy is going through the document,
+		// not that it is changing it (FX-2, the owner's call on F6).
+		"artifacts.document.working": "Alfy is going through the document…",
 		"artifacts.document.workingSummary":
 			"Alfy is working on the document: {summary}",
 		// Tabs (Slice 1, T9).
@@ -1359,8 +1362,11 @@ const artifactsDict = {
 		"artifacts.document.review.undoShort": "Visszavonom",
 		// A szöveg fölötti halk „Alfy dolgozik” sáv: attól, hogy Alfy először ránéz a
 		// megnyitott dokumentumra egy körben, addig, amíg a módosítása meg nem érkezett
-		// (FB-6, F6, 77. döntés: a tábla „dolgozik a táblán” szövegei a mintája).
-		"artifacts.document.working": "Alfy dolgozik a dokumentumon…",
+		// (FB-6, F6, 77. döntés: a tábla „dolgozik a táblán” szövegei a mintája). Amíg a
+		// módosító hívás nem mondja meg, mit csinál, a sor olvasásra is igaz, nem csak
+		// szerkesztésre (csak olvasó kör is ezt mutatja), ezért átnézésről szól, nem
+		// munkáról (FX-2, a tulajdonos döntése az F6-ról).
+		"artifacts.document.working": "Alfy átnézi a dokumentumot…",
 		"artifacts.document.workingSummary":
 			"Alfy dolgozik a dokumentumon: {summary}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay

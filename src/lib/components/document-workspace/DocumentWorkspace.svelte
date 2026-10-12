@@ -23,6 +23,7 @@ import {
 	getArtifactTour,
 	keepArtifactToursFor,
 	markArtifactTourSeen,
+	peekArtifactTour,
 	refreshArtifactTour,
 } from "$lib/client/api/artifact-tours";
 import { ApiError } from "$lib/client/api/http";
@@ -40,6 +41,11 @@ import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
+import {
+	type ArtifactTourCard,
+	loadedTourCard,
+	loadTourCard,
+} from "$lib/components/artifacts/tour/tour-card";
 import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
 import {
 	fileFacts,
@@ -121,6 +127,8 @@ let {
 	onCloseWorkspace,
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
+	historyWanted = undefined,
+	onHistoryOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
 	onDeleteArtifact = undefined,
 	onFlushReady = undefined,
@@ -169,6 +177,16 @@ let {
 		| ((presentation: "docked" | "expanded") => void)
 		| undefined;
 	onListOpenChange?: ((open: boolean) => void) | undefined;
+	/**
+	 * The host's wish for History, the open item's mode (ruling 76): `true` opens it
+	 * over the open item and `false` leaves it, which is how the browser's Back and
+	 * Forward move through it when History is a layer of the host's history entries
+	 * (FX-2). Absent (the Knowledge page, a project's files): the panel is the only
+	 * one to say.
+	 */
+	historyWanted?: boolean | undefined;
+	/** History opened or closed, whoever did it (a press, Done, Escape, another item, the panel closing): the host keeps its entries in step. */
+	onHistoryOpenChange?: ((open: boolean) => void) | undefined;
 	/**
 	 * Wave 2.5 review (F1): bubbles the open Document body's own live
 	 * `onPendingReviewCountChange` report (see `ArtifactBodyProps`'s doc
@@ -527,6 +545,36 @@ $effect(() => {
 	});
 });
 
+// History is a mode of the open item: it goes when the panel stops showing that item
+// (the panel closes, the list shows), so a closed panel never comes back in History.
+$effect(() => {
+	if (shouldShowWorkspaceShell && !list?.open) return;
+	untrack(() => closeHistory({ restoreFocus: false }));
+});
+
+// The host's wish (the browser's Back and Forward move through History as a layer of
+// its history entries) and what actually happened. Neither loops: a wish that the
+// panel already is in does nothing, and a report of what the host already knows is
+// the same value again.
+$effect(() => {
+	const wanted = historyWanted;
+	if (wanted === undefined) return;
+	untrack(() => {
+		if (wanted && !historyOpen) {
+			// Not every item has a History, and the open can fail: say so, so the wish is dropped.
+			void openHistory().then(() => {
+				if (!historyOpen) onHistoryOpenChange?.(false);
+			});
+		} else if (!wanted && historyOpen) {
+			closeHistory();
+		}
+	});
+});
+$effect(() => {
+	const open = historyOpen;
+	untrack(() => onHistoryOpenChange?.(open));
+});
+
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
@@ -800,19 +848,27 @@ let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
 // ---- First-open tours (Feature 2 · Slice 6; rulings 4, 32, 33, 69) ----
 //
 // The first time a user opens a Document, App or Canvas the panel shows a
-// three-slide card about that kind, above the item. Which kinds have a tour is
-// the shared list (`isShippedArtifactTourType`: File and Slides never ask), and
-// an incognito chat asks for none: no request at all, the seen state being a
-// write. The card and its illustrations are one lazy chunk, imported only once a
-// tour is about to show, so the chat shell never carries them.
+// three-slide card about that kind, above the item, in the panel's flow: it
+// makes room for itself and covers nothing (ruling 77, FX-2). Which kinds have a
+// tour is the shared list (`isShippedArtifactTourType`: File and Slides never
+// ask), and an incognito chat asks for none: no request at all, the seen state
+// being a write. The card and its illustrations are one lazy chunk
+// (`tour/tour-card.ts`), imported only once a tour is about to show, so the chat
+// shell never carries them.
+//
+// WHEN the card arrives is what keeps it from moving the item. The answer and the
+// card are asked for as soon as the chat has an item of a kind (`warmTours`), so
+// they are in hand before the reader reaches for the item, and the card is decided
+// in the flush that opens it (`$effect.pre`, before the body mounts): it is in the
+// page in the item's first frame and nothing moves. An answer that is late (the
+// first ask is still on the wire, a replay, a copy that changed under the reader)
+// arrives with the card's own short height transition instead.
 //
 // What the reader did is written when they finish ("Got it") or Skip, never when
 // the card renders: closing the panel mid-tour writes nothing and the card is
 // met again. A replay (the list row menu, a body's empty-state link) shows the
 // same card and records nothing.
 
-type ArtifactTourCard =
-	typeof import("$lib/components/artifacts/tour/ArtifactTour.svelte").default;
 type TourView = {
 	/** The open item the card is about (`activeBodyKey`): a card never outlives its item. */
 	itemKey: string;
@@ -820,6 +876,8 @@ type TourView = {
 	tour: ResolvedArtifactTour;
 	replay: boolean;
 	Card: ArtifactTourCard;
+	/** `none`: the answer and the card were in hand when the item opened, so the card is there from its first frame. `reveal`: a late answer, which grows in as a height. */
+	entrance: "none" | "reveal";
 };
 
 /** The tour a kind of item has, or null: not a kind that ships one, or an incognito chat. */
@@ -855,19 +913,61 @@ let bodyTourSummary = $derived(
 /** The item whose tour the list's menu asked to replay: read once, when that item becomes the open one. */
 let pendingTourReplayKey: string | null = null;
 
-async function presentTour(
+/**
+ * Decides the open item's card. When this page load already has the kind's answer
+ * and the card is in hand, it is decided right here, synchronously, and the card
+ * is in the page with the item; otherwise it waits for the answer (a promise
+ * returned) and the card grows in when it comes.
+ */
+function presentTour(
+	kind: ShippedArtifactTourType,
+	itemKey: string,
+	replay: boolean,
+	isStale: () => boolean,
+): Promise<void> | undefined {
+	// The page can change hands without being reloaded (login and logout are
+	// client-side navigations): the answers it holds are this reader's.
+	keepArtifactToursFor(currentUser?.id);
+	try {
+		// A replay asks again (it shows the copy as it is now).
+		const known = replay ? undefined : peekArtifactTour(kind);
+		if (known) {
+			// A tour with no slides is nothing to show.
+			const owed = known.tour.slides.length > 0 && !known.seen;
+			const Card = owed ? loadedTourCard() : null;
+			if (!owed || Card) {
+				tourSummary = { itemKey, summary: known.tour.summary };
+				if (owed && Card) {
+					tourView = {
+						itemKey,
+						kind,
+						tour: known.tour,
+						replay: false,
+						Card,
+						entrance: "none",
+					};
+				}
+				return undefined;
+			}
+		}
+	} catch (error) {
+		// The tour is decoration, and this runs in an effect: an answer that is not
+		// what the route sends must not break the panel.
+		console.warn("[ARTIFACT_TOUR] The introduction could not be shown.", error);
+		return undefined;
+	}
+	return presentTourWhenAnswered(kind, itemKey, replay, isStale);
+}
+
+async function presentTourWhenAnswered(
 	kind: ShippedArtifactTourType,
 	itemKey: string,
 	replay: boolean,
 	isStale: () => boolean,
 ): Promise<void> {
 	try {
-		// The page can change hands without being reloaded (login and logout are
-		// client-side navigations): the answers it holds are this reader's.
-		keepArtifactToursFor(currentUser?.id);
-		// A replay asks again (it shows the copy as it is now); an open takes the
-		// answer this page load already has, which is why a second item of a kind
-		// costs no request and shows its line from the first frame.
+		// An open takes the answer this page load already has (or is waiting for),
+		// which is why a second item of a kind costs no request.
 		const answer = await (replay
 			? refreshArtifactTour(kind)
 			: getArtifactTour(kind));
@@ -876,18 +976,26 @@ async function presentTour(
 		// A tour with no slides is nothing to show.
 		if (answer.tour.slides.length === 0) return;
 		if (answer.seen && !replay) return;
-		const { default: Card } = await import(
-			"$lib/components/artifacts/tour/ArtifactTour.svelte"
-		);
+		const Card = await loadTourCard();
 		if (isStale()) return;
-		tourView = { itemKey, kind, tour: answer.tour, replay, Card };
+		tourView = {
+			itemKey,
+			kind,
+			tour: answer.tour,
+			replay,
+			Card,
+			entrance: "reveal",
+		};
 	} catch (error) {
 		// The tour is decoration: its absence must not read as breakage.
 		console.warn("[ARTIFACT_TOUR] The introduction could not be shown.", error);
 	}
 }
 
-$effect(() => {
+// Before the DOM is updated, so that the item's body mounts under a card that is
+// already in the page: a body that measured its pane first and was narrowed by a
+// card a moment later is the move this exists to prevent.
+$effect.pre(() => {
 	const kind = tourItemKind;
 	const key = tourItemKey;
 	if (kind === null || key === null) return;
@@ -900,6 +1008,43 @@ $effect(() => {
 		tourView = null;
 		tourSummary = null;
 	};
+});
+
+/** The kinds of the chat's items that have a tour, as one stable string: the effect below runs when the set changes, not whenever the list's object is rebuilt. */
+let tourKindsInChat = $derived.by(() => {
+	if (incognito) return "";
+	const kinds = new Set<ShippedArtifactTourType>();
+	for (const item of list?.items ?? []) {
+		const kind = tourKindOf(item.kind);
+		if (kind) kinds.add(kind);
+	}
+	return [...kinds].sort().join(",");
+});
+
+/**
+ * Asks for the tour of every kind the chat has an item of, and brings the card in
+ * if the reader owes one, so both are in hand when an item opens (see the header).
+ * The cache shares the ask with the open that follows, so nothing is asked twice;
+ * a failure is left to the open's own ask.
+ */
+async function warmTours(kinds: ShippedArtifactTourType[]): Promise<void> {
+	keepArtifactToursFor(currentUser?.id);
+	await Promise.all(
+		kinds.map(async (kind) => {
+			try {
+				const answer = await getArtifactTour(kind);
+				if (answer.tour.slides.length > 0 && !answer.seen) await loadTourCard();
+			} catch {
+				// Asked again, and reported, when an item of the kind opens.
+			}
+		}),
+	);
+}
+
+$effect(() => {
+	const kinds = tourKindsInChat;
+	if (kinds === "") return;
+	untrack(() => void warmTours(kinds.split(",") as ShippedArtifactTourType[]));
 });
 
 /** Writes what the reader did, and reads a 409 (the copy was replaced while they read) as "show the new one from its first slide". */
@@ -2276,13 +2421,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	<!-- The first-open tour: a card laid over the top of the item, not in the flow above it. It is
-	     decided a moment after the item has painted (the answer is a request, the card a lazy chunk),
-	     and a card in the flow moved what the reader had just seen by its own height, re-flowed the
-	     Document and re-fitted the board; a card over the item moves nothing (FB-3, F15). -->
+	<!-- The first-open tour: a card in the panel's flow, above the item, so the item starts under it
+	     and nothing of the item is covered (ruling 77, FX-2; FB-3 had laid it over the item, which
+	     moved nothing and hid the Document's toolbar and first lines, the App's status row and the
+	     board's top). Its room is made before the body paints whenever the answer is in hand,
+	     which `warmTours` and `presentTour` see to; a late answer grows in as a height. -->
 	{#snippet tourCard()}
 		{#if tourView && tourView.itemKey === activeBodyKey}
-			<div class="workspace-tour-layer" class:workspace-body-covered={historyOpen} inert={historyOpen}>
+			<div class="workspace-tour-slot" class:workspace-body-covered={historyOpen} inert={historyOpen}>
 				<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
 				     left, and an {#if} that turns true again in that time brings the SAME card back, with its
 				     finished state and its slide. A presentation wanted while one is leaving (the copy changed
@@ -2293,6 +2439,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						tour={tourView.tour}
 						replay={tourView.replay}
 						animate
+						entrance={tourView.entrance}
 						onSeen={handleTourSeen}
 						onDismiss={handleTourDismiss}
 						onClose={handleTourClose}
@@ -3473,19 +3620,12 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		visibility: hidden;
 	}
 
-	/* The first-open tour card is laid over the top of the item: nothing under it
-	   is moved, resized or re-fitted by its coming or going (FB-3, F15). The layer
-	   is as tall as the card and no taller, so the rest of the item stays reachable. */
-	.workspace-tour-layer {
-		position: absolute;
-		top: 0;
-		right: 0;
-		left: 0;
-		z-index: 6;
-	}
-
-	.workspace-tour-layer :global(.artifact-tour) {
-		box-shadow: var(--shadow-md);
+	/* The first-open tour card is a row of the stage's own column, ahead of the body:
+	   the item starts under it, so the card covers nothing, and it is there from the
+	   item's first frame whenever its answer was in hand (FX-2, ruling 77). */
+	.workspace-tour-slot {
+		flex: 0 0 auto;
+		min-width: 0;
 	}
 
 	.workspace-history-slot {

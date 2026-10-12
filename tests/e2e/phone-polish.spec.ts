@@ -10,7 +10,12 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
+import {
+	createTourUser,
+	markToursSeen,
+	seedItem,
+	startChatAs,
+} from "./artifact-tours-helpers";
 import {
 	createEmptyConversation,
 	ensureSidebarExpanded,
@@ -32,6 +37,24 @@ async function boxOf(locator: Locator): Promise<Box> {
 	const box = await locator.boundingBox();
 	if (!box) throw new Error("no bounding box");
 	return box;
+}
+
+/** What each row of a menu says: its words, how many lines they take, and how tall the row is. */
+async function menuRows(rows: Locator) {
+	return rows.evaluateAll((els) =>
+		els.map((el) => {
+			const label = [...el.querySelectorAll("span")].find(
+				(span) => (span.textContent ?? "").trim() !== "",
+			);
+			const range = document.createRange();
+			if (label) range.selectNodeContents(label);
+			return {
+				text: label?.textContent?.trim() ?? "",
+				lines: label ? range.getClientRects().length : 0,
+				height: el.getBoundingClientRect().height,
+			};
+		}),
+	);
 }
 
 function overlap(a: Box, b: Box): boolean {
@@ -385,6 +408,101 @@ for (const [width, height, pendingOps] of [
 }
 
 /**
+ * A status chip's finger area (44 px, pulled back into its 26 px pill by negative
+ * margins) reached 9 px under the pill, onto the change pill's buttons that sit
+ * right under a changed line: 6 px of two targets that answer for the same pixels
+ * (FB-9's note, FX-2). Each target keeps its own pixels.
+ */
+for (const width of [390, 360] as const) {
+	test.describe(`a status chip and the change pill under it at ${width} px (Hungarian, touch)`, () => {
+		test.use({
+			viewport: { width, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+		test.beforeEach(async ({ page }) => {
+			await setUiLanguage("hu");
+			await login(page);
+		});
+		test.afterEach(async () => {
+			await setUiLanguage("en");
+		});
+
+		test("the chip's finger area does not overlap the pill's buttons", async ({
+			page,
+		}) => {
+			const conversationId = await createEmptyConversation(page, "Chip");
+			await seedDocument(conversationId, {
+				markdown: PROSE_MARKDOWN,
+				title: "Bécsi utazás",
+				// The second block is the line with two status chips; its pill sits under it.
+				pendingOps: 2,
+			});
+			const shell = await openDocument(page, conversationId);
+			await expect(
+				shell.locator(".alfy-change-bar-action").first(),
+			).toBeVisible({ timeout: 30_000 });
+			await waitForMotionToSettle(page);
+
+			const chips = await shell
+				.locator(".tracker-chip-select")
+				.evaluateAll((els) =>
+					els.map((el) => {
+						const r = el.getBoundingClientRect();
+						return { x: r.x, y: r.y, width: r.width, height: r.height };
+					}),
+				);
+			const actions = await shell
+				.locator(".alfy-change-bar-action")
+				.evaluateAll((els) =>
+					els.map((el) => {
+						const r = el.getBoundingClientRect();
+						return { x: r.x, y: r.y, width: r.width, height: r.height };
+					}),
+				);
+			expect(chips.length, "the chips are on screen").toBeGreaterThanOrEqual(2);
+			expect(
+				actions.length,
+				"the pill's buttons are on screen",
+			).toBeGreaterThan(0);
+			const overlaps: string[] = [];
+			chips.forEach((chip, i) => {
+				actions.forEach((action, j) => {
+					if (overlap(chip, action)) {
+						overlaps.push(
+							`chip ${i} (${chip.y.toFixed(1)}-${(chip.y + chip.height).toFixed(1)}) over button ${j} (${action.y.toFixed(1)}-${(action.y + action.height).toFixed(1)})`,
+						);
+					}
+				});
+			});
+			expect(overlaps, "no chip area reaches a pill button").toEqual([]);
+			// The chips are still finger-sized where nothing sits under them.
+			for (const chip of chips) {
+				expect(chip.height).toBeGreaterThanOrEqual(35);
+				expect(chip.width).toBeGreaterThanOrEqual(43.5);
+			}
+
+			// Real input: a tap on the lower edge of the chip's own pill is the chip's,
+			// not the invisible finger area of the pill's button right under it.
+			const firstChip = shell.locator(".tracker-chip-select").first();
+			const pillBox = await boxOf(firstChip.locator(".."));
+			const actionsBefore = await shell
+				.locator(".alfy-change-bar-action")
+				.count();
+			await page.touchscreen.tap(
+				pillBox.x + pillBox.width / 2,
+				pillBox.y + pillBox.height - 3,
+			);
+			await expect(firstChip, "the tap reached the chip").toBeFocused();
+			await expect(
+				shell.locator(".alfy-change-bar-action"),
+				"and the pill's buttons did not take it",
+			).toHaveCount(actionsBefore);
+		});
+	});
+}
+
+/**
  * The panel's list used to say it twice: the eyebrow "Ez a beszélgetés" over
  * the title "Amit ez a beszélgetés készített" (ruling 77's amendment: one of
  * them goes). The title stays.
@@ -478,21 +596,17 @@ for (const width of [360, 390] as const) {
 				.first()
 				.getByRole("button", { name: "Beszélgetés beállításai" });
 
+			/** Every row of the open menu says its words on one line and is a finger's height (FX-2: 44 px, as every other phone control). */
 			async function everyRowOneLine(state: string) {
 				await dots.tap();
 				const rows = page.locator(".conversation-option");
 				await expect(rows.first()).toBeVisible();
-				const heights = await rows.evaluateAll((els) =>
-					els.map((el) => ({
-						text: (el as HTMLElement).innerText.trim(),
-						height: el.getBoundingClientRect().height,
-					})),
-				);
-				for (const row of heights) {
+				for (const row of await menuRows(rows)) {
+					expect(row.lines, `${state}: "${row.text}" on one line`).toBe(1);
 					expect(
 						row.height,
-						`${state}: "${row.text}" on one line`,
-					).toBeLessThan(36);
+						`${state}: "${row.text}" is a finger's size`,
+					).toBeGreaterThanOrEqual(43.5);
 				}
 			}
 
@@ -503,6 +617,70 @@ for (const width of [360, 390] as const) {
 				.tap();
 			await expect(page.locator(".conversation-option")).toHaveCount(0);
 			await everyRowOneLine("pinned");
+		});
+
+		test("the rows of the move-to-project submenu and of the project's own menu are a finger's height too", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const project = await createProject(user.id, "Bécsi utazás");
+			await createProject(user.id, "Második projekt");
+			const chat = await seedChat(
+				user.id,
+				"Vonatok Budapestről Bécsbe",
+				project.id,
+				0,
+			);
+			await login(page, user.email, user.password);
+			await page.goto(`/chat/${chat}`, { waitUntil: "networkidle" });
+			await openPhoneSidebar(page);
+			const sidebar = page.locator("aside.sidebar-panel");
+			await sidebar.getByText("Bécsi utazás").first().tap();
+			await waitForMotionToSettle(page);
+
+			// The chat's menu, and the submenu its "Áthelyezés projektbe" opens.
+			await sidebar
+				.getByTestId("conversation-item")
+				.first()
+				.getByRole("button", { name: "Beszélgetés beállításai" })
+				.tap();
+			await page
+				.locator(".conversation-option")
+				.filter({ hasText: "Áthelyezés projektbe" })
+				.tap();
+			await expect(page.locator(".conversation-menu")).toHaveCount(2);
+			const submenu = page
+				.locator(".conversation-menu")
+				.last()
+				.locator(".conversation-option");
+			const submenuRows = await menuRows(submenu);
+			expect(submenuRows.length).toBeGreaterThanOrEqual(2);
+			for (const row of submenuRows) {
+				expect(
+					row.height,
+					`the submenu's "${row.text}" is a finger's size`,
+				).toBeGreaterThanOrEqual(43.5);
+			}
+			await page.keyboard.press("Escape");
+
+			// The project folder's own menu.
+			const count = page.getByTestId(`project-chat-count-${project.id}`);
+			const projectRow = sidebar.locator(".group").filter({ has: count });
+			await projectRow
+				.getByRole("button", { name: "Projekt beállításai" })
+				.tap();
+			const projectRows = await menuRows(page.locator(".project-option"));
+			expect(projectRows.length).toBe(3);
+			for (const row of projectRows) {
+				expect(row.lines, `the project menu's "${row.text}" on one line`).toBe(
+					1,
+				);
+				expect(
+					row.height,
+					`the project menu's "${row.text}" is a finger's size`,
+				).toBeGreaterThanOrEqual(43.5);
+			}
 		});
 
 		test("the search field's placeholder is not cut off", async ({ page }) => {
@@ -533,6 +711,71 @@ for (const width of [360, 390] as const) {
 				clipped.needed,
 				"the placeholder fits its field",
 			).toBeLessThanOrEqual(clipped.room);
+		});
+	});
+}
+
+/**
+ * The Knowledge page on a phone ran past the edge (RC-A #8, FB-9's elsewhere note 1):
+ * at 360 the page switcher ended at 375, the sort and Upload buttons at 371, the
+ * delete button at 364. Nothing of the page may reach past the screen's right edge,
+ * and the page itself does not scroll sideways.
+ */
+for (const width of [360, 390] as const) {
+	test.describe(`the Knowledge page on a phone, ${width} px wide (Hungarian, touch)`, () => {
+		test.use({
+			viewport: { width, height: 800 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("every control and every card stays inside the screen", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			await seedItem(user, chatId, "document", {
+				title: "Bécsi hétvége: útiterv és szállás a belvárosban",
+			});
+			await seedItem(user, chatId, "app", { title: "Borravaló-kalkulátor" });
+			await seedItem(user, chatId, "canvas", { title: "Hétvégi tábla" });
+			await page.goto("/knowledge", { waitUntil: "networkidle" });
+			await expect(page.getByText("Hétvégi tábla").first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await waitForMotionToSettle(page);
+
+			const over = await page.evaluate(() => {
+				const limit = window.innerWidth;
+				const out: string[] = [];
+				const root = document.querySelector(".knowledge-page");
+				for (const el of root?.querySelectorAll(
+					"button, a, input, select, [role='tab'], [role='tablist']",
+				) ?? []) {
+					const r = el.getBoundingClientRect();
+					if (r.width === 0 || r.height === 0) continue;
+					if (r.right > limit + 0.5 || r.left < -0.5) {
+						const label =
+							(el as HTMLElement).getAttribute("aria-label") ||
+							(el as HTMLElement).innerText?.trim().slice(0, 30) ||
+							el.tagName;
+						out.push(
+							`${el.tagName.toLowerCase()} "${label}" ${r.left.toFixed(0)}..${r.right.toFixed(0)}`,
+						);
+					}
+				}
+				const scrolls = [
+					document.documentElement,
+					document.querySelector(".main-content"),
+				]
+					.filter((el): el is Element => el !== null)
+					.filter((el) => el.scrollWidth > el.clientWidth + 1)
+					.map((el) => `${el.className || el.tagName} scrolls sideways`);
+				return { out, scrolls };
+			});
+			expect(over.out, `nothing reaches past ${width} px`).toEqual([]);
+			expect(over.scrolls, "the page does not scroll sideways").toEqual([]);
 		});
 	});
 }

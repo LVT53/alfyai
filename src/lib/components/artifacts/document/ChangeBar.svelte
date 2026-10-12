@@ -242,6 +242,15 @@ $effect(() => {
 	   an `::after` inset (redesign §4.4: "on phones they get a 44px hit
 	   area"), matching the mockup's own `[data-device="mobile"]` rule. */
 	@media (max-width: 480px) {
+		/* ...and the room for that area (FX-2): the pill sits 3px under the line it is
+		   about and a status chip on that line has a 44px area of its own (9px past its
+		   pill), so the two areas shared pixels, and the same between a pill and the next
+		   line's chip. 12px of the button's reach + 9px of the chip's need 21px between
+		   them; the pill takes the room itself (an inline box's margins count in its line). */
+		.alfy-change-bar {
+			margin-block: 18px 9px;
+		}
+
 		.alfy-change-bar-action {
 			position: relative;
 		}

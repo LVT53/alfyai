@@ -45,6 +45,8 @@ type WorkspaceRenderOptions = {
 	onJumpToSource?: JumpToSourceCallback;
 	onPresentationChange?: PresentationChangeCallback;
 	onListOpenChange?: ListOpenChangeCallback;
+	historyWanted?: boolean;
+	onHistoryOpenChange?: (open: boolean) => void;
 	onToggleDocumentTask?: (
 		artifactId: string,
 		blockId: string,
