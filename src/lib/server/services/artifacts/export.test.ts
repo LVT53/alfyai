@@ -303,6 +303,14 @@ describe("sanitizeDocumentFilename", () => {
 		expect(sanitizeDocumentFilename("...")).toBe("document");
 	});
 
+	it("keeps accents, and drops the dots and spaces a cap or the title leaves at the end", () => {
+		expect(sanitizeDocumentFilename("Bécsi hétvégi útiterv")).toBe(
+			"Bécsi hétvégi útiterv",
+		);
+		expect(sanitizeDocumentFilename("Trip plan v1. ")).toBe("Trip plan v1");
+		expect(sanitizeDocumentFilename(`${"x".repeat(98)}. y`)).toBe("x".repeat(98));
+	});
+
 	it("caps an unreasonably long title", () => {
 		const long = "x".repeat(500);
 		expect(sanitizeDocumentFilename(long).length).toBeLessThanOrEqual(100);

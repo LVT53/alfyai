@@ -24,10 +24,13 @@ import {
 	TASK_LINE_RE,
 } from "$lib/shared/artifact-document/blocks";
 
+// The name an export carries is the shared one (`shared/artifacts/export-filename.ts`):
+// the storage adapter that names the files asks it too.
+export { sanitizeDocumentFilename } from "$lib/shared/artifacts/export-filename";
+
 const HEADING_LINE_RE = /^(#{1,6})\s+(.*)$/;
 const CODE_FENCE_LINE_RE = /^(`{3,}|~{3,})\s*(\S*)\s*$/;
 const CHIP_TOKEN_RE = /\[chip\s+kind="[^"]*"\s+value="([^"]*)"\]/g;
-const MAX_FILENAME_LENGTH = 100;
 
 function nonEmptyLines(markdown: string): string[] {
 	return markdown.split("\n").filter((line) => line.trim().length > 0);
@@ -260,19 +263,6 @@ export function buildGeneratedDocumentSource(params: {
 }
 
 /**
- * A safe bare basename for a produced file (T12.1): path separators cannot
- * escape the storage directory, a leading dot cannot make a hidden file, and
- * an empty result (nothing left after stripping, or the source was blank)
- * falls back to "document" rather than shipping an unusable filename.
- */
-export function sanitizeDocumentFilename(title: string): string {
-	const withoutSeparators = title.trim().replace(/[\\/]+/g, "-");
-	const withoutLeadingDots = withoutSeparators.replace(/^\.+/, "");
-	const capped = withoutLeadingDots.slice(0, MAX_FILENAME_LENGTH).trim();
-	return capped.length > 0 ? capped : "document";
-}
-
-/**
  * What turns an item into an export file, as a number: the Document's blocks mapped
  * to a report source (`buildGeneratedDocumentSource`), the report renderers' PDF and
  * Word, the file's name (`file-production/storage-adapter.ts`) and the App's `.html`
@@ -283,8 +273,10 @@ export function sanitizeDocumentFilename(title: string): string {
  * stale file, the cost of a bump is one fresh export per item.
  *
  * 1: the key's first versioned form (FB-8's reuse, with this number).
+ * 2: a PDF and a Word file are named after the item's title, accents kept (it was an
+ *    ASCII slug): a file made at 1 would keep the slug for an item nobody edited.
  */
-export const ARTIFACT_EXPORT_FORMAT_VERSION = 1;
+export const ARTIFACT_EXPORT_FORMAT_VERSION = 2;
 
 /**
  * The idempotency key of an export job: the same item, as it is now, in the same

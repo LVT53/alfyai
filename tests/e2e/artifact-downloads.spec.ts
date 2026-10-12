@@ -87,18 +87,18 @@ test.describe("the Document's Download", () => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 	});
 
-	// The report renderers name PDF and Word after the title as a plain ASCII
-	// slug, the Markdown file after the title as it is written.
+	// Every format is named after the title as the reader wrote it (RC-A: PDF and Word
+	// used to come out as an ASCII slug, Markdown alone kept the accents).
 	const formats = [
 		{
 			name: "PDF" as const,
-			filename: "becsi-hetvegi-utiterv.pdf",
+			filename: `${TITLE}.pdf`,
 			check: (bytes: Buffer) =>
 				expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-"),
 		},
 		{
 			name: "Word" as const,
-			filename: "becsi-hetvegi-utiterv.docx",
+			filename: `${TITLE}.docx`,
 			// A .docx is a zip: "PK".
 			check: (bytes: Buffer) =>
 				expect(bytes.subarray(0, 2).toString("latin1")).toBe("PK"),
