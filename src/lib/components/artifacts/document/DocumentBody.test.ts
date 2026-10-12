@@ -2513,7 +2513,7 @@ describe("DocumentBody", () => {
 
 		// F6 (ruling 77): the strip is the panel's "Alfy is at work" for the whole of the
 		// wait, which starts at Alfy's first look at the Document, not at the edit call.
-		it("says Alfy is working on the document from a read of it, and is gone when the turn hands nothing on", async () => {
+		it("says Alfy is going through the document from a read of it, and is gone when the turn hands nothing on", async () => {
 			const props = {
 				artifactId: "artifact-1",
 				kind: "document" as const,
@@ -2537,7 +2537,7 @@ describe("DocumentBody", () => {
 				}),
 			});
 			expect(screen.getByTestId("alfy-writing")).toHaveTextContent(
-				"Alfy is working on the document…",
+				"Alfy is going through the document…",
 			);
 
 			// The turn is over (stopped, failed or finished): the page hands nothing on.

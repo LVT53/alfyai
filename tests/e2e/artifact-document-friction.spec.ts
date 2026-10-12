@@ -440,7 +440,7 @@ test.describe("F6 the Document shows Alfy at work", () => {
 			const working = shell.getByTestId("alfy-writing");
 			// The model has the Document in hand and is writing its patch: nothing has
 			// changed yet, and the panel already says Alfy is on it.
-			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+			await expect(working).toContainText("Alfy átnézi a dokumentumot", {
 				timeout: 20_000,
 			});
 			await expect(shell.getByTestId("alfy-change-bar")).toHaveCount(0);
@@ -482,7 +482,7 @@ test.describe("F6 the Document shows Alfy at work", () => {
 			});
 			await ask(30_000);
 			const working = shell.getByTestId("alfy-writing");
-			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+			await expect(working).toContainText("Alfy átnézi a dokumentumot", {
 				timeout: 20_000,
 			});
 			await page.getByTestId("stop-button").click();
@@ -498,7 +498,7 @@ test.describe("F6 the Document shows Alfy at work", () => {
 		const { shell, cleanup } = await askForSlowEdit(page, 30_000);
 		try {
 			const working = shell.getByTestId("alfy-writing");
-			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+			await expect(working).toContainText("Alfy átnézi a dokumentumot", {
 				timeout: 20_000,
 			});
 			await page.getByTestId("stop-button").click();
