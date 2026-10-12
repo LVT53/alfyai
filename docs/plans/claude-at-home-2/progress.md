@@ -1073,3 +1073,7 @@ the owner's review, with the fast gates measured before and after.
 | FB-5 | rows, headers and the phone: F7 (Back), F9 (rows), F21, F26 (count button), F28, F29 | `fix/friction-rows` / `art-fb5` (5400–5409) | queued, batch 3 (after FB-3) |
 | FB-7 | the first message and the reply: F5, F16, F17 | `fix/friction-first-message` / `art-fb7` (5420–5429) | queued, batch 3 (after FB-1, FB-3) |
 | FB-8 | the leftovers: RC-V M-1/M-2, the reconnect hang, `map-route-card`'s CSP, "database is locked", an App restore's metadata | `fix/friction-leftovers` / `art-fb8` (5440–5449) | queued, batch 3 |
+- **Batch 1 done and merged (2026-10-12 ~01:35 UTC):** FB-1 `319bb7bf`, FB-2 `b153286f` into `feat/artifacts`
+  (head `ba28e745`); not on `dev` yet (the release gate runs once at the end of the friction build). Weekly budget 93 %
+  after batch 1 (owner: continue when the next batch fits): one more agent would pass ~96 %, so **batch 2 (FB-3, FB-4,
+  FB-6) starts at the weekly reset, 2026-10-12 09:00 UTC**, then batch 3 (FB-5, FB-7, FB-8).
