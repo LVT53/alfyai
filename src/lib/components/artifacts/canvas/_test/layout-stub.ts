@@ -8,10 +8,7 @@ export function stubLayout(width = 456): () => void {
 	const holder = globalThis as unknown as { ResizeObserver?: unknown };
 	const had = Object.hasOwn(holder, "ResizeObserver");
 	const previous = holder.ResizeObserver;
-	const own = Object.getOwnPropertyDescriptor(
-		Element.prototype,
-		"clientWidth",
-	);
+	const own = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
 	holder.ResizeObserver = class {
 		observe(): void {}
 		unobserve(): void {}

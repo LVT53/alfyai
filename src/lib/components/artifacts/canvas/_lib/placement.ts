@@ -243,6 +243,9 @@ export function placeInsertedBlock(input: InsertRequest): PlacedBlock {
 			best = { at, away, distance, pan };
 		}
 	};
+	// What was chosen, read where TypeScript does not take the variable for what it was a moment ago.
+	const taken = (): PlacedBlock | null =>
+		best ? placed(best.at, best.pan) : null;
 	consider(centre);
 	const roomX = Math.ceil((size.width + PLACEMENT_GAP) / LATTICE) * LATTICE;
 	const roomY = Math.ceil((size.height + PLACEMENT_GAP) / LATTICE) * LATTICE;
@@ -259,7 +262,8 @@ export function placeInsertedBlock(input: InsertRequest): PlacedBlock {
 			consider(whole({ x, y }));
 		}
 	}
-	if (best) return placed(best.at, best.pan);
+	const first = taken();
+	if (first) return first;
 
 	// Nothing free around the pane (a dense board, and a camera that has followed the last
 	// block put on it into the middle of the rest): past the content, on whichever side the
@@ -278,7 +282,8 @@ export function placeInsertedBlock(input: InsertRequest): PlacedBlock {
 		beyond({ x: right + PLACEMENT_GAP, y: view.y });
 		beyond({ x: left - PLACEMENT_GAP - size.width, y: view.y });
 		beyond({ x: view.x, y: top - PLACEMENT_GAP - size.height });
-		if (best) return placed(best.at, best.pan);
+		const past = taken();
+		if (past) return past;
 	}
 
 	// A board full all the way, which only a board with no content can be: the middle, staggered off a block that starts there.

@@ -101,9 +101,9 @@ describe("Mermaid", () => {
 		await waitFor(() => {
 			expect(container.querySelector(".markdown-diagram-error")).toBeTruthy();
 		});
-		expect(container.querySelector(".markdown-diagram-source")?.textContent).toContain(
-			"A--!!-->B",
-		);
+		expect(
+			container.querySelector(".markdown-diagram-source")?.textContent,
+		).toContain("A--!!-->B");
 	});
 
 	// Mermaid's default theme inks lines, arrows and labels dark, which a dark
