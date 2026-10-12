@@ -77,6 +77,7 @@ let {
 		class="review-bar"
 		class:is-docked={docked}
 		class:is-single={pendingCount < 2}
+		class:has-refused={refusedCount > 0}
 		role="region"
 		aria-label={regionLabel ?? $t('artifacts.document.review.regionLabel')}
 	>
@@ -84,7 +85,7 @@ let {
 			<span class="review-bar-spark" aria-hidden="true">
 				<Sparkles size={14} strokeWidth={2} />
 			</span>
-			<span>
+			<span class="review-bar-text">
 				{summary ?? $t('artifacts.document.review.summary', { count: pendingCount })}
 				{#if refusedCount > 0}
 					<button
@@ -119,13 +120,25 @@ let {
 			</button>
 		</div>
 		<div class="review-bar-actions">
-			<button type="button" class="btn-secondary btn-sm" onclick={onUndoAll}>
+			<button
+				type="button"
+				class="btn-secondary btn-sm"
+				aria-label={$t('artifacts.document.review.undoAll')}
+				onclick={onUndoAll}
+			>
 				<Undo2 size={13} strokeWidth={2} aria-hidden="true" />
-				{$t('artifacts.document.review.undoAll')}
+				<span class="review-bar-label-full" aria-hidden="true">{$t('artifacts.document.review.undoAll')}</span>
+				<span class="review-bar-label-short" aria-hidden="true">{$t('artifacts.document.review.undoShort')}</span>
 			</button>
-			<button type="button" class="btn-primary btn-sm" onclick={onKeepAll}>
+			<button
+				type="button"
+				class="btn-primary btn-sm"
+				aria-label={$t('artifacts.document.review.keepAll')}
+				onclick={onKeepAll}
+			>
 				<Check size={13} strokeWidth={2} aria-hidden="true" />
-				{$t('artifacts.document.review.keepAll')}
+				<span class="review-bar-label-full" aria-hidden="true">{$t('artifacts.document.review.keepAll')}</span>
+				<span class="review-bar-label-short" aria-hidden="true">{$t('artifacts.document.review.keepShort')}</span>
 			</button>
 		</div>
 	</div>
@@ -185,6 +198,11 @@ let {
 		border-radius: var(--radius-full, 999px);
 		background-color: var(--accent-tint);
 		color: var(--accent-text);
+	}
+
+	/* The short words are for a phone's one row (below); everywhere else the full ones. */
+	.review-bar-label-short {
+		display: none;
 	}
 
 	.review-bar-left-link {
@@ -276,29 +294,91 @@ let {
 	   flex-basis meant for the DESKTOP row layout (`.review-bar-msg`'s own
 	   `flex: 1 1 5rem` above) becomes a 260px HEIGHT basis instead of a
 	   width one — the message row alone ballooned to ~390px, covering half
-	   the document. `flex: 0 0 auto` here lets it size to its own wrapped
-	   content instead. */
+	   the document.
+
+	   F13 (ruling 77): the stacked layout was three rows, ~150px, and with the
+	   header and toolbar about 45% of a phone was chrome. It is one row now, of
+	   44px targets: the spark, then (with more than one change) the count the
+	   stepper says and the stepper, then the two buttons with their short
+	   words ("Keep", "Undo"; their accessible names stay "Keep all" and "Undo
+	   all"). With one change there is nothing to step through, so the stepper
+	   goes and the sentence takes its place; with several, the sentence gives
+	   way to the count and stays for a screen reader. A refused part (the link
+	   to it) is the only reason for a second line, and says so on its own. */
 	@media (max-width: 480px) {
 		.review-bar {
-			flex-direction: column;
-			align-items: stretch;
+			flex-wrap: nowrap;
+			gap: 0.25rem;
+			min-height: 0;
+			padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+		}
+
+		.review-bar.is-docked {
+			padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
+		}
+
+		.review-bar.has-refused {
+			flex-wrap: wrap;
+		}
+
+		.review-bar.has-refused .review-bar-msg {
+			flex: 1 1 100%;
 		}
 
 		.review-bar-msg {
+			flex: 1 1 0;
+			gap: 0.375rem;
+			font-size: var(--text-xs);
+			line-height: 1.25;
+		}
+
+		/* More than one change: the count says it, the sentence stays for a screen reader. */
+		.review-bar:not(.is-single):not(.has-refused) .review-bar-text {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0, 0, 0, 0);
+			white-space: nowrap;
+			border: 0;
+		}
+
+		.review-bar:not(.is-single):not(.has-refused) .review-bar-msg {
 			flex: 0 0 auto;
 		}
 
-		.review-bar-nav {
-			align-self: flex-start;
+		/* One change: nothing to step through (the arrows were disabled anyway). */
+		.review-bar.is-single .review-bar-nav {
+			display: none;
+		}
+
+		.review-bar-pos {
+			min-width: 0;
+			padding-inline: 0.25rem;
+			white-space: nowrap;
 		}
 
 		.review-bar-actions {
-			margin-left: 0;
+			margin-left: auto;
+			gap: 0.25rem;
 		}
 
 		.review-bar-actions :global(button) {
-			flex: 1 1 0;
+			flex: 0 0 auto;
 			min-height: 2.75rem;
+			padding-inline: 0.625rem;
+			white-space: nowrap;
+		}
+
+		.review-bar-actions :global(svg),
+		.review-bar-label-full {
+			display: none;
+		}
+
+		.review-bar-label-short {
+			display: inline;
 		}
 
 		/* Review 2.5 (rd/review-2-5.md:45-56, "4b's open item #4"): the global

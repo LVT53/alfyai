@@ -5,7 +5,11 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createEmptyConversation, login } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The friction build's Document findings (ruling 77, FB-6): F6 Alfy is visibly at
 // work, F13 a one-row review bar on a phone, F14 an @Alfy comment feels answered,
@@ -155,4 +159,71 @@ test.describe("F24 the comments column takes no room until there is a comment", 
 			shell.getByTestId("document-comments-affordance"),
 		).toBeVisible();
 	});
+});
+
+test.describe("F13 a pending change's review bar is one row on a phone", () => {
+	test.use({ hasTouch: true });
+
+	for (const [width, height, pendingOps] of [
+		[390, 844, 2],
+		[390, 844, 1],
+		[360, 740, 2],
+	] as const) {
+		test(`count, the stepper where there is something to step through, Keep and Undo share one row of 44 px targets (${width}x${height}, ${pendingOps} pending)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height });
+			const conversationId = await createEmptyConversation(page, "F13");
+			await seedDocument(conversationId, {
+				markdown: MARKDOWN,
+				title: "Bécsi hétvége",
+				pendingOps,
+			});
+			const shell = await openDocument(page, conversationId);
+			const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+			await expect(bar).toBeVisible({ timeout: 30_000 });
+			await waitForStableBoundingBox(bar);
+
+			const keep = bar.getByRole("button", { name: /Mindet megtartom/ });
+			const undo = bar.getByRole("button", { name: /Mindet visszavonom/ });
+			const parts = [keep, undo];
+			if (pendingOps > 1) {
+				await expect(bar.getByText(`1 / ${pendingOps}`)).toBeVisible();
+				parts.push(
+					bar.getByRole("button", { name: "Előző módosítás" }),
+					bar.getByRole("button", { name: "Következő módosítás" }),
+					bar.getByText(`1 / ${pendingOps}`),
+				);
+			} else {
+				await expect(bar).toContainText("Alfy 1 részt módosított");
+			}
+
+			// One row: the bar is one button tall, and every part is centred on that row.
+			const barBox = await box(bar);
+			expect(barBox.height, "the bar's height").toBeLessThanOrEqual(64);
+			const centres: number[] = [];
+			for (const part of parts) {
+				const b = await box(part);
+				centres.push(b.y + b.height / 2);
+				expect(b.x, "inside the screen").toBeGreaterThanOrEqual(0);
+				expect(b.x + b.width, "inside the screen").toBeLessThanOrEqual(width);
+			}
+			expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(
+				2,
+			);
+
+			// 44 px targets, and a finger does the work.
+			for (const control of parts.slice(0, pendingOps > 1 ? 4 : 2)) {
+				const b = await box(control);
+				expect(b.height).toBeGreaterThanOrEqual(43.5);
+				expect(b.width).toBeGreaterThanOrEqual(43.5);
+			}
+			if (pendingOps > 1) {
+				await bar.getByRole("button", { name: "Következő módosítás" }).tap();
+				await expect(bar.getByText(`2 / ${pendingOps}`)).toBeVisible();
+			}
+			await keep.tap();
+			await expect(bar).toBeHidden();
+		});
+	}
 });

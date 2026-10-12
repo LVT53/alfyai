@@ -392,6 +392,10 @@ const artifactsDict = {
 		"artifacts.document.review.next": "Next change",
 		"artifacts.document.review.keepAll": "Keep all",
 		"artifacts.document.review.undoAll": "Undo all",
+		// FB-6, F13 (ruling 77): what the two buttons say on a phone, where the bar is one
+		// row; their accessible names stay "Keep all" and "Undo all".
+		"artifacts.document.review.keepShort": "Keep",
+		"artifacts.document.review.undoShort": "Undo",
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
@@ -1338,6 +1342,9 @@ const artifactsDict = {
 		"artifacts.document.review.next": "Következő módosítás",
 		"artifacts.document.review.keepAll": "Mindet megtartom",
 		"artifacts.document.review.undoAll": "Mindet visszavonom",
+		// FB-6, F13 (ruling 77): a telefonon egy sor a sáv; a gombok neve ugyanaz marad.
+		"artifacts.document.review.keepShort": "Megtart",
+		"artifacts.document.review.undoShort": "Visszavon",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
