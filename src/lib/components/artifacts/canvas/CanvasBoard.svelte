@@ -112,7 +112,6 @@ import {
 } from "./_lib/block-registry";
 import { boardHistoryChord, isTextEntry } from "./_lib/history-keys";
 import { newId } from "./_lib/ids";
-import { visibleBoardRect } from "./_lib/pane-rect";
 import { withSelection } from "./_lib/selection";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
 import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
@@ -442,17 +441,31 @@ export function flush(): CanvasBody {
 /**
  * Draws a board the server changed under the reader (Alfy answered a comment
  * with a change): the blocks, connections and marks are replaced, the camera is
- * left where it is. It is not a step of the reader's (Alfy's change is a
+ * left where it is, and stays: a board that took in what it held follows no more
+ * (the room the change takes, the bar that comes for it) until the reader fits it
+ * again, so a change on screen is not met by a camera that zooms to it and glides
+ * back (F12). It is not a step of the reader's (Alfy's change is a
  * version, ruling 16), so the reader's own undo is emptied: it could only take
  * them back to before Alfy's change and save that over it.
  */
 export function land(next: CanvasBody): void {
+	fitted = null;
 	nodes = toFlowNodes(next.nodes);
 	edges = toFlowEdges(next.edges, next.nodes);
 	annotations = [...next.annotations];
 	history = createBoardHistory();
 	committedJson = structuralJson(snapshot());
 	syncHistoryFlags();
+}
+
+/**
+ * A column that takes room from the pane (the comments, opened by a press on the Comment
+ * tool and a block, which are presses on this board) is not the reader taking the board
+ * over: the next size the pane takes is followed again, while the camera is still where
+ * the last fit left it (F24).
+ */
+export function refollow(): void {
+	touched = false;
 }
 
 /** The board as it is drawn now, without ending the step in progress: what a landing compares the server's board against. */
@@ -651,17 +664,6 @@ function centerOn(point: Pt): void {
 
 // ---- Insert --------------------------------------------------------------
 
-/** What the pane shows, in board units; undefined before the pane has been measured. */
-function visiblePaneRect() {
-	const shown = visibleBoardRect(
-		{ width: boardWidth, height: boardHeight },
-		viewport,
-	);
-	return shown.width > 0
-		? { x: shown.left, y: shown.top, width: shown.width, height: shown.height }
-		: undefined;
-}
-
 async function insertBlock(
 	row: BlockRegistryEntry,
 	data?: CanvasBlockData,
@@ -673,32 +675,28 @@ async function insertBlock(
 	// opens: only an insert that beat the load waits for it.
 	const where = placement ?? (await loadPlacement());
 	if (!where || readonly || !boardEl) return;
-	const { placeBesideBlocks } = where;
 	// Whatever the reader did while it loaded is a step before the insert.
 	commit();
-	const rect = boardEl.getBoundingClientRect();
-	const center = flow.screenToFlowPosition({
-		x: rect.left + rect.width / 2,
-		y: rect.top + rect.height / 2,
-	});
-	// A block goes on free ground: laid over another it would hide it and take the
-	// clicks meant for it (a made-from-the-chat block is big, an App is 400 x 340,
-	// and a note's own toolbar sits over what is beneath it). A frame is a backdrop,
-	// so a block may be dropped inside one and keeps off only what is not a frame;
-	// a new frame keeps off everything, frames too, which it would otherwise lie
-	// across and leave the reader to pull apart (RC-3 N7).
-	const position = placeBesideBlocks({
-		center,
+	// A block goes on free ground the reader can see and use (`_lib/placement.ts`): inside
+	// the pane, clear of the toolbar and the overview, never over a block already there (a
+	// frame is a backdrop, and a block that fits inside one goes in it as its own), and
+	// when the pane has no such ground the camera is moved to the nearest there is.
+	const at = where.placeForInsert({
+		el: boardEl,
+		camera: viewport,
 		size: row.size,
-		occupied: nodes
-			.filter(
-				(node) => row.kind === "frame" || !blockEntry(node.type)?.structural,
-			)
-			.map((node) => nodeRect(node, nodes, node.measured)),
-		visible: visiblePaneRect(),
+		asFrame: row.kind === "frame",
+		blocks: nodes.map((node) => ({
+			id: node.id,
+			rect: nodeRect(node, nodes, node.measured),
+			frame: Boolean(blockEntry(node.type)?.structural),
+		})),
 	});
 	const [added] = toFlowNodes([
-		newBlockNode(row.kind, position, undefined, data),
+		{
+			...newBlockNode(row.kind, at.position, undefined, data),
+			...(at.parentId ? { parentId: at.parentId } : {}),
+		},
 	]);
 	// Text a reader writes opens for typing at once.
 	if (row.section === "text") editRequests.add(added.id);
@@ -721,6 +719,13 @@ async function insertBlock(
 				]
 			: [...cleared, inserted];
 	commit();
+	// The block is shown, and takes the focus as a note does to be typed in.
+	if (at.camera) {
+		void flow.setViewport(at.camera, {
+			duration: prefersReducedMotion() ? 0 : 250,
+		});
+	}
+	void where.focusInserted(boardEl, added.id);
 }
 
 // ---- The flow's own events ----------------------------------------------
@@ -1433,9 +1438,11 @@ function minimapColor(node: {
 		font-family: var(--font-sans);
 	}
 
+	/* The library asks to be credited, so the credit stays (never `hideAttribution`), in
+	   its corner and as quiet as a credit can be (F28). */
 	.canvas-board :global(.svelte-flow__attribution) {
 		font-size: var(--text-2xs);
-		opacity: 0.7;
+		opacity: 0.45;
 	}
 
 	.canvas-board :global(.svelte-flow__attribution a) {

@@ -36,6 +36,8 @@ export interface ChatBlockRow {
 	meta: string;
 	/** What a pick puts on the board: exactly one block's data. */
 	data: CanvasBlockData;
+	/** When the chat made it (epoch milliseconds): what tells two rows of one name apart. */
+	at: number;
 	/** For a file: its name and type, for the icon the chat shows beside a file. */
 	filename?: string;
 	mime?: string;
@@ -131,10 +133,53 @@ function diagramName(
 	);
 }
 
+/**
+ * When a row was made, for telling it from another of the same name: the clock
+ * time, with the day first when it is not today, and the seconds too when asked
+ * (two of them were made in one minute). The reader's own language, never a version
+ * number (ruling 76, Q2: that is History's fine print).
+ */
+function whenMade(at: number, locale: string | undefined, seconds: boolean) {
+	const date = new Date(at);
+	const sameDay = date.toDateString() === new Date().toDateString();
+	return new Intl.DateTimeFormat(locale, {
+		...(sameDay ? {} : { month: "short", day: "numeric" }),
+		hour: "2-digit",
+		minute: "2-digit",
+		...(seconds ? { second: "2-digit" } : {}),
+	}).format(date);
+}
+
+/**
+ * Rows that read alike (two Apps called "Tip calculator", two exports of one
+ * document, both cut to the same words by the menu's width) are told apart by
+ * when each was made, after the type and the size a file already shows. A row that
+ * says something of its own (another name, another size, another count) is left as
+ * it is: the time is for the rows that need it.
+ */
+function tellRowsApart(rows: ChatBlockRow[], locale: string | undefined): void {
+	const alike = new Map<string, ChatBlockRow[]>();
+	for (const row of rows) {
+		const key = `${row.name}\u0000${row.meta}`;
+		alike.set(key, [...(alike.get(key) ?? []), row]);
+	}
+	for (const same of alike.values()) {
+		if (same.length < 2) continue;
+		const minutes = same.map((row) => whenMade(row.at, locale, false));
+		same.forEach((row, index) => {
+			// Made in one minute as another of them: the seconds say which is which.
+			const shared = minutes.filter((m) => m === minutes[index]).length > 1;
+			const when = shared ? whenMade(row.at, locale, true) : minutes[index];
+			row.meta = row.meta ? `${row.meta}${SEPARATOR}${when}` : when;
+		});
+	}
+}
+
 /** The listing as the section draws it: one group per kind that has something, in a fixed order, each row newest first as the server gave it. */
 export function chatBlockGroups(
 	listing: CanvasChatBlocks,
 	translate: Translate,
+	locale?: string,
 ): ChatBlockGroup[] {
 	const groups: ChatBlockGroup[] = [];
 
@@ -154,6 +199,7 @@ export function chatBlockGroups(
 					.filter((part) => part.length > 0)
 					.join(SEPARATOR),
 				data: file.data,
+				at: file.at,
 				filename: file.data.name,
 				mime: file.data.mime,
 			})),
@@ -170,6 +216,7 @@ export function chatBlockGroups(
 				name: app.data.title,
 				meta: "",
 				data: app.data,
+				at: app.at,
 			})),
 		});
 	}
@@ -186,6 +233,7 @@ export function chatBlockGroups(
 					name: data.route || translate("artifacts.canvas.insert.map"),
 					meta: data.meta ?? "",
 					data,
+					at: item.at,
 				};
 			}),
 		});
@@ -201,6 +249,7 @@ export function chatBlockGroups(
 				name: chartName(chart.title, chart.chartType, translate),
 				meta: formatRelativeTime(chart.at, { t: translate }),
 				data: chart.data,
+				at: chart.at,
 			})),
 		});
 	}
@@ -215,6 +264,7 @@ export function chatBlockGroups(
 				name: diagramName(diagram.title, diagram.diagramType, translate),
 				meta: formatRelativeTime(diagram.at, { t: translate }),
 				data: diagram.data,
+				at: diagram.at,
 			})),
 		});
 	}
@@ -234,6 +284,7 @@ export function chatBlockGroups(
 					formatRelativeTime(search.at, { t: translate }),
 				].join(SEPARATOR),
 				data: search.data,
+				at: search.at,
 			})),
 		});
 	}
@@ -253,9 +304,11 @@ export function chatBlockGroups(
 					formatRelativeTime(search.at, { t: translate }),
 				].join(SEPARATOR),
 				data: search.data,
+				at: search.at,
 			})),
 		});
 	}
 
+	for (const group of groups) tellRowsApart(group.rows, locale);
 	return groups;
 }

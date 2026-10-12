@@ -252,6 +252,7 @@ let savedTimer: ReturnType<typeof setTimeout> | null = null;
 let boardApi = $state<{
 	flush: () => CanvasBody;
 	land: (body: CanvasBody) => void;
+	refollow: () => void;
 	current: () => CanvasBody;
 	place: (positions: ReadonlyMap<string, { x: number; y: number }>) => void;
 	hold: (on: boolean) => void;
@@ -905,8 +906,15 @@ let openCommentCount = $derived(
 $effect(() => {
 	onCommentCountChange?.(openCommentCount);
 });
+let commentsShown = false;
 $effect(() => {
-	onCommentsShownChange?.(comments?.open ?? false);
+	const open = comments?.open ?? false;
+	onCommentsShownChange?.(open);
+	// The column takes room from the board when it opens, and gives it back when it closes
+	// (the comments loading in is neither).
+	if (open === commentsShown) return;
+	commentsShown = open;
+	untrack(() => boardApi?.refollow());
 });
 
 $effect(() => {

@@ -18,7 +18,14 @@ import { t } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
 import { sanitizeHtml } from "$lib/utils/html-sanitizer";
 
-let { code = "" }: { code?: string } = $props();
+let {
+	code = "",
+	quiet = false,
+}: {
+	code?: string;
+	/** Until the drawing is ready show a quiet bar, not the source (a board's block: the source is not what it is for). */
+	quiet?: boolean;
+} = $props();
 
 const uid = $props.id();
 
@@ -136,6 +143,8 @@ $effect(() => {
   <pre class="markdown-diagram-source"><code>{code}</code></pre>
 {:else if svgHtml}
   <div class="markdown-mermaid" data-removed={removedKinds || undefined}>{@html svgHtml}</div>
+{:else if quiet}
+  <div class="markdown-mermaid-pending" role="status" aria-label={$t('diagram.loading')}></div>
 {:else}
   <!-- SSR / pre-render placeholder: show the source so there is never a blank gap. -->
   <pre class="markdown-diagram-source markdown-mermaid-placeholder" aria-label={$t('diagram.loading')}><code>{code}</code></pre>
@@ -173,5 +182,14 @@ $effect(() => {
 
   .markdown-mermaid-placeholder {
     opacity: 0.75;
+  }
+
+  /* What a block shows while its drawing is made: no words, a muted bar of a diagram's size. */
+  .markdown-mermaid-pending {
+    height: 72px;
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md, 0.5rem);
+    background: var(--surface-elevated);
+    opacity: 0.6;
   }
 </style>

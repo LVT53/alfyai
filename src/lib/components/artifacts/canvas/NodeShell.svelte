@@ -658,12 +658,22 @@ function reportBroken(error: unknown): void {
 		z-index: 2;
 	}
 
-	/* A finger is not a pointer: the anchors (9 px) and the resize corners (8 px)
-	   get an invisible hit area of about 24 px on the screen, whatever the zoom
-	   (--canvas-inv-zoom is 1 / zoom, set by the board once its camera is at rest). */
+	/* A resize corner is an 8 px dot and stays one, but a pointer is not a pin (F28): it
+	   has an invisible hit area of 24 px on the screen (the least WCAG asks of a target),
+	   and a finger one of 44, whatever the zoom (--canvas-inv-zoom is 1 / zoom, set by the
+	   board once its camera is at rest). The anchors (9 px) get a finger's 24 only. */
+	:global(.canvas-resize::after) {
+		content: "";
+		position: absolute;
+		inset: calc(4px - var(--hit, 12px) * var(--canvas-inv-zoom, 1));
+	}
+
 	@media (pointer: coarse) {
-		:global(.canvas-anchor--shown::after),
-		:global(.canvas-resize::after) {
+		:global(.canvas-resize) {
+			--hit: 22px;
+		}
+
+		:global(.canvas-anchor--shown::after) {
 			content: "";
 			position: absolute;
 			inset: calc(4px - 12px * var(--canvas-inv-zoom, 1));

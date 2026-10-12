@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
+import { stubLayout } from "../_test/layout-stub";
 import WithChat from "../_test/WithChat.svelte";
 import { flowSpies } from "../_test/xyflow-mock";
 import LazyNode from "./LazyNode.svelte";
@@ -140,10 +141,14 @@ function mount(entry: Case, selected = true) {
 	});
 }
 
+// A diagram draws what fits its own width, so every block here is in a laid-out box.
+let undoLayout: () => void = () => {};
 beforeEach(() => {
 	vi.clearAllMocks();
 	uiLanguage.set("en");
+	undoLayout = stubLayout(456);
 });
+afterEach(() => undoLayout());
 
 describe.each(CASES)("a $kind block", (entry) => {
 	it("opens its form from the toolbar's Edit, in place of the content or over it, and Cancel writes nothing", async () => {

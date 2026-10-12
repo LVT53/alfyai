@@ -11,7 +11,11 @@
  * The reader taking a block over (any later edit of it) is what clears it, just
  * as it is in a Document. A change that only took blocks away has nothing left
  * to point at, so it waits as a whole (`removedCount`) until it is kept or
- * undone.
+ * undone. What counts is what the reader sees (F12, ruling 77): one note added
+ * is one block, and a note rewritten is one block changed, never "one removed
+ * and one added" (`diffBoards` says which frame only grew or went aside to make
+ * room, which end of an arrow is only its far end, and which removed block
+ * another stands in for).
  *
  * A change is reviewed as ONE change (ruling 63): Keep moves the marker past
  * it, Undo saves the version before it back as the reader's own. Undo is only
@@ -137,7 +141,11 @@ export function computeCanvasReview(input: {
 				author: version.author,
 			});
 		}
+		// A block rewritten (taken away, and another put in its place) is a block
+		// changed: the new one waits, the old one is not a loss to count.
+		const replaced = new Set(delta.replacedNodes.map((pair) => pair.from));
 		for (const id of delta.removedNodes) {
+			if (replaced.has(id)) continue;
 			removed.set(id, {
 				versionNumber: version.versionNumber,
 				author: version.author,
