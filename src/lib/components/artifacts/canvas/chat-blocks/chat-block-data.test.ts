@@ -390,7 +390,10 @@ describe("the section's groups", () => {
 			const groups = chatBlockGroups(
 				{
 					...emptyChatBlocks(),
-					files: [fileRow("file:2", sameDay(0)), fileRow("file:1", sameDay(-3600))],
+					files: [
+						fileRow("file:2", sameDay(0)),
+						fileRow("file:1", sameDay(-3600)),
+					],
 				},
 				translate(),
 				"en",
@@ -405,7 +408,10 @@ describe("the section's groups", () => {
 			const groups = chatBlockGroups(
 				{
 					...emptyChatBlocks(),
-					files: [fileRow("file:2", sameDay(11)), fileRow("file:1", sameDay(0))],
+					files: [
+						fileRow("file:2", sameDay(11)),
+						fileRow("file:1", sameDay(0)),
+					],
 				},
 				translate(),
 				"en",
@@ -440,7 +446,11 @@ describe("the section's groups", () => {
 						appRow("app:b", sameDay(0)),
 						{
 							...appRow("app:c", sameDay(-60)),
-							data: { kind: "app" as const, artifactId: "app:c", title: "Budget" },
+							data: {
+								kind: "app" as const,
+								artifactId: "app:c",
+								title: "Budget",
+							},
 						},
 						appRow("app:a", sameDay(-3600)),
 					],

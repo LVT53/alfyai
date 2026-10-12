@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DIAGRAM_RESERVED_HEIGHT } from "./canvas-blocks";
-import {
-	estimatedDiagramHeight,
-	readableDiagramSource,
-} from "./mermaid-size";
+import { estimatedDiagramHeight, readableDiagramSource } from "./mermaid-size";
 
 /**
  * What the board drew, measured in headless Chromium on 2026-10-07 (Mermaid

@@ -138,9 +138,7 @@ async function submitWebSearch(event: SubmitEvent): Promise<void> {
 }
 
 let groups = $derived(
-	phase.name === "ready"
-		? chatBlockGroups(phase.listing, $t, $uiLanguage)
-		: [],
+	phase.name === "ready" ? chatBlockGroups(phase.listing, $t, $uiLanguage) : [],
 );
 </script>
 
