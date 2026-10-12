@@ -1,24 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-	fileExtensionLabel,
-	fileFacts,
-	isShared,
-	rowMadeAtLabel,
-	sharedNames,
-} from "./row-facts";
+import { fileFacts, isShared, rowMadeAtLabel, sharedNames } from "./row-facts";
 
-describe("fileExtensionLabel", () => {
+describe("the extension a file row names", () => {
 	it("is the extension in capitals", () => {
-		expect(fileExtensionLabel("trip-notes.pdf")).toBe("PDF");
-		expect(fileExtensionLabel("Bécsi hétvégi útiterv.docx")).toBe("DOCX");
-		expect(fileExtensionLabel("archive.tar.gz")).toBe("GZ");
+		expect(fileFacts({ filename: "trip-notes.pdf" })).toBe("PDF");
+		expect(fileFacts({ filename: "Bécsi hétvégi útiterv.docx" })).toBe("DOCX");
+		expect(fileFacts({ filename: "archive.tar.gz" })).toBe("GZ");
 	});
 
 	it("is nothing for a name without one", () => {
-		expect(fileExtensionLabel("README")).toBeNull();
-		expect(fileExtensionLabel(".env")).toBeNull();
-		expect(fileExtensionLabel("trailing.")).toBeNull();
-		expect(fileExtensionLabel("a note. Not an extension")).toBeNull();
+		expect(fileFacts({ filename: "README" })).toBeNull();
+		expect(fileFacts({ filename: ".env" })).toBeNull();
+		expect(fileFacts({ filename: "trailing." })).toBeNull();
+		expect(fileFacts({ filename: "a note. Not an extension" })).toBeNull();
 	});
 });
 

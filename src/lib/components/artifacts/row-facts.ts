@@ -18,7 +18,7 @@
 import { formatByteSize } from "$lib/utils/format";
 
 /** The extension of a file name as a row prints it ("PDF" for "trip.pdf"); `null` for a name with none, or one that is not an extension. */
-export function fileExtensionLabel(filename: string): string | null {
+function fileExtensionLabel(filename: string): string | null {
 	const dot = filename.lastIndexOf(".");
 	if (dot <= 0 || dot === filename.length - 1) return null;
 	const extension = filename.slice(dot + 1);
