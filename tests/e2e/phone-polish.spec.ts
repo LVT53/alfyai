@@ -8,6 +8,7 @@ import {
 	openDocument,
 	PROSE_MARKDOWN,
 	seedDocument,
+	setUiLanguage,
 } from "./artifact-document-polish-helpers";
 import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
 import {
@@ -24,6 +25,9 @@ import {
  */
 
 const PHONE_WIDTHS = [390, 360, 430] as const;
+
+const SHOTS =
+	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/f7d2fd3b-f0d9-4b30-80c5-6cbea0e7a6a4/scratchpad/p5/fb9-shots";
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -311,3 +315,78 @@ test.describe("keyboard chords stay on a desktop with a mouse", () => {
 		await expect(modal.locator(".search-kbd").first()).toBeVisible();
 	});
 });
+
+/**
+ * FB-6 made the phone's review bar one row with two short words; in Hungarian
+ * "Megtart" / "Visszavon" read as clipped verb stems (ruling 77's amendment: short,
+ * natural Hungarian that does not crowd a row). The words are the pills' own.
+ */
+for (const [width, height, pendingOps] of [
+	[390, 844, 1],
+	[390, 844, 2],
+	[360, 740, 2],
+] as const) {
+	test.describe(`the review bar on a phone, ${width} px, ${pendingOps} pending (Hungarian, touch)`, () => {
+		test.use({ viewport: { width, height }, hasTouch: true, isMobile: true });
+		test.beforeEach(async ({ page }) => {
+			await setUiLanguage("hu");
+			await login(page);
+		});
+		test.afterEach(async () => {
+			await setUiLanguage("en");
+		});
+
+		test("the two buttons say whole words, and the bar stays one row", async ({
+			page,
+		}) => {
+			const conversationId = await createEmptyConversation(page, "Bar words");
+			await seedDocument(conversationId, {
+				markdown: PROSE_MARKDOWN,
+				title: "Bécsi utazás",
+				pendingOps,
+			});
+			const shell = await openDocument(page, conversationId);
+			const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+			await expect(bar).toBeVisible({ timeout: 30_000 });
+			await waitForMotionToSettle(page);
+
+			// The accessible names do not change; the visible words are the pills' own.
+			const keep = bar.getByRole("button", { name: "Mindet megtartom" });
+			const undo = bar.getByRole("button", { name: "Mindet visszavonom" });
+			await expect(keep).toHaveText("Megtartom", { useInnerText: true });
+			await expect(undo).toHaveText("Visszavonom", { useInnerText: true });
+
+			// Whole: the word fits inside its button, the button inside the bar.
+			const barBox = await boxOf(bar);
+			for (const [name, button] of [
+				["keep", keep],
+				["undo", undo],
+			] as const) {
+				const fits = await button.evaluate(
+					(el) => el.scrollWidth <= el.clientWidth + 1,
+				);
+				expect(fits, `${name}'s word fits its button`).toBe(true);
+				const b = await boxOf(button);
+				expect(b.x, `${name} inside on the left`).toBeGreaterThanOrEqual(
+					barBox.x,
+				);
+				expect(
+					b.x + b.width,
+					`${name} inside on the right`,
+				).toBeLessThanOrEqual(barBox.x + barBox.width + 0.5);
+				expect(b.height, `${name} is a finger's size`).toBeGreaterThanOrEqual(
+					43.5,
+				);
+			}
+			// One row, and the stepper (with several changes) shares it.
+			expect(barBox.height, "one row").toBeLessThanOrEqual(64);
+			if (pendingOps > 1) {
+				await expect(bar.getByText("1 / 2")).toBeVisible();
+			}
+			await page.screenshot({
+				path: `${SHOTS}/review-bar-${width}-${pendingOps}.png`,
+				clip: { x: 0, y: barBox.y - 6, width, height: barBox.height + 12 },
+			});
+		});
+	});
+}

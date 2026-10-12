@@ -1353,8 +1353,10 @@ const artifactsDict = {
 		"artifacts.document.review.keepAll": "Mindet megtartom",
 		"artifacts.document.review.undoAll": "Mindet visszavonom",
 		// FB-6, F13 (ruling 77): a telefonon egy sor a sáv; a gombok neve ugyanaz marad.
-		"artifacts.document.review.keepShort": "Megtart",
-		"artifacts.document.review.undoShort": "Visszavon",
+		// FB-9: a „Megtart” / „Visszavon” csonka igetőnek hatott; a szavak a módosítás
+		// jelvényének saját szavai („Megtartom”, „Visszavonom”).
+		"artifacts.document.review.keepShort": "Megtartom",
+		"artifacts.document.review.undoShort": "Visszavonom",
 		// A szöveg fölötti halk „Alfy dolgozik” sáv: attól, hogy Alfy először ránéz a
 		// megnyitott dokumentumra egy körben, addig, amíg a módosítása meg nem érkezett
 		// (FB-6, F6, 77. döntés: a tábla „dolgozik a táblán” szövegei a mintája).
