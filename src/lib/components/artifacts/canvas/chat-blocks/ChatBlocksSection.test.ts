@@ -260,7 +260,9 @@ describe("From this chat", () => {
 		expect(
 			await screen.findByText("Nem sikerült átnézni a beszélgetést."),
 		).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Újrapróbálom" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Újrapróbálom" }),
+		).toBeInTheDocument();
 	});
 });
 
