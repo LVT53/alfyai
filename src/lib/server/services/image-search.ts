@@ -9,6 +9,10 @@ export interface ImageSearchResult {
 	height?: number;
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 export async function searchImages(
 	query: string,
 ): Promise<ImageSearchResult[]> {
@@ -48,7 +52,10 @@ export async function searchImages(
 				url: item.properties?.url || item.url || "",
 				title: item.title || "",
 				source: item.properties?.host || item.url || "",
-				thumbnail: item.properties?.thumbnail?.url || item.thumbnail?.url,
+				// Brave's resized copy is `thumbnail.src` (the image file itself is
+				// `properties.url`, and `url` above is the page). The chat shows this
+				// address and no other, through the app's own thumbnail route.
+				thumbnail: nonEmptyString(item.thumbnail?.src),
 				width: item.properties?.width,
 				height: item.properties?.height,
 			});

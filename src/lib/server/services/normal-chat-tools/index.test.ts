@@ -3556,12 +3556,16 @@ describe("createNormalChatTools", () => {
 	});
 
 	it("image_search calls image search directly and records stable web candidates", async () => {
+		// A thumbnail is kept only as an address on Brave's image proxy (the one the
+		// chat shows, through the app's own route); that is what a search returns.
+		const BRAVE_CAT_THUMBNAIL =
+			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZXMvY2F0LnBuZw";
 		searchImagesMock.mockResolvedValue([
 			{
 				url: "https://example.com/images/cat.png",
 				title: "Reference cat",
 				source: "example.com",
-				thumbnail: "https://example.com/thumbs/cat.png",
+				thumbnail: BRAVE_CAT_THUMBNAIL,
 				width: 1200,
 				height: 800,
 			},
@@ -3598,7 +3602,7 @@ describe("createNormalChatTools", () => {
 					url: "https://example.com/images/cat.png",
 					title: "Reference cat",
 					source: "example.com",
-					thumbnail: "https://example.com/thumbs/cat.png",
+					thumbnail: BRAVE_CAT_THUMBNAIL,
 					width: 1200,
 					height: 800,
 				},
@@ -3629,7 +3633,7 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "example.com",
-							thumbnail: "https://example.com/thumbs/cat.png",
+							thumbnail: BRAVE_CAT_THUMBNAIL,
 							width: 1200,
 							height: 800,
 						},

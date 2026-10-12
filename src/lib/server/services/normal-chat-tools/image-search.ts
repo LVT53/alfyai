@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ImageSearchResult } from "$lib/server/services/image-search";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { isBraveThumbnailUrl } from "$lib/shared/url-provenance";
 
 import { shortHash, truncateText } from "./shared";
 
@@ -41,8 +42,13 @@ export function compactImageSearchResults(
 				180,
 			),
 			source,
-			...(result.thumbnail
-				? { thumbnail: truncateText(result.thumbnail, 500) }
+			// Whole or not at all: the chat shows a Brave thumbnail exactly as the
+			// search returned it (through the app's own thumbnail route, which asks
+			// for that exact address), and an address cut off at 500 characters ends
+			// in "..." and shows nothing. Anything that is not an address on Brave's
+			// image proxy is never shown, so it is not kept.
+			...(result.thumbnail && isBraveThumbnailUrl(result.thumbnail)
+				? { thumbnail: result.thumbnail.trim() }
 				: {}),
 			...(typeof result.width === "number" ? { width: result.width } : {}),
 			...(typeof result.height === "number" ? { height: result.height } : {}),
