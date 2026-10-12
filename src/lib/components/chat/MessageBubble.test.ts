@@ -3415,3 +3415,131 @@ describe("MessageBubble user timestamp", () => {
 		}
 	});
 });
+
+describe("MessageBubble: what the reply may show of the web is what its own tools returned", () => {
+	// docs/plans/exfil-channels: a picture or a favicon is requested on a reply's behalf
+	// only for an address a tool of the same message returned. The bubble derives that
+	// from the message's segments and hands it to the renderer.
+	const THUMB =
+		"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+
+	function catSearch(): NonNullable<ChatMessage["thinkingSegments"]>[number] {
+		return {
+			type: "tool_call",
+			name: "image_search",
+			input: { query: "cat" },
+			status: "done",
+			candidates: [
+				{
+					id: "c0",
+					title: "A cat",
+					url: "https://example.com/cat.jpg",
+					sourceType: "web",
+					metadata: { thumbnail: THUMB },
+				},
+			],
+		};
+	}
+
+	function reply(overrides: Partial<ChatMessage> = {}): ChatMessage {
+		return {
+			id: "assistant-pictures",
+			renderKey: "assistant-pictures",
+			role: "assistant",
+			content: "Here it is: ![A cat](https://example.com/cat.jpg)",
+			timestamp: Date.now(),
+			...overrides,
+		};
+	}
+
+	/** The options the renderer's last call was given. */
+	function lastOptions(): Record<string, unknown> {
+		const calls = markdownLoaderMock.renderMarkdown.mock.calls as unknown as [
+			string,
+			boolean,
+			Record<string, unknown>,
+		][];
+		return calls[calls.length - 1][2];
+	}
+
+	beforeEach(() => {
+		markdownLoaderMock.renderMarkdown.mockClear();
+	});
+
+	it("passes the pictures and hosts its tool calls returned to the renderer", async () => {
+		render(MessageBubble, {
+			message: reply({ thinkingSegments: [catSearch()] }),
+		});
+
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+		expect(lastOptions().toolImages).toEqual([
+			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+		]);
+		expect([...(lastOptions().toolSourceHosts as Set<string>)]).toEqual([
+			"example.com",
+		]);
+	});
+
+	it("passes nothing when no tool returned anything", async () => {
+		render(MessageBubble, { message: reply() });
+
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+		expect(lastOptions().toolImages).toBeUndefined();
+		expect(lastOptions().toolSourceHosts).toBeUndefined();
+	});
+
+	it("keeps handing over the same results while a reply streams and its segments are refreshed", async () => {
+		const first = reply({
+			content: "Here it",
+			isStreaming: true,
+			thinkingSegments: [catSearch()],
+		});
+		const { rerender } = render(MessageBubble, { message: first });
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+		const before = lastOptions();
+
+		// The next token, and a refreshed copy of the message: a new segment array with
+		// the same results in it.
+		markdownLoaderMock.renderMarkdown.mockClear();
+		await rerender({
+			message: {
+				...first,
+				content: "Here it is: ![A cat](https://example.com/cat.jpg)",
+				thinkingSegments: [catSearch()],
+			},
+		});
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+
+		// The very same arrays and set: the renderer sees no change, so draws no block again.
+		expect(lastOptions().toolImages).toBe(before.toolImages);
+		expect(lastOptions().toolSourceHosts).toBe(before.toolSourceHosts);
+	});
+
+	it("hands over new results when a tool returns something new", async () => {
+		const first = reply({ isStreaming: true, thinkingSegments: [] });
+		const { rerender } = render(MessageBubble, { message: first });
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+		expect(lastOptions().toolImages).toBeUndefined();
+
+		markdownLoaderMock.renderMarkdown.mockClear();
+		await rerender({
+			message: { ...first, thinkingSegments: [catSearch()] },
+		});
+		await waitFor(() =>
+			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
+		);
+		expect(lastOptions().toolImages).toEqual([
+			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+		]);
+	});
+});

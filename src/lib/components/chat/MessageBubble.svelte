@@ -14,6 +14,10 @@ import {
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
 import { foldArtifactDeliverables } from "$lib/utils/artifact-deliverables";
+import {
+	messageRenderResourcesFromKey,
+	messageRenderResourcesKey,
+} from "$lib/utils/message-render-resources";
 import { buildToolActivityItem } from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
@@ -286,6 +290,17 @@ let liveResponseActivityEntries = $derived(
 // (and the rail's derived rows, which hang off `thinkingSegmentsForDisplay`)
 // are rebuilt only when a tool call really changed.
 let rawThinkingSegments = $derived(message.thinkingSegments ?? NO_SEGMENTS);
+// What the reply may show of the web without a click is what this message's own
+// tool calls returned (docs/plans/exfil-channels). It is derived through a string
+// of its content, not from the segment array: a refreshed copy of the message has
+// a new array with the same results, and only a tool that really returned
+// something new may make the renderer draw every block again.
+let renderResourcesKey = $derived(
+	messageRenderResourcesKey(rawThinkingSegments),
+);
+let renderResources = $derived(
+	messageRenderResourcesFromKey(renderResourcesKey),
+);
 let deliverableSegments = $derived(
 	rawThinkingSegments.filter(isArtifactToolCall),
 );
@@ -1165,6 +1180,7 @@ function sendFollowUp(question: string) {
 				isDark={$isDark}
 				isStreaming={markdownIsStreaming}
 				compactExternalLinks
+				toolResults={renderResources}
 			/>
 			</div>
 			{#if hasDeliverables}
