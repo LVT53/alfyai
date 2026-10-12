@@ -64,6 +64,15 @@ function contentOf(artifactId: string) {
 		.get()?.contentText;
 }
 
+function metadataOf(artifactId: string): Record<string, unknown> {
+	const json = memory.db
+		.select({ metadataJson: schema.artifacts.metadataJson })
+		.from(schema.artifacts)
+		.where(eq(schema.artifacts.id, artifactId))
+		.get()?.metadataJson;
+	return json ? (JSON.parse(json) as Record<string, unknown>) : {};
+}
+
 beforeEach(() => {
 	memory = createInMemoryDatabase();
 	seedUser(memory, OWNER);
@@ -640,6 +649,131 @@ describe("restoreVersion of an App", () => {
 			restoreVersion({ userId: OWNER, artifactId, versionId: idOf(1) }),
 		).resolves.toMatchObject({ ok: true, versionNumber: 3 });
 		expect(contentOf(artifactId)).toBe(CLEAN_APP);
+	});
+
+	// FX-V's note: the metadata is the artifact's, written with the version that
+	// was live, so a restore left the verdict and the glitch hints of the version it
+	// replaced on the App it brought back.
+	describe("what the App's metadata says after a restore", () => {
+		const NETWORK_APP =
+			"<!doctype html><html><body><script>fetch('/api/x');</script></body></html>";
+		const LIVE_VERDICT = {
+			checked: true,
+			verdict: "repaired",
+			reason: null,
+		};
+
+		async function rebuild(
+			artifactId: string,
+			body: string,
+			metadataPatch: Record<string, unknown>,
+		) {
+			const result = await updateArtifactBody({
+				userId: OWNER,
+				artifactId,
+				body,
+				author: "alfy",
+				summary: "Alfy regenerated the app: again",
+				metadataPatch,
+			});
+			if (!result.ok) throw new Error(result.reason);
+		}
+
+		it("describes the restored version: today's audit of its body, and no verdict about the version it replaced", async () => {
+			// v1 is clean; v2 is a rebuild that fetches (a glitch) and was checked.
+			const { artifactId, idOf } = await createApp([CLEAN_APP]);
+			await rebuild(artifactId, NETWORK_APP, {
+				glitchRuleIds: ["no-network-api"],
+				verification: LIVE_VERDICT,
+			});
+			expect(metadataOf(artifactId)).toMatchObject({
+				glitchRuleIds: ["no-network-api"],
+				verification: LIVE_VERDICT,
+			});
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId,
+					versionId: idOf(1),
+					expectVersion: 2,
+				}),
+			).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+
+			const metadata = metadataOf(artifactId);
+			// The restored body is clean: no glitch hint about the fetch that is gone.
+			expect(metadata.glitchRuleIds).toEqual([]);
+			// Nobody has checked this version since it came back: no verdict is claimed.
+			expect(metadata.verification ?? null).toBeNull();
+			// Nothing else of the artifact's identity moved.
+			expect(metadata.artifactType).toBe("app");
+		});
+
+		it("names the glitches of the version it brings back, as the audit finds them", async () => {
+			// v1 fetches; v2 is a clean rebuild whose metadata says so.
+			const { artifactId, idOf } = await createApp([NETWORK_APP]);
+			await rebuild(artifactId, CLEAN_APP, {
+				glitchRuleIds: [],
+				verification: { checked: true, verdict: "clean", reason: null },
+			});
+
+			await restoreVersion({
+				userId: OWNER,
+				artifactId,
+				versionId: idOf(1),
+				expectVersion: 2,
+			});
+
+			const metadata = metadataOf(artifactId);
+			expect(metadata.glitchRuleIds).toEqual(["no-network-api"]);
+			expect(metadata.verification ?? null).toBeNull();
+		});
+
+		it("is the same for an App rebuild's Undo, which also brings an earlier body back", async () => {
+			const { artifactId, idOf } = await createApp([CLEAN_APP]);
+			await rebuild(artifactId, NETWORK_APP, {
+				glitchRuleIds: ["no-network-api"],
+				verification: LIVE_VERDICT,
+			});
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId,
+					versionId: idOf(1),
+					undoOf: 2,
+				}),
+			).resolves.toMatchObject({ ok: true, kind: "undo_alfy_change" });
+
+			expect(metadataOf(artifactId).glitchRuleIds).toEqual([]);
+			expect(metadataOf(artifactId).verification ?? null).toBeNull();
+		});
+
+		it("is an App's rule alone: a Document's restore writes no App metadata", async () => {
+			const result = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: "document",
+				title: "Notes",
+				body: "First.",
+				author: "alfy",
+				versionSummary: "Alfy wrote the first draft",
+			});
+			if (!result.ok) throw new Error(result.reason);
+			await edit(result.artifact.id, "Second.", "Edited");
+			const [, first] = await listVersions({
+				userId: OWNER,
+				artifactId: result.artifact.id,
+			});
+			await restoreVersion({
+				userId: OWNER,
+				artifactId: result.artifact.id,
+				versionId: first.id,
+			});
+			const metadata = metadataOf(result.artifact.id);
+			expect(metadata).not.toHaveProperty("glitchRuleIds");
+			expect(metadata).not.toHaveProperty("verification");
+		});
 	});
 
 	it("holds an App's rebuild Undo to the same line: the version it would bring back must run", async () => {

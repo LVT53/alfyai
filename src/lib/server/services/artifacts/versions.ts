@@ -24,7 +24,7 @@ import {
 	undidAlfyChangeSummary,
 	undidRestoreSummary,
 } from "$lib/shared/artifacts/version-summaries";
-import { appViolations } from "./app/audit";
+import { appViolations, auditAppHtml, glitchRuleIdsOf } from "./app/audit";
 import {
 	ARTIFACT_HISTORY_PAGE_MAX,
 	ARTIFACT_VERSIONS_DEFAULT_LIMIT,
@@ -142,7 +142,25 @@ export async function getVersionBody(
  * version the current audit calls a violation (it sends its own document away,
  * or opens a WebRTC channel; `appViolations`) is refused `not_runnable`, the
  * very answer the saved-version route gives it. History offers it as Code only.
+ * An App's metadata (the glitch hints and the verdict of its last check) is the
+ * artifact's, written with the version that was live: a restore brings another
+ * body back, so it writes what describes THAT one (`appMetadataAfterRestore`).
  */
+/**
+ * What an App's metadata says once an earlier body is live again. The glitch
+ * hints are what today's audit finds in that body. The verdict is dropped: it
+ * was about the version that was live before (a rebuild's "repaired" and its
+ * note would read as the claim about this one), no version keeps its own, and
+ * nobody has checked this one since it came back, so the card claims nothing
+ * until the next rebuild checks it.
+ */
+function appMetadataAfterRestore(html: string): Record<string, unknown> {
+	return {
+		glitchRuleIds: glitchRuleIdsOf(auditAppHtml(html)),
+		verification: null,
+	};
+}
+
 export async function restoreVersion(
 	params: VersionTarget & {
 		versionId: string;
@@ -233,6 +251,10 @@ export async function restoreVersion(
 		expectVersion,
 		// An Undo is guarded by the number it names; the hash is a History page's.
 		baseHash: params.undoOf === undefined ? params.expectHash : undefined,
+		metadataPatch:
+			version.kind === "app"
+				? appMetadataAfterRestore(version.body)
+				: undefined,
 	});
 	if (!result.ok) {
 		// The old body was under every cap when it was written: what is left is a
