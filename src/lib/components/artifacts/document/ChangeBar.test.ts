@@ -132,6 +132,25 @@ describe("ChangeBar", () => {
 			expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Alt+Z");
 		});
 
+		it("draws no chord on a touch screen, and keeps it in aria-keyshortcuts", () => {
+			setPlatform("Win32");
+			vi.stubGlobal(
+				"matchMedia",
+				vi.fn().mockImplementation((query: string) => ({
+					matches: true,
+					media: query,
+				})),
+			);
+			try {
+				render(ChangeBar, callbacks());
+				const undo = screen.getByRole("button", { name: "Undo Alfy's change" });
+				expect(undo.getAttribute("title") ?? "").not.toMatch(/Ctrl|⌘|⌥/);
+				expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Alt+Z");
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
 		it("says Ctrl+Alt+Shift+Z on Redo", () => {
 			setPlatform("Win32");
 			render(ChangeBar, { ...callbacks(), status: "undone" });

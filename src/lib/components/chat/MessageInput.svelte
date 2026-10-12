@@ -93,6 +93,7 @@ import {
 	viewportStore,
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
+import { chordsAreDrawn } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { portalToBody } from "$lib/utils/portal";
 import {
 	clearComposerQuoteRequest,
@@ -736,8 +737,13 @@ let hasComposerChips = $derived(
 const SLASH_SHORTCUT_HINT_KEY = "alfyai:composer:slashHintDismissed";
 let slashHintDismissed = $state(false);
 let isComposerFocused = $state(false);
+// Not on a touch screen (FB-9): there is no "/" key to press, only wasted space.
 let showSlashHint = $derived(
-	showSlashHintProp && isHydrated && !slashHintDismissed && !isComposerFocused,
+	showSlashHintProp &&
+		isHydrated &&
+		!slashHintDismissed &&
+		!isComposerFocused &&
+		chordsAreDrawn(),
 );
 
 $effect(() => {

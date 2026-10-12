@@ -3,8 +3,19 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
+import { openBoard } from "./artifact-canvas-helpers";
+import {
+	openDocument,
+	PROSE_MARKDOWN,
+	seedDocument,
+} from "./artifact-document-polish-helpers";
 import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
-import { login, waitForMotionToSettle } from "./helpers";
+import {
+	createEmptyConversation,
+	ensureSidebarExpanded,
+	login,
+	waitForMotionToSettle,
+} from "./helpers";
 
 /**
  * FB-9 (ruling 77 and its amendments): the owner's own finds on a phone. Real
@@ -183,3 +194,120 @@ for (const width of PHONE_WIDTHS) {
 		});
 	});
 }
+
+/**
+ * A keyboard chord is "plain wasted space" on a touch screen (ruling 77's
+ * amendment): where the primary pointer is a finger no button, tooltip or hint
+ * writes one, and the shortcuts and their `aria-keyshortcuts` stay. A desktop
+ * with a mouse is unchanged. `keyboard-shortcuts.ts` is the one rule.
+ */
+const CHORD = /Ctrl|⌘|⌥|⇧|Cmd\+/;
+
+/** Every tooltip and accessible name under a surface that writes a keyboard chord. */
+async function chordsWrittenUnder(root: Locator): Promise<string[]> {
+	return root.evaluate((element, source) => {
+		const chord = new RegExp(source);
+		const found: string[] = [];
+		for (const node of element.querySelectorAll("[title], [aria-label]")) {
+			for (const name of ["title", "aria-label"]) {
+				const value = node.getAttribute(name);
+				if (value && chord.test(value)) found.push(`${name}="${value}"`);
+			}
+		}
+		return found;
+	}, CHORD.source);
+}
+
+test.describe("no keyboard chord on a touch screen (390 px, touch)", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("the sidebar's search chip, the search legend and the composer's slash hint are gone", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "Touch hints");
+		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await expect(page.getByTestId("slash-shortcut-hint")).toHaveCount(0);
+
+		await page.getByRole("button", { name: "Toggle sidebar" }).tap();
+		const sidebar = page.locator("aside.sidebar-panel");
+		await expect(sidebar).toBeVisible();
+		await waitForMotionToSettle(page);
+		const searchPill = sidebar.getByRole("button", {
+			name: "Search conversations",
+		});
+		await expect(searchPill).toBeVisible();
+		await expect(sidebar.getByTestId("search-shortcut-hint")).toBeHidden();
+
+		await searchPill.tap();
+		const modal = page.getByRole("dialog");
+		await expect(modal).toBeVisible();
+		await expect(modal.locator(".search-kbd")).toHaveCount(0);
+		await expect(modal.locator(".search-modal-footer")).toHaveCount(0);
+	});
+
+	test("the Document's toolbar names its Undo without keys, and keeps them for assistive technology", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "Touch doc");
+		await seedDocument(conversationId, {
+			markdown: PROSE_MARKDOWN,
+			pendingOps: 1,
+		});
+		const shell = await openDocument(page, conversationId);
+		const toolbar = shell.getByRole("toolbar", { name: "Document" });
+		const undo = toolbar.getByRole("button", { name: "Undo" });
+		await expect(undo).toHaveAttribute("title", "Undo");
+		await expect(undo).toHaveAttribute("aria-keyshortcuts", /Z/);
+		expect(await chordsWrittenUnder(shell)).toEqual([]);
+	});
+
+	test("the board's toolbar and selection pill name no keys either", async ({
+		page,
+	}) => {
+		await openBoard(page, "Touch board");
+		const undo = page.getByTestId("canvas-undo");
+		await expect(undo).toHaveAttribute("title", "Undo your last step");
+		await expect(undo).toHaveAttribute("aria-keyshortcuts", /Z/);
+		await page.locator('.svelte-flow__node[data-id="note-1"]').tap();
+		const pill = page.getByTestId("canvas-selection-pill");
+		await expect(pill).toBeVisible();
+		await expect(page.getByTestId("canvas-selection-ask")).toHaveAttribute(
+			"aria-keyshortcuts",
+			/Alt\+A/,
+		);
+		expect(await chordsWrittenUnder(pill)).toEqual([]);
+		expect(
+			await chordsWrittenUnder(page.getByTestId("canvas-toolbar")),
+		).toEqual([]);
+	});
+});
+
+test.describe("keyboard chords stay on a desktop with a mouse", () => {
+	test("the sidebar's chip, the search legend, the toolbar's and the pill's tooltips", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await openBoard(page, "Desktop board");
+		await expect(page.getByTestId("canvas-undo")).toHaveAttribute(
+			"title",
+			/^Undo your last step \((Ctrl\+Z|⌘Z)\)$/,
+		);
+		await page.locator('.svelte-flow__node[data-id="note-1"]').click();
+		await expect(page.getByTestId("canvas-selection-ask")).toHaveAttribute(
+			"title",
+			/^Ask Alfy \((Ctrl\+Alt\+A|⌥⌘A)\)$/,
+		);
+		await ensureSidebarExpanded(page);
+		await expect(page.getByTestId("search-shortcut-hint")).toBeVisible();
+		await page.getByRole("button", { name: "Search conversations" }).click();
+		const modal = page.getByRole("dialog");
+		await expect(modal.locator(".search-kbd").first()).toBeVisible();
+	});
+});

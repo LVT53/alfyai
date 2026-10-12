@@ -32,6 +32,7 @@ import {
 } from "@lucide/svelte";
 import type { I18nKey } from "$lib/i18n";
 import {
+	chordsAreDrawn,
 	type HistoryShortcut,
 	historyAriaKeyShortcuts,
 	historyShortcutLabel,
@@ -195,10 +196,13 @@ export function toolbarActionText(
 			ariaKeyShortcuts: undefined,
 		};
 	}
+	// On a touch screen the keys are not drawn (FB-9); they stay in aria-keyshortcuts.
 	return {
-		label: translate(action.shortcut.withShortcutLabelKey, {
-			shortcut: historyShortcutLabel(action.shortcut.action),
-		}),
+		label: chordsAreDrawn()
+			? translate(action.shortcut.withShortcutLabelKey, {
+					shortcut: historyShortcutLabel(action.shortcut.action),
+				})
+			: translate(action.labelKey, action.labelParams),
 		ariaKeyShortcuts: historyAriaKeyShortcuts(action.shortcut.action),
 	};
 }
