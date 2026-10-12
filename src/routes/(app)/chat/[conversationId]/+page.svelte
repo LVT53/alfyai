@@ -3906,7 +3906,10 @@ function handleDrop(event: DragEvent) {
 		class:stage--incognito={data.conversation.memoryIncognito}
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
-			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
+			<div
+				class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex"
+				class:chat-title-bar-counted={artifactCount > 0}
+			>
 				<!-- Leading spacer: equal flex-basis to the trailing actions column
 				     keeps the title visually centred whether or not the count
 				     button is drawn, instead of the title drifting sideways. -->
@@ -4214,6 +4217,15 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar-actions {
 		justify-content: flex-end;
+	}
+
+	/* The count chip hangs off the bar's right column, and the spacer opposite keeps
+	   the title centred: while the chip is drawn both columns keep the room it takes
+	   (its 58 px, less the 12 px it leans into the bar's gutter, and a gap), so a long
+	   title gives way (it truncates) instead of running under the chip: 4 px at 1280
+	   and 19 px at 1100 beside a docked panel in a project chat (RC-A). */
+	.chat-title-bar-counted .chat-title-bar-side {
+		min-width: 4rem;
 	}
 
 	/* Wave 2.5 polish G1-B (owner: "pushed a bit more to the right"): the
