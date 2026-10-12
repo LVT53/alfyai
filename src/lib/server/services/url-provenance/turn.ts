@@ -30,6 +30,13 @@
  * names the first kind; a test refuses a registered tool that is in neither list,
  * so a new tool is a decision, not a default.
  *
+ * Nor is the text of a connector result a local model summarised for a cloud
+ * chat model (`localDistilled` on the call's metadata, written by the tool
+ * envelope): that model read the user's data, and maybe a stranger's email in
+ * it, so an address in its summary may carry what it read. Such a call counts
+ * through its candidates alone, which the server writes from the provider's own
+ * answer.
+ *
  * Built lazily: the turn's own results are noted as they arrive, but the stored
  * messages are read only when an address first needs them.
  */
@@ -117,6 +124,17 @@ export function resultCountsAsProvenance(
 	return PROVENANCE_RESULT_TOOLS.has(toolName);
 }
 
+/**
+ * Whether a counted result's text (its payload, or the digest stored from it)
+ * was written by a local model summarising a connector's data, so only the
+ * call's candidates count.
+ */
+function isLocalSummary(
+	metadata?: Record<string, string | number | boolean | null> | null,
+): boolean {
+	return metadata?.localDistilled === true;
+}
+
 function addKey(target: Set<string>, url: unknown): void {
 	if (target.size >= MAX_KEYS) return;
 	const key = provenanceKey(url);
@@ -163,6 +181,7 @@ export function provenanceKeysOfStoredSources(
 			const key = provenanceKey(candidate.url);
 			if (key && !own.has(key)) addKey(keys, candidate.url);
 		}
+		if (isLocalSummary(call.metadata)) continue;
 		// The digest is a slice of what the model was handed.
 		for (const url of extractUrls(call.resultDigest)) {
 			const key = provenanceKey(url);
@@ -280,6 +299,7 @@ export function createTurnProvenance(
 				const key = provenanceKey(candidate.url);
 				if (key && !own.has(key)) addKey(turnKeys, candidate.url);
 			}
+			if (isLocalSummary(entry?.metadata)) return;
 			for (const url of extractUrlsFromValue(
 				payload,
 				MAX_ADDRESSES_PER_RESULT,
