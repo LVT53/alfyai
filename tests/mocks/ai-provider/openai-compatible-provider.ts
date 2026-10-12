@@ -1107,7 +1107,10 @@ function buildCreateArtifactFinalStreamResponse(): Response {
  * the request that carries the tool result streams the closing sentence after a pause.
  */
 function bodyAsksForLateCard(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_LATE_CARD_MARKER);
+	// This turn's own message, never what the request merely carries: the bundle's
+	// evidence holds the user's other finished tasks with their request text, so
+	// the next spec on the worker (artifact-chat-card) was answered as a late card.
+	return currentTurnText(body)?.includes(AI_SMOKE_LATE_CARD_MARKER) === true;
 }
 
 function lateCardStreamResponse(
