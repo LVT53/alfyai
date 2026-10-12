@@ -46,6 +46,12 @@ const outboundFaviconFetch = createOutboundFetch(
 	{ maxBytes: FAVICON_MAX_BYTES, timeoutMs: FAVICON_TIMEOUT_MS },
 );
 
+// No `image/svg+xml`. An SVG is a document: this proxy serves the bytes from
+// the app's own origin, and a browser that is sent to the URL (a link is all it
+// takes) opens an SVG as a page and runs the scripts in it as the app. Any site
+// can answer `/favicon.ico` with one, so a remote SVG is never accepted; the
+// icon is then DuckDuckGo's raster one, or the globe, which is OUR SVG (written
+// by hand in ./globe.ts and served from the negative cache, never fetched).
 const IMAGE_TYPES = new Set([
 	"image/x-icon",
 	"image/vnd.microsoft.icon",
@@ -53,7 +59,6 @@ const IMAGE_TYPES = new Set([
 	"image/jpeg",
 	"image/gif",
 	"image/webp",
-	"image/svg+xml",
 	"image/avif",
 	"image/bmp",
 ]);

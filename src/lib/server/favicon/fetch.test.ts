@@ -113,6 +113,43 @@ describe("fetchFavicon orchestration", () => {
 		}
 	});
 
+	it("never accepts an SVG from a remote site: it is a document that runs scripts when opened", async () => {
+		const svg = new TextEncoder().encode(
+			"<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'><script>alert(1)</script></svg>",
+		);
+		const ddg = makeBytes(4);
+		const fetchMock = vi.fn(async (url: string | URL) => {
+			const s = String(url);
+			if (s.endsWith("example.com/favicon.ico")) {
+				return makeResponse(svg, { contentType: "image/svg+xml" });
+			}
+			if (s.includes("icons.duckduckgo.com")) {
+				return makeResponse(ddg, { contentType: "image/png" });
+			}
+			throw new Error("unexpected");
+		});
+
+		const result = await fetchFavicon("example.com", {
+			fetch: asOutboundFetch(fetchMock),
+		});
+
+		// The SVG is skipped and the raster fallback is used.
+		expect(result.kind).toBe("image");
+		if (result.kind === "image") {
+			expect(result.contentType).toBe("image/png");
+			expect(result.bytes).toEqual(ddg);
+		}
+
+		// If the fallback also answers with an SVG there is nothing left but the globe.
+		const allSvg = vi.fn(async () =>
+			makeResponse(svg, { contentType: "image/svg+xml; charset=utf-8" }),
+		);
+		const globe = await fetchFavicon("example.org", {
+			fetch: asOutboundFetch(allSvg),
+		});
+		expect(globe.kind).toBe("globe");
+	});
+
 	it("returns the globe fallback when both source and DDG fail", async () => {
 		const fetchMock = vi.fn(async () =>
 			makeResponse(new Uint8Array(), { status: 502 }),

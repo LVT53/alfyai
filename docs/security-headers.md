@@ -314,3 +314,9 @@ resolves to rather than the text of the host (a public name that resolves to `12
 checks), connects to the address it checked, follows no redirects, and caps the time and the body.
 The favicon proxy and the PDF report image loader use it today. Anything new that fetches an address
 nobody on the server's side chose must too: `createOutboundFetch` there, never `globalThis.fetch`.
+
+What the proxy serves matters as much as where it fetched it from: it hands bytes back from the
+app's own origin, so it accepts raster icons only. An SVG is a document, and one a remote site
+answered `/favicon.ico` with would run its scripts as the app when a browser was sent to the proxy's
+URL. A remote `image/svg+xml` is skipped (the icon falls back to DuckDuckGo's raster one, or to the
+globe, which is our own hand-written SVG).
