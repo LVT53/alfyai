@@ -21,7 +21,14 @@ import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
+import { prefersReducedMotion } from "$lib/utils/motion";
+import { useBoardContext } from "./_lib/board-context";
 import { anchorPoint, pinAt, pinLabel } from "./_lib/comments";
+import {
+	MIN_COLUMN_WIDTH,
+	type PaneBox,
+	slideForColumn,
+} from "./_lib/rail-room";
 
 /** How long a pin that was jumped to keeps its ring: long enough to find it, short enough not to nag. */
 const FLASH_MS = 1800;
@@ -36,6 +43,8 @@ let {
 	goto = null,
 	oncenter,
 	onselect,
+	open = false,
+	size = { width: 0, height: 0 },
 }: {
 	/** Every thread, in list order: a pin's number is its place here. */
 	threads: readonly ArtifactComment[];
@@ -52,6 +61,10 @@ let {
 	goto?: { commentId: string; token: number } | null;
 	oncenter: (point: Pt) => void;
 	onselect: (commentId: string) => void;
+	/** The comments list is showing: beside the board it takes room from the pane. */
+	open?: boolean;
+	/** The pane's size now. */
+	size?: { width: number; height: number };
 } = $props();
 
 let flashId = $state<string | null>(null);
@@ -106,10 +119,94 @@ $effect(() => {
 $effect(() => () => {
 	if (flashTimer) clearTimeout(flashTimer);
 });
+
+// The comments column takes room from the pane (RC-A #7). A board that follows its pane
+// is fitted into what is left; a board the reader has the camera of is not, and its right
+// side would end under the column. The zoom is theirs and stays: the board slides over by
+// what keeps in view what they were looking at, and slides back when the column goes, if
+// nothing but this moved the camera since.
+const board = useBoardContext();
+const SLIDE_MS = 250;
+let rootEl = $state<HTMLElement | null>(null);
+let wasOpen = false;
+let closedWidth = 0;
+let slid: { by: number; x: number; y: number; zoom: number } | null = null;
+let slideToken = 0;
+
+/** Two frames: the pane has its new width and a board that follows it has followed. */
+const settled = () =>
+	new Promise<void>((resolve) =>
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+	);
+
+async function slideOver(token: number): Promise<void> {
+	await settled();
+	const flow = rootEl?.closest<HTMLElement>(".svelte-flow");
+	if (token !== slideToken || !flow || !board.panBy) return;
+	const pane = flow.getBoundingClientRect();
+	const taken = closedWidth - pane.width;
+	// A drawer over the board or a sheet takes no room.
+	if (taken < MIN_COLUMN_WIDTH) return;
+	const boxes: PaneBox[] = [
+		...flow.querySelectorAll<HTMLElement>(".svelte-flow__node"),
+	].map((node) => {
+		const rect = node.getBoundingClientRect();
+		return {
+			left: rect.left - pane.left,
+			top: rect.top - pane.top,
+			right: rect.right - pane.left,
+			bottom: rect.bottom - pane.top,
+		};
+	});
+	const by = slideForColumn(
+		boxes,
+		{ width: pane.width, height: pane.height },
+		taken,
+	);
+	if (by < 4) return;
+	const { x, y, zoom } = viewport;
+	board.panBy({ x: -by, y: 0 }, prefersReducedMotion() ? 0 : SLIDE_MS);
+	slid = { by, x: x - by, y, zoom };
+}
+
+function slideBack(): void {
+	const back = slid;
+	slid = null;
+	if (!back || !board.panBy) return;
+	const { x, y, zoom } = viewport;
+	// Only if the camera is where the slide left it: anything the reader did since is theirs.
+	if (
+		Math.abs(x - back.x) < 2 &&
+		Math.abs(y - back.y) < 2 &&
+		Math.abs(zoom - back.zoom) < 0.001
+	) {
+		board.panBy({ x: back.by, y: 0 }, prefersReducedMotion() ? 0 : SLIDE_MS);
+	}
+}
+
+$effect(() => {
+	const showing = open;
+	const width = size.width;
+	untrack(() => {
+		if (showing === wasOpen) {
+			if (!showing) closedWidth = width;
+			return;
+		}
+		wasOpen = showing;
+		slideToken += 1;
+		if (showing) void slideOver(slideToken);
+		else slideBack();
+	});
+});
 </script>
 
 <!-- z-index 2, inline: the flow lifts the children of a frame to 1, and a selector from an ancestor cannot reach portal content. -->
-<div class="comment-pins" style="z-index: 2" data-testid="canvas-comment-pins">
+<div
+	class="comment-pins"
+	style="z-index: 2"
+	data-testid="canvas-comment-pins"
+	bind:this={rootEl}
+>
 	{#each pins as pin (pin.id)}
 		<button
 			type="button"

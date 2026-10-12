@@ -378,6 +378,61 @@ describe("downloadProducedFile", () => {
 		expect(download).not.toHaveBeenCalled();
 	});
 
+	// RV-B M2: a press can be handed a job another press made (the same item and format
+	// is one job), and a press that gives up on a job it did not make has no business
+	// stopping it for the one that did.
+	it("leaves a job alone that it was handed rather than made, when its own wait ran out", async () => {
+		const cancel = vi.fn(async () => ({}));
+
+		const result = await downloadProducedFile(
+			async () => ({ ok: true, job: job("running"), reused: true }),
+			{
+				wait: vi.fn(async () => ({
+					state: "timeout" as const,
+					job: job("running"),
+				})),
+				cancel,
+				download: vi.fn(),
+			},
+		);
+
+		expect(result).toEqual({ ok: false, reason: "timeout" });
+		expect(cancel).not.toHaveBeenCalled();
+	});
+
+	it("does not stop a job that a second press in this tab is still waiting on, and the second one gets its file", async () => {
+		const cancel = vi.fn(async () => ({}));
+		const download = vi.fn(async () => true);
+		let settleSecond: (value: never) => void = () => {};
+		const second = new Promise<never>((resolve) => {
+			settleSecond = resolve;
+		});
+		const waits = [
+			// The first press (it made the job) runs out of time first...
+			async () => ({ state: "timeout" as const, job: job("running") }),
+			// ...while the second (handed the same job) is still waiting for it.
+			() => second,
+		];
+		const first = downloadProducedFile(
+			async () => ({ ok: true, job: job("queued"), reused: false }),
+			{ wait: waits[0], cancel, download },
+		);
+		const other = downloadProducedFile(
+			async () => ({ ok: true, job: job("queued"), reused: true }),
+			{ wait: waits[1] as never, cancel, download },
+		);
+
+		await expect(first).resolves.toEqual({ ok: false, reason: "timeout" });
+		expect(cancel).not.toHaveBeenCalled();
+
+		settleSecond({ state: "succeeded", job: made } as never);
+		await expect(other).resolves.toEqual({
+			ok: true,
+			filename: "trip-plan.pdf",
+		});
+		expect(download).toHaveBeenCalledTimes(1);
+	});
+
 	it("says so when the job finished with no file", async () => {
 		await expect(
 			downloadProducedFile(async () => ({ ok: true, job: job("queued") }), {

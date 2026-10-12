@@ -1850,7 +1850,7 @@ const chatDict = {
 		"fileProduction.previewLabel": "{filename} előnézete",
 		"fileProduction.queued": "Várakozik",
 		"fileProduction.queuedDescription": "A fájlkészítés várakozik.",
-		"fileProduction.retry": "Újrapróbálkozás",
+		"fileProduction.retry": "Újrapróbálom",
 		"fileProduction.running": "Folyamatban",
 		"fileProduction.runningDescription": "A fájlok a háttérben készülnek.",
 		"fileProduction.staleDescription": "Hamarosan megtudjuk.",

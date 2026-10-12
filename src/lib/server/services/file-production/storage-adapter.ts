@@ -13,6 +13,8 @@ import {
 } from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import { sanitizeDocumentFilename } from "$lib/shared/artifacts/export-filename";
+import { fileExtension } from "$lib/shared/file-types";
 import type {
 	ParsedFileProductionJobRequest,
 	ProgramExecutionResult,
@@ -135,6 +137,37 @@ function mapChatFileToSourceProducedFile(
 	};
 }
 
+/**
+ * The name a produced file is stored, and later downloaded, under. A program names its
+ * one file itself. A Download of a Document is the reader's own export, so the file
+ * carries the title they wrote (Unicode kept, as the Markdown export always did): the
+ * renderers' own name is an ASCII slug of the same title, which suits a model's report
+ * and loses every accented letter of a Hungarian one. Anything else keeps the name the
+ * renderer or the sandbox gave it.
+ */
+function storedFilename(
+	input: StoreFileProductionOutputsInput,
+	file: ProgramExecutionResult["files"][number],
+): string {
+	const { request, job, executionResult } = input;
+	if (
+		request.sourceMode === "program" &&
+		request.filename &&
+		executionResult.files.length === 1
+	) {
+		return request.filename;
+	}
+	if (
+		job.origin === ARTIFACT_EXPORT_JOB_ORIGIN &&
+		request.sourceMode === "document_source"
+	) {
+		const extension = fileExtension(file.filename);
+		const base = sanitizeDocumentFilename(request.documentSource.title);
+		return extension ? `${base}.${extension}` : base;
+	}
+	return file.filename;
+}
+
 export async function storeFileProductionOutputs(
 	input: StoreFileProductionOutputsInput,
 ): Promise<StoreFileProductionOutputsResult> {
@@ -197,12 +230,7 @@ export async function storeFileProductionOutputs(
 	const storedFiles: ChatFile[] = [];
 	try {
 		for (const file of input.executionResult.files) {
-			const filename =
-				input.request.sourceMode === "program" &&
-				input.request.filename &&
-				input.executionResult.files.length === 1
-					? input.request.filename
-					: file.filename;
+			const filename = storedFilename(input, file);
 			const storedFile = await storeGeneratedFile(
 				input.job.conversationId,
 				input.job.userId,

@@ -3,7 +3,8 @@
  * the selected blocks, centred, because their own small toolbar (Delete and the
  * block's controls) is above them; and above that toolbar when there is no room
  * below, the board's own toolbar running along the bottom of the pane. It is kept
- * inside the pane, and off the change pill (RC-3 N3): the pill is as wide as its
+ * inside the pane, off the controls over its corners (the zoom control, RC-A #10),
+ * and off the change pill (RC-3 N3): the pill is as wide as its
  * two buttons, so a block near an edge of a phone's pane put it half outside, and
  * the change pill hangs from the block below, which is where this one goes. Pure
  * and in board space, like the geometry it reads, so it is unit-tested without a
@@ -49,10 +50,13 @@ export function selectionPillPlacement(
 		avoid?: ScreenRect | null;
 		/** Where the picked block's own toolbar is on the screen. Below the block (it had no room above), the pill hangs under it; above it, as ever, the pill clears it. */
 		toolbar?: ScreenRect | null;
+		/** What floats over the pane's corners and bottom (the zoom control, stacked above the board's toolbar on a narrow pane): the pill keeps off each, as it does off the change pill. */
+		controls?: readonly ScreenRect[];
 	} = {},
 ): SelectionPillPlacement {
 	const size = options.size ?? DEFAULT_SIZE;
 	const avoid = options.avoid ?? null;
+	const controls = options.controls ?? [];
 	const centre = box.x + box.width / 2;
 	const screenCentre = centre * camera.zoom + camera.x;
 	const screenTop = box.y * camera.zoom + camera.y;
@@ -99,7 +103,8 @@ export function selectionPillPlacement(
 	};
 	const fits = (rect: ScreenRect): boolean =>
 		(!known || (rect.top >= 0 && rect.bottom <= pane.height)) &&
-		(avoid === null || !rectsMeet(rect, avoid, AVOID_GAP));
+		(avoid === null || !rectsMeet(rect, avoid, AVOID_GAP)) &&
+		controls.every((control) => !rectsMeet(rect, control, AVOID_GAP));
 	const placed = (side: "below" | "above", centreX: number) => ({
 		side,
 		x: (centreX - camera.x) / camera.zoom,

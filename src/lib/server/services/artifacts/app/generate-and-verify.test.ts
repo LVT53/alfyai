@@ -13,11 +13,13 @@ vi.mock("./verify", () => ({
 vi.mock("../comments", () => ({ createComment: vi.fn() }));
 
 const { generateAndVerifyApp } = await import("./generate-and-verify");
+const { auditAppHtml } = await import("./audit");
 
 const ORIGINAL =
 	"<!doctype html><html><body><p>Total: 900</p><script>alfy.storage.get('t');</script></body></html>";
 const CLEAN_REPAIR = ORIGINAL.replace("900", "1,200");
 const NAVIGATING_REPAIR = `${ORIGINAL.replace("900", "1,200")}<script>window.location.href = "https://x.example/" + document.body.textContent;</script>`;
+const ALERT_SCRIPT = "<script>alert('saved');</script>";
 const WEBRTC_REPAIR = `${ORIGINAL.replace("900", "1,200")}<script>new RTCPeerConnection();</script>`;
 
 const FINDING = {
@@ -118,5 +120,63 @@ describe("generateAndVerifyApp — a repair is audited like the document it repa
 				value: { html: ORIGINAL, verification: { verdict } },
 			});
 		}
+	});
+});
+
+// RV-B M3: the glitch hints on the card describe the body that is live. When a
+// repair is accepted it IS the live body, so what the audit says about the draft it
+// replaced must not travel with it (a hint about code that is gone, and a missed one
+// for a glitch the repair brought in): the same rule `appMetadataAfterRestore` follows.
+describe("generateAndVerifyApp — the glitch hints are the live body's", () => {
+	it("reports the glitch an accepted repair brought in, which the draft did not have", async () => {
+		verifyApp.mockResolvedValue(
+			verification({ repairedHtml: CLEAN_REPAIR + ALERT_SCRIPT }),
+		);
+
+		const outcome = await generateAndVerifyApp(params);
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: {
+				html: CLEAN_REPAIR + ALERT_SCRIPT,
+				glitchRuleIds: ["no-dialogs"],
+			},
+		});
+	});
+
+	it("drops the hint for a glitch the accepted repair took out", async () => {
+		const draft = ORIGINAL + ALERT_SCRIPT;
+		generateApp.mockResolvedValue({
+			...generation(),
+			html: draft,
+			checks: auditAppHtml(draft),
+		});
+		verifyApp.mockResolvedValue(verification({ repairedHtml: CLEAN_REPAIR }));
+
+		const outcome = await generateAndVerifyApp(params);
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: { html: CLEAN_REPAIR, glitchRuleIds: [] },
+		});
+	});
+
+	it("keeps the draft's hints when no repair is accepted, since the draft ships", async () => {
+		const draft = ORIGINAL + ALERT_SCRIPT;
+		generateApp.mockResolvedValue({
+			...generation(),
+			html: draft,
+			checks: auditAppHtml(draft),
+		});
+		verifyApp.mockResolvedValue(
+			verification({ verdict: "clean", repairedHtml: null, findings: [] }),
+		);
+
+		const outcome = await generateAndVerifyApp(params);
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: { html: draft, glitchRuleIds: ["no-dialogs"] },
+		});
 	});
 });

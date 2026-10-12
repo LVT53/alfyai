@@ -130,11 +130,37 @@ describe("POST /api/artifacts/[id]/export", () => {
 
 		const calls = mockSubmitIntake.mock.calls.map(([call]) => call);
 		const keys = calls.map((call) => call.body.idempotencyKey as string);
-		expect(keys[0]).toMatch(/^artifact-export:artifact-1:pdf:[0-9a-f]{32}$/);
+		expect(keys[0]).toMatch(
+			/^artifact-export:artifact-1:pdf:v\d+:[0-9a-f]{32}$/,
+		);
 		expect(keys[1]).toBe(keys[0]);
 		// Another format is another file.
-		expect(keys[2]).toMatch(/^artifact-export:artifact-1:docx:[0-9a-f]{32}$/);
+		expect(keys[2]).toMatch(
+			/^artifact-export:artifact-1:docx:v\d+:[0-9a-f]{32}$/,
+		);
 		for (const call of calls) expect(call.reuse).toBe("usable");
+	});
+
+	// RV-B M2: the press that is handed a job an earlier press made must know it, as the
+	// App's route already says, so it does not stop a job that is not its own.
+	it("says whether the job is one an earlier press made", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture());
+		for (const reused of [false, true]) {
+			mockSubmitIntake.mockResolvedValue({
+				ok: true,
+				status: 202,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+
+			const response = await POST(makeEvent({}));
+
+			await expect(response.json()).resolves.toEqual({
+				ok: true,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+		}
 	});
 
 	it("asks for a new job once the document's words or its title have changed, and only then", async () => {
@@ -178,6 +204,7 @@ describe("POST /api/artifacts/[id]/export", () => {
 		await expect(response.json()).resolves.toEqual({
 			ok: true,
 			job: { id: "job-1" },
+			reused: false,
 		});
 
 		expect(mockSubmitIntake).toHaveBeenCalledTimes(1);

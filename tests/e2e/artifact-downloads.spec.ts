@@ -87,18 +87,18 @@ test.describe("the Document's Download", () => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 	});
 
-	// The report renderers name PDF and Word after the title as a plain ASCII
-	// slug, the Markdown file after the title as it is written.
+	// Every format is named after the title as the reader wrote it (RC-A: PDF and Word
+	// used to come out as an ASCII slug, Markdown alone kept the accents).
 	const formats = [
 		{
 			name: "PDF" as const,
-			filename: "becsi-hetvegi-utiterv.pdf",
+			filename: `${TITLE}.pdf`,
 			check: (bytes: Buffer) =>
 				expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-"),
 		},
 		{
 			name: "Word" as const,
-			filename: "becsi-hetvegi-utiterv.docx",
+			filename: `${TITLE}.docx`,
 			// A .docx is a zip: "PK".
 			check: (bytes: Buffer) =>
 				expect(bytes.subarray(0, 2).toString("latin1")).toBe("PK"),
@@ -517,7 +517,7 @@ test.describe("the App's Download", () => {
 		return popover;
 	}
 
-	test("a real click on the HTML file ends in a download of the app's own file", async ({
+	test("one real click on Download ends in a download of the app's own file", async ({
 		page,
 	}) => {
 		const { conversationId } = await track(seedApp());
@@ -529,14 +529,16 @@ test.describe("the App's Download", () => {
 			});
 		});
 
-		const popover = await openAppDownload(page, conversationId);
+		// The header's Download is the only press: an App has no format to choose, so
+		// the popover opens already making the file (RC-A: it took a second press).
+		await openItem(page, conversationId, APP_TITLE);
 		const downloaded = page.waitForEvent("download", { timeout: 20_000 });
-		await popover.getByRole("button", { name: "HTML file" }).click();
+		await pressDownload(page);
 		const download = await downloaded;
 
 		expect(download.suggestedFilename()).toBe("app.html");
 		expect((await bytesOf(download)).toString("utf8")).toBe(APP_HTML);
-		await expect(popover).toHaveCount(0);
+		await expect(page.getByTestId("app-download-popover")).toHaveCount(0);
 	});
 
 	test("a sandbox run that failed is said so, with Try again, and nothing downloads", async ({
@@ -558,8 +560,8 @@ test.describe("the App's Download", () => {
 			downloadStarted = true;
 		});
 
+		// One press on the header's Download, and it says so at once.
 		const popover = await openAppDownload(page, conversationId);
-		await popover.getByRole("button", { name: "HTML file" }).click();
 
 		await expect(popover.getByRole("alert")).toHaveText(
 			"Could not prepare this app for download.",

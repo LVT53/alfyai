@@ -1,3 +1,6 @@
+// A change to what this renderer draws reaches the Download of an item nobody has edited
+// only when `ARTIFACT_EXPORT_FORMAT_VERSION` (services/artifacts/export.ts) moves too:
+// an export is handed back as the file it already made. Bump it with the change.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import fontkit from "@pdf-lib/fontkit";

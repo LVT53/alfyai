@@ -12,6 +12,7 @@
  * reader's marks are not compared: no op can change them.
  */
 import type { CanvasBody, CanvasEdge, CanvasNode, Pt } from "./canvas";
+import { estimatedNodeSize } from "./canvas-blocks";
 
 export interface BoardDelta {
 	addedNodes: string[];
@@ -93,13 +94,33 @@ function frameWordsOf(node: CanvasNode): string {
 	return stable({ type: node.type, data: words });
 }
 
-/** How far apart, in board units, a block put in the place of another may start and still be taken for it. */
-const REPLACEMENT_REACH = 48;
+/** How far apart, in board units, a block put in the place of another may be from it and still be taken for it. */
+export const REPLACEMENT_REACH = 48;
+
+/**
+ * How far a block put in the place of `from` is from it: where the two start, or
+ * where their middles are, whichever is nearer. A rewrite that is longer than the note
+ * it replaces starts where that one started, or, when it had to move up to stay in its
+ * frame, is centred where it was.
+ */
+function placeDistance(from: CanvasNode, to: CanvasNode): number {
+	const was = estimatedNodeSize(from);
+	const now = estimatedNodeSize(to);
+	const starts = Math.hypot(
+		from.position.x - to.position.x,
+		from.position.y - to.position.y,
+	);
+	const middles = Math.hypot(
+		from.position.x + was.width / 2 - (to.position.x + now.width / 2),
+		from.position.y + was.height / 2 - (to.position.y + now.height / 2),
+	);
+	return Math.min(starts, middles);
+}
 
 /**
  * Which added block stands in for which removed one: the same kind of block, in
- * the same frame, starting at the same place or within `REPLACEMENT_REACH` of it
- * (the nearest first; each block is taken once).
+ * the same frame, starting at the same place or centred within `REPLACEMENT_REACH`
+ * of it (the nearest first; each block is taken once).
  */
 function pairReplacements(
 	removed: readonly CanvasNode[],
@@ -111,10 +132,7 @@ function pairReplacements(
 		for (const to of added) {
 			if (from.type !== to.type) continue;
 			if ((from.parentId ?? null) !== (to.parentId ?? null)) continue;
-			const distance = Math.hypot(
-				from.position.x - to.position.x,
-				from.position.y - to.position.y,
-			);
+			const distance = placeDistance(from, to);
 			if (distance <= REPLACEMENT_REACH)
 				candidates.push({ from, to, distance });
 		}

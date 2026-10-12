@@ -437,8 +437,13 @@ let foldedA11yLabel = $derived(
 		grid-template-rows: 1fr;
 	}
 
+	/* The grid's one column is as wide as the card, never as wide as the longest nowrap
+	   line in it (a quote, a chip row): without `min-width: 0` that line sets the width
+	   of everything in the thread and the card clips what runs past its edge (RC-A #7:
+	   the board's 300 px column). */
 	.comment-thread-collapsible-inner {
 		min-height: 0;
+		min-width: 0;
 	}
 
 	/* The card around a resolved thread is already dashed; the fold line is

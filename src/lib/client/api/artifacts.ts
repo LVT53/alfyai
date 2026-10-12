@@ -1226,7 +1226,12 @@ export type ExportArtifactDocumentFormat =
 	(typeof EXPORT_ARTIFACT_DOCUMENT_FORMATS)[number];
 
 export type ExportArtifactDocumentResult =
-	| { ok: true; job: FileProductionJob }
+	| {
+			ok: true;
+			job: FileProductionJob;
+			/** The job is one an earlier press made (RV-B M2): the press handed it does not own it. */
+			reused?: boolean;
+	  }
 	| {
 			ok: false;
 			reason:

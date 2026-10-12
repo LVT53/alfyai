@@ -5,6 +5,8 @@ import {
 	makeBlock,
 } from "$lib/shared/artifact-document/blocks";
 import {
+	ARTIFACT_EXPORT_FORMAT_VERSION,
+	artifactExportIdempotencyKey,
 	buildGeneratedDocumentSource,
 	sanitizeDocumentFilename,
 } from "./export";
@@ -228,6 +230,58 @@ describe("buildGeneratedDocumentSource", () => {
 	});
 });
 
+// RV-B M1: an export is handed back for as long as its file exists, so what made the
+// file is part of the key. A fix to a renderer, the report mapper or an export's file
+// name must reach an item nobody has edited, which the item's own words never will.
+describe("artifactExportIdempotencyKey", () => {
+	const item = {
+		artifactId: "artifact-1",
+		format: "pdf",
+		title: "Trip plan",
+		body: "<!--b:p1-->\nBook the flight.",
+	};
+
+	it("is the same key for the same item, in the same format, made by the same code", () => {
+		expect(artifactExportIdempotencyKey(item)).toBe(
+			artifactExportIdempotencyKey({ ...item }),
+		);
+	});
+
+	it("names the version of the code that makes the file, between the format and the words", () => {
+		expect(artifactExportIdempotencyKey(item)).toMatch(
+			new RegExp(
+				`^artifact-export:artifact-1:pdf:v${ARTIFACT_EXPORT_FORMAT_VERSION}:[0-9a-f]{32}$`,
+			),
+		);
+	});
+
+	it("is another key once that version has moved on, for an item nobody edited", () => {
+		const now = artifactExportIdempotencyKey(item);
+		const next = artifactExportIdempotencyKey({
+			...item,
+			version: ARTIFACT_EXPORT_FORMAT_VERSION + 1,
+		});
+
+		expect(next).not.toBe(now);
+		// Only the version differs: the words, the id and the format are the same.
+		expect(next.replace(/:v\d+:/, ":v:")).toBe(now.replace(/:v\d+:/, ":v:"));
+	});
+
+	it("is another key for another title, body, format or item", () => {
+		const base = artifactExportIdempotencyKey(item);
+		for (const changed of [
+			{ title: "Trip plan 2" },
+			{ body: `${item.body} Window seat.` },
+			{ format: "docx" },
+			{ artifactId: "artifact-2" },
+		]) {
+			expect(artifactExportIdempotencyKey({ ...item, ...changed })).not.toBe(
+				base,
+			);
+		}
+	});
+});
+
 describe("sanitizeDocumentFilename", () => {
 	it("keeps an ordinary, human-written title", () => {
 		expect(sanitizeDocumentFilename("Vienna, 10–12 October")).toBe(
@@ -247,6 +301,16 @@ describe("sanitizeDocumentFilename", () => {
 
 	it("falls back to 'document' for a title that is only dots", () => {
 		expect(sanitizeDocumentFilename("...")).toBe("document");
+	});
+
+	it("keeps accents, and drops the dots and spaces a cap or the title leaves at the end", () => {
+		expect(sanitizeDocumentFilename("Bécsi hétvégi útiterv")).toBe(
+			"Bécsi hétvégi útiterv",
+		);
+		expect(sanitizeDocumentFilename("Trip plan v1. ")).toBe("Trip plan v1");
+		expect(sanitizeDocumentFilename(`${"x".repeat(98)}. y`)).toBe(
+			"x".repeat(98),
+		);
 	});
 
 	it("caps an unreasonably long title", () => {

@@ -101,11 +101,32 @@ let box = $derived.by(() => {
 // What the pane shows of the pill, measured (a phone's is taller and a Hungarian
 // label wider): the placement keeps the whole of it inside the pane.
 let measuredPill = $state.raw({ width: 0, height: 0 });
+// What stands over the pane's bottom corner and is not a block: the zoom control, stacked
+// above the board's toolbar on a narrow pane. The pill keeps off it (RC-A #10); a control
+// that has stepped aside for the selected block is no obstacle.
+function controlsOverBoard(): ScreenRect[] {
+	const board = layerEl?.closest<HTMLElement>("[data-testid='canvas-board']");
+	const corner = board?.querySelector<HTMLElement>(".canvas-corner");
+	if (!board || !corner || getComputedStyle(corner).visibility === "hidden") {
+		return [];
+	}
+	const pane = board.getBoundingClientRect();
+	const rect = corner.getBoundingClientRect();
+	return [
+		{
+			left: rect.left - pane.left,
+			top: rect.top - pane.top,
+			right: rect.right - pane.left,
+			bottom: rect.bottom - pane.top,
+		},
+	];
+}
 let placement = $derived(
 	box
 		? selectionPillPlacement(box, viewport, size, {
 				avoid,
 				toolbar,
+				controls: controlsOverBoard(),
 				size:
 					measuredPill.width > 0 && measuredPill.height > 0
 						? measuredPill

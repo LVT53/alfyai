@@ -278,9 +278,8 @@ const artifactsDict = {
 		// reuses download.unavailable above, since that is the same case the
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
-		// The App's Download offers its one format in the same popover the Document's
-		// does (`DownloadSheet`), whose title and notices it shares.
-		"artifacts.app.export.html": "HTML file",
+		// The App's Download is one press: its one file starts as the popover opens
+		// (`DownloadSheet`, which shares the Document's title and notices).
 		"artifacts.app.open.cta": "Make an app",
 		// The old Versions sheet is gone (ruling 76: History replaces it); these three
 		// keys outlived it. The two author names are the ones a comment and a margin
@@ -710,6 +709,10 @@ const artifactsDict = {
 			"Alfy removed {count} {count, plural, one {block} other {blocks}}.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy changed {changed} {changed, plural, one {block} other {blocks}} and removed {removed}.",
+		// What a phone's bar says instead: its sentence has about 126 px beside the two
+		// buttons, and the long one took three lines there.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} changed, {removed} removed.",
 		"artifacts.canvas.review.landed": "{summary} Review it below the board.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} Left {left} alone. Review it below the board.",
@@ -1272,7 +1275,6 @@ const artifactsDict = {
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
-		"artifacts.app.export.html": "HTML-fájl",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
@@ -1547,7 +1549,7 @@ const artifactsDict = {
 			"Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.",
 		"artifacts.canvas.loading": "Tábla megnyitása…",
 		"artifacts.canvas.loadFailed": "Nem sikerült megnyitni a táblát.",
-		"artifacts.canvas.retry": "Újra",
+		"artifacts.canvas.retry": "Újrapróbálom",
 		"artifacts.canvas.reload": "Újratöltés",
 		"artifacts.canvas.saved": "Mentve",
 		"artifacts.canvas.saving": "Mentés…",
@@ -1615,6 +1617,9 @@ const artifactsDict = {
 			"Alfy {count} blokkot eltávolított.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
+		// A telefon sávjában a mondatnak ~126 px jut a két gomb mellett; a hosszú három sort kért.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} módosítva, {removed} eltávolítva.",
 		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
@@ -1657,7 +1662,7 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty":
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
-		"artifacts.canvas.chat.retry": "Újra",
+		"artifacts.canvas.chat.retry": "Újrapróbálom",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
@@ -1750,7 +1755,7 @@ const artifactsDict = {
 		"artifacts.canvas.export.saved": "A kép a beszélgetés fájljai között van.",
 		"artifacts.canvas.export.again": "Letöltés újra",
 		"artifacts.canvas.export.failed": "Nem sikerült exportálni a táblát.",
-		"artifacts.canvas.export.tryAgain": "Próbáld újra",
+		"artifacts.canvas.export.tryAgain": "Újrapróbálom",
 		"artifacts.canvas.export.empty": "A táblán még nincs mit exportálni.",
 		"artifacts.canvas.export.noConversation":
 			"Ez a tábla nem tartozik beszélgetéshez, ezért nem exportálható.",

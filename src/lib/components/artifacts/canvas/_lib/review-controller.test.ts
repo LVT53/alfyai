@@ -23,6 +23,12 @@ vi.mock("$lib/client/api/artifacts", () => api);
 vi.mock("$lib/utils/motion", () => ({
 	prefersReducedMotion: () => true,
 }));
+// Whether this is a phone: only the sentence on the bar asks.
+const phone = vi.hoisted(() => ({ on: false }));
+vi.mock("$lib/utils/viewport.svelte", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/utils/viewport.svelte")>()),
+	isPhoneViewport: () => phone.on,
+}));
 
 import * as landing from "./alfy-landing";
 import { ARRANGING_MIN_MS, HIGHLIGHT_MS } from "./alfy-landing";
@@ -696,6 +702,58 @@ describe("what the bar says", () => {
 		expect(controller.summaryText).toBe("Alfy changed 2 blocks.");
 		uiLanguage.set("hu");
 		expect(controller.summaryText).toBe("Alfy 2 blokkot módosított.");
+	});
+
+	// RC-A #10: a phone's bar leaves its sentence about 126 px beside the two buttons, and
+	// "Alfy 1 blokkot módosított és 1 blokkot eltávolított." took three lines there.
+	describe("when a change took blocks away as well", () => {
+		const both = () =>
+			reviewState({
+				touchedIds: ["a"],
+				removedCount: 1,
+				count: 1,
+				changes: [
+					{
+						versionNumber: 2,
+						summary: "Tidied",
+						touchedIds: ["a"],
+						removedCount: 1,
+					},
+				],
+			});
+
+		afterEach(() => {
+			phone.on = false;
+			uiLanguage.set("en");
+		});
+
+		it("says it in full where there is room", () => {
+			const { controller } = make();
+			controller.restore(both());
+			expect(controller.summaryText).toBe(
+				"Alfy changed 1 block and removed 1.",
+			);
+			uiLanguage.set("hu");
+			expect(controller.summaryText).toBe(
+				"Alfy 1 blokkot módosított és 1 blokkot eltávolított.",
+			);
+		});
+
+		it("says it in a few words on a phone, in either language", () => {
+			phone.on = true;
+			const { controller } = make();
+			controller.restore(both());
+			expect(controller.summaryText).toBe("Alfy: 1 changed, 1 removed.");
+			uiLanguage.set("hu");
+			expect(controller.summaryText).toBe("Alfy: 1 módosítva, 1 eltávolítva.");
+		});
+
+		it("leaves the sentences that already fit a phone as they are", () => {
+			phone.on = true;
+			const { controller } = make();
+			controller.restore(reviewState());
+			expect(controller.summaryText).toBe("Alfy changed 2 blocks.");
+		});
 	});
 });
 

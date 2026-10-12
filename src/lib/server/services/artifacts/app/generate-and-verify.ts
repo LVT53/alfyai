@@ -9,7 +9,7 @@
 import type { ModelId } from "$lib/model-types";
 import { createComment } from "../comments";
 import type { ArtifactScopeOptions } from "../types";
-import { appViolations, glitchRuleIdsOf } from "./audit";
+import { appViolations, auditAppHtml, glitchRuleIdsOf } from "./audit";
 import type { AppContractRuleId } from "./contract";
 import type { AppGenerationFailureReason } from "./generate";
 import { generateApp } from "./generate";
@@ -101,7 +101,10 @@ export async function generateAndVerifyApp(
 	const finalHtml = repairRuns ? repair : generation.html;
 	const verdict =
 		repair !== null && !repairRuns ? "uncertain" : verification.verdict;
-	const glitchRuleIds = glitchRuleIdsOf(generation.checks);
+	// The hints on the card describe the body that goes live (RV-B M3), as a restore's
+	// do (`appMetadataAfterRestore`): an accepted repair is that body, so what was said
+	// of the draft it replaced neither stays nor hides a glitch the repair brought in.
+	const glitchRuleIds = glitchRuleIdsOf(auditAppHtml(finalHtml));
 
 	return {
 		ok: true,

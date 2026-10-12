@@ -17,7 +17,11 @@
  *    grows into is free, as a person drags a corner; when it is not, the block
  *    goes beside the frame and the answer says so;
  *  - a block whose middle lies inside a frame it was not made a child of is made
- *    one, as the board does when a reader drops a block there.
+ *    one, as the board does when a reader drops a block there;
+ *  - a block that stands in for another the same change takes away (a rewrite: the
+ *    model has no "replace", so it removes a note and adds another under a new id)
+ *    is judged as if the other were already gone, and with no place or frame of
+ *    its own it takes the other's.
  *
  * Pure and deterministic: the same board and request give the same place, so the
  * judge (`board-ops.ts`) can resolve an op once and the board is applied to as
@@ -68,6 +72,13 @@ export interface PlacementRequest {
 	parentId?: string;
 	/** The block it is to be next to. */
 	near?: string;
+	/**
+	 * A block of the board that this one stands in for and the same change takes away
+	 * (a rewrite). It is no obstacle, and when no place or frame is given, its place
+	 * and frame are this block's. Where it stood is given here, since it may be gone
+	 * from `body` already.
+	 */
+	replaces?: { id: string; position: Pt; parentId?: string };
 }
 
 export interface Placed {
@@ -104,7 +115,7 @@ function findNode(body: CanvasBody, id: string): CanvasNode | undefined {
 }
 
 /** A node's place on the board: its own, and each frame's it sits in. Loops (a board nobody normalised) end the walk. */
-function absoluteOrigin(body: CanvasBody, node: CanvasNode): Pt {
+export function absoluteOrigin(body: CanvasBody, node: CanvasNode): Pt {
 	let { x, y } = node.position;
 	const seen = new Set([node.id]);
 	let cursor = node.parentId ? findNode(body, node.parentId) : undefined;
@@ -129,14 +140,16 @@ interface Container {
 function containerOf(
 	body: CanvasBody,
 	parentId: string | undefined,
-	exceptId: string,
+	...exceptIds: (string | undefined)[]
 ): Container {
 	const frame =
 		parentId === undefined ? null : (findNode(body, parentId) ?? null);
 	return {
 		frame,
 		siblings: body.nodes
-			.filter((node) => node.parentId === frame?.id && node.id !== exceptId)
+			.filter(
+				(node) => node.parentId === frame?.id && !exceptIds.includes(node.id),
+			)
 			.map(boxOf),
 		bounds: frame ? { x: 0, y: 0, ...plannedNodeSize(frame) } : null,
 	};
@@ -385,6 +398,29 @@ function canBecome(
 }
 
 /**
+ * Whether a block at `at`, clear of what is in the frame, would be held by the frame
+ * if it grew down and to the right from where it is, into free ground.
+ */
+function growsInPlace(
+	body: CanvasBody,
+	frame: CanvasNode,
+	container: Container,
+	at: Pt,
+	size: { width: number; height: number },
+): boolean {
+	const bounds = container.bounds;
+	if (!bounds || at.x < 0 || at.y < 0) return false;
+	const box = { ...at, ...size };
+	if (container.siblings.some((other) => overlaps(box, other))) return false;
+	return canBecome(
+		body,
+		frame,
+		Math.max(bounds.width, box.x + box.width + FRAME_INSET.x),
+		Math.max(bounds.height, box.y + box.height + FRAME_INSET.bottom),
+	);
+}
+
+/**
  * The place for a block that asked for a frame that has no room: where it would
  * go if the frame were as big as it needed, and the size that takes. Null when
  * the frame cannot grow into free ground.
@@ -415,11 +451,17 @@ export function placeBlock(
 	body: CanvasBody,
 	request: PlacementRequest,
 ): Placed {
-	const { id, size } = request;
+	const { id, size, replaces } = request;
 	let parentId = request.parentId;
 	let given = request.position;
 	const anchorNode = request.near ? findNode(body, request.near) : undefined;
 
+	// A block that stands in for another is where the other was, in its frame, unless it
+	// was told a place or a frame of its own.
+	if (replaces) {
+		if (parentId === undefined && !given) parentId = replaces.parentId;
+		if (!given && parentId === replaces.parentId) given = replaces.position;
+	}
 	// A block put beside another is put in the other's frame, unless it was told its own.
 	if (parentId === undefined && anchorNode && !given) {
 		parentId = anchorNode.parentId;
@@ -434,13 +476,25 @@ export function placeBlock(
 		}
 	}
 
-	const container = containerOf(body, parentId, id);
+	const container = containerOf(body, parentId, id, replaces?.id);
 	const free = (at: Pt) => isFreeForApp(at, size, container);
 
 	if (given) {
 		const at = { x: whole(given.x), y: whole(given.y) };
 		if (isFreeForModel(at, size, container)) {
 			return { position: at, ...(parentId ? { parentId } : {}), how: "kept" };
+		}
+		// A rewrite stays where the note it replaces stood: when only the frame's edge is
+		// in its way (it is longer than the note was), the frame grows to hold it, where
+		// the ground is free, rather than the note moving up out of its place.
+		if (
+			replaces &&
+			parentId !== undefined &&
+			container.frame &&
+			container.bounds &&
+			growsInPlace(body, container.frame, container, at, size)
+		) {
+			return { position: at, parentId, how: "grew" };
 		}
 		const nearest = nearestFree(at, size, container, free);
 		if (nearest) {

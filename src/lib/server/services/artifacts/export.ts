@@ -24,10 +24,13 @@ import {
 	TASK_LINE_RE,
 } from "$lib/shared/artifact-document/blocks";
 
+// The name an export carries is the shared one (`shared/artifacts/export-filename.ts`):
+// the storage adapter that names the files asks it too.
+export { sanitizeDocumentFilename } from "$lib/shared/artifacts/export-filename";
+
 const HEADING_LINE_RE = /^(#{1,6})\s+(.*)$/;
 const CODE_FENCE_LINE_RE = /^(`{3,}|~{3,})\s*(\S*)\s*$/;
 const CHIP_TOKEN_RE = /\[chip\s+kind="[^"]*"\s+value="([^"]*)"\]/g;
-const MAX_FILENAME_LENGTH = 100;
 
 function nonEmptyLines(markdown: string): string[] {
 	return markdown.split("\n").filter((line) => line.trim().length > 0);
@@ -260,24 +263,28 @@ export function buildGeneratedDocumentSource(params: {
 }
 
 /**
- * A safe bare basename for a produced file (T12.1): path separators cannot
- * escape the storage directory, a leading dot cannot make a hidden file, and
- * an empty result (nothing left after stripping, or the source was blank)
- * falls back to "document" rather than shipping an unusable filename.
+ * What turns an item into an export file, as a number: the Document's blocks mapped
+ * to a report source (`buildGeneratedDocumentSource`), the report renderers' PDF and
+ * Word, the file's name (`file-production/storage-adapter.ts`) and the App's `.html`
+ * program. It is in the export key, because a file already made is handed back for as
+ * long as it exists: a press after a deploy that changed any of those would otherwise
+ * be given the file the old code made, indefinitely, for every item nobody has edited
+ * since (RV-B M1). **Bump it with any change to those**; the cost of forgetting is a
+ * stale file, the cost of a bump is one fresh export per item.
+ *
+ * 1: the key's first versioned form (FB-8's reuse, with this number).
+ * 2: a PDF and a Word file are named after the item's title, accents kept (it was an
+ *    ASCII slug): a file made at 1 would keep the slug for an item nobody edited.
  */
-export function sanitizeDocumentFilename(title: string): string {
-	const withoutSeparators = title.trim().replace(/[\\/]+/g, "-");
-	const withoutLeadingDots = withoutSeparators.replace(/^\.+/, "");
-	const capped = withoutLeadingDots.slice(0, MAX_FILENAME_LENGTH).trim();
-	return capped.length > 0 ? capped : "document";
-}
+export const ARTIFACT_EXPORT_FORMAT_VERSION = 2;
 
 /**
  * The idempotency key of an export job: the same item, as it is now, in the same
- * format is the same job, so pressing Download again hands back the file it made
- * (`reuse: "usable"` lets go of a job that failed). What an export is made of is the
- * title and the body, so both are in the key: an edit, a coalesced save that keeps its
- * version number and a rename each make a new file, and nothing else does.
+ * format, made by the same code, is the same job, so pressing Download again hands
+ * back the file it made (`reuse: "usable"` lets go of a job that failed). What an
+ * export is made of is the title and the body, so both are in the key: an edit, a
+ * coalesced save that keeps its version number and a rename each make a new file;
+ * and so is the code (`ARTIFACT_EXPORT_FORMAT_VERSION`). Nothing else does.
  */
 export function artifactExportIdempotencyKey(params: {
 	artifactId: string;
@@ -285,6 +292,8 @@ export function artifactExportIdempotencyKey(params: {
 	format: string;
 	title: string;
 	body: string;
+	/** Only a test names one: the key is for the code as it is now. */
+	version?: number;
 }): string {
 	const content = createHash("sha256")
 		.update(params.title, "utf8")
@@ -292,5 +301,6 @@ export function artifactExportIdempotencyKey(params: {
 		.update(params.body, "utf8")
 		.digest("hex")
 		.slice(0, 32);
-	return `artifact-export:${params.artifactId}:${params.format}:${content}`;
+	const version = params.version ?? ARTIFACT_EXPORT_FORMAT_VERSION;
+	return `artifact-export:${params.artifactId}:${params.format}:v${version}:${content}`;
 }

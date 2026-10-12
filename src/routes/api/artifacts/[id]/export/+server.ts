@@ -130,5 +130,8 @@ export const POST: RequestHandler = async (event) => {
 	if (!result.ok) {
 		return json({ ok: false, reason: result.code }, { status: result.status });
 	}
-	return json({ ok: true, job: result.job }, { status: result.status });
+	return json(
+		{ ok: true, job: result.job, reused: result.reused },
+		{ status: result.status },
+	);
 };
