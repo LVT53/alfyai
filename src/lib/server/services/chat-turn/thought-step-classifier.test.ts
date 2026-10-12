@@ -407,6 +407,31 @@ describe("classifyThoughtStepChunk", () => {
 			});
 		});
 
+		// The live check's own output: "dark background" came back as the entity of a
+		// Hungarian turn and was shown, "(dark background)", under a clean headline.
+		it("in a Hungarian turn keeps an entity only when it is a name or has a Hungarian letter in it", async () => {
+			const chunk =
+				"The dark background and the Vienna City Card matter; Café Central vagy Landtmann; Schönbrunn trip; Spanische Hofreitschule.";
+			for (const [entity, kept] of [
+				["dark background", false],
+				["Saturday morning section", false],
+				["Schönbrunn trip", false],
+				["Vienna City Card", true],
+				["Spanische Hofreitschule", true],
+				["Café Central vagy Landtmann", true],
+			] as const) {
+				const result = await classify(
+					{ verdict: "new_step", activityClass: "weighing-options", entity },
+					chunk,
+					"hu",
+				);
+				expect(
+					result && "entity" in result ? result.entity : undefined,
+					entity,
+				).toBe(kept ? entity : undefined);
+			}
+		});
+
 		it("tells the model, in both languages, not to copy an id, a slug or a field name; and in Hungarian no English word", async () => {
 			const prompts: Record<string, string> = {};
 			for (const language of ["en", "hu"] as const) {
@@ -968,6 +993,58 @@ describe("classifyThoughtStepChunk", () => {
 // Amendment (2026-08-16) to ADR-0056 — direct unit coverage of the runtime
 // entity-grounding guard's content-word/stop-word boundary, independent of
 // the control-model plumbing exercised above.
+// F22 (ruling 77), found by the live check: in a Hungarian turn the tether itself was
+// the leak. The real model's entity "dark background" and a headline tethered to a
+// lowercase English word passed every guard. A word the Hungarian reader will see
+// can only tether when it is a name, a number or an acronym (capitalised, digits) or
+// carries a Hungarian letter; a lowercase ASCII word of the English reasoning cannot.
+describe("hasVerbatimContentWordTether in a Hungarian turn", () => {
+	const CHUNK =
+		"I'll switch to a dark background, keep the Gloriette view, and the DOCX file; Ez egy rövid teszt a szombati étrendről.";
+
+	it("does not take a lowercase English word of the reasoning as the tether", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"A sötét téma a dark háttérrel készül",
+				CHUNK,
+				"hu",
+			),
+		).toBe(false);
+		// ... which the default (no language) and English still do.
+		expect(
+			hasVerbatimContentWordTether(
+				"A sötét téma a dark háttérrel készül",
+				CHUNK,
+			),
+		).toBe(true);
+		expect(
+			hasVerbatimContentWordTether("Chose a dark background", CHUNK, "en"),
+		).toBe(true);
+	});
+
+	it("takes a name, an acronym or a Hungarian word as the tether", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"A Gloriette kilátás beillesztése",
+				CHUNK,
+				"hu",
+			),
+		).toBe(true);
+		expect(
+			hasVerbatimContentWordTether("DOCX formátumot választott", CHUNK, "hu"),
+		).toBe(true);
+		expect(
+			hasVerbatimContentWordTether("A szombati étrendről döntött", CHUNK, "hu"),
+		).toBe(true);
+	});
+});
+
 describe("hasVerbatimContentWordTether", () => {
 	it("is tethered when a substantive word from the summary appears verbatim in the anchored text", async () => {
 		const { hasVerbatimContentWordTether } = await import(

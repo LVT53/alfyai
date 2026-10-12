@@ -618,12 +618,35 @@ function extractContentWords(text: string): string[] {
 export function hasVerbatimContentWordTether(
 	summary: string,
 	anchoredText: string,
+	targetLanguage?: SupportedLanguage,
 ): boolean {
 	const anchoredWords = new Set(
 		extractContentWords(anchoredText).map((word) => word.toLowerCase()),
 	);
-	return extractContentWords(summary).some((word) =>
-		anchoredWords.has(word.toLowerCase()),
+	return extractContentWords(summary).some(
+		(word) =>
+			anchoredWords.has(word.toLowerCase()) &&
+			(targetLanguage !== "hu" || isNameOrHungarianWord(word)),
+	);
+}
+
+// F22 (ruling 77), found by the live check: in a Hungarian turn the tether was
+// itself the leak. The reasoning is English, so a word the summary shares with it
+// verbatim is an English word ("dark", "background") unless it is a name, an
+// acronym or a number (capitalised, digits: Gloriette, DOCX) or carries a Hungarian
+// letter. A lowercase ASCII word of the English reasoning does not tether a
+// Hungarian line: the headline drops to the phase label, as it did without a tether.
+const HUNGARIAN_LETTER = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
+function isNameOrHungarianWord(word: string): boolean {
+	return HUNGARIAN_LETTER.test(word) || /^[\p{Lu}\p{N}]/u.test(word);
+}
+
+/** An entity shown to a Hungarian reader: a name or numbers, or words with a Hungarian letter in them; never plain lowercase English ("dark background"). */
+function entityReadsAsNameOrHungarian(entity: string): boolean {
+	if (HUNGARIAN_LETTER.test(entity)) return true;
+	const words = entity.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
+	return (
+		words.length > 0 && words.every((word) => /^[\p{Lu}\p{N}]/u.test(word))
 	);
 }
 
@@ -793,7 +816,7 @@ function extractGroundedSummary(
 	if (assertsExternalAction(trimmed)) return undefined;
 	if (isMetaRestatement(trimmed)) return undefined;
 	if (isGenericActivityHeadline(trimmed)) return undefined;
-	return hasVerbatimContentWordTether(trimmed, anchoredText)
+	return hasVerbatimContentWordTether(trimmed, anchoredText, targetLanguage)
 		? trimmed
 		: undefined;
 }
@@ -893,7 +916,9 @@ export async function classifyThoughtStepChunk(params: {
 		// The same guard as the headline's (F22): the entity is a phrase copied out of
 		// the reasoning, so it can be an id, a slug, or English in a Hungarian turn.
 		const entity =
-			copiedEntity && !leaksInternalNames(copiedEntity, targetLanguage)
+			copiedEntity &&
+			!leaksInternalNames(copiedEntity, targetLanguage) &&
+			(targetLanguage !== "hu" || entityReadsAsNameOrHungarian(copiedEntity))
 				? copiedEntity
 				: undefined;
 		// Amendment (2026-08-16) to ADR-0056 — the runtime entity-grounding
