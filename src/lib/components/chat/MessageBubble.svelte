@@ -48,6 +48,7 @@ import type {
 	ChatAttachment,
 	ChatMessage,
 	ChatTurnCompletionWarningCode,
+	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -77,6 +78,9 @@ import {
 	X,
 } from "@lucide/svelte";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+
+// One shared empty list, so "no segments" is the same value on every render.
+const NO_SEGMENTS: ThinkingSegment[] = [];
 
 let {
 	message,
@@ -276,13 +280,16 @@ let liveResponseActivityEntries = $derived(
 // steps. A card that arrived above the text pushed the words being read down
 // by its own height, and the model writes the whole item before the call is
 // complete, so it always arrived late (F16).
+// `rawThinkingSegments` is the memo point: the message object is replaced on
+// every streamed token but its segment array is not, so the two lists below
+// (and the rail's derived rows, which hang off `thinkingSegmentsForDisplay`)
+// are rebuilt only when a tool call really changed.
+let rawThinkingSegments = $derived(message.thinkingSegments ?? NO_SEGMENTS);
 let thinkingSegmentsForDisplay = $derived(
-	(message.thinkingSegments ?? []).filter(
-		(segment) => !isArtifactToolCall(segment),
-	),
+	rawThinkingSegments.filter((segment) => !isArtifactToolCall(segment)),
 );
 let deliverableSegments = $derived(
-	(message.thinkingSegments ?? []).filter(isArtifactToolCall),
+	rawThinkingSegments.filter(isArtifactToolCall),
 );
 let hasDeliverables = $derived(deliverableSegments.length > 0);
 // The same item a rail row would be, plus the preview the conversation's own

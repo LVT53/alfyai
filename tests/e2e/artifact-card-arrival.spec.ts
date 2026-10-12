@@ -1,4 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { db } from "../../src/lib/server/db";
+import { messages } from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_LATE_CARD_FINAL_TEXT,
 	AI_SMOKE_LATE_CARD_INTRO,
@@ -70,6 +72,40 @@ async function expectBelow(lower: Locator, upper: Locator) {
 	).toBe(true);
 }
 
+/**
+ * Earlier turns, as rows (the services run a statement better-sqlite3 refuses
+ * inside the runner), so the thread is taller than the window and scrolls.
+ */
+async function seedEarlierTurns(conversationId: string, pairs: number) {
+	const now = new Date();
+	const answer =
+		"Ez egy hosszabb korábbi válasz, amely több sort foglal el a beszélgetésben. ".repeat(
+			6,
+		);
+	const rows = [];
+	for (let index = 0; index < pairs; index += 1) {
+		rows.push(
+			{
+				id: `${conversationId}-q${index}`,
+				conversationId,
+				messageSequence: index * 2 + 1,
+				role: "user" as const,
+				content: `Korábbi kérdés ${index + 1}`,
+				createdAt: now,
+			},
+			{
+				id: `${conversationId}-a${index}`,
+				conversationId,
+				messageSequence: index * 2 + 2,
+				role: "assistant" as const,
+				content: answer,
+				createdAt: now,
+			},
+		);
+	}
+	await db.insert(messages).values(rows);
+}
+
 test.describe("an artifact card that arrives late", () => {
 	const fakeProvider = createOpenAICompatibleProviderHarness();
 
@@ -83,15 +119,19 @@ test.describe("an artifact card that arrives late", () => {
 		await fakeProvider.reset();
 	});
 
-	test("does not push the sentences above it down, and sits below them", async ({
-		page,
-	}) => {
-		test.setTimeout(120_000);
+	/** Sends the scripted turn, lets it run, and says how far the sentences moved once the card was there. */
+	async function runLateCardTurn(
+		page: Page,
+		options: { earlierTurns: number },
+	) {
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let providerId: string | null = null;
 		try {
 			const conversationId = await createEmptyConversation(page);
+			if (options.earlierTurns > 0) {
+				await seedEarlierTurns(conversationId, options.earlierTurns);
+			}
 			const provider = await createTemporaryFakeProviderModel(
 				page,
 				fakeProvider.baseURL,
@@ -99,6 +139,8 @@ test.describe("an artifact card that arrives late", () => {
 			providerId = provider.providerId;
 			await updateUserModelPreference(page, provider.selectedModel);
 			await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+			// A thread that scrolls opens at its end; let it settle there.
+			await page.waitForTimeout(800);
 			await recordFrames(page);
 
 			await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
@@ -130,19 +172,35 @@ test.describe("an artifact card that arrives late", () => {
 				"how far the sentences moved after the card arrived, in px",
 			).toBeLessThanOrEqual(1);
 
-			// What the turn made comes after what it said, in the turn and after
-			// a reload alike.
+			// What the turn made comes after what it said.
 			const sentences = page
 				.getByTestId("assistant-message")
 				.getByText(INTRO_START);
 			const card = page.getByTestId("artifact-card");
 			await expectBelow(card, sentences);
-			await page.reload({ waitUntil: "networkidle" });
-			await expect(card).toBeVisible();
-			await expectBelow(card, sentences);
+			return { page, sentences, card };
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);
 		}
+	}
+
+	test("does not push the sentences above it down, and sits below them, in a turn and after a reload", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		const { sentences, card } = await runLateCardTurn(page, {
+			earlierTurns: 0,
+		});
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(card).toBeVisible();
+		await expectBelow(card, sentences);
+	});
+
+	test("keeps them where they are in a long chat too, where the card used to push them out of the window", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await runLateCardTurn(page, { earlierTurns: 10 });
 	});
 });

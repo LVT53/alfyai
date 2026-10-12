@@ -1187,7 +1187,8 @@ function lateCardStreamResponse(
 					});
 				} else {
 					await delay(AI_SMOKE_LATE_CARD_FINAL_DELAY_MS);
-					text(AI_SMOKE_LATE_CARD_FINAL_TEXT);
+					// A new paragraph, as a model starts its answer after a tool.
+					text(`\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`);
 					write({
 						...chunkBase,
 						choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
