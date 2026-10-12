@@ -1440,13 +1440,42 @@ $effect(() => {
 	});
 });
 
-function openWorkspaceDocument(
+/**
+ * A produced file opened from a chat card is the same File the panel's list opens
+ * (FB-5, F21): it carries the kind and the moment its row in the list carries. The
+ * card builds its item from the job's file and knows neither, and the panel draws
+ * its standard header (a way back, the title, the kind) for an item that has a
+ * kind, so without this the same file got the older "Active document" header with
+ * an AI chip from the card.
+ */
+function asArtifactFile(
 	document: DocumentWorkspaceItem,
+): DocumentWorkspaceItem {
+	if (
+		document.kind ||
+		document.source !== "chat_generated_file" ||
+		!document.artifactId
+	) {
+		return document;
+	}
+	const row = liveArtifacts.find((entry) => entry.id === document.artifactId);
+	return {
+		...document,
+		kind: "file",
+		...(row
+			? { updatedAt: row.updatedAt, canRegenerate: row.regenerable }
+			: {}),
+	};
+}
+
+function openWorkspaceDocument(
+	opened: DocumentWorkspaceItem,
 	options: {
 		preservePresentation?: boolean;
 		presentation?: "docked" | "expanded";
 	} = {},
 ) {
+	const document = asArtifactFile(opened);
 	const result = reduceWorkspaceDocumentOpen(workspaceDocuments, document);
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;

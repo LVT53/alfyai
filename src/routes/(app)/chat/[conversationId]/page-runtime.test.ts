@@ -1022,9 +1022,14 @@ describe("chat page runtime integration", () => {
 		expect(
 			within(shell).getByText("Vienna trip summary.pdf"),
 		).toBeInTheDocument();
+		// The same header the panel's list opens for a File (F21): the title and the
+		// kind in the standard header, not the older one with its provenance chip.
+		expect(within(shell).getByTestId("artifact-panel-title")).toHaveTextContent(
+			"Vienna trip summary.pdf",
+		);
 		expect(
-			within(shell).getByTestId("document-provenance"),
-		).toBeInTheDocument();
+			within(shell).queryByTestId("document-provenance"),
+		).not.toBeInTheDocument();
 		expect(
 			within(shell).getByTestId("page-scroll-container"),
 		).toBeInTheDocument();
