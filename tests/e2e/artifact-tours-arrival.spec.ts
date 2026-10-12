@@ -671,6 +671,22 @@ test.describe("a tour card has its room from the first frame (phone, touch)", ()
 	});
 });
 
+/**
+ * Reopens the chat and returns what the tour routes saw during the LAST load only:
+ * `reopenChat` is a visit and then a reload, and each page load asks once for its
+ * own (the panel asks as soon as the chat has an item of a kind), so a count that
+ * began before the visit would be the visit's as well.
+ */
+async function reopenChatCounting(page: Page, conversationId: string) {
+	await page.evaluate((id) => {
+		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
+	}, conversationId);
+	await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+	const requests = watchTourRequests(page);
+	await page.reload({ waitUntil: "networkidle" });
+	return requests;
+}
+
 test.describe("one answer per kind per page load", () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -678,11 +694,10 @@ test.describe("one answer per kind per page load", () => {
 		page,
 	}) => {
 		const user = await createTourUser("en");
-		const requests = watchTourRequests(page);
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, "document", { title: "First notes" });
 		await seedItem(user, chatId, "document", { title: "Second notes" });
-		await reopenChat(page, chatId);
+		const requests = await reopenChatCounting(page, chatId);
 
 		await openItem(page, "First notes");
 		await finishTour(page);
@@ -706,11 +721,10 @@ test.describe("one answer per kind per page load", () => {
 		page,
 	}) => {
 		const user = await createTourUser("en");
-		const requests = watchTourRequests(page);
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, "document", { title: "First notes" });
 		await seedItem(user, chatId, "document", { title: "Second notes" });
-		await reopenChat(page, chatId);
+		const requests = await reopenChatCounting(page, chatId);
 
 		await openItem(page, "First notes");
 		await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });

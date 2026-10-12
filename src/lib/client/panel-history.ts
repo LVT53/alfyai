@@ -66,7 +66,10 @@ function parseLayer(raw: unknown): PanelLayer | null {
 	return null;
 }
 
-function isHistory(layer: PanelLayer): layer is PanelLayer & { history: true } {
+/** An item's History: the layer over the item, never over anything else. */
+type HistoryLayer = { kind: "item"; itemId: string; history: true };
+
+function isHistory(layer: PanelLayer): layer is HistoryLayer {
 	return layer.kind === "item" && layer.history === true;
 }
 

@@ -928,26 +928,33 @@ function presentTour(
 	// The page can change hands without being reloaded (login and logout are
 	// client-side navigations): the answers it holds are this reader's.
 	keepArtifactToursFor(currentUser?.id);
-	// A replay asks again (it shows the copy as it is now).
-	const known = replay ? undefined : peekArtifactTour(kind);
-	if (known) {
-		// A tour with no slides is nothing to show.
-		const owed = known.tour.slides.length > 0 && !known.seen;
-		const Card = owed ? loadedTourCard() : null;
-		if (!owed || Card) {
-			tourSummary = { itemKey, summary: known.tour.summary };
-			if (owed && Card) {
-				tourView = {
-					itemKey,
-					kind,
-					tour: known.tour,
-					replay: false,
-					Card,
-					entrance: "none",
-				};
+	try {
+		// A replay asks again (it shows the copy as it is now).
+		const known = replay ? undefined : peekArtifactTour(kind);
+		if (known) {
+			// A tour with no slides is nothing to show.
+			const owed = known.tour.slides.length > 0 && !known.seen;
+			const Card = owed ? loadedTourCard() : null;
+			if (!owed || Card) {
+				tourSummary = { itemKey, summary: known.tour.summary };
+				if (owed && Card) {
+					tourView = {
+						itemKey,
+						kind,
+						tour: known.tour,
+						replay: false,
+						Card,
+						entrance: "none",
+					};
+				}
+				return undefined;
 			}
-			return undefined;
 		}
+	} catch (error) {
+		// The tour is decoration, and this runs in an effect: an answer that is not
+		// what the route sends must not break the panel.
+		console.warn("[ARTIFACT_TOUR] The introduction could not be shown.", error);
+		return undefined;
 	}
 	return presentTourWhenAnswered(kind, itemKey, replay, isStale);
 }
