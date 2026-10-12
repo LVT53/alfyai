@@ -19,6 +19,7 @@ import {
 	openChatAndReload,
 	seedCanvas,
 	seedThread,
+	settledCamera,
 	storedBoard,
 	testUserId,
 	versionRows,
@@ -174,9 +175,15 @@ test.describe("comments on the Canvas", () => {
 		await expect(pinsOf(page).first()).toHaveAccessibleName(
 			"Comment 1 on the board",
 		);
+		// The list took room from the pane, and a board the reader has the camera of slides over
+		// by what keeps in view what they were looking at (RC-A #7: a block within 24 px of the
+		// column is moved clear of it, here by 4 px). The block is read where it ended up, once the
+		// camera is still, and the pin is held to ITS top-right corner.
+		await settledCamera(page);
+		const placed = await nodeBox(page, MUSEUM);
 		const pin = await pinCentre(page);
-		expect(Math.abs(pin.x - (museum.x + museum.width))).toBeLessThan(3);
-		expect(Math.abs(pin.y - museum.y)).toBeLessThan(3);
+		expect(Math.abs(pin.x - (placed.x + placed.width))).toBeLessThan(3);
+		expect(Math.abs(pin.y - placed.y)).toBeLessThan(3);
 
 		// The header's button says how many are open.
 		await expect(commentsButton(page)).toHaveAttribute(
@@ -200,12 +207,21 @@ test.describe("comments on the Canvas", () => {
 		const frameBox = await nodeBox(page, FRAME);
 		// Well below the frame and to the left of the notes: nothing is here.
 		const spot = { x: frameBox.x + 60, y: frameBox.y + frameBox.height + 90 };
+		const cameraBefore = await settledCamera(page);
 
 		await commentAt(page, spot, "Put the tram stop here?");
 
+		// "On that spot, in board coordinates": the comment column may slide the board over
+		// (RC-A #7), and the pin goes with the board, so it is held to where the spot is now.
+		const cameraAfter = await settledCamera(page);
+		expect(cameraAfter.zoom).toBeCloseTo(cameraBefore.zoom, 3);
+		const spotNow = {
+			x: spot.x + (cameraAfter.x - cameraBefore.x),
+			y: spot.y + (cameraAfter.y - cameraBefore.y),
+		};
 		const pin = await pinCentre(page);
-		expect(Math.abs(pin.x - spot.x)).toBeLessThan(3);
-		expect(Math.abs(pin.y - spot.y)).toBeLessThan(3);
+		expect(Math.abs(pin.x - spotNow.x)).toBeLessThan(3);
+		expect(Math.abs(pin.y - spotNow.y)).toBeLessThan(3);
 		await expect(cards(page).first()).toContainText("a spot on the board");
 		const [stored] = await listComments({
 			userId: await testUserId(),
