@@ -4,6 +4,7 @@ import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
+import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import { getFocusableElements } from "$lib/utils/focus-trap";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import { chordsAreDrawn } from "$lib/components/artifacts/document/keyboard-shortcuts";
@@ -822,7 +823,7 @@ onDestroy(() => {
 													<div class="min-w-0 flex-1">
 														<div class="flex min-w-0 items-center gap-2">
 															<div class="truncate text-[13px] font-sans font-medium text-text-primary">
-																{#each highlightParts(row.conversation.title) as part}
+																{#each highlightParts(conversationDisplayTitle(row.conversation.title, $t('chat.untitledConversation'))) as part}
 																	<span class:search-highlight={part.highlight}>{part.text}</span>
 																{/each}
 															</div>

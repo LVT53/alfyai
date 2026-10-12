@@ -13,6 +13,7 @@ import {
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
+import { foldArtifactDeliverables } from "$lib/utils/artifact-deliverables";
 import { buildToolActivityItem } from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
@@ -285,23 +286,37 @@ let liveResponseActivityEntries = $derived(
 // (and the rail's derived rows, which hang off `thinkingSegmentsForDisplay`)
 // are rebuilt only when a tool call really changed.
 let rawThinkingSegments = $derived(message.thinkingSegments ?? NO_SEGMENTS);
-let thinkingSegmentsForDisplay = $derived(
-	rawThinkingSegments.filter((segment) => !isArtifactToolCall(segment)),
-);
 let deliverableSegments = $derived(
 	rawThinkingSegments.filter(isArtifactToolCall),
 );
 let hasDeliverables = $derived(deliverableSegments.length > 0);
+// One row per call, then what the reply shows of them: one card per item however
+// many calls worked on it, and a failed attempt only when it is what the turn
+// ended on for that item (RC-A #2, the owner's call on F16). The attempts a later
+// call made good stay steps of the turn, in its rail.
+let foldedDeliverables = $derived(
+	foldArtifactDeliverables(
+		deliverableSegments.map((segment, index) => ({
+			segment,
+			item: buildToolActivityItem(
+				segment,
+				segment.callId ??
+					`${segment.name + JSON.stringify(segment.input)}-${index}`,
+				$t,
+			),
+		})),
+	),
+);
+let retriedAttempts = $derived(new Set(foldedDeliverables.retried));
+let thinkingSegmentsForDisplay = $derived(
+	rawThinkingSegments.filter(
+		(segment) => !isArtifactToolCall(segment) || retriedAttempts.has(segment),
+	),
+);
 // The same item a rail row would be, plus the preview the conversation's own
 // artifact list holds for it (once a reload or a later refresh has it).
 let deliverableItems = $derived(
-	deliverableSegments.map((segment, index) => {
-		const item = buildToolActivityItem(
-			segment,
-			segment.callId ??
-				`${segment.name + JSON.stringify(segment.input)}-${index}`,
-			$t,
-		);
+	foldedDeliverables.shown.map((item) => {
 		const body = item.body;
 		if (body?.kind !== "artifact") return item;
 		const preview = conversationArtifacts.find(
@@ -310,9 +325,13 @@ let deliverableItems = $derived(
 		return preview ? { ...item, body: { ...body, preview } } : item;
 	}),
 );
-let deliverableOpenKeys = $derived(
-	new Set(deliverableItems.map((item) => item.key)),
-);
+// A card is always open; a failed row is folded until the reader presses it.
+let openedDeliverableKeys = $state.raw<Set<string>>(new Set());
+function toggleDeliverable(key: string) {
+	const next = new Set(openedDeliverableKeys);
+	if (!next.delete(key)) next.add(key);
+	openedDeliverableKeys = next;
+}
 // Tier B2 — the thought-step / tool-progress classification predicates
 // (isThoughtStepActivityEntry, isToolProgressActivity) live in the shared
 // pure `activity-presentation.ts`, consumed identically by ThinkingBlock, so
@@ -1156,8 +1175,8 @@ function sendFollowUp(question: string) {
 				<div class="message-deliverables" data-testid="message-deliverables">
 					<ToolActivityList
 						items={deliverableItems}
-						openKeys={deliverableOpenKeys}
-						onToggle={() => {}}
+						openKeys={openedDeliverableKeys}
+						onToggle={toggleDeliverable}
 						testId="tool-activity-deliverables"
 						{onOpenDocument}
 						{conversationId}

@@ -1090,8 +1090,7 @@ const artifactsDict = {
 		// függne, ami egy dinamikus értéknél nem garantálható.
 		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
 		// Same colon trick as above, for the same reason.
-		"artifacts.chat.composerPlaceholderApp":
-			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
+		"artifacts.chat.composerPlaceholderApp": "Kérj módosítást: {title}",
 		"artifacts.panel.crumb": "Vissza",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",

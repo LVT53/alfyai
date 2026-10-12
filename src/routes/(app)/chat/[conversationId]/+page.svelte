@@ -205,6 +205,8 @@ import {
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
+	FILE_LIST_RETRY_DELAYS_MS,
+	filesWaitingForTheList,
 	hasActiveAtlasJobs,
 	liveDocumentAlfyActivityExcluding,
 	hasActiveFileProductionJobs,
@@ -687,6 +689,17 @@ let liveArtifacts = $derived(
 			withCurrentSummaryMoment(row, observedArtifactMoments),
 		),
 		regenerableFromMessages,
+	),
+);
+// A file the chat shows a card for that the panel's list does not have yet: the
+// server links a produced file to its reply after the turn's terminal frame, so
+// the page asks again until the list agrees with the card (see
+// filesWaitingForTheList, and the effect that asks, next to the jobs' own poll).
+let filesWaitingForList = $derived(
+	filesWaitingForTheList(
+		fileProductionJobs,
+		new Set([...artifacts.map((row) => row.id), ...deletedArtifactIds]),
+		Date.now(),
 	),
 );
 let artifactListOpen = $state(false);
@@ -2727,6 +2740,28 @@ $effect(() => {
 	};
 });
 
+// The file a turn made is a row of the panel's list and a step of the header's
+// count once the server has linked it to the reply, which is after the turn has
+// ended; the stream says nothing more and the jobs are done, so nothing else would
+// read the chat again (RC-A: every file request left both stale until a reload).
+// Asking is bounded: soon, then less often, then it stops.
+$effect(() => {
+	const conversationId = data.conversation?.id;
+	if (!browser || !conversationId || !filesWaitingForList) return;
+	let attempt = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const askAgain = () => {
+		if (attempt >= FILE_LIST_RETRY_DELAYS_MS.length) return;
+		timer = setTimeout(() => {
+			attempt += 1;
+			void hydrateConversationDetail(conversationId);
+			askAgain();
+		}, FILE_LIST_RETRY_DELAYS_MS[attempt]);
+	};
+	askAgain();
+	return () => clearTimeout(timer);
+});
+
 let initializedGeneratedFilesData = false;
 let prevGeneratedFilesData: typeof data.generatedFiles;
 $effect(() => {
@@ -3871,7 +3906,10 @@ function handleDrop(event: DragEvent) {
 		class:stage--incognito={data.conversation.memoryIncognito}
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
-			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
+			<div
+				class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex"
+				class:chat-title-bar-counted={artifactCount > 0}
+			>
 				<!-- Leading spacer: equal flex-basis to the trailing actions column
 				     keeps the title visually centred whether or not the count
 				     button is drawn, instead of the title drifting sideways. -->
@@ -4179,6 +4217,15 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar-actions {
 		justify-content: flex-end;
+	}
+
+	/* The count chip hangs off the bar's right column, and the spacer opposite keeps
+	   the title centred: while the chip is drawn both columns keep the room it takes
+	   (its 58 px, less the 12 px it leans into the bar's gutter, and a gap), so a long
+	   title gives way (it truncates) instead of running under the chip: 4 px at 1280
+	   and 19 px at 1100 beside a docked panel in a project chat (RC-A). */
+	.chat-title-bar-counted .chat-title-bar-side {
+		min-width: 4rem;
 	}
 
 	/* Wave 2.5 polish G1-B (owner: "pushed a bit more to the right"): the

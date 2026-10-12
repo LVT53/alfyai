@@ -745,6 +745,7 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: "file",
+				artifactTitle: record.title,
 			},
 		};
 	}
@@ -759,7 +760,12 @@ export async function runEditArtifactTool(params: {
 		return {
 			modelPayload: { success: false, error, refused: [refusal] },
 			outputSummary: truncateText(error, 200),
-			metadata: { ok: false, artifactId: record.id, artifactKind: record.kind },
+			metadata: {
+				ok: false,
+				artifactId: record.id,
+				artifactKind: record.kind,
+				artifactTitle: record.title,
+			},
 		};
 	}
 
@@ -777,6 +783,7 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				artifactTitle: record.title,
 			},
 		};
 	}
@@ -813,6 +820,8 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				// The chat's row for a refused edit names the item by it (RC-A #2).
+				artifactTitle: record.title,
 				...(perOp.length > 0
 					? {
 							refusedBlocksJson: JSON.stringify(

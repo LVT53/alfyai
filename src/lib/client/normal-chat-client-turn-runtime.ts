@@ -622,6 +622,42 @@ export function createNormalChatClientTurnRuntime(
 		adapters.restorePayloadToDraft(nextQueuedTurn);
 	}
 
+	/**
+	 * A reload put the reader back into a turn that then failed: the reconnect ended
+	 * on the server's error. The server keeps nothing of a failed turn (it saves the
+	 * reader's message with the reply, at the end), so what it has now is an empty
+	 * chat or a chat without this message, and the reader saw nothing say it failed
+	 * (FB-8's note). Their message goes back where it was, with the error and a
+	 * Retry, as for a failure they watched.
+	 */
+	async function showFailedReconnectedTurn(
+		params: StartStreamParams,
+		error: Error,
+	) {
+		await adapters.loadPersistedData();
+		if (!isTurnConversationActive(params.turnConversationId)) return;
+		// After the load, which ends the page's own recovery state: set this one last.
+		const text = params.message;
+		if (text.trim()) {
+			const tail = adapters.getMessages().at(-1);
+			if (tail?.role !== "user" || tail.content !== text) {
+				adapters.applyMessageListEvent({
+					type: "appendUser",
+					message: createUserMessage({
+						id: adapters.randomId(),
+						text,
+						attachmentIds: [],
+						attachedArtifacts: [],
+					}),
+				});
+			}
+			lastUserMessage = text;
+			canRetry = true;
+		}
+		adapters.setSendError(adapters.toFriendlySendError(error));
+		emitState();
+	}
+
 	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
 		// R1 (ADR-0060, defect 2) — the buffer's flush fires from several
 		// places (onFinishPart, onEnd, onError all call `.flush()`
@@ -985,7 +1021,7 @@ export function createNormalChatClientTurnRuntime(
 				}
 
 				if (params.isReconnect) {
-					adapters.loadPersistedData();
+					void showFailedReconnectedTurn(params, err);
 					return;
 				}
 

@@ -340,6 +340,51 @@ export function hasActiveFileProductionJobs(
 	);
 }
 
+/** How long after a job last changed the page still expects its files to be rows of the list. */
+const FILE_LIST_EXPECTED_WITHIN_MS = 120_000;
+
+/**
+ * When the page asks the server for the chat again after a turn made a file and
+ * the file is not yet a row of the panel's list: soon, then less and less often,
+ * then it stops (a file that is not there after this long is not coming).
+ */
+export const FILE_LIST_RETRY_DELAYS_MS: readonly number[] = [
+	300, 700, 1_200, 2_000, 3_000, 4_500, 6_000,
+];
+
+/**
+ * A file the chat shows a card for that is not yet a row of the panel's list or a
+ * step of the header's count. The server links a produced file to its reply when
+ * the turn has ended, after the terminal frame (the deferred post-turn projection)
+ * and the list only has files that hang from a reply, so the read the page made
+ * when the tool finished could not have had it and the stream says nothing more:
+ * every file request left the list stale until a reload (RC-A).
+ *
+ * Only a succeeded job of a reply counts, a recent one (an old job whose files are
+ * not listed for some other reason must not make the page ask on every visit),
+ * with files that were not deleted (`knownArtifactIds` holds the ids the list has
+ * and the ones this browser deleted).
+ */
+export function filesWaitingForTheList(
+	jobs: FileProductionJob[],
+	knownArtifactIds: ReadonlySet<string>,
+	nowMs: number,
+): boolean {
+	return jobs.some(
+		(job) =>
+			job.status === "succeeded" &&
+			Boolean(job.assistantMessageId) &&
+			!job.dismissed &&
+			!job.filesDeleted &&
+			nowMs - job.updatedAt < FILE_LIST_EXPECTED_WITHIN_MS &&
+			job.files.some(
+				(file) =>
+					Boolean(file.artifactId) &&
+					!knownArtifactIds.has(file.artifactId ?? ""),
+			),
+	);
+}
+
 export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	return jobs.some(
 		(job) => job.status === "queued" || job.status === "running",

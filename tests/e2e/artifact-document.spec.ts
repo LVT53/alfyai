@@ -882,7 +882,9 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 
 		// The list row itself still never shows the checklist (redesign §5.2),
 		// tick or no tick.
-		await page.getByRole("button", { name: /This chat/ }).click();
+		await page
+			.getByRole("button", { name: "Back to this chat's items" })
+			.click();
 		const list = page.getByTestId("artifact-panel-list");
 		await expect(list.getByText("Charger")).not.toBeVisible();
 		await expect(list.getByRole("checkbox")).toHaveCount(0);
