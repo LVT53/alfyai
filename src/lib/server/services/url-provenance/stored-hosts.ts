@@ -12,6 +12,7 @@
 import { listConversationProvenanceSources } from "$lib/server/services/messages";
 import { toolSourceHosts } from "$lib/shared/url-provenance";
 import { ledgerHasHost, recordLedgerHosts } from "./ledger";
+import { countedStoredToolCalls } from "./turn";
 
 export async function hostsWithKnownSource(params: {
 	userId: string;
@@ -33,7 +34,9 @@ export async function hostsWithKnownSource(params: {
 			conversationId: params.conversationId,
 			userId: params.userId,
 		});
-		storedHosts = toolSourceHosts(sources.toolCalls);
+		// Held to the turn's own rule: a result that only repeats its call's input,
+		// or that the model's own words returned, is not a host a tool returned.
+		storedHosts = toolSourceHosts(countedStoredToolCalls(sources));
 	} catch {
 		// The read failed: say what the ledger knew, never more.
 		return known;

@@ -172,6 +172,27 @@ export function provenanceKeysOfStoredSources(
 	return keys;
 }
 
+/**
+ * The stored tool calls, each kept to the candidates the turn's own rule counts:
+ * a result whose address the conversation knows only from its call's input (a
+ * search that returned the address it was asked about), or that a tool whose
+ * output is the model's own words returned, is left out, as `noteToolResult`
+ * leaves it out while the turn runs. What refills the ledger after a restart
+ * must not let in what the turn refused.
+ */
+export function countedStoredToolCalls(
+	sources: StoredProvenanceSources,
+): Array<Extract<ThinkingSegment, { type: "tool_call" }>> {
+	const known = provenanceKeysOfStoredSources(sources);
+	return sources.toolCalls.map((call) => ({
+		...call,
+		candidates: (call.candidates ?? []).filter((candidate) => {
+			const key = provenanceKey(candidate.url);
+			return key !== null && known.has(key);
+		}),
+	}));
+}
+
 /** A tool result the model has just been handed. */
 export interface ToolResultObservation {
 	toolName: string;

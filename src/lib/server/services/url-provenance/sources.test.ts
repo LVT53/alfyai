@@ -151,6 +151,61 @@ describe("noteMessageSources (the read model's backfill)", () => {
 		expect(hasSourceHost("user-2", "stored.example")).toBe(false);
 	});
 
+	it("leaves out a stored result that only repeats its call's input, as the turn does", () => {
+		// A search that returned the address the model wrote into its own query says
+		// nothing about where the address came from; the turn refuses it, and a
+		// reload must not let it in.
+		noteMessageSources("user-1", [
+			{ role: "user", content: "What does that page say?" },
+			{
+				role: "assistant",
+				content: "",
+				thinkingSegments: [
+					segment(
+						entry("research_web", [{ url: "https://secret.evil.example/" }], {
+							input: { query: "https://secret.evil.example/" },
+						}),
+					),
+				],
+			},
+		]);
+
+		expect(hasSourceHost("user-1", "secret.evil.example")).toBe(false);
+	});
+
+	it("keeps a repeated result the user's own words gave: their link, read by fetch_url", () => {
+		noteMessageSources("user-1", [
+			{ role: "user", content: "Read https://news.example/story please" },
+			{
+				role: "assistant",
+				content: "",
+				thinkingSegments: [
+					segment(
+						entry("fetch_url", [{ url: "https://news.example/story" }], {
+							input: { urls: ["https://news.example/story"] },
+						}),
+					),
+				],
+			},
+		]);
+
+		expect(hasSourceHost("user-1", "news.example")).toBe(true);
+	});
+
+	it("never notes what a tool whose output is the model's own words returned", () => {
+		noteMessageSources("user-1", [
+			{
+				role: "assistant",
+				content: "",
+				thinkingSegments: [
+					segment(entry("run_python", [{ url: "https://exfil.example/?d=1" }])),
+				],
+			},
+		]);
+
+		expect(hasSourceHost("user-1", "exfil.example")).toBe(false);
+	});
+
 	it("keeps a busy conversation within the ledger's bound", () => {
 		const candidates = Array.from(
 			{ length: LEDGER_MAX_HOSTS_PER_USER + 50 },
@@ -363,5 +418,45 @@ describe("the source ledger and the database", () => {
 		expect([...known]).toEqual(["stored.example"]);
 		expect(hasSourceHost(userId, "live.example")).toBe(true);
 		expect(totalChanges()).toBe(before);
+	});
+
+	it("gives a report no icon for a stored result that only repeats its call's input", async () => {
+		const userId = `user-${randomUUID()}`;
+		const conversationId = `conversation-${randomUUID()}`;
+		await db.insert(users).values({
+			id: userId,
+			email: `${userId}@example.com`,
+			passwordHash: "x",
+		});
+		await db
+			.insert(conversations)
+			.values({ id: conversationId, userId, title: "Report" });
+		await db.insert(messages).values({
+			id: randomUUID(),
+			conversationId,
+			role: "assistant",
+			content: "Done.",
+			toolCalls: JSON.stringify([
+				segment(
+					entry(
+						"research_web",
+						[
+							{ url: "https://secret.evil.example/" },
+							{ url: "https://real.example/a" },
+						],
+						{ input: { query: "https://secret.evil.example/" } },
+					),
+				),
+			]),
+		});
+
+		const known = await hostsWithKnownSource({
+			userId,
+			conversationId,
+			hosts: ["secret.evil.example", "real.example"],
+		});
+
+		expect([...known]).toEqual(["real.example"]);
+		expect(hasSourceHost(userId, "secret.evil.example")).toBe(false);
 	});
 });

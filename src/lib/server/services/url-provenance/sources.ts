@@ -29,6 +29,7 @@ import {
 } from "$lib/shared/url-provenance";
 import { recordLedgerHosts, recordLedgerThumbnails } from "./ledger";
 import { recordPrefetchAddresses } from "./prefetch";
+import { countedStoredToolCalls } from "./turn";
 
 type ToolCallSegment = Extract<ThinkingSegment, { type: "tool_call" }>;
 
@@ -96,18 +97,31 @@ export function noteToolEntrySources(
 /**
  * The hosts and thumbnail addresses the tool calls of these stored messages
  * returned. Called when a conversation, or an older page of it, is read for the
- * browser, so a reloaded chat's icons and pictures are answered again.
+ * browser, so a reloaded chat's icons and pictures are answered again. Held to
+ * the turn's own rule (`countedStoredToolCalls`): a result that only repeats its
+ * call's input counts when the user's own words in these messages gave it.
  */
 export function noteMessageSources(
 	userId: string,
 	messages: ReadonlyArray<{
+		role?: string;
+		content?: string | null;
 		thinkingSegments?: readonly ThinkingSegment[] | null;
 	}>,
 ): void {
-	noteSegments(
-		userId,
-		(messages ?? []).flatMap((message) => message?.thinkingSegments ?? []),
-	);
+	const userTexts: string[] = [];
+	const toolCalls: ToolCallSegment[] = [];
+	for (const message of messages ?? []) {
+		if (message?.role === "user" && typeof message.content === "string") {
+			userTexts.push(message.content);
+		}
+		for (const segment of message?.thinkingSegments ?? []) {
+			if (segment?.type === "tool_call") toolCalls.push(segment);
+		}
+	}
+	// Newest first, as the stored read hands them over.
+	userTexts.reverse();
+	noteSegments(userId, countedStoredToolCalls({ userTexts, toolCalls }));
 }
 
 /** The hosts of addresses a tool returned (a live-web block's search results). */
