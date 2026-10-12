@@ -1160,6 +1160,76 @@ describe("hooks.server.ts", () => {
 			).toContain("default-src 'self'");
 		});
 
+		// A model-written App runs in a frame of this page and can navigate it out
+		// to any address; the page's frame-src is the only thing that stops that,
+		// so it is enforced even while the rest of the policy is only observed.
+		const PAGE_POLICY =
+			"default-src 'self'; script-src 'self' 'nonce-abc'; connect-src 'self'; frame-src 'self'; object-src 'none'";
+
+		it("enforces the page's frame-src beside the report-only policy by default", async () => {
+			const response = await handleHtml({
+				responseHeaders: { "content-security-policy": PAGE_POLICY },
+			});
+
+			expect(response.headers.get("content-security-policy")).toBe(
+				"frame-src 'self'",
+			);
+			expect(response.headers.get("content-security-policy-report-only")).toBe(
+				PAGE_POLICY,
+			);
+		});
+
+		it("enforces the frame rule on an unrecognised CSP_MODE too, which means report-only", async () => {
+			process.env.CSP_MODE = "enforced";
+			const response = await handleHtml({
+				responseHeaders: { "content-security-policy": PAGE_POLICY },
+			});
+
+			expect(response.headers.get("content-security-policy")).toBe(
+				"frame-src 'self'",
+			);
+		});
+
+		it("sends the full policy enforcing, frame-src included, when CSP_MODE=enforce", async () => {
+			process.env.CSP_MODE = "enforce";
+			const response = await handleHtml({
+				responseHeaders: { "content-security-policy": PAGE_POLICY },
+			});
+
+			expect(response.headers.get("content-security-policy")).toBe(PAGE_POLICY);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		it("sends no CSP at all when CSP_MODE=off, the frame rule included", async () => {
+			process.env.CSP_MODE = "off";
+			const response = await handleHtml({
+				responseHeaders: { "content-security-policy": PAGE_POLICY },
+			});
+
+			expect(response.headers.get("content-security-policy")).toBeNull();
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		it("never adds a frame rule to an endpoint response that carries its own policy", async () => {
+			// The App's own document: its own CSP, a sandbox, no x-sveltekit-page.
+			const appCsp =
+				"sandbox allow-scripts allow-forms; default-src 'none'; frame-ancestors 'self'";
+			const response = await handleHtml({
+				path: "/api/artifacts/a-1/app",
+				sveltekitPage: false,
+				responseHeaders: { "content-security-policy": appCsp },
+			});
+
+			expect(response.headers.get("content-security-policy")).toBe(appCsp);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
 		it("enforces the CSP when CSP_MODE=enforce", async () => {
 			process.env.CSP_MODE = "enforce";
 			const response = await handleHtml({

