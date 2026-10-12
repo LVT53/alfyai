@@ -113,13 +113,17 @@ export async function openCanvasPanel(page: Page) {
 				isMobile ? "artifact-count-button-compact" : "artifact-count-button",
 			)
 			.click();
-		await page
-			.getByTestId(
-				isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
-			)
-			.getByTestId("artifact-row")
-			.first()
-			.click();
+		const list = page.getByTestId(
+			isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
+		);
+		// A panel that was closed on the board brings the board back (FB-3, F26);
+		// otherwise it opens on the list, and the first row is the board.
+		const first = await Promise.race([
+			editor.waitFor({ state: "visible" }).then(() => "board" as const),
+			list.waitFor({ state: "visible" }).then(() => "list" as const),
+		]).catch(() => "list" as const);
+		if (first === "list")
+			await list.getByTestId("artifact-row").first().click();
 	}
 	await expect(editor).toBeVisible();
 	// The loading skeleton gives way to the board.

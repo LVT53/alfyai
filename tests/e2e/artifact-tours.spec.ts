@@ -151,8 +151,9 @@ test.describe("the first-open tours", () => {
 		expect(requests.posts()).toHaveLength(0);
 		expect(await tourRows(user.id)).toEqual([]);
 
-		// Not seen, so met again, from the start: the reader did not finish it.
-		await openItem(page, ITEM_TITLES.document);
+		// Not seen, so met again, from the start: the reader did not finish it. (The count
+		// button brings back the item the panel was closed on: FB-3, F26.)
+		await page.getByTestId("artifact-count-button").click();
 		const again = tourCard(page);
 		await expect(again).toBeVisible({ timeout: 20_000 });
 		await expect(again.getByTestId("artifact-tour-step")).toHaveText(
