@@ -8,11 +8,13 @@ import {
 } from "$lib/utils/text-compare";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
+import { dockedPanelWidth, dockedWidthCss } from "$lib/client/workspace-dock";
 import { t, type I18nKey } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
 import {
 	MOTION_DURATION,
 	MOTION_EASING,
+	prefersReducedMotion,
 	reducedMotionAnimate,
 	reducedMotionAware,
 } from "$lib/utils/motion";
@@ -61,6 +63,7 @@ import {
 	Download,
 	FileText,
 	Maximize2,
+	Minimize2,
 	MessageSquareText,
 	X,
 	Sparkles,
@@ -92,6 +95,8 @@ let {
 	presentation = "docked",
 	returnToDockedOnExpandedClose = true,
 	showPresentationToggle = true,
+	reserveDock = false,
+	onDockPreferredChange = undefined,
 	documents = [],
 	availableDocuments = [],
 	activeDocumentId = null,
@@ -119,6 +124,15 @@ let {
 	presentation?: "docked" | "expanded";
 	returnToDockedOnExpandedClose?: boolean;
 	showPresentationToggle?: boolean;
+	/**
+	 * The host lays the panel out beside its content in a flex row (the chat
+	 * page's stage): the expanded panel then leaves the column it docked in
+	 * standing empty, so the content beside it keeps its width while the panel
+	 * floats over it, and goes back to it when the panel docks again (FB-3, F26).
+	 */
+	reserveDock?: boolean;
+	/** The width the docked panel asks for, whenever it changes (the reader drags its edge, a stored width is read): the host decides from it whether the chat beside it still has its room. */
+	onDockPreferredChange?: ((width: number) => void) | undefined;
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
@@ -208,7 +222,18 @@ let {
 	overDialog?: boolean;
 } = $props();
 
-let activeDocument: WorkspaceDocument | null = $derived.by(() => {
+// Fade animation state
+let isVisible = $state(false);
+let shouldRender = $state(false);
+let closeAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+// list.open can show the shell with zero open tabs: the count button opens
+// straight onto "what this chat made" even before anything has been opened
+// in this session.
+let shouldShowWorkspaceShell = $derived(
+	open && (documents.length > 0 || Boolean(list?.open)),
+);
+
+let liveActiveDocument: WorkspaceDocument | null = $derived.by(() => {
 	if (documents.length === 0 && availableDocuments.length === 0) return null;
 	return (
 		documents.find((document) => document.id === activeDocumentId) ??
@@ -217,6 +242,39 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 		null
 	);
 });
+/**
+ * The column is taken out of the page when it has finished shrinking, not when
+ * the page stops asking for it (closing the last item empties `documents` at
+ * once): the item it showed is held until then, so what leaves is seen leaving
+ * and not cut away from under its own exit (FB-3, F4).
+ */
+let lastShownDocument: WorkspaceDocument | null = null;
+$effect.pre(() => {
+	if (liveActiveDocument) lastShownDocument = liveActiveDocument;
+});
+let activeDocument: WorkspaceDocument | null = $derived(
+	liveActiveDocument ??
+		(shouldRender && !shouldShowWorkspaceShell ? lastShownDocument : null),
+);
+/** What the panel showed when it was last asked for: the list, or an item. A column on its way out keeps showing it. */
+let lastShownList = false;
+$effect.pre(() => {
+	if (shouldShowWorkspaceShell) lastShownList = Boolean(list?.open);
+});
+let renderListShell = $derived(
+	shouldRender &&
+		(shouldShowWorkspaceShell ? Boolean(list?.open) : lastShownList),
+);
+/** The shape the panel had when it was last asked for: a closing close X (the page docks it in the same breath) is not seen turning into a column first. */
+let lastShownPresentation: "docked" | "expanded" = untrack(() => presentation);
+$effect.pre(() => {
+	if (shouldShowWorkspaceShell) lastShownPresentation = presentation;
+});
+let shellPresentation = $derived(
+	shouldShowWorkspaceShell ? presentation : lastShownPresentation,
+);
+/** The column an expanded panel leaves standing (`reserveDock`), which the chat beside it keeps its width by. */
+let dockSpacerElement: HTMLElement | null = $state(null);
 
 /**
  * Wave 2.5 review (F1): "double count from the card path". Opened straight
@@ -595,7 +653,9 @@ async function focusPanelListTitle(): Promise<void> {
 async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
 	await onDeleteArtifact?.(item);
 	if ((list?.items.length ?? 0) > 0) {
-		handleBackToList();
+		// The page has already turned to the list in the step that forgot the item
+		// (F19); a host that has not is asked to.
+		if (!list?.open) handleBackToList();
 		void focusPanelListTitle();
 		return;
 	}
@@ -694,22 +754,11 @@ let mobileShellElement: HTMLElement | null = $state(null);
  * only an entrance on whatever just arrived.
  */
 let desktopContentElement: HTMLElement | null = $state(null);
-/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it (`handleBackToList`), or by the list-closing effect below, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
+/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it (`handleBackToList`), or by the list-closing effect below, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right on the column's own curve and duration, so it is never an empty column while the chat has already made room (FB-3: it used to start 60 ms after the panel). */
 let pendingEntrance: { direction: "left" | "right"; delay: number } = {
 	direction: "right",
-	delay: 60,
+	delay: 0,
 };
-// Fade animation state
-let isVisible = $state(false);
-let shouldRender = $state(false);
-let closeAnimationTimer: ReturnType<typeof setTimeout> | null = null;
-// list.open can show the shell with zero open tabs: the count button opens
-// straight onto "what this chat made" even before anything has been opened
-// in this session.
-let shouldShowWorkspaceShell = $derived(
-	open && (documents.length > 0 || Boolean(list?.open)),
-);
-let lastPresentation: "docked" | "expanded" | null = null;
 
 // Page navigation state
 let currentPage = $state(1);
@@ -888,6 +937,13 @@ function handleTourClose(): void {
 	tourView = null;
 }
 
+/** What a body is handed as `onReplayTour`: the way to see the tour again, except while a card is up (an empty state's link to it would offer what is on screen). */
+let bodyReplayTour = $derived(
+	tourItemKind && !(tourView && tourView.itemKey === activeBodyKey)
+		? replayOpenItemTour
+		: undefined,
+);
+
 /** Shows the open item's tour again, whether or not it was seen. Handed to bodies as `onReplayTour` (their empty states link to it). */
 function replayOpenItemTour(): void {
 	const kind = tourItemKind;
@@ -907,6 +963,10 @@ function replayTourFromList(item: DocumentWorkspaceItem): void {
 $effect(() => {
 	if (!browser) return;
 	localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(workspaceWidth));
+});
+
+$effect(() => {
+	onDockPreferredChange?.(workspaceWidth);
 });
 
 $effect(() => {
@@ -940,6 +1000,36 @@ async function focusPanelTitleOnOpen(): Promise<void> {
 	title?.focus();
 }
 
+// ---- The dock: one column whose width the chat column follows (FB-3, F4) ----
+//
+// The docked panel is a flex item of the chat page's stage beside the chat
+// column, which takes whatever it leaves. So the panel's WIDTH is the one thing
+// that moves: it grows from 0 to its width on `--ease-emphasis` when it opens
+// and shrinks on `--ease-in` when it closes (redesign §7.2 #1/#2), and the chat
+// re-wraps in step with it, in the same frames. The width is CSS (see
+// `dockedWidthCss`), so it follows the stage in the frame the stage changes.
+//
+// What the column holds is laid out at the width the column is growing to and
+// shown through it from the right edge (`dockContentWidth`), so the editor, the
+// board and the App are not re-flowed through every width on the way.
+
+/** The row the docked panel shares with the chat column, measured for `dockContentWidth`. */
+let dockStageWidth = $state(0);
+let dockContentWidth = $derived(
+	dockStageWidth > 0 ? dockedPanelWidth(workspaceWidth, dockStageWidth) : null,
+);
+$effect(() => {
+	const stage = desktopShellElement?.parentElement;
+	if (!browser || !stage || typeof ResizeObserver === "undefined") return;
+	dockStageWidth = stage.clientWidth;
+	const observer = new ResizeObserver((entries) => {
+		const entry = entries.at(-1);
+		if (entry) dockStageWidth = entry.contentRect.width;
+	});
+	observer.observe(stage);
+	return () => observer.disconnect();
+});
+
 $effect(() => {
 	if (shouldShowWorkspaceShell) {
 		if (closeAnimationTimer) {
@@ -949,19 +1039,25 @@ $effect(() => {
 
 		shouldRender = true;
 		isVisible = false;
-		const frame = requestAnimationFrame(() => {
+		let cancelled = false;
+		// The column has to be seen closed before it can grow: render it, commit
+		// that layout, and only then open it, so the width has somewhere to start.
+		void tick().then(() => {
+			if (cancelled) return;
+			void desktopShellElement?.offsetWidth;
 			isVisible = true;
 		});
 
-		return () => cancelAnimationFrame(frame);
+		return () => {
+			cancelled = true;
+		};
 	}
 
 	isVisible = false;
 	if (shouldRender && !closeAnimationTimer) {
 		// §7.2 #2: "content fades out" — the content wrapper's own fade, not
-		// the shell's (which keeps its existing opacity/transform fade
-		// unchanged below); reducedMotionAnimate jumps straight to hidden
-		// under reduced motion, so `finished` still resolves promptly.
+		// the shell's; reducedMotionAnimate jumps straight to hidden under
+		// reduced motion, so `finished` still resolves promptly.
 		const fadeOut = desktopContentElement
 			? reducedMotionAnimate(
 					desktopContentElement,
@@ -969,10 +1065,15 @@ $effect(() => {
 					{ duration: MOTION_DURATION.standard, easing: MOTION_EASING.in },
 				)
 			: null;
-		closeAnimationTimer = setTimeout(() => {
-			shouldRender = false;
-			closeAnimationTimer = null;
-		}, 150);
+		// The column shrinks over the same `standard` the content fades in; it is
+		// taken out of the page when it has.
+		closeAnimationTimer = setTimeout(
+			() => {
+				shouldRender = false;
+				closeAnimationTimer = null;
+			},
+			shellPresentation === "expanded" ? 220 : MOTION_DURATION.standard,
+		);
 		return () => {
 			fadeOut?.cancel();
 		};
@@ -995,6 +1096,11 @@ $effect.pre(() => {
 	if (showing && shellWasShowing && listWasOpen && !listOpen) {
 		pendingEntrance = { direction: "right", delay: 0 };
 	}
+	// The mirror (§7.2 #4), whoever opened the list: the breadcrumb, or the page
+	// itself when the open item was deleted and the list is what is left.
+	if (showing && shellWasShowing && !listWasOpen && listOpen) {
+		pendingEntrance = { direction: "left", delay: 0 };
+	}
 	shellWasShowing = showing;
 	listWasOpen = listOpen;
 });
@@ -1002,7 +1108,7 @@ $effect.pre(() => {
 /**
  * Plays the entrance for whatever just mounted into `desktopContentElement`
  * — the panel's very first open (the default `pendingEntrance`, content from
- * the right, 60ms after the panel itself per §7.2 #1) and every list↔item
+ * the right, with the panel itself: §7.2 #1 said 60 ms after it, which left the column empty while the chat had already given up its width) and every list↔item
  * push within an already-open panel (§7.2 #3/#4, immediate: the effect above
  * and the header's back-to-list path set `pendingEntrance` to the direction
  * the NEW content is arriving from just before the branch swaps). There is
@@ -1015,6 +1121,8 @@ $effect(() => {
 	const element = desktopContentElement;
 	if (!element) return;
 	const { direction, delay } = pendingEntrance;
+	// Spent: the next arrival is a panel opening again unless a push says otherwise.
+	pendingEntrance = { direction: "right", delay: 0 };
 	const fromX = direction === "right" ? 32 : -32;
 	const animation = reducedMotionAnimate(
 		element,
@@ -1033,41 +1141,9 @@ $effect(() => {
 	};
 });
 
-$effect(() => {
-	if (!shouldShowWorkspaceShell) {
-		lastPresentation = presentation;
-		return;
-	}
-
-	if (lastPresentation === null) {
-		lastPresentation = presentation;
-		return;
-	}
-
-	if (presentation === lastPresentation) return;
-	lastPresentation = presentation;
-
-	isVisible = false;
-	const frame = requestAnimationFrame(() => {
-		isVisible = true;
-	});
-
-	return () => {
-		cancelAnimationFrame(frame);
-	};
-});
-
+/** The expanded panel's own entrance: a small rise and settle, with its opacity (the docked one is its width, above). */
 let desktopShellTransform = $derived(
-	presentation === "expanded"
-		? isVisible
-			? "translateY(0) scale(1)"
-			: "translateY(0.45rem) scale(0.985)"
-		: isVisible
-			? "translateX(0)"
-			: // §7.2 #1: the panel enters from the right (the side it lives on,
-				// per §7.1's own principle 1) — this used to read -20px, sliding in
-				// from the left instead (§5.1 problem 8).
-				"translateX(32px)",
+	isVisible ? "translateY(0) scale(1)" : "translateY(0.45rem) scale(0.985)",
 );
 
 function startResize(event: MouseEvent) {
@@ -1489,17 +1565,78 @@ function toggleExpandedDownloadMenu() {
 	expandedDownloadMenuOpen = !expandedDownloadMenuOpen;
 }
 
-function requestExpandedPresentation() {
+/** The inset keyframe for a fixed shell standing on `rect`. */
+function insetsOf(rect: DOMRect): Keyframe {
+	return {
+		top: `${rect.top}px`,
+		left: `${rect.left}px`,
+		right: `${window.innerWidth - rect.right}px`,
+		bottom: `${window.innerHeight - rect.bottom}px`,
+	};
+}
+
+/**
+ * Expand grows the panel from where its column stands to the whole window, in
+ * the same motion every layout change here has (FB-3, F26): the old rect is the
+ * first keyframe, and the overlay's own insets are the last.
+ */
+async function requestExpandedPresentation(): Promise<void> {
+	const shell = desktopShellElement;
+	const from = shell?.getBoundingClientRect();
 	onPresentationChange?.("expanded");
+	if (!shell || !from || prefersReducedMotion()) return;
+	await tick();
+	if (desktopShellElement !== shell) return;
+	shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
+		duration: MOTION_DURATION.emphasis,
+		easing: MOTION_EASING.emphasis,
+	});
 }
 
-function requestDockedPresentation() {
+/**
+ * Docking is the mirror: the overlay shrinks onto the column that was held for
+ * it, and only then is it a column again, so it never changes shape in a frame.
+ */
+async function requestDockedPresentation(): Promise<void> {
+	const shell = desktopShellElement;
+	const slot = dockSpacerElement;
+	if (!shell || !slot || prefersReducedMotion()) {
+		onPresentationChange?.("docked");
+		return;
+	}
+	const animation = shell.animate(
+		[
+			{
+				offset: 1,
+				...insetsOf(slot.getBoundingClientRect()),
+				borderRadius: "0px",
+			},
+		],
+		{
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+			fill: "forwards",
+		},
+	);
+	await animation.finished.catch(() => undefined);
 	onPresentationChange?.("docked");
+	await tick();
+	animation.cancel();
 }
 
+/** The X: the panel closes, in whatever shape it is in. */
 function handleCloseWorkspace() {
+	onCloseWorkspace();
+}
+
+/**
+ * Escape, a press outside the expanded panel, the phone's backdrop: step out of
+ * the expanded view to the dock, or close where there is no dock to return to.
+ * (The X is not this: it closes.)
+ */
+function stepOutOfExpanded() {
 	if (presentation === "expanded" && returnToDockedOnExpandedClose) {
-		requestDockedPresentation();
+		void requestDockedPresentation();
 		return;
 	}
 	onCloseWorkspace();
@@ -1507,7 +1644,7 @@ function handleCloseWorkspace() {
 
 function handleMobileBackdropClick(event: MouseEvent) {
 	if (event.target === event.currentTarget) {
-		handleCloseWorkspace();
+		stepOutOfExpanded();
 	}
 }
 
@@ -1550,7 +1687,7 @@ function closeFromEscape() {
 
 	if (presentation !== "expanded") return;
 
-	handleCloseWorkspace();
+	stepOutOfExpanded();
 }
 
 // A panel over a dialog (`overDialog`) is a layer of the one dialog stack for as
@@ -1666,7 +1803,7 @@ function handleDocumentPointerdown(event: PointerEvent) {
 		return;
 	}
 
-	handleCloseWorkspace();
+	stepOutOfExpanded();
 }
 
 async function loadComparePreview(
@@ -1840,7 +1977,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:document onpointerdown={handleDocumentPointerdown} />
 
-{#if shouldRender && list?.open}
+{#if list && renderListShell}
 	{#snippet artifactListBody(testid: string | undefined)}
 		<div class="workspace-body artifact-panel-list-body" data-testid={testid}>
 			{#if list.items.length === 0}
@@ -1933,12 +2070,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{@attach overDialog ? desktopTrap : undefined}
 		role={overDialog ? "dialog" : undefined}
 		aria-modal={overDialog ? "true" : undefined}
-		class="workspace-shell workspace-shell-desktop transition fade"
+		class="workspace-shell workspace-shell-desktop workspace-shell-docked"
 		class:workspace-fade-in={isVisible}
-		style:opacity={isVisible ? '1' : '0'}
+		class:workspace-resizing={isResizing}
+		style:--workspace-dock-width={dockedWidthCss(workspaceWidth)}
 		aria-label={list.title ?? $t('artifacts.panel.title')}
 	>
-		<div class="workspace-content" bind:this={desktopContentElement}>
+		<div
+			class="workspace-content"
+			bind:this={desktopContentElement}
+			style:width={dockContentWidth === null ? undefined : `${dockContentWidth}px`}
+		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
@@ -2081,24 +2223,29 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	<!-- The first-open tour: in the content area above the item, inside the panel's own flow. -->
+	<!-- The first-open tour: a card laid over the top of the item, not in the flow above it. It is
+	     decided a moment after the item has painted (the answer is a request, the card a lazy chunk),
+	     and a card in the flow moved what the reader had just seen by its own height, re-flowed the
+	     Document and re-fitted the board; a card over the item moves nothing (FB-3, F15). -->
 	{#snippet tourCard()}
 		{#if tourView && tourView.itemKey === activeBodyKey}
-			<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
-			     left, and an {#if} that turns true again in that time brings the SAME card back, with its
-			     finished state and its slide. A presentation wanted while one is leaving (the copy changed
-			     under the reader, a replay at once) is a new card, at its first slide. -->
-			{#key tourView}
-				{@const Card = tourView.Card}
-				<Card
-					tour={tourView.tour}
-					replay={tourView.replay}
-					animate
-					onSeen={handleTourSeen}
-					onDismiss={handleTourDismiss}
-					onClose={handleTourClose}
-				/>
-			{/key}
+			<div class="workspace-tour-layer" class:workspace-body-covered={historyOpen} inert={historyOpen}>
+				<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
+				     left, and an {#if} that turns true again in that time brings the SAME card back, with its
+				     finished state and its slide. A presentation wanted while one is leaving (the copy changed
+				     under the reader, a replay at once) is a new card, at its first slide. -->
+				{#key tourView}
+					{@const Card = tourView.Card}
+					<Card
+						tour={tourView.tour}
+						replay={tourView.replay}
+						animate
+						onSeen={handleTourSeen}
+						onDismiss={handleTourDismiss}
+						onClose={handleTourClose}
+					/>
+				{/key}
+			</div>
 		{/if}
 	{/snippet}
 
@@ -2226,6 +2373,18 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				title={$t('documentWorkspace.expandWorkspace')}
 			>
 				<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{/if}
+		{#if showPresentationToggle && presentation === "expanded" && returnToDockedOnExpandedClose}
+			<span class="artifact-panel-header-actions-div" aria-hidden="true"></span>
+			<button
+				type="button"
+				class="btn-icon-bare workspace-dock-button"
+				onclick={() => void requestDockedPresentation()}
+				aria-label={$t('documentWorkspace.collapseWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+				title={$t('documentWorkspace.collapseWorkspace')}
+			>
+				<Minimize2 size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
 		{/if}
 		<button
@@ -2408,10 +2567,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 			<div class="workspace-stage">
+			{#if shouldRenderMobilePreview}
+				{@render tourCard()}
+			{/if}
 			<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container-mobile">
-				{#if shouldRenderMobilePreview}
-					{@render tourCard()}
-				{/if}
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
 					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 					{#if ArtifactBody}
@@ -2432,7 +2591,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onOpenHistory={() => void openHistory()}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
 								{currentUser}
 							/>
@@ -2532,29 +2691,34 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		</section>
 	</div>
 
+	<!-- An expanded panel floats over the page and leaves its column standing, so what sits beside it keeps its width. -->
+	{#if reserveDock && shellPresentation === "expanded"}
+		<div
+			class="workspace-dock-spacer"
+			class:workspace-fade-in={isVisible}
+			bind:this={dockSpacerElement}
+			style:--workspace-dock-width={dockedWidthCss(workspaceWidth)}
+			aria-hidden="true"
+		></div>
+	{/if}
+
 	<!-- Desktop / tablet side pane -->
 	<aside 
 		bind:this={desktopShellElement}
 		{@attach overDialog ? desktopTrap : undefined}
 		role={overDialog ? "dialog" : undefined}
 		aria-modal={overDialog ? "true" : undefined}
-		class="workspace-shell workspace-shell-desktop transition fade"
+		class="workspace-shell workspace-shell-desktop"
 		class:workspace-fade-in={isVisible}
 		class:workspace-resizing={isResizing}
-		class:workspace-shell-expanded={presentation === "expanded"}
-		style:width={presentation === "docked" && workspaceWidth > 0 ? `${workspaceWidth}px` : undefined}
-		style:transition={
-			isResizing
-				? 'none'
-				: presentation === 'expanded'
-					? 'opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)'
-					// §7.2 #1/#2: the docked column's own width transition
-					// (content's fade/slide is `desktopContentElement`'s own
-					// WAAPI animation, driven separately below).
-					: 'opacity 150ms ease-out, transform 150ms ease-out, width var(--duration-standard) var(--ease-in)'
-		}
-		style:opacity={isVisible ? '1' : '0'}
-		style:transform={desktopShellTransform}
+		class:workspace-shell-expanded={shellPresentation === "expanded"}
+		class:workspace-shell-docked={shellPresentation === "docked"}
+		style:--workspace-dock-width={dockedWidthCss(workspaceWidth)}
+		style:transition={shellPresentation === 'expanded'
+			? 'opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)'
+			: undefined}
+		style:opacity={shellPresentation === 'expanded' ? (isVisible ? '1' : '0') : undefined}
+		style:transform={shellPresentation === 'expanded' ? desktopShellTransform : undefined}
 		aria-label={panelLandmarkLabel}
 	>
 		<div 
@@ -2570,7 +2734,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			aria-valuenow={workspaceWidth}
 			tabindex="0"
 		></div>
-		<div class="workspace-content" bind:this={desktopContentElement}>
+		<div
+			class="workspace-content"
+			bind:this={desktopContentElement}
+			style:width={shellPresentation === 'docked' && dockContentWidth !== null ? `${dockContentWidth}px` : undefined}
+		>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
 				kind={activeArtifactKind}
@@ -2618,6 +2786,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									title={$t('documentWorkspace.expandWorkspace')}
 								>
 									<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+								</button>
+							{:else if showPresentationToggle && returnToDockedOnExpandedClose}
+								<button
+									type="button"
+									class="btn-icon-bare workspace-dock-button"
+									onclick={() => void requestDockedPresentation()}
+									aria-label={$t('documentWorkspace.collapseWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+									title={$t('documentWorkspace.collapseWorkspace')}
+								>
+									<Minimize2 size={18} strokeWidth={2} aria-hidden="true" />
 								</button>
 							{/if}
 							<button
@@ -2733,10 +2911,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 	<div class="workspace-stage">
+	{#if shouldRenderDesktopPreview}
+		{@render tourCard()}
+	{/if}
 	<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container">
-		{#if shouldRenderDesktopPreview}
-			{@render tourCard()}
-		{/if}
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
 			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 			{#if ArtifactBody}
@@ -2757,7 +2935,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onOpenHistory={() => void openHistory()}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}
 						{currentUser}
 					/>
@@ -2894,16 +3072,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		width: 100%;
 	}
 
-	.workspace-shell-desktop {
+	.workspace-shell-desktop,
+	.workspace-dock-spacer {
 		display: none;
-		transition: opacity var(--duration-standard) ease-out, transform var(--duration-standard) ease-out;
-		opacity: 0;
-		transform: translateX(32px);
-	}
-
-	.workspace-fade-in {
-		opacity: 1;
-		transform: translateX(0);
 	}
 
 	.workspace-header {
@@ -3249,6 +3420,21 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	.workspace-body-covered {
 		visibility: hidden;
+	}
+
+	/* The first-open tour card is laid over the top of the item: nothing under it
+	   is moved, resized or re-fitted by its coming or going (FB-3, F15). The layer
+	   is as tall as the card and no taller, so the rest of the item stays reachable. */
+	.workspace-tour-layer {
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 6;
+	}
+
+	.workspace-tour-layer :global(.artifact-tour) {
+		box-shadow: var(--shadow-md);
 	}
 
 	.workspace-history-slot {
@@ -3606,32 +3792,55 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	}
 
 	@media (min-width: 768px) {
+		/* The docked panel is a column beside the chat, and its WIDTH is what
+		   moves (FB-3, F4; redesign §7.2 #1/#2): 0 when it is closed, the width
+		   the dock arithmetic gives it (--workspace-dock-width, resolved against
+		   the stage by the browser) when it is open. The chat column takes
+		   what it leaves, so the two change together, frame for frame. It opens
+		   on --ease-emphasis over the emphasis duration and closes on --ease-in
+		   over the standard one; the content has its own entrance (WAAPI) and
+		   sits at the width it is growing to (below), so it is never re-flowed
+		   through the widths on the way. */
 		.workspace-shell-desktop {
 			display: flex;
-			/* §7.2 #1/#2: the column itself grows from 0 to its width when the
-			   panel opens, and shrinks back on close — rather than the whole
-			   element popping in at its full width while only its opacity/
-			   transform faded (§5.1 problem 8, "the chat column snaps to its
-			   new width"). `.workspace-fade-in` below carries the real
-			   width/max-width/min-width and its own faster (emphasis) timing;
-			   this rest state's `standard`/`ease-in` transition is what plays
-			   on CLOSE, when `.workspace-fade-in` is removed. */
-			width: 0;
-			max-width: 0;
-			min-width: 0;
-			overflow: hidden;
+			position: relative;
 			flex: 0 0 auto;
+			width: 0;
+			min-width: 0;
+			max-width: none;
+			overflow: hidden;
 			border-left: 1px solid var(--border-subtle);
 			background: var(--surface-page);
-			transition:
-				opacity var(--duration-standard) ease-out,
-				transform var(--duration-standard) ease-out,
-				width var(--duration-standard) var(--ease-in);
-			transform-origin: center;
-			opacity: 0;
-			/* The panel enters from the right, the side it lives on (§7.1
-			   principle 1) — this used to read -20px (§5.1 problem 8). */
-			transform: translateX(32px);
+			transition: width var(--duration-standard) var(--ease-in);
+		}
+
+		.workspace-shell-desktop.workspace-fade-in {
+			width: var(--workspace-dock-width);
+			transition: width var(--duration-emphasis) var(--ease-emphasis);
+		}
+
+		/* The column an expanded panel leaves standing: it opens and closes
+		   exactly as the docked panel does, so the chat beside it moves with
+		   the panel's coming and going and not with its shape. */
+		.workspace-dock-spacer {
+			display: block;
+			flex: 0 0 auto;
+			width: 0;
+			transition: width var(--duration-standard) var(--ease-in);
+		}
+
+		.workspace-dock-spacer.workspace-fade-in {
+			width: var(--workspace-dock-width);
+			transition: width var(--duration-emphasis) var(--ease-emphasis);
+		}
+
+		/* The content of a docked column stays at the width the column is
+		   growing to and is shown through it from the right edge. */
+		.workspace-shell-docked > .workspace-content {
+			position: absolute;
+			top: 0;
+			right: 0;
+			bottom: 0;
 		}
 
 		.workspace-shell-expanded {
@@ -3653,29 +3862,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			display: none;
 		}
 
-		.workspace-fade-in {
-			width: min(68vw, 59.375rem);
-			max-width: 68%;
-			min-width: min(38.75rem, 68vw);
-			opacity: 1;
-			transform: translateX(0);
-			transition:
-				opacity var(--duration-standard) ease-out,
-				transform var(--duration-standard) ease-out,
-				width var(--duration-emphasis) var(--ease-emphasis);
-		}
-
 		.workspace-shell-expanded.workspace-fade-in {
 			/* Expanded mode owns its own width (auto, fixed-position) and its
-			   own opacity/transform crossfade timing above — the docked
-			   open/close width transition above must not leak into it. */
+			   own opacity/transform crossfade timing (inline). */
 			width: auto;
-			max-width: none;
-			min-width: 0;
 			transition: opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 		}
 
-		.workspace-resizing {
+		.workspace-shell-desktop.workspace-resizing {
 			transition: none;
 		}
 

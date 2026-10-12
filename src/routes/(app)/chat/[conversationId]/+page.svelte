@@ -88,7 +88,14 @@ import {
 	confirmWrite as confirmWriteRequest,
 	fetchConversationPendingWrites,
 } from "$lib/client/api/connection-writes";
-import { currentConversationId } from "$lib/stores/ui";
+import { chatWouldBeSqueezed } from "$lib/client/workspace-dock";
+import {
+	currentConversationId,
+	setSidebarFoldNeeded,
+	sidebarCollapsed,
+	sidebarWidth,
+} from "$lib/stores/ui";
+import { viewportStore } from "$lib/utils/viewport.svelte";
 import { projects } from "$lib/stores/projects";
 import {
 	selectedModel,
@@ -1049,6 +1056,26 @@ let isArtifactPanelOpen = $derived(
 	workspaceOpen && (artifactListOpen || workspaceDocuments.length > 0),
 );
 
+// While the panel is docked beside the chat, the chat column keeps a floor
+// (`CHAT_COLUMN_FLOOR`): the panel gives up width before the chat goes under it
+// (the panel's own CSS), and when the chat would be under it anyway because the
+// sidebar is open, the sidebar folds to its rail and comes back when the panel
+// goes (FB-3, F3). The reader's own choice of sidebar is never changed.
+let windowWidth = $state(browser ? window.innerWidth : 0);
+let dockPreferredWidth = $state(950);
+let sidebarNeededForPanel = $derived(
+	browser &&
+		isArtifactPanelOpen &&
+		viewportStore.tier === "desktop" &&
+		!$sidebarCollapsed &&
+		windowWidth > 0 &&
+		chatWouldBeSqueezed(dockPreferredWidth, windowWidth - $sidebarWidth),
+);
+$effect(() => {
+	setSidebarFoldNeeded(sidebarNeededForPanel);
+});
+onDestroy(() => setSidebarFoldNeeded(false));
+
 /**
  * Wave 2.5 Step 12/13 (redesign §9.2): the panel's own open item — looked up
  * from `workspaceDocuments` (the panel's own open tabs), never from
@@ -1321,7 +1348,27 @@ function handleArtifactCountButtonClick() {
 		closeWorkspace();
 		return;
 	}
+	// A panel closed on an item is brought back on that item, if it is still
+	// there; otherwise (it was the list, or the item has been deleted since) it
+	// is the list that comes back (FB-3, F26).
+	const closedItem = lastClosedItem;
+	lastClosedItem = null;
+	if (closedItem && isWorkspaceItemStillThere(closedItem)) {
+		openWorkspaceDocument(closedItem, { preservePresentation: true });
+		return;
+	}
 	openArtifactList();
+}
+
+/** The item the panel showed when it was last closed, which the count button brings back. In memory only: a new visit starts from the list. */
+let lastClosedItem = $state.raw<DocumentWorkspaceItem | null>(null);
+
+function isWorkspaceItemStillThere(item: DocumentWorkspaceItem): boolean {
+	return item.artifactId
+		? liveArtifacts.some((row) => row.id === item.artifactId)
+		: availableWorkspaceDocumentsWithArtifacts.some(
+				(candidate) => candidate.id === item.id,
+			);
 }
 
 /** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
@@ -1358,6 +1405,7 @@ function triggerForkOpeningTransition() {
 
 function restorePersistedWorkspaceState() {
 	workspaceConversation = getWorkspaceConversation();
+	lastClosedItem = null;
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1493,6 +1541,8 @@ function closeWorkspaceDocument(documentId: string) {
  * made later under the same id (Regenerate) starts from its own numbers.
  */
 function handleArtifactDeleted(artifactId: string) {
+	// The panel is on this very item right now (before anything below changes it).
+	const panelWasOnIt = activeWorkspaceDocument?.artifactId === artifactId;
 	observedArtifactMoments = forgetObservedArtifact(
 		observedArtifactMoments,
 		artifactId,
@@ -1503,6 +1553,14 @@ function handleArtifactDeleted(artifactId: string) {
 		(entry) => entry.artifactId === artifactId,
 	)) {
 		closeWorkspaceDocument(document.id);
+	}
+	if (lastClosedItem?.artifactId === artifactId) lastClosedItem = null;
+	// Deleting the open item shows what is left, in the same breath: the panel
+	// does not close and open again around a frame of a full-width chat. Only
+	// when nothing is left is there nothing to list, and the panel goes.
+	if (panelWasOnIt && artifacts.length > 0) {
+		artifactListOpen = true;
+		workspaceOpen = true;
 	}
 }
 
@@ -1668,6 +1726,7 @@ async function handleRegenerateArtifact(artifactId: string) {
 }
 
 function closeWorkspace() {
+	lastClosedItem = activeWorkspaceDocument;
 	const result = reduceWorkspaceClose(
 		workspaceDocuments,
 		activeWorkspaceDocumentId,
@@ -3674,6 +3733,8 @@ function handleDrop(event: DragEvent) {
 }
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <svelte:head>
 	<title>{effectiveConversationTitle}</title>
 </svelte:head>
@@ -3884,6 +3945,8 @@ function handleDrop(event: DragEvent) {
 			open={workspaceOpen}
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
+			reserveDock
+			onDockPreferredChange={(width) => (dockPreferredWidth = width)}
 			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}

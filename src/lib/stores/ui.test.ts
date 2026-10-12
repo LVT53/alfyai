@@ -96,3 +96,55 @@ describe("ui store: the document comments rail preference", () => {
 		expect(get(documentCommentsRailHidden)).toBe(false);
 	});
 });
+
+describe("the sidebar folded for a docked panel", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it("is not the reader's choice: nothing is stored and the preference is left alone", async () => {
+		localStorage.setItem("sidebarCollapsed", "false");
+		const { setSidebarFoldNeeded, sidebarCollapsed, sidebarFoldedForPanel } =
+			await loadUiStore();
+
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(true);
+		expect(get(sidebarCollapsed)).toBe(false);
+		expect(localStorage.getItem("sidebarCollapsed")).toBe("false");
+
+		setSidebarFoldNeeded(false);
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		expect(get(sidebarCollapsed)).toBe(false);
+	});
+
+	it("opens on the reader's press and stays open until the panel no longer needs the room", async () => {
+		const {
+			setSidebarFoldNeeded,
+			sidebarCollapsed,
+			sidebarFoldedForPanel,
+			toggleSidebarCollapsed,
+		} = await loadUiStore();
+		sidebarCollapsed.set(false);
+
+		setSidebarFoldNeeded(true);
+		toggleSidebarCollapsed();
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		// The page keeps saying the panel needs the room (a resize, a new item): the reader's press stands.
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		// The panel goes: the next one folds it again.
+		setSidebarFoldNeeded(false);
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(true);
+	});
+
+	it("toggles the reader's preference when nothing is folded", async () => {
+		const { sidebarCollapsed, toggleSidebarCollapsed } = await loadUiStore();
+		sidebarCollapsed.set(true);
+		toggleSidebarCollapsed();
+		expect(get(sidebarCollapsed)).toBe(false);
+		toggleSidebarCollapsed();
+		expect(get(sidebarCollapsed)).toBe(true);
+	});
+});

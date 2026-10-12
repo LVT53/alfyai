@@ -185,7 +185,7 @@ function animationsOn(element: Element) {
 }
 
 describe("DocumentWorkspace: the first-open tour", () => {
-	it("asks for the open item's kind and shows the card above the item", async () => {
+	it("asks for the open item's kind and shows the card over the item", async () => {
 		openDocument();
 
 		const tour = await card();
@@ -195,14 +195,16 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		expect(screen.getByTestId("artifact-tour-title")).toHaveTextContent(
 			"document title 1",
 		);
-		// Above the artifact, inside the panel's content area.
+		// Laid over the top of the artifact (not in the flow above it, which moved what
+		// the reader had just seen), in the panel's own stage and ahead of it in the tab order.
 		const body = await screen.findByTestId("fake-replay-body");
 		expect(
 			tour.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
-		expect(
-			tour.closest('[data-testid="page-scroll-container"]'),
-		).not.toBeNull();
+		const layer = tour.closest(".workspace-tour-layer");
+		expect(layer).not.toBeNull();
+		expect(layer?.closest(".workspace-stage")).not.toBeNull();
+		expect(layer?.closest('[data-testid="page-scroll-container"]')).toBeNull();
 		// Showing it wrote nothing.
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
 	});

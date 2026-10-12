@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { updateUserPreferences } from "$lib/client/api/settings";
 import { persist, read } from "./_local-storage";
@@ -147,6 +147,36 @@ const initialSidebarCollapsedValue = browser
 export const sidebarCollapsed = writable<boolean>(
 	initialSidebarCollapsedValue === "true",
 );
+
+/**
+ * The desktop sidebar is on its rail because a docked panel needs the room
+ * (FB-3, F3). Not a preference: never stored, and the reader's own choice
+ * (`sidebarCollapsed`) is left alone, so the sidebar comes back as it was when
+ * the panel goes.
+ */
+export const sidebarFoldedForPanel = writable<boolean>(false);
+let sidebarFoldDismissed = false;
+
+/** The chat page says whether its docked panel needs the sidebar's room right now. */
+export function setSidebarFoldNeeded(needed: boolean): void {
+	// The panel went, or fits: the next squeeze folds the sidebar again.
+	if (!needed) sidebarFoldDismissed = false;
+	sidebarFoldedForPanel.set(needed && !sidebarFoldDismissed);
+}
+
+/**
+ * The sidebar's own button. On the rail the panel folded it to, it opens the
+ * sidebar and keeps it open for as long as that panel stays; otherwise it
+ * toggles the reader's preference.
+ */
+export function toggleSidebarCollapsed(): void {
+	if (get(sidebarFoldedForPanel)) {
+		sidebarFoldDismissed = true;
+		sidebarFoldedForPanel.set(false);
+		return;
+	}
+	sidebarCollapsed.update((collapsed) => !collapsed);
+}
 
 function readProjectFolderExpanded(): Record<string, boolean> {
 	if (!browser) return {};

@@ -57,7 +57,7 @@ async function openAndExpectTour(
 test.describe("the first-open tours", () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test("a Document shows its tour on the first open, above the page, and not on the second", {
+	test("a Document shows its tour on the first open, over the top of the page, and not on the second", {
 		tag: "@smoke",
 	}, async ({ page }) => {
 		const user = await createTourUser();
@@ -71,7 +71,8 @@ test.describe("the first-open tours", () => {
 			"Step 1 of 3",
 		);
 
-		// In the panel's content area, above the artifact, not floating over it.
+		// In the panel, laid over the top of the artifact: the page under it stays where it
+		// painted (FB-3, F15: a card in the flow above it moved the page by its own height).
 		const shell = panelShell(page);
 		const editor = shell.locator(".document-editor-host .ProseMirror");
 		await expect(editor).toBeVisible();
@@ -82,7 +83,7 @@ test.describe("the first-open tours", () => {
 		expect(editorBox).not.toBeNull();
 		expect(shellBox).not.toBeNull();
 		expect(cardBox?.y ?? 0).toBeGreaterThanOrEqual(shellBox?.y ?? 0);
-		expect((cardBox?.y ?? 0) + (cardBox?.height ?? 0)).toBeLessThanOrEqual(
+		expect((cardBox?.y ?? 0) + (cardBox?.height ?? 0)).toBeGreaterThan(
 			(editorBox?.y ?? 0) + 1,
 		);
 
@@ -151,8 +152,9 @@ test.describe("the first-open tours", () => {
 		expect(requests.posts()).toHaveLength(0);
 		expect(await tourRows(user.id)).toEqual([]);
 
-		// Not seen, so met again, from the start: the reader did not finish it.
-		await openItem(page, ITEM_TITLES.document);
+		// Not seen, so met again, from the start: the reader did not finish it. (The count
+		// button brings back the item the panel was closed on: FB-3, F26.)
+		await page.getByTestId("artifact-count-button").click();
 		const again = tourCard(page);
 		await expect(again).toBeVisible({ timeout: 20_000 });
 		await expect(again.getByTestId("artifact-tour-step")).toHaveText(
