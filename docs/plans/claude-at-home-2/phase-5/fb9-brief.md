@@ -16,6 +16,13 @@ The owner's own finds (2026-10-12), part of the friction build (`phase-5/build-p
 
 ## What to fix
 
+0. **A regression on your base (first, alone):** FB-3's `toggleSidebarCollapsed()` (`stores/ui.ts`) answers a press while
+   the sidebar is folded for a docked panel by dismissing the fold only, so a reader whose own setting is "collapsed"
+   presses Expand on the rail and nothing opens; five tests in `artifacts-panel-scope.spec.ts` fail on `feat/artifacts`
+   for it (`phase-5/fb5-report.md`, near line 108, has FB-5's diagnosis and two candidate fixes). Fix it so a press on
+   the rail always does what it says, with the panel docked or not, and the fold still returns the sidebar when the panel
+   closes; that spec green. `stores/ui.ts` is yours for this.
+
 1. **The sidebar on a phone** (the owner): with a chat open and the sidebar open at phone widths (390, 360; check 430
    too), the conversation row's three-dots button and the project folder's counter collide. Reproduce it with real
    touch first, then lay the row out so each has its own place (a long title gives way, never the button or the
@@ -29,7 +36,10 @@ The owner's own finds (2026-10-12), part of the friction build (`phase-5/build-p
 3. **The phone review bar's labels.** FB-6 made the bar one row on phones with the short words "Megtart" / "Visszavon"
    (EN "Keep" / "Undo"); in Hungarian they read as clipped verb stems. Use natural Hungarian that fits the one row at
    360 and 390 ("Megtartom" / "Visszavonom", as the pills say, if they fit; measure), keeping the accessible names.
-4. **A sweep for crowded rows on a phone**, in Hungarian, at 360 and 390: the files you own first (fix what crowds or
+4. **The panel list's repeated heading:** the list shows the eyebrow "EZ A BESZÉLGETÉS" ("THIS CHAT") over the title
+   "Amit ez a beszélgetés készített" ("What this chat made"): the owner's principle says one of them goes; drop the
+   eyebrow there (FB-5 kept it as a heading; `DocumentWorkspace.svelte`'s list header is yours for this one line).
+5. **A sweep for crowded rows on a phone**, in Hungarian, at 360 and 390: the files you own first (fix what crowds or
    wraps badly there), then a short list in your report of anything elsewhere that crowds, with a screenshot each, for
    the next round.
 
