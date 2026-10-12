@@ -6,6 +6,7 @@ import { fileProductionJobs } from "../../src/lib/server/db/schema";
 import {
 	APP_HTML,
 	APP_TITLE,
+	adminId,
 	bytesOf,
 	cleanUpConversation,
 	jobDto,
@@ -295,6 +296,64 @@ test.describe("the Document's Download", () => {
 			"Hello there from the stub",
 		);
 		// Give the end-of-turn handlers their moment, then look for what must not be there.
+		await expect
+			.poll(async () => page.getByTestId("file-production-card").count(), {
+				timeout: 3_000,
+			})
+			.toBe(0);
+		await expect(page.getByTestId("file-production-card")).toHaveCount(0);
+	});
+});
+
+test.describe("a job that hung from no reply before a turn", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+	});
+
+	// What an earlier Download left (before exports belonged to no reply), or a job
+	// whose intake failed: unassigned, from an hour ago. The page stamped every such
+	// job of the conversation on the reply that finished, so it came back as a card
+	// of a reply that never made it, until the next reload.
+	test("is not handed to the next reply as its card", async ({ page }) => {
+		const { conversationId } = await track(seedDocument());
+		const hourAgo = new Date(Date.now() - 3_600_000);
+		await db.insert(fileProductionJobs).values({
+			id: randomUUID(),
+			conversationId,
+			assistantMessageId: null,
+			userId: await adminId(),
+			title: "An export from an hour ago",
+			status: "failed",
+			origin: "unified_produce",
+			errorCode: "render_failed",
+			errorMessage: "It did not work.",
+			retryable: false,
+			sourceMode: "document_source",
+			createdAt: hourAgo,
+			updatedAt: hourAgo,
+			completedAt: hourAgo,
+		});
+
+		await login(page);
+		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+		await page.route("**/api/chat/stream", async (route) => {
+			await route.fulfill({
+				status: 200,
+				headers: {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+				},
+				body: buildAiSdkUiStreamBody("Hello there from the stub", {
+					assistantMessageId: randomUUID(),
+					userMessageId: randomUUID(),
+					totalTokens: 12,
+				}),
+			});
+		});
+		await sendMessage(page, "Say hello");
+		await expect(page.getByTestId("assistant-message").last()).toContainText(
+			"Hello there from the stub",
+		);
 		await expect
 			.poll(async () => page.getByTestId("file-production-card").count(), {
 				timeout: 3_000,

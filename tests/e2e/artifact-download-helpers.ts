@@ -34,7 +34,7 @@ export const APP_HTML =
 	'<!doctype html><html><head><title>Tip</title></head><body><p id="x">tip app</p></body></html>';
 export const APP_TITLE = "Borravaló-kalkulátor";
 
-async function adminId(): Promise<string> {
+export async function adminId(): Promise<string> {
 	const [user] = await db
 		.select({ id: users.id })
 		.from(users)
