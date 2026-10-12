@@ -17,8 +17,8 @@
  * and every refusal names what would have been valid.
  */
 import { z } from "zod";
-import { diffBoards } from "./board-diff";
-import { FRAME_INSET, placeBlock } from "./board-placement";
+import { diffBoards, REPLACEMENT_REACH } from "./board-diff";
+import { absoluteOrigin, FRAME_INSET, placeBlock } from "./board-placement";
 import type { BoardRefusalReason } from "./board-refusals";
 import { type CanvasBody, type CanvasNode, type Pt, ptSchema } from "./canvas";
 import {
@@ -566,6 +566,7 @@ function stepAddNode(
 	op: Extract<BoardOp, { op: "add_node" }>,
 	body: CanvasBody,
 	created: number,
+	replacing?: CanvasNode,
 ): Step {
 	const spec = op.node;
 	if (findNode(body, spec.id)) return duplicateNode(spec.id);
@@ -630,7 +631,12 @@ function stepAddNode(
 			);
 		}
 	}
-	const unknownNear = unknownNearProblem(body, spec.near);
+	// "Beside the note I am replacing" is no wrong address, even once that note is gone.
+	const besideTheReplaced =
+		replacing !== undefined && spec.near === replacing.id;
+	const unknownNear = besideTheReplaced
+		? null
+		: unknownNearProblem(body, spec.near);
 	if (unknownNear) return unknownNear;
 	const limited = creationLimit(body, created, spec.id);
 	if (limited) return limited;
@@ -651,7 +657,18 @@ function stepAddNode(
 		size,
 		position: spec.position,
 		parentId: spec.parentId,
-		near: spec.near,
+		near: besideTheReplaced ? undefined : spec.near,
+		...(replacing
+			? {
+					replaces: {
+						id: replacing.id,
+						position: replacing.position,
+						...(replacing.parentId === undefined
+							? {}
+							: { parentId: replacing.parentId }),
+					},
+				}
+			: {}),
 	});
 	const settled = {
 		op: "add_node",
@@ -766,12 +783,17 @@ function staleStep(op: BoardOp, staleIds: ReadonlySet<string>): Step | null {
 	);
 }
 
-function step(op: BoardOp, body: CanvasBody, created: number): Step {
+function step(
+	op: BoardOp,
+	body: CanvasBody,
+	created: number,
+	replacing?: CanvasNode,
+): Step {
 	switch (op.op) {
 		case "add_frame":
 			return stepAddFrame(op, body, created);
 		case "add_node":
-			return stepAddNode(op, body, created);
+			return stepAddNode(op, body, created, replacing);
 		case "move":
 			return findNode(body, op.id)
 				? { ok: true, next: applyOp(body, op) }
@@ -847,6 +869,68 @@ function targetOf(op: BoardOp): string | undefined {
 	}
 }
 
+/**
+ * Which add stands in for which removal in one change (RC-A #3): the model has no
+ * "replace", so a note is rewritten by taking it away and adding another under a new id,
+ * in either order. A like block (the same kind, not a frame), put in the same frame, at
+ * the old one's place (or within `REPLACEMENT_REACH` of it) or with no place named, and
+ * not asked to be beside some other block, is the old one's rewrite. Keyed by the add's
+ * index in the batch, the nearest old block first, each taken once. A removal the reader's
+ * newer words will refuse (`stale`) is no stand-in: the old block stays.
+ */
+function rewritePairs(
+	ops: readonly BoardOp[],
+	body: CanvasBody,
+	staleIds: ReadonlySet<string>,
+): Map<number, string> {
+	const pairs = new Map<number, string>();
+	try {
+		const removals: CanvasNode[] = [];
+		for (const op of ops) {
+			if (op.op !== "remove_node" || staleIds.has(op.id)) continue;
+			const found = findNode(body, op.id);
+			if (found && found.type !== "frame" && !removals.includes(found)) {
+				removals.push(found);
+			}
+		}
+		const taken = new Set<string>();
+		ops.forEach((op, index) => {
+			if (op.op !== "add_node" || op.node.data?.kind === "frame") return;
+			const spec = op.node;
+			let best: { old: CanvasNode; distance: number } | null = null;
+			for (const old of removals) {
+				if (taken.has(old.id) || old.type !== spec.type) continue;
+				if (spec.near !== undefined && spec.near !== old.id) continue;
+				if (spec.parentId !== undefined && spec.parentId !== old.parentId) {
+					continue;
+				}
+				let distance = 0;
+				if (spec.position) {
+					const origin =
+						spec.parentId === undefined
+							? absoluteOrigin(body, old)
+							: old.position;
+					distance = Math.hypot(
+						spec.position.x - origin.x,
+						spec.position.y - origin.y,
+					);
+					if (distance > REPLACEMENT_REACH) continue;
+				}
+				if (!best || distance < best.distance) best = { old, distance };
+			}
+			if (best) {
+				taken.add(best.old.id);
+				pairs.set(index, best.old.id);
+			}
+		});
+	} catch {
+		// A direct caller can hand this an op the schema never saw: no pairs, and the
+		// judge below says what is wrong with it.
+		return new Map();
+	}
+	return pairs;
+}
+
 function validateOps(
 	ops: readonly BoardOp[],
 	body: CanvasBody,
@@ -887,10 +971,20 @@ function validateOps(
 		: new Set<string>();
 	let working = body;
 	let created = 0;
+	const rewrites = rewritePairs(ops, body, staleIds);
+	// What the batch has taken away so far, as it stood: a rewrite whose removal came
+	// first still knows the place it takes.
+	const taken = new Map<string, CanvasNode>();
 	ops.forEach((op, index) => {
 		let outcome: Step;
 		try {
-			outcome = staleStep(op, staleIds) ?? step(op, working, created);
+			const standsIn = rewrites.get(index);
+			const replacing =
+				standsIn === undefined
+					? undefined
+					: (findNode(working, standsIn) ?? taken.get(standsIn));
+			outcome =
+				staleStep(op, staleIds) ?? step(op, working, created, replacing);
 		} catch {
 			// A direct caller can hand this an op the schema never saw.
 			outcome = refuse("invalid_data", "The op could not be read.");
@@ -898,6 +992,10 @@ function validateOps(
 		if (!outcome.ok) {
 			refused.push(refusalFor(op, index, outcome.problem));
 			return;
+		}
+		if (op.op === "remove_node") {
+			const was = findNode(working, op.id);
+			if (was) taken.set(op.id, was);
 		}
 		working = outcome.next;
 		if (op.op === "add_frame" || op.op === "add_node") created += 1;

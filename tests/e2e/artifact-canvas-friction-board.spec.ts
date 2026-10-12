@@ -5,7 +5,10 @@ import { expect, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { artifacts, artifactVersions } from "../../src/lib/server/db/schema";
 import { createArtifact } from "../../src/lib/server/services/artifacts";
-import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
+import type {
+	CanvasBody,
+	CanvasNode,
+} from "../../src/lib/shared/artifacts/canvas";
 import {
 	boardJson,
 	emptyCanvasBody,
@@ -38,7 +41,7 @@ import { createEmptyConversation, login, sendMessage } from "./helpers";
 // board like the owner, built on real input. One spec for the whole round, each
 // finding in its own describe, so the red run of a finding is its own.
 
-const SHOTS = process.env.FB4_SHOTS ?? null;
+const SHOTS = process.env.FX3_SHOTS ?? process.env.FB4_SHOTS ?? null;
 
 function shot(name: string): string {
 	if (!SHOTS) throw new Error("no screenshot folder");
@@ -492,7 +495,10 @@ type Scene = {
 };
 
 /** A board made through the service, a fake model to script Alfy's edit, the chat and the panel open on it. */
-async function openWithAlfy(page: Page): Promise<Scene> {
+async function openWithAlfy(
+	page: Page,
+	board: CanvasBody = planBoard(),
+): Promise<Scene> {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
 	const conversationId = await createEmptyConversation(page);
@@ -502,7 +508,7 @@ async function openWithAlfy(page: Page): Promise<Scene> {
 		conversationId,
 		kind: "canvas",
 		title: "Weekend board",
-		body: boardJson(planBoard()),
+		body: boardJson(board),
 		author: "user",
 		versionSummary: "Created",
 	});
@@ -629,6 +635,130 @@ test.describe("F12: Alfy's change to a board is counted and worded as the reader
 			await scene.cleanup();
 		}
 	});
+});
+
+// ---- RC-A #3: a rewrite takes the place of the note it replaces ------------------
+
+/** The audit's weekend board: Saturday boxed in by Sunday on its right and a note 40 units under it. */
+function boxedBoard(): CanvasBody {
+	const frame = (id: string, label: string, x: number): CanvasNode => ({
+		id,
+		type: "frame",
+		position: { x, y: 40 },
+		width: 340,
+		height: 340,
+		data: { kind: "frame", label, width: 340, height: 340 },
+	});
+	const note = (
+		id: string,
+		parentId: string,
+		y: number,
+		text: string,
+		tone: "yellow" | "mint" | "blue" = "yellow",
+	): CanvasNode => ({
+		id,
+		type: "sticky",
+		parentId,
+		position: { x: 20, y },
+		width: 190,
+		data: { kind: "sticky", text, tone },
+	});
+	return {
+		version: 1,
+		nodes: [
+			frame("frame-sat", "Saturday", 40),
+			note("note-sat-1", "frame-sat", 56, "9:00 Schönbrunn, the palace garden"),
+			note(
+				"note-sat-2",
+				"frame-sat",
+				200,
+				"15:00 Belváros: Stephansdom, Hofburg, a museum and a café, a heuriger at night",
+				"mint",
+			),
+			frame("frame-sun", "Sunday", 420),
+			note("note-sun-1", "frame-sun", 56, "9:30 Belvedere", "blue"),
+			{
+				id: "note-costs",
+				type: "sticky",
+				position: { x: 40, y: 420 },
+				width: 190,
+				data: { kind: "sticky", text: "Costs: 130 EUR", tone: "mint" },
+			},
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+const LONGER_NOTE =
+	"15:00 Belváros: Stephansdom (open 9:00-17:30), Hofburg (9:00-17:30), the Kunsthistorisches (10:00-18:00), a café, a heuriger at night";
+
+test.describe("RC-A #3: a note rewritten under a new id stays in its frame, where the old one stood", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	for (const [name, order] of [
+		["the new note is added first", "add-first"],
+		["the old note is removed first", "remove-first"],
+	] as const) {
+		test(`${name}: it is in the Saturday frame, one block changed and none removed on the bar`, async ({
+			page,
+		}) => {
+			const scene = await openWithAlfy(page, boxedBoard());
+			try {
+				const add = {
+					op: "add_node",
+					node: {
+						id: "note-sat-2-new",
+						type: "sticky",
+						parentId: "frame-sat",
+						data: { kind: "sticky", text: LONGER_NOTE, tone: "mint" },
+					},
+				};
+				const remove = { op: "remove_node", id: "note-sat-2" };
+				await askAlfy(
+					page,
+					scene.artifactId,
+					order === "add-first" ? [add, remove] : [remove, add],
+				);
+
+				await expect(reviewBar(page)).toContainText("Alfy changed 1 block.");
+				await expect(reviewBar(page)).not.toContainText("removed");
+				await expect(
+					page.locator('.svelte-flow__node[data-id="note-sat-2"]'),
+				).toHaveCount(0);
+				// The new note is inside the Saturday frame (not beside it, as the audit found), and
+				// what was around it did not move.
+				const frame = await nodeBox(page, "frame-sat");
+				const rewritten = await nodeBox(page, "note-sat-2-new");
+				expect(rewritten.x, "left").toBeGreaterThanOrEqual(frame.x);
+				expect(rewritten.y, "top").toBeGreaterThanOrEqual(frame.y);
+				expect(rewritten.x + rewritten.width, "right").toBeLessThanOrEqual(
+					frame.x + frame.width + 1,
+				);
+				expect(rewritten.y + rewritten.height, "bottom").toBeLessThanOrEqual(
+					frame.y + frame.height + 1,
+				);
+				const sunday = await nodeBox(page, "frame-sun");
+				expect(sunday.x).toBeGreaterThan(frame.x + frame.width);
+				await page.waitForTimeout(800);
+				if (SHOTS && order === "add-first") {
+					await page.screenshot({ path: shot("rc-a-3-rewrite-in-frame.png") });
+				}
+			} finally {
+				await scene.cleanup();
+			}
+		});
+	}
 });
 
 // ---- F18 ------------------------------------------------------------------------
