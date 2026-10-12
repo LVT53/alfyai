@@ -439,3 +439,100 @@ for (const [label, size, touch] of [
 		});
 	});
 }
+
+/**
+ * The crowding sweep (item 5): in Hungarian the conversation menu's two longest
+ * rows wrapped onto a second line in a 178 px menu ("Rögzítés az oldalsávra",
+ * "Áthelyezés projektbe"; and, once pinned, "Rögzítés feloldása az oldalsávon"
+ * on three), and the search field's placeholder was clipped at 360 px.
+ */
+for (const width of [360, 390] as const) {
+	test.describe(`the sidebar's menu and the search field at ${width} px (Hungarian, touch)`, () => {
+		test.use({
+			viewport: { width, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("each row of the conversation menu is one line, pinned or not", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const project = await createProject(user.id, "Bécsi utazás");
+			await createProject(user.id, "Második projekt");
+			const chat = await seedChat(
+				user.id,
+				"Vonatok Budapestről Bécsbe",
+				project.id,
+				0,
+			);
+			await login(page, user.email, user.password);
+			await page.goto(`/chat/${chat}`, { waitUntil: "networkidle" });
+			await openPhoneSidebar(page);
+			const sidebar = page.locator("aside.sidebar-panel");
+			await sidebar.getByText("Bécsi utazás").first().tap();
+			await waitForMotionToSettle(page);
+			const dots = sidebar
+				.getByTestId("conversation-item")
+				.first()
+				.getByRole("button", { name: "Beszélgetés beállításai" });
+
+			async function everyRowOneLine(state: string) {
+				await dots.tap();
+				const rows = page.locator(".conversation-option");
+				await expect(rows.first()).toBeVisible();
+				const heights = await rows.evaluateAll((els) =>
+					els.map((el) => ({
+						text: (el as HTMLElement).innerText.trim(),
+						height: el.getBoundingClientRect().height,
+					})),
+				);
+				for (const row of heights) {
+					expect(
+						row.height,
+						`${state}: "${row.text}" on one line`,
+					).toBeLessThan(36);
+				}
+			}
+
+			await everyRowOneLine("unpinned");
+			await page
+				.locator(".conversation-option")
+				.filter({ hasText: "Rögzítés" })
+				.tap();
+			await expect(page.locator(".conversation-option")).toHaveCount(0);
+			await everyRowOneLine("pinned");
+		});
+
+		test("the search field's placeholder is not cut off", async ({ page }) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			await login(page, user.email, user.password);
+			await page.goto("/", { waitUntil: "networkidle" });
+			await openPhoneSidebar(page);
+			await page.locator(".search-pill").tap();
+			const field = page.getByRole("dialog").getByRole("textbox");
+			await expect(field).toBeVisible();
+			const clipped = await field.evaluate((el) => {
+				const input = el as HTMLInputElement;
+				const probe = document.createElement("span");
+				const style = getComputedStyle(input);
+				probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${style.font};letter-spacing:${style.letterSpacing}`;
+				probe.textContent = input.placeholder;
+				document.body.append(probe);
+				const needed = probe.getBoundingClientRect().width;
+				probe.remove();
+				const room =
+					input.clientWidth -
+					Number.parseFloat(style.paddingLeft) -
+					Number.parseFloat(style.paddingRight);
+				return { needed, room };
+			});
+			expect(
+				clipped.needed,
+				"the placeholder fits its field",
+			).toBeLessThanOrEqual(clipped.room);
+		});
+	});
+}

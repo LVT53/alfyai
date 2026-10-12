@@ -80,7 +80,8 @@ let menuAnchor = $state<
 >({
 	kind: "trigger",
 });
-const CONVERSATION_MENU_WIDTH = 178;
+// Wide enough for the longest Hungarian row ("Áthelyezés projektbe" and its chevron) on one line.
+const CONVERSATION_MENU_WIDTH = 200;
 const CONVERSATION_MENU_ESTIMATED_HEIGHT = 150;
 const PROJECT_SUBMENU_WIDTH = 184;
 const PROJECT_SUBMENU_ESTIMATED_HEIGHT = 220;
