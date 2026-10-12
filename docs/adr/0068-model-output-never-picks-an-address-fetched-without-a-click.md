@@ -44,4 +44,6 @@ Rejected, measured to do nothing:
   - **Which address:** a model can still leak a little through *which* tool-returned address it embeds or fetches, for example an attacker page with one link per letter. That is low bandwidth and comes with any provenance rule.
   - **DNS inside an App:** Chromium opens a connection to a blocked navigation's target before CSP refuses the request, so a hostname that carries data can still reach its owner's DNS.
   - **Memory excerpts:** `memory_context` results count as tool results, and they can quote the model's earlier prose.
+  - **Connector summaries:** with a cloud chat model and local summarising switched on, a connector's result reaches the model as text a local model wrote, and the addresses in it count as a tool's.
+  - **WebRTC inside an App:** Chromium's CSP does not govern WebRTC, and the App audit catches only the literal word `RTCPeerConnection`, so App code can still reach a STUN or TURN server of its choosing when it runs. This predates this ADR; blocking it at run time is a design question of its own.
   - **Files opened outside the app:** a file the model produced can reference remote content when the user opens it elsewhere.
