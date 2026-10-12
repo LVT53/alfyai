@@ -950,6 +950,40 @@ test.describe("Project bundle — what the chats made", () => {
 		).toContainText("Naschmarkt");
 	});
 
+	// Friction audit F27: the name in a row reads like a link and did nothing; only the
+	// small icon at the right opened the item. It looks like a link, so it is one.
+	test("a row's name opens the item as the icon beside it does, by a click and by the keyboard", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedBundleProject(page);
+		const dialog = await openFilesDialog(page, projectId);
+
+		await fileRow(dialog, names.document)
+			.getByTestId("project-file-name")
+			.click();
+		await expect(
+			page.locator(".document-editor-host .ProseMirror"),
+		).toContainText("Naschmarkt", { timeout: 30_000 });
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.last()
+			.click();
+		await expect(
+			page.locator(".document-editor-host .ProseMirror"),
+		).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+
+		// A board opens on its board from its name too, and by Enter from the keyboard.
+		const canvasName = fileRow(dialog, names.canvas).getByTestId(
+			"project-file-name",
+		);
+		await canvasName.focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("canvas-board")).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+
 	test("opens a Canvas row on its board and an App row on its frame", async ({
 		page,
 	}) => {
