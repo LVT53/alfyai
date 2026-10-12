@@ -15,10 +15,19 @@
  * `fetchFavicon` path the `/api/favicon` proxy uses, and hand the renderer
  * bytes it can inline. The report keeps its real favicons, and opening it still
  * makes zero outbound requests.
+ *
+ * The hosts a report cites are written by the model, which reads pages a
+ * stranger may have written, so a host with private data in its name must not
+ * make this server call it. As in the proxy, an icon is fetched only for a host
+ * a tool returned to this user (docs/plans/exfil-channels): the user's source
+ * ledger, or, since this job can run after a restart and before the turn that
+ * asked for the report is stored, the tool results stored on the conversation.
+ * Every other host gets the renderer's globe and no request.
  */
 import { validateFaviconDomain } from "$lib/server/favicon/domain";
 import { fetchFavicon } from "$lib/server/favicon/fetch";
 import { FaviconCache } from "$lib/server/favicon/lru";
+import { hostsWithKnownSource } from "$lib/server/services/url-provenance";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentSource,
@@ -47,6 +56,10 @@ const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const sharedCache = new FaviconCache({ maxSize: 512, ttlMs: TTL_MS });
 
 export interface ResolveReportFaviconsOptions {
+	/** Whose report this is: only hosts a tool returned to this user are fetched. */
+	userId: string;
+	/** The conversation the report belongs to: its stored tool results count too. */
+	conversationId: string;
 	/** Injectable for tests. Defaults to the global fetch. */
 	fetch?: typeof globalThis.fetch;
 	/** Injectable for tests; defaults to the module-level shared cache. */
@@ -114,9 +127,16 @@ function collectBlockFaviconHosts(
  */
 export async function resolveReportFavicons(
 	source: GeneratedDocumentSource,
-	options: ResolveReportFaviconsOptions = {},
+	options: ResolveReportFaviconsOptions,
 ): Promise<ReportFavicons> {
-	const hosts = collectReportFaviconHosts(source);
+	const cited = collectReportFaviconHosts(source);
+	if (cited.length === 0) return EMPTY_REPORT_FAVICONS;
+	const known = await hostsWithKnownSource({
+		userId: options.userId,
+		conversationId: options.conversationId,
+		hosts: cited,
+	});
+	const hosts = cited.filter((host) => known.has(host));
 	if (hosts.length === 0) return EMPTY_REPORT_FAVICONS;
 
 	const resolved = new Map<string, string>();

@@ -2442,6 +2442,7 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
+				requestText: "Read https://example.com",
 			});
 
 			await requireTool(tools.fetch_url).execute(
@@ -2613,6 +2614,7 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-cache-fetch",
 				turnId: "turn-1",
+				requestText: "Read https://example.com",
 			});
 
 			const first = await requireTool(tools.fetch_url).execute(
@@ -2676,6 +2678,7 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-cache-soft-fail",
 				turnId: "turn-1",
+				requestText: "Read https://example.com/flaky",
 			});
 
 			const first = await requireTool(tools.fetch_url).execute(
@@ -3154,6 +3157,8 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText:
+				"Read https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
 		});
 
 		const result = await requireTool(tools.fetch_url).execute(
@@ -3244,6 +3249,7 @@ describe("createNormalChatTools", () => {
 			conversationId: "conversation-7",
 			turnId: "turn-1",
 			modelId: "model2",
+			requestText: "Read https://example.com",
 		});
 
 		await requireTool(tools.fetch_url).execute(
@@ -3269,6 +3275,7 @@ describe("createNormalChatTools", () => {
 			conversationId: "conversation-8",
 			turnId: "turn-1",
 			modelId: "model1",
+			requestText: "Read https://example.com",
 		});
 
 		await requireTool(tools.fetch_url).execute(
@@ -3327,6 +3334,7 @@ describe("createNormalChatTools", () => {
 			conversationId: "conversation-1",
 			turnId: "turn-1",
 			modelId: "model2",
+			requestText: "Read https://example.com",
 		});
 
 		const result = (await requireTool(tools.fetch_url).execute(
@@ -3348,6 +3356,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Read https://x.com",
 		});
 
 		await expect(
@@ -3556,12 +3565,16 @@ describe("createNormalChatTools", () => {
 	});
 
 	it("image_search calls image search directly and records stable web candidates", async () => {
+		// A thumbnail is kept only as an address on Brave's image proxy (the one the
+		// chat shows, through the app's own route); that is what a search returns.
+		const BRAVE_CAT_THUMBNAIL =
+			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZXMvY2F0LnBuZw";
 		searchImagesMock.mockResolvedValue([
 			{
 				url: "https://example.com/images/cat.png",
 				title: "Reference cat",
 				source: "example.com",
-				thumbnail: "https://example.com/thumbs/cat.png",
+				thumbnail: BRAVE_CAT_THUMBNAIL,
 				width: 1200,
 				height: 800,
 			},
@@ -3598,7 +3611,7 @@ describe("createNormalChatTools", () => {
 					url: "https://example.com/images/cat.png",
 					title: "Reference cat",
 					source: "example.com",
-					thumbnail: "https://example.com/thumbs/cat.png",
+					thumbnail: BRAVE_CAT_THUMBNAIL,
 					width: 1200,
 					height: 800,
 				},
@@ -3629,7 +3642,7 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "example.com",
-							thumbnail: "https://example.com/thumbs/cat.png",
+							thumbnail: BRAVE_CAT_THUMBNAIL,
 							width: 1200,
 							height: 800,
 						},

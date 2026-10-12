@@ -82,6 +82,11 @@ import {
 	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
+import {
+	createTurnUrlProvenance,
+	hasSourceHost,
+	resetUrlProvenanceForTests,
+} from "./url-provenance";
 
 const modelConfig = {
 	baseUrl: "http://local-model/v1",
@@ -2731,6 +2736,96 @@ describe("prepareOutboundChatContext", () => {
 				],
 			},
 		]);
+	});
+
+	// The page read for a link in the message reaches the model as a finished
+	// fetch_url exchange, which never passes through the tool set the turn builds
+	// afterwards: so the context step notes it for the user (docs/plans/exfil-channels).
+	// Its sources go to the source ledger, since the tool row shows them, and the
+	// addresses on the page are what the turn's fetch_url may follow, exactly as
+	// for a page the model fetched itself.
+	describe("the prefetched page and the provenance rule", () => {
+		const url = "https://example.com/source";
+		const linkOnPage = "https://sec.example/filing?id=3";
+		const params = (extra: Record<string, unknown> = {}) => ({
+			message: `What does this page say? ${url}`,
+			sessionId: "conv-prefetch",
+			user: { id: "user-1" },
+			modelConfig,
+			modelId: "model1",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+			logLabel: "provider request",
+			...extra,
+		});
+
+		beforeEach(async () => {
+			resetUrlProvenanceForTests();
+			// A signed-in user is what makes the constructed context the real packet.
+			mocks.buildConstructedContext.mockResolvedValue(
+				createConstructedContextResult(`What does this page say? ${url}`),
+			);
+			const page = (await mocks.fetchUrlViaParallel({})) as {
+				answerBrief: { markdown: string };
+			};
+			mocks.fetchUrlViaParallel.mockResolvedValue({
+				...page,
+				answerBrief: {
+					...page.answerBrief,
+					markdown: `The page cites [the filing](${linkOnPage}).`,
+				},
+			});
+		});
+
+		it("notes the page's sources for the user and lets the turn follow a link on it", async () => {
+			await prepareOutboundChatContext(params());
+
+			expect(hasSourceHost("user-1", "example.com")).toBe(true);
+			const turn = createTurnUrlProvenance({
+				userId: "user-1",
+				conversationId: "conv-prefetch",
+			});
+			const verdict = await turn.partition([
+				linkOnPage,
+				"https://sec.example/filing?id=4",
+			]);
+			expect(verdict.allowed).toEqual([linkOnPage]);
+			expect(verdict.refusedCount).toBe(1);
+		});
+
+		it("still notes the page's sources when the page was spliced in as text", async () => {
+			await prepareOutboundChatContext(
+				params({ historyToolMessages: "flatten" }),
+			);
+
+			expect(hasSourceHost("user-1", "example.com")).toBe(true);
+		});
+
+		it("notes nothing for another user or another conversation, or when there is no user", async () => {
+			await prepareOutboundChatContext(params({ user: undefined }));
+			expect(hasSourceHost("user-1", "example.com")).toBe(false);
+
+			await prepareOutboundChatContext(params());
+			expect(hasSourceHost("user-2", "example.com")).toBe(false);
+			const other = createTurnUrlProvenance({
+				userId: "user-1",
+				conversationId: "another-conversation",
+			});
+			expect((await other.partition([linkOnPage])).allowed).toEqual([]);
+		});
+
+		it("notes nothing when the page could not be read", async () => {
+			mocks.fetchUrlViaParallel.mockRejectedValueOnce(new Error("unreachable"));
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			await prepareOutboundChatContext(params());
+
+			expect(hasSourceHost("user-1", "example.com")).toBe(false);
+			warn.mockRestore();
+		});
 	});
 
 	it("falls back to the text splice for a pasted-URL prefetch when historyToolMessages is 'flatten'", async () => {

@@ -161,6 +161,19 @@ export function optionalScalarMetadata(
 export interface ToolCallRecorder {
 	record(entry: ToolCallEntry): ToolCallEntry;
 	getEntries(): ToolCallEntry[];
+	/**
+	 * Optional: sees what the model was handed by a call that SUCCEEDED, with the
+	 * entry that is about to be recorded for it. Called by `executeToolWithEnvelope`
+	 * after the payload is compacted and before `record`, so whatever an observer
+	 * writes is in place before the call's result reaches the model or any event
+	 * about it reaches the browser. A failed call is not observed: its error text
+	 * can echo the model's own input, so it is not a source of anything.
+	 */
+	observeResult?(result: {
+		toolName: string;
+		payload: unknown;
+		entry: ToolCallEntry;
+	}): void;
 }
 
 export function recordToolCallEntry(
@@ -395,6 +408,11 @@ export async function executeToolWithEnvelope<
 			result.entry.metadata,
 			startedAt,
 		);
+		params.recorder.observeResult?.({
+			toolName: params.toolName,
+			payload: modelPayload,
+			entry: result.entry,
+		});
 		params.recorder.record(result.entry);
 		return modelPayload;
 	} catch (error) {

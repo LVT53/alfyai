@@ -115,6 +115,11 @@ import {
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
 import {
+	hasSourceHost,
+	hasSourceThumbnail,
+	resetUrlProvenanceForTests,
+} from "$lib/server/services/url-provenance";
+import {
 	getConversationDetail,
 	getOlderConversationMessages,
 } from "./read-model";
@@ -810,6 +815,151 @@ describe("Conversation Detail Read Model", () => {
 			hasMoreBefore: true,
 			deletedArtifactIds: ["doc-old"],
 			unreachableArtifactIds: ["doc-away"],
+		});
+	});
+
+	// The page asks for the icon and the picture of what a tool returned
+	// (docs/plans/exfil-channels), and the server answers only for what the
+	// user's source ledger holds. The ledger is in memory and empty after a
+	// restart, so reading a conversation, or an older page of it, is what fills it
+	// again: before the payload that names those hosts reaches the browser.
+	describe("the user's source ledger", () => {
+		const THUMB =
+			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+		const assistantWithTools = (id: string, hostUrl: string) =>
+			({
+				id,
+				conversationId: "conv-1",
+				role: "assistant" as const,
+				content: "Found it.",
+				timestamp: 1_777_140_020,
+				thinkingSegments: [
+					{
+						type: "tool_call" as const,
+						name: "research_web",
+						input: { query: "q" },
+						status: "done" as const,
+						candidates: [
+							{
+								id: "c1",
+								title: "Source",
+								url: hostUrl,
+								sourceType: "web" as const,
+							},
+						],
+					},
+					{
+						type: "tool_call" as const,
+						name: "image_search",
+						input: { query: "cat" },
+						status: "done" as const,
+						candidates: [
+							{
+								id: "c2",
+								title: "Cat",
+								url: "https://pics.example/cat.jpg",
+								sourceType: "web" as const,
+								metadata: { thumbnail: THUMB },
+							},
+						],
+					},
+				],
+			}) as never;
+
+		beforeEach(() => resetUrlProvenanceForTests());
+
+		it("notes the hosts and thumbnails the loaded messages' tool calls returned, for that user only", async () => {
+			mockListMessageWindow.mockResolvedValue({
+				messages: [
+					assistantWithTools("assistant-1", "https://stored.example/a"),
+				],
+				hasMoreBefore: false,
+			});
+
+			await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(hasSourceHost("user-1", "stored.example")).toBe(true);
+			expect(hasSourceHost("user-1", "pics.example")).toBe(true);
+			expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
+			expect(hasSourceHost("user-2", "stored.example")).toBe(false);
+		});
+
+		it("notes the web sources of the conversation's Atlas cards", async () => {
+			mockListConversationAtlasJobs.mockResolvedValue([
+				{
+					id: "atlas-1",
+					progress: {
+						percent: 100,
+						stage: "done",
+						details: {
+							pipelineVersion: 3,
+							evidence: {
+								sources: [
+									{
+										n: 1,
+										title: "A",
+										host: "atlas-source.example",
+										kind: "web",
+									},
+									{ n: 2, title: "B", host: "", kind: "local" },
+								],
+							},
+						},
+					},
+				},
+			] as never);
+
+			await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(hasSourceHost("user-1", "atlas-source.example")).toBe(true);
+		});
+
+		it("notes nothing for a conversation the user does not own: it is not read at all", async () => {
+			mockGetConversation.mockResolvedValue(null);
+			mockListMessageWindow.mockResolvedValue({
+				messages: [
+					assistantWithTools("assistant-1", "https://stored.example/a"),
+				],
+				hasMoreBefore: false,
+			});
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+			const older = await getOlderConversationMessages({
+				userId: "user-1",
+				conversationId: "conv-1",
+				offset: 100,
+			});
+
+			expect(detail).toBeNull();
+			expect(older).toBeNull();
+			expect(hasSourceHost("user-1", "stored.example")).toBe(false);
+		});
+
+		it("notes what an older page's tool calls returned too", async () => {
+			mockListMessageWindow.mockResolvedValue({
+				messages: [
+					assistantWithTools("assistant-old", "https://older.example/a"),
+				],
+				hasMoreBefore: true,
+			});
+
+			await getOlderConversationMessages({
+				userId: "user-1",
+				conversationId: "conv-1",
+				offset: 100,
+			});
+
+			expect(hasSourceHost("user-1", "older.example")).toBe(true);
+			expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
 		});
 	});
 });
