@@ -4,7 +4,7 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({ braveSearchApiKey: "brave-key" })),
 }));
 
-import { searchImages } from "./image-search";
+import { fetchBraveThumbnail, searchImages } from "./image-search";
 
 // Brave's image search puts the resized copy at `thumbnail.src` (the response
 // schema has no `thumbnail.url`), the picture's own address at `properties.url`
@@ -115,5 +115,75 @@ describe("searchImages", () => {
 		expect((init as RequestInit).headers).toMatchObject({
 			"X-Subscription-Token": "brave-key",
 		});
+	});
+});
+
+// The route that serves a thumbnail is held to these limits by its own tests
+// (api/image-search/thumbnail); these pin the fetch itself, which the route
+// leaves to this function.
+describe("fetchBraveThumbnail", () => {
+	const fetchMock = vi.fn();
+	const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+	beforeEach(() => {
+		fetchMock.mockReset();
+		fetchMock.mockImplementation(
+			async () =>
+				new Response(new Uint8Array(PNG), {
+					status: 200,
+					headers: { "content-type": "image/png" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("fetches Brave's address without a redirect, a cookie or a fragment, and returns the bytes and type", async () => {
+		const result = await fetchBraveThumbnail(`${THUMB}#ignored`);
+
+		expect(result).toEqual({ bytes: PNG, contentType: "image/png" });
+		const [address, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(address).toBe(THUMB);
+		expect(init.redirect).toBe("error");
+		expect(init.signal).toBeInstanceOf(AbortSignal);
+		expect(init.credentials).toBeUndefined();
+		expect(init.headers).not.toHaveProperty("cookie");
+	});
+
+	it("never fetches an address that is not on Brave's image proxy", async () => {
+		for (const address of [
+			"https://example.com/cat.jpg",
+			"http://imgs.search.brave.com/sig/abc",
+			"https://imgs.search.brave.com.evil.example/sig/abc",
+			"not a url",
+			"",
+		]) {
+			await expect(fetchBraveThumbnail(address)).resolves.toBeNull();
+		}
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("answers null, and nothing about why, when the fetch fails or the answer is not a small raster image", async () => {
+		fetchMock.mockRejectedValueOnce(new Error(`failed ${THUMB}`));
+		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
+
+		fetchMock.mockResolvedValueOnce(
+			new Response("<svg onload=alert(1)>", {
+				status: 200,
+				headers: { "content-type": "image/svg+xml" },
+			}),
+		);
+		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
+
+		fetchMock.mockResolvedValueOnce(
+			new Response(new Uint8Array(2 * 1024 * 1024 + 1), {
+				status: 200,
+				headers: { "content-type": "image/png" },
+			}),
+		);
+		await expect(fetchBraveThumbnail(THUMB)).resolves.toBeNull();
 	});
 });
