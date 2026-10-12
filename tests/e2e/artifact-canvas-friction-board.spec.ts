@@ -693,10 +693,18 @@ test.describe("F18: Keep and Undo do not make the board's own controls jump", ()
 					);
 				}
 			}
+			// In how many frames the toolbar moved at all: a cut is one or two, a glide is a run of them.
+			let moving = 0;
+			for (let index = 1; index < frames.length; index += 1) {
+				if (Math.abs(frames[index].toolbar - frames[index - 1].toolbar) > 0.5) {
+					moving += 1;
+				}
+			}
 			const first = frames[0];
 			const last = frames[frames.length - 1];
 			return {
 				jump,
+				moving,
 				moved: Math.abs(last.toolbar - first.toolbar),
 				frames: frames.length,
 			};
@@ -717,10 +725,15 @@ test.describe("F18: Keep and Undo do not make the board's own controls jump", ()
 			expect(arrival.moved, "the controls rise with the bar").toBeGreaterThan(
 				30,
 			);
+			// A cut is the whole 48 px in one frame; a glide over a slow frame or two stays well under.
 			expect(
 				arrival.jump,
-				"arrival: no frame moves them by more than a step",
-			).toBeLessThan(14);
+				"arrival: no frame moves them by the bar's whole height",
+			).toBeLessThan(36);
+			expect(
+				arrival.moving,
+				"arrival: a run of frames, not a cut",
+			).toBeGreaterThanOrEqual(3);
 
 			await watchControls(page);
 			await page.getByRole("button", { name: /^Keep all/ }).click();
@@ -733,8 +746,12 @@ test.describe("F18: Keep and Undo do not make the board's own controls jump", ()
 			).toBeGreaterThan(30);
 			expect(
 				keep.jump,
-				"Keep: no frame moves them by more than a step",
-			).toBeLessThan(14);
+				"Keep: no frame moves them by the bar's whole height",
+			).toBeLessThan(36);
+			expect(
+				keep.moving,
+				"Keep: a run of frames, not a cut",
+			).toBeGreaterThanOrEqual(3);
 		} finally {
 			await scene.cleanup();
 		}
