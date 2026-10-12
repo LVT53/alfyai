@@ -7,11 +7,7 @@ import {
 	fileProductionJobs,
 	messages,
 } from "../../src/lib/server/db/schema";
-import {
-	cleanUpConversation,
-	seedDocument,
-	TITLE,
-} from "./artifact-download-helpers";
+import { cleanUpConversation, seedDocument } from "./artifact-download-helpers";
 import { login } from "./helpers";
 
 /**
@@ -120,7 +116,6 @@ test("a PDF's preview takes the page's final size at once, with no default-sized
 		const [width, height] = boxes[0].split("x").map(Number);
 		expect(width).toBeGreaterThan(300);
 		expect(height).toBeGreaterThan(width);
-		expect(TITLE.length).toBeGreaterThan(0);
 	} finally {
 		await cleanUpConversation(conversationId);
 	}

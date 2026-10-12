@@ -514,12 +514,14 @@ test.describe("Knowledge page", () => {
 	test("a Document's row opens it and downloads it in the format asked for", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId, title } = await seedDocument({
+			title: `${TITLE} ${Date.now()}`,
+		});
 		try {
 			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 			await waitForHydration(page);
 			const row = page
-				.locator("tbody tr", { hasText: TITLE })
+				.locator("tbody tr", { hasText: title })
 				.filter({ has: page.locator(".col-type .type-artifact") });
 			await expect(row).toHaveCount(1);
 
@@ -535,17 +537,17 @@ test.describe("Knowledge page", () => {
 			await menu.getByRole("menuitem", { name: "Markdown" }).click();
 			const download = await downloaded;
 			expect(download.suggestedFilename().normalize("NFC")).toBe(
-				`${TITLE}.md`.normalize("NFC"),
+				`${title}.md`.normalize("NFC"),
 			);
 			expect((await bytesOf(download)).toString("utf8")).toContain(
 				"Szombat: Naschmarkt",
 			);
 
 			// Its own Open, by name, opens the Document in the panel.
-			await row.getByRole("button", { name: `Open ${TITLE}` }).click();
+			await row.getByRole("button", { name: `Open ${title}` }).click();
 			await expect(
 				page.locator('[data-testid="artifact-panel-title"]:visible'),
-			).toHaveText(TITLE, { timeout: 15_000 });
+			).toHaveText(title, { timeout: 15_000 });
 		} finally {
 			await cleanUpConversation(conversationId);
 		}
@@ -554,7 +556,9 @@ test.describe("Knowledge page", () => {
 	test("a Document that cannot be exported says why in the page's own banner, and nothing downloads", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId, title } = await seedDocument({
+			title: `${TITLE} ${Date.now()}`,
+		});
 		try {
 			// The server refuses it (a source past the export limit).
 			await page.route("**/api/artifacts/*/export*", async (route) => {
@@ -570,7 +574,7 @@ test.describe("Knowledge page", () => {
 			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 			await waitForHydration(page);
 			const row = page
-				.locator("tbody tr", { hasText: TITLE })
+				.locator("tbody tr", { hasText: title })
 				.filter({ has: page.locator(".col-type .type-artifact") });
 			await row.getByTestId("artifact-row-download").click();
 			await page
@@ -590,7 +594,9 @@ test.describe("Knowledge page", () => {
 	test("an App's row downloads its .html file in one press, with the file the job made", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedApp();
+		const { conversationId, title } = await seedApp({
+			title: `${APP_TITLE} ${Date.now()}`,
+		});
 		const { job } = await seedSucceededAppJob(conversationId);
 		try {
 			await page.route("**/api/artifacts/*/app/download", async (route) => {
@@ -602,7 +608,7 @@ test.describe("Knowledge page", () => {
 			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 			await waitForHydration(page);
 			const row = page
-				.locator("tbody tr", { hasText: APP_TITLE })
+				.locator("tbody tr", { hasText: title })
 				.filter({ has: page.locator(".col-type .type-artifact") });
 			await expect(row).toHaveCount(1);
 
@@ -620,7 +626,9 @@ test.describe("Knowledge page", () => {
 	test("an App whose sandbox run failed says so in the page's banner", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedApp();
+		const { conversationId, title } = await seedApp({
+			title: `${APP_TITLE} ${Date.now()}`,
+		});
 		try {
 			await page.route("**/api/artifacts/*/app/download", async (route) => {
 				await route.fulfill({
@@ -635,7 +643,7 @@ test.describe("Knowledge page", () => {
 			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 			await waitForHydration(page);
 			await page
-				.locator("tbody tr", { hasText: APP_TITLE })
+				.locator("tbody tr", { hasText: title })
 				.getByTestId("artifact-row-download")
 				.click();
 

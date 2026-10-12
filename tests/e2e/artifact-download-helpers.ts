@@ -56,35 +56,42 @@ async function seedConversation(incognito = false): Promise<string> {
 	return conversationId;
 }
 
-export async function seedDocument(incognito = false): Promise<{
+export async function seedDocument(
+	options: { incognito?: boolean; title?: string } = {},
+): Promise<{
 	conversationId: string;
 	artifactId: string;
+	title: string;
 }> {
-	const conversationId = await seedConversation(incognito);
+	const conversationId = await seedConversation(options.incognito ?? false);
+	const title = options.title ?? TITLE;
 	const created = await createDocumentArtifact({
 		userId: await adminId(),
 		conversationId,
-		title: TITLE,
-		markdown: MARKDOWN,
+		title,
+		markdown: MARKDOWN.replace(`# ${TITLE}`, `# ${title}`),
 		author: "alfy",
 		summary: "Seeded for E2E",
 	});
-	return { conversationId, artifactId: created.id };
+	return { conversationId, artifactId: created.id, title };
 }
 
-export async function seedApp(): Promise<{ conversationId: string }> {
+export async function seedApp(
+	options: { title?: string } = {},
+): Promise<{ conversationId: string; title: string }> {
 	const conversationId = await seedConversation();
+	const title = options.title ?? APP_TITLE;
 	const made = await createArtifact({
 		userId: await adminId(),
 		conversationId,
 		kind: "app",
-		title: APP_TITLE,
+		title,
 		body: APP_HTML,
 		author: "alfy",
 		versionSummary: "Seeded for E2E",
 	});
 	if (!made.ok) throw new Error(`could not seed the App: ${made.reason}`);
-	return { conversationId };
+	return { conversationId, title };
 }
 
 /** The job an App's Download would have run in the sandbox, already succeeded: a stored file and the rows that say a job made it. */

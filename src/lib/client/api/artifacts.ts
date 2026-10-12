@@ -1209,7 +1209,15 @@ export async function askAlfyInComment(
 	};
 }
 
-export type ExportArtifactDocumentFormat = "pdf" | "docx" | "markdown";
+/** The formats a Document is exported in: the export route's `format`, in the order the Download offers them. */
+export const EXPORT_ARTIFACT_DOCUMENT_FORMATS = [
+	"pdf",
+	"docx",
+	"markdown",
+] as const;
+
+export type ExportArtifactDocumentFormat =
+	(typeof EXPORT_ARTIFACT_DOCUMENT_FORMATS)[number];
 
 export type ExportArtifactDocumentResult =
 	| { ok: true; job: FileProductionJob }

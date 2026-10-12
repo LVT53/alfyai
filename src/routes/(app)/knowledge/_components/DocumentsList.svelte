@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import {
+	EXPORT_ARTIFACT_DOCUMENT_FORMATS,
 	type ExportArtifactDocumentFormat,
 	subscribeArtifactChanges,
 } from "$lib/client/api/artifacts";
@@ -1169,12 +1170,6 @@ function handleDownloadClick(event: MouseEvent, documentId: string) {
 // panel's Download makes, with the formats the kind has. A Document offers three
 // in a small menu, an App its one file at once, and a Canvas has none here: its
 // picture is drawn by the open board, which the row's Open reaches.
-const DOCUMENT_DOWNLOAD_FORMATS = [
-	{ format: "pdf", key: "artifacts.document.export.pdf" },
-	{ format: "docx", key: "artifacts.document.export.docx" },
-	{ format: "markdown", key: "artifacts.document.export.markdown" },
-] as const;
-
 let downloadMenuId = $state<string | null>(null);
 let downloadMenuStyle = $state("");
 let preparingDownloadIds = $state(new Set<string>());
@@ -1507,15 +1502,15 @@ async function handleBulkDelete(): Promise<boolean> {
 					}}
 				>
 					<p class="reextract-menu-label">{downloadLabel}</p>
-					{#each DOCUMENT_DOWNLOAD_FORMATS as option (option.format)}
+					{#each EXPORT_ARTIFACT_DOCUMENT_FORMATS as format (format)}
 						<button
 							type="button"
 							role="menuitem"
 							class="reextract-menu-item"
-							data-testid={`artifact-row-download-${option.format}`}
-							onclick={(e) => void chooseDownloadFormat(e, document, option.format)}
+							data-testid={`artifact-row-download-${format}`}
+							onclick={(e) => void chooseDownloadFormat(e, document, format)}
 						>
-							<span>{$t(option.key)}</span>
+							<span>{$t(`artifacts.document.export.${format}`)}</span>
 						</button>
 					{/each}
 				</div>

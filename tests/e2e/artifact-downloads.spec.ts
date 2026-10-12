@@ -7,6 +7,7 @@ import {
 	APP_HTML,
 	APP_TITLE,
 	bytesOf,
+	cleanUpConversation,
 	jobDto,
 	seedApp,
 	seedDocument,
@@ -60,6 +61,22 @@ async function chooseFormat(page: Page, name: "PDF" | "Word" | "Markdown") {
 	return popover;
 }
 
+/** What each test seeded, taken out again afterwards: the next spec on this worker's database must not meet it. */
+const made: string[] = [];
+async function track<T extends { conversationId: string }>(
+	seeded: Promise<T>,
+): Promise<T> {
+	const value = await seeded;
+	made.push(value.conversationId);
+	return value;
+}
+
+test.afterEach(async () => {
+	for (const conversationId of made.splice(0)) {
+		await cleanUpConversation(conversationId);
+	}
+});
+
 test.describe("the Document's Download", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
@@ -96,7 +113,7 @@ test.describe("the Document's Download", () => {
 		test(`a real click on ${format.name} ends in a download of the right name and bytes`, async ({
 			page,
 		}) => {
-			const { conversationId } = await seedDocument();
+			const { conversationId } = await track(seedDocument());
 			await openDocument(page, conversationId);
 
 			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
@@ -115,7 +132,7 @@ test.describe("the Document's Download", () => {
 	test("the popover says it is preparing until the file is ready, then the file downloads and the popover goes", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId } = await track(seedDocument());
 		await openDocument(page, conversationId);
 
 		// The poll is held, so "not ready yet" lasts as long as the test looks at it.
@@ -152,7 +169,7 @@ test.describe("the Document's Download", () => {
 	test("a job that failed is said so, with Try again, and nothing downloads", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId } = await track(seedDocument());
 		await openDocument(page, conversationId);
 		let downloadStarted = false;
 		page.on("download", () => {
@@ -191,7 +208,7 @@ test.describe("the Document's Download", () => {
 	test("an incognito chat's Document downloads too: the export names the chat it is read from", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument(true);
+		const { conversationId } = await track(seedDocument({ incognito: true }));
 		await openDocument(page, conversationId);
 
 		const exportRequest = page.waitForRequest((request) =>
@@ -211,7 +228,7 @@ test.describe("the Document's Download", () => {
 	test("a download's own requests all answer well: no probe that is meant to fail (F30)", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId } = await track(seedDocument());
 		await openDocument(page, conversationId);
 
 		const refused: string[] = [];
@@ -232,7 +249,7 @@ test.describe("the Document's Download", () => {
 	test("the export belongs to no reply: no job of it hangs from one, and the next reply is handed no card for it (F1's ghosts)", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
+		const { conversationId } = await track(seedDocument());
 		await openDocument(page, conversationId);
 		for (const name of ["Markdown", "PDF"] as const) {
 			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
@@ -303,7 +320,7 @@ test.describe("the App's Download", () => {
 	test("a real click on the HTML file ends in a download of the app's own file", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedApp();
+		const { conversationId } = await track(seedApp());
 		const { job } = await seedSucceededAppJob(conversationId);
 		await page.route("**/api/artifacts/*/app/download", async (route) => {
 			await route.fulfill({
@@ -325,7 +342,7 @@ test.describe("the App's Download", () => {
 	test("a sandbox run that failed is said so, with Try again, and nothing downloads", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedApp();
+		const { conversationId } = await track(seedApp());
 		await page.route("**/api/artifacts/*/app/download", async (route) => {
 			await route.fulfill({
 				status: 202,
