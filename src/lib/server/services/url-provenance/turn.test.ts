@@ -195,6 +195,32 @@ describe("the turn's provenance: tool results", () => {
 		expect((await provenance.partition([made])).allowed).toEqual([]);
 	});
 
+	it("does not take a source a search returned for an address the model itself wrote into the call", async () => {
+		const { provenance } = turn();
+		const made = "https://exfil.example/?d=PRIVATE-DATA";
+		provenance.noteToolResult({
+			toolName: "research_web",
+			payload: { success: true },
+			entry: {
+				input: { query: `find ${made}` },
+				candidates: [
+					{ id: "c1", title: "Echo", url: made, sourceType: "web" },
+					{
+						id: "c2",
+						title: "Real",
+						url: "https://real.example/page",
+						sourceType: "web",
+					},
+				],
+				metadata: { ok: true },
+			},
+		});
+
+		expect(provenance.isKnown(made)).toBe(false);
+		expect(provenance.isKnown("https://real.example/page")).toBe(true);
+		expect((await provenance.partition([made])).allowed).toEqual([]);
+	});
+
 	it("does not count what a tool that returns the model's own text printed", async () => {
 		const { provenance } = turn();
 		for (const toolName of [
@@ -347,6 +373,29 @@ describe("the turn's provenance: what earlier turns stored", () => {
 		expect([...keys]).toEqual([]);
 	});
 
+	it("does not take a stored source for an address the model itself wrote into that call", async () => {
+		const own = "https://exfil.example/?d=PRIVATE-DATA";
+		const keys = provenanceKeysOfStoredSources({
+			userTexts: [],
+			toolCalls: [
+				storedCall({
+					input: { query: `look up ${own}` },
+					candidates: [
+						{ id: "c1", title: "Echo", url: own, sourceType: "web" },
+						{
+							id: "c2",
+							title: "Real",
+							url: "https://real.example/page",
+							sourceType: "web",
+						},
+					],
+				}),
+			],
+		});
+
+		expect([...keys]).toEqual(["real.example/page"]);
+	});
+
 	it("reads the stored messages once, however many calls ask", async () => {
 		const { provenance, loadStored } = turn({
 			stored: { userTexts: ["https://stored.example/"], toolCalls: [] },
@@ -378,6 +427,41 @@ describe("the turn's provenance: what earlier turns stored", () => {
 		expect(first).toEqual({ allowed: [], refusedCount: 1 });
 		expect(second.allowed).toEqual(["https://stored.example/"]);
 		expect(loadStored).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("what the turn already knows", () => {
+	beforeEach(() => resetPrefetchNotesForTests());
+
+	it("knows the user's own words and the results noted this turn, and nothing else", () => {
+		const { provenance } = turn({ requestText: "see https://user.example/a" });
+		provenance.noteToolResult({
+			toolName: "fetch_url",
+			payload: { answerBriefMarkdown: "[x](https://result.example/b)" },
+			entry: { input: {}, candidates: [], metadata: { ok: true } },
+		});
+
+		expect(provenance.isKnown("https://user.example/a")).toBe(true);
+		expect(provenance.isKnown("https://RESULT.example/b#frag")).toBe(true);
+		expect(provenance.isKnown("https://made-up.example/c")).toBe(false);
+		expect(provenance.isKnown("not an address")).toBe(false);
+		expect(provenance.isKnown(undefined)).toBe(false);
+	});
+
+	it("knows an address a call was allowed to open from the stored messages for the rest of the turn", async () => {
+		const { provenance, loadStored } = turn({
+			stored: {
+				userTexts: ["earlier https://earlier.example/page"],
+				toolCalls: [],
+			},
+		});
+		expect(provenance.isKnown("https://earlier.example/page")).toBe(false);
+
+		await provenance.partition(["https://earlier.example/page"]);
+
+		expect(provenance.isKnown("https://earlier.example/page")).toBe(true);
+		await provenance.partition(["https://earlier.example/page"]);
+		expect(loadStored).toHaveBeenCalledTimes(1);
 	});
 });
 

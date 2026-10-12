@@ -251,6 +251,31 @@ describe("the tool recorder feeds the user's source ledger", () => {
 		expect(Object.keys(tools().tools)).toContain(IMAGE_SEARCH_TOOL);
 	});
 
+	it("does not note a host a search merely returned for the address the model wrote into its own query", async () => {
+		researchWebViaParallelMock.mockResolvedValue(
+			groundedResult({ urls: [EXFIL, "https://found.example/a"] }),
+		);
+		const set = tools();
+
+		await requireTool(set.tools.research_web).execute(
+			{ query: `look up ${EXFIL}` },
+			{ toolCallId: "call-research", messages: [] },
+		);
+		await fetchUrl(set, [EXFIL]);
+
+		expect(hasSourceHost("user-1", "found.example")).toBe(true);
+		expect(hasSourceHost("user-1", "exfil.example")).toBe(false);
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+	});
+
+	it("notes the host of a page the user asked about when the model fetches it", async () => {
+		const set = tools({ requestText: "Read https://news.example/story" });
+
+		await fetchUrl(set, ["https://news.example/story"]);
+
+		expect(hasSourceHost("user-1", "news.example")).toBe(true);
+	});
+
 	it("notes the exact thumbnail an image_search result returned", async () => {
 		searchImagesMock.mockResolvedValue([
 			{
@@ -270,22 +295,29 @@ describe("the tool recorder feeds the user's source ledger", () => {
 		expect(hasSourceHost("user-1", "pics.example")).toBe(true);
 	});
 
-	it("notes the ledger before the call's result is returned to the model", async () => {
+	it("notes the ledger before the call reaches the recorder the stream reads from", async () => {
 		researchWebViaParallelMock.mockResolvedValue(
 			groundedResult({ urls: ["https://first.example/a"] }),
 		);
-		let ledgerSeenByModel = false;
-		const set = tools();
+		// The stream emits a tool call's "done" event from what the recorder holds,
+		// so the ledger has to be written before the entry gets there.
+		const heldWhenRecorded: boolean[] = [];
+		const set = tools({
+			recorder: {
+				record(entry) {
+					heldWhenRecorded.push(hasSourceHost("user-1", "first.example"));
+					return entry;
+				},
+				getEntries: () => [],
+			},
+		});
 
-		const result = requireTool(set.tools.research_web).execute(
+		await requireTool(set.tools.research_web).execute(
 			{ query: "q" },
 			{ toolCallId: "call-research", messages: [] },
 		);
-		await result.then(() => {
-			ledgerSeenByModel = hasSourceHost("user-1", "first.example");
-		});
 
-		expect(ledgerSeenByModel).toBe(true);
+		expect(heldWhenRecorded).toEqual([true]);
 	});
 
 	it("writes nothing to the database, whatever the tools return", async () => {
@@ -478,7 +510,7 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 			stderr: "",
 			exitCode: 0,
 			timedOut: false,
-		} as Awaited<ReturnType<typeof executeSandboxCode>>);
+		} as unknown as Awaited<ReturnType<typeof executeSandboxCode>>);
 		const set = tools();
 
 		await requireTool(set.tools.run_python).execute(
@@ -566,6 +598,15 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 			]);
 		});
 
+		it("notes the host of an address the user typed earlier once the model fetches it", async () => {
+			const { userId, conversationId } = await storedConversation();
+			const set = tools({ userId, conversationId });
+
+			await fetchUrl(set, ["https://earlier-user.example/page"]);
+
+			expect(hasSourceHost(userId, "earlier-user.example")).toBe(true);
+		});
+
 		it("reads nothing of another user's conversation", async () => {
 			const { conversationId } = await storedConversation();
 			const set = tools({ userId: "someone-else", conversationId });
@@ -589,10 +630,10 @@ describe("produce_file leaves out a picture whose address has no source", () => 
 		source: { kind: "https", url },
 		altText,
 	});
-	const request = (documentSource: unknown) => ({
+	const request = (documentSource: Record<string, unknown>) => ({
 		requestTitle: "Picture report",
 		requestedOutputs: [{ type: "pdf" }],
-		sourceMode: "document_source",
+		sourceMode: "document_source" as const,
 		documentSource,
 	});
 

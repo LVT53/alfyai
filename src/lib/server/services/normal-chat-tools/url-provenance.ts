@@ -2,11 +2,12 @@
  * Puts the provenance rule (docs/plans/exfil-channels) on a turn's tool recorder.
  *
  * Every tool of a turn records through one recorder, so wrapping it is the one
- * place that sees every call: it writes what each call returned into the user's
- * source ledger, and it tells the turn's provenance what each result the model
- * reads contained. Both happen before the call's result reaches the model and
- * before any event about it reaches the browser, so a favicon or a picture the
- * result names never races its own entry.
+ * place that sees every call: it tells the turn's provenance what each result
+ * the model reads contained, and it writes what each call returned into the
+ * user's source ledger (the candidates whose source the turn knows). Both
+ * happen before the call's result reaches the model and before any event about
+ * it reaches the browser, so a favicon or a picture the result names never
+ * races its own entry.
  *
  * It must never break a tool call: a failure here is logged without content and
  * the call goes on (the address check then refuses what it did not learn, which
@@ -27,7 +28,14 @@ export function withUrlProvenance(
 	return {
 		record(entry) {
 			try {
-				noteToolEntrySources(params.userId, entry);
+				// A candidate counts only once the turn knows where its address came
+				// from: a result the call returned, or an address the user gave. A
+				// search that merely returns the address the model wrote into its
+				// own query does not make that host one a tool returned.
+				noteToolEntrySources(params.userId, entry, {
+					keepCandidate: (candidate) =>
+						params.provenance.isKnown(candidate.url),
+				});
 			} catch {
 				console.warn("[URL_PROVENANCE] Could not note a tool call's sources");
 			}

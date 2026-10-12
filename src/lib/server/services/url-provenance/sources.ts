@@ -16,6 +16,7 @@
  * Only RESULTS count: a call's candidates, never its input, which is the
  * model's own words (`toolSourceHosts` in the shared contract).
  */
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type {
 	ThinkingSegment,
 	ToolCallEntry,
@@ -73,8 +74,23 @@ function noteSegments(
 export function noteToolEntrySources(
 	userId: string,
 	entry: ToolCallEntry,
+	options: {
+		/**
+		 * Which of the call's candidates may be noted. The turn's recorder keeps out
+		 * a candidate whose address the model itself wrote into the call's input
+		 * (a search that returns the address it was asked about), since a host the
+		 * model chose is not a host a tool returned.
+		 */
+		keepCandidate?: (candidate: ToolEvidenceCandidate) => boolean;
+	} = {},
 ): void {
-	noteSegments(userId, [asSegment(entry)]);
+	const segment = asSegment(entry);
+	const { keepCandidate } = options;
+	noteSegments(userId, [
+		keepCandidate && segment.candidates
+			? { ...segment, candidates: segment.candidates.filter(keepCandidate) }
+			: segment,
+	]);
 }
 
 /**

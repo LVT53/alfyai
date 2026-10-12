@@ -153,12 +153,17 @@ export function provenanceKeysOfStoredSources(
 	}
 	for (const call of sources.toolCalls) {
 		if (!resultCountsAsProvenance(call.name, call.metadata)) continue;
-		// The sources a tool reported are results by construction: the server
-		// writes a call's candidates from what the tool returned.
-		for (const candidate of call.candidates ?? []) addKey(keys, candidate.url);
-		// The digest is a slice of what the model was handed, which can echo the
-		// call's own input: leave out what the model itself wrote.
+		// What the model itself wrote into a call's input is not made a result by
+		// coming back: a search that returns the address it was asked about, or a
+		// digest that echoes it, says nothing about where the address came from.
 		const own = inputKeys(call.input);
+		// The sources a tool reported are results: the server writes a call's
+		// candidates from what the tool returned.
+		for (const candidate of call.candidates ?? []) {
+			const key = provenanceKey(candidate.url);
+			if (key && !own.has(key)) addKey(keys, candidate.url);
+		}
+		// The digest is a slice of what the model was handed.
 		for (const url of extractUrls(call.resultDigest)) {
 			const key = provenanceKey(url);
 			if (key && !own.has(key)) addKey(keys, url);
@@ -189,6 +194,12 @@ export interface TurnUrlProvenance {
 	noteToolResult(result: ToolResultObservation): void;
 	/** Splits the addresses a tool was asked to open into allowed and refused. */
 	partition(urls: readonly string[]): Promise<AddressPartition>;
+	/**
+	 * Whether the turn already knows where this address came from: the user's own
+	 * message, a result noted this turn, the prefetched page, or an address a call
+	 * was already allowed to open. Synchronous, and never reads the database.
+	 */
+	isKnown(url: unknown): boolean;
 }
 
 export interface TurnUrlProvenanceParams {
@@ -240,10 +251,14 @@ export function createTurnProvenance(
 	return {
 		noteToolResult({ toolName, payload, entry }) {
 			if (!resultCountsAsProvenance(toolName, entry?.metadata)) return;
-			for (const candidate of entry?.candidates ?? []) {
-				addKey(turnKeys, candidate.url);
-			}
+			// What the model itself wrote into the call's input is not made a result
+			// by coming back (a search that returns, or a payload that echoes, the
+			// address it was asked about).
 			const own = inputKeys(entry?.input);
+			for (const candidate of entry?.candidates ?? []) {
+				const key = provenanceKey(candidate.url);
+				if (key && !own.has(key)) addKey(turnKeys, candidate.url);
+			}
 			for (const url of extractUrlsFromValue(
 				payload,
 				MAX_ADDRESSES_PER_RESULT,
@@ -251,6 +266,11 @@ export function createTurnProvenance(
 				const key = provenanceKey(url);
 				if (key && !own.has(key)) addKey(turnKeys, url);
 			}
+		},
+
+		isKnown(url) {
+			const key = provenanceKey(url);
+			return key !== null && knownWithoutStore(key);
 		},
 
 		async partition(urls) {
@@ -269,6 +289,10 @@ export function createTurnProvenance(
 				});
 			}
 			const allowed = urls.filter((_, index) => allowedAt[index]);
+			// An address a call was allowed to open stays known for the rest of the
+			// turn: the page it returns carries it as a source, and that source is the
+			// user's own link, not something the model made up.
+			for (const url of allowed) addKey(turnKeys, url);
 			return { allowed, refusedCount: urls.length - allowed.length };
 		},
 	};
