@@ -427,7 +427,14 @@ interface PendingAlfyChange {
  * "Alfy is at work" (F6): which call it is for (so a call that has landed clears only
  * its own) and what to say once the call's own summary is known. Null: nothing to show.
  */
-let alfyWriting = $state<{ key: string; summary: string | null } | null>(null);
+let alfyWriting = $state<{
+	key: string;
+	summary: string | null;
+	/** From a read of the Document, before any edit call is known: whatever call lands next takes this one over. */
+	reading: boolean;
+} | null>(null);
+/** The call whose change is being put into the panel right now (`landAlfyActivity`): the strip is its until it is done. Not reactive: the effect below only compares it. */
+let landingActivityKey: string | null = null;
 /**
  * rd/review-2-5.md:217-222: one shared, visually hidden `aria-live="polite"`
  * region (rendered once, near the top of this component's template),
@@ -1005,7 +1012,11 @@ $effect(() => {
 	if (activity.status === "running") {
 		// F6: from Alfy's first look at the Document (a read) through the edit call's
 		// own run; the strip goes only when the change has landed (below).
-		alfyWriting = { key: activity.key, summary: activity.label };
+		alfyWriting = {
+			key: activity.key,
+			summary: activity.label,
+			reading: activity.toolName === "read_artifact",
+		};
 		return;
 	}
 	// Settled before this body existed: the server's review state owns it.
@@ -1015,11 +1026,23 @@ $effect(() => {
 	}
 
 	const key = `${activity.key}:${activity.status}`;
-	if (key === handledActivityKey) return;
+	if (key === handledActivityKey) {
+		// Landing now (its own `finally` takes the strip down), or landed long ago and
+		// handed back by the page because a later turn that only read the Document is
+		// over (stopped, failed or finished): the strip that turn's read left goes now.
+		if (landingActivityKey !== activity.key) alfyWriting = null;
+		return;
+	}
 	// The call stays un-handled (and this effect will re-run and retry) until
 	// the editor can actually receive it — see this effect's own comment. The
-	// strip stays until then too: the change has not landed in the panel yet.
-	if (!editorReady) return;
+	// strip stays until then too (the change has not landed in the panel yet),
+	// unless the Document can never load.
+	if (!editorReady) {
+		if (loadState === "load_error" || loadState === "not_found") {
+			alfyWriting = null;
+		}
+		return;
+	}
 	handledActivityKey = key;
 
 	if (activity.status === "failed") {
@@ -1027,9 +1050,17 @@ $effect(() => {
 		return;
 	}
 	// Applied or refused: the strip is Alfy's change on its way and goes once the
-	// panel shows it (its marks, its pills), never before (T8.6).
+	// panel shows it (its marks, its pills), never before (T8.6): its own, or the
+	// read's that came before it when the edit call was too quick to be seen running.
+	landingActivityKey = activity.key;
 	void landAlfyActivity(activity).finally(() => {
-		if (alfyWriting?.key === activity.key) alfyWriting = null;
+		if (landingActivityKey === activity.key) landingActivityKey = null;
+		if (
+			alfyWriting !== null &&
+			(alfyWriting.reading || alfyWriting.key === activity.key)
+		) {
+			alfyWriting = null;
+		}
 	});
 });
 

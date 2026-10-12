@@ -2547,6 +2547,77 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		// A turn that only read the Document and then ended hands the page back to the
+		// last settled call of an EARLIER turn, which this body has long since landed:
+		// the strip a read left behind must still go.
+		it("does not leave the strip standing when a read-only turn ends and the page falls back to an earlier, already landed call", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-5-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const props = {
+				artifactId: "artifact-1",
+				kind: "document" as const,
+				title: "Trip plan",
+				body: null,
+			};
+			const earlier: DocumentAlfyActivity = {
+				...runningActivity({ key: "call-5" }),
+				status: "applied",
+				patches: [
+					{
+						op: "replaceBlock",
+						blockId: "p1",
+						baseHash: "h1",
+						text: "First, edited.",
+					},
+				],
+				appliedCount: 1,
+			};
+			const { rerender } = render(DocumentBody, {
+				...props,
+				alfyActivity: runningActivity({ key: "call-5" }),
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+					versionNumber: 2,
+				}),
+			);
+			await rerender({ ...props, alfyActivity: earlier });
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
+
+			// The next turn reads the Document: the strip shows.
+			await rerender({
+				...props,
+				alfyActivity: runningActivity({
+					key: "read:call-r",
+					toolName: "read_artifact",
+					label: null,
+				}),
+			});
+			expect(screen.getByTestId("alfy-writing")).toBeInTheDocument();
+
+			// It ends without an edit: the page hands the earlier call back.
+			await rerender({ ...props, alfyActivity: earlier });
+			await waitFor(() =>
+				expect(screen.queryByTestId("alfy-writing")).not.toBeInTheDocument(),
+			);
+			expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1);
+		});
+
 		it("keeps the strip until the change has landed in the panel, not only until the call settles", async () => {
 			mockApplyAlfyChanges.mockReturnValue([
 				{

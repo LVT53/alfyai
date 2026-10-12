@@ -406,20 +406,24 @@ test.describe("F6 the Document shows Alfy at work", () => {
 		);
 		expect(target, "the block Alfy will change").toBeTruthy();
 		const shell = await openDocument(page, conversationId);
-		await sendMessage(
-			page,
-			`${AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER} ${encodeEditDocumentSlowlyPayload(
-				{
-					artifactId,
-					blockId: target?.blockId ?? "",
-					baseHash: target?.hash ?? "",
-					delayMs,
-					text: "Délben a Naschmarkt, utána a Karlsplatz és a Hundertwasserhaus.",
-				},
-			)}`,
-		);
+		/** One turn on the Document: its model reads it, waits `waitMs`, then writes its patch. */
+		const ask = (waitMs: number) =>
+			sendMessage(
+				page,
+				`${AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER} ${encodeEditDocumentSlowlyPayload(
+					{
+						artifactId,
+						blockId: target?.blockId ?? "",
+						baseHash: target?.hash ?? "",
+						delayMs: waitMs,
+						text: "Délben a Naschmarkt, utána a Karlsplatz és a Hundertwasserhaus.",
+					},
+				)}`,
+			);
+		await ask(delayMs);
 		return {
 			shell,
+			ask,
 			cleanup: async () => {
 				await updateUserModelPreference(page, previousModelPreference);
 				await deleteTemporaryProvider(page, temporaryProvider.providerId);
@@ -451,6 +455,39 @@ test.describe("F6 the Document shows Alfy at work", () => {
 			await expect(
 				page.getByText(AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT),
 			).toBeVisible();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("a later turn that only reads the Document and is stopped does not leave it standing, with an earlier change behind it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const { shell, cleanup, ask } = await askForSlowEdit(page, 1_500);
+		try {
+			// The first turn changes the Document and lands; the reader keeps it.
+			await expect(shell.getByTestId("alfy-change-bar").first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await shell.getByRole("button", { name: /Mindet megtartom/ }).click();
+			await expect(shell.getByTestId("alfy-change-bar")).toHaveCount(0, {
+				timeout: 10_000,
+			});
+			await expect(shell.getByTestId("alfy-writing")).toHaveCount(0);
+
+			// The second turn reads it and takes its time; the reader stops it.
+			await expect(page.getByTestId("stop-button")).toHaveCount(0, {
+				timeout: 15_000,
+			});
+			await ask(30_000);
+			const working = shell.getByTestId("alfy-writing");
+			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+				timeout: 20_000,
+			});
+			await page.getByTestId("stop-button").click();
+			await expect(working).toHaveCount(0, { timeout: 10_000 });
+			await expect(page.getByTestId("stop-button")).toHaveCount(0);
 		} finally {
 			await cleanup();
 		}
