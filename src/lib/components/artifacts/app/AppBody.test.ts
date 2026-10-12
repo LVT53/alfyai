@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import AppBody from "./AppBody.svelte";
+import AppBodyActivityHarness from "./AppBodyActivityHarness.test.svelte";
 
 // The dictionary itself is not exported by $lib/i18n (only the `t` store and
 // the `I18nKey` type are) — these are copied from the artifacts.app.* table
@@ -1191,5 +1194,80 @@ describe("AppBody — an app with nothing in it", () => {
 		expect(screen.getByTestId("app-empty-replay")).toHaveTextContent(
 			"Újra megnézem",
 		);
+	});
+});
+
+// F2 (ruling 77): "change this App" typed in the chat rebuilds the App that is
+// open in the panel, as one new version. The panel must show it: veil the frame
+// while the turn rebuilds it (the way its own "Change this app" does), and load
+// the stored App when the rebuild lands, so the frame runs the new version.
+describe("AppBody — a chat turn that changes this App", () => {
+	const activity = (
+		overrides: Record<string, unknown> = {},
+	): DocumentAlfyActivity => ({
+		key: "call-1",
+		artifactId: "app-1",
+		toolName: "edit_artifact",
+		status: "running",
+		label: null,
+		patches: [],
+		refusedBlocks: [],
+		appliedCount: 0,
+		...overrides,
+	});
+
+	async function mountHarness() {
+		const controller: { set?: (a: DocumentAlfyActivity | null) => void } = {};
+		render(AppBodyActivityHarness, { controller });
+		await screen.findByRole("tab", { name: /Preview/ });
+		return async (next: DocumentAlfyActivity | null) => {
+			controller.set?.(next);
+			await tick();
+		};
+	}
+
+	it("veils the frame while the turn rebuilds it, and announces it", async () => {
+		const set = await mountHarness();
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+
+		await set(activity());
+
+		expect(await screen.findByTestId("app-busy-veil")).toBeInTheDocument();
+		expect(screen.getByTestId("app-busy-announcer")).toHaveTextContent(
+			en.regenerateBuilding,
+		);
+	});
+
+	it("loads the stored App when the rebuild lands, once, and the veil goes", async () => {
+		const set = await mountHarness();
+		await set(activity());
+		await screen.findByTestId("app-busy-veil");
+		expect(fetchArtifact).toHaveBeenCalledTimes(1);
+		fetchArtifact.mockResolvedValue(baseDetail({ versionNumber: 3 }));
+
+		await set(activity({ status: "applied", versionId: "version-3" }));
+
+		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(document.querySelector("iframe")?.getAttribute("src")).toContain(
+				"v=3",
+			),
+		);
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+		// The same settled call, handed down again, does not load again.
+		await set(activity({ status: "applied", versionId: "version-3" }));
+		await set(activity({ status: "applied", versionId: "version-3" }));
+		expect(fetchArtifact).toHaveBeenCalledTimes(2);
+	});
+
+	it("does nothing for a rebuild of another App, or one that failed", async () => {
+		const set = await mountHarness();
+
+		await set(activity({ artifactId: "app-2" }));
+		await set(activity({ artifactId: "app-2", status: "applied" }));
+		await set(activity({ key: "call-2", status: "failed" }));
+
+		expect(screen.queryByTestId("app-busy-veil")).toBeNull();
+		expect(fetchArtifact).toHaveBeenCalledTimes(1);
 	});
 });

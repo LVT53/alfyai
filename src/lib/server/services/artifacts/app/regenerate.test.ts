@@ -28,8 +28,14 @@ vi.mock("./verify", () => ({
 	verifyApp: (...args: unknown[]) => verifyApp(...args),
 }));
 
-const { createArtifact, getKv, setKv, createComment, listComments } =
-	await import("$lib/server/services/artifacts");
+const {
+	createArtifact,
+	getKv,
+	setKv,
+	createComment,
+	listComments,
+	updateArtifactBody,
+} = await import("$lib/server/services/artifacts");
 const { regenerateApp } = await import("./regenerate");
 
 const OWNER = "user-owner";
@@ -111,6 +117,7 @@ describe("regenerateApp", () => {
 		expect(result).toEqual({
 			ok: true,
 			version: 2,
+			versionId: expect.any(String),
 			title: "Habit tracker",
 			verification: { checked: true, verdict: "clean", reason: null },
 		});
@@ -123,6 +130,85 @@ describe("regenerateApp", () => {
 			body: "<!doctype html><title>Habits v2</title>",
 		});
 		expect(versions[1].summary).toContain("add a currency switch");
+	});
+
+	// F2 (ruling 77): a chat request to change an App runs this same function, so
+	// the change is made to the app that exists: the generator is handed it.
+	it("hands the generator the app as it is now, so the change is a change", async () => {
+		const app = await createApp();
+
+		await regenerateApp({
+			userId: OWNER,
+			artifactId: app.id,
+			conversationId: CONVERSATION,
+			prompt: "make the background dark",
+			language: "en",
+		});
+
+		expect(generateApp).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: "make the background dark",
+				currentHtml: "<!doctype html><title>Habits v1</title>",
+			}),
+		);
+	});
+
+	it("answers with the id of the version it wrote, for the tool call's record", async () => {
+		const app = await createApp();
+
+		const result = await regenerateApp({
+			userId: OWNER,
+			artifactId: app.id,
+			conversationId: CONVERSATION,
+			prompt: "add a currency switch",
+			language: "en",
+		});
+
+		const newest = versionRows(app.id).find((row) => row.versionNumber === 2);
+		expect(result).toMatchObject({ ok: true, version: 2 });
+		expect(result.ok && result.versionId).toBe(newest?.id);
+	});
+
+	it("never writes on top of a version that appeared while it was generating, and says which version is current", async () => {
+		const app = await createApp();
+		generateApp.mockImplementationOnce(async () => {
+			// Another writer (the panel's own rebuild, a restore) lands during the call.
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: app.id,
+				conversationId: CONVERSATION,
+				body: "<!doctype html><title>Habits other</title>",
+				author: "alfy",
+				summary: "Alfy regenerated the app: another rebuild",
+			});
+			return {
+				ok: true,
+				html: "<!doctype html><title>Habits v2</title>",
+				title: "Habit tracker",
+				extraction: "fence",
+				fences: 1,
+				checks: checksWithNoGlitches(),
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				attempts: 1,
+				warnings: [],
+			};
+		});
+
+		const result = await regenerateApp({
+			userId: OWNER,
+			artifactId: app.id,
+			conversationId: CONVERSATION,
+			prompt: "add a currency switch",
+			language: "en",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "version_conflict",
+			version: 2,
+		});
+		// The other writer's version is the newest; this call appended nothing.
+		expect(versionRows(app.id)).toHaveLength(2);
 	});
 
 	it("the PREVIOUS version's html is unchanged and stays in the history", async () => {

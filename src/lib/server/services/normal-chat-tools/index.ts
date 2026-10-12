@@ -708,6 +708,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// The words of each board this turn has read, for an edit to be judged
 	// against (ruling 67): in memory, and gone with the turn. Never on a record.
 	const knownBoards = createKnownBoards();
+	// How many times this turn has rebuilt an App (edit_artifact on one is a model
+	// call of tens of seconds): the cap, like create_artifact's, is per turn.
+	const appRebuildBudget = { used: 0 };
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -1897,12 +1900,23 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								artifactId: safeInput.artifactId,
 								patches: safeInput.patches,
 								ops: safeInput.ops,
+								instruction: safeInput.instruction,
+								// The turn's own resolved language (ruling 55), as
+								// create_artifact's: an App's rebuild writes its labels in
+								// it, unless the message asks for the content in another
+								// one (ruling 75).
+								language:
+									detectContentLanguageRequest(ctx.requestText ?? "") ??
+									ctx.language ??
+									"en",
 								summary: safeInput.summary,
 								// What this turn has already done: a board edit is judged
-								// against what the model last read of it (ruling 67).
+								// against what the model last read of it (ruling 67), and an
+								// App's rebuild counts against the turn's budget.
 								turnContext: {
 									sources: recorder.getEntries(),
 									knownBoards,
+									appRebuildBudget,
 								},
 								abortSignal,
 							});

@@ -34,6 +34,7 @@ import DialogShell, {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { emptyStateLine } from "$lib/components/artifacts/empty-state";
 import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import { t, type I18nKey } from "$lib/i18n";
@@ -70,6 +71,8 @@ interface Props {
 	conversationId?: string | null;
 	/** Wave 2.5 Step 13: hands the panel header a direct download trigger, and History (ruling 76) what it needs of a body: `reload`, to load the stored App after a restore. See `ArtifactBodyProps`'s own doc comment. */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/** What a chat turn is doing to an item (`ArtifactBodyProps.alfyActivity`): here, a rebuild of THIS App (F2, ruling 77), which veils the frame while it runs and loads the new version when it lands. */
+	alfyActivity?: DocumentAlfyActivity | null;
 	/** The App tour's summary (`ArtifactBodyProps.tourSummary`): what an App with nothing in it says. */
 	tourSummary?: LocalizedText | null;
 	/** Shows the App tour again (`ArtifactBodyProps.onReplayTour`): the empty state's link, only when the panel supplies it. */
@@ -81,6 +84,7 @@ let {
 	title,
 	conversationId = null,
 	registerPanelActions,
+	alfyActivity = null,
 	tourSummary = null,
 	onReplayTour,
 }: Props = $props();
@@ -98,6 +102,18 @@ let downloadError = $state<string | null>(null);
 let regeneratePopoverOpen = $state(false);
 let regeneratePromptText = $state("");
 let regenerateBusy = $state(false);
+// A chat turn rebuilding THIS App (F2, ruling 77): `edit_artifact` with an
+// `instruction`. The frame is veiled the way the panel's own rebuild veils it, and
+// the stored App is loaded when the rebuild lands (the frame reloads on its new
+// version), so the reader sees the change in the panel they already have open.
+let chatRebuildRunning = $derived(
+	alfyActivity !== null &&
+		alfyActivity.artifactId === artifactId &&
+		alfyActivity.toolName === "edit_artifact" &&
+		alfyActivity.status === "running",
+);
+/** Either rebuild is running: the veil, the inert frame and the disabled trigger follow it. */
+let rebuilding = $derived(regenerateBusy || chatRebuildRunning);
 let regenerateError = $state<string | null>(null);
 let regenerateTriggerEl = $state<HTMLButtonElement | null>(null);
 let regenerateTextareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -139,6 +155,23 @@ async function load(id: string): Promise<void> {
 
 $effect(() => {
 	void load(artifactId);
+});
+
+// The settled call is loaded once, however often the page hands it down again.
+let loadedForCallKey: string | null = null;
+$effect(() => {
+	const activity = alfyActivity;
+	if (
+		!activity ||
+		activity.artifactId !== artifactId ||
+		activity.toolName !== "edit_artifact" ||
+		activity.status !== "applied" ||
+		loadedForCallKey === activity.key
+	) {
+		return;
+	}
+	loadedForCallKey = activity.key;
+	untrack(() => void load(artifactId));
 });
 
 let htmlBody = $derived(detail?.artifact.body ?? "");
@@ -302,7 +335,7 @@ function closeRegeneratePopover(): void {
 }
 
 async function submitRegenerate(): Promise<void> {
-	if (!regeneratePromptText.trim() || regenerateBusy) return;
+	if (!regeneratePromptText.trim() || rebuilding) return;
 	// Snapshotted so a switch to a DIFFERENT App while this call is still in
 	// flight can never write this call's result onto the wrong App's UI —
 	// `load()`'s own id check already guards its half; every write below is
@@ -496,7 +529,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 		     above Preview/Code — never inside the preview tab panel, so it stays
 		     visible (and meaningful) on the Code tab too. -->
 		<div class="app-status" data-testid="app-status-row">
-			{#if regenerateBusy}
+			{#if rebuilding}
 				<div class="app-status-row" role="status" aria-live="polite">
 					<span class="app-status-spinner" aria-hidden="true"></span>
 					<span>{$t('artifacts.app.verify.checking')}</span>
@@ -606,7 +639,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 				bind:this={regenerateTriggerEl}
 				aria-haspopup="dialog"
 				aria-expanded={regeneratePopoverOpen}
-				disabled={regenerateBusy}
+				disabled={rebuilding}
 				onclick={openRegeneratePopoverFresh}
 			>
 				<Sparkles size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -632,7 +665,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 					role="tabpanel"
 					aria-labelledby="app-tab-preview-{artifactId}"
 					class="app-body-frame-wrap"
-					inert={regenerateBusy}
+					inert={rebuilding}
 				>
 					{#if appEmpty}
 						<div class="app-body-state app-body-empty">
@@ -683,14 +716,14 @@ const regeneratePopoverFocusTrap = focusTrap({
 				aria-live="polite"
 				data-testid="app-busy-announcer"
 			>
-				{regenerateBusy ? $t('artifacts.app.regenerate.building') : ''}
+				{rebuilding ? $t('artifacts.app.regenerate.building') : ''}
 			</div>
 
 			<!-- Redesign §6.2/§6.4: non-blocking — the current version stays visible,
 			     dimmed, under this veil while the new one is built; the frame itself is `inert` above so
 			     keyboard users cannot type into an app about to be replaced. Never
 			     traps focus (no focusTrap here on purpose). -->
-			{#if regenerateBusy}
+			{#if rebuilding}
 				<div class="app-busy-veil" data-testid="app-busy-veil">
 					<div class="app-busy-card">
 						<Sparkles size={20} strokeWidth={1.75} class="app-busy-spark" aria-hidden="true" />

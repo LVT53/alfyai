@@ -155,6 +155,38 @@ export const AI_SMOKE_CREATE_ARTIFACT_MARKDOWN =
 	"# Weekend plan\n\nBook the museum tickets.";
 export const AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT = "Made the document.";
 
+/**
+ * F2 (ruling 77): "change this App" in the chat. A real `edit_artifact` call on an
+ * App, scripted with the App's id (a seeded one: `aid:<id>` in the message, read from
+ * the LAST user message like the board edit's) and a fixed `instruction`. The real
+ * handler then runs the panel's own rebuild, whose generation call reaches this same
+ * fake (the spec points the `model1` provider at it): the fake recognises that
+ * request by the App contract's system prompt and the instruction in its one user
+ * message, and answers with a fenced app, so the whole path (instruction, generate,
+ * audit, one new Alfy version, the open panel loading it) runs for real.
+ */
+export const AI_SMOKE_EDIT_APP_MARKER =
+	"Fake model step: change the app as scripted below.";
+export const AI_SMOKE_EDIT_APP_INSTRUCTION =
+	"Switch the app to the dark theme (fake rebuild).";
+export const AI_SMOKE_EDIT_APP_FINAL_TEXT = "Changed the app.";
+export const AI_SMOKE_REBUILT_APP_HEADING = "Dark tip calculator";
+export const AI_SMOKE_REBUILT_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>${AI_SMOKE_REBUILT_APP_HEADING}</title>
+<style>body { background: #111; color: #eee; font-family: sans-serif; padding: 16px; }</style></head>
+<body><h1>${AI_SMOKE_REBUILT_APP_HEADING}</h1><p>Rebuilt by the fake model.</p></body>
+</html>`;
+
+export function encodeEditAppScenarioMessage(artifactId: string): string {
+	return `${AI_SMOKE_EDIT_APP_MARKER} aid:${artifactId}`;
+}
+
+export function decodeEditAppScenarioArtifactId(text: string): string | null {
+	const matches = [...text.matchAll(/aid:([\w-]+)/g)];
+	return matches.at(-1)?.[1] ?? null;
+}
+
 export const AI_SMOKE_SCENARIOS = {
 	text: "text",
 	plain: "plain",

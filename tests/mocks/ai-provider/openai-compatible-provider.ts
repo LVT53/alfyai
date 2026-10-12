@@ -13,6 +13,9 @@ import {
 	AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
 	AI_SMOKE_CREATE_ARTIFACT_MARKER,
 	AI_SMOKE_CREATE_ARTIFACT_TITLE,
+	AI_SMOKE_EDIT_APP_FINAL_TEXT,
+	AI_SMOKE_EDIT_APP_INSTRUCTION,
+	AI_SMOKE_EDIT_APP_MARKER,
 	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_MODEL_ID,
@@ -22,6 +25,7 @@ import {
 	AI_SMOKE_READ_PROJECT_FILE_MARKER,
 	AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME,
 	AI_SMOKE_REASONING_TEXT,
+	AI_SMOKE_REBUILT_APP_HTML,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
 	AI_SMOKE_STANDING_INSTRUCTION_MARKER,
@@ -33,6 +37,7 @@ import {
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
 	decodeCanvasEditScenarioPayload,
+	decodeEditAppScenarioArtifactId,
 	decodeEditArtifactScenarioPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 
@@ -47,6 +52,7 @@ const SUGGEST_INSTRUCTION_CALL_INPUT = {
 const EDIT_ARTIFACT_CALL_ID = "call_fake_edit_artifact_1";
 const CANVAS_EDIT_CALL_ID = "call_fake_canvas_edit_1";
 const CREATE_ARTIFACT_CALL_ID = "call_fake_create_artifact_1";
+const EDIT_APP_CALL_ID = "call_fake_edit_app_1";
 
 export interface CapturedOpenAICompatibleRequest {
 	id: number;
@@ -797,6 +803,128 @@ function buildCanvasEditFinalStreamResponse(): Response {
 }
 
 /**
+ * F2 (ruling 77): a real `edit_artifact` call on an App, and the App generator's
+ * own request, which the handler's rebuild sends to this same fake. The chat turn
+ * is told by the marker in the LAST user message; the generator by the App
+ * contract's system prompt and the scripted instruction in its one user message.
+ */
+function bodyAsksForEditApp(body: unknown): boolean {
+	return currentTurnText(body)?.includes(AI_SMOKE_EDIT_APP_MARKER) === true;
+}
+
+function bodyIsTheAppGenerator(body: unknown): boolean {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return false;
+	const system = body.messages.find(
+		(message) => isJsonObject(message) && message.role === "system",
+	);
+	const systemText =
+		isJsonObject(system) && typeof system.content === "string"
+			? system.content
+			: "";
+	return (
+		systemText.startsWith(
+			"You write small, self-contained interactive web apps",
+		) &&
+		(lastUserMessageText(body) ?? "").includes(AI_SMOKE_EDIT_APP_INSTRUCTION)
+	);
+}
+
+function buildAppGeneratorStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_app_generator_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						content: `\`\`\`html\n${AI_SMOKE_REBUILT_APP_HTML}\n\`\`\``,
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 31, completion_tokens: 40, total_tokens: 71 },
+		},
+	]);
+}
+
+function buildEditAppToolCallStreamResponse(artifactId: string): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_app_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_011,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: EDIT_APP_CALL_ID,
+								type: "function",
+								function: {
+									name: "edit_artifact",
+									arguments: JSON.stringify({
+										artifactId,
+										instruction: AI_SMOKE_EDIT_APP_INSTRUCTION,
+									}),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildEditAppFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_app_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_012,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_EDIT_APP_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
  * call, scripted with a fixed title/body — unlike T8 live's `edit_artifact`,
  * nothing here depends on ids or hashes the test's own setup resolved first.
@@ -1133,6 +1261,19 @@ export function createOpenAICompatibleProviderHarness(
 						return buildSuggestInstructionFinalStreamResponse();
 					}
 					return buildSuggestInstructionToolCallStreamResponse();
+				}
+				if (bodyIsTheAppGenerator(body)) {
+					return buildAppGeneratorStreamResponse();
+				}
+				if (bodyAsksForEditApp(body)) {
+					if (lastMessageIsToolResult(body)) {
+						return buildEditAppFinalStreamResponse();
+					}
+					const artifactId = decodeEditAppScenarioArtifactId(
+						currentTurnText(body) ?? "",
+					);
+					if (artifactId) return buildEditAppToolCallStreamResponse(artifactId);
+					return buildTextStreamResponse();
 				}
 				if (bodyAsksForCanvasEdit(body)) {
 					if (lastMessageIsToolResult(body)) {

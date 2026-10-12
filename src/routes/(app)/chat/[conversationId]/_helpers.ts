@@ -1,3 +1,4 @@
+import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebuild-activity";
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
 	buildDocumentAlfyActivity,
@@ -1094,8 +1095,13 @@ export function findLiveDocumentAlfyActivity(
 			) {
 				continue;
 			}
+			// An App's rebuild first (F2, ruling 77): its call is told by its
+			// `instruction`, and the Document reading would take the running call for a
+			// Document's and drop the settled one.
 			const activity =
-				buildCanvasAlfyActivity(segment) ?? buildDocumentAlfyActivity(segment);
+				buildAppRebuildActivity(segment) ??
+				buildCanvasAlfyActivity(segment) ??
+				buildDocumentAlfyActivity(segment);
 			if (activity) return activity;
 		}
 	}

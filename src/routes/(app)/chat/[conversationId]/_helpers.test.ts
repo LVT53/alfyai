@@ -1553,6 +1553,49 @@ describe("findLiveDocumentAlfyActivity", () => {
 		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
 	});
 
+	// F2 (ruling 77): an App is changed from the chat, and the open panel is told.
+	it("finds a rebuild of an App by its instruction, running and landed", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", instruction: "Add a Reset button." },
+			status: "running",
+			details: { callId: "call-app" },
+		});
+		expect(findLiveDocumentAlfyActivity(list)).toEqual(
+			expect.objectContaining({
+				artifactId: "app-1",
+				key: "call-app",
+				status: "running",
+			}),
+		);
+
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", instruction: "Add a Reset button." },
+			status: "done",
+			details: {
+				callId: "call-app",
+				metadata: {
+					ok: true,
+					artifactId: "app-1",
+					artifactKind: "app",
+					versionId: "version-2",
+				},
+			},
+		});
+		expect(findLiveDocumentAlfyActivity(list)).toEqual(
+			expect.objectContaining({
+				artifactId: "app-1",
+				key: "call-app",
+				status: "applied",
+				versionId: "version-2",
+			}),
+		);
+	});
+
 	it("finds an in-flight edit of a board by its ops, before the server has said what it is", () => {
 		let list = [createAssistantPlaceholder("assistant-1")];
 		list = applyToolCallUpdateToMessageList(list, {
