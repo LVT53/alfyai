@@ -7,7 +7,9 @@ import { t } from "$lib/i18n";
 import {
 	sidebarOpen,
 	sidebarCollapsed,
+	sidebarFoldedForPanel,
 	sidebarWidth,
+	toggleSidebarCollapsed,
 	clampSidebarWidth,
 	SIDEBAR_DEFAULT_WIDTH,
 	currentConversationId,
@@ -66,7 +68,9 @@ let showLogoutConfirm = $state(false);
 let transitionsEnabled = $state(false);
 let resizing = $state(false);
 
-const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
+const isCollapsed = $derived(
+	isDesktop && ($sidebarCollapsed || $sidebarFoldedForPanel),
+);
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
@@ -150,7 +154,7 @@ function handleSearchShortcut(event: KeyboardEvent) {
 
 function toggleCollapse() {
 	if (isDesktop) {
-		sidebarCollapsed.update((v) => !v);
+		toggleSidebarCollapsed();
 	}
 }
 

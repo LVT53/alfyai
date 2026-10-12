@@ -1,4 +1,9 @@
-import { expect, type Page, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { CHAT_COLUMN_FLOOR } from "../../src/lib/client/workspace-dock";
+import { db } from "../../src/lib/server/db";
+import { conversations } from "../../src/lib/server/db/schema";
+import { createProject } from "../../src/lib/server/services/projects";
 import {
 	createTourUser,
 	markToursSeen,
@@ -10,7 +15,7 @@ import {
 	startChatAs,
 	type TourUser,
 } from "./artifact-tours-helpers";
-import { waitForMotionToSettle } from "./helpers";
+import { ensureSidebarExpanded, login, waitForMotionToSettle } from "./helpers";
 import {
 	installMotionRecorder,
 	noteNumbers,
@@ -55,6 +60,13 @@ async function readerWithItems(
 /** The panel's title is on screen once: the desktop shell (the phone's twin is hidden). */
 function visibleTitle(page: Page) {
 	return page.locator('[data-testid="artifact-panel-title"]:visible');
+}
+
+/** The box of something that is on screen. */
+async function boxOf(locator: Locator) {
+	const box = await locator.boundingBox();
+	if (!box) throw new Error("nothing on screen to measure");
+	return box;
 }
 
 /** Lets the motion that follows an input run out, then reads what the recorder saw. */
@@ -350,5 +362,101 @@ test.describe("deleting, expanding and closing the open item", () => {
 		await expect(
 			page.locator("aside.workspace-shell-desktop:visible"),
 		).toHaveCount(1);
+	});
+});
+
+/**
+ * F3: the sidebar open next to a docked panel squeezed the chat to a composer of
+ * 319 / 268 / 134 px at 1440 / 1280 / 1100 and ran the header's project crumb
+ * into the count chip. Now the chat column keeps a floor: the sidebar folds to
+ * its rail while the panel needs the room (and comes back with it), and the
+ * panel gives up width before the chat goes under the floor.
+ */
+test.describe("the chat keeps its room beside a docked panel", () => {
+	for (const width of [1100, 1280, 1440]) {
+		test(`with the sidebar open at ${width}, the composer stays usable and the crumb clear of the count chip`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 900 });
+			const user = await createTourUser("en");
+			await markToursSeen(user);
+			const project = await createProject(user.id, "Vienna trip");
+			const chatId = randomUUID();
+			await db.insert(conversations).values({
+				id: chatId,
+				userId: user.id,
+				title: "Train options Budapest to Vienna",
+				projectId: project.id,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+			await seedItem(user, chatId, "document");
+			await login(page, user.email, user.password);
+			await page.goto(`/chat/${chatId}`, { waitUntil: "networkidle" });
+			await ensureSidebarExpanded(page);
+			const sidebar = page.locator("aside.sidebar-panel");
+			await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+			await waitForMotionToSettle(page);
+			const openWidth = (await sidebar.boundingBox())?.width ?? 0;
+			expect(openWidth).toBeGreaterThan(200);
+
+			await openItem(page, "Trip notes");
+			await expect(visibleTitle(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(400);
+
+			const composer = await boxOf(page.locator(".composer-shell"));
+			const chat = await boxOf(page.locator(".chat-main"));
+			const panel = await boxOf(panelShell(page));
+			const crumb = await boxOf(page.getByTestId("chat-title-project-link"));
+			const count = await boxOf(page.getByTestId("artifact-count-button"));
+			noteNumbers(`floor-${width}`, {
+				sidebar: (await sidebar.boundingBox())?.width,
+				chat: chat.width,
+				composer: composer.width,
+				panel: panel.width,
+			});
+			// The floor: the chat column is never under it, and the composer in it is usable.
+			expect(chat.width).toBeGreaterThanOrEqual(CHAT_COLUMN_FLOOR - 1);
+			expect(composer.width).toBeGreaterThanOrEqual(CHAT_COLUMN_FLOOR - 25);
+			expect(panel.width).toBeGreaterThanOrEqual(439);
+			// Where the sidebar had to give way, it is on its rail; where it did not, it was left alone.
+			if (width < 1440) {
+				await expect(sidebar).toHaveClass(/sidebar-collapsed/);
+			}
+			// The header's crumb stops short of the count chip.
+			expect(crumb.x + crumb.width).toBeLessThanOrEqual(count.x);
+
+			// With the panel gone the sidebar is back as the reader had it.
+			await page.getByTestId("artifact-count-button").click();
+			await expect(panelShell(page)).toHaveCount(0);
+			await waitForMotionToSettle(page);
+			await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+			expect((await sidebar.boundingBox())?.width ?? 0).toBeCloseTo(
+				openWidth,
+				0,
+			);
+		});
+	}
+
+	test("the sidebar a reader opens again over the panel stays open until the panel goes", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		const { user, chatId } = await readerWithItems(page, ["document"]);
+		void user;
+		void chatId;
+		await ensureSidebarExpanded(page);
+		const sidebar = page.locator("aside.sidebar-panel");
+		await openItem(page, "Trip notes");
+		await expect(sidebar).toHaveClass(/sidebar-collapsed/);
+
+		await page.getByRole("button", { name: "Expand sidebar" }).click();
+		await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(300);
+		// Still open, with the panel still beside it (the panel gives the width up).
+		await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+		await expect(panelShell(page)).toHaveCount(1);
 	});
 });

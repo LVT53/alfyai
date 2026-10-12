@@ -96,6 +96,7 @@ let {
 	returnToDockedOnExpandedClose = true,
 	showPresentationToggle = true,
 	reserveDock = false,
+	onDockPreferredChange = undefined,
 	documents = [],
 	availableDocuments = [],
 	activeDocumentId = null,
@@ -130,6 +131,8 @@ let {
 	 * floats over it, and goes back to it when the panel docks again (FB-3, F26).
 	 */
 	reserveDock?: boolean;
+	/** The width the docked panel asks for, whenever it changes (the reader drags its edge, a stored width is read): the host decides from it whether the chat beside it still has its room. */
+	onDockPreferredChange?: ((width: number) => void) | undefined;
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
@@ -951,6 +954,10 @@ function replayTourFromList(item: DocumentWorkspaceItem): void {
 $effect(() => {
 	if (!browser) return;
 	localStorage.setItem(WORKSPACE_WIDTH_STORAGE_KEY, String(workspaceWidth));
+});
+
+$effect(() => {
+	onDockPreferredChange?.(workspaceWidth);
 });
 
 $effect(() => {

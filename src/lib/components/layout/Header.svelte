@@ -22,7 +22,7 @@ import {
 } from "$lib/utils/popup-menu";
 import {
 	sidebarOpen,
-	sidebarCollapsed,
+	toggleSidebarCollapsed,
 	currentConversationId,
 	landingIncognitoArmed,
 	landingIncognitoArmVisible,
@@ -61,7 +61,7 @@ async function handleLogout() {
 
 function toggleSidebar() {
 	if (viewportStore.tier === "desktop") {
-		sidebarCollapsed.update((collapsed) => !collapsed);
+		toggleSidebarCollapsed();
 		return;
 	}
 

@@ -88,7 +88,14 @@ import {
 	confirmWrite as confirmWriteRequest,
 	fetchConversationPendingWrites,
 } from "$lib/client/api/connection-writes";
-import { currentConversationId } from "$lib/stores/ui";
+import { chatWouldBeSqueezed } from "$lib/client/workspace-dock";
+import {
+	currentConversationId,
+	setSidebarFoldNeeded,
+	sidebarCollapsed,
+	sidebarWidth,
+} from "$lib/stores/ui";
+import { viewportStore } from "$lib/utils/viewport.svelte";
 import { projects } from "$lib/stores/projects";
 import {
 	selectedModel,
@@ -1048,6 +1055,26 @@ let artifactCount = $derived(liveArtifacts.length);
 let isArtifactPanelOpen = $derived(
 	workspaceOpen && (artifactListOpen || workspaceDocuments.length > 0),
 );
+
+// While the panel is docked beside the chat, the chat column keeps a floor
+// (`CHAT_COLUMN_FLOOR`): the panel gives up width before the chat goes under it
+// (the panel's own CSS), and when the chat would be under it anyway because the
+// sidebar is open, the sidebar folds to its rail and comes back when the panel
+// goes (FB-3, F3). The reader's own choice of sidebar is never changed.
+let windowWidth = $state(browser ? window.innerWidth : 0);
+let dockPreferredWidth = $state(950);
+let sidebarNeededForPanel = $derived(
+	browser &&
+		isArtifactPanelOpen &&
+		viewportStore.tier === "desktop" &&
+		!$sidebarCollapsed &&
+		windowWidth > 0 &&
+		chatWouldBeSqueezed(dockPreferredWidth, windowWidth - $sidebarWidth),
+);
+$effect(() => {
+	setSidebarFoldNeeded(sidebarNeededForPanel);
+});
+onDestroy(() => setSidebarFoldNeeded(false));
 
 /**
  * Wave 2.5 Step 12/13 (redesign §9.2): the panel's own open item — looked up
@@ -3706,6 +3733,8 @@ function handleDrop(event: DragEvent) {
 }
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <svelte:head>
 	<title>{effectiveConversationTitle}</title>
 </svelte:head>
@@ -3917,6 +3946,7 @@ function handleDrop(event: DragEvent) {
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
 			reserveDock
+			onDockPreferredChange={(width) => (dockPreferredWidth = width)}
 			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
