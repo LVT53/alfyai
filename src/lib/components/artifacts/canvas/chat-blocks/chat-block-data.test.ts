@@ -338,6 +338,124 @@ describe("the section's groups", () => {
 		});
 	});
 
+	// F9 (the friction audit): two Apps called "Tip calculator", or two exports of one
+	// document that the menu's width cuts to the same words, read as one row twice.
+	// Rows that read alike say when each was made (never which version it is); a row
+	// with a name of its own stays as it was.
+	describe("rows that read alike", () => {
+		const SAME_DAY = new Date();
+		SAME_DAY.setHours(14, 32, 7, 0);
+		const sameDay = (secondsLater: number) =>
+			SAME_DAY.getTime() + secondsLater * 1000;
+		const appRow = (key: string, at: number) => ({
+			key,
+			at,
+			versionNumber: 1,
+			data: { kind: "app" as const, artifactId: key, title: "Tip calculator" },
+		});
+		const fileRow = (key: string, at: number) => ({
+			key,
+			at,
+			origin: "produced" as const,
+			version: 1,
+			data: {
+				kind: "file" as const,
+				fileId: key,
+				name: "becsi-hetvegi-utiterv-szombat-vasarnap.docx",
+				mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				bytes: 10_637,
+				label: "DOCX",
+			},
+		});
+
+		it("tells two Apps of one name apart by the time each was made, and prints no version", () => {
+			const groups = chatBlockGroups(
+				{
+					...emptyChatBlocks(),
+					apps: [
+						appRow("app:b", sameDay(0)),
+						appRow("app:a", sameDay(0) - 25 * 60_000),
+					],
+				},
+				translate(),
+				"en",
+			);
+			const [newer, older] = groups[0].rows;
+			expect(newer.meta).toBe("02:32 PM");
+			expect(older.meta).toBe("02:07 PM");
+			expect(`${newer.meta}${older.meta}`).not.toMatch(/\bv\d|version/i);
+		});
+
+		it("keeps a file's type and size and adds the time after them", () => {
+			const groups = chatBlockGroups(
+				{
+					...emptyChatBlocks(),
+					files: [fileRow("file:2", sameDay(0)), fileRow("file:1", sameDay(-3600))],
+				},
+				translate(),
+				"en",
+			);
+			expect(groups[0].rows.map((row) => row.meta)).toEqual([
+				"DOCX · 10.4 KB · 02:32 PM",
+				"DOCX · 10.4 KB · 01:32 PM",
+			]);
+		});
+
+		it("adds the seconds when two of them were made in one minute, as two exports a few seconds apart are", () => {
+			const groups = chatBlockGroups(
+				{
+					...emptyChatBlocks(),
+					files: [fileRow("file:2", sameDay(11)), fileRow("file:1", sameDay(0))],
+				},
+				translate(),
+				"en",
+			);
+			const [second, first] = groups[0].rows;
+			expect(second.meta).toBe("DOCX · 10.4 KB · 02:32:18 PM");
+			expect(first.meta).toBe("DOCX · 10.4 KB · 02:32:07 PM");
+		});
+
+		it("says the day too for one that was not made today, and in the reader's language", () => {
+			const groups = chatBlockGroups(
+				{
+					...emptyChatBlocks(),
+					apps: [
+						appRow("app:b", Date.UTC(2026, 8, 30, 12, 0, 0)),
+						appRow("app:a", Date.UTC(2026, 8, 29, 12, 0, 0)),
+					],
+				},
+				translate(),
+				"hu",
+			);
+			const [newer, older] = groups[0].rows;
+			expect(newer.meta).toContain("szept. 30.");
+			expect(older.meta).toContain("szept. 29.");
+		});
+
+		it("leaves a row with a name of its own alone, and only the rows that share one get a time", () => {
+			const groups = chatBlockGroups(
+				{
+					...emptyChatBlocks(),
+					apps: [
+						appRow("app:b", sameDay(0)),
+						{
+							...appRow("app:c", sameDay(-60)),
+							data: { kind: "app" as const, artifactId: "app:c", title: "Budget" },
+						},
+						appRow("app:a", sameDay(-3600)),
+					],
+				},
+				translate(),
+				"en",
+			);
+			expect(groups[0].rows.map((row) => row.meta)).toEqual([
+				"02:32 PM",
+				"",
+				"01:32 PM",
+			]);
+		});
+	});
+
 	it("reads a route as the block will read it, and inserts the map block built from it", () => {
 		const groups = chatBlockGroups(LISTING, translate());
 		const maps = groups.find((g) => g.kind === "map");
