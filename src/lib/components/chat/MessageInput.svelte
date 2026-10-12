@@ -123,6 +123,11 @@ import {
 import ComposerChip from "./ComposerChip.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
 import {
+	fieldTextRoom,
+	fitPlaceholder,
+	placeholderMeasurer,
+} from "./placeholder-fit";
+import {
 	attachmentChipKind,
 	attachmentChipMeta,
 	attachmentThumbnailUrl,
@@ -891,6 +896,46 @@ let composerPlaceholder = $derived(
 			)
 		: (placeholder ?? $t("chat.messagePlaceholder")),
 );
+
+// The placeholder on one line (RC-A, the owner's principle: short words that do not
+// crowd a row). Beside a docked panel the field is 290-370 px and the placeholder
+// that names the open item wrapped to two lines when its title was long: the text
+// is cut at a word and ends in an ellipsis to fit the field's width, measured in
+// the placeholder's own font, again whenever the field changes width (the panel
+// animates it) or the fonts arrive. Without a width or a canvas (a test renderer)
+// it is left as it is.
+let textareaWidth = $state(0);
+let placeholderFontEpoch = $state(0);
+let fittedPlaceholder = $state<string | null>(null);
+$effect(() => {
+	const full = composerPlaceholder;
+	const width = textareaWidth;
+	void placeholderFontEpoch;
+	const field = textarea;
+	if (!field || width <= 0) {
+		fittedPlaceholder = null;
+		return;
+	}
+	const measure = placeholderMeasurer(field);
+	fittedPlaceholder = measure
+		? fitPlaceholder(full, fieldTextRoom(field), measure)
+		: null;
+});
+$effect(() => {
+	const field = textarea;
+	if (!field || typeof ResizeObserver === "undefined") return;
+	textareaWidth = field.clientWidth;
+	const observer = new ResizeObserver(() => {
+		textareaWidth = field.clientWidth;
+	});
+	observer.observe(field);
+	return () => observer.disconnect();
+});
+$effect(() => {
+	void document.fonts?.ready.then(() => {
+		placeholderFontEpoch += 1;
+	});
+});
 
 // ADR 0044 Decision 1 — loads the user's served/defaultOn connection
 // capabilities once on mount. `served` (-> availableCapabilities) gates
@@ -3261,7 +3306,7 @@ async function emitDraftChange(force = false) {
 			disabled={isComposerDisabled}
 			aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
 			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
-			placeholder={composerPlaceholder}
+			placeholder={fittedPlaceholder ?? composerPlaceholder}
 			class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
 			class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
 			rows="1"
