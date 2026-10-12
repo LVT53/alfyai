@@ -442,11 +442,15 @@ export function flush(): CanvasBody {
 /**
  * Draws a board the server changed under the reader (Alfy answered a comment
  * with a change): the blocks, connections and marks are replaced, the camera is
- * left where it is. It is not a step of the reader's (Alfy's change is a
+ * left where it is, and stays: a board that took in what it held follows no more
+ * (the room the change takes, the bar that comes for it) until the reader fits it
+ * again, so a change on screen is not met by a camera that zooms to it and glides
+ * back (F12). It is not a step of the reader's (Alfy's change is a
  * version, ruling 16), so the reader's own undo is emptied: it could only take
  * them back to before Alfy's change and save that over it.
  */
 export function land(next: CanvasBody): void {
+	fitted = null;
 	nodes = toFlowNodes(next.nodes);
 	edges = toFlowEdges(next.edges, next.nodes);
 	annotations = [...next.annotations];

@@ -274,3 +274,103 @@ describe("what waits for the reader", () => {
 		expect(state.undo).toEqual({ available: false, reason: "nothing_to_undo" });
 	});
 });
+
+// F12: what waits is counted as the reader sees the change.
+describe("what waits, counted as the reader sees it", () => {
+	const ADD_FRAME_B: BoardOp = {
+		op: "add_frame",
+		id: "frame-b",
+		label: "Sunday",
+		position: { x: 700, y: 40 },
+		size: { width: 300, height: 300 },
+	};
+
+	it("is one change for one note added, though a frame grew to hold it, another went aside and an arrow was drawn", () => {
+		const state = computeCanvasReview({
+			throughVersion: 2,
+			versions: history([
+				{ author: "user", ops: [ADD_FRAME_B] },
+				{
+					author: "alfy",
+					ops: [
+						{
+							op: "add_node",
+							node: {
+								id: "note-new",
+								type: "sticky",
+								parentId: "frame-a",
+								position: { x: 230, y: 60 },
+								data: {
+									kind: "sticky",
+									text: "Schönbrunn, 9:00",
+									tone: "mint",
+								},
+							},
+						},
+						{
+							op: "update_node",
+							id: "frame-a",
+							data: { width: 460, height: 300 },
+						},
+						{ op: "move", id: "frame-b", to: { x: 760, y: 40 } },
+						{
+							op: "add_edge",
+							edge: {
+								id: "edge-new",
+								source: "note-new",
+								target: "note-museum",
+							},
+						},
+					],
+				},
+			]),
+		});
+		expect(state.touchedIds).toEqual(["note-new"]);
+		expect(state.count).toBe(1);
+		expect(state.changes).toHaveLength(1);
+		expect(state.changes[0].touchedIds).toEqual(["note-new"]);
+		expect(state.undo.available).toBe(true);
+	});
+
+	it("is one change for a note rewritten, not one removed and one added", () => {
+		const state = computeCanvasReview({
+			throughVersion: 1,
+			versions: history([
+				{
+					author: "alfy",
+					ops: [
+						{ op: "remove_node", id: "note-museum" },
+						{
+							op: "add_node",
+							node: {
+								id: "note-museum-new",
+								type: "sticky",
+								position: { x: 500, y: 60 },
+								data: {
+									kind: "sticky",
+									text: "Museum, 14:00, audio guide",
+									tone: "mint",
+								},
+							},
+						},
+					],
+				},
+			]),
+		});
+		expect(state.count).toBe(1);
+		expect(state.removedCount).toBe(0);
+		expect(state.touchedIds).toEqual(["note-museum-new"]);
+		expect(state.changes[0].removedCount).toBe(0);
+	});
+
+	it("still says a block was taken away when nothing stands in its place", () => {
+		const state = computeCanvasReview({
+			throughVersion: 1,
+			versions: history([
+				{ author: "alfy", ops: [{ op: "remove_node", id: "note-museum" }] },
+			]),
+		});
+		expect(state.removedCount).toBe(1);
+		expect(state.count).toBe(1);
+	});
+});

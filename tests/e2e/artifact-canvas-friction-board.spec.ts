@@ -4,15 +4,33 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { artifacts, artifactVersions } from "../../src/lib/server/db/schema";
+import { createArtifact } from "../../src/lib/server/services/artifacts";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
-import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	boardJson,
+	emptyCanvasBody,
+} from "../../src/lib/shared/artifacts/canvas-body";
+import {
+	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
+	AI_SMOKE_CANVAS_EDIT_MARKER,
+	encodeCanvasEditScenarioPayload,
+} from "../fixtures/ai/openai-compatible-scenarios";
+import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
+import {
+	cameraOf,
 	openCanvasPanel,
 	openChatAndReload,
 	seedCanvas,
+	settledCamera,
 	testUserId,
 } from "./artifact-canvas-helpers";
-import { createEmptyConversation, login } from "./helpers";
+import {
+	createTemporaryFakeProviderModel,
+	deleteTemporaryProvider,
+	snapshotUserModelPreference,
+	updateUserModelPreference,
+} from "./artifact-live-edit.helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // The board's friction (phase 5, FB-4, ruling 77): what the audit found walking a
 // board like the owner, built on real input. One spec for the whole round, each
@@ -111,7 +129,6 @@ test.describe("F9: rows of one name are told apart in the Insert menu", () => {
 	});
 });
 
-
 // ---- F11 ---------------------------------------------------------------------
 
 /** The audit's own: the way from the airport to the hotel, five boxes across. */
@@ -196,7 +213,8 @@ test.describe("F11: a wide flowchart is drawn where it can be read", () => {
 
 		expect(
 			await page.evaluate(
-				() => (window as unknown as { __rawSourceSeen: boolean }).__rawSourceSeen,
+				() =>
+					(window as unknown as { __rawSourceSeen: boolean }).__rawSourceSeen,
 			),
 			"the block showed the raw Mermaid source before the drawing",
 		).toBe(false);
@@ -205,3 +223,206 @@ test.describe("F11: a wide flowchart is drawn where it can be read", () => {
 		}
 	});
 });
+
+// ---- Alfy's change to a board (F12, F18) -----------------------------------------
+
+const fakeProvider = createOpenAICompatibleProviderHarness();
+
+/** Two frames side by side, a note below, in a camera the board fits itself: what the audit's weekend board was. */
+function planBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "frame-sat",
+				type: "frame",
+				position: { x: 20, y: 20 },
+				width: 400,
+				height: 260,
+				data: { kind: "frame", label: "Saturday", width: 400, height: 260 },
+			},
+			{
+				id: "note-lunch",
+				type: "sticky",
+				position: { x: 24, y: 64 },
+				parentId: "frame-sat",
+				width: 180,
+				data: { kind: "sticky", text: "Lunch at the market", tone: "yellow" },
+			},
+			{
+				id: "frame-sun",
+				type: "frame",
+				position: { x: 460, y: 20 },
+				width: 400,
+				height: 260,
+				data: { kind: "frame", label: "Sunday", width: 400, height: 260 },
+			},
+			{
+				id: "note-brunch",
+				type: "sticky",
+				position: { x: 24, y: 64 },
+				parentId: "frame-sun",
+				width: 180,
+				data: { kind: "sticky", text: "Brunch, 10:30", tone: "mint" },
+			},
+			{
+				id: "note-museum",
+				type: "sticky",
+				position: { x: 20, y: 340 },
+				width: 200,
+				data: { kind: "sticky", text: "Museum, 14:00", tone: "blue" },
+			},
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+type Scene = {
+	conversationId: string;
+	artifactId: string;
+	cleanup: () => Promise<void>;
+};
+
+/** A board made through the service, a fake model to script Alfy's edit, the chat and the panel open on it. */
+async function openWithAlfy(page: Page): Promise<Scene> {
+	await login(page);
+	const previousPreference = await snapshotUserModelPreference(page);
+	const conversationId = await createEmptyConversation(page);
+	const userId = await testUserId();
+	const created = await createArtifact({
+		userId,
+		conversationId,
+		kind: "canvas",
+		title: "Weekend board",
+		body: boardJson(planBoard()),
+		author: "user",
+		versionSummary: "Created",
+	});
+	if (!created.ok) throw new Error(created.reason);
+	const provider = await createTemporaryFakeProviderModel(
+		page,
+		fakeProvider.baseURL,
+	);
+	await updateUserModelPreference(page, provider.selectedModel);
+	await openChatAndReload(page, conversationId);
+	await openCanvasPanel(page);
+	return {
+		conversationId,
+		artifactId: created.artifact.id,
+		cleanup: async () => {
+			await updateUserModelPreference(page, previousPreference);
+			await deleteTemporaryProvider(page, provider.providerId);
+		},
+	};
+}
+
+/** What the reader asks the chat: the fake model answers with an `edit_artifact` call of exactly these ops. */
+async function askAlfy(page: Page, artifactId: string, ops: unknown[]) {
+	await sendMessage(
+		page,
+		`${AI_SMOKE_CANVAS_EDIT_MARKER} ${encodeCanvasEditScenarioPayload({ artifactId, summary: "Changed the plan", ops })}`,
+	);
+	await expect(page.getByText(AI_SMOKE_CANVAS_EDIT_FINAL_TEXT)).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByTestId("canvas-review-bar")).toBeVisible({
+		timeout: 15_000,
+	});
+}
+
+/** "Add a note next to the Saturday ones": the note, the frame that grew to hold it, the other frame aside, and an arrow. */
+const ADD_ONE_NOTE = [
+	{
+		op: "add_node",
+		node: {
+			id: "note-new",
+			type: "sticky",
+			parentId: "frame-sat",
+			position: { x: 220, y: 64 },
+			data: { kind: "sticky", text: "Schönbrunn, 9:00", tone: "mint" },
+		},
+	},
+	{ op: "update_node", id: "frame-sat", data: { width: 520, height: 260 } },
+	{ op: "move", id: "frame-sun", to: { x: 580, y: 20 } },
+	{
+		op: "add_edge",
+		edge: { id: "edge-new", source: "note-new", target: "note-museum" },
+	},
+];
+
+const reviewBar = (page: Page) => page.getByTestId("canvas-review-bar");
+
+test.describe("F12: Alfy's change to a board is counted and worded as the reader sees it", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	test("one note added is one change on the bar and on the card, though a frame grew, another went aside and an arrow was drawn; the camera stays where it was", async ({
+		page,
+	}) => {
+		const scene = await openWithAlfy(page);
+		try {
+			// The board is fitted and untouched: a board that follows what it takes in.
+			const before = await settledCamera(page);
+			await askAlfy(page, scene.artifactId, ADD_ONE_NOTE);
+			await expect(reviewBar(page)).toContainText("Alfy changed 1 block.");
+			await expect(reviewBar(page)).toContainText("1 / 1");
+			await expect(
+				page.locator(".artifact-card-pending").first(),
+			).toContainText("1 change to review");
+			// What is on screen did not move under the reader: no zoom to the change, no glide back.
+			await page.waitForTimeout(1_800);
+			const after = await settledCamera(page);
+			expect(after.zoom, "zoom").toBeCloseTo(before.zoom, 4);
+			expect(after.x, "x").toBeCloseTo(before.x, 1);
+			expect(after.y, "y").toBeCloseTo(before.y, 1);
+			if (SHOTS) {
+				await page.screenshot({ path: shot("f12-one-note-one-change.png") });
+			}
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
+	test("a note rewritten is one block changed, not one changed and one removed", async ({
+		page,
+	}) => {
+		const scene = await openWithAlfy(page);
+		try {
+			await askAlfy(page, scene.artifactId, [
+				{ op: "remove_node", id: "note-museum" },
+				{
+					op: "add_node",
+					node: {
+						id: "note-museum-new",
+						type: "sticky",
+						position: { x: 20, y: 340 },
+						data: {
+							kind: "sticky",
+							text: "Museum, 14:00, with the audio guide",
+							tone: "blue",
+						},
+					},
+				},
+			]);
+			await expect(reviewBar(page)).toContainText("Alfy changed 1 block.");
+			await expect(reviewBar(page)).not.toContainText("removed");
+			await expect(
+				page.locator(".artifact-card-pending").first(),
+			).toContainText("1 change to review");
+		} finally {
+			await scene.cleanup();
+		}
+	});
+});
+
+void cameraOf;
