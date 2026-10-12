@@ -403,6 +403,101 @@ for (const [width, height, pendingOps] of [
 }
 
 /**
+ * A status chip's finger area (44 px, pulled back into its 26 px pill by negative
+ * margins) reached 9 px under the pill, onto the change pill's buttons that sit
+ * right under a changed line: 6 px of two targets that answer for the same pixels
+ * (FB-9's note, FX-2). Each target keeps its own pixels.
+ */
+for (const width of [390, 360] as const) {
+	test.describe(`a status chip and the change pill under it at ${width} px (Hungarian, touch)`, () => {
+		test.use({
+			viewport: { width, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+		test.beforeEach(async ({ page }) => {
+			await setUiLanguage("hu");
+			await login(page);
+		});
+		test.afterEach(async () => {
+			await setUiLanguage("en");
+		});
+
+		test("the chip's finger area does not overlap the pill's buttons", async ({
+			page,
+		}) => {
+			const conversationId = await createEmptyConversation(page, "Chip");
+			await seedDocument(conversationId, {
+				markdown: PROSE_MARKDOWN,
+				title: "Bécsi utazás",
+				// The second block is the line with two status chips; its pill sits under it.
+				pendingOps: 2,
+			});
+			const shell = await openDocument(page, conversationId);
+			await expect(
+				shell.locator(".alfy-change-bar-action").first(),
+			).toBeVisible({ timeout: 30_000 });
+			await waitForMotionToSettle(page);
+
+			const chips = await shell
+				.locator(".tracker-chip-select")
+				.evaluateAll((els) =>
+					els.map((el) => {
+						const r = el.getBoundingClientRect();
+						return { x: r.x, y: r.y, width: r.width, height: r.height };
+					}),
+				);
+			const actions = await shell
+				.locator(".alfy-change-bar-action")
+				.evaluateAll((els) =>
+					els.map((el) => {
+						const r = el.getBoundingClientRect();
+						return { x: r.x, y: r.y, width: r.width, height: r.height };
+					}),
+				);
+			expect(chips.length, "the chips are on screen").toBeGreaterThanOrEqual(2);
+			expect(
+				actions.length,
+				"the pill's buttons are on screen",
+			).toBeGreaterThan(0);
+			const overlaps: string[] = [];
+			chips.forEach((chip, i) => {
+				actions.forEach((action, j) => {
+					if (overlap(chip, action)) {
+						overlaps.push(
+							`chip ${i} (${chip.y.toFixed(1)}-${(chip.y + chip.height).toFixed(1)}) over button ${j} (${action.y.toFixed(1)}-${(action.y + action.height).toFixed(1)})`,
+						);
+					}
+				});
+			});
+			expect(overlaps, "no chip area reaches a pill button").toEqual([]);
+			// The chips are still finger-sized where nothing sits under them.
+			for (const chip of chips) {
+				expect(chip.height).toBeGreaterThanOrEqual(35);
+				expect(chip.width).toBeGreaterThanOrEqual(43.5);
+			}
+
+			// Real input: a tap on the lower edge of the chip's own pill is the chip's,
+			// not the invisible finger area of the pill's button right under it.
+			const firstChip = shell.locator(".tracker-chip-select").first();
+			const pillBox = await boxOf(firstChip.locator(".."));
+			const actionsBefore = await shell
+				.locator(".alfy-change-bar-action")
+				.count();
+			await page.touchscreen.tap(
+				pillBox.x + pillBox.width / 2,
+				pillBox.y + pillBox.height - 3,
+			);
+			await expect(firstChip, "the tap reached the chip").toBeFocused();
+			await expect(
+				shell.locator(".alfy-change-bar-action"),
+				"and the pill's buttons did not take it",
+			).toHaveCount(actionsBefore);
+		});
+	});
+}
+
+/**
  * The panel's list used to say it twice: the eyebrow "Ez a beszélgetés" over
  * the title "Amit ez a beszélgetés készített" (ruling 77's amendment: one of
  * them goes). The title stays.
