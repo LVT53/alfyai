@@ -706,6 +706,10 @@ const artifactsDict = {
 			"Alfy removed {count} {count, plural, one {block} other {blocks}}.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy changed {changed} {changed, plural, one {block} other {blocks}} and removed {removed}.",
+		// What a phone's bar says instead: its sentence has about 126 px beside the two
+		// buttons, and the long one took three lines there.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} changed, {removed} removed.",
 		"artifacts.canvas.review.landed": "{summary} Review it below the board.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} Left {left} alone. Review it below the board.",
@@ -1608,6 +1612,9 @@ const artifactsDict = {
 			"Alfy {count} blokkot eltávolított.",
 		"artifacts.canvas.review.summaryBoth":
 			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
+		// A telefon sávjában a mondatnak ~126 px jut a két gomb mellett; a hosszú három sort kért.
+		"artifacts.canvas.review.summaryBothShort":
+			"Alfy: {changed} módosítva, {removed} eltávolítva.",
 		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
 		"artifacts.canvas.review.landedLeft":
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",

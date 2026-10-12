@@ -1290,7 +1290,7 @@ function minimapColor(node: {
 		connectionMode={ConnectionMode.Loose}
 		deleteKey={readonly || held ? null : ["Backspace", "Delete"]}
 		elevateNodesOnSelect={false}
-		attributionPosition="bottom-left"
+		attributionPosition={stackedZoom ? "top-left" : "bottom-left"}
 		{ariaLabelConfig}
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
@@ -1444,7 +1444,9 @@ function minimapColor(node: {
 	}
 
 	/* The library asks to be credited, so the credit stays (never `hideAttribution`), in
-	   its corner and as quiet as a credit can be (F28). */
+	   its corner and as quiet as a credit can be (F28). Where the toolbar and the zoom
+	   control stack along the bottom of a narrow pane it is in the top corner: the
+	   bottom one was half under the toolbar on a phone. */
 	.canvas-board :global(.svelte-flow__attribution) {
 		font-size: var(--text-2xs);
 		opacity: 0.45;
