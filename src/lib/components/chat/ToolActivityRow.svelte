@@ -15,7 +15,7 @@
 // bottom corners square off, the body's top corners do too), and the body
 // slides open AND closed with the app's standard reduced-motion-aware
 // transition.
-import { Check, ChevronDown, LoaderCircle, X } from "@lucide/svelte";
+import { Check, ChevronDown, Globe, LoaderCircle, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
@@ -412,8 +412,11 @@ function handleToggle() {
 	{/if}
 {/snippet}
 
-{#snippet sourceRow(source: { title: string; url: string; status?: string; reason?: string })}
-	{@const faviconUrl = getFaviconUrl(source.url)}
+{#snippet sourceRow(source: { title: string; url: string; status?: string; reason?: string; fromInput?: boolean })}
+	<!-- An address the call was only given is the model's own word (a prompt
+	     injection can put private data in a host): its favicon is a request made on
+	     the model's behalf, so such a row shows the globe and asks for nothing. -->
+	{@const faviconUrl = source.fromInput ? null : getFaviconUrl(source.url)}
 	{@const cited = isCitedSource(source as never)}
 	{@const reason = source.reason?.trim()}
 	{@const host = extractHostname(source.url)}
@@ -435,6 +438,8 @@ function handleToggle() {
 					referrerpolicy="no-referrer"
 					onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 				/>
+			{:else}
+				<Globe class="act-favicon-globe" size={10} strokeWidth={2} aria-hidden="true" />
 			{/if}
 		</span>
 		<span class="act-src-title">{source.title}</span>
@@ -873,6 +878,10 @@ function handleToggle() {
 		width: 14px;
 		height: 14px;
 		object-fit: contain;
+	}
+
+	:global(.act-favicon-globe) {
+		color: var(--text-muted);
 	}
 
 	.act-src-title {

@@ -170,7 +170,12 @@ describe("ThinkingBlock", () => {
 		expect(links).toHaveLength(2);
 		expect(links[0]).toHaveAttribute("href", "https://a.example/x");
 		expect(links[1]).toHaveAttribute("href", "https://b.example/y");
-		expect(document.querySelectorAll(".act-favicon img")).toHaveLength(2);
+		// These addresses are the ones the call was only GIVEN, the model's own words
+		// (docs/plans/exfil-channels): each row shows the globe and asks for no favicon.
+		expect(document.querySelectorAll(".act-favicon img")).toHaveLength(0);
+		expect(
+			document.querySelectorAll(".act-favicon .act-favicon-globe"),
+		).toHaveLength(2);
 	});
 
 	it("summarizes web search tool calls without expanding every source diagnostic", async () => {

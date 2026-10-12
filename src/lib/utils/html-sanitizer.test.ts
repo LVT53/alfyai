@@ -403,6 +403,434 @@ describe("sanitizeHtml SVG: no value is built to make the gate slow (FX-E)", () 
 	});
 });
 
+describe("sanitizeHtml: nothing the browser fetches on its own survives", () => {
+	// An address in `src`, `srcset`, `poster` or `background` is requested the moment the
+	// markup is parsed, with no click, and a model can write one with private data in its
+	// path, query or host (a prompt injection in a page it read). So by default none
+	// survives, whichever tag carries it; a caller that has a reason names the exact
+	// address and tag it allows.
+	const FETCHERS: Array<[string, string]> = [
+		["an image", '<img src="https://x.test/a.png" alt="a">'],
+		[
+			"an image with a srcset",
+			'<img srcset="https://x.test/a.png 1x, https://x.test/b.png 2x">',
+		],
+		[
+			"a picture",
+			'<picture><source srcset="https://x.test/p.png" media="(min-width:1px)"><img src="https://x.test/p2.png"></picture>',
+		],
+		[
+			"a video poster",
+			'<video poster="https://x.test/p.png" controls></video>',
+		],
+		["a video", '<video src="https://x.test/v.mp4" controls></video>'],
+		["audio", '<audio src="https://x.test/a.mp3" controls></audio>'],
+		[
+			"a source and a track",
+			'<video controls><source src="https://x.test/v.mp4" type="video/mp4"><track src="https://x.test/t.vtt" kind="captions"></video>',
+		],
+		[
+			"a table's background",
+			'<table background="https://x.test/t.png"><tr><td background="https://x.test/c.png">c</td><th background="https://x.test/h.png">h</th></tr></table>',
+		],
+		["an image button", '<input type="image" src="https://x.test/i.png">'],
+		[
+			"an <image> tag, which HTML reads as <img>",
+			'<image src="https://x.test/i.png">',
+		],
+		[
+			"an address in a template",
+			'<template><img src="https://x.test/t.png"></template>',
+		],
+	];
+
+	it.each(FETCHERS)("removes %s", (_name, html) => {
+		for (const options of [{}, { allowStyleAttributes: true }, { svg: true }]) {
+			const out = sanitizeHtml(html, options);
+			expect(out, JSON.stringify(options)).not.toContain("x.test");
+			expect(out).not.toMatch(/<(?:img|source|track)\b/i);
+			expect(out).not.toMatch(/\b(?:src|srcset|poster|background)=/i);
+		}
+	});
+
+	it("removes an image whose address is not allowed whole, with its alt text", () => {
+		expect(
+			sanitizeHtml(
+				'<p>before <img src="https://x.test/a.png" alt="the alt" title="t"> after</p>',
+			),
+		).toBe("<p>before  after</p>");
+	});
+
+	it("removes an address however it is written, relative or absolute", () => {
+		for (const src of [
+			"/api/favicon?domain=x.test",
+			"//x.test/a.png",
+			"a.png",
+			"./a.png",
+			"http://x.test/a.png",
+			" https://x.test/a.png",
+			"HTTPS://X.TEST/A.PNG",
+			"https:&#47;&#47;x.test/a.png",
+			"\u0001https://x.test/a.png",
+			"blob:https://x.test/0000",
+			"ftp://x.test/a.png",
+		]) {
+			const out = sanitizeHtml(`<img src="${src}">`);
+			expect(out, src).toBe("");
+		}
+	});
+
+	it("keeps a raster picture that holds its own bytes, and nothing else that is data", () => {
+		for (const src of [
+			"data:image/png;base64,iVBORw0KGgo=",
+			"data:image/jpeg;base64,/9j/4AAQ",
+			"data:image/jpg;base64,/9j/4AAQ",
+			"data:image/gif;base64,R0lGODlh",
+			"data:image/webp;base64,UklGRg==",
+			"data:image/avif;base64,AAAA",
+			"data:IMAGE/PNG;base64,iVBORw0KGgo=",
+		]) {
+			expect(sanitizeHtml(`<img src="${src}" alt="a">`), src).toContain(
+				`src="${src}"`,
+			);
+		}
+		for (const src of [
+			"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+			"data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
+			"data:text/html;base64,PGI+eDwvYj4=",
+			"data:application/octet-stream;base64,AAAA",
+			"data:image/png",
+			"data:,x",
+		]) {
+			expect(sanitizeHtml(`<img src="${src}">`), src).toBe("");
+		}
+		// It is the picture's own bytes on an <img>, nowhere else.
+		const out = sanitizeHtml(
+			'<video src="data:image/png;base64,AAAA" poster="data:image/png;base64,AAAA"></video><img srcset="data:image/png;base64,AAAA 1x"><table background="data:image/png;base64,AAAA"><tr><td>x</td></tr></table>',
+		);
+		expect(out).not.toMatch(/data:|<img|poster|src|background/i);
+	});
+
+	it("leaves links alone: a click is the reader's choice", () => {
+		expect(
+			sanitizeHtml(
+				'<p><a href="https://x.test/a" target="_blank">link</a></p>',
+			),
+		).toBe('<p><a href="https://x.test/a" target="_blank">link</a></p>');
+	});
+
+	it("still drops what DOMPurify always dropped: frames, objects, links, meta, a base", () => {
+		const out = sanitizeHtml(
+			'<iframe src="https://x.test/f"></iframe><object data="https://x.test/o"></object><embed src="https://x.test/e"><link rel="stylesheet" href="https://x.test/s.css"><meta http-equiv="refresh" content="0;url=https://x.test/"><base href="https://x.test/">ok',
+		);
+		expect(out).toBe("ok");
+	});
+
+	it("keeps one call's rules out of the next: the hooks are gone when it returns", () => {
+		sanitizeHtml('<img src="/ok/a.png"><p style="color:red">x</p>', {
+			allowResource: () => true,
+			allowStyleAttributes: true,
+			inert: { allowClass: () => true },
+		});
+		expect(sanitizeHtml('<img src="/ok/a.png">')).toBe("");
+		expect(sanitizeHtml('<form><input type="text"></form>')).toContain(
+			"<input",
+		);
+		expect(() =>
+			sanitizeHtml("<p>x</p>", {
+				allowResource: () => {
+					throw new Error("a caller's predicate failed");
+				},
+			}),
+		).not.toThrow();
+		expect(() =>
+			sanitizeHtml('<img src="/a.png">', {
+				allowResource: () => {
+					throw new Error("a caller's predicate failed");
+				},
+			}),
+		).toThrow("a caller's predicate failed");
+		expect(sanitizeHtml('<img src="/ok/a.png">')).toBe("");
+	});
+
+	it("closes the HTML-namespace image that slips out of a diagram too", () => {
+		// `<img>` ends a foreign-content run, so it lands beside the SVG, in the page.
+		const out = sanitizeHtml(
+			'<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/><img src="https://x.test/p.png"></svg><img srcset="https://x.test/q.png 1x" src="https://x.test/r.png">',
+			{ svg: true, allowStyleTags: true, allowStyleAttributes: true },
+		);
+		expect(out).toContain("<rect");
+		expect(out).not.toContain("x.test");
+		expect(out).not.toMatch(/<img/i);
+	});
+
+	describe("a caller that names the address it allows", () => {
+		const asked: Array<{ tag: string; attribute: string; address: string }> =
+			[];
+		const allowOnly =
+			(tag: string, attribute: string, address: string) =>
+			(request: { tag: string; attribute: string; address: string }) => {
+				asked.push(request);
+				return (
+					request.tag === tag &&
+					request.attribute === attribute &&
+					request.address === address
+				);
+			};
+
+		it("keeps exactly that address on exactly that tag and attribute", () => {
+			const allowResource = allowOnly("img", "src", "/api/thing?id=1");
+			const out = sanitizeHtml(
+				'<img src="/api/thing?id=1" alt="a"><img src="/api/thing?id=2"><img src="/api/thing?id=1&x=1"><video poster="/api/thing?id=1"></video><table background="/api/thing?id=1"><tr><td>x</td></tr></table>',
+				{ allowResource },
+			);
+			expect(out).toBe(
+				'<img src="/api/thing?id=1" alt="a"><video></video><table><tbody><tr><td>x</td></tr></tbody></table>',
+			);
+		});
+
+		it("is told the tag, the attribute and the address as the markup wrote them", () => {
+			asked.length = 0;
+			sanitizeHtml('<IMG SRC="/a.png"><video POSTER="/p.png"></video>', {
+				allowResource: allowOnly("img", "src", "/a.png"),
+			});
+			expect(asked).toEqual([
+				{ tag: "img", attribute: "src", address: "/a.png" },
+				{ tag: "video", attribute: "poster", address: "/p.png" },
+			]);
+		});
+
+		it("asks about every address of a srcset, the way a browser reads the list, and keeps it only when all are allowed", () => {
+			const askedOf = (html: string, allow: (address: string) => boolean) => {
+				const addresses: string[] = [];
+				const out = sanitizeHtml(html, {
+					allowResource: (request) => {
+						if (request.attribute === "srcset") addresses.push(request.address);
+						return allow(request.address);
+					},
+				});
+				return { out, addresses };
+			};
+			const ok = (address: string) => address.startsWith("/ok/");
+
+			const kept = askedOf(
+				'<img src="/ok/a.png" srcset="/ok/a.png 1x, /ok/b.png 2x">',
+				ok,
+			);
+			expect(kept.out).toContain('srcset="/ok/a.png 1x, /ok/b.png 2x"');
+			expect(kept.addresses).toEqual(["/ok/a.png", "/ok/b.png"]);
+
+			// A comma inside an address does not end it; a comma after one does.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png,/ok/b.png 1x,/ok/c.png, /ok/d.png">',
+					ok,
+				).addresses,
+			).toEqual(["/ok/a.png,/ok/b.png", "/ok/c.png", "/ok/d.png"]);
+			// A descriptor with a bracket in it does not end at the comma inside the bracket.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png 1x(2,3), /ok/b.png">',
+					ok,
+				).addresses,
+			).toEqual(["/ok/a.png", "/ok/b.png"]);
+
+			// One address that is not allowed takes the whole list.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png 1x, https://x.test/b.png 2x">',
+					ok,
+				).out,
+			).toBe('<img src="/ok/a.png">');
+			// A list with no address in it asks about nothing and does not stay.
+			expect(askedOf('<img src="/ok/a.png" srcset=" , ,">', ok)).toEqual({
+				out: '<img src="/ok/a.png">',
+				addresses: [],
+			});
+		});
+
+		it("keeps a picture that has no allowed address out, even beside one that has", () => {
+			const out = sanitizeHtml(
+				'<picture><source srcset="/ok/p.png"><source srcset="https://x.test/p.png"><img src="/ok/i.png"></picture>',
+				{ allowResource: (request) => request.address.startsWith("/ok/") },
+			);
+			expect(out).toBe(
+				'<picture><source srcset="/ok/p.png"><img src="/ok/i.png"></picture>',
+			);
+		});
+
+		it("does not let a permissive caller pass a script address: DOMPurify still judges the value", () => {
+			const out = sanitizeHtml(
+				'<img src="javascript:alert(1)"><img src="vbscript:x"><img src="  JaVaScRiPt:alert(2)">',
+				{ allowResource: () => true },
+			);
+			expect(out).not.toMatch(/javascript|vbscript/i);
+		});
+	});
+});
+
+describe("sanitizeHtml inert markup (what a model writes stays in-flow content)", () => {
+	// A reply can have come from a page the model read, so its markup must not be able
+	// to ask a reader for a password (a form), to cover the page (a fixed overlay, in a
+	// style or through the app's own utility classes), or to open something by itself
+	// (a dialog, a popover). Text, tables, lists, links, details and highlighted code
+	// stay. The option is opt-in: previews and the diagram gate have their own rules.
+	const allowClass = (name: string) => /^(?:keep-me|shiki)$/.test(name);
+	const inert = { allowStyleAttributes: true, inert: { allowClass } } as const;
+
+	it("drops a form and every control in it, and keeps the words that were in them", () => {
+		const out = sanitizeHtml(
+			'<form action="https://x.test/steal" method="post"><p>Sign in again</p>' +
+				'<input type="password" name="p"><input type="text"><input type="image" src="data:image/png;base64,AAAA">' +
+				'<button type="submit" formaction="https://x.test/b">Go</button>' +
+				'<select><optgroup label="g"><option>One</option></optgroup></select>' +
+				'<textarea>typed</textarea><datalist id="d"><option value="v"></option></datalist></form>',
+			inert,
+		);
+		expect(out).not.toMatch(
+			/<(?:form|input|button|select|optgroup|option|textarea|datalist)/i,
+		);
+		expect(out).not.toMatch(/action=|formaction|x\.test/i);
+		expect(out).toContain("<p>Sign in again</p>");
+		expect(out).toContain("Go");
+		expect(out).toContain("One");
+	});
+
+	it("drops a form inside a template and inside a link too", () => {
+		const out = sanitizeHtml(
+			'<template><form action="https://x.test/t"><input type="password"></form></template>' +
+				'<a href="https://x.test/a"><button>Press</button></a>',
+			inert,
+		);
+		expect(out).not.toMatch(/<(?:form|input|button)/i);
+		expect(out).toContain('href="https://x.test/a"');
+	});
+
+	it("drops a dialog and the attributes that open or focus something by themselves", () => {
+		const out = sanitizeHtml(
+			'<dialog open>Hello</dialog><div popover id="pop">Popped</div>' +
+				'<span popovertarget="pop" popovertargetaction="show">Open</span><p autofocus>Focused</p>',
+			inert,
+		);
+		expect(out).not.toMatch(/<dialog|popover|autofocus/i);
+		for (const text of ["Hello", "Popped", "Open", "Focused"]) {
+			expect(out).toContain(text);
+		}
+	});
+
+	it("keeps a task-list checkbox as it is: disabled, with only type, checked and disabled", () => {
+		const taskList =
+			'<ul><li><input checked="" disabled="" type="checkbox"> done</li><li><input disabled="" type="checkbox"> todo</li></ul>';
+		expect(sanitizeHtml(taskList, inert)).toBe(taskList);
+
+		const out = sanitizeHtml(
+			'<input type="checkbox" disabled checked name="n" value="v" form="f" class="keep-me" id="i" onclick="x()">',
+			inert,
+		);
+		expect(out).toBe('<input type="checkbox" disabled="" checked="">');
+	});
+
+	it("drops a checkbox that a reader could change, and every other kind of input", () => {
+		for (const input of [
+			'<input type="checkbox" checked>',
+			'<input type="radio" disabled>',
+			'<input type="text" disabled>',
+			"<input disabled>",
+			'<input type="image" disabled src="data:image/png;base64,AAAA">',
+			'<input type="submit" disabled value="Go">',
+			'<input type="password" disabled>',
+		]) {
+			expect(sanitizeHtml(`<p>${input}</p>`, inert), input).toBe("<p></p>");
+		}
+	});
+
+	it("keeps only the CSS properties the renderer and Shiki write", () => {
+		// The exact shapes Shiki writes for a token and for the block around it.
+		for (const kept of [
+			'<span style="color:#D73A49">const</span>',
+			'<pre style="background-color:#fff;color:#24292e">x</pre>',
+			'<span style="font-style:italic;font-weight:bold;text-decoration:underline line-through">x</span>',
+			'<span style="color:rgb(1, 2, 3)">x</span>',
+		]) {
+			expect(sanitizeHtml(kept, inert), kept).toBe(kept);
+		}
+
+		const out = sanitizeHtml(
+			'<div style="position:fixed;inset:0;top:0;left:0;right:0;bottom:0;z-index:2147483647;width:100vw;height:100vh;transform:translate(0,0);translate:0 0;display:block;background:red;color:red">x</div>',
+			inert,
+		);
+		expect(out).toBe('<div style="color:red">x</div>');
+	});
+
+	it("drops a style it cannot read with certainty: escapes, comments, quotes, an important flag", () => {
+		for (const style of [
+			"pos\\69tion:fixed",
+			"color:red;/* ; */position:fixed",
+			"color:red;position:fixed/*",
+			'font-weight:bold;content:"x"',
+			"color:red !important",
+			"color:url(https://x.test/a.png)",
+			"@import url(https://x.test/a.css)",
+			"color:red}body{position:fixed",
+			"color:var(--x);position:fixed",
+		]) {
+			const out = sanitizeHtml(`<div style="${style}">x</div>`, inert);
+			expect(out, style).not.toMatch(/position|x\.test|content|import|body/i);
+		}
+	});
+
+	it("checks the value of a property it keeps, not only its name", () => {
+		const out = sanitizeHtml(
+			'<span style="color:red;font-weight:100vw;font-style:url(x);text-decoration:blink;background-color:calc(1px);color:#12">x</span>',
+			inert,
+		);
+		expect(out).toBe('<span style="color:red">x</span>');
+	});
+
+	it("is not fooled by a property name's case or spacing", () => {
+		expect(
+			sanitizeHtml(
+				'<span style=" COLOR : Red ; POSITION : fixed ">x</span>',
+				inert,
+			),
+		).toBe('<span style="color:Red">x</span>');
+	});
+
+	it("keeps only the class names it is told to, and no class attribute that ends up empty", () => {
+		expect(
+			sanitizeHtml('<div class="keep-me fixed inset-0 z-50">x</div>', inert),
+		).toBe('<div class="keep-me">x</div>');
+		expect(sanitizeHtml('<div class="fixed inset-0 z-50">x</div>', inert)).toBe(
+			"<div>x</div>",
+		);
+		expect(
+			sanitizeHtml(
+				'<pre class="shiki github-light" tabindex="0">x</pre>',
+				inert,
+			),
+		).toBe('<pre class="shiki" tabindex="0">x</pre>');
+		const alike = '<div class="keep-me shiki">x</div>';
+		expect(sanitizeHtml(alike, inert)).toBe(alike);
+	});
+
+	it("keeps what a reply is made of: text, links, tables, lists, details and code", () => {
+		const page =
+			'<h2>Title</h2><p>Some <strong>bold</strong> and <code>code</code> with a <a href="https://x.test/a" target="_blank" rel="noopener noreferrer external">link</a>.</p>' +
+			"<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>" +
+			'<ol><li>One</li></ol><details open=""><summary>More</summary><p>body</p></details><blockquote><p>q</p></blockquote>';
+		expect(sanitizeHtml(page, inert)).toBe(page);
+	});
+
+	it("is opt-in: without it a preview keeps the markup it always kept", () => {
+		const out = sanitizeHtml(
+			'<form action="https://x.test/f"><button>Go</button></form><div class="fixed">x</div>',
+		);
+		expect(out).toContain("<form");
+		expect(out).toContain("<button");
+		expect(out).toContain('class="fixed"');
+	});
+});
+
 describe("html utilities", () => {
 	it("escapes HTML-sensitive characters with the default apostrophe entity", () => {
 		expect(escapeHtml(`Tom & "Jerry" <'tag'>`)).toBe(
