@@ -7,6 +7,23 @@ export const fetchUrlInputSchema = z.object({
 
 export type FetchUrlInput = z.infer<typeof fetchUrlInputSchema>;
 
+/**
+ * Raised when none of the addresses a call asked for came from the user or from
+ * a tool (docs/plans/exfil-channels), so nothing may be fetched. The message is
+ * what the model is told: model-safe, in the turn's language and without the
+ * refused addresses, which are the model's own words. `refusedCount` is for the
+ * recorded call's metadata.
+ */
+export class FetchUrlRefusedError extends Error {
+	constructor(
+		message: string,
+		readonly refusedCount: number,
+	) {
+		super(message);
+		this.name = "FetchUrlRefusedError";
+	}
+}
+
 // Build the dedupe key for a URL: lowercased origin joined to the verbatim
 // path/query/hash, so case-insensitive hosts collapse while case-distinct paths
 // stay separate. Falls back to the whole-URL lowercase for unparseable input.

@@ -22,8 +22,11 @@ import { login } from "./helpers";
  * there is no key that reaches it.
  */
 
-const IMAGE_A = "/e2e-fu2-lightbox-a.svg";
-const IMAGE_B = "/e2e-fu2-lightbox-b.svg";
+// A reply shows a picture only from an address the app itself serves or a tool
+// returned (docs/plans/exfil-channels); the app's own thumbnail of a connected photo
+// is the one the spec can name without a tool call. The route is answered below.
+const IMAGE_A = "/api/connections/immich/thumbnail/e2e-fu2-lightbox-a";
+const IMAGE_B = "/api/connections/immich/thumbnail/e2e-fu2-lightbox-b";
 
 function pictureSvg(fill: string): string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="${fill}"/></svg>`;

@@ -58,6 +58,7 @@ import {
 	setCachedToolResult,
 } from "./normal-chat-tools/tool-result-cache";
 import type { GroundedWebResult } from "./parallel-search/types";
+import { noteWebPrefetch } from "./url-provenance";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
@@ -2057,6 +2058,20 @@ async function runForcedWebPrefetchStage(input: {
 		modelId: input.params.modelId,
 		historyToolMessages: input.params.historyToolMessages,
 	});
+	// The page reaches the model as a finished fetch_url exchange that never
+	// passes through the tool set the turn builds afterwards, so the user's
+	// source ledger and the turn's address check learn of it here
+	// (docs/plans/exfil-channels): its sources are what the tool row shows icons
+	// for, and its links are what fetch_url may follow.
+	const userId = input.params.user?.id;
+	if (userId && webPrefetch.prefetchedToolCalls.length > 0) {
+		noteWebPrefetch({
+			userId,
+			conversationId: input.params.sessionId,
+			toolCalls: webPrefetch.prefetchedToolCalls,
+			toolMessages: webPrefetch.prefetchedToolMessages,
+		});
+	}
 	return {
 		inputValue: webPrefetch.inputValue,
 		prefetchedToolCalls: webPrefetch.prefetchedToolCalls,

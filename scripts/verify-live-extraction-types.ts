@@ -464,6 +464,10 @@ async function authenticatedFetch(
 	init: RequestInit = {},
 ): Promise<Response> {
 	const headers = new Headers(init.headers);
+	// What a browser sends on every POST. The raw upload's body type is the
+	// file's own (often text/plain), a form type, and SvelteKit's CSRF check
+	// refuses a form-typed POST that names no Origin.
+	headers.set("Origin", new URL(baseUrl).origin);
 	const cookies = await page.context().cookies(baseUrl);
 	const cookieHeader = cookies
 		.map((cookie) => `${cookie.name}=${cookie.value}`)

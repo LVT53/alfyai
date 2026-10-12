@@ -428,9 +428,13 @@ async function renderDocumentSource(
 			// file can inline them: the report is downloaded and opened outside the
 			// app, where a remote icon URL would both fail to resolve and tell every
 			// cited domain the reader opened this report. A failed lookup just means
-			// that source keeps the neutral globe.
+			// that source keeps the neutral globe, and so does a host no tool returned
+			// to this user: the report's hosts are the model's words.
 			await budget.yieldIfDue();
-			const favicons = await resolveReportFavicons(request.documentSource);
+			const favicons = await resolveReportFavicons(request.documentSource, {
+				userId: input.userId,
+				conversationId: input.conversationId,
+			});
 			// HTML and Markdown lay out in microseconds and stay synchronous, so
 			// their bound is a gate on either side rather than checks inside them:
 			// a render already out of time never starts, and one that somehow

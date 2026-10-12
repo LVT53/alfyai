@@ -18,6 +18,7 @@ import {
 import { testUserId } from "./artifact-canvas-helpers";
 import { tapArea } from "./artifact-document-polish-helpers";
 import { ensureSidebarExpanded, login, waitForHydration } from "./helpers";
+import { sameOriginHeader } from "./request-origin";
 
 /**
  * A project's files (Workspaces Slice E, mockup §M5) — the Files modal, the
@@ -65,6 +66,7 @@ async function uploadLibraryDocument(
 	const body = options.body ?? `Notes for ${options.name}\n`;
 	const response = await page.request.post(UPLOAD_RAW_PATH, {
 		headers: {
+			...sameOriginHeader(),
 			"content-type": "text/plain",
 			"x-alfyai-upload-name": encodeURIComponent(options.name),
 			"x-alfyai-upload-size": String(Buffer.byteLength(body, "utf8")),

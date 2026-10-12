@@ -63,6 +63,10 @@ const PERMANENT_ALLOWLIST = new Map<string, string>([
 		"CSP/sandbox policy keyed on text/html + image/svg+xml; a security decision, not a type table (spec row 58)",
 	],
 	[
+		"src/lib/server/services/image-search.ts",
+		"the thumbnail fetch's response-type allowlist (jpeg, png, webp, gif, avif; never SVG): a security decision about what a fetched file may be served as, like the CSP policy above, not a file-type table. The registry's image entries include svg, heic and tiff, which a thumbnail must never be (docs/plans/exfil-channels)",
+	],
+	[
 		"src/lib/server/services/working-document-selection.ts",
 		"natural-language intent regexes over user messages, not file classification (spec row 61)",
 	],
