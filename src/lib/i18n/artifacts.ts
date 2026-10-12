@@ -396,8 +396,12 @@ const artifactsDict = {
 		// row; their accessible names stay "Keep all" and "Undo all".
 		"artifacts.document.review.keepShort": "Keep",
 		"artifacts.document.review.undoShort": "Undo",
-		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
-		"artifacts.document.planned.writing": "Alfy is writing: {label}",
+		// The quiet "Alfy is at work" strip above the text: from Alfy's first look at the
+		// open Document in a turn until its change has landed (Slice 1, T8; FB-6, F6,
+		// ruling 77: the board's "arranging" strings are its model).
+		"artifacts.document.working": "Alfy is working on the document…",
+		"artifacts.document.workingSummary":
+			"Alfy is working on the document: {summary}",
 		// Tabs (Slice 1, T9).
 		"artifacts.document.cardSubtitle":
 			"Document · {count} {count, plural, one {tab} other {tabs}}",
@@ -1348,7 +1352,12 @@ const artifactsDict = {
 		// FB-6, F13 (ruling 77): a telefonon egy sor a sáv; a gombok neve ugyanaz marad.
 		"artifacts.document.review.keepShort": "Megtart",
 		"artifacts.document.review.undoShort": "Visszavon",
-		"artifacts.document.planned.writing": "Alfy írja: {label}",
+		// A szöveg fölötti halk „Alfy dolgozik” sáv: attól, hogy Alfy először ránéz a
+		// megnyitott dokumentumra egy körben, addig, amíg a módosítása meg nem érkezett
+		// (FB-6, F6, 77. döntés: a tábla „dolgozik a táblán” szövegei a mintája).
+		"artifacts.document.working": "Alfy dolgozik a dokumentumon…",
+		"artifacts.document.workingSummary":
+			"Alfy dolgozik a dokumentumon: {summary}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",

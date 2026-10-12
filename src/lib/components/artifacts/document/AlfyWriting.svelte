@@ -1,47 +1,51 @@
 <script lang="ts">
 /**
- * The dashed "planned section" box (Feature 2 · Artifacts, Slice 1, T8;
- * restyled for the Artifacts redesign, redesign.md §4.2 item 4/§9.2's
- * `AlfyWriting.svelte` row, Wave 2.5 Step 11): shown while a tool call is in
- * flight but no specific target block is known synchronously yet — the
- * T8-live chat-turn path (`DocumentBody.svelte`'s `alfyWritingLabel`), whose
- * own `DocumentAlfyActivity.patches` is deliberately empty while
- * `status === "running"` (`alfy-activity.ts`'s doc comment: "there is
- * nothing to mark until the call has settled"). The composer-driven Ask-Alfy
- * reply, whose target block IS known synchronously, gets the OTHER in-place
- * treatment instead — `alfy-writing-decoration.ts`'s own block decoration
- * (gutter bar, dimmed text, the inline tag), styled in `DocumentBody.svelte`.
- * Purely presentational, no `@tiptap/*` import — the caller decides when to
- * mount and unmount this, and always replaces it with real content rather
- * than leaving it behind once the call settles (T8.6).
+ * The quiet "Alfy is at work" strip above the text (Feature 2 · Artifacts, Slice 1,
+ * T8; FB-6, F6, ruling 77): shown from the first thing a chat turn does to the open
+ * Document (it reads it) until the change has landed in the panel, so the panel is
+ * never silent while the chat's thought lines run. The wording is the board's
+ * ("Alfy is arranging…") for a Document: the generic line, or the call's own
+ * summary once the edit call is known. The composer-driven Ask-Alfy reply, whose
+ * target block IS known synchronously, gets the OTHER in-place treatment instead
+ * (`alfy-writing-decoration.ts`'s block decoration: gutter bar, dimmed text, the
+ * inline tag). Purely presentational, no `@tiptap/*` import: the caller decides
+ * when to mount and unmount this, and it always goes with a landed change, a
+ * failed call or the end of the turn, never lingers.
  */
 import { Sparkles } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 
-let { label }: { label: string } = $props();
+let { summary = null }: { summary?: string | null } = $props();
 </script>
 
-<div class="alfy-writing" data-testid="alfy-writing" aria-live="polite">
+<div class="alfy-writing" data-testid="alfy-writing" role="status" aria-live="polite">
 	<Sparkles size={14} strokeWidth={2} class="alfy-writing-icon" aria-hidden="true" />
 	<span class="alfy-writing-label">
-		{$t('artifacts.document.planned.writing', { label })}
+		{summary
+			? $t('artifacts.document.workingSummary', { summary })
+			: $t('artifacts.document.working')}
 	</span>
 </div>
 
 <style>
-	/* Mirrors the approved mockup's `.planned` box exactly (colors mapped onto
-	   this app's own tokens: `--accent` → `--accent-fill`/`--accent-text`). */
+	/* One quiet line, a hairline under it: the strip makes room for itself (the slot
+	   around it slides) and the text moves with it, never under it. */
 	.alfy-writing {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		margin: 0.25rem 0 0.875rem;
-		padding: 0.75rem 0.875rem;
-		border: 1.5px dashed color-mix(in srgb, var(--accent-fill) 45%, transparent);
-		border-radius: 10px;
-		background-color: color-mix(in srgb, var(--accent-fill) 5%, transparent);
+		padding: 0.375rem 0.875rem;
+		border-bottom: 1px solid var(--border-subtle);
+		background-color: color-mix(in srgb, var(--accent-fill) 5%, var(--surface-page));
 		color: var(--accent-text);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
+	}
+
+	.alfy-writing-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.alfy-writing :global(.alfy-writing-icon) {

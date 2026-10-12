@@ -1584,6 +1584,94 @@ describe("findLiveDocumentAlfyActivity", () => {
 		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
 	});
 
+	// F6 (ruling 77): the browser hears nothing of an edit call until the model has
+	// written all of it, so a Document Alfy has READ in a turn that is still running is
+	// "being worked on" for as long as the turn runs.
+	describe("a Document the running turn has read", () => {
+		function readOf(
+			list: ChatMessage[],
+			kind: string,
+			status: "running" | "done",
+		) {
+			return applyToolCallUpdateToMessageList(list, {
+				placeholderId: "assistant-1",
+				name: "read_artifact",
+				input: { artifactId: "doc-1", detail: "blocks" },
+				status,
+				details:
+					status === "done"
+						? {
+								callId: "call-read",
+								metadata: { ok: true, artifactId: "doc-1", artifactKind: kind },
+							}
+						: { callId: "call-read" },
+			});
+		}
+
+		it("is being worked on from the read until the turn ends, and nothing else", () => {
+			let list = [createAssistantPlaceholder("assistant-1")];
+			// The read itself, still running: nothing yet (the kind is not known).
+			list = readOf(list, "document", "running");
+			expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+
+			list = readOf(list, "document", "done");
+			expect(findLiveDocumentAlfyActivity(list)).toEqual(
+				expect.objectContaining({
+					key: "read:call-read",
+					artifactId: "doc-1",
+					toolName: "read_artifact",
+					status: "running",
+					label: null,
+					appliedCount: 0,
+				}),
+			);
+
+			// The stream is over (stopped, failed or finished): nothing is handed on.
+			expect(
+				findLiveDocumentAlfyActivity(
+					list.map((message) => ({ ...message, isStreaming: false })),
+				),
+			).toBeNull();
+		});
+
+		it("gives way to the edit call once there is one, running and settled", () => {
+			let list = readOf(
+				[createAssistantPlaceholder("assistant-1")],
+				"document",
+				"done",
+			);
+			list = applyToolCallUpdateToMessageList(list, {
+				placeholderId: "assistant-1",
+				name: "edit_artifact",
+				input: {
+					artifactId: "doc-1",
+					summary: "Shorten Saturday",
+					patches: [],
+				},
+				status: "running",
+				details: { callId: "call-edit" },
+			});
+			expect(findLiveDocumentAlfyActivity(list)).toEqual(
+				expect.objectContaining({
+					key: "call-edit",
+					status: "running",
+					label: "Shorten Saturday",
+				}),
+			);
+		});
+
+		it("is not a board's or an App's to show", () => {
+			for (const kind of ["canvas", "app", "file"]) {
+				const list = readOf(
+					[createAssistantPlaceholder("assistant-1")],
+					kind,
+					"done",
+				);
+				expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+			}
+		});
+	});
+
 	// F2 (ruling 77): an App is changed from the chat, and the open panel is told.
 	it("finds a rebuild of an App by its instruction, running and landed", () => {
 		let list = [createAssistantPlaceholder("assistant-1")];

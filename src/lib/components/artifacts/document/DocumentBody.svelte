@@ -55,7 +55,7 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
 import { MessageSquare } from "@lucide/svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { cubicIn, cubicOut } from "svelte/easing";
-import { fly } from "svelte/transition";
+import { fly, slide } from "svelte/transition";
 import {
 	acknowledgeDocumentReviewBlocks,
 	askAlfyInComment,
@@ -367,7 +367,7 @@ let changeChipByCommentId = $derived.by(() => {
 // ---- end redesign §3.2 -----------------------------------------------
 
 // ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
-// `alfyWritingLabel` drives the shimmer; `pendingChanges` drives the inline
+// `alfyWriting` drives the "Alfy is at work" strip; `pendingChanges` drives the inline
 // pill (one per applied op, keyed by `changeId`) AND the review bar;
 // `refusalNotice` is `null` until a landed call actually refused something.
 // `handledActivityKey` guards against reprocessing the SAME settled call
@@ -390,6 +390,8 @@ const UNDO_SETTLE_MS = 5000;
  * pill-arrival animation in `ChangeBar.svelte`, which needs no such wrapper).
  */
 const reviewBarFly = reducedMotionAware(fly);
+/** The "Alfy is at work" strip's slot (F6): the room it takes is made and given back over a moment. */
+const workingSlide = reducedMotionAware(slide);
 
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
@@ -421,7 +423,11 @@ interface PendingAlfyChange {
 	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
 	fallbackPos?: number;
 }
-let alfyWritingLabel = $state<string | null>(null);
+/**
+ * "Alfy is at work" (F6): which call it is for (so a call that has landed clears only
+ * its own) and what to say once the call's own summary is known. Null: nothing to show.
+ */
+let alfyWriting = $state<{ key: string; summary: string | null } | null>(null);
 /**
  * rd/review-2-5.md:217-222: one shared, visually hidden `aria-live="polite"`
  * region (rendered once, near the top of this component's template),
@@ -989,31 +995,42 @@ $effect(() => {
 	const activity = alfyActivity;
 	if (!activity || activity.artifactId !== boundArtifactId) {
 		// Fully derived, not just "nothing to do": a document switch (or the
-		// activity moving on to a different artifact) must not leave a stale
-		// shimmer from whatever was showing a moment ago.
-		alfyWritingLabel = null;
+		// activity moving on to a different artifact), or a turn that is over (the
+		// chat page stops handing its activity on), must not leave a stale strip
+		// from whatever was showing a moment ago.
+		alfyWriting = null;
 		return;
 	}
 
 	if (activity.status === "running") {
-		alfyWritingLabel = activity.label ?? title;
+		// F6: from Alfy's first look at the Document (a read) through the edit call's
+		// own run; the strip goes only when the change has landed (below).
+		alfyWriting = { key: activity.key, summary: activity.label };
 		return;
 	}
-	// Settled (applied/refused/failed): the shimmer never outlives its call
-	// (T8.6), whatever else this activity turns out to mean.
-	alfyWritingLabel = null;
 	// Settled before this body existed: the server's review state owns it.
-	if (activity.key === settledActivityKeyAtMount) return;
+	if (activity.key === settledActivityKeyAtMount) {
+		alfyWriting = null;
+		return;
+	}
 
 	const key = `${activity.key}:${activity.status}`;
 	if (key === handledActivityKey) return;
 	// The call stays un-handled (and this effect will re-run and retry) until
-	// the editor can actually receive it — see this effect's own comment.
+	// the editor can actually receive it — see this effect's own comment. The
+	// strip stays until then too: the change has not landed in the panel yet.
 	if (!editorReady) return;
 	handledActivityKey = key;
 
-	if (activity.status === "failed") return;
-	void landAlfyActivity(activity);
+	if (activity.status === "failed") {
+		alfyWriting = null;
+		return;
+	}
+	// Applied or refused: the strip is Alfy's change on its way and goes once the
+	// panel shows it (its marks, its pills), never before (T8.6).
+	void landAlfyActivity(activity).finally(() => {
+		if (alfyWriting?.key === activity.key) alfyWriting = null;
+	});
 });
 
 /**
@@ -2539,13 +2556,17 @@ function saveNoticeText(notice: SaveNotice): string {
 				onAction={handleToolbarAction}
 			/>
 		</div>
-		<!-- T8 live: the planned-section shimmer while a matching create_artifact/
-		     edit_artifact call is in flight. It sits above the content row so it
-		     neither depends on — nor fights with — the editor's own layout. (The
-		     refusal notice used to sit here too; it is a card in the comment
-		     list now, beside the line it is about.) -->
-		{#if alfyWritingLabel !== null}
-			<AlfyWriting label={alfyWritingLabel} />
+		<!-- T8 live / F6: the quiet "Alfy is at work" strip, from Alfy's first look at
+		     this Document in a turn until its change has landed. It sits above the
+		     content row so it neither depends on — nor fights with — the editor's own
+		     layout, and its slot slides so the text makes room for it and gives the
+		     room back over a moment rather than by a jump. (The refusal notice used
+		     to sit here too; it is a card in the comment list now, beside the line
+		     it is about.) -->
+		{#if alfyWriting !== null}
+			<div class="document-working-slot" transition:workingSlide={{ duration: MOTION_DURATION.standard }}>
+				<AlfyWriting summary={alfyWriting.summary} />
+			</div>
 		{/if}
 		<!-- The text and its comments, side by side. `.document-content` is a
 		     plain row that does not scroll; the TEXT column inside it is the one

@@ -1,13 +1,28 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { readDocumentForAlfy } from "../../src/lib/server/services/artifacts";
+import {
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
+	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+	encodeEditDocumentSlowlyPayload,
+} from "../fixtures/ai/openai-compatible-scenarios";
+import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	box,
 	openDocument,
 	seedDocument,
 	setUiLanguage,
+	testUserId,
 } from "./artifact-document-polish-helpers";
+import {
+	createTemporaryFakeProviderModel,
+	deleteTemporaryProvider,
+	snapshotUserModelPreference,
+	updateUserModelPreference,
+} from "./artifact-live-edit.helpers";
 import {
 	createEmptyConversation,
 	login,
+	sendMessage,
 	waitForStableBoundingBox,
 } from "./helpers";
 
@@ -350,5 +365,115 @@ test.describe("F18 Keep does not make the text jump", () => {
 			Math.max(...steps),
 			"the biggest move between two frames",
 		).toBeLessThan(14);
+	});
+});
+
+test.describe("F6 the Document shows Alfy at work", () => {
+	const fakeProvider = createOpenAICompatibleProviderHarness();
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	/** The Document open in the panel, and a turn on it whose model reads it, takes `delayMs` to write its patch, then applies it. */
+	async function askForSlowEdit(page: Page, delayMs: number) {
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		const temporaryProvider = await createTemporaryFakeProviderModel(
+			page,
+			fakeProvider.baseURL,
+		);
+		await updateUserModelPreference(page, temporaryProvider.selectedModel);
+		const conversationId = await createEmptyConversation(page, "F6");
+		const artifactId = await seedDocument(conversationId, {
+			markdown: MARKDOWN,
+			title: "Bécsi hétvége",
+		});
+		const read = await readDocumentForAlfy({
+			userId: await testUserId(),
+			artifactId,
+			conversationId,
+		});
+		const target = read.blocks.find((block) =>
+			block.text.startsWith("Délben a Naschmarkt"),
+		);
+		expect(target, "the block Alfy will change").toBeTruthy();
+		const shell = await openDocument(page, conversationId);
+		await sendMessage(
+			page,
+			`${AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER} ${encodeEditDocumentSlowlyPayload(
+				{
+					artifactId,
+					blockId: target?.blockId ?? "",
+					baseHash: target?.hash ?? "",
+					delayMs,
+					text: "Délben a Naschmarkt, utána a Karlsplatz és a Hundertwasserhaus.",
+				},
+			)}`,
+		);
+		return {
+			shell,
+			cleanup: async () => {
+				await updateUserModelPreference(page, previousModelPreference);
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			},
+		};
+	}
+
+	test("the panel says so from the model's first look at the Document until the change lands", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const { shell, cleanup } = await askForSlowEdit(page, 4_000);
+		try {
+			const working = shell.getByTestId("alfy-writing");
+			// The model has the Document in hand and is writing its patch: nothing has
+			// changed yet, and the panel already says Alfy is on it.
+			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+				timeout: 20_000,
+			});
+			await expect(shell.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await page.waitForTimeout(1_500);
+			await expect(working).toBeVisible();
+
+			// The change lands, and the state goes with it.
+			await expect(shell.getByTestId("alfy-change-bar").first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await expect(working).toHaveCount(0);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT),
+			).toBeVisible();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("a stopped turn does not leave it standing", async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const { shell, cleanup } = await askForSlowEdit(page, 30_000);
+		try {
+			const working = shell.getByTestId("alfy-writing");
+			await expect(working).toContainText("Alfy dolgozik a dokumentumon", {
+				timeout: 20_000,
+			});
+			await page.getByTestId("stop-button").click();
+			await expect(working).toHaveCount(0, { timeout: 10_000 });
+			await expect(page.getByTestId("stop-button")).toHaveCount(0);
+			// Nothing was changed, and nothing waits for review.
+			await expect(shell.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(
+				shell.getByRole("region", { name: "Alfy módosításai" }),
+			).toHaveCount(0);
+		} finally {
+			await cleanup();
+		}
 	});
 });

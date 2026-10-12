@@ -2,6 +2,7 @@ import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebui
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
 	buildDocumentAlfyActivity,
+	buildDocumentReadActivity,
 	type DocumentAlfyActivity,
 } from "$lib/components/artifacts/document/alfy-activity";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
@@ -1117,6 +1118,18 @@ export function findLiveDocumentAlfyActivity(
 				buildCanvasAlfyActivity(segment) ??
 				buildDocumentAlfyActivity(segment);
 			if (activity) return activity;
+		}
+		// F6 (ruling 77): a turn that is still running and has read a Document but has
+		// not (as far as the browser can hear) begun to change it: the model is writing
+		// its patch. Only while the message streams, so a stopped, failed or finished
+		// turn hands nothing on and the panel's "Alfy is at work" never outlives it.
+		if (messages[i]?.isStreaming) {
+			for (let j = segments.length - 1; j >= 0; j -= 1) {
+				const segment = segments[j];
+				if (segment.type !== "tool_call") continue;
+				const reading = buildDocumentReadActivity(segment);
+				if (reading) return reading;
+			}
 		}
 	}
 	return null;
