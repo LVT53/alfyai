@@ -105,6 +105,17 @@ export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER =
 export const AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT =
 	"Read the document and applied the change after a while.";
 
+/**
+ * A model that refuses every request, but not at once: the provider holds it for
+ * `AI_SMOKE_REFUSE_SLOWLY_DELAY_MS` and answers HTTP 500, for the streaming attempt
+ * and for the non-streaming fallback alike. The turn therefore keeps running, and
+ * failing, long enough for a reader to reload the page and reconnect to it while it
+ * is still failing (FG's finding 1, `stream-reconnect-failure.spec.ts`).
+ */
+export const AI_SMOKE_REFUSE_SLOWLY_MARKER =
+	"Fake model step: refuse this request after a pause.";
+export const AI_SMOKE_REFUSE_SLOWLY_DELAY_MS = 1500;
+
 export interface EditDocumentSlowlyPayload {
 	artifactId: string;
 	blockId: string;

@@ -94,7 +94,7 @@ describe("createStreamTerminal", () => {
 	});
 
 	describe("failStream", () => {
-		it("clears the buffer, emits the error, and closes", () => {
+		it("emits the error, clears the buffer, and closes", () => {
 			const deps = createDeps();
 			const terminal = createStreamTerminal(deps);
 			terminal.failStream("timeout");
@@ -102,6 +102,21 @@ describe("createStreamTerminal", () => {
 			expect(deps.clearStreamBuffer).toHaveBeenCalledWith("s1");
 			expect(deps.emitError).toHaveBeenCalledWith("timeout");
 			expect(deps.closeDownstream).toHaveBeenCalled();
+		});
+
+		// FG's finding 1: the buffer holds the listeners of a reconnected browser, so
+		// clearing it first leaves the error with nobody to tell.
+		it("emits the error BEFORE it clears the buffer, which holds the reconnected listeners", () => {
+			const deps = createDeps();
+			const order: string[] = [];
+			(deps.emitError as ReturnType<typeof vi.fn>).mockImplementation(() =>
+				order.push("emit"),
+			);
+			(deps.clearStreamBuffer as ReturnType<typeof vi.fn>).mockImplementation(
+				() => order.push("clear"),
+			);
+			createStreamTerminal(deps).failStream("backend_failure");
+			expect(order).toEqual(["emit", "clear"]);
 		});
 
 		it("does nothing once ended", async () => {

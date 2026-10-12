@@ -38,6 +38,8 @@ import {
 	AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME,
 	AI_SMOKE_REASONING_TEXT,
 	AI_SMOKE_REBUILT_APP_HTML,
+	AI_SMOKE_REFUSE_SLOWLY_DELAY_MS,
+	AI_SMOKE_REFUSE_SLOWLY_MARKER,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
 	AI_SMOKE_STANDING_INSTRUCTION_MARKER,
@@ -1450,6 +1452,24 @@ export function createOpenAICompatibleProviderHarness(
 					{
 						error: {
 							message: "Fake provider internal server error.",
+							type: "server_error",
+							code: "internal_server_error",
+						},
+					},
+					500,
+				);
+			}
+
+			if (
+				currentTurnText(body)?.includes(AI_SMOKE_REFUSE_SLOWLY_MARKER) === true
+			) {
+				// The streaming attempt and the non-streaming fallback alike: refused, but
+				// only after a pause, so the turn is still failing when a reader reloads.
+				await delay(AI_SMOKE_REFUSE_SLOWLY_DELAY_MS);
+				return jsonResponse(
+					{
+						error: {
+							message: "Fake provider refused this request after a pause.",
 							type: "server_error",
 							code: "internal_server_error",
 						},

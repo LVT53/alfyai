@@ -108,10 +108,15 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 		if (deps.isEnded()) return;
 		deps.markEnded();
 		deps.logPhaseTiming("error");
+		// The error goes out BEFORE the buffer is cleared: the buffer holds the
+		// listeners of a browser that reconnected to this run (a reload a few
+		// hundred milliseconds after a first turn that fails at once), and clearing
+		// it first left that connection open on heartbeats with no terminal event,
+		// the reader's turn spinning for ever.
+		deps.emitError(code);
 		if (deps.streamId) {
 			deps.clearStreamBuffer(deps.streamId);
 		}
-		deps.emitError(code);
 		deps.closeDownstream();
 	};
 
