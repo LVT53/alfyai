@@ -49,6 +49,8 @@ export interface GenerateAndVerifyAppParams {
 	language: "en" | "hu";
 	/** When the caller already knows it (a regeneration keeps the old title unless the app's own `<title>`/`<h1>` changes it). */
 	title?: string | null;
+	/** A change to an App that exists: the app as it is now, with `prompt` as the change (see `AppGenerationRequest.currentHtml`). */
+	currentHtml?: string;
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
 }
@@ -69,6 +71,7 @@ export async function generateAndVerifyApp(
 		prompt: params.prompt,
 		language: params.language,
 		title: params.title,
+		currentHtml: params.currentHtml,
 		modelId: params.modelId,
 		abortSignal: params.abortSignal,
 	});

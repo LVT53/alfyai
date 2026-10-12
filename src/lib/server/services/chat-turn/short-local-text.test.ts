@@ -21,11 +21,14 @@ vi.mock("./shared-normal-chat-model-run-helpers", () => ({
 import {
 	askWithThinkingRetry,
 	callShortLocalControlModel,
+	containsEnglishWords,
+	containsInternalIdentifier,
 	generateShortLocalText,
 	isHungarianText,
 	isPlausibleShortText,
 	isReasoningLeak,
 	isRequestRestatement,
+	leaksInternalNames,
 	resolveShortTextLanguage,
 	stripLeakedThinking,
 	unwrapJsonControlText,
@@ -930,5 +933,145 @@ describe("generateShortLocalText", () => {
 
 		for (const release of releases) release();
 		await Promise.all(inFlight);
+	});
+});
+
+// F22 (ruling 77): the friction audit's Alfy-edit turns, in Hungarian, showed
+// "A frame-sat szélességének növelése szükséges ...", "Kérés értelmezése...
+// (downloadable file)", "Az itinerary Document artifactként kérhető ...": the
+// thought-step classifier is told to copy a word from the (English) reasoning
+// verbatim, and the model copied ids, slugs, field names and English phrases. These
+// are the real entities and headlines of 16 real turns (the audit's scratch
+// database), in both directions: what must be caught, and what a Hungarian line
+// legitimately carries (proper nouns, product names, numbers, a format's name).
+describe("ids and English in a line a person reads (F22)", () => {
+	const LEAKED_HU = [
+		// ids and slugs
+		"d8ea0203-57d8-4f0c-a361-74ceb9aa592c",
+		"A d8ea0203-57d8-4f0c-a361-74ceb9aa592c dokumentum szerkesztését tervezte",
+		"frame-sat",
+		"A frame-sat szélességének növelése szükséges a Gloriette kilátás elhelyezéséhez",
+		"tr3cpq",
+		"A tr3cpq blokkba szúrná be a Jó tudni szekciót insertText-tel.",
+		// tool and field names
+		"create_artifact",
+		"create_artifact tool",
+		"edit_artifact",
+		"image_search",
+		"documentSource",
+		"A produce_file és documentSource blokkok struktúrája meghatározva a PDF-hez.",
+		"Az edit_artifact leírása szerint új Alkalmazást kell készíteni.",
+		"Az image_search használata mellett döntött a Bécs itinerhez.",
+		// English phrases
+		"downloadable file",
+		"DOCX file",
+		"version 1",
+		"2 patches",
+		"Document artifact",
+		"Saturday morning section",
+		"Schönbrunn trip",
+		'Frame "Szombat" at x=40,y=40, size 380x300',
+		"Megállapította, hogy a version 1 nem módosult, és a '- [ ] ' prefix hiányzott",
+		"Az itinerary Document artifactként kérhető a szerkeszthetőséghez",
+		"Chat válasz mellett itinerárium artifact ajánlása",
+		"A canvas layout koordinátáit és méreteit rögzítette a Szombat és Vasárnap frame-ekhez.",
+		"A Saturday morning section két mondatra rövidítése és a phone charger hozzáadása a packing listhez",
+		"A tip calculator app HTML artifact requirementet határozta meg",
+		"A rövid PDF a weekend plan összefoglalása lesz",
+		"Identified the input as a simple greeting",
+	];
+
+	const CLEAN_HU = [
+		"Bécsi hétvégi útiterv",
+		"Café Central vagy Landtmann",
+		"Café Central vagy Landtmann reggeli helyszínnek választása",
+		"A 'Bécsi hétvége – útiterv' cím és az Első Beisl vacsoraötlet beillesztését tervezte.",
+		"DOCX formátumot választott a szerkeszthetőség miatt",
+		'A "Jó tudni" szakasz két tippet tartalmaz a közlekedésről és borravalóról',
+		"A 'Kerekítés egész forintra' gomb logikáját és a sötét palettát tervezte meg",
+		"Kerekítés egész forintra",
+		"Powerbank + töltőkábel",
+		"A Powerbank + töltőkábel blokk szövegének cseréje telefontöltőre",
+		"A Schnitzel Wiener Art sertés- vagy pulykahúsú változatát azonosította",
+		"Spanische Hofreitschule",
+		"MuseumsQuartier",
+		"A spanyol lovasképzés szombati edzését tervezte be a naptervbe",
+		"A legközelebbi egészre kerekítés lett a döntés",
+		"A hétvégére Bécsbe tervezett útvonal szombati napját kell megtervezni.",
+		"Az útmutatóba őszi piacok és karácsonyi vásár időzítését tervezte",
+		// What the classifier's own Hungarian examples say.
+		"A Flash-Next modellt választotta a Qwen helyett",
+		"Megállapította, hogy a prefix cache sosem talál",
+		// Words that look English and are Hungarian.
+		"Edit néni tippje a planétára és a theológiai szakra",
+		"Az e-mail és a névsor nélküli lista",
+	];
+
+	it.each(LEAKED_HU)("catches it in a Hungarian line: %s", (line) => {
+		expect(leaksInternalNames(line, "hu")).toBe(true);
+	});
+
+	it.each(CLEAN_HU)("keeps a Hungarian line that has none: %s", (line) => {
+		expect(leaksInternalNames(line, "hu")).toBe(false);
+	});
+
+	it("in an English line only an id, a slug or a field name is an internal name: English words are the language", () => {
+		for (const line of [
+			"Chose Flash-Next over Qwen for latency",
+			"Found the prefix cache never hits",
+			"Decided the document needs a packing list",
+			"Settled that the version 1 text did not change",
+			"Kept the e-mail and the Café Central",
+		]) {
+			expect(leaksInternalNames(line, "en"), line).toBe(false);
+		}
+		for (const line of [
+			"Widening frame-sat to fit the view",
+			"Calling create_artifact for the itinerary",
+			"Editing the block tr3cpq with insertText",
+			"Reading d8ea0203-57d8-4f0c-a361-74ceb9aa592c",
+		]) {
+			expect(leaksInternalNames(line, "en"), line).toBe(true);
+		}
+	});
+
+	it("tells the two checks apart: an id is not English words, and English words are not an id", () => {
+		expect(containsInternalIdentifier("frame-sat")).toBe(true);
+		expect(containsEnglishWords("frame-sat")).toBe(true);
+		expect(containsInternalIdentifier("downloadable file")).toBe(false);
+		expect(containsEnglishWords("downloadable file")).toBe(true);
+		expect(containsInternalIdentifier("Café Central")).toBe(false);
+		expect(containsEnglishWords("Café Central")).toBe(false);
+		expect(containsInternalIdentifier("")).toBe(false);
+		expect(containsEnglishWords("")).toBe(false);
+	});
+});
+
+describe("generateShortLocalText rejects ids when asked (F22)", () => {
+	beforeEach(() => {
+		sendJsonControlMessageMock.mockReset();
+	});
+
+	it("drops a headline that carries an id, and keeps one that does not", async () => {
+		sendJsonControlMessageMock.mockResolvedValueOnce(
+			controlResult({
+				text: '{"headline":"A d8ea0203-57d8-4f0c-a361-74ceb9aa592c terv"}',
+			}),
+		);
+		const params = {
+			prompt: "reply",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			cleanup: { rejectIdentifiers: true },
+		};
+		await expect(generateShortLocalText(params)).resolves.toBeNull();
+
+		sendJsonControlMessageMock.mockResolvedValueOnce(
+			controlResult({ text: '{"headline":"Bécsi hétvégi útiterv"}' }),
+		);
+		await expect(generateShortLocalText(params)).resolves.toBe(
+			"Bécsi hétvégi útiterv",
+		);
 	});
 });

@@ -4,7 +4,10 @@ import {
 	PATCH_OP_KINDS,
 	patchOpInputSchema,
 } from "$lib/shared/artifact-document/patch";
-import { EDIT_ARTIFACT_DOCUMENT_EXAMPLE } from "./kind-prose";
+import {
+	EDIT_ARTIFACT_APP_EXAMPLE,
+	EDIT_ARTIFACT_DOCUMENT_EXAMPLE,
+} from "./kind-prose";
 
 const getArtifactMock =
 	vi.fn<
@@ -32,12 +35,25 @@ vi.mock("$lib/server/services/artifacts", () => ({
 		listArtifactCatalogueEntriesMock(...(args as [never])),
 }));
 
+// F2 (ruling 77): an App is changed by the panel's own rebuild, the one function
+// both the route and this tool call; its generation and checks have tests of
+// their own (artifacts/app/regenerate.test.ts).
+const regenerateAppMock = vi.fn();
+vi.mock("$lib/server/services/artifacts/app/regenerate", () => ({
+	regenerateApp: (...args: unknown[]) => regenerateAppMock(...args),
+}));
+
 const {
+	buildEditArtifactModelInputSchema,
 	documentPatchesArraySchema,
 	EDIT_ARTIFACT_HANDLERS,
 	editArtifactInputSchema,
+	MAX_APP_REBUILDS_PER_TURN,
 	runEditArtifactTool,
 } = await import("./edit");
+// The tests below take handlers away to see what a kind with none does; the App's
+// own is the one under test in its describe block, so it is kept from before.
+const REAL_APP_HANDLER = EDIT_ARTIFACT_HANDLERS.app;
 
 function detail(overrides: Partial<ArtifactDetail> = {}): ArtifactDetail {
 	return {
@@ -58,6 +74,7 @@ function detail(overrides: Partial<ArtifactDetail> = {}): ArtifactDetail {
 afterEach(() => {
 	getArtifactMock.mockReset();
 	listArtifactCatalogueEntriesMock.mockReset();
+	regenerateAppMock.mockReset();
 	delete EDIT_ARTIFACT_HANDLERS.document;
 	delete EDIT_ARTIFACT_HANDLERS.app;
 });
@@ -241,26 +258,6 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		}
 	});
 
-	it("refuses an App edit with the regeneration explanation", async () => {
-		getArtifactMock.mockResolvedValue(
-			detail({ kind: "app", title: "Cost splitter" }),
-		);
-
-		const result = await runEditArtifactTool({
-			userId: "user-1",
-			conversationId: "conv-1",
-			turnId: "turn-1",
-			artifactId: "artifact-1",
-			ops: [{ op: "update_node" }],
-			abortSignal: new AbortController().signal,
-		});
-
-		expect(result.modelPayload.success).toBe(false);
-		if (!result.modelPayload.success) {
-			expect(result.modelPayload.error.toLowerCase()).toContain("new app");
-		}
-	});
-
 	it("refuses a File edit — files are produced, not edited", async () => {
 		getArtifactMock.mockResolvedValue(
 			detail({ kind: "file", title: "Trip.pdf" }),
@@ -395,5 +392,243 @@ describe("runEditArtifactTool — a registered handler", () => {
 		});
 
 		expect(seenSignal).toBe(controller.signal);
+	});
+});
+
+// F2 (ruling 77): "change this App" in the chat changes THAT App, through the
+// same rebuild the panel's "Módosítás…" runs, as one new Alfy version. Before
+// this the tool told the model Apps are not edited here, so it made a second App
+// of the same name and the open panel kept showing the old one.
+describe("edit_artifact on an App (F2, ruling 77)", () => {
+	const rebuilt = {
+		ok: true as const,
+		version: 2,
+		versionId: "version-2",
+		title: "Tip calculator",
+		verification: { checked: true, verdict: "clean" as const, reason: null },
+	};
+	const appDetail = () =>
+		detail({ kind: "app", title: "Tip calculator", versionNumber: 1 });
+
+	function run(
+		overrides: Partial<Parameters<typeof runEditArtifactTool>[0]> = {},
+	) {
+		EDIT_ARTIFACT_HANDLERS.app = REAL_APP_HANDLER;
+		return runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "artifact-1",
+			instruction: "Make the background dark and add a Reset button",
+			language: "en",
+			abortSignal: new AbortController().signal,
+			...overrides,
+		});
+	}
+
+	it("rebuilds the App in place through the panel's own rebuild, in the turn's language, and answers with the version it wrote", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue(rebuilt);
+		const controller = new AbortController();
+
+		const result = await run({
+			language: "hu",
+			abortSignal: controller.signal,
+		});
+
+		expect(regenerateAppMock).toHaveBeenCalledTimes(1);
+		expect(regenerateAppMock).toHaveBeenCalledWith({
+			userId: "user-1",
+			artifactId: "artifact-1",
+			conversationId: "conv-1",
+			prompt: "Make the background dark and add a Reset button",
+			language: "hu",
+			abortSignal: controller.signal,
+		});
+		expect(result.modelPayload).toEqual({
+			success: true,
+			artifactId: "artifact-1",
+			versionId: "version-2",
+			applied: 1,
+			refused: [],
+			note: expect.stringContaining("nothing is still pending"),
+		});
+		// The record carries what History's "From the chat" and the open panel need.
+		expect(result.metadata).toMatchObject({
+			ok: true,
+			artifactId: "artifact-1",
+			artifactKind: "app",
+			artifactTitle: "Tip calculator",
+			versionId: "version-2",
+		});
+		expect(result.outputSummary).toContain("Tip calculator");
+	});
+
+	// Found by the live check: told "takes about a minute", the real model answered a
+	// finished rebuild with "the rebuild may take about a minute, then you will see
+	// the new look". The call returns when the rebuild is done, and says so.
+	it("tells the model the rebuild is finished and on screen, so it does not promise a wait", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue(rebuilt);
+
+		const result = await run();
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			expect(result.modelPayload.note).toMatch(/has been rebuilt/);
+			expect(result.modelPayload.note).toMatch(/open now/);
+		}
+	});
+
+	it("needs no baseHash, no patches and no read first: the instruction is the whole call", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue(rebuilt);
+
+		const result = await run({ patches: undefined, ops: undefined });
+
+		expect(result.modelPayload.success).toBe(true);
+	});
+
+	it("refuses patches or ops for an App, naming the field that works, and rebuilds nothing", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+
+		for (const sent of [{ ops: [{ op: "update_node" }] }, { patches: [{}] }]) {
+			const result = await run({ instruction: undefined, ...sent });
+			expect(result.modelPayload.success).toBe(false);
+			if (!result.modelPayload.success) {
+				expect(result.modelPayload.error).toContain("instruction");
+				expect(result.modelPayload.error.toLowerCase()).not.toContain(
+					"new app",
+				);
+			}
+		}
+		expect(regenerateAppMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses an instruction sent beside patches or ops: one shape per call", async () => {
+		const result = await run({ ops: [{ op: "move" }] });
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(getArtifactMock).not.toHaveBeenCalled();
+		expect(regenerateAppMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses an instruction for a Document or a board, naming what those take", async () => {
+		for (const [kind, field] of [
+			["document", "patches"],
+			["canvas", "ops"],
+		] as const) {
+			getArtifactMock.mockResolvedValue(detail({ kind }));
+			const result = await run();
+			expect(result.modelPayload.success).toBe(false);
+			if (!result.modelPayload.success) {
+				expect(result.modelPayload.error).toContain(field);
+				expect(result.modelPayload.error).toMatch(/App/);
+			}
+		}
+		expect(regenerateAppMock).not.toHaveBeenCalled();
+	});
+
+	it("says what failed and that the App is unchanged, and never invites a second App", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue({
+			ok: false,
+			reason: "no_fence",
+			detail: "the answer did not contain a runnable app",
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toContain("could not be rebuilt");
+			expect(result.modelPayload.error).toContain("unchanged");
+			expect(result.modelPayload.error).toMatch(/do not make a new App/i);
+		}
+		expect(result.metadata).toMatchObject({ ok: false, artifactKind: "app" });
+	});
+
+	it("reports an App that changed while it was rebuilt, with the version it is at now", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue({
+			ok: false,
+			reason: "version_conflict",
+			version: 3,
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toContain("version 3");
+			expect(result.modelPayload.error).toContain("Nothing was written");
+		}
+	});
+
+	it("writes nothing for a call that was cancelled (ruling 53)", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await run({ abortSignal: controller.signal });
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(regenerateAppMock).not.toHaveBeenCalled();
+	});
+
+	it("rebuilds at most MAX_APP_REBUILDS_PER_TURN times in one turn: a rebuild costs a model call", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue(rebuilt);
+		const budget = { used: 0 };
+		const turnContext = { sources: [], appRebuildBudget: budget };
+
+		const results = [];
+		for (let call = 0; call <= MAX_APP_REBUILDS_PER_TURN; call += 1) {
+			results.push(await run({ turnContext }));
+		}
+
+		expect(regenerateAppMock).toHaveBeenCalledTimes(MAX_APP_REBUILDS_PER_TURN);
+		const refused = results[MAX_APP_REBUILDS_PER_TURN].modelPayload;
+		expect(refused.success).toBe(false);
+		if (!refused.success) {
+			expect(refused.error).toMatch(/limit/i);
+			expect(refused.error).toMatch(/tell the user/i);
+		}
+	});
+});
+
+// Ruling 62: what the tool advertises is what its validator parses.
+describe("edit_artifact's App contract (ruling 62)", () => {
+	it("the description's own worked example parses through the executed schema and the advertised one", () => {
+		expect(
+			editArtifactInputSchema.safeParse(EDIT_ARTIFACT_APP_EXAMPLE).success,
+		).toBe(true);
+		expect(
+			buildEditArtifactModelInputSchema([
+				"document",
+				"app",
+				"canvas",
+			]).safeParse(EDIT_ARTIFACT_APP_EXAMPLE).success,
+		).toBe(true);
+	});
+
+	it("advertises `instruction` for Apps, and the validator bounds it", () => {
+		const shown = buildEditArtifactModelInputSchema(["document", "app"]);
+		expect(shown.shape.instruction.description).toMatch(/App/);
+		expect(
+			editArtifactInputSchema.safeParse({ artifactId: "a", instruction: "" })
+				.success,
+		).toBe(false);
+		expect(
+			editArtifactInputSchema.safeParse({
+				artifactId: "a",
+				instruction: "x".repeat(4001),
+			}).success,
+		).toBe(false);
+	});
+
+	it("does not advertise `instruction` while no App can be made", () => {
+		const shown = buildEditArtifactModelInputSchema(["document"]);
+		expect(shown.shape.instruction.description ?? "").not.toMatch(/App/);
 	});
 });

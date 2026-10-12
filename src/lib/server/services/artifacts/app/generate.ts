@@ -39,6 +39,13 @@ export interface AppGenerationRequest {
 	language: "en" | "hu";
 	/** When the caller already knows it (a regeneration keeps the old title unless the user renamed it). */
 	title?: string | null;
+	/**
+	 * A change to an App that exists (F2, ruling 77): the app as it is now. The
+	 * one user message then carries it with the change (`prompt` is the change,
+	 * not a new app), so the result is that app changed rather than another one.
+	 * Left out for a first draft, whose message is unchanged.
+	 */
+	currentHtml?: string;
 	/** The chat model this turn is using; the App call defaults to "model1" and never inherits thinking. */
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
@@ -133,11 +140,19 @@ function isTopKRejection(caught: unknown): boolean {
 export function buildAppRequestMessage(params: {
 	prompt: string;
 	language: "en" | "hu";
+	currentHtml?: string;
 }): string {
 	const languageInstruction =
 		params.language === "hu"
 			? "Write the whole app in Hungarian: every label, button, empty state and error message."
 			: "Write the whole app in English: every label, button, empty state and error message.";
+	if (params.currentHtml !== undefined && params.currentHtml.trim() !== "") {
+		// A change: the app as it is, then what to change. The answer is the whole
+		// changed app (the contract's one fenced document), and what the change
+		// does not touch stays as it is, the keys its saved data lives under
+		// included (a rebuild keeps the app's stored state).
+		return `Here is the app as it is now:\n\n\`\`\`html\n${params.currentHtml}\n\`\`\`\n\nChange this app as follows, and answer with the whole changed app. Keep everything the change does not touch exactly as it is: the layout, the labels, the behaviour and the storage keys it saves under.\n\n${params.prompt}\n\n${languageInstruction}`;
+	}
 	return `${params.prompt}\n\n${languageInstruction}`;
 }
 

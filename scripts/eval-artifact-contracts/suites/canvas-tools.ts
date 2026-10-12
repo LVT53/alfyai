@@ -277,7 +277,7 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				}),
 			);
 		}
-		const { artifactId, patches, ops, summary } = gate.data;
+		const { artifactId, patches, ops, instruction, summary } = gate.data;
 		if (patches && ops) {
 			lines.push("schema: patches and ops were sent together");
 			return finish(
@@ -288,14 +288,25 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				}),
 			);
 		}
-		if (!patches && !ops) {
+		if (instruction && (patches || ops)) {
+			lines.push("schema: an instruction was sent beside the board's ops");
+			return finish(
+				false,
+				JSON.stringify({
+					success: false,
+					error:
+						"Send instruction (an App) or patches/ops (a Document, a board), never both in the same call.",
+				}),
+			);
+		}
+		if (!patches && !ops && !instruction) {
 			lines.push("schema: the edit carried no ops");
 			return finish(
 				false,
 				JSON.stringify({
 					success: false,
 					error:
-						"Send patches (Document/Slides) or ops (Canvas) — this call had neither.",
+						"Send patches (Document/Slides), ops (Canvas) or instruction (App) — this call had none of them.",
 				}),
 			);
 		}
@@ -304,6 +315,18 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				`tool-args: edit_artifact named "${artifactId}", not the board in this chat`,
 			);
 			return finish(false, notFound(NOT_FOUND));
+		}
+		if (instruction) {
+			lines.push("schema: an instruction is for Apps; a board takes ops");
+			return finish(
+				false,
+				JSON.stringify({
+					success: false,
+					error:
+						"instruction is for Apps only. This item is a canvas: send ops.",
+					refused: [{ target: boardId, reason: "unsupported_kind" }],
+				}),
+			);
 		}
 		if (patches) {
 			lines.push("schema: patches were sent for a board; a board takes ops");

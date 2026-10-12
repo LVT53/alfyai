@@ -16,7 +16,7 @@ import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
 import { createRequestAbortSignal } from "./shared-normal-chat-model-run-helpers";
-import { isRequestRestatement } from "./short-local-text";
+import { isRequestRestatement, leaksInternalNames } from "./short-local-text";
 import { resolveThoughtStepAnchorSpan } from "./thought-steps";
 import { extractVerbatimTopic } from "./turn-acknowledgment";
 
@@ -311,6 +311,19 @@ function buildThoughtStepClassifierSystemPrompt(
 		targetLanguage === "hu"
 			? '"A Flash-Next modellt választotta a Qwen helyett", "Megállapította, hogy a prefix cache sosem talál"'
 			: '"Chose Flash-Next over Qwen for latency", "Found the prefix cache never hits"';
+	// F22 (ruling 77): the verbatim tether made the model copy ids, slugs, field names
+	// and, in a Hungarian turn, English phrases into a line a person reads ("A frame-sat
+	// szélességének növelése ...", "(downloadable file)"). What to copy is a name, a
+	// number or a product, never an internal name; the guards after the call
+	// (`leaksInternalNames`) drop a line that still has one.
+	const verbatimTetherRule =
+		targetLanguage === "hu"
+			? "Proper nouns, product names and numbers are the best choice for this: copy them exactly as written, never an id, a slug or a field name, and never an English word: write everything else in Hungarian."
+			: "Technical terms, proper nouns, product names, error codes and numbers are the best choice for this: copy them exactly as written and leave them untranslated, but never an id, a slug or a field name.";
+	const entityNamesRule =
+		targetLanguage === "hu"
+			? "It is shown to a Hungarian reader: never an id, a slug or a field name, and never an English word; a name or a number only, else omit it."
+			: "It is shown to the reader: never an id, a slug or a field name.";
 	const genericHeadlineExamples =
 		targetLanguage === "hu"
 			? '"A kérés elemzése", "Lehetőségek mérlegelése", "Gondolkodás a válaszon"'
@@ -341,13 +354,14 @@ summary rules — this is the step's visible HEADLINE (only used when verdict is
 - If the fragment genuinely reaches no conclusion yet, still name the concrete thing it pinned down (the specific constraint, number, name, or condition it settled), never the activity in the abstract.
 - Summarize the SUBSTANTIVE thinking, never administrative framing. Do NOT quote or restate the user's request, and do NOT begin the summary with a meta label such as "Latest user request", "The user wants", "The user is asking", "User asked", "User request", or "Task:". If the fragment only restates the request, name the concrete thing the reasoning established about it (the constraint, subject, or condition it pinned down) in ${targetLanguageLabel} — never the request text, and never the bare activity.
 - Write the summary in ${targetLanguageLabel} — the conversation's response language — no matter what language the reasoning fragment below is written in.
-- It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. Technical terms, proper nouns, identifiers (API/library/product names, error codes, file names), and numbers are the best choice for this: copy them exactly as written and leave them untranslated. You may paraphrase everything else into ${targetLanguageLabel}, but the subject must stay traceable to the fragment's own words.
+- It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. ${verbatimTetherRule} You may paraphrase everything else into ${targetLanguageLabel}, but the subject must stay traceable to the fragment's own words.
 - Describe ONLY what the reasoning is doing with content that is actually present in the fragment. Never introduce an entity, fact, claim, or conclusion that is not in the fragment — no outside knowledge, no guessing ahead to the answer.
 - Never state or imply that an external action happened (searching, fetching, browsing, reading a connected account, calling a tool) — this is private reasoning, not an event log; only describe internal thought.
 
 entity rules (critical — this is checked mechanically, not just requested):
 - Copy it EXACTLY, character for character, from the fragment below. Never translate, paraphrase, summarize, or invent it.
 - Keep it short: 2-8 words naming a specific subject the fragment is about.
+- ${entityNamesRule}
 - Omit the "entity" field entirely if no short exact phrase names a clear subject.
 - This is the assistant's own private reasoning, not an event log. Never describe an external action (searching, fetching, reading a connected account) as something that happened — you are naming a category of internal thought only, never an action.
 - Respond in this exact JSON shape no matter what language the fragment is written in.`;
@@ -604,12 +618,35 @@ function extractContentWords(text: string): string[] {
 export function hasVerbatimContentWordTether(
 	summary: string,
 	anchoredText: string,
+	targetLanguage?: SupportedLanguage,
 ): boolean {
 	const anchoredWords = new Set(
 		extractContentWords(anchoredText).map((word) => word.toLowerCase()),
 	);
-	return extractContentWords(summary).some((word) =>
-		anchoredWords.has(word.toLowerCase()),
+	return extractContentWords(summary).some(
+		(word) =>
+			anchoredWords.has(word.toLowerCase()) &&
+			(targetLanguage !== "hu" || isNameOrHungarianWord(word)),
+	);
+}
+
+// F22 (ruling 77), found by the live check: in a Hungarian turn the tether was
+// itself the leak. The reasoning is English, so a word the summary shares with it
+// verbatim is an English word ("dark", "background") unless it is a name, an
+// acronym or a number (capitalised, digits: Gloriette, DOCX) or carries a Hungarian
+// letter. A lowercase ASCII word of the English reasoning does not tether a
+// Hungarian line: the headline drops to the phase label, as it did without a tether.
+const HUNGARIAN_LETTER = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
+function isNameOrHungarianWord(word: string): boolean {
+	return HUNGARIAN_LETTER.test(word) || /^[\p{Lu}\p{N}]/u.test(word);
+}
+
+/** An entity shown to a Hungarian reader: a name or numbers, or words with a Hungarian letter in them; never plain lowercase English ("dark background"). */
+function entityReadsAsNameOrHungarian(entity: string): boolean {
+	if (HUNGARIAN_LETTER.test(entity)) return true;
+	const words = entity.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
+	return (
+		words.length > 0 && words.every((word) => /^[\p{Lu}\p{N}]/u.test(word))
 	);
 }
 
@@ -769,13 +806,17 @@ export function isGenericActivityHeadline(summary: string): boolean {
 function extractGroundedSummary(
 	candidate: string | undefined,
 	anchoredText: string,
+	targetLanguage: SupportedLanguage,
 ): string | undefined {
 	const trimmed = candidate?.trim();
 	if (!trimmed) return undefined;
+	// F22: an id, a slug or a field name, and in Hungarian an English phrase, are
+	// the verbatim tether's copies of the English reasoning, not a headline.
+	if (leaksInternalNames(trimmed, targetLanguage)) return undefined;
 	if (assertsExternalAction(trimmed)) return undefined;
 	if (isMetaRestatement(trimmed)) return undefined;
 	if (isGenericActivityHeadline(trimmed)) return undefined;
-	return hasVerbatimContentWordTether(trimmed, anchoredText)
+	return hasVerbatimContentWordTether(trimmed, anchoredText, targetLanguage)
 		? trimmed
 		: undefined;
 }
@@ -870,13 +911,26 @@ export async function classifyThoughtStepChunk(params: {
 		// The verbatim-substring rule, applied to the REASONING CHUNK (never
 		// the model's own copy of it) — the exact same function and discipline
 		// P2 uses against the user's message.
-		const entity = extractVerbatimTopic(parsed.entity, params.chunkText);
+		const targetLanguage = params.targetLanguage ?? "en";
+		const copiedEntity = extractVerbatimTopic(parsed.entity, params.chunkText);
+		// The same guard as the headline's (F22): the entity is a phrase copied out of
+		// the reasoning, so it can be an id, a slug, or English in a Hungarian turn.
+		const entity =
+			copiedEntity &&
+			!leaksInternalNames(copiedEntity, targetLanguage) &&
+			(targetLanguage !== "hu" || entityReadsAsNameOrHungarian(copiedEntity))
+				? copiedEntity
+				: undefined;
 		// Amendment (2026-08-16) to ADR-0056 — the runtime entity-grounding
 		// guard. A summary with no verbatim content-word tether to the chunk
 		// it describes is dropped (undefined), NOT the step itself: the step
 		// below is still returned with its class + entity regardless, so a
 		// failed tether can only ever remove the headline, never the step.
-		const summary = extractGroundedSummary(parsed.summary, params.chunkText);
+		const summary = extractGroundedSummary(
+			parsed.summary,
+			params.chunkText,
+			targetLanguage,
+		);
 		return {
 			verdict: "new_step",
 			activityClass: parsed.activityClass,

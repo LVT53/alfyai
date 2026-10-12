@@ -228,6 +228,11 @@ describe("the eval's edit answers as edit_artifact does", () => {
 		["both patches and ops", { patches: [{}], ops: [move("lunch", 1, 1)] }],
 		["neither", {}],
 		[
+			"an instruction beside ops",
+			{ instruction: "Add a Reset button.", ops: [move("lunch", 1, 1)] },
+		],
+		["an instruction for a board", { instruction: "Add a Reset button." }],
+		[
 			"an id that is not the board's",
 			{ ops: [move("lunch", 1, 1)], artifactId: "other" },
 		],

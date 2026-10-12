@@ -50,6 +50,7 @@ vi.mock("$lib/server/services/artifacts", () => ({
 }));
 
 const {
+	buildAppRequestMessage,
 	generateApp,
 	APP_THINKING_MODE,
 	APP_MAX_ATTEMPTS,
@@ -515,6 +516,47 @@ describe("generateApp — the prompt is the whole session", () => {
 
 		const runArgs = runStreamingNormalChatModelRun.mock.calls[0][0];
 		expect(runArgs.messages[0].content).toContain("Hungarian");
+	});
+
+	// F2 (ruling 77): a change to an App is a change to THAT App. The generator
+	// used to receive only the instruction ("make the background dark"), so what
+	// came back was an unrelated app; now the one user message carries the app as
+	// it is, and the system prompt is still the constant.
+	it("a change request carries the app as it is now, in the one user message, and keeps the system prompt constant", async () => {
+		runStreamingNormalChatModelRun.mockImplementation(() =>
+			asAsyncIterable(fenceEvents(MINIMAL_APP_HTML)),
+		);
+
+		await generateApp(
+			baseRequest({
+				prompt: "Make the background dark and add a Reset button",
+				currentHtml: MINIMAL_APP_HTML,
+			}),
+		);
+
+		const runArgs = runStreamingNormalChatModelRun.mock.calls[0][0];
+		expect(runArgs.system).toBe(APP_CONTRACT_PROMPT);
+		expect(runArgs.messages).toHaveLength(1);
+		const content: string = runArgs.messages[0].content;
+		expect(content).toContain(MINIMAL_APP_HTML);
+		expect(content).toContain(
+			"Make the background dark and add a Reset button",
+		);
+		// What the change does not touch stays, saved data included.
+		expect(content).toMatch(/storage keys/i);
+		// The app comes before the instruction, and the language line closes it.
+		expect(content.indexOf(MINIMAL_APP_HTML)).toBeLessThan(
+			content.indexOf("Make the background dark"),
+		);
+		expect(content.trimEnd()).toMatch(/English: every label/);
+	});
+
+	it("a request with no current app is byte-identical to what it always was", async () => {
+		expect(
+			buildAppRequestMessage({ prompt: "Build me a timer", language: "en" }),
+		).toBe(
+			"Build me a timer\n\nWrite the whole app in English: every label, button, empty state and error message.",
+		);
 	});
 });
 

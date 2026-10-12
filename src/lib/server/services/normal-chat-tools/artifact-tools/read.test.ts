@@ -244,6 +244,49 @@ describe("runReadArtifactTool — what the turn keeps of a read", () => {
 			abortSignal: signal,
 		});
 
+	// F22 (ruling 77): the chat's read row names the item it read, from this record,
+	// so a Hungarian turn shows "Elolvasva Bécsi hétvége – tábla" and not the id.
+	it.each([
+		["a file", { kind: "file" as const, title: "Trip summary.pdf" }],
+		[
+			"a document with no reader of its own",
+			{ kind: "app" as const, title: "Tip calculator" },
+		],
+	])("puts the item's title on the call's record for %s", async (_name, overrides) => {
+		getArtifactMock.mockResolvedValue(detail(overrides));
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.metadata).toMatchObject({
+			ok: true,
+			artifactId: "artifact-1",
+			artifactTitle: overrides.title,
+		});
+	});
+
+	it("puts the title on the record of a read a kind's own reader answered", async () => {
+		READ_ARTIFACT_HANDLERS.document = async () => ({
+			blocks: [{ blockId: "b1", kind: "text", hash: "h1", text: "Hello" }],
+			versionId: "version-1",
+		});
+		getArtifactMock.mockResolvedValue(detail());
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			detail: "blocks",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.metadata).toMatchObject({ artifactTitle: "Vienna plan" });
+	});
+
 	it("keeps the words a handler showed, and puts them on neither the model's answer nor the record", async () => {
 		const knownBoards = createKnownBoards();
 		READ_ARTIFACT_HANDLERS.document = async () => ({

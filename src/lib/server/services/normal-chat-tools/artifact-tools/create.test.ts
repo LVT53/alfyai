@@ -284,6 +284,15 @@ describe("runCreateArtifactTool — a registered handler", () => {
 	});
 });
 
+describe("create_artifact's App body is a brief (LV's note, ruling 77)", () => {
+	it("the field the model is shown says a brief, never HTML, and no longer calls the body the HTML document", () => {
+		const body = buildCreateArtifactModelInputSchema().shape.body.description;
+		expect(body).toContain("Apps: a brief");
+		expect(body).toContain("never HTML");
+		expect(body).not.toContain("the HTML document");
+	});
+});
+
 describe("create_artifact's timeout row (A7.5)", () => {
 	it("clears the real App generation cost: >= 120s, so a missing/short row fails loudly instead of leaving the tool with no timeout at all", () => {
 		// shared.ts:343-350's map lookup yields undefined with no row at all —
@@ -451,6 +460,58 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			error: "no html fence and no complete html document in the answer",
 		});
 		expect(result.metadata.ok).toBe(false);
+	});
+
+	// LV's note (ruling 77): the tool text said "Apps: the HTML document", so the real
+	// model sent its whole markup and the generator received it as its PROMPT (and
+	// version 1's summary was 500 characters of it). A body is a brief; markup is
+	// refused with the fix named, before any generation.
+	it.each([
+		'<!DOCTYPE html><html lang="en"><head><title>Tip</title></head><body><h1>Tip</h1></body></html>',
+		"```html\n<!doctype html>\n<html><body>x</body></html>\n```",
+	])("refuses a body that is the App's HTML, names the fix, and never hands it to the generator", async (html) => {
+		const result = await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Tip calculator",
+			body: html,
+			language: "en",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(createAppFromBrief).not.toHaveBeenCalled();
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toContain("brief");
+			expect(result.modelPayload.error).toContain("not HTML");
+			expect(result.modelPayload.error).toContain("Nothing was created");
+		}
+		expect(result.metadata.ok).toBe(false);
+	});
+
+	it("takes a brief that merely names a tag in words", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-1",
+			title: "x",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+
+		const result = await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "x",
+			body: "A page with a <button> that resets the form.",
+			language: "en",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(createAppFromBrief).toHaveBeenCalledTimes(1);
+		expect(result.modelPayload.success).toBe(true);
 	});
 
 	it("never leaks the generated html anywhere in the tool's model payload or metadata (A7.4)", async () => {

@@ -176,6 +176,201 @@ export function isRequestRestatement(text: string): boolean {
 	);
 }
 
+// --- ids and English in a line a person reads (F22) -------------------------
+//
+// The thought-step classifier is told to copy a word from the reasoning verbatim
+// (the tether that keeps a headline honest), and the reasoning is English and full
+// of internal names. In the friction audit's Hungarian Alfy-edit turns the model
+// copied them: "A frame-sat szélességének növelése ...", "Kérés értelmezése...
+// (downloadable file)", "A tr3cpq blokkba szúrná be ... insertText-tel", "Az
+// itinerary Document artifactként ...". Two checks, from the real entities and
+// headlines of those turns (short-local-text.test.ts has them, both directions):
+//
+//   containsInternalIdentifier  a uuid or a hash, a block id, a slug or a snake_case
+//                               name (frame-sat, create_artifact), a camelCase field
+//                               (documentSource, insertText), a code fragment;
+//   containsEnglishWords        English function words and the English nouns the
+//                               model copied (file, version, document, artifact,
+//                               itinerary, frame, section ...), for a Hungarian line.
+//
+// Narrow on purpose, like the other status-line guards: a miss shows a copied word,
+// a false hit only drops the headline to the phase label. A proper noun, a product
+// name ("Flash-Next", "Powerbank"), a number and a format's name ("DOCX") are not
+// on the lists, and an English word stem is matched with at most a short Hungarian
+// suffix after it ("artifactként", "frame-ekhez"), never as a prefix of a Hungarian
+// word.
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+// A long id fragment (a uuid's first block, a hash): hex, with a digit and a letter.
+const HEX_ID_RE =
+	/(?<![\p{L}\p{N}])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{8,}(?![\p{L}\p{N}])/iu;
+// A block id the model copied ("tr3cpq"): lowercase letters and digits, both.
+const SHORT_ID_RE =
+	/(?<![\p{L}\p{N}])(?=[a-z]*\d)(?=\d*[a-z])[a-z0-9]{5,10}(?![\p{L}\p{N}])/u;
+// A slug or a snake_case name: lowercase ASCII parts joined by - or _ (not "e-mail":
+// the first part has two letters at least; not "Flash-Next" or "sertés-": a capital
+// or an accent breaks it).
+const SLUG_RE =
+	/(?<![\p{L}\p{N}_-])[a-z][a-z0-9]+(?:[-_][a-z0-9]+)+(?![\p{L}\p{N}_-])/u;
+const CAMEL_CASE_RE = /(?<![\p{L}\p{N}])[a-z]{3,}[A-Z][A-Za-z0-9]*/u;
+const CODE_FRAGMENT_RE = /`[^`]+`|\[[ xX]\]/;
+
+export function containsInternalIdentifier(text: string): boolean {
+	return (
+		UUID_RE.test(text) ||
+		HEX_ID_RE.test(text) ||
+		SHORT_ID_RE.test(text) ||
+		SLUG_RE.test(text) ||
+		CAMEL_CASE_RE.test(text) ||
+		CODE_FRAGMENT_RE.test(text)
+	);
+}
+
+// English function words: matched as whole words. "has", "had" and "most" are
+// Hungarian words too, and are not here.
+const ENGLISH_FUNCTION_WORDS = new Set([
+	"the",
+	"and",
+	"for",
+	"with",
+	"from",
+	"that",
+	"this",
+	"which",
+	"are",
+	"was",
+	"were",
+	"not",
+	"but",
+	"you",
+	"your",
+	"into",
+	"about",
+	"would",
+	"should",
+	"could",
+	"will",
+	"have",
+	"their",
+	"there",
+	"they",
+	"them",
+	"what",
+	"when",
+	"where",
+	"because",
+	"while",
+	"between",
+	"through",
+	"only",
+	"just",
+	"also",
+	"more",
+	"some",
+	"such",
+	"each",
+	"other",
+	"after",
+	"before",
+	"simple",
+	"instead",
+]);
+// English nouns the model copied out of its reasoning, short or ambiguous ones as
+// whole words only ("list" is English, "lista" is not; "Edit" is a name and is not
+// here at all).
+const ENGLISH_CONTENT_WORDS = new Set([
+	"file",
+	"files",
+	"trip",
+	"user",
+	"size",
+	"input",
+	"phone",
+	"field",
+	"fields",
+	"tool",
+	"tools",
+	"plan",
+	"list",
+	"text",
+	"step",
+	"item",
+	"items",
+	"board",
+	"task",
+	"block",
+	"blocks",
+	"content",
+	"message",
+	"title",
+	"option",
+	"options",
+	"check",
+	"create",
+	"created",
+	"update",
+	"updated",
+	"read",
+	"write",
+]);
+// Long English stems that no Hungarian word starts with: matched with a short
+// Hungarian suffix after them.
+const ENGLISH_STEMS = [
+	"artifact",
+	"document",
+	"version",
+	"itinerary",
+	"downloadable",
+	"download",
+	"frame",
+	"patch",
+	"section",
+	"morning",
+	"charger",
+	"packing",
+	"weekend",
+	"calculator",
+	"requirement",
+	"layout",
+	"canvas",
+	"greeting",
+	"identified",
+	"schema",
+	"summary",
+	"request",
+];
+const MAX_HUNGARIAN_SUFFIX_CHARS = 8;
+
+export function containsEnglishWords(text: string): boolean {
+	// Whole letter runs, accents included: "planétára" is one token, never "plan".
+	const tokens = text.toLowerCase().match(/\p{L}+/gu) ?? [];
+	return tokens.some(
+		(token) =>
+			ENGLISH_FUNCTION_WORDS.has(token) ||
+			ENGLISH_CONTENT_WORDS.has(token) ||
+			ENGLISH_STEMS.some(
+				(stem) =>
+					token.startsWith(stem) &&
+					token.length - stem.length <= MAX_HUNGARIAN_SUFFIX_CHARS,
+			),
+	);
+}
+
+/**
+ * Does a status line carry a name nobody should read? An id, a slug or a field
+ * name in either language; English words in a Hungarian one (English words are
+ * the language in an English one).
+ */
+export function leaksInternalNames(
+	text: string,
+	language: SupportedLanguage,
+): boolean {
+	return (
+		containsInternalIdentifier(text) ||
+		(language === "hu" && containsEnglishWords(text))
+	);
+}
+
 export type PlausibleShortTextOptions = {
 	/** Max character length after whitespace collapse. Default 100. */
 	maxChars?: number;
@@ -446,6 +641,8 @@ export type ShortTextCleanup = {
 	normalize?: (raw: string) => string;
 	/** Require the cleaned text to be in this language, else reject (`null`). */
 	expectLanguage?: "en" | "hu";
+	/** Reject a text that carries an id, a slug or a field name (`containsInternalIdentifier`; F22). */
+	rejectIdentifiers?: boolean;
 };
 
 export type GenerateShortLocalTextParams = {
@@ -535,6 +732,9 @@ function cleanShortLocalText(
 
 	const expectLanguage = cleanup.expectLanguage ?? params.language;
 	if (expectLanguage && isHungarianText(text) !== (expectLanguage === "hu")) {
+		return null;
+	}
+	if (cleanup.rejectIdentifiers && containsInternalIdentifier(text)) {
 		return null;
 	}
 

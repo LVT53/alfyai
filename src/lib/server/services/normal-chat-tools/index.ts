@@ -311,7 +311,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend it in full or send `patches` [{oldText, newText}] with each oldText an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write into `/output` (e.g. `/output/report.xlsx`) — a bare filename is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. A request for a document with no file format named is a Document: create_artifact, not a file. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend it in full or send `patches` [{oldText, newText}] with each oldText an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write into `/output` (e.g. `/output/report.xlsx`) — a bare filename is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
@@ -406,7 +406,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Ha a felhasználó formátum nélkül kér dokumentumot, az Dokumentum: create_artifact, nem fájl. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
@@ -509,9 +509,9 @@ function buildCreateArtifactDescription(
 	lang: "en" | "hu",
 ): string {
 	if (lang === "hu") {
-		return `Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd ${createArtifactUseCasePhrase(kinds, "hu")}, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: ${createArtifactChoiceClause(kinds, "hu")} Nincs artifactType "file": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {"artifactType":"document","title":"Bécsi hétvégi terv","body":"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.`;
+		return `Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért, vagy formátumot nevezett meg (PDF, DOCX, ...) — az a produce_file dolga, nem ezé. Ha a felhasználó formátum nélkül kér dokumentumot, az Dokumentum: ezt használd, ne a produce_file-t. Használd ${createArtifactUseCasePhrase(kinds, "hu")}, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: ${createArtifactChoiceClause(kinds, "hu")} Nincs artifactType "file": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {"artifactType":"document","title":"Bécsi hétvégi terv","body":"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.`;
 	}
-	return `Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a ${createArtifactUseCasePhrase(kinds, "en")} the user keeps working on. Choose artifactType by what you are keeping: ${createArtifactChoiceClause(kinds, "en")} There is no artifactType "file": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {"artifactType":"document","title":"Vienna weekend plan","body":"# Vienna weekend\\n- [ ] Book train"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.`;
+	return `Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file or named a format (PDF, DOCX, ...) — that is produce_file's job, not this one. A request for a document with no file format named is a Document: this tool, not produce_file. Use it for a ${createArtifactUseCasePhrase(kinds, "en")} the user keeps working on. Choose artifactType by what you are keeping: ${createArtifactChoiceClause(kinds, "en")} There is no artifactType "file": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {"artifactType":"document","title":"Vienna weekend plan","body":"# Vienna weekend\\n- [ ] Book train"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.`;
 }
 
 function buildReadArtifactDescription(
@@ -663,6 +663,10 @@ async function resolveProduceFileVerdict(params: {
 	});
 }
 
+// What the model is told when it asks for a file it has already made in this turn.
+const ALREADY_MADE_THIS_TURN_NOTE =
+	"This file was already made in this turn, so no second copy was made. Tell the user about the one that exists; if it needs a change, say what you would change and offer it as the next step, and never say a change landed.";
+
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
@@ -696,6 +700,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		string,
 		Extract<ProduceFileModelPayload, { ok: true }>
 	>();
+	// The first CLEAN success (no warnings) per requested artifact, for the rest of
+	// the turn: title, outputs, mode and filename, deliberately not its content.
+	// One job per requested output in a turn (F10, ruling 77): the audit's model
+	// made a DOCX, read it back, "corrected" it and made a second, a few bytes
+	// different, so the reader had two cards for one request. A failed attempt, or
+	// a success that carried a warning, is not in here: the correction the
+	// description asks for still reaches intake.
+	const sameTurnCleanSuccessByArtifact = new Map<
+		string,
+		Extract<ProduceFileModelPayload, { ok: true; status: "succeeded" }>
+	>();
 	// Submissions that actually reached intake, per requested artifact. Bounds
 	// the correction loop the description asks for to exactly one retry.
 	const sameTurnProduceFileSubmissions = new Map<string, number>();
@@ -708,6 +723,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// The words of each board this turn has read, for an edit to be judged
 	// against (ruling 67): in memory, and gone with the turn. Never on a record.
 	const knownBoards = createKnownBoards();
+	// How many times this turn has rebuilt an App (edit_artifact on one is a model
+	// call of tens of seconds): the cap, like create_artifact's, is per turn.
+	const appRebuildBudget = { used: 0 };
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -1385,6 +1403,28 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						return payload;
 					}
 
+					// The request was already answered, cleanly, earlier in this turn: the
+					// user has that file, and a second one is not what they asked for. The
+					// model is told so, and that no change landed.
+					const earlierSuccess =
+						sameTurnCleanSuccessByArtifact.get(sameTurnArtifactKey);
+					if (earlierSuccess) {
+						const payload = withProduceFileWarnings(
+							{ ...earlierSuccess, reused: true },
+							[ALREADY_MADE_THIS_TURN_NOTE],
+						);
+						recorder.record(
+							createProduceFileToolCallEntry({
+								callId: options.toolCallId,
+								input: safeInput,
+								payload,
+								outputSummary: summarizeProduceFileResult(payload),
+								metadata: { dedupedSameTurn: true },
+							}),
+						);
+						return payload;
+					}
+
 					// Counted per ARTIFACT, not per content: a correction changes the
 					// content, and keying the cap on it would let a model that cannot
 					// fix its program resubmit forever.
@@ -1459,6 +1499,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									sameTurnDedupeKey,
 									modelPayload,
 								);
+								if (
+									modelPayload.status === "succeeded" &&
+									!modelPayload.warnings?.length
+								) {
+									sameTurnCleanSuccessByArtifact.set(
+										sameTurnArtifactKey,
+										modelPayload,
+									);
+								}
 							}
 							return {
 								modelPayload,
@@ -1897,12 +1946,23 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								artifactId: safeInput.artifactId,
 								patches: safeInput.patches,
 								ops: safeInput.ops,
+								instruction: safeInput.instruction,
+								// The turn's own resolved language (ruling 55), as
+								// create_artifact's: an App's rebuild writes its labels in
+								// it, unless the message asks for the content in another
+								// one (ruling 75).
+								language:
+									detectContentLanguageRequest(ctx.requestText ?? "") ??
+									ctx.language ??
+									"en",
 								summary: safeInput.summary,
 								// What this turn has already done: a board edit is judged
-								// against what the model last read of it (ruling 67).
+								// against what the model last read of it (ruling 67), and an
+								// App's rebuild counts against the turn's budget.
 								turnContext: {
 									sources: recorder.getEntries(),
 									knownBoards,
+									appRebuildBudget,
 								},
 								abortSignal,
 							});
