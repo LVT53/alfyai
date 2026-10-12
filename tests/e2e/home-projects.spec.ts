@@ -10,6 +10,7 @@ import {
 } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { login, waitForHydration } from "./helpers";
+import { sameOriginHeader } from "./request-origin";
 
 /**
  * The home projects row (Workspaces Slice G, mockup §M6): up to three cards
@@ -125,6 +126,7 @@ async function uploadLibraryDocument(
 	const body = `Notes for ${name}\n`;
 	const response = await page.request.post(UPLOAD_RAW_PATH, {
 		headers: {
+			...sameOriginHeader(),
 			"content-type": "text/plain",
 			"x-alfyai-upload-name": encodeURIComponent(name),
 			"x-alfyai-upload-size": String(Buffer.byteLength(body, "utf8")),

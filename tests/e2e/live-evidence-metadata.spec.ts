@@ -22,6 +22,7 @@ import {
 	sendMessage,
 	waitForHydration,
 } from "./helpers";
+import { sameOriginHeader } from "./request-origin";
 
 /**
  * A turn's evidence is written AFTER its terminal stream frame: the browser
@@ -205,6 +206,7 @@ async function runProjectTurn(page: Page): Promise<ProjectTurn> {
 		"Hotel Motto, Vienna. Two nights, 12-14 October. Booking reference HM-88421.\n";
 	const uploadResponse = await page.request.post(UPLOAD_RAW_PATH, {
 		headers: {
+			...sameOriginHeader(),
 			"content-type": "text/plain",
 			"x-alfyai-upload-name": encodeURIComponent("Hotel Motto booking.txt"),
 			"x-alfyai-upload-size": String(Buffer.byteLength(documentBody, "utf8")),

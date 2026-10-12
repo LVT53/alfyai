@@ -3,9 +3,18 @@ import adapter from '@sveltejs/adapter-node';
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
-		csrf: {
-			trustedOrigins: ['*']
-		},
+		// No `csrf` block, on purpose. SvelteKit refuses a POST, PUT, PATCH or
+		// DELETE whose body is a form type (urlencoded, multipart, text/plain) when
+		// its `Origin` header is not this server's own origin, and that is what
+		// stops another site from sending one in a signed-in user's browser (a
+		// `text/plain` POST needs no CORS preflight, and our handlers that call
+		// `request.json()` parse it just the same). `trustedOrigins: ['*']` used to
+		// switch the whole check off, for an internal OCR route that no longer
+		// exists; nothing posts a form to this app cross-origin. A caller that is
+		// not a browser (a script, Playwright's request context) sends no Origin
+		// and must send its own. See docs/security-headers.md.
+		// tests/integration/csrf-config.test.ts fails if a wildcard comes back.
+
 		// Content Security Policy for rendered pages.
 		//
 		// SvelteKit builds and emits this header itself, which is why it lives

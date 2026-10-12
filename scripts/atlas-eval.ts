@@ -451,6 +451,9 @@ class Session {
 			method: "POST",
 			headers: {
 				cookie: this.cookie,
+				// The body's type is the file's own (often text/plain), a form type, so
+				// SvelteKit's CSRF check wants the Origin a browser would have sent.
+				origin: new URL(this.base).origin,
 				"content-type": input.mimeType,
 				"x-alfyai-upload-name": encodeURIComponent(input.fileName),
 				"x-alfyai-upload-size": String(input.bytes.byteLength),
