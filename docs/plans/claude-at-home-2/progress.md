@@ -1057,3 +1057,13 @@ the owner's review, with the fast gates measured before and after.
   that never ends after a fast-failing first turn, `chat-turn/stream-reconnect.ts`; `map-route-card`'s CSP on a build;
   "database is locked" for a second writer on a deferred transaction); a lazy i18n dictionary (3.2 KB of the chat
   route is History's strings); the editor's first paint has ~80 B of headroom; the release checklist's open items.
+- **Owner, 2026-10-12 ~00:00 UTC: "Do all honestly, they all seem important."** Ruling 77: every finding F1–F30 is
+  built, with the leftovers (RC-V M-1/M-2, FG's app defects, LV's App brief); the product calls are in the ruling. Plan:
+  `phase-5/build-plan.md` (eight agents FB-1…FB-8 on disjoint files, three batches, then an owner-style re-check, a narrow
+  Opus look at download paths / the App edit path / the guard, the release gate, deploy, M5). Budget at the call: weekly
+  87 % (resets 2026-10-12 09:00 UTC), 5-hour window 55 %: batch 1 (FB-1, FB-2) now, batches 2–3 after the reset.
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| FB-1 | files and downloads: F1 (Letöltés reaches nobody), F23, F25, F27, F30 | `fix/friction-files` / `art-fb1` (5400–5409) | running |
+| FB-2 | Alfy's tools and words: F2 (a chat change edits the App in place), F10, F20, F22, LV's App brief; real-model check | `fix/friction-tools` / `art-fb2` (5420–5429, tunnel 30409) | running |
