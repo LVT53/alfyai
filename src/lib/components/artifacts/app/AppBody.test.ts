@@ -630,15 +630,12 @@ describe("AppBody — download (registered with the panel header)", () => {
 		return { registerPanelActions, latest: () => calls.at(-1) };
 	}
 
-	/** What the header's button does, then the popover's one option: a real press, as a reader makes it. */
+	/** What the header's button does: one press, and the App's one file is on its way (there is nothing to choose in the popover). */
 	async function pressDownload(
 		latest: () => { openDownload?: () => void } | undefined,
 	) {
 		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
 		latest()?.openDownload?.();
-		await fireEvent.click(
-			await screen.findByRole("button", { name: "HTML file" }),
-		);
 	}
 
 	it("registers no download trigger, and shows the unavailable copy, for a project-linked App (no conversation)", async () => {
@@ -657,10 +654,17 @@ describe("AppBody — download (registered with the panel header)", () => {
 		expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument();
 	});
 
-	it("the header's button opens the popover and asks for nothing yet: the one option starts the download", async () => {
+	// RC-A: one press. The popover has no format to offer an App, so it opens already
+	// making the file.
+	it("the header's button opens the popover and the download starts with that one press", async () => {
 		fetchArtifact.mockResolvedValue(
 			baseDetail({ conversationId: "owner-conv" }),
 		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: true,
+			job: { id: "job-1" },
+			reused: false,
+		});
 		const { registerPanelActions, latest } = captureActions();
 		render(AppBody, {
 			artifactId: "app-1",
@@ -670,13 +674,11 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		expect(
-			await screen.findByRole("dialog", { name: /Tip calculator/ }),
-		).toBeInTheDocument();
-		expect(downloadAppAsHtml).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
+		);
 	});
 
 	it("requests a download with the artifact id and the PANEL's conversation id, not the artifact's own", async () => {

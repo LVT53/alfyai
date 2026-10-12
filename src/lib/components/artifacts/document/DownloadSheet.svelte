@@ -2,7 +2,8 @@
 /**
  * The header's Download for a Document (Feature 2 · Artifacts, Slice 1, T12) and
  * for an App: PDF, Word and Markdown against the document's own title, the App's
- * one `.html` file (never the word "Artifact", ADR-0066). The file is made through
+ * one `.html` file, which starts at once, as there is nothing to choose (never the
+ * word "Artifact", ADR-0066). The file is made through
  * `produce_file` (the one export engine), and this follows the job to its end:
  * "Preparing your file…" while it runs, the browser's own download of the file
  * when it is ready (`downloadProducedFile`, on the canonical
@@ -19,7 +20,7 @@
  * same shell the Versions popover uses, so the two look and behave alike —
  * same chrome, same placement inside the panel, same Escape and focus return.
  */
-import { onDestroy } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { get } from "svelte/store";
 import {
 	downloadAppAsHtml,
@@ -62,6 +63,14 @@ onDestroy(() => {
 	open = false;
 });
 
+// An App has one file to offer, so pressing the header's Download is the whole choice
+// (RC-A: it took a second press, on a button that was the only thing in the popover):
+// the file starts being made as the popover opens, and the popover only says how it is
+// going. A Document has three formats and keeps asking which.
+onMount(() => {
+	if (kind === "app") void download("html");
+});
+
 async function download(
 	format: ExportArtifactDocumentFormat | "html",
 ): Promise<void> {
@@ -93,6 +102,8 @@ async function download(
 
 function retry(): void {
 	error = null;
+	// An App has nothing to choose again: Try again is the download again.
+	if (kind === "app") void download("html");
 }
 </script>
 
@@ -105,17 +116,8 @@ function retry(): void {
 			</button>
 		</div>
 	{:else}
-		<div class="download-popover-options">
-			{#if kind === 'app'}
-				<button
-					type="button"
-					class="btn-secondary"
-					disabled={submitting}
-					onclick={() => download('html')}
-				>
-					{$t('artifacts.app.export.html')}
-				</button>
-			{:else}
+		{#if kind !== 'app'}
+			<div class="download-popover-options">
 				<button
 					type="button"
 					class="btn-secondary"
@@ -140,8 +142,8 @@ function retry(): void {
 				>
 					{$t('artifacts.document.export.markdown')}
 				</button>
-			{/if}
-		</div>
+			</div>
+		{/if}
 		{#if submitting}
 			<p class="download-popover-status" role="status">
 				{$t('artifacts.document.export.preparing')}

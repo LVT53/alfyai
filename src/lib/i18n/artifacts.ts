@@ -278,9 +278,8 @@ const artifactsDict = {
 		// reuses download.unavailable above, since that is the same case the
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
-		// The App's Download offers its one format in the same popover the Document's
-		// does (`DownloadSheet`), whose title and notices it shares.
-		"artifacts.app.export.html": "HTML file",
+		// The App's Download is one press: its one file starts as the popover opens
+		// (`DownloadSheet`, which shares the Document's title and notices).
 		"artifacts.app.open.cta": "Make an app",
 		// The old Versions sheet is gone (ruling 76: History replaces it); these three
 		// keys outlived it. The two author names are the ones a comment and a margin
@@ -1270,7 +1269,6 @@ const artifactsDict = {
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
-		"artifacts.app.export.html": "HTML-fájl",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",

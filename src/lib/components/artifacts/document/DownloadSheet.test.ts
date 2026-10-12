@@ -210,11 +210,10 @@ describe("DownloadSheet", () => {
 				kind,
 				onClose: vi.fn(),
 			});
-			await fireEvent.click(
-				screen.getByRole("button", {
-					name: kind === "app" ? /html/i : "PDF",
-				}),
-			);
+			// A Document asks which format; an App's one file has started already.
+			if (kind === "document") {
+				await fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+			}
 			unmount();
 			return finish;
 		}
@@ -275,8 +274,17 @@ describe("DownloadSheet", () => {
 		});
 	});
 
+	// RC-A: the App's Download took two presses, the header's and then the only button
+	// in the popover. There is nothing to choose for an App, so the file starts as the
+	// popover opens and the popover only says how it is going.
 	describe("an App", () => {
-		it("offers its one .html file, not the Document's formats", () => {
+		it("offers no format to choose: it starts at once and says it is preparing the file", async () => {
+			mockDownloadAppAsHtml.mockResolvedValue({
+				ok: true,
+				job: A_JOB,
+				reused: false,
+			});
+			mockDownloadProducedFile.mockImplementation(() => new Promise(() => {}));
 			render(DownloadSheet, {
 				kind: "app",
 				artifactId: "app-1",
@@ -284,16 +292,19 @@ describe("DownloadSheet", () => {
 				conversationId: "conv-1",
 				onClose: vi.fn(),
 			});
-			expect(
-				screen.getByRole("button", { name: "HTML file" }),
-			).toBeInTheDocument();
+
 			expect(screen.queryByRole("button", { name: "PDF" })).toBeNull();
+			expect(screen.queryByRole("button", { name: /html/i })).toBeNull();
+			expect(await screen.findByRole("status")).toHaveTextContent(
+				"Preparing your file",
+			);
 			expect(
 				screen.getByRole("dialog", { name: /Tip calculator/ }),
 			).toHaveAttribute("data-testid", "app-download-popover");
+			expect(mockDownloadProducedFile).toHaveBeenCalledTimes(1);
 		});
 
-		it("starts the App's download with the panel's conversation id, then closes", async () => {
+		it("starts the App's download with the panel's conversation id, then closes, with no press on the popover", async () => {
 			mockDownloadAppAsHtml.mockResolvedValue({
 				ok: true,
 				job: A_JOB,
@@ -308,14 +319,12 @@ describe("DownloadSheet", () => {
 				onClose,
 			});
 
-			await fireEvent.click(screen.getByRole("button", { name: "HTML file" }));
-
+			await waitFor(() => expect(onClose).toHaveBeenCalled());
 			expect(mockDownloadAppAsHtml).toHaveBeenCalledWith("app-1", "panel-conv");
 			expect(mockExportArtifactDocument).not.toHaveBeenCalled();
-			await waitFor(() => expect(onClose).toHaveBeenCalled());
 		});
 
-		it("says the App's own sentences when it fails or has no conversation", async () => {
+		it("says the App's own sentences when it fails or has no conversation, and Try again is the download again", async () => {
 			mockDownloadAppAsHtml.mockResolvedValue({
 				ok: false,
 				reason: "conversation_required",
@@ -328,22 +337,23 @@ describe("DownloadSheet", () => {
 				onClose: vi.fn(),
 			});
 
-			await fireEvent.click(screen.getByRole("button", { name: "HTML file" }));
 			expect(
 				await screen.findByText(
 					"This app is not in a chat, so it cannot be saved as a file.",
 				),
 			).toBeInTheDocument();
+			expect(mockDownloadAppAsHtml).toHaveBeenCalledTimes(1);
 
-			await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 			mockDownloadAppAsHtml.mockResolvedValue({
 				ok: false,
 				reason: "rate_limited",
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "HTML file" }));
+			await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 			expect(
 				await screen.findByText("Could not prepare this app for download."),
 			).toBeInTheDocument();
+			// One press on Try again, and the file was asked for again.
+			expect(mockDownloadAppAsHtml).toHaveBeenCalledTimes(2);
 		});
 	});
 

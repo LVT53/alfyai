@@ -517,7 +517,7 @@ test.describe("the App's Download", () => {
 		return popover;
 	}
 
-	test("a real click on the HTML file ends in a download of the app's own file", async ({
+	test("one real click on Download ends in a download of the app's own file", async ({
 		page,
 	}) => {
 		const { conversationId } = await track(seedApp());
@@ -529,14 +529,16 @@ test.describe("the App's Download", () => {
 			});
 		});
 
-		const popover = await openAppDownload(page, conversationId);
+		// The header's Download is the only press: an App has no format to choose, so
+		// the popover opens already making the file (RC-A: it took a second press).
+		await openItem(page, conversationId, APP_TITLE);
 		const downloaded = page.waitForEvent("download", { timeout: 20_000 });
-		await popover.getByRole("button", { name: "HTML file" }).click();
+		await pressDownload(page);
 		const download = await downloaded;
 
 		expect(download.suggestedFilename()).toBe("app.html");
 		expect((await bytesOf(download)).toString("utf8")).toBe(APP_HTML);
-		await expect(popover).toHaveCount(0);
+		await expect(page.getByTestId("app-download-popover")).toHaveCount(0);
 	});
 
 	test("a sandbox run that failed is said so, with Try again, and nothing downloads", async ({
@@ -558,8 +560,8 @@ test.describe("the App's Download", () => {
 			downloadStarted = true;
 		});
 
+		// One press on the header's Download, and it says so at once.
 		const popover = await openAppDownload(page, conversationId);
-		await popover.getByRole("button", { name: "HTML file" }).click();
 
 		await expect(popover.getByRole("alert")).toHaveText(
 			"Could not prepare this app for download.",
