@@ -1540,7 +1540,7 @@ const artifactsDict = {
 			"Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.",
 		"artifacts.canvas.loading": "Tábla megnyitása…",
 		"artifacts.canvas.loadFailed": "Nem sikerült megnyitni a táblát.",
-		"artifacts.canvas.retry": "Újra",
+		"artifacts.canvas.retry": "Újrapróbálom",
 		"artifacts.canvas.reload": "Újratöltés",
 		"artifacts.canvas.saved": "Mentve",
 		"artifacts.canvas.saving": "Mentés…",
@@ -1650,7 +1650,7 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty":
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
-		"artifacts.canvas.chat.retry": "Újra",
+		"artifacts.canvas.chat.retry": "Újrapróbálom",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
@@ -1743,7 +1743,7 @@ const artifactsDict = {
 		"artifacts.canvas.export.saved": "A kép a beszélgetés fájljai között van.",
 		"artifacts.canvas.export.again": "Letöltés újra",
 		"artifacts.canvas.export.failed": "Nem sikerült exportálni a táblát.",
-		"artifacts.canvas.export.tryAgain": "Próbáld újra",
+		"artifacts.canvas.export.tryAgain": "Újrapróbálom",
 		"artifacts.canvas.export.empty": "A táblán még nincs mit exportálni.",
 		"artifacts.canvas.export.noConversation":
 			"Ez a tábla nem tartozik beszélgetéshez, ezért nem exportálható.",

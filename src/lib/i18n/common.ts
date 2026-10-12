@@ -314,7 +314,7 @@ const commonDict = {
 		"common.edit": "Szerkesztés",
 		"common.loading": "Betöltés…",
 		"common.open": "Megnyitás",
-		"common.retry": "Újrapróbálkozás",
+		"common.retry": "Újrapróbálom",
 		"common.save": "Mentés",
 		"common.saving": "Mentés…",
 		"common.test": "Teszt",

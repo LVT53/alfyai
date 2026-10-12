@@ -93,6 +93,34 @@ describe("the artifacts dictionary", () => {
 // in English or Hungarian — not in a label, a title, an aria-label or an
 // error. Checked across every dictionary the app merges, not just this
 // feature's, because the rule is the app's.
+// RC-A (the audit's copy seams, ruling 77's principle: one short, natural word): a
+// retry button read "Újrapróbálom" in a Download, "Újrapróbálkozás" under a file's
+// preview and in History, "Próbáld újra" in a board's picture and "Újra" on a board
+// block (which is also the Hungarian for Redo). Every retry button of the panel and of
+// the file card says it one way, in Hungarian.
+describe("the retry buttons", () => {
+	const RETRY_BUTTONS = [
+		"artifacts.action.retry",
+		"artifacts.document.export.tryAgain",
+		"artifacts.canvas.retry",
+		"artifacts.canvas.chat.retry",
+		"artifacts.canvas.export.tryAgain",
+		"common.retry",
+		"filePreview.retry",
+		"fileProduction.retry",
+	];
+
+	it("say 'Újrapróbálom' in Hungarian, whichever surface they are on", () => {
+		const hu: Record<string, string> = {};
+		for (const module of Object.values(dictionaryModules)) {
+			Object.assign(hu, module.default?.hu ?? {});
+		}
+		for (const key of RETRY_BUTTONS) {
+			expect(hu[key], key).toBe("Újrapróbálom");
+		}
+	});
+});
+
 describe("the word 'artifact' in the UI", () => {
 	it("appears in no dictionary value, in either language", () => {
 		const offenders: string[] = [];
