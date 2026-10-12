@@ -544,6 +544,82 @@ test.describe("Knowledge page", () => {
 		}
 	});
 
+	// FB-8 (FB-1's concern 2): a Download is delivery, not something the chat made.
+	// Each press used to leave a "Generated" row in the library, one per press, under
+	// the Document's own name (which already has its own Download).
+	test("a Document's exports are no rows of the library, whatever the format and however often it is pressed", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-exports-conv-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the exports case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const title = `Exports walk ${Date.now()}`;
+		const created = await createDocumentArtifact({
+			userId: user.id,
+			conversationId,
+			title,
+			markdown: "Book the hotel. Then the museum.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+
+		try {
+			for (const format of ["pdf", "docx", "markdown", "pdf"]) {
+				const exported = await page.request.post(
+					`/api/artifacts/${created.id}/export`,
+					{ data: { format } },
+				);
+				expect(exported.status()).toBe(202);
+				const { job } = (await exported.json()) as { job: { id: string } };
+				await expect
+					.poll(
+						async () => {
+							const read = await page.request.get(
+								`/api/chat/files/jobs/${job.id}`,
+							);
+							return ((await read.json()) as { job: { status: string } }).job
+								.status;
+						},
+						{ timeout: 30_000 },
+					)
+					.toBe("succeeded");
+			}
+
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await expect(
+				page
+					.locator("tbody tr", { hasText: title })
+					.filter({ has: page.locator(".col-type .type-artifact") }),
+			).toHaveCount(1);
+			// Nothing else of that name: no generated row, whatever the file.
+			await expect(page.locator("tbody tr", { hasText: title })).toHaveCount(1);
+		} finally {
+			await db
+				.delete(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, conversationId));
+			await db
+				.delete(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			await db
+				.delete(artifacts)
+				.where(eq(artifacts.conversationId, conversationId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+
 	// FB-8 (FB-1's finding 3): a source-first generated row is listed as the source
 	// document it was rendered from, and opening it said "Preview not available for
 	// this file type" for a PDF that downloads fine. It opens the file it downloads.

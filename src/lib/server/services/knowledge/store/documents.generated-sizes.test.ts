@@ -86,6 +86,7 @@ function seedGeneratedRow(
 	id: string,
 	sourceChatFileId: string | null,
 	sizeBytes: number | null,
+	extraMetadata: Record<string, unknown> = {},
 ) {
 	db.insert(schema.artifacts)
 		.values({
@@ -104,6 +105,7 @@ function seedGeneratedRow(
 				documentLabel: `Report ${id}`,
 				versionNumber: 1,
 				...(sourceChatFileId ? { sourceChatFileId } : {}),
+				...extraMetadata,
 			}),
 			createdAt: NOW,
 			updatedAt: NOW,
@@ -202,6 +204,34 @@ describe("a generated row's size in the Knowledge library", () => {
 			const row = page.documents.find((document) => document.id === id);
 			expect(row?.generatedFileName ?? null, id).toBeNull();
 			expect(row?.generatedFileMimeType ?? null, id).toBeNull();
+		}
+	});
+
+	// FB-8 (FB-1's concern 2): a Download of a Document is delivery. Its rendered
+	// file belongs to the Document, which already has a Download of its own, and the
+	// source row it leaves is marked an export: no row of the library, whatever the
+	// search, the page or the family expansion asks for.
+	it("lists no export: a Download's file is delivery, not a generated file of the library", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedChatFile(db, "file-report", USER, 4_000);
+		seedChatFile(db, "file-export", USER, 5_000);
+		seedGeneratedRow(db, "gen-report", "file-report", null);
+		seedGeneratedRow(db, "gen-export", "file-export", null, {
+			artifactExport: true,
+		});
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+		for (const query of [undefined, "Report"]) {
+			const page = await listLogicalDocumentsPage(USER, {
+				includeGeneratedOutputs: true,
+				limit: 50,
+				...(query ? { query } : {}),
+			});
+			const ids = page.documents.map((document) => document.id);
+			expect(ids, `query ${query ?? "(none)"}`).toContain("gen-report");
+			expect(ids, `query ${query ?? "(none)"}`).not.toContain("gen-export");
 		}
 	});
 

@@ -744,6 +744,11 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 			if (!metadata.sourceChatFileId) {
 				continue;
 			}
+			// A Download's file is delivery, not a generated file of the library
+			// (FB-8): the Document it came from has its own Download.
+			if (rawMetadataById.get(artifact.id)?.artifactExport === true) {
+				continue;
+			}
 			const familyId = metadata.documentFamilyId ?? artifact.id;
 			const existing = generatedByFamily.get(familyId);
 
@@ -804,10 +809,9 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 function hasGeneratedFileSource(
 	metadataJson: string | null | undefined,
 ): boolean {
-	const metadata = parseWorkingDocumentMetadata(
-		parseJsonRecord(metadataJson ?? null),
-	);
-	return Boolean(metadata.sourceChatFileId);
+	const record = parseJsonRecord(metadataJson ?? null);
+	const metadata = parseWorkingDocumentMetadata(record);
+	return Boolean(metadata.sourceChatFileId) && record?.artifactExport !== true;
 }
 
 function getGeneratedDocumentFamilyId(row: LogicalDocumentArtifactRow): string {
@@ -822,6 +826,8 @@ function buildGeneratedFileArtifactCondition() {
 		eq(artifacts.type, "generated_output"),
 		eq(artifacts.retrievalClass, "durable"),
 		sql`json_extract(${artifacts.metadataJson}, '$.sourceChatFileId') IS NOT NULL`,
+		// A Download's file is delivery (FB-8), never a generated file of the library.
+		sql`coalesce(json_extract(${artifacts.metadataJson}, '$.artifactExport'), 0) = 0`,
 	);
 }
 

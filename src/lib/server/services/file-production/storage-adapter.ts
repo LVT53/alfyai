@@ -7,7 +7,10 @@ import {
 	storeGeneratedFile as storeChatGeneratedFile,
 	syncGeneratedFilesToMemory as syncChatGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
-import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import {
+	ARTIFACT_EXPORT_JOB_ORIGIN,
+	type FileProductionJob,
+} from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import type {
@@ -36,6 +39,8 @@ interface FileProductionStorageJobContext {
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string | null;
+	/** What made the job (`file_production_jobs.origin`): an export's files are delivered, never listed (FB-8). */
+	origin?: string;
 }
 
 export interface StoreFileProductionOutputsInput {
@@ -230,6 +235,9 @@ export async function storeFileProductionOutputs(
 			(await attachGeneratedDocumentSourceArtifactToRenderedFiles({
 				artifactId: sourceArtifact.id,
 				renderedChatFileIds: storedFiles.map((file) => file.id),
+				// A Download of a Document is delivery: its source is no row of the
+				// library and no document the model reads (FB-1's concern 2).
+				listed: input.job.origin !== ARTIFACT_EXPORT_JOB_ORIGIN,
 			})) ?? sourceArtifact;
 	}
 

@@ -203,6 +203,81 @@ describe("persistGeneratedDocumentSourceArtifact", () => {
 	});
 });
 
+function artifactRetrievalClass(artifactId: string): string | undefined {
+	const [row] = fixture.db
+		.select({ retrievalClass: schema.artifacts.retrievalClass })
+		.from(schema.artifacts)
+		.where(eq(schema.artifacts.id, artifactId))
+		.all();
+	return row?.retrievalClass;
+}
+
+// FB-8 (FB-1's concern 2): a Download is delivery. The PDF/Word export of a Document
+// is a source-first job like any other, and its source row used to be promoted to a
+// durable `generated_output`, which is what the Knowledge library lists as a
+// "Generated" file: one per press, under the Document's own name.
+describe("attachGeneratedDocumentSourceArtifactToRenderedFiles", () => {
+	beforeEach(() => {
+		fixture = createFileProductionLedgerFixture("source-persistence-attach");
+		fixture.seedUser("user-1");
+		fixture.seedConversation("conv-1", "user-1");
+		fixture.seedAssistantMessage("assistant-1", "conv-1");
+		process.env.DATABASE_PATH = fixture.dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB singleton may never have been imported.
+		}
+		fixture.cleanup();
+		vi.restoreAllMocks();
+	});
+
+	it("makes a produced report's source durable once its files are attached: the library lists it", async () => {
+		const artifactId = await persist();
+		expect(artifactRetrievalClass(artifactId)).toBe("ephemeral_followup");
+		const { attachGeneratedDocumentSourceArtifactToRenderedFiles } =
+			await import("./source-persistence");
+
+		const attached = await attachGeneratedDocumentSourceArtifactToRenderedFiles(
+			{
+				artifactId,
+				renderedChatFileIds: ["file-1"],
+			},
+		);
+
+		expect(attached?.metadata?.sourceChatFileId).toBe("file-1");
+		expect(attached?.metadata?.artifactExport).toBeUndefined();
+		expect(artifactRetrievalClass(artifactId)).toBe("durable");
+	});
+
+	it("keeps an export's source out of the library: the file is attached, the row stays what it was", async () => {
+		const artifactId = await persist();
+		const { attachGeneratedDocumentSourceArtifactToRenderedFiles } =
+			await import("./source-persistence");
+
+		const attached = await attachGeneratedDocumentSourceArtifactToRenderedFiles(
+			{
+				artifactId,
+				renderedChatFileIds: ["file-1"],
+				listed: false,
+			},
+		);
+
+		// Everything that follows the file is still true of it...
+		expect(attached?.metadata?.sourceChatFileId).toBe("file-1");
+		expect(attached?.metadata?.generatedDocumentSourceStatus).toBe("succeeded");
+		// ...but it is not promoted to a row anything lists, and says it is an export:
+		// the library does not list a generated row by its class alone.
+		expect(artifactRetrievalClass(artifactId)).toBe("ephemeral_followup");
+		expect(attached?.metadata?.artifactExport).toBe(true);
+	});
+});
+
 describe("getGeneratedDocumentSourceForFileProductionJob", () => {
 	beforeEach(() => {
 		fixture = createFileProductionLedgerFixture("source-persistence-read");
