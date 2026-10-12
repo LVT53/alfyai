@@ -426,14 +426,67 @@ describe("DocumentWorkspace", () => {
 		expect(main).toHaveAttribute("data-presentation", "expanded");
 		expect(main).toHaveAttribute("data-layout", "rail-and-preview");
 		expect(desktopWorkspace.style.transform).toContain("scale");
+		// The X closes the expanded panel (below), so the way back to the dock is
+		// a button of its own, beside it.
 		expect(
-			within(desktopWorkspace).queryByRole("button", {
+			within(desktopWorkspace).getByRole("button", {
 				name: /return .* docked workspace/i,
 			}),
-		).not.toBeInTheDocument();
+		).toBeInTheDocument();
 		expect(
 			within(main).getByTestId("workspace-document-column"),
 		).toBeInTheDocument();
+	});
+
+	it("closes an expanded workspace from its X instead of docking it, and docks it from its own button, Escape and a press outside", async () => {
+		const onCloseWorkspace = vi.fn();
+		const onPresentationChange = vi.fn();
+		const props = {
+			open: true,
+			presentation: "expanded" as const,
+			documents: [
+				{
+					id: "doc-1",
+					source: "knowledge_artifact" as const,
+					filename: "document.pdf",
+					title: "Document",
+					mimeType: "application/pdf",
+					artifactId: "artifact-1",
+				},
+			],
+			availableDocuments: [],
+			activeDocumentId: "doc-1",
+			onSelectDocument: vi.fn(),
+			onOpenDocument: vi.fn(),
+			onCloseDocument: vi.fn(),
+			onCloseWorkspace,
+			onPresentationChange,
+		};
+		renderWorkspace(props);
+		const desktopWorkspace = screen.getByRole("complementary", {
+			name: WORKSPACE_LANDMARK,
+		});
+
+		await fireEvent.click(
+			within(desktopWorkspace).getByRole("button", {
+				name: "Close document workspace",
+			}),
+		);
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+		expect(onPresentationChange).not.toHaveBeenCalled();
+
+		await fireEvent.click(
+			within(desktopWorkspace).getByRole("button", {
+				name: /return .* docked workspace/i,
+			}),
+		);
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await fireEvent.pointerDown(document.body);
+		await waitFor(() => {
+			expect(onPresentationChange).toHaveBeenCalledTimes(3);
+		});
+		expect(onPresentationChange).toHaveBeenCalledWith("docked");
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
 	});
 
 	it("closes an expanded workspace when Escape is pressed", async () => {

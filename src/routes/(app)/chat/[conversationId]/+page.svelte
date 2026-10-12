@@ -1321,7 +1321,27 @@ function handleArtifactCountButtonClick() {
 		closeWorkspace();
 		return;
 	}
+	// A panel closed on an item is brought back on that item, if it is still
+	// there; otherwise (it was the list, or the item has been deleted since) it
+	// is the list that comes back (FB-3, F26).
+	const closedItem = lastClosedItem;
+	lastClosedItem = null;
+	if (closedItem && isWorkspaceItemStillThere(closedItem)) {
+		openWorkspaceDocument(closedItem, { preservePresentation: true });
+		return;
+	}
 	openArtifactList();
+}
+
+/** The item the panel showed when it was last closed, which the count button brings back. In memory only: a new visit starts from the list. */
+let lastClosedItem = $state.raw<DocumentWorkspaceItem | null>(null);
+
+function isWorkspaceItemStillThere(item: DocumentWorkspaceItem): boolean {
+	return item.artifactId
+		? liveArtifacts.some((row) => row.id === item.artifactId)
+		: availableWorkspaceDocumentsWithArtifacts.some(
+				(candidate) => candidate.id === item.id,
+			);
 }
 
 /** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
@@ -1358,6 +1378,7 @@ function triggerForkOpeningTransition() {
 
 function restorePersistedWorkspaceState() {
 	workspaceConversation = getWorkspaceConversation();
+	lastClosedItem = null;
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1506,6 +1527,7 @@ function handleArtifactDeleted(artifactId: string) {
 	)) {
 		closeWorkspaceDocument(document.id);
 	}
+	if (lastClosedItem?.artifactId === artifactId) lastClosedItem = null;
 	// Deleting the open item shows what is left, in the same breath: the panel
 	// does not close and open again around a frame of a full-width chat. Only
 	// when nothing is left is there nothing to list, and the panel goes.
@@ -1677,6 +1699,7 @@ async function handleRegenerateArtifact(artifactId: string) {
 }
 
 function closeWorkspace() {
+	lastClosedItem = activeWorkspaceDocument;
 	const result = reduceWorkspaceClose(
 		workspaceDocuments,
 		activeWorkspaceDocumentId,
@@ -3893,6 +3916,7 @@ function handleDrop(event: DragEvent) {
 			open={workspaceOpen}
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
+			reserveDock
 			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}

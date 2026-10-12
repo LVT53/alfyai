@@ -14,6 +14,7 @@ import { formatRelativeTime } from "$lib/utils/time";
 import {
 	MOTION_DURATION,
 	MOTION_EASING,
+	prefersReducedMotion,
 	reducedMotionAnimate,
 	reducedMotionAware,
 } from "$lib/utils/motion";
@@ -62,6 +63,7 @@ import {
 	Download,
 	FileText,
 	Maximize2,
+	Minimize2,
 	MessageSquareText,
 	X,
 	Sparkles,
@@ -93,6 +95,7 @@ let {
 	presentation = "docked",
 	returnToDockedOnExpandedClose = true,
 	showPresentationToggle = true,
+	reserveDock = false,
 	documents = [],
 	availableDocuments = [],
 	activeDocumentId = null,
@@ -120,6 +123,13 @@ let {
 	presentation?: "docked" | "expanded";
 	returnToDockedOnExpandedClose?: boolean;
 	showPresentationToggle?: boolean;
+	/**
+	 * The host lays the panel out beside its content in a flex row (the chat
+	 * page's stage): the expanded panel then leaves the column it docked in
+	 * standing empty, so the content beside it keeps its width while the panel
+	 * floats over it, and goes back to it when the panel docks again (FB-3, F26).
+	 */
+	reserveDock?: boolean;
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
@@ -252,6 +262,16 @@ let renderListShell = $derived(
 	shouldRender &&
 		(shouldShowWorkspaceShell ? Boolean(list?.open) : lastShownList),
 );
+/** The shape the panel had when it was last asked for: a closing close X (the page docks it in the same breath) is not seen turning into a column first. */
+let lastShownPresentation: "docked" | "expanded" = untrack(() => presentation);
+$effect.pre(() => {
+	if (shouldShowWorkspaceShell) lastShownPresentation = presentation;
+});
+let shellPresentation = $derived(
+	shouldShowWorkspaceShell ? presentation : lastShownPresentation,
+);
+/** The column an expanded panel leaves standing (`reserveDock`), which the chat beside it keeps its width by. */
+let dockSpacerElement: HTMLElement | null = $state(null);
 
 /**
  * Wave 2.5 review (F1): "double count from the card path". Opened straight
@@ -1031,10 +1051,13 @@ $effect(() => {
 			: null;
 		// The column shrinks over the same `standard` the content fades in; it is
 		// taken out of the page when it has.
-		closeAnimationTimer = setTimeout(() => {
-			shouldRender = false;
-			closeAnimationTimer = null;
-		}, MOTION_DURATION.standard);
+		closeAnimationTimer = setTimeout(
+			() => {
+				shouldRender = false;
+				closeAnimationTimer = null;
+			},
+			shellPresentation === "expanded" ? 220 : MOTION_DURATION.standard,
+		);
 		return () => {
 			fadeOut?.cancel();
 		};
@@ -1526,17 +1549,72 @@ function toggleExpandedDownloadMenu() {
 	expandedDownloadMenuOpen = !expandedDownloadMenuOpen;
 }
 
-function requestExpandedPresentation() {
+/** The inset keyframe for a fixed shell standing on `rect`. */
+function insetsOf(rect: DOMRect): Keyframe {
+	return {
+		top: `${rect.top}px`,
+		left: `${rect.left}px`,
+		right: `${window.innerWidth - rect.right}px`,
+		bottom: `${window.innerHeight - rect.bottom}px`,
+	};
+}
+
+/**
+ * Expand grows the panel from where its column stands to the whole window, in
+ * the same motion every layout change here has (FB-3, F26): the old rect is the
+ * first keyframe, and the overlay's own insets are the last.
+ */
+async function requestExpandedPresentation(): Promise<void> {
+	const shell = desktopShellElement;
+	const from = shell?.getBoundingClientRect();
 	onPresentationChange?.("expanded");
+	if (!shell || !from || prefersReducedMotion()) return;
+	await tick();
+	if (desktopShellElement !== shell) return;
+	shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
+		duration: MOTION_DURATION.emphasis,
+		easing: MOTION_EASING.emphasis,
+	});
 }
 
-function requestDockedPresentation() {
+/**
+ * Docking is the mirror: the overlay shrinks onto the column that was held for
+ * it, and only then is it a column again, so it never changes shape in a frame.
+ */
+async function requestDockedPresentation(): Promise<void> {
+	const shell = desktopShellElement;
+	const slot = dockSpacerElement;
+	if (!shell || !slot || prefersReducedMotion()) {
+		onPresentationChange?.("docked");
+		return;
+	}
+	const animation = shell.animate(
+		[{ offset: 1, ...insetsOf(slot.getBoundingClientRect()), borderRadius: "0px" }],
+		{
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+			fill: "forwards",
+		},
+	);
+	await animation.finished.catch(() => undefined);
 	onPresentationChange?.("docked");
+	await tick();
+	animation.cancel();
 }
 
+/** The X: the panel closes, in whatever shape it is in. */
 function handleCloseWorkspace() {
+	onCloseWorkspace();
+}
+
+/**
+ * Escape, a press outside the expanded panel, the phone's backdrop: step out of
+ * the expanded view to the dock, or close where there is no dock to return to.
+ * (The X is not this: it closes.)
+ */
+function stepOutOfExpanded() {
 	if (presentation === "expanded" && returnToDockedOnExpandedClose) {
-		requestDockedPresentation();
+		void requestDockedPresentation();
 		return;
 	}
 	onCloseWorkspace();
@@ -1544,7 +1622,7 @@ function handleCloseWorkspace() {
 
 function handleMobileBackdropClick(event: MouseEvent) {
 	if (event.target === event.currentTarget) {
-		handleCloseWorkspace();
+		stepOutOfExpanded();
 	}
 }
 
@@ -1587,7 +1665,7 @@ function closeFromEscape() {
 
 	if (presentation !== "expanded") return;
 
-	handleCloseWorkspace();
+	stepOutOfExpanded();
 }
 
 // A panel over a dialog (`overDialog`) is a layer of the one dialog stack for as
@@ -1703,7 +1781,7 @@ function handleDocumentPointerdown(event: PointerEvent) {
 		return;
 	}
 
-	handleCloseWorkspace();
+	stepOutOfExpanded();
 }
 
 async function loadComparePreview(
@@ -2270,6 +2348,18 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
 		{/if}
+		{#if showPresentationToggle && presentation === "expanded" && returnToDockedOnExpandedClose}
+			<span class="artifact-panel-header-actions-div" aria-hidden="true"></span>
+			<button
+				type="button"
+				class="btn-icon-bare workspace-dock-button"
+				onclick={() => void requestDockedPresentation()}
+				aria-label={$t('documentWorkspace.collapseWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+				title={$t('documentWorkspace.collapseWorkspace')}
+			>
+				<Minimize2 size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{/if}
 		<button
 			type="button"
 			class="btn-icon-bare workspace-close-button"
@@ -2574,6 +2664,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		</section>
 	</div>
 
+	<!-- An expanded panel floats over the page and leaves its column standing, so what sits beside it keeps its width. -->
+	{#if reserveDock && shellPresentation === "expanded"}
+		<div
+			class="workspace-dock-spacer"
+			class:workspace-fade-in={isVisible}
+			bind:this={dockSpacerElement}
+			style:--workspace-dock-width={dockedWidthCss(workspaceWidth)}
+			aria-hidden="true"
+		></div>
+	{/if}
+
 	<!-- Desktop / tablet side pane -->
 	<aside 
 		bind:this={desktopShellElement}
@@ -2583,14 +2684,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		class="workspace-shell workspace-shell-desktop"
 		class:workspace-fade-in={isVisible}
 		class:workspace-resizing={isResizing}
-		class:workspace-shell-expanded={presentation === "expanded"}
-		class:workspace-shell-docked={presentation === "docked"}
+		class:workspace-shell-expanded={shellPresentation === "expanded"}
+		class:workspace-shell-docked={shellPresentation === "docked"}
 		style:--workspace-dock-width={dockedWidthCss(workspaceWidth)}
-		style:transition={presentation === 'expanded'
+		style:transition={shellPresentation === 'expanded'
 			? 'opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)'
 			: undefined}
-		style:opacity={presentation === 'expanded' ? (isVisible ? '1' : '0') : undefined}
-		style:transform={presentation === 'expanded' ? desktopShellTransform : undefined}
+		style:opacity={shellPresentation === 'expanded' ? (isVisible ? '1' : '0') : undefined}
+		style:transform={shellPresentation === 'expanded' ? desktopShellTransform : undefined}
 		aria-label={panelLandmarkLabel}
 	>
 		<div 
@@ -2609,7 +2710,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<div
 			class="workspace-content"
 			bind:this={desktopContentElement}
-			style:width={presentation === 'docked' && dockContentWidth !== null ? `${dockContentWidth}px` : undefined}
+			style:width={shellPresentation === 'docked' && dockContentWidth !== null ? `${dockContentWidth}px` : undefined}
 		>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
@@ -2658,6 +2759,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									title={$t('documentWorkspace.expandWorkspace')}
 								>
 									<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+								</button>
+							{:else if showPresentationToggle && returnToDockedOnExpandedClose}
+								<button
+									type="button"
+									class="btn-icon-bare workspace-dock-button"
+									onclick={() => void requestDockedPresentation()}
+									aria-label={$t('documentWorkspace.collapseWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+									title={$t('documentWorkspace.collapseWorkspace')}
+								>
+									<Minimize2 size={18} strokeWidth={2} aria-hidden="true" />
 								</button>
 							{/if}
 							<button
@@ -2934,7 +3045,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		width: 100%;
 	}
 
-	.workspace-shell-desktop {
+	.workspace-shell-desktop,
+	.workspace-dock-spacer {
 		display: none;
 	}
 
@@ -3661,6 +3773,21 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		}
 
 		.workspace-shell-desktop.workspace-fade-in {
+			width: var(--workspace-dock-width);
+			transition: width var(--duration-emphasis) var(--ease-emphasis);
+		}
+
+		/* The column an expanded panel leaves standing: it opens and closes
+		   exactly as the docked panel does, so the chat beside it moves with
+		   the panel's coming and going and not with its shape. */
+		.workspace-dock-spacer {
+			display: block;
+			flex: 0 0 auto;
+			width: 0;
+			transition: width var(--duration-standard) var(--ease-in);
+		}
+
+		.workspace-dock-spacer.workspace-fade-in {
 			width: var(--workspace-dock-width);
 			transition: width var(--duration-emphasis) var(--ease-emphasis);
 		}

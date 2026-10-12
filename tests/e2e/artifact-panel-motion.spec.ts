@@ -219,7 +219,7 @@ test.describe("the panel and the chat move together", () => {
 	});
 });
 
-test.describe("deleting the open item", () => {
+test.describe("deleting, expanding and closing the open item", () => {
 	test("deleting the open item shows the list without closing the panel", async ({
 		page,
 	}) => {
@@ -262,5 +262,93 @@ test.describe("deleting the open item", () => {
 				.getByTestId("artifact-row")
 				.filter({ hasText: "Tip calculator" }),
 		).toBeVisible();
+	});
+
+	test("expanding animates the panel and leaves the chat where it is", async ({
+		page,
+	}) => {
+		await readerWithItems(page);
+		await openItem(page, "Trip notes");
+		await expect(visibleTitle(page)).toBeVisible();
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(300);
+
+		await startRecording(page);
+		await page.locator(".workspace-expand-button:visible").first().click();
+		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
+			1,
+		);
+		const run = await settleAndStop(page);
+
+		const panel = profile(run.frames, "panelW");
+		const chat = profile(run.frames, "chatW");
+		noteNumbers("expand", {
+			panelTravel: panel.total,
+			panelMaxStepFraction: panel.maxStepFraction,
+			panelBetween: panel.between,
+			chatTravel: chat.total,
+			shiftAll: shiftSum(run),
+			shiftMaxEntry: shiftMax(run),
+		});
+		expect(panel.total).toBeGreaterThan(300);
+		expect(
+			panel.maxStepFraction,
+			"the panel went to full size in one frame",
+		).toBeLessThan(0.5);
+		expect(
+			panel.between,
+			"the panel was never seen growing",
+		).toBeGreaterThanOrEqual(4);
+		// The chat is behind it and is not asked to re-wrap for a panel that floats over it.
+		expect(
+			chat.total,
+			"the chat re-flowed behind the expanding panel",
+		).toBeLessThanOrEqual(2);
+	});
+
+	test("the X of an expanded panel closes it, and the count button brings the item back", async ({
+		page,
+	}) => {
+		await readerWithItems(page);
+		await openItem(page, "Trip notes");
+		await expect(visibleTitle(page)).toBeVisible();
+		await page.locator(".workspace-expand-button:visible").first().click();
+		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
+			1,
+		);
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(300);
+
+		await page
+			.locator(".workspace-shell-expanded:visible")
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+		// Closed, not docked: no panel of either shape is left.
+		await expect(
+			page.locator("aside.workspace-shell-desktop:visible"),
+		).toHaveCount(0);
+
+		await page.getByTestId("artifact-count-button").click();
+		await expect(visibleTitle(page)).toHaveText("Trip notes");
+		await expect(panelList(page)).toHaveCount(0);
+	});
+
+	test("an expanded panel can be docked again, by its own button", async ({
+		page,
+	}) => {
+		await readerWithItems(page);
+		await openItem(page, "Trip notes");
+		await page.locator(".workspace-expand-button:visible").first().click();
+		const expanded = page.locator(".workspace-shell-expanded:visible");
+		await expect(expanded).toHaveCount(1);
+		await waitForMotionToSettle(page);
+		await expanded
+			.getByRole("button", { name: /to the docked workspace/ })
+			.click();
+		await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+		await expect(visibleTitle(page)).toHaveText("Trip notes");
+		await expect(
+			page.locator("aside.workspace-shell-desktop:visible"),
+		).toHaveCount(1);
 	});
 });
