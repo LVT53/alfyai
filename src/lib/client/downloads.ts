@@ -168,9 +168,14 @@ export function handleDownloadAnchorClick(
 	void startAuthenticatedDownload(url, filename, fetchImpl);
 }
 
-/** What starting a produced file's job answered: the job, or the server's reason for refusing. */
+/**
+ * What starting a produced file's job answered: the job, or the server's reason for
+ * refusing. `reused` says the job is one an earlier press made (the same item and
+ * format is one job, so two tabs, or a press after Escape, share it): the press that
+ * was handed it does not own it.
+ */
 type ProducedFileStart =
-	| { ok: true; job: FileProductionJob }
+	| { ok: true; job: FileProductionJob; reused?: boolean }
 	| { ok: false; reason: string };
 
 /**
@@ -195,6 +200,9 @@ interface ProducedFileDownloadDeps {
 	waitOptions?: FileProductionJobWaitOptions;
 }
 
+/** How many presses in this tab are waiting on each job: a job is shared by every press of the same item and format. */
+const waitingOn = new Map<string, number>();
+
 /**
  * What a Download does for a file the server has to make first (a Document's PDF,
  * Word or Markdown, an App's `.html`): start the job, follow it until it has made
@@ -205,7 +213,7 @@ interface ProducedFileDownloadDeps {
  * The download is the canonical `/api/chat/files/[id]/download`, built here from
  * the file's id and fetched through `startAuthenticatedDownload` like every other.
  * A job still running when the wait ran out is cancelled, so it does not finish
- * later into a file nobody is waiting for.
+ * later into a file nobody is waiting for, unless another press shares it.
  */
 export async function downloadProducedFile(
 	start: () => Promise<ProducedFileStart>,
@@ -220,13 +228,28 @@ export async function downloadProducedFile(
 	if (!started.ok) return { ok: false, reason: started.reason };
 
 	const wait = deps.wait ?? waitForFileProductionJob;
-	const settled = await wait(started.job, {
-		fetchImpl: deps.fetchImpl,
-		...deps.waitOptions,
-	});
+	const jobId = started.job.id;
+	waitingOn.set(jobId, (waitingOn.get(jobId) ?? 0) + 1);
+	let settled: FileProductionJobWaitResult;
+	try {
+		settled = await wait(started.job, {
+			fetchImpl: deps.fetchImpl,
+			...deps.waitOptions,
+		});
+	} finally {
+		const left = (waitingOn.get(jobId) ?? 1) - 1;
+		if (left > 0) waitingOn.set(jobId, left);
+		else waitingOn.delete(jobId);
+	}
 	if (settled.state === "timeout") {
-		const cancel = deps.cancel ?? ((jobId) => cancelFileProductionJob(jobId));
-		void Promise.resolve(cancel(started.job.id)).catch(() => undefined);
+		// Stopping the job is for the press that made it, and only when no other press
+		// here still waits on it (RV-B M2): a job two presses share is not cancelled
+		// out from under the one that is still waiting. One that is left running
+		// finishes into a file the next press is handed (the key is the item's words).
+		if (!started.reused && !waitingOn.has(jobId)) {
+			const cancel = deps.cancel ?? ((id) => cancelFileProductionJob(id));
+			void Promise.resolve(cancel(jobId)).catch(() => undefined);
+		}
 		return { ok: false, reason: "timeout" };
 	}
 	if (settled.state !== "succeeded") return { ok: false, reason: "job_failed" };

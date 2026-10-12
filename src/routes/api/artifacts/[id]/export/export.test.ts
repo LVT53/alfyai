@@ -137,6 +137,28 @@ describe("POST /api/artifacts/[id]/export", () => {
 		for (const call of calls) expect(call.reuse).toBe("usable");
 	});
 
+	// RV-B M2: the press that is handed a job an earlier press made must know it, as the
+	// App's route already says, so it does not stop a job that is not its own.
+	it("says whether the job is one an earlier press made", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture());
+		for (const reused of [false, true]) {
+			mockSubmitIntake.mockResolvedValue({
+				ok: true,
+				status: 202,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+
+			const response = await POST(makeEvent({}));
+
+			await expect(response.json()).resolves.toEqual({
+				ok: true,
+				job: { id: "job-1", status: "running" },
+				reused,
+			});
+		}
+	});
+
 	it("asks for a new job once the document's words or its title have changed, and only then", async () => {
 		mockSubmitIntake.mockResolvedValue({
 			ok: true,
@@ -178,6 +200,7 @@ describe("POST /api/artifacts/[id]/export", () => {
 		await expect(response.json()).resolves.toEqual({
 			ok: true,
 			job: { id: "job-1" },
+			reused: false,
 		});
 
 		expect(mockSubmitIntake).toHaveBeenCalledTimes(1);
