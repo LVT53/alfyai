@@ -1,6 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { db } from "$lib/server/db";
+import { conversations, messages, users } from "$lib/server/db/schema";
 import { GLOBE_FALLBACK_SVG } from "$lib/server/favicon/globe";
 import { FaviconCache } from "$lib/server/favicon/lru";
+import {
+	hasSourceHost,
+	noteSourceUrls,
+	resetUrlProvenanceForTests,
+} from "$lib/server/services/url-provenance";
 import {
 	collectReportFaviconHosts,
 	reportFaviconHost,
@@ -115,6 +123,14 @@ describe("collectReportFaviconHosts", () => {
 });
 
 describe("resolveReportFavicons", () => {
+	// Whose report this is: only hosts a tool returned to this user are fetched
+	// (docs/plans/exfil-channels), so the fixture's host is one a search returned.
+	const scope = { userId: "user-1", conversationId: "conversation-1" };
+	beforeEach(() => {
+		resetUrlProvenanceForTests();
+		noteSourceUrls("user-1", ["https://example.com/docs"]);
+	});
+
 	const fixture = source([
 		{
 			type: "sourceChips",
@@ -133,6 +149,7 @@ describe("resolveReportFavicons", () => {
 			fetch: fetchImpl as unknown as typeof globalThis.fetch,
 			cache: freshCache(),
 			timeoutMs: 0,
+			...scope,
 		});
 
 		expect(favicons.get("example.com")).toBe(
@@ -152,6 +169,7 @@ describe("resolveReportFavicons", () => {
 			fetch: fetchImpl as unknown as typeof globalThis.fetch,
 			cache: freshCache(),
 			timeoutMs: 0,
+			...scope,
 		});
 
 		expect(favicons.has("example.com")).toBe(false);
@@ -170,6 +188,7 @@ describe("resolveReportFavicons", () => {
 			fetch: fetchImpl as unknown as typeof globalThis.fetch,
 			cache,
 			timeoutMs: 0,
+			...scope,
 		});
 
 		expect(favicons.size).toBe(0);
@@ -191,11 +210,157 @@ describe("resolveReportFavicons", () => {
 				fetch: fetchImpl as unknown as typeof globalThis.fetch,
 				cache: freshCache(),
 				timeoutMs: 0,
+				...scope,
 			},
 		);
 
 		expect(favicons.size).toBe(0);
 		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("fetches an icon only for a host a tool returned to this user: a host the model wrote on its own gets the renderer's globe, and no request", async () => {
+		const fetchImpl = stubFetch(() => imageResponse(PNG, "image/png"));
+		const report = source([
+			{
+				type: "sourceChips",
+				title: "Sources",
+				sources: [
+					{ title: "Docs", url: "https://example.com/docs" },
+					{
+						title: "Injected",
+						url: "https://private-data-in-name.exfil.example/x",
+					},
+				],
+			},
+		]);
+
+		const favicons = await resolveReportFavicons(report, {
+			fetch: fetchImpl as unknown as typeof globalThis.fetch,
+			cache: freshCache(),
+			timeoutMs: 0,
+			...scope,
+		});
+
+		expect([...favicons.keys()]).toEqual(["example.com"]);
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+			"https://example.com/favicon.ico",
+		);
+	});
+
+	it("fetches nothing for a report whose hosts no tool returned", async () => {
+		resetUrlProvenanceForTests();
+		const fetchImpl = stubFetch(() => imageResponse(PNG, "image/png"));
+
+		const favicons = await resolveReportFavicons(fixture, {
+			fetch: fetchImpl as unknown as typeof globalThis.fetch,
+			cache: freshCache(),
+			timeoutMs: 0,
+			...scope,
+		});
+
+		expect(favicons.size).toBe(0);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("does not take another user's ledger for this user's report", async () => {
+		resetUrlProvenanceForTests();
+		noteSourceUrls("user-2", ["https://example.com/docs"]);
+		const fetchImpl = stubFetch(() => imageResponse(PNG, "image/png"));
+
+		const favicons = await resolveReportFavicons(fixture, {
+			fetch: fetchImpl as unknown as typeof globalThis.fetch,
+			cache: freshCache(),
+			timeoutMs: 0,
+			...scope,
+		});
+
+		expect(favicons.size).toBe(0);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	describe("when the worker runs after a restart, or before the turn is stored", () => {
+		async function storedConversation(): Promise<typeof scope> {
+			const userId = `user-${randomUUID()}`;
+			const conversationId = `conversation-${randomUUID()}`;
+			await db.insert(users).values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+			});
+			await db
+				.insert(conversations)
+				.values({ id: conversationId, userId, title: "Report" });
+			await db.insert(messages).values({
+				id: randomUUID(),
+				conversationId,
+				role: "assistant",
+				content: "I found sources.",
+				messageSequence: 1,
+				toolCalls: JSON.stringify([
+					{
+						type: "tool_call",
+						name: "research_web",
+						input: { query: "q" },
+						status: "done",
+						candidates: [
+							{
+								id: "c1",
+								title: "Docs",
+								url: "https://www.example.com/docs",
+								sourceType: "web",
+							},
+						],
+					},
+				]),
+			});
+			return { userId, conversationId };
+		}
+
+		it("takes a host from the conversation's stored tool results, and remembers it", async () => {
+			resetUrlProvenanceForTests();
+			const stored = await storedConversation();
+			const fetchImpl = stubFetch(() => imageResponse(PNG, "image/png"));
+			const report = source([
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{ title: "Docs", url: "https://example.com/docs" },
+						{ title: "Injected", url: "https://exfil.example/x" },
+					],
+				},
+			]);
+
+			const favicons = await resolveReportFavicons(report, {
+				fetch: fetchImpl as unknown as typeof globalThis.fetch,
+				cache: freshCache(),
+				timeoutMs: 0,
+				...stored,
+			});
+
+			expect([...favicons.keys()]).toEqual(["example.com"]);
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
+			expect(hasSourceHost(stored.userId, "example.com")).toBe(true);
+			expect(hasSourceHost(stored.userId, "exfil.example")).toBe(false);
+		});
+
+		it("reads nothing of a conversation that is not the user's", async () => {
+			resetUrlProvenanceForTests();
+			const stored = await storedConversation();
+			const fetchImpl = stubFetch(() => imageResponse(PNG, "image/png"));
+
+			const favicons = await resolveReportFavicons(fixture, {
+				fetch: fetchImpl as unknown as typeof globalThis.fetch,
+				cache: freshCache(),
+				timeoutMs: 0,
+				userId: "someone-else",
+				conversationId: stored.conversationId,
+			});
+
+			expect(favicons.size).toBe(0);
+			expect(fetchImpl).not.toHaveBeenCalled();
+		});
 	});
 
 	it("drops an oversized payload rather than bloating the report", async () => {
@@ -206,6 +371,7 @@ describe("resolveReportFavicons", () => {
 			fetch: fetchImpl as unknown as typeof globalThis.fetch,
 			cache: freshCache(),
 			timeoutMs: 0,
+			...scope,
 		});
 
 		expect(favicons.size).toBe(0);
