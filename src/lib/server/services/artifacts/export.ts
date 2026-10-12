@@ -281,7 +281,8 @@ export function sanitizeDocumentFilename(title: string): string {
  */
 export function artifactExportIdempotencyKey(params: {
 	artifactId: string;
-	format: "pdf" | "docx" | "markdown" | "html";
+	/** What the file is (the one the route asked for): part of the key, nothing is read from it. */
+	format: string;
 	title: string;
 	body: string;
 }): string {

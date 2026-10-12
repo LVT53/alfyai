@@ -169,7 +169,7 @@ describe("a transaction that reads before it writes, with a second writer on the
 			"SQLITE_BUSY",
 		]);
 		expect(typeof probe.exclusive).toBe("function");
-		expect(probe.database).toBe(first);
+		expect((probe as unknown as { database: unknown }).database).toBe(first);
 		expect(rows()).toEqual([]);
 	});
 

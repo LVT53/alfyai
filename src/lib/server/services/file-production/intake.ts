@@ -73,6 +73,8 @@ interface CreateOrReuseFileProductionJobInput {
 	requestJson: unknown;
 	sourceMode: string;
 	documentIntent?: string | null;
+	/** Which job under the key may be handed back; the ledger's own definition (`job-ledger.ts`). */
+	reuse?: "any" | "usable";
 	now?: Date;
 }
 
