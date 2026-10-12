@@ -935,6 +935,17 @@ function getFileIcon(
 	return CATEGORY_TO_ICON[getCategory(filename, mimeType)];
 }
 
+/**
+ * A row's size: the bytes of the file it downloads, or a dash for a row with no
+ * size of its own (a Document, a Canvas and an App are live-edited, so "0 B"
+ * would claim a size they do not have; friction audit F23).
+ */
+function sizeLabel(document: KnowledgeDocumentItem): string {
+	return document.sizeBytes == null
+		? "—"
+		: formatByteSize(document.sizeBytes, { trimWholeUnits: true });
+}
+
 function handleRowClick(event: MouseEvent, document: KnowledgeDocumentItem) {
 	// Don't trigger if clicking on row actions or selection controls
 	if (
@@ -1775,7 +1786,7 @@ async function handleBulkDelete(): Promise<boolean> {
 											{:else}
 												<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
 											{/if}
-											<span>{formatByteSize(document.sizeBytes, { trimWholeUnits: true })}</span>
+											<span>{sizeLabel(document)}</span>
 											<span>{formatMediumDateTime(document.createdAt)}</span>
 										</div>
 									</div>
@@ -1822,7 +1833,7 @@ async function handleBulkDelete(): Promise<boolean> {
 									{/if}
 								</td>
 								<td class="col-size" data-mobile-label={$t('knowledge.size')}>
-									{formatByteSize(document.sizeBytes, { trimWholeUnits: true })}
+									{sizeLabel(document)}
 								</td>
 								<td class="col-date" data-mobile-label={$t('knowledge.date')}>
 									{formatMediumDateTime(document.createdAt)}

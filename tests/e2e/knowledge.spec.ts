@@ -3,13 +3,16 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
+	chatGeneratedFiles,
 	conversations,
+	fileProductionJobs,
 	users,
 } from "../../src/lib/server/db/schema";
 import {
 	createDocumentArtifact,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import { formatByteSize } from "../../src/lib/utils/format";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 /**
@@ -390,6 +393,99 @@ test.describe("Knowledge page", () => {
 			await expect(row.getByRole("button", { name: /delete/i })).toBeVisible();
 		} finally {
 			await db.delete(artifacts).where(eq(artifacts.id, artifactId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// Friction audit F23: every size read "0 B", the 364 KB PDF included. A
+	// generated file's row says how big the file it downloads is; a Document, a
+	// Canvas and an App have no size of their own, and say so with a dash.
+	test("a generated file's row shows the size of its file, and a Document's row shows no size at all", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-sizes-conv-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the sizes case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const title = `Sizes walk ${Date.now()}`;
+		const created = await createDocumentArtifact({
+			userId: user.id,
+			conversationId,
+			title,
+			markdown: "Book the hotel. Then the museum.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+
+		try {
+			// A real PDF, made the way the panel makes it.
+			const exported = await page.request.post(
+				`/api/artifacts/${created.id}/export`,
+				{ data: { format: "pdf" } },
+			);
+			expect(exported.status()).toBe(202);
+			const { job } = (await exported.json()) as { job: { id: string } };
+			await expect
+				.poll(
+					async () => {
+						const read = await page.request.get(
+							`/api/chat/files/jobs/${job.id}`,
+						);
+						const body = (await read.json()) as {
+							job: { status: string; files: { sizeBytes: number }[] };
+						};
+						return body.job.status === "succeeded"
+							? body.job.files[0]?.sizeBytes
+							: null;
+					},
+					{ timeout: 30_000 },
+				)
+				.toBeGreaterThan(1_000);
+			const [file] = await db
+				.select({ sizeBytes: chatGeneratedFiles.sizeBytes })
+				.from(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			const expected = formatByteSize(file.sizeBytes, {
+				trimWholeUnits: true,
+			});
+			expect(expected).not.toBe("0 B");
+
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+
+			const generatedRow = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-generated") });
+			await expect(generatedRow).toHaveCount(1);
+			await expect(generatedRow.locator(".col-size")).toHaveText(expected);
+
+			// The Document itself is live-edited: no size, and no "0 B" claiming one.
+			const documentRow = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(documentRow).toHaveCount(1);
+			await expect(documentRow.locator(".col-size")).toHaveText("—");
+		} finally {
+			await db
+				.delete(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, conversationId));
+			await db
+				.delete(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			await db
+				.delete(artifacts)
+				.where(eq(artifacts.conversationId, conversationId));
 			await db
 				.delete(conversations)
 				.where(eq(conversations.id, conversationId));
