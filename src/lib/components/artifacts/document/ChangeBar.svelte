@@ -23,6 +23,7 @@ import { t } from "$lib/i18n";
 import {
 	alfyChangeAriaKeyShortcuts,
 	alfyChangeShortcutLabel,
+	chordsAreDrawn,
 } from "./keyboard-shortcuts";
 
 let {
@@ -98,7 +99,7 @@ $effect(() => {
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.undoA11y')}
 			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('undo')}
-			title={$t('artifacts.document.change.undoWithShortcut', { shortcut: alfyChangeShortcutLabel('undo') })}
+			title={chordsAreDrawn() ? $t('artifacts.document.change.undoWithShortcut', { shortcut: alfyChangeShortcutLabel('undo') }) : undefined}
 			onclick={onUndo}
 		>
 			<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
@@ -116,7 +117,7 @@ $effect(() => {
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.redoA11y')}
 			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('redo')}
-			title={$t('artifacts.document.change.redoWithShortcut', { shortcut: alfyChangeShortcutLabel('redo') })}
+			title={chordsAreDrawn() ? $t('artifacts.document.change.redoWithShortcut', { shortcut: alfyChangeShortcutLabel('redo') }) : undefined}
 			onclick={onRedo}
 		>
 			{$t('artifacts.document.change.redo')}

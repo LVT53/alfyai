@@ -27,6 +27,7 @@ import {
 	selectionChordAriaKeyShortcuts,
 	selectionChordFor,
 	selectionChordLabel,
+	withChord,
 } from "../document/keyboard-shortcuts";
 import { measuredBy, type ScreenRect } from "./_lib/floating";
 import type { Tool } from "./_lib/tools";
@@ -120,10 +121,13 @@ $effect(() => {
 });
 
 let askLabel = $derived(
-	`${$t("artifacts.canvas.ask")} (${selectionChordLabel("ask")})`,
+	withChord($t("artifacts.canvas.ask"), selectionChordLabel("ask")),
 );
 let commentLabel = $derived(
-	`${$t("artifacts.canvas.tool.comment")} (${selectionChordLabel("comment")})`,
+	withChord(
+		$t("artifacts.canvas.tool.comment"),
+		selectionChordLabel("comment"),
+	),
 );
 
 /** Only while the reader is working on this board: a key pressed somewhere else in the panel is not for it. */

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	alfyChangeAriaKeyShortcuts,
 	alfyChangeShortcutFor,
 	alfyChangeShortcutLabel,
+	chordsAreDrawn,
 	historyAriaKeyShortcuts,
 	historyShortcutFor,
 	historyShortcutLabel,
@@ -10,6 +11,7 @@ import {
 	selectionChordAriaKeyShortcuts,
 	selectionChordFor,
 	selectionChordLabel,
+	withChord,
 } from "./keyboard-shortcuts";
 
 function key(
@@ -362,5 +364,56 @@ describe("selectionChordFor", () => {
 			"Control+Alt+M",
 		);
 		expect(selectionChordAriaKeyShortcuts("ask", true)).toBe("Meta+Alt+A");
+	});
+});
+
+// FB-9 (ruling 77's amendment): "plain wasted space" on a touch screen.
+describe("chords on a touch screen", () => {
+	function pointer(coarse: boolean) {
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn().mockImplementation((query: string) => ({
+				matches: coarse && /pointer: coarse/.test(query),
+				media: query,
+			})),
+		);
+	}
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("are drawn where the primary pointer is fine, as before", () => {
+		pointer(false);
+		expect(chordsAreDrawn()).toBe(true);
+		expect(withChord("Undo", "Ctrl+Z")).toBe("Undo (Ctrl+Z)");
+	});
+
+	it("are drawn where nothing can be asked (no matchMedia)", () => {
+		expect(chordsAreDrawn()).toBe(true);
+	});
+
+	it("are not drawn where the primary pointer is coarse: the label is the text alone", () => {
+		pointer(true);
+		expect(chordsAreDrawn()).toBe(false);
+		expect(withChord("Undo", "Ctrl+Z")).toBe("Undo");
+	});
+
+	it("leave the shortcuts and their names for assistive technology alone", () => {
+		pointer(true);
+		expect(historyShortcutFor(key({ key: "z", ctrlKey: true }), false)).toBe(
+			"undo",
+		);
+		expect(
+			alfyChangeShortcutFor(
+				key({ key: "z", ctrlKey: true, altKey: true, shiftKey: true }),
+				false,
+			),
+		).toBe("redo");
+		expect(historyAriaKeyShortcuts("undo", false)).toBe("Control+Z");
+		expect(alfyChangeAriaKeyShortcuts("redo", true)).toBe("Meta+Alt+Shift+Z");
+		expect(selectionChordAriaKeyShortcuts("ask", false)).toBe("Control+Alt+A");
+		// The label functions still say the chord: a caller that draws one asks first.
+		expect(historyShortcutLabel("undo", false)).toBe("Ctrl+Z");
 	});
 });

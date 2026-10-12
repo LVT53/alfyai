@@ -586,6 +586,17 @@ onMount(() => {
 		line-height: 1.4;
 	}
 
+	/* No keyboard chord on a touch screen (FB-9): the chip is plain wasted space
+	   there, and its width goes back to the label. The query is the one
+	   `isTouchDevice()` asks (`chordsAreDrawn()` in keyboard-shortcuts.ts); a
+	   rule here, not a conditional, because the sidebar is rendered on the
+	   server, which cannot know the pointer. */
+	@media (hover: none) and (pointer: coarse) {
+		.search-shortcut-hint {
+			display: none;
+		}
+	}
+
 	/* Collapsed-rail active-conversation indicator (ADR-0043 #3): a small
 	   corner dot on the LogoMark/expand-toggle button — distinct from a
 	   border/strip so it never reads as an accent on New Chat. */

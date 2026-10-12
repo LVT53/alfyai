@@ -86,6 +86,33 @@ describe("DocumentToolbar", () => {
 			);
 		});
 
+		// FB-9: on a touch screen the keys are plain wasted space — the name and the
+		// tooltip are the words alone — while the shortcuts stay named for assistive technology.
+		it("draws no keys on a touch screen, and keeps them in aria-keyshortcuts", () => {
+			setPlatform("Win32");
+			vi.stubGlobal(
+				"matchMedia",
+				vi.fn().mockImplementation((query: string) => ({
+					matches: true,
+					media: query,
+				})),
+			);
+			try {
+				render(DocumentToolbar, { onAction: vi.fn() });
+				const undo = screen.getByRole("button", { name: "Undo" });
+				const redo = screen.getByRole("button", { name: "Redo" });
+				expect(undo).toHaveAttribute("title", "Undo");
+				expect(redo).toHaveAttribute("title", "Redo");
+				expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Z");
+				expect(redo).toHaveAttribute(
+					"aria-keyshortcuts",
+					"Control+Y Control+Shift+Z",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
 		it("names the Mac keys on a Mac", () => {
 			setPlatform("MacIntel");
 			render(DocumentToolbar, { onAction: vi.fn() });

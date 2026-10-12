@@ -334,6 +334,10 @@ test.describe("each chat remembers its own panel", () => {
 		);
 
 		await goToChatInTheApp(page, incognitoChat);
+		// The normal chat's board does not follow into the private chat: its panel
+		// plays its closing motion, and only then is the private chat's to open
+		// (the helper takes a board still on screen for an open one).
+		await expect(workspacePanel(page)).toHaveCount(0);
 		await openCanvasPanel(page);
 		await expect(workspacePanel(page)).toHaveAccessibleName(
 			"Private board, Canvas",

@@ -17,7 +17,27 @@
  *   composer's ⌘/Ctrl+Alt+M.
  */
 
+import { isTouchDevice } from "$lib/utils/viewport.svelte";
+
 export type HistoryShortcut = "undo" | "redo";
+
+/**
+ * Whether a chord is written at all: on a button, in a tooltip, in a menu row
+ * or a hint. Not on a device whose primary pointer is coarse (a phone, a tablet
+ * without a mouse), where the space a chord takes is plain wasted space (ruling
+ * 77's amendment, FB-9) and goes back to the label. The shortcuts themselves
+ * and `aria-keyshortcuts` stay (a tablet with a keyboard still has them), and a
+ * desktop with a mouse is unchanged. Every surface that draws a chord asks
+ * here; the rule is not repeated per component.
+ */
+export function chordsAreDrawn(): boolean {
+	return !isTouchDevice();
+}
+
+/** `text (chord)` where chords are drawn, `text` alone where they are not. */
+export function withChord(text: string, chord: string): string {
+	return chordsAreDrawn() ? `${text} (${chord})` : text;
+}
 
 type KeyEventLike = Pick<
 	KeyboardEvent,
