@@ -545,7 +545,14 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			expect(result.modelPayload.error).toContain("unchanged");
 			expect(result.modelPayload.error).toMatch(/do not make a new App/i);
 		}
-		expect(result.metadata).toMatchObject({ ok: false, artifactKind: "app" });
+		// The chat's row for the refused call names the item by its title (RC-A #2): it
+		// used to say "Tool <id>" and print the call's parameters.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			artifactId: "artifact-1",
+			artifactKind: "app",
+			artifactTitle: "Tip calculator",
+		});
 	});
 
 	it("reports an App that changed while it was rebuilt, with the version it is at now", async () => {

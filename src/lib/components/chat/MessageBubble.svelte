@@ -310,9 +310,13 @@ let deliverableItems = $derived(
 		return preview ? { ...item, body: { ...body, preview } } : item;
 	}),
 );
-let deliverableOpenKeys = $derived(
-	new Set(deliverableItems.map((item) => item.key)),
-);
+// A card is always open; a failed row is folded until the reader presses it.
+let openedDeliverableKeys = $state.raw<Set<string>>(new Set());
+function toggleDeliverable(key: string) {
+	const next = new Set(openedDeliverableKeys);
+	if (!next.delete(key)) next.add(key);
+	openedDeliverableKeys = next;
+}
 // Tier B2 — the thought-step / tool-progress classification predicates
 // (isThoughtStepActivityEntry, isToolProgressActivity) live in the shared
 // pure `activity-presentation.ts`, consumed identically by ThinkingBlock, so
@@ -1156,8 +1160,8 @@ function sendFollowUp(question: string) {
 				<div class="message-deliverables" data-testid="message-deliverables">
 					<ToolActivityList
 						items={deliverableItems}
-						openKeys={deliverableOpenKeys}
-						onToggle={() => {}}
+						openKeys={openedDeliverableKeys}
+						onToggle={toggleDeliverable}
 						testId="tool-activity-deliverables"
 						{onOpenDocument}
 						{conversationId}
