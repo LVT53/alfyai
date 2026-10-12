@@ -519,11 +519,38 @@ describe("sanitizeHtml: nothing the browser fetches on its own survives", () => 
 		).toBe('<p><a href="https://x.test/a" target="_blank">link</a></p>');
 	});
 
-	it("still drops what DOMPurify always dropped: frames, objects, links, meta", () => {
+	it("still drops what DOMPurify always dropped: frames, objects, links, meta, a base", () => {
 		const out = sanitizeHtml(
-			'<iframe src="https://x.test/f"></iframe><object data="https://x.test/o"></object><embed src="https://x.test/e"><link rel="stylesheet" href="https://x.test/s.css"><meta http-equiv="refresh" content="0;url=https://x.test/">ok',
+			'<iframe src="https://x.test/f"></iframe><object data="https://x.test/o"></object><embed src="https://x.test/e"><link rel="stylesheet" href="https://x.test/s.css"><meta http-equiv="refresh" content="0;url=https://x.test/"><base href="https://x.test/">ok',
 		);
 		expect(out).toBe("ok");
+	});
+
+	it("keeps one call's rules out of the next: the hooks are gone when it returns", () => {
+		sanitizeHtml('<img src="/ok/a.png"><p style="color:red">x</p>', {
+			allowResource: () => true,
+			allowStyleAttributes: true,
+			inert: { allowClass: () => true },
+		});
+		expect(sanitizeHtml('<img src="/ok/a.png">')).toBe("");
+		expect(sanitizeHtml('<form><input type="text"></form>')).toContain(
+			"<input",
+		);
+		expect(() =>
+			sanitizeHtml("<p>x</p>", {
+				allowResource: () => {
+					throw new Error("a caller's predicate failed");
+				},
+			}),
+		).not.toThrow();
+		expect(() =>
+			sanitizeHtml('<img src="/a.png">', {
+				allowResource: () => {
+					throw new Error("a caller's predicate failed");
+				},
+			}),
+		).toThrow("a caller's predicate failed");
+		expect(sanitizeHtml('<img src="/ok/a.png">')).toBe("");
 	});
 
 	it("closes the HTML-namespace image that slips out of a diagram too", () => {
