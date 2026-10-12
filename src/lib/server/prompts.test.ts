@@ -155,6 +155,21 @@ describe("prompts", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("### Calculations");
 	});
 
+	// F10 (ruling 77): "a document" with no file format named is the in-app
+	// Document, not a DOCX. The base prompt says it where it says when produce_file
+	// is for, because the audit's model read "dokumentumot" as "a downloadable file".
+	it("says produce_file is for a named format or a download, and a plain request for a document is a Document item", () => {
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+			"produce_file only when the user names a file format or asks to download or export something",
+		);
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+			"a request for a document with no file format named is a Document item (create_artifact), not a file",
+		);
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain(
+			"produce_file only when the user asks for a downloadable file",
+		);
+	});
+
 	describe("Formatting section (merged Answer Shape + rich-block guide)", () => {
 		it("keeps every rich block type once, and drops the old separate sections", () => {
 			expect(ALFYAI_NEMOTRON_PROMPT).toContain("## Formatting");

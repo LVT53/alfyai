@@ -842,12 +842,74 @@ describe("createNormalChatTools", () => {
 		});
 	});
 
-	it("submits a same-turn corrected resend whose content differs instead of replaying the earlier success", async () => {
+	// F10 (ruling 77): one job per requested output in a turn. The audit's turn made
+	// a DOCX, read it back, "corrected" it, and made a second one: two cards for one
+	// request, the second differing from the first by a few bytes. A clean success
+	// is the answer to that request for the rest of the turn, whatever the resend
+	// says; a resend after a failure (above), or after a success that carried a
+	// warning (below: the model has something to fix), still reaches intake.
+	it("answers a resend of the same requested file with the earlier success, even when its content differs: one job per requested output in a turn", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-first",
+				title: "Forced Tool Smoke",
+				status: "queued",
+			}),
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const request = (text: string) => ({
+			requestTitle: "Forced Tool Smoke",
+			requestedOutputs: [{ type: "pdf" }],
+			sourceMode: "document_source" as const,
+			documentIntent: "report",
+			documentSource: { blocks: [{ type: "paragraph", text }] },
+		});
+		const first = await tools.produce_file.execute(request("First draft."), {
+			toolCallId: "call-first",
+			messages: [],
+		});
+		const second = await tools.produce_file.execute(
+			request("A slightly different second draft."),
+			{ toolCallId: "call-second", messages: [] },
+		);
+
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(1);
+		expect(first).toMatchObject({ ok: true, jobId: "job-first" });
+		expect(second).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			jobId: "job-first",
+			reused: true,
+		});
+		// The model is told the truth: the user has the first file, and no second
+		// copy was made (it must not say a fix landed).
+		expect((second as { warnings?: string[] }).warnings?.join(" ")).toMatch(
+			/already made in this turn/i,
+		);
+		expect(getToolCalls()[1]?.metadata).toMatchObject({
+			jobId: "job-first",
+			reused: true,
+			dedupedSameTurn: true,
+		});
+	});
+
+	it("keeps the correction open after a success that carried a warning: the model has something to fix", async () => {
 		submitFileProductionIntakeMock
 			.mockResolvedValueOnce({
 				ok: true,
 				status: 202,
 				reused: false,
+				warnings: [
+					"Block 1 (table): 1 row(s) had more cells than the 2 columns; the extra cells were dropped.",
+				],
 				job: makeFileProductionJob({
 					id: "job-first",
 					title: "Forced Tool Smoke",
@@ -886,8 +948,8 @@ describe("createNormalChatTools", () => {
 			{ toolCallId: "call-second", messages: [] },
 		);
 
-		// The correction is a different file: it must reach intake, and its
-		// verdict is its own job's, never a replay of the first success.
+		// The correction is a different file: it reaches intake, and its verdict is
+		// its own job's, never a replay of the earlier success.
 		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(2);
 		expect(first).toMatchObject({ ok: true, jobId: "job-first" });
 		expect(second).toMatchObject({ ok: true, jobId: "job-corrected" });
@@ -899,10 +961,10 @@ describe("createNormalChatTools", () => {
 		);
 	});
 
-	it("still refuses a third same-turn submission of one artifact even when each resend changes the content", async () => {
+	it("a different requested output is a different request: a PDF and then a DOCX of one title are two jobs", async () => {
 		submitFileProductionIntakeMock.mockImplementation(async () => ({
-			ok: true,
-			status: 202,
+			ok: true as const,
+			status: 202 as const,
 			reused: false,
 			job: makeFileProductionJob({
 				id: `job-${submitFileProductionIntakeMock.mock.calls.length}`,
@@ -915,15 +977,15 @@ describe("createNormalChatTools", () => {
 			conversationId: "conversation-1",
 			turnId: "turn-1",
 		});
-		for (const text of ["One.", "Two.", "Three."]) {
+		for (const type of ["pdf", "docx"]) {
 			await tools.produce_file.execute(
 				{
 					requestTitle: "Forced Tool Smoke",
-					requestedOutputs: [{ type: "pdf" }],
+					requestedOutputs: [{ type }],
 					sourceMode: "document_source",
-					documentSource: { blocks: [{ type: "paragraph", text }] },
+					documentSource: { blocks: [{ type: "paragraph", text: "Same." }] },
 				},
-				{ toolCallId: `call-${text}`, messages: [] },
+				{ toolCallId: `call-${type}`, messages: [] },
 			);
 		}
 		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(2);
@@ -5402,6 +5464,41 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 	});
 });
 
+// F10 (ruling 77), through the REAL wiring: "Írj nekem egy dokumentumot ..." with no
+// file format named is the in-app Document. The audit's model reasoned that
+// "dokumentumot" "most naturally means a downloadable document" and called
+// produce_file for a DOCX (twice). The rule is on both tools it chooses between,
+// so it meets the model whichever description it is weighing.
+describe("a request for a document with no file format named is a Document, not a file (F10, ruling 77)", () => {
+	function buildTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	it.each([
+		["en", "A request for a document with no file format named is a Document"],
+		["hu", "Ha a felhasználó formátum nélkül kér dokumentumot, az Dokumentum"],
+	] as const)("the %s create_artifact and produce_file descriptions both say it, and name the other tool", (lang, rule) => {
+		const tools = buildTools(lang);
+		expect(tools.create_artifact.description).toContain(rule);
+		expect(tools.produce_file.description).toContain(rule);
+		expect(tools.produce_file.description).toContain("create_artifact");
+		expect(tools.create_artifact.description).toContain("produce_file");
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("the %s create_artifact description sends a named format or a download to produce_file", (lang) => {
+		const description = buildTools(lang).create_artifact.description;
+		expect(description).toContain("PDF, DOCX");
+	});
+});
+
 // F2 (ruling 77), through the REAL wiring: the tool the model reads says an App
 // IS changed from the chat, and how. It quoted "Apps are not edited here" in its
 // own thinking and made a second App instead.
@@ -5756,12 +5853,24 @@ describe("tool description hygiene", () => {
 	// margin as before (26 en / 27 hu, per tool 2): 5,170 en / 8,329 hu, and 865
 	// per tool.
 	//
+	// F10 (ruling 77): "a document" with no file format named is the in-app
+	// Document. The audit's model reasoned that "dokumentumot" "most naturally means
+	// a downloadable document" and called produce_file for a DOCX, twice. The rule
+	// is one sentence on each tool the model chooses between (create_artifact's
+	// description, which also sends a named format or a download to produce_file,
+	// and produce_file's own "do not use" case) and one clause in the base prompt.
+	// Re-measured: 5,200 en / 8,385 hu (56 en / 83 hu spent: create_artifact 301 ->
+	// 333 en and 467 -> 518 hu, produce_file 427 -> 451 en and 661 -> 693 hu). The
+	// ceilings below are those measurements plus the SAME margin as before (26 en /
+	// 27 hu): 5,226 en / 8,412 hu; per tool stays 865 (edit_artifact hu, 863, is
+	// still the largest).
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 865;
-	const CATALOGUE_TOKEN_CEILING = { en: 5170, hu: 8329 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 5226, hu: 8412 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
