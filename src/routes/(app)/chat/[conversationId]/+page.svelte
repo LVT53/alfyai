@@ -4,7 +4,7 @@ import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
 import { page } from "$app/state";
-import { goto, invalidate, replaceState } from "$app/navigation";
+import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
@@ -89,6 +89,11 @@ import {
 	fetchConversationPendingWrites,
 } from "$lib/client/api/connection-writes";
 import { chatWouldBeSqueezed } from "$lib/client/workspace-dock";
+import {
+	createPanelHistory,
+	type PanelLayer,
+	panelPageState,
+} from "$lib/client/panel-history";
 import {
 	currentConversationId,
 	setSidebarFoldNeeded,
@@ -1745,6 +1750,50 @@ function closeWorkspace() {
 	artifactCountButtonCompactEl?.focus();
 }
 
+// The browser's Back and Forward close and reopen the panel's layers one at a time
+// (FB-5, ruling 77: F7). `panelLayer` is what the panel shows, `applyPanelLayer`
+// the one way the history puts it somewhere (through the same functions a click
+// uses, never the flags), and `client/panel-history.ts` plans the entries.
+let panelLayer = $derived.by<PanelLayer | null>(() => {
+	if (!isArtifactPanelOpen) return null;
+	if (artifactListOpen) return { kind: "list" };
+	const itemId = activeWorkspaceDocument?.id ?? workspaceDocuments[0]?.id;
+	return itemId ? { kind: "item", itemId } : null;
+});
+
+function applyPanelLayer(layer: PanelLayer | null) {
+	if (layer?.kind === "list") {
+		openArtifactList();
+		return;
+	}
+	if (layer?.kind === "item") {
+		const known =
+			workspaceDocuments.some((entry) => entry.id === layer.itemId) ||
+			availableWorkspaceDocumentsWithArtifacts.some(
+				(entry) => entry.id === layer.itemId,
+			);
+		if (known) {
+			selectWorkspaceDocument(layer.itemId);
+			return;
+		}
+		// The item is gone since the entry was made: the panel shows what is left.
+		if (artifactWorkspaceItems.length > 0) {
+			openArtifactList();
+			return;
+		}
+	}
+	if (isArtifactPanelOpen) closeWorkspace();
+}
+
+const panelHistory = createPanelHistory({
+	current: () => panelLayer,
+	apply: applyPanelLayer,
+	push: (entry) => pushState("", panelPageState(entry)),
+	replace: (entry) => replaceState("", panelPageState(entry)),
+	isThisPage: () =>
+		window.location.pathname === `/chat/${data.conversation.id}`,
+});
+
 function handleWorkspaceConversationDeleted(conversationId: string) {
 	const nextState = reduceWorkspaceDocumentsForDeletedConversation(
 		workspaceDocuments,
@@ -2024,6 +2073,19 @@ $effect(() => {
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
+});
+
+// The panel's entries in the browser's history follow the panel (FB-5, F7). After
+// the reset above: a switch to another chat is an arrival, where what the entry
+// the browser is on says wins over what this tab remembered of that chat's panel.
+onMount(() => panelHistory.start());
+$effect(() => {
+	void panelLayer;
+	untrack(() => panelHistory.sync());
+});
+$effect(() => {
+	void data.conversation.id;
+	untrack(() => panelHistory.arrive());
 });
 
 // Declared after the reset above so that it runs after it: resetState()
