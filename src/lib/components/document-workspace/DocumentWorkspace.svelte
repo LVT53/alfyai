@@ -653,7 +653,9 @@ async function focusPanelListTitle(): Promise<void> {
 async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
 	await onDeleteArtifact?.(item);
 	if ((list?.items.length ?? 0) > 0) {
-		handleBackToList();
+		// The page has already turned to the list in the step that forgot the item
+		// (F19); a host that has not is asked to.
+		if (!list?.open) handleBackToList();
 		void focusPanelListTitle();
 		return;
 	}
@@ -1603,7 +1605,13 @@ async function requestDockedPresentation(): Promise<void> {
 		return;
 	}
 	const animation = shell.animate(
-		[{ offset: 1, ...insetsOf(slot.getBoundingClientRect()), borderRadius: "0px" }],
+		[
+			{
+				offset: 1,
+				...insetsOf(slot.getBoundingClientRect()),
+				borderRadius: "0px",
+			},
+		],
 		{
 			duration: MOTION_DURATION.emphasis,
 			easing: MOTION_EASING.emphasis,
