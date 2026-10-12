@@ -205,6 +205,8 @@ import {
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
+	FILE_LIST_RETRY_DELAYS_MS,
+	filesWaitingForTheList,
 	hasActiveAtlasJobs,
 	liveDocumentAlfyActivityExcluding,
 	hasActiveFileProductionJobs,
@@ -687,6 +689,17 @@ let liveArtifacts = $derived(
 			withCurrentSummaryMoment(row, observedArtifactMoments),
 		),
 		regenerableFromMessages,
+	),
+);
+// A file the chat shows a card for that the panel's list does not have yet: the
+// server links a produced file to its reply after the turn's terminal frame, so
+// the page asks again until the list agrees with the card (see
+// filesWaitingForTheList, and the effect that asks, next to the jobs' own poll).
+let filesWaitingForList = $derived(
+	filesWaitingForTheList(
+		fileProductionJobs,
+		new Set([...artifacts.map((row) => row.id), ...deletedArtifactIds]),
+		Date.now(),
 	),
 );
 let artifactListOpen = $state(false);
@@ -2725,6 +2738,28 @@ $effect(() => {
 	return () => {
 		clearInterval(interval);
 	};
+});
+
+// The file a turn made is a row of the panel's list and a step of the header's
+// count once the server has linked it to the reply, which is after the turn has
+// ended; the stream says nothing more and the jobs are done, so nothing else would
+// read the chat again (RC-A: every file request left both stale until a reload).
+// Asking is bounded: soon, then less often, then it stops.
+$effect(() => {
+	const conversationId = data.conversation?.id;
+	if (!browser || !conversationId || !filesWaitingForList) return;
+	let attempt = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const askAgain = () => {
+		if (attempt >= FILE_LIST_RETRY_DELAYS_MS.length) return;
+		timer = setTimeout(() => {
+			attempt += 1;
+			void hydrateConversationDetail(conversationId);
+			askAgain();
+		}, FILE_LIST_RETRY_DELAYS_MS[attempt]);
+	};
+	askAgain();
+	return () => clearTimeout(timer);
 });
 
 let initializedGeneratedFilesData = false;

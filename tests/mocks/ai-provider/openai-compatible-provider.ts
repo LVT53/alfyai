@@ -55,6 +55,7 @@ import {
 	decodeEditArtifactScenarioPayload,
 	decodeEditDocumentSlowlyPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
+import { scriptedChatTurnReply } from "./chat-turn-scripts";
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
@@ -1479,6 +1480,11 @@ export function createOpenAICompatibleProviderHarness(
 			}
 
 			if (isJsonObject(body) && body.stream === true) {
+				const scripted = scriptedChatTurnReply(body);
+				if (scripted) {
+					if (scripted.delayMs) await delay(scripted.delayMs);
+					return streamResponse(scripted.frames);
+				}
 				if (bodyAsksToReadProjectFile(body)) {
 					return buildReadProjectFileStreamResponse(body);
 				}

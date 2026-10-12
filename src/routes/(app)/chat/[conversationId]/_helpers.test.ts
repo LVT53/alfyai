@@ -16,7 +16,9 @@ import {
 	cloneSendPayload,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
+	FILE_LIST_RETRY_DELAYS_MS,
 	failPendingFileProductionJobPlaceholder,
+	filesWaitingForTheList,
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
@@ -494,6 +496,97 @@ describe("file production chat helpers", () => {
 				makeJob("cancelled", "cancelled"),
 			]),
 		).toBe(false);
+	});
+
+	describe("a file the chat shows a card for that is not yet in the panel's list", () => {
+		const NOW = 1_000_000;
+		const madeFile = (artifactId: string | null) => ({
+			id: `file-${artifactId ?? "none"}`,
+			filename: "plan.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 100,
+			downloadUrl: "/api/chat/files/file-1/download",
+			previewUrl: null,
+			artifactId,
+		});
+		const done = (
+			overrides: Partial<FileProductionJob> = {},
+		): FileProductionJob => ({
+			...makeJob("job-1", "succeeded"),
+			updatedAt: NOW - 5_000,
+			files: [madeFile("artifact-1")],
+			...overrides,
+		});
+
+		it("waits for a succeeded job of a reply whose file is not a row yet", () => {
+			expect(filesWaitingForTheList([done()], new Set(), NOW)).toBe(true);
+		});
+
+		it("is done once the list has the file, or the reader deleted it", () => {
+			expect(
+				filesWaitingForTheList([done()], new Set(["artifact-1"]), NOW),
+			).toBe(false);
+		});
+
+		it("does not wait for a job that is still running, failed, or belongs to no reply", () => {
+			expect(
+				filesWaitingForTheList([done({ status: "running" })], new Set(), NOW),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList([done({ status: "failed" })], new Set(), NOW),
+			).toBe(false);
+			// An export, and any job the server has not given to a reply: listed nowhere by design.
+			expect(
+				filesWaitingForTheList(
+					[done({ assistantMessageId: null })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("does not wait for a dismissed job, a deleted file or a file with no row of its own", () => {
+			expect(
+				filesWaitingForTheList([done({ dismissed: true })], new Set(), NOW),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList(
+					[done({ filesDeleted: { canRegenerate: true } })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+			expect(
+				filesWaitingForTheList(
+					[done({ files: [madeFile(null)] })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("does not make the page ask on every visit about an old job", () => {
+			expect(
+				filesWaitingForTheList(
+					[done({ updatedAt: NOW - 10 * 60_000 })],
+					new Set(),
+					NOW,
+				),
+			).toBe(false);
+		});
+
+		it("asks soon, then less often, and stops", () => {
+			expect(FILE_LIST_RETRY_DELAYS_MS[0]).toBeLessThanOrEqual(500);
+			expect([...FILE_LIST_RETRY_DELAYS_MS]).toEqual(
+				[...FILE_LIST_RETRY_DELAYS_MS].sort((a, b) => a - b),
+			);
+			const total = FILE_LIST_RETRY_DELAYS_MS.reduce(
+				(sum, delay) => sum + delay,
+				0,
+			);
+			expect(total).toBeGreaterThanOrEqual(10_000);
+			expect(total).toBeLessThanOrEqual(30_000);
+		});
 	});
 
 	it("merges an updated job into the existing chat state without duplicating cards", () => {
