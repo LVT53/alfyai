@@ -16,6 +16,7 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import { login, waitForHydration } from "./helpers";
+import { sameOriginHeader } from "./request-origin";
 
 /**
  * `live-evidence-metadata.spec.ts` proves the "project files read" row for a
@@ -172,6 +173,7 @@ async function runProjectToolReadTurn(page: Page): Promise<ProjectTurn> {
 	const documentBody = "Ceiling paint: eggshell, colour code RAL 9010.\n";
 	const uploadResponse = await page.request.post(UPLOAD_RAW_PATH, {
 		headers: {
+			...sameOriginHeader(),
 			"content-type": "text/plain",
 			"x-alfyai-upload-name": encodeURIComponent(probeFilename),
 			"x-alfyai-upload-size": String(Buffer.byteLength(documentBody, "utf8")),
