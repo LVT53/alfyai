@@ -335,6 +335,7 @@ export async function runReadArtifactTool(params: {
 				found: true,
 				artifactId: record.id,
 				artifactKind: "file",
+				artifactTitle: record.title,
 			},
 		};
 	}
@@ -362,6 +363,7 @@ export async function runReadArtifactTool(params: {
 				found: true,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				artifactTitle: record.title,
 			},
 		};
 	}
@@ -398,6 +400,8 @@ export async function runReadArtifactTool(params: {
 			found: true,
 			artifactId: record.id,
 			artifactKind: record.kind,
+			// The chat's read row names the item by it (F22): never the id.
+			artifactTitle: record.title,
 			...(result.versionId === undefined
 				? {}
 				: { versionId: result.versionId }),

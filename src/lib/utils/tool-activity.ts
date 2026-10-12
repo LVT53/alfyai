@@ -888,6 +888,25 @@ function buildSettledToolActivityItem(
 		};
 	}
 
+	// A read names the item it read (F22): its title, never its id. The generic row
+	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...".
+	if (
+		segment.name === "read_artifact" ||
+		segment.name === "read_generated_file"
+	) {
+		const readVerb = verb(translate, "reading", "read", status);
+		const object = readItemName(segment);
+		return {
+			...base,
+			verb: readVerb,
+			object,
+			meta: elapsed ?? "",
+			summaryLabel: readVerb,
+			title: object ? `${readVerb}: ${object}` : readVerb,
+			body: genericBody(segment),
+		};
+	}
+
 	const identity = describeToolIdentity(segment, translate);
 	return {
 		...base,
@@ -898,6 +917,21 @@ function buildSettledToolActivityItem(
 		title: identity.title,
 		body: genericBody(segment),
 	};
+}
+
+/**
+ * What a read of an item names (F22): the item's own title (the record carries it
+ * since this row learned to), a produced file by its request title, else its file
+ * name. Never an id; an older record with none names nothing.
+ */
+function readItemName(segment: ToolCallSegment): string {
+	const title = segment.metadata?.artifactTitle;
+	if (typeof title === "string" && title.trim() !== "") return title.trim();
+	for (const key of ["requestTitle", "filename"] as const) {
+		const value = segment.input?.[key];
+		if (typeof value === "string" && value.trim() !== "") return value.trim();
+	}
+	return "";
 }
 
 /**

@@ -273,6 +273,166 @@ describe("classifyThoughtStepChunk", () => {
 		expect(options.systemPrompt).not.toContain("response language is English");
 	});
 
+	// F22 (ruling 77): the status line never carries an id, a field name or, in a
+	// Hungarian turn, an English phrase. The classifier is told to copy a word
+	// verbatim from the English reasoning (its tether), and the friction audit's
+	// model copied "frame-sat", "downloadable file", "version 1" (real outputs).
+	describe("a status line with an id or English in it (F22)", () => {
+		async function classify(
+			modelAnswer: Record<string, unknown>,
+			chunkText: string,
+			targetLanguage?: "en" | "hu",
+		) {
+			openSeedDatabase().sqlite.close();
+			sendJsonControlMessageMock.mockResolvedValue(
+				controlModelResult({ text: JSON.stringify(modelAnswer) }),
+			);
+			const { classifyThoughtStepChunk } = await import(
+				"./thought-step-classifier"
+			);
+			return classifyThoughtStepChunk({
+				userId: "u1",
+				conversationId: "conv-1",
+				chunkText,
+				currentActivityClass: null,
+				...(targetLanguage ? { targetLanguage } : {}),
+			});
+		}
+
+		const CHUNK =
+			"The frame-sat frame needs to be wider so the Gloriette view fits; the user wants a downloadable file as a DOCX file, version 1 unchanged.";
+
+		it("drops a Hungarian headline that carries a slug and the entity that is an English phrase, and keeps the step", async () => {
+			const result = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "drafting-approach",
+					summary:
+						"A frame-sat szélességének növelése szükséges a Gloriette kilátás elhelyezéséhez",
+					entity: "downloadable file",
+				},
+				CHUNK,
+				"hu",
+			);
+
+			expect(result).toEqual({
+				verdict: "new_step",
+				activityClass: "drafting-approach",
+			});
+		});
+
+		it("drops each of them alone: an English entity under a clean Hungarian headline, a copied id in an entity", async () => {
+			const english = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "understanding-request",
+					summary: "DOCX formátumot választott a szerkeszthetőség miatt",
+					entity: "DOCX file",
+				},
+				CHUNK,
+				"hu",
+			);
+			expect(english).toEqual({
+				verdict: "new_step",
+				activityClass: "understanding-request",
+				summary: "DOCX formátumot választott a szerkeszthetőség miatt",
+			});
+
+			const slug = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "understanding-request",
+					entity: "frame-sat",
+				},
+				CHUNK,
+				"hu",
+			);
+			expect(slug).toEqual({
+				verdict: "new_step",
+				activityClass: "understanding-request",
+			});
+		});
+
+		it("keeps a Hungarian headline and entity with only proper nouns, a format's name and numbers in them", async () => {
+			const result = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "weighing-options",
+					summary:
+						"A Gloriette kilátás beillesztését és a DOCX formátumot választotta",
+					entity: "Gloriette",
+				},
+				CHUNK,
+				"hu",
+			);
+
+			expect(result).toEqual({
+				verdict: "new_step",
+				activityClass: "weighing-options",
+				summary:
+					"A Gloriette kilátás beillesztését és a DOCX formátumot választotta",
+				entity: "Gloriette",
+			});
+		});
+
+		it("in an English turn drops an id or a slug, and keeps English words", async () => {
+			const withSlug = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "drafting-approach",
+					summary: "Widening frame-sat to fit the Gloriette view",
+					entity: "frame-sat",
+				},
+				CHUNK,
+			);
+			expect(withSlug).toEqual({
+				verdict: "new_step",
+				activityClass: "drafting-approach",
+			});
+
+			const english = await classify(
+				{
+					verdict: "new_step",
+					activityClass: "drafting-approach",
+					summary: "Chose a DOCX file because the user wants it downloadable",
+					entity: "downloadable file",
+				},
+				CHUNK,
+			);
+			expect(english).toEqual({
+				verdict: "new_step",
+				activityClass: "drafting-approach",
+				summary: "Chose a DOCX file because the user wants it downloadable",
+				entity: "downloadable file",
+			});
+		});
+
+		it("tells the model, in both languages, not to copy an id, a slug or a field name; and in Hungarian no English word", async () => {
+			const prompts: Record<string, string> = {};
+			for (const language of ["en", "hu"] as const) {
+				await classify(
+					{ verdict: "continuation" },
+					"Comparing option A against option B for this case.",
+					language,
+				);
+				const [, , options] = sendJsonControlMessageMock.mock.calls.at(-1) as [
+					string,
+					string,
+					{ systemPrompt?: string },
+				];
+				prompts[language] = options.systemPrompt ?? "";
+			}
+
+			for (const prompt of Object.values(prompts)) {
+				expect(prompt).toContain("never an id, a slug or a field name");
+				// The tether's examples no longer invite copying identifiers or file names.
+				expect(prompt).not.toContain("identifiers (API/library/product names");
+			}
+			expect(prompts.hu).toContain("never an English word");
+			expect(prompts.en).not.toContain("never an English word");
+		});
+	});
+
 	it("defaults the classifier system prompt to English when no targetLanguage is given", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(

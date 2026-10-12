@@ -1009,6 +1009,127 @@ describe("buildToolActivityItem — journey row", () => {
 	// create_artifact/edit_artifact render ArtifactCard's body once the tool
 	// call actually made or changed something — never for a call that is
 	// still running, was refused, or came back malformed.
+	// F22 (ruling 77): every Alfy-edit turn showed a read step as "Eszköz e4d471c7-
+	// b5de-488d-b7fb-a4f..." (the generic tool label and the item's id) beside a good
+	// "Szerkesztve Bécsi hétvége – tábla"; a produced file's read-back showed
+	// "Eszköz becsi-hetvegi-utiterv-szombat-es-vasarnap.docx". A read names the item.
+	describe("read_artifact / read_generated_file — the read row names the item (F22)", () => {
+		const readOf = (overrides: Partial<ToolCallSegment>) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "read_artifact",
+					input: { artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4" },
+					...overrides,
+				}),
+				"k-read",
+				translate,
+			);
+
+		it("reads 'Read <title>' from the item's own title, never its id", () => {
+			const item = readOf({
+				metadata: {
+					ok: true,
+					found: true,
+					artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4",
+					artifactKind: "canvas",
+					artifactTitle: "Vienna weekend board",
+				},
+			});
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("Vienna weekend board");
+			expect(item.title).toBe("Read: Vienna weekend board");
+			expect(
+				JSON.stringify([item.verb, item.object, item.title]),
+			).not.toContain("e4d471c7");
+			expect(item.iconType).toBe("generic");
+		});
+
+		it("says 'Reading' while it runs, with no object yet and never the id", () => {
+			const item = readOf({ status: "running" });
+
+			expect(item.verb).toBe("Reading");
+			expect(item.object).toBe("");
+			expect(
+				JSON.stringify([item.verb, item.object, item.title]),
+			).not.toContain("e4d471c7");
+		});
+
+		it("says only that it read when an older record carries no title, and never the id", () => {
+			const item = readOf({ metadata: { ok: true, found: true } });
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("");
+			expect(item.title).toBe("Read");
+		});
+
+		it("names a produced file by its request title, else by its file name", () => {
+			const byTitle = buildToolActivityItem(
+				toolCall({
+					name: "read_generated_file",
+					input: {
+						requestTitle: "Vienna weekend itinerary",
+						query: "Belvedere",
+					},
+				}),
+				"k-file-1",
+				translate,
+			);
+			const byName = buildToolActivityItem(
+				toolCall({
+					name: "read_generated_file",
+					input: { filename: "vienna-weekend.docx" },
+				}),
+				"k-file-2",
+				translate,
+			);
+
+			expect(byTitle.verb).toBe("Read");
+			expect(byTitle.object).toBe("Vienna weekend itinerary");
+			expect(byName.object).toBe("vienna-weekend.docx");
+		});
+
+		it("groups repeated reads under 'Read', not under the generic tool label", () => {
+			const reads = [1, 2].map((n) =>
+				readOf({ metadata: { ok: true, artifactTitle: `Board ${n}` } }),
+			);
+
+			expect(buildToolActivitySummary(reads, translate)).toEqual([
+				expect.objectContaining({ label: "Read ×2" }),
+			]);
+		});
+
+		it("is Hungarian in a Hungarian turn: 'Elolvasva <title>', never 'Eszköz' and never the id", async () => {
+			const { uiLanguage } = await import("$lib/stores/settings");
+			uiLanguage.set("hu");
+			try {
+				const huTranslate = get(t);
+				const item = buildToolActivityItem(
+					toolCall({
+						name: "read_artifact",
+						input: { artifactId: "e4d471c7-b5de-488d-b7fb-a4f0c1d2e3f4" },
+						metadata: {
+							ok: true,
+							artifactKind: "canvas",
+							artifactTitle: "Bécsi hétvége – tábla",
+						},
+					}),
+					"k-read-hu",
+					huTranslate,
+				);
+
+				expect(item.verb).toBe("Elolvasva");
+				expect(item.object).toBe("Bécsi hétvége – tábla");
+				expect(item.title).toBe("Elolvasva: Bécsi hétvége – tábla");
+				expect(JSON.stringify([item.verb, item.object])).not.toMatch(
+					/Eszköz|e4d471c7/,
+				);
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+	});
+
 	describe("create_artifact / edit_artifact — the in-chat card", () => {
 		it("renders a pinned, always-open card from a successful create_artifact's own metadata", () => {
 			const item = buildToolActivityItem(

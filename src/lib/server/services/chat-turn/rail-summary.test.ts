@@ -79,6 +79,25 @@ describe("persistAssistantRailSummary", () => {
 		);
 	});
 
+	// F22 (ruling 77): a headline a person reads never carries an id, a slug or a
+	// field name; the cleanup that drops it is the short-text path's own.
+	it("asks the short-text cleanup to reject a headline that carries an id", async () => {
+		generateShortLocalTextMock.mockResolvedValue("Concise Headline");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "How did Q3 segments perform?",
+			assistantResponse: LONG_REPLY,
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ cleanup?: { rejectIdentifiers?: boolean } },
+		];
+		expect(args.cleanup?.rejectIdentifiers).toBe(true);
+	});
+
 	it("asks for a strict one-field {headline} object, not any JSON object the model likes", async () => {
 		// Left free, the real model answered 8% of rail requests with a function-call
 		// shape ({"name": "write_headline", "arguments": ...}) or its own thoughts
