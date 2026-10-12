@@ -1157,6 +1157,8 @@ let fitViewOptions = $derived({
 // changes size over a transition changes every frame, so the board follows it, a
 // frame at a time. `fitKey` is what the last fit was told (the pane and the room
 // the blocks take), so the nodes the fit itself replaces are not a reason to fit.
+// A pane that did not change but whose blocks did (a diagram drawn after the fit) is
+// followed with a glide, not a cut (RC-A #6).
 let fitted = $state.raw<Viewport | null>(null);
 let touched = false;
 let fitKey = "";
@@ -1177,14 +1179,14 @@ $effect(() => {
 			!held &&
 			followsPane(flow.getViewport(), fitted, touched)
 		) {
-			const key = [
-				boardWidth,
-				boardHeight,
-				...Object.values(flow.getNodesBounds(nodes)),
-			].join();
+			const pane = `${boardWidth},${boardHeight}`;
+			const key = [pane, ...Object.values(flow.getNodesBounds(nodes))].join();
 			if (key === fitKey) return;
+			// The same pane with other blocks in it is a block that drew its real size
+			// after the fit (a diagram): the camera follows it over a moment, not in a cut.
+			const glide = fitKey.startsWith(`${pane},`) && !prefersReducedMotion();
 			fitKey = key;
-			fitBoard(0);
+			fitBoard(glide ? 250 : 0);
 		}
 	});
 });
@@ -1298,12 +1300,15 @@ function minimapColor(node: {
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
-		onmoveend={(event, camera) => {
+		onmove={(event, camera) => {
+			// The library's own first fit has no pointer or key behind it: it is the
+			// first camera a fit left. Taken as it happens: its move end comes 150 ms
+			// late (the scroll debounce), by when a diagram has drawn and been missed.
+			if (fitOnOpen && !event && !fitted) fitted = { ...camera };
+		}}
+		onmoveend={(_, camera) => {
 			restingZoom = camera.zoom;
 			oncamera?.(camera);
-			// The library's own first fit has no pointer or key behind it: it is the
-			// first camera a fit left.
-			if (fitOnOpen && !event && !fitted) fitted = { ...camera };
 		}}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />

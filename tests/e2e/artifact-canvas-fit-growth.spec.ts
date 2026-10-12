@@ -211,3 +211,104 @@ test("the board stays where the reader left it when a block they are typing in g
 		"the camera is the reader's once they touched the board",
 	);
 });
+
+// ---- No jump (RC-A #6) ----------------------------------------------------------
+
+/**
+ * Every frame's camera, from the first frame the board shows: an in-page
+ * observer only (it reads the viewport's transform and writes nothing), started
+ * before the page exists so the first fit is in it.
+ */
+async function recordCamera(page: Page) {
+	await page.addInitScript(() => {
+		const w = window as unknown as { __cam: number[][] };
+		w.__cam = [];
+		const tick = () => {
+			const viewport = document.querySelector(
+				".svelte-flow__viewport",
+			) as HTMLElement | null;
+			const match = viewport
+				? /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*scale\((-?[\d.]+)\)/.exec(
+						viewport.style.transform,
+					)
+				: null;
+			if (match) {
+				const nodes = [...document.querySelectorAll(".svelte-flow__node")];
+				const shown = nodes.filter(
+					(node) => getComputedStyle(node).visibility !== "hidden",
+				).length;
+				w.__cam.push([
+					performance.now(),
+					Number(match[1]),
+					Number(match[2]),
+					Number(match[3]),
+					shown,
+					nodes.length,
+				]);
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+}
+
+/** The camera on each frame the board showed every one of its blocks (from its first fit on), oldest first. */
+async function cameraFrames(page: Page) {
+	const frames = await page.evaluate(
+		() => (window as unknown as { __cam: number[][] }).__cam,
+	);
+	return frames
+		.filter((frame) => frame[5] > 0 && frame[4] === frame[5])
+		.map(([t, x, y, zoom]) => ({ t, x, y, zoom }));
+}
+
+for (const size of [
+	{ width: 1440, height: 900 },
+	{ width: 1100, height: 800 },
+]) {
+	test(`${size.width}x${size.height}: a board with a flowchart does not cut from one zoom to another when the diagram draws: the camera only ever moves in small steps`, async ({
+		page,
+	}) => {
+		await page.setViewportSize(size);
+		await recordCamera(page);
+		await openBoard(page, `No jump ${size.width}`, tripBoard());
+		await flowchartDrawn(page);
+		// Everything settles: the diagram drew, the camera followed it.
+		const { pane, palette } = await paneAndPalette(page);
+		await expect
+			.poll(async () => (await contentBox(page)).bottom, { timeout: 6_000 })
+			.toBeLessThanOrEqual(palette.y + 1);
+		await page.waitForTimeout(600);
+
+		const frames = await cameraFrames(page);
+		expect(frames.length, "frames observed").toBeGreaterThan(10);
+		let widestStep = { zoom: 0, move: 0 };
+		for (let index = 1; index < frames.length; index += 1) {
+			widestStep = {
+				zoom: Math.max(
+					widestStep.zoom,
+					Math.abs(frames[index].zoom - frames[index - 1].zoom),
+				),
+				move: Math.max(
+					widestStep.move,
+					Math.hypot(
+						frames[index].x - frames[index - 1].x,
+						frames[index].y - frames[index - 1].y,
+					),
+				),
+			};
+		}
+		// The audit's cut: 100% to 60% in one frame (a step of 0.4). A glide takes a
+		// frame at a time a fraction of that; a board that was fitted to the plan from the
+		// start has no step at all.
+		expect(
+			widestStep.zoom,
+			"the largest change of zoom between two frames",
+		).toBeLessThan(0.08);
+		expect(
+			widestStep.move,
+			"the largest move of the camera between two frames, in px",
+		).toBeLessThan(90);
+		expect((await contentBox(page)).top).toBeGreaterThanOrEqual(pane.y);
+	});
+}
