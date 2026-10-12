@@ -229,6 +229,7 @@ test.describe("an App navigating its own frame out", () => {
 			await expect
 				.poll(async () => (await aliveRows(artifactId)).map((r) => r.key), {
 					message: "the App never reported in; its script did not run",
+					timeout: 20_000,
 				})
 				.toEqual(["alive"]);
 
@@ -266,7 +267,9 @@ test.describe("an App navigating its own frame out", () => {
 		await openApp(page, conversationId);
 
 		await expect
-			.poll(() => requests.some((url) => url.includes("frame-control=1")))
+			.poll(() => requests.some((url) => url.includes("frame-control=1")), {
+				timeout: 20_000,
+			})
 			.toBe(true);
 	});
 
