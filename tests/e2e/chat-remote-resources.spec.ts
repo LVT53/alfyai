@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
+import {
+	BRAVE_THUMBNAIL_HOST,
+	FAVICON_ROUTE,
+	IMAGE_SEARCH_TOOL,
+	IMAGE_THUMBNAIL_ROUTE,
+} from "../../src/lib/shared/url-provenance";
 import { createEmptyConversation, login } from "./helpers";
 
 // The rule (docs/plans/exfil-channels): an address the browser requests without a click
@@ -16,12 +22,18 @@ import { createEmptyConversation, login } from "./helpers";
 
 const HOST = "sentinel.invalid";
 const KNOWN_HOST = "known.invalid";
-const BRAVE_HOST = "imgs.search.brave.com";
+// The names the app itself uses for them, so the spec cannot drift from the code it checks.
+const BRAVE_HOST = BRAVE_THUMBNAIL_HOST;
 const PIXEL = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
 	"base64",
 );
 const URL_ON = (host: string, path: string) => `https://${host}/${path}`;
+
+/** A request to one of the app's own routes, with a query (the app asks for both with one). */
+function routeWithQuery(route: string): RegExp {
+	return new RegExp(`${route.replaceAll("/", "\\/")}\\?`);
+}
 
 type Calls = {
 	/** Everything asked of the stand-in host, whatever the path. */
@@ -61,13 +73,13 @@ async function watchRequests(
 			await picture(route);
 		},
 	);
-	await page.route(/\/api\/favicon\?/, async (route) => {
+	await page.route(routeWithQuery(FAVICON_ROUTE), async (route) => {
 		calls.favicon.push(
 			new URL(route.request().url()).searchParams.get("domain") ?? "",
 		);
 		await picture(route);
 	});
-	await page.route(/\/api\/image-search\/thumbnail\?/, async (route) => {
+	await page.route(routeWithQuery(IMAGE_THUMBNAIL_ROUTE), async (route) => {
 		calls.thumbnail.push(route.request().url());
 		if (options.thumbnailStatus && options.thumbnailStatus !== 200) {
 			await route.fulfill({ status: options.thumbnailStatus, body: "" });
@@ -116,7 +128,7 @@ function imageSearchCall(picture: string, thumbnail: string) {
 	return {
 		type: "tool_call",
 		callId: `call-${randomUUID()}`,
-		name: "image_search",
+		name: IMAGE_SEARCH_TOOL,
 		input: { query: "a cat on a sofa" },
 		status: "done",
 		candidates: [
@@ -272,7 +284,7 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 		const images = prose.locator("img");
 		await expect(images).toHaveCount(1);
 		const source = await images.first().getAttribute("src");
-		expect(source).toMatch(/^\/api\/image-search\/thumbnail\?url=/);
+		expect(source?.startsWith(`${IMAGE_THUMBNAIL_ROUTE}?url=`)).toBe(true);
 		expect(
 			new URL(source ?? "", "http://app.test").searchParams.get("url"),
 		).toBe(thumbnail);
@@ -287,7 +299,7 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 		await expect(lightbox).toBeVisible();
 		await expect(lightbox.locator("img")).toHaveAttribute(
 			"src",
-			/\/api\/image-search\/thumbnail\?url=/,
+			new RegExp(`${IMAGE_THUMBNAIL_ROUTE.replaceAll("/", "\\/")}\\?url=`),
 		);
 
 		expect(calls.thumbnail.length).toBeGreaterThanOrEqual(1);
@@ -360,7 +372,7 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 		await expect(chips).toHaveCount(2);
 		await expect(
 			chips.nth(0).locator("img.source-link-chip__favicon"),
-		).toHaveAttribute("src", `/api/favicon?domain=${KNOWN_HOST}`);
+		).toHaveAttribute("src", `${FAVICON_ROUTE}?domain=${KNOWN_HOST}`);
 		await expect(chips.nth(1).locator("img")).toHaveCount(0);
 		await expect(
 			chips.nth(1).locator(".source-link-chip__favicon-fallback"),
