@@ -540,7 +540,7 @@ test.describe("the App kind, in the panel", () => {
 		// (DocumentWorkspace.svelte's own `artifactHeaderActionsSnippet` header
 		// comment), same control `artifact-document.spec.ts` returns to the
 		// list with.
-		await page.getByRole("button", { name: /This chat/ }).click();
+		await page.getByRole("button", { name: "Back to this chat's items" }).click();
 		await openFromList("Chatty App");
 		const chattyFrame = page.frameLocator("iframe.app-frame");
 		await expect(chattyFrame.getByTestId("chatty-count")).not.toHaveText("0");
@@ -551,7 +551,7 @@ test.describe("the App kind, in the panel", () => {
 			await new Promise((resolve) => setTimeout(resolve, 400));
 			await route.continue();
 		});
-		await page.getByRole("button", { name: /This chat/ }).click();
+		await page.getByRole("button", { name: "Back to this chat's items" }).click();
 		await openFromList("Quiet App");
 		await expect(
 			page.frameLocator("iframe.app-frame").getByRole("heading", {
