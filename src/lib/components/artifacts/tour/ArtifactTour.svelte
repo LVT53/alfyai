@@ -268,38 +268,6 @@ onMount(() => {
 			</div>
 
 			<div class="tour-main">
-				<div class="tour-meta">
-					<div
-						class="tour-dots"
-						role="img"
-						aria-label={$t('artifacts.tour.dots', { count: slideCount })}
-					>
-						{#each slides as _, index (index)}
-							<i
-								class="tour-dot"
-								data-testid="artifact-tour-dot"
-								data-active={index === slide ? 'true' : 'false'}
-							></i>
-						{/each}
-					</div>
-					<p class="tour-step" data-testid="artifact-tour-step">
-						{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
-					</p>
-					<p
-						class="sr-only"
-						data-testid="artifact-tour-live"
-						aria-live="polite"
-						aria-atomic="true"
-					>
-						{announcement}
-					</p>
-					{#if replay}
-						<span class="tour-replaying" data-testid="artifact-tour-replaying">
-							{$t('artifacts.tour.replayOpened')}
-						</span>
-					{/if}
-				</div>
-
 				<div class="tour-slide" bind:this={slideElement}>
 					<h3 class="tour-title" data-testid="artifact-tour-title">
 						{localized(current.title)}
@@ -309,42 +277,78 @@ onMount(() => {
 					</p>
 				</div>
 
-				<div class="tour-footer">
-					{#if isLast && !replay}
-						<p class="tour-hint" data-testid="artifact-tour-hint">
-							{$t('artifacts.tour.replayHint')}
+				<!-- The step line and the actions are one bar: on a desktop they stay where they were (the step line
+				     above the words, the actions under them), on a phone they share one row under the words. -->
+				<div class="tour-bar">
+					<div class="tour-meta">
+						<div
+							class="tour-dots"
+							role="img"
+							aria-label={$t('artifacts.tour.dots', { count: slideCount })}
+						>
+							{#each slides as _, index (index)}
+								<i
+									class="tour-dot"
+									data-testid="artifact-tour-dot"
+									data-active={index === slide ? 'true' : 'false'}
+								></i>
+							{/each}
+						</div>
+						<p class="tour-step" data-testid="artifact-tour-step">
+							{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
 						</p>
-					{/if}
-					<div class="tour-actions">
-						<button
-							type="button"
-							class="btn-secondary btn-sm"
-							data-testid="artifact-tour-skip"
-							onclick={skip}
+						<p
+							class="sr-only"
+							data-testid="artifact-tour-live"
+							aria-live="polite"
+							aria-atomic="true"
 						>
-							{$t('artifacts.tour.skip')}
-						</button>
-						{#if slide > 0}
-							<button
-								bind:this={backButton}
-								type="button"
-								class="btn-ghost btn-sm"
-								data-testid="artifact-tour-back"
-								onclick={() => go(slide - 1)}
-							>
-								{$t('artifacts.tour.back')}
-							</button>
+							{announcement}
+						</p>
+						{#if replay}
+							<span class="tour-replaying" data-testid="artifact-tour-replaying">
+								{$t('artifacts.tour.replayOpened')}
+							</span>
 						{/if}
-						<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
-						<button
-							bind:this={primaryButton}
-							type="button"
-							class="btn-primary btn-sm"
-							data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
-							onclick={isLast ? finish : () => go(slide + 1)}
-						>
-							{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
-						</button>
+					</div>
+
+					<div class="tour-footer">
+						{#if isLast && !replay}
+							<p class="tour-hint" data-testid="artifact-tour-hint">
+								{$t('artifacts.tour.replayHint')}
+							</p>
+						{/if}
+						<div class="tour-actions">
+							<button
+								type="button"
+								class="btn-secondary btn-sm"
+								data-testid="artifact-tour-skip"
+								onclick={skip}
+							>
+								{$t('artifacts.tour.skip')}
+							</button>
+							{#if slide > 0}
+								<button
+									bind:this={backButton}
+									type="button"
+									class="btn-ghost btn-sm"
+									data-testid="artifact-tour-back"
+									onclick={() => go(slide - 1)}
+								>
+									{$t('artifacts.tour.back')}
+								</button>
+							{/if}
+							<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
+							<button
+								bind:this={primaryButton}
+								type="button"
+								class="btn-primary btn-sm"
+								data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
+								onclick={isLast ? finish : () => go(slide + 1)}
+							>
+								{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -414,7 +418,15 @@ onMount(() => {
 		flex-direction: column;
 	}
 
+	/* The bar holds the step line and the actions. On a wide panel it dissolves
+	   (its two children are the column's own items) and the step line goes back
+	   above the words, as the card was drawn; a phone makes it one row. */
+	.tour-bar {
+		display: contents;
+	}
+
 	.tour-meta {
+		order: -1;
 		display: flex;
 		align-items: center;
 		gap: 0.625rem;
@@ -492,46 +504,70 @@ onMount(() => {
 		gap: 0.5rem;
 	}
 
-	/* A phone: the 64 px picture floats at the corner and the words wrap under
-	   it, so the whole card (picture, three or four lines, both buttons) stays
-	   within 45% of the screen's height. A published slide that runs longer
+	/* A phone: a compact card, so the artifact's text is not pushed below the middle of
+	   the screen while it is up (ruling 77). The 48 px picture floats at the corner and
+	   the words wrap under it; the step line and the actions share ONE row under the
+	   words (the step line on the left, the buttons on the right, 48 px tall as every
+	   button on a phone is) instead of a row each. A published slide that runs longer
 	   scrolls inside the card. */
 	@media (max-width: 767.98px) {
 		.artifact-tour {
 			display: block;
-			margin: 0.5rem 0.75rem 0;
-			padding: 0.875rem;
+			margin: 0.375rem 0.5rem 0;
+			padding: 0.625rem 0.75rem;
 			max-height: 45vh;
 		}
 
 		.tour-art {
 			float: left;
-			width: 4rem;
-			height: 4rem;
-			margin: 0 0.75rem 0.375rem 0;
+			width: 3rem;
+			height: 3rem;
+			margin: 0 0.625rem 0.25rem 0;
 		}
 
 		.tour-main {
 			display: block;
 		}
 
-		.tour-footer {
-			display: block;
+		.tour-title {
+			margin: 0 0 0.125rem;
+			font-size: 1rem;
+		}
+
+		.tour-body {
+			line-height: 1.5;
+		}
+
+		.tour-bar {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.25rem 0.75rem;
 			clear: both;
+			margin-top: 0.375rem;
+		}
+
+		.tour-meta {
+			order: 0;
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		/* The hint (the last slide's, the first time) is a row of its own above the bar; the
+		   actions stay one row with the step line while they fit and wrap under it when not. */
+		.tour-footer {
+			display: contents;
 		}
 
 		.tour-hint {
-			margin: 0 0 0.5rem;
+			order: -1;
+			flex: 0 0 100%;
+			margin: 0;
 		}
 
-		/* Side by side across the whole card: with no Back on the first slide,
-		   Next shares its row with Skip alone. */
 		.tour-actions {
-			width: 100%;
-		}
-
-		.tour-actions > :global(button) {
-			flex: 1 1 0;
+			margin-left: auto;
 		}
 	}
 </style>
