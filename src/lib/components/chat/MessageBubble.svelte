@@ -1279,6 +1279,12 @@ function sendFollowUp(question: string) {
 	     assistant message with a report attached, so copy / feedback /
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
 	{#if !message.isStreaming && !isEditing}
+		<!-- Two rows with two rules. The action row (copy, regenerate, ...) is
+		     hover-only on a wide screen: it is reference, not an invitation. The
+		     follow-up chips are the way to the next question, so they live in a
+		     row of their own that is never hidden (F17); they used to be children
+		     of the action row and went invisible with it on every desktop. -->
+		<div class="message-actions">
 		<div
 			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
 			class:justify-end={isUser}
@@ -1475,8 +1481,9 @@ function sendFollowUp(question: string) {
 				</div>
 			</div>
 
-			{#if followUpChips.length > 0}
-				<span class="follow-up-divider" aria-hidden="true"></span>
+		</div>
+		{#if followUpChips.length > 0}
+			<div class="follow-up-row" data-testid="follow-up-chips">
 				{#each followUpChips as question (question)}
 					<button
 						type="button"
@@ -1487,7 +1494,8 @@ function sendFollowUp(question: string) {
 						{question}
 					</button>
 				{/each}
-			{/if}
+			</div>
+		{/if}
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -1679,14 +1687,11 @@ function sendFollowUp(question: string) {
 	.fade-in {
 		animation: fadeIn var(--duration-micro) var(--ease-out) forwards;
 	}
-	/* The row wraps at ANY width (it used to wrap only under 480px): a
-	   follow-up chip now shows its whole question instead of five words and
-	   an ellipsis, so two chips plus the icon buttons rarely fit one line.
-	   The icon buttons keep the first line — they come first in DOM order and
-	   never shrink — and the chips flow onto the following lines. The
-	   hover-reveal (`md:opacity-0 md:group-hover:opacity-100` in the class
-	   list) is untouched: it animates opacity on this same element, so a
-	   taller, wrapped row reveals exactly as the one-line row did. */
+	/* The action row wraps at ANY width: its icon buttons never shrink, and a
+	   long list of them (info, regenerate, fork, keep, copy, ...) must have
+	   somewhere to go. The hover-reveal (`md:opacity-0
+	   md:group-hover:opacity-100` in the class list) is on this element alone:
+	   the follow-up chips are not in it (see `.follow-up-row`). */
 	/* Chips redesign — what the message was sent with, and what the answer
 	   was made with. Both are chip rows; they differ only in where they sit. */
 	.user-bubble-chips {
@@ -1726,8 +1731,17 @@ function sendFollowUp(question: string) {
 		color: var(--text-muted);
 	}
 
-	.copy-action-row {
+	/* The action row and the chips below it: one block under the message with
+	   the old spacing (a margin, then a small gap between the two rows). */
+	.message-actions {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
 		margin-top: var(--space-sm);
+		row-gap: var(--space-xs);
+	}
+
+	.copy-action-row {
 		flex-wrap: wrap;
 		row-gap: var(--space-xs);
 	}
@@ -2045,19 +2059,18 @@ function sendFollowUp(question: string) {
 		display: inline-flex;
 	}
 
-	/* Owner idea (variant A) — the action row's follow-up chips. A 1px
-	   vertical divider separates them from the icon buttons; each chip is a
-	   quiet, pill-shaped outline button (never filled) that only picks up
-	   surface/text color on hover, matching the mockup exactly. Visibility
-	   follows the row's own existing opacity rule — no separate rule needed
-	   here since these render as ordinary flex children of .copy-action-row. */
-	.follow-up-divider {
-		display: inline-block;
-		width: 1px;
-		height: 14px;
-		margin: 0 var(--space-xs);
-		background: var(--border-default);
-		flex-shrink: 0;
+	/* Owner idea (variant A) — the follow-up chips. Each chip is a quiet,
+	   pill-shaped outline button (never filled) that only picks up
+	   surface/text color on hover, matching the mockup exactly. They have a row
+	   of their own under the action row, and that row is always drawn: at rest
+	   on a desktop too, where the action row above it waits for the pointer
+	   (F17, ruling 77). */
+	.follow-up-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: var(--space-xs);
+		width: 100%;
 	}
 
 	/* The chip shows the WHOLE question. It used to clip at 220px with an
@@ -2096,20 +2109,10 @@ function sendFollowUp(question: string) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* Narrow viewports: the chips get the whole width to themselves. The
-	   divider becomes a zero-height full-width break, forcing every chip onto
-	   its own line under the icon buttons rather than sharing one. (Wider
-	   viewports wrap too — see .copy-action-row above — but there the divider
-	   stays a real 1px rule and the chips only break when they must.) */
+	/* Narrow viewports: the chips get the whole width to themselves, each on
+	   its own line under the icon buttons. (Wider viewports let them share a
+	   line and only break when they must.) */
 	@media (max-width: 480px) {
-		.follow-up-divider {
-			flex-basis: 100%;
-			width: 100%;
-			height: 0;
-			margin: 0;
-			background: transparent;
-		}
-
 		.follow-up-chip {
 			flex-basis: 100%;
 		}

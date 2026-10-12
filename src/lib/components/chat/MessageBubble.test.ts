@@ -3073,7 +3073,27 @@ describe("MessageBubble", () => {
 			});
 
 			expect(container.querySelector(".follow-up-chip")).toBeNull();
-			expect(container.querySelector(".follow-up-divider")).toBeNull();
+			expect(container.querySelector(".follow-up-row")).toBeNull();
+		});
+
+		// F17: the action row is hover-only on a wide screen, and a chip inside
+		// it went invisible with it. The chips have a row of their own, which
+		// carries no hover rule at all.
+		it("keeps the chips out of the hover-only action row", () => {
+			const { container } = render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: true,
+			});
+
+			const chip = container.querySelector(".follow-up-chip");
+			expect(chip).not.toBeNull();
+			expect(chip?.closest(".copy-action-row")).toBeNull();
+			const row = chip?.closest(".follow-up-row");
+			expect(row).not.toBeNull();
+			expect(row?.className).not.toMatch(/opacity/);
+			expect(container.querySelector(".copy-action-row")?.className).toContain(
+				"md:opacity-0",
+			);
 		});
 
 		it("renders a single chip when the control model repeats a suggestion", () => {
