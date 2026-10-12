@@ -1057,6 +1057,11 @@ $effect.pre(() => {
 	if (showing && shellWasShowing && listWasOpen && !listOpen) {
 		pendingEntrance = { direction: "right", delay: 0 };
 	}
+	// The mirror (§7.2 #4), whoever opened the list: the breadcrumb, or the page
+	// itself when the open item was deleted and the list is what is left.
+	if (showing && shellWasShowing && !listWasOpen && listOpen) {
+		pendingEntrance = { direction: "left", delay: 0 };
+	}
 	shellWasShowing = showing;
 	listWasOpen = listOpen;
 });

@@ -1493,6 +1493,8 @@ function closeWorkspaceDocument(documentId: string) {
  * made later under the same id (Regenerate) starts from its own numbers.
  */
 function handleArtifactDeleted(artifactId: string) {
+	// The panel is on this very item right now (before anything below changes it).
+	const panelWasOnIt = activeWorkspaceDocument?.artifactId === artifactId;
 	observedArtifactMoments = forgetObservedArtifact(
 		observedArtifactMoments,
 		artifactId,
@@ -1503,6 +1505,13 @@ function handleArtifactDeleted(artifactId: string) {
 		(entry) => entry.artifactId === artifactId,
 	)) {
 		closeWorkspaceDocument(document.id);
+	}
+	// Deleting the open item shows what is left, in the same breath: the panel
+	// does not close and open again around a frame of a full-width chat. Only
+	// when nothing is left is there nothing to list, and the panel goes.
+	if (panelWasOnIt && artifacts.length > 0) {
+		artifactListOpen = true;
+		workspaceOpen = true;
 	}
 }
 

@@ -218,3 +218,49 @@ test.describe("the panel and the chat move together", () => {
 		}
 	});
 });
+
+test.describe("deleting the open item", () => {
+	test("deleting the open item shows the list without closing the panel", async ({
+		page,
+	}) => {
+		await readerWithItems(page);
+		await openItem(page, "Trip notes");
+		await expect(visibleTitle(page)).toBeVisible();
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(300);
+
+		await page
+			.locator('[data-testid="artifact-delete-button"]:visible')
+			.click();
+		const popover = page.getByTestId("artifact-delete-popover");
+		await expect(popover).toBeVisible();
+		await startRecording(page);
+		await popover.getByRole("button", { name: "Delete", exact: true }).click();
+		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+		const run = await settleAndStop(page);
+
+		const settled = run.frames.at(-1);
+		const docked = settled?.chatW ?? 0;
+		noteNumbers("delete", {
+			shiftAll: shiftSum(run),
+			shiftMaxEntry: shiftMax(run),
+			framesWithNoPanel: run.frames.filter((frame) => frame.panelW === 0)
+				.length,
+			widestChat: Math.max(...run.frames.map((frame) => frame.chatW)),
+			dockedChat: docked,
+		});
+		// There is no frame of a chat at full width: the panel stays up from the click to the list.
+		for (const frame of run.frames) {
+			expect(frame.panelW, "a frame has no panel").toBeGreaterThan(200);
+			expect(
+				frame.chatW,
+				"a frame shows the chat wider than it is beside the panel",
+			).toBeLessThanOrEqual(docked + 2);
+		}
+		await expect(
+			panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: "Tip calculator" }),
+		).toBeVisible();
+	});
+});
