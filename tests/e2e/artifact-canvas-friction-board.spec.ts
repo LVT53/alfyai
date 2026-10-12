@@ -17,7 +17,6 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
-	cameraOf,
 	openCanvasPanel,
 	openChatAndReload,
 	seedCanvas,
@@ -224,6 +223,210 @@ test.describe("F11: a wide flowchart is drawn where it can be read", () => {
 	});
 });
 
+// ---- F8 -----------------------------------------------------------------------
+
+/** The audit's weekend board, full enough that the pane has little free ground: two frames with notes, a chart, a flowchart. */
+function crowdedBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "frame-sat",
+				type: "frame",
+				position: { x: 24, y: 70 },
+				width: 440,
+				height: 250,
+				data: { kind: "frame", label: "Saturday", width: 440, height: 250 },
+			},
+			{
+				id: "note-lunch",
+				type: "sticky",
+				position: { x: 20, y: 60 },
+				parentId: "frame-sat",
+				width: 190,
+				data: { kind: "sticky", text: "Lunch at the market", tone: "yellow" },
+			},
+			{
+				id: "note-park",
+				type: "sticky",
+				position: { x: 230, y: 60 },
+				parentId: "frame-sat",
+				width: 190,
+				data: { kind: "sticky", text: "Park and Gloriette", tone: "mint" },
+			},
+			{
+				id: "frame-sun",
+				type: "frame",
+				position: { x: 500, y: 70 },
+				width: 420,
+				height: 250,
+				data: { kind: "frame", label: "Sunday", width: 420, height: 250 },
+			},
+			{
+				id: "note-belv",
+				type: "sticky",
+				position: { x: 20, y: 60 },
+				parentId: "frame-sun",
+				width: 190,
+				data: { kind: "sticky", text: "Belvedere, 9:00", tone: "blue" },
+			},
+			{
+				id: "chart",
+				type: "chart",
+				position: { x: 40, y: 360 },
+				width: 360,
+				data: {
+					kind: "chart",
+					label: "Costs",
+					code: JSON.stringify({
+						type: "bar",
+						data: {
+							labels: ["Museum", "Lunch", "Dinner"],
+							datasets: [{ label: "EUR", data: [40, 30, 60] }],
+						},
+					}),
+				},
+			},
+			{
+				id: "flow",
+				type: "mermaid",
+				position: { x: 440, y: 360 },
+				width: 480,
+				data: {
+					kind: "mermaid",
+					label: "Airport to hotel",
+					code: "flowchart LR\n  A[Plan] --> B[Build] --> C[Ship]",
+				},
+			},
+		],
+		edges: [],
+		viewport: { x: 16, y: 16, zoom: 1 },
+		annotations: [],
+	};
+}
+
+type Placed = { id: string; frame: boolean; box: ScreenBox };
+type ScreenBox = { left: number; top: number; right: number; bottom: number };
+
+/** Every block on the board, as the reader sees it on the screen. */
+async function blocksOnScreen(page: Page): Promise<Placed[]> {
+	return page.locator(".svelte-flow__node").evaluateAll((nodes) =>
+		nodes.map((node) => {
+			const box = node.getBoundingClientRect();
+			return {
+				id: node.getAttribute("data-id") ?? "",
+				frame: node.classList.contains("svelte-flow__node-frame"),
+				box: {
+					left: box.left,
+					top: box.top,
+					right: box.right,
+					bottom: box.bottom,
+				},
+			};
+		}),
+	);
+}
+
+const meets = (a: ScreenBox, b: ScreenBox): boolean =>
+	a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+const holds = (outer: ScreenBox, inner: ScreenBox): boolean =>
+	inner.left >= outer.left - 1 &&
+	inner.top >= outer.top - 1 &&
+	inner.right <= outer.right + 1 &&
+	inner.bottom <= outer.bottom + 1;
+
+async function screenBoxOf(
+	locator: ReturnType<Page["locator"]>,
+): Promise<ScreenBox> {
+	const box = await locator.boundingBox();
+	if (!box) throw new Error("not on the screen");
+	return {
+		left: box.x,
+		top: box.y,
+		right: box.x + box.width,
+		bottom: box.y + box.height,
+	};
+}
+
+test.describe("F8: Insert puts each block where it can be used", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test("five Inserts in a row on a crowded board: each wholly in the pane, clear of the toolbar, over nothing, and with the focus", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "Crowded");
+		await seedCanvas(conversationId, crowdedBoard(), "Crowded board");
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		await settledCamera(page);
+
+		const kinds = ["sticky", "text", "frame", "chart", "checklist"];
+		const problems: string[] = [];
+		for (const kind of kinds) {
+			const before = await blocksOnScreen(page);
+			await insertButton(page).click();
+			await expect(insertMenu(page)).toBeVisible();
+			await insertMenu(page).getByTestId(`canvas-insert-${kind}`).click();
+			await expect(insertMenu(page)).toHaveCount(0);
+			await expect(page.locator(".svelte-flow__node")).toHaveCount(
+				before.length + 1,
+			);
+			// The camera, if it moved to show the block, has arrived.
+			await settledCamera(page);
+			const now = await blocksOnScreen(page);
+			const added = now.find(
+				(block) => !before.some((old) => old.id === block.id),
+			);
+			if (!added) throw new Error(`no new ${kind}`);
+
+			const pane = await screenBoxOf(page.getByTestId("canvas-board"));
+			if (!holds(pane, added.box)) {
+				problems.push(
+					`${kind}: not wholly in the pane ${JSON.stringify(added.box)}`,
+				);
+			}
+			const toolbar = await screenBoxOf(page.getByTestId("canvas-toolbar"));
+			if (meets(added.box, toolbar))
+				problems.push(`${kind}: under the toolbar`);
+			for (const panel of await page.locator(".svelte-flow__panel").all()) {
+				const box = await panel.boundingBox();
+				if (!box) continue;
+				const over = {
+					left: box.x,
+					top: box.y,
+					right: box.x + box.width,
+					bottom: box.y + box.height,
+				};
+				if (meets(added.box, over))
+					problems.push(`${kind}: under a corner control`);
+			}
+			// The others as they are now: the camera may have moved to show the block.
+			for (const block of now.filter((other) => other.id !== added.id)) {
+				// A frame is a backdrop: a block may be in it, wholly, never across it.
+				if (!meets(added.box, block.box)) continue;
+				if (block.frame && holds(block.box, added.box) && kind !== "frame")
+					continue;
+				problems.push(`${kind}: over ${block.id}`);
+			}
+			// Every kind takes the focus the same way: the keyboard is in the block just made.
+			const focused = await page.evaluate(
+				(id) =>
+					document
+						.querySelector(`.svelte-flow__node[data-id="${id}"]`)
+						?.contains(document.activeElement) ?? false,
+				added.id,
+			);
+			if (!focused) problems.push(`${kind}: the focus is not in the block`);
+			if (SHOTS && kind === "checklist") {
+				await page.screenshot({ path: shot("f8-five-inserts-1440.png") });
+			}
+		}
+		expect(problems, problems.join("\n")).toEqual([]);
+	});
+});
+
 // ---- Alfy's change to a board (F12, F18) -----------------------------------------
 
 const fakeProvider = createOpenAICompatibleProviderHarness();
@@ -424,5 +627,3 @@ test.describe("F12: Alfy's change to a board is counted and worded as the reader
 		}
 	});
 });
-
-void cameraOf;
