@@ -10,6 +10,13 @@ Part of the friction build (`phase-5/build-plan.md`, ruling 77); FB-3's shell wo
 - Report: `<scratchpad>/p5/fb5-report.md`. Owns: the build plan's FB-5 row (`DocumentWorkspace.svelte`'s rows, list,
   headers and history entries; `ArtifactPanelHeader.svelte`; `ArtifactCard.svelte`'s meta; the landing's project card).
 
+## Step 0 — a regression on your base (do it first, commit it alone)
+
+`npm run check` reports 3 errors on `feat/artifacts`: `scripts/eval-artifact-contracts/suites/canvas-tools.ts` and its
+`.test.ts` lack `instruction` in the edit tool's input type (FB-2's `701898bf` added `instruction` to `edit_artifact`;
+`phase-5/fb2-report.md`). Make the eval's types match the tool's real input (the schema the tool advertises, ruling 62),
+with `npm run check` at 0 errors and the eval's tests green.
+
 ## What to fix
 
 1. **F7 (ruling 77).** Opening the panel or an item adds one history entry; Back closes the top layer (item → list →
@@ -19,8 +26,8 @@ Part of the friction build (`phase-5/build-plan.md`, ruling 77); FB-3's shell wo
    list: crumb, title, kind), not the older "AKTÍV DOKUMENTUM" branch.
 3. **F9 (the panel's rows).** Items with the same name are told apart: a file row shows its extension and size, a
    same-name item shows its time (no version number, ruling 76); Knowledge and search follow if they use the same row.
-4. **F26 (the count button).** After a close, the count button brings back the item that was open, if it still exists
-   (coordinate with what FB-3 did for X; read its report).
+4. **F26 (the count button).** FB-3 already made the count button bring back the item the panel was closed on (its
+   report's hand-off): verify it on the phone too and leave it, or finish what it left.
 5. **F29.** A Regenerate shows its progress where the item is listed too, not only on the card's button.
 6. **F28.** The phone crumb fits on one line ("EZ A BESZÉLGETÉS" without wrapping, or a shorter phone form); the
    landing's project card does not truncate its meta to "1 csevegés · aktív: …" without a way to read it.
