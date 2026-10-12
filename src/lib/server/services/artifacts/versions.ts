@@ -126,6 +126,11 @@ export async function getVersionBody(
  * `newestVersion`): a restore over a newer one is refused `version_conflict`
  * exactly like a stale save, so it can never silently bury a step the open
  * editor has not saved yet, or a change that landed while History was open.
+ * `expectHash` is that version's body hash (History's `newestHash`): the
+ * reader's own saves coalesce into their latest version without moving its
+ * number, so the number alone would let a restore bury words History never
+ * showed. The same transaction that writes checks it; a changed body is the
+ * same `version_conflict`.
  *
  * `undoOf` is the restore toast's Undo (and an App rebuild's): it names the
  * newest row, which must be the child of the version being brought back, and
@@ -142,6 +147,7 @@ export async function restoreVersion(
 	params: VersionTarget & {
 		versionId: string;
 		expectVersion?: number;
+		expectHash?: string;
 		undoOf?: number;
 	},
 ): Promise<
@@ -225,14 +231,19 @@ export async function restoreVersion(
 		author: "user",
 		summary,
 		expectVersion,
+		// An Undo is guarded by the number it names; the hash is a History page's.
+		baseHash: params.undoOf === undefined ? params.expectHash : undefined,
 	});
 	if (!result.ok) {
-		// The old body was under every cap when it was written, and there is no
-		// base hash to go stale: what is left is a newer version, or the row gone.
+		// The old body was under every cap when it was written: what is left is a
+		// newer version, the newest one's words changed under the same number
+		// (`stale`, the hash guard), or the row gone.
 		return {
 			ok: false,
 			reason:
-				result.reason === "version_conflict" ? "version_conflict" : "not_found",
+				result.reason === "version_conflict" || result.reason === "stale"
+					? "version_conflict"
+					: "not_found",
 		};
 	}
 	return {

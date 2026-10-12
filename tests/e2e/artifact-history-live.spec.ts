@@ -4,6 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import {
 	createDocumentArtifact,
+	hashArtifactBody,
 	listVersions,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
@@ -281,5 +282,98 @@ test.describe("History when the reader's own save outlasts the panel's wait", ()
 		await expect(options.nth(0)).toContainText("You restored");
 		await expect(options.nth(1)).toContainText("You edited");
 		expect((await serverVersions(artifact.id))[0]?.summary).toBe("Restored v1");
+	});
+});
+
+test.describe("History when a save coalesces into the newest version", () => {
+	test("the newest version's words changed under the same number: the question says so, and a restore never buries them (RC-V M-1)", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+		const conversationId = await createEmptyConversation(page);
+		const userId = await adminId();
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Coalesced save",
+			markdown: "Book the hotel.\n\nBook the flight.",
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		// v2 is the reader's own "Edited" save from moments ago: the next save of
+		// theirs is written INTO it (ruling 47 as amended by A2), so it keeps its number.
+		const seenBody = "Book the hotel.\n\nBook the flight. Window seat.";
+		await updateArtifactBody({
+			userId,
+			artifactId: artifact.id,
+			conversationId,
+			body: seenBody,
+			author: "user",
+			summary: "Edited",
+		});
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+
+		// The reader types; the save goes out when History opens and outlasts the
+		// panel's four seconds of patience (the network, not the server).
+		await page.route(/\/api\/artifacts\/[^/]+\/body/, async (route) => {
+			if (route.request().method() !== "PATCH") return route.continue();
+			await new Promise((resolve) => setTimeout(resolve, 6000));
+			await route.continue();
+		});
+		const editor = page.locator(".document-editor-host .document-content");
+		await editor.getByText("Window seat.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Aisle.");
+		await historyButton(page).click();
+		const region = page.getByRole("region", {
+			name: "History of Coalesced save",
+		});
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2, { timeout: 15_000 });
+
+		// The reader asks to bring back the first draft before the save has landed.
+		await options.last().click();
+		await region.getByTestId("history-restore").click();
+		const question = region.getByTestId("history-restore-question");
+		await expect(question).toContainText("What you have now stays in History.");
+
+		// The save lands INTO v2: still two versions, the same number, new words.
+		// The reader is told, as for a version that arrived.
+		await expect(question).toContainText(
+			"It changed while you were looking. Here's the latest.",
+			{ timeout: 20_000 },
+		);
+		const afterSave = await serverVersions(artifact.id);
+		expect(
+			afterSave.map((v) => v.versionNumber),
+			"the save coalesced: no version was added",
+		).toEqual([2, 1]);
+
+		// A restore that still quotes what the page showed (another tab, a slow
+		// press) is refused, and nothing is written.
+		const refused = await page.request.post(
+			`/api/artifacts/${artifact.id}/versions/${afterSave[1]?.id}/restore?conversationId=${conversationId}`,
+			{
+				data: { expectVersion: 2, expectHash: hashArtifactBody(seenBody) },
+			},
+		);
+		expect(refused.status()).toBe(409);
+		expect(await refused.json()).toEqual({
+			ok: false,
+			reason: "version_conflict",
+		});
+		expect((await serverVersions(artifact.id)).length).toBe(2);
+
+		// Confirmed on the state the reader was just shown: the typed words are in
+		// the version under the restore.
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		const versions = await serverVersions(artifact.id);
+		expect(versions.map((v) => v.versionNumber)).toEqual([3, 2, 1]);
+		expect(versions[0]?.summary).toBe("Restored v1");
+		await expect(options.nth(1)).toContainText("You edited");
 	});
 });

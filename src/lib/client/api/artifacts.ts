@@ -1003,7 +1003,8 @@ export class VersionRestoreRefusedError extends Error {
  * Restores an older version as a NEW version (never coalesced — ruling 47) and
  * returns its version number. `guard` is what the History page showed: a
  * restore over a version that arrived since is refused `version_conflict`
- * (`expectVersion`), and the restore toast's Undo names the restore it reverses
+ * (`expectVersion`), as is one over a save that coalesced into the newest version
+ * (`expectHash`, its body hash), and the restore toast's Undo names the restore it reverses
  * (`undoOf`) so the two fold into one quiet moment. Throws
  * `VersionRestoreRefusedError` for a documented refusal and a plain `Error` for
  * any other failure.
@@ -1017,7 +1018,9 @@ export async function restoreArtifactVersion(
 ): Promise<number> {
 	const hasGuard =
 		guard !== undefined &&
-		(guard.expectVersion !== undefined || guard.undoOf !== undefined);
+		(guard.expectVersion !== undefined ||
+			guard.expectHash !== undefined ||
+			guard.undoOf !== undefined);
 	const response = await requestResponse(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/restore${withConversationQuery(conversationId)}`,
 		hasGuard
@@ -1027,6 +1030,9 @@ export async function restoreArtifactVersion(
 					body: JSON.stringify({
 						...(guard.expectVersion !== undefined
 							? { expectVersion: guard.expectVersion }
+							: {}),
+						...(guard.expectHash !== undefined
+							? { expectHash: guard.expectHash }
 							: {}),
 						...(guard.undoOf !== undefined ? { undoOf: guard.undoOf } : {}),
 					}),

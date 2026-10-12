@@ -253,6 +253,13 @@ export interface ArtifactHistoryPage {
 	nextBefore: number | null;
 	/** The artifact's newest version number when this was read: the `expectVersion` of a restore made from it. */
 	newestVersion: number;
+	/**
+	 * The newest row's body hash when this was read: the `expectHash` of a restore
+	 * made from it. A reader's own saves coalesce into their latest version, so the
+	 * number alone cannot say that its words changed since (RC-V M-1). Absent from
+	 * an older server, and when there is no version yet.
+	 */
+	newestHash?: string;
 }
 
 export type ArtifactHistoryResponse =
@@ -291,13 +298,17 @@ export type NameVersionResponse =
 /**
  * `POST /api/artifacts/[id]/versions/[versionId]/restore`, JSON body optional.
  * `expectVersion` is the History page's `newestVersion`: a restore over a
- * newer version is refused `version_conflict` like a stale save. `undoOf` is
+ * newer version is refused `version_conflict` like a stale save. `expectHash`
+ * is the History page's `newestHash`: the reader's own saves coalesce into their
+ * latest version without changing its number, and a restore over words the page
+ * never showed is refused the same way (RC-V M-1). `undoOf` is
  * the version number of the newest row when the restore reverses it (the
  * restore toast's Undo, an App rebuild's Undo): it must be that row's parent
  * being restored, and it makes the summary name what was undone.
  */
 export interface RestoreVersionRequest {
 	expectVersion?: number;
+	expectHash?: string;
 	undoOf?: number;
 }
 

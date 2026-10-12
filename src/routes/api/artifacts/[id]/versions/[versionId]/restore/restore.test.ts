@@ -149,6 +149,47 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore", () => {
 		});
 	});
 
+	it("forwards the newest row's body hash the reader saw (RC-V M-1: a coalesced save keeps the number)", async () => {
+		mockRestoreVersion.mockResolvedValue({
+			ok: true,
+			versionId: "version-new",
+			versionNumber: 5,
+		});
+
+		await POST(
+			makeEvent("artifact-1", "version-1", "owner-user", null, {
+				expectVersion: 4,
+				expectHash: "abc123",
+			}),
+		);
+
+		expect(mockRestoreVersion).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			versionId: "version-1",
+			conversationId: null,
+			expectVersion: 4,
+			expectHash: "abc123",
+		});
+	});
+
+	it("answers 400 invalid_request, calling nothing, for a hash that is not a short text", async () => {
+		for (const expectHash of [7, null, "", "x".repeat(200)]) {
+			const response = await POST(
+				makeEvent("artifact-1", "version-1", "owner-user", null, {
+					expectVersion: 4,
+					expectHash,
+				}),
+			);
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "invalid_request",
+			});
+		}
+		expect(mockRestoreVersion).not.toHaveBeenCalled();
+	});
+
 	it("answers 409 version_conflict when the artifact moved past what the reader saw", async () => {
 		mockRestoreVersion.mockResolvedValue({
 			ok: false,

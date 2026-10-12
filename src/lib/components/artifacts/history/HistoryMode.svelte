@@ -26,6 +26,7 @@ import {
 	subscribeArtifactChanges,
 	VersionRestoreRefusedError,
 } from "$lib/client/api/artifacts";
+import { latestRowOfMoment } from "$lib/client/artifact-versions";
 import { documentTabsFromCardMetadata } from "$lib/components/artifacts/document/card-view";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { type I18nKey, t } from "$lib/i18n";
@@ -116,6 +117,8 @@ let moments = $state.raw<ArtifactMoment[]>([]);
 let older = $state(false);
 let nextBefore = $state<number | null>(null);
 let newestVersion = $state(0);
+/** The newest row's body hash when the page was read: with the number, what a restore guards with (a reader's save coalesces into their latest version without moving it). */
+let newestHash = $state<string | null>(null);
 let loadingOlder = $state(false);
 let filter = $state<RailFilter>("all");
 let selectedKey = $state<string | null>(null);
@@ -139,12 +142,17 @@ let restoring = $state(false);
 let restoreProblem = $state<string | null>(null);
 /**
  * The newest version the open question was asked over, and so what Restore
- * guards with (`expectVersion`). It is taken when the question opens, never when
- * the reader confirms: a version that arrives while they decide (a chat turn of
- * Alfy's in this very tab, which `refresh()` hears of and reads) would otherwise
- * be inside the guard, and the restore would bury a change nobody had looked at.
+ * guards with (`expectVersion`, and `expectHash`: the reader's own saves
+ * coalesce into their latest version, which keeps its number while its words
+ * change). It is taken when the question opens, never when the reader confirms:
+ * a version that arrives while they decide (a chat turn of Alfy's in this very
+ * tab, which `refresh()` hears of and reads) would otherwise be inside the guard,
+ * and the restore would bury a change nobody had looked at.
  */
-let restoreGuard = 0;
+let restoreGuard: { version: number; hash: string | null } = {
+	version: 0,
+	hash: null,
+};
 let toast = $state<{
 	message: string;
 	/** The version the Undo brings back (the row the restore sat on), and the restore's own number. */
@@ -411,6 +419,7 @@ async function load(): Promise<void> {
 		older = result.older;
 		nextBefore = result.nextBefore;
 		newestVersion = result.newestVersion;
+		newestHash = result.newestHash ?? null;
 		selectedKey = reconcileSelection(
 			buildRailGroups(result.moments, filter),
 			null,
@@ -485,12 +494,22 @@ async function refresh(): Promise<void> {
 		clock = Date.now();
 		moments = mergeFirstPage(result.moments, moments);
 		newestVersion = result.newestVersion;
+		newestHash = result.newestHash ?? null;
 		// A version arrived while the question stood open (not the restore's own,
-		// which `confirmRestore` is still waiting for): the reader is told, over the
-		// latest the rail now shows, and their next press is on that state.
-		if (restoreOpen && !restoring && result.newestVersion > restoreGuard) {
+		// which `confirmRestore` is still waiting for), or the newest one's words
+		// changed under the same number (a save of the reader's own coalesced into
+		// it): the reader is told, over the latest the rail now shows, and their next
+		// press is on that state.
+		if (
+			restoreOpen &&
+			!restoring &&
+			(result.newestVersion > restoreGuard.version ||
+				(restoreGuard.hash !== null &&
+					newestHash !== null &&
+					newestHash !== restoreGuard.hash))
+		) {
 			restoreProblem = $t("artifacts.history.restoreMoved");
-			restoreGuard = result.newestVersion;
+			restoreGuard = { version: result.newestVersion, hash: newestHash };
 		}
 		if (older || result.older) {
 			// The older end is unchanged by a new top; keep the paging cursor of what is loaded.
@@ -537,7 +556,14 @@ onMount(() => {
 			change.type === "version" &&
 			change.artifactId === artifactId &&
 			status === "ready" &&
-			change.version > newestVersion
+			(change.version > newestVersion ||
+				// The reader's own save coalesced into the newest version: its number is
+				// the same and its words are not. Only a time later than the newest row's
+				// own says so; History's own reads announce that row at its own time.
+				(change.version === newestVersion &&
+					change.updatedAt !== null &&
+					moments[0] !== undefined &&
+					change.updatedAt > (latestRowOfMoment(moments[0]).at ?? 0)))
 		) {
 			if (refreshTimer) clearTimeout(refreshTimer);
 			refreshTimer = setTimeout(() => void refresh(), 150);
@@ -656,7 +682,7 @@ function handleDismissHelp() {
 function askRestore() {
 	if (!canRestore) return;
 	restoreProblem = null;
-	restoreGuard = newestVersion;
+	restoreGuard = { version: newestVersion, hash: newestHash };
 	restoreOpen = true;
 }
 
@@ -699,14 +725,20 @@ async function confirmRestore() {
 	// The toast's Undo brings back the row the restore sat on top of.
 	const rowBelow = nowRow.versionId;
 	try {
-		// `expectVersion` is what the question was asked over: a restore over a
-		// version that arrived since is refused, like a stale save.
+		// `expectVersion` and `expectHash` are what the question was asked over: a
+		// restore over a version that arrived since, or over words a save changed in
+		// the newest one, is refused like a stale save.
 		const version = await restoreArtifactVersion(
 			artifactId,
 			entry.versionId,
 			conversationId,
 			undefined,
-			{ expectVersion: restoreGuard },
+			{
+				expectVersion: restoreGuard.version,
+				...(restoreGuard.hash !== null
+					? { expectHash: restoreGuard.hash }
+					: {}),
+			},
 		);
 		onRestored?.(version);
 		const when = whenLabel(entry.at, ctx);
@@ -726,7 +758,7 @@ async function confirmRestore() {
 			// latest, and let the reader ask again.
 			restoreProblem = $t("artifacts.history.restoreMoved");
 			await refresh();
-			restoreGuard = newestVersion;
+			restoreGuard = { version: newestVersion, hash: newestHash };
 		} else if (
 			error instanceof VersionRestoreRefusedError &&
 			error.reason === "not_runnable"

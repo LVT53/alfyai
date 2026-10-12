@@ -321,6 +321,70 @@ describe("restoreVersion", () => {
 			expect(contentOf(artifact.id)).toBe("v1 body");
 		});
 
+		// RC-V M-1: the reader's own saves coalesce into their latest version, so the
+		// newest version can hold new words under the SAME number. The number alone
+		// cannot say "it changed while you were looking"; the newest body's hash can.
+		it("refuses a restore over a save that coalesced into the newest version (same number, new words), and goes through on the hash the reader saw", async () => {
+			const { artifact, ids } = await setup();
+			const seen = hashArtifactBody("v2 body");
+
+			// The reader's late save lands after History loaded.
+			const late = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2 body, and a late line",
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			});
+			expect(late).toMatchObject({ ok: true, versionNumber: 2 });
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId: artifact.id,
+					versionId: ids.get(1) as string,
+					expectVersion: 2,
+					expectHash: seen,
+				}),
+			).resolves.toEqual({ ok: false, reason: "version_conflict" });
+			expect(contentOf(artifact.id)).toBe("v2 body, and a late line");
+			expect(
+				(await listVersions({ userId: OWNER, artifactId: artifact.id })).length,
+			).toBe(2);
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId: artifact.id,
+					versionId: ids.get(1) as string,
+					expectVersion: 2,
+					expectHash: hashArtifactBody("v2 body, and a late line"),
+				}),
+			).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+			expect(contentOf(artifact.id)).toBe("v1 body");
+		});
+
+		it("is optional: a caller that quotes no hash is guarded by the number alone, as before", async () => {
+			const { artifact, ids } = await setup();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2 body, and a late line",
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			});
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId: artifact.id,
+					versionId: ids.get(1) as string,
+					expectVersion: 2,
+				}),
+			).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+		});
+
 		it('names the restore it reverses: the toast\'s Undo writes "Undid restoring v3"', async () => {
 			const { artifact, ids } = await setup();
 			await restoreVersion({
