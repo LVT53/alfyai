@@ -350,6 +350,11 @@ test.describe("chat scroll — opening a conversation", () => {
 
 			if (viewport.width < 1024) {
 				await page.locator(".mobile-sidebar-toggle").click();
+				// Open before anything is waited on: with no transition running yet, "motion
+				// has settled" would be true of a drawer that has not started to move.
+				await expect(page.locator("aside.sidebar-panel")).toHaveClass(
+					/translate-x-0/,
+				);
 			} else {
 				await ensureSidebarExpanded(page);
 			}
