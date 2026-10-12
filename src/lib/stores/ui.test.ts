@@ -139,6 +139,50 @@ describe("the sidebar folded for a docked panel", () => {
 		expect(get(sidebarFoldedForPanel)).toBe(true);
 	});
 
+	it("opens on the press of a sidebar the reader collapsed, and the panel does not fold it back (FB-9)", async () => {
+		const {
+			setSidebarFoldNeeded,
+			sidebarCollapsed,
+			sidebarFoldedForPanel,
+			toggleSidebarCollapsed,
+		} = await loadUiStore();
+		sidebarCollapsed.set(true);
+
+		// A docked panel that would squeeze the chat beside an open sidebar.
+		setSidebarFoldNeeded(true);
+		toggleSidebarCollapsed();
+		expect(get(sidebarCollapsed)).toBe(false);
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		// The page keeps saying the panel needs the room: the press stands.
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		// The panel goes: the sidebar stays as the reader pressed it.
+		setSidebarFoldNeeded(false);
+		expect(get(sidebarCollapsed)).toBe(false);
+		expect(get(sidebarFoldedForPanel)).toBe(false);
+		// The next panel that needs the room folds it to its rail again.
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(true);
+	});
+
+	it("does not carry a press over to a panel that comes later", async () => {
+		const {
+			setSidebarFoldNeeded,
+			sidebarCollapsed,
+			sidebarFoldedForPanel,
+			toggleSidebarCollapsed,
+		} = await loadUiStore();
+		sidebarCollapsed.set(true);
+
+		// No panel: the press is only the reader's preference.
+		setSidebarFoldNeeded(false);
+		toggleSidebarCollapsed();
+		expect(get(sidebarCollapsed)).toBe(false);
+		// A panel that needs the room opens afterwards: the sidebar folds for it.
+		setSidebarFoldNeeded(true);
+		expect(get(sidebarFoldedForPanel)).toBe(true);
+	});
+
 	it("toggles the reader's preference when nothing is folded", async () => {
 		const { sidebarCollapsed, toggleSidebarCollapsed } = await loadUiStore();
 		sidebarCollapsed.set(true);

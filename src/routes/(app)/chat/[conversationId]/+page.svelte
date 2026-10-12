@@ -102,7 +102,6 @@ import {
 import {
 	currentConversationId,
 	setSidebarFoldNeeded,
-	sidebarCollapsed,
 	sidebarWidth,
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
@@ -1090,14 +1089,15 @@ let isArtifactPanelOpen = $derived(
 // (`CHAT_COLUMN_FLOOR`): the panel gives up width before the chat goes under it
 // (the panel's own CSS), and when the chat would be under it anyway because the
 // sidebar is open, the sidebar folds to its rail and comes back when the panel
-// goes (FB-3, F3). The reader's own choice of sidebar is never changed.
+// goes (FB-3, F3). The reader's own choice of sidebar is never changed by the
+// fold, and the page says what the panel needs whatever that choice is (a press on
+// the reader's own rail has to be able to stand: FB-9).
 let windowWidth = $state(browser ? window.innerWidth : 0);
 let dockPreferredWidth = $state(950);
 let sidebarNeededForPanel = $derived(
 	browser &&
 		isArtifactPanelOpen &&
 		viewportStore.tier === "desktop" &&
-		!$sidebarCollapsed &&
 		windowWidth > 0 &&
 		chatWouldBeSqueezed(dockPreferredWidth, windowWidth - $sidebarWidth),
 );

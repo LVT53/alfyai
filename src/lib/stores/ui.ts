@@ -152,30 +152,37 @@ export const sidebarCollapsed = writable<boolean>(
  * The desktop sidebar is on its rail because a docked panel needs the room
  * (FB-3, F3). Not a preference: never stored, and the reader's own choice
  * (`sidebarCollapsed`) is left alone, so the sidebar comes back as it was when
- * the panel goes.
+ * the panel goes. It is also set while the reader's own choice is the rail
+ * (the panel would need the room if the sidebar were open), which changes
+ * nothing on screen but lets the reader's press on that rail stand.
  */
 export const sidebarFoldedForPanel = writable<boolean>(false);
 let sidebarFoldDismissed = false;
+let sidebarFoldNeeded = false;
 
 /** The chat page says whether its docked panel needs the sidebar's room right now. */
 export function setSidebarFoldNeeded(needed: boolean): void {
+	sidebarFoldNeeded = needed;
 	// The panel went, or fits: the next squeeze folds the sidebar again.
 	if (!needed) sidebarFoldDismissed = false;
 	sidebarFoldedForPanel.set(needed && !sidebarFoldDismissed);
 }
 
 /**
- * The sidebar's own button. On the rail the panel folded it to, it opens the
- * sidebar and keeps it open for as long as that panel stays; otherwise it
- * toggles the reader's preference.
+ * The sidebar's own button. On a rail it opens the sidebar, whether the panel
+ * folded it there or the reader's own choice is the rail, and keeps it open for
+ * as long as a panel that needs the room stays (FB-9: a press on the reader's
+ * own rail was folded straight back by the panel and opened nothing); on the
+ * open sidebar it collapses it, the reader's preference.
  */
 export function toggleSidebarCollapsed(): void {
-	if (get(sidebarFoldedForPanel)) {
-		sidebarFoldDismissed = true;
+	if (get(sidebarFoldedForPanel) || get(sidebarCollapsed)) {
+		if (sidebarFoldNeeded) sidebarFoldDismissed = true;
 		sidebarFoldedForPanel.set(false);
+		sidebarCollapsed.set(false);
 		return;
 	}
-	sidebarCollapsed.update((collapsed) => !collapsed);
+	sidebarCollapsed.set(true);
 }
 
 function readProjectFolderExpanded(): Record<string, boolean> {
