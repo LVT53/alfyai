@@ -33,6 +33,8 @@ function makeKnowledgeDocument(
 		originConversationId: overrides.originConversationId ?? null,
 		originAssistantMessageId: overrides.originAssistantMessageId ?? null,
 		sourceChatFileId: overrides.sourceChatFileId ?? null,
+		generatedFileName: overrides.generatedFileName ?? null,
+		generatedFileMimeType: overrides.generatedFileMimeType ?? null,
 		kind: overrides.kind,
 		artifactVersionNumber: overrides.artifactVersionNumber,
 		lastAuthor: overrides.lastAuthor,
@@ -106,6 +108,48 @@ describe("workspace document helpers", () => {
 			artifactId: "generated-v2",
 			sourceChatFileId: "chat-file-v2",
 			documentFamilyId: "family-report",
+		});
+	});
+
+	// FB-8 (FB-1's finding 3): a source-first generated row is listed as the
+	// source document it was rendered from, whose mime no preview can draw; the
+	// file it downloads is what the preview must be of.
+	it("opens a source-first generated row as the file it downloads, so its preview is that file's", () => {
+		const document = makeKnowledgeDocument({
+			id: "generated-source-first",
+			type: "generated_output",
+			displayArtifactId: "generated-source-first",
+			promptArtifactId: "generated-source-first",
+			familyArtifactIds: ["generated-source-first"],
+			name: "Bécsi hétvégi útiterv",
+			mimeType: "application/vnd.alfyai.generated-document+json",
+			documentOrigin: "generated",
+			documentFamilyId: "family-trip",
+			sourceChatFileId: "chat-file-pdf",
+			generatedFileName: "becsi-hetvegi-utiterv.pdf",
+			generatedFileMimeType: "application/pdf",
+		});
+
+		expect(toWorkspaceDocument(document)).toMatchObject({
+			title: "Bécsi hétvégi útiterv",
+			filename: "becsi-hetvegi-utiterv.pdf",
+			mimeType: "application/pdf",
+			sourceChatFileId: "chat-file-pdf",
+		});
+	});
+
+	it("keeps a row's own name and type when no file is named", () => {
+		const document = makeKnowledgeDocument({
+			id: "plain",
+			displayArtifactId: "plain",
+			promptArtifactId: "plain",
+			familyArtifactIds: ["plain"],
+			name: "Notes.md",
+			mimeType: "text/markdown",
+		});
+		expect(toWorkspaceDocument(document)).toMatchObject({
+			filename: "Notes.md",
+			mimeType: "text/markdown",
 		});
 	});
 

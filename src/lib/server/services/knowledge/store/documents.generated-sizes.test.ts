@@ -7,6 +7,10 @@
 // row's size, read for the user's own files only.
 //
 // A real migrated SQLite file: the claim is about what the library lists.
+//
+// FB-8 (FB-1's finding 3) extends it to the file's NAME and TYPE: a source-first
+// row's own mime is the source document's JSON, so opening it from the library
+// said "Preview not available for this file type" for a PDF that downloads fine.
 
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
@@ -153,6 +157,52 @@ describe("a generated row's size in the Knowledge library", () => {
 
 		expect(sizes["gen-source-first"]).toBe(373_760);
 		expect(sizes["gen-memory"]).toBe(18);
+	});
+
+	it("names the file and type the row downloads, so the library opens a preview of that file and not of the source it was rendered from", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedChatFile(db, "file-pdf", USER, 373_760);
+		seedGeneratedRow(db, "gen-source-first", "file-pdf", null);
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		const row = page.documents.find(
+			(document) => document.id === "gen-source-first",
+		);
+
+		expect(row).toMatchObject({
+			generatedFileName: "file-pdf.pdf",
+			generatedFileMimeType: "application/pdf",
+		});
+		// The row itself is still the source it is listed as.
+		expect(row?.mimeType).toBe(
+			"application/vnd.alfyai.generated-document+json",
+		);
+	});
+
+	it("names no file that is not the user's, or is not there", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedChatFile(db, "file-theirs", OTHER, 999_999);
+		seedGeneratedRow(db, "gen-foreign-file", "file-theirs", 5);
+		seedGeneratedRow(db, "gen-no-such-file", "file-gone", 7);
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		for (const id of ["gen-foreign-file", "gen-no-such-file"]) {
+			const row = page.documents.find((document) => document.id === id);
+			expect(row?.generatedFileName ?? null, id).toBeNull();
+			expect(row?.generatedFileMimeType ?? null, id).toBeNull();
+		}
 	});
 
 	it("leaves the row's own size when the file is not the user's, or is not there", async () => {

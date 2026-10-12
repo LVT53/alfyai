@@ -1,4 +1,10 @@
-import { expect, type Page, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import {
+	type APIRequestContext,
+	expect,
+	type Page,
+	test,
+} from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -9,9 +15,11 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 import {
+	buildGeneratedDocumentSource,
 	createDocumentArtifact,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import { formatByteSize } from "../../src/lib/utils/format";
 import {
 	APP_HTML,
@@ -36,6 +44,56 @@ async function openMemoryProfile(page: Page) {
 	await expect(
 		page.getByRole("heading", { name: "About You", exact: true }),
 	).toBeVisible();
+}
+
+/**
+ * A source-first PDF the way `produce_file` makes one for a reply (the produce route,
+ * a normal job): the library lists it as a generated row. An EXPORT is not a way to
+ * get one any more (FB-8: a Download is delivery, it makes no row of the library).
+ * Resolves with the job's file once it has been made.
+ */
+async function produceGeneratedPdf(
+	request: APIRequestContext,
+	conversationId: string,
+	title: string,
+): Promise<{ id: string; sizeBytes: number }> {
+	const produced = await request.post("/api/chat/files/produce", {
+		data: {
+			conversationId,
+			idempotencyKey: randomUUID(),
+			requestTitle: title,
+			sourceMode: "document_source",
+			documentSource: buildGeneratedDocumentSource({
+				title,
+				blocks: parseDocument("Book the hotel. Then the museum.", {
+					mint: false,
+				}).blocks,
+			}),
+			requestedOutputs: [{ type: "pdf" }],
+		},
+	});
+	expect(produced.status()).toBe(202);
+	const { job } = (await produced.json()) as { job: { id: string } };
+	let file: { id: string; sizeBytes: number } | null = null;
+	await expect
+		.poll(
+			async () => {
+				const read = await request.get(`/api/chat/files/jobs/${job.id}`);
+				const body = (await read.json()) as {
+					job: {
+						status: string;
+						files: { id: string; sizeBytes: number }[];
+					};
+				};
+				file =
+					body.job.status === "succeeded" ? (body.job.files[0] ?? null) : null;
+				return file?.sizeBytes ?? null;
+			},
+			{ timeout: 30_000 },
+		)
+		.toBeGreaterThan(1_000);
+	if (!file) throw new Error("the produced PDF is missing");
+	return file;
 }
 
 test.describe("Knowledge page", () => {
@@ -434,7 +492,7 @@ test.describe("Knowledge page", () => {
 			updatedAt: now,
 		});
 		const title = `Sizes walk ${Date.now()}`;
-		const created = await createDocumentArtifact({
+		await createDocumentArtifact({
 			userId: user.id,
 			conversationId,
 			title,
@@ -444,29 +502,8 @@ test.describe("Knowledge page", () => {
 		});
 
 		try {
-			// A real PDF, made the way the panel makes it.
-			const exported = await page.request.post(
-				`/api/artifacts/${created.id}/export`,
-				{ data: { format: "pdf" } },
-			);
-			expect(exported.status()).toBe(202);
-			const { job } = (await exported.json()) as { job: { id: string } };
-			await expect
-				.poll(
-					async () => {
-						const read = await page.request.get(
-							`/api/chat/files/jobs/${job.id}`,
-						);
-						const body = (await read.json()) as {
-							job: { status: string; files: { sizeBytes: number }[] };
-						};
-						return body.job.status === "succeeded"
-							? body.job.files[0]?.sizeBytes
-							: null;
-					},
-					{ timeout: 30_000 },
-				)
-				.toBeGreaterThan(1_000);
+			// A real PDF, made the way produce_file makes one for a reply.
+			await produceGeneratedPdf(page.request, conversationId, title);
 			const [file] = await db
 				.select({ sizeBytes: chatGeneratedFiles.sizeBytes })
 				.from(chatGeneratedFiles)
@@ -491,6 +528,58 @@ test.describe("Knowledge page", () => {
 				.filter({ has: page.locator(".col-type .type-artifact") });
 			await expect(documentRow).toHaveCount(1);
 			await expect(documentRow.locator(".col-size")).toHaveText("—");
+		} finally {
+			await db
+				.delete(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, conversationId));
+			await db
+				.delete(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			await db
+				.delete(artifacts)
+				.where(eq(artifacts.conversationId, conversationId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// FB-8 (FB-1's finding 3): a source-first generated row is listed as the source
+	// document it was rendered from, and opening it said "Preview not available for
+	// this file type" for a PDF that downloads fine. It opens the file it downloads.
+	test("a source-first generated row opens a preview of its file, not 'Preview not available'", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-preview-conv-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the preview case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const title = `Preview walk ${Date.now()}`;
+
+		try {
+			await produceGeneratedPdf(page.request, conversationId, title);
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+
+			const generatedRow = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-generated") });
+			await expect(generatedRow).toHaveCount(1);
+			await generatedRow.getByText(title).first().click();
+
+			await expect(page.locator(".pdf-canvas").first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await expect(page.getByText(/Preview not available/)).toHaveCount(0);
 		} finally {
 			await db
 				.delete(fileProductionJobs)
