@@ -575,10 +575,16 @@ test.describe("the chat keeps its room beside a docked panel", () => {
 });
 
 /**
- * F15: the first time a reader opens a Document, an App or a Canvas the tour card
- * arrived ~230 ms after the item had painted and was put in the flow above it, so
- * the Document moved 120-190 px, the board re-fitted (100% -> 87%) and, when the
- * card left, moved back. The card is laid over the item now: nothing under it moves.
+ * F15 (ruling 77): the first time a reader opens a Document, an App or a Canvas the tour
+ * card arrived ~230 ms after the item had painted and was put in the flow above it, so the
+ * Document moved 120-190 px, the board re-fitted (100% -> 87%) and, when the card left,
+ * moved back. FB-3 laid the card over the item (nothing moved, but the card covered the
+ * toolbar and the first lines); FX-2 put it back in the flow with its room made before the
+ * body paints: the item is under the card from its first frame and nothing of it is covered,
+ * so nothing moves when the card ARRIVES. When the reader dismisses it the room closes with
+ * the card's own short transition (what is below it glides up as the height shrinks: a
+ * layout change and what it made room for move together), and on a phone the card has a
+ * compact form so the text still starts above the middle of the screen while it is up.
  */
 test.describe("the tour card arrives without moving what the reader just saw", () => {
 	const BODIES = {
@@ -587,9 +593,13 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		canvas: ".workspace-stage .svelte-flow__viewport",
 	} as const;
 
-	async function freshReader(page: Page, kind: keyof typeof BODIES) {
+	async function freshReader(
+		page: Page,
+		kind: keyof typeof BODIES,
+		language: "en" | "hu" = "en",
+	) {
 		await installMotionRecorder(page);
-		const user = await createTourUser("en");
+		const user = await createTourUser(language);
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, kind);
 		await reopenChat(page, chatId);
@@ -603,8 +613,56 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		return frames.slice(Math.max(cardAt - 1, 0));
 	}
 
+	/**
+	 * How the item's top edge travels over the frames (up is positive): the whole distance, the
+	 * biggest single step, how many frames moved it and over how long. A cut is one frame that
+	 * takes all of it; a glide is many small ones.
+	 */
+	function glideOf(frames: MotionFrame[]) {
+		const samples = frames.flatMap((frame) =>
+			frame.tracked.body ? [{ t: frame.t, y: frame.tracked.body.y }] : [],
+		);
+		let maxStep = 0;
+		let moving = 0;
+		let firstMove = -1;
+		let lastMove = 0;
+		for (let index = 1; index < samples.length; index++) {
+			const step = Math.abs(samples[index].y - samples[index - 1].y);
+			maxStep = Math.max(maxStep, step);
+			if (step > 0.5) {
+				moving += 1;
+				if (firstMove < 0) firstMove = samples[index].t;
+				lastMove = samples[index].t;
+			}
+		}
+		return {
+			travel: (samples[0]?.y ?? 0) - (samples.at(-1)?.y ?? 0),
+			maxStep,
+			moving,
+			spanMs: firstMove < 0 ? 0 : lastMove - firstMove,
+		};
+	}
+
+	/** How far the board's blocks, taken together, stand from the middle of their pane (px, up or down). */
+	async function boardOffCentre(page: Page) {
+		const pane = await page.getByTestId("canvas-board").boundingBox();
+		const nodes = page.getByTestId("canvas-node");
+		let top = Number.POSITIVE_INFINITY;
+		let bottom = Number.NEGATIVE_INFINITY;
+		for (let index = 0; index < (await nodes.count()); index++) {
+			const box = await nodes.nth(index).boundingBox();
+			if (!box) continue;
+			top = Math.min(top, box.y);
+			bottom = Math.max(bottom, box.y + box.height);
+		}
+		if (!pane || top === Number.POSITIVE_INFINITY) {
+			throw new Error("the board is not on screen");
+		}
+		return (top + bottom) / 2 - (pane.y + pane.height / 2);
+	}
+
 	for (const kind of ["document", "app", "canvas"] as const) {
-		test(`a ${kind} stays where it painted when its card arrives and when it leaves`, async ({
+		test(`a ${kind} stays where it painted when its card arrives, and gets the card's room back as a glide when the card is dismissed`, async ({
 			page,
 		}) => {
 			await freshReader(page, kind);
@@ -623,6 +681,18 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 			await page.waitForTimeout(400);
 			await waitForMotionToSettle(page);
 			const arrival = await stopRecording(page);
+
+			// The room the card holds in the page: its own height and the margin above it (the
+			// exit shrinks a wrapper that holds both), and, for a board, how it stands in its
+			// pane with the card up.
+			const room = await tourCard(page).evaluate(
+				(card) =>
+					card.getBoundingClientRect().height +
+					Number.parseFloat(getComputedStyle(card).marginTop),
+			);
+			expect(room, "the card holds room in the page").toBeGreaterThan(100);
+			const offCentreWithCard =
+				kind === "canvas" ? await boardOffCentre(page) : 0;
 
 			await startRecording(page, { body: BODIES[kind] });
 			await finishTour(page);
@@ -653,31 +723,68 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 				};
 			};
 			const arriving = moves(sinceCard(arrival.frames));
-			const leaves = moves(leaving.frames);
+			const closing = glideOf(leaving.frames);
 			noteNumbers(`tour-${kind}`, {
 				arrivalTopMove: arriving.top,
 				arrivalWidthChange: arriving.width,
 				arrivalFits: arriving.fits,
-				leaveTopMove: leaves.top,
-				leaveFits: leaves.fits,
+				room,
+				leaveTravel: closing.travel,
+				leaveMaxStep: closing.maxStep,
+				leaveMovingFrames: closing.moving,
+				leaveSpanMs: closing.spanMs,
 				shiftAll: shiftSum(arrival),
 			});
+
+			// ARRIVING: nothing under the card moves, and nothing is resized for it.
 			if (kind === "canvas") {
 				// The viewport element's box is its transform: the board is fitted once and stays so.
 				expect(arriving.fits, "the board re-fitted for the card").toBe(1);
-				expect(leaves.fits, "the board re-fitted when the card left").toBe(1);
-				expect(leaves.top, "the board moved when the card left").toBeLessThan(
-					1.5,
-				);
-				return;
+			} else {
+				expect(
+					arriving.top,
+					"the item moved when the card arrived",
+				).toBeLessThan(1.5);
+				expect(
+					arriving.width,
+					"the item was resized for the card",
+				).toBeLessThan(1.5);
 			}
-			expect(arriving.top, "the item moved when the card arrived").toBeLessThan(
-				1.5,
-			);
-			expect(arriving.width, "the item was resized for the card").toBeLessThan(
-				1.5,
-			);
-			expect(leaves.top, "the item moved when the card left").toBeLessThan(1.5);
+
+			// LEAVING: the room closes with the card's short transition and what is below it
+			// moves with it, a few pixels a frame: no cut, and not a slow drift either.
+			expect(
+				closing.moving,
+				"the room closed in one cut",
+			).toBeGreaterThanOrEqual(4);
+			expect(
+				closing.maxStep,
+				"one frame took most of the way",
+			).toBeLessThanOrEqual(Math.abs(closing.travel) * 0.5 + 1);
+			expect(
+				closing.spanMs,
+				"the room took too long to close",
+			).toBeLessThanOrEqual(600);
+			if (kind === "canvas") {
+				// The board follows its pane as the pane grows, and ends as centred in it as it was.
+				const offCentreAfter = await boardOffCentre(page);
+				expect(
+					Math.abs(offCentreAfter),
+					"the board is not centred in its larger pane",
+				).toBeLessThan(2);
+				expect(Math.abs(offCentreWithCard)).toBeLessThan(2);
+				expect(
+					moves(leaving.frames).fits,
+					"the board did not follow its pane",
+				).toBeGreaterThan(1);
+			} else {
+				// The item goes up by exactly the room the card held: where it would have been
+				// had no card ever shown.
+				expect(
+					Math.abs(closing.travel - room),
+					"the item did not end where it would be without the card",
+				).toBeLessThan(2);
+			}
 		});
 	}
 
@@ -702,52 +809,73 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		await expect(link).toBeVisible();
 	});
 
-	test.describe("on a phone", () => {
-		test.use({
-			viewport: { width: 390, height: 844 },
-			hasTouch: true,
-			isMobile: true,
-		});
-
-		test("the text does not start below the middle of the screen while the card is up", async ({
-			page,
-		}) => {
-			await freshReader(page, "document");
-			await page.getByTestId("artifact-count-button-compact").tap();
-			await expect(panelList(page)).toBeVisible();
-			await waitForMotionToSettle(page);
-			await startRecording(page, {
-				card: '[data-testid="artifact-tour"]',
-				body: ".workspace-stage .ProseMirror",
+	// A phone gets the card in its compact form (one row for the step line and the buttons, a
+	// small picture): the Document's text starts above the middle of the screen while the card
+	// is up, in the narrowest common width and in the language that runs longer.
+	for (const { width, language } of [
+		{ width: 390, language: "en" },
+		{ width: 360, language: "hu" },
+	] as const) {
+		test.describe(`on a phone, ${width} px wide in ${language}`, () => {
+			test.use({
+				viewport: { width, height: 844 },
+				hasTouch: true,
+				isMobile: true,
 			});
-			await panelList(page)
-				.getByTestId("artifact-row")
-				.filter({ hasText: ITEM_TITLES.document })
-				.tap();
-			await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
-			await page.waitForTimeout(400);
-			await waitForMotionToSettle(page);
-			const run = await stopRecording(page);
 
-			const settled = run.frames.at(-1);
-			const body = settled?.tracked.body;
-			const card = settled?.tracked.card;
-			expect(body && card).toBeTruthy();
-			noteNumbers("tour-phone", {
-				bodyTop: body?.y,
-				cardBottom: card ? card.y + card.h : null,
+			test("the text does not start below the middle of the screen while the card is up", async ({
+				page,
+			}) => {
+				await freshReader(page, "document", language);
+				await page.getByTestId("artifact-count-button-compact").tap();
+				await expect(panelList(page)).toBeVisible();
+				await waitForMotionToSettle(page);
+				await startRecording(page, {
+					card: '[data-testid="artifact-tour"]',
+					body: ".workspace-stage .ProseMirror",
+				});
+				await panelList(page)
+					.getByTestId("artifact-row")
+					.filter({ hasText: ITEM_TITLES.document })
+					.tap();
+				await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
+				await page.waitForTimeout(400);
+				await waitForMotionToSettle(page);
+				const run = await stopRecording(page);
+
+				const settled = run.frames.at(-1);
+				const body = settled?.tracked.body;
+				const card = settled?.tracked.card;
+				expect(body && card).toBeTruthy();
+				noteNumbers(`tour-phone-${width}-${language}`, {
+					bodyTop: body?.y,
+					cardBottom: card ? card.y + card.h : null,
+				});
+				// The text starts high on the screen (it does not wait below a card in the flow)...
+				expect(body?.y ?? 9999).toBeLessThanOrEqual(844 / 2);
+				// ...and what the card hides of it is the card's own height, not more than a half of the screen.
+				expect((card?.y ?? 0) + (card?.h ?? 9999)).toBeLessThanOrEqual(844 / 2);
+				// Nothing moved when the card came.
+				const arrived = sinceCard(run.frames);
+				const first = arrived[0]?.tracked.body;
+				for (const frame of arrived) {
+					if (!frame.tracked.body || !first) continue;
+					expect(Math.abs(frame.tracked.body.y - first.y)).toBeLessThan(1.5);
+				}
+
+				// The compact card keeps a finger's room: Skip and Next are at least 44 px each way.
+				for (const id of ["artifact-tour-skip", "artifact-tour-next"]) {
+					const box = await tourCard(page).getByTestId(id).boundingBox();
+					expect(
+						box?.height ?? 0,
+						`${id} is too short for a finger`,
+					).toBeGreaterThanOrEqual(44);
+					expect(
+						box?.width ?? 0,
+						`${id} is too narrow for a finger`,
+					).toBeGreaterThanOrEqual(44);
+				}
 			});
-			// The text starts high on the screen (it does not wait below a card in the flow)...
-			expect(body?.y ?? 9999).toBeLessThanOrEqual(844 / 2);
-			// ...and what the card hides of it is the card's own height, not more than a half of the screen.
-			expect((card?.y ?? 0) + (card?.h ?? 9999)).toBeLessThanOrEqual(844 / 2);
-			// Nothing moved when the card came.
-			const arrived = sinceCard(run.frames);
-			const first = arrived[0]?.tracked.body;
-			for (const frame of arrived) {
-				if (!frame.tracked.body || !first) continue;
-				expect(Math.abs(frame.tracked.body.y - first.y)).toBeLessThan(1.5);
-			}
 		});
-	});
+	}
 });

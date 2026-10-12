@@ -17,6 +17,7 @@ import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	createEmptyConversation,
 	login,
+	waitForHydration,
 	waitForMotionToSettle,
 	waitForStableBoundingBox,
 } from "./helpers";
@@ -99,33 +100,63 @@ export async function openChatAndReload(page: Page, conversationId: string) {
 	await page.reload({ waitUntil: "networkidle" });
 }
 
-/** Opens the panel on the chat's one Canvas (the count button, then its row); a no-op when the reload already restored it. */
+/**
+ * Opens the panel on the chat's one Canvas (the count button, then its row); a no-op when the
+ * reload already restored it.
+ *
+ * Whether the panel is coming back is read from the count button, which says "pressed" as soon
+ * as the page has the panel, long before the editor's lazy chunk is on screen. It is not read
+ * from the editor: on a busy machine the editor can take longer than any short wait, and the
+ * count button toggles, so pressing it while the restored panel is still loading CLOSES it and
+ * nothing is left to wait for (the release gate's charts test hung that way for a minute).
+ */
 export async function openCanvasPanel(page: Page) {
 	const isMobile = (page.viewportSize()?.width ?? 1440) < 768;
 	const editor = page.getByTestId("canvas-editor");
-	const alreadyShowing = await editor
-		.waitFor({ state: "visible", timeout: 2_000 })
-		.then(() => true)
-		.catch(() => false);
-	if (!alreadyShowing) {
-		await page
-			.getByTestId(
-				isMobile ? "artifact-count-button-compact" : "artifact-count-button",
-			)
-			.click();
-		const list = page.getByTestId(
-			isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
-		);
-		// A panel that was closed on the board brings the board back (FB-3, F26);
-		// otherwise it opens on the list, and the first row is the board.
-		const first = await Promise.race([
-			editor.waitFor({ state: "visible" }).then(() => "board" as const),
-			list.waitFor({ state: "visible" }).then(() => "list" as const),
-		]).catch(() => "list" as const);
-		if (first === "list")
-			await list.getByTestId("artifact-row").first().click();
+	const countButton = page.getByTestId(
+		isMobile ? "artifact-count-button-compact" : "artifact-count-button",
+	);
+	// A click before hydration lands on inert markup, and a page that has not hydrated cannot
+	// have restored a panel yet.
+	await waitForHydration(page);
+	const comingBack = await Promise.race([
+		editor.waitFor({ state: "visible", timeout: 2_000 }).then(
+			() => true,
+			() => false,
+		),
+		expect
+			.poll(() => countButton.getAttribute("aria-pressed"), { timeout: 2_000 })
+			.toBe("true")
+			.then(
+				() => true,
+				() => false,
+			),
+	]);
+	if (!comingBack) {
+		await countButton.click();
 	}
-	await expect(editor).toBeVisible();
+	const list = page.getByTestId(
+		isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
+	);
+	// A panel that was closed on the board brings the board back (FB-3, F26);
+	// otherwise it opens on the list, and the first row is the board.
+	const first = await Promise.race([
+		editor
+			.waitFor({ state: "visible", timeout: 20_000 })
+			.then(() => "board" as const),
+		list
+			.waitFor({ state: "visible", timeout: 20_000 })
+			.then(() => "list" as const),
+	]).catch(async () => {
+		// Say what the page looked like, so a panel that closed behind the helper's back is
+		// not a minute of silence and a closed-page error.
+		const pressed = await countButton.getAttribute("aria-pressed");
+		throw new Error(
+			`openCanvasPanel: neither the board nor the panel's list showed within 20 s (the count button was pressed: ${pressed}; it was pressed by the helper: ${!comingBack})`,
+		);
+	});
+	if (first === "list") await list.getByTestId("artifact-row").first().click();
+	await expect(editor).toBeVisible({ timeout: 20_000 });
 	// The loading skeleton gives way to the board.
 	await expect(page.getByTestId("canvas-board")).toBeVisible({
 		timeout: 15_000,
