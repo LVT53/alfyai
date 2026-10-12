@@ -453,6 +453,22 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 		expect(entry?.metadata).toMatchObject({ ok: true, refusedUrlCount: 1 });
 	});
 
+	it("hands Parallel no fragment: the address check never compared it", async () => {
+		// The comparison form leaves the fragment out, so an address the user gave
+		// passes with any fragment the model adds. Parallel's reader opens what it is
+		// handed, and on a page that runs script the fragment is the page's to read,
+		// so what is sent is the address the check compared, without one.
+		const set = tools({ requestText: "Read https://example.com/post?id=7" });
+
+		const result = await fetchUrl(set, [
+			"https://example.com/post?id=7#PRIVATE-DATA",
+		]);
+
+		expect(parallelCallUrls()).toEqual(["https://example.com/post?id=7"]);
+		expect(result.success).toBe(true);
+		expect(JSON.stringify(result)).not.toContain("PRIVATE-DATA");
+	});
+
 	it("opens a link found on a page fetched earlier in the same turn", async () => {
 		const set = tools({ requestText: "Summarize https://news.example/story" });
 		fetchUrlViaParallelMock.mockImplementationOnce(async (input) =>

@@ -887,10 +887,18 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												refusedCount,
 											);
 										}
-										// What is fetched, cached and billed is what was allowed.
+										// What is fetched, cached and billed is what was allowed,
+										// as the check compared it: the comparison leaves the
+										// fragment out, so none is handed on (Parallel's reader
+										// opens the address it is given, and a page that runs
+										// script can read its fragment).
 										const fetchInput: FetchUrlInput = {
 											...safeInput,
-											urls: allowed,
+											urls: [
+												...new Set(
+													allowed.map((url) => url.split("#", 1)[0] ?? url),
+												),
+											],
 										};
 										// Per-conversation cache: fetching the same URL set again
 										// this conversation (including a fetch_url that repeats a
