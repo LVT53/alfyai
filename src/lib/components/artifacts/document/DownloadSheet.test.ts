@@ -5,7 +5,9 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearToasts, toasts } from "$lib/stores/toast";
 
 const {
 	mockExportArtifactDocument,
@@ -183,6 +185,94 @@ describe("DownloadSheet", () => {
 				"This is taking longer than expected. Try again in a moment.",
 			),
 		).toBeInTheDocument();
+	});
+
+	// Friction build FB-8 (FB-1's concern 4): a reader may close the popover while
+	// their file is being made, and the download still starts when it is ready. When
+	// it does NOT work there is no popover left to say so, so the app says it.
+	describe("when the popover was closed before the file failed", () => {
+		afterEach(() => {
+			clearToasts();
+		});
+
+		async function closeWhileMaking(kind: "document" | "app" = "document") {
+			let finish: (result: { ok: false; reason: string }) => void = () => {};
+			mockDownloadProducedFile.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			const { unmount } = render(DownloadSheet, {
+				artifactId: "artifact-1",
+				title: "Trip plan",
+				conversationId: "conv-1",
+				kind,
+				onClose: vi.fn(),
+			});
+			await fireEvent.click(
+				screen.getByRole("button", {
+					name: kind === "app" ? /html/i : "PDF",
+				}),
+			);
+			unmount();
+			return finish;
+		}
+
+		it("tells the reader in a toast, with the same sentence the popover would have said", async () => {
+			const finish = await closeWhileMaking();
+			expect(get(toasts)).toEqual([]);
+			finish({ ok: false, reason: "job_failed" });
+			await waitFor(() =>
+				expect(get(toasts)).toEqual([
+					expect.objectContaining({
+						type: "error",
+						message: "Could not create this file.",
+					}),
+				]),
+			);
+		});
+
+		it("says a wait that ran out as it says it in the popover", async () => {
+			const finish = await closeWhileMaking();
+			finish({ ok: false, reason: "timeout" });
+			await waitFor(() =>
+				expect(get(toasts)[0]?.message).toBe(
+					"This is taking longer than expected. Try again in a moment.",
+				),
+			);
+		});
+
+		it("speaks of the app, for an App", async () => {
+			const finish = await closeWhileMaking("app");
+			finish({ ok: false, reason: "job_failed" });
+			await waitFor(() =>
+				expect(get(toasts)[0]?.message).toBe(
+					"Could not prepare this app for download.",
+				),
+			);
+		});
+
+		it("is silent when the file did download: the reader has it", async () => {
+			let finish: (result: { ok: true; filename: string }) => void = () => {};
+			mockDownloadProducedFile.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			const { unmount } = render(DownloadSheet, {
+				artifactId: "artifact-1",
+				title: "Trip plan",
+				conversationId: "conv-1",
+				onClose: vi.fn(),
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+			unmount();
+			finish({ ok: true, filename: "trip-plan.pdf" });
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(get(toasts)).toEqual([]);
+		});
 	});
 
 	describe("an App", () => {

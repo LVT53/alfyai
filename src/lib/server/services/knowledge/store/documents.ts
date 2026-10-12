@@ -744,6 +744,11 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 			if (!metadata.sourceChatFileId) {
 				continue;
 			}
+			// A Download's file is delivery, not a generated file of the library
+			// (FB-8): the Document it came from has its own Download.
+			if (rawMetadataById.get(artifact.id)?.artifactExport === true) {
+				continue;
+			}
 			const familyId = metadata.documentFamilyId ?? artifact.id;
 			const existing = generatedByFamily.get(familyId);
 
@@ -804,10 +809,9 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 function hasGeneratedFileSource(
 	metadataJson: string | null | undefined,
 ): boolean {
-	const metadata = parseWorkingDocumentMetadata(
-		parseJsonRecord(metadataJson ?? null),
-	);
-	return Boolean(metadata.sourceChatFileId);
+	const record = parseJsonRecord(metadataJson ?? null);
+	const metadata = parseWorkingDocumentMetadata(record);
+	return Boolean(metadata.sourceChatFileId) && record?.artifactExport !== true;
 }
 
 function getGeneratedDocumentFamilyId(row: LogicalDocumentArtifactRow): string {
@@ -822,6 +826,8 @@ function buildGeneratedFileArtifactCondition() {
 		eq(artifacts.type, "generated_output"),
 		eq(artifacts.retrievalClass, "durable"),
 		sql`json_extract(${artifacts.metadataJson}, '$.sourceChatFileId') IS NOT NULL`,
+		// A Download's file is delivery (FB-8), never a generated file of the library.
+		sql`coalesce(json_extract(${artifacts.metadataJson}, '$.artifactExport'), 0) = 0`,
 	);
 }
 
@@ -999,16 +1005,19 @@ export async function listLogicalDocuments(
  * slice's Risks note for the fallback if this is ever measured to matter.
  */
 /**
- * The size of the file each generated row downloads (friction audit F23). A
- * generated row's own `artifacts.size_bytes` is not that: a source-first
- * document's row never had one (the library read "0 B" for a 364 KB PDF) and a
- * file's memory row holds the size of the text the memory kept. What the row's
- * Download serves is the chat file its `sourceChatFileId` names (the same chain
- * `resolveWorkingDocumentFileServing` follows), so that file's size is the row's,
- * read for the user's own files only, in chunks the database's variable limit
- * allows.
+ * What the file each generated row downloads is: its size (friction audit F23)
+ * and its name and type (FB-8). A generated row's own `artifacts.size_bytes` is
+ * not the size: a source-first document's row never had one (the library read
+ * "0 B" for a 364 KB PDF) and a file's memory row holds the size of the text the
+ * memory kept. Nor is its own mime the file's: a source-first row IS the source
+ * document (`application/vnd.alfyai.generated-document+json`), which no preview
+ * can draw, and opening it said "Preview not available" for a PDF that downloads
+ * fine. What the row's Download serves is the chat file its `sourceChatFileId`
+ * names (the same chain `resolveWorkingDocumentFileServing` follows), so that
+ * file's size, name and type are the row's, read for the user's own files only,
+ * in chunks the database's variable limit allows.
  */
-async function applyGeneratedFileSizes(
+async function applyGeneratedFileFacts(
 	userId: string,
 	entries: Array<{ item: KnowledgeDocumentItem; score: number }>,
 ): Promise<Array<{ item: KnowledgeDocumentItem; score: number }>> {
@@ -1021,12 +1030,17 @@ async function applyGeneratedFileSizes(
 	];
 	if (fileIds.length === 0) return entries;
 
-	const sizeByFileId = new Map<string, number>();
+	const fileById = new Map<
+		string,
+		{ sizeBytes: number; filename: string; mimeType: string | null }
+	>();
 	for (let start = 0; start < fileIds.length; start += 400) {
 		const rows = await db
 			.select({
 				id: chatGeneratedFiles.id,
 				sizeBytes: chatGeneratedFiles.sizeBytes,
+				filename: chatGeneratedFiles.filename,
+				mimeType: chatGeneratedFiles.mimeType,
 			})
 			.from(chatGeneratedFiles)
 			.where(
@@ -1035,16 +1049,30 @@ async function applyGeneratedFileSizes(
 					inArray(chatGeneratedFiles.id, fileIds.slice(start, start + 400)),
 				),
 			);
-		for (const row of rows) sizeByFileId.set(row.id, row.sizeBytes);
+		for (const row of rows) {
+			fileById.set(row.id, {
+				sizeBytes: row.sizeBytes,
+				filename: row.filename,
+				mimeType: row.mimeType,
+			});
+		}
 	}
 
 	return entries.map((entry) => {
-		const size = entry.item.sourceChatFileId
-			? sizeByFileId.get(entry.item.sourceChatFileId)
+		const file = entry.item.sourceChatFileId
+			? fileById.get(entry.item.sourceChatFileId)
 			: undefined;
-		return size === undefined
+		return file === undefined
 			? entry
-			: { ...entry, item: { ...entry.item, sizeBytes: size } };
+			: {
+					...entry,
+					item: {
+						...entry.item,
+						sizeBytes: file.sizeBytes,
+						generatedFileName: file.filename,
+						generatedFileMimeType: file.mimeType,
+					},
+				};
 	});
 }
 
@@ -1097,7 +1125,7 @@ async function loadLegacyDocumentEntries(params: {
 			score: scoreLogicalDocumentRecordForSearch(record, query),
 		}));
 	return includeGeneratedOutputs
-		? applyGeneratedFileSizes(userId, entries)
+		? applyGeneratedFileFacts(userId, entries)
 		: entries;
 }
 

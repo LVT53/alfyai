@@ -20,6 +20,7 @@
  * same chrome, same placement inside the panel, same Escape and focus return.
  */
 import { onDestroy } from "svelte";
+import { get } from "svelte/store";
 import {
 	downloadAppAsHtml,
 	exportArtifactDocument,
@@ -28,6 +29,7 @@ import {
 import { downloadProducedFile } from "$lib/client/downloads";
 import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import { t } from "$lib/i18n";
+import { showToast } from "$lib/stores/toast";
 import {
 	exportFailureKey,
 	exportFailureOf,
@@ -53,7 +55,8 @@ let submitting = $state(false);
 let error = $state<ExportFailure | null>(null);
 // A reader may close the popover while their file is being made; the download
 // still starts when it is ready (they asked for it), but a closed popover has
-// nothing to update and nothing to close.
+// nothing to update and nothing to close, and nothing to say it failed with: that
+// is a toast, the one place left to tell them (a failure must never be silence).
 let open = true;
 onDestroy(() => {
 	open = false;
@@ -70,7 +73,16 @@ async function download(
 			? downloadAppAsHtml(artifactId, conversationId)
 			: exportArtifactDocument(artifactId, format, conversationId),
 	);
-	if (!open) return;
+	if (!open) {
+		if (!result.ok) {
+			showToast({
+				type: "error",
+				message: get(t)(exportFailureKey(exportFailureOf(result.reason), kind)),
+				duration: 8000,
+			});
+		}
+		return;
+	}
 	submitting = false;
 	if (result.ok) {
 		onClose();

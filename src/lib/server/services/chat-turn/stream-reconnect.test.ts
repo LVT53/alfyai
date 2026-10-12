@@ -588,4 +588,78 @@ describe("doReconnect", () => {
 
 		expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 10000);
 	});
+
+	// FG's finding 1, the general case: the stream's record (the buffer that holds the
+	// listeners) can go without the connection having heard how the run ended (a
+	// failure that cleared it first, a buffer that outlived its time to live under a
+	// long silent tool call). The connection must not stay open on heartbeats.
+	describe("when the stream's record is gone and no terminal event came", () => {
+		function captureTimers() {
+			const timers: Array<{ callback: () => void; ms: number }> = [];
+			(setInterval as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+				(callback: () => void, ms?: number) => {
+					timers.push({ callback, ms: ms ?? 0 });
+					return timers.length as unknown as ReturnType<typeof setInterval>;
+				},
+			);
+			return timers;
+		}
+
+		it("says it is waiting (the reader's saved turn tells how it ended) and closes, on the next look", () => {
+			const timers = captureTimers();
+			getStreamBuffer.mockReturnValue(makeBuffer());
+			subscribeToStream.mockReturnValue(true);
+			callDoReconnect();
+			expect(closeDownstream).not.toHaveBeenCalled();
+
+			// Alive: a look changes nothing.
+			for (const timer of timers) timer.callback();
+			expect(closeDownstream).not.toHaveBeenCalled();
+
+			// The record goes (no terminal event passed through the listener).
+			getStreamBuffer.mockReturnValue(undefined);
+			for (const timer of timers) timer.callback();
+
+			expect(
+				enqueueChunk.mock.calls.some(([chunk]) =>
+					(chunk as string).includes("data-waiting"),
+				),
+			).toBe(true);
+			expect(closeDownstream).toHaveBeenCalledOnce();
+			expect(unsubscribeFromStream).toHaveBeenCalled();
+		});
+
+		it("looks often enough to matter: well inside the ten seconds of a heartbeat", () => {
+			const timers = captureTimers();
+			getStreamBuffer.mockReturnValue(makeBuffer());
+			subscribeToStream.mockReturnValue(true);
+			callDoReconnect();
+			expect(Math.min(...timers.map((timer) => timer.ms))).toBeLessThanOrEqual(
+				2000,
+			);
+		});
+
+		it("stops looking once the connection is closed by the run's own terminal event", () => {
+			const timers = captureTimers();
+			getStreamBuffer.mockReturnValue(makeBuffer());
+			subscribeToStream.mockReturnValue(true);
+			callDoReconnect();
+			const listener = subscribeToStream.mock.calls[0]?.[1] as (
+				chunk: string,
+			) => void;
+
+			listener(streamErrorEvent("backend_failure"));
+			expect(closeDownstream).toHaveBeenCalledOnce();
+			expect(clearedIntervalIds.length).toBeGreaterThanOrEqual(timers.length);
+
+			// A look that was already queued finds the record gone: nothing more is said or closed.
+			getStreamBuffer.mockReturnValue(undefined);
+			enqueueChunk.mockClear();
+			for (const timer of timers.filter((candidate) => candidate.ms <= 2000)) {
+				timer.callback();
+			}
+			expect(enqueueChunk).not.toHaveBeenCalled();
+			expect(closeDownstream).toHaveBeenCalledOnce();
+		});
+	});
 });

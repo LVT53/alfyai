@@ -73,6 +73,8 @@ interface CreateOrReuseFileProductionJobInput {
 	requestJson: unknown;
 	sourceMode: string;
 	documentIntent?: string | null;
+	/** Which job under the key may be handed back; the ledger's own definition (`job-ledger.ts`). */
+	reuse?: "any" | "usable";
 	now?: Date;
 }
 
@@ -107,6 +109,12 @@ export interface SubmitFileProductionIntakeInput {
 	 * the unified `produce_file` origin.
 	 */
 	origin?: string;
+	/**
+	 * Which job under the request's idempotency key may be handed back (see
+	 * `CreateOrReuseFileProductionJobInput.reuse`). An export that is asked for again
+	 * passes `"usable"`: the file it made, but never a failure it left.
+	 */
+	reuse?: "any" | "usable";
 	now?: Date;
 	wakeWorker?: () => void | Promise<void>;
 	signal?: AbortSignal;
@@ -775,6 +783,7 @@ export async function submitFileProductionIntakeWithDependencies(
 		sourceMode: request.sourceMode,
 		documentIntent: request.documentIntent,
 		requestJson,
+		reuse: input.reuse,
 		now: input.now,
 	});
 

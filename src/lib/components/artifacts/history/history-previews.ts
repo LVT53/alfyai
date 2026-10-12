@@ -30,6 +30,13 @@ export interface HistoryPreviewState {
 	 * on it, because a restore would make it the live App.
 	 */
 	codeOnly?: boolean;
+	/**
+	 * The preview has not yet found out whether the version can run (an App's
+	 * runnable check is still out). Until it answers the shell does not offer
+	 * Restore, so a question never opens on a version that turns out Code only.
+	 * Absent for a kind with nothing to check.
+	 */
+	checking?: boolean;
 }
 
 export interface HistoryPreviewProps {

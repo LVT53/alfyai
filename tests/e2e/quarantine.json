@@ -5,11 +5,6 @@
 			"file": "tests/e2e/everyday-redesign-screens.spec.ts",
 			"title": "knowledge documents tab (",
 			"reason": "Fails the same way on vite dev and on the production build, on feat/artifacts before any change of the fast-gates job: the row the spec seeds, nextcloud-folder-audit.csv, shows 'Failed - This document was added before processing was tracked' in its status cell where the spec expects a dash. The seed predates the extraction ledger (a seeded document has no extraction state, so the page reads it as unprocessed). Outside the M3 release set, so no gate has run it. Back in when the spec's seed rows carry an extraction state, or its expectation says what a legacy row shows."
-		},
-		{
-			"file": "tests/e2e/map-route-card.spec.ts",
-			"title": "draws the route line from a worker the build actually serves",
-			"reason": "A real finding, not a flake. On the production build the page logs a report-only Content-Security-Policy violation (script-src has no 'unsafe-eval', and something evaluates a string as JavaScript while the route card draws; the card loads MapLibre, whose style expressions are the likely source, not yet traced), and the spec's own assertion 'the Content-Security-Policy must not refuse anything' fails; on vite dev it fails earlier, because it is about a worker only the build serves. Report-only mode means no user sees it today. Back in when the source is found and either removed or the policy is changed on purpose; a product decision, left to the owner."
 		}
 	]
 }

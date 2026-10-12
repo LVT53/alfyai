@@ -9,8 +9,10 @@
 // write lock at BEGIN makes the other process wait for it instead (the app sets a
 // ten-second busy timeout), which is what a second writer of one file should do.
 //
-// Test infrastructure only: the e2e servers load it with `node -r` (see e2e-servers.ts)
-// and the Playwright config loads it in every worker. The app does not.
+// The app's own connection takes the same lock itself since FB-8 (src/lib/server/db/write-lock.ts,
+// applied in db/index.ts). This preload stays for every other better-sqlite3 handle in an e2e
+// process: the e2e servers load it with `node -r` (see e2e-servers.ts) and the Playwright config
+// loads it in every worker.
 //
 // drizzle's better-sqlite3 session runs `client.transaction(fn)[behavior ?? "deferred"](tx)`,
 // so `default` and `deferred` both become the immediate version; `exclusive` is left alone.

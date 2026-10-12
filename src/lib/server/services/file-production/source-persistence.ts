@@ -300,9 +300,18 @@ export async function persistGeneratedDocumentSourceArtifact(
 	});
 }
 
+/**
+ * Records the files a source-first document was rendered to on its source row, and
+ * makes the row durable: a durable `generated_output` with a `sourceChatFileId` is
+ * what the Knowledge library lists as a generated file, and what retrieval may hand
+ * the model. `listed: false` attaches everything the same but leaves the row as it
+ * was (never promoted): a Download of a Document is delivery, a file for the reader's
+ * disk, and must not become a row of the library or a document the model reads.
+ */
 export async function attachGeneratedDocumentSourceArtifactToRenderedFiles(input: {
 	artifactId: string;
 	renderedChatFileIds: string[];
+	listed?: boolean;
 }): Promise<Artifact | null> {
 	const renderedChatFileIds = Array.from(
 		new Set(input.renderedChatFileIds.map((id) => id.trim()).filter(Boolean)),
@@ -346,9 +355,10 @@ export async function attachGeneratedDocumentSourceArtifactToRenderedFiles(input
 	const [updated] = await db
 		.update(artifacts)
 		.set({
-			retrievalClass: "durable",
+			...(input.listed === false ? {} : { retrievalClass: "durable" as const }),
 			metadataJson: JSON.stringify({
 				...baseMetadata,
+				...(input.listed === false ? { artifactExport: true } : {}),
 				[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: "succeeded",
 				originalChatFileId: firstRenderedChatFileId,
 				sourceChatFileId,

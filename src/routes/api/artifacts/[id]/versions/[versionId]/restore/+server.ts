@@ -15,6 +15,14 @@ function optionalPositiveInteger(value: unknown): number | null | undefined {
 		: null;
 }
 
+/** A body hash as the History page quotes it: a short text (sha256 hex), or absent, or neither (`null`). */
+function optionalHash(value: unknown): string | null | undefined {
+	if (value === undefined) return undefined;
+	return typeof value === "string" && value.length > 0 && value.length <= 128
+		? value
+		: null;
+}
+
 // POST /api/artifacts/[id]/versions/[versionId]/restore — writes the old body
 // back as a NEW version (restoreVersion never coalesces, ruling 47), so a
 // restore is itself undoable. `version` is the version NUMBER the restore just
@@ -23,7 +31,9 @@ function optionalPositiveInteger(value: unknown): number | null | undefined {
 //
 // The JSON body is optional (older callers send none): `expectVersion` is the
 // newest version the reader saw, and a restore over a newer one is a 409
-// `version_conflict` like a stale save; `undoOf` is the version number of the
+// `version_conflict` like a stale save, and so is a restore over words the page
+// never showed (`expectHash`, the newest row's body hash: the reader's own saves
+// coalesce into their latest version without moving its number); `undoOf` is the version number of the
 // newest row when this restore reverses it (the restore toast's Undo), which
 // makes the summary say what was undone (ruling 76, A5).
 //
@@ -42,8 +52,9 @@ export const POST: RequestHandler = async (event) => {
 		  }
 		| null;
 	const expectVersion = optionalPositiveInteger(payload?.expectVersion);
+	const expectHash = optionalHash(payload?.expectHash);
 	const undoOf = optionalPositiveInteger(payload?.undoOf);
-	if (expectVersion === null || undoOf === null) {
+	if (expectVersion === null || expectHash === null || undoOf === null) {
 		return json(
 			{ ok: false, reason: "invalid_request" } satisfies RestoreVersionResponse,
 			{ status: 400 },
@@ -56,6 +67,7 @@ export const POST: RequestHandler = async (event) => {
 		versionId,
 		conversationId,
 		expectVersion,
+		expectHash,
 		undoOf,
 	});
 	if (!result.ok) {

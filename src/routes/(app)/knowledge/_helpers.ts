@@ -41,7 +41,10 @@ export function toWorkspaceDocument(
 	return {
 		id: `artifact:${artifactId}`,
 		source: "knowledge_artifact",
-		filename: document.name,
+		// A source-first generated row is the source it was rendered from; what a
+		// preview draws is the file it downloads, and the preview picks its renderer
+		// by that file's extension and type, not the source's.
+		filename: document.generatedFileName ?? document.name,
 		title: document.documentLabel ?? document.name,
 		documentFamilyId: document.documentFamilyId ?? null,
 		documentFamilyStatus: document.documentFamilyStatus ?? null,
@@ -51,7 +54,7 @@ export function toWorkspaceDocument(
 		originConversationId: document.originConversationId ?? null,
 		originAssistantMessageId: document.originAssistantMessageId ?? null,
 		sourceChatFileId: identity.preview.sourceChatFileId,
-		mimeType: document.mimeType,
+		mimeType: document.generatedFileMimeType ?? document.mimeType,
 		artifactId,
 		conversationId: document.conversationId,
 	};

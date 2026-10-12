@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { rowVersionLabel } from "./row-version-label";
 import { t } from "$lib/i18n";
 import { X } from "@lucide/svelte";
 
@@ -26,9 +27,7 @@ function getDocumentTitle(document: DocumentWorkspaceItem): string {
 function getDocumentVersionLabel(
 	document: DocumentWorkspaceItem,
 ): string | null {
-	return document.versionNumber && document.versionNumber > 0
-		? `v${document.versionNumber}`
-		: null;
+	return rowVersionLabel(document, documents);
 }
 
 function selectDocument(documentId: string) {

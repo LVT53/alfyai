@@ -71,6 +71,8 @@ function unrefTimer(timer: ReturnType<typeof setInterval>) {
 }
 
 const RECONNECT_HEARTBEAT_MS = 10_000;
+/** How often a reconnected connection checks that the stream's record, which holds its listener, is still there. */
+const RECONNECT_LIVENESS_MS = 2_000;
 
 interface StreamOwner {
 	streamId: string;
@@ -237,16 +239,24 @@ function createHeartbeatController(
 	createHeartbeatComment: () => string,
 ) {
 	let reconnectHeartbeatId: ReturnType<typeof setInterval> | null = null;
-	const start = () => {
+	let livenessId: ReturnType<typeof setInterval> | null = null;
+	const start = (checkLiveness: () => void) => {
 		reconnectHeartbeatId = setInterval(() => {
 			enqueueChunk(createHeartbeatComment());
 		}, RECONNECT_HEARTBEAT_MS);
 		unrefTimer(reconnectHeartbeatId);
+		livenessId = setInterval(checkLiveness, RECONNECT_LIVENESS_MS);
+		unrefTimer(livenessId);
 	};
 	const clear = () => {
-		if (!reconnectHeartbeatId) return;
-		clearInterval(reconnectHeartbeatId);
-		reconnectHeartbeatId = null;
+		if (reconnectHeartbeatId) {
+			clearInterval(reconnectHeartbeatId);
+			reconnectHeartbeatId = null;
+		}
+		if (livenessId) {
+			clearInterval(livenessId);
+			livenessId = null;
+		}
 	};
 	return { start, clear };
 }
@@ -269,7 +279,9 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 		enqueueChunk,
 		createSseHeartbeatComment,
 	);
+	let connectionClosed = false;
 	const closeConnection = () => {
+		connectionClosed = true;
 		heartbeat.clear();
 		closeDownstream();
 	};
@@ -317,7 +329,26 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 			{ once: true },
 		);
 
-		heartbeat.start();
+		// The listener lives on the stream's record (its buffer). If that goes without
+		// this connection having heard how the run ended (a failure that cleared it
+		// first, a buffer that outlived its time to live under a long silent tool
+		// call), no terminal event can ever reach it: the heartbeats alone would keep
+		// the reader's turn spinning. Say it is waiting, the client's own state for
+		// "ask the saved conversation how it ended", and end the connection.
+		const endIfRecordIsGone = () => {
+			if (connectionClosed) return;
+			let recordIsThere = false;
+			try {
+				recordIsThere = Boolean(getStreamBuffer(streamOwner));
+			} catch {
+				recordIsThere = false;
+			}
+			if (recordIsThere) return;
+			unsubscribeFromStream(streamOwner, liveListener);
+			enqueueChunk(streamDataPartEvent("data-waiting", {}));
+			closeConnection();
+		};
+		heartbeat.start(endIfRecordIsGone);
 
 		console.info(
 			"[CHAT_STREAM] Reconnect done, subscribed to stream",

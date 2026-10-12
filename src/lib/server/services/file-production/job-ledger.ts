@@ -36,6 +36,16 @@ export interface CreateOrReuseFileProductionJobInput
 	idempotencyKey: string;
 	requestJson: unknown;
 	sourceMode: string;
+	/**
+	 * Which job under the key may be handed back. `"any"` (the default, a turn's
+	 * `produce_file`): whatever job holds it, so a retried call never makes the same
+	 * file twice. `"usable"` (an export asked for again): only a job that is still being
+	 * made, or that finished with its file. A job that failed, was cancelled (the panel's
+	 * Download gives up after 60 s) or lost its file lets go of the key, and stays under
+	 * a key of its own as the record of what happened; a new job is made, so a press
+	 * after a failure gets a real answer, never the old failure again.
+	 */
+	reuse?: "any" | "usable";
 }
 
 export interface CreateOrReuseFileProductionJobResult {
@@ -213,16 +223,52 @@ export async function createFileProductionJob(
 	};
 }
 
+/** Whether a job's result can still be handed to someone who asks for it again: it is on its way, or it is done and its file is there. */
+async function isUsableFileProductionJob(
+	job: typeof fileProductionJobs.$inferSelect,
+): Promise<boolean> {
+	if (job.status === "queued" || job.status === "running") return true;
+	if (job.status !== "succeeded") return false;
+	const [file] = await db
+		.select({ id: fileProductionJobFiles.id })
+		.from(fileProductionJobFiles)
+		.where(eq(fileProductionJobFiles.jobId, job.id))
+		.limit(1);
+	return Boolean(file);
+}
+
+/** Frees an idempotency key held by a job that must not be handed back again; the job stays, under a key of its own. */
+async function releaseIdempotencyKey(
+	job: typeof fileProductionJobs.$inferSelect,
+): Promise<void> {
+	if (!job.idempotencyKey) return;
+	await db
+		.update(fileProductionJobs)
+		.set({ idempotencyKey: `${job.idempotencyKey}#superseded:${job.id}` })
+		.where(
+			and(
+				eq(fileProductionJobs.id, job.id),
+				eq(fileProductionJobs.idempotencyKey, job.idempotencyKey),
+			),
+		);
+}
+
 export async function createOrReuseFileProductionJob(
 	input: CreateOrReuseFileProductionJobInput,
 ): Promise<CreateOrReuseFileProductionJobResult> {
 	const existingJob = await findIdempotentFileProductionJob(input);
 
 	if (existingJob) {
-		return {
-			job: mapJobRow(existingJob, []),
-			reused: true,
-		};
+		if (
+			input.reuse !== "usable" ||
+			(await isUsableFileProductionJob(existingJob))
+		) {
+			return {
+				job: mapJobRow(existingJob, []),
+				reused: true,
+			};
+		}
+		await releaseIdempotencyKey(existingJob);
 	}
 
 	try {

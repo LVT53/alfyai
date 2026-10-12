@@ -30,7 +30,9 @@ vi.mock("./document-ops", async (importOriginal) => {
 	};
 });
 
-const { createArtifact, updateArtifactBody } = await import("./index");
+const { createArtifact, hashArtifactBody, updateArtifactBody } = await import(
+	"./index"
+);
 const { computePendingReviewBlocks } = await import("./document-ops");
 const { listHistory } = await import("./history");
 
@@ -205,6 +207,27 @@ describe("listHistory", () => {
 				conversationId: INCOGNITO,
 			}),
 		).toMatchObject({ ok: true, newestVersion: 1 });
+	});
+
+	it("says the newest row's body hash beside its number, so a restore can guard a coalesced save (RC-V M-1)", async () => {
+		const body = doc(["p1", "Saturday"]);
+		const artifact = await makeDocument(body);
+		const first = await listHistory({ userId: OWNER, artifactId: artifact.id });
+		expect(first).toMatchObject({
+			ok: true,
+			newestVersion: 1,
+			newestHash: hashArtifactBody(body),
+		});
+		// A newer version moves both.
+		const next = doc(["p1", "Saturday, late"]);
+		await write(artifact.id, next, "user", "Edited");
+		expect(
+			await listHistory({ userId: OWNER, artifactId: artifact.id }),
+		).toMatchObject({
+			ok: true,
+			newestVersion: 2,
+			newestHash: hashArtifactBody(next),
+		});
 	});
 
 	describe("paging", () => {

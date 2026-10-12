@@ -949,6 +949,8 @@ const artifactsDict = {
 			"Changes you and Alfy make will appear here.",
 		"artifacts.history.help":
 			"{keys} undoes your last steps. Undo on Alfy's change undoes just that change. Restore brings back a whole version.",
+		"artifacts.history.helpTouch":
+			"Undo on Alfy's change undoes just that change. Restore brings back a whole version.",
 		"artifacts.history.helpDismiss": "Got it",
 		"artifacts.history.deleted.document": "This document was deleted.",
 		"artifacts.history.deleted.app": "This app was deleted.",
@@ -1044,6 +1046,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "You're offline",
 		"artifacts.history.restoreNotRunnable":
 			"It can't run any more, so it can't be restored.",
+		"artifacts.history.restoreChecking": "Checking that it can still run…",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -1838,6 +1841,8 @@ const artifactsDict = {
 			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
 		"artifacts.history.help":
 			"{keys}: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
+		"artifacts.history.helpTouch":
+			"Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
 		"artifacts.history.helpDismiss": "Értem",
 		"artifacts.history.deleted.document": "Ezt a dokumentumot törölték.",
 		"artifacts.history.deleted.app": "Ezt az alkalmazást törölték.",
@@ -1929,6 +1934,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "Nem vagy online",
 		"artifacts.history.restoreNotRunnable":
 			"Már nem futtatható, ezért nem állítható vissza.",
+		"artifacts.history.restoreChecking": "Ellenőrzöm, hogy még futtatható-e…",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",

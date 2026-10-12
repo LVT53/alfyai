@@ -113,6 +113,54 @@ describe("POST /api/artifacts/[id]/export", () => {
 		expect(mockSubmitIntake).not.toHaveBeenCalled();
 	});
 
+	// FB-8 (FB-1's concern 1): the same item, as it is now, in the same format is the
+	// same job, so a repeated press is handed the file the last one made.
+	it("asks for the same job for the same document and format, and never for a failed one", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture());
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-1", status: "queued" },
+			reused: false,
+		});
+
+		await POST(makeEvent({}));
+		await POST(makeEvent({}));
+		await POST(makeEvent({ body: { format: "docx" } }));
+
+		const calls = mockSubmitIntake.mock.calls.map(([call]) => call);
+		const keys = calls.map((call) => call.body.idempotencyKey as string);
+		expect(keys[0]).toMatch(/^artifact-export:artifact-1:pdf:[0-9a-f]{32}$/);
+		expect(keys[1]).toBe(keys[0]);
+		// Another format is another file.
+		expect(keys[2]).toMatch(/^artifact-export:artifact-1:docx:[0-9a-f]{32}$/);
+		for (const call of calls) expect(call.reuse).toBe("usable");
+	});
+
+	it("asks for a new job once the document's words or its title have changed, and only then", async () => {
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-1", status: "queued" },
+			reused: false,
+		});
+		const keyFor = async (overrides: Record<string, unknown>) => {
+			mockSubmitIntake.mockClear();
+			mockGetArtifact.mockResolvedValue(artifactFixture(overrides));
+			await POST(makeEvent({}));
+			return mockSubmitIntake.mock.calls[0][0].body.idempotencyKey as string;
+		};
+
+		const base = await keyFor({});
+		// A coalesced save keeps the version number and changes the words (RC-V M-1).
+		expect(
+			await keyFor({ body: `${DOCUMENT_BODY} Window seat.`, versionNumber: 1 }),
+		).not.toBe(base);
+		expect(await keyFor({ title: "Vienna, 10–13 October" })).not.toBe(base);
+		// What does not change the file does not change the key.
+		expect(await keyFor({ versionNumber: 2, updatedAt: 99 })).toBe(base);
+	});
+
 	it("submits a document_source intake for pdf, with requestedOutputs (never outputs)", async () => {
 		mockGetArtifact.mockResolvedValue(artifactFixture());
 		mockSubmitIntake.mockResolvedValue({

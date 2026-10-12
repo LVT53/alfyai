@@ -234,13 +234,19 @@ export function deriveArtifactMoment(
 
 /**
  * The Version cell. "Original" for the first member of a family, "v3" for a
- * later one, and nothing at all for a document that never joined a family.
+ * later one, and nothing at all for a document that never joined a family, or
+ * whose first version stands alone (a generated report is one row per family, its
+ * newest version: a "v1" there is a bare number, ruling 76 Q2).
  */
 export function deriveDocumentVersion(
 	document: KnowledgeDocumentItem,
 ): DocumentVersionBadge {
 	if (document.isOriginal) return { kind: "original" };
-	if (document.versionNumber != null && document.documentFamilyId) {
+	if (
+		document.versionNumber != null &&
+		document.versionNumber > 1 &&
+		document.documentFamilyId
+	) {
 		return { kind: "version", versionNumber: document.versionNumber };
 	}
 	return { kind: "none" };
@@ -304,11 +310,16 @@ function compareText(left: string, right: string): number {
 	});
 }
 
-/** Sort weight of a version badge, so "Original" precedes v1, v2, v3. */
+/**
+ * Sort weight of the Version column, so "Original" precedes v1, v2, v3. It follows
+ * the family's real number whether or not the cell prints it (a first version that
+ * stands alone prints nothing, and still sorts as the first).
+ */
 export function documentVersionRank(document: KnowledgeDocumentItem): number {
-	const version = deriveDocumentVersion(document);
-	if (version.kind === "original") return 0;
-	if (version.kind === "version") return version.versionNumber;
+	if (document.isOriginal) return 0;
+	if (document.versionNumber != null && document.documentFamilyId) {
+		return document.versionNumber;
+	}
 	return -1;
 }
 

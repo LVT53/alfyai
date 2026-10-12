@@ -271,6 +271,20 @@ export function auditAppHtml(html: string): ContractCheck[] {
 }
 
 /**
+ * The glitch rules among a document's checks that failed: the hints the card
+ * shows under the App (they are advisory, the App still runs). Pure. The
+ * pipeline asks it of the audit it already ran on a generated document, and a
+ * restore of the audit of the body it brings back.
+ */
+export function glitchRuleIdsOf(
+	checks: readonly ContractCheck[],
+): AppContractRuleId[] {
+	return checks
+		.filter((check) => check.severity === "glitch" && !check.passed)
+		.map((check) => check.rule);
+}
+
+/**
  * The violations of ruling 58 this document commits (self-navigation, WebRTC):
  * the failing checks among the rules whose severity is `violation`. It is THE
  * answer to "does the product run this body?", asked by everything that can put

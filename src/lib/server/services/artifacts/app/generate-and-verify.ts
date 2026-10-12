@@ -9,7 +9,7 @@
 import type { ModelId } from "$lib/model-types";
 import { createComment } from "../comments";
 import type { ArtifactScopeOptions } from "../types";
-import { appViolations } from "./audit";
+import { appViolations, glitchRuleIdsOf } from "./audit";
 import type { AppContractRuleId } from "./contract";
 import type { AppGenerationFailureReason } from "./generate";
 import { generateApp } from "./generate";
@@ -101,9 +101,7 @@ export async function generateAndVerifyApp(
 	const finalHtml = repairRuns ? repair : generation.html;
 	const verdict =
 		repair !== null && !repairRuns ? "uncertain" : verification.verdict;
-	const glitchRuleIds = generation.checks
-		.filter((check) => check.severity === "glitch" && !check.passed)
-		.map((check) => check.rule);
+	const glitchRuleIds = glitchRuleIdsOf(generation.checks);
 
 	return {
 		ok: true,

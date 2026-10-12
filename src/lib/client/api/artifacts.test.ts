@@ -2239,6 +2239,29 @@ describe("restoreArtifactVersion's guard", () => {
 		});
 	});
 
+	it("sends the newest row's body hash too (RC-V M-1: a save that coalesced into the newest version keeps its number)", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 8, versionId: "v8" }),
+		);
+		await restoreArtifactVersion("artifact-1", "version-2", null, fetchMock, {
+			expectVersion: 7,
+			expectHash: "deadbeef",
+		});
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			expectVersion: 7,
+			expectHash: "deadbeef",
+		});
+		// A hash alone is a guard too.
+		fetchMock.mockClear();
+		await restoreArtifactVersion("artifact-1", "version-2", null, fetchMock, {
+			expectHash: "deadbeef",
+		});
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			expectHash: "deadbeef",
+		});
+	});
+
 	it("sends no body at all when there is no guard, exactly as before", async () => {
 		const fetchMock = vi.fn(
 			async (_input: RequestInfo | URL, _init?: RequestInit) =>

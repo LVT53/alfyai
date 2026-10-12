@@ -191,6 +191,7 @@ export async function listHistory(
 		ok: true as const,
 		artifactKind: kind,
 		newestVersion: newestRow.versionNumber,
+		newestHash: newestRow.bodyHash,
 	};
 	if (windowRows.length === 0) {
 		return { ...response, moments: [], older: false, nextBefore: null };
