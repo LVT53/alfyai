@@ -19,6 +19,16 @@ vi.mock("$lib/services/markdown", () => ({
 	),
 }));
 
+/**
+ * The width the docked panel asks for. The dock arithmetic is CSS now (the
+ * browser resolves it against the stage), so the width the reader dragged to
+ * is read out of the `--workspace-dock-width` it is spelled in.
+ */
+function askedWidth(shell: HTMLElement): string {
+	const spelled = shell.style.getPropertyValue("--workspace-dock-width");
+	return spelled.match(/min\((\d+(?:\.\d+)?px), 68%/)?.[1] ?? "";
+}
+
 describe("DocumentWorkspace", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -106,7 +116,12 @@ describe("DocumentWorkspace", () => {
 		expect(global.fetch).not.toHaveBeenCalled();
 
 		await rerender({ open: false, documents: [], activeDocumentId: null });
-		expect(screen.queryByText("Preview not available")).not.toBeInTheDocument();
+		// The column is taken out of the page when it has finished shrinking.
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Preview not available"),
+			).not.toBeInTheDocument();
+		});
 
 		await rerender({
 			open: true,
@@ -361,13 +376,15 @@ describe("DocumentWorkspace", () => {
 			name: WORKSPACE_LANDMARK,
 		});
 		frames.shift()?.(0);
-		await tick();
-		expect(desktopWorkspace.style.opacity).toBe("1");
+		await waitFor(() => {
+			expect(desktopWorkspace).toHaveClass("workspace-fade-in");
+		});
 
 		await rerender({ activeDocumentId: "doc-2" });
 		await tick();
 
-		expect(desktopWorkspace.style.opacity).toBe("1");
+		// Still the open column: switching documents is not the panel arriving again.
+		expect(desktopWorkspace).toHaveClass("workspace-fade-in");
 	});
 
 	it("uses an expanded workspace layout with rail and preview column sharing the extra width", async () => {
@@ -777,7 +794,7 @@ describe("DocumentWorkspace", () => {
 				name: WORKSPACE_LANDMARK,
 			});
 
-			expect(desktopWorkspace.style.width).toBe("950px");
+			expect(askedWidth(desktopWorkspace)).toBe("950px");
 		});
 
 		it("can be dragged to resize to a new width", async () => {
@@ -820,7 +837,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			expect(desktopWorkspace.style.width).toMatch(/\d+px/);
+			expect(askedWidth(desktopWorkspace)).toMatch(/\d+px/);
 		});
 
 		it("resets the docked workspace width when the resize handle is double-clicked", async () => {
@@ -861,12 +878,12 @@ describe("DocumentWorkspace", () => {
 			);
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
-			expect(desktopWorkspace.style.width).not.toBe("950px");
+			expect(askedWidth(desktopWorkspace)).not.toBe("950px");
 
 			await fireEvent.dblClick(resizeHandle);
 			await tick();
 
-			expect(desktopWorkspace.style.width).toBe("950px");
+			expect(askedWidth(desktopWorkspace)).toBe("950px");
 		});
 
 		it("respects minimum width constraint during resize", async () => {
@@ -909,7 +926,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			const width = parseInt(desktopWorkspace.style.width, 10);
+			const width = parseInt(askedWidth(desktopWorkspace), 10);
 			expect(width).toBeGreaterThanOrEqual(620);
 		});
 
@@ -953,7 +970,7 @@ describe("DocumentWorkspace", () => {
 			document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 			await tick();
 
-			const width = parseInt(desktopWorkspace.style.width, 10);
+			const width = parseInt(askedWidth(desktopWorkspace), 10);
 			const maxWidth = window.innerWidth * 0.68;
 			expect(width).toBeLessThanOrEqual(Math.ceil(maxWidth));
 		});
@@ -1024,8 +1041,10 @@ describe("DocumentWorkspace", () => {
 				name: WORKSPACE_LANDMARK,
 			});
 
-			const style = window.getComputedStyle(desktopWorkspace);
-			expect(style.transition).toMatch(/opacity|transform/);
+			// The open state is the column's width (its transition is in the stylesheet).
+			await waitFor(() => {
+				expect(desktopWorkspace).toHaveClass("workspace-fade-in");
+			});
 		});
 	});
 
@@ -2254,7 +2273,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("enters the content from the right, 60ms after the panel's own first open", async () => {
+	it("enters the content from the right, with the panel's own first open", async () => {
 		renderWorkspace({
 			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
 			activeDocumentId: "doc-1",
@@ -2266,7 +2285,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 				{ opacity: 0, transform: "translateX(32px)" },
 				{ opacity: 1, transform: "translateX(0)" },
 			],
-			expect.objectContaining({ delay: 60 }),
+			expect.objectContaining({ delay: 0 }),
 		);
 	});
 
