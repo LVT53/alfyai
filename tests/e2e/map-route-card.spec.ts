@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages, users } from "../../src/lib/server/db/schema";
+import { e2eServerMode } from "./e2e-env";
 import { login } from "./helpers";
 
 /**
@@ -25,6 +26,11 @@ import { login } from "./helpers";
  *     with CSP_MODE=enforce to check the policy that ships on the boxes;
  *     report-only (the default) logs the same console message, so this catches
  *     a violation either way.
+ *
+ * It runs on the production build only: the worker it is about is an asset the
+ * build emits, and `vite dev` serves the library differently. (FB-8 found the
+ * policy violation it used to be quarantined for: not MapLibre, but zod 4's
+ * `Function("")` probe for its fast parser, switched off in `hooks.client.ts`.)
  */
 
 const CONVERSATION_ID = "e2e-map-route-card";
@@ -174,6 +180,11 @@ test.use({
 });
 
 test.describe("map route card", () => {
+	test.skip(
+		e2eServerMode() === "dev",
+		"the worker asset is emitted by the production build only",
+	);
+
 	test.beforeEach(async ({ page }) => {
 		await page.route("**/api/map-tiles/**", (route) =>
 			route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG }),
