@@ -628,6 +628,10 @@ test.describe("History mode: what changed, restore and names", () => {
 
 		// Tab from the rail reaches the preview toolbar (past the rail's own "Got it" while
 		// its hint shows); Name opens a field, Enter saves.
+		// With a keyboard, the hint names the key.
+		await expect(region.getByTestId("history-help")).toContainText(
+			/(⌘Z|Ctrl\+Z) undoes your last steps/,
+		);
 		await page.keyboard.press("Tab");
 		await expect(
 			region.getByTestId("history-help").getByRole("button"),
@@ -786,6 +790,33 @@ test.describe("History mode: what changed, restore and names", () => {
 
 test.describe("History mode on a phone", () => {
 	test.use({ hasTouch: true });
+
+	test("the hint at the foot of the list leaves out the keyboard on a touch screen (the owner, 2026-10-12)", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+		const conversationId = await createEmptyConversation(page, "History hint");
+		await seedDocument(conversationId, "History hint", THREE_VERSIONS);
+		await openChat(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").tap();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.tap({ timeout: 30_000 });
+		await historyButton(page).tap();
+		const sheet = page.getByRole("dialog", { name: "History" });
+		const help = sheet.getByTestId("history-help");
+		await expect(help).toBeVisible();
+		// What undoing and restoring mean stays; the chord, which a finger cannot press, goes.
+		await expect(help).toContainText("Restore brings back a whole version.");
+		await expect(help).toContainText(
+			"Undo on Alfy's change undoes just that change.",
+		);
+		await expect(help).not.toContainText("undoes your last steps");
+		await expect(help).not.toContainText(/⌘|Ctrl/);
+	});
 
 	test("is a sheet: tap a moment, see its preview, step through the moments, go back, close (T4)", async ({
 		page,

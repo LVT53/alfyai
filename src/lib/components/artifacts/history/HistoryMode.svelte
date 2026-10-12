@@ -42,6 +42,7 @@ import { artifactHistoryHelpDismissed } from "$lib/stores/ui";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import {
 	isPhoneViewport,
+	isTouchDevice,
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
 import {
@@ -355,10 +356,15 @@ const restoreLines = $derived.by(() => {
 	return lines;
 });
 
+// A touch screen has no chord to press: the hint keeps what Undo and Restore mean
+// and leaves out the keyboard part (the owner, 2026-10-12).
+const touchScreen = isTouchDevice();
 const help = $derived(
 	$artifactHistoryHelpDismissed || moments.length < 2
 		? null
-		: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
+		: touchScreen
+			? $t("artifacts.history.helpTouch")
+			: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
 );
 
 // ---- the preview ---------------------------------------------------------------
