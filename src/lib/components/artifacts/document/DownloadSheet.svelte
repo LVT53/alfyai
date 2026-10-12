@@ -28,6 +28,7 @@ import {
 import { downloadProducedFile } from "$lib/client/downloads";
 import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import { t } from "$lib/i18n";
+import { exportFailureKey, exportFailureOf, type ExportFailure } from "./download-failures";
 
 let {
 	artifactId,
@@ -44,10 +45,8 @@ let {
 	onClose: () => void;
 } = $props();
 
-type ExportError = "failed" | "tooLarge" | "noConversation" | "timeout";
-
 let submitting = $state(false);
-let error = $state<ExportError | null>(null);
+let error = $state<ExportFailure | null>(null);
 // A reader may close the popover while their file is being made; the download
 // still starts when it is ready (they asked for it), but a closed popover has
 // nothing to update and nothing to close.
@@ -55,41 +54,6 @@ let open = true;
 onDestroy(() => {
 	open = false;
 });
-
-function errorText(failure: ExportError): string {
-	switch (failure) {
-		case "tooLarge":
-			return $t("artifacts.document.export.tooLarge");
-		case "noConversation":
-			return $t(
-				kind === "app"
-					? "artifacts.app.download.unavailable"
-					: "artifacts.document.export.noConversation",
-			);
-		case "timeout":
-			return $t("artifacts.document.export.timeout");
-		case "failed":
-			return $t(
-				kind === "app"
-					? "artifacts.app.download.failed"
-					: "artifacts.document.export.failed",
-			);
-	}
-}
-
-function failureOf(reason: string): ExportError {
-	switch (reason) {
-		case "source_too_large":
-			return "tooLarge";
-		case "no_conversation":
-		case "conversation_required":
-			return "noConversation";
-		case "timeout":
-			return "timeout";
-		default:
-			return "failed";
-	}
-}
 
 async function download(
 	format: ExportArtifactDocumentFormat | "html",
@@ -108,7 +72,7 @@ async function download(
 		onClose();
 		return;
 	}
-	error = failureOf(result.reason);
+	error = exportFailureOf(result.reason);
 }
 
 function retry(): void {
@@ -119,7 +83,7 @@ function retry(): void {
 {#snippet downloadOptions()}
 	{#if error}
 		<div class="download-popover-options download-popover-options-column">
-			<p class="download-popover-error" role="alert">{errorText(error)}</p>
+			<p class="download-popover-error" role="alert">{$t(exportFailureKey(error, kind))}</p>
 			<button type="button" class="btn-secondary" onclick={retry}>
 				{$t('artifacts.document.export.tryAgain')}
 			</button>

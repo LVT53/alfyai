@@ -1,6 +1,9 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
-import { subscribeArtifactChanges } from "$lib/client/api/artifacts";
+import {
+	type ExportArtifactDocumentFormat,
+	subscribeArtifactChanges,
+} from "$lib/client/api/artifacts";
 import {
 	currentArtifactMoment,
 	NO_OBSERVED_ARTIFACT_MOMENTS,
@@ -32,6 +35,7 @@ import {
 	maxFileUploadSizeMb,
 } from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
+import { portalToBody } from "$lib/utils/portal";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { readErrorPayload } from "$lib/client/api/http";
 import { type I18nKey, t } from "$lib/i18n";
@@ -52,6 +56,7 @@ import {
 	LayoutDashboard,
 	Monitor,
 	Paperclip,
+	PanelRightOpen,
 	Presentation,
 	SquarePen,
 	Table,
@@ -153,6 +158,15 @@ interface DocumentsListProps {
 	onDelete?: (documentId: string) => void;
 	onBulkDelete?: (documentIds: string[]) => Promise<boolean>;
 	onDownload?: (documentId: string) => void;
+	/**
+	 * A Document's or an App's Download from its row: the page makes the file,
+	 * follows the job and hands it to the browser, and reports a failure in its own
+	 * banner (friction audit F23). Settles when the file has been handed over.
+	 */
+	onDownloadArtifact?: (
+		document: KnowledgeDocumentItem,
+		format: ExportArtifactDocumentFormat | "html",
+	) => void | Promise<void>;
 	onUpload?: (files: File[]) => void | Promise<void>;
 	/**
 	 * Called with the SOURCE artifact id (`displayArtifactId`) — the extraction
@@ -217,6 +231,7 @@ let {
 	onDelete,
 	onBulkDelete,
 	onDownload,
+	onDownloadArtifact,
 	onUpload,
 	onRetryExtraction,
 	onCancelExtraction,
@@ -1150,6 +1165,82 @@ function handleDownloadClick(event: MouseEvent, documentId: string) {
 	onDownload?.(documentId);
 }
 
+// A Document's and an App's row Download (friction audit F23): the same export the
+// panel's Download makes, with the formats the kind has. A Document offers three
+// in a small menu, an App its one file at once, and a Canvas has none here: its
+// picture is drawn by the open board, which the row's Open reaches.
+const DOCUMENT_DOWNLOAD_FORMATS = [
+	{ format: "pdf", key: "artifacts.document.export.pdf" },
+	{ format: "docx", key: "artifacts.document.export.docx" },
+	{ format: "markdown", key: "artifacts.document.export.markdown" },
+] as const;
+
+let downloadMenuId = $state<string | null>(null);
+let downloadMenuStyle = $state("");
+let preparingDownloadIds = $state(new Set<string>());
+
+/** The menu is three items and a heading; room enough to open it below a row's button. */
+const DOWNLOAD_MENU_HEIGHT_PX = 170;
+
+/**
+ * The menu is painted in `<body>`, placed from the button that opened it: the table
+ * scrolls, and a menu drawn inside it was cut off by the last row's edge (it opened
+ * under a short list with its third item out of sight). Below the button when there is
+ * room, above it when there is not, and it closes when anything scrolls.
+ */
+function toggleDownloadMenu(event: MouseEvent, artifactId: string) {
+	event.stopPropagation();
+	if (downloadMenuId === artifactId) {
+		downloadMenuId = null;
+		return;
+	}
+	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+	const right = Math.max(8, window.innerWidth - rect.right);
+	downloadMenuStyle =
+		window.innerHeight - rect.bottom >= DOWNLOAD_MENU_HEIGHT_PX
+			? `top: ${rect.bottom + 4}px; right: ${right}px;`
+			: `bottom: ${window.innerHeight - rect.top + 4}px; right: ${right}px;`;
+	downloadMenuId = artifactId;
+	// The menu is a menu: keyboard focus goes to its first item once it is there.
+	void tick().then(() => {
+		document
+			.querySelector<HTMLElement>(
+				'[data-testid="artifact-row-download-menu"] [role="menuitem"]',
+			)
+			?.focus();
+	});
+}
+
+function closeDownloadMenu(artifactId: string, refocus = true) {
+	if (downloadMenuId !== artifactId) return;
+	downloadMenuId = null;
+	if (!refocus) return;
+	document
+		.querySelector<HTMLButtonElement>(
+			`[data-download-toggle="${CSS.escape(artifactId)}"]`,
+		)
+		?.focus();
+}
+
+async function chooseDownloadFormat(
+	event: MouseEvent,
+	document_: KnowledgeDocumentItem,
+	format: ExportArtifactDocumentFormat | "html",
+) {
+	event.stopPropagation();
+	const artifactId = document_.displayArtifactId;
+	downloadMenuId = null;
+	if (!onDownloadArtifact || preparingDownloadIds.has(artifactId)) return;
+	preparingDownloadIds = new Set(preparingDownloadIds).add(artifactId);
+	try {
+		await onDownloadArtifact(document_, format);
+	} finally {
+		const next = new Set(preparingDownloadIds);
+		next.delete(artifactId);
+		preparingDownloadIds = next;
+	}
+}
+
 // Selection handlers
 function toggleSelection(documentId: string) {
 	const next = new Set(selectedIds);
@@ -1354,9 +1445,112 @@ async function handleBulkDelete(): Promise<boolean> {
 	</div>
 {/snippet}
 
+<!-- A Document's, a Canvas's and an App's own row actions: Open (the way a file's
+     row opens, by its own button as well as by the row) and, where the kind has a file
+     to hand over, Download. -->
+{#snippet artifactRowActions(document: KnowledgeDocumentItem)}
+	{@const artifactId = document.displayArtifactId}
+	{@const preparing = preparingDownloadIds.has(artifactId)}
+	{@const menuOpen = downloadMenuId === artifactId}
+	{@const downloadLabel = $t('artifacts.document.export.title', { title: document.name })}
+	<button
+		type="button"
+		class="action-btn"
+		data-testid="artifact-row-open"
+		aria-label={$t('artifacts.card.openA11y', { title: document.name })}
+		title={$t('artifacts.card.openA11y', { title: document.name })}
+		onclick={(e) => {
+			e.stopPropagation();
+			openDocument(document);
+		}}
+	>
+		<PanelRightOpen size={16} strokeWidth={2} aria-hidden="true" />
+	</button>
+	{#if document.kind === 'document'}
+		<div class="reextract-wrap">
+			<button
+				type="button"
+				class="action-btn"
+				class:is-open={menuOpen}
+				data-testid="artifact-row-download"
+				data-download-toggle={artifactId}
+				disabled={preparing}
+				aria-busy={preparing}
+				aria-haspopup="menu"
+				aria-expanded={menuOpen}
+				aria-label={downloadLabel}
+				title={preparing ? $t('artifacts.document.export.preparing') : downloadLabel}
+				onclick={(e) => toggleDownloadMenu(e, artifactId)}
+			>
+				{#if preparing}
+					<Spinner size={14} />
+				{:else}
+					<Download size={16} strokeWidth={2} aria-hidden="true" />
+				{/if}
+			</button>
+			{#if menuOpen}
+				<div
+					class="reextract-menu download-menu"
+					role="menu"
+					tabindex="-1"
+					style={downloadMenuStyle}
+					use:portalToBody
+					data-testid="artifact-row-download-menu"
+					aria-label={downloadLabel}
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => {
+						if (e.key === 'Escape') {
+							e.preventDefault();
+							e.stopPropagation();
+							closeDownloadMenu(artifactId);
+						}
+					}}
+				>
+					<p class="reextract-menu-label">{downloadLabel}</p>
+					{#each DOCUMENT_DOWNLOAD_FORMATS as option (option.format)}
+						<button
+							type="button"
+							role="menuitem"
+							class="reextract-menu-item"
+							data-testid={`artifact-row-download-${option.format}`}
+							onclick={(e) => void chooseDownloadFormat(e, document, option.format)}
+						>
+							<span>{$t(option.key)}</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{:else if document.kind === 'app'}
+		<button
+			type="button"
+			class="action-btn"
+			data-testid="artifact-row-download"
+			disabled={preparing}
+			aria-busy={preparing}
+			aria-label={downloadLabel}
+			title={preparing ? $t('artifacts.document.export.preparing') : downloadLabel}
+			onclick={(e) => void chooseDownloadFormat(e, document, 'html')}
+		>
+			{#if preparing}
+				<Spinner size={14} />
+			{:else}
+				<Download size={16} strokeWidth={2} aria-hidden="true" />
+			{/if}
+		</button>
+	{/if}
+{/snippet}
+
 <svelte:window
 	onclick={() => {
 		if (reextractMenuId) closeReextractMenu(reextractMenuId, false);
+		if (downloadMenuId) closeDownloadMenu(downloadMenuId, false);
+	}}
+	onscrollcapture={() => {
+		if (downloadMenuId) closeDownloadMenu(downloadMenuId, false);
+	}}
+	onresize={() => {
+		if (downloadMenuId) closeDownloadMenu(downloadMenuId, false);
 	}}
 />
 
@@ -1888,6 +2082,8 @@ async function handleBulkDelete(): Promise<boolean> {
 											>
 												<Download size={16} strokeWidth={2} aria-hidden="true" />
 											</button>
+										{:else if document.kind === 'document' || document.kind === 'canvas' || document.kind === 'app'}
+											{@render artifactRowActions(document)}
 										{/if}
 										<button
 											type="button"
@@ -3097,6 +3293,15 @@ async function handleBulkDelete(): Promise<boolean> {
 		background: var(--surface-raised, var(--surface-page));
 		box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 18%));
 		text-align: left;
+	}
+
+	/* The Download menu of a Document's row is painted in <body> and placed from its
+	   button (position and edge are inline), so the table's own scrolling cannot cut
+	   it off; it is the re-extract menu's look, fixed to the viewport. */
+	.download-menu {
+		position: fixed;
+		top: auto;
+		z-index: 60;
 	}
 
 	.reextract-menu-label {

@@ -1558,7 +1558,7 @@ describe("DocumentsList", () => {
 			expect(meta?.querySelector(".version-badge")).toBeNull();
 		});
 
-		it("offers only Delete in the Actions column \u2014 no What AI sees, no Download", () => {
+		it("offers only Delete in a shelved Slides row's Actions column \u2014 no What AI sees, no Download", () => {
 			render(DocumentsList, {
 				props: {
 					documents: [
@@ -1603,6 +1603,180 @@ describe("DocumentsList", () => {
 			for (const cell of actionsCells) {
 				expect(cell.querySelector('[aria-label*="Download" i]')).not.toBeNull();
 			}
+		});
+	});
+
+	// Friction audit F23: a Document, a Canvas and an App had a trash can and
+	// nothing else. They open by a button of their own, and the kinds with a file to
+	// hand over download it as the panel's Download does.
+	describe("a Document's, a Canvas's and an App's row actions", () => {
+		it("a Document row has Open and a Download menu of its three formats; a choice reports the format and closes the menu", async () => {
+			const onSelect = vi.fn();
+			const onDownloadArtifact = vi.fn().mockResolvedValue(undefined);
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-doc-1",
+							displayArtifactId: "art-doc-1",
+							name: "Trip plan",
+							kind: "document",
+							artifactVersionNumber: 2,
+						}),
+					],
+					onSelect,
+					onDownloadArtifact,
+				},
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Open Trip plan" }),
+			);
+			expect(onSelect).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "art-doc-1" }),
+			);
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Download Trip plan" }),
+			);
+			const menu = screen.getByRole("menu");
+			expect(
+				within(menu)
+					.getAllByRole("menuitem")
+					.map((item) => item.textContent?.trim()),
+			).toEqual(["PDF", "Word", "Markdown"]);
+
+			await fireEvent.click(
+				within(menu).getByRole("menuitem", { name: "Word" }),
+			);
+			expect(onDownloadArtifact).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "art-doc-1" }),
+				"docx",
+			);
+			await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+		});
+
+		it("an App row downloads its .html file in one press, with no menu", async () => {
+			const onDownloadArtifact = vi.fn().mockResolvedValue(undefined);
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-app-1",
+							displayArtifactId: "art-app-1",
+							name: "Trip cost splitter",
+							kind: "app",
+							artifactVersionNumber: 3,
+						}),
+					],
+					onDownloadArtifact,
+				},
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Download Trip cost splitter" }),
+			);
+
+			expect(screen.queryByRole("menu")).toBeNull();
+			expect(onDownloadArtifact).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "art-app-1" }),
+				"html",
+			);
+		});
+
+		it("a Canvas row has Open and no Download: a board's picture is drawn by the open board", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-canvas-1",
+							displayArtifactId: "art-canvas-1",
+							name: "Vienna trip board",
+							kind: "canvas",
+							artifactVersionNumber: 1,
+						}),
+					],
+					onDownloadArtifact: vi.fn(),
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Open Vienna trip board" }),
+			).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
+		});
+
+		it("says the file is being prepared while it is made, and a second press does nothing", async () => {
+			let finish!: () => void;
+			const onDownloadArtifact = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						finish = resolve;
+					}),
+			);
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-app-1",
+							displayArtifactId: "art-app-1",
+							name: "Trip cost splitter",
+							kind: "app",
+							artifactVersionNumber: 3,
+						}),
+					],
+					onDownloadArtifact,
+				},
+			});
+			const button = screen.getByRole("button", {
+				name: "Download Trip cost splitter",
+			});
+
+			await fireEvent.click(button);
+
+			await waitFor(() => expect(button).toBeDisabled());
+			expect(button).toHaveAttribute("aria-busy", "true");
+			expect(button).toHaveAttribute("title", "Preparing your file…");
+			await fireEvent.click(button);
+			expect(onDownloadArtifact).toHaveBeenCalledTimes(1);
+
+			finish();
+			await waitFor(() => expect(button).not.toBeDisabled());
+		});
+
+		it("shows no size for a row that has none, and the file's size for a row that has", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						// The store gives a live-edited row no size (the helper defaults one).
+						{
+							...makeArtifactDocument({
+								id: "art-doc-1",
+								displayArtifactId: "art-doc-1",
+								name: "Trip plan",
+								kind: "document",
+								artifactVersionNumber: 1,
+							}),
+							sizeBytes: null,
+						},
+						makeDocument({
+							id: "gen-1",
+							displayArtifactId: "gen-1",
+							name: "Report.pdf",
+							type: "generated_output",
+							documentOrigin: "generated",
+							sizeBytes: 373_760,
+						}),
+					],
+				},
+			});
+
+			const sizes = Array.from(
+				document.querySelectorAll(".documents-table tbody .col-size"),
+			).map((cell) => cell.textContent?.trim());
+			expect(sizes).toContain("\u2014");
+			expect(sizes).toContain("365 KB");
+			expect(sizes).not.toContain("0 B");
 		});
 	});
 

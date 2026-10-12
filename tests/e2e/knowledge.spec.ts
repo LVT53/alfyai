@@ -13,6 +13,18 @@ import {
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
 import { formatByteSize } from "../../src/lib/utils/format";
+import {
+	APP_HTML,
+	APP_TITLE,
+	bytesOf,
+	cleanUpConversation,
+	jobDto,
+	MARKDOWN,
+	seedApp,
+	seedDocument,
+	seedSucceededAppJob,
+	TITLE,
+} from "./artifact-download-helpers";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 /**
@@ -45,7 +57,7 @@ test.describe("Knowledge page", () => {
 		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
 		await expect(memoryTab).toHaveAttribute("aria-selected", "false");
 		await expect(page.getByRole("region", { name: "Documents" })).toBeVisible();
-		expect(new URL(page.url()).searchParams.has("tab")).toBe(false);
+		await expect(page).not.toHaveURL(/[?&]tab=/);
 
 		await memoryTab.click();
 		await expect(page).toHaveURL(/tab=memory/);
@@ -60,7 +72,7 @@ test.describe("Knowledge page", () => {
 
 		await documentsTab.click();
 		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
-		expect(new URL(page.url()).searchParams.has("tab")).toBe(false);
+		await expect(page).not.toHaveURL(/[?&]tab=/);
 	});
 
 	test("documents section is visible", { tag: "@smoke" }, async ({ page }) => {
@@ -334,7 +346,7 @@ test.describe("Knowledge page", () => {
 	// real end-to-end pipeline coverage, not a fixture that only proves the
 	// seed worked — direct db writes, matching the repo's existing E2E
 	// seeding convention (see conversation-title-refresh.spec.ts).
-	test("shows a seeded artifact-family row with its chip, type pill and no download action", {
+	test("shows a seeded artifact-family row with its chip, type pill, Open and no download action", {
 		tag: "@smoke",
 	}, async ({ page }) => {
 		// A bare conversation row, seeded directly like several other E2E specs
@@ -386,7 +398,11 @@ test.describe("Knowledge page", () => {
 			await expect(page).toHaveURL(/type=canvas/);
 			await expect(row).toBeVisible();
 
-			// Actions column: Delete only, no Download.
+			// Actions column: Open and Delete, no Download (a board's picture is
+			// drawn by the open board, which Open reaches).
+			await expect(
+				row.getByRole("button", { name: `Open ${artifactName}` }),
+			).toBeVisible();
 			await expect(row.getByRole("button", { name: /download/i })).toHaveCount(
 				0,
 			);
@@ -489,6 +505,147 @@ test.describe("Knowledge page", () => {
 			await db
 				.delete(conversations)
 				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// Friction audit F23: a Document, a Canvas and an App had a trash can and
+	// nothing else, while a generated file's row had its actions. The row opens the
+	// item by a button of its own, and the kinds that have a file to hand over
+	// download it the way the panel's Download does.
+	test("a Document's row opens it and downloads it in the format asked for", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedDocument();
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: TITLE })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(row).toHaveCount(1);
+
+			await row.getByTestId("artifact-row-download").click();
+			// Painted in <body>, so the table cannot cut it off.
+			const menu = page.getByTestId("artifact-row-download-menu");
+			await expect(menu.getByRole("menuitem")).toHaveText([
+				"PDF",
+				"Word",
+				"Markdown",
+			]);
+			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+			await menu.getByRole("menuitem", { name: "Markdown" }).click();
+			const download = await downloaded;
+			expect(download.suggestedFilename().normalize("NFC")).toBe(
+				`${TITLE}.md`.normalize("NFC"),
+			);
+			expect((await bytesOf(download)).toString("utf8")).toContain(
+				"Szombat: Naschmarkt",
+			);
+			expect(MARKDOWN).toContain("Belvedere");
+
+			// Its own Open, by name, opens the Document in the panel.
+			await row.getByRole("button", { name: `Open ${TITLE}` }).click();
+			await expect(
+				page.locator('[data-testid="artifact-panel-title"]:visible'),
+			).toHaveText(TITLE, { timeout: 15_000 });
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("a Document that cannot be exported says why in the page's own banner, and nothing downloads", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedDocument();
+		try {
+			// The server refuses it (a source past the export limit).
+			await page.route("**/api/artifacts/*/export*", async (route) => {
+				await route.fulfill({
+					status: 413,
+					json: { ok: false, reason: "source_too_large" },
+				});
+			});
+			let downloadStarted = false;
+			page.on("download", () => {
+				downloadStarted = true;
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: TITLE })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await row.getByTestId("artifact-row-download").click();
+			await page
+				.getByTestId("artifact-row-download-menu")
+				.getByRole("menuitem", { name: "PDF" })
+				.click();
+
+			await expect(
+				page.getByText("This document is too long to export."),
+			).toBeVisible();
+			expect(downloadStarted).toBe(false);
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("an App's row downloads its .html file in one press, with the file the job made", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedApp();
+		const { job } = await seedSucceededAppJob(conversationId);
+		try {
+			await page.route("**/api/artifacts/*/app/download", async (route) => {
+				await route.fulfill({
+					status: 202,
+					json: { ok: true, job, reused: false },
+				});
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: APP_TITLE })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(row).toHaveCount(1);
+
+			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+			await row.getByTestId("artifact-row-download").click();
+			const download = await downloaded;
+
+			expect(download.suggestedFilename()).toBe("app.html");
+			expect((await bytesOf(download)).toString("utf8")).toBe(APP_HTML);
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("an App whose sandbox run failed says so in the page's banner", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedApp();
+		try {
+			await page.route("**/api/artifacts/*/app/download", async (route) => {
+				await route.fulfill({
+					status: 202,
+					json: {
+						ok: true,
+						job: jobDto("job-failed", conversationId, "failed"),
+						reused: false,
+					},
+				});
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await page
+				.locator("tbody tr", { hasText: APP_TITLE })
+				.getByTestId("artifact-row-download")
+				.click();
+
+			await expect(
+				page.getByText("Could not prepare this app for download."),
+			).toBeVisible();
+		} finally {
+			await cleanUpConversation(conversationId);
 		}
 	});
 

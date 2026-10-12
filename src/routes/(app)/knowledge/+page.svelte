@@ -18,8 +18,20 @@ import {
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
+import {
+	downloadAppAsHtml,
+	type ExportArtifactDocumentFormat,
+	exportArtifactDocument,
+} from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
-import { startAuthenticatedDownload } from "$lib/client/downloads";
+import {
+	downloadProducedFile,
+	startAuthenticatedDownload,
+} from "$lib/client/downloads";
+import {
+	exportFailureKey,
+	exportFailureOf,
+} from "$lib/components/artifacts/document/download-failures";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
@@ -456,6 +468,33 @@ function removeDeletingArtifact(id: string) {
 	const next = new Set(deletingArtifactIds);
 	next.delete(id);
 	deletingArtifactIds = next;
+}
+
+/**
+ * A Document's or an App's row Download (friction audit F23): the same export
+ * the panel's Download makes (`downloadProducedFile`: make the file, follow the
+ * job, hand it to the browser), and the same words when it did not work, in the
+ * page's own error banner. The library lists only what the reader's normal chats
+ * hold, so the export is read without a conversation scope.
+ */
+async function handleArtifactDownload(
+	document: KnowledgeDocumentItem,
+	format: ExportArtifactDocumentFormat | "html",
+) {
+	manageError = "";
+	const artifactId = document.displayArtifactId;
+	const result = await downloadProducedFile(() =>
+		format === "html"
+			? downloadAppAsHtml(artifactId, null)
+			: exportArtifactDocument(artifactId, format, null),
+	);
+	if (result.ok) return;
+	manageError = $t(
+		exportFailureKey(
+			exportFailureOf(result.reason),
+			format === "html" ? "app" : "document",
+		),
+	);
 }
 
 function handleDocumentDownload(documentId: string) {
@@ -1105,6 +1144,7 @@ $effect(() => {
 						onDelete={handleDocumentDelete}
 						onBulkDelete={handleBulkDocumentDelete}
 						onDownload={handleDocumentDownload}
+						onDownloadArtifact={handleArtifactDownload}
 						onUpload={handleDocumentsUpload}
 						onRetryExtraction={handleExtractionRetry}
 						onCancelExtraction={handleExtractionCancel}
