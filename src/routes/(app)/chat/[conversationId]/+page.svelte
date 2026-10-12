@@ -690,6 +690,13 @@ let liveArtifacts = $derived(
 	),
 );
 let artifactListOpen = $state(false);
+/**
+ * Whether the open item is in History, the panel's mode (ruling 76): what the panel
+ * has told us (`onHistoryOpenChange`) and what the browser's Back and Forward ask of
+ * it (`applyPanelLayer`). It is a layer of the panel's history entries like the list
+ * and the item are (FX-2), so a Back leaves History before it closes the item.
+ */
+let artifactHistoryOpen = $state(false);
 // Read by closeWorkspace() to return focus to the button that opens "what
 // this chat made" when the panel closes — both refs exist because the
 // desktop and compact buttons are both always in the DOM (CSS decides which
@@ -1436,6 +1443,7 @@ function triggerForkOpeningTransition() {
 function restorePersistedWorkspaceState() {
 	workspaceConversation = getWorkspaceConversation();
 	lastClosedItem = null;
+	artifactHistoryOpen = false;
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1812,11 +1820,15 @@ let panelLayer = $derived.by<PanelLayer | null>(() => {
 	if (!isArtifactPanelOpen) return null;
 	if (artifactListOpen) return { kind: "list" };
 	const itemId = activeWorkspaceDocument?.id ?? workspaceDocuments[0]?.id;
-	return itemId ? { kind: "item", itemId } : null;
+	if (!itemId) return null;
+	return artifactHistoryOpen
+		? { kind: "item", itemId, history: true }
+		: { kind: "item", itemId };
 });
 
 function applyPanelLayer(layer: PanelLayer | null) {
 	if (layer?.kind === "list") {
+		artifactHistoryOpen = false;
 		openArtifactList();
 		return;
 	}
@@ -1827,15 +1839,21 @@ function applyPanelLayer(layer: PanelLayer | null) {
 				(entry) => entry.id === layer.itemId,
 			);
 		if (known) {
+			// History is the panel's to open and close (it flushes the body first and
+			// loads its own chunk): the wish goes down as a prop, and what the panel did
+			// comes back through `onHistoryOpenChange`.
+			artifactHistoryOpen = layer.history === true;
 			selectWorkspaceDocument(layer.itemId);
 			return;
 		}
 		// The item is gone since the entry was made: the panel shows what is left.
 		if (artifactWorkspaceItems.length > 0) {
+			artifactHistoryOpen = false;
 			openArtifactList();
 			return;
 		}
 	}
+	artifactHistoryOpen = false;
 	if (isArtifactPanelOpen) closeWorkspace();
 }
 
@@ -4095,6 +4113,8 @@ function handleDrop(event: DragEvent) {
 				// leave a closed panel behind.
 				if (open) workspaceOpen = true;
 			}}
+			historyWanted={artifactHistoryOpen}
+			onHistoryOpenChange={(open) => (artifactHistoryOpen = open)}
 			onSelectDocument={selectWorkspaceDocument}
 			onOpenDocument={(document) =>
 				openWorkspaceDocument(document, { preservePresentation: true })}

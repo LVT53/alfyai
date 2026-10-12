@@ -8,7 +8,9 @@
  *
  * Two layers sit on top of the chat's own entry. The PANEL is the first: the list
  * the count button opens, or an item opened straight from a chat card. An item
- * opened from the list is the second. Each opening adds one entry, each entry says
+ * opened from the list is the second. HISTORY, the mode an open item can be in
+ * (ruling 76), is one more over the item (FX-2): a Back leaves History and the
+ * item it belongs to stays. Each opening adds one entry, each entry says
  * which layer it shows (in SvelteKit's `page.state`, so the browser keeps it
  * across Back, Forward and a reload), and the chat's panel is made to follow the
  * entry the browser is on. Going the other way, when the panel itself closes (the
@@ -23,8 +25,14 @@
  * write would tear it).
  */
 
-/** What the panel is showing. Closed is `null` wherever a layer is asked for. */
-export type PanelLayer = { kind: "list" } | { kind: "item"; itemId: string };
+/**
+ * What the panel is showing. Closed is `null` wherever a layer is asked for.
+ * `history` is the open item's History mode: a layer over the item, never over
+ * anything else.
+ */
+export type PanelLayer =
+	| { kind: "list" }
+	| { kind: "item"; itemId: string; history?: true };
 
 /** What a history entry says about the panel. */
 export interface PanelEntry {
@@ -32,9 +40,10 @@ export interface PanelEntry {
 	/**
 	 * How many entries the panel holds above the chat's own, this one included: 1
 	 * for the panel (the list, or an item opened straight from a card), 2 for an
-	 * item opened from the list (the list's entry is under it).
+	 * item opened from the list (the list's entry is under it), and one more for
+	 * the History of an item (2 over a card's item, 3 over a list's).
 	 */
-	depth: 1 | 2;
+	depth: 1 | 2 | 3;
 }
 
 /** The key an entry is kept under in the page state, and so in the browser's history state. */
@@ -50,9 +59,15 @@ function parseLayer(raw: unknown): PanelLayer | null {
 	const { kind, itemId } = raw as Record<string, unknown>;
 	if (kind === "list") return { kind: "list" };
 	if (kind === "item" && typeof itemId === "string" && itemId !== "") {
-		return { kind: "item", itemId };
+		return (raw as Record<string, unknown>).history === true
+			? { kind: "item", itemId, history: true }
+			: { kind: "item", itemId };
 	}
 	return null;
+}
+
+function isHistory(layer: PanelLayer): layer is PanelLayer & { history: true } {
+	return layer.kind === "item" && layer.history === true;
 }
 
 /** An entry as it was stored, or `null` for anything that is not one (a state this code never wrote is not trusted). */
@@ -60,7 +75,9 @@ export function parsePanelEntry(raw: unknown): PanelEntry | null {
 	if (!raw || typeof raw !== "object") return null;
 	const { layer, depth } = raw as Record<string, unknown>;
 	const parsed = parseLayer(layer);
-	if (!parsed || (depth !== 1 && depth !== 2)) return null;
+	if (!parsed || (depth !== 1 && depth !== 2 && depth !== 3)) return null;
+	// Only History reaches the third entry: an item is at most two deep.
+	if (depth === 3 && !isHistory(parsed)) return null;
 	return { layer: parsed, depth };
 }
 
@@ -85,7 +102,12 @@ export function readPanelEntry(historyState: unknown): PanelEntry | null {
 export function sameLayer(a: PanelLayer | null, b: PanelLayer | null): boolean {
 	if (a === null || b === null) return a === b;
 	if (a.kind !== b.kind) return false;
-	return a.kind === "list" || (b.kind === "item" && a.itemId === b.itemId);
+	return (
+		a.kind === "list" ||
+		(b.kind === "item" &&
+			a.itemId === b.itemId &&
+			isHistory(a) === isHistory(b))
+	);
 }
 
 /** What to do to the browser's history so that it says what the panel shows. */
@@ -93,7 +115,7 @@ export type PanelStep =
 	| { do: "none" }
 	| { do: "push"; entry: PanelEntry }
 	| { do: "replace"; entry: PanelEntry }
-	| { do: "back"; steps: 1 | 2 };
+	| { do: "back"; steps: 1 | 2 | 3 };
 
 const NONE: PanelStep = { do: "none" };
 
@@ -101,12 +123,18 @@ const NONE: PanelStep = { do: "none" };
  * What the history has to do now that the panel is showing `next` while the browser
  * stands on `here` (`null`: the chat's own entry, which says nothing of a panel).
  *
- * A layer that opens adds an entry; an item opened from the list adds a second one.
- * A layer that closes pops the entries it added, all of them when the panel closes,
- * and one when an item gives way to the list it was opened from. A move that stays
- * in the same layer (another item in the panel, an item swapped for the list in the
- * panel that came straight from a card) is a rewrite of the entry it is on, never
- * another entry: Back is for leaving a layer, not for undoing a swap inside it.
+ * A layer that opens adds an entry; an item opened from the list adds a second one,
+ * and its History a third. A layer that closes pops the entries it added, all of
+ * them when the panel closes, and one when an item gives way to the list it was
+ * opened from. A move that stays in the same layer (another item in the panel, an
+ * item swapped for the list in the panel that came straight from a card) is a
+ * rewrite of the entry it is on, never another entry: Back is for leaving a layer,
+ * not for undoing a swap inside it.
+ *
+ * History is the top layer of its item and gives way first, whatever the panel
+ * shows next (the item it belongs to, the list, another item): its entry is popped
+ * and what is left to do is planned afresh from the entry below it, once the
+ * browser has landed there.
  */
 export function planPanelHistory(
 	here: PanelEntry | null,
@@ -117,6 +145,17 @@ export function planPanelHistory(
 	}
 	if (!next) return { do: "back", steps: here.depth };
 	if (sameLayer(here.layer, next)) return NONE;
+	if (isHistory(here.layer)) return { do: "back", steps: 1 };
+	if (isHistory(next)) {
+		// Over the item the browser is on, History is one more entry; anything else
+		// is an entry for a layer that has nothing under it, rewritten as it stands.
+		return here.layer.kind === "item" && here.layer.itemId === next.itemId
+			? {
+					do: "push",
+					entry: { layer: next, depth: here.depth === 1 ? 2 : 3 },
+				}
+			: { do: "replace", entry: { layer: next, depth: here.depth } };
+	}
 	if (here.depth === 2) {
 		// An item over the list's own entry: the list is one entry down, and
 		// another item replaces this one.

@@ -127,6 +127,8 @@ let {
 	onCloseWorkspace,
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
+	historyWanted = undefined,
+	onHistoryOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
 	onDeleteArtifact = undefined,
 	onFlushReady = undefined,
@@ -175,6 +177,16 @@ let {
 		| ((presentation: "docked" | "expanded") => void)
 		| undefined;
 	onListOpenChange?: ((open: boolean) => void) | undefined;
+	/**
+	 * The host's wish for History, the open item's mode (ruling 76): `true` opens it
+	 * over the open item and `false` leaves it, which is how the browser's Back and
+	 * Forward move through it when History is a layer of the host's history entries
+	 * (FX-2). Absent (the Knowledge page, a project's files): the panel is the only
+	 * one to say.
+	 */
+	historyWanted?: boolean | undefined;
+	/** History opened or closed, whoever did it (a press, Done, Escape, another item, the panel closing): the host keeps its entries in step. */
+	onHistoryOpenChange?: ((open: boolean) => void) | undefined;
 	/**
 	 * Wave 2.5 review (F1): bubbles the open Document body's own live
 	 * `onPendingReviewCountChange` report (see `ArtifactBodyProps`'s doc
@@ -531,6 +543,36 @@ $effect(() => {
 		historyOpen = false;
 		historyChangedBody = false;
 	});
+});
+
+// History is a mode of the open item: it goes when the panel stops showing that item
+// (the panel closes, the list shows), so a closed panel never comes back in History.
+$effect(() => {
+	if (shouldShowWorkspaceShell && !list?.open) return;
+	untrack(() => closeHistory({ restoreFocus: false }));
+});
+
+// The host's wish (the browser's Back and Forward move through History as a layer of
+// its history entries) and what actually happened. Neither loops: a wish that the
+// panel already is in does nothing, and a report of what the host already knows is
+// the same value again.
+$effect(() => {
+	const wanted = historyWanted;
+	if (wanted === undefined) return;
+	untrack(() => {
+		if (wanted && !historyOpen) {
+			// Not every item has a History, and the open can fail: say so, so the wish is dropped.
+			void openHistory().then(() => {
+				if (!historyOpen) onHistoryOpenChange?.(false);
+			});
+		} else if (!wanted && historyOpen) {
+			closeHistory();
+		}
+	});
+});
+$effect(() => {
+	const open = historyOpen;
+	untrack(() => onHistoryOpenChange?.(open));
 });
 
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(

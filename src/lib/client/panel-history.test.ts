@@ -13,7 +13,12 @@ import {
 
 const LIST: PanelLayer = { kind: "list" };
 const item = (itemId: string): PanelLayer => ({ kind: "item", itemId });
-const entry = (layer: PanelLayer, depth: 1 | 2): PanelEntry => ({
+const history = (itemId: string): PanelLayer => ({
+	kind: "item",
+	itemId,
+	history: true,
+});
+const entry = (layer: PanelLayer, depth: 1 | 2 | 3): PanelEntry => ({
 	layer,
 	depth,
 });
@@ -82,6 +87,89 @@ describe("planPanelHistory", () => {
 			do: "replace",
 			entry: entry(LIST, 1),
 		});
+	});
+});
+
+describe("History, the top layer of an item (FX-2)", () => {
+	it("opens over the item the browser is on, as one more entry", () => {
+		// An item opened straight from a card, and one opened from the list.
+		expect(planPanelHistory(entry(item("a"), 1), history("a"))).toEqual({
+			do: "push",
+			entry: entry(history("a"), 2),
+		});
+		expect(planPanelHistory(entry(item("a"), 2), history("a"))).toEqual({
+			do: "push",
+			entry: entry(history("a"), 3),
+		});
+	});
+
+	it("gives way first, whatever the panel shows next: its entry is popped and the history is planned afresh from the one below", () => {
+		// The item it belongs to (a Back, or Done).
+		expect(planPanelHistory(entry(history("a"), 3), item("a"))).toEqual({
+			do: "back",
+			steps: 1,
+		});
+		expect(planPanelHistory(entry(history("a"), 2), item("a"))).toEqual({
+			do: "back",
+			steps: 1,
+		});
+		// The list, or another item: History does not outlive its item.
+		expect(planPanelHistory(entry(history("a"), 3), LIST)).toEqual({
+			do: "back",
+			steps: 1,
+		});
+		expect(planPanelHistory(entry(history("a"), 2), item("b"))).toEqual({
+			do: "back",
+			steps: 1,
+		});
+	});
+
+	it("is taken with every other entry when the panel closes over it", () => {
+		expect(planPanelHistory(entry(history("a"), 3), null)).toEqual({
+			do: "back",
+			steps: 3,
+		});
+		expect(planPanelHistory(entry(history("a"), 2), null)).toEqual({
+			do: "back",
+			steps: 2,
+		});
+	});
+
+	it("does nothing while the panel and the entry both say History", () => {
+		expect(planPanelHistory(entry(history("a"), 3), history("a"))).toEqual({
+			do: "none",
+		});
+	});
+
+	it("rewrites an entry that would hold History for something that is not its item", () => {
+		expect(planPanelHistory(entry(LIST, 1), history("a"))).toEqual({
+			do: "replace",
+			entry: entry(history("a"), 1),
+		});
+		expect(planPanelHistory(entry(item("b"), 2), history("a"))).toEqual({
+			do: "replace",
+			entry: entry(history("a"), 2),
+		});
+	});
+
+	it("is a layer of its own: not the item, and not another item's History", () => {
+		expect(sameLayer(history("a"), item("a"))).toBe(false);
+		expect(sameLayer(history("a"), history("a"))).toBe(true);
+		expect(sameLayer(history("a"), history("b"))).toBe(false);
+	});
+
+	it("is kept in an entry only as History of an item, and only History reaches the third depth", () => {
+		expect(parsePanelEntry(entry(history("a"), 3))).toEqual(
+			entry(history("a"), 3),
+		);
+		expect(parsePanelEntry(entry(history("a"), 2))).toEqual(
+			entry(history("a"), 2),
+		);
+		expect(parsePanelEntry(entry(item("a"), 3))).toBeNull();
+		expect(
+			parsePanelEntry({ layer: { kind: "list", history: true }, depth: 1 }),
+		).toEqual(entry(LIST, 1));
+		expect(parsePanelEntry({ layer: LIST, depth: 3 })).toBeNull();
 	});
 });
 

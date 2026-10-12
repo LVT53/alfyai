@@ -87,6 +87,20 @@ async function openListThenItem(
 	await expect(itemTitle(page)).toHaveText(title, { timeout: 15_000 });
 }
 
+/** History, the panel's mode: the section on a desktop, the sheet's content on a phone. */
+function historyView(page: Page): Locator {
+	return page.locator('[data-testid="artifact-history"]:visible');
+}
+
+/** Opens History from the header's version button, with a real press. */
+async function openHistory(page: Page, touch: boolean): Promise<void> {
+	await press(
+		page.locator('[data-testid="artifact-history-button"]:visible').first(),
+		touch,
+	);
+	await expect(historyView(page)).toBeVisible({ timeout: 30_000 });
+}
+
 /** The panel is not on screen and its count button says so. */
 async function expectPanelClosed(page: Page, label: string): Promise<void> {
 	await expect(panelShell(page), `${label}: no panel`).toBeHidden();
@@ -313,6 +327,73 @@ for (const mode of MODES) {
 				"closed from the list: the list",
 			).toBeVisible({ timeout: 15_000 });
 		});
+
+		// History is a mode of the open item (ruling 76) and a layer of the panel's
+		// history like the item and the list are: a Back leaves it first (FX-2, FB-5's
+		// open note), and the item it belongs to stays.
+		test("History is a layer: Back leaves it before it closes the item, and Forward brings it back", async ({
+			page,
+		}) => {
+			const { chatId } = await readerWithTwoItems(page);
+			const chatUrl = new RegExp(`/chat/${chatId}$`);
+			await openListThenItem(page, mode.touch, ITEM_TITLES.document);
+			await openHistory(page, mode.touch);
+
+			await page.goBack();
+			await expect(historyView(page), "Back leaves History").toBeHidden({
+				timeout: 15_000,
+			});
+			await expect(
+				itemTitle(page),
+				"the item History belongs to stays open",
+			).toHaveText(ITEM_TITLES.document);
+			await expect(panelList(page)).toBeHidden();
+			await expect(page).toHaveURL(chatUrl);
+
+			await page.goForward();
+			await expect(
+				historyView(page),
+				"Forward brings History back",
+			).toBeVisible({ timeout: 15_000 });
+
+			// Then the layers go as they always did: History, the item, the list, the chat.
+			await page.goBack();
+			await expect(historyView(page)).toBeHidden({ timeout: 15_000 });
+			await page.goBack();
+			await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+			await page.goBack();
+			await expectPanelClosed(page, "the Back after the list");
+			await expect(page).toHaveURL(chatUrl);
+			await page.goBack();
+			await expect(page).not.toHaveURL(/\/chat\//);
+		});
+
+		test("leaving History with its own controls leaves no entry behind", async ({
+			page,
+		}) => {
+			await readerWithTwoItems(page);
+			await openListThenItem(page, mode.touch, ITEM_TITLES.document);
+			await openHistory(page, mode.touch);
+
+			// The header's Done on a desktop, the sheet's own Escape on a phone.
+			if (mode.touch) {
+				await page.keyboard.press("Escape");
+			} else {
+				await press(
+					page.locator('[data-testid="artifact-history-done"]:visible'),
+					false,
+				);
+			}
+			await expect(historyView(page)).toBeHidden({ timeout: 15_000 });
+			await expect(itemTitle(page)).toHaveText(ITEM_TITLES.document);
+
+			// One Back is the item's own: it gives the list, not a History that is already gone.
+			await page.goBack();
+			await expect(
+				panelList(page),
+				"History left nothing of its own behind",
+			).toBeVisible({ timeout: 15_000 });
+		});
 	});
 }
 
@@ -329,6 +410,56 @@ test.describe("Escape and Back", () => {
 		await expectPanelClosed(page, "Escape");
 		await page.goBack();
 		await expect(page).not.toHaveURL(/\/chat\//);
+	});
+
+	test("with History open, the panel's X closes everything and takes every entry with it", async ({
+		page,
+	}) => {
+		await readerWithTwoItems(page);
+		await openListThenItem(page, false, ITEM_TITLES.document);
+		await openHistory(page, false);
+
+		await press(
+			panelShell(page).locator(".workspace-close-button:visible").first(),
+			false,
+		);
+		await expectPanelClosed(page, "the X over History");
+		await page.goBack();
+		await expect(
+			page,
+			"the item, the list's entry and History's all went with the panel",
+		).not.toHaveURL(/\/chat\//);
+	});
+
+	test("Escape leaves History first, and the next Back is the item's", async ({
+		page,
+	}) => {
+		await readerWithTwoItems(page);
+		await openListThenItem(page, false, ITEM_TITLES.document);
+		await openHistory(page, false);
+
+		await page.keyboard.press("Escape");
+		await expect(historyView(page)).toBeHidden({ timeout: 15_000 });
+		await expect(itemTitle(page)).toHaveText(ITEM_TITLES.document);
+		await page.goBack();
+		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+	});
+
+	test("after a reload with History open it is open again, and Back leaves it", async ({
+		page,
+	}) => {
+		await readerWithTwoItems(page);
+		await openListThenItem(page, false, ITEM_TITLES.document);
+		await openHistory(page, false);
+
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(
+			historyView(page),
+			"the entry the browser kept says History",
+		).toBeVisible({ timeout: 30_000 });
+		await page.goBack();
+		await expect(historyView(page)).toBeHidden({ timeout: 15_000 });
+		await expect(itemTitle(page)).toHaveText(ITEM_TITLES.document);
 	});
 
 	test("after a reload with an item open, Back still closes the panel before it leaves", async ({
