@@ -12,7 +12,6 @@
  * "Undone · Redo", on the board.
  */
 import { cubicIn, cubicOut } from "svelte/easing";
-import { fly } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import ReviewBar from "../ReviewBar.svelte";
@@ -20,9 +19,29 @@ import type { CanvasReviewController } from "./_lib/review-controller.svelte";
 
 let { controller }: { controller: CanvasReviewController } = $props();
 
-// Redesign §7.2 #12: rises from below and fades in; sinks and fades out. Under
-// reduced motion both are instant.
-const barFly = reducedMotionAware(fly);
+/**
+ * Redesign §7.2 #12 (the bar rises and fades in, sinks and fades out), and the room
+ * it takes (F18): the bar is a row under the board, so the board is shorter by its
+ * height while it is there, and what is pinned to the board's bottom edge (its
+ * toolbar, the overview, the zoom control) stands higher by the same. A bar that was
+ * only drawn in and out left that room to appear and vanish in one frame, and the
+ * controls went 48 px in a cut. The height grows from nothing and goes back to it, over
+ * the bar's own time, so the board gives up its room and takes it back in step, a few
+ * pixels a frame. Under reduced motion both are instant.
+ */
+function room(
+	node: Element,
+	{ duration, easing }: { duration: number; easing: (t: number) => number },
+) {
+	const height = node.getBoundingClientRect().height;
+	return {
+		duration,
+		easing,
+		css: (t: number) =>
+			`overflow: hidden; height: ${t * height}px; opacity: ${t};`,
+	};
+}
+const barRoom = reducedMotionAware(room);
 
 let slot = $state<HTMLDivElement | undefined>();
 let shown = $derived(
@@ -45,8 +64,8 @@ function seeRefused(): void {
 		class="review-bar-slot"
 		data-testid="canvas-review-bar"
 		bind:this={slot}
-		in:barFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
-		out:barFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+		in:barRoom={{ duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+		out:barRoom={{ duration: MOTION_DURATION.standard, easing: cubicIn }}
 	>
 		<ReviewBar
 			docked

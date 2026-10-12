@@ -627,3 +627,113 @@ test.describe("F12: Alfy's change to a board is counted and worded as the reader
 		}
 	});
 });
+
+// ---- F18 ------------------------------------------------------------------------
+
+test.describe("F18: Keep and Undo do not make the board's own controls jump", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	/** Where the toolbar, the overview and the zoom control are on every frame from now until `stop`. */
+	async function watchControls(page: Page) {
+		await page.evaluate(() => {
+			const w = window as unknown as {
+				__controls: {
+					t: number;
+					toolbar: number;
+					overview: number;
+					zoom: number;
+				}[];
+				__watching: boolean;
+			};
+			w.__controls = [];
+			w.__watching = true;
+			const top = (selector: string) =>
+				document.querySelector(selector)?.getBoundingClientRect().top ??
+				Number.NaN;
+			const sample = () => {
+				w.__controls.push({
+					t: performance.now(),
+					toolbar: top('[data-testid="canvas-toolbar"]'),
+					overview: top(".svelte-flow__minimap"),
+					zoom: top(".canvas-corner"),
+				});
+				if (w.__watching) requestAnimationFrame(sample);
+			};
+			requestAnimationFrame(sample);
+		});
+	}
+
+	/** The largest distance any of them moved between two frames, and how far from where they started they ended. */
+	async function stopWatching(page: Page) {
+		return page.evaluate(() => {
+			const w = window as unknown as {
+				__controls: { toolbar: number; overview: number; zoom: number }[];
+				__watching: boolean;
+			};
+			w.__watching = false;
+			const frames = w.__controls;
+			let jump = 0;
+			for (let index = 1; index < frames.length; index += 1) {
+				for (const key of ["toolbar", "overview", "zoom"] as const) {
+					jump = Math.max(
+						jump,
+						Math.abs(frames[index][key] - frames[index - 1][key]),
+					);
+				}
+			}
+			const first = frames[0];
+			const last = frames[frames.length - 1];
+			return {
+				jump,
+				moved: Math.abs(last.toolbar - first.toolbar),
+				frames: frames.length,
+			};
+		});
+	}
+
+	test("the bar's arrival and Keep move them smoothly, with the bar, never in one cut", async ({
+		page,
+	}) => {
+		const scene = await openWithAlfy(page);
+		try {
+			await watchControls(page);
+			await askAlfy(page, scene.artifactId, ADD_ONE_NOTE);
+			await page.waitForTimeout(500);
+			const arrival = await stopWatching(page);
+			// The bar is ~48 px: it arrives as a height that grows, so what is pinned to the
+			// board's bottom edge rises with it, a few pixels a frame.
+			expect(arrival.moved, "the controls rise with the bar").toBeGreaterThan(
+				30,
+			);
+			expect(
+				arrival.jump,
+				"arrival: no frame moves them by more than a step",
+			).toBeLessThan(14);
+
+			await watchControls(page);
+			await page.getByRole("button", { name: /^Keep all/ }).click();
+			await expect(page.getByTestId("canvas-review-bar")).toHaveCount(0);
+			await page.waitForTimeout(500);
+			const keep = await stopWatching(page);
+			expect(
+				keep.moved,
+				"the controls settle back where they stood",
+			).toBeGreaterThan(30);
+			expect(
+				keep.jump,
+				"Keep: no frame moves them by more than a step",
+			).toBeLessThan(14);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+});
