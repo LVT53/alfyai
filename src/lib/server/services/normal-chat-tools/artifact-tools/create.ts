@@ -20,6 +20,7 @@ import {
 	prepareCanvasBoard,
 } from "$lib/server/services/artifacts";
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
+import { looksLikeHtml } from "$lib/shared/artifacts/app-brief";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { truncateText } from "../shared";
 import { parseCanvasCreateBody } from "./canvas-model";
@@ -92,8 +93,9 @@ export function buildCreateArtifactInputSchema(
 	return z.object({
 		artifactType: z.enum(kinds as NonEmptyKinds),
 		title: z.string().min(1).max(200),
-		/** Documents: Markdown with `<!--b:id-->` markers. Apps: the HTML
-		 *  document. Canvas/Slides join this once they have a handler — see
+		/** Documents: Markdown with `<!--b:id-->` markers. Apps: a brief of what
+		 *  the app is for, never its HTML (LV's note, ruling 77). Canvas: the board
+		 *  JSON. Slides joins this once it has a handler — see
 		 *  advertisedArtifactKinds() below and kind-prose.ts's own comment. */
 		body: z.string().min(1),
 	});
@@ -185,6 +187,18 @@ CREATE_ARTIFACT_HANDLERS.document = async (params) => {
  * longer serves a purpose.
  */
 CREATE_ARTIFACT_HANDLERS.app = async (params) => {
+	// The body is a brief, never the app's markup (LV's note, ruling 77): the tool
+	// text used to call it "the HTML document", and a model that sends its markup
+	// anyway used to have it handed to the generator as the generator's whole prompt
+	// (and stored as version 1's "brief"). Refused before any generation, with the
+	// fix named, so the next call is the right one.
+	if (looksLikeHtml(params.body)) {
+		return {
+			ok: false,
+			reason:
+				"An App's body is a brief, not HTML: say in a few sentences what the app is for and what it does, in the user's words; the app is built from the brief for you. Nothing was created. Call create_artifact again with a brief.",
+		};
+	}
 	const result = await createAppFromBrief({
 		userId: params.userId,
 		conversationId: params.conversationId,

@@ -280,6 +280,15 @@ describe("classifying a row's summary into a moment kind", () => {
 			text: "a tip calculator",
 			version: null,
 		});
+		// Rows made before an App's brief stopped being its markup (LV's note) carry
+		// the model's whole HTML after the prefix: still readable, and never as text.
+		expect(
+			classify(
+				"alfy",
+				'Alfy made the app: <!DOCTYPE html><html lang="en"><head><title>Tip</title></head><body><h1>Tip</h1></body></html>',
+				1,
+			),
+		).toEqual({ kind: "app_made", actor: "alfy", text: null, version: null });
 		expect(classify("alfy", "Alfy regenerated the app: make it blue")).toEqual({
 			kind: "app_rebuilt",
 			actor: "alfy",

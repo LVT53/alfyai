@@ -12,6 +12,7 @@
  * An Undo or Redo names the version it acts on (`Undid Alfy's change: v7`), so
  * History can tell which change a reader took back without guessing.
  */
+import { looksLikeHtml } from "./app-brief";
 import type { MomentAuthor, MomentKind } from "./history";
 
 export const VERSION_SUMMARY = {
@@ -317,10 +318,12 @@ export function classifyVersionSummary(row: {
 		}
 		const brief = parseMadeApp(summary);
 		if (brief !== null) {
+			// Rows written before an App's brief stopped being its markup carry the
+			// model's whole HTML here (LV's note): the moment is the same, its text is not.
 			return {
 				kind: "app_made",
 				actor: "alfy",
-				text: brief.trim() || null,
+				text: looksLikeHtml(brief) ? null : brief.trim() || null,
 				version: null,
 			};
 		}

@@ -160,7 +160,8 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 			"app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz",
 		useCaseEn: "small interactive tool",
 		useCaseHu: "kis interaktív eszközhöz",
-		bodyFormatEn: "Apps: the HTML document.",
+		bodyFormatEn:
+			"Apps: a brief of what the app is for and does, in the user's words — never HTML (the app is built from it).",
 		editRuleEn:
 			"Apps: send instruction — what to change, in the user's words, in one call (no read first); the whole App is rebuilt, about a minute.",
 		editRuleHu:
