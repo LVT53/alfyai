@@ -235,6 +235,115 @@ test.describe("the panel and the chat move together", () => {
 	});
 });
 
+test.describe("the docked column and what it holds", () => {
+	/** The aside and the content laid in it, as the reader sees them at rest. */
+	async function columnAndContent(page: Page) {
+		return page.evaluate(() => {
+			const shell = document.querySelector<HTMLElement>(
+				"aside.workspace-shell-desktop",
+			);
+			const content = shell?.querySelector<HTMLElement>(".workspace-content");
+			if (!shell || !content) return null;
+			const column = shell.getBoundingClientRect();
+			const held = content.getBoundingClientRect();
+			return {
+				column: column.width,
+				content: held.width,
+				contentRight: held.right,
+				columnRight: column.right,
+			};
+		});
+	}
+
+	test("what the column holds fills it at rest, after a window resize and after a drag of its edge", async ({
+		page,
+	}) => {
+		await readerWithItems(page);
+		await openItem(page, "Trip notes");
+		await expect(visibleTitle(page)).toBeVisible();
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(400);
+
+		const fills = async (when: string) => {
+			const box = await columnAndContent(page);
+			expect(box, `${when}: no column`).not.toBeNull();
+			// The shell has a 1 px border on its left edge; the content stands on the right.
+			expect(
+				Math.abs((box?.column ?? 0) - 1 - (box?.content ?? 0)),
+				`${when}: the content does not fill the column`,
+			).toBeLessThanOrEqual(1.5);
+			expect(
+				Math.abs((box?.contentRight ?? 0) - (box?.columnRight ?? 0)),
+			).toBeLessThanOrEqual(1);
+			return box?.column ?? 0;
+		};
+		const wide = await fills("at 1440");
+
+		// The window gets narrower: the column follows the stage, and so does what it holds.
+		await page.setViewportSize({ width: 1100, height: 900 });
+		await page.waitForTimeout(300);
+		const narrow = await fills("at 1100");
+		expect(narrow).toBeLessThan(wide);
+
+		// A drag of the column's edge.
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await page.waitForTimeout(300);
+		const handle = await boxOf(page.getByTestId("resize-handle"));
+		const y = handle.y + handle.height / 2;
+		await page.mouse.move(handle.x + 2, y);
+		await page.mouse.down();
+		await page.mouse.move(handle.x + 2 + 120, y, { steps: 6 });
+		await page.mouse.up();
+		await page.waitForTimeout(200);
+		const dragged = await fills("after the drag");
+		expect(dragged, "the drag did not make the column narrower").toBeLessThan(
+			wide - 100,
+		);
+	});
+});
+
+test.describe("a reader who asked for reduced motion", () => {
+	test("sees the chat and the panel change at once, on open, expand and close", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await readerWithItems(page);
+
+		await startRecording(page);
+		await page.getByTestId("artifact-count-button").click();
+		await expect(panelList(page)).toBeVisible();
+		const opened = await settleAndStop(page);
+		const open = profile(opened.frames, "chatW");
+		expect(open.total, "the chat did not make room").toBeGreaterThan(300);
+		expect(open.between, "the chat was seen part-way").toBeLessThanOrEqual(1);
+
+		await openItem(page, "Trip notes");
+		await expect(visibleTitle(page)).toBeVisible();
+		await page.waitForTimeout(300);
+		await startRecording(page);
+		await page.locator(".workspace-expand-button:visible").first().click();
+		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
+			1,
+		);
+		const expanded = await settleAndStop(page);
+		const expand = profile(expanded.frames, "panelW");
+		expect(expand.total).toBeGreaterThan(300);
+		expect(expand.between, "the panel was seen growing").toBeLessThanOrEqual(1);
+
+		await startRecording(page);
+		await page
+			.locator(".workspace-shell-expanded:visible")
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+		await expect(
+			page.locator("aside.workspace-shell-desktop:visible"),
+		).toHaveCount(0);
+		const closed = await settleAndStop(page);
+		const close = profile(closed.frames, "chatW");
+		expect(close.between, "the chat was seen part-way").toBeLessThanOrEqual(1);
+	});
+});
+
 test.describe("deleting, expanding and closing the open item", () => {
 	test("deleting the open item shows the list without closing the panel", async ({
 		page,
