@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
-import { messages } from "../../src/lib/server/db/schema";
+import { conversations, messages } from "../../src/lib/server/db/schema";
 import {
 	createTourUser,
 	ITEM_TITLES,
@@ -13,6 +13,7 @@ import {
 	startChatAs,
 	type TourUser,
 } from "./artifact-tours-helpers";
+import { ensureSidebarExpanded } from "./helpers";
 
 /**
  * Back closes the top layer of the panel before it leaves the chat (FB-5, ruling
@@ -348,5 +349,53 @@ test.describe("Escape and Back", () => {
 		await expect(page).toHaveURL(new RegExp(`/chat/${chatId}$`));
 		await page.goBack();
 		await expect(page).not.toHaveURL(/\/chat\//);
+	});
+
+	test("switching to another chat and coming back with Back finds the panel layer by layer", async ({
+		page,
+	}) => {
+		const { user, chatId } = await readerWithTwoItems(page);
+		// A second chat of the reader's, with a message so the sidebar lists it.
+		const otherId = randomUUID();
+		await db.insert(conversations).values({
+			id: otherId,
+			userId: user.id,
+			title: "Another chat",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		await db.insert(messages).values({
+			id: `${otherId}-msg-1`,
+			conversationId: otherId,
+			messageSequence: 1,
+			role: "user" as const,
+			content: "Hello there",
+			createdAt: new Date(),
+		});
+		await reopenChat(page, chatId);
+		await openListThenItem(page, false, ITEM_TITLES.document);
+
+		await ensureSidebarExpanded(page);
+		await page
+			.locator(
+				`[data-testid="conversation-item"][data-conversation-id="${otherId}"]`,
+			)
+			.click();
+		await expect(page).toHaveURL(new RegExp(`/chat/${otherId}$`));
+		// The other chat made nothing: no count button, and no panel of its own.
+		await expect(panelShell(page)).toBeHidden();
+		await expect(panelList(page)).toBeHidden();
+
+		await page.goBack();
+		await expect(page).toHaveURL(new RegExp(`/chat/${chatId}$`));
+		await expect(
+			itemTitle(page),
+			"Back finds this chat's panel on the item",
+		).toHaveText(ITEM_TITLES.document, { timeout: 15_000 });
+		await page.goBack();
+		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+		await page.goBack();
+		await expectPanelClosed(page, "the third Back");
+		await expect(page).toHaveURL(new RegExp(`/chat/${chatId}$`));
 	});
 });

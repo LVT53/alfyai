@@ -1430,7 +1430,7 @@ describe("chat page runtime integration", () => {
 
 			// Back to the list: its row says the same time, and never a number.
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", { name: "Back to this chat's items" }),
 			);
 			const listAgain = await screen.findByTestId("artifact-panel-list");
 			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
@@ -1655,7 +1655,7 @@ describe("chat page runtime integration", () => {
 			});
 
 			await fireEvent.click(
-				within(shell).getByRole("button", { name: /This chat/ }),
+				within(shell).getByRole("button", { name: "Back to this chat's items" }),
 			);
 			const listAgain = await screen.findByTestId("artifact-panel-list");
 			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
