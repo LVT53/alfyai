@@ -296,6 +296,12 @@ export interface DocumentWorkspaceItem {
 	 * chat can really make again. Optional: unset means no source is known.
 	 */
 	canRegenerate?: boolean;
+	/**
+	 * A produced file's size in bytes, carried through so the panel list's row can
+	 * say it ("PDF · 363.1 KB"): with the extension it is what tells two files of
+	 * one name apart (FB-5, F9). Unset for anything that is not a produced file.
+	 */
+	sizeBytes?: number | null;
 	downloadUrl?: string | null;
 	/**
 	 * The artifact family kind (ADR-0066). Optional and defaults to `"file"`:

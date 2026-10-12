@@ -1824,6 +1824,64 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			).toBeInTheDocument();
 		});
 
+		it("tells rows of one name apart (F9): a file says its extension and size, a shared name says when", async () => {
+			const madeAt = new Date(2026, 9, 12, 14, 32).getTime();
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					items: [
+						makeWorkspaceDocument({
+							id: "file-1",
+							title: "itinerary.docx",
+							filename: "itinerary.docx",
+							kind: "file",
+							sizeBytes: 10_650,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-1",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+						makeWorkspaceDocument({
+							id: "app-2",
+							title: "Tip calculator",
+							kind: "app",
+							mimeType: null,
+							updatedAt: madeAt - 20 * 60_000,
+						}),
+						makeWorkspaceDocument({
+							id: "board-1",
+							title: "Weekend board",
+							kind: "canvas",
+							mimeType: null,
+							updatedAt: madeAt,
+						}),
+					],
+					title: "What this chat made",
+				},
+			});
+			// The phone's list and the desktop's are both in the document: read one.
+			const rows = within(
+				await screen.findByTestId("artifact-panel-list"),
+			).getAllByTestId("artifact-row");
+			const sub = (row: HTMLElement) =>
+				row.querySelector(".artifact-row-sub")?.textContent?.trim();
+			const byTitle = (title: string) =>
+				rows.filter((row) => row.textContent?.includes(title));
+			expect(sub(byTitle("itinerary.docx")[0])).toBe("File · DOCX · 10.4 KB");
+			const apps = byTitle("Tip calculator").map(sub);
+			expect(apps).toHaveLength(2);
+			for (const line of apps) expect(line).toMatch(/^App · .*\d{2}:\d{2}$/);
+			expect(new Set(apps).size).toBe(2);
+			// A name nobody shares says no time.
+			expect(sub(byTitle("Weekend board")[0])).not.toMatch(/\d{2}:\d{2}/);
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],

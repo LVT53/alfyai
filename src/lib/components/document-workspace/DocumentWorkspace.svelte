@@ -41,6 +41,13 @@ import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopov
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
 import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
+import {
+	fileFacts,
+	isShared,
+	rowMadeAtLabel,
+	sharedNames,
+} from "$lib/components/artifacts/row-facts";
+import { uiLanguage } from "$lib/stores/settings";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
@@ -1283,6 +1290,36 @@ function getDocumentTitle(document: DocumentWorkspaceItem): string {
 	return document.documentLabel ?? document.title ?? document.filename;
 }
 
+/** The names more than one row of the list has (FB-5, F9): those rows say when they were made. */
+let namesSharedByRows = $derived(
+	sharedNames((list?.items ?? []).map(getDocumentTitle)),
+);
+
+/**
+ * What a row says beyond its title and kind so that rows of one name can be told
+ * apart (F9): a produced file's extension and size, and, when another row has the
+ * same name, the time it was made. A version number is not it (ruling 76).
+ */
+function rowFactsFor(item: DocumentWorkspaceItem): string | null {
+	const facts: string[] = [];
+	if ((item.kind ?? "file") === "file") {
+		const file = fileFacts({
+			filename: item.filename,
+			sizeBytes: item.sizeBytes,
+		});
+		if (file) facts.push(file);
+	}
+	if (
+		item.updatedAt != null &&
+		isShared(namesSharedByRows, getDocumentTitle(item))
+	) {
+		facts.push(
+			rowMadeAtLabel(item.updatedAt, $uiLanguage === "hu" ? "hu" : "en"),
+		);
+	}
+	return facts.length > 0 ? facts.join(" · ") : null;
+}
+
 /**
  * The panel list row's own card view (T9 steps 4/7): a Document item with a
  * server preview gets the subtitle/tickable checklist through
@@ -1331,6 +1368,7 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		updatedAtLabel,
 		pendingReviewCount,
 		current: item.id === activeDocumentId,
+		rowFacts: rowFactsFor(item),
 	};
 	if (item.kind === "document" && item.documentPreview) {
 		return {

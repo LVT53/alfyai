@@ -78,6 +78,13 @@ export interface ArtifactCardView {
 	 */
 	updatedAtLabel?: string | null;
 	/**
+	 * `chrome="row"` only (FB-5, F9): what tells this row from another of the same
+	 * name, already localised — a produced file's "PDF · 363.1 KB", and the time
+	 * the row was made when another row shares its name — printed after the
+	 * second line ("File · PDF · 363.1 KB · 14:32"). `null`/omitted adds nothing.
+	 */
+	rowFacts?: string | null;
+	/**
 	 * `chrome="full"` only: the card's last fact, already localised ("edited 2 min
 	 * ago"). The in-chat card used to end with the version number; it says when
 	 * it last changed instead (ruling 76, Q2: a number is not something a reader
@@ -250,9 +257,20 @@ let hiddenTickableCount = $derived(
  * · 3 tabs") usually carries it, and when one does not (an App's own line) it
  * is put in front.
  */
+/** The row's second line: the kind (or the caller's own line) and, after it, what tells the row from another of its name. */
+let rowSubLine = $derived(
+	[
+		subtitleLine?.trim()
+			? subtitleLine
+			: $t(`artifacts.type.${view.kind}` as I18nKey),
+		view.rowFacts,
+	]
+		.filter((part): part is string => Boolean(part))
+		.join(" · "),
+);
 let rowAccessibleName = $derived.by(() => {
 	const kindLabel = $t(`artifacts.type.${view.kind}` as I18nKey);
-	const detail = subtitleLine?.trim() ? subtitleLine : kindLabel;
+	const detail = rowSubLine;
 	const detailParts = detail
 		.split(/\s·\s/)
 		.map((part) => part.trim())
@@ -326,7 +344,7 @@ function handleOpen(): void {
 		<span class="artifact-row-main">
 			<span class="artifact-row-title">{view.title}</span>
 			<span class="artifact-row-sub">
-				<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+				<span>{rowSubLine}</span>
 			</span>
 		</span>
 		<span class="artifact-row-end">

@@ -1033,6 +1033,7 @@ let availableWorkspaceDocuments = $derived(
 			file.originAssistantMessageId ?? file.assistantMessageId ?? null,
 		sourceChatFileId: file.sourceChatFileId ?? file.id,
 		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
 		previewUrl: `/api/chat/files/${file.id}/preview`,
 		artifactId: file.artifactId ?? null,
 		conversationId: file.conversationId,
