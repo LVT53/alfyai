@@ -1413,6 +1413,74 @@ test.describe("History mode: an App", () => {
 		).toHaveText("Trip budget, second version");
 	});
 
+	test("Restore waits for the runnable check, so a question never opens on a version that turns out Code only (RC-V M-2)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway probe",
+		);
+		await seedApp(conversationId, "Trip budget", [
+			{
+				html: SECOND_APP_HTML,
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: RUNAWAY_APP_HTML,
+				summary: regeneratedAppSummary("make it dramatic"),
+			},
+			{
+				html: FIRST_APP_HTML.replace("first version", "third"),
+				summary: regeneratedAppSummary("calm it down"),
+			},
+		]);
+		// The preview asks the version route whether it runs now (a HEAD): hold the
+		// answer back, the way a slow connection does.
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(
+			/\/api\/artifacts\/[^/]+\/versions\/[^/]+\/app/,
+			async (route) => {
+				if (route.request().method() !== "HEAD") return route.continue();
+				await held;
+				await route.continue();
+			},
+		);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await historyButton(page).click();
+		const region = historyRegion(page, "Trip budget");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+
+		// The middle version cannot run now, but nobody knows it yet: Restore is not
+		// offered, and the reader is told it is being checked.
+		await options.nth(1).click();
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"Checking that it can still run…",
+		);
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+
+		// The answer comes: it is Code only, and the note says why. Restore never showed.
+		release();
+		await expect(region.getByTestId("history-app-code-only")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"It can't run any more, so it can't be restored.",
+		);
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+
+		// A version that runs gets its Restore once the check has answered.
+		await options.nth(2).click();
+		await expect(region.getByTestId("history-restore")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveCount(0);
+		await region.getByTestId("history-restore").click();
+		await expect(region.getByTestId("history-restore-question")).toContainText(
+			"What you have now stays in History.",
+		);
+	});
+
 	test("the server refuses to restore a version the rules now forbid, and the live App keeps the version it had (ruling 58, RV-V I-2)", async ({
 		page,
 	}) => {

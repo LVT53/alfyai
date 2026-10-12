@@ -171,6 +171,7 @@ $effect(() => {
 		status: state,
 		changeCount: current === "code" && state === "ready" ? count : 0,
 		codeOnly: runnable === "no",
+		checking: runnable === "checking",
 	});
 });
 

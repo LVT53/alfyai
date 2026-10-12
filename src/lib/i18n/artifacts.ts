@@ -1045,6 +1045,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "You're offline",
 		"artifacts.history.restoreNotRunnable":
 			"It can't run any more, so it can't be restored.",
+		"artifacts.history.restoreChecking": "Checking that it can still run…",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -1929,6 +1930,7 @@ const artifactsDict = {
 		"artifacts.history.restoreOffline": "Nem vagy online",
 		"artifacts.history.restoreNotRunnable":
 			"Már nem futtatható, ezért nem állítható vissza.",
+		"artifacts.history.restoreChecking": "Ellenőrzöm, hogy még futtatható-e…",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",

@@ -130,6 +130,8 @@ let previewState = $state<HistoryPreviewState>({
 	status: "loading",
 	changeCount: 0,
 });
+/** The version `previewState` was told about: a selection's own preview speaks for it, never the one before it. */
+let previewVersionId = $state<string | null>(null);
 
 // What a restore and a name need to say (versioning.md §5.5, §5.6): how many tabs
 // the Document has now, and the chat that made it when it is not this one.
@@ -269,12 +271,24 @@ const selectedDetail = $derived(
 
 /** An App version the rules now forbid is shown as Code only; bringing it back would make it the live App (ruling 58). */
 const codeOnly = $derived(kind === "app" && previewState.codeOnly === true);
+/**
+ * An App version's runnable check has not answered yet (the preview asks the
+ * server whether the version runs now): Restore waits, so the question never
+ * opens on a version that turns out Code only (RC-V M-2).
+ */
+const checkingRunnable = $derived(
+	kind === "app" &&
+		selected !== null &&
+		(previewVersionId !== selected.versionId ||
+			previewState.checking !== false),
+);
 const canRestore = $derived(
 	selected !== null &&
 		!selected.isNewest &&
 		!selected.sameAsNow &&
 		online &&
-		!codeOnly,
+		!codeOnly &&
+		!checkingRunnable,
 );
 const restoreDisabledReason = $derived(
 	selected === null || selected.isNewest || selected.sameAsNow
@@ -283,8 +297,21 @@ const restoreDisabledReason = $derived(
 			? $t("artifacts.history.restoreOffline")
 			: codeOnly
 				? $t("artifacts.history.restoreNotRunnable")
-				: null,
+				: checkingRunnable
+					? $t("artifacts.history.restoreChecking")
+					: null,
 );
+// A question that stood open when Restore stopped being offered (the connection
+// went, or the version turned out not to run) is closed: its button would press
+// into nothing, and the note that took the button's place says why.
+$effect(() => {
+	if (restoreOpen && !restoring && !canRestore) {
+		untrack(() => {
+			restoreOpen = false;
+			restoreProblem = null;
+		});
+	}
+});
 /** A change of Alfy's that still waits for the reader and is newer than the version being brought back goes with the restore. */
 const restoreTakesWaiting = $derived(
 	selected !== null &&
@@ -353,8 +380,9 @@ let changeCursor = $state({ index: -1, nonce: 0 });
 let live = $state("");
 
 let announcedFor = "";
-function handlePreviewState(next: HistoryPreviewState) {
+function handlePreviewState(next: HistoryPreviewState, versionId: string) {
 	previewState = next;
+	previewVersionId = versionId;
 	// A selection is announced once, when its preview has loaded; what the reader
 	// then does to it (naming it, asking to restore it) says its own words.
 	const announcement = `${selectedKey}|${compareEffective}|${next.changeCount}`;
@@ -921,6 +949,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	{#if selected && PreviewComponent}
 		{@const Preview = PreviewComponent}
 		{#key selected.versionId}
+			{@const shownVersionId = selected.versionId}
 			<div class="preview-fade" in:sheetFade={{ duration: MOTION_DURATION.standard, easing: cubicOut }}>
 				<Preview
 					{artifactId}
@@ -933,7 +962,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					nowHash={nowRow.hash}
 					label={selectedTitle}
 					changeCursor={changeCursor}
-					onState={handlePreviewState}
+					onState={(next) => handlePreviewState(next, shownVersionId)}
 				/>
 			</div>
 		{/key}
