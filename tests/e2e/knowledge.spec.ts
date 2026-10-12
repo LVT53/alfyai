@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -12,6 +12,18 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
+/**
+ * The page opens on Documents (friction audit F23, ruling 77); the Memory
+ * Profile is its first tab and one real click away.
+ */
+async function openMemoryProfile(page: Page) {
+	await page.getByRole("tab", { name: "Memory Profile" }).click();
+	await expect(page).toHaveURL(/tab=memory/);
+	await expect(
+		page.getByRole("heading", { name: "About You", exact: true }),
+	).toBeVisible();
+}
+
 test.describe("Knowledge page", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
@@ -20,6 +32,32 @@ test.describe("Knowledge page", () => {
 			page.getByRole("heading", { name: "Knowledge Base" }),
 		).toBeVisible();
 		await waitForHydration(page);
+	});
+
+	test("opens on Documents, and the Memory Profile is one click away and reopens on a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
+		const documentsTab = page.getByRole("tab", { name: "Documents" });
+		const memoryTab = page.getByRole("tab", { name: "Memory Profile" });
+		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
+		await expect(memoryTab).toHaveAttribute("aria-selected", "false");
+		await expect(page.getByRole("region", { name: "Documents" })).toBeVisible();
+		expect(new URL(page.url()).searchParams.has("tab")).toBe(false);
+
+		await memoryTab.click();
+		await expect(page).toHaveURL(/tab=memory/);
+		await expect(
+			page.getByRole("heading", { name: "About You", exact: true }),
+		).toBeVisible();
+
+		// The URL is the page's own state: the reload opens where the reader was.
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await expect(memoryTab).toHaveAttribute("aria-selected", "true");
+
+		await documentsTab.click();
+		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
+		expect(new URL(page.url()).searchParams.has("tab")).toBe(false);
 	});
 
 	test("documents section is visible", { tag: "@smoke" }, async ({ page }) => {
@@ -42,6 +80,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("memory profile section is visible", async ({ page }) => {
+		await openMemoryProfile(page);
 		await expect(
 			page.getByRole("tab", { name: "Memory Profile" }),
 		).toBeVisible();
@@ -123,6 +162,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("each memory category states its own total", async ({ page }) => {
+		await openMemoryProfile(page);
 		const counts = page.getByTestId("memory-category-count");
 		await expect(counts.first()).toBeVisible();
 		// "N remembered · showing M" — never a bare list length.
@@ -130,6 +170,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("the memory filter narrows every category at once", async ({ page }) => {
+		await openMemoryProfile(page);
 		const filter = page.getByRole("searchbox", { name: "Filter memories" });
 		await expect(filter).toBeVisible();
 
@@ -145,6 +186,7 @@ test.describe("Knowledge page", () => {
 	test("the filter chips carry a count and narrow to one category", async ({
 		page,
 	}) => {
+		await openMemoryProfile(page);
 		const chips = page.getByTestId("memory-filter-chip");
 		await expect(chips.first()).toBeVisible();
 		// All, plus one per category.
@@ -164,6 +206,7 @@ test.describe("Knowledge page", () => {
 	test("the rail explains how to read a row and how to reach the settings", async ({
 		page,
 	}) => {
+		await openMemoryProfile(page);
 		// "Reading a row" is a tooltip on the portrait title now, not a card at
 		// the bottom of the rail: nothing on the page until it is asked for.
 		await expect(page.getByText("Reading a row")).toHaveCount(0);
@@ -252,6 +295,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("the memory filter keeps what you type", async ({ page }) => {
+		await openMemoryProfile(page);
 		const filter = page.getByRole("searchbox", { name: "Filter memories" });
 		await filter.fill("nextcloud");
 		await expect(filter).toHaveValue("nextcloud");

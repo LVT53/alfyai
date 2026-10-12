@@ -156,7 +156,9 @@ const KnowledgePage = Page as unknown as Component<{
 describe("Knowledge page memory loading", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockPageState.page.url = new URL("http://localhost/knowledge");
+		// The page opens on Documents (F23); these cases are about the Memory Profile,
+		// so they ask for its tab.
+		mockPageState.page.url = new URL("http://localhost/knowledge?tab=memory");
 		vi.mocked(fetchMemoryProfile).mockResolvedValue(memoryProfilePayload);
 		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(memoryProfilePayload);
 		vi.mocked(fetchMemoryProfileItemDetail).mockResolvedValue({
@@ -187,7 +189,30 @@ describe("Knowledge page memory loading", () => {
 		vi.useRealTimers();
 	});
 
-	it("loads the projection-backed memory profile on entry and makes it the first tab", async () => {
+	// Friction audit F23 (ruling 77): the library is what most visits are for.
+	it("opens on Documents at the plain URL, and fetches the memory profile only when its tab is chosen", async () => {
+		mockPageState.page.url = new URL("http://localhost/knowledge");
+
+		render(KnowledgePage, { data: pageData() });
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+		expect(
+			screen.getByRole("tabpanel", { name: "Documents" }),
+		).toBeInTheDocument();
+		expect(fetchMemoryProfile).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole("tab", { name: "Memory Profile" }));
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("loads the projection-backed memory profile when opened on it, and lists it as the first tab", async () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {

@@ -531,7 +531,9 @@ test.describe("knowledge polish captures", () => {
 
 			for (const [label, width, height] of WIDTHS) {
 				await page.setViewportSize({ width, height });
-				await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+				await page.goto("/knowledge?tab=memory", {
+					waitUntil: "domcontentloaded",
+				});
 				await waitForHydration(page);
 				await setTheme(page, theme);
 				await page.waitForTimeout(600);
@@ -558,7 +560,9 @@ test.describe("knowledge polish captures", () => {
 
 			// Hover detail at 1440 only — the states are a few pixels each.
 			await page.setViewportSize({ width: 1440, height: 1000 });
-			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await page.goto("/knowledge?tab=memory", {
+				waitUntil: "domcontentloaded",
+			});
 			await waitForHydration(page);
 			await setTheme(page, theme);
 			await page.waitForTimeout(600);

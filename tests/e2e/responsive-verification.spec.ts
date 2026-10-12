@@ -95,7 +95,8 @@ test.describe("Responsive Design Verification - Task 12", () => {
 					width: viewport.width,
 					height: viewport.height,
 				});
-				await page.goto("/knowledge");
+				// The page opens on Documents; this one is about the Memory Profile.
+				await page.goto("/knowledge?tab=memory");
 				await page.waitForLoadState("networkidle");
 
 				await expect(

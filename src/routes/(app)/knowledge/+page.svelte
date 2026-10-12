@@ -181,7 +181,7 @@ let knowledgeTabs = $derived<
 	{
 		id: "memory",
 		label: $t("memory.title"),
-		href: "/knowledge",
+		href: buildKnowledgeLibraryUrl({ tab: "memory" }),
 		tabId: "memory-profile-tab",
 		panelId: "memory-profile-panel",
 		badge: openMemoryReviewCount > 0 ? openMemoryReviewCount : null,
@@ -207,9 +207,12 @@ function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
 		searchParams.has("pageSize") ||
 		searchParams.has("type") ||
 		searchParams.has("family");
-	return requestedTab === "documents" || hasDocumentQuery
-		? "documents"
-		: "memory";
+	// The page opens on Documents (friction audit F23, ruling 77): it is what most
+	// visits are for, and the Memory Profile is one explicit tab (`?tab=memory`,
+	// which the home notice's review link and the Settings link carry) away.
+	return requestedTab === "memory" && !hasDocumentQuery
+		? "memory"
+		: "documents";
 }
 
 const KIND_FILTER_VALUES = new Set<DocumentTypeFilter>([
@@ -265,7 +268,7 @@ function syncDocumentUrlState(
 	},
 ) {
 	if (params.tab === "memory") {
-		searchParams.delete("tab");
+		searchParams.set("tab", "memory");
 		searchParams.delete("q");
 		searchParams.delete("sort");
 		searchParams.delete("dir");
@@ -276,11 +279,8 @@ function syncDocumentUrlState(
 		return;
 	}
 
-	syncSearchParam(
-		searchParams,
-		"tab",
-		params.tab === "documents" ? "documents" : null,
-	);
+	// Documents is the default tab, so its URL carries no `tab` of its own.
+	searchParams.delete("tab");
 	syncSearchParam(searchParams, "q", params.query.trim() || null);
 	syncSearchParam(
 		searchParams,
