@@ -403,6 +403,168 @@ describe("sanitizeHtml SVG: no value is built to make the gate slow (FX-E)", () 
 	});
 });
 
+describe("sanitizeHtml inert markup (what a model writes stays in-flow content)", () => {
+	// A reply can have come from a page the model read, so its markup must not be able
+	// to ask a reader for a password (a form), to cover the page (a fixed overlay, in a
+	// style or through the app's own utility classes), or to open something by itself
+	// (a dialog, a popover). Text, tables, lists, links, details and highlighted code
+	// stay. The option is opt-in: previews and the diagram gate have their own rules.
+	const allowClass = (name: string) => /^(?:keep-me|shiki)$/.test(name);
+	const inert = { allowStyleAttributes: true, inert: { allowClass } } as const;
+
+	it("drops a form and every control in it, and keeps the words that were in them", () => {
+		const out = sanitizeHtml(
+			'<form action="https://x.test/steal" method="post"><p>Sign in again</p>' +
+				'<input type="password" name="p"><input type="text"><input type="image" src="data:image/png;base64,AAAA">' +
+				'<button type="submit" formaction="https://x.test/b">Go</button>' +
+				'<select><optgroup label="g"><option>One</option></optgroup></select>' +
+				'<textarea>typed</textarea><datalist id="d"><option value="v"></option></datalist></form>',
+			inert,
+		);
+		expect(out).not.toMatch(
+			/<(?:form|input|button|select|optgroup|option|textarea|datalist)/i,
+		);
+		expect(out).not.toMatch(/action=|formaction|x\.test/i);
+		expect(out).toContain("<p>Sign in again</p>");
+		expect(out).toContain("Go");
+		expect(out).toContain("One");
+	});
+
+	it("drops a form inside a template and inside a link too", () => {
+		const out = sanitizeHtml(
+			'<template><form action="https://x.test/t"><input type="password"></form></template>' +
+				'<a href="https://x.test/a"><button>Press</button></a>',
+			inert,
+		);
+		expect(out).not.toMatch(/<(?:form|input|button)/i);
+		expect(out).toContain('href="https://x.test/a"');
+	});
+
+	it("drops a dialog and the attributes that open or focus something by themselves", () => {
+		const out = sanitizeHtml(
+			'<dialog open>Hello</dialog><div popover id="pop">Popped</div>' +
+				'<span popovertarget="pop" popovertargetaction="show">Open</span><p autofocus>Focused</p>',
+			inert,
+		);
+		expect(out).not.toMatch(/<dialog|popover|autofocus/i);
+		for (const text of ["Hello", "Popped", "Open", "Focused"]) {
+			expect(out).toContain(text);
+		}
+	});
+
+	it("keeps a task-list checkbox as it is: disabled, with only type, checked and disabled", () => {
+		const taskList =
+			'<ul><li><input checked="" disabled="" type="checkbox"> done</li><li><input disabled="" type="checkbox"> todo</li></ul>';
+		expect(sanitizeHtml(taskList, inert)).toBe(taskList);
+
+		const out = sanitizeHtml(
+			'<input type="checkbox" disabled checked name="n" value="v" form="f" class="keep-me" id="i" onclick="x()">',
+			inert,
+		);
+		expect(out).toBe('<input type="checkbox" disabled="" checked="">');
+	});
+
+	it("drops a checkbox that a reader could change, and every other kind of input", () => {
+		for (const input of [
+			'<input type="checkbox" checked>',
+			'<input type="radio" disabled>',
+			'<input type="text" disabled>',
+			"<input disabled>",
+			'<input type="image" disabled src="data:image/png;base64,AAAA">',
+			'<input type="submit" disabled value="Go">',
+			'<input type="password" disabled>',
+		]) {
+			expect(sanitizeHtml(`<p>${input}</p>`, inert), input).toBe("<p></p>");
+		}
+	});
+
+	it("keeps only the CSS properties the renderer and Shiki write", () => {
+		// The exact shapes Shiki writes for a token and for the block around it.
+		for (const kept of [
+			'<span style="color:#D73A49">const</span>',
+			'<pre style="background-color:#fff;color:#24292e">x</pre>',
+			'<span style="font-style:italic;font-weight:bold;text-decoration:underline line-through">x</span>',
+			'<span style="color:rgb(1, 2, 3)">x</span>',
+		]) {
+			expect(sanitizeHtml(kept, inert), kept).toBe(kept);
+		}
+
+		const out = sanitizeHtml(
+			'<div style="position:fixed;inset:0;top:0;left:0;right:0;bottom:0;z-index:2147483647;width:100vw;height:100vh;transform:translate(0,0);translate:0 0;display:block;background:red;color:red">x</div>',
+			inert,
+		);
+		expect(out).toBe('<div style="color:red">x</div>');
+	});
+
+	it("drops a style it cannot read with certainty: escapes, comments, quotes, an important flag", () => {
+		for (const style of [
+			"pos\\69tion:fixed",
+			"color:red;/* ; */position:fixed",
+			"color:red;position:fixed/*",
+			'font-weight:bold;content:"x"',
+			"color:red !important",
+			"color:url(https://x.test/a.png)",
+			"@import url(https://x.test/a.css)",
+			"color:red}body{position:fixed",
+			"color:var(--x);position:fixed",
+		]) {
+			const out = sanitizeHtml(`<div style="${style}">x</div>`, inert);
+			expect(out, style).not.toMatch(/position|x\.test|content|import|body/i);
+		}
+	});
+
+	it("checks the value of a property it keeps, not only its name", () => {
+		const out = sanitizeHtml(
+			'<span style="color:red;font-weight:100vw;font-style:url(x);text-decoration:blink;background-color:calc(1px);color:#12">x</span>',
+			inert,
+		);
+		expect(out).toBe('<span style="color:red">x</span>');
+	});
+
+	it("is not fooled by a property name's case or spacing", () => {
+		expect(
+			sanitizeHtml(
+				'<span style=" COLOR : Red ; POSITION : fixed ">x</span>',
+				inert,
+			),
+		).toBe('<span style="color:Red">x</span>');
+	});
+
+	it("keeps only the class names it is told to, and no class attribute that ends up empty", () => {
+		expect(
+			sanitizeHtml('<div class="keep-me fixed inset-0 z-50">x</div>', inert),
+		).toBe('<div class="keep-me">x</div>');
+		expect(sanitizeHtml('<div class="fixed inset-0 z-50">x</div>', inert)).toBe(
+			"<div>x</div>",
+		);
+		expect(
+			sanitizeHtml(
+				'<pre class="shiki github-light" tabindex="0">x</pre>',
+				inert,
+			),
+		).toBe('<pre class="shiki" tabindex="0">x</pre>');
+		const alike = '<div class="keep-me shiki">x</div>';
+		expect(sanitizeHtml(alike, inert)).toBe(alike);
+	});
+
+	it("keeps what a reply is made of: text, links, tables, lists, details and code", () => {
+		const page =
+			'<h2>Title</h2><p>Some <strong>bold</strong> and <code>code</code> with a <a href="https://x.test/a" target="_blank" rel="noopener noreferrer external">link</a>.</p>' +
+			"<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>" +
+			'<ol><li>One</li></ol><details open=""><summary>More</summary><p>body</p></details><blockquote><p>q</p></blockquote>';
+		expect(sanitizeHtml(page, inert)).toBe(page);
+	});
+
+	it("is opt-in: without it a preview keeps the markup it always kept", () => {
+		const out = sanitizeHtml(
+			'<form action="https://x.test/f"><button>Go</button></form><div class="fixed">x</div>',
+		);
+		expect(out).toContain("<form");
+		expect(out).toContain("<button");
+		expect(out).toContain('class="fixed"');
+	});
+});
+
 describe("html utilities", () => {
 	it("escapes HTML-sensitive characters with the default apostrophe entity", () => {
 		expect(escapeHtml(`Tom & "Jerry" <'tag'>`)).toBe(

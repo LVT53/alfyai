@@ -72,6 +72,43 @@ const HIGHLIGHT_LANGS = {
 const HIGHLIGHT_THEMES = ["github-light", "github-dark"] as const;
 const SUPPORTED_LANGUAGES = new Set(Object.keys(HIGHLIGHT_LANGS));
 
+// Every class name this renderer writes, and Shiki, whose `<pre>` carries `shiki` and
+// the theme's name and each of whose lines carries `line`. Model markup keeps these
+// and no others (the sanitizer's `inert` option), so the app's global utility classes
+// (`fixed inset-0 z-50`) are not there to borrow. A callout's type is the model's own
+// word, in a namespace of its own. markdown.test.ts reads this file for every
+// `class="…"` it writes, so a class added to the markup below that is not listed here
+// fails there and not in front of a reader.
+const RENDERED_CLASSES: ReadonlySet<string> = new Set([
+	"markdown-frontmatter",
+	"markdown-frontmatter-row",
+	"markdown-callout",
+	"markdown-callout-title",
+	"markdown-callout-body",
+	"markdown-table-wrap",
+	"markdown-table",
+	"markdown-image-frame",
+	"markdown-image-frame--loading",
+	"markdown-image",
+	"source-link-chip",
+	"source-link-chip__favicon-wrap",
+	"source-link-chip__favicon",
+	"source-link-chip__favicon-fallback",
+	"source-link-chip__label",
+	"source-link-chip__icon",
+	"shiki",
+	"line",
+	...HIGHLIGHT_THEMES,
+]);
+const CALLOUT_TYPE_CLASS = /^markdown-callout-[a-z][a-z0-9_-]*$/;
+
+function isRenderedClass(name: string): boolean {
+	return RENDERED_CLASSES.has(name) || CALLOUT_TYPE_CLASS.test(name);
+}
+
+/** What model markdown is sanitized with: in-flow content, and only our own classes. */
+const INERT_MARKUP = { allowClass: isRenderedClass };
+
 let markedModule: MarkedModule | null = null;
 let markedPromise: Promise<void> | null = null;
 let highlighter: Highlighter | null = null;
@@ -270,7 +307,7 @@ async function renderMarkdown(
 
 	return sanitizeHtml(
 		`${frontmatter.html}${transformCalloutHtml(html as string)}`,
-		{ allowStyleAttributes: true },
+		{ allowStyleAttributes: true, inert: INERT_MARKUP },
 	);
 }
 
@@ -336,7 +373,7 @@ async function renderInlineMarkdown(
 		breaks: true,
 		gfm: true,
 	} as Parameters<typeof marked.parseInline>[1]);
-	return sanitizeHtml(html as string);
+	return sanitizeHtml(html as string, { inert: INERT_MARKUP });
 }
 
 function renderCodeBlock(
