@@ -2,12 +2,14 @@ import { tool } from "ai";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runStreamingNormalChatModelRun } from "$lib/server/services/normal-chat-model";
+import { AI_SMOKE_LATE_CARD_MARKER } from "../fixtures/ai/late-card-scenario";
 import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
 	AI_SMOKE_CANVAS_EDIT_MARKER,
 	AI_SMOKE_CREATE_ARTIFACT_MARKER,
+	AI_SMOKE_CREATE_ARTIFACT_TITLE,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_REASONING_TEXT,
@@ -758,6 +760,25 @@ describe("fake OpenAI-compatible provider: a board's scripted edit", () => {
 			},
 		]);
 		expect(asked.toolName).toBe("create_artifact");
+	});
+
+	it("leaves a create turn to its own scenario when the late card's message is only carried in the evidence", async () => {
+		// The release gate's run: artifact-card-arrival.spec.ts and then
+		// artifact-chat-card.spec.ts on one worker. The first one's finished task
+		// (its request text included) was in the second one's bundle, and the
+		// late-card scenario answered a create turn that had asked for another.
+		const asked = await ask([
+			{
+				role: "user",
+				content: bundle({
+					evidence: AI_SMOKE_LATE_CARD_MARKER,
+					current: AI_SMOKE_CREATE_ARTIFACT_MARKER,
+				}),
+			},
+		]);
+		expect(asked.toolName).toBe("create_artifact");
+		expect(asked.args).toMatchObject({ title: AI_SMOKE_CREATE_ARTIFACT_TITLE });
+		expect(asked.text).toBe("");
 	});
 });
 

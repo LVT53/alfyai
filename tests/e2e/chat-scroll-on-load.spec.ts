@@ -14,6 +14,7 @@ import {
 	sendMessage,
 	TEST_EMAIL,
 	waitForHydration,
+	waitForMotionToSettle,
 } from "./helpers";
 
 /**
@@ -349,9 +350,19 @@ test.describe("chat scroll — opening a conversation", () => {
 
 			if (viewport.width < 1024) {
 				await page.locator(".mobile-sidebar-toggle").click();
+				// Open before anything is waited on: with no transition running yet, "motion
+				// has settled" would be true of a drawer that has not started to move.
+				await expect(page.locator("aside.sidebar-panel")).toHaveClass(
+					/translate-x-0/,
+				);
 			} else {
 				await ensureSidebarExpanded(page);
 			}
+			// The drawer slides in (240 ms) and its rows are pressable while it does: a press at
+			// the row's final centre that lands mid-slide hits whatever has reached that point,
+			// which on a busy machine was the row's three-dots button (the release gate's
+			// failure: the options menu open on the target row, and no navigation).
+			await waitForMotionToSettle(page);
 			await page
 				.locator(
 					`[data-testid="conversation-item"][data-conversation-id="${secondId}"]`,
