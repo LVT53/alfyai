@@ -990,19 +990,31 @@ describe("DocumentBody", () => {
 			};
 		}
 
-		it("shows the margin's empty state with no comments", async () => {
+		// F24 (ruling 77): with nothing to list there is no column, only a quiet strip
+		// that opens it on purpose; the first comment brings it by itself.
+		it("takes no column while there are no comments, and shows the empty state once it is opened on purpose", async () => {
+			const registerPanelActions = vi.fn();
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
+				registerPanelActions,
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
+			expect(document.querySelector(".document-content-rail")).toBeNull();
 			expect(
-				screen.getByText("No comments yet. Select text to start one."),
+				screen.getByTestId("document-comments-affordance"),
 			).toBeInTheDocument();
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+
+			await fireEvent.click(screen.getByTestId("document-comments-affordance"));
+			expect(
+				await screen.findByText("No comments yet. Select text to start one."),
+			).toBeInTheDocument();
+			expect(screen.queryByTestId("document-comments-affordance")).toBeNull();
 		});
 
 		it("renders a fetched comment in the margin", async () => {
@@ -1952,12 +1964,17 @@ describe("DocumentBody", () => {
 		});
 
 		it("the header's toggle hides and shows the inline column, remembers it, and reports its state", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			const registerPanelActions = vi.fn();
 			const onCommentsShownChange = vi.fn();
 			mount({ registerPanelActions, onCommentsShownChange });
 			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
 			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
-			expect(document.querySelector(".document-content-rail")).not.toBeNull();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
 			await waitFor(() =>
 				expect(onCommentsShownChange).toHaveBeenLastCalledWith(true),
 			);
@@ -2053,6 +2070,9 @@ describe("DocumentBody", () => {
 
 		it("gives the column the full 300px on a roomy panel", async () => {
 			stubPanelWidth(1000);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			mount();
 			await waitFor(() =>
 				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
@@ -2065,6 +2085,9 @@ describe("DocumentBody", () => {
 
 		it("narrows the column, not the text, on a laptop-sized panel", async () => {
 			stubPanelWidth(750);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
 			mount();
 			await waitFor(() =>
 				expect(document.querySelector(".document-content-rail")).not.toBeNull(),

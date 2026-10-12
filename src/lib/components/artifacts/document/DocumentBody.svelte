@@ -52,6 +52,7 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  * one tears down the first editor and mounts a fresh one against the new id
  * — the module stays cached (above), only the per-document state reloads.
  */
+import { MessageSquare } from "@lucide/svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { cubicIn, cubicOut } from "svelte/easing";
 import { fly } from "svelte/transition";
@@ -344,14 +345,6 @@ let commentsOverlayOpen = $state(false);
 /** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
 let commentFilter = $state<"open" | "all">("open");
 let commentOrphanedGroupOpen = $state(false);
-/** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
-let commentsRailShown = $derived(
-	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
-);
-/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
-let commentsShown = $derived(
-	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
-);
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -465,6 +458,39 @@ let refusalNotice = $state<{
 	refusedBlockIds: string[];
 } | null>(null);
 let handledActivityKey = "";
+
+// ---- F24 (ruling 77): the comment column takes no room until it has something -
+/**
+ * The inline column beside the text is for what is listed in it: a comment, or
+ * the "your words win" card. An empty Document used to spend 300 px (440 px of
+ * text at 1440 with the sidebar open) on "No comments yet", so until the first
+ * comment a quiet strip stands in its place (`commentsAffordanceShown`) and the
+ * reader opens the empty column on purpose (`railPinned`, this body's own, closed
+ * again by the header's button). The first comment brings the column by itself.
+ */
+let railPinned = $state(false);
+let railHasContent = $derived(comments.length > 0 || refusalNotice !== null);
+/** The inline column beside the text: room for it, not on a phone, not switched off on this device, and something to list (or opened on purpose). */
+let commentsRailShown = $derived(
+	!isPhone &&
+		!isNarrowPanel &&
+		!$documentCommentsRailHidden &&
+		(railHasContent || railPinned),
+);
+/** The strip that stands in for the column while it has nothing to list. */
+let commentsAffordanceShown = $derived(
+	!isPhone &&
+		!isNarrowPanel &&
+		!$documentCommentsRailHidden &&
+		!railHasContent &&
+		!railPinned,
+);
+/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
+let commentsShown = $derived(
+	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
+);
+// ---- end F24 ----------------------------------------------------------------
+
 // ---- end T8 live -----------------------------------------------------
 
 function updateBlocksFromMarkdown(markdown: string): void {
@@ -1767,6 +1793,14 @@ function toggleComments(): void {
 		commentsOverlayOpen = !commentsOverlayOpen;
 		return;
 	}
+	// Nothing to list (F24): the column is the reader's to open and to close, for
+	// this body only; with something in it, the device-wide choice as before.
+	if (!railHasContent) {
+		const opening = !commentsRailShown;
+		railPinned = opening;
+		if (opening) documentCommentsRailHidden.set(false);
+		return;
+	}
 	documentCommentsRailHidden.update((hidden) => !hidden);
 }
 
@@ -2606,6 +2640,21 @@ function saveNoticeText(notice: SaveNotice): string {
 			     480 px; below that there is no column, the header's Comments
 			     button opens the drawer instead. Switched off per device by the
 			     same button. -->
+			{#if commentsAffordanceShown}
+				<!-- F24: a quiet strip where the column will be, until the first comment. -->
+				<div class="document-rail-collapsed">
+					<button
+						type="button"
+						class="document-rail-collapsed-button"
+						data-testid="document-comments-affordance"
+						aria-label={$t('artifacts.document.margin.show')}
+						title={$t('artifacts.document.margin.show')}
+						onclick={toggleComments}
+					>
+						<MessageSquare size={16} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</div>
+			{/if}
 			{#if commentsRailShown}
 				<aside
 					class="document-content-rail"
@@ -2749,6 +2798,42 @@ function saveNoticeText(notice: SaveNotice): string {
 		display: flex;
 		flex-direction: column;
 		min-height: 100%;
+	}
+
+	/* F24: what stands where the comment column will be while it has nothing to
+	   list: one quiet, finger-sized button in a hairline strip. */
+	.document-rail-collapsed {
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		align-items: center;
+		width: 2.5rem;
+		padding-top: 0.5rem;
+		border-left: 1px solid var(--border-subtle);
+		background-color: var(--surface-page);
+	}
+
+	.document-rail-collapsed-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: none;
+		border-radius: var(--radius-md);
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.document-rail-collapsed-button:hover {
+		background-color: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.document-rail-collapsed-button:focus-visible {
+		outline: 2px solid var(--border-focus);
+		outline-offset: 1px;
 	}
 
 	/* The comment column: its own height, its own scrolling list
