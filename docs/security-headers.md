@@ -172,7 +172,7 @@ report-only amounts to for this purpose) eight ways out sent the request: `locat
 `location.replace`, a meta refresh and an anchor click. With it, none does. Four more were already
 stopped by the App's own sandbox and CSP and stay so: a form submit (`form-action 'none'`),
 `window.open` and `top.location` (no `allow-popups`, no `allow-top-navigation`), and a nested
-iframe (`default-src 'none'`).
+iframe (`default-src 'none'`). Firefox and Safari were not measured.
 
 **Tried and not added**, because the measurement says they do nothing:
 

@@ -96,9 +96,9 @@ function decodeDataImage(
 
 /**
  * The up-front half of the SSRF guard: an https URL with no credentials whose
- * host is not an address that is not public and not a name that can only be
- * somebody's private network. It runs on every hop, before anything is sent,
- * and the fetch itself judges the address a name resolves to when it connects
+ * host is neither a non-public address nor a name that can only mean a private
+ * network. It runs on every hop, before anything is sent, and the fetch itself
+ * judges the address a name resolves to when it connects
  * (`$lib/server/outbound`), so a name that points inside is refused there.
  */
 function validateHttpsUrl(url: string): URL | null {
