@@ -289,6 +289,36 @@ describe("when the pane has no free ground", () => {
 		expect(slack).toBe(0);
 	});
 
+	it("goes past the content when the ground around the pane is all taken, never over a block (a board of charts, one after another, in a camera that follows the last)", () => {
+		// A grid of blocks wider and taller than anything the search around the pane reaches:
+		// the only free ground is beyond it.
+		const blocks: InsertRequest["blocks"][number][] = [];
+		for (let column = 0; column < 14; column += 1) {
+			for (let row = 0; row < 14; row += 1) {
+				blocks.push({
+					id: `g${column}-${row}`,
+					rect: {
+						x: -1_200 + column * 232,
+						y: -800 + row * 120,
+						width: 200,
+						height: 100,
+					},
+				});
+			}
+		}
+		const placed = placeInsertedBlock(request({ blocks }));
+		const rect = rectOf(placed, NOTE);
+		for (const block of blocks) expect(overlaps(rect, block.rect)).toBe(false);
+		// And the camera is asked to show it.
+		expect(placed.pan).toBeDefined();
+		const moved: Rect = {
+			...VIEW,
+			x: VIEW.x + (placed.pan?.x ?? 0),
+			y: VIEW.y + (placed.pan?.y ?? 0),
+		};
+		expect(inside(rect, moved)).toBe(true);
+	});
+
 	it("starts a block wider than the pane at the pane's own edge, the part it can show", () => {
 		const wide = { width: 1_400, height: 200 };
 		const placed = placeInsertedBlock(request({ size: wide }));

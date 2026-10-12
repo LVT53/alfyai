@@ -32,6 +32,8 @@ const LATTICE = 24;
 const OVERLAP = 16;
 const STAGGER = 28;
 const MAX_TRIES = 60;
+/** The farthest, in board units, the camera is asked to go to show a block put past the content: a board wider than this is not one a block is sent across. */
+const FARTHEST_PAN = 20_000;
 /** What stays clear around a floating control: close, not touching. */
 const CHROME_GAP = 8;
 
@@ -219,12 +221,19 @@ export function placeInsertedBlock(input: InsertRequest): PlacedBlock {
 	// Every free place around what the pane shows (the lattice, and the middle itself): one
 	// wholly in view and clear of what floats goes first, the nearest to the middle; when
 	// there is none, the one the camera has the least way to go to show, then the nearest.
-	let best: { at: Pt; away: number; distance: number; pan?: Pt } | null = null;
-	const consider = (at: Pt): void => {
+	// (Assigned in `consider`, so typed as it may be, not as what it starts as.)
+	let best = null as {
+		at: Pt;
+		away: number;
+		distance: number;
+		pan?: Pt;
+	} | null;
+	const consider = (at: Pt, farthest = Number.POSITIVE_INFINITY): void => {
 		if (!isFree(at)) return;
 		const pan = panToShow({ ...at, ...size }, view);
 		if (!isClear(at, pan)) return;
 		const away = pan ? Math.hypot(pan.x, pan.y) : 0;
+		if (away > farthest) return;
 		const distance = Math.hypot(at.x - centre.x, at.y - centre.y);
 		if (
 			!best ||
@@ -252,7 +261,27 @@ export function placeInsertedBlock(input: InsertRequest): PlacedBlock {
 	}
 	if (best) return placed(best.at, best.pan);
 
-	// 3. A board full all the way: the middle, staggered off a block that starts there.
+	// Nothing free around the pane (a dense board, and a camera that has followed the last
+	// block put on it into the middle of the rest): past the content, on whichever side the
+	// camera has the least way to go, the first place that is always free.
+	if (blocks.length > 0) {
+		const left = Math.min(...blocks.map((block) => block.rect.x));
+		const top = Math.min(...blocks.map((block) => block.rect.y));
+		const right = Math.max(
+			...blocks.map((block) => block.rect.x + block.rect.width),
+		);
+		const bottom = Math.max(
+			...blocks.map((block) => block.rect.y + block.rect.height),
+		);
+		const beyond = (at: Pt) => consider(whole(at), FARTHEST_PAN);
+		beyond({ x: view.x, y: bottom + PLACEMENT_GAP });
+		beyond({ x: right + PLACEMENT_GAP, y: view.y });
+		beyond({ x: left - PLACEMENT_GAP - size.width, y: view.y });
+		beyond({ x: view.x, y: top - PLACEMENT_GAP - size.height });
+		if (best) return placed(best.at, best.pan);
+	}
+
+	// A board full all the way, which only a board with no content can be: the middle, staggered off a block that starts there.
 	const at = { ...centre };
 	for (let tries = 0; tries < MAX_TRIES; tries += 1) {
 		const covered = blocks.some(
