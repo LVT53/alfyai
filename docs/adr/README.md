@@ -70,3 +70,4 @@ files in this directory (numbers `0007` and `0014` are intentionally absent).
 | [0065](0065-living-documents-are-edited-in-place.md) | Living Documents are edited in place, reversing the "AI generates new files only" rule |
 | [0066](0066-artifacts-are-a-family-of-five-types.md) | Artifacts are a family of five types behind one card and one panel |
 | [0067](0067-alfy-works-on-your-computers-through-an-outbound-agent.md) | Alfy works on your own computers through an outbound agent (alfy-remote), one checker and an OS-sandbox floor |
+| [0068](0068-model-output-never-picks-an-address-fetched-without-a-click.md) | Model output never picks an address the browser or the server fetches without a click |
