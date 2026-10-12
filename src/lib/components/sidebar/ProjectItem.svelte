@@ -244,7 +244,7 @@ function startChatInProject(e: MouseEvent) {
 <div
 	data-testid="project-drop-target"
 	data-project-id={project.id}
-	class="group flex min-h-[34px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0.5 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated"
+	class="group flex min-h-[34px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0.5 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated max-md:min-h-[46px]"
 	class:project-row-drop-active={dropActive}
 	onclick={() => onToggle?.({ id: project.id, expanded: !expanded })}
 	oncontextmenu={openContextMenu}
@@ -297,14 +297,17 @@ function startChatInProject(e: MouseEvent) {
 		</button>
 
 		<!-- Count badge + context menu share one slot: the count shows at rest,
-		     the dots reveal on hover/focus/menu-open. -->
-		<div class="project-menu-slot relative flex shrink-0 items-center justify-center">
+		     the dots reveal on hover/focus/menu-open. Below md there is no hover and
+		     the dots are always there, so the slot dissolves and the count takes its
+		     own place before the buttons (FB-9): a number over the dots read as one
+		     garbled glyph. -->
+		<div class="project-menu-slot relative flex shrink-0 items-center justify-center max-md:contents">
 			{#if !isEditing && chatCount > 0}
 				<span
 					data-testid={`project-chat-count-${project.id}`}
 					aria-label={$t('sidebar.chatCount', { count: chatCount })}
 					title={$t('sidebar.chatCount', { count: chatCount })}
-					class="project-chat-count-badge pointer-events-none absolute inset-0 inline-flex items-center justify-center text-[11px] font-medium leading-none text-text-muted tabular-nums transition-opacity duration-100 md:opacity-100"
+					class="project-chat-count-badge pointer-events-none absolute inset-0 inline-flex items-center justify-center text-[11px] font-medium leading-none text-text-muted tabular-nums transition-opacity duration-100 md:opacity-100 max-md:static max-md:order-first max-md:min-w-5 max-md:shrink-0 max-md:px-0.5"
 					class:md:opacity-0={menuOpen}
 					class:group-hover:md:opacity-0={true}
 				>{chatCount}</span>
@@ -381,6 +384,19 @@ function startChatInProject(e: MouseEvent) {
 <style>
 	.project-row-actions {
 		height: 28px;
+	}
+
+	/* A finger's size: the buttons are 44 px below md (app.css), and the row they
+	   sit in is as tall as they are, so no hit area spills onto the next row. */
+	@media (max-width: 767px) {
+		.project-row-actions {
+			height: 44px;
+		}
+
+		.project-row-action-button {
+			height: 44px;
+			width: 44px;
+		}
 	}
 
 	.project-row-action-button {
