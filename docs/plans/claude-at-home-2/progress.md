@@ -1082,3 +1082,8 @@ the owner's review, with the fast gates measured before and after.
   owner's three additions, the leftovers). Next: RC-A (Sonnet re-check walking every finding like the owner) and RV-B
   (Opus look: downloads/export jobs, the App edit path, the restore guard, `db/write-lock.ts`, the ledger key) in
   parallel, then one fix agent, the release gate in `dev-int`, deploy, live checks, M5.
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| RC-A | re-check of the friction build: every finding F1–F30 and the owner's three walked like the owner (HU, 1440/1280/1100/390/360, light/dark, real model), fixed / better / not fixed / worse, and what the fixes broke | detached / `rc-a` (5500, tunnel 30410) at `03882bd0` | running |
+| RV-B | **Opus** look: downloads and export jobs, the App edit path, the restore guard, `db/write-lock.ts`, the ledger's key release | detached / `rv-b` (5520) at `03882bd0` | running |
