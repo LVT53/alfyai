@@ -286,3 +286,69 @@ test.describe("F14 an @Alfy comment feels answered", () => {
 		expect(asks).toHaveLength(1);
 	});
 });
+
+test.describe("F18 Keep does not make the text jump", () => {
+	test.use({ hasTouch: true });
+
+	test("what is below a change moves up over a moment, not 28 px in a frame, when Keep sends its pill away", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createEmptyConversation(page, "F18");
+		await seedDocument(conversationId, {
+			markdown: [
+				"# Bécsi hétvége",
+				"",
+				"Két nap a barátnőddel: szombat és vasárnap. A programok nagy része esőben is megy, de a szabadtéri helyszínekre érdemes napos időt választani, mert a kilátás az egyik fő attrakció.",
+				"",
+				"## Szombat",
+				"",
+				"Schönbrunn és a Gloriette kilátása. Érdemes korán érkezni a tömeg elkerülése végett.",
+				"",
+				"Délben a Naschmarkt, utána a Karlsplatz.",
+			].join("\n"),
+			title: "Bécsi hétvége",
+			pendingOps: 2,
+		});
+		const shell = await openDocument(page, conversationId);
+		const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+		await expect(bar).toBeVisible({ timeout: 30_000 });
+		await expect(
+			shell.getByRole("group", { name: /Alfy módosítása/ }),
+		).toHaveCount(2);
+
+		// Where the last paragraph is, on every frame, from just before the press.
+		await page.evaluate(() => {
+			const w = window as unknown as { __tops: number[] };
+			w.__tops = [];
+			const tick = () => {
+				const last = Array.from(
+					document.querySelectorAll(".document-editor-host .ProseMirror p"),
+				).find((p) => (p.textContent ?? "").startsWith("Délben a Naschmarkt"));
+				if (last) w.__tops.push(last.getBoundingClientRect().top);
+				requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		});
+		await page.waitForTimeout(300);
+		await bar.getByRole("button", { name: /Mindet megtartom/ }).tap();
+		// The pills say "kept" for a moment, then go.
+		await expect(
+			shell.getByRole("group", { name: /Alfy módosítása/ }),
+		).toHaveCount(0, { timeout: 10_000 });
+		await page.waitForTimeout(500);
+
+		const tops = await page.evaluate(
+			() => (window as unknown as { __tops: number[] }).__tops,
+		);
+		const steps = tops.slice(1).map((top, i) => Math.abs(top - tops[i]));
+		const moved = tops[0] - tops[tops.length - 1];
+		expect(moved, "the text did come up when the pills left").toBeGreaterThan(
+			30,
+		);
+		expect(
+			Math.max(...steps),
+			"the biggest move between two frames",
+		).toBeLessThan(14);
+	});
+});

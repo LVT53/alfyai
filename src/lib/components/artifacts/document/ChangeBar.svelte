@@ -167,6 +167,11 @@ $effect(() => {
 		color: var(--text-muted);
 		border-color: var(--border-default);
 		box-shadow: none;
+		/* F18: as wide as the pending pill it replaces (`change-pill-decoration.ts`
+		   sets the variable), so a pill that wrapped onto a line of its own stays
+		   there and the text below does not come up the moment Keep is pressed. */
+		min-width: var(--change-pill-hold-width, 0px);
+		justify-content: center;
 	}
 
 	.alfy-change-bar-who {

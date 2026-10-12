@@ -101,6 +101,7 @@ import AlfyWriting from "./AlfyWriting.svelte";
 import { BLOCK_ID_ATTR } from "./block-attrs";
 import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
+import { removeChangePillSmoothly } from "./change-pill-removal";
 import {
 	type AnchorBox,
 	commentAnchorTargets,
@@ -1174,8 +1175,12 @@ function handleKeepChange(changeId: string): void {
 	void acknowledgeReview([pending.entry.blockId]);
 	void focusAfterKeep();
 	setTimeout(() => {
-		if (editor && keepChangeFn) keepChangeFn(editor, changeId);
-		removePendingChange(changeId);
+		// F18: a pill on a line of its own takes that line with it; what is below
+		// comes up over a moment instead of by a line in one frame.
+		void removeChangePillSmoothly(documentBodyEl ?? document, changeId, () => {
+			if (editor && keepChangeFn) keepChangeFn(editor, changeId);
+			removePendingChange(changeId);
+		});
 	}, KEEP_SETTLE_MS);
 }
 
