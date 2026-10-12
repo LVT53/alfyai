@@ -15,6 +15,7 @@ import {
 	removeConversationFromPersistedWorkspaceDocumentState,
 } from "$lib/client/document-workspace-state";
 import type { ConversationListItem } from "$lib/server/services/conversations";
+import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 
 export const conversations = writable<ConversationListItem[]>([]);
 
@@ -425,7 +426,7 @@ export async function createNewConversation(
 
 export function upsertConversationLocal(
 	id: string,
-	title = "New Conversation",
+	title = DEFAULT_CONVERSATION_TITLE,
 	updatedAt = Date.now() / 1000,
 	projectId?: string | null,
 	/**

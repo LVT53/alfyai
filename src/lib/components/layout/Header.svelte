@@ -30,6 +30,7 @@ import {
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
+import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
 
 let {
@@ -176,7 +177,7 @@ onMount(() => {
 				{/if}
 				<div
 					class="max-w-full truncate text-center text-[13px] font-medium leading-5 text-text-primary"
-					title={conversationTitle}
+					title={conversationDisplayTitle(conversationTitle, $t('chat.untitledConversation'))}
 					aria-live="polite"
 				>
 					<ConversationTitleText title={conversationTitle} />

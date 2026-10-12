@@ -131,6 +131,22 @@ export function isVisibleThinkingToolCall(
 	);
 }
 
+/**
+ * A create_artifact / edit_artifact call. Its row and card are what the turn
+ * MADE, not a step of how it got there, so a message draws them after its text
+ * instead of in the rail above it (F16): a card that arrives late, as these
+ * calls do (the model writes the whole item before the call is complete), must
+ * not push the words being read down.
+ */
+export function isArtifactToolCall(
+	segment: ThinkingSegment,
+): segment is ThinkingSegment & { type: "tool_call" } {
+	return (
+		segment.type === "tool_call" &&
+		getToolCallIconType(segment.name) === "artifact"
+	);
+}
+
 export function isVisibleThinkingSegment(segment: ThinkingSegment): boolean {
 	if (segment.type === "text") {
 		return segment.content.trim().length > 0;

@@ -6,6 +6,16 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+	AI_SMOKE_LATE_CARD_FINAL_DELAY_MS,
+	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_INTRO,
+	AI_SMOKE_LATE_CARD_MARKDOWN,
+	AI_SMOKE_LATE_CARD_MARKER,
+	AI_SMOKE_LATE_CARD_PIECE_DELAY_MS,
+	AI_SMOKE_LATE_CARD_TITLE,
+	AI_SMOKE_LATE_CARD_WRITING_MS,
+} from "../../fixtures/ai/late-card-scenario";
+import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
 	AI_SMOKE_CANVAS_EDIT_MARKER,
@@ -1089,6 +1099,117 @@ function buildCreateArtifactFinalStreamResponse(): Response {
 }
 
 /**
+ * F16: the card that arrives late. The first request streams a few sentences, goes
+ * quiet while the model "writes the document", then makes the `create_artifact` call;
+ * the request that carries the tool result streams the closing sentence after a pause.
+ */
+function bodyAsksForLateCard(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_LATE_CARD_MARKER);
+}
+
+function lateCardStreamResponse(
+	phase: "call" | "final",
+	signal: AbortSignal,
+): Response {
+	const encoder = new TextEncoder();
+	const chunkBase = {
+		id: `chatcmpl_fake_late_card_${phase}`,
+		object: "chat.completion.chunk",
+		created: 1_700_000_013,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const stream = new ReadableStream<Uint8Array>({
+		start: async (controller) => {
+			signal.addEventListener(
+				"abort",
+				() =>
+					controller.error(
+						signal.reason instanceof DOMException
+							? signal.reason
+							: new DOMException("The operation was aborted.", "AbortError"),
+					),
+				{ once: true },
+			);
+			const write = (frame: unknown) =>
+				controller.enqueue(encoder.encode(toEventLine(frame)));
+			const text = (content: string) =>
+				write({
+					...chunkBase,
+					choices: [{ index: 0, delta: { content }, finish_reason: null }],
+				});
+			try {
+				write({
+					...chunkBase,
+					choices: [
+						{ index: 0, delta: { role: "assistant" }, finish_reason: null },
+					],
+				});
+				if (phase === "call") {
+					for (const piece of AI_SMOKE_LATE_CARD_INTRO) {
+						await delay(AI_SMOKE_LATE_CARD_PIECE_DELAY_MS);
+						text(piece);
+					}
+					await delay(AI_SMOKE_LATE_CARD_WRITING_MS);
+					write({
+						...chunkBase,
+						choices: [
+							{
+								index: 0,
+								delta: {
+									tool_calls: [
+										{
+											index: 0,
+											id: CREATE_ARTIFACT_CALL_ID,
+											type: "function",
+											function: {
+												name: "create_artifact",
+												arguments: JSON.stringify({
+													artifactType: "document",
+													title: AI_SMOKE_LATE_CARD_TITLE,
+													body: AI_SMOKE_LATE_CARD_MARKDOWN,
+												}),
+											},
+										},
+									],
+								},
+								finish_reason: null,
+							},
+						],
+					});
+					write({
+						...chunkBase,
+						choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					});
+				} else {
+					await delay(AI_SMOKE_LATE_CARD_FINAL_DELAY_MS);
+					// A new paragraph, as a model starts its answer after a tool.
+					text(`\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`);
+					write({
+						...chunkBase,
+						choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+						usage: {
+							prompt_tokens: 21,
+							completion_tokens: 9,
+							total_tokens: 30,
+						},
+					});
+				}
+				controller.enqueue(encoder.encode(toEventLine("[DONE]")));
+				controller.close();
+			} catch (error) {
+				controller.error(error);
+			}
+		},
+	});
+	return new Response(stream, { status: 200, headers: STREAM_HEADERS });
+}
+
+/**
  * The read-a-project-file scenario: the model reads a file it found in the
  * prompt's project file list — never a name the user typed — with the app's
  * real `read_generated_file` tool, and the follow-up request, the one carrying
@@ -1416,6 +1537,12 @@ export function createOpenAICompatibleProviderHarness(
 					const payload = findEditArtifactPayload(body);
 					if (payload) return buildEditArtifactToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
+				}
+				if (bodyAsksForLateCard(body)) {
+					return lateCardStreamResponse(
+						hasToolResultMessage(body) ? "final" : "call",
+						request.signal ?? new AbortController().signal,
+					);
 				}
 				if (bodyAsksForCreateArtifact(body)) {
 					if (hasToolResultMessage(body)) {

@@ -282,6 +282,9 @@ const chatDict = {
 		// compact step list.
 		"chat.thoughtStep.hideFullReasoning": "Hide full reasoning",
 		"chat.thoughtStep.showFullReasoning": "Show full reasoning",
+		// A conversation nothing has named yet (F5): the stored default is one
+		// English sentence, and a reader sees this one in their own language.
+		"chat.untitledConversation": "New Conversation",
 		"chat.uploadAllFailed": "Failed to upload {count} file(s).",
 		"chat.uploadAttachmentFailed": "Failed to upload attachment.",
 		"chat.uploadError": "Upload failed",
@@ -1401,6 +1404,7 @@ const chatDict = {
 		"chat.thoughtStep.viewInTrace": "Megtekintés a gondolkodási folyamatban",
 		"chat.thoughtStep.hideFullReasoning": "Teljes gondolatmenet elrejtése",
 		"chat.thoughtStep.showFullReasoning": "Teljes gondolatmenet megjelenítése",
+		"chat.untitledConversation": "Új beszélgetés",
 		"chat.uploadAllFailed": "Nem sikerült feltölteni {count} fájlt.",
 		"chat.uploadAttachmentFailed": "A fájl csatolása nem sikerült.",
 		"chat.uploadError": "Feltöltés sikertelen",

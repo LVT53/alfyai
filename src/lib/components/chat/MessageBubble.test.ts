@@ -2989,6 +2989,160 @@ describe("MessageBubble", () => {
 		});
 	});
 
+	// F16: a create_artifact / edit_artifact call reaches the browser only once the
+	// model has written the whole item, so its row and card always arrived late into
+	// the rail ABOVE the text and pushed the words being read down. They are what the
+	// turn made, so they are drawn after the text.
+	describe("what the turn made (create_artifact / edit_artifact rows and cards)", () => {
+		function buildArtifactMessage(
+			overrides: Partial<ChatMessage> = {},
+		): ChatMessage {
+			return {
+				id: "assistant-made-something",
+				renderKey: "assistant-made-something",
+				role: "assistant",
+				content: "Rendben, összeállítom a tervet.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-create",
+						name: "create_artifact",
+						input: {
+							artifactType: "document",
+							title: "Weekend plan",
+							body: "# Weekend plan",
+						},
+						status: "done",
+						metadata: {
+							ok: true,
+							artifactId: "artifact-1",
+							artifactKind: "document",
+							artifactTitle: "Weekend plan",
+						},
+					},
+				],
+				...overrides,
+			};
+		}
+
+		it("draws the row and the card after the text, in a block of their own", () => {
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage(),
+				conversationId: "conv-1",
+			});
+
+			const prose = container.querySelector(".prose-container");
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			expect(prose).not.toBeNull();
+			expect(made).not.toBeNull();
+			expect(
+				(prose?.compareDocumentPosition(made as Node) ?? 0) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(
+				made?.querySelector('[data-testid="tool-activity-row"]'),
+			).not.toBeNull();
+			expect(
+				made?.querySelector('[data-testid="tool-activity-standalone-card"]'),
+			).not.toBeNull();
+			// Nowhere else: not in the rail above the text.
+			expect(
+				container.querySelectorAll('[data-testid="tool-activity-row"]'),
+			).toHaveLength(1);
+			expect(
+				container.querySelectorAll(
+					'[data-testid="tool-activity-standalone-card"]',
+				),
+			).toHaveLength(1);
+		});
+
+		it("keeps the other tools in the rail and out of the block", () => {
+			const message = buildArtifactMessage();
+			message.thinkingSegments = [
+				{
+					type: "tool_call",
+					callId: "call-search",
+					name: "research_web",
+					input: { query: "museums in Vienna" },
+					status: "done",
+					outputSummary: "Reviewed 2 sources",
+				},
+				...(message.thinkingSegments ?? []),
+			];
+			const { container } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+			});
+
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			expect(
+				made?.querySelectorAll('[data-testid="tool-activity-row"]'),
+			).toHaveLength(1);
+			expect(made?.textContent).not.toContain("museums in Vienna");
+			// The rail still has its summary of the search, without the item.
+			const summary = container.querySelector(
+				'[data-testid="tool-activity-summary"]',
+			);
+			expect(summary).not.toBeNull();
+			expect(summary?.textContent).not.toContain("Weekend plan");
+		});
+
+		it("has no block for a message that made nothing", () => {
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({ thinkingSegments: [] }),
+			});
+
+			expect(
+				container.querySelector('[data-testid="message-deliverables"]'),
+			).toBeNull();
+		});
+
+		it("counts a running create_artifact call as progress, not as 'preparing'", () => {
+			const running = buildArtifactMessage({
+				content: "",
+				isStreaming: true,
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-create",
+						name: "create_artifact",
+						input: {
+							artifactType: "document",
+							title: "Weekend plan",
+							body: "# Weekend plan",
+						},
+						status: "running",
+					},
+				],
+			});
+			const { container } = render(MessageBubble, { message: running });
+
+			expect(container.querySelector(".preparing-status")).toBeNull();
+			// The skeleton card stands where the finished one will.
+			expect(
+				container.querySelector(
+					'[data-testid="message-deliverables"] [data-testid="tool-activity-standalone-card"]',
+				),
+			).not.toBeNull();
+
+			// Without any activity yet the same message does say it is preparing.
+			const { container: bare } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					content: "",
+					isStreaming: true,
+					thinkingSegments: [],
+				}),
+			});
+			expect(bare.querySelector(".preparing-status")).not.toBeNull();
+		});
+	});
+
 	describe("Follow-up suggestion chips (owner idea, variant A)", () => {
 		function buildFollowUpMessage(
 			overrides: Partial<ChatMessage> = {},
@@ -3073,7 +3227,27 @@ describe("MessageBubble", () => {
 			});
 
 			expect(container.querySelector(".follow-up-chip")).toBeNull();
-			expect(container.querySelector(".follow-up-divider")).toBeNull();
+			expect(container.querySelector(".follow-up-row")).toBeNull();
+		});
+
+		// F17: the action row is hover-only on a wide screen, and a chip inside
+		// it went invisible with it. The chips have a row of their own, which
+		// carries no hover rule at all.
+		it("keeps the chips out of the hover-only action row", () => {
+			const { container } = render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: true,
+			});
+
+			const chip = container.querySelector(".follow-up-chip");
+			expect(chip).not.toBeNull();
+			expect(chip?.closest(".copy-action-row")).toBeNull();
+			const row = chip?.closest(".follow-up-row");
+			expect(row).not.toBeNull();
+			expect(row?.className).not.toMatch(/opacity/);
+			expect(container.querySelector(".copy-action-row")?.className).toContain(
+				"md:opacity-0",
+			);
 		});
 
 		it("renders a single chip when the control model repeats a suggestion", () => {
