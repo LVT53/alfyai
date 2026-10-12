@@ -287,6 +287,92 @@ describe("the answer kept for a page load", () => {
 		});
 	});
 
+	it("can be read without waiting once it has settled, and not before", async () => {
+		const { getArtifactTour, peekArtifactTour, fetchStub } = await pageLoad([
+			{ seen: false },
+		]);
+
+		expect(peekArtifactTour("document")).toBeUndefined();
+		const asked = getArtifactTour("document");
+		// On the wire: a promise cannot be read in the flush that opens an item.
+		expect(peekArtifactTour("document")).toBeUndefined();
+		const answer = await asked;
+
+		expect(peekArtifactTour("document")).toBe(answer);
+		expect(peekArtifactTour("canvas")).toBeUndefined();
+		expect(reads(fetchStub)).toHaveLength(1);
+	});
+
+	it("reads a finished tour as seen in the very next flush, before the write has landed", async () => {
+		const {
+			getArtifactTour,
+			peekArtifactTour,
+			markArtifactTourSeen,
+			fetchStub,
+		} = await pageLoad([{ seen: false }]);
+		await getArtifactTour("document");
+		fetchStub.mockImplementationOnce(() => new Promise(() => {}));
+
+		void markArtifactTourSeen("document", {
+			contentKey: TOUR.contentKey,
+			status: "completed",
+			lastSlide: 2,
+		});
+
+		expect(peekArtifactTour("document")).toMatchObject({
+			seen: true,
+			lastSlide: 2,
+		});
+	});
+
+	it("forgets what a refused write and a replay put in doubt, and what a failure never knew", async () => {
+		const {
+			getArtifactTour,
+			peekArtifactTour,
+			markArtifactTourSeen,
+			fetchStub,
+		} = await pageLoad(["fail", { seen: false }]);
+
+		await expect(getArtifactTour("document")).rejects.toMatchObject({
+			status: 500,
+		});
+		expect(peekArtifactTour("document")).toBeUndefined();
+
+		await getArtifactTour("document");
+		expect(peekArtifactTour("document")).toMatchObject({ seen: false });
+		fetchStub.mockImplementationOnce(
+			async () => new Response("", { status: 409 }),
+		);
+		await expect(
+			markArtifactTourSeen("document", {
+				contentKey: TOUR.contentKey,
+				status: "completed",
+				lastSlide: 2,
+			}),
+		).rejects.toMatchObject({ status: 409 });
+		expect(peekArtifactTour("document")).toBeUndefined();
+	});
+
+	it("is the reader's own: another reader, or an account that was cleared, starts with nothing", async () => {
+		const {
+			getArtifactTour,
+			peekArtifactTour,
+			keepArtifactToursFor,
+			forgetArtifactTours,
+		} = await pageLoad([{ seen: true }, { seen: true }]);
+		keepArtifactToursFor("reader-1");
+		await getArtifactTour("canvas");
+		expect(peekArtifactTour("canvas")).toMatchObject({ seen: true });
+
+		keepArtifactToursFor("reader-2");
+		expect(peekArtifactTour("canvas")).toBeUndefined();
+
+		await getArtifactTour("canvas");
+		expect(peekArtifactTour("canvas")).toBeDefined();
+		forgetArtifactTours();
+		expect(peekArtifactTour("canvas")).toBeUndefined();
+	});
+
 	it("leaves a different copy unseen: only what was read is marked", async () => {
 		const { getArtifactTour, markArtifactTourSeen } = await pageLoad([
 			{ seen: false },

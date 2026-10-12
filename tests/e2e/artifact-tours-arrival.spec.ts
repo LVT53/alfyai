@@ -19,7 +19,11 @@ import {
 	tourCard,
 	watchTourRequests,
 } from "./artifact-tours-helpers";
-import { waitForMotionToSettle, waitForStableBoundingBox } from "./helpers";
+import {
+	waitForHydration,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // How the tour card ARRIVES (TR-D1; RC-T's I-1 and its Minors 5, 6, 7, 8b, 11).
 // The card used to land after the item was on screen and shove it down in one
@@ -29,17 +33,7 @@ import { waitForMotionToSettle, waitForStableBoundingBox } from "./helpers";
 // item from the panel's list, reads, pans, presses keys. What is measured is
 // what is on the screen, frame by frame, from the page's own animation loop.
 
-const ANSWER_DELAY_MS = 450;
 const EDITOR = ".document-editor-host .ProseMirror";
-
-/** Holds every tour answer back, as a slow link does. The seen write is not held. */
-async function delayTourAnswers(page: Page, ms = ANSWER_DELAY_MS) {
-	await page.route("**/api/artifact-tours/*", async (route) => {
-		if (route.request().method() !== "GET") return route.continue();
-		await new Promise((resolve) => setTimeout(resolve, ms));
-		return route.continue();
-	});
-}
 
 /**
  * Keeps every tour answer on the wire until the test lets it go: the answer
@@ -60,9 +54,13 @@ async function holdTourAnswers(page: Page) {
 	return { release: () => release() };
 }
 
-/** The moments (in the page's own clock) the page asked for a tour, so "as the item opens" is a number. */
+/**
+ * The moments (in the page's own clock) the page asked for a tour, so "before the
+ * reader reaches for the item" is a number. An init script: the question is asked
+ * as the chat loads, which is before any test could patch the page it is asked from.
+ */
 async function watchTourAsks(page: Page) {
-	await page.evaluate(() => {
+	await page.addInitScript(() => {
 		const bag = window as unknown as {
 			__asks: number[];
 			fetch: typeof fetch;
@@ -226,13 +224,46 @@ async function readerWith(
 	return { user, chatId };
 }
 
+/**
+ * Like `readerWith`, for the case where the answer is late: every tour answer is
+ * held on the wire from the moment the chat loads (the panel asks as soon as the
+ * chat has an item of a kind), and the page is not waited on to go idle, which a
+ * held request would never let it. `hold.release()` lets the answers through.
+ */
+async function readerWithHeldAnswers(
+	page: Page,
+	kind: TourKind,
+	options: {
+		language?: "en" | "hu";
+		board?: ReturnType<typeof bigBoard>;
+		title?: string;
+	} = {},
+) {
+	const user = await createTourUser(options.language ?? "hu");
+	const chatId = await startChatAs(page, user);
+	await seedItem(user, chatId, kind, {
+		board: options.board,
+		title: options.title,
+	});
+	const hold = await holdTourAnswers(page);
+	await page.evaluate((id) => {
+		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
+	}, chatId);
+	await page.goto(`/chat/${chatId}`);
+	await page.reload();
+	await waitForHydration(page);
+	await expect(page.getByTestId("artifact-count-button")).toBeVisible({
+		timeout: 30_000,
+	});
+	return { user, chatId, hold };
+}
+
 test.describe("the tour card arrives without moving what is being read", () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
 	/** Opens the Document from the list with the tour answer held; the card lands once the page has been readable for a moment. */
 	async function documentWithLateCard(page: Page) {
-		await readerWith(page, "document");
-		const hold = await holdTourAnswers(page);
+		const { hold } = await readerWithHeldAnswers(page, "document");
 		await openPanelList(page);
 		await startSampling(page, `aside.workspace-shell-desktop ${EDITOR}`);
 		await panelList(page)
@@ -302,40 +333,54 @@ test.describe("the tour card arrives without moving what is being read", () => {
 		expect(leaving.movingFrames).toBeLessThanOrEqual(2);
 	});
 
-	test("the tour is asked for as the item opens, before its page has painted", async ({
+	test("the tour is asked for before the reader reaches for the item, once, and the card is there when the page is", async ({
 		page,
 	}) => {
-		await readerWith(page, "document");
-		await delayTourAnswers(page, 250);
-		await openPanelList(page);
+		const user = await createTourUser("hu");
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "document");
 		await watchTourAsks(page);
+		await reopenChat(page, chatId);
+		await openPanelList(page);
+		const pressedAt = await page.evaluate(() => performance.now());
 		await startSampling(page, `aside.workspace-shell-desktop ${EDITOR}`);
 		await panelList(page)
 			.getByTestId("artifact-row")
 			.filter({ hasText: ITEM_TITLES.document })
 			.click();
 		await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
+		await expect(panelShell(page).locator(EDITOR)).toBeVisible({
+			timeout: 30_000,
+		});
 		const frames = await stopSampling(page);
-		const painted = frames.find((f) => f.top !== null)?.t ?? 0;
-		const asked = await page.evaluate(
-			() => (window as unknown as { __asks: number[] }).__asks[0] ?? -1,
+		// The first frame the text is on screen in, and whether the card is already up in it.
+		const painted = frames.find((f) => f.top !== null);
+		expect(painted, "the text painted").toBeTruthy();
+		expect(painted?.card, "the card is up when the text first paints").toBe(
+			true,
 		);
-		expect(asked, "the page asked for the tour").toBeGreaterThan(0);
-		expect(painted, "the page painted").toBeGreaterThan(0);
+		const asks = await page.evaluate(
+			() => (window as unknown as { __asks: number[] }).__asks,
+		);
+		expect(asks, "the page asked, once, for the one kind it has").toHaveLength(
+			1,
+		);
 		console.log(
-			`[timeline] asked at ${asked.toFixed(0)} ms, the page painted at ${painted.toFixed(0)} ms`,
+			`[timeline] asked at ${asks[0].toFixed(0)} ms, the reader pressed the row at ${pressedAt.toFixed(0)} ms, the text first painted at ${(painted?.t ?? 0).toFixed(0)} ms with the card up`,
 		);
-		expect(asked).toBeLessThanOrEqual(painted);
+		expect(asks[0], "asked before the press").toBeLessThan(pressedAt);
 	});
 
 	test("a populated board shows every note with the card up, and after it closes", async ({
 		page,
 	}) => {
-		await readerWith(page, "canvas", { board: bigBoard(), title: "Big board" });
-		const hold = await holdTourAnswers(page);
+		const { hold } = await readerWithHeldAnswers(page, "canvas", {
+			board: bigBoard(),
+			title: "Big board",
+		});
 		await openItem(page, "Big board");
 
-		// The board paints and fits itself first; the card lands over it later.
+		// The board paints and fits itself first; the card grows in later and the board follows it.
 		await expect(page.getByTestId("canvas-node")).toHaveCount(21, {
 			timeout: 30_000,
 		});
@@ -353,8 +398,10 @@ test.describe("the tour card arrives without moving what is being read", () => {
 	test("a board the reader has moved keeps its camera when the card arrives and when it goes", async ({
 		page,
 	}) => {
-		await readerWith(page, "canvas", { board: bigBoard(), title: "Big board" });
-		const hold = await holdTourAnswers(page);
+		const { hold } = await readerWithHeldAnswers(page, "canvas", {
+			board: bigBoard(),
+			title: "Big board",
+		});
 		await openItem(page, "Big board");
 		await expect(page.getByTestId("canvas-node")).toHaveCount(21, {
 			timeout: 30_000,
@@ -428,6 +475,199 @@ test.describe("the tour card arrives without moving what is being read", () => {
 		await page.setViewportSize({ width: 1180, height: 640 });
 		await waitForMotionToSettle(page);
 		sameCamera(await settledCamera(page), moved);
+	});
+});
+
+// ---- The card has its room from the first frame (FX-2, RC-A #4; ruling 77) ----
+//
+// The tour card used to be a layer laid over the top of the item (FB-3): nothing
+// moved, but it covered the Document's toolbar and first lines, the App's status
+// row and the board's top (214 of 844 px on a phone). Ruling 77 says the room is
+// made before the body paints: the answer is in hand before the reader reaches
+// for the item (the panel asks as soon as the chat has an item of a kind), so the
+// card is in the page's flow from the item's first frame. What is measured is
+// what is on the screen, frame by frame, relative to the panel.
+
+type Edge = { top: number; bottom: number };
+type RoomFrame = {
+	t: number;
+	card: Edge | null;
+	root: Edge | null;
+	first: Edge | null;
+};
+
+/** The item's own root (it must not move) and the first thing in it that a person reaches for (the card must not stand over it). */
+const ROOM_PARTS: Record<TourKind, { root: string; first: string }> = {
+	document: {
+		root: ".document-body",
+		first: ".document-toolbar, .mobile-toolbar",
+	},
+	app: { root: ".app-body", first: '[data-testid="app-status-row"]' },
+	canvas: {
+		root: '[data-testid="canvas-editor"]',
+		first: '[data-testid="canvas-board"]',
+	},
+};
+
+/** From now on, once per animation frame: the card, the item's root and its first part, as edges inside the panel. */
+async function startRoomLog(page: Page, kind: TourKind) {
+	await page.evaluate((parts) => {
+		const bag = window as unknown as {
+			__room: RoomFrame[];
+			__logging: boolean;
+		};
+		bag.__room = [];
+		bag.__logging = true;
+		const panel = () =>
+			[
+				...document.querySelectorAll(
+					"aside.workspace-shell-desktop, [data-testid='document-workspace-mobile-shell']",
+				),
+			].find((shell) => shell.getBoundingClientRect().width > 0) ?? null;
+		const tick = () => {
+			if (!bag.__logging) return;
+			const shell = panel();
+			const base = shell?.getBoundingClientRect().top ?? 0;
+			const edge = (selector: string) => {
+				// The first match that takes room: the desktop toolbar is in the page, empty, on a phone.
+				for (const element of shell?.querySelectorAll(selector) ?? []) {
+					const rect = element.getBoundingClientRect();
+					if (rect.width > 0 || rect.height > 0) {
+						return { top: rect.top - base, bottom: rect.bottom - base };
+					}
+				}
+				return null;
+			};
+			bag.__room.push({
+				t: performance.now(),
+				card: edge('[data-testid="artifact-tour"]'),
+				root: edge(parts.root),
+				first: edge(parts.first),
+			});
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	}, ROOM_PARTS[kind]);
+}
+
+async function stopRoomLog(page: Page): Promise<RoomFrame[]> {
+	return page.evaluate(() => {
+		const bag = window as unknown as {
+			__room: RoomFrame[];
+			__logging: boolean;
+		};
+		bag.__logging = false;
+		return bag.__room;
+	});
+}
+
+function range(values: number[]): number {
+	return values.length ? Math.max(...values) - Math.min(...values) : 0;
+}
+
+/**
+ * What the frames of an item that opened with its tour card have to say: the card
+ * was in the page in the frame the item first showed, it stood over nothing of the
+ * item in any frame, and neither the item nor the card moved from then on. (What
+ * the Document's own tab strip does when its editor is ready is the Document's.)
+ */
+function expectRoomFromTheFirstFrame(frames: RoomFrame[], what: string) {
+	const start = frames.findIndex((frame) => frame.root !== null);
+	expect(start, `${what}: the item never showed`).toBeGreaterThanOrEqual(0);
+	const shown = frames.slice(start);
+	expect(
+		shown[0].card,
+		`${what}: the card is in the page in the item's first frame`,
+	).not.toBeNull();
+	const covered = shown.filter(
+		(frame) =>
+			frame.card &&
+			[frame.root, frame.first].some(
+				(part) => part && part.top < (frame.card?.bottom ?? 0) - 0.5,
+			),
+	);
+	expect(
+		covered.map((frame) => ({
+			card: frame.card?.bottom,
+			root: frame.root?.top,
+			first: frame.first?.top,
+		})),
+		`${what}: the card stands over nothing`,
+	).toEqual([]);
+	const roots = shown.flatMap((frame) => (frame.root ? [frame.root] : []));
+	const cards = shown.flatMap((frame) => (frame.card ? [frame.card] : []));
+	for (const [name, edges] of [
+		["the item", roots],
+		["the card", cards],
+	] as const) {
+		expect(
+			range(edges.map((edge) => edge.top)),
+			`${what}: ${name} did not move (top)`,
+		).toBeLessThan(1);
+		expect(
+			range(edges.map((edge) => edge.bottom)),
+			`${what}: ${name} did not move (bottom)`,
+		).toBeLessThan(1);
+	}
+	return { cardHeight: (cards[0]?.bottom ?? 0) - (cards[0]?.top ?? 0) };
+}
+
+for (const kind of ["document", "app", "canvas"] as const) {
+	test.describe(`a ${kind}'s tour card has its room from the first frame (desktop)`, () => {
+		test.use({ viewport: { width: 1440, height: 900 } });
+
+		test("a reader's first open: the card is in the page with the item, and nothing moves or is covered", async ({
+			page,
+		}) => {
+			await readerWith(page, kind);
+			await openPanelList(page);
+			await startRoomLog(page, kind);
+			await panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: ITEM_TITLES[kind] })
+				.click();
+			await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(400);
+			const frames = await stopRoomLog(page);
+			const { cardHeight } = expectRoomFromTheFirstFrame(
+				frames,
+				`${kind}, first open`,
+			);
+			expect(cardHeight, "the card has its height").toBeGreaterThan(100);
+		});
+	});
+}
+
+test.describe("a tour card has its room from the first frame (phone, touch)", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("the Document's card is in the page with the Document, above its toolbar, and nothing moves", async ({
+		page,
+	}) => {
+		await readerWith(page, "document");
+		await page.getByTestId("artifact-count-button-compact").tap();
+		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+		await startRoomLog(page, "document");
+		await panelList(page)
+			.getByTestId("artifact-row")
+			.filter({ hasText: ITEM_TITLES.document })
+			.tap();
+		await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
+		await waitForMotionToSettle(page);
+		await page.waitForTimeout(400);
+		const frames = await stopRoomLog(page);
+		const { cardHeight } = expectRoomFromTheFirstFrame(
+			frames,
+			"phone, Document, first open",
+		);
+		console.log(
+			`[phone] the card is ${cardHeight.toFixed(0)} px of 844, the toolbar starts under it`,
+		);
 	});
 });
 
