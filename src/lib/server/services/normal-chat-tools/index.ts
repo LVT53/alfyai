@@ -881,7 +881,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											allowed: allowed.length,
 											refused: refusedCount,
 										});
-										if (allowed.length === 0) {
+										if (refusedCount > 0 && allowed.length === 0) {
 											throw new FetchUrlRefusedError(
 												allAddressesRefusedMessage(lang, refusedCount),
 												refusedCount,
