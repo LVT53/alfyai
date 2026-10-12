@@ -93,6 +93,7 @@ let {
 	layout = "rail",
 	refusal = null,
 	changeStateByCommentId = {},
+	answeringThreadIds = new Set<string>(),
 	activeCommentId = null,
 	focusRequest = null,
 	revealRequest = null,
@@ -123,6 +124,8 @@ let {
 	refusal?: MarginRefusal | null;
 	/** commentId -> chip state, passed straight through to `CommentThread`. */
 	changeStateByCommentId?: Record<string, "pending" | "kept" | "undone">;
+	/** The threads Alfy is replying in right now (a comment that asked it something, posted): each shows its pending row until the reply is in (F14). */
+	answeringThreadIds?: ReadonlySet<string>;
 	/** Whichever thread is currently linked to its words in the text. */
 	activeCommentId?: string | null;
 	/** A one-shot "scroll to and focus this thread's card" request — see this file's own header comment. */
@@ -473,6 +476,8 @@ const noteIn = reducedMotionAware(fly);
 			quoteMoved={resolution.state === 'moved'}
 			quoteStruck={struck}
 			{changeStateByCommentId}
+			alfyBusy={answeringThreadIds.has(comment.id)}
+			busyLabel={$t('artifacts.document.comment.alfyAnswering')}
 			onResolve={(resolved) => onResolve(comment.id, resolved)}
 			{onSubmitReply}
 			onGoto={struck ? undefined : gotoFor(comment)}

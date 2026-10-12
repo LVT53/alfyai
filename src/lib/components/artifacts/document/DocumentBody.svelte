@@ -345,6 +345,14 @@ let commentsOverlayOpen = $state(false);
 /** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
 let commentFilter = $state<"open" | "all">("open");
 let commentOrphanedGroupOpen = $state(false);
+/**
+ * F14 (ruling 77): the threads Alfy is replying in right now. A comment that asks
+ * Alfy something is posted at once (the composer closes, the reader's words are in
+ * the thread) and the reply is awaited in the background; the thread shows a
+ * pending row for exactly as long as its id is here, and a second ask on a thread
+ * that is already being answered sends nothing.
+ */
+let answeringThreadIds = $state<ReadonlySet<string>>(new Set());
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -689,7 +697,30 @@ function findThreadBlockId(commentId: string): string | null {
  * whole block is the honest, always-correct representation of "this block
  * changed," not a guess at a narrower range.
  */
+/** The reply runs detached from the press that asked for it (F14), so nothing awaits it to hear it fail. */
+function warnAlfyReplyFailed(error: unknown): void {
+	console.warn("[DOCUMENT] an @Alfy reply could not be finished", error);
+}
+
 async function maybeAskAlfy(
+	commentId: string,
+	blockId: string | null,
+	threadId: string,
+): Promise<void> {
+	// One answer at a time per thread: a second press (or a second tab's) while Alfy
+	// is already replying here asks for nothing more.
+	if (answeringThreadIds.has(threadId)) return;
+	answeringThreadIds = new Set(answeringThreadIds).add(threadId);
+	try {
+		await askAlfyAboutComment(commentId, blockId);
+	} finally {
+		const next = new Set(answeringThreadIds);
+		next.delete(threadId);
+		answeringThreadIds = next;
+	}
+}
+
+async function askAlfyAboutComment(
 	commentId: string,
 	blockId: string | null,
 ): Promise<void> {
@@ -790,8 +821,12 @@ async function postComment(anchor: Anchor, body: string): Promise<string> {
 	);
 	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
+	// F14: the comment is in; Alfy's reply is awaited in the background (the thread
+	// shows "Alfy is replying…"), so the composer does not sit open over the text.
 	if (mentionsAlfy(body)) {
-		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
+		void maybeAskAlfy(created.id, textAnchorBlockId(anchor), created.id).catch(
+			warnAlfyReplyFailed,
+		);
 	}
 	return created.id;
 }
@@ -887,7 +922,9 @@ async function postReply(parentId: string, body: string): Promise<void> {
 	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
-		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
+		void maybeAskAlfy(created.id, findThreadBlockId(parentId), parentId).catch(
+			warnAlfyReplyFailed,
+		);
 	}
 }
 
@@ -2673,6 +2710,7 @@ function saveNoticeText(notice: SaveNotice): string {
 						{activeTabId}
 						refusal={marginRefusal}
 						changeStateByCommentId={changeChipByCommentId}
+						{answeringThreadIds}
 						{activeCommentId}
 						focusRequest={focusCommentRequest}
 						revealRequest={revealCommentRequest}
@@ -2706,6 +2744,7 @@ function saveNoticeText(notice: SaveNotice): string {
 					{activeTabId}
 					refusal={marginRefusal}
 					changeStateByCommentId={changeChipByCommentId}
+					{answeringThreadIds}
 					{activeCommentId}
 					focusRequest={focusCommentRequest}
 					onResolve={handleCommentResolve}

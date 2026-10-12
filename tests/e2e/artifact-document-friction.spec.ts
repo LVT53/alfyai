@@ -227,3 +227,62 @@ test.describe("F13 a pending change's review bar is one row on a phone", () => {
 		});
 	}
 });
+
+test.describe("F14 an @Alfy comment feels answered", () => {
+	test("the composer closes at once, the thread says Alfy is replying until the reply comes, and a second press sends nothing more", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createEmptyConversation(page, "F14");
+		await seedDocument(conversationId, {
+			markdown: MARKDOWN,
+			title: "Bécsi hétvége",
+		});
+
+		// Alfy's answer is held by the test (a slow model): everything else is the real
+		// server, and the answer itself is whatever the real route says once released.
+		const asks: string[] = [];
+		const posts: string[] = [];
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route("**/api/artifacts/*/comments/*/alfy*", async (route) => {
+			asks.push(route.request().url());
+			await gate;
+			await route.continue();
+		});
+		page.on("request", (request) => {
+			if (
+				request.method() === "POST" &&
+				/\/api\/artifacts\/[^/]+\/comments(\?|$)/.test(request.url())
+			) {
+				posts.push(request.url());
+			}
+		});
+
+		const shell = await openDocument(page, conversationId);
+		await selectWord(page, shell, "Naschmarkt");
+		const bubble = page.getByTestId("selection-bubble");
+		await bubble.getByRole("button", { name: "Alfy megkérdezése" }).click();
+		await bubble.getByRole("textbox").fill("bővítsd ki ezt");
+		// A second press right behind the first.
+		await bubble.getByRole("button", { name: "Alfy megkérdezése" }).dblclick();
+
+		// The composer is gone while Alfy has not answered, and the thread says so.
+		await expect(bubble).toBeHidden({ timeout: 3_000 });
+		const rail = shell.locator(".document-content-rail");
+		await expect(rail.getByText("bővítsd ki ezt")).toBeVisible();
+		await expect(
+			rail.getByRole("status").filter({ hasText: "Alfy válaszol…" }),
+		).toBeVisible();
+
+		release();
+		await expect(
+			rail.getByRole("status").filter({ hasText: "Alfy válaszol…" }),
+		).toBeHidden({ timeout: 20_000 });
+		// One comment was posted and Alfy was asked once.
+		expect(posts).toHaveLength(1);
+		expect(asks).toHaveLength(1);
+	});
+});

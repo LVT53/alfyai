@@ -1277,6 +1277,75 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		// F14 (ruling 77): the comment is posted and the composer closes at once; Alfy's
+		// reply is awaited behind it, with the thread saying so, and asked only once.
+		it("closes the composer when the comment is posted, not when Alfy has answered, and asks Alfy once", async () => {
+			// The new thread is brought into view in the column (jsdom has no layout).
+			Element.prototype.scrollIntoView = vi.fn();
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			let answer: (value: unknown) => void = () => {};
+			mockAskAlfyInComment.mockReturnValue(
+				new Promise((resolve) => {
+					answer = resolve;
+				}),
+			);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [commentFixture({ body: "@Alfy change it." })]),
+			);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+
+			// Alfy has not answered: the composer is gone, and the thread says it is replying.
+			await waitFor(() =>
+				expect(screen.queryByTestId("selection-bubble")).toBeNull(),
+			);
+			expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1);
+			expect(await screen.findByText("Alfy is replying…")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Reply" })).toBeDisabled();
+
+			answer({
+				outcome: "replied",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			await waitFor(() =>
+				expect(screen.queryByText("Alfy is replying…")).toBeNull(),
+			);
+			expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1);
+		});
+
 		it("reloads the editor's content once Alfy's reply bumps the version", async () => {
 			mockCreateArtifactComment.mockResolvedValue(
 				commentFixture({ body: "@Alfy change it." }),

@@ -465,6 +465,9 @@ const artifactsDict = {
 		"artifacts.document.comment.changeUndone": "Undone",
 		"artifacts.document.comment.seeChange": "See change",
 		"artifacts.document.comment.alfyTyping": "Alfy is writing…",
+		// FB-6, F14 (ruling 77): the thread's pending row from the moment a comment that
+		// asked Alfy something is posted until its reply is in.
+		"artifacts.document.comment.alfyAnswering": "Alfy is replying…",
 		"artifacts.document.comment.replyPlaceholder": "Reply, or ask @Alfy…",
 		"artifacts.document.comment.askAlfyHint":
 			"Alfy answers here and can edit the text. You keep or undo the change.",
@@ -1394,6 +1397,9 @@ const artifactsDict = {
 		"artifacts.document.comment.changeUndone": "Visszavonva",
 		"artifacts.document.comment.seeChange": "Módosítás mutatása",
 		"artifacts.document.comment.alfyTyping": "Alfy ír…",
+		// FB-6, F14 (ruling 77): a szál függő sora attól, hogy a kérdező megjegyzés
+		// elment, addig, amíg a válasz meg nem érkezik.
+		"artifacts.document.comment.alfyAnswering": "Alfy válaszol…",
 		"artifacts.document.comment.replyPlaceholder":
 			"Válasz, vagy kérdezd: @Alfy…",
 		"artifacts.document.comment.askAlfyHint":

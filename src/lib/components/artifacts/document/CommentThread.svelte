@@ -46,6 +46,7 @@ let {
 	currentUserProfilePicture = null,
 	badge = null,
 	alfyBusy = false,
+	busyLabel = null,
 	quoteLabel = null,
 	replyPlaceholder = null,
 	askAlfyHint = null,
@@ -75,6 +76,8 @@ let {
 	badge?: string | null;
 	/** Alfy is answering in this thread (a comment that asked it something, just posted): the typing dots show under the messages. */
 	alfyBusy?: boolean;
+	/** What the pending row says while `alfyBusy`; "Alfy is writing…" when absent (a board's), the Document says it is replying (F14). */
+	busyLabel?: string | null;
 	/** The quote button's accessible name, when "Show “{quote}” in the text" is not what it does (a Canvas block is shown on the board). */
 	quoteLabel?: string | null;
 	/** The reply box's placeholder and the hint under an `@Alfy` reply, when the Document's words ("edit the text") are not the kind's. */
@@ -100,6 +103,9 @@ let postError = $state(false);
 let mentionsAlfy = $derived(ALFY_MENTION_RE.test(draftText));
 
 function openReply(): void {
+	// One answer at a time: Alfy is still replying in this thread (F14), so there is
+	// no second question to ask it yet.
+	if (alfyBusy) return;
 	replying = true;
 	postError = false;
 }
@@ -144,12 +150,12 @@ let foldedA11yLabel = $derived(
 );
 </script>
 
-{#snippet typingIndicator()}
+{#snippet typingIndicator(label: string)}
 	<div class="comment-thread-typing" role="status">
 		<span class="comment-thread-typing-dots" aria-hidden="true">
 			<span></span><span></span><span></span>
 		</span>
-		<span>{$t('artifacts.document.comment.alfyTyping')}</span>
+		<span>{label}</span>
 	</div>
 {/snippet}
 
@@ -234,13 +240,13 @@ let foldedA11yLabel = $derived(
 
 				{#if alfyBusy}
 					<div class="comment-thread-busy">
-						{@render typingIndicator()}
+						{@render typingIndicator(busyLabel ?? $t('artifacts.document.comment.alfyTyping'))}
 					</div>
 				{/if}
 
 				{#if !replying}
 					<div class="comment-thread-actions">
-						<button type="button" class="btn-ghost btn-sm" onclick={openReply}>
+						<button type="button" class="btn-ghost btn-sm" disabled={alfyBusy} onclick={openReply}>
 							<CornerDownLeft size={13} strokeWidth={2} aria-hidden="true" />
 							{$t('artifacts.document.comment.reply')}
 						</button>
@@ -273,7 +279,7 @@ let foldedA11yLabel = $derived(
 							<p class="comment-thread-ask-hint">{askAlfyHint ?? $t('artifacts.document.comment.askAlfyHint')}</p>
 						{/if}
 						{#if posting && mentionsAlfy}
-							{@render typingIndicator()}
+							{@render typingIndicator($t('artifacts.document.comment.alfyTyping'))}
 						{/if}
 						<div class="comment-thread-composer-actions">
 							<button
