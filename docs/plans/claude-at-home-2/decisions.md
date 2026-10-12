@@ -880,3 +880,7 @@ at the next check.
 - **F23** The Knowledge page opens on Dokumentumok.
 - **F28** The "Svelte Flow" attribution stays (xyflow asks users to keep it) but becomes unobtrusive; resize handles
   keep their small dot and get a finger-sized hit area.
+- **Amended by the owner (2026-10-12):** the panel's Hungarian crumb "Ez a beszélgetés" reads **"Vissza"** (desktop and
+  phone), "so it's short and doesn't crowd the interface. These are the small UI changes that make it look mature." The
+  principle stands for every label: short, natural Hungarian that does not crowd a row; the final re-check looks for
+  other crowded labels (for example the phone review bar's clipped-looking "Megtart" / "Visszavon").
