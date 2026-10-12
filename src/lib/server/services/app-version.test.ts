@@ -239,6 +239,25 @@ describe("app version metadata", () => {
 		).resolves.toEqual({ full: "2.1.0", compact: "v2.1.0" });
 	});
 
+	it("shows 2.2.0 when the 2.2 release campaign is published beside the 2.2.0 package (ruling 78)", async () => {
+		// package.json and the campaign's releaseVersion are bumped together, and
+		// "2.2" and "2.2.0" are one version to the comparator, so whichever spelling
+		// the campaign carries the badge reads the package's.
+		insertReleaseCampaign("2.2.0", { id: "release-2-2" });
+
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.2.0" }),
+		).resolves.toEqual({ full: "2.2.0", compact: "v2.2.0" });
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.2" }),
+		).resolves.toEqual({ full: "2.2", compact: "v2.2" });
+		// A build older than the campaign (a server still on 2.0.0 when the
+		// campaign is published) shows the campaign's version, never the older one.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.0.0" }),
+		).resolves.toEqual({ full: "2.2.0", compact: "v2.2.0" });
+	});
+
 	it("compares version components numerically, not as strings", async () => {
 		insertReleaseCampaign("2.10.0");
 
