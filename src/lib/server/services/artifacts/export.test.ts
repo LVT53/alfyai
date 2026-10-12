@@ -308,7 +308,9 @@ describe("sanitizeDocumentFilename", () => {
 			"Bécsi hétvégi útiterv",
 		);
 		expect(sanitizeDocumentFilename("Trip plan v1. ")).toBe("Trip plan v1");
-		expect(sanitizeDocumentFilename(`${"x".repeat(98)}. y`)).toBe("x".repeat(98));
+		expect(sanitizeDocumentFilename(`${"x".repeat(98)}. y`)).toBe(
+			"x".repeat(98),
+		);
 	});
 
 	it("caps an unreasonably long title", () => {
