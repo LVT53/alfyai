@@ -34,6 +34,24 @@ async function boxOf(locator: Locator): Promise<Box> {
 	return box;
 }
 
+/** What each row of a menu says: its words, how many lines they take, and how tall the row is. */
+async function menuRows(rows: Locator) {
+	return rows.evaluateAll((els) =>
+		els.map((el) => {
+			const label = [...el.querySelectorAll("span")].find(
+				(span) => (span.textContent ?? "").trim() !== "",
+			);
+			const range = document.createRange();
+			if (label) range.selectNodeContents(label);
+			return {
+				text: label?.textContent?.trim() ?? "",
+				lines: label ? range.getClientRects().length : 0,
+				height: el.getBoundingClientRect().height,
+			};
+		}),
+	);
+}
+
 function overlap(a: Box, b: Box): boolean {
 	return (
 		a.x < b.x + b.width - 0.5 &&
@@ -478,21 +496,17 @@ for (const width of [360, 390] as const) {
 				.first()
 				.getByRole("button", { name: "Beszélgetés beállításai" });
 
+			/** Every row of the open menu says its words on one line and is a finger's height (FX-2: 44 px, as every other phone control). */
 			async function everyRowOneLine(state: string) {
 				await dots.tap();
 				const rows = page.locator(".conversation-option");
 				await expect(rows.first()).toBeVisible();
-				const heights = await rows.evaluateAll((els) =>
-					els.map((el) => ({
-						text: (el as HTMLElement).innerText.trim(),
-						height: el.getBoundingClientRect().height,
-					})),
-				);
-				for (const row of heights) {
+				for (const row of await menuRows(rows)) {
+					expect(row.lines, `${state}: "${row.text}" on one line`).toBe(1);
 					expect(
 						row.height,
-						`${state}: "${row.text}" on one line`,
-					).toBeLessThan(36);
+						`${state}: "${row.text}" is a finger's size`,
+					).toBeGreaterThanOrEqual(43.5);
 				}
 			}
 
@@ -503,6 +517,70 @@ for (const width of [360, 390] as const) {
 				.tap();
 			await expect(page.locator(".conversation-option")).toHaveCount(0);
 			await everyRowOneLine("pinned");
+		});
+
+		test("the rows of the move-to-project submenu and of the project's own menu are a finger's height too", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const project = await createProject(user.id, "Bécsi utazás");
+			await createProject(user.id, "Második projekt");
+			const chat = await seedChat(
+				user.id,
+				"Vonatok Budapestről Bécsbe",
+				project.id,
+				0,
+			);
+			await login(page, user.email, user.password);
+			await page.goto(`/chat/${chat}`, { waitUntil: "networkidle" });
+			await openPhoneSidebar(page);
+			const sidebar = page.locator("aside.sidebar-panel");
+			await sidebar.getByText("Bécsi utazás").first().tap();
+			await waitForMotionToSettle(page);
+
+			// The chat's menu, and the submenu its "Áthelyezés projektbe" opens.
+			await sidebar
+				.getByTestId("conversation-item")
+				.first()
+				.getByRole("button", { name: "Beszélgetés beállításai" })
+				.tap();
+			await page
+				.locator(".conversation-option")
+				.filter({ hasText: "Áthelyezés projektbe" })
+				.tap();
+			await expect(page.locator(".conversation-menu")).toHaveCount(2);
+			const submenu = page
+				.locator(".conversation-menu")
+				.last()
+				.locator(".conversation-option");
+			const submenuRows = await menuRows(submenu);
+			expect(submenuRows.length).toBeGreaterThanOrEqual(2);
+			for (const row of submenuRows) {
+				expect(
+					row.height,
+					`the submenu's "${row.text}" is a finger's size`,
+				).toBeGreaterThanOrEqual(43.5);
+			}
+			await page.keyboard.press("Escape");
+
+			// The project folder's own menu.
+			const count = page.getByTestId(`project-chat-count-${project.id}`);
+			const projectRow = sidebar.locator(".group").filter({ has: count });
+			await projectRow
+				.getByRole("button", { name: "Projekt beállításai" })
+				.tap();
+			const projectRows = await menuRows(page.locator(".project-option"));
+			expect(projectRows.length).toBe(3);
+			for (const row of projectRows) {
+				expect(row.lines, `the project menu's "${row.text}" on one line`).toBe(
+					1,
+				);
+				expect(
+					row.height,
+					`the project menu's "${row.text}" is a finger's size`,
+				).toBeGreaterThanOrEqual(43.5);
+			}
 		});
 
 		test("the search field's placeholder is not cut off", async ({ page }) => {

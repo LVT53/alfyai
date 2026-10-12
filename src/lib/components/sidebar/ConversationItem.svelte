@@ -455,7 +455,7 @@ onMount(() => {
 				<button
 					role="menuitem"
 					data-testid="pin-option"
-					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					class="conversation-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleTogglePin}
 				>
 				<span class="conversation-option-icon">
@@ -466,7 +466,7 @@ onMount(() => {
 				<button
 					role="menuitem"
 					data-testid="rename-option"
-					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					class="conversation-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={startRename}
 				>
 				<span class="conversation-option-icon">
@@ -478,7 +478,7 @@ onMount(() => {
 				{#if projects.length > 0 || conversation.projectId}
 					<button
 						role="menuitem"
-						class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						class:conversation-option-active={showProjectSubmenu}
 						onclick={toggleProjectSubmenu}
 					>
@@ -493,7 +493,7 @@ onMount(() => {
 				<button
 					role="menuitem"
 					data-testid="delete-option"
-					class="conversation-option conversation-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					class="conversation-option conversation-option-danger flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleDelete}
 				>
 				<span class="conversation-option-icon conversation-option-icon-danger">
@@ -514,7 +514,7 @@ onMount(() => {
 			>
 				{#each projects as proj (proj.id)}
 					<button
-						class="conversation-option flex min-h-[30px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[30px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						class:conversation-option-current={conversation.projectId === proj.id}
 						onclick={(event) => handleMoveToProject(event, proj.id)}
 					>
@@ -530,7 +530,7 @@ onMount(() => {
 				{#if conversation.projectId}
 					<div class="my-[3px] border-t border-border-subtle mx-1"></div>
 					<button
-						class="conversation-option flex min-h-[30px] w-full items-center text-left font-sans text-[12px] text-text-muted transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[30px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-muted transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						onclick={(event) => handleMoveToProject(event, null)}
 					>
 				<span class="conversation-option-icon opacity-60">
