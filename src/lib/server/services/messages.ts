@@ -689,7 +689,7 @@ export async function listRecentUserMessageTexts(
  * A conversation seldom has a hundred (the open window is 100); the bound keeps
  * a pathological one from making a single tool call read its whole history.
  */
-export const CONVERSATION_PROVENANCE_MESSAGE_LIMIT = 1_000;
+export const CONVERSATION_PROVENANCE_MESSAGE_LIMIT = 500;
 
 /**
  * What a conversation's stored messages say about where an address may have
