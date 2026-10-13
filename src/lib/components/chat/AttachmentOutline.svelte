@@ -2,7 +2,14 @@
 import { ChevronDown, ChevronRight, List } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { DocumentOutlineEntry } from "$lib/server/services/knowledge/types";
+import { focusTrap } from "$lib/utils/focus-trap";
+import { portalToBody } from "$lib/utils/portal";
 import { buildOutlineQuote } from "./composer-chip-presentation";
+import {
+	computeMenuPlacement,
+	MENU_GAP,
+	MENU_MARGIN,
+} from "./composer-placement";
 
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): renders the
 // heading outline extracted from a long attachment. Clicking a row hands
@@ -42,57 +49,143 @@ let showAll = $state(false);
 // The disclosure's popover is positioned against the VIEWPORT, not the
 // chip: on a phone the chip row is a side-scrolling rail whose `overflow`
 // clips everything inside it, and an absolutely positioned popover in there
-// is simply never seen. Anchored to the button's own rect on open, kept in
-// place on scroll and resize, and closed by Escape or a tap outside — the
-// three things a popover owes a keyboard and a thumb.
+// is simply never seen.
+//
+// A `position: fixed` box is only the viewport's while no ancestor has a
+// transform, and the home page (and a project's) centres its composer with
+// `transform: translateY(-50%)`: measured from the button's rect, the popover
+// was laid out from THAT layer instead and opened a few hundred pixels from
+// its icon. So the popover is painted in <body> (`portalToBody`, the remedy
+// the other composer popovers use), where fixed means the window whatever
+// the composer sits in, and is placed by the composer's own
+// `computeMenuPlacement` from the button's rect and the popover's own size:
+// above the button when it fits there, below it when it does not and there is
+// more room, always inside the window.
+//
+// Because it is no longer next to its button in the page's order, Tab could
+// not reach it: focus goes in when it opens, Tab and Shift+Tab stay in it,
+// and Escape closes it and gives the button its focus back. A tap outside
+// closes it too, and it follows its button for as long as it is open.
+const uid = $props.id();
+const popoverId = `attachment-outline-popover-${uid}`;
+/** The most the popover grows before its list scrolls: the CSS caps it at the same number. */
+const POPOVER_MAX_HEIGHT = 260;
+/** Until it has been measured and placed the popover is not seen anywhere. */
+const UNPLACED_STYLE = "visibility:hidden;";
+
 let rootElement = $state<HTMLDivElement | null>(null);
 let disclosureButton = $state<HTMLButtonElement | null>(null);
-let popoverStyle = $state("");
+let popoverElement = $state<HTMLDivElement | null>(null);
+let popoverStyle = $state(UNPLACED_STYLE);
 
 function placePopover() {
 	const button = disclosureButton;
-	if (!button || typeof window === "undefined") return;
-	const rect = button.getBoundingClientRect();
-	const width = Math.min(320, window.innerWidth - 16);
-	const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-	const bottom = Math.max(8, window.innerHeight - rect.top + 6);
-	popoverStyle = `left:${left}px;bottom:${bottom}px;max-width:${width}px;`;
+	const popover = popoverElement;
+	if (!button || !popover || typeof window === "undefined") return;
+	// Its own size decides where it can go: the width is its widest row
+	// (between the CSS minimum and maximum), the height is its list up to the
+	// cap. Neither is a number this file could write down, and a width that is
+	// guessed leaves a short list standing a phone's width away from its icon.
+	const width = popover.getBoundingClientRect().width;
+	const height = Math.min(
+		popover.scrollHeight + popover.offsetHeight - popover.clientHeight,
+		POPOVER_MAX_HEIGHT,
+	);
+	const placement = computeMenuPlacement(
+		button.getBoundingClientRect(),
+		{ width: window.innerWidth, height: window.innerHeight },
+		width,
+		// The room it needs above the button to hang there whole.
+		height + MENU_GAP + MENU_MARGIN,
+	);
+	const edge =
+		placement.top !== null
+			? `top:${placement.top}px;`
+			: `bottom:${placement.bottom}px;`;
+	popoverStyle = `left:${placement.left}px;${edge}max-height:${Math.min(POPOVER_MAX_HEIGHT, placement.maxHeight)}px;`;
 }
 
+function closePopover() {
+	collapsedOverride = true;
+}
+
+const popoverFocusTrap = focusTrap({
+	onEscape: (event) => {
+		event.preventDefault();
+		closePopover();
+		disclosureButton?.focus();
+	},
+	focus: {},
+	preventScroll: true,
+});
+
+// While it is open, a press outside the button and the popover closes it.
+// The popover is not inside `rootElement` any more, so the check names both.
 $effect(() => {
 	if (variant !== "disclosure" || collapsed) return;
 	if (typeof document === "undefined") return;
-	placePopover();
-	const close = () => {
-		collapsedOverride = true;
-	};
-	const onKeydown = (event: KeyboardEvent) => {
-		if (event.key !== "Escape") return;
-		close();
-		disclosureButton?.focus();
-	};
 	const onPointerdown = (event: PointerEvent) => {
 		const target = event.target;
-		if (target instanceof Node && rootElement?.contains(target)) return;
-		close();
+		if (!(target instanceof Node)) return;
+		if (rootElement?.contains(target) || popoverElement?.contains(target)) {
+			return;
+		}
+		closePopover();
 	};
-	const onScroll = (event: Event) => {
-		const target = event.target;
-		if (target instanceof Node && rootElement?.contains(target)) return;
-		placePopover();
-	};
-	window.addEventListener("resize", placePopover);
-	document.addEventListener("scroll", onScroll, true);
-	document.addEventListener("keydown", onKeydown);
 	document.addEventListener("pointerdown", onPointerdown, true);
+	return () => document.removeEventListener("pointerdown", onPointerdown, true);
+});
+
+/** What the placement was made for: where the button is, and how big the window is. */
+function anchorKey(): string {
+	const rect = disclosureButton?.getBoundingClientRect();
+	return [rect?.left, rect?.top, window.innerWidth, window.innerHeight].join(
+		"|",
+	);
+}
+
+// Placed once its own box exists (`bind:this` lands after the effect above
+// first runs), again whenever the list changes size, and again whenever the
+// button is not where the placement was made for. The button can move with no
+// event at all: the home page's composer glides to its place for 420ms after
+// a resize, the chip row reflows when another file finishes its read and its
+// pill grows, a banner arrives above the composer. So while the popover is
+// open the button is looked at once a frame (one rectangle read; a resize and
+// a scroll are covered by the same look). Left hidden again on the way out,
+// so the next opening is never seen where the last one stood.
+$effect(() => {
+	const popover = popoverElement;
+	if (variant !== "disclosure" || collapsed || !popover) return;
+	let placedFor = "";
+	const place = () => {
+		placePopover();
+		placedFor = anchorKey();
+	};
+	let frame = 0;
+	const follow = () => {
+		if (anchorKey() !== placedFor) place();
+		frame = requestAnimationFrame(follow);
+	};
+	place();
+	frame = requestAnimationFrame(follow);
+	const observer =
+		typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+	observer?.observe(popover);
 	return () => {
-		window.removeEventListener("resize", placePopover);
-		document.removeEventListener("scroll", onScroll, true);
-		document.removeEventListener("keydown", onKeydown);
-		document.removeEventListener("pointerdown", onPointerdown, true);
+		cancelAnimationFrame(frame);
+		observer?.disconnect();
+		popoverStyle = UNPLACED_STYLE;
 	};
 });
 
+// "Outline · 4 sections": the panel's header, the popover's caption and the
+// popover's accessible name are one sentence.
+let heading = $derived(
+	[
+		$t("attachmentOutline.outline"),
+		$t("attachmentOutline.sectionsLabel", { count: outline.length }),
+	].join(" · "),
+);
 let visibleEntries = $derived(
 	showAll ? outline : outline.slice(0, DISPLAY_CAP),
 );
@@ -132,7 +225,9 @@ function showRemaining() {
 				type="button"
 				class="attachment-outline-disclosure"
 				data-testid="attachment-outline-disclosure"
+				aria-haspopup="dialog"
 				aria-expanded={!collapsed}
+				aria-controls={collapsed ? undefined : popoverId}
 				aria-label={disclosureLabel || $t('attachmentOutline.outline')}
 				title={disclosureLabel || $t('attachmentOutline.outline')}
 				onclick={toggleCollapsed}
@@ -151,25 +246,24 @@ function showRemaining() {
 				{:else}
 					<ChevronDown size={13} strokeWidth={2} aria-hidden="true" />
 				{/if}
-				<span
-					>{$t('attachmentOutline.outline')} · {$t('attachmentOutline.sectionsLabel', {
-						count: outline.length,
-					})}</span
-				>
+				<span>{heading}</span>
 			</button>
 		{/if}
 		{#if !collapsed}
 			<div
+				bind:this={popoverElement}
+				id={variant === 'disclosure' ? popoverId : undefined}
 				class="attachment-outline-body"
+				class:attachment-outline-body--popover={variant === 'disclosure'}
 				data-testid={variant === 'disclosure' ? 'attachment-outline-popover' : undefined}
+				role={variant === 'disclosure' ? 'dialog' : undefined}
+				aria-label={variant === 'disclosure' ? heading : undefined}
 				style={variant === 'disclosure' ? popoverStyle : undefined}
+				use:portalToBody={variant === 'disclosure'}
+				{@attach variant === 'disclosure' ? popoverFocusTrap : undefined}
 			>
 				{#if variant === 'disclosure'}
-					<p class="attachment-outline-caption">
-						{$t('attachmentOutline.outline')} · {$t('attachmentOutline.sectionsLabel', {
-							count: outline.length,
-						})}
-					</p>
+					<p class="attachment-outline-caption">{heading}</p>
 				{/if}
 				<ul class="attachment-outline-list">
 					{#each visibleEntries as entry, index (`${entry.offset}-${index}`)}
@@ -263,15 +357,20 @@ function showRemaining() {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* `left`/`bottom`/`max-width` arrive inline from placePopover(). */
-	.attachment-outline--disclosure .attachment-outline-body {
+	/* `left`, `top` or `bottom`, and `max-height` arrive inline from
+	   placePopover(). The box lives in <body> (portalToBody), so it is styled by
+	   its own class, not as a descendant of the disclosure's wrapper; it is
+	   fixed to the window and stands above the app's own chrome, as the
+	   incognito card does. */
+	.attachment-outline-body--popover {
 		position: fixed;
-		z-index: 30;
+		z-index: 60;
 		width: max-content;
 		min-width: 220px;
-		max-width: 320px;
+		max-width: min(320px, calc(100vw - 2 * 16px));
 		max-height: 260px;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
 		background-color: var(--surface-overlay);
