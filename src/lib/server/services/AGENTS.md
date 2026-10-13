@@ -61,7 +61,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
                        │            utils/*    knowledge/store/*  chat-turn/retry-cleanup.ts
                   attachment-trace.ts (feeds stream-orchestrator, chat-files)
                        │
-                  language.ts (feeds chat-turn request/title prompts)
+                  language.ts (reads a finished reply's language for the chips, rail headline and title)
                        │
                   conversation-drafts.ts (feeds conversation routes)
 ```

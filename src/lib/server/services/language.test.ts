@@ -113,6 +113,76 @@ describe("readReplyLanguage", () => {
 			readReplyLanguage("Don't worry, it's fine; we'll fix it. I'm sure."),
 		).toBe("en");
 	});
+
+	it("does not count an email address", () => {
+		const text =
+			"Íme a cím, amelyet használnod kell, és amelyet nem szabad megváltoztatnod: the.and.of.to.in@that.with.from.com ennyi volt, kérlek írj, ha kell.";
+		expect(readReplyLanguage(text)).toBe("hu");
+		// The same text with the address left in its words reads as a mix.
+		expect(readReplyLanguage(text.replace(/@/g, " "))).toBe("unknown");
+	});
+
+	// The reader runs on every reply the model writes, on the server's one thread,
+	// and a reply can be a blob (a base64 string, a minified file, a pasted log).
+	// A pattern that backtracks over a long run of non-space characters turns that
+	// into seconds of a blocked server: before this was fixed, `\S+@\S+\.\S+` took
+	// 1.4 s on 40 000 letters in a row and 0.3 s on 1 600 characters of "x@", and
+	// `\]\([^)\s]*\)` took 1.9 s on 20 000 "](". The inputs are ordered by what
+	// they cost then, so a regression fails at the first slow one instead of
+	// hanging the suite.
+	it("reads hostile or huge input in a fraction of a second (a blob must not block the server)", () => {
+		const blob = Buffer.from(
+			Uint8Array.from(
+				{ length: 225_000 },
+				(_, i) => (i * 7919 + (i >> 3)) % 251,
+			),
+		).toString("base64");
+		const inputs: Array<[string, string]> = [
+			["alternating x@", "x@".repeat(1_500)],
+			["one long word", "a".repeat(40_000)],
+			["link openers", "](".repeat(20_000)],
+			["one long word, 400 KB", "a".repeat(400_000)],
+			["email-like run, 400 KB", "x@".repeat(200_000)],
+			["link openers, 400 KB", "](".repeat(200_000)],
+			["double backticks", "``".repeat(100_000)],
+			["fence lines", "```\n".repeat(60_000)],
+			["alternating fences", "```\n~~~\n".repeat(30_000)],
+			["blank lines with spaces", "   \t \n".repeat(60_000)],
+			["base64 blob", blob],
+			[
+				"a long prose",
+				"The cat sat on the mat and it was a very long day for all of us. ".repeat(
+					6_000,
+				),
+			],
+		];
+		for (const [label, text] of inputs) {
+			const start = performance.now();
+			readReplyLanguage(text);
+			expect(performance.now() - start, label).toBeLessThan(500);
+		}
+
+		const start = performance.now();
+		afterReplyLanguage({
+			reply: "a".repeat(400_000),
+			latestUserMessage: "](".repeat(20_000),
+		});
+		expect(performance.now() - start, "afterReplyLanguage").toBeLessThan(500);
+	});
+
+	it("looks at the first 100 000 characters of a text and no more", () => {
+		const sentence =
+			"This is the end of it, and we will see what comes of that. ";
+		const firstPart = sentence.repeat(1_700); // a little over 100 000 characters
+		expect(firstPart.length).toBeGreaterThanOrEqual(100_000);
+		const hungarian =
+			"Ez a vége, és nem lesz több, mert ez már így van. ".repeat(3_000);
+		// Read whole, the two halves would be about even (ten English witnesses a
+		// sentence against eight or nine Hungarian ones) and the text "unknown":
+		// the English first part decides, and the Hungarian tail is not read.
+		expect(readReplyLanguage(firstPart + hungarian)).toBe("en");
+		expect(readReplyLanguage(hungarian)).toBe("hu");
+	});
 });
 
 describe("afterReplyLanguage", () => {

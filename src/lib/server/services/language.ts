@@ -120,19 +120,33 @@ const ENGLISH_CONTRACTION = /^\p{L}+['’](?:t|s|re|ll|ve|d|m)$/u;
 const WORD = /\p{L}+(?:['’]\p{L}+)*/gu;
 
 /**
+ * The reader looks at this many characters of a text and no more: a language
+ * needs a few dozen words, and a reply can be a blob.
+ */
+const MAX_READ_CHARS = 100_000;
+
+/**
  * What the reader does not count: code (fenced or inline), addresses, and
  * quoted lines. A reply that quotes someone, or shows a command, is not written
  * in the language of the quote or the command.
+ *
+ * This runs on the server's one thread over text a model wrote, sometimes from
+ * a page a stranger wrote, so no pattern here may backtrack over a long run of
+ * non-space characters: `\S+@\S+\.\S+` took 1.4 s on 40 000 letters in a row
+ * and `\]\([^)\s]*\)` 1.9 s on 20 000 "](". The address and link patterns cap
+ * the run they look at, the text is cut to MAX_READ_CHARS first, and
+ * language.test.ts holds the cost on hostile input.
  */
 function stripNonProse(text: string): string {
 	return text
+		.slice(0, MAX_READ_CHARS)
 		.normalize("NFC")
 		.replace(/(^|\n)[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(\n[ \t]*\2[^\n]*|$)/g, "$1")
 		.replace(/(^|\n)[ \t]*(```|~~~)[\s\S]*$/g, "$1")
 		.replace(/``[^`]*``|`[^`\n]*`/g, " ")
-		.replace(/\]\([^)\s]*\)/g, "]")
+		.replace(/\]\([^)\s]{0,512}\)/g, "]")
 		.replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
-		.replace(/\S+@\S+\.\S+/g, " ")
+		.replace(/[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+/g, " ")
 		.split("\n")
 		.filter((line) => !/^\s*>/.test(line))
 		.join("\n");
