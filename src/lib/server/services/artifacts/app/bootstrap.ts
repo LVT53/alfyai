@@ -219,13 +219,18 @@ function leadingDoctype(html: string): string | null {
  * document's own doctype, now after a script, is ignored in its turn. The copy
  * is one doctype token to the first `>`, so it holds nothing that runs.
  *
- * Nothing the document wrote is moved, changed or removed. Pure string work,
+ * Nothing the document wrote is moved, changed or removed (a byte order mark at
+ * the very start is the one thing left off: a browser drops it anyway). Pure string work,
  * linear in the document: this function never parses or executes the
  * artifact's HTML, and it never reads anything OUT of `html` into the
  * bootstrap itself.
  */
 function spliceBootstrap(html: string, tag: string): string {
-	return (leadingDoctype(html) ?? "") + tag + html;
+	// A byte order mark belongs to the bytes, not to the document: a browser drops
+	// one at the start of a response, and put after a script it would be a
+	// character that starts the body and pushes the doctype out of first place.
+	const text = html.charCodeAt(0) === 0xfeff ? html.slice(1) : html;
+	return (leadingDoctype(text) ?? "") + tag + text;
 }
 
 export function injectAppBootstrap(html: string): string {

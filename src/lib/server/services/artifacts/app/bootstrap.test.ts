@@ -297,6 +297,19 @@ describe("injectAppBootstrap", () => {
 		expect(injectAppBootstrap(html)).toBe(`${TAG}${html}`);
 	});
 
+	// A browser drops a byte order mark at the start of the bytes; it must not
+	// become a character in the middle of them, after a script, where it would
+	// start the body and push the doctype out of first place.
+	it("drops a leading byte order mark, which the browser would have dropped, and still finds the doctype", () => {
+		const html = "<!doctype html><p>x</p>";
+		expect(injectAppBootstrap(`\uFEFF${html}`)).toBe(
+			`<!doctype html>${TAG}${html}`,
+		);
+		expect(injectAppBootstrap("\uFEFF<p>x</p>")).toBe(`${TAG}<p>x</p>`);
+		// Only the one at the very start; a mark further in is the document's own.
+		expect(injectAppBootstrap("<p>\uFEFF</p>")).toBe(`${TAG}<p>\uFEFF</p>`);
+	});
+
 	it("copies no doctype that is unreasonably long", () => {
 		const html = `<!doctype ${"a".repeat(4_000)}><p>x</p>`;
 		expect(injectAppBootstrap(html)).toBe(`${TAG}${html}`);
