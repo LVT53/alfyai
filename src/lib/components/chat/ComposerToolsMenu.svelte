@@ -891,6 +891,11 @@ onMount(() => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		/* The title clips for its ellipsis, and a line box of 1.2 leaves no room above a
+		   capital for a diaeresis: "EZ AZ ÜZENET" was drawn "EZ AZ UZENET". The padding is
+		   room inside the clip, and the negative margin gives back the space it took. */
+		padding-block: 0.25em;
+		margin-block: -0.25em;
 	}
 
 	.menu-row,
