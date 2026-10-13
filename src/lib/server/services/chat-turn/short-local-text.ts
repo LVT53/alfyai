@@ -1,6 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { readReplyLanguage, type SupportedLanguage } from "../language";
+import { readShortTextLanguage, type SupportedLanguage } from "../language";
 import type {
 	JsonControlMessageResult,
 	JsonControlResponseSchema,
@@ -690,11 +690,13 @@ function cleanShortLocalText(
 	}
 
 	// A line in the other language than the one asked for is dropped, but only
-	// when its words are plain about it: a short line often has too few
-	// closed-class words to say (language.ts's reader, at its lower bar).
+	// when it is plain about it: a title or a headline is content words, so the
+	// reader counts the words spelt the Hungarian way as well as the closed-class
+	// ones, and says nothing for a single name or an English line of content words
+	// (language.ts's readShortTextLanguage).
 	const expectLanguage = cleanup.expectLanguage ?? params.language;
 	if (expectLanguage) {
-		const read = readReplyLanguage(text, { minWitnesses: 2 });
+		const read = readShortTextLanguage(text);
 		if (read !== "unknown" && read !== expectLanguage) return null;
 	}
 	if (cleanup.rejectIdentifiers && containsInternalIdentifier(text)) {

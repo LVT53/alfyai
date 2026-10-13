@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { afterReplyLanguage, readReplyLanguage } from "./language";
+import {
+	afterReplyLanguage,
+	readReplyLanguage,
+	readShortTextLanguage,
+} from "./language";
 
 // The reader is for what the model wrote. It answers a language only when there
 // is plenty of evidence, and "unknown" otherwise; none of these texts is a guess.
@@ -42,11 +46,11 @@ describe("readReplyLanguage", () => {
 	it("does not count the words both languages use", () => {
 		// Each of these is an everyday word of the other language, or an English
 		// name, unit or abbreviation (MIT, IDE, TI-84, "12 volt", "a van", "AZ",
-		// "Meg"), so none proves anything about either language, however often it
-		// comes. One word at a time: a single one on either list would tip a text
+		// "Meg", SEM, OTT, STB, RAM, "Mar 2024", OTA, IME), so none proves
+		// anything about either language, however often it comes. One word at a time: a single one on either list would tip a text
 		// made of it alone. The lists' comments name these words; this holds them to it.
 		const homographs =
-			"a az is be de ha van volt mi ki el le meg most mint fog mit ide hat ti ma ok at no hi en".split(
+			"a az is be de ha van volt mi ki el le meg most mint fog mit ide hat ti ma ok at no hi en sem ott stb mire kik ram mar rad ota ime neha kerem rola".split(
 				" ",
 			);
 		for (const word of homographs) {
@@ -125,6 +129,14 @@ describe("readReplyLanguage", () => {
 		).toBe("en");
 	});
 
+	it("counts 'I' and 'an' as English: neither is a Hungarian word", () => {
+		// "I need an hour. I think an answer is near." holds no other closed-class
+		// word of English than these (and "is", which both languages use).
+		expect(
+			readReplyLanguage("I need an hour. I think an answer is near."),
+		).toBe("en");
+	});
+
 	it("does not count an email address", () => {
 		const text =
 			"Íme a cím, amelyet használnod kell, és amelyet nem szabad megváltoztatnod: the.and.of.to.in@that.with.from.com ennyi volt, kérlek írj, ha kell.";
@@ -193,6 +205,153 @@ describe("readReplyLanguage", () => {
 		// the English first part decides, and the Hungarian tail is not read.
 		expect(readReplyLanguage(firstPart + hungarian)).toBe("en");
 		expect(readReplyLanguage(hungarian)).toBe("hu");
+	});
+});
+
+// A title or a headline is a handful of content words: the reader of a reply
+// (four closed-class words, a three-to-one lead) names almost none of them (it
+// named 1 of 16 Hungarian titles and 4 of 16 English ones in review RV-L's
+// probe), so the check that drops a line in the other language than asked for
+// could hardly ever fire. The short-text reader counts what only Hungarian has
+// as well: a word spelt with Hungarian letters that no English text borrows.
+describe("readShortTextLanguage", () => {
+	const HUNGARIAN_TITLES = [
+		"Hőszivattyú vagy gázkazán",
+		"Albérletkeresés Budapesten",
+		"Heti kiadáskövető alkalmazás",
+		"A fotoszintézis működése",
+		"Önéletrajz szoftverfejlesztőknek",
+		"Nyaralás tervezése Balatonon",
+		"Python függvény hibakeresése",
+		"Kerékpáros munkába járás előnyei",
+		"Születésnapi üzenet kollégának",
+		"Felújítási költségek becslése",
+		"Ünnepnapok Magyarországon jövőre",
+		"Hogyan válasszunk laptopot",
+		"Mi a különbség a TCP és az UDP között",
+		"Vonatjegy foglalása Bécsbe",
+		"Konyhai csempe kiválasztása",
+		"Késés jelzése a főnöknek",
+	];
+	const ENGLISH_TITLES = [
+		"Heat pump vs gas boiler",
+		"Apartment hunting in Budapest",
+		"Weekly expense tracker app",
+		"How photosynthesis works",
+		"Resume for software developers",
+		"Planning a Lake Balaton holiday",
+		"Debugging a Python function",
+		"Benefits of cycling to work",
+		"Birthday message for a colleague",
+		"Estimating renovation costs",
+		"Public holidays in Hungary next year",
+		"How to choose a laptop",
+		"The difference between TCP and UDP",
+		"Booking a train ticket to Vienna",
+		"Choosing kitchen tiles",
+		"Telling the boss you will be late",
+	];
+
+	it("names a Hungarian title Hungarian, and never English", () => {
+		const reads = HUNGARIAN_TITLES.map((title) => readShortTextLanguage(title));
+		expect(reads.filter((read) => read === "en")).toEqual([]);
+		// 13 of 16: what is missed is a single long word beside a name or a short
+		// word ("Albérletkeresés Budapesten", "Konyhai csempe kiválasztása"),
+		// which one Hungarian-spelt word cannot make a clear mismatch of.
+		expect(reads.filter((read) => read === "hu").length).toBeGreaterThanOrEqual(
+			13,
+		);
+		for (const title of [
+			"Hőszivattyú vagy gázkazán",
+			"Heti kiadáskövető alkalmazás",
+			"Felújítási költségek becslése",
+			"Mi a különbség a TCP és az UDP között",
+		]) {
+			expect(readShortTextLanguage(title), title).toBe("hu");
+		}
+	});
+
+	it("names an English title English when it holds an English word, and never Hungarian", () => {
+		const reads = ENGLISH_TITLES.map((title) => readShortTextLanguage(title));
+		expect(reads.filter((read) => read === "hu")).toEqual([]);
+		// 10 of 16 carry a closed-class word; the rest are content words alone,
+		// which say nothing and pass.
+		expect(reads.filter((read) => read === "en").length).toBeGreaterThanOrEqual(
+			10,
+		);
+		for (const title of [
+			"How to choose a laptop",
+			"The difference between TCP and UDP",
+			"Telling the boss you will be late",
+			"Apartment hunting in Budapest",
+		]) {
+			expect(readShortTextLanguage(title), title).toBe("en");
+		}
+		for (const title of ["Heat pump vs gas boiler", "Choosing kitchen tiles"]) {
+			expect(readShortTextLanguage(title), title).toBe("unknown");
+		}
+	});
+
+	it("does not call an English line Hungarian for the words and names that look Hungarian", () => {
+		for (const title of [
+			// Homographs: "van" and "volt" are Hungarian words, and a surname and a unit.
+			"Van Gogh Biography",
+			"Chevy Volt Review",
+			"Rent a van in Budapest",
+			"What is 12 volt in watts",
+			// One accented word: a city, a loanword, a composer.
+			"Zürich weekend",
+			"Café culture in Vienna",
+			"Béla Bartók biography",
+			"Győr weekend trip",
+			"Hévíz spa guide",
+			"Székesfehérvár history",
+			"Kürtőskalács recipe",
+			// Words English text borrows, however many accents they carry.
+			"Résumé tips for developers",
+			"Protégé and the pokémon",
+			"Schrödinger's cat explained",
+			"München and Düsseldorf in a day",
+		]) {
+			expect(readShortTextLanguage(title), title).not.toBe("hu");
+		}
+	});
+
+	it("does not count the Hungarian look of an English acronym or word that folds into it", () => {
+		// "ram", "mar", "rad", "ota", "ime", "ott", "stb", "sem" are Hungarian
+		// words without their accents (rám, már, rád, óta, íme) or Hungarian words
+		// that English text uses as an acronym (OTT, STB, SEM): none is evidence.
+		for (const title of [
+			"8GB RAM vs 16GB RAM",
+			"RAM and OTA updates",
+			"OTT vs STB streaming",
+			"SEM images of the sample",
+			"Mar 2024 vs Mar 2025 sales",
+			"IME setup on Linux",
+			"Ride the rad ramp",
+		]) {
+			expect(readShortTextLanguage(title), title).not.toBe("hu");
+		}
+	});
+
+	it("leaves a mixed line alone", () => {
+		expect(readShortTextLanguage("Python for ciklus magyarázata")).toBe(
+			"unknown",
+		);
+		expect(readShortTextLanguage("Hévíz spa guide for two days")).toBe(
+			"unknown",
+		);
+	});
+
+	it("answers 'unknown' for nothing to read", () => {
+		for (const text of [
+			"",
+			"   ",
+			"42",
+			"https://example.com/the/best/of/all",
+		]) {
+			expect(readShortTextLanguage(text), text).toBe("unknown");
+		}
 	});
 });
 

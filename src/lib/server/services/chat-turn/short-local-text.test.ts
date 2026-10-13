@@ -787,6 +787,64 @@ describe("generateShortLocalText", () => {
 		);
 	});
 
+	it("drops a line of Hungarian content words where English was asked for, and an English one where Hungarian was (review RV-L's probe)", async () => {
+		const askFor = async (language: "en" | "hu", text: string) => {
+			sendJsonControlMessageMock.mockResolvedValue(controlResult({ text }));
+			return generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+				language,
+			});
+		};
+
+		// Headlines with no closed-class word in them, in Hungarian spelling.
+		for (const line of [
+			"Hőszivattyú vagy gázkazán",
+			"Heti kiadáskövető alkalmazás",
+			"Felújítási költségek becslése",
+			"Nyaralás tervezése Balatonon",
+			"Python függvény hibakeresése",
+		]) {
+			expect(await askFor("en", line), line).toBeNull();
+			expect(await askFor("hu", line), line).toBe(line);
+		}
+		// English lines where Hungarian was asked for.
+		for (const line of [
+			"How to choose a laptop",
+			"Benefits of cycling to work",
+			"Telling the boss you will be late",
+		]) {
+			expect(await askFor("hu", line), line).toBeNull();
+			expect(await askFor("en", line), line).toBe(line);
+		}
+	});
+
+	it("keeps English lines that merely look Hungarian: a surname, a unit, a city, a loanword", async () => {
+		for (const line of [
+			"Van Gogh Biography",
+			"Chevy Volt Review",
+			"Zürich weekend",
+			"Café menu ideas",
+			"Béla Bartók biography",
+			"Győr weekend trip",
+			"8GB RAM vs 16GB RAM",
+		]) {
+			sendJsonControlMessageMock.mockResolvedValue(
+				controlResult({ text: line }),
+			);
+			const out = await generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+				language: "en",
+			});
+			expect(out, line).toBe(line);
+		}
+	});
+
 	it("keeps a short line whose words do not say which language it is in", async () => {
 		// A name, a place, a loanword: too little to name a language, so nothing
 		// is dropped for it (the old accent test threw "Café menu" away).

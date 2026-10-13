@@ -7,7 +7,7 @@ import {
 	askWithThinkingRetry,
 	isPlausibleShortText,
 } from "./chat-turn/short-local-text";
-import { afterReplyLanguage, readReplyLanguage } from "./language";
+import { afterReplyLanguage, readShortTextLanguage } from "./language";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
 import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
@@ -494,8 +494,9 @@ export async function generateTitle(
 		return fallbackTitle(userMessage);
 	}
 	// A title in the other language than the one asked for is replaced, but only
-	// when its words are plain about it (a short title often has too few to say).
-	const titleRead = readReplyLanguage(cleanedTitle, { minWitnesses: 2 });
+	// when it is plain about it (language.ts's readShortTextLanguage: a single
+	// name or a line of content words says nothing).
+	const titleRead = readShortTextLanguage(cleanedTitle);
 	if (titleRead !== "unknown" && titleRead !== language) {
 		console.info("[TITLE_GENERATE] Fallback: language mismatch", {
 			expected: language,

@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ALFYAI_NEMOTRON_PROMPT } from "$lib/server/prompts";
-import { readReplyLanguage } from "$lib/server/services/language";
+import { readShortTextLanguage } from "$lib/server/services/language";
 import { REPLY_LANGUAGE_RULE } from "$lib/server/services/normal-chat-context";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
@@ -552,8 +552,8 @@ function languageProblem(
 	declared: ToolPathLanguage,
 ): string | null {
 	if (text.trim() === "") return null;
-	// Board notes are a few words each: the lower bar of the same reader.
-	const signal = readReplyLanguage(text, { minWitnesses: 2 });
+	// Board notes are a few words each: the reader of short lines.
+	const signal = readShortTextLanguage(text);
 	const other = declared === "hu" ? "en" : "hu";
 	return signal === other
 		? `the board's new words read as ${signal}, but the request declares ${declared}`

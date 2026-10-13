@@ -17,7 +17,7 @@ export type SupportedLanguage = "en" | "hu";
 export type ReplyLanguage = SupportedLanguage | "unknown";
 
 /** Fewest witnesses the leading language needs before the reader answers. */
-const DEFAULT_MIN_WITNESSES = 4;
+const MIN_WITNESSES = 4;
 /** The leading language needs this many times the other's witnesses. */
 const LEAD_FACTOR = 3;
 
@@ -32,12 +32,13 @@ const LEAD_FACTOR = 3;
  * (verb prefixes), "meg" ("and", "still"; also the name Meg), "to" is kept (the
  * Hungarian "tó", a lake, is rare in a reply) but "at" is not (the unaccented
  * Hungarian "át"), "most" is not (Hungarian "now"), and "no" and "hi" are not
- * (Hungarian speech uses them).
+ * (Hungarian speech uses them). "I" and "an" are in: neither is a Hungarian
+ * word, and "I need ..." is the commonest way to begin.
  */
 const ENGLISH_WORDS: ReadonlySet<string> = new Set(
 	`the this that these those some any each every either neither another other
 	such much many more few several both all
-	you he she it we they me him her us them my your his its our their mine
+	i an you he she it we they me him her us them my your his its our their mine
 	yours hers ours theirs myself yourself himself herself itself ourselves
 	themselves who whom whose which what whatever whichever there here
 	of to in on by for with from about into over after before between through
@@ -60,24 +61,26 @@ const ENGLISH_WORDS: ReadonlySet<string> = new Set(
  * "a", "az", "is", "be", "de", "ha", "van", "volt", "mi", "ki", "el", "le",
  * "meg" (see ENGLISH_WORDS), "most" and "mint" (English "most", "mint"), "fog"
  * (English "fog"), "mit" (English "MIT", the university and the licence), "ide"
- * (English "IDE"), "hat" (English "hat"), "ti" (English "Ti"), "ma" and "ok".
- * "íme" ("here is", how a reply introduces what was asked for) is in.
+ * (English "IDE"), "hat" (English "hat"), "ti" (English "Ti", the TI-84), "ma"
+ * and "ok", and the ones English text uses as an acronym or a name: "sem" (SEM),
+ * "ott" (OTT), "stb" (STB), "mire" and "kik" (the app). "íme" ("here is", how a
+ * reply introduces what was asked for) is in.
  */
 const HUNGARIAN_WORDS: ReadonlySet<string> = new Set(
 	`és hogy nem egy ez ezt ezek ezen ezzel ebben erre ennek azt azok azon azzal
 	abban arra annak akkor amikor amíg ahol ahogy ami amit amely amelyek aki
 	akik akit mivel mert vagy pedig viszont azonban illetve valamint tehát
-	ezért így úgy csak sem igen nincs nincsenek vannak vagyok vagyunk vagytok
+	ezért így úgy csak igen nincs nincsenek vannak vagyok vagyunk vagytok
 	lehet lehetne kell kellene tud tudok tudsz tudunk fogok lesz lenne
 	legyen volna lett már majd talán esetleg minden mindig soha néha néhány
 	több kevés sok nagyon elég túl ilyen olyan milyen melyik hogyan miért
-	mikor hol hová honnan merre kik miben mire oda itt ott innen onnan
+	mikor hol hová honnan merre miben oda itt innen onnan
 	után előtt között alatt felett fölött mellett mögött szerint miatt helyett
 	nélkül által számára részére iránt felé felől óta múlva közben kívül belül
 	nekem neked neki nekünk nektek nekik velem veled vele velünk tőlem tőled
 	tőle hozzám hozzád hozzá rólam rólad róla rám rád én ő ők ön önök magam
 	magad magát egyik másik mindegyik valamelyik valami valaki semmi senki
-	bármi bárki bármely szinte körülbelül például azaz vagyis stb kérem kérlek
+	bármi bárki bármely szinte körülbelül például azaz vagyis kérem kérlek
 	köszönöm szívesen természetesen persze íme szia üdv először másodszor
 	végül később korábban ezután azután eddig addig tegnap holnap hanem
 	ugyanis továbbá egyébként ráadásul ezenkívül vajon ugye érdemes`
@@ -93,9 +96,26 @@ function foldAccents(word: string): string {
 /**
  * Folded forms that are English words, or too short to mean anything, so an
  * unaccented Hungarian word never counts as a witness when it spells one:
- * "ő" -> "o", "én" -> "en", "ők" -> "ok", "ön" -> "on", "át" -> "at".
+ * "ő" -> "o", "én" -> "en", "ők" -> "ok", "ön" -> "on", "át" -> "at", and the
+ * longer ones English text uses as a word, an acronym or a first name: "rám" ->
+ * "ram" (RAM), "már" -> "mar" (Mar 2024), "rád" -> "rad", "óta" -> "ota" (OTA
+ * updates), "íme" -> "ime" (IME), "néha" -> "neha", "kérem" -> "kerem", "róla"
+ * -> "rola".
  */
-const FOLD_COLLISIONS: ReadonlySet<string> = new Set(["en", "ok", "on", "at"]);
+const FOLD_COLLISIONS: ReadonlySet<string> = new Set([
+	"en",
+	"ok",
+	"on",
+	"at",
+	"ram",
+	"mar",
+	"rad",
+	"ota",
+	"ime",
+	"neha",
+	"kerem",
+	"rola",
+]);
 
 /**
  * Hungarian typed without accents ("kerlek", "koszonom", "elott") is still
@@ -181,22 +201,72 @@ function decide(counts: WitnessCounts, minWitnesses: number): ReplyLanguage {
  * The language a text is written in, read from its words: "en" or "hu" when at
  * least four closed-class words of one language lead the other's three to one,
  * else "unknown" (a short text, code, a list of names, a mix). For model-written
- * text; the person's own typing is not what it is for.
+ * text of some length (a reply); the person's own typing is not what it is for,
+ * and a title or a headline is `readShortTextLanguage`'s.
  *
  * Names, places and loanwords decide nothing ("Győr", "Magyar", "café"): only
  * function words count, and the ones both languages use are not on the lists.
- * `minWitnesses` lowers the bar for a text that is short by nature (a board
- * note, a title): the same lists and the same three-to-one lead, with fewer
- * words to go on, so it names the other language only when it is plain.
  */
-export function readReplyLanguage(
-	text: string,
-	options: { minWitnesses?: number } = {},
-): ReplyLanguage {
-	return decide(
-		countWitnesses(stripNonProse(text)),
-		options.minWitnesses ?? DEFAULT_MIN_WITNESSES,
-	);
+export function readReplyLanguage(text: string): ReplyLanguage {
+	return decide(countWitnesses(stripNonProse(text)), MIN_WITNESSES);
+}
+
+/**
+ * The accents Hungarian has and English text does not, apart from the words it
+ * borrows. A lowercase letter of it in a word is spelling evidence.
+ */
+const HUNGARIAN_ACCENT = /[áéíóöőúüű]/gu;
+
+/**
+ * Words English text borrows with Hungarian-looking accents (a dish, a school,
+ * a city, a name): their spelling says nothing about Hungarian.
+ */
+const BORROWED_ACCENTED_WORDS: ReadonlySet<string> = new Set(
+	`résumé résumés protégé protégée soufflé pokémon beyoncé naïveté schrödinger
+	düsseldorf göteborg münchen reykjavík göttingen`
+		.split(/\s+/)
+		.filter(Boolean),
+);
+
+/**
+ * A word spelt the way Hungarian words are and no English word is: two accented
+ * letters, or one in a word of seven letters or more ("Albérletkeresés",
+ * "kiválasztása", "Késés"), unless English borrows it. A short name or place
+ * with one accent ("Győr", "Bartók", "Zürich", "Pécs") is not.
+ */
+function isHungarianSpelled(word: string): boolean {
+	const bare = word.replace(/['’]s$/u, "");
+	if (BORROWED_ACCENTED_WORDS.has(bare)) return false;
+	const accents = bare.match(HUNGARIAN_ACCENT)?.length ?? 0;
+	return accents >= 2 || (accents === 1 && [...bare].length >= 7);
+}
+
+/**
+ * The language of a title, a headline or a status line: a line of content words,
+ * where a reply's four closed-class words never come. Hungarian is named from two
+ * witnesses, a closed-class word or a word spelt the Hungarian way (above), with
+ * the usual three-to-one lead; English from one closed-class word and nothing
+ * Hungarian in the line, or from two with the lead. A single Hungarian-spelt word
+ * (a city, a surname) or a line of English content words says nothing: "unknown".
+ *
+ * It is the check that drops a line written in the other language than the one
+ * asked for, and it errs toward keeping a line: the homographs ("van", "volt",
+ * "mit") are on neither list, so "Van Gogh Biography" and "Chevy Volt Review"
+ * pass, and so do "Zürich weekend" and "Béla Bartók biography".
+ */
+export function readShortTextLanguage(text: string): ReplyLanguage {
+	const prose = stripNonProse(text);
+	const counts = countWitnesses(prose);
+	let spelled = 0;
+	for (const match of prose.toLowerCase().matchAll(WORD)) {
+		if (isHungarianSpelled(match[0])) spelled += 1;
+	}
+	const hu = counts.hu + spelled;
+	const en = counts.en;
+	if (hu >= 2 && hu >= LEAD_FACTOR * en) return "hu";
+	if (en >= 1 && hu === 0) return "en";
+	if (en >= 2 && en >= LEAD_FACTOR * hu) return "en";
+	return "unknown";
 }
 
 /**
@@ -228,7 +298,7 @@ export function afterReplyLanguage(params: {
 	uiLanguage?: SupportedLanguage | null;
 }): SupportedLanguage {
 	const counts = countWitnesses(stripNonProse(params.reply));
-	const reply = decide(counts, DEFAULT_MIN_WITNESSES);
+	const reply = decide(counts, MIN_WITNESSES);
 	const message = params.latestUserMessage
 		? readReplyLanguage(params.latestUserMessage.slice(0, 2_000))
 		: "unknown";
