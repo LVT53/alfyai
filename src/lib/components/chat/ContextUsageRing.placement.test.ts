@@ -15,12 +15,8 @@ vi.mock("$lib/i18n", () => ({
 
 // Where the popup stands and what shows it (FX-R). jsdom measures nothing, so
 // these tests give it the geometry it does not have: a ring at a place, a popup
-// of a width, a window of a size, a screen that is or is not a touch screen.
-// What a browser does with the numbers is the e2e spec's
-// (tests/e2e/context-usage-ring-placement.spec.ts).
-
-const COARSE_QUERY = "(hover: none) and (pointer: coarse)";
-const NARROW_QUERY = "(max-width: 767px)";
+// of a width, a window of a size. What a browser does with the numbers is the
+// e2e spec's (tests/e2e/context-usage-ring-placement.spec.ts).
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -46,26 +42,6 @@ function setWindow(width: number, height: number) {
 			value,
 		});
 	}
-}
-
-/** The screen: which of the two questions the component asks `matchMedia` answers yes. */
-const screenState = { touch: false, narrow: false };
-
-function stubScreen(state: { touch?: boolean; narrow?: boolean }) {
-	screenState.touch = state.touch ?? false;
-	screenState.narrow = state.narrow ?? false;
-	Object.defineProperty(window, "matchMedia", {
-		configurable: true,
-		writable: true,
-		value: (query: string) => ({
-			matches:
-				(query === COARSE_QUERY && screenState.touch) ||
-				(query === NARROW_QUERY && screenState.narrow),
-			media: query,
-			addEventListener: () => {},
-			removeEventListener: () => {},
-		}),
-	});
 }
 
 /** Gives the ring a place and the popup a width and a content height. Returns the ring's box, to be moved. */
@@ -138,22 +114,11 @@ afterEach(() => {
 	vi.restoreAllMocks();
 	vi.useRealTimers();
 	setWindow(1024, 768);
-	Reflect.deleteProperty(window, "matchMedia");
 	document.body.innerHTML = "";
 });
 
-describe("ContextUsageRing popup on a desktop", () => {
-	it("hangs off the ring inside the composer, by CSS", () => {
-		stubScreen({});
-		const { container } = renderRing();
-
-		expect(container.contains(popup())).toBe(true);
-		expect(popup().classList.contains("ring-popover--fixed")).toBe(false);
-		expect(popup().getAttribute("style")).toBeNull();
-	});
-
+describe("ContextUsageRing popup: what shows it", () => {
 	it("is shown by a press on the ring, and a second press puts it away", async () => {
-		stubScreen({});
 		renderRing();
 		expect(isVisible()).toBe(false);
 
@@ -165,7 +130,7 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("is shown by a mouse over the ring for as long as the mouse stays, but not by a finger's", async () => {
-		stubScreen({});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		renderRing();
 
 		ring().dispatchEvent(pointer("pointerenter", "touch"));
@@ -177,12 +142,11 @@ describe("ContextUsageRing popup on a desktop", () => {
 		expect(isVisible()).toBe(true);
 
 		ring().dispatchEvent(pointer("pointerleave", "mouse"));
-		await tick();
+		await vi.advanceTimersByTimeAsync(250);
 		expect(isVisible()).toBe(false);
 	});
 
 	it("is put away by a press on the ring even while the mouse is still over it", async () => {
-		stubScreen({});
 		renderRing();
 
 		ring().dispatchEvent(pointer("pointerenter", "mouse"));
@@ -194,7 +158,6 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("is shown by the keyboard's focus on the ring, not by the focus a click gives it", async () => {
-		stubScreen({});
 		let keyboard = true;
 		stubFocusVisible(() => keyboard);
 		renderRing();
@@ -214,7 +177,6 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("is put away by Escape, whatever showed it, until it is asked for again", async () => {
-		stubScreen({});
 		stubFocusVisible(() => true);
 		renderRing();
 
@@ -233,7 +195,6 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("lets other keys alone", async () => {
-		stubScreen({});
 		renderRing();
 		await fireEvent.click(ring());
 
@@ -243,7 +204,6 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("shuts on a press outside it and stays open on a press inside it", async () => {
-		stubScreen({});
 		renderRing();
 		await fireEvent.click(ring());
 
@@ -261,7 +221,6 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 
 	it("says what the ring controls, and whether it is open", async () => {
-		stubScreen({});
 		renderRing();
 
 		expect(ring().getAttribute("aria-haspopup")).toBe("dialog");
@@ -274,35 +233,130 @@ describe("ContextUsageRing popup on a desktop", () => {
 	});
 });
 
-// The defect: the home page centres its composer with a transform, which makes
-// a `position: fixed` box inside it relative to that layer.
-describe("ContextUsageRing popup on a phone", () => {
-	it("is painted in <body>, outside whatever layers the composer sits in", async () => {
-		stubScreen({ narrow: true });
-		stubGeometry({
-			window: { width: 390, height: 844 },
-			ring: { left: 221, top: 440, width: 48, height: 48 },
-		});
-		const { container } = renderRing();
+// The popup is in <body>, so the ring's own `:hover` no longer covers it, as it
+// did when the popup was the ring's descendant: the mouse is on it when it is on
+// the ring or on the popup, with a moment's grace for the 8px between them.
+describe("ContextUsageRing popup: the mouse going from the ring to the popup", () => {
+	function fakeTimers() {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	}
 
-		await waitFor(() => expect(popup().parentElement).toBe(document.body));
-		expect(container.contains(popup())).toBe(false);
-		expect(popup().classList.contains("ring-popover--fixed")).toBe(true);
-	});
-
-	it("is painted in <body> on a touch screen of any width", async () => {
-		stubScreen({ touch: true });
-		stubGeometry({
-			window: { width: 1024, height: 768 },
-			ring: { left: 321, top: 452, width: 44, height: 44 },
-		});
+	it("stays when the mouse crosses the gap from the ring to the popup", async () => {
+		fakeTimers();
 		renderRing();
 
-		await waitFor(() => expect(popup().parentElement).toBe(document.body));
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		await tick();
+		expect(isVisible()).toBe(true);
+
+		// Off the ring: not yet put away.
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+		await vi.advanceTimersByTimeAsync(60);
+		expect(isVisible()).toBe(true);
+
+		// On the popup within the grace: it stays, for as long as it likes.
+		popup().dispatchEvent(pointer("pointerenter", "mouse"));
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(isVisible()).toBe(true);
+	});
+
+	it("stays when the mouse goes back from the popup to the ring", async () => {
+		fakeTimers();
+		renderRing();
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		popup().dispatchEvent(pointer("pointerenter", "mouse"));
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+
+		popup().dispatchEvent(pointer("pointerleave", "mouse"));
+		await vi.advanceTimersByTimeAsync(60);
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		await vi.advanceTimersByTimeAsync(2000);
+
+		expect(isVisible()).toBe(true);
+	});
+
+	it("goes a moment after the mouse is on neither, and not before", async () => {
+		fakeTimers();
+		renderRing();
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		popup().dispatchEvent(pointer("pointerenter", "mouse"));
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+		popup().dispatchEvent(pointer("pointerleave", "mouse"));
+
+		await vi.advanceTimersByTimeAsync(150);
+		expect(isVisible()).toBe(true);
+
+		await vi.advanceTimersByTimeAsync(100);
+		expect(isVisible()).toBe(false);
+	});
+
+	it("does not let go of a popup the ring pinned, whatever the mouse does", async () => {
+		fakeTimers();
+		renderRing();
+		await fireEvent.click(ring());
+
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(isVisible()).toBe(true);
+	});
+
+	it("ignores a finger on the popup", async () => {
+		fakeTimers();
+		renderRing();
+
+		popup().dispatchEvent(pointer("pointerenter", "touch"));
+		await tick();
+
+		expect(isVisible()).toBe(false);
+	});
+
+	it("is put away at once by Escape, and the timer left over does not bring anything back", async () => {
+		fakeTimers();
+		renderRing();
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		expect(isVisible()).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("leaves no timer behind when the ring goes", async () => {
+		fakeTimers();
+		const { unmount } = renderRing();
+		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+		expect(vi.getTimerCount()).toBe(1);
+
+		unmount();
+
+		expect(vi.getTimerCount()).toBe(0);
+	});
+});
+
+// The defect: the home page centres its composer with a transform, which makes
+// a `position: fixed` box inside it relative to that layer; and a docked
+// document panel painted over the right-hand part of a popup that hung off the
+// ring inside the chat's column. In <body> it is neither.
+describe("ContextUsageRing popup: where it stands", () => {
+	it("is painted in <body>, outside whatever layers the composer sits in, at every width", async () => {
+		for (const width of [390, 1024, 1440]) {
+			stubGeometry({
+				window: { width, height: 900 },
+				ring: { left: 221, top: 440, width: 48, height: 48 },
+			});
+			const { container, unmount } = renderRing();
+
+			await waitFor(() => expect(popup().parentElement).toBe(document.body));
+			expect(container.contains(popup())).toBe(false);
+			unmount();
+			vi.restoreAllMocks();
+		}
 	});
 
 	it("hangs above the ring, as wide as the window less 4px a side, from the ring's rectangle", async () => {
-		stubScreen({ narrow: true });
 		stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },
@@ -319,10 +373,27 @@ describe("ContextUsageRing popup on a phone", () => {
 		expect(popup().style.top).toBe("");
 		// The room above, less the window's margin.
 		expect(popup().style.maxHeight).toBe(`${440 - 16}px`);
+		// Its content fits: it clips nothing (the tooltip over the context bar can
+		// stand partly above it).
+		expect(popup().classList.contains("ring-popover--scrolls")).toBe(false);
+	});
+
+	it("starts at the ring's left edge on a desktop, 400px wide", async () => {
+		stubGeometry({
+			window: { width: 1440, height: 900 },
+			ring: { left: 529, top: 445, width: 44, height: 44 },
+			popupWidth: 400,
+			contentHeight: 309,
+		});
+		renderRing();
+
+		await fireEvent.click(ring());
+
+		await waitFor(() => expect(popup().style.left).toBe("529px"));
+		expect(popup().style.bottom).toBe(`${900 - 445 + 8}px`);
 	});
 
 	it("keeps to the 30rem the phone sheet always kept when there is more room than that", async () => {
-		stubScreen({ narrow: true });
 		stubGeometry({
 			window: { width: 390, height: 1000 },
 			ring: { left: 221, top: 800, width: 48, height: 48 },
@@ -337,7 +408,6 @@ describe("ContextUsageRing popup on a phone", () => {
 	});
 
 	it("drops below the ring when there is no room above it and more room below", async () => {
-		stubScreen({ narrow: true });
 		stubGeometry({
 			window: { width: 390, height: 500 },
 			ring: { left: 221, top: 100, width: 48, height: 48 },
@@ -355,7 +425,6 @@ describe("ContextUsageRing popup on a phone", () => {
 	});
 
 	it("scrolls inside the room it has when the window is shorter than it is", async () => {
-		stubScreen({ touch: true });
 		stubGeometry({
 			window: { width: 844, height: 390 },
 			ring: { left: 203, top: 334, width: 44, height: 44 },
@@ -371,10 +440,10 @@ describe("ContextUsageRing popup on a phone", () => {
 		);
 		expect(popup().style.maxHeight).toBe(`${334 - 16}px`);
 		expect(popup().style.left).toBe("203px");
+		expect(popup().classList.contains("ring-popover--scrolls")).toBe(true);
 	});
 
 	it("is not placed or followed while it is closed", async () => {
-		stubScreen({ narrow: true });
 		stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },
@@ -387,7 +456,6 @@ describe("ContextUsageRing popup on a phone", () => {
 	});
 
 	it("goes with its ring when the ring moves, with no event to say so", async () => {
-		stubScreen({ narrow: true });
 		const geometry = stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },
@@ -408,33 +476,29 @@ describe("ContextUsageRing popup on a phone", () => {
 		expect(popup().style.bottom).toBe(`${844 - 380 + 8}px`);
 	});
 
-	it("is handed back to the composer when the window is wide again, and taken out again when it is narrow", async () => {
-		stubScreen({ narrow: true });
+	it("goes with the window when it is resized across the phone's width", async () => {
 		stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },
 		});
-		const { container } = renderRing();
+		vi.useFakeTimers({
+			toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+		});
+		renderRing();
 		await fireEvent.click(ring());
-		await waitFor(() => expect(popup().parentElement).toBe(document.body));
+		await tick();
+		expect(popup().style.bottom).toBe(`${844 - 440 + 8}px`);
 
-		stubScreen({});
-		setWindow(1100, 800);
-		await fireEvent(window, new Event("resize"));
-		await waitFor(() => expect(container.contains(popup())).toBe(true));
-		expect(popup().classList.contains("ring-popover--fixed")).toBe(false);
-		expect(popup().getAttribute("style")).toBeNull();
-		// A resize is not a press: it is still open.
+		setWindow(1100, 900);
+		vi.advanceTimersToNextFrame();
+		await tick();
+
+		expect(popup().parentElement).toBe(document.body);
+		expect(popup().style.bottom).toBe(`${900 - 440 + 8}px`);
 		expect(isVisible()).toBe(true);
-
-		stubScreen({ narrow: true });
-		setWindow(390, 844);
-		await fireEvent(window, new Event("resize"));
-		await waitFor(() => expect(popup().parentElement).toBe(document.body));
 	});
 
 	it("leaves nothing of itself in the page when the ring goes", async () => {
-		stubScreen({ narrow: true });
 		stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },
@@ -448,8 +512,7 @@ describe("ContextUsageRing popup on a phone", () => {
 		expect(document.body.contains(element)).toBe(false);
 	});
 
-	it("takes a press on it, a tap off it and Escape like a popup on a desktop does", async () => {
-		stubScreen({ touch: true, narrow: true });
+	it("takes a press on it, a tap off it and Escape like any popup does", async () => {
 		stubGeometry({
 			window: { width: 390, height: 844 },
 			ring: { left: 221, top: 440, width: 48, height: 48 },

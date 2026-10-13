@@ -7,12 +7,12 @@ import { login, waitForHydration } from "./helpers";
 // fits; on a narrow one it does not — at 390x844 the panel's right edge landed
 // at 587px, so roughly half of it, the layer chips included, was off screen.
 //
-// The viewport here is deliberately NOT a touch device. `isTouchDevice()`
-// keys off `matchMedia("(hover: none) and (pointer: coarse)")`, and a narrow
-// window driven by a mouse never reports it: what this spec pins is that the
-// width, not the pointer, decides that a narrow window gets the fixed popup
-// that stays on screen. Where that popup stands next to its ring (on the home
-// page, on a project's, on a touch screen) is
+// The viewport here is deliberately NOT a touch device: a narrow window driven by
+// a mouse never reports a coarse pointer, and it is the window's width that the
+// popup has to fit in. What this spec pins is that it stays on screen there. The
+// popup is the same box at every width now (painted in <body>, placed from the
+// ring's rectangle); where it stands next to its ring (on the home page, on a
+// project's, on a touch screen, beside a docked document panel) is
 // context-usage-ring-placement.spec.ts's.
 //
 // The ring only renders once there is something to measure, so the spec seeds

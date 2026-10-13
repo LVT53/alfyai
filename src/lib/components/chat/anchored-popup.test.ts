@@ -85,6 +85,7 @@ describe("followAnchor", () => {
 		// 8px above the control's top edge, measured from the window's bottom.
 		expect(onPlace).toHaveBeenLastCalledWith(
 			`left:300px;bottom:${768 - 700 + 8}px;max-height:260px;`,
+			false,
 		);
 		stop();
 	});
@@ -146,6 +147,8 @@ describe("followAnchor", () => {
 		// The room below, less the window's margin: never taller than that.
 		expect(onPlace).toHaveBeenLastCalledWith(
 			`left:300px;top:${120 + 24 + 8}px;max-height:${300 - (120 + 24) - 16}px;`,
+			// 220px of list in the 140px there is below the control.
+			true,
 		);
 		stop();
 	});
@@ -167,8 +170,44 @@ describe("followAnchor", () => {
 
 		expect(onPlace).toHaveBeenLastCalledWith(
 			`left:300px;bottom:${420 - 250 + 8}px;max-height:${250 - 16}px;`,
+			true,
 		);
 		stop();
+	});
+
+	it("says whether the content is taller than the room it was given", () => {
+		const fits = setUp({
+			window: { width: 1024, height: 768 },
+			anchor: { left: 300, top: 700, width: 24, height: 24 },
+			listHeight: 300,
+		});
+		const crowded = setUp({
+			window: { width: 1024, height: 768 },
+			anchor: { left: 300, top: 400, width: 24, height: 24 },
+			listHeight: 300,
+		});
+		const onFits = vi.fn();
+		const onCrowded = vi.fn();
+
+		// 302px of content, 480px allowed, 684px of room above: it fits.
+		const stopFits = followAnchor({
+			anchor: () => fits.anchor,
+			popup: fits.popup,
+			maxHeight: 480,
+			onPlace: onFits,
+		});
+		// The same content with a cap of 260: it is taller than the room it is given.
+		const stopCrowded = followAnchor({
+			anchor: () => crowded.anchor,
+			popup: crowded.popup,
+			maxHeight: 260,
+			onPlace: onCrowded,
+		});
+
+		expect(onFits.mock.lastCall?.[1]).toBe(false);
+		expect(onCrowded.mock.lastCall?.[1]).toBe(true);
+		stopFits();
+		stopCrowded();
 	});
 
 	it("does nothing until the control exists, and places as soon as it does", () => {
@@ -225,6 +264,7 @@ describe("followAnchor", () => {
 		expect(onPlace).toHaveBeenCalledTimes(2);
 		expect(onPlace).toHaveBeenLastCalledWith(
 			`left:340px;bottom:${768 - 600 + 8}px;max-height:260px;`,
+			false,
 		);
 		stop();
 	});
@@ -250,6 +290,7 @@ describe("followAnchor", () => {
 
 		expect(onPlace).toHaveBeenLastCalledWith(
 			`left:300px;bottom:${900 - 700 + 8}px;max-height:260px;`,
+			false,
 		);
 		stop();
 	});

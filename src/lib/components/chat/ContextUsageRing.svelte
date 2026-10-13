@@ -2,7 +2,6 @@
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { portalToBody } from "$lib/utils/portal";
-import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -35,74 +34,60 @@ let {
 // the outline list beside an attachment) there is no focus to move into it and
 // nothing for Tab to miss when it is painted far from the ring in the page's
 // order. What opens it is the ring's own: a tap or a click pins it open until
-// the next tap, a press elsewhere or Escape; a mouse over the ring shows it for
-// as long as the mouse stays; so does the keyboard's focus on the ring. These
-// used to be the rules `.ring-root:hover .ring-popover` and
+// the next tap, a press elsewhere or Escape; a mouse on the ring (or on the
+// popup, so that the chips and the tooltip in it can be reached) shows it for as
+// long as the mouse stays; so does the keyboard's focus on the ring. These used
+// to be the rules `.ring-root:hover .ring-popover` and
 // `.ring-root:focus-within .ring-popover`, which name the popup as the ring's
 // descendant and cannot match it once it is painted in <body>.
 //
-// Where it stands depends on the screen. On a desktop it hangs off the ring by
-// CSS (absolute, 10px above it). On a phone, on a touch screen of any width and
-// in any window narrower than 768px (where there is not 25rem to the right of
-// the ring to grow into) it is a fixed box measured against the window. A fixed
-// box is only the window's while no ancestor has a transform, and the home page
-// (and a project's) centres its composer with `transform: translateY(-50%)`:
-// the old sheet's `bottom: 5.5rem` was counted from THAT layer's bottom edge, so
-// the popup opened wherever the layer happened to end (over the composer's
-// toolbar row, ring included, in a short window; under it on a project's page).
-// So in those cases it is painted in <body> (`portalToBody`, as the composer's
-// other popups are), where fixed means the window whatever the composer sits
-// in, and is placed from the ring's rectangle and its own size
-// (`followAnchor`): above the ring when it fits there, below it when it does
-// not and there is more room, always inside the window, and following the ring
-// for as long as it is open.
+// Where it stands: the popup is a fixed box measured against the window, painted
+// in <body> at every width (`portalToBody`). It was an absolute box inside the
+// composer on a desktop, and that cannot be right anywhere the composer is not
+// the whole window: a fixed box is only the window's while no ancestor has a
+// transform, and the home page (and a project's) centres its composer with
+// `transform: translateY(-50%)` (the old phone sheet's `bottom: 5.5rem` was
+// counted from THAT layer's bottom edge, so it opened wherever the layer
+// happened to end: over the toolbar row with the ring under it, or under the
+// composer); and a docked document panel leaves the chat a column narrower than
+// the popup is wide, so the popup's right-hand part went under the panel. In
+// <body> it is above both, and is placed from the ring's rectangle and its own
+// size (`followAnchor`): above the ring when it fits there, below it when it
+// does not and there is more room, always inside the window, and following the
+// ring for as long as it is open.
 const uid = $props.id();
 const popoverId = `context-usage-popover-${uid}`;
 /** The phone sheet's old cap, 30rem: the most it grows before it scrolls. */
 const POPOVER_MAX_HEIGHT = 480;
 /** How close it comes to the window's sides: the 0.25rem the phone sheet always kept. */
 const POPOVER_SIDE_MARGIN = 4;
-/** Narrower than this is a phone's room whatever the pointer is (a narrow window on a mouse is not "touch"). */
-const NARROW_QUERY = "(max-width: 767px)";
+/**
+ * How long the mouse may be on neither the ring nor the popup before the popup
+ * goes: the 8px between them take a hand a few frames to cross, and a trackpad
+ * more.
+ */
+const HOVER_GRACE_MS = 200;
 
 let root = $state<HTMLDivElement | null>(null);
 let ringButton = $state<HTMLButtonElement | null>(null);
 let popover = $state<HTMLDivElement | null>(null);
 let popoverStyle = $state<string | undefined>(undefined);
+let scrolls = $state(false);
 let pinned = $state(false);
 let hovered = $state(false);
 let focused = $state(false);
-let mobile = $state(false);
-let narrow = $state(false);
+let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
 let visible = $derived(pinned || hovered || focused);
-let fixed = $derived(mobile || narrow);
 
 const size = 38;
 const strokeWidth = 3;
 const radius = (size - strokeWidth) / 2;
 const circumference = 2 * Math.PI * radius;
 
-function detectLayout() {
-	if (
-		typeof window === "undefined" ||
-		typeof window.matchMedia !== "function"
-	) {
-		mobile = false;
-		narrow = false;
-		return;
-	}
-
-	mobile = isTouchDevice();
-	narrow = window.matchMedia(NARROW_QUERY).matches;
-}
-
 onMount(() => {
-	detectLayout();
-	window.addEventListener("resize", detectLayout);
-
 	// A press anywhere but the ring and the popup lets it go. The popup is not
-	// inside `root` once it is in <body>, so the check names both.
+	// inside `root` (it is in <body>), so the check names both.
 	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
 		const target = event.target as Node;
 		if (root?.contains(target) || popover?.contains(target)) return;
@@ -113,7 +98,7 @@ onMount(() => {
 	document.addEventListener("touchstart", handlePointerDown, { passive: true });
 
 	return () => {
-		window.removeEventListener("resize", detectLayout);
+		cancelHoverTimer();
 		document.removeEventListener("mousedown", handlePointerDown);
 		document.removeEventListener("touchstart", handlePointerDown);
 	};
@@ -126,14 +111,15 @@ onMount(() => {
 // place.
 $effect(() => {
 	const panel = popover;
-	if (!fixed || !visible || !panel) return;
+	if (!visible || !panel) return;
 	return followAnchor({
 		anchor: () => ringButton,
 		popup: panel,
 		maxHeight: POPOVER_MAX_HEIGHT,
 		sideMargin: POPOVER_SIDE_MARGIN,
-		onPlace: (style) => {
+		onPlace: (style, needsScroll) => {
 			popoverStyle = style;
+			scrolls = needsScroll;
 		},
 	});
 });
@@ -150,6 +136,7 @@ $effect(() => {
 });
 
 function dismiss() {
+	cancelHoverTimer();
 	pinned = false;
 	hovered = false;
 	focused = false;
@@ -162,13 +149,41 @@ function handleClick() {
 	else pinned = true;
 }
 
-// Only a mouse hovers: a finger's "enter" is the tap that pins it.
-function handlePointerEnter(event: PointerEvent) {
-	if (event.pointerType !== "touch") hovered = true;
+function cancelHoverTimer() {
+	if (hoverTimer !== null) clearTimeout(hoverTimer);
+	hoverTimer = null;
 }
 
-function handlePointerLeave() {
-	hovered = false;
+// The mouse is on the ring or on the popup (both call these). Going from one to
+// the other it is on neither for a moment, so leaving only starts a short
+// timer, and entering the other one stops it. Only a mouse hovers: a finger's
+// "enter" is the tap that pins the popup.
+function handlePointerEnter(event: PointerEvent) {
+	if (event.pointerType === "touch") return;
+	cancelHoverTimer();
+	hovered = true;
+}
+
+function handlePointerLeave(event: PointerEvent) {
+	if (event.pointerType === "touch") return;
+	cancelHoverTimer();
+	hoverTimer = setTimeout(() => {
+		hoverTimer = null;
+		hovered = false;
+	}, HOVER_GRACE_MS);
+}
+
+// The popup's own pointer events: it is not inside the ring's element, so
+// nothing but these tells that the mouse is on it. Attached rather than written
+// as `onpointerenter` on the element, because Svelte wants a `tabindex` on a
+// dialog that has handlers, and this one must not take the focus.
+function watchMouse(node: HTMLElement) {
+	node.addEventListener("pointerenter", handlePointerEnter);
+	node.addEventListener("pointerleave", handlePointerLeave);
+	return () => {
+		node.removeEventListener("pointerenter", handlePointerEnter);
+		node.removeEventListener("pointerleave", handlePointerLeave);
+	};
 }
 
 // The keyboard's focus shows the numbers; the focus a click or a tap gives the
@@ -333,12 +348,13 @@ let isNearTrigger = $derived(
 		id={popoverId}
 		data-testid="context-usage-popover"
 		class="ring-popover"
-		class:ring-popover--fixed={fixed}
 		class:ring-popover--visible={visible}
-		style={fixed ? popoverStyle : undefined}
+		class:ring-popover--scrolls={scrolls}
+		style={popoverStyle}
 		role="dialog"
 		aria-label={$t('contextUsageRing.focusPanel')}
-		use:portalToBody={fixed}
+		use:portalToBody
+		{@attach watchMouse}
 	>
 		{#if showCost}
 			<!-- Two cost lines (ADR #6): conversation running total as the hero,
@@ -495,21 +511,23 @@ let isNearTrigger = $derived(
 		text-transform: lowercase;
 	}
 
-	/* On a desktop the popup hangs off the ring by CSS: absolute inside
-	   `.ring-root`, 10px above it. It is always in the page and is shown by
+	/* The popup is a box of the window's, painted in <body> and placed from the
+	   ring's rectangle (anchored-popup.ts): `left`, `top` or `bottom` and
+	   `max-height` arrive inline. It is always in the page and is shown by
 	   `.ring-popover--visible`, which the component sets from what the ring
-	   knows (a press, a mouse over it, the keyboard's focus). While it is away
-	   it is hidden from the page and from assistive technology, not only
-	   transparent: `visibility` flips when the fade-out ends. */
+	   knows (a press, a mouse on it, the keyboard's focus). While it is away it
+	   is hidden from the page and from assistive technology, not only
+	   transparent: `visibility` flips when the fade-out ends. It stands above the
+	   app's own chrome, the docked document panel included, as the incognito
+	   card does. */
 	.ring-popover {
-		position: absolute;
-		left: 0;
-		bottom: calc(100% + 10px);
-		z-index: 40;
+		position: fixed;
+		z-index: 60;
 		/* Wide enough that the cost hero ("$x · yK tokens") never wraps the
-		   "tokens" word onto its own line on desktop. A phone is narrower than
-		   that: the 2rem keeps it off the window's edges. */
-		width: min(25rem, calc(100vw - 2rem));
+		   "tokens" word onto its own line on a desktop; on a phone it is the
+		   window less 0.25rem from each side, as the phone sheet always was. */
+		width: min(25rem, calc(100vw - 0.5rem));
+		overscroll-behavior: contain;
 		border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent 18%);
 		border-radius: 1rem;
 		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
@@ -533,20 +551,11 @@ let isNearTrigger = $derived(
 		pointer-events: auto;
 	}
 
-	/* On a phone, on a touch screen and in a window narrower than 768px the
-	   popup is a box of the window's, painted in <body> and placed from the
-	   ring's rectangle (anchored-popup.ts): `left`, `top` or `bottom` and
-	   `max-height` arrive inline. It stands above the app's own chrome, as the
-	   incognito card does, and scrolls inside the room it has. */
-	.ring-popover--fixed {
-		position: fixed;
-		left: auto;
-		bottom: auto;
-		z-index: 60;
-		/* As wide as the phone sheet always was: 0.25rem from each side. */
-		width: min(25rem, calc(100vw - 0.5rem));
+	/* It scrolls only when its content is taller than the room it has; otherwise
+	   it clips nothing, and the tooltip over the context bar, which stands partly
+	   above the popup when no cost is shown over the bar, is seen whole. */
+	.ring-popover--scrolls {
 		overflow-y: auto;
-		overscroll-behavior: contain;
 	}
 
 	.popover-section + .popover-section {

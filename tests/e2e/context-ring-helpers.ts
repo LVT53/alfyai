@@ -15,10 +15,16 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 
+/**
+ * Returns the e2e admin's id: the conversation is theirs, and a spec that adds to
+ * it needs it. Without `usage` the conversation has its context numbers and no
+ * cost: the popup has no cost section above the context bar then.
+ */
 export async function seedConversationWithContext(
 	id: string,
 	title: string,
-): Promise<void> {
+	options: { usage?: boolean } = {},
+): Promise<string> {
 	const [admin] = await db
 		.select()
 		.from(users)
@@ -75,6 +81,7 @@ export async function seedConversationWithContext(
 		layersUsedJson: JSON.stringify(["session", "documents", "working_set"]),
 		updatedAt: now,
 	});
+	if (options.usage === false) return admin.id;
 	await db.insert(usageEvents).values({
 		id: `${id}-usage-1`,
 		userId: admin.id,
@@ -88,4 +95,5 @@ export async function seedConversationWithContext(
 		costUsdMicros: 420000,
 		createdAt: now,
 	});
+	return admin.id;
 }

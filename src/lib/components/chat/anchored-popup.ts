@@ -34,8 +34,13 @@ interface AnchoredPopupOptions {
 	maxHeight: number;
 	/** How close the popup may come to the window's left and right edges; the composer's own margin when left out. */
 	sideMargin?: number;
-	/** Receives the inline style that places the popup: `left`, `top` or `bottom`, and `max-height`. */
-	onPlace: (style: string) => void;
+	/**
+	 * Receives the inline style that places the popup (`left`, `top` or `bottom`,
+	 * and `max-height`), and whether its content is taller than the room it was
+	 * given, so that it has to scroll. A popup whose content fits need not clip
+	 * anything that pokes out of it.
+	 */
+	onPlace: (style: string, scrolls: boolean) => void;
 }
 
 function place({
@@ -52,10 +57,9 @@ function place({
 	// caller could write down, and a width that is guessed leaves a short popup
 	// standing a phone's width away from its control.
 	const width = popup.getBoundingClientRect().width;
-	const height = Math.min(
-		popup.scrollHeight + popup.offsetHeight - popup.clientHeight,
-		maxHeight,
-	);
+	const contentHeight =
+		popup.scrollHeight + popup.offsetHeight - popup.clientHeight;
+	const height = Math.min(contentHeight, maxHeight);
 	const placement = computeMenuPlacement(
 		trigger.getBoundingClientRect(),
 		{ width: window.innerWidth, height: window.innerHeight },
@@ -68,8 +72,10 @@ function place({
 		placement.top !== null
 			? `top:${placement.top}px;`
 			: `bottom:${placement.bottom}px;`;
+	const room = Math.min(maxHeight, placement.maxHeight);
 	onPlace(
-		`left:${placement.left}px;${edge}max-height:${Math.min(maxHeight, placement.maxHeight)}px;`,
+		`left:${placement.left}px;${edge}max-height:${room}px;`,
+		contentHeight > room,
 	);
 }
 
