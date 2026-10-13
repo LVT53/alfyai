@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-	consumePendingConversationMessage,
-	storePendingConversationMessage,
-} from "./conversation-session";
-import {
 	mayAutoShowCampaign,
 	shouldPersistCampaignCompletion,
 } from "./campaign-replay";
+import {
+	consumePendingConversationMessage,
+	storePendingConversationMessage,
+} from "./conversation-session";
 
 describe("campaign replay mode", () => {
 	it("persists terminal state only for automatic campaign display", () => {
