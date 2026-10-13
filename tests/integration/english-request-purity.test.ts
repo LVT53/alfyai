@@ -339,9 +339,27 @@ describe("the app's requests hold no server-authored Hungarian, whatever the acc
 	}
 });
 
+/**
+ * The remembered facts of a packet in a fixed order. Which of two facts the
+ * memory projection lists first depends on when each was last touched (the
+ * consolidation driver above touches them), not on the account's language, so the
+ * comparison does not read the order.
+ */
+function sortedFacts(text: string): string {
+	return text.replace(
+		/(## Baseline Memory Profile\n[^\n]*\n)((?:- [^\n]*\n)+)/g,
+		(_whole, heading: string, facts: string) =>
+			`${heading}${facts.split("\n").filter(Boolean).sort().join("\n")}\n`,
+	);
+}
+
 /** A request with the ids and times of one account's world blanked. */
 function blanked(body: unknown, world: World): string {
-	return JSON.stringify(body)
+	return JSON.stringify(
+		JSON.parse(JSON.stringify(body), (_key, value) =>
+			typeof value === "string" ? sortedFacts(value) : value,
+		),
+	)
 		.split(world.userId)
 		.join("<user>")
 		.split(world.email)
@@ -359,6 +377,15 @@ function blanked(body: unknown, world: World): string {
 		.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<time>");
 }
 
+/** Where two requests first differ, with the words around it: a failure shows the place. */
+function firstDifference(english: string, hungarian: string): string {
+	let at = 0;
+	while (at < english.length && english[at] === hungarian[at]) at += 1;
+	const around = (text: string) =>
+		text.slice(Math.max(0, at - 160), at + 160).replace(/\\n/g, "\n");
+	return `at ${at} of ${english.length}/${hungarian.length}\n--- shown in English\n${around(english)}\n--- shown in Hungarian\n${around(hungarian)}`;
+}
+
 describe("the UI language reaches no request but the status line's (I2)", () => {
 	for (const driver of DRIVERS) {
 		if (driver.name in WRITTEN_IN_THE_UI_LANGUAGE) continue;
@@ -370,10 +397,12 @@ describe("the UI language reaches no request but the status line's (I2)", () => 
 			);
 			for (const [index, requests] of english.entries()) {
 				for (const [at, request] of requests.entries()) {
+					const expected = blanked(request.body, en);
+					const received = blanked(hungarian[index][at].body, hu);
 					expect(
-						blanked(hungarian[index][at].body, hu),
+						received === expected ? null : firstDifference(expected, received),
 						`${driver.name}, prompt ${index}, request ${at}`,
-					).toBe(blanked(request.body, en));
+					).toBeNull();
 				}
 			}
 		}, 60_000);

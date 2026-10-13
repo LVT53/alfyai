@@ -37,6 +37,12 @@ vi.mock("$lib/server/config-store", () => ({
 	]),
 }));
 
+// The preferences route drops the home screen's cached summary when the UI
+// language changes (preferences.test.ts holds that); here it is a seam.
+vi.mock("$lib/server/services/home-summary", () => ({
+	invalidateHomeSummary: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/model-preferences", () => ({
 	resolveUserModelPreference: vi.fn(async () => ({
 		preference: "model1",
