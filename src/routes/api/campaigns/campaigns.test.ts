@@ -30,6 +30,10 @@ import {
 	getLatestPublishedAnnouncement,
 	recordCampaignEvent,
 } from "$lib/server/services/announcement-campaigns";
+import {
+	registerActiveChatStream,
+	unregisterActiveChatStream,
+} from "$lib/server/services/chat-turn/active-streams";
 import { POST as COMPLETE } from "./[id]/complete/+server";
 import { POST as EVENT } from "./[id]/events/+server";
 import { GET as ELIGIBLE } from "./eligible/+server";
@@ -81,6 +85,40 @@ describe("user announcement campaign routes", () => {
 			campaign: { id: "campaign-1", type: "first_run_onboarding" },
 		});
 		expect(mockGetEligibleCampaignForUser).toHaveBeenCalledWith("viewer-user");
+	});
+
+	// Owner, 2026-10-13: an announcement never interrupts a turn. A reader who
+	// reloads, or comes back to a phone tab, while Alfy is still answering is
+	// offered nothing until the answer is done; the next arrival asks again.
+	it("offers nothing while the account has a turn running, and the campaign once it is over", async () => {
+		mockGetEligibleCampaignForUser.mockResolvedValue({
+			id: "campaign-1",
+			type: "release_update",
+		});
+		const controller = new AbortController();
+		registerActiveChatStream({
+			streamId: "campaign-route-stream",
+			userId: "viewer-user",
+			controller,
+			conversationId: "conversation-1",
+		});
+
+		try {
+			const during = await ELIGIBLE(
+				makeEvent() as unknown as Parameters<typeof ELIGIBLE>[0],
+			);
+			expect(await during.json()).toEqual({ campaign: null });
+			expect(mockGetEligibleCampaignForUser).not.toHaveBeenCalled();
+		} finally {
+			unregisterActiveChatStream("campaign-route-stream", controller);
+		}
+
+		const after = await ELIGIBLE(
+			makeEvent() as unknown as Parameters<typeof ELIGIBLE>[0],
+		);
+		expect(await after.json()).toEqual({
+			campaign: { id: "campaign-1", type: "release_update" },
+		});
 	});
 
 	it("returns the latest published campaign for replay without checking completion state", async () => {
