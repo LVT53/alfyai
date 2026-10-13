@@ -120,6 +120,13 @@ const AUTHORED = [
 const NON_ASCII_LETTER = /(?=\P{ASCII})\p{L}/gu;
 /** The app naming the language: a steer even when it is spelt in ASCII. */
 const NAMES_THE_LANGUAGE = /Hungar|Magyar/i;
+/**
+ * Hungarian written without accents (a phone, a lazy prompt): the letter scan
+ * cannot see it, so a few words only Hungarian has are looked for as well. No
+ * English word is on it, and nothing in the English scaffold uses one.
+ */
+const ASCII_HUNGARIAN =
+	/\b(?:hogy|vagy|mert|nincs|kerlek|koszonom|magyarul|valaszolj|legyen|szeretnem|csak|egyszeru)\b/i;
 
 type Offender = { call: string; where: string; found: string; around: string };
 
@@ -143,9 +150,10 @@ function offendersIn(item: Pick<Capture, "call" | "body">): Offender[] {
 			});
 			break; // one per string is enough to fail it
 		}
-		const named = NAMES_THE_LANGUAGES_BY_DESIGN.test(item.call)
-			? null
-			: NAMES_THE_LANGUAGE.exec(text);
+		const named =
+			(NAMES_THE_LANGUAGES_BY_DESIGN.test(item.call)
+				? null
+				: NAMES_THE_LANGUAGE.exec(text)) ?? ASCII_HUNGARIAN.exec(text);
 		if (named) {
 			found.push({
 				call: item.call,
@@ -549,8 +557,23 @@ function sources(roots: string[]): Array<{ file: string; code: string }> {
 	);
 }
 
-const MODEL_CALL =
-	/\b(?:sendJsonControlMessage|callMemoryControlModel|requestContextSummarizer|requestStructuredControlModel|callShortLocalControlModel|generateShortLocalText|runPlainNormalChatModelRun|runStreamingNormalChatModelRun|generateText|streamText|generateObject|streamObject)\s*[(<]/;
+const MODEL_CALL_NAMES =
+	"sendJsonControlMessage|callMemoryControlModel|requestContextSummarizer|requestStructuredControlModel|callShortLocalControlModel|generateShortLocalText|runPlainNormalChatModelRun|runStreamingNormalChatModelRun|generateText|streamText|generateObject|streamObject";
+const MODEL_CALL = new RegExp(`\\b(?:${MODEL_CALL_NAMES})\\s*[(<]`);
+/** `import { generateText as ask }`: the name a file calls it by. */
+const MODEL_CALL_ALIAS = new RegExp(
+	`\\b(?:${MODEL_CALL_NAMES})\\s+as\\s+(\\w+)`,
+	"g",
+);
+
+/** Whether a file can make a model call, under the name it imports it by too. */
+function callsAModel(code: string): boolean {
+	if (MODEL_CALL.test(code)) return true;
+	for (const alias of code.matchAll(MODEL_CALL_ALIAS)) {
+		if (new RegExp(`\\b${alias[1]}\\s*[(<]`).test(code)) return true;
+	}
+	return false;
+}
 
 /** Who can make a model call, and how an English turn's request from it is checked. */
 const MODEL_CALLERS: Record<string, string> = {
@@ -678,14 +701,19 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	// proper nouns of the places the routing tools cover
 	"lib/server/services/routing/gtfs-catalogue.ts":
 		"operator names (MAV, Bus Eireann) in the coverage label",
+	// chrome: shown to a person, never sent to a model
+	"routes/api/chat/send/+server.ts":
+		"the Atlas kickoff and error messages for an account shown in Hungarian",
 };
 
 describe("English prompt text stays English (source layers)", () => {
-	const all = sources(["lib/server", "lib/shared"]);
+	// The routes too: a route that calls a model with a prompt of its own is a
+	// caller like any service (review RV-L, M6).
+	const all = sources(["lib/server", "lib/shared", "routes"]);
 
 	it("every file that can make a model call is driven here or named exempt", () => {
 		const callers = all
-			.filter(({ code }) => MODEL_CALL.test(code))
+			.filter(({ code }) => callsAModel(code))
 			.map(({ file }) => file)
 			.sort();
 		const unlisted = callers.filter((file) => !(file in MODEL_CALLERS));
