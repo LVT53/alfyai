@@ -194,6 +194,21 @@ a DNS label (`https://<encoded-secret>.attacker.example/`). This is the residual
 [`docs/plans/exfil-channels/design.md`](./plans/exfil-channels/design.md) lists as DNS lookups
 started by `preconnect` inside an App; nothing in a header or in the App's response reaches it.
 
+### The App's own response: WebRTC and frames
+
+`APP_SANDBOX_CSP` (`src/lib/server/services/artifacts/app/sandbox-response.ts`) is the App's whole policy and
+is sent with the document itself. Since [ADR-0068](./adr/0068-model-output-never-picks-an-address-fetched-without-a-click.md)
+decision 9 it also says `require-trusted-types-for 'script'; trusted-types default`: the bootstrap that
+`injectAppBootstrap` puts first in the document creates the one allowed policy, which refuses every string
+that would make a frame. It has no `webrtc` directive: Chromium (measured on 147) does not honour it, and
+`tests/e2e/app-webrtc-guard.spec.ts` keeps a control that fails the day it does.
+
+- A proxy in front of the app must leave this header alone, as it must for the file previews. A
+  `Header set Content-Security-Policy ...` on `/api/artifacts/*/app` would replace the policy and,
+  with it, the Trusted Types rule that keeps an App from making a frame.
+- The generated HTML report's preview policy (`STANDARD_REPORT_PREVIEW_CSP`, decision 10) is `img-src data:`
+  and is recognised by its exact text on the client (`allowsTrustedHtmlPreviewRuntime`); change them together.
+
 ## Rolling out: report-only → enforce
 
 `CSP_MODE` defaults to `report-only`, and anything it does not recognise also means `report-only`,

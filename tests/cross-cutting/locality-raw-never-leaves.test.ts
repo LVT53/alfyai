@@ -104,6 +104,22 @@ const mocks = vi.hoisted(() => ({
 // implementations — only resolveConnectionsForCapability/needsDisambiguation
 // (which touch the DB) are mocked, same posture as every per-tool test file
 // after the multi-connection disambiguation change.
+// This test drives each tool's core directly, outside the envelope a real call
+// runs in, to look at what a summary leaves in the payload. The mark the
+// envelope carries is not what it is about (connector-distill.test.ts and
+// shared.test.ts hold it), and a summary asked for with no call to mark is
+// refused (ADR-0068), so the call is stood in for.
+vi.mock(
+	"$lib/server/services/normal-chat-tools/shared",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("$lib/server/services/normal-chat-tools/shared")
+		>()),
+		isInsideToolCall: () => true,
+		markCallLocallyDistilled: vi.fn(),
+	}),
+);
+
 vi.mock("$lib/server/services/connections/resolve", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/resolve")

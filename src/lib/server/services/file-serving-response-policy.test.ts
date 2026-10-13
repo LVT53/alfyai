@@ -92,3 +92,54 @@ describe("file-serving response policy", () => {
 		}
 	});
 });
+
+// ADR-0068. A generated HTML report is script-capable (its own inline script
+// draws the section menu and the source tooltips), so its preview policy is the
+// widest one the app serves. What it may LOAD is not wider than any other
+// preview's: pictures are inlined into the report when it is rendered, so a
+// remote address is never something it needs to fetch.
+describe("the CSP of a script-capable report preview", () => {
+	function directive(csp: string, name: string): string | undefined {
+		return csp
+			.split(";")
+			.map((part) => part.trim())
+			.find((part) => part === name || part.startsWith(`${name} `));
+	}
+
+	function csp(previewProfile?: "standard-report", contentType = "text/html") {
+		return buildFileServingResponseHeaders({
+			mode: "preview",
+			contentLength: 10,
+			contentType,
+			filename: contentType === "text/html" ? "report.html" : "drawing.svg",
+			previewProfile,
+		})["Content-Security-Policy"];
+	}
+
+	it("lets a report load pictures from itself only: img-src is data:, the same as every other preview", () => {
+		const report = csp("standard-report");
+		const plainHtml = csp(undefined);
+		const svg = csp(undefined, "image/svg+xml");
+
+		expect(directive(report, "img-src")).toBe("img-src data:");
+		expect(directive(plainHtml, "img-src")).toBe("img-src data:");
+		expect(directive(svg, "img-src")).toBe("img-src data:");
+	});
+
+	it("names no remote scheme anywhere in it", () => {
+		const report = csp("standard-report");
+		expect(report).not.toMatch(/\bhttps?:/);
+		expect(report).not.toContain("*");
+	});
+
+	it("keeps what a report does need: its own inline script and style, and nothing it can fetch or frame", () => {
+		const report = csp("standard-report");
+		expect(directive(report, "default-src")).toBe("default-src 'none'");
+		expect(directive(report, "script-src")).toBe("script-src 'unsafe-inline'");
+		expect(directive(report, "style-src")).toBe("style-src 'unsafe-inline'");
+		expect(directive(report, "object-src")).toBe("object-src 'none'");
+		expect(directive(report, "form-action")).toBe("form-action 'none'");
+		expect(directive(report, "base-uri")).toBe("base-uri 'none'");
+		expect(directive(report, "connect-src")).toBeUndefined();
+	});
+});

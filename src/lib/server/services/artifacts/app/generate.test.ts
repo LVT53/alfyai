@@ -267,7 +267,7 @@ describe("generateApp — extraction", () => {
 			expect(result.extraction).toBe("fence");
 			expect(result.fences).toBe(1);
 			expect(result.title).toBe("Trip cost splitter");
-			expect(result.checks.length).toBe(19);
+			expect(result.checks.length).toBe(20);
 		}
 	});
 

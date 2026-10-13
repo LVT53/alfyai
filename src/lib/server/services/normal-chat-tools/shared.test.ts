@@ -8,6 +8,7 @@ import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	isInsideToolCall,
 	markCallLocallyDistilled,
 	type ToolCallRecorder,
 } from "./shared";
@@ -507,27 +508,35 @@ describe("executeToolWithEnvelope and a local model's summary", () => {
 		);
 	});
 
-	it("marks nothing when it is asked outside a tool call", async () => {
-		markCallLocallyDistilled();
-		const recorder = createToolCallRecorder();
+	// ADR-0068: it used to do nothing here, silently, so a connector path added
+	// outside the envelope lost the mark without any test failing.
+	it("refuses when it is asked outside a tool call: there is no call to carry the mark", () => {
+		expect(() => markCallLocallyDistilled()).toThrow(/outside a tool call/);
+	});
+
+	it("knows whether a tool call is running", async () => {
+		expect(isInsideToolCall()).toBe(false);
+		let inside: boolean | undefined;
 
 		await executeToolWithEnvelope({
 			toolName: "test_tool",
 			timeoutMs: 5_000,
 			options: { toolCallId: "1", abortSignal: undefined },
-			recorder,
-			run: async () => ({
-				modelPayload: { success: true },
-				entry: { name: "test_tool", input: {}, status: "done" },
-			}),
+			recorder: createToolCallRecorder(),
+			run: async () => {
+				inside = isInsideToolCall();
+				return {
+					modelPayload: { success: true },
+					entry: { name: "test_tool", input: {}, status: "done" },
+				};
+			},
 			onError: () => ({
 				modelPayload: { success: false },
 				entry: { name: "test_tool", input: {}, status: "failed" },
 			}),
 		});
 
-		expect(recorder.getEntries()[0]?.metadata).not.toHaveProperty(
-			"localDistilled",
-		);
+		expect(inside).toBe(true);
+		expect(isInsideToolCall()).toBe(false);
 	});
 });

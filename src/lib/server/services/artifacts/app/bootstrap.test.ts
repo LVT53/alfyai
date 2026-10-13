@@ -21,7 +21,10 @@ interface StorageMessage {
  * — no jsdom, no real postMessage event loop, so a reply or a timer fires
  * exactly when the test tells it to.
  */
-function createSandbox(script = APP_BOOTSTRAP_SCRIPT) {
+function createSandbox(
+	script = APP_BOOTSTRAP_SCRIPT,
+	browserGlobals: Record<string, unknown> = {},
+) {
 	const messages: StorageMessage[] = [];
 	const listeners: Array<(event: { data: unknown; source?: unknown }) => void> =
 		[];
@@ -40,6 +43,9 @@ function createSandbox(script = APP_BOOTSTRAP_SCRIPT) {
 	};
 	sandboxWindow.parent = sandboxWindow;
 	sandboxWindow.window = sandboxWindow;
+	// What the browser has on a window before any script runs: plain, writable,
+	// configurable properties, which is what the bootstrap has to take away.
+	Object.assign(sandboxWindow, browserGlobals);
 
 	const context = vm.createContext({
 		window: sandboxWindow,
@@ -249,58 +255,125 @@ describe("APP_BOOTSTRAP_SCRIPT — window.alfy.storage", () => {
 });
 
 describe("injectAppBootstrap", () => {
-	it("splices the bootstrap immediately after <head>, before any other content", () => {
+	const TAG = `<script>${APP_BOOTSTRAP_SCRIPT}</script>`;
+
+	it("puts the bootstrap first: nothing of the document comes before it", () => {
 		const html = "<html><head><title>x</title></head><body>hi</body></html>";
-		const injected = injectAppBootstrap(html);
-
-		const headEnd = injected.indexOf("<head>") + "<head>".length;
-		expect(
-			injected.slice(headEnd, headEnd + APP_BOOTSTRAP_SCRIPT.length + 20),
-		).toContain(APP_BOOTSTRAP_SCRIPT);
-		expect(injected.indexOf("<script>")).toBeLessThan(
-			injected.indexOf("<title>"),
-		);
+		expect(injectAppBootstrap(html)).toBe(`${TAG}${html}`);
 	});
 
-	it("prepends to <body> when there is no <head>", () => {
-		const html = "<html><body><h1>hi</h1></body></html>";
-		const injected = injectAppBootstrap(html);
-
-		const bodyEnd = injected.indexOf("<body>") + "<body>".length;
-		expect(injected.slice(bodyEnd, bodyEnd + 20)).toContain("<script>");
-		expect(injected.indexOf("<script>")).toBeLessThan(injected.indexOf("<h1>"));
-	});
-
-	it("prepends outright when there is neither <head> nor <body>", () => {
-		const html = "<h1>hi</h1>";
-		const injected = injectAppBootstrap(html);
-		expect(injected.startsWith("<script>")).toBe(true);
-	});
-
-	// RV-2A. `<head>` and `<body>` start tags are optional in HTML, so a valid
-	// document can have neither — and `<header>` is not `<head>`.
-	it("is not fooled by <header>: a head-less document's own script still runs after the bootstrap", () => {
-		const html =
-			"<!doctype html><html><body><script>var hasBridge = !!window.alfy;</script><header><h1>x</h1></header></body></html>";
-		const injected = injectAppBootstrap(html);
-
-		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
-			injected.indexOf("var hasBridge"),
-		);
-	});
-
-	it("keeps a leading doctype first, so a document with implied <head>/<body> is not thrown into quirks mode", () => {
+	it("keeps a leading doctype first by copying it ahead of the bootstrap, and leaves the document's own bytes alone", () => {
 		const html =
 			'<!DOCTYPE html>\n<html lang="en"><meta charset="utf-8"><title>t</title><script>var hasBridge = !!window.alfy;</script><h1>x</h1>';
 		const injected = injectAppBootstrap(html);
 
-		// Anything but whitespace or a comment before the doctype makes the
-		// parser ignore it and render in quirks mode (Chromium's compatMode
-		// reads "BackCompat").
-		expect(injected.startsWith("<!DOCTYPE html>")).toBe(true);
+		// Anything but whitespace or a comment before the doctype makes the parser
+		// ignore it and render in quirks mode (Chromium's compatMode reads
+		// "BackCompat"), so the doctype is said first; the document's own copy of it
+		// then comes after a script and is ignored, which a parser does without a
+		// word. Nothing the document wrote is moved or removed.
+		expect(injected).toBe(`<!DOCTYPE html>${TAG}${html}`);
 		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
 			injected.indexOf("var hasBridge"),
 		);
+	});
+
+	it("copies a doctype that follows whitespace and comments, as a browser reads it", () => {
+		const html =
+			'\n <!-- a --> <!doctype html PUBLIC "-//W3C//DTD HTML 4.01//EN">\n<p>x</p>';
+		expect(injectAppBootstrap(html)).toBe(
+			`<!doctype html PUBLIC "-//W3C//DTD HTML 4.01//EN">${TAG}${html}`,
+		);
+	});
+
+	it.each([
+		["a plain comment", "<!-- <!doctype html> --><p>x</p>"],
+		["a script before it", "<script>1</script><!doctype html><p>x</p>"],
+		["a text node before it", "x <!doctype html><p>x</p>"],
+		["a doctype that never ends", "<!doctype html"],
+		["a comment that never ends", "<!-- <!doctype html>"],
+		["no doctype at all", "<p>x</p>"],
+	])("copies no doctype when %s", (_name, html) => {
+		expect(injectAppBootstrap(html)).toBe(`${TAG}${html}`);
+	});
+
+	// A browser drops a byte order mark at the start of the bytes; it must not
+	// become a character in the middle of them, after a script, where it would
+	// start the body and push the doctype out of first place.
+	it("drops a leading byte order mark, which the browser would have dropped, and still finds the doctype", () => {
+		const html = "<!doctype html><p>x</p>";
+		expect(injectAppBootstrap(`\uFEFF${html}`)).toBe(
+			`<!doctype html>${TAG}${html}`,
+		);
+		expect(injectAppBootstrap("\uFEFF<p>x</p>")).toBe(`${TAG}<p>x</p>`);
+		// Only the one at the very start; a mark further in is the document's own.
+		expect(injectAppBootstrap("<p>\uFEFF</p>")).toBe(`${TAG}<p>\uFEFF</p>`);
+	});
+
+	it("copies no doctype that is unreasonably long", () => {
+		const html = `<!doctype ${"a".repeat(4_000)}><p>x</p>`;
+		expect(injectAppBootstrap(html)).toBe(`${TAG}${html}`);
+	});
+
+	// ADR-0068 / the Opus review's I-1: the bootstrap was spliced after the first
+	// `<head` anywhere in the text, so a script placed before that point, or a
+	// `<head>` mentioned in a comment or a string, ran first. The bootstrap is
+	// first whatever comes before the document's real beginning.
+	it.each([
+		[
+			"a script ahead of <head>",
+			"<!doctype html><script>1</script><head></head>",
+		],
+		[
+			"the word <head> in a comment",
+			"<!-- <head> --><script>1</script><head></head>",
+		],
+		[
+			"the word <head> in a string",
+			'<script>var x = "<head>"</script><head></head>',
+		],
+		["a head-less, body-less document", "<script>1</script>"],
+		["an upper-case HEAD", "<!DOCTYPE html><HTML><HEAD></HEAD></HTML>"],
+		[
+			"an empty comment, then a script",
+			"<!--><script>1</script><!-- --><!doctype html>",
+		],
+		[
+			"a three-dash empty comment",
+			"<!---><script>1</script><!-- --><!doctype html>",
+		],
+		[
+			"a bang-closed comment",
+			"<!-- x --!><script>1</script> --><!doctype html>",
+		],
+		["an unclosed head tag", "<head <script>1</script>"],
+	])("is first for %s", (_name, html) => {
+		const injected = injectAppBootstrap(html);
+		const doctypeCopy = injected.slice(0, injected.indexOf(TAG));
+		// Only a doctype can stand in front of the bootstrap, and only when it was
+		// the document's very first thing; it holds no markup that runs.
+		expect(doctypeCopy === "" || /^<!doctype[^<>]*>$/i.test(doctypeCopy)).toBe(
+			true,
+		);
+		expect(injected.endsWith(html)).toBe(true);
+	});
+
+	it("reads a comment's end the way the tokenizer does, so the doctype it finds is the one the browser sees", () => {
+		// `<!-->` and `<!--->` are whole comments; `--!>` closes one; `-->` inside a
+		// longer run of dashes does too.
+		for (const [html, copies] of [
+			["<!--><!doctype html>", true],
+			["<!---><!doctype html>", true],
+			["<!-- x --!><!doctype html>", true],
+			["<!-- x ---><!doctype html>", true],
+			["<!----><!doctype html>", true],
+			["<!-- x --!--><!doctype html>", true],
+			["<!-- x -- ><!doctype html>", false],
+			["<!-- x --!<!doctype html>", false],
+		] as const) {
+			const injected = injectAppBootstrap(html);
+			expect(injected.startsWith("<!doctype html><script>"), html).toBe(copies);
+		}
 	});
 
 	it("is a pure string splice: it never reads anything out of the artifact's own html to build the tag", () => {
@@ -309,12 +382,12 @@ describe("injectAppBootstrap", () => {
 		const injected = injectAppBootstrap(html);
 		// The bootstrap tag itself is byte-identical regardless of what the
 		// artifact's own document contains.
-		expect(injected).toContain(`<script>${APP_BOOTSTRAP_SCRIPT}</script>`);
+		expect(injected).toContain(TAG);
 	});
 
 	// RV-2A. This runs on EVERY request for an App, over model-authored text:
 	// a splice point found by backtracking lets one stored body stall the
-	// server's event loop each time anyone opens it. Both inputs below are
+	// server's event loop each time anyone opens it. Every input below is
 	// finished in well under a millisecond by a linear scan; the thresholds
 	// are hundreds of times that, so a slow shared machine cannot flip them.
 	it("finds its splice point without backtracking over a run of comments", () => {
@@ -324,11 +397,260 @@ describe("injectAppBootstrap", () => {
 		expect(performance.now() - started).toBeLessThan(250);
 	});
 
+	it("reads a long run of dashes, and of short comments, in linear time", () => {
+		const started = performance.now();
+		injectAppBootstrap(`<!--${"-".repeat(500_000)}x`);
+		injectAppBootstrap(`<!--${"--!".repeat(200_000)}`);
+		injectAppBootstrap("<!-->".repeat(100_000));
+		injectAppBootstrap("<!---".repeat(100_000));
+		injectAppBootstrap(`${" ".repeat(500_000)}<p>`);
+		expect(performance.now() - started).toBeLessThan(500);
+	});
+
 	it("finds its splice point without rescanning the document for every unclosed tag", () => {
 		const html = "<head ".repeat(32_000);
 		const started = performance.now();
 		injectAppBootstrap(html);
 		expect(performance.now() - started).toBeLessThan(250);
+	});
+});
+
+// ADR-0068. Chromium's CSP does not govern WebRTC, so the App's own realm loses
+// the constructors before any of its code runs, and a frame the App makes
+// itself (a window of its own, a fresh `RTCPeerConnection`) is kept from
+// existing: Trusted Types with a default policy that refuses every string that
+// would make one. The browser measurement is tests/e2e/app-webrtc-guard.spec.ts.
+describe("APP_BOOTSTRAP_SCRIPT: no WebRTC, no frame with content", () => {
+	const REMOVED = [
+		"RTCPeerConnection",
+		"webkitRTCPeerConnection",
+		"mozRTCPeerConnection",
+		"RTCDataChannel",
+		"XSLTProcessor",
+		"documentPictureInPicture",
+	];
+	const present = () =>
+		Object.fromEntries(REMOVED.map((name) => [name, function Native() {}]));
+
+	function descriptorOf(window: object, name: string) {
+		return Object.getOwnPropertyDescriptor(window, name);
+	}
+
+	it.each(
+		REMOVED,
+	)("%s is undefined, cannot be written, redefined or deleted", (name) => {
+		const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, present());
+		expect(descriptorOf(window, name)).toEqual({
+			value: undefined,
+			writable: false,
+			enumerable: false,
+			configurable: false,
+		});
+		expect(() =>
+			Object.defineProperty(window, name, { value: function Other() {} }),
+		).toThrow(TypeError);
+		expect(() => {
+			(window as unknown as Record<string, unknown>)[name] =
+				function Other() {};
+		}).toThrow(TypeError);
+		expect(Reflect.deleteProperty(window, name)).toBe(false);
+		expect((window as unknown as Record<string, unknown>)[name]).toBe(
+			undefined,
+		);
+	});
+
+	it("names a constructor the browser does not have as undefined too, so nothing is left to be defined later", () => {
+		const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, {});
+		expect(descriptorOf(window, "mozRTCPeerConnection")?.configurable).toBe(
+			false,
+		);
+	});
+
+	it("does this before anything else the bootstrap does, in the read-only bridge as well", () => {
+		for (const script of [
+			APP_BOOTSTRAP_SCRIPT,
+			APP_READONLY_BOOTSTRAP_SCRIPT,
+		]) {
+			expect(script.indexOf("RTCPeerConnection")).toBeGreaterThan(-1);
+			expect(script.indexOf("RTCPeerConnection")).toBeLessThan(
+				script.indexOf("alfy.storage"),
+			);
+			const { window } = createSandbox(script, present());
+			expect(descriptorOf(window, "RTCPeerConnection")?.configurable).toBe(
+				false,
+			);
+		}
+	});
+
+	describe("the default Trusted Types policy", () => {
+		type Callbacks = {
+			createHTML: (html: string, type: string, sink: string) => string;
+			createScript: (script: string, type: string, sink: string) => string;
+			createScriptURL: (url: string, type: string, sink: string) => string;
+		};
+
+		function withPolicy(script = APP_BOOTSTRAP_SCRIPT) {
+			const created: Array<{ name: string; callbacks: Callbacks }> = [];
+			createSandbox(script, {
+				trustedTypes: {
+					createPolicy: (name: string, callbacks: Callbacks) => {
+						created.push({ name, callbacks });
+						return callbacks;
+					},
+				},
+			});
+			expect(created).toHaveLength(1);
+			expect(created[0].name).toBe("default");
+			return created[0].callbacks;
+		}
+		const html = (
+			policy: Callbacks,
+			text: string,
+			sink = "Element innerHTML",
+		) => policy.createHTML(text, "TrustedHTML", sink);
+
+		it("passes the markup an app is written with, unchanged", () => {
+			const policy = withPolicy();
+			for (const text of [
+				"<li>a</li><li>b</li>",
+				"<button onclick='go()'>x</button>",
+				"<svg><circle r=1></circle></svg>",
+				"<p>an iframe is a frame</p>",
+				"&lt;iframe&gt;",
+				"<iframes></iframes><framework></framework>",
+				"",
+			]) {
+				expect(html(policy, text)).toBe(text);
+			}
+		});
+
+		it.each([
+			["an iframe", '<iframe srcdoc="x"></iframe>'],
+			["an IFRAME", "<IFRAME></IFRAME>"],
+			[
+				"an iframe inside svg",
+				"<svg><foreignObject><iframe></iframe></foreignObject></svg>",
+			],
+			["a frameset", "<frameset></frameset>"],
+			["a frame", "<frame src=x>"],
+			["an object", "<object data=x></object>"],
+			["an embed", "<embed src=x>"],
+			["a slash after the name", "<iframe/srcdoc=x>"],
+			["a fencedframe", "<fencedframe>"],
+			["a portal", "<portal src=x>"],
+		])("refuses %s in any markup sink", (_name, text) => {
+			const policy = withPolicy();
+			for (const sink of [
+				"Element innerHTML",
+				"Element outerHTML",
+				"Element insertAdjacentHTML",
+				"Range createContextualFragment",
+				"DOMParser parseFromString",
+				"Element setHTMLUnsafe",
+				"ShadowRoot setHTMLUnsafe",
+				"Document parseHTMLUnsafe",
+				"Document execCommand",
+				"Document write",
+				"Document writeln",
+			]) {
+				expect(() => html(policy, text, sink), sink).toThrow(/An app cannot/);
+			}
+		});
+
+		it("refuses a document for a frame, however harmless, because the sink is the frame's own", () => {
+			const policy = withPolicy();
+			expect(() =>
+				html(policy, "<p>hi</p>", "HTMLIFrameElement srcdoc"),
+			).toThrow(/An app cannot/);
+			expect(() => html(policy, "", "HTMLIFrameElement srcdoc")).toThrow(
+				/An app cannot/,
+			);
+		});
+
+		// What a parser does with `document.write` is to put the text in front of
+		// the rest of the document, so a tag can be begun by a write and ended by
+		// the next write or by the markup that follows the script. A write that
+		// ends where a frame's name could be going is refused, which is every way of
+		// splitting one.
+		it.each([
+			"<",
+			"<i",
+			"<if",
+			"<ifr",
+			"<ifra",
+			"<ifram",
+			"<iframe",
+			"<IFRA",
+			"<o",
+			"<ob",
+			"<em",
+			"<embe",
+			"<f",
+			"<fr",
+			"<frames",
+			"<fe",
+			"<fenced",
+			"<fencedframe",
+			"<p",
+			"<port",
+			"text <i",
+		])("refuses a write that ends in %s, where the rest of a frame tag could come from the next write or from the document", (text) => {
+			const policy = withPolicy();
+			expect(() => html(policy, text, "Document write")).toThrow(
+				/An app cannot/,
+			);
+			expect(() => html(policy, text, "Document writeln")).toThrow(
+				/An app cannot/,
+			);
+		});
+
+		it("allows that same ending in a sink that has no 'next' to continue it", () => {
+			const policy = withPolicy();
+			expect(html(policy, "a <i", "Element innerHTML")).toBe("a <i");
+		});
+
+		it("lets an ordinary write through", () => {
+			const policy = withPolicy();
+			expect(html(policy, "<p id=w>written</p>", "Document write")).toBe(
+				"<p id=w>written</p>",
+			);
+			expect(html(policy, "1 < 2 and more", "Document write")).toBe(
+				"1 < 2 and more",
+			);
+		});
+
+		it("passes scripts and script URLs through: the CSP decides those", () => {
+			const policy = withPolicy();
+			expect(
+				policy.createScript("go()", "TrustedScript", "Element onclick"),
+			).toBe("go()");
+			expect(
+				policy.createScriptURL(
+					"a.js",
+					"TrustedScriptURL",
+					"HTMLScriptElement src",
+				),
+			).toBe("a.js");
+		});
+
+		it("is made in the read-only bridge as well", () => {
+			withPolicy(APP_READONLY_BOOTSTRAP_SCRIPT);
+		});
+
+		it("does nothing, and does not throw, in a browser with no Trusted Types", () => {
+			expect(() => createSandbox(APP_BOOTSTRAP_SCRIPT, {})).not.toThrow();
+		});
+
+		it("does not throw if the browser refuses the policy; the bridge still comes up", () => {
+			const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, {
+				trustedTypes: {
+					createPolicy: () => {
+						throw new TypeError("Policy with name default already exists.");
+					},
+				},
+			});
+			expect(typeof window.alfy.storage.get).toBe("function");
+		});
 	});
 });
 
@@ -409,7 +731,7 @@ describe("APP_READONLY_BOOTSTRAP_SCRIPT — a saved version's bridge", () => {
 			"<!doctype html><html><head><title>t</title></head><body>x</body></html>";
 		const readOnly = injectReadOnlyAppBootstrap(html);
 		expect(readOnly).toBe(
-			`<!doctype html><html><head><script>${APP_READONLY_BOOTSTRAP_SCRIPT}</script><title>t</title></head><body>x</body></html>`,
+			`<!doctype html><script>${APP_READONLY_BOOTSTRAP_SCRIPT}</script>${html}`,
 		);
 		expect(readOnly).not.toContain(APP_BOOTSTRAP_SCRIPT);
 		expect(injectAppBootstrap(html)).not.toContain(

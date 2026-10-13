@@ -154,6 +154,22 @@ describe("text preview adapter", () => {
 		expect(trusted.srcdoc).toContain("script-src 'unsafe-inline'");
 	});
 
+	// ADR-0068: the same rule as the header the report is served with. A report
+	// holds its pictures as data: URIs, so the policy it is previewed under has no
+	// remote address in it.
+	it("allows a trusted report pictures from itself only, in the meta policy as in the header", () => {
+		for (const html of [
+			"<!doctype html><html><head><title>Report</title></head><body></body></html>",
+			"<html><body>Report</body></html>",
+			"<main>Report</main>",
+		]) {
+			const srcdoc = buildTrustedHtmlPreviewSrcdoc(html);
+			const policy = /content="([^"]+)"/.exec(srcdoc)?.[1] ?? "";
+			expect(policy).toContain("img-src data:;");
+			expect(policy).not.toMatch(/\bhttps?:/);
+		}
+	});
+
 	it("injects a constrained CSP into trusted full HTML reports", () => {
 		const srcdoc = buildTrustedHtmlPreviewSrcdoc(
 			"<!doctype html><html><head><title>Report</title></head><body><script>window.ready=true</script></body></html>",

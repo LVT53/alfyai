@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // `$lib/client/api/http` raises the shell's signed-out row on an expired
 // session, and this module now reads its error bodies through it.
 
+import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
 import {
 	allowsTrustedHtmlPreviewRuntime,
 	loadPreviewRuntime,
@@ -20,7 +21,7 @@ function makeFetchResponse(blob: Blob, init: ResponseInit = {}) {
 }
 
 const STANDARD_REPORT_CSP =
-	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 function expectReady(
 	result: PreviewRuntimeResult,
@@ -192,8 +193,47 @@ describe("preview runtime", () => {
 		expect(result.adapter.kind).toBe("image");
 	});
 
+	// The server's header, the srcdoc's meta tag and this recogniser are one
+	// policy written in three places (ADR-0068); this ties the first to the last,
+	// so narrowing one without the other turns a report's script off, not its
+	// pictures on.
+	it("recognises the exact header the server serves a generated report with, and not a plain HTML preview's", () => {
+		const header = (previewProfile?: "standard-report") =>
+			buildFileServingResponseHeaders({
+				mode: "preview",
+				contentLength: 1,
+				contentType: "text/html",
+				filename: "report.html",
+				previewProfile,
+			})["Content-Security-Policy"];
+
+		expect(allowsTrustedHtmlPreviewRuntime(header("standard-report"))).toBe(
+			true,
+		);
+		expect(allowsTrustedHtmlPreviewRuntime(header(undefined))).toBe(false);
+	});
+
+	it("is not fooled by a policy that has the right words and more: the sources must be exactly the report's", () => {
+		for (const policy of [
+			"default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'",
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline' https://cdn.example.com; object-src 'none'; base-uri 'none'; form-action 'none'",
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'",
+		]) {
+			expect(allowsTrustedHtmlPreviewRuntime(policy), policy).toBe(false);
+		}
+		expect(allowsTrustedHtmlPreviewRuntime(null)).toBe(false);
+		expect(allowsTrustedHtmlPreviewRuntime("")).toBe(false);
+	});
+
 	it("marks generated report HTML runtime trusted only when the response uses the report CSP", async () => {
 		expect(allowsTrustedHtmlPreviewRuntime(STANDARD_REPORT_CSP)).toBe(true);
+		// ADR-0068: the report profile loads pictures from itself only. A response
+		// that still lets a script-capable page fetch remote pictures is not it.
+		expect(
+			allowsTrustedHtmlPreviewRuntime(
+				"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			),
+		).toBe(false);
 		expect(
 			allowsTrustedHtmlPreviewRuntime(
 				"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",

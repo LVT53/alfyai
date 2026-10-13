@@ -3,7 +3,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
-import { markCallLocallyDistilled } from "./shared";
+import { isInsideToolCall, markCallLocallyDistilled } from "./shared";
 
 // Option A (locality) — the shared "should we distill, and if so what did the
 // local model produce" decision used by every connector-backed chat tool
@@ -23,17 +23,30 @@ export type LocalDistillDecision =
 	| { shouldDistill: true; distilled: string }
 	| { shouldDistill: true; unavailable: true };
 
-export async function decideLocalDistill(params: {
+type DistillQuestion = {
 	userId: string;
 	modelId: string;
 	capability: string;
 	userQuestion: string;
 	rawText: string;
-}): Promise<LocalDistillDecision> {
+};
+
+async function decide(
+	params: DistillQuestion,
+	marksCall: boolean,
+): Promise<LocalDistillDecision> {
 	const shouldDistill =
 		(await hasLocalDistillEnabled(params.userId)) &&
 		(await isCloudModel(params.modelId));
 	if (!shouldDistill) return { shouldDistill: false };
+
+	// Fail closed, and before the local model reads anything: a summary asked for
+	// with no tool call to carry the mark would later count as a tool's own words.
+	if (marksCall && !isInsideToolCall()) {
+		throw new Error(
+			"A local summary was asked for outside a tool call, so there is no call to mark (ADR-0068). A summary that goes into the prompt asks with decideLocalDistillForPrompt.",
+		);
+	}
 
 	const result = await distillConnectorPayload({
 		userId: params.userId,
@@ -42,13 +55,38 @@ export async function decideLocalDistill(params: {
 		rawText: params.rawText,
 	});
 	if ("distilled" in result) {
-		// Every summary is asked for here, by the read gate below and by the write
-		// proposals that call this directly, so this marks the tool call it goes
-		// into: an address in it is the local model's, not a tool's (ADR-0068).
-		markCallLocallyDistilled();
+		// Every summary a tool result carries is asked for here, by the read gate
+		// below and by the write proposals that call this directly, so this marks
+		// the tool call it goes into: an address in it is the local model's, not a
+		// tool's (ADR-0068).
+		if (marksCall) markCallLocallyDistilled();
 		return { shouldDistill: true, distilled: result.distilled };
 	}
 	return { shouldDistill: true, unavailable: true };
+}
+
+/**
+ * A summary for a TOOL RESULT: asked for inside a tool call (every connector
+ * tool runs in `executeToolWithEnvelope`), which it marks, and refused outside
+ * one.
+ */
+export function decideLocalDistill(
+	params: DistillQuestion,
+): Promise<LocalDistillDecision> {
+	return decide(params, true);
+}
+
+/**
+ * A summary for the PROMPT: the proactive connector block, which is spliced
+ * into this turn's prompt and never into a tool result. An address in the prompt
+ * does not count for fetch_url or produce_file whoever wrote it, so there is no
+ * call to mark and none is asked for. This is the one caller that is not a tool
+ * (`connector-distill.test.ts` holds the list of who asks).
+ */
+export function decideLocalDistillForPrompt(
+	params: DistillQuestion,
+): Promise<LocalDistillDecision> {
+	return decide(params, false);
 }
 
 // The shared Option-A gate every connector-backed tool wraps its read outcome

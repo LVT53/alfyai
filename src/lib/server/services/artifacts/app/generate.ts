@@ -494,7 +494,7 @@ export async function generateApp(
 			const named = violations.map((v) => `${v.rule} (${v.detail})`).join("; ");
 			warnings.push(`attempt ${attempts}: contract violation — ${named}`);
 			if (attempts < APP_MAX_ATTEMPTS) {
-				currentUserMessage = `${currentUserMessage}\n\nYour previous answer is not allowed inside this app's sandboxed frame: ${named}. Do not do that. Rewrite the app without it — handle the interaction entirely inside the document, with no navigation and no WebRTC.`;
+				currentUserMessage = `${currentUserMessage}\n\nYour previous answer is not allowed inside this app's sandboxed frame: ${named}. Do not do that. Rewrite the app without it — handle the interaction entirely inside the document, with no navigation, no WebRTC and no frames inside the document.`;
 				continue;
 			}
 			finalizeFailure = {

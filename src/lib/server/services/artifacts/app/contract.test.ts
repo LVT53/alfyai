@@ -130,10 +130,10 @@ describe("APP_CONTRACT_PROMPT", () => {
 });
 
 describe("APP_CONTRACT_RULES", () => {
-	it("has nineteen rules (the prototype's fifteen plus ruling 58's four), each with a stable id and a severity", () => {
-		expect(APP_CONTRACT_RULES).toHaveLength(19);
+	it("has twenty rules (the prototype's fifteen, ruling 58's four and ADR-0068's nested frames), each with a stable id and a severity", () => {
+		expect(APP_CONTRACT_RULES).toHaveLength(20);
 		const ids = new Set(APP_CONTRACT_RULES.map((rule) => rule.id));
-		expect(ids.size).toBe(19);
+		expect(ids.size).toBe(20);
 		for (const rule of APP_CONTRACT_RULES) {
 			expect(["glitch", "note", "violation"]).toContain(rule.severity);
 		}
@@ -153,9 +153,9 @@ describe("APP_CONTRACT_RULES", () => {
 		);
 	});
 
-	it("maps exactly the two violation-severity rules into APP_VIOLATION_RULE_IDS (ruling 58)", () => {
+	it("maps exactly the three violation-severity rules into APP_VIOLATION_RULE_IDS (ruling 58, ADR-0068)", () => {
 		expect([...APP_VIOLATION_RULE_IDS].sort()).toEqual(
-			["no-navigate", "no-webrtc"].sort(),
+			["no-navigate", "no-nested-frames", "no-webrtc"].sort(),
 		);
 	});
 
@@ -166,6 +166,16 @@ describe("APP_CONTRACT_RULES", () => {
 		expect(APP_CONTRACT_PROMPT).toMatch(/location/);
 		expect(APP_CONTRACT_PROMPT).toMatch(/window\.open/);
 		expect(APP_CONTRACT_PROMPT).toMatch(/RTCPeerConnection/);
+	});
+
+	// ADR-0068: the generator is told what the browser will not let an app do,
+	// so a retry is the exception.
+	it("the contract prompt names every WebRTC and frame restriction of ADR-0068", () => {
+		expect(APP_CONTRACT_PROMPT).toMatch(/RTCDataChannel/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/any other WebRTC API/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/<iframe>/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/srcdoc/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/XSLTProcessor/);
 	});
 });
 
