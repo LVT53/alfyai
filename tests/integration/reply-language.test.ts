@@ -48,9 +48,15 @@ import { generateTitle } from "../../src/lib/server/services/title-generator";
 import {
 	capture,
 	driveChat,
+	FACTS,
+	HISTORY,
 	installFakeProvider,
 	lastMessageText,
 	leaves,
+	PERSONA,
+	PERSONAL_INSTRUCTIONS,
+	PROJECT_INSTRUCTIONS,
+	REPLY,
 	removeFakeProvider,
 	seedWorld,
 	setConversationLanguageAnswer,
@@ -82,6 +88,28 @@ function turnGuidanceOf(body: Record<string, unknown>): string {
 	const at = text.lastIndexOf("## Turn Guidance");
 	return at === -1 ? "" : text.slice(at);
 }
+
+/**
+ * What a person or the model wrote, which a scan of the app's own words blanks:
+ * the fixtures' instructions, facts, persona, history and reply, and the
+ * messages themselves.
+ */
+const AUTHORED = [
+	PERSONAL_INSTRUCTIONS,
+	PROJECT_INSTRUCTIONS,
+	...FACTS,
+	PERSONA,
+	REPLY,
+	...HISTORY.flat(),
+	...MESSAGES.filter((message) => message.length >= 8),
+];
+
+/** The two languages by name: the app names neither in a request it writes. */
+const LANGUAGE_NAME = /\b(?:English|Hungarian|Magyar)\b/i;
+
+/** A sentence that tells the model what language to write or reply in. */
+const REPLY_LANGUAGE_INSTRUCTION =
+	/\b(?:repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?|writ(?:e|es|ten|ing)|speak|speaks)\b[^.\n]{0,80}\b(?:English|Hungarian|Magyar|languages?)\b|\b(?:English|Hungarian|Magyar)\b[^.\n]{0,40}\b(?:repl(?:y|ies)|respon(?:se|ses)|answers?)\b/i;
 
 let en: World;
 let hu: World;
@@ -158,6 +186,48 @@ describe("I1: nothing guesses the reply language", () => {
 				expect(orders, `${world.uiLanguage}-ui: ${message}`).toEqual([]);
 			}
 		}
+	});
+
+	it("nothing else the app writes into the chat request tells the model what language to reply in", async () => {
+		// The rule above is one sentence of the turn guidance and the memory
+		// section carries one note about it; every other sentence the app wrote
+		// (the base prompt, the instructions framing, the memory, the skills, the
+		// tool catalogue, the guidance) is scanned for a reply-language instruction
+		// (a verb of replying or writing near a language) and for the names of the
+		// two languages. What the person, the model and the fixtures wrote is
+		// blanked first.
+		const allowed = new Set([
+			...REPLY_LANGUAGE_RULE.split("\n"),
+			// The Baseline Memory Profile section's note (chat-turn/context-selection.ts).
+			"They never set the reply language.",
+		]);
+		const offenders = new Map<string, string>();
+		for (const world of [en, hu]) {
+			for (const message of MESSAGES) {
+				const [request] = await capture(`chat ${world.uiLanguage}`, () =>
+					driveChat(world, message, world.withHistory),
+				);
+				for (const { path, text: raw } of leaves(request.body, "")) {
+					let text = raw;
+					for (const authored of AUTHORED)
+						text = text.split(authored).join(" ");
+					for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+						const line = sentence.trim();
+						if (!line || allowed.has(line)) continue;
+						if (
+							REPLY_LANGUAGE_INSTRUCTION.test(line) ||
+							LANGUAGE_NAME.test(line)
+						) {
+							offenders.set(
+								`${path.replace(/\[\d+\]/g, "[]")} :: ${line.slice(0, 160)}`,
+								line,
+							);
+						}
+					}
+				}
+			}
+		}
+		expect([...offenders.keys()]).toEqual([]);
 	});
 
 	it("the tool catalogue does not depend on the message or the account", async () => {
