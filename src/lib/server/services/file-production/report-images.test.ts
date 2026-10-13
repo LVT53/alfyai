@@ -35,7 +35,7 @@ function documentOf(
 }
 
 function pngResponse(bytes: Buffer = PNG): Response {
-	return new Response(bytes, {
+	return new Response(new Uint8Array(bytes), {
 		status: 200,
 		headers: { "content-type": "image/png" },
 	});
