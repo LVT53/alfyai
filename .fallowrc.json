@@ -12,6 +12,8 @@
 		"scripts/recompute-parallel-billing.ts",
 		"scripts/eval-artifact-contracts/run.ts",
 		"scripts/eval-artifact-contracts/run-tool-suite.ts",
+		"scripts/seed-campaign-2-2.ts",
+		"scripts/campaign-shots-2-2.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],
