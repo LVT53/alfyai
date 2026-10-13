@@ -553,7 +553,7 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
-	it("hands the language of the reply to the rail summary", async () => {
+	it("hands the conversation's language, named after the reply, to the rail summary", async () => {
 		mockGenerateShortLocalText.mockResolvedValue("Heti étrend");
 		const { runPostTurnTasks } =
 			await vi.importActual<typeof import("./finalize-steps")>(

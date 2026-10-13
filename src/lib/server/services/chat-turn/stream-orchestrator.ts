@@ -514,8 +514,8 @@ export function runChatStreamOrchestrator(
 				// exists, so no reply language can be known yet: it follows the
 				// account's UI language (owner decision, 2026-10-13). This is the one
 				// model call the UI language reaches; the reply itself is the model's
-				// to word under REPLY_LANGUAGE_RULE, and what is written after it
-				// follows the reply (reply-language.ts).
+				// to word under REPLY_LANGUAGE_RULE, and what is written after it is in
+				// the language the model names for the conversation (reply-language.ts).
 				targetLanguage: user.uiLanguage ?? "en",
 				onStep: (step) => {
 					emitResponseActivity({

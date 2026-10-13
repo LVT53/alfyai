@@ -1,16 +1,21 @@
 export type SupportedLanguage = "en" | "hu";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Reading the language of a reply (owner decision, 2026-10-13)
+// Reading the language of model-written text (owner decision, 2026-10-13)
 //
 // No code decides what language a reply is written in before it exists: the
 // model reads the person's message and chooses (normal-chat-context.ts's
 // REPLY_LANGUAGE_RULE). What the app writes AFTER the reply (the follow-up
-// chips, the rail headline, a generated title) follows the reply that was
-// written, and for that it reads the reply: one deterministic reader, for
-// model-written text only. Model text is clean (no typos, accents in place), so
-// a short list of closed-class words per language is enough; the reader never
-// guesses on thin evidence.
+// chips, the rail headline, a generated title) is in the language of the
+// conversation for the person, which the model names too, in one small call
+// (chat-turn/conversation-language.ts). These readers are what is left of
+// reading a language in code, for model-written text only: the fallback when
+// that call does not answer (`afterReplyLanguage`), the record of what a reply's
+// own words say (`readReplyLanguage`), and the check that drops a title or a
+// headline written in the other language than asked for (`readShortTextLanguage`).
+// Model text is clean (no typos, accents in place), so a short list of
+// closed-class words per language is enough; the readers never guess on thin
+// evidence.
 // ──────────────────────────────────────────────────────────────────────────
 
 /** What the reader names: a language it is sure of, or "unknown". */

@@ -329,7 +329,8 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 // The one rule for the language of a reply, in every Normal Chat turn's guidance
 // (owner decision, 2026-10-13). No code decides the language before the reply:
 // the model reads the person's message and chooses under this rule, and what the
-// app writes after the reply follows the reply (chat-turn/reply-language.ts).
+// app writes after the reply is in the language the model names for the
+// conversation (chat-turn/reply-language.ts).
 // It sits in the turn guidance, after the current user message, because that
 // placement is where it was measured to be followed. Keep the text in this one
 // constant; tests compare it byte for byte (tests/integration/reply-language.test.ts).

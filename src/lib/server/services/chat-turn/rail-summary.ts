@@ -105,8 +105,9 @@ export async function persistAssistantRailSummary(params: {
 	/** The assistant reply being summarized. */
 	assistantResponse: string;
 	/**
-	 * The language of the reply that was written (reply-language.ts): the
-	 * headline is in it, whatever language the account is shown in.
+	 * The language of the conversation for the person, named after the reply
+	 * (reply-language.ts): the headline is in it, whatever language the reply is
+	 * in and whatever language the account is shown in.
 	 */
 	responseLanguage: SupportedLanguage;
 }): Promise<void> {

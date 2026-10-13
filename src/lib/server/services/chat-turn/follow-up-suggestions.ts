@@ -289,8 +289,9 @@ export async function generateFollowUpSuggestions(params: {
 	assistantResponse: string;
 	recentHistory?: FollowUpHistoryMessage[];
 	/**
-	 * The language of the reply that was written (reply-language.ts): the chips
-	 * are in it, whatever language the account is shown in.
+	 * The language of the conversation for the person, named after the reply
+	 * (reply-language.ts): the chips are in it, whatever language the reply is
+	 * in and whatever language the account is shown in.
 	 */
 	responseLanguage: SupportedLanguage;
 	signal?: AbortSignal;

@@ -650,9 +650,9 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/file-production/renderers/standard-report-html.ts":
 		"hu report labels",
 	"lib/shared/file-types/model-facing.ts": "hu wording of the file-type table",
-	// After the reply: written in the language of the reply, so a Hungarian
-	// reply gets Hungarian chips, status lines and titles (the prompts below
-	// are only sent when that is the language asked for)
+	// After the reply: written in the language the model names for the person
+	// (a Hungarian writer gets Hungarian chips, status lines and titles; the
+	// prompts below are only sent when that is the language asked for)
 	"lib/server/services/title-generator.ts": "hu title examples",
 	"lib/server/services/chat-turn/follow-up-suggestions.ts": "hu chip examples",
 	"lib/server/services/chat-turn/thought-step-classifier.ts":

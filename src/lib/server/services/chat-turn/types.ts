@@ -254,7 +254,7 @@ export type RunPostTurnTasksParams = {
 	// never races it — without gating the send path's other, independent tail
 	// work. Optional: a caller with no evidence write in flight simply omits it.
 	evidenceWriteBarrier?: Promise<unknown>;
-	// The language of the reply that was written (chat-turn/reply-language.ts);
-	// the rail headline is written in it.
+	// The language of the conversation for the person, named after the reply
+	// (chat-turn/reply-language.ts); the rail headline is written in it.
 	responseLanguage: SupportedLanguage;
 };

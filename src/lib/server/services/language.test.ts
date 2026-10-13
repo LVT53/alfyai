@@ -422,7 +422,7 @@ describe("afterReplyLanguage (the fallback)", () => {
 
 	it("an explicit request for the reply in a language is the language of the reply", () => {
 		// "Válaszolj angolul: mi a fotoszintézis?" gets an all-English reply with no
-		// Hungarian words in it: it stays English (the chips follow the reply).
+		// Hungarian words in it: it stays English (the chain follows the reply).
 		expect(
 			afterReplyLanguage({
 				reply:
