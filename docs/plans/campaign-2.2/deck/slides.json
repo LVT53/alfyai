@@ -1,0 +1,55 @@
+[
+  {
+    "titleHu": "Projektek, amik tudják, min dolgozol",
+    "titleEn": "Projects that know what you’re working on",
+    "bodyHu": "Adj egy projektnek utasításokat és fájlokat, és minden beszélgetése tudni fogja, miről van szó. Alfy az utasításokat minden válaszánál követi, a fájlokat pedig akkor olvassa el, amikor szüksége van rájuk. A projekt azt is megmutatja, amit a beszélgetései készítettek.",
+    "bodyEn": "Give a project instructions and files, and every chat in it knows what it is about. Alfy follows the instructions in every reply and reads the files when it needs them. The project also shows what its chats made.",
+    "altTextHu": "A Balatoni nyaralás projekt Fájlok ablaka: három feltöltött fájl és négy elem, amit a beszélgetései készítettek",
+    "altTextEn": "The Files window of the Balatoni nyaralás project: three uploaded files and four items its chats made",
+    "desktopFile": "slides/01-projects-desktop.png",
+    "mobileFile": "slides/01-projects-mobile.png"
+  },
+  {
+    "titleHu": "Alfy dokumentumot, alkalmazást és táblát is készít",
+    "titleEn": "Alfy makes documents, apps and canvases too",
+    "bodyHu": "Kérhetsz tőle dokumentumot, alkalmazást, táblát vagy fájlt. Mind a beszélgetés mellett nyílik meg, ott szerkesztheted és letöltheted, a fejlécben pedig látod, hány elem készült benne.",
+    "bodyEn": "Ask for a document, an app, a canvas or a file. Each one opens beside the chat, where you can edit and download it, and the header shows how many the chat has made.",
+    "altTextHu": "Egy beszélgetés a háromnapos programról, mellette megnyitva egy napokra bontott tábla",
+    "altTextEn": "A chat about a three-day plan with a day-by-day canvas open beside it",
+    "actionLabelHu": "Új beszélgetés",
+    "actionLabelEn": "Start a chat",
+    "actionDestination": "/",
+    "desktopFile": "slides/02-artifacts-desktop.png",
+    "mobileFile": "slides/02-artifacts-mobile.png"
+  },
+  {
+    "titleHu": "Alfy módosít, te döntesz",
+    "titleEn": "Alfy edits, you decide",
+    "bodyHu": "Ha Alfy átír valamit a dokumentumodban vagy a táblán, látod, mi változott, és te döntöd el: „Megtartom” vagy „Visszavonom”. Megjegyzést is írhatsz bárhová, és ha @Alfy-t említesz, válaszol, kérésedre pedig javít is.",
+    "bodyEn": "When Alfy changes something in your document or canvas, you see what changed and decide: “Keep” or “Undo”. Leave a comment anywhere, and mention @Alfy to get an answer, or a fix if you ask for one.",
+    "altTextHu": "Egy dokumentum, benne Alfy egy módosítása a Megtartom és Visszavonom gombokkal, mellette egy @Alfy-nak szóló megjegyzés és a válasza",
+    "altTextEn": "A document with one change by Alfy and its Keep and Undo buttons, beside a comment addressed to @Alfy and its answer",
+    "desktopFile": "slides/03-together-desktop.png",
+    "mobileFile": "slides/03-together-mobile.png"
+  },
+  {
+    "titleHu": "Minden változatra visszatérhetsz",
+    "titleEn": "Go back to any version",
+    "bodyHu": "Az Előzmények napokra bontva mutatja, mi változott és ki változtatta. Elnevezhetsz egy változatot, megnézheted előnézetben, és visszaállíthatod. A visszaállítás sem töröl semmit: új lépésként megmarad.",
+    "bodyEn": "History lists every change by day and says who made it. Name a version, preview it, and restore it. Restoring deletes nothing: it is kept as a new step.",
+    "altTextHu": "Egy dokumentum Előzmények nézete egy elnevezett változattal, annak előnézetével és a Visszaállítás gombbal",
+    "altTextEn": "A document’s History view with a named version, its preview and the Restore button",
+    "desktopFile": "slides/04-history-desktop.png",
+    "mobileFile": "slides/04-history-mobile.png"
+  },
+  {
+    "titleHu": "Alfy magától nem nyit meg idegen oldalakat",
+    "titleEn": "Alfy won’t open unknown pages on its own",
+    "bodyHu": "Alfy csak olyan oldalt és képet tölt be, amelynek a címét te adtad meg, vagy amelyet az egyik eszköze talált. Minden más cím hivatkozás marad a válaszban, amíg rá nem kattintasz. Közben sok apróságot is csiszoltunk, főleg telefonon és a panel mozgásán.",
+    "bodyEn": "Alfy loads a page or a picture only if you gave its address or one of its tools found it. Any other address stays a link in the reply until you click it. Along the way we polished many small things, mostly on phones and in how the panel moves.",
+    "altTextHu": "Egy válasz, amelyben három kép nem töltődött be, hanem hivatkozásként jelenik meg",
+    "altTextEn": "A reply in which three pictures are shown as links instead of being loaded",
+    "desktopFile": "slides/05-privacy-desktop.png",
+    "mobileFile": "slides/05-privacy-mobile.png"
+  }
+]

@@ -502,6 +502,64 @@ describe("create-release-campaign", () => {
 		).toBe(true);
 	});
 
+	describe("the AlfyAI 2.2 deck (docs/plans/campaign-2.2)", () => {
+		// Vitest runs from the repository root.
+		const deck22 = join(process.cwd(), "docs/plans/campaign-2.2/deck");
+		const deck22En = join(process.cwd(), "docs/plans/campaign-2.2/deck-en");
+
+		it("is a valid deck: five slides, both languages and both devices, on the allowlist", () => {
+			const loaded = loadDeck(deck22, { isAllowedActionDestination });
+
+			expect(loaded.slides).toHaveLength(5);
+			for (const slide of loaded.slides) {
+				expect(slide.images.desktop).toMatchObject({
+					width: 1600,
+					height: 1000,
+					mimeType: "image/png",
+				});
+				expect(slide.images.mobile).toMatchObject({
+					width: 1080,
+					height: 1920,
+					mimeType: "image/png",
+				});
+			}
+			// The one button: Start a chat, on slide 2.
+			expect(loaded.slides.map((slide) => slide.actionDestination)).toEqual([
+				null,
+				"/",
+				null,
+				null,
+				null,
+			]);
+		});
+
+		it("has an English-interface alternate with the very same words", () => {
+			const alternate = loadDeck(deck22En, { isAllowedActionDestination });
+			const main = loadDeck(deck22, { isAllowedActionDestination });
+
+			expect(
+				alternate.slides.map(({ images: _images, ...copy }) => copy),
+			).toEqual(main.slides.map(({ images: _images, ...copy }) => copy));
+		});
+
+		it("creates and publishes through the service's own validation, as release 2.2.0", async () => {
+			const result = await runCreateReleaseCampaign(
+				options({
+					deck: deck22,
+					name: "AlfyAI 2.2",
+					version: "2.2.0",
+					publish: true,
+				}),
+				{ db, storageRoot },
+			);
+
+			expect(result.status).toBe("published");
+			expect(result.releaseVersion).toBe("2.2.0");
+			expect(result.identityKey).toBe("release_update:2.2.0:r1");
+			expect(result.slideCount).toBe(5);
+		});
+	});
+
 	it("warns after publishing when an APP_VERSION_OVERRIDE would hide the new version", async () => {
 		db.insert(schema.adminConfig)
 			.values({
