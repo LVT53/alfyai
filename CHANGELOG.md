@@ -31,11 +31,13 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   its first message, and the mask in the composer opens a card that says what
   incognito means for that chat and offers a new chat.
 - Follow-up suggestions, the rail headline and a chat's generated title are
-  written in the language of the reply you got, while the short lines shown as
-  Alfy thinks follow the interface language.
-- Each turn now logs which language its reply was read as (without any of its
-  text), and the admin stability snapshot counts replies read as Hungarian for
-  accounts shown in English.
+  written in the language you write in (or asked for), which the model names
+  once after each reply, so an email you asked for in another language does not
+  change it; the short lines shown as Alfy thinks follow the interface language.
+- Each turn now logs the interface language, the conversation's language and
+  what the reply reads as (without any of its text), and the admin stability
+  snapshot counts replies that read as Hungarian for people writing English on
+  an English account.
 
 ### Fixed
 
