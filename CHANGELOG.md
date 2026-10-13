@@ -30,6 +30,19 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - An incognito chat opens with a single "Off the record from here" mark above
   its first message, and the mask in the composer opens a card that says what
   incognito means for that chat and offers a new chat.
+- Follow-up suggestions, the rail headline and a chat's generated title are
+  written in the language of the reply you got, while the short lines shown as
+  Alfy thinks follow the interface language.
+- Each turn now logs which language its reply was read as (without any of its
+  text), and the admin stability snapshot counts replies read as Hungarian for
+  accounts shown in English.
+
+### Fixed
+
+- Alfy no longer answers an English message in Hungarian because a word list
+  guessed the language wrong: the model reads the message and replies in its
+  language, and a request for a particular language, in the message or in your
+  instructions, is followed.
 
 ### Removed
 
