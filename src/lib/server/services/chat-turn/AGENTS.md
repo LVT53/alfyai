@@ -37,6 +37,7 @@ failures → retry-cleanup.ts
 | Reconnect replay and live stream subscription | `stream-reconnect.ts` |
 | Post-turn persistence fan-out orchestration (one ordered sequence) | `finalize.ts` |
 | Post-turn side-effect steps (turn-state, evidence, attachments, memory tasks) | `finalize-steps.ts` |
+| The language of the reply that was written, for what follows it (chips, rail headline, title, the message's `replyLanguage`, the `[LANGUAGE]` line and its counter) | `reply-language.ts` (reads through `../language.ts`'s `afterReplyLanguage`; nothing decides a reply's language before the reply) |
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |
 | Shared types | `types.ts` |
