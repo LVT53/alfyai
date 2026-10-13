@@ -34,13 +34,12 @@ export interface CreateAppInput {
 	/** The model's own title (create_artifact's `title` field is required) — wins over anything `generateApp` would derive from the html. */
 	title: string;
 	/**
-	 * The turn's own resolved reply language (ruling 55) — `CreateArtifactHandlerParams.language`,
-	 * carried here unchanged. NOT re-detected from `prompt`: `detectLanguage`
-	 * read an English brief full of Hungarian-looking letter pairs as
-	 * Hungarian, which is exactly the per-message heuristic Wave 0 retired
-	 * from the chat path for the same reason.
+	 * The person's own message of this turn (`CreateArtifactHandlerParams.requestText`),
+	 * carried here unchanged: the App's text is written in the language of these
+	 * words, which the generator reads itself. Nothing here guesses a language
+	 * from the brief, which is the model's text and can be in another one.
 	 */
-	language: "en" | "hu";
+	requestText?: string;
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
 	/** Regenerate (polish G2-A): make the App under the id its chat cards already carry. Every tool call leaves it out. */
@@ -78,7 +77,7 @@ export async function createAppFromBrief(
 		userId: input.userId,
 		conversationId: input.conversationId,
 		prompt: input.prompt,
-		language: input.language,
+		requestText: input.requestText,
 		title: input.title,
 		modelId: input.modelId,
 		abortSignal: input.abortSignal,

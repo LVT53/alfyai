@@ -33,6 +33,7 @@ const {
 	mockRecordAssistantTurnAnalytics,
 	mockRecordCompletedTurnContextUsage,
 	mockGenerateFollowUpSuggestions,
+	mockResolveTurnReplyLanguage,
 	mockListMessageWindow,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
@@ -43,6 +44,7 @@ const {
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 	mockRecordCompletedTurnContextUsage: vi.fn(),
 	mockGenerateFollowUpSuggestions: vi.fn(),
+	mockResolveTurnReplyLanguage: vi.fn(),
 	mockListMessageWindow: vi.fn(async () => ({
 		messages: [] as Array<{ role: string; content: string }>,
 		hasMoreBefore: false,
@@ -56,6 +58,15 @@ const {
 vi.mock("./follow-up-suggestions", () => ({
 	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
+}));
+
+// The language of the conversation for the person, named after the reply
+// (reply-language.ts), seamed: the glue tests below assert what
+// completeStreamTurn asks it and what it does with the answer; the reader and
+// the call are tested in language.test.ts, conversation-language.test.ts and
+// reply-language.test.ts.
+vi.mock("./reply-language", () => ({
+	resolveTurnReplyLanguage: mockResolveTurnReplyLanguage,
 }));
 
 // Post-turn prompt usage write (context usage ring). Seamed so the glue
@@ -245,6 +256,11 @@ describe("completeStreamTurn", () => {
 		mockPersistAssistantTurnState.mockResolvedValue(defaultTurnState);
 		mockPersistAssistantEvidence.mockResolvedValue(undefined);
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
+		mockResolveTurnReplyLanguage.mockResolvedValue({
+			language: "en",
+			reply: "en",
+			via: "model",
+		});
 		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 		mockTouchConversation.mockResolvedValue(undefined);
 		mockGetStreamBuffer.mockReturnValue(null);
@@ -2311,6 +2327,7 @@ describe("completeStreamTurn", () => {
 				userMessage: "user message",
 				assistantResponse: "response text",
 				recentHistory: [],
+				responseLanguage: "en",
 			});
 			expect(getLatestEndPayload()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
@@ -2320,14 +2337,55 @@ describe("completeStreamTurn", () => {
 			});
 		});
 
-		it("hands the turn's resolved language to the suggester and to the post-turn tail", async () => {
-			await completeStreamTurn({ ...defaultParams, responseLanguage: "hu" });
+		it("names the language once and hands it to the suggester, the post-turn tail and the stored message", async () => {
+			// The model named Hungarian for the person while the reply's own words
+			// read English: the chips, the rail and the record follow the person.
+			mockResolveTurnReplyLanguage.mockResolvedValue({
+				language: "hu",
+				reply: "en",
+				via: "model",
+			});
 
+			await completeStreamTurn({ ...defaultParams, uiLanguage: "en" });
+
+			// Asked once, with the reply as the person got it, the message it
+			// answers and the account's UI language as the last fallback.
+			expect(mockResolveTurnReplyLanguage).toHaveBeenCalledTimes(1);
+			expect(mockResolveTurnReplyLanguage).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				reply: "response text",
+				latestUserMessage: "user message",
+				uiLanguage: "en",
+			});
 			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
 				expect.objectContaining({ responseLanguage: "hu" }),
 			);
 			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+			// Both are kept on the message: the language the conversation was in for
+			// the person (the next turn's fallback) and what the reply's words said
+			// (the record behind the log line).
+			expect(getPersistedAssistantMetadata()).toMatchObject({
+				conversationLanguage: "hu",
+				replyLanguage: "en",
+			});
+		});
+
+		it("falls to the account's UI language, and stores nothing, when the reading fails", async () => {
+			mockResolveTurnReplyLanguage.mockRejectedValue(new Error("db down"));
+
+			await completeStreamTurn({ ...defaultParams, uiLanguage: "hu" });
+
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty(
+				"replyLanguage",
+			);
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty(
+				"conversationLanguage",
 			);
 		});
 

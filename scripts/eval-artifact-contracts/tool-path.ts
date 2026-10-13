@@ -25,14 +25,13 @@ import {
 } from "./config";
 import type { EvalCase, EvalUsage } from "./types";
 
+/** The language a case's fixture declares (what its output is checked against); the request never names it. */
 export type ToolPathLanguage = "en" | "hu";
 
 /** What one case sends. */
 export interface ToolPathRequestSpec {
 	system: string;
 	user: string;
-	/** Picks the catalogue's locale, exactly as the turn's language does in the app. */
-	language: ToolPathLanguage;
 	/** `auto` is production's; naming a tool isolates writing from routing. */
 	toolChoice: "auto" | { name: string };
 	/**
@@ -100,33 +99,30 @@ const CATALOGUE_DIR = resolve(
 	"../../src/lib/server/services/normal-chat-tools",
 );
 
-const catalogueCache = new Map<ToolPathLanguage, unknown[]>();
+let catalogueCache: unknown[] | null = null;
 
 /**
  * The tools array of a chat request, as the app's frozen snapshot holds it:
  * the file's prose header, a `----` line, then the pretty-printed JSON.
  */
-export function loadToolCatalogue(language: ToolPathLanguage): unknown[] {
-	const cached = catalogueCache.get(language);
-	if (cached) return cached;
+export function loadToolCatalogue(): unknown[] {
+	if (catalogueCache) return catalogueCache;
 	const text = readFileSync(
-		join(CATALOGUE_DIR, `tool-catalogue.${language}.snapshot.txt`),
+		join(CATALOGUE_DIR, "tool-catalogue.en.snapshot.txt"),
 		"utf8",
 	);
 	const marker = "\n----\n";
 	const at = text.indexOf(marker);
 	if (at < 0) {
 		throw new Error(
-			`tool-catalogue.${language}.snapshot.txt has no "----" line; its format changed`,
+			'tool-catalogue.en.snapshot.txt has no "----" line; its format changed',
 		);
 	}
 	const tools: unknown = JSON.parse(text.slice(at + marker.length));
 	if (!Array.isArray(tools)) {
-		throw new Error(
-			`tool-catalogue.${language}.snapshot.txt is not a tools array`,
-		);
+		throw new Error("tool-catalogue.en.snapshot.txt is not a tools array");
 	}
-	catalogueCache.set(language, tools);
+	catalogueCache = tools;
 	return tools;
 }
 
@@ -142,7 +138,7 @@ export function buildToolPathRequestBody(
 			{ role: "user", content: spec.user },
 			...history,
 		],
-		tools: loadToolCatalogue(spec.language).filter(
+		tools: loadToolCatalogue().filter(
 			(tool) =>
 				!spec.withoutTools?.includes(
 					(tool as { function: { name: string } }).function.name,

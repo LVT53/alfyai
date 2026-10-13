@@ -780,7 +780,7 @@ describe("@Alfy on a board: what the model is told", () => {
 		// The thread, both voices.
 		expect(prompt).toContain("Earlier, Alfy said this.");
 		// The tool's own edit rule and worked example, not a second wording.
-		expect(prompt).toContain(editArtifactRuleClause(["canvas"], "en"));
+		expect(prompt).toContain(editArtifactRuleClause(["canvas"]));
 		expect(prompt).toContain(JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE.ops));
 		expect(options.thinkingMode).toBe("off");
 		// A note a person reads: it names no temperature, so it takes the family

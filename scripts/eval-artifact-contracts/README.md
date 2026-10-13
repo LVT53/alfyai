@@ -86,7 +86,7 @@ a board with `read_artifact`, change it with `edit_artifact` ops, make one with
 core:
 
 - `tool-path.ts` — sends the whole tool catalogue exactly as a chat turn does (read
-  from the app's own frozen `tool-catalogue.<lang>.snapshot.txt`, never re-typed) and
+  from the app's own frozen `tool-catalogue.en.snapshot.txt`: the catalogue is English whatever language the case is in, never re-typed) and
   reads the answer back as a recorded envelope (`toolCalls`, `content`,
   `finishReason`, and any `priorSteps`). A case may name tools a conversation would
   not have (`withoutTools`) and take a bounded follow-up: a lookup the suite can
@@ -133,7 +133,7 @@ in `requested`: the new note within a note's width of the museum note; a bar cha
 12, 21, 18 and 8, read the way the chat reads a chart fence (`parseJsonLenient`: one brace short
 still draws), inside the Saturday frame; a diagram block whose source starts `flowchart` or
 `graph` and names four of the five stops. The language check reads only phrases of three words
-or more: the detector reads a time or a proper noun ("Opera, 19:00") as English whatever it is.
+or more, and names a language only when its closed-class words are plain about it (`readReplyLanguage` at two witnesses): a time or a proper noun ("Opera, 19:00") says nothing.
 
 The suite's one async step is `suites/canvas-diagrams.ts` (a `SuiteEvaluator`, ruling 56): it
 finds every Mermaid source in the model's calls and has the chat's own Mermaid (`mermaid.parse`,

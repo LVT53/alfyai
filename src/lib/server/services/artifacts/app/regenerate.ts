@@ -20,7 +20,6 @@ export interface RegenerateAppInput {
 	userId: string;
 	artifactId: string;
 	prompt: string;
-	language: "en" | "hu";
 	/** Slice 1's optimistic guard — the version the caller last saw. */
 	expectVersion?: number;
 	modelId?: ModelId;
@@ -88,7 +87,6 @@ export async function regenerateApp(
 		userId: input.userId,
 		conversationId: current.conversationId,
 		prompt: input.prompt,
-		language: input.language,
 		// The title stays what it already was — regeneration has no field for
 		// the user to rename it through; only the app's own <title>/<h1> could
 		// change it, and this call keeps the existing one deliberately.

@@ -44,6 +44,7 @@ vi.mock("../prompts", async (importOriginal) => {
 	return { ...actual, getSystemPrompt: (prompt: string) => prompt };
 });
 
+import { readConversationLanguage } from "./chat-turn/conversation-language";
 import { generateFollowUpSuggestions } from "./chat-turn/follow-up-suggestions";
 import { persistAssistantRailSummary } from "./chat-turn/rail-summary";
 import { classifyThoughtStepChunk } from "./chat-turn/thought-step-classifier";
@@ -142,6 +143,16 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
 
+	it("conversation language (the verdict after a reply)", async () => {
+		await readConversationLanguage({
+			userId: "u1",
+			conversationId: "c1",
+			latestUserMessage: HU_USER,
+			reply: HU_REPLY,
+		});
+		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
+	});
+
 	it("turn acknowledgment", async () => {
 		await resolveTurnAcknowledgment({
 			userId: "u1",
@@ -156,8 +167,8 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
@@ -168,6 +179,7 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});

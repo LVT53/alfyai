@@ -111,7 +111,6 @@ import {
 	selectedReasoningDepth,
 	setSelectedModel,
 	setSelectedReasoningDepth,
-	uiLanguage,
 } from "$lib/stores/settings";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
@@ -1772,7 +1771,6 @@ async function handleRegenerateArtifact(artifactId: string) {
 		const result = await regenerateDeletedArtifact(
 			data.conversation.id,
 			artifactId,
-			get(uiLanguage) === "hu" ? "hu" : "en",
 		);
 		if (result.ok) {
 			deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);

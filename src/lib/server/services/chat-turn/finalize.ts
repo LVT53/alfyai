@@ -158,9 +158,10 @@ export type FinalizeChatTurnParams = {
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
-	// The turn's reply language, decided once per turn (resolveTurnResponseLanguage),
-	// handed to the post-turn tail so the rail headline is in the reply's language.
-	responseLanguage?: SupportedLanguage;
+	// The language of the conversation for the person, named after the reply
+	// (chat-turn/reply-language.ts), handed to the post-turn tail so the rail
+	// headline is written in it.
+	responseLanguage: SupportedLanguage;
 	// Stream-only. finalizeChatTurn owns scheduling every post-turn side
 	// effect itself (ADR-0015) — it never hands a caller a promise or a
 	// task-starting function to manage. For a deferred (stream) turn, the

@@ -25,21 +25,20 @@ describe("APP_EVAL_CASES", () => {
 		}
 	});
 
-	// Ruling 55: each fixture declares its language, and generation is asked
-	// for it exactly the way production asks the turn's own resolved
-	// language — the same buildAppRequestMessage sentence, not a re-typed one
-	// that could drift from it.
-	it("declares each prompt's language and asks for it with production's own instruction sentence", () => {
+	// Ruling 55: each fixture declares its language (what its output is checked
+	// against), and generation is asked with production's own request shape: the
+	// App is written in the language of the request, which names no language.
+	it("declares each prompt's language and asks with production's own instruction sentence, which names none", () => {
 		const english = APP_EVAL_CASES.find((c) => c.id === "app-01");
 		const hungarian = APP_EVAL_CASES.find((c) => c.id === "app-02");
 		expect(english?.language).toBe("en");
 		expect(hungarian?.language).toBe("hu");
-		expect(english?.prompt).toContain(
-			"Write the whole app in English: every label, button, empty state and error message.",
-		);
-		expect(hungarian?.prompt).toContain(
-			"Write the whole app in Hungarian: every label, button, empty state and error message.",
-		);
+		for (const evalCase of [english, hungarian]) {
+			expect(evalCase?.prompt).toContain(
+				"Write the whole app (every label, button, empty state and error message) in the language of the request above, unless it asks for the app in another language.",
+			);
+			expect(evalCase?.prompt).not.toContain("Write the whole app in");
+		}
 	});
 
 	it("the known-bad case still declares a language (English)", () => {

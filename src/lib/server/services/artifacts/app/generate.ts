@@ -35,8 +35,13 @@ export interface AppGenerationRequest {
 	conversationId: string | null;
 	/** The user's request, verbatim. The only thing from the session that reaches the model. */
 	prompt: string;
-	/** From the turn's own language detection (`services/language.ts`), not guessed here. */
-	language: "en" | "hu";
+	/**
+	 * The person's own message of this turn, when it is not the prompt itself
+	 * (the prompt of a first draft is the model's brief of what to build). It sets
+	 * the language of the App's text: no code decides that language, the
+	 * generator reads these words (`buildAppRequestMessage`).
+	 */
+	requestText?: string;
 	/** When the caller already knows it (a regeneration keeps the old title unless the user renamed it). */
 	title?: string | null;
 	/**
@@ -133,26 +138,44 @@ function isTopKRejection(caught: unknown): boolean {
 }
 
 /**
+ * How much of the person's own message the generator is shown: enough to read
+ * the language it is written in, not a pasted document.
+ */
+const APP_REQUEST_TEXT_MAX_CHARS = 500;
+
+function clipRequestText(text: string): string {
+	const chars = [...text.trim()];
+	return chars.length <= APP_REQUEST_TEXT_MAX_CHARS
+		? chars.join("")
+		: `${chars.slice(0, APP_REQUEST_TEXT_MAX_CHARS).join("")}...`;
+}
+
+/**
  * The system prompt is the constant, unchanged by anything ambient (A1.6):
  * the one user message carries the request plus a language instruction. No
- * chat history, no other artifact, no memory, no user display name.
+ * chat history, no other artifact, no memory, no user display name. The
+ * language of the App's text is the language of the person's words (or the one
+ * they ask for): the instruction says so and shows those words, so the model
+ * reads them itself instead of being told a language the server guessed.
  */
 export function buildAppRequestMessage(params: {
 	prompt: string;
-	language: "en" | "hu";
+	/** The person's own message, when it is not the prompt itself. */
+	requestText?: string;
 	currentHtml?: string;
 }): string {
-	const languageInstruction =
-		params.language === "hu"
-			? "Write the whole app in Hungarian: every label, button, empty state and error message."
-			: "Write the whole app in English: every label, button, empty state and error message.";
 	if (params.currentHtml !== undefined && params.currentHtml.trim() !== "") {
 		// A change: the app as it is, then what to change. The answer is the whole
 		// changed app (the contract's one fenced document), and what the change
 		// does not touch stays as it is, the keys its saved data lives under
 		// included (a rebuild keeps the app's stored state).
-		return `Here is the app as it is now:\n\n\`\`\`html\n${params.currentHtml}\n\`\`\`\n\nChange this app as follows, and answer with the whole changed app. Keep everything the change does not touch exactly as it is: the layout, the labels, the behaviour and the storage keys it saves under.\n\n${params.prompt}\n\n${languageInstruction}`;
+		return `Here is the app as it is now:\n\n\`\`\`html\n${params.currentHtml}\n\`\`\`\n\nChange this app as follows, and answer with the whole changed app. Keep everything the change does not touch exactly as it is: the layout, the labels, the behaviour and the storage keys it saves under.\n\n${params.prompt}\n\nThe app's text stays in the language it is in, unless the change asks for another language.`;
 	}
+	const request = params.requestText?.trim();
+	const languageInstruction =
+		request && request !== params.prompt.trim()
+			? `The person asked for it in these words: ${JSON.stringify(clipRequestText(request))}\nWrite the whole app (every label, button, empty state and error message) in the language of those words (if they are too short to tell, an "ok" or a "go ahead", in the language of the request above), unless they ask for the app in another language.`
+			: "Write the whole app (every label, button, empty state and error message) in the language of the request above, unless it asks for the app in another language.";
 	return `${params.prompt}\n\n${languageInstruction}`;
 }
 

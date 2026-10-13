@@ -56,27 +56,17 @@ import {
 const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
 
 /**
- * research_web's own EN/HU description + errorPrefix — moved verbatim out
- * of index.ts's family-wide `TOOL_I18N` (ruling 43/5a) so this module
- * needs no import from index.ts at all. index.ts imports these BACK in to
- * populate `TOOL_I18N.en.research_web` / `.hu.research_web`, so the
- * assembled catalogue text is byte-identical to before (the frozen
- * snapshot tests assert this).
+ * research_web's own description + errorPrefix — moved verbatim out of
+ * index.ts's family-wide tool text (ruling 43/5a) so this module needs no
+ * import from index.ts at all. index.ts imports it BACK in to populate
+ * `TOOL_TEXT.research_web`, so the assembled catalogue text is byte-identical
+ * to before (the frozen snapshot test asserts this). English only: a tool
+ * catalogue is scaffolding the model reads, whatever language the person writes.
  */
-export const RESEARCH_WEB_I18N: Record<
-	"en" | "hu",
-	{ description: string; errorPrefix: string }
-> = {
-	en: {
-		description:
-			'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.',
-		errorPrefix: "Web research failed",
-	},
-	hu: {
-		description:
-			'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Hívd így: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). A `readPages`-t állítsd 1-2-re, ha a válaszhoz oldal-szintű részlet kell (pontos ár, specifikáció, hivatalos dokumentáció, egy megnevezett cikk), így a kutatás itt fejeződik be egy külön fetch_url lépés helyett; egyébként 0. Ne használd olyan URL-hez, amelyet a felhasználó már megadott (fetch_url), távolsághoz, útvonalhoz vagy menetidőhöz (map_route), megmutatandó képekhez (image_search), és akkor sem, ha ebben a körben már vannak webes kutatási eredmények. `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza, valamint `pages` tömböt (url, title, contentMarkdown), ha a `readPages` be volt állítva; ellentmondás esetén az elsődleges forrást részesítsd előnyben.',
-		errorPrefix: "A webes kutatás sikertelen",
-	},
+export const RESEARCH_WEB_TEXT: { description: string; errorPrefix: string } = {
+	description:
+		'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.',
+	errorPrefix: "Web research failed",
 };
 
 export interface CreateResearchWebToolParams {
@@ -84,7 +74,6 @@ export interface CreateResearchWebToolParams {
 	conversationId: string;
 	turnId: string;
 	modelId?: string;
-	language: "en" | "hu";
 	recorder: ToolCallRecorder;
 }
 
@@ -103,11 +92,10 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 	// move needed no substitution inside the body itself.
 	const ctx = params;
 	const { recorder } = params;
-	const i18n = { research_web: RESEARCH_WEB_I18N[params.language] };
 
 	return asExecutableTool(
 		tool({
-			description: i18n.research_web.description,
+			description: RESEARCH_WEB_TEXT.description,
 			inputSchema: researchWebInputSchema,
 			execute: async (
 				input: z.infer<typeof researchWebInputSchema>,
@@ -262,7 +250,7 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 					onError: (error) => {
 						const message = modelSafeToolError(
 							error,
-							i18n.research_web.errorPrefix,
+							RESEARCH_WEB_TEXT.errorPrefix,
 						);
 						const modelPayload = {
 							success: false as const,

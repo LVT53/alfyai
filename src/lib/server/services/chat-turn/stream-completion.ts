@@ -45,6 +45,7 @@ import {
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT,
 	generateFollowUpSuggestions,
 } from "./follow-up-suggestions";
+import { resolveTurnReplyLanguage } from "./reply-language";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import {
 	createUiMessageStreamDoneFrame,
@@ -100,11 +101,10 @@ export interface StreamCompletionFacts {
 }
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
-	// The turn's reply language, resolved once by the route (resolveTurnResponseLanguage)
-	// and threaded through the orchestrator: the follow-up chips and the rail
-	// headline are written in it. Optional; without it each reads the language
-	// off the user message alone.
-	responseLanguage?: SupportedLanguage;
+	// The account's UI language: the last fallback of the language what is
+	// written after the reply is in (reply-language.ts), for a turn whose
+	// language call failed and whose reply says nothing and follows no earlier one.
+	uiLanguage?: SupportedLanguage;
 	wasStopped: boolean;
 	conversationId: string;
 	streamId: string | null;
@@ -192,7 +192,7 @@ export async function completeStreamTurn(
 	params: CompleteStreamTurnParams,
 ): Promise<void> {
 	const {
-		responseLanguage,
+		uiLanguage,
 		wasStopped,
 		conversationId,
 		streamId,
@@ -492,6 +492,22 @@ export async function completeStreamTurn(
 			wasStopped && finalResponse.trim().length === 0
 				? "Stopped"
 				: finalResponse;
+		// The language of the conversation for the person, named once after the
+		// reply (reply-language.ts: the model's answer, else the deterministic
+		// chain): the follow-up chips, the rail headline and the title below all
+		// follow it, and the message records it, never a guess made before the
+		// reply. Best-effort: a failure here is the account's UI language, never a
+		// failed turn.
+		const turnLanguage = finalResponse.trim()
+			? await resolveTurnReplyLanguage({
+					userId,
+					conversationId,
+					reply: finalResponse,
+					latestUserMessage: normalizedMessage,
+					uiLanguage,
+				}).catch(() => null)
+			: null;
+		const responseLanguage = turnLanguage?.language ?? uiLanguage ?? "en";
 		// Issue 7.5 — resolved (not deferred) here: by the time the stream has
 		// fully finished, every pending write this turn's tool calls created
 		// already exists in the DB (createPendingWrite is awaited inside the
@@ -600,6 +616,15 @@ export async function completeStreamTurn(
 				providerDisplayName,
 				providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
+				// The language the conversation was in for the person at this reply
+				// (a later turn whose call fails falls back to it: messages.ts
+				// getLastConversationLanguage) and what the words of the reply say.
+				...(turnLanguage
+					? {
+							conversationLanguage: turnLanguage.language,
+							replyLanguage: turnLanguage.reply,
+						}
+					: {}),
 				...(completionWarningCodes.length > 0
 					? {
 							completionWarningCodes,

@@ -24,7 +24,6 @@ const {
 	mockRunPostTurnTasks,
 	mockRecordAssistantTurnAnalytics,
 	mockGenerateShortLocalText,
-	mockResolveShortTextLanguage,
 	mockUpdateMessageRailSummary,
 	mockRecordToolCallActivityEvents,
 	mockRecordSkillUseActivityEvent,
@@ -77,7 +76,6 @@ const {
 	// gate in play (importActual) while the ≥200-char wiring tests below never
 	// reach the real control model — the fragility the reviewer flagged.
 	mockGenerateShortLocalText: vi.fn(async () => null as string | null),
-	mockResolveShortTextLanguage: vi.fn(() => "en" as "en" | "hu"),
 	mockUpdateMessageRailSummary: vi.fn(async () => undefined),
 	mockRecordToolCallActivityEvents: vi.fn(async () => undefined),
 	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
@@ -131,11 +129,9 @@ vi.mock("$lib/server/services/messages", () => ({
 
 // Fix 2 — the rail-summary control-model seam. Mocked so the real
 // rail-summary.ts (reached through importActual("./finalize-steps")) never
-// hits the self-hosted control model in tests. resolveShortTextLanguage is
-// kept trivial; the real one is exercised in short-local-text.test.ts.
+// hits the self-hosted control model in tests.
 vi.mock("./short-local-text", () => ({
 	generateShortLocalText: mockGenerateShortLocalText,
-	resolveShortTextLanguage: mockResolveShortTextLanguage,
 }));
 
 vi.mock("$lib/server/services/conversation-drafts", () => ({
@@ -257,7 +253,6 @@ describe("runPostTurnTasks", () => {
 		// mockImplementation/mockResolvedValue set by one case never leaks.
 		mockGenerateShortLocalText.mockReset();
 		mockGenerateShortLocalText.mockResolvedValue(null);
-		mockResolveShortTextLanguage.mockReturnValue("en");
 		mockUpdateMessageRailSummary.mockReset();
 		mockUpdateMessageRailSummary.mockResolvedValue(undefined);
 	});
@@ -277,6 +272,7 @@ describe("runPostTurnTasks", () => {
 		await expect(
 			runPostTurnTasks({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				upstreamMessage: "upstream prompt payload",
@@ -318,6 +314,7 @@ describe("runPostTurnTasks", () => {
 
 		await runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -365,6 +362,7 @@ describe("runPostTurnTasks", () => {
 
 		await runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -410,6 +408,7 @@ describe("runPostTurnTasks", () => {
 		await expect(
 			runPostTurnTasks({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				upstreamMessage: "upstream prompt payload",
@@ -449,6 +448,7 @@ describe("runPostTurnTasks", () => {
 		let completed = false;
 		const postTurn = runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -489,6 +489,7 @@ describe("runPostTurnTasks", () => {
 
 		await runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -540,6 +541,7 @@ describe("runPostTurnTasks", () => {
 			assistantMirrorContent: longReply,
 			assistantMessageId: "assistant-message-1",
 			maintenanceReason: "chat_send",
+			responseLanguage: "en",
 		});
 
 		// The gate fired the rail task, rail-summary.ts saw a ≥200-char reply (no
@@ -551,7 +553,7 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
-	it("hands the turn's resolved language to the rail summary", async () => {
+	it("hands the conversation's language, named after the reply, to the rail summary", async () => {
 		mockGenerateShortLocalText.mockResolvedValue("Heti étrend");
 		const { runPostTurnTasks } =
 			await vi.importActual<typeof import("./finalize-steps")>(
@@ -563,7 +565,6 @@ describe("runPostTurnTasks", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
-			// no accent: on its own this message reads as English
 			userMessage: "Mikor ultessem el a paradicsompalantakat?",
 			assistantResponse: "S".repeat(250),
 			assistantMirrorContent: "S".repeat(250),
@@ -603,6 +604,7 @@ describe("runPostTurnTasks", () => {
 
 		const done = runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -688,6 +690,7 @@ describe("finalizeChatTurn", () => {
 			| undefined;
 		const completion = await finalizeChatTurn({
 			turnKind: "stream",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "user message",
@@ -793,6 +796,7 @@ describe("finalizeChatTurn", () => {
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "Create a report",
@@ -860,6 +864,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "Save this to Nextcloud",
@@ -907,6 +912,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "hi",
@@ -957,6 +963,7 @@ describe("finalizeChatTurn", () => {
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1028,6 +1035,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -1072,6 +1080,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -1134,6 +1143,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "stream",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1171,6 +1181,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1223,6 +1234,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1294,6 +1306,7 @@ describe("finalizeChatTurn", () => {
 		await expect(
 			finalizeChatTurn({
 				turnKind: "stream",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "normalized user message",
@@ -1358,6 +1371,7 @@ describe("finalizeChatTurn", () => {
 		);
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1417,6 +1431,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1468,6 +1483,7 @@ describe("finalizeChatTurn", () => {
 
 		await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "atlas request",
@@ -1512,6 +1528,7 @@ describe("finalizeChatTurn", () => {
 
 		await runPostTurnTasks({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "atlas request",
@@ -1569,6 +1586,7 @@ describe("finalizeChatTurn", () => {
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage: "en",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1807,6 +1825,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "stream",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -1979,6 +1998,7 @@ describe("finalizeChatTurn", () => {
 
 			const completion = await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-secret",
 				userMessageContent: "user message",
@@ -2026,6 +2046,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -2065,6 +2086,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -2098,6 +2120,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "send",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -2124,6 +2147,7 @@ describe("finalizeChatTurn", () => {
 
 			await finalizeChatTurn({
 				turnKind: "stream",
+				responseLanguage: "en",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -2183,6 +2207,7 @@ describe("finalizeChatTurn", () => {
 			await finalizeChatTurn({
 				...turnOriginBaseParams,
 				turnKind: "stream",
+				responseLanguage: "en",
 				persistUserMessage: false,
 				turnOrigin: "regenerate",
 			});
@@ -2202,6 +2227,7 @@ describe("finalizeChatTurn", () => {
 			await finalizeChatTurn({
 				...turnOriginBaseParams,
 				turnKind: "stream",
+				responseLanguage: "en",
 				persistUserMessage: true,
 				turnOrigin: "edit_resend",
 			});
@@ -2222,6 +2248,7 @@ describe("finalizeChatTurn", () => {
 				await finalizeChatTurn({
 					...turnOriginBaseParams,
 					turnKind: "stream",
+					responseLanguage: "en",
 					persistUserMessage: false,
 					turnOrigin,
 				});
@@ -2238,6 +2265,7 @@ describe("finalizeChatTurn", () => {
 			await finalizeChatTurn({
 				...turnOriginBaseParams,
 				turnKind: "stream",
+				responseLanguage: "en",
 				persistUserMessage: false,
 				turnOrigin: "send",
 			});
@@ -2251,6 +2279,7 @@ describe("finalizeChatTurn", () => {
 			await finalizeChatTurn({
 				...turnOriginBaseParams,
 				turnKind: "send",
+				responseLanguage: "en",
 				persistUserMessage: true,
 				maintenanceReason: "chat_send",
 			});

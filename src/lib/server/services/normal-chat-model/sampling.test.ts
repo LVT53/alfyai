@@ -140,6 +140,16 @@ describe("every model call takes its sampling from the one route", () => {
 			count: 1,
 			reason: "the App classifier: a JSON checkable/not verdict, deterministic",
 		},
+		"lib/server/services/atlas-v3/question-language.ts": {
+			count: 1,
+			reason:
+				"a one-word JSON language verdict (en or hu) at Atlas job start: machine-read, deterministic",
+		},
+		"lib/server/services/chat-turn/conversation-language.ts": {
+			count: 1,
+			reason:
+				"a two-value JSON verdict (en or hu) after each reply: machine-read, deterministic",
+		},
 		"lib/server/services/chat-turn/follow-up-suggestions.ts": {
 			count: 1,
 			reason:

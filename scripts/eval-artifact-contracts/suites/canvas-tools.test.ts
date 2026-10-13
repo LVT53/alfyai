@@ -305,7 +305,6 @@ describe("the eval's create answers as create_artifact does", () => {
 			artifactType: "canvas",
 			title,
 			body,
-			language: "en",
 			abortSignal: signal(),
 		});
 		return JSON.parse(

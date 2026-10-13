@@ -13,7 +13,6 @@ import {
 const SPEC: ToolPathRequestSpec = {
 	system: "You are a test assistant.",
 	user: "Make a deck.",
-	language: "en",
 	toolChoice: "auto",
 	thinking: "off",
 };
@@ -33,11 +32,8 @@ function toolNamed(tools: unknown[], name: string) {
 }
 
 describe("the tool catalogue a live run sends (ruling 62)", () => {
-	it.each([
-		"en",
-		"hu",
-	] as const)("is the frozen snapshot of what a chat turn sends, in %s", (language) => {
-		const tools = loadToolCatalogue(language);
+	it("is the frozen snapshot of what a chat turn sends", () => {
+		const tools = loadToolCatalogue();
 		expect(tools.length).toBeGreaterThan(10);
 		const create = toolNamed(tools, "create_artifact");
 		expect(create).toBeDefined();
@@ -47,7 +43,7 @@ describe("the tool catalogue a live run sends (ruling 62)", () => {
 	});
 
 	it("carries the create_artifact description and the board contract as the app advertises them today", () => {
-		const create = toolNamed(loadToolCatalogue("en"), "create_artifact");
+		const create = toolNamed(loadToolCatalogue(), "create_artifact");
 		// The body field's own text, with the one worked example (ruling 62). A
 		// stale snapshot fails here.
 		expect(create?.function.parameters.properties.body.description).toContain(
@@ -57,7 +53,7 @@ describe("the tool catalogue a live run sends (ruling 62)", () => {
 	});
 
 	it("names every tool in the catalogue, so routing between tools is measured against the real set", () => {
-		const names = loadToolCatalogue("en").map(
+		const names = loadToolCatalogue().map(
 			(tool) => (tool as { function: { name: string } }).function.name,
 		);
 		expect(names).toEqual(
@@ -78,7 +74,7 @@ describe("buildToolPathRequestBody", () => {
 			{ role: "system", content: SPEC.system },
 			{ role: "user", content: SPEC.user },
 		]);
-		expect(body.tools).toEqual(loadToolCatalogue("en"));
+		expect(body.tools).toEqual(loadToolCatalogue());
 		expect(body.tool_choice).toBe("auto");
 		expect(body.temperature).toBe(EVAL_ARTIFACTS_SAMPLING.temperature);
 		expect(body.top_p).toBe(EVAL_ARTIFACTS_SAMPLING.topP);
@@ -117,18 +113,16 @@ describe("buildToolPathRequestBody", () => {
 		);
 	});
 
-	it("can force one tool, and picks the catalogue's locale from the turn's language", () => {
+	it("can force one tool", () => {
 		const forced = buildToolPathRequestBody("m", {
 			...SPEC,
 			toolChoice: { name: "create_artifact" },
-			language: "hu",
 		});
 		expect(forced.tool_choice).toEqual({
 			type: "function",
 			function: { name: "create_artifact" },
 		});
-		expect(forced.tools).toEqual(loadToolCatalogue("hu"));
-		expect(forced.tools).not.toEqual(loadToolCatalogue("en"));
+		expect(forced.tools).toEqual(loadToolCatalogue());
 	});
 });
 
@@ -197,9 +191,7 @@ describe("sendThroughTools", () => {
 			RequestInit,
 		];
 		expect(url).toBe("http://127.0.0.1:1/v1/chat/completions");
-		expect(JSON.parse(String(init.body)).tools).toEqual(
-			loadToolCatalogue("en"),
-		);
+		expect(JSON.parse(String(init.body)).tools).toEqual(loadToolCatalogue());
 
 		expect(decodeToolPathResponse(result.text)).toEqual({
 			toolCalls: [

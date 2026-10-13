@@ -1,11 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { regenerateApp } from "$lib/server/services/artifacts/app/regenerate";
-import { resolveTurnResponseLanguage } from "$lib/server/services/chat-turn";
-import {
-	detectContentLanguageRequest,
-	resolveResponseLanguage,
-} from "$lib/server/services/language";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -14,17 +9,10 @@ import type { RequestHandler } from "./$types";
  * same generator+verifier pipeline the `create_artifact` tool's App branch
  * uses (`regenerateApp`, one implementation, two callers).
  *
- * There is no chat turn here to inherit a resolved response language from
- * (ruling 55), so this route resolves its own through the SAME policy
- * `resolveTurnResponseLanguage`/`resolveResponseLanguage` apply to a chat
- * turn — the request's own prompt, then the conversation's established
- * language, then the account's UI language — rather than the retired
- * per-message `detectLanguage(prompt)` guess, which read an English prompt
- * full of Hungarian-looking letter pairs as Hungarian. A project-linked App
- * (Task A7's own note: `conversationId` can be null here, unlike the tool's
- * call) has no conversation history to fall back through, so it resolves the
- * prompt and the UI language only — still the same policy, just with an
- * empty history.
+ * There is no chat turn here and no language to decide: the prompt is the
+ * person's own instruction, and the generator reads the language of the App
+ * (and of the words that change it) itself, keeping the App's text in the
+ * language it is in unless the instruction asks for another.
  */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
@@ -55,27 +43,10 @@ export const POST: RequestHandler = async (event) => {
 	const scopedConversationId =
 		typeof conversationId === "string" ? conversationId : null;
 
-	// There is no reply here, only the App: an instruction for its own words in a
-	// language ("Write all the labels in Hungarian") is the App's language
-	// (ruling 75), ahead of the conversation's and the account's.
-	const language =
-		detectContentLanguageRequest(prompt) ??
-		(scopedConversationId
-			? await resolveTurnResponseLanguage({
-					message: prompt,
-					conversationId: scopedConversationId,
-					user,
-				})
-			: resolveResponseLanguage({
-					latestMessage: prompt,
-					uiLanguage: user.uiLanguage,
-				}));
-
 	const result = await regenerateApp({
 		userId: user.id,
 		artifactId: event.params.id,
 		prompt,
-		language,
 		expectVersion,
 		conversationId: scopedConversationId,
 		// Ruling 53: generation + verification can run for tens of seconds: if

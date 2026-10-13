@@ -203,8 +203,8 @@ describe("generateTitle", () => {
 			),
 		);
 
-		// "ok" carries no language signal of its own (ambiguous); the old
-		// behavior fell straight to English here regardless of uiLanguage.
+		// "ok" and "Rendben, segítek." carry too little to name a language: the
+		// account's UI language is the last fallback.
 		await generateTitle("ok", "Rendben, segítek.", "auto", "hu");
 
 		const callArgs = mockFetch.mock.calls[0]?.[1];
@@ -213,7 +213,7 @@ describe("generateTitle", () => {
 		);
 		// The Hungarian few-shot examples carry distinctive Hungarian text; their
 		// presence proves the ambiguous message resolved through uiLanguage
-		// ("hu"), not the old raw-detectLanguage fallback to English.
+		// ("hu"), not a fallback to English.
 		expect(JSON.stringify(body.messages)).toContain(
 			"React komponens létrehozási alapok",
 		);
@@ -241,6 +241,112 @@ describe("generateTitle", () => {
 		);
 		expect(JSON.stringify(body.messages)).not.toContain(
 			"React komponens létrehozási alapok",
+		);
+	});
+
+	// What is written after a reply is in the language the conversation is in for
+	// the person, which the turn names after its reply and records (reply-language.ts):
+	// the title is in it, whatever the reply is written in and whatever the account
+	// is shown in, unless the person set a title language of their own. A caller
+	// with none recorded gets the deterministic chain on the texts.
+	it("writes the title in the language the turn named, else the language of the reply, whatever the account is shown in", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const answer = () =>
+			new Response(
+				JSON.stringify({ choices: [{ message: { content: "Short Title" } }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		const sentPrompt = () => {
+			const callArgs = mockFetch.mock.calls.at(-1)?.[1];
+			return JSON.stringify(
+				JSON.parse(typeof callArgs?.body === "string" ? callArgs.body : "{}")
+					.messages,
+			);
+		};
+		const HU_MARKER = "React komponens létrehozási alapok";
+		const hungarianReply =
+			"Természetesen segítek. Először gyűjtsd össze, hogy mi az, ami nem fér bele a határidőbe, aztán döntsd el, hogy melyiket lehet kihagyni, mert nem minden egyformán fontos.";
+		const englishReply =
+			"Of course. First list everything that does not fit the deadline, then decide which of the items can be left out, because they are not all equally important.";
+
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle("Tell me what to do", hungarianReply, "auto", "en");
+		expect(sentPrompt()).toContain(HU_MARKER);
+
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle("Mondd meg, mit tegyek", englishReply, "auto", "hu");
+		expect(sentPrompt()).not.toContain(HU_MARKER);
+
+		// The person's own title language wins over the reply's.
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle("Tell me what to do", hungarianReply, "en", "hu");
+		expect(sentPrompt()).not.toContain(HU_MARKER);
+
+		// The turn named the language of the conversation for the person: that is
+		// the title's, not the reply's (a requested piece in another language, a
+		// translation, a model that answered in the wrong one).
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle(
+			"Write an email to my colleague in Hungarian",
+			hungarianReply,
+			"auto",
+			"en",
+			"en",
+		);
+		expect(sentPrompt()).not.toContain(HU_MARKER);
+
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle(
+			"Írj egy e-mailt angolul a kollégámnak",
+			englishReply,
+			"auto",
+			"hu",
+			"hu",
+		);
+		expect(sentPrompt()).toContain(HU_MARKER);
+
+		// And the person's own title language still wins over that.
+		mockFetch.mockResolvedValue(answer());
+		await generateTitle("Tell me", englishReply, "hu", "en", "en");
+		expect(sentPrompt()).toContain(HU_MARKER);
+	});
+
+	it("replaces a title written in the other language than the one asked for, and keeps the English ones that look Hungarian", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const titled = async (
+			model: string,
+			language: "en" | "hu",
+			message = "How do I choose between a heat pump and a gas boiler for a small flat",
+		) => {
+			mockFetch.mockResolvedValue(
+				new Response(
+					JSON.stringify({ choices: [{ message: { content: model } }] }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+			return generateTitle(message, "Some reply.", language, "en");
+		};
+
+		// A Hungarian title of content words where English was asked for: the
+		// fallback (the start of the person's message) stands in.
+		expect(await titled("Hőszivattyú vagy gázkazán", "en")).toBe(
+			"How do I choose between a heat pump",
+		);
+		// An English title where Hungarian was asked for.
+		expect(await titled("Choosing a heating system for a flat", "hu")).toBe(
+			"How do I choose between a heat pump",
+		);
+		// English titles that look Hungarian pass.
+		for (const title of [
+			"Van Gogh Biography",
+			"Chevy Volt Review",
+			"Zürich weekend",
+		]) {
+			expect(await titled(title, "en"), title).toBe(title);
+		}
+		// And so does a title in the language asked for.
+		expect(await titled("Hőszivattyú vagy gázkazán", "hu")).toBe(
+			"Hőszivattyú vagy gázkazán",
 		);
 	});
 
@@ -563,12 +669,18 @@ describe("generateTitle", () => {
 		).toBe(false);
 	});
 
-	it("falls back to the user message when the model returns a title in the wrong language", async () => {
+	it("falls back to the user message when the model returns a title plainly in the wrong language", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			new Response(
 				JSON.stringify({
-					choices: [{ message: { content: "Magyar cím" } }],
+					choices: [
+						{
+							message: {
+								content: "Telepítési jegyzetek és hibák, amit nem értek",
+							},
+						},
+					],
 				}),
 				{
 					status: 200,

@@ -76,7 +76,6 @@ describe("the sampling the harness sends is the app's own", () => {
 		const body = buildToolPathRequestBody(MODEL, {
 			system: "system",
 			user: "user",
-			language: "en",
 			toolChoice: "auto",
 			thinking: "off",
 		});

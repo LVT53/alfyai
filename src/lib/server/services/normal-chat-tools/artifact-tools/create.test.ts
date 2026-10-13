@@ -75,7 +75,7 @@ describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 
 // Task: "Alfy must only be told about the artifact kinds that actually
 // exist." advertisedArtifactKinds() is the ONE source every model-facing
-// surface (these schemas, index.ts's TOOL_I18N descriptions, edit_artifact's
+// surface (these schemas, index.ts's TOOL_TEXT descriptions, edit_artifact's
 // advertised schema, and the base prompt paragraph) reads instead of a
 // second hand-kept "which kinds exist" list.
 describe("advertisedArtifactKinds()", () => {
@@ -173,7 +173,6 @@ describe("runCreateArtifactTool — no kind registered yet (Slice 5a)", () => {
 				turnId: "turn-1",
 				title: "Something",
 				body: "content",
-				language: "en",
 				artifactType,
 				abortSignal: new AbortController().signal,
 			});
@@ -209,7 +208,6 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
-			language: "en",
 			artifactType: "document",
 			abortSignal: new AbortController().signal,
 		});
@@ -245,7 +243,6 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
-			language: "en",
 			artifactType: "document",
 			abortSignal: new AbortController().signal,
 		});
@@ -275,7 +272,6 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
-			language: "en",
 			artifactType: "document",
 			abortSignal: controller.signal,
 		});
@@ -325,7 +321,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "Trip cost splitter",
 			body: "Split costs between three friends on a trip.",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -336,7 +331,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 				conversationId: "conv-1",
 				title: "Trip cost splitter",
 				prompt: "Split costs between three friends on a trip.",
-				language: "en",
 			}),
 		);
 		expect(result.modelPayload).toEqual({
@@ -364,7 +358,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "regenerate:artifact-kept",
 			title: "Trip cost splitter",
 			body: "Split costs.",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 			artifactId: "artifact-kept",
@@ -379,7 +372,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "Trip cost splitter",
 			body: "Split costs.",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -388,7 +380,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 		);
 	});
 
-	it("threads the turn's resolved language through to createAppFromBrief unchanged (ruling 55)", async () => {
+	it("hands the person's own message of the turn to createAppFromBrief unchanged, and no language (ruling 55)", async () => {
 		createAppFromBrief.mockResolvedValue({
 			ok: true,
 			artifactId: "artifact-1",
@@ -401,15 +393,15 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			conversationId: "conv-1",
 			turnId: "turn-1",
 			title: "Kvíz",
-			body: "Készíts egy kvízt",
-			language: "hu",
+			body: "A quiz about the rivers of Hungary",
 			artifactType: "app",
+			requestText: "Készíts egy kvízt a magyar folyókról",
 			abortSignal: new AbortController().signal,
 		});
 
-		expect(createAppFromBrief).toHaveBeenCalledWith(
-			expect.objectContaining({ language: "hu" }),
-		);
+		const params = createAppFromBrief.mock.calls[0][0];
+		expect(params.requestText).toBe("Készíts egy kvízt a magyar folyókról");
+		expect(params).not.toHaveProperty("language");
 	});
 
 	it("passes the envelope's abortSignal through unchanged", async () => {
@@ -427,7 +419,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
-			language: "en",
 			artifactType: "app",
 			abortSignal: controller.signal,
 		});
@@ -450,7 +441,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -476,7 +466,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "Tip calculator",
 			body: html,
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -505,7 +494,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "A page with a <button> that resets the form.",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -530,7 +518,6 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
-			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});

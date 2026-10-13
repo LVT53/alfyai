@@ -38,7 +38,6 @@ describe("degraded tool hints", () => {
 				{ tool: "map_route", backend: "Nominatim", status: "degraded" },
 				{ tool: "produce_file", backend: "Docker", status: "unconfigured" },
 			]),
-			"en",
 		);
 		expect([...hints.keys()]).toEqual(["map_route"]);
 		expect(hints.get("map_route")).toContain("OpenRouteService, Nominatim");
@@ -46,7 +45,7 @@ describe("degraded tool hints", () => {
 	});
 
 	it("returns no hints without a snapshot", () => {
-		expect(collectDegradedToolHints(null, "en").size).toBe(0);
+		expect(collectDegradedToolHints(null).size).toBe(0);
 	});
 
 	it("appends hints to matching tool descriptions without mutating the input", () => {
@@ -58,10 +57,9 @@ describe("degraded tool hints", () => {
 			snapshot([
 				{ tool: "map_route", backend: "OpenRouteService", status: "degraded" },
 			]),
-			"hu",
 		);
 		const next = applyDegradedToolHints(tools, hints);
-		expect(next.map_route.description).toMatch(/^Route things\. FIGYELEM/);
+		expect(next.map_route.description).toMatch(/^Route things\. NOTE: /);
 		expect(next.research_web).toBe(tools.research_web);
 		expect(tools.map_route.description).toBe("Route things.");
 	});

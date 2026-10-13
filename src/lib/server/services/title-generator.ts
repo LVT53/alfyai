@@ -5,10 +5,9 @@ import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import {
 	askWithThinkingRetry,
-	isHungarianText,
 	isPlausibleShortText,
-	resolveShortTextLanguage,
 } from "./chat-turn/short-local-text";
+import { afterReplyLanguage, readShortTextLanguage } from "./language";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
 import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
@@ -445,13 +444,23 @@ export async function generateTitle(
 	assistantResponse: string,
 	titleLanguage?: "auto" | "en" | "hu",
 	uiLanguage?: "en" | "hu",
+	conversationLanguage?: "en" | "hu" | null,
 ): Promise<string> {
 	const config = getConfig();
-	const language = resolveShortTextLanguage(
-		userMessage,
-		titleLanguage,
-		uiLanguage,
-	);
+	// The person's own setting wins; otherwise the title is in the language the
+	// conversation is in for the person, the one the turn named after its reply
+	// and recorded on it (chat-turn/reply-language.ts), so it agrees with the
+	// chips; a caller that has none gets the deterministic chain on the texts
+	// (language.ts's afterReplyLanguage), never a guess made before the reply.
+	const language: "en" | "hu" =
+		titleLanguage === "en" || titleLanguage === "hu"
+			? titleLanguage
+			: (conversationLanguage ??
+				afterReplyLanguage({
+					reply: assistantResponse,
+					latestUserMessage: userMessage,
+					uiLanguage,
+				}));
 	const codeRelated = isCodeRelated(userMessage, assistantResponse);
 	const systemPrompt = resolveConfiguredTitleSystemPrompt(
 		language,
@@ -484,11 +493,14 @@ export async function generateTitle(
 		console.info("[TITLE_GENERATE] Fallback: empty cleanedTitle");
 		return fallbackTitle(userMessage);
 	}
-	const titleIsHungarian = isHungarianText(cleanedTitle);
-	if (titleIsHungarian !== (language === "hu")) {
+	// A title in the other language than the one asked for is replaced, but only
+	// when it is plain about it (language.ts's readShortTextLanguage: a single
+	// name or a line of content words says nothing).
+	const titleRead = readShortTextLanguage(cleanedTitle);
+	if (titleRead !== "unknown" && titleRead !== language) {
 		console.info("[TITLE_GENERATE] Fallback: language mismatch", {
 			expected: language,
-			titleIsHungarian,
+			got: titleRead,
 			cleanedTitle,
 		});
 		return fallbackTitle(userMessage);

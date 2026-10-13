@@ -13,15 +13,10 @@ const mocks = vi.hoisted(() => ({
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 	sendJsonControlMessage: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
-	listRecentUserMessageTexts: vi.fn(async () => [] as string[]),
 }));
 
 vi.mock("$lib/server/services/instructions", () => ({
 	resolveTurnInstructions: mocks.resolveTurnInstructions,
-}));
-
-vi.mock("$lib/server/services/messages", () => ({
-	listRecentUserMessageTexts: mocks.listRecentUserMessageTexts,
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
@@ -56,7 +51,6 @@ import {
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolveProviderRuntime,
-	resolveTurnResponseLanguage,
 } from "./shared-normal-chat-model-run-helpers";
 
 const runtimeConfig = {
@@ -300,6 +294,9 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 			"user-1",
 		);
 		expect(mocks.seedBuiltInSystemSkillDefinitions).toHaveBeenCalledTimes(1);
+		// The catalogue is asked for by user alone: it is English whatever the
+		// person writes or the account is shown in.
+		expect(mocks.listSkillCatalogueEntries).toHaveBeenLastCalledWith("user-1");
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].skillCatalogueBlock,
 		).toContain("## Skills available");
@@ -419,111 +416,5 @@ describe("prepareOutboundContext standing instructions wiring", () => {
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].instructions,
 		).toEqual({ personal: "Use metric units.", project: null });
-	});
-});
-
-describe("resolveTurnResponseLanguage", () => {
-	beforeEach(() => {
-		mocks.listRecentUserMessageTexts.mockReset();
-		mocks.listRecentUserMessageTexts.mockResolvedValue([]);
-	});
-
-	it("resolves from the latest message when it is clear, without needing history", async () => {
-		const result = await resolveTurnResponseLanguage({
-			message: "How do I configure the environment variables?",
-			conversationId: "conv-1",
-			user: { id: "user-1" },
-		});
-
-		expect(result).toBe("en");
-	});
-
-	// Ruling 75, the one function send, stream and retry all resolve the turn through:
-	// the chips, the status line and the title read this value, so a request for a
-	// piece of writing in another language must leave it where the conversation is.
-	it("keeps the conversation's language when the message asks for content in another one, and flips it for a request for the reply", async () => {
-		mocks.listRecentUserMessageTexts.mockResolvedValue([
-			"Szia, segítenél a munkahelyi levelezésben?",
-		]);
-		const resolve = (message: string, uiLanguage: "en" | "hu") =>
-			resolveTurnResponseLanguage({
-				message,
-				conversationId: "conv-1",
-				user: { id: "user-1", uiLanguage },
-			});
-
-		expect(
-			await resolve(
-				"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni.",
-				"en",
-			),
-		).toBe("hu");
-		expect(
-			await resolve(
-				"Write an email to my colleague in Hungarian saying I can't come in tomorrow.",
-				"hu",
-			),
-		).toBe("en");
-		expect(await resolve("Válaszolj angolul, kérlek.", "hu")).toBe("en");
-		expect(
-			await resolve("Please answer in Hungarian: what is a mutex?", "en"),
-		).toBe("hu");
-	});
-
-	it("reads recent prior user messages and falls back to one with a clear language when the latest message is ambiguous", async () => {
-		mocks.listRecentUserMessageTexts.mockResolvedValue([
-			"Szia, hogy vagy?",
-			"Kérlek segíts nekem ezzel",
-		]);
-
-		const result = await resolveTurnResponseLanguage({
-			message: "ok",
-			conversationId: "conv-1",
-			user: { id: "user-1" },
-		});
-
-		expect(mocks.listRecentUserMessageTexts).toHaveBeenCalledWith(
-			"conv-1",
-			"user-1",
-			5,
-		);
-		expect(result).toBe("hu");
-	});
-
-	it("falls back to the account's UI language when the latest message and history are both ambiguous", async () => {
-		mocks.listRecentUserMessageTexts.mockResolvedValue([]);
-
-		const result = await resolveTurnResponseLanguage({
-			message: "ok",
-			conversationId: "conv-1",
-			user: { id: "user-1", uiLanguage: "hu" },
-		});
-
-		expect(result).toBe("hu");
-	});
-
-	it("fails open to a message-only resolution when the history lookup throws", async () => {
-		mocks.listRecentUserMessageTexts.mockRejectedValue(
-			new Error("db unavailable"),
-		);
-
-		const result = await resolveTurnResponseLanguage({
-			message: "Can you help me with this bug?",
-			conversationId: "conv-1",
-			user: { id: "user-1", uiLanguage: "hu" },
-		});
-
-		expect(result).toBe("en");
-	});
-
-	it("skips the history lookup entirely when no authenticated user is available", async () => {
-		const result = await resolveTurnResponseLanguage({
-			message: "ok",
-			conversationId: "conv-1",
-			user: undefined,
-		});
-
-		expect(mocks.listRecentUserMessageTexts).not.toHaveBeenCalled();
-		expect(result).toBe("en");
 	});
 });

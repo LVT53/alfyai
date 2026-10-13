@@ -190,6 +190,38 @@ describe("a chip is the next message the person would send to Alfy", () => {
 			expect(rejectionOf(text, language)).toBe("language");
 		});
 
+		// The real-model check of the language call (C0-ru6, repetition 1): the
+		// chips request said "in English" and "Fejtsd ki részletesebben a két
+		// szakaszt" was kept. Nothing in it is on the short list of words only
+		// Hungarian has, and it holds one word spelt the Hungarian way, which the
+		// reader of a title never counts as enough. A chip is a sentence: four words
+		// or more with no English word in them and a Hungarian one is not English.
+		it.each([
+			["Fejtsd ki részletesebben a két szakaszt", "en"],
+			["Sorold fel a három lépést pontosabban", "en"],
+			["Hasonlítsd össze a két módszert részletesen", "en"],
+			["Mutasd meg a lépéseket egyszerűbben", "en"],
+			["Explain the Calvin cycle in more detail", "hu"],
+			["Show the steps in a simpler way", "hu"],
+		] as const)("%s is not %s", (text, language) => {
+			expect(rejectionOf(text, language)).toBe("language");
+		});
+
+		// English chips that carry a Hungarian name, a place or one of the English
+		// words that are Hungarian words too ("van", "volt"), and Hungarian chips
+		// that carry an English product name, are in their language.
+		it.each([
+			["Compare Győr and Székesfehérvár in a table", "en"],
+			["Show me Van Gogh's most famous paintings", "en"],
+			["How many volt does a Chevy Volt use?", "en"],
+			["Explain how a 12 volt battery works", "en"],
+			["Show me Győr and Pécs weekend plans", "en"],
+			["Hasonlítsd össze a két Python verziót", "hu"],
+			["Magyarázd el a Docker Compose fájlt", "hu"],
+		] as const)("%s stays %s", (text, language) => {
+			expect(check(text, language)).toEqual({ ok: true, text });
+		});
+
 		it("does not read a short Hungarian chip without accents as English", () => {
 			// The app's detector reads this one as English: no accent, no function
 			// word. A chip is judged on words only the other language has.

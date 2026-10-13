@@ -7,10 +7,7 @@
 // production — is v1's, unchanged, and shared with v2.
 
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
-import {
-	detectLanguage,
-	type SupportedLanguage,
-} from "$lib/server/services/language";
+import type { SupportedLanguage } from "$lib/server/services/language";
 import type { AtlasOutputIds } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
@@ -149,6 +146,14 @@ export interface RunAtlasV3PipelineInput {
 		researchWeb: AtlasV3ResearchWeb;
 		/** One model call per task; see config.ts and worker-bindings.ts. */
 		models: AtlasV3ModelCalls;
+		/**
+		 * The language of the question, asked of the model once at job start
+		 * (question-language.ts) and kept on the ask checkpoint. Absent means
+		 * English: no code reads the question and guesses.
+		 */
+		questionLanguage?: (
+			job: AtlasPipelineJobContext,
+		) => Promise<SupportedLanguage>;
 		/** Arithmetic, through the same sandbox `run_python` uses. */
 		runPython?: AtlasV3CalculationRunner;
 		heartbeat?: (input: {
@@ -526,7 +531,16 @@ export async function runAtlasV3Pipeline(
 ): Promise<AtlasV3PipelineResult> {
 	const now = input.now ?? new Date();
 	const { job, dependencies: deps } = input;
-	const language = detectLanguage(job.query);
+	const resume = deps.loadCheckpoints
+		? readAtlasV3ResumeState(await deps.loadCheckpoints(job.id))
+		: {};
+	// The report's language is the question's, read by the model once at job
+	// start and kept on the ask checkpoint, so a resumed job writes in the
+	// language it started in.
+	const language: SupportedLanguage =
+		resume.language ??
+		(await deps.questionLanguage?.(job).catch(() => null)) ??
+		"en";
 	const config = getAtlasV3ProfileConfig(job.profile, deps.profileOverrides);
 	const staleMonths = getAtlasV3StaleMonths();
 	const concurrency =
@@ -562,10 +576,6 @@ export async function runAtlasV3Pipeline(
 				(phaseDurationsMs[name] ?? 0) + (Date.now() - startedAt);
 		}
 	};
-
-	const resume = deps.loadCheckpoints
-		? readAtlasV3ResumeState(await deps.loadCheckpoints(job.id))
-		: {};
 
 	let sourcesRead = 0;
 	let sectionCounts: { written: number; planned: number } | null = null;
@@ -710,7 +720,7 @@ export async function runAtlasV3Pipeline(
 				return fallbackAtlasV3Ask({ query: job.query, language });
 			}
 		});
-		await checkpoint("ask", ATLAS_V3_CHECKPOINT_ROUND.ask, { ask });
+		await checkpoint("ask", ATLAS_V3_CHECKPOINT_ROUND.ask, { ask, language });
 	}
 	const resolvedAsk: AtlasV3Ask = ask;
 

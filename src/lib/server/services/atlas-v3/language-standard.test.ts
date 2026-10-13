@@ -43,6 +43,32 @@ describe("atlasV3NativeSourcesForRequest", () => {
 		expect(sets.map((set) => set.region)).toEqual(["ie"]);
 	});
 
+	it("reads a cue as a word, not as letters inside one", () => {
+		// "huf" is in "shuffle" and "Hufflepuff": an English question about neither
+		// Hungary nor the forint was sent to the Magyar Kozlony.
+		for (const query of [
+			"Best shuffle algorithms for a music playlist",
+			"Which Hufflepuff traits are in the books?",
+		]) {
+			expect(atlasV3NativeSourcesForRequest({ query, language: "en" })).toEqual(
+				[],
+			);
+		}
+		expect(
+			atlasV3NativeSourcesForRequest({
+				query: "How much is 5000 HUF in euros?",
+				language: "en",
+			}).map((set) => set.region),
+		).toEqual(["hu"]);
+		// A long cue may carry a Hungarian suffix.
+		expect(
+			atlasV3NativeSourcesForRequest({
+				query: "Magyarországon mennyi a minimálbér?",
+				language: "en",
+			}).map((set) => set.region),
+		).toEqual(["hu"]);
+	});
+
 	it("returns nothing for a request with no jurisdiction", () => {
 		expect(
 			atlasV3NativeSourcesForRequest({

@@ -23,6 +23,45 @@ import { refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db/index";
 import { conversations, messages, users } from "$lib/server/db/schema";
 import { persistAssistantRailSummary } from "$lib/server/services/chat-turn/rail-summary";
+import {
+	afterReplyLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
+
+/** The language a live turn recorded on its reply (`conversationLanguage`), if any. */
+function storedConversationLanguage(
+	metadataJson: string | null,
+): SupportedLanguage | null {
+	if (!metadataJson) return null;
+	try {
+		const meta = JSON.parse(metadataJson) as { conversationLanguage?: unknown };
+		return meta.conversationLanguage === "en" ||
+			meta.conversationLanguage === "hu"
+			? meta.conversationLanguage
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+const uiLanguageByUser = new Map<string, SupportedLanguage | null>();
+
+/** The account's UI language, the last fallback of the language of a headline. */
+async function uiLanguageOf(userId: string): Promise<SupportedLanguage | null> {
+	if (uiLanguageByUser.has(userId)) return uiLanguageByUser.get(userId) ?? null;
+	const row = (
+		await db
+			.select({ uiLanguage: users.uiLanguage })
+			.from(users)
+			.where(eq(users.id, userId))
+	)[0];
+	const language =
+		row?.uiLanguage === "en" || row?.uiLanguage === "hu"
+			? row.uiLanguage
+			: null;
+	uiLanguageByUser.set(userId, language);
+	return language;
+}
 
 function hasRailSummary(metadataJson: string | null): boolean {
 	if (!metadataJson) return false;
@@ -84,12 +123,17 @@ async function main() {
 			.orderBy(asc(messages.createdAt));
 
 		let lastUserMessage = "";
+		// The language the conversation was last in, walking it in order: what a
+		// live turn recorded on a reply, else what this script chose for it.
+		let conversationLanguage: SupportedLanguage | null = null;
 		for (const m of msgs) {
 			if (m.role === "user") {
 				lastUserMessage = m.content;
 				continue;
 			}
 			if (m.role !== "assistant") continue;
+			const stored = storedConversationLanguage(m.metadataJson);
+			if (stored) conversationLanguage = stored;
 			if (hasRailSummary(m.metadataJson)) {
 				alreadyHad++;
 				continue;
@@ -99,12 +143,25 @@ async function main() {
 			if (dryRun) continue;
 			try {
 				const before = m.metadataJson;
+				// The language the turn recorded; for an older reply the deterministic
+				// chain the live path falls back to (no model call: this script is
+				// gentle on the shared model), with the language the conversation was
+				// last in and the account's UI language behind it.
+				const responseLanguage =
+					stored ??
+					afterReplyLanguage({
+						reply: m.content,
+						latestUserMessage: lastUserMessage,
+						previous: conversationLanguage,
+						uiLanguage: await uiLanguageOf(convo.userId),
+					});
+				conversationLanguage = responseLanguage;
 				await persistAssistantRailSummary({
 					userId: convo.userId,
 					conversationId: convo.id,
 					assistantMessageId: m.id,
-					userMessage: lastUserMessage,
 					assistantResponse: m.content,
+					responseLanguage,
 				});
 				// Re-read to tell "generated" from "skipped-because-short/failed-degrade".
 				const after = (

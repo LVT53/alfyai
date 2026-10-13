@@ -15,21 +15,15 @@ import type { RequestHandler } from "./$types";
 // (nothing kept to make it from, one already being made, or — `unreachable` —
 // an item still holds the id but the chat cannot reach it).
 //
-// `{ language }` (optional, "en" | "hu") is the reader's interface language: a
-// regeneration is not a turn with a reply language of its own (ruling 55), so
-// an App is made in the caller's. Anything else falls back to English.
+// The request carries no language: an App is made in the language of the brief
+// the model kept (the person's own words), not the reader's interface language.
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
-	const body = (await event.request.json().catch(() => null)) as {
-		language?: unknown;
-	} | null;
-	const language = body?.language === "hu" ? "hu" : "en";
 
 	const result = await recreateArtifactFromStoredCall({
 		userId: user.id,
 		conversationId: event.params.id,
 		artifactId: event.params.artifactId,
-		language,
 		abortSignal: AbortSignal.any([
 			event.request.signal,
 			AbortSignal.timeout(TOOL_TIMEOUTS_MS.create_artifact),

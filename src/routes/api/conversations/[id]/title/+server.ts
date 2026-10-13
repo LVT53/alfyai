@@ -5,6 +5,7 @@ import {
 	createJsonResponse,
 } from "$lib/server/api/responses";
 import { updateConversationTitle } from "$lib/server/services/conversations";
+import { getLastConversationLanguage } from "$lib/server/services/messages";
 import { generateTitle } from "$lib/server/services/title-generator";
 
 export async function POST({ request, params, locals }: RequestEvent) {
@@ -27,11 +28,19 @@ export async function POST({ request, params, locals }: RequestEvent) {
 			userMessagePreview: userMessage.slice(0, 80),
 		});
 
+		// The language the turn named for the conversation after its reply, so the
+		// title agrees with the chips; a conversation with none on record gets the
+		// deterministic chain inside generateTitle.
+		const conversationLanguage = await getLastConversationLanguage(
+			params.id,
+			userId,
+		).catch(() => null);
 		const title = await generateTitle(
 			userMessage,
 			assistantResponse,
 			userTitleLanguage,
 			userUiLanguage,
+			conversationLanguage,
 		);
 
 		console.info("[TITLE_GENERATE] Title generated", {

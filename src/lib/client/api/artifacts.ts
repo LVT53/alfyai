@@ -292,13 +292,12 @@ export type RegenerateDeletedArtifactResult =
  * server makes it again from the arguments the model gave `create_artifact`,
  * under the id the card already carries. Every documented refusal is a normal
  * return value with its reason (the card says which); an unreadable answer or
- * a dead connection is a plain `failed`. `language` is the reader's interface
- * language, which an App is made in.
+ * a dead connection is a plain `failed`. It sends no language: an App is made
+ * in the language of the brief the model kept, not the interface language.
  */
 export async function regenerateDeletedArtifact(
 	conversationId: string,
 	artifactId: string,
-	language: "en" | "hu",
 	fetchImpl: FetchLike = fetch,
 ): Promise<RegenerateDeletedArtifactResult> {
 	try {
@@ -307,7 +306,6 @@ export async function regenerateDeletedArtifact(
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ language }),
 			},
 			fetchImpl,
 		);

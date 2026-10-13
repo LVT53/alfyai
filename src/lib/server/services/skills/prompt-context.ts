@@ -17,7 +17,6 @@
 
 import {
 	discoverSkillSummaries,
-	localizeSkillDiscoverySummary,
 	type ManagedSkillPromptResource,
 	resolveEffectiveSkillDefinition,
 	type SkillDiscoverySummary,
@@ -152,16 +151,15 @@ export function buildSkillCatalogueBlock(
 	return [SKILLS_AVAILABLE_HEADING, ...lines].join("\n");
 }
 
-// Fetches the user's enabled skills (system packs + their own), localized
-// for display, ready to pass to buildSkillCatalogueBlock.
+// Fetches the user's enabled skills (system packs + their own), ready to pass
+// to buildSkillCatalogueBlock. The catalogue is a prompt the model reads, so a
+// system pack keeps its English name and description whatever language the
+// person writes in or the app is shown in (the Skills screens localize them
+// for display themselves).
 export async function listSkillCatalogueEntries(
 	userId: string,
-	language?: "en" | "hu",
 ): Promise<SkillDiscoverySummary[]> {
-	const summaries = await discoverSkillSummaries(userId);
-	return summaries.map((summary) =>
-		localizeSkillDiscoverySummary(summary, language),
-	);
+	return discoverSkillSummaries(userId);
 }
 
 export type SkillLookupFailureReason = "not_found" | "disabled";
@@ -210,9 +208,9 @@ async function resolveSkillByName(
 }
 
 // Every name a model could plausibly have been shown for one skill: its
-// stored name, its id, and — for a system pack — the localized display names
-// `listSkillCatalogueEntries` renders into the catalogue (the model can only
-// echo the name it saw, so a Hungarian catalogue line must resolve too).
+// stored name, its id, and — for a system pack — both localized display names
+// (the catalogue is English, but a Hungarian name the Skills screens show, or
+// one echoed from an earlier turn, still resolves).
 function skillNamesFor(summary: SkillDiscoverySummary): string[] {
 	const names = [summary.displayName, summary.id];
 	if (summary.ownership === "system" && "localizedDefaults" in summary) {

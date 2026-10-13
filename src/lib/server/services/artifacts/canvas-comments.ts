@@ -212,7 +212,7 @@ function buildSystemPrompt(params: {
 		"",
 		"If the comment asks for a change to the board, describe it as ops: the same ops edit_artifact takes.",
 		editArtifactOpsFieldDescription(["canvas"]) ?? "",
-		editArtifactRuleClause(["canvas"], "en"),
+		editArtifactRuleClause(["canvas"]),
 		`Example ops: ${JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE.ops)}`,
 		BLOCK_SHAPES_HINT,
 		"Change only what the comment asks for. If the comment is a question, an observation, or needs no change, leave ops out.",

@@ -91,6 +91,19 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// no separate write-back call is needed), and projected out in
 	// projectMessageMetadata below.
 	followUps?: string[];
+	// The language the text of this assistant reply is written in, read from its
+	// words by language.ts's reader ("unknown" when they said nothing): the
+	// record behind the `[LANGUAGE]` line, written into assistantMetadata by the
+	// send route and stream-completion.ts from chat-turn/reply-language.ts and
+	// never projected to the client. Nothing decides with it.
+	replyLanguage?: "en" | "hu" | "unknown";
+	// The language the conversation was in for the person at this reply: what the
+	// chips, the rail headline and the title were written in (the model's answer
+	// to conversation-language.ts's question, else the deterministic chain).
+	// Written beside `replyLanguage`, never projected to the client, read back by
+	// `getLastConversationLanguage` as the fallback of a later turn whose call
+	// fails and whose reply says nothing.
+	conversationLanguage?: "en" | "hu";
 	// What the user chose for this turn — see `userIntent` on ChatMessage and
 	// $lib/message-user-intent.ts. Written into assistantMetadata by the send
 	// route and stream-completion.ts; read back through
@@ -633,42 +646,59 @@ export async function getLatestAssistantMessageId(
 }
 
 /**
- * The most recent user-authored message texts in a conversation, newest
- * first. Used only to establish the conversation's response language (see
- * language.ts's `resolveResponseLanguage`) when the latest message's
- * language is ambiguous — role-filtered to "user" so assistant prose,
- * memory facts, and retrieved context can never influence that decision,
- * only the user's own words. A light, dedicated query rather than routing
- * through `listMessages`/`listMessageWindow`: those join usage analytics
- * and resolve attachments this caller never needs.
- *
- * Scoped to `conversationId` AND `userId` — mirrors
- * `updateAssistantMessageInstructionSuggestionStatus`'s ownership check
- * above. Every current caller (`resolveTurnResponseLanguage`) already
- * validates ownership upstream via preflight's `getConversation(userId,
- * conversationId)`, but this function is a small, reusable, DB-facing seam
- * in its own right — its own contract should not rely entirely on callers
- * remembering to pre-check ownership. Returns `[]` for a conversation that
- * does not exist or does not belong to `userId`, same as "no messages".
+ * How many of a conversation's newest assistant replies are looked at for the
+ * language the conversation was last in.
  */
-export async function listRecentUserMessageTexts(
+const CONVERSATION_LANGUAGE_LOOKBACK = 6;
+
+/**
+ * The language the conversation was in for the person at its most recent
+ * assistant reply that has one on record ("en" or "hu"), from the
+ * `conversationLanguage` stored on its metadata, or null. A light, dedicated
+ * query: only what is written after a reply uses it (chat-turn/reply-language.ts),
+ * as the fallback of a turn whose language call failed and whose reply says
+ * nothing by itself. Scoped to `conversationId` AND `userId`, so a conversation
+ * that is not the caller's reads as having none.
+ */
+export async function getLastConversationLanguage(
 	conversationId: string,
 	userId: string,
-	limit = 5,
-): Promise<string[]> {
-	const [conversation] = await db
-		.select({ id: conversations.id })
-		.from(conversations)
+): Promise<"en" | "hu" | null> {
+	if (!(await ownsConversation(conversationId, userId))) return null;
+
+	const rows = await db
+		.select({ metadataJson: messages.metadataJson })
+		.from(messages)
 		.where(
 			and(
-				eq(conversations.id, conversationId),
-				eq(conversations.userId, userId),
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "assistant"),
 			),
 		)
-		.limit(1);
-	if (!conversation) return [];
+		.orderBy(...messageOrderDesc())
+		.limit(CONVERSATION_LANGUAGE_LOOKBACK);
+	for (const row of rows) {
+		const language = parseMetadata(row.metadataJson)?.conversationLanguage;
+		if (language === "en" || language === "hu") return language;
+	}
+	return null;
+}
 
-	const boundedLimit = Math.max(1, Math.min(limit, 20));
+/**
+ * The text of the person's message before the one being answered, or null.
+ * `latestMessage` is the message of the turn: a turn that persists its user
+ * message after the reply (send, stream) has not stored it yet, a retry has,
+ * so the newest stored message of the person that is not the same text is the
+ * one before. A light, dedicated query for conversation-language.ts, scoped to
+ * `conversationId` AND `userId`.
+ */
+export async function getPreviousUserMessageText(
+	conversationId: string,
+	userId: string,
+	latestMessage: string,
+): Promise<string | null> {
+	if (!(await ownsConversation(conversationId, userId))) return null;
+
 	const rows = await db
 		.select({ content: messages.content })
 		.from(messages)
@@ -679,9 +709,29 @@ export async function listRecentUserMessageTexts(
 			),
 		)
 		.orderBy(...messageOrderDesc())
-		.limit(boundedLimit);
+		.limit(2);
+	const latest = latestMessage.trim();
+	for (const row of rows) {
+		if (row.content.trim() !== latest) return row.content;
+	}
+	return null;
+}
 
-	return rows.map((row) => row.content);
+async function ownsConversation(
+	conversationId: string,
+	userId: string,
+): Promise<boolean> {
+	const [conversation] = await db
+		.select({ id: conversations.id })
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
+		.limit(1);
+	return Boolean(conversation);
 }
 
 /**

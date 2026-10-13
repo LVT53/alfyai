@@ -24,12 +24,10 @@ import {
 	containsEnglishWords,
 	containsInternalIdentifier,
 	generateShortLocalText,
-	isHungarianText,
 	isPlausibleShortText,
 	isReasoningLeak,
 	isRequestRestatement,
 	leaksInternalNames,
-	resolveShortTextLanguage,
 	stripLeakedThinking,
 	unwrapJsonControlText,
 } from "./short-local-text";
@@ -323,94 +321,6 @@ describe("isPlausibleShortText", () => {
 				rejectReasoningLeak: false,
 			}),
 		).toBe(true);
-	});
-});
-
-describe("resolveShortTextLanguage", () => {
-	it("prefers an explicit preference over everything else", () => {
-		expect(resolveShortTextLanguage("bármi magyar szöveg", "en")).toBe("en");
-		expect(resolveShortTextLanguage("a plain english sentence", "hu")).toBe(
-			"hu",
-		);
-	});
-
-	it("honors inline language hints", () => {
-		expect(resolveShortTextLanguage("Please answer in English")).toBe("en");
-		expect(resolveShortTextLanguage("Summarize in english please")).toBe("en");
-		expect(resolveShortTextLanguage("Kérlek válaszolj magyarul")).toBe("hu");
-	});
-
-	// Ruling 75: the title, the thought-step status line and the rail headline are
-	// the person's, so a request for a piece of writing in another language
-	// ("Írj egy e-mailt angolul...") leaves them in the conversation's language.
-	it("keeps the conversation's language when the message asks for content in another one", () => {
-		expect(
-			resolveShortTextLanguage(
-				"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni.",
-				"auto",
-				"hu",
-			),
-		).toBe("hu");
-		expect(
-			resolveShortTextLanguage(
-				"Write an email to my colleague in Hungarian saying I can't come in tomorrow.",
-				"auto",
-				"en",
-			),
-		).toBe("en");
-	});
-
-	it("falls back to language detection", () => {
-		expect(resolveShortTextLanguage("Egy magyar mondat és kérdés")).toBe("hu");
-		expect(
-			resolveShortTextLanguage("A short note about deployment steps"),
-		).toBe("en");
-	});
-
-	// Title generation's "auto" preference used to fall to raw detectLanguage,
-	// which collapses an ambiguous message straight to "en" — ignoring the
-	// user's actual uiLanguage. Delegating to language.ts's shared
-	// resolveResponseLanguage (2026-09-25 review) fixes that without a second
-	// fallback policy living here.
-	it("falls back to uiLanguage (via the shared resolver) when the message is ambiguous and no preference pins it", () => {
-		expect(resolveShortTextLanguage("ok", undefined, "hu")).toBe("hu");
-		expect(resolveShortTextLanguage("ok", "auto", "hu")).toBe("hu");
-		expect(resolveShortTextLanguage("ok", "auto", "en")).toBe("en");
-	});
-
-	it("still prefers an explicit inline hint or clearly-detected language over uiLanguage", () => {
-		expect(
-			resolveShortTextLanguage("Kérlek válaszolj magyarul", "auto", "en"),
-		).toBe("hu");
-		expect(
-			resolveShortTextLanguage("Egy magyar mondat és kérdés", "auto", "en"),
-		).toBe("hu");
-	});
-
-	it("still lets an explicit en/hu preference win over uiLanguage", () => {
-		expect(resolveShortTextLanguage("ok", "en", "hu")).toBe("en");
-		expect(resolveShortTextLanguage("ok", "hu", "en")).toBe("hu");
-	});
-
-	it("defaults to English when the message is ambiguous and no uiLanguage is given either", () => {
-		expect(resolveShortTextLanguage("ok")).toBe("en");
-		expect(resolveShortTextLanguage("ok", "auto")).toBe("en");
-	});
-});
-
-describe("isHungarianText", () => {
-	it("detects Hungarian by accented characters", () => {
-		expect(isHungarianText("Magyar cím")).toBe(true);
-		expect(isHungarianText("Adatbázis tervezési tanácsok")).toBe(true);
-	});
-
-	it("detects Hungarian by strong function words without accents", () => {
-		expect(isHungarianText("nem van meg")).toBe(true);
-	});
-
-	it("treats plain English as non-Hungarian", () => {
-		expect(isHungarianText("How to Create React Components")).toBe(false);
-		expect(isHungarianText("Practical Database Design Advice")).toBe(false);
 	});
 });
 
@@ -852,11 +762,95 @@ describe("generateShortLocalText", () => {
 		expect(out).toBe("Északi erkély növényei és öntözése");
 	});
 
-	it("returns null when the text is not in the expected language", async () => {
-		sendJsonControlMessageMock.mockResolvedValue(
-			controlResult({ text: "Magyar cím" }),
-		);
+	it("returns null when the text is plainly in the other language than expected", async () => {
+		const askFor = async (language: "en" | "hu", text: string) => {
+			sendJsonControlMessageMock.mockResolvedValue(controlResult({ text }));
+			return generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+				language,
+			});
+		};
 
+		// A Hungarian line where English was asked for, and the other way round.
+		expect(
+			await askFor("en", "Hogy van az, hogy nem tudom, mert kell"),
+		).toBeNull();
+		expect(
+			await askFor("hu", "How the plan works and what you need"),
+		).toBeNull();
+		// The right language passes.
+		expect(await askFor("en", "How the plan works and what you need")).toBe(
+			"How the plan works and what you need",
+		);
+	});
+
+	it("drops a line of Hungarian content words where English was asked for, and an English one where Hungarian was (review RV-L's probe)", async () => {
+		const askFor = async (language: "en" | "hu", text: string) => {
+			sendJsonControlMessageMock.mockResolvedValue(controlResult({ text }));
+			return generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+				language,
+			});
+		};
+
+		// Headlines with no closed-class word in them, in Hungarian spelling.
+		for (const line of [
+			"Hőszivattyú vagy gázkazán",
+			"Heti kiadáskövető alkalmazás",
+			"Felújítási költségek becslése",
+			"Nyaralás tervezése Balatonon",
+			"Python függvény hibakeresése",
+		]) {
+			expect(await askFor("en", line), line).toBeNull();
+			expect(await askFor("hu", line), line).toBe(line);
+		}
+		// English lines where Hungarian was asked for.
+		for (const line of [
+			"How to choose a laptop",
+			"Benefits of cycling to work",
+			"Telling the boss you will be late",
+		]) {
+			expect(await askFor("hu", line), line).toBeNull();
+			expect(await askFor("en", line), line).toBe(line);
+		}
+	});
+
+	it("keeps English lines that merely look Hungarian: a surname, a unit, a city, a loanword", async () => {
+		for (const line of [
+			"Van Gogh Biography",
+			"Chevy Volt Review",
+			"Zürich weekend",
+			"Café menu ideas",
+			"Béla Bartók biography",
+			"Győr weekend trip",
+			"8GB RAM vs 16GB RAM",
+		]) {
+			sendJsonControlMessageMock.mockResolvedValue(
+				controlResult({ text: line }),
+			);
+			const out = await generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+				language: "en",
+			});
+			expect(out, line).toBe(line);
+		}
+	});
+
+	it("keeps a short line whose words do not say which language it is in", async () => {
+		// A name, a place, a loanword: too little to name a language, so nothing
+		// is dropped for it (the old accent test threw "Café menu" away).
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: "Café menu ideas" }),
+		);
 		const out = await generateShortLocalText({
 			prompt: "Summarize this turn",
 			feature: "rail_summary",
@@ -864,8 +858,7 @@ describe("generateShortLocalText", () => {
 			conversationId: "c1",
 			language: "en",
 		});
-
-		expect(out).toBeNull();
+		expect(out).toBe("Café menu ideas");
 	});
 
 	// A2 hardening — the `cleanup.normalize` hook runs on the raw model text

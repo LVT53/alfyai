@@ -224,7 +224,7 @@ describe("verifyApp — the three prototype bug classes", () => {
 			),
 		);
 
-		const result = await verifyApp(baseParams({ language: "hu" }));
+		const result = await verifyApp(baseParams());
 
 		expect(result.findings[0].class).toBe("wrong_unit");
 	});

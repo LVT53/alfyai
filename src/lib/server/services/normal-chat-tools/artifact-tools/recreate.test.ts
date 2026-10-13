@@ -90,7 +90,6 @@ function regenerate(
 		userId: OWNER,
 		conversationId: CONVERSATION,
 		artifactId: "doc-1",
-		language: "en",
 		abortSignal: new AbortController().signal,
 		...overrides,
 	});
@@ -284,7 +283,7 @@ describe("recreateArtifactFromStoredCall", () => {
 			verification: { checked: false, verdict: "clean", reason: null },
 		});
 
-		const result = await regenerate({ artifactId: "app-1", language: "hu" });
+		const result = await regenerate({ artifactId: "app-1" });
 
 		expect(createAppFromBrief).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -292,7 +291,6 @@ describe("recreateArtifactFromStoredCall", () => {
 				conversationId: CONVERSATION,
 				prompt: "Split trip costs between three friends.",
 				title: "Trip budget",
-				language: "hu",
 				artifactId: "app-1",
 			}),
 		);

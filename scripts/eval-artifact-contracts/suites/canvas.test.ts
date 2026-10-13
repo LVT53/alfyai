@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ALFYAI_NEMOTRON_PROMPT } from "$lib/server/prompts";
 import { buildArtifactCatalogueBlock } from "$lib/server/services/artifacts/catalogue";
+import { REPLY_LANGUAGE_RULE } from "$lib/server/services/normal-chat-context";
 import { parseCanvasCreateBody } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
 import { CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE } from "$lib/server/services/normal-chat-tools/artifact-tools/kind-prose";
 import { runReadArtifactTool } from "$lib/server/services/normal-chat-tools/artifact-tools/read";
@@ -18,6 +19,7 @@ import {
 	CANVAS_EVAL_CASES,
 	CANVAS_TOOL_SUITE,
 	canvasSystemPrompt,
+	canvasUserTurn,
 	diagramProblems,
 	frameProblems,
 	labelProblems,
@@ -274,16 +276,15 @@ describe("the canvas suite's cases", () => {
 });
 
 describe("the request a live case sends (ruling 62)", () => {
-	it("goes through the tools with auto choice, thinking off, the case's own language and message", () => {
+	it("goes through the tools with auto choice, thinking off, the case's own message and the turn guidance", () => {
 		const evalCase = caseOf("canvas-add-sunday-hu");
 		const spec = CANVAS_TOOL_SUITE.requestFor(evalCase);
 		expect(spec).toMatchObject({
-			language: "hu",
 			toolChoice: "auto",
 			thinking: "off",
-			user: evalCase.prompt,
+			user: canvasUserTurn(evalCase.prompt),
 		});
-		expect(spec.system).toBe(canvasSystemPrompt("hu"));
+		expect(spec.system).toBe(canvasSystemPrompt());
 		expect(spec.withoutTools).toEqual([
 			"memory_context",
 			"use_skill",
@@ -345,31 +346,15 @@ describe("the request a live case sends (ruling 62)", () => {
 		);
 	});
 
-	it("carries the real base system prompt and states the turn's required language", () => {
-		expect(canvasSystemPrompt("hu")).toContain(ALFYAI_NEMOTRON_PROMPT);
-		expect(canvasSystemPrompt("hu")).toContain(
-			"Required response language for this turn: Hungarian.",
-		);
-		expect(canvasSystemPrompt("en")).toContain(
-			"Required response language for this turn: English.",
-		);
-	});
-
-	it("keeps the language sentence in step with the one production sends", () => {
-		const source = readFileSync(
-			resolve(HERE, "../../../src/lib/server/services/normal-chat-context.ts"),
-			"utf8",
-		);
-		const label = "$" + "{languageLabel}";
-		expect(source).toContain(
-			`\`- Required response language for this turn: ${label}.\``,
-		);
-		expect(source).toContain(
-			`\`- Otherwise, you MUST respond in ${label}. This is a hard requirement. Only switch language if the user explicitly asks you to.\``,
-		);
-		expect(canvasSystemPrompt("en")).toContain(
-			"- Otherwise, you MUST respond in English. This is a hard requirement. Only switch language if the user explicitly asks you to.",
-		);
+	it("carries the real base system prompt, and the person's message with the one reply-language rule after it", () => {
+		expect(canvasSystemPrompt()).toBe(ALFYAI_NEMOTRON_PROMPT);
+		// The rule names no language: the model reads the message (Hungarian or
+		// English) and answers in its language. It is the app's own constant, so it
+		// cannot drift from what production sends.
+		const turn = canvasUserTurn("Rakj egy tervet a táblára.");
+		expect(turn.startsWith("Rakj egy tervet a táblára.")).toBe(true);
+		expect(turn.endsWith(REPLY_LANGUAGE_RULE)).toBe(true);
+		expect(turn).not.toMatch(/Required response language|MUST respond/);
 	});
 
 	it("keeps the artifact catalogue block in step with the one the app appends to the turn", () => {
@@ -949,7 +934,12 @@ describe("scoring — what is added to a board that already has things on it (CV
 		const english = score(
 			"canvas-add-note-beside-hu",
 			editAnswer([
-				addNote("sacher", "Sachertorte at the Café Sacher", 230, 240),
+				addNote(
+					"sacher",
+					"Sachertorte at the Café Sacher, the cake you must try",
+					230,
+					240,
+				),
 			]),
 		);
 		expect(english.reasons.join(" ")).toMatch(/language:/);

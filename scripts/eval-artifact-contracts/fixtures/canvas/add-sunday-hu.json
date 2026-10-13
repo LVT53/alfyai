@@ -1,6 +1,6 @@
 {
 	"id": "add-sunday-hu",
-	"description": "The Hungarian catalogue and a Hungarian board: the same frame-and-three-notes request, whose new words must be Hungarian.",
+	"description": "A Hungarian board and a Hungarian request (the tool catalogue is the same English one): the same frame-and-three-notes request, whose new words must be Hungarian.",
 	"language": "hu",
 	"kind": "edit",
 	"board": "vienna-tidy-hu",

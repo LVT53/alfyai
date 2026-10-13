@@ -1,5 +1,7 @@
 # Tool usage guidance lives in the tool interface
 
+> Amended 2026-10-13: the catalogue is English only. `TOOL_I18N` became `TOOL_TEXT`; its Hungarian half, the Hungarian frozen snapshot and the Hungarian token ceiling are deleted, and the model chooses the language of its reply under one rule (`REPLY_LANGUAGE_RULE`, see AGENTS.md). The decision below is as it was taken.
+
 Accepted (2026-08-15). Each tool's usage rules — when to call it, its argument shape, one example,
 how to handle its output, and what to do on failure — now live on that tool's own description
 (`TOOL_I18N` in `src/lib/server/services/normal-chat-tools/index.ts`, in both English and Hungarian).

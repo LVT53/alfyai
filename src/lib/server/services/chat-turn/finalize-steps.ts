@@ -424,7 +424,6 @@ export async function runPostTurnTasks(
 					userId: params.userId,
 					conversationId: params.conversationId,
 					assistantMessageId: railAssistantMessageId,
-					userMessage: params.userMessage,
 					assistantResponse: params.assistantResponse,
 					responseLanguage: params.responseLanguage,
 				});

@@ -1,7 +1,7 @@
 // create_artifact: make a Document, App, Canvas or Slides item that lives
 // beside the chat (ADR-0066). "file" is produce_file's, not this tool's — see
 // docs/plans/claude-at-home-2/slice-5.md §The three tools and decisions.md
-// ruling 43 (this tool's shell, registration and the family-wide TOOL_I18N
+// ruling 43 (this tool's shell, registration and the family-wide TOOL_TEXT
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
 //
@@ -116,7 +116,7 @@ export type CreateArtifactModelPayload =
 	| { success: false; error: string };
 
 // English only, mirroring every other tool's field-level `.describe()` text:
-// only the top-level TOOL_I18N description/errorPrefix are bilingual.
+// only the top-level TOOL_TEXT description/errorPrefix are bilingual.
 const ARTIFACT_KIND_LABELS: Record<CreatableArtifactKind, string> = {
 	document: "Document",
 	app: "App",
@@ -204,7 +204,7 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
 		conversationId: params.conversationId,
 		prompt: params.body,
 		title: params.title,
-		language: params.language,
+		requestText: params.requestText,
 		abortSignal: params.abortSignal,
 		artifactId: params.artifactId,
 	});
@@ -320,7 +320,7 @@ export async function runCreateArtifactTool(
 		turnId: params.turnId,
 		title: params.title,
 		body: params.body,
-		language: params.language,
+		requestText: params.requestText,
 		abortSignal: params.abortSignal,
 		artifactId: params.artifactId,
 	});

@@ -50,7 +50,7 @@ export type AppVerificationFindingClass =
 export interface AppVerificationFinding {
 	/** The claim as it appears in the app, quoted and shortened. Goes into Alfy's note, so: no HTML, no markup. */
 	claim: string;
-	/** One sentence, in the request's language, saying what is wrong. */
+	/** One sentence, in the language of the app, saying what is wrong. */
 	problem: string;
 	class: AppVerificationFindingClass;
 	/** Where it is: a table column label, a question id, a heading. Null when the claim has no single home. */
@@ -74,7 +74,7 @@ export interface AppVerification {
 	repairedHtml: string | null;
 	/** Non-null whenever any model call happened: classifier, verifier and any re-verification pass, summed. */
 	usage: AppModelCallUsage | null;
-	/** The user-facing reason for "uncertain"/"unavailable", in the request's language; null otherwise. */
+	/** The reason for "uncertain"/"unavailable"; null otherwise. */
 	reason: string | null;
 }
 
@@ -83,7 +83,6 @@ export interface VerifyAppParams {
 	conversationId: string | null;
 	html: string;
 	prompt: string;
-	language: "en" | "hu";
 	abortSignal?: AbortSignal;
 }
 
@@ -131,16 +130,16 @@ A timer, a stopwatch, a colour picker, a drawing canvas, or a game with no factu
 
 Read the app's HTML (given as the user message) and answer strictly as JSON: {"checkable": boolean, "kinds": string[]}. "kinds" is a subset of ["table","answer_key","computed_numbers","dates","unit_conversion","named_facts"] and MUST be empty when "checkable" is false.`;
 
+/**
+ * What the verifier's claims are written in: the app's own language, which the
+ * verifier reads off the app it is checking (nothing tells it a language).
+ */
+const VERIFIER_LANGUAGE_LINE =
+	"Write every claim, problem and location in the language the app itself is written in.";
+
 /** Exported so the eval harness's `verification` suite (A9) sends the model
  * the exact same instructions the product's own verifier does. */
-export function buildVerifierPrompt(
-	hasResearchWeb: boolean,
-	language: "en" | "hu",
-): string {
-	const languageLine =
-		language === "hu"
-			? "Write every claim, problem and location in Hungarian, matching the app's own language."
-			: "Write every claim, problem and location in English, matching the app's own language.";
+export function buildVerifierPrompt(hasResearchWeb: boolean): string {
 	const webLine = hasResearchWeb
 		? "You have a research_web tool for real-world facts (places, distances, historical facts). Use it rather than answering from memory when a claim names one."
 		: "You have no web research tool available. Never settle a real-world named fact from memory alone — mark it unsettled instead.";
@@ -149,7 +148,7 @@ export function buildVerifierPrompt(
 
 Recompute every number from the app's own inputs: a total that is not the sum of its parts, a percentage that is not the ratio, a running total presented as a per-period figure, are all bugs. Check that every label agrees with what it labels (singular/plural, the right unit, the right column). Check that any answer key or "correct" marker actually names the correct option for the question as written. ${webLine}
 
-${languageLine}
+${VERIFIER_LANGUAGE_LINE}
 
 Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
 \`\`\`json
@@ -172,14 +171,7 @@ Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
  * facts the first pass already settled — with web research where one needed
  * it — are matched by claim TEXT rather than re-derived from memory.
  */
-function buildReVerificationPrompt(
-	previousClaims: string[],
-	language: "en" | "hu",
-): string {
-	const languageLine =
-		language === "hu"
-			? "Write every claim, problem and location in Hungarian, matching the app's own language."
-			: "Write every claim, problem and location in English, matching the app's own language.";
+function buildReVerificationPrompt(previousClaims: string[]): string {
 	const settledLine =
 		previousClaims.length > 0
 			? ` An earlier pass already examined this app — with web research where a claim needed it — and listed these claim subjects: ${previousClaims.map((claim) => `"${claim}"`).join(", ")}. If the same subject still appears here, treat it as already settled rather than unsettled merely because you have no web tool now.`
@@ -189,7 +181,7 @@ function buildReVerificationPrompt(
 
 Recompute every number from the app's own inputs: a total that is not the sum of its parts, a percentage that is not the ratio, a running total presented as a per-period figure, are all bugs. Check that every label agrees with what it labels (singular/plural, the right unit, the right column). Check that any answer key or "correct" marker actually names the correct option for the question as written. You have no web research tool in this pass — never settle a NEW real-world named fact from memory alone; mark it unsettled instead.${settledLine}
 
-${languageLine}
+${VERIFIER_LANGUAGE_LINE}
 
 Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
 \`\`\`json
@@ -369,7 +361,6 @@ async function reVerifyRepair(params: {
 	provider: NormalChatModelRunProvider;
 	repairedHtml: string;
 	prompt: string;
-	language: "en" | "hu";
 	previousClaims: string[];
 	abortSignal?: AbortSignal;
 }): Promise<ReVerifyResult> {
@@ -408,10 +399,7 @@ async function reVerifyRepair(params: {
 			runPlainNormalChatModelRun({
 				provider: params.provider,
 				modelId: "model1",
-				system: buildReVerificationPrompt(
-					params.previousClaims,
-					params.language,
-				),
+				system: buildReVerificationPrompt(params.previousClaims),
 				// Same rule as the first pass (A3.9): the request and the repaired
 				// HTML only, nothing else from the session.
 				messages: [
@@ -542,7 +530,6 @@ export async function verifyApp(
 				userId: params.userId,
 				conversationId: params.conversationId ?? `app-verify:${randomUUID()}`,
 				turnId: randomUUID(),
-				language: params.language,
 				recorder: createToolCallRecorder(),
 			})
 		: undefined;
@@ -564,10 +551,7 @@ export async function verifyApp(
 		verifierResult = await runPlainNormalChatModelRun({
 			provider,
 			modelId: "model1",
-			system: buildVerifierPrompt(
-				Boolean(tools?.research_web),
-				params.language,
-			),
+			system: buildVerifierPrompt(Boolean(tools?.research_web)),
 			// The prompt carries the request and the HTML only (A3.9) — no chat
 			// history, no other artifact.
 			messages: [
@@ -658,7 +642,6 @@ export async function verifyApp(
 			provider,
 			repairedHtml: answer.repairedHtml,
 			prompt: params.prompt,
-			language: params.language,
 			previousClaims: answer.claims,
 			abortSignal: params.abortSignal,
 		});

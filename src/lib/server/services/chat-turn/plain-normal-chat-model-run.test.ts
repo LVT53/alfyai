@@ -702,14 +702,8 @@ describe("runPlainNormalChatSendModel", () => {
 			conversationId: "conv-1",
 			turnId: "normal-chat-turn-1",
 			requestText: "Create a downloadable PDF report",
-			// Root-cause fix (2026-09-25): the old detectLanguage scored the
-			// single-letter token "a" as Hungarian-language evidence (it
-			// collides with the Hungarian definite article), so this
-			// unambiguously English request used to resolve "hu" here — the
-			// tool catalogue would have been rendered in Hungarian for a plain
-			// English file-production request. resolveResponseLanguage excludes
-			// single-letter tokens from scoring; this is now "en", correctly.
-			language: "en",
+			// No language here: the tool catalogue is English whatever the person
+			// writes, and nothing guesses one from the message.
 			enabledConnectionCapabilities: new Set(),
 			modelId: "model1",
 		});

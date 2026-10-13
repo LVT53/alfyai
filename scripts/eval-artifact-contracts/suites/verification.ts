@@ -120,7 +120,7 @@ function buildCase(fixture: VerificationFixture): EvalCase {
 		id: fixture.id,
 		suite: "verification",
 		description: fixture.description,
-		prompt: `${buildVerifierPrompt(false, fixture.language)}\n\n${verifierUserContent(fixture.request, fixture.html)}`,
+		prompt: `${buildVerifierPrompt(false)}\n\n${verifierUserContent(fixture.request, fixture.html)}`,
 		thinking: "off",
 	};
 }
@@ -141,7 +141,7 @@ const KNOWN_BAD_CASE: EvalCase = {
 	suite: "verification",
 	description:
 		"A recorded answer that ignores the verifier's own JSON contract and is a bare word — must score bad.",
-	prompt: `${buildVerifierPrompt(false, "en")}\n\n${verifierUserContent(
+	prompt: `${buildVerifierPrompt(false)}\n\n${verifierUserContent(
 		"Make a Celsius to Fahrenheit conversion table.",
 		readFixture("clean.html"),
 	)}`,

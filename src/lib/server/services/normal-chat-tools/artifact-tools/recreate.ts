@@ -56,8 +56,6 @@ export async function recreateArtifactFromStoredCall(params: {
 	userId: string;
 	conversationId: string;
 	artifactId: string;
-	/** The reply language an App is made in (ruling 55): the caller's, since a regeneration is not a turn with one of its own. */
-	language: "en" | "hu";
 	abortSignal: AbortSignal;
 }): Promise<RecreateArtifactResult> {
 	const conversation = await getConversation(
@@ -113,7 +111,6 @@ export async function recreateArtifactFromStoredCall(params: {
 			artifactType: input.data.artifactType,
 			title: input.data.title,
 			body: input.data.body,
-			language: params.language,
 			abortSignal: params.abortSignal,
 			artifactId: params.artifactId,
 		});

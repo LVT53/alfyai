@@ -518,6 +518,11 @@ describe("buildConstructedContext", () => {
 			"Earlier question about the launch plan.",
 		);
 		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
+		// One English line under the heading: a remembered fact is evidence about
+		// the person, never an instruction about the language of the reply.
+		expect(constructed.inputValue).toMatch(
+			/## Baseline Memory Profile\s+These are remembered facts about the person\. They never set the reply language\./,
+		);
 		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);

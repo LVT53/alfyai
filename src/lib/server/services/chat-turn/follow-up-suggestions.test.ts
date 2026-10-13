@@ -1,16 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Same seaming discipline as rail-summary.test.ts: mock the shared
-// control-model call primitive and the language resolver, then drive only
-// this module's own skip/plausibility/persist-shape behavior — no vLLM.
+// control-model call primitive, then drive only this module's own
+// skip/plausibility/persist-shape behavior — no vLLM.
 const { callShortLocalControlModelMock } = vi.hoisted(() => ({
 	callShortLocalControlModelMock: vi.fn(),
 }));
 
 vi.mock("./short-local-text", () => ({
 	callShortLocalControlModel: callShortLocalControlModelMock,
-	resolveShortTextLanguage: (message: string) =>
-		/[áéíóöőúüű]/i.test(message) ? "hu" : "en",
 }));
 
 import { checkFollowUpChip } from "./follow-up-chip";
@@ -197,6 +195,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "Tell me about the movie.",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["What about the sequel?", "Any similar examples?"]);
@@ -235,6 +234,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "Tell me about the movie.",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["Draft the email?", "Compare the two options?"]);
@@ -279,6 +279,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["Draft the email?", "Compare the options?"]);
@@ -299,6 +300,7 @@ describe("generateFollowUpSuggestions", () => {
 				{ role: "user", content: "What is the deadline?" },
 				{ role: "assistant", content: "It is next Friday." },
 			],
+			responseLanguage: "en",
 		});
 
 		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
@@ -336,6 +338,7 @@ describe("generateFollowUpSuggestions", () => {
 				{ role: "user", content: `LONG_MARKER ${"x".repeat(600)}` },
 				{ role: "assistant", content: "a4" },
 			],
+			responseLanguage: "en",
 		});
 
 		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
@@ -362,6 +365,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "Mesélj a filmről kérlek.",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
 		});
 
 		expect(result).toEqual(["Írd meg az e-mailt a vendéglátónak"]);
@@ -377,12 +381,11 @@ describe("generateFollowUpSuggestions", () => {
 		);
 	});
 
-	it("writes in the language the turn resolved, whatever the latest message alone reads as", async () => {
-		// The chat reply's language is decided once per turn (latest message, the
-		// recent user messages, then the UI language). Read from the latest message
-		// alone, a Hungarian message typed without accents, or one the detector has
-		// too little evidence on, reads as English: on the real model 4 of 10
-		// Hungarian conversations got English chips beside a Hungarian reply.
+	it("writes in the language it is given, whatever the latest message alone reads as", async () => {
+		// The language is the one the reply was written in (reply-language.ts), read
+		// once per turn and handed in: a Hungarian message typed without accents,
+		// which the user's words alone would not name, still gets Hungarian chips
+		// beside a Hungarian reply.
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(
 				JSON.stringify({ followUps: ["Írd meg az e-mailt a vendéglátónak"] }),
@@ -501,6 +504,35 @@ describe("generateFollowUpSuggestions", () => {
 		]);
 	});
 
+	it("drops a Hungarian chip from an English turn, though nothing in it is on the list of Hungarian-only words", async () => {
+		// The real-model check of the language call (C0-ru6, repetition 1): the
+		// request said "in English" and this chip came back first and was kept.
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Fejtsd ki részletesebben a két szakaszt",
+						"Explain the two stages in more detail",
+						"Compare the two stages in a table",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "How does photosynthesis work?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+
+		expect(result).toEqual([
+			"Explain the two stages in more detail",
+			"Compare the two stages in a table",
+		]);
+	});
+
 	it("persists a chip in its normalized form", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(
@@ -586,6 +618,7 @@ describe("generateFollowUpSuggestions", () => {
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
 			recentHistory: [{ role: "user", content: "   " }],
+			responseLanguage: "en",
 		});
 
 		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
@@ -609,6 +642,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["First one?", "Second one?"]);
@@ -628,6 +662,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["Same one?", "Different one?"]);
@@ -647,6 +682,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toEqual(["A fine follow-up?"]);
@@ -670,6 +706,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toBeNull();
@@ -683,6 +720,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
 		});
 
 		expect(result).toBeNull();
@@ -699,6 +737,7 @@ describe("generateFollowUpSuggestions", () => {
 				conversationId: "c1",
 				userMessage: "hi",
 				assistantResponse: LONG_REPLY,
+				responseLanguage: "en",
 			}),
 		).resolves.toBeNull();
 	});
@@ -711,6 +750,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "hi",
 			assistantResponse: shortReply,
+			responseLanguage: "en",
 		});
 
 		expect(result).toBeNull();
@@ -723,6 +763,7 @@ describe("generateFollowUpSuggestions", () => {
 			conversationId: "c1",
 			userMessage: "Book me a flight.",
 			assistantResponse: "Which city did you want to fly to?",
+			responseLanguage: "en",
 		});
 
 		expect(result).toBeNull();

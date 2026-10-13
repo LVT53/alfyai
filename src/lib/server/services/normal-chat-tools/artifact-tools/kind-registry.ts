@@ -3,7 +3,7 @@
 // call into createDocumentArtifact/createAppFromBrief, which pull in the
 // artifacts service, sandbox config, and eventually config-store.ts. Reading
 // "what's advertised right now" (edit.ts's advertised schema, index.ts's
-// TOOL_I18N descriptions, both via kind-prose.ts, and tests) should never
+// TOOL_TEXT descriptions, both via kind-prose.ts, and tests) should never
 // have to pull that chain in just to ask a question — and MUST not, for any
 // caller that reads it at its own module's top level rather than inside a
 // function body: config-store.ts is itself imported by prompts.ts, so a
@@ -42,14 +42,14 @@ export interface CreateArtifactHandlerParams {
 	title: string;
 	body: string;
 	/**
-	 * The turn's own reply language (decisions.md ruling 55), resolved ONCE by
-	 * `resolveTurnResponseLanguage` and carried on `CreateNormalChatToolsContext.language`
-	 * — never re-detected per kind. The App handler uses this instead of running
-	 * `detectLanguage` on its own brief, which read an English brief full of
-	 * Hungarian-looking letter pairs as Hungarian. A kind with no language-
-	 * sensitive output (Document, Canvas, Slides today) may ignore this field.
+	 * The person's own message of this turn, when there is one (a regeneration
+	 * has none). The one kind that writes text of its own, an App, writes its
+	 * labels in the language of these words — or the one they ask for — and not
+	 * in a language the server guessed first (the model's own brief can be in
+	 * another language than the person's). A kind with no text of its own
+	 * (Document, Canvas, Slides) ignores it.
 	 */
-	language: "en" | "hu";
+	requestText?: string;
 	/**
 	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
 	 * or the turn's own stop/disconnect — whichever comes first, the same
@@ -102,7 +102,7 @@ export const CREATE_ARTIFACT_HANDLERS: Partial<
  * The kinds actually advertised to the model right now: exactly the ones
  * with a registered handler above, in CREATABLE_ARTIFACT_KINDS' canonical
  * order. This is the ONE source create_artifact's/edit_artifact's advertised
- * schemas and their TOOL_I18N descriptions read (through kind-prose.ts's
+ * schemas and their TOOL_TEXT descriptions read (through kind-prose.ts's
  * assembly functions, called at request time inside createNormalChatTools)
  * — never a second hand-kept "which kinds exist" list. Canvas and Slides
  * join automatically the moment their own type slice appends a handler in

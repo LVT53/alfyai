@@ -100,7 +100,6 @@ async function createBoard(
 		turnId: "turn-1",
 		title: "Vienna weekend",
 		body,
-		language: "en",
 		abortSignal: abortSignal(),
 		artifactId: overrides.artifactId,
 	});
@@ -200,7 +199,6 @@ describe("create_artifact.canvas", () => {
 			artifactType: "canvas",
 			title: "Vienna weekend",
 			body: CREATE_BODY,
-			language: "en",
 			abortSignal: abortSignal(),
 		});
 		expect(result.modelPayload).toMatchObject({
@@ -245,7 +243,6 @@ describe("create_artifact.canvas", () => {
 			turnId: "turn-1",
 			title: "Vienna weekend",
 			body: CREATE_BODY,
-			language: "en",
 			abortSignal: abortSignal(true),
 		});
 		expect(result?.ok).toBe(false);
@@ -960,10 +957,8 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 	it("names no op in prose that the schema does not have", () => {
 		const kinds = ["canvas"] as const;
 		const prose = [
-			editArtifactRuleClause(kinds, "en"),
-			editArtifactRuleClause(kinds, "hu"),
-			editArtifactExampleClause(kinds, "en"),
-			editArtifactExampleClause(kinds, "hu"),
+			editArtifactRuleClause(kinds),
+			editArtifactExampleClause(kinds),
 			editArtifactOpsFieldDescription(kinds) ?? "",
 			createArtifactBodyFormat(kinds),
 		].join(" ");
@@ -982,21 +977,17 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 	// changes data.kind, which is refused; a rule that says so up front saves the
 	// model that call, on the tool path and on the @Alfy comment path, which is
 	// handed this very sentence.
-	it("says, in both languages, that a block's kind cannot change and what to do instead", () => {
-		const en = editArtifactRuleClause(kinds, "en");
-		expect(en).toMatch(/kind cannot change/);
-		expect(en).toMatch(/remove it and add a new one/);
-		const hu = editArtifactRuleClause(kinds, "hu");
-		expect(hu).toMatch(/típusa nem változtatható/);
-		expect(hu).toMatch(/töröld/);
-		expect(hu).toMatch(/adj hozzá/);
+	it("says that a block's kind cannot change and what to do instead", () => {
+		const rule = editArtifactRuleClause(kinds);
+		expect(rule).toMatch(/kind cannot change/);
+		expect(rule).toMatch(/remove it and add a new one/);
 	});
 
 	// RC-3 N1: a chart and a checklist are not a note's 190, and a chart is as tall
 	// as its plot. The sentence is built from the numbers the board, the model's read
 	// and the eval draw with, so a model that plans by it leaves room for what is
 	// really drawn (a pie is square, so it is taller).
-	it("says, in both languages, how wide a checklist and a chart are and how tall a chart is, from the numbers the board is drawn with", () => {
+	it("says how wide a checklist and a chart are and how tall a chart is, from the numbers the board is drawn with", () => {
 		const chart = (type: string) =>
 			estimatedNodeSize({
 				type: "chart",
@@ -1007,40 +998,29 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		expect(round).toBeGreaterThan(flat);
 		const checklist = defaultNodeWidth("checklist");
 		const chartWidth = defaultNodeWidth("chart");
-		const en = [
-			editArtifactRuleClause(kinds, "en"),
+		for (const text of [
+			editArtifactRuleClause(kinds),
 			createArtifactBodyFormat(kinds),
-		];
-		for (const text of en) {
+		]) {
 			expect(text).toContain(`a checklist ${checklist}`);
 			expect(text).toContain(`a chart ${chartWidth}`);
 			expect(text).toContain(`a chart is ${flat} tall (${round} for a pie`);
 		}
-		const hu = editArtifactRuleClause(kinds, "hu");
-		expect(hu).toContain(`a feladatlista ${checklist}`);
-		expect(hu).toContain(`a diagram ${chartWidth}`);
-		expect(hu).toContain(`egy diagram ${flat} magas`);
-		expect(hu).toContain(`${round}`);
 	});
 
 	// Ruling 74: a diagram is a block Alfy may add, and a block it adds is placed.
-	it("says, in both languages, how wide a diagram is, and that a position left out is placed for it, from the numbers the board is drawn with", () => {
+	it("says how wide a diagram is, and that a position left out is placed for it, from the numbers the board is drawn with", () => {
 		const width = defaultNodeWidth("mermaid");
 		for (const text of [
-			editArtifactRuleClause(kinds, "en"),
+			editArtifactRuleClause(kinds),
 			createArtifactBodyFormat(kinds),
 		]) {
 			expect(text).toContain(`a diagram ${width}`);
 		}
-		const en = editArtifactRuleClause(kinds, "en");
-		expect(en).toMatch(/Leave position out and the block is placed for you/);
-		expect(en).toMatch(/near/);
-		expect(en).toMatch(/kept if free, else moved/);
-		const hu = editArtifactRuleClause(kinds, "hu");
-		expect(hu).toContain(`az ábra ${width}`);
-		expect(hu).toMatch(/A pozíciót hagyd el/);
-		expect(hu).toMatch(/near/);
-		expect(hu).toMatch(/megmarad, ha szabad/);
+		const rule = editArtifactRuleClause(kinds);
+		expect(rule).toMatch(/Leave position out and the block is placed for you/);
+		expect(rule).toMatch(/near/);
+		expect(rule).toMatch(/kept if free, else moved/);
 	});
 
 	it("parses through the advertised schema, and through the validator against a real board with nothing refused, a diagram, a chart written as an object, a note put near another and a frame with no place (ruling 62, ruling 74)", () => {

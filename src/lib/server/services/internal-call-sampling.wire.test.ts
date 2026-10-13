@@ -48,6 +48,7 @@ vi.mock("../prompts", async (importOriginal) => {
 
 import { generateApp } from "./artifacts/app/generate";
 import { verifyApp } from "./artifacts/app/verify";
+import { readConversationLanguage } from "./chat-turn/conversation-language";
 import { generateFollowUpSuggestions } from "./chat-turn/follow-up-suggestions";
 import { persistAssistantRailSummary } from "./chat-turn/rail-summary";
 import { classifyThoughtStepChunk } from "./chat-turn/thought-step-classifier";
@@ -214,6 +215,16 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 		expect(wire()).toEqual(PROFILE);
 	});
 
+	it("conversation language: a JSON verdict keeps temperature 0, family top_p/top_k ride along", async () => {
+		await readConversationLanguage({
+			userId: "u1",
+			conversationId: "c1",
+			latestUserMessage: HU_USER,
+			reply: HU_REPLY,
+		});
+		expect(wire()).toEqual(keepsOwnTemperature(0));
+	});
+
 	it("turn acknowledgment: a JSON classification keeps temperature 0, family top_p/top_k ride along", async () => {
 		await resolveTurnAcknowledgment({
 			userId: "u1",
@@ -228,8 +239,8 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -240,6 +251,7 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -319,7 +331,6 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			userId: "u1",
 			conversationId: "c1",
 			prompt: "Egy egyszerű visszaszámláló alkalmazás",
-			language: "hu",
 		}).catch(() => null);
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -330,7 +341,6 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			conversationId: "c1",
 			html: "<!doctype html><html><body>12:00</body></html>",
 			prompt: "egy óra",
-			language: "hu",
 		}).catch(() => null);
 		expect(wire()).toEqual(keepsOwnTemperature(0));
 	});
@@ -373,6 +383,7 @@ describe("a family with no sampling profile sends exactly what it always sent", 
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual({ temperature: 0.4 });
 	});
@@ -410,8 +421,8 @@ describe("a family with no sampling profile sends exactly what it always sent", 
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual({ temperature: 0.1 });
 	});

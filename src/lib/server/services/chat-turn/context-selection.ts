@@ -301,6 +301,12 @@ type ContextLatencyTierResolution = {
 };
 
 const ACTIVE_MEMORY_PROFILE_SECTION_TITLE = "Baseline Memory Profile";
+// One line under the heading, in English whatever the person writes: a remembered
+// fact is evidence about the person, never an instruction about the language of
+// the reply (a Hungarian fact pulled English prompts into Hungarian in the
+// measured runs; the rule in normal-chat-context.ts says the same in general).
+const ACTIVE_MEMORY_PROFILE_NOTE =
+	"These are remembered facts about the person. They never set the reply language.";
 const PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS = 120;
 
 type ActiveMemoryProfilePromptSection = {
@@ -424,7 +430,7 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	return {
 		section: {
 			title: ACTIVE_MEMORY_PROFILE_SECTION_TITLE,
-			body,
+			body: `${ACTIVE_MEMORY_PROFILE_NOTE}\n${body}`,
 			layer: "session",
 			protected: true,
 			llmCompactible: true,

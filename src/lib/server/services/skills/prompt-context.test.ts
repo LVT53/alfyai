@@ -283,7 +283,7 @@ describe("skills/prompt-context", () => {
 			expect(byName.ok).toBe(true);
 		});
 
-		it("resolves the localized name a Hungarian catalogue line advertises", async () => {
+		it("lists a system pack under its English name, whatever language the account is shown in, and still resolves its Hungarian name", async () => {
 			seedUsers();
 			const { seedBuiltInSystemSkillDefinitions } = await import(
 				"./user-skills"
@@ -292,18 +292,19 @@ describe("skills/prompt-context", () => {
 				await import("./prompt-context");
 			await seedBuiltInSystemSkillDefinitions("user-1");
 
-			const entries = await listSkillCatalogueEntries("user-1", "hu");
-			const localizedName = entries.find(
+			// The catalogue is a prompt the model reads: English, always.
+			const entries = await listSkillCatalogueEntries("user-1");
+			const listed = entries.find(
 				(entry) => entry.id === "system:grill-with-docs",
 			)?.displayName;
-			expect(localizedName).toBe("Tervkritikus");
-			if (!localizedName) return;
+			expect(listed).toBeTruthy();
+			expect(listed).not.toBe("Tervkritikus");
 
-			// The model can only echo the name it was shown, so the lookup has to
-			// accept the localized catalogue name as well as the stored English one.
+			// A model can still echo the Hungarian name from an earlier turn of the
+			// conversation (the Skills screens show it), so the lookup accepts it.
 			const result = await resolveSkillInstructionsForUse({
 				userId: "user-1",
-				name: localizedName,
+				name: "Tervkritikus",
 				requestText: "Nézd át ezt a tervet",
 			});
 
