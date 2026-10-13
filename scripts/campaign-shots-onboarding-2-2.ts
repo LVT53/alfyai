@@ -274,6 +274,8 @@ const SCENES: Scene[] = [
 				await openHome(page);
 				await page.getByTestId("composer-tools-trigger").click();
 				await page.waitForTimeout(900);
+				// The sheet's first row takes the focus when it opens, and draws it as a pressed row.
+				await settle(page, 600);
 			},
 		},
 	},
