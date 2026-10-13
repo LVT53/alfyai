@@ -11,7 +11,7 @@
 		"titleHu": "Üdv az AlfyAI-ban",
 		"titleEn": "Welcome to AlfyAI",
 		"bodyHu": "Az AlfyAI a személyes AI-asszisztensed, a neve Alfy: kérdezhetsz tőle, és együtt készíthettek dokumentumot, alkalmazást vagy táblát. Állítsd be az alapokat (bármikor átállíthatod), a többit pár dia mutatja.\n\nHol találod: Profil és beállítások › Profil › Beállítások.",
-		"bodyEn": "AlfyAI is your personal AI assistant, and its name is Alfy: ask it things, and make documents, apps or canvases together. Set the basics (you can change them any time); the next few screens show the rest.\n\nWhere to find it: Profile & Settings › Profile › Preferences.",
+		"bodyEn": "AlfyAI is your personal AI assistant, called Alfy: ask it things, and make documents, apps or canvases together. Set the basics (you can change them any time); the next few screens show the rest.\n\nWhere to find it: Profile & Settings › Profile › Preferences.",
 		"altTextHu": "Egy újonnan regisztrált felhasználó kezdőlapja: köszöntés a nevével, alatta az üres szövegmező a + és a gemkapocs gombbal. Telefonon ugyanez a kezdőlap.",
 		"altTextEn": "The home page of someone who has just signed up: a greeting with their name, and under it the empty message box with its plus and paperclip buttons. On a phone, the same home page.",
 		"desktopFile": "slides/01-welcome-desktop.png",
