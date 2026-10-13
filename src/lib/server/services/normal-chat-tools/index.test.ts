@@ -5712,10 +5712,17 @@ describe("tool description hygiene", () => {
 	// and 859 per tool, so the headroom the cut freed is not left standing.
 	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
-	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
-	// A new clause has to be paid for by cutting words somewhere in the
-	// catalogue — moving this number up is how the headroom got spent.
-	const PER_TOOL_TOKEN_CEILING = 859;
+	// ceiling. That is a tripwire, not a budget. A new clause has to be paid for
+	// by cutting words somewhere in the catalogue — moving this number up is how
+	// the headroom got spent.
+	//
+	// 2026-10-13: the catalogue is English only (the model chooses the language of
+	// its reply under one rule), so every "hu" figure above is history. The
+	// per-tool tripwire was the Hungarian edit_artifact's number (857 + 2 = 859),
+	// which left the largest English tool 295 tokens of slack and tripped for no
+	// tool; it is the English maximum again, edit_artifact at 564, plus the SAME
+	// margin of 2.
+	const PER_TOOL_TOKEN_CEILING = 566;
 	const CATALOGUE_TOKEN_CEILING = 5222;
 
 	function estimateTokens(text: string): number {

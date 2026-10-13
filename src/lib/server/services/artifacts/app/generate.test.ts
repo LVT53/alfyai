@@ -525,6 +525,18 @@ describe("generateApp — the prompt is the whole session", () => {
 		expect(content).not.toMatch(/Hungarian|English/);
 	});
 
+	it('falls back to the language of the brief when the person\'s words are too short to tell (an "ok" after a Hungarian discussion)', () => {
+		const content = buildAppRequestMessage({
+			prompt: "Egy egyszerű időzítő alkalmazás.",
+			requestText: "ok",
+		});
+		expect(content).toContain('"ok"');
+		expect(content).toContain(
+			'in the language of those words (if they are too short to tell, an "ok" or a "go ahead", in the language of the request above)',
+		);
+		expect(content).not.toMatch(/Hungarian|English/);
+	});
+
 	it("shows only the start of a long message of the person's", () => {
 		const message = buildAppRequestMessage({
 			prompt: "Make a quiz.",

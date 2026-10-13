@@ -174,7 +174,7 @@ export function buildAppRequestMessage(params: {
 	const request = params.requestText?.trim();
 	const languageInstruction =
 		request && request !== params.prompt.trim()
-			? `The person asked for it in these words: ${JSON.stringify(clipRequestText(request))}\nWrite the whole app (every label, button, empty state and error message) in the language of those words, unless they ask for the app in another language.`
+			? `The person asked for it in these words: ${JSON.stringify(clipRequestText(request))}\nWrite the whole app (every label, button, empty state and error message) in the language of those words (if they are too short to tell, an "ok" or a "go ahead", in the language of the request above), unless they ask for the app in another language.`
 			: "Write the whole app (every label, button, empty state and error message) in the language of the request above, unless it asks for the app in another language.";
 	return `${params.prompt}\n\n${languageInstruction}`;
 }
