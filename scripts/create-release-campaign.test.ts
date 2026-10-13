@@ -125,8 +125,66 @@ function writeDeck(root: string, overrides: DeckOverrides = {}): string {
 	return dir;
 }
 
+/**
+ * A deck shaped like a first-run onboarding: a setup slide first, two feature
+ * slides, and the data disclosure last (the two things the service's publish
+ * validation asks of one).
+ */
+function writeOnboardingDeck(
+	root: string,
+	overrides: {
+		slides?: (manifest: Record<string, unknown>[]) => Record<string, unknown>[];
+	} = {},
+): string {
+	const dir = join(root, "onboarding-deck");
+	mkdirSync(join(dir, "slides"), { recursive: true });
+	const specs = [
+		{ slug: "01-welcome", layoutType: "setup" },
+		{ slug: "02-ask", layoutType: "standard" },
+		{ slug: "03-makes", layoutType: "standard" },
+		{ slug: "04-data", layoutType: "standard", role: "data_disclosure" },
+	] as const;
+	let manifest: Record<string, unknown>[] = specs.map((spec, index) => {
+		const entry: Record<string, unknown> = {
+			titleEn: `Title ${index + 1}`,
+			titleHu: `Cím ${index + 1}`,
+			bodyEn: `Body ${index + 1}`,
+			bodyHu: `Törzsszöveg ${index + 1}`,
+			altTextEn: `Alt ${index + 1}`,
+			altTextHu: `Helyettesítő szöveg ${index + 1}`,
+			desktopFile: `slides/${spec.slug}-desktop.svg`,
+			mobileFile: `slides/${spec.slug}-mobile.svg`,
+		};
+		if (spec.layoutType === "setup") {
+			entry.layoutType = "setup";
+			entry.setupControls = [
+				"ui_language",
+				"theme",
+				"model_default",
+				"ai_style",
+			];
+		}
+		if ("role" in spec) entry.semanticRole = spec.role;
+		return entry;
+	});
+	for (const spec of specs) {
+		writeFileSync(
+			join(dir, "slides", `${spec.slug}-desktop.svg`),
+			svg(1600, 1000),
+		);
+		writeFileSync(
+			join(dir, "slides", `${spec.slug}-mobile.svg`),
+			svg(1080, 1920),
+		);
+	}
+	if (overrides.slides) manifest = overrides.slides(manifest);
+	writeFileSync(join(dir, "slides.json"), JSON.stringify(manifest, null, 2));
+	return dir;
+}
+
 function options(overrides: Partial<CliOptions> = {}): CliOptions {
 	return {
+		type: "release",
 		deck: "",
 		name: "AlfyAI 2.0",
 		version: "2.0.0",
@@ -230,6 +288,42 @@ describe("create-release-campaign", () => {
 					"--dry-run=false",
 				]),
 			).toThrow(/--dry-run does not take a value/);
+		});
+
+		it("makes a release of it unless --type onboarding is given, and then wants no --version", () => {
+			const release = parseArgs([
+				"--deck=d",
+				"--name=n",
+				"--version=2.0.0",
+				"--admin-email=a@b",
+			]);
+			expect(release).toMatchObject({ type: "release", version: "2.0.0" });
+
+			const onboarding = parseArgs([
+				"--type",
+				"onboarding",
+				"--deck=d",
+				"--name=n",
+				"--admin-email=a@b",
+			]);
+			expect(onboarding).toMatchObject({ type: "onboarding", version: null });
+
+			// A release needs its version; an onboarding has none to give.
+			expect(() =>
+				parseArgs(["--deck=d", "--name=n", "--admin-email=a@b"]),
+			).toThrow(/--version is required/);
+			expect(() =>
+				parseArgs([
+					"--type=onboarding",
+					"--deck=d",
+					"--name=n",
+					"--version=2.2.0",
+					"--admin-email=a@b",
+				]),
+			).toThrow(/--version does not apply to --type onboarding/);
+			expect(() =>
+				parseArgs(["--type=tour", "--deck=d", "--name=n", "--admin-email=a@b"]),
+			).toThrow(/--type must be release or onboarding/);
 		});
 	});
 
@@ -506,6 +600,274 @@ describe("create-release-campaign", () => {
 				.filter((a) => a.assetKind === "source")
 				.every((a) => a.status === "draft"),
 		).toBe(true);
+	});
+
+	// -----------------------------------------------------------------------
+	// The first-run onboarding (--type onboarding)
+	// -----------------------------------------------------------------------
+
+	describe("a first-run onboarding deck", () => {
+		let onboardingDir: string;
+
+		beforeEach(() => {
+			onboardingDir = writeOnboardingDeck(root);
+		});
+
+		it("reads the setup slide, its controls and the data disclosure", () => {
+			const deck = loadDeck(onboardingDir, {
+				isAllowedActionDestination,
+				type: "onboarding",
+			});
+
+			expect(deck.slides.map((slide) => slide.layoutType)).toEqual([
+				"setup",
+				"standard",
+				"standard",
+				"standard",
+			]);
+			expect(deck.slides[0].setupControls).toEqual([
+				"ui_language",
+				"theme",
+				"model_default",
+				"ai_style",
+			]);
+			expect(deck.slides.map((slide) => slide.semanticRole)).toEqual([
+				"feature",
+				"feature",
+				"feature",
+				"data_disclosure",
+			]);
+		});
+
+		it("asks for exactly one setup slide and at least one data disclosure", () => {
+			const noSetup = writeOnboardingDeck(
+				mkdtempSync(join(tmpdir(), "no-setup-")),
+				{
+					slides: (manifest) => {
+						delete manifest[0].layoutType;
+						delete manifest[0].setupControls;
+						return manifest;
+					},
+				},
+			);
+			expect(() =>
+				loadDeck(noSetup, { isAllowedActionDestination, type: "onboarding" }),
+			).toThrow(/exactly one setup slide.*it has 0/s);
+
+			const twoSetups = writeOnboardingDeck(
+				mkdtempSync(join(tmpdir(), "two-setups-")),
+				{
+					slides: (manifest) => {
+						manifest[1].layoutType = "setup";
+						manifest[1].setupControls = ["theme"];
+						return manifest;
+					},
+				},
+			);
+			expect(() =>
+				loadDeck(twoSetups, { isAllowedActionDestination, type: "onboarding" }),
+			).toThrow(/exactly one setup slide.*it has 2/s);
+
+			const noDisclosure = writeOnboardingDeck(
+				mkdtempSync(join(tmpdir(), "no-disclosure-")),
+				{
+					slides: (manifest) => {
+						delete manifest[3].semanticRole;
+						return manifest;
+					},
+				},
+			);
+			expect(() =>
+				loadDeck(noDisclosure, {
+					isAllowedActionDestination,
+					type: "onboarding",
+				}),
+			).toThrow(/needs a data disclosure slide/);
+		});
+
+		it("refuses setup controls that are unknown or sit on a slide that is not the setup slide", () => {
+			const dir = writeOnboardingDeck(
+				mkdtempSync(join(tmpdir(), "controls-")),
+				{
+					slides: (manifest) => {
+						manifest[0].setupControls = ["theme", "font_size"];
+						manifest[1].setupControls = ["theme"];
+						return manifest;
+					},
+				},
+			);
+			let problems: string[] = [];
+			try {
+				loadDeck(dir, { isAllowedActionDestination, type: "onboarding" });
+			} catch (error) {
+				problems = (error as DeckValidationError).problems;
+			}
+			expect(problems).toEqual(
+				expect.arrayContaining([
+					expect.stringContaining('slide 1: setup control "font_size"'),
+					expect.stringContaining(
+						"slide 2: setupControls are only allowed on the setup slide",
+					),
+				]),
+			);
+		});
+
+		it("keeps those keys out of a release deck", () => {
+			expect(() =>
+				loadDeck(onboardingDir, { isAllowedActionDestination }),
+			).toThrow(/belong to an onboarding deck/);
+		});
+
+		it("creates a first-run onboarding draft, with its setup controls, and publishes it through the service's own validation", async () => {
+			const result = await runCreateReleaseCampaign(
+				options({
+					type: "onboarding",
+					version: null,
+					name: "AlfyAI 2.2 welcome",
+					deck: onboardingDir,
+					publish: true,
+				}),
+				{ db, storageRoot },
+			);
+
+			expect(result).toMatchObject({
+				status: "published",
+				type: "first_run_onboarding",
+				releaseVersion: null,
+				identityKey: "first_run_onboarding:v1:r1",
+				slideCount: 4,
+			});
+			// Publishing one is not like publishing a release: say who it reaches.
+			expect(result.warnings.join("\n")).toMatch(
+				/every account that has not finished THIS revision/,
+			);
+			const slides = db
+				.select()
+				.from(schema.announcementCampaignSlides)
+				.all()
+				.sort((a, b) => a.sortOrder - b.sortOrder);
+			expect(slides.map((slide) => slide.layoutType)).toEqual([
+				"setup",
+				"standard",
+				"standard",
+				"standard",
+			]);
+			expect(JSON.parse(slides[0].setupControlsJson as string)).toEqual([
+				"ui_language",
+				"theme",
+				"model_default",
+				"ai_style",
+			]);
+			expect(slides[3].semanticRole).toBe("data_disclosure");
+		});
+
+		it("makes the next revision beside an onboarding that is already published", async () => {
+			const first = await runCreateReleaseCampaign(
+				options({
+					type: "onboarding",
+					version: null,
+					name: "Welcome 2.0",
+					deck: onboardingDir,
+					publish: true,
+				}),
+				{ db, storageRoot },
+			);
+			const second = await runCreateReleaseCampaign(
+				options({
+					type: "onboarding",
+					version: null,
+					name: "Welcome 2.2",
+					deck: onboardingDir,
+				}),
+				{ db, storageRoot },
+			);
+
+			expect(first.identityKey).toBe("first_run_onboarding:v1:r1");
+			expect(second.identityKey).toBe("first_run_onboarding:v1:r2");
+			// The published one is untouched, and the new one is a draft nobody sees yet.
+			const states = db
+				.select({
+					name: schema.announcementCampaigns.name,
+					status: schema.announcementCampaigns.status,
+				})
+				.from(schema.announcementCampaigns)
+				.all();
+			expect(states).toEqual(
+				expect.arrayContaining([
+					{ name: "Welcome 2.0", status: "published" },
+					{ name: "Welcome 2.2", status: "draft" },
+				]),
+			);
+		});
+
+		it("refuses the same name twice, replaces only a draft, and writes nothing on a dry run", async () => {
+			const onboarding = (overrides: Partial<CliOptions> = {}) =>
+				options({
+					type: "onboarding",
+					version: null,
+					name: "AlfyAI 2.2 welcome",
+					deck: onboardingDir,
+					...overrides,
+				});
+			const dry = await runCreateReleaseCampaign(onboarding({ dryRun: true }), {
+				db,
+				storageRoot,
+			});
+			expect(dry).toMatchObject({
+				dryRun: true,
+				type: "first_run_onboarding",
+				releaseVersion: null,
+				slideCount: 4,
+			});
+			expect(db.select().from(schema.announcementCampaigns).all()).toEqual([]);
+
+			const first = await runCreateReleaseCampaign(onboarding(), {
+				db,
+				storageRoot,
+			});
+			await expect(
+				runCreateReleaseCampaign(onboarding(), { db, storageRoot }),
+			).rejects.toThrow(/draft onboarding named.*--replace-draft/s);
+
+			const replaced = await runCreateReleaseCampaign(
+				onboarding({ replaceDraft: true }),
+				{ db, storageRoot },
+			);
+			expect(replaced.replacedDraftId).toBe(first.campaignId);
+
+			await publishCampaign(replaced.campaignId as string, "admin-user", {
+				db,
+			});
+			await expect(
+				runCreateReleaseCampaign(onboarding({ replaceDraft: true }), {
+					db,
+					storageRoot,
+				}),
+			).rejects.toThrow(
+				/published onboarding named "AlfyAI 2\.2 welcome" already exists.*another --name/s,
+			);
+		});
+
+		it("keeps a release and an onboarding with the same name apart", async () => {
+			await runCreateReleaseCampaign(
+				options({ name: "Same name", deck: deckDir }),
+				{ db, storageRoot },
+			);
+			const result = await runCreateReleaseCampaign(
+				options({
+					type: "onboarding",
+					version: null,
+					name: "Same name",
+					deck: onboardingDir,
+				}),
+				{ db, storageRoot },
+			);
+
+			expect(result.type).toBe("first_run_onboarding");
+			expect(db.select().from(schema.announcementCampaigns).all()).toHaveLength(
+				2,
+			);
+		});
 	});
 
 	describe("the AlfyAI 2.2 deck (docs/plans/campaign-2.2)", () => {

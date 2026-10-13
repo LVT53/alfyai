@@ -1,14 +1,25 @@
 #!/usr/bin/env tsx
 
 /**
- * Create an in-app release campaign from a prepared deck directory, through
- * the app's own service layer rather than the admin UI.
+ * Create an in-app announcement campaign (a release update, or the first-run
+ * onboarding) from a prepared deck directory, through the app's own service
+ * layer rather than the admin UI.
  *
  * Usage:
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/create-release-campaign.ts \
  *     --deck ./alfyai-release-campaign-2 \
  *     --name "AlfyAI 2.0" --version 2.0.0 --admin-email admin@example.com \
  *     [--png-dir <dir>] [--publish] [--dry-run] [--replace-draft]
+ *
+ *   DATABASE_PATH=./data/chat.db npx tsx scripts/create-release-campaign.ts \
+ *     --type onboarding --deck ./alfyai-onboarding \
+ *     --name "AlfyAI 2.2 welcome" --admin-email admin@example.com
+ *
+ * A first-run onboarding has no release version (the system names it
+ * `first_run_onboarding:v1:r<n>`), so `--version` is refused with
+ * `--type onboarding`. Its deck marks one slide `"layoutType": "setup"` (with
+ * `setupControls`) and at least one `"semanticRole": "data_disclosure"`, the two
+ * things the service's publish validation asks of a first-run onboarding.
  *
  * WHY A SCRIPT AND NOT RAW SQL
  * ----------------------------
@@ -79,10 +90,15 @@ function targetFor(variant: Variant) {
 // CLI options
 // ---------------------------------------------------------------------------
 
+/** What the script makes: a release update (the default) or the first-run onboarding. */
+export type CampaignKind = "release" | "onboarding";
+
 export type CliOptions = {
+	type: CampaignKind;
 	deck: string;
 	name: string;
-	version: string;
+	/** The release version; `null` for an onboarding, which has none. */
+	version: string | null;
 	adminEmail: string;
 	pngDir: string | null;
 	publish: boolean;
@@ -93,6 +109,7 @@ export type CliOptions = {
 export class CliUsageError extends Error {}
 
 const FLAGS_WITH_VALUES = new Set([
+	"--type",
 	"--deck",
 	"--name",
 	"--version",
@@ -105,10 +122,15 @@ export const USAGE = `Usage:
   DATABASE_PATH=<path> npx tsx scripts/create-release-campaign.ts \\
     --deck <dir> --name "AlfyAI 2.0" --version 2.0.0 --admin-email <email> \\
     [--png-dir <dir>] [--publish] [--dry-run] [--replace-draft]
+  DATABASE_PATH=<path> npx tsx scripts/create-release-campaign.ts \\
+    --type onboarding --deck <dir> --name "AlfyAI 2.2 welcome" --admin-email <email> \\
+    [--png-dir <dir>] [--publish] [--dry-run] [--replace-draft]
 
+  --type <kind>         release (default) or onboarding (the first-run welcome).
   --deck <dir>          Deck directory holding slides.json and slides/*.svg.
   --name <string>       Internal campaign name shown in the admin list.
   --version <string>    Release version the campaign is linked to (e.g. 2.0.0).
+                        Required for a release; refused for an onboarding.
   --admin-email <email> Existing user with role=admin; becomes the author.
   --png-dir <dir>       Upload pre-rendered PNGs from here instead of the SVGs.
   --publish             Also publish, running the real publish validation.
@@ -150,10 +172,25 @@ export function parseArgs(argv: string[]): CliOptions {
 		return value;
 	};
 
+	const kind = values.get("--type")?.trim() || "release";
+	if (kind !== "release" && kind !== "onboarding") {
+		throw new CliUsageError(
+			`--type must be release or onboarding, not "${kind}".`,
+		);
+	}
+	// A first-run onboarding's version is the system's (`v1`, then a revision), so a
+	// --version given with it would be a value that silently did nothing.
+	if (kind === "onboarding" && values.has("--version")) {
+		throw new CliUsageError(
+			"--version does not apply to --type onboarding: the system names it first_run_onboarding:v1:r<n>.",
+		);
+	}
+
 	return {
+		type: kind,
 		deck: required("--deck"),
 		name: required("--name"),
-		version: required("--version"),
+		version: kind === "release" ? required("--version") : null,
 		adminEmail: required("--admin-email"),
 		pngDir: values.get("--png-dir")?.trim() || null,
 		publish: flags.has("--publish"),
@@ -237,6 +274,19 @@ export function readImageInfo(path: string): ImageInfo {
 
 export const MIN_SLIDES = 4;
 
+/**
+ * The preferences an onboarding's setup slide may offer: the service's own list
+ * (`SETUP_CONTROLS` in `announcement-campaigns.ts`), checked here so a typo is a
+ * deck problem and not a publish failure. The test publishes an onboarding
+ * deck, so a control the service stops accepting fails there.
+ */
+export const ONBOARDING_SETUP_CONTROLS = [
+	"ui_language",
+	"theme",
+	"model_default",
+	"ai_style",
+] as const;
+
 export type DeckSlide = {
 	index: number;
 	titleEn: string;
@@ -248,6 +298,11 @@ export type DeckSlide = {
 	actionLabelEn: string | null;
 	actionLabelHu: string | null;
 	actionDestination: string | null;
+	/** `setup` is the one slide of a first-run onboarding that offers preference controls. */
+	layoutType: "standard" | "setup";
+	/** `data_disclosure` marks the standard slide a first-run onboarding must carry. */
+	semanticRole: "feature" | "data_disclosure";
+	setupControls: string[];
 	images: Record<Variant, ImageInfo>;
 };
 
@@ -299,8 +354,11 @@ export function loadDeck(
 	options: {
 		pngDir?: string | null;
 		isAllowedActionDestination: (value: string | null) => boolean;
+		/** What the deck becomes; decides the slide keys it may carry. A release unless said otherwise. */
+		type?: CampaignKind;
 	},
 ): Deck {
+	const kind = options.type ?? "release";
 	const dir = resolve(deckDir);
 	const problems: string[] = [];
 
@@ -357,6 +415,71 @@ export function loadDeck(
 			["altTextHu", altTextHu],
 		] as const) {
 			if (!value) problems.push(`${label}: ${field} is empty or missing.`);
+		}
+
+		// What kind of slide it is. A release deck is all standard feature slides; an
+		// onboarding deck says which slide is the setup slide and which is the data
+		// disclosure, the two things the publish validation asks of a first-run onboarding.
+		const layoutType = readString(record, "layoutType") || "standard";
+		const semanticRole = readString(record, "semanticRole") || "feature";
+		const rawControls = record.setupControls;
+		const setupControls: string[] = [];
+		if (layoutType !== "standard" && layoutType !== "setup") {
+			problems.push(
+				`${label}: layoutType "${layoutType}" must be standard or setup.`,
+			);
+		}
+		if (semanticRole !== "feature" && semanticRole !== "data_disclosure") {
+			problems.push(
+				`${label}: semanticRole "${semanticRole}" must be feature or data_disclosure.`,
+			);
+		}
+		if (rawControls !== undefined) {
+			if (
+				!Array.isArray(rawControls) ||
+				rawControls.some((control) => typeof control !== "string")
+			) {
+				problems.push(`${label}: setupControls must be an array of strings.`);
+			} else {
+				setupControls.push(...(rawControls as string[]));
+			}
+		}
+		if (kind === "release") {
+			if (
+				layoutType !== "standard" ||
+				semanticRole !== "feature" ||
+				rawControls !== undefined
+			) {
+				problems.push(
+					`${label}: layoutType, semanticRole and setupControls belong to an onboarding deck (--type onboarding).`,
+				);
+			}
+		} else {
+			if (layoutType === "setup") {
+				if (setupControls.length === 0) {
+					problems.push(
+						`${label}: a setup slide needs setupControls (${ONBOARDING_SETUP_CONTROLS.join(", ")}).`,
+					);
+				}
+				if (semanticRole === "data_disclosure") {
+					problems.push(
+						`${label}: the setup slide cannot also be the data disclosure.`,
+					);
+				}
+			} else if (setupControls.length > 0) {
+				problems.push(
+					`${label}: setupControls are only allowed on the setup slide.`,
+				);
+			}
+			for (const control of setupControls) {
+				if (
+					!(ONBOARDING_SETUP_CONTROLS as readonly string[]).includes(control)
+				) {
+					problems.push(
+						`${label}: setup control "${control}" is not one of ${ONBOARDING_SETUP_CONTROLS.join(", ")}.`,
+					);
+				}
+			}
 		}
 
 		const actionLabelEn = readString(record, "actionLabelEn") || null;
@@ -442,10 +565,38 @@ export function loadDeck(
 				actionLabelEn,
 				actionLabelHu,
 				actionDestination,
+				layoutType: layoutType === "setup" ? "setup" : "standard",
+				semanticRole:
+					semanticRole === "data_disclosure" ? "data_disclosure" : "feature",
+				setupControls,
 				images,
 			});
 		}
 	});
+
+	if (kind === "onboarding" && Array.isArray(parsed)) {
+		// The service wants exactly one setup slide and at least one data disclosure.
+		const records = parsed.filter(
+			(raw): raw is Record<string, unknown> =>
+				Boolean(raw) && typeof raw === "object" && !Array.isArray(raw),
+		);
+		const setupSlides = records.filter(
+			(record) => readString(record, "layoutType") === "setup",
+		).length;
+		const disclosures = records.filter(
+			(record) => readString(record, "semanticRole") === "data_disclosure",
+		).length;
+		if (setupSlides !== 1) {
+			problems.push(
+				`an onboarding deck needs exactly one setup slide ("layoutType": "setup"); it has ${setupSlides}.`,
+			);
+		}
+		if (disclosures < 1) {
+			problems.push(
+				`an onboarding deck needs a data disclosure slide ("semanticRole": "data_disclosure").`,
+			);
+		}
+	}
 
 	if (problems.length > 0) {
 		throw new DeckValidationError(`Deck at ${dir} is not usable.`, problems);
@@ -470,7 +621,10 @@ export type CampaignRunResult = {
 	campaignId: string | null;
 	status: string;
 	name: string;
-	releaseVersion: string;
+	/** The service's campaign type: `release_update` or `first_run_onboarding`. */
+	type: "release_update" | "first_run_onboarding";
+	/** `null` for an onboarding, which has no release version. */
+	releaseVersion: string | null;
 	identityKey: string | null;
 	revision: number | null;
 	slideCount: number;
@@ -539,20 +693,22 @@ async function resolveAdminUser(
 }
 
 /**
- * Same name + same release version = the same campaign, whatever revision the
- * service would hand it. `createCampaignDraft` happily makes revision 2, which
- * is exactly the duplicate an operator re-running this by mistake does not
- * want.
+ * Same type + same name (+ same release version, for a release) = the same
+ * campaign, whatever revision the service would hand it. `createCampaignDraft`
+ * happily makes revision 2, which is exactly the duplicate an operator
+ * re-running this by mistake does not want. A draft is preferred when several
+ * rows match, so that "a draft exists" is what `--replace-draft` answers.
  */
 async function findExistingCampaign(
 	// biome-ignore lint/suspicious/noExplicitAny: see CampaignRunContext.db.
 	db: any,
+	campaignType: "release_update" | "first_run_onboarding",
 	name: string,
-	releaseVersion: string,
+	releaseVersion: string | null,
 ) {
-	const { and, eq } = await import("drizzle-orm");
+	const { and, eq, isNull } = await import("drizzle-orm");
 	const schema = await import("$lib/server/db/schema");
-	return db
+	const rows = db
 		.select({
 			id: schema.announcementCampaigns.id,
 			status: schema.announcementCampaigns.status,
@@ -562,13 +718,28 @@ async function findExistingCampaign(
 		.from(schema.announcementCampaigns)
 		.where(
 			and(
-				eq(schema.announcementCampaigns.type, "release_update"),
+				eq(schema.announcementCampaigns.type, campaignType),
 				eq(schema.announcementCampaigns.name, name),
-				eq(schema.announcementCampaigns.releaseVersion, releaseVersion),
+				releaseVersion === null
+					? isNull(schema.announcementCampaigns.releaseVersion)
+					: eq(schema.announcementCampaigns.releaseVersion, releaseVersion),
 			),
 		)
-		.get();
+		.all() as Array<{ id: string; status: string }>;
+	return rows.find((row) => row.status === "draft") ?? rows[0];
 }
+
+/**
+ * What publishing an onboarding does that a release does not. Eligibility is
+ * per user and per snapshot (`getEligibleCampaignForUser`), and a new
+ * onboarding revision is a new snapshot: nobody has finished it yet, existing
+ * accounts included, and it shows before any release announcement.
+ */
+export const ONBOARDING_REACH_NOTE =
+	"A published onboarding is shown once to every account that has not finished THIS revision, " +
+	"existing accounts included, and before any release announcement. Publish it before the release " +
+	"campaign if the sidebar badge should replay the release (the badge opens the newest published " +
+	"announcement).";
 
 /**
  * The badge in the sidebar takes the higher of the package version and the
@@ -608,29 +779,43 @@ export async function runCreateReleaseCampaign(
 		"$lib/campaign-action-destinations"
 	);
 
+	const isOnboarding = options.type === "onboarding";
+	const campaignType = isOnboarding ? "first_run_onboarding" : "release_update";
+	const releaseVersion = isOnboarding ? null : options.version;
+	if (!isOnboarding && !releaseVersion) {
+		throw new CampaignRunError("A release campaign needs a --version.");
+	}
+
 	const deck = loadDeck(options.deck, {
 		pngDir: options.pngDir,
 		isAllowedActionDestination,
+		type: options.type,
 	});
 	const admin = await resolveAdminUser(db, options.adminEmail);
 	const warnings: string[] = [];
 
 	const existing = await findExistingCampaign(
 		db,
+		campaignType,
 		options.name,
-		options.version,
+		releaseVersion,
 	);
+	// "named X for version V" (a release) or just "named X" (an onboarding has no version).
+	const forVersion = releaseVersion ? ` for version ${releaseVersion}` : "";
 	if (existing) {
 		if (existing.status !== "draft") {
 			throw new CampaignRunError(
-				`A ${existing.status} campaign named "${options.name}" already exists for version ` +
-					`${options.version} (id ${existing.id}). Published campaigns are immutable — publish a ` +
-					`new version or revision instead. --replace-draft only ever replaces a DRAFT.`,
+				`A ${existing.status} ${isOnboarding ? "onboarding" : "campaign"} named "${options.name}" already exists${forVersion} ` +
+					`(id ${existing.id}). Published campaigns are immutable — ${
+						isOnboarding
+							? "give the new one another --name (it becomes the next revision)"
+							: "publish a new version or revision instead"
+					}. --replace-draft only ever replaces a DRAFT.`,
 			);
 		}
 		if (!options.replaceDraft) {
 			throw new CampaignRunError(
-				`A draft campaign named "${options.name}" already exists for version ${options.version} ` +
+				`A draft ${isOnboarding ? "onboarding" : "campaign"} named "${options.name}" already exists${forVersion} ` +
 					`(id ${existing.id}). Re-run with --replace-draft to delete and recreate it.`,
 			);
 		}
@@ -644,7 +829,8 @@ export async function runCreateReleaseCampaign(
 			campaignId: null,
 			status: options.publish ? "would publish" : "would create draft",
 			name: options.name,
-			releaseVersion: options.version,
+			type: campaignType,
+			releaseVersion,
 			identityKey: null,
 			revision: null,
 			slideCount: deck.slides.length,
@@ -670,9 +856,9 @@ export async function runCreateReleaseCampaign(
 
 	const campaign = await campaigns.createCampaignDraft(
 		{
-			type: "release_update",
+			type: campaignType,
 			name: options.name,
-			releaseVersion: options.version,
+			releaseVersion,
 			createdByUserId: admin.id,
 		},
 		{ db },
@@ -722,8 +908,9 @@ export async function runCreateReleaseCampaign(
 		}
 
 		slideInputs.push({
-			layoutType: "standard",
-			semanticRole: "feature",
+			layoutType: slide.layoutType,
+			semanticRole: slide.semanticRole,
+			setupControls: slide.setupControls,
 			sortOrder: slide.index,
 			title: { en: slide.titleEn, hu: slide.titleHu },
 			body: { en: slide.bodyEn, hu: slide.bodyHu },
@@ -746,8 +933,12 @@ export async function runCreateReleaseCampaign(
 
 	if (options.publish) {
 		saved = await campaigns.publishCampaign(campaign.id, admin.id, { db });
-		const warning = await appVersionOverrideWarning(db, options.version);
-		if (warning) warnings.push(warning);
+		if (isOnboarding) {
+			warnings.push(ONBOARDING_REACH_NOTE);
+		} else if (releaseVersion) {
+			const warning = await appVersionOverrideWarning(db, releaseVersion);
+			if (warning) warnings.push(warning);
+		}
 	}
 
 	return {
@@ -755,7 +946,8 @@ export async function runCreateReleaseCampaign(
 		campaignId: saved.id,
 		status: saved.status,
 		name: saved.name,
-		releaseVersion: saved.releaseVersion ?? options.version,
+		type: campaignType,
+		releaseVersion: saved.releaseVersion ?? releaseVersion,
 		identityKey: saved.identityKey,
 		revision: saved.revision,
 		slideCount: saved.slides.length,
@@ -823,8 +1015,10 @@ function printResult(result: CampaignRunResult, options: CliOptions): void {
 		lines.push("DRY RUN — nothing was written.");
 	}
 	lines.push("");
-	lines.push(`  Campaign        ${result.name}  (release_update)`);
-	lines.push(`  Release version ${result.releaseVersion}`);
+	lines.push(`  Campaign        ${result.name}  (${result.type})`);
+	if (result.releaseVersion) {
+		lines.push(`  Release version ${result.releaseVersion}`);
+	}
 	lines.push(`  Status          ${result.status}`);
 	if (result.campaignId) lines.push(`  Campaign id     ${result.campaignId}`);
 	if (result.identityKey) lines.push(`  Identity key    ${result.identityKey}`);
