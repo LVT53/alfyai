@@ -219,7 +219,7 @@ describe("resolveTurnReplyLanguage", () => {
 			expect(stats.lastEnglishAccountHungarianReplyAt).toBeGreaterThan(0);
 		});
 
-		it("does not warn for a Hungarian writer who kept the default UI language, nor for a requested piece the model named as theirs elsewhere", async () => {
+		it("does not warn for a Hungarian writer on the default UI language, nor for an account shown in Hungarian", async () => {
 			// ui=en by default, conversation=hu, reply=hu: a Hungarian speaker.
 			readConversationLanguageMock.mockResolvedValue("hu");
 			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" });

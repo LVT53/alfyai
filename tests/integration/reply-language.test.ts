@@ -564,6 +564,7 @@ const GONE = [
 	"resolveShortTextLanguage",
 	"isHungarianText",
 	"listRecentUserMessageTexts",
+	"getLastReplyLanguage",
 ];
 
 describe("I1: the code that decided the language before the reply is gone", () => {
