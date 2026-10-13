@@ -29,20 +29,29 @@ release card on a later load, so none of the welcome's words repeat the card's (
 
 ## How a person meets it (checked in the code, and in a test)
 
-`getEligibleCampaignForUser` (`announcement-campaigns.ts`) answers in this order: the latest published **first-run
-onboarding** if the user has not finished that snapshot, else the latest published **release update** if the user has not
-finished that one. There is no date check, and "finished" is per published snapshot. That has four consequences, and the
-last test of the deck's describe in `create-release-campaign.test.ts` ("is shown once more to an account that finished the
-last onboarding, before the release card") is the proof of the first two:
+**Amended 2026-10-13 (CR, on the owner's word after publishing):** the rule below replaced the one this section first
+described ("no date check", "a new revision reaches everybody"). AGENTS.md, "Announcements", is the source; ADR-0012 is
+amended with it.
 
-1. **A new onboarding revision reaches everybody who has not finished that revision, existing accounts included.** Each
-   account sees the new welcome once, on its next load, before any release card. The owner will see it too. (ADR-0012
-   says so on purpose: "including existing accounts".)
-2. **A release card comes after it**, on the load after the welcome is finished or skipped, never in the same load.
-3. **The sidebar badge replays the newest published announcement** (onboarding or release, never a tour). So publish the
-   welcome **before** the release campaign if the badge should open the release.
+`getEligibleCampaignForUser` (`announcement-campaigns.ts`) answers in this order: the latest published **first-run
+onboarding**, only to an account that has never finished or skipped ANY welcome (a state row on a snapshot of that type);
+else the latest published **release update**, to an account that has not finished it and existed before it was published
+(`users.created_at` before `published_at`). Four consequences, held by `create-release-campaign.test.ts` ("is not shown
+again to an account that finished the last onboarding: the release card is what it gets"),
+`announcement-campaigns.audience.test.ts` and `tests/e2e/campaign-audience.spec.ts`:
+
+1. **A new onboarding revision reaches only new accounts.** An account that went through any welcome is not shown it
+   again; the owner is not either.
+2. **A release card reaches the accounts that were here before it was published**, on a later arrival than the welcome,
+   never in the same load. Finishing a welcome uses no release up. An account made after the release was published is not
+   handed it by itself: the badge opens it.
+3. **The sidebar badge opens the latest release**, and the latest welcome only while no release is published (never a
+   tour), so the order of the two Publish clicks no longer matters.
 4. **A first-open tour comes later still**, in the panel, the first time the person opens a Document, an App or a Canvas
    (never in an incognito chat). The welcome does not explain the tours and does not need to.
+
+A card opens by itself on an arrival only: never on the load that carries a first message from the home page into its
+new chat, and never while the account has a turn running.
 
 What production has now is not in the repository: the onboarding that is published there lives in the production
 database, was written by the owner, and was **not read** (nothing was run against any server). The repository holds only
@@ -497,8 +506,8 @@ fresh window before the run gives up.
   `--version` for an onboarding), the deck rules (one setup slide with its controls, a data disclosure, no onboarding keys
   in a release deck), creation, replace-a-draft and dry-run for an onboarding, and the welcome deck's own tests: its shape,
   the where-line and the lengths, every quoted label against the dictionaries, no run of five words shared with the release
-  card, the English alternate, publishing through the service's validation, and that a new revision is shown once more to an
-  account that finished the last one, before the release card.
+  card, the English alternate, publishing through the service's validation, and (since CR, 2026-10-13) that an account
+  that finished the last onboarding is not shown a new revision: the release card is what it gets.
 - **The card in the real shell, with nothing published.** With the browser's answer to `/api/campaigns/eligible` replaced by
   the draft, a fresh account's shell opens the card on the setup slide; the language control switches the card to English
   and back (and writes the preference); slide 9's button opens the ChatGPT import window and the card is still there when it
@@ -523,11 +532,13 @@ fresh window before the run gives up.
 2. **Pictures.** The Hungarian interface for everyone (`deck`), or the English one (`deck-en`)?
 3. **The button on slide 9** ("Importálás ChatGPT-ből", the first-run template's own idea). Delete the three `action*`
    keys of that slide in `slides.json` to drop it.
-4. **Everybody sees it once more.** A new onboarding revision shows the welcome to existing accounts too. That is how the
-   service was designed (ADR-0012), and the owner can accept it, or ask for a rule that a revision reaches only accounts
-   that never finished a first-run onboarding. That is a code change in `getEligibleCampaignForUser` and an amendment of the
+4. **Decided 2026-10-13: a revision reaches only accounts that never went through a welcome** (CR; the text below is
+   the question as it was asked). **Everybody sees it once more.** A new onboarding revision shows the welcome to
+   existing accounts too. That is how the service was designed (ADR-0012), and the owner can accept it, or ask for a rule
+   that a revision reaches only accounts that never finished a first-run onboarding. That is a code change in `getEligibleCampaignForUser` and an amendment of the
    ADR, not a content one, and is outside this brief.
-5. **The order of publishing.** The welcome before the release card (see "The commands"), so the badge opens the release.
+5. **The order of publishing** no longer matters (CR, 2026-10-13): the badge opens the latest release whichever was
+   published last.
 6. **Slide 3's promise of web sources** is true wherever web search is configured (production has it). On an instance without
    Parallel search, the sources line and the "+" menu's Atlas row are not.
 7. **Left out on purpose:** the Képességek (skills), Atlas reports, the composer's "/" commands, the "A tevékenységed" page,

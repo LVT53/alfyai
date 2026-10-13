@@ -238,6 +238,11 @@ a line about them in the 2.2 campaign or in the onboarding; they are not in the 
 
 ## Step 2: what a brand-new user sees (the first-run onboarding)
 
+**Amended 2026-10-13 (CR):** the audience rule this section describes was replaced on the owner's word. Now the welcome
+goes only to an account that never finished or skipped one, the release card only to an account that existed before the
+release was published (a new user meets the welcome, and finds the release behind the sidebar badge), and the badge opens
+the latest release. AGENTS.md, "Announcements", is the source; the text below is the analysis as it was written.
+
 **How a new user meets the app.** `getEligibleCampaignForUser` (`announcement-campaigns.ts`) answers in this order:
 
 1. the latest published **first-run onboarding**, if the user has not finished or dismissed that snapshot;
