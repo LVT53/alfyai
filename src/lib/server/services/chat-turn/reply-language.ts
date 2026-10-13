@@ -4,9 +4,10 @@
 // No code decides the language of a reply before it exists (owner decision,
 // 2026-10-13): the model reads the person's message and chooses under
 // normal-chat-context.ts's REPLY_LANGUAGE_RULE. What follows the reply is in the
-// language of the PERSON, which is not always the reply's (a requested email in
-// another language, a translation, a pasted text, an explicit "answer in …"), so
-// the model names it too: one small call after the reply (conversation-language.ts).
+// language the person WRITES in (a chip is their next message), which is not
+// always the reply's (a requested email in another language, a translation, a
+// pasted text, an explicit "answer in …"), so the model names it too: one small
+// call after the reply (conversation-language.ts).
 // If that call fails or answers with anything else, the deterministic chain
 // takes over (language.ts's afterReplyLanguage: the reply's own words, the
 // conversation's stored language, the account's UI language). This is the one
@@ -15,9 +16,10 @@
 //
 // It is also where a turn is made observable (I5), content-free: one
 // `[LANGUAGE] ui=<en|hu> conversation=<en|hu> reply=<en|hu|unknown>` line per
-// turn, a warning line when an account shown in English, whose person writes
-// English, got a reply that reads as Hungarian (the failure the owner asked never
-// to see), and counters the stability snapshot reports.
+// turn, a warning line when the model says the person writes English and the
+// reply reads as Hungarian, whatever language the account is shown in (the
+// failure the owner asked never to see), and counters the stability snapshot
+// reports.
 import {
 	getLastConversationLanguage,
 	getPreviousUserMessageText,
@@ -52,17 +54,17 @@ export type ReplyLanguageStats = {
 	unreadCount: number;
 	/** Turns the model did not name the language for: the chain decided. */
 	conversationLanguageFallbackCount: number;
-	/** An English writer on an English account got a reply that reads Hungarian. */
-	englishAccountHungarianReplyCount: number;
-	lastEnglishAccountHungarianReplyAt: number | null;
+	/** A person the model says writes English got a reply that reads as Hungarian. */
+	englishWriterHungarianReplyCount: number;
+	lastEnglishWriterHungarianReplyAt: number | null;
 };
 
 const stats: ReplyLanguageStats = {
 	turnsRead: 0,
 	unreadCount: 0,
 	conversationLanguageFallbackCount: 0,
-	englishAccountHungarianReplyCount: 0,
-	lastEnglishAccountHungarianReplyAt: null,
+	englishWriterHungarianReplyCount: 0,
+	lastEnglishWriterHungarianReplyAt: null,
 };
 
 export function getReplyLanguageStats(): ReplyLanguageStats {
@@ -73,8 +75,8 @@ export function resetReplyLanguageStatsForTests(): void {
 	stats.turnsRead = 0;
 	stats.unreadCount = 0;
 	stats.conversationLanguageFallbackCount = 0;
-	stats.englishAccountHungarianReplyCount = 0;
-	stats.lastEnglishAccountHungarianReplyAt = null;
+	stats.englishWriterHungarianReplyCount = 0;
+	stats.lastEnglishWriterHungarianReplyAt = null;
 }
 
 /**
@@ -126,11 +128,11 @@ export async function resolveTurnReplyLanguage(params: {
 	console.info(
 		`${LOG_PREFIX} ui=${ui} conversation=${language} reply=${reply}`,
 	);
-	if (ui === "en" && language === "en" && reply === "hu") {
-		stats.englishAccountHungarianReplyCount += 1;
-		stats.lastEnglishAccountHungarianReplyAt = Date.now();
+	if (language === "en" && reply === "hu") {
+		stats.englishWriterHungarianReplyCount += 1;
+		stats.lastEnglishWriterHungarianReplyAt = Date.now();
 		console.warn(
-			`${LOG_PREFIX} ui=en conversation=en reply=hu: a person writing English got a reply that reads as Hungarian`,
+			`${LOG_PREFIX} ui=${ui} conversation=en reply=hu: a person writing English got a reply that reads as Hungarian`,
 		);
 	}
 	return { language, reply, via: asked ? "model" : "fallback" };

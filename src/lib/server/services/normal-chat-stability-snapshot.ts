@@ -48,10 +48,10 @@ export type ReplyLanguageStabilitySnapshot = {
 	conversationLanguageFallbackCount: number;
 	/**
 	 * Replies that read as Hungarian for a person the model says writes English,
-	 * on an account shown in English: the failure the owner asked never to see.
+	 * whatever the account is shown in: the failure the owner asked never to see.
 	 */
-	englishAccountHungarianReplyCount: number;
-	lastEnglishAccountHungarianReplyAt: string | null;
+	englishWriterHungarianReplyCount: number;
+	lastEnglishWriterHungarianReplyAt: string | null;
 };
 
 export type StreamStabilitySnapshot = {
@@ -209,11 +209,11 @@ function buildReplyLanguageSnapshot(
 		turnsRead: stats.turnsRead,
 		unreadCount: stats.unreadCount,
 		conversationLanguageFallbackCount: stats.conversationLanguageFallbackCount,
-		englishAccountHungarianReplyCount: stats.englishAccountHungarianReplyCount,
-		lastEnglishAccountHungarianReplyAt:
-			stats.lastEnglishAccountHungarianReplyAt === null
+		englishWriterHungarianReplyCount: stats.englishWriterHungarianReplyCount,
+		lastEnglishWriterHungarianReplyAt:
+			stats.lastEnglishWriterHungarianReplyAt === null
 				? null
-				: new Date(stats.lastEnglishAccountHungarianReplyAt).toISOString(),
+				: new Date(stats.lastEnglishWriterHungarianReplyAt).toISOString(),
 	};
 }
 

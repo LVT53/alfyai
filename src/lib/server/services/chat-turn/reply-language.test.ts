@@ -197,45 +197,56 @@ describe("resolveTurnReplyLanguage", () => {
 			expect(warn).not.toHaveBeenCalled();
 		});
 
-		it("warns, and counts, when the model answered an English writer in Hungarian", async () => {
-			// An account shown in English; the model says the person writes English;
-			// the reply reads as Hungarian: the failure the owner asked never to see.
+		it("warns, and counts, when the model answered an English writer in Hungarian, whatever the account is shown in", async () => {
+			// The model says the person writes English; the reply reads as Hungarian:
+			// the failure the owner asked never to see. The owner's own case is an
+			// account shown in Hungarian, writing English.
 			readConversationLanguageMock.mockResolvedValue("en");
 			await turn({
 				reply: HUNGARIAN_REPLY,
 				latestUserMessage: "What should I cut from this week?",
 				uiLanguage: "en",
 			});
+			await turn({
+				reply: HUNGARIAN_REPLY,
+				latestUserMessage: "What should I cut from this week?",
+				uiLanguage: "hu",
+			});
 
 			expect(info).toHaveBeenCalledWith(
 				"[LANGUAGE] ui=en conversation=en reply=hu",
 			);
-			expect(warn).toHaveBeenCalledTimes(1);
+			expect(info).toHaveBeenCalledWith(
+				"[LANGUAGE] ui=hu conversation=en reply=hu",
+			);
+			expect(warn).toHaveBeenCalledTimes(2);
 			expect(String(warn.mock.calls[0][0])).toContain(
 				"ui=en conversation=en reply=hu",
 			);
+			expect(String(warn.mock.calls[1][0])).toContain(
+				"ui=hu conversation=en reply=hu",
+			);
 			const stats = getReplyLanguageStats();
-			expect(stats.englishAccountHungarianReplyCount).toBe(1);
-			expect(stats.lastEnglishAccountHungarianReplyAt).toBeGreaterThan(0);
+			expect(stats.englishWriterHungarianReplyCount).toBe(2);
+			expect(stats.lastEnglishWriterHungarianReplyAt).toBeGreaterThan(0);
 		});
 
-		it("does not warn for a Hungarian writer on the default UI language, nor for an account shown in Hungarian", async () => {
-			// ui=en by default, conversation=hu, reply=hu: a Hungarian speaker.
+		it("does not warn for a Hungarian writer, on either account, nor for an English reply to an English writer", async () => {
+			// conversation=hu, reply=hu: a Hungarian speaker, on the default UI
+			// language and on an account shown in Hungarian.
 			readConversationLanguageMock.mockResolvedValue("hu");
 			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" });
-			// ui=hu, conversation=hu, reply=hu.
 			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "hu" });
-			// ui=en, conversation=en, reply=en.
+			// conversation=en, reply=en.
 			readConversationLanguageMock.mockResolvedValue("en");
 			await turn({ uiLanguage: "en" });
-			// ui=hu, conversation=en, reply=hu: not the condition (the account is shown in Hungarian).
-			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "hu" });
+			await turn({ uiLanguage: "hu" });
 
 			expect(warn).not.toHaveBeenCalled();
 			expect(getReplyLanguageStats()).toMatchObject({
 				turnsRead: 4,
-				englishAccountHungarianReplyCount: 0,
-				lastEnglishAccountHungarianReplyAt: null,
+				englishWriterHungarianReplyCount: 0,
+				lastEnglishWriterHungarianReplyAt: null,
 			});
 		});
 
