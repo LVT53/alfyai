@@ -22,8 +22,8 @@
 	{
 		"titleHu": "Tábla: szabad felület az ötleteidnek",
 		"titleEn": "A canvas: a free surface for your ideas",
-		"bodyHu": "Jegyzetek, keretek, diagramok, listák, térkép, fájlok: úgy rendezed el őket, ahogy gondolkodsz. Rajzolhatsz is rá, Alfy pedig rendet rak, ha kéred. A kész táblát PNG-képként letöltheted.\n\nHol találod: kérj táblát („tedd a táblára az útiterveket”); lent az eszköztárban a „Beszúrás” és az „Alfy megkérdezése”.",
-		"bodyEn": "Notes, frames, charts, lists, a map, files: arrange them the way you think. Draw on it, and Alfy tidies up when you ask. Download the finished board as a PNG.\n\nWhere to find it: ask for a board (“put the trip options on a board”); “Insert” and “Ask Alfy” are in the toolbar at the bottom.",
+		"bodyHu": "Jegyzetek, keretek, diagramok, listák, térkép, fájlok: úgy rendezed el őket, ahogy gondolkodsz. Rajzolhatsz is rá, Alfy pedig rendet rak, ha kéred. Több blokkot együtt mozgathatsz, a kész táblát PNG-képként letöltheted.\n\nHol találod: kérj táblát („tedd a táblára az útiterveket”); lent az eszköztárban a „Beszúrás” és az „Alfy megkérdezése”.",
+		"bodyEn": "Notes, frames, charts, lists, a map, files: arrange them the way you think. Draw on it, and Alfy tidies up when you ask. Move several blocks together, and download the finished board as a PNG.\n\nWhere to find it: ask for a board (“put the trip options on a board”); “Insert” and “Ask Alfy” are in the toolbar at the bottom.",
 		"altTextHu": "Egy tábla napokra bontott keretekkel és jegyzetekkel, egy ellenőrzőlistával, egy diagrammal és kézzel rajzolt jelekkel; alul az eszköztár a Beszúrás gombbal",
 		"altTextEn": "A canvas with day frames and notes, a checklist, a chart and marks drawn by hand; at the bottom the toolbar with the Insert button",
 		"desktopFile": "slides/03-canvas-desktop.png",
@@ -75,8 +75,8 @@
 	{
 		"titleHu": "Amit Alfy készített, egy helyen találod",
 		"titleEn": "Everything Alfy made, in one place",
-		"bodyHu": "A Tudásbázis Dokumentumok lapján egy listában látod a feltöltött fájlokat és Alfy dokumentumait, alkalmazásait és tábláit; típus szerint szűrhetsz, és a keresés is megtalálja őket.\n\nHol találod: oldalsáv › Tudásbázis › Dokumentumok.",
-		"bodyEn": "The Knowledge base's Documents tab lists your uploaded files and Alfy's documents, apps and canvases in one place; filter by type, and search finds them too.\n\nWhere to find it: sidebar › Knowledge base › Documents.",
+		"bodyHu": "A Tudásbázis Dokumentumok lapján egy listában látod a feltöltött fájlokat és Alfy dokumentumait, alkalmazásait és tábláit; típus szerint szűrhetsz, és a keresés is megtalálja őket. Egy törölt dokumentumot vagy alkalmazást a beszélgetésből újra létrehozhatsz.\n\nHol találod: oldalsáv › Tudásbázis › Dokumentumok.",
+		"bodyEn": "The Knowledge base's Documents tab lists your uploaded files and Alfy's documents, apps and canvases in one place; filter by type, and search finds them too. A deleted document or app can be made again from its chat.\n\nWhere to find it: sidebar › Knowledge base › Documents.",
 		"altTextHu": "A Tudásbázis Dokumentumok lapja: típus szerinti szűrők számlálóval, és egy lista Alfy alkalmazásáról, dokumentumairól és tábláiról",
 		"altTextEn": "The Knowledge base's Documents tab: filters by type with counts, and a list of Alfy's app, documents and canvas",
 		"actionLabelHu": "Tudásbázis megnyitása",
