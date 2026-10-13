@@ -108,6 +108,26 @@ describe("followAnchor", () => {
 		stop();
 	});
 
+	it("keeps the side margin it is given instead of the composer's", () => {
+		const { anchor, popup } = setUp({
+			window: { width: 390, height: 844 },
+			anchor: { left: 221, top: 785, width: 48, height: 48 },
+			popupWidth: 382,
+		});
+		const onPlace = vi.fn();
+
+		const stop = followAnchor({
+			anchor: () => anchor,
+			popup,
+			maxHeight: 480,
+			sideMargin: 4,
+			onPlace,
+		});
+
+		expect(onPlace.mock.lastCall?.[0]).toContain("left:4px;");
+		stop();
+	});
+
 	it("drops below its control when the list does not fit above and there is more room below", () => {
 		const { anchor, popup } = setUp({
 			window: { width: 1024, height: 300 },

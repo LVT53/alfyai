@@ -32,11 +32,19 @@ interface AnchoredPopupOptions {
 	popup: HTMLElement;
 	/** The most the popup grows before its content scrolls, in px; its CSS caps it at the same number. */
 	maxHeight: number;
+	/** How close the popup may come to the window's left and right edges; the composer's own margin when left out. */
+	sideMargin?: number;
 	/** Receives the inline style that places the popup: `left`, `top` or `bottom`, and `max-height`. */
 	onPlace: (style: string) => void;
 }
 
-function place({ anchor, popup, maxHeight, onPlace }: AnchoredPopupOptions) {
+function place({
+	anchor,
+	popup,
+	maxHeight,
+	sideMargin,
+	onPlace,
+}: AnchoredPopupOptions) {
 	const trigger = anchor();
 	if (!trigger || typeof window === "undefined") return;
 	// Its own size decides where it can go: the width is whatever its CSS makes
@@ -54,6 +62,7 @@ function place({ anchor, popup, maxHeight, onPlace }: AnchoredPopupOptions) {
 		width,
 		// The room it needs above the control to hang there whole.
 		height + MENU_GAP + MENU_MARGIN,
+		sideMargin,
 	);
 	const edge =
 		placement.top !== null

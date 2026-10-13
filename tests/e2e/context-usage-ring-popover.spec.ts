@@ -1,14 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
-import { db } from "../../src/lib/server/db";
-import {
-	conversationContextStatus,
-	conversations,
-	messages,
-	usageEvents,
-	users,
-} from "../../src/lib/server/db/schema";
-import { login } from "./helpers";
+import { seedConversationWithContext } from "./context-ring-helpers";
+import { login, waitForHydration } from "./helpers";
 
 // The context-usage ring sits at the bottom of the composer and its panel is
 // anchored to the ring's LEFT edge, growing right. On a wide window the panel
@@ -16,10 +8,12 @@ import { login } from "./helpers";
 // at 587px, so roughly half of it, the layer chips included, was off screen.
 //
 // The viewport here is deliberately NOT a touch device. `isTouchDevice()`
-// keys off `matchMedia("(hover: none) and (pointer: coarse)")`, so a narrow
-// window driven by a mouse takes the ring-anchored path rather than the phone
-// sheet variant — that is the path this spec pins. The phone-with-touch sheet
-// is covered by the mobile specs.
+// keys off `matchMedia("(hover: none) and (pointer: coarse)")`, and a narrow
+// window driven by a mouse never reports it: what this spec pins is that the
+// width, not the pointer, decides that a narrow window gets the fixed popup
+// that stays on screen. Where that popup stands next to its ring (on the home
+// page, on a project's, on a touch screen) is
+// context-usage-ring-placement.spec.ts's.
 //
 // The ring only renders once there is something to measure, so the spec seeds
 // a real conversation plus its persisted context status and usage row and
@@ -30,79 +24,6 @@ const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 
 const RING_CONVERSATION_ID = "e2e-context-ring-popover";
-
-async function seedConversationWithContext(): Promise<void> {
-	const [admin] = await db
-		.select()
-		.from(users)
-		.where(eq(users.email, "admin@local"))
-		.limit(1);
-	expect(admin, "the e2e admin must exist").toBeTruthy();
-
-	const id = RING_CONVERSATION_ID;
-	await db.delete(usageEvents).where(eq(usageEvents.conversationId, id));
-	await db
-		.delete(conversationContextStatus)
-		.where(eq(conversationContextStatus.conversationId, id));
-	await db.delete(messages).where(eq(messages.conversationId, id));
-	await db.delete(conversations).where(eq(conversations.id, id));
-
-	const now = new Date();
-	await db.insert(conversations).values({
-		id,
-		userId: admin.id,
-		title: "Context ring popover layout",
-		createdAt: now,
-		updatedAt: now,
-	});
-	await db.insert(messages).values([
-		{
-			id: `${id}-msg-1`,
-			conversationId: id,
-			messageSequence: 1,
-			role: "user" as const,
-			content: "Summarise what you know about this project.",
-			createdAt: now,
-		},
-		{
-			id: `${id}-msg-2`,
-			conversationId: id,
-			messageSequence: 2,
-			role: "assistant" as const,
-			content: "Here is the summary you asked for.",
-			createdAt: now,
-		},
-	]);
-	// Layers are what the popover's chip row renders — the part that was cut
-	// off screen — and the usage row is what gives the panel its cost hero.
-	await db.insert(conversationContextStatus).values({
-		conversationId: id,
-		userId: admin.id,
-		estimatedTokens: 51200,
-		promptTokens: 51200,
-		promptTokensSource: "provider",
-		maxContextTokens: 262144,
-		thresholdTokens: 209715,
-		targetTokens: 157286,
-		compactionMode: "none",
-		recentTurnCount: 12,
-		layersUsedJson: JSON.stringify(["session", "documents", "working_set"]),
-		updatedAt: now,
-	});
-	await db.insert(usageEvents).values({
-		id: `${id}-usage-1`,
-		userId: admin.id,
-		conversationId: id,
-		messageId: `${id}-msg-2`,
-		modelId: "model1",
-		promptTokens: 48000,
-		completionTokens: 3200,
-		totalTokens: 51200,
-		billingMonth: "2026-09",
-		costUsdMicros: 420000,
-		createdAt: now,
-	});
-}
 
 /**
  * A campaign modal can swallow the click that opens the panel. A fresh e2e
@@ -131,13 +52,20 @@ async function openRingPopover(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
-	await seedConversationWithContext();
+	await seedConversationWithContext(
+		RING_CONVERSATION_ID,
+		"Context ring popover layout",
+	);
 	await login(page);
 	await page.goto(`/chat/${RING_CONVERSATION_ID}`, {
 		waitUntil: "domcontentloaded",
 	});
 	await dismissCampaignModal(page);
 	await expect(page.locator(".ring-button")).toBeVisible({ timeout: 15000 });
+	// The panel opens from what the ring knows (a press, the mouse over it), so
+	// the press has to land after the page has hydrated: the markup is there
+	// first, and a click on it does nothing.
+	await waitForHydration(page);
 });
 
 test.describe("context-usage popover on a narrow viewport", () => {

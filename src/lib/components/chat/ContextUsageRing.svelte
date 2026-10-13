@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
+import { portalToBody } from "$lib/utils/portal";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ContextDebugState,
@@ -10,6 +11,7 @@ import type {
 	ArtifactSummary,
 	MemoryLayer,
 } from "$lib/server/services/knowledge/types";
+import { followAnchor } from "./anchored-popup";
 
 let {
 	contextStatus = null,
@@ -27,49 +29,162 @@ let {
 	totalTokens?: number;
 } = $props();
 
+// What the popup is and where it stands.
+//
+// It is a read-out, not a menu: nothing in it takes the keyboard, so (unlike
+// the outline list beside an attachment) there is no focus to move into it and
+// nothing for Tab to miss when it is painted far from the ring in the page's
+// order. What opens it is the ring's own: a tap or a click pins it open until
+// the next tap, a press elsewhere or Escape; a mouse over the ring shows it for
+// as long as the mouse stays; so does the keyboard's focus on the ring. These
+// used to be the rules `.ring-root:hover .ring-popover` and
+// `.ring-root:focus-within .ring-popover`, which name the popup as the ring's
+// descendant and cannot match it once it is painted in <body>.
+//
+// Where it stands depends on the screen. On a desktop it hangs off the ring by
+// CSS (absolute, 10px above it). On a phone, on a touch screen of any width and
+// in any window narrower than 768px (where there is not 25rem to the right of
+// the ring to grow into) it is a fixed box measured against the window. A fixed
+// box is only the window's while no ancestor has a transform, and the home page
+// (and a project's) centres its composer with `transform: translateY(-50%)`:
+// the old sheet's `bottom: 5.5rem` was counted from THAT layer's bottom edge, so
+// the popup opened wherever the layer happened to end (over the composer's
+// toolbar row, ring included, in a short window; under it on a project's page).
+// So in those cases it is painted in <body> (`portalToBody`, as the composer's
+// other popups are), where fixed means the window whatever the composer sits
+// in, and is placed from the ring's rectangle and its own size
+// (`followAnchor`): above the ring when it fits there, below it when it does
+// not and there is more room, always inside the window, and following the ring
+// for as long as it is open.
+const uid = $props.id();
+const popoverId = `context-usage-popover-${uid}`;
+/** The phone sheet's old cap, 30rem: the most it grows before it scrolls. */
+const POPOVER_MAX_HEIGHT = 480;
+/** How close it comes to the window's sides: the 0.25rem the phone sheet always kept. */
+const POPOVER_SIDE_MARGIN = 4;
+/** Narrower than this is a phone's room whatever the pointer is (a narrow window on a mouse is not "touch"). */
+const NARROW_QUERY = "(max-width: 767px)";
+
 let root = $state<HTMLDivElement | null>(null);
-let isOpen = $state(false);
+let ringButton = $state<HTMLButtonElement | null>(null);
+let popover = $state<HTMLDivElement | null>(null);
+let popoverStyle = $state<string | undefined>(undefined);
+let pinned = $state(false);
+let hovered = $state(false);
+let focused = $state(false);
 let mobile = $state(false);
+let narrow = $state(false);
+
+let visible = $derived(pinned || hovered || focused);
+let fixed = $derived(mobile || narrow);
 
 const size = 38;
 const strokeWidth = 3;
 const radius = (size - strokeWidth) / 2;
 const circumference = 2 * Math.PI * radius;
 
-function detectMobile() {
+function detectLayout() {
 	if (
 		typeof window === "undefined" ||
 		typeof window.matchMedia !== "function"
 	) {
 		mobile = false;
+		narrow = false;
 		return;
 	}
 
 	mobile = isTouchDevice();
+	narrow = window.matchMedia(NARROW_QUERY).matches;
 }
 
 onMount(() => {
-	detectMobile();
-	window.addEventListener("resize", detectMobile);
+	detectLayout();
+	window.addEventListener("resize", detectLayout);
 
+	// A press anywhere but the ring and the popup lets it go. The popup is not
+	// inside `root` once it is in <body>, so the check names both.
 	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-		if (root && !root.contains(event.target as Node)) {
-			isOpen = false;
-		}
+		const target = event.target as Node;
+		if (root?.contains(target) || popover?.contains(target)) return;
+		pinned = false;
 	};
 
 	document.addEventListener("mousedown", handlePointerDown);
 	document.addEventListener("touchstart", handlePointerDown, { passive: true });
 
 	return () => {
-		window.removeEventListener("resize", detectMobile);
+		window.removeEventListener("resize", detectLayout);
 		document.removeEventListener("mousedown", handlePointerDown);
 		document.removeEventListener("touchstart", handlePointerDown);
 	};
 });
 
+// Placed once its own box exists and followed for as long as it is open
+// (anchored-popup.ts says how): the home composer glides to its place for
+// 420ms after a resize, and an attachment's pill growing moves the ring with no
+// event at all. Left where it stood when it closes, so the fade-out plays in
+// place.
+$effect(() => {
+	const panel = popover;
+	if (!fixed || !visible || !panel) return;
+	return followAnchor({
+		anchor: () => ringButton,
+		popup: panel,
+		maxHeight: POPOVER_MAX_HEIGHT,
+		sideMargin: POPOVER_SIDE_MARGIN,
+		onPlace: (style) => {
+			popoverStyle = style;
+		},
+	});
+});
+
+// Escape puts it away, whatever showed it: the ring has to be entered or
+// focused again, or pressed, to bring it back.
+$effect(() => {
+	if (!visible) return;
+	const handleKeydown = (event: KeyboardEvent) => {
+		if (event.key === "Escape") dismiss();
+	};
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
+});
+
+function dismiss() {
+	pinned = false;
+	hovered = false;
+	focused = false;
+}
+
+// A press on the ring pins the popup, and a press on it again puts it away
+// even while the mouse is still over the ring (hovering alone would keep it).
 function handleClick() {
-	isOpen = !isOpen;
+	if (pinned) dismiss();
+	else pinned = true;
+}
+
+// Only a mouse hovers: a finger's "enter" is the tap that pins it.
+function handlePointerEnter(event: PointerEvent) {
+	if (event.pointerType !== "touch") hovered = true;
+}
+
+function handlePointerLeave() {
+	hovered = false;
+}
+
+// The keyboard's focus shows the numbers; the focus a click or a tap gives the
+// button does not (it pins them, and a second press puts them away).
+function handleFocus(event: FocusEvent) {
+	const target = event.currentTarget;
+	try {
+		focused = target instanceof Element && target.matches(":focus-visible");
+	} catch {
+		// A browser that does not know `:focus-visible` cannot tell the two apart.
+		focused = true;
+	}
+}
+
+function handleBlur() {
+	focused = false;
 }
 
 function formatLayer(layer: MemoryLayer): string {
@@ -172,7 +287,9 @@ let isNearTrigger = $derived(
 	class="ring-root relative"
 >
 	<button
+		bind:this={ringButton}
 		type="button"
+		data-testid="context-usage-ring"
 		class={`ring-button ${toneClass}`}
 		aria-label={contextStatus
 			? $t('contextUsageRing.contextWindowUsage', {
@@ -181,8 +298,14 @@ let isNearTrigger = $derived(
 				max: contextWindow.toLocaleString(),
 			})
 			: $t('contextUsageRing.noContext')}
-		aria-expanded={isOpen}
+		aria-haspopup="dialog"
+		aria-expanded={visible}
+		aria-controls={popoverId}
 		onclick={handleClick}
+		onpointerenter={handlePointerEnter}
+		onpointerleave={handlePointerLeave}
+		onfocus={handleFocus}
+		onblur={handleBlur}
 	>
 		<svg class="ring-svg" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
 			<circle
@@ -206,12 +329,16 @@ let isNearTrigger = $derived(
 	</button>
 
 	<div
+		bind:this={popover}
+		id={popoverId}
+		data-testid="context-usage-popover"
 		class="ring-popover"
-		class:ring-popover--mobile={mobile}
-		class:ring-popover--mobile-visible={mobile && isOpen}
-		class:ring-popover--open={!mobile && isOpen}
+		class:ring-popover--fixed={fixed}
+		class:ring-popover--visible={visible}
+		style={fixed ? popoverStyle : undefined}
 		role="dialog"
 		aria-label={$t('contextUsageRing.focusPanel')}
+		use:portalToBody={fixed}
 	>
 		{#if showCost}
 			<!-- Two cost lines (ADR #6): conversation running total as the hero,
@@ -368,14 +495,20 @@ let isNearTrigger = $derived(
 		text-transform: lowercase;
 	}
 
+	/* On a desktop the popup hangs off the ring by CSS: absolute inside
+	   `.ring-root`, 10px above it. It is always in the page and is shown by
+	   `.ring-popover--visible`, which the component sets from what the ring
+	   knows (a press, a mouse over it, the keyboard's focus). While it is away
+	   it is hidden from the page and from assistive technology, not only
+	   transparent: `visibility` flips when the fade-out ends. */
 	.ring-popover {
 		position: absolute;
 		left: 0;
 		bottom: calc(100% + 10px);
 		z-index: 40;
 		/* Wide enough that the cost hero ("$x · yK tokens") never wraps the
-		   "tokens" word onto its own line on desktop. Mobile uses the full-width
-		   --mobile variant below, so this only affects the desktop popover. */
+		   "tokens" word onto its own line on desktop. A phone is narrower than
+		   that: the 2rem keeps it off the window's edges. */
 		width: min(25rem, calc(100vw - 2rem));
 		border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent 18%);
 		border-radius: 1rem;
@@ -384,56 +517,36 @@ let isNearTrigger = $derived(
 		padding: 0.9rem;
 		backdrop-filter: blur(14px);
 		opacity: 0;
+		visibility: hidden;
 		transform: translateY(6px);
 		pointer-events: none;
 		transition:
 			opacity var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out);
+			transform var(--duration-standard) var(--ease-out),
+			visibility var(--duration-standard);
 	}
 
-	.ring-root:hover .ring-popover,
-	.ring-root:focus-within .ring-popover,
-	.ring-popover--mobile-visible,
-	.ring-popover--open {
+	.ring-popover--visible {
 		opacity: 1;
+		visibility: visible;
 		transform: translateY(0);
 		pointer-events: auto;
 	}
 
-	.ring-popover--mobile {
+	/* On a phone, on a touch screen and in a window narrower than 768px the
+	   popup is a box of the window's, painted in <body> and placed from the
+	   ring's rectangle (anchored-popup.ts): `left`, `top` or `bottom` and
+	   `max-height` arrive inline. It stands above the app's own chrome, as the
+	   incognito card does, and scrolls inside the room it has. */
+	.ring-popover--fixed {
 		position: fixed;
-		left: 0.25rem;
-		right: 0.25rem;
-		bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
-		width: auto;
-		max-height: min(70vh, 30rem);
+		left: auto;
+		bottom: auto;
+		z-index: 60;
+		/* As wide as the phone sheet always was: 0.25rem from each side. */
+		width: min(25rem, calc(100vw - 0.5rem));
 		overflow-y: auto;
-		transform: translateY(6px);
-	}
-
-	.ring-popover--mobile.ring-popover--mobile-visible {
-		transform: translateY(0);
-	}
-
-	/* A narrow window is the same problem as a phone: the panel hangs off the
-	   ring's left edge and grows right, and there is no longer 25rem of room
-	   to the right of the ring to grow into — at 390px its right edge landed
-	   at 587px, so most of the panel, the layer chips included, sat off
-	   screen. Below this width it anchors to the viewport instead, with the
-	   phone sheet's own margins so both narrow paths land on the same
-	   geometry. The width decides here rather than the pointer, because a
-	   narrow window on a mouse never reports the coarse pointer
-	   `isTouchDevice()` looks for and so never gets the sheet. */
-	@media (max-width: 767px) {
-		.ring-popover {
-			position: fixed;
-			left: 0.25rem;
-			right: 0.25rem;
-			bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
-			width: auto;
-			max-height: min(70vh, 30rem);
-			overflow-y: auto;
-		}
+		overscroll-behavior: contain;
 	}
 
 	.popover-section + .popover-section {

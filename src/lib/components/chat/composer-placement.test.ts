@@ -124,6 +124,26 @@ describe("computeMenuPlacement", () => {
 		});
 		expect(placement.left).toBe(MENU_MARGIN);
 	});
+
+	// The context ring's popup on a phone: as wide as the window less 4px a
+	// side, as its sheet always was. The side margin is the surface's own to
+	// ask for; the top and the bottom keep the composer's.
+	it("keeps the side margin a surface asks for, and the composer's when it does not", () => {
+		const phone = { width: 390, height: 844 };
+		const trigger = rect(221, 785, 48, 48);
+
+		const ordinary = computeMenuPlacement(trigger, phone, 382, 200);
+		const sheet = computeMenuPlacement(trigger, phone, 382, 200, 4);
+
+		// 382px wide does not fit between two 16px margins: it is pushed to the
+		// left margin and hangs 8px off the right edge. Between two 4px margins
+		// it is exactly the window less 4px a side.
+		expect(ordinary.left).toBe(MENU_MARGIN);
+		expect(sheet.left).toBe(4);
+		expect(sheet.left + 382).toBe(phone.width - 4);
+		expect(sheet.maxHeight).toBe(ordinary.maxHeight);
+		expect(sheet.bottom).toBe(ordinary.bottom);
+	});
 });
 
 describe("computeFlyoutPlacement", () => {

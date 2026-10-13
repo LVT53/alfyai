@@ -29,6 +29,10 @@ import {
 	startChatAs,
 } from "./artifact-tours-helpers";
 import {
+	attachLease as attachLeaseFile,
+	type OutlineSection as Section,
+} from "./composer-attachment-helpers";
+import {
 	createEmptyConversation,
 	expectTopmost,
 	login,
@@ -44,18 +48,6 @@ const PHONE_SIDEWAYS = { width: 844, height: 390 };
 
 /** The most the popup may stand off its icon: the 8px gap, and some room for rounding. */
 const MAX_GAP = 16;
-
-const PNG_1X1 = Buffer.from(
-	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-	"base64",
-);
-
-type Section = {
-	level: number;
-	title: string;
-	offset: number;
-	preview: string;
-};
 
 /**
  * Four short headings: the narrowest popup there is (it will not go under its
@@ -98,79 +90,9 @@ function longOutline(count: number): Section[] {
 	}));
 }
 
-const LEASE = {
-	id: "artifact-lease-outline",
-	name: "Lease agreement 2026.pdf",
-	mimeType: "application/pdf",
-	sizeBytes: 482_112,
-	tokenEstimate: 18_400,
-	pageCount: 24,
-	pageCountKind: "physical",
-};
-
-/**
- * The upload endpoints answer the way the server does for a parsed PDF that
- * has headings: the artifact carries its outline. (A real parse needs the
- * extraction worker; what is under test here is the popup, not the parser.)
- */
-async function mockUpload(page: Page, outline: Section[]) {
-	await page.route("**/api/knowledge/upload/intent", async (route) => {
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				traceId: `trace-${Date.now()}`,
-				rawUploadLimit: 50_000_000,
-				requestBodyLimit: 50_000_000,
-				chunkBodyLimit: 4_000_000,
-			}),
-		});
-	});
-	await page.route("**/api/knowledge/upload/raw", async (route) => {
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				artifact: {
-					...LEASE,
-					type: "source_document",
-					retrievalClass: "durable",
-					conversationId: null,
-					summary: LEASE.name,
-					createdAt: Date.now(),
-					updatedAt: Date.now(),
-					outline,
-				},
-				promptReady: true,
-				promptArtifactId: `prompt-${LEASE.id}`,
-				readinessError: null,
-			}),
-		});
-	});
-	await page.route("**/api/knowledge/*/preview", async (route) => {
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "image/png" },
-			body: PNG_1X1,
-		});
-	});
-}
-
 /** Attaches the lease the way the file input does, and waits for its pill and its outline icon. */
 async function attachLease(page: Page, outline: Section[] = SHORT_OUTLINE) {
-	await mockUpload(page, outline);
-	const fileInput = page.locator('input[type="file"]').first();
-	// The composer is rendered on the server with its input disabled until it
-	// hydrates; setInputFiles does not wait, and a disabled input never fires.
-	await expect(fileInput).toBeEnabled({ timeout: 20000 });
-	await fileInput.setInputFiles({
-		name: LEASE.name,
-		mimeType: LEASE.mimeType,
-		buffer: Buffer.from("%PDF-1.4"),
-	});
-	await expect(page.getByTestId("composer-chip-attachment")).toBeVisible({
-		timeout: 20000,
-	});
+	await attachLeaseFile(page, outline);
 	await expect(icon(page)).toBeVisible();
 	await waitForMotionToSettle(page);
 }
