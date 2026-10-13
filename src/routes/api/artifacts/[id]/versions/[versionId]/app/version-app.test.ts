@@ -245,6 +245,53 @@ describe("GET /api/artifacts/[id]/versions/[versionId]/app — an old App versio
 		expect((await get(id, ids.get(1) as string)).status).toBe(200);
 	});
 
+	// ADR-0068: the version route already asks the audit, and the audit's
+	// violations now include a frame (a tag, or a script that makes one) and every
+	// WebRTC name the audit knows of, so a saved version that has either is
+	// shown as Code only, like one that navigates.
+	it.each([
+		["a frame tag", "<iframe srcdoc='x'></iframe>"],
+		[
+			"a frame made in script",
+			"<script>document.createElement('iframe')</script>",
+		],
+		[
+			"a peer connection under another name",
+			"<script>new webkitRTCPeerConnection()</script>",
+		],
+		[
+			"a peer connection joined from pieces",
+			"<script>window['RTC' + 'PeerConnection']</script>",
+		],
+	])("will not run a version with %s", async (_name, markup) => {
+		const id = await makeArtifact("app", APP_V2);
+		await write(
+			id,
+			`<!doctype html><html><head></head><body>${markup}</body></html>`,
+			"Alfy regenerated the app: x",
+		);
+		const ids = await versionIds(id);
+
+		const refused = await get(id, ids.get(2) as string);
+		expect(refused.status).toBe(422);
+		expect(await refused.json()).toEqual({ ok: false, reason: "not_runnable" });
+	});
+
+	it("serves a version it runs with the read-only bridge FIRST, ahead of whatever the version wrote", async () => {
+		const id = await makeArtifact("app", APP_V2);
+		const ids = await versionIds(id);
+
+		const served = await get(id, ids.get(1) as string);
+		const body = await served.text();
+
+		expect(served.status).toBe(200);
+		expect(body.startsWith("<script>") || body.startsWith("<!")).toBe(true);
+		expect(body.indexOf("ALFY_STORAGE_READ_ONLY")).toBeGreaterThan(-1);
+		expect(body.indexOf("ALFY_STORAGE_READ_ONLY")).toBeLessThan(
+			body.indexOf("<body"),
+		);
+	});
+
 	it("answers 401 without a signed-in user", async () => {
 		await expect(
 			getVersionApp(

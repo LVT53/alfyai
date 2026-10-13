@@ -105,7 +105,7 @@ Hard rules for the document:
 8. Language: the whole UI is in the language of the user's request (a Hungarian request means Hungarian labels, buttons, empty states and error messages). Keep code identifiers in English.
 9. Keep the document under about 400 lines, and skip comments that only restate the code.
 10. Put the app name in <title> and in an <h1>, and show a short usage hint when the interaction is not obvious. When the app stores data, render a useful empty state that says what to add first.
-11. The document runs inside a sandboxed frame with no dialogs and no navigation of its own. If you use a <form>, handle its submit event with event.preventDefault() (the submission itself never leaves the frame, but your own script still runs and must not assume otherwise). Never call alert, confirm or prompt — draw an inline confirmation UI instead when an action needs one. Never use eval or new Function. Never navigate the page: no assigning location or location.href, no location.assign/replace, no window.open, no <a href> pointing outside the document, no <meta http-equiv="refresh">. Never use RTCPeerConnection.
+11. The document runs inside a sandboxed frame with no dialogs and no navigation of its own. If you use a <form>, handle its submit event with event.preventDefault() (the submission itself never leaves the frame, but your own script still runs and must not assume otherwise). Never call alert, confirm or prompt — draw an inline confirmation UI instead when an action needs one. Never use eval or new Function. Never navigate the page: no assigning location or location.href, no location.assign/replace, no window.open, no <a href> pointing outside the document, no <meta http-equiv="refresh">. Never use RTCPeerConnection, RTCDataChannel or any other WebRTC API. Never put a frame inside the document: no <iframe>, <frame>, <object> or <embed>, no srcdoc, no XSLTProcessor — draw everything in the document itself.
 
 The app must work the moment it is opened: no placeholder functions, no TODO, no code that throws, no dead buttons. Walk through the main interaction mentally before you answer.`;
 
@@ -125,12 +125,13 @@ export interface AppContractRule {
 }
 
 /**
- * The nineteen static checks `audit.ts` runs against a generated document:
+ * The twenty static checks `audit.ts` runs against a generated document:
  * the prototype's original fifteen (`extract.ts`'s `contractChecks`) plus
  * four from ruling 58's sandbox review (`no-dialogs`, `no-eval`,
- * `no-navigate`, `no-webrtc`). Order matches the prototype's for the
- * original fifteen, since the eval harness and this list must agree on "one
- * entry per rule, in this order" (A2); the four new ones are appended.
+ * `no-navigate`, `no-webrtc`) and one from ADR-0068 (`no-nested-frames`).
+ * Order matches the prototype's for the original fifteen, since the eval
+ * harness and this list must agree on "one entry per rule, in this order"
+ * (A2); the newer ones are appended.
  */
 export const APP_CONTRACT_RULES = [
 	{
@@ -193,7 +194,16 @@ export const APP_CONTRACT_RULES = [
 	},
 	{
 		id: "no-webrtc",
-		label: "No RTCPeerConnection",
+		label: "No WebRTC (RTCPeerConnection, data channels, STUN or TURN)",
+		severity: "violation",
+	},
+	// ADR-0068: a frame the app makes has a window of its own, with constructors
+	// the bootstrap cannot reach; the browser refuses the ways a script makes one
+	// and the served route refuses a document whose own markup carries one, so a
+	// body with one does not run.
+	{
+		id: "no-nested-frames",
+		label: "No frames, objects or embeds inside the app",
 		severity: "violation",
 	},
 ] as const satisfies readonly AppContractRule[];

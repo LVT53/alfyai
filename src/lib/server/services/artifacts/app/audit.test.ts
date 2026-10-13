@@ -20,9 +20,9 @@ function checkFor(checks: ReturnType<typeof auditAppHtml>, rule: string) {
 }
 
 describe("auditAppHtml", () => {
-	it("runs all nineteen rules, always, in APP_CONTRACT_RULES order", () => {
+	it("runs all twenty rules, always, in APP_CONTRACT_RULES order", () => {
 		const checks = auditAppHtml("<html></html>");
-		expect(checks).toHaveLength(19);
+		expect(checks).toHaveLength(20);
 		expect(checks.map((check) => check.rule)).toEqual(
 			APP_CONTRACT_RULES.map((rule) => rule.id),
 		);
@@ -421,5 +421,123 @@ describe("appViolations", () => {
 				html,
 			).toEqual(["no-navigate"]);
 		}
+	});
+});
+
+// ADR-0068. The audit's second layer: the generator reads what it found and
+// rewrites, a restore or a save of an App that commits one is refused. It cannot
+// be the guard (a name can be built from anything code computes); the browser
+// holds that line, and app-webrtc-guard.spec.ts measures it.
+describe("no-webrtc: the variants a model would write when told not to write the word", () => {
+	const flagged = (script: string) =>
+		!checkFor(auditAppHtml(`<script>${script}</script>`), "no-webrtc").passed;
+
+	it.each([
+		["the plain name", "new RTCPeerConnection()"],
+		["the webkit-prefixed name", "new webkitRTCPeerConnection()"],
+		["the moz-prefixed name", "new mozRTCPeerConnection()"],
+		["another case", "new rtcpeerconnection()"],
+		["a data channel type", "x instanceof RTCDataChannel"],
+		["a session description", "new RTCSessionDescription(d)"],
+		["an ICE candidate", "new RTCIceCandidate(c)"],
+		["createDataChannel", "pc.createDataChannel('x')"],
+		["an iceServers list", "var cfg = { iceServers: [] }"],
+		["a stun address", "var u = 'stun:stun.l.google.com:19302'"],
+		["a turn address", 'var u = "turn:relay.example.net:3478"'],
+		["a turns address", "var u = `turns:relay.example.net`"],
+		["a name joined from pieces", 'window["RTC" + "PeerConnection"]'],
+		[
+			"a name joined from three kinds of quote",
+			"window['RTC' + \"Peer\" + `Connection`]",
+		],
+		["a name with an escape in it", "window['\\u0052TCPeerConnection']"],
+		[
+			"a name built from character codes",
+			"window[String.fromCharCode(82,84,67,80,101,101,114,67,111,110,110,101,99,116,105,111,110)]",
+		],
+		["a name decoded from base64", 'window[atob("UlRDUGVlckNvbm5lY3Rpb24=")]'],
+		[
+			"a name joined from a list",
+			'window[["RTC","Peer","Connection"].join("")]',
+		],
+	])("flags %s", (_name, script) => {
+		expect(flagged(script)).toBe(true);
+	});
+
+	it.each([
+		["a sentence about peers", "Peer connection tips for your first week"],
+		[
+			"a turn in a game",
+			"var state = { turn: 1 }; label = 'turn: ' + n; // turn:",
+		],
+		["a url", "var u = 'https://example.com/stun'"],
+		["a channel of another kind", "var chat = createChannel('x')"],
+		[
+			"a createOffer of another kind",
+			"function createOffer(price) { return price }",
+		],
+		["a plain document", "document.title = 'x'"],
+	])("does not flag %s", (_name, script) => {
+		expect(flagged(script)).toBe(false);
+	});
+
+	it("names what it found, for the model's retry and the refusal", () => {
+		const check = checkFor(
+			auditAppHtml(
+				"<script>new webkitRTCPeerConnection({iceServers: []})</script>",
+			),
+			"no-webrtc",
+		);
+		expect(check.detail).toContain("RTCPeerConnection");
+		expect(check.detail).toContain("iceServers");
+	});
+});
+
+describe("no-nested-frames: a document inside the App's document", () => {
+	const check = (html: string) =>
+		checkFor(auditAppHtml(html), "no-nested-frames");
+
+	it("is a violation, so a body that carries one is refused by every writer", () => {
+		expect(check("<html></html>").severity).toBe("violation");
+		expect(
+			appViolations('<iframe srcdoc="x"></iframe>').map((c) => c.rule),
+		).toContain("no-nested-frames");
+	});
+
+	it.each([
+		["an iframe tag", '<p>a</p><iframe src="about:blank"></iframe>'],
+		["an object tag", "<object data=x></object>"],
+		["an embed tag", "<embed src=x>"],
+		[
+			"a frame element made in script",
+			"<script>document.body.append(document.createElement('iframe'))</script>",
+		],
+		["a joined name", '<script>document.createElement("if" + "rame")</script>'],
+		["the srcdoc property", "<script>f.srcdoc = html</script>"],
+		["XSLTProcessor", "<script>new XSLTProcessor()</script>"],
+	])("flags %s", (_name, html) => {
+		expect(check(html).passed).toBe(false);
+		expect(check(html).detail).toBeTruthy();
+	});
+
+	it("passes a document that has none, and the prototype's passing app", () => {
+		expect(check("<p>hello</p><script>go()</script>").passed).toBe(true);
+		expect(check(PASSING_FIXTURE).passed).toBe(true);
+	});
+
+	it("names every thing it found", () => {
+		const detail = check(
+			"<iframe></iframe><script>f.srcdoc = 1; new XSLTProcessor()</script>",
+		).detail;
+		expect(detail).toContain("tag");
+		expect(detail).toContain("srcdoc");
+		expect(detail).toContain("XSLTProcessor");
+	});
+
+	it("audits a very large document in linear time", () => {
+		const started = performance.now();
+		auditAppHtml(`<script>${"createElement(".repeat(60_000)}</script>`);
+		auditAppHtml(`<script>${'"a" + '.repeat(60_000)}</script>`);
+		expect(performance.now() - started).toBeLessThan(800);
 	});
 });

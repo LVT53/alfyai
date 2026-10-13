@@ -15,6 +15,8 @@ import {
 	type AppContractRuleId,
 	type AppContractSeverity,
 } from "./contract";
+import { hasNestedFrameMarkup, nestedFrameApiUses } from "./nested-frames";
+import { foldScriptText } from "./script-text";
 
 export interface ContractCheck {
 	rule: AppContractRuleId;
@@ -58,6 +60,21 @@ const LOCATION_ASSIGN_RE = new RegExp(
 const LOCATION_CALL_RE = new RegExp(
 	`${LOCATION_ACCESS}\\s*(?:\\.\\s*|\\[\\s*["'])?(?:assign|replace)(?:["']\\s*\\])?\\s*\\(`,
 );
+
+// Every name WebRTC has that an app has no other use for, and the address of a
+// STUN or TURN server in a string (a quote, the scheme, a colon, a host: not
+// "turn: " in a game, not a word in prose). Each is matched against the folded
+// text. The names that other code might use (`createOffer`, `createChannel`)
+// are left out: a function named like that is a shop's, not a peer's.
+const WEBRTC_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	[/RTCPeerConnection/i, "RTCPeerConnection"],
+	[/RTCDataChannel/i, "RTCDataChannel"],
+	[/RTCSessionDescription/i, "RTCSessionDescription"],
+	[/RTCIceCandidate/i, "RTCIceCandidate"],
+	[/\bcreateDataChannel\b/, "createDataChannel"],
+	[/\biceServers\b/, "iceServers"],
+	[/["'`]\s{0,16}(?:stuns?|turns?):[\w.[-]/i, "a stun: or turn: address"],
+];
 
 const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	"no-script-src": (html) => {
@@ -246,15 +263,42 @@ const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	},
 	// A violation (ruling 58): no CSP directive stops WebRTC, so a data
 	// channel is a second, unblockable way to leak what the app holds.
+	//
+	// This is the SECOND layer (ADR-0068). The bootstrap takes the constructors
+	// away in the browser before any of the app's code runs, and
+	// `app-webrtc-guard.spec.ts` measures that; this reads the text for the
+	// model's retry and for the writers that refuse a body, so it looks for the
+	// obvious ways of not writing the word as well as the word: every name the
+	// API has, a prefix, another case, a name joined from pieces, escaped, built
+	// from character codes or decoded from base64 (`foldScriptText`), and a
+	// STUN or TURN address in a string. A name built from anything the code
+	// computes is not found by any reading of the text, which is why this is not
+	// the guard.
 	"no-webrtc": (html) => {
-		const found = html.includes("RTCPeerConnection");
-		return { passed: !found, detail: found ? "RTCPeerConnection" : "none" };
+		const folded = foldScriptText(html);
+		const found = WEBRTC_PATTERNS.filter(([pattern]) =>
+			pattern.test(folded),
+		).map(([, name]) => name);
+		return { passed: found.length === 0, detail: found.join(", ") || "none" };
+	},
+	// A violation (ADR-0068): a frame the app makes has a window of its own with
+	// a fresh `RTCPeerConnection`. In the browser the bootstrap's Trusted Types
+	// policy refuses every string that would make one; this says so in the
+	// model's retry, and `hasNestedFrameMarkup` is also what the served route
+	// asks, because markup the parser makes a frame of runs no script of the
+	// app's first.
+	"no-nested-frames": (html) => {
+		const found = [
+			...(hasNestedFrameMarkup(html) ? ["a frame, object or embed tag"] : []),
+			...nestedFrameApiUses(html),
+		];
+		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
 };
 
 /**
  * Pure, synchronous, never throws. Returns one entry per `APP_CONTRACT_RULES`
- * row, in that order — all fifteen always run, because the card can show more
+ * row, in that order — all twenty always run, because the card can show more
  * than one glitch when there is more than one (no early return on the first
  * failure).
  */
@@ -285,7 +329,8 @@ export function glitchRuleIdsOf(
 }
 
 /**
- * The violations of ruling 58 this document commits (self-navigation, WebRTC):
+ * The violations of ruling 58 and ADR-0068 this document commits
+ * (self-navigation, WebRTC, a frame of its own):
  * the failing checks among the rules whose severity is `violation`. It is THE
  * answer to "does the product run this body?", asked by everything that can put
  * an App's body in front of a frame:

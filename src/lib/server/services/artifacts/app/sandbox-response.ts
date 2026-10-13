@@ -47,6 +47,22 @@ export const APP_IFRAME_SANDBOX = "allow-scripts allow-forms";
 // another origin. `frame-ancestors 'self'` keeps the served document
 // embeddable in this app and nowhere else — it is not what makes the frame
 // opaque-origin (the iframe's `sandbox` attribute is), just an extra lock.
+//
+// WebRTC is the one way out this policy cannot see (ADR-0068): a peer
+// connection sends STUN and TURN requests to a server of the App's choosing
+// as soon as ICE gathering starts, and CSP governs none of it. There is no
+// `webrtc` directive below because Chromium ignores it (measured on 147: the
+// directive is reported as unrecognised and the datagrams still arrive;
+// `tests/e2e/app-webrtc-guard.spec.ts` keeps a control that fails the day that
+// changes). What holds the line is the bootstrap, which runs first and takes the
+// constructors away, and the two directives at the end, which make it hold for
+// a frame the App makes itself: that frame is a window of its own with its own
+// constructors, and `frame-src` is not asked about `about:srcdoc`. With Trusted
+// Types required for scripts and only the policy named `default` allowed, the
+// bootstrap's default policy is asked about every string that would put markup,
+// a script or a script address into the document, and refuses the ones that make
+// a frame (`nested-frames.ts`). Everything an ordinary app does with strings
+// passes through it unchanged.
 export const APP_SANDBOX_CSP = [
 	`sandbox ${APP_IFRAME_SANDBOX}`,
 	"default-src 'none'",
@@ -58,6 +74,8 @@ export const APP_SANDBOX_CSP = [
 	"form-action 'none'",
 	"base-uri 'none'",
 	"frame-ancestors 'self'",
+	"require-trusted-types-for 'script'",
+	"trusted-types default",
 ].join("; ");
 
 export const APP_SANDBOX_HEADERS: Record<string, string> = {
@@ -115,4 +133,35 @@ export function renderAppSessionExpiredResponse(
 </body>
 </html>`;
 	return new Response(html, { status: 401, headers: APP_SANDBOX_HEADERS });
+}
+
+/**
+ * ADR-0068. Served instead of the App's own document when its markup carries a
+ * tag that opens a document of its own (`<iframe>`, `<frame>`, `<object>`,
+ * `<embed>`: `nested-frames.ts`). A browser's parser makes a frame of such a tag
+ * with no script running, and the frame runs whatever it was given, with
+ * constructors the bootstrap cannot reach, so the document is not served at all.
+ * Its code stays readable in the Code tab.
+ *
+ * A static notice for the same reason as the session one above: it renders in
+ * the App's own sandboxed frame, so it has no form, no script and no link, and
+ * it carries the App's own strict headers. The copy is fixed text from the
+ * dictionary, never the App's.
+ */
+export function renderAppNotRunnableResponse(
+	acceptLanguage: string | null,
+): Response {
+	const lang = pickAppLanguage(acceptLanguage);
+	const copy = artifactsDict[lang];
+	const title = copy["artifacts.app.notRunnable.title"];
+	const message = copy["artifacts.app.notRunnable.message"];
+	const html = `<!doctype html>
+<html lang="${lang}">
+<head><meta charset="utf-8"><title>${title}</title></head>
+<body>
+<p>${title}</p>
+<p>${message}</p>
+</body>
+</html>`;
+	return new Response(html, { status: 422, headers: APP_SANDBOX_HEADERS });
 }

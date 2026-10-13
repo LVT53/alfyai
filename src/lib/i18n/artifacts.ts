@@ -267,6 +267,11 @@ const artifactsDict = {
 		"artifacts.app.session.expiredTitle": "Session ended",
 		"artifacts.app.session.expiredMessage":
 			"Your session ended. Reload AlfyAI to sign in again.",
+		// ADR-0068: served in the App's frame instead of an App whose own markup
+		// carries a frame of its own (sandbox-response.ts).
+		"artifacts.app.notRunnable.title": "This app cannot run",
+		"artifacts.app.notRunnable.message":
+			"It has a frame inside it, and apps cannot have those. Its code is still on the Code tab.",
 		"artifacts.app.tabs.a11y": "Preview and code",
 		"artifacts.app.code.copy": "Copy code",
 		"artifacts.app.code.copied": "Copied",
@@ -1268,6 +1273,9 @@ const artifactsDict = {
 		"artifacts.app.session.expiredTitle": "Lejárt a munkamenet",
 		"artifacts.app.session.expiredMessage":
 			"Lejárt a munkameneted. Töltsd újra az AlfyAI-t, hogy újra bejelentkezhess.",
+		"artifacts.app.notRunnable.title": "Ez az alkalmazás nem futtatható",
+		"artifacts.app.notRunnable.message":
+			"Beágyazott keret van benne, az alkalmazások pedig nem használhatnak ilyet. A kódja továbbra is a Kód fülön olvasható.",
 		"artifacts.app.tabs.a11y": "Előnézet és kód",
 		"artifacts.app.code.copy": "Kód másolása",
 		"artifacts.app.code.copied": "Másolva",
