@@ -68,14 +68,18 @@ describe("readConversationLanguage", () => {
 		);
 	});
 
-	it("puts the question in the owner's words", () => {
+	it("asks which language the person writes in, and says what to leave out", () => {
 		const prompt = CONVERSATION_LANGUAGE_SYSTEM_PROMPT;
+		// The definition is the language the person WRITES in: a chip is their next
+		// message, a title is a label in their sidebar. The real model ignored a
+		// clause that made an explicit request for the replies in a language the
+		// answer, in both directions, so the clause is not there.
 		expect(prompt).toContain(
-			"Which language is this conversation in for the person",
+			"Which language is this conversation in for the person: the language they write in?",
 		);
-		expect(prompt).toContain("the language they write in");
+		expect(prompt).not.toMatch(/asked the replies to be in/i);
 		expect(prompt).toContain(
-			"the language they asked the replies to be in if they asked for one",
+			"A request for the replies in another language does not change the language they write in.",
 		);
 		expect(prompt).toContain(
 			"Ignore the language of any piece of writing they asked for (an email, a translation)",

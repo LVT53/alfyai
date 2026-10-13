@@ -420,19 +420,13 @@ describe("afterReplyLanguage (the fallback)", () => {
 		).toBe("en");
 	});
 
-	it("an explicit request for the reply in a language is the language of the reply", () => {
-		// "Válaszolj angolul: mi a fotoszintézis?" gets an all-English reply with no
-		// Hungarian words in it: it stays English (the chain follows the reply).
-		expect(
-			afterReplyLanguage({
-				reply:
-					"Photosynthesis is the process by which plants, algae and some bacteria turn light into chemical energy. They take in carbon dioxide and water, and they release oxygen as a by-product.",
-				latestUserMessage:
-					"Válaszolj angolul, kérlek: mi a fotoszintézis, és hogyan működik?",
-				uiLanguage: "hu",
-			}),
-		).toBe("en");
-	});
+	// There is no case here for "Válaszolj angolul: …" answered in English. The
+	// chips, the headline and the title are in the language the person WRITES in
+	// (a chip is their next message), so an explicit request for the replies in
+	// another language does not flip them; the model's call says so
+	// (conversation-language.ts), and this chain, which reads the reply, would
+	// flip them. It cannot tell the request from the person's own writing, which
+	// is why it is only the fallback.
 
 	it("a reply that says nothing falls to the message, then the last reply, then the UI language", () => {
 		const code = "```ts\nconsole.log(1);\n```";

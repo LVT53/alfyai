@@ -1,14 +1,15 @@
 // The conversations that a word-list reader of the REPLY gets wrong, kept as data
-// (the review RV-L's probe table, plus both directions of an explicit request).
+// (the review RV-L's probe table, plus both directions of an explicit request for
+// the replies in a language).
 //
 // A requested piece of writing, a translation, a pasted text and an explicit
 // request for the replies in a language all change what the REPLY is written in
 // without changing the language the person writes in. What follows a reply (the
 // follow-up chips, the rail headline, a generated title) is the person's next
-// message or a label in their sidebar: it belongs in THEIR language, which only
-// a reader of the request can tell. The model names it, in one small call after
-// the reply (conversation-language.ts); these rows are what that call is asked
-// about and what a good answer is, in both directions.
+// message or a label in their sidebar: it belongs in the language they WRITE in,
+// which only a reader of the request can tell. The model names it, in one small
+// call after the reply (conversation-language.ts); these rows are what that call
+// is asked about and what a good answer is, in both directions.
 //
 // Used by reply-language.test.ts (the call faked: the turn takes its answer) and
 // by tests/integration/reply-language.test.ts (the chips, the rail headline and
@@ -242,26 +243,31 @@ export const LANGUAGE_PROBES: LanguageProbe[] = [
 		reply: `Here is the English version:\n\n${EN_EMAIL}`,
 		person: "hu",
 	},
-	// An explicit request for the replies in a language, both ways.
+	// An explicit request for the replies in a language, both ways: the person
+	// still WRITES the language they write in, and a chip is their next message, so
+	// the chips, the headline and the title stay in it. (The reply is Hungarian or
+	// English as asked; the rule above makes it so, and nothing here flips.)
 	{
 		id: "en asks for the answer in Hungarian",
-		about: "the replies are asked for in Hungarian: that is the language",
+		about:
+			"the replies are asked for in Hungarian, the person writes English: their chips are English",
 		uiLanguage: "en",
 		previous: "en",
 		message: "Answer in Hungarian: what is photosynthesis?",
 		reply:
 			"A fotoszintézis az a folyamat, amelynek során a növények a fényenergiát kémiai energiává alakítják, miközben szén-dioxidot és vizet vesznek fel, és oxigént bocsátanak ki.",
-		person: "hu",
+		person: "en",
 	},
 	{
 		id: "hu asks for the answer in English",
-		about: "the replies are asked for in English: that is the language",
+		about:
+			"the replies are asked for in English, the person writes Hungarian: their chips are Hungarian",
 		uiLanguage: "hu",
 		previous: "hu",
 		message: "Válaszolj angolul: mi a fotoszintézis?",
 		reply:
 			"Photosynthesis is the process by which plants turn light into chemical energy, taking in carbon dioxide and water and releasing oxygen.",
-		person: "en",
+		person: "hu",
 	},
 	// Plain conversations, both ways.
 	{
