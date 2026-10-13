@@ -71,16 +71,20 @@ A versioned per-user introduction shown in the authenticated app shell until the
 _Avoid_: welcome popup, tutorial carousel, one-time modal
 
 **First-run Onboarding Audience**:
-All users who have not completed or dismissed the current first-run onboarding campaign version, including existing accounts. Ordinary campaign audience settings do not narrow first-run onboarding v1.
-_Avoid_: new-users-only onboarding, signup-only tour, admin-only onboarding
+An account that has never completed or dismissed any first-run onboarding, of any revision: a new account. A new revision, or an old one archived, never reaches an account that has been through one (amended 2026-10-13). Ordinary campaign audience settings do not narrow it.
+_Avoid_: re-showing the welcome per revision, existing-account onboarding, signup-only tour, admin-only onboarding
+
+**Release Update Audience**:
+Every account that has not completed or dismissed the latest published release update and was here before it was published. Finishing a welcome never uses it up; an account made after it was published is not handed it (the welcome was its introduction), and the **App Version Badge** opens it for anyone.
+_Avoid_: marking the release seen when a welcome is finished, release queue
 
 **Announcement Campaign**:
 A versioned, localized app-shell announcement shown to an eligible user until that user completes or dismisses the campaign version. A campaign may be the **First-run Onboarding Tour**, a product update, or another high-priority disclosure, but only one campaign should be active in the shell at a time.
 _Avoid_: toast, changelog page, ad hoc modal, release banner
 
 **Campaign Auto-show**:
-The app-shell behavior that opens one eligible published **Announcement Campaign** without an explicit user click. First-run onboarding takes precedence for users who have not completed or dismissed it; release/update campaigns auto-show only after onboarding is no longer pending, and only the latest unseen release/update campaign auto-shows.
-_Avoid_: popup queue, scheduled modal, forced replay
+The app-shell behavior that opens one eligible published **Announcement Campaign** without an explicit user click, on an arrival (the reader opened, came back to or reloaded the app) and never as a side effect of sending a message, moving around the app or refreshing the conversation list, and never while a turn is running. First-run onboarding takes precedence for an account that has never been through one; release/update campaigns auto-show only after onboarding is no longer pending, and only the latest unseen release/update campaign auto-shows.
+_Avoid_: popup queue, scheduled modal, forced replay, popup on send
 
 **Campaign Skip**:
 The secondary action that closes an auto-shown **Announcement Campaign** and marks that campaign version finished for the user. Skip replaces explicit "don't show again" wording in the campaign modal and is hidden on the final slide. Closing the modal with the close button has the same user-state effect as Skip.
@@ -143,7 +147,7 @@ A meaningful app release that intentionally has an attached **Announcement Campa
 _Avoid_: every deploy, automatic patch popup, server-update notice
 
 **App Version Badge**:
-A compact, muted version label shown next to the AlfyAI title in the sidebar. It identifies the current app version and opens the most recent **Announcement Campaign** when clicked. It displays a compact major/minor version such as `v1.4`, with the full package version available in hover or metadata.
+A compact, muted version label shown next to the AlfyAI title in the sidebar. It identifies the current app version and opens the latest release update when clicked (the latest first-run onboarding only while none is published). It displays a compact major/minor version such as `v1.4`, with the full package version available in hover or metadata.
 _Avoid_: changelog nav item, build hash, update toast
 
 **Canonical App Version**:
