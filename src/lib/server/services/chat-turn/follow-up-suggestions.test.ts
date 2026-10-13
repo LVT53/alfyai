@@ -504,6 +504,35 @@ describe("generateFollowUpSuggestions", () => {
 		]);
 	});
 
+	it("drops a Hungarian chip from an English turn, though nothing in it is on the list of Hungarian-only words", async () => {
+		// The real-model check of the language call (C0-ru6, repetition 1): the
+		// request said "in English" and this chip came back first and was kept.
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Fejtsd ki részletesebben a két szakaszt",
+						"Explain the two stages in more detail",
+						"Compare the two stages in a table",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "How does photosynthesis work?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+
+		expect(result).toEqual([
+			"Explain the two stages in more detail",
+			"Compare the two stages in a table",
+		]);
+	});
+
 	it("persists a chip in its normalized form", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(

@@ -1,4 +1,8 @@
-import type { SupportedLanguage } from "../language";
+import {
+	readShortTextLanguage,
+	type SupportedLanguage,
+	shortTextEvidence,
+} from "../language";
 
 /**
  * What a follow-up chip is, and the one check that says whether a candidate is
@@ -177,12 +181,29 @@ function languageEvidence(text: string): LanguageEvidence {
 function isInLanguage(text: string, language: SupportedLanguage): boolean {
 	const evidence = languageEvidence(text);
 	if (language === "hu") {
-		return !(evidence.english >= 2 && evidence.hungarianMarks === 0);
-	}
-	return !(
+		if (evidence.english >= 2 && evidence.hungarianMarks === 0) return false;
+	} else if (
 		evidence.exclusiveLetters ||
 		(evidence.english === 0 && evidence.hungarianWords >= 1)
-	);
+	) {
+		return false;
+	}
+	// What the lists above do not hold: the reader of short texts (language.ts)
+	// names the other language ("Explain the Calvin cycle in more detail" for a
+	// Hungarian turn: three English words and nothing Hungarian).
+	const read = readShortTextLanguage(text);
+	if (read !== "unknown" && read !== language) return false;
+	// A chip is a sentence. English has a closed-class word in any of four words
+	// or more ("the", "to", "in", "for", "and", "me", "more"), so a sentence that
+	// has none and has a word spelt the Hungarian way is not English ("Fejtsd ki
+	// részletesebben a két szakaszt" was kept under an "in English" request on the
+	// real model). A name with an accent among English words does not count: those
+	// words are English witnesses ("Compare Győr and Székesfehérvár in a table").
+	if (language === "en") {
+		const { en, hu, words } = shortTextEvidence(text);
+		if (words >= 4 && en === 0 && hu >= 1) return false;
+	}
+	return true;
 }
 
 // ----- what a chip that is not a question opens with ------------------------------

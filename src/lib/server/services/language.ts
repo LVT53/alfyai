@@ -247,6 +247,27 @@ function isHungarianSpelled(word: string): boolean {
 }
 
 /**
+ * What a short text holds, for the readers of short texts: its English and its
+ * Hungarian witnesses (a closed-class word of one language, and for Hungarian also
+ * a word spelt the Hungarian way, above) and how many words it has.
+ */
+export function shortTextEvidence(text: string): {
+	en: number;
+	hu: number;
+	words: number;
+} {
+	const prose = stripNonProse(text);
+	const counts = countWitnesses(prose);
+	let spelled = 0;
+	let words = 0;
+	for (const match of prose.toLowerCase().matchAll(WORD)) {
+		words += 1;
+		if (isHungarianSpelled(match[0])) spelled += 1;
+	}
+	return { en: counts.en, hu: counts.hu + spelled, words };
+}
+
+/**
  * The language of a title, a headline or a status line: a line of content words,
  * where a reply's four closed-class words never come. Hungarian is named from two
  * witnesses, a closed-class word or a word spelt the Hungarian way (above), with
@@ -260,14 +281,7 @@ function isHungarianSpelled(word: string): boolean {
  * pass, and so do "Zürich weekend" and "Béla Bartók biography".
  */
 export function readShortTextLanguage(text: string): ReplyLanguage {
-	const prose = stripNonProse(text);
-	const counts = countWitnesses(prose);
-	let spelled = 0;
-	for (const match of prose.toLowerCase().matchAll(WORD)) {
-		if (isHungarianSpelled(match[0])) spelled += 1;
-	}
-	const hu = counts.hu + spelled;
-	const en = counts.en;
+	const { en, hu } = shortTextEvidence(text);
 	if (hu >= 2 && hu >= LEAD_FACTOR * en) return "hu";
 	if (en >= 1 && hu === 0) return "en";
 	if (en >= 2 && en >= LEAD_FACTOR * hu) return "en";
