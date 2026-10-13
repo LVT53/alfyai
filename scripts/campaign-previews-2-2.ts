@@ -1,6 +1,8 @@
 #!/usr/bin/env tsx
-// Takes the AlfyAI 2.2 release campaign's previews from a running production build whose scratch
-// database holds the draft (`scripts/create-release-campaign.ts`, run on that database):
+// Takes the AlfyAI 2.2 release campaign's previews (or the first-run onboarding's: the campaign is
+// the draft named by CAMPAIGN_NAME, and the signed-in administrator is the manifest's `user` or, in
+// the onboarding sample's manifest, `anna`) from a running production build whose scratch database
+// holds the draft (`scripts/create-release-campaign.ts`, run on that database):
 //
 //   * the reader's card, slide by slide, as the app's own modal draws it, on a desktop window and
 //     on a phone, in Hungarian and in English, put side by side in one picture per language and device;
@@ -34,9 +36,14 @@ const PHONE = { width: 390, height: 844 };
 
 type Lang = "hu" | "en";
 
-const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
+const sample = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
 	timeZone: string;
-	user: { email: string; password: string };
+	user?: { email: string; password: string };
+	anna?: { email: string; password: string };
+};
+const manifest = {
+	timeZone: sample.timeZone,
+	user: sample.user ?? sample.anna ?? { email: "", password: "" },
 };
 
 async function signIn(browser: Browser, lang: Lang) {
@@ -122,6 +129,11 @@ async function readerCards(
 		const path = join(outDir, `card-${String(index + 1).padStart(2, "0")}.png`);
 		await surface.screenshot({ path, animations: "disabled" });
 		files.push(path);
+		// A body that does not fit makes the card scroll: say which, so a longer edit is seen.
+		const scrolls = await page
+			.locator(".campaign-modal-body")
+			.evaluate((body) => body.scrollHeight > body.clientHeight + 1);
+		if (scrolls) console.warn(`${lang} ${device} card ${index + 1} scrolls.`);
 		if (index < slides - 1) {
 			await page.getByRole("button", { name: /^(Következő|Next)$/ }).click();
 		}

@@ -296,7 +296,8 @@ privileged command to run instead (it does not fail the build). Add a NOPASSWD s
 
 ## Creating a release campaign from a deck
 
-`scripts/create-release-campaign.ts` builds an in-app release campaign out of a prepared deck
+`scripts/create-release-campaign.ts` builds an in-app release campaign (or, with `--type
+onboarding`, the first-run onboarding, see [below](#a-first-run-onboarding)) out of a prepared deck
 directory, so the whole four-slide announcement does not have to be typed and re-uploaded through
 Administration → Campaigns by hand.
 
@@ -330,6 +331,33 @@ upload pre-rendered PNGs of the same slides instead — the script looks for eac
 either way. (For contrast: the admin UI's crop modal always rasterizes to `image/webp` at exactly
 1600x1000 / 1080x1920, because a human cropping a phone screenshot needs it to. A deck already at
 the target geometry needs no crop, so the script saves the full frame at 1:1.)
+
+### A first-run onboarding
+
+`--type onboarding` makes the first-run welcome instead of a release update. The command line differs
+in one way: there is no `--version` (the system names it `first_run_onboarding:v1:r<n>`, and the
+script refuses a `--version` rather than ignore it). The deck differs in three optional keys, which
+a release deck may not carry:
+
+| key | notes |
+|---|---|
+| `layoutType` | `standard` (the default) or `setup`. Exactly one slide is `setup`: the slide with the preference controls. |
+| `setupControls` | On the setup slide only, and at least one of `ui_language`, `theme`, `model_default`, `ai_style`. |
+| `semanticRole` | `feature` (the default) or `data_disclosure`. At least one standard slide is the data disclosure. |
+
+Those are the two things the service's publish validation asks of a first-run onboarding, so a deck
+that lacks them is refused before anything is written. Two things are different about an onboarding
+once it is published, and the script says so when it publishes one:
+
+- Eligibility is per user and per published snapshot. A new onboarding **revision** is a new
+  snapshot, so every account that has not finished it, **existing accounts included**, sees it once
+  on its next load, before any release announcement (`getEligibleCampaignForUser`).
+- The sidebar badge replays the newest published announcement, onboarding or release. Publish the
+  onboarding **before** the release campaign if the badge should open the release.
+
+An onboarding that is already published is not touched: the new one is the next revision, and the
+newest published one is what a user is shown. Archive the old one in Administration → Campaigns
+when it is no longer wanted in the list.
 
 ### Running it on a server
 

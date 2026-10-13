@@ -1,0 +1,131 @@
+[
+	{
+		"layoutType": "setup",
+		"semanticRole": "feature",
+		"setupControls": [
+			"ui_language",
+			"theme",
+			"model_default",
+			"ai_style"
+		],
+		"titleHu": "Üdv az AlfyAI-ban",
+		"titleEn": "Welcome to AlfyAI",
+		"bodyHu": "Az AlfyAI a személyes AI-asszisztensed, a neve Alfy: kérdezhetsz tőle, és együtt készíthettek dokumentumot, alkalmazást vagy táblát. Állítsd be az alapokat (bármikor átállíthatod), a többit pár dia mutatja.\n\nHol találod: Profil és beállítások › Profil › Beállítások.",
+		"bodyEn": "AlfyAI is your personal AI assistant, called Alfy: ask it things, and make documents, apps or canvases together. Set the basics (you can change them any time); the next few screens show the rest.\n\nWhere to find it: Profile & Settings › Profile › Preferences.",
+		"altTextHu": "Egy újonnan regisztrált felhasználó kezdőlapja: köszöntés a nevével, alatta az üres szövegmező a + és a gemkapocs gombbal. Telefonon ugyanez a kezdőlap.",
+		"altTextEn": "The home page of someone who has just signed up: a greeting with their name, and under it the empty message box with its plus and paperclip buttons. On a phone, the same home page.",
+		"desktopFile": "slides/01-welcome-desktop.png",
+		"mobileFile": "slides/01-welcome-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Így igazodsz el",
+		"titleEn": "Finding your way around",
+		"bodyHu": "Az oldalsávban van a Keresés, az új beszélgetés gombja, a Tudásbázis, a projektjeid és a korábbi beszélgetéseid; alul a neved nyitja a beállításokat. A kezdőlap a legutóbbi beszélgetéseidet és projektjeidet is megmutatja.\n\nHol találod: a bal szélen az oldalsáv (ha csak ikonokat látsz, kattints a logóra); telefonon a bal felső menügomb.",
+		"bodyEn": "The sidebar holds Search, the new-chat button, the Knowledge base, your projects and your earlier chats; at the bottom, your name opens the settings. The home page also lists your latest chats and projects.\n\nWhere to find it: the sidebar on the left (click the logo if you only see icons); on a phone, the menu button at the top left.",
+		"altTextHu": "Az oldalsáv: a Keresés mező, mellette az új beszélgetés és a Tudásbázis gombja, majd a Rögzítve, a Projektek és a Beszélgetések szakasz. Telefonon ugyanez az oldalsáv kicsúszó panelként.",
+		"altTextEn": "The sidebar: the Search box with the buttons for a new chat and the Knowledge base beside it, then the Pinned, Projects and Chats sections. On a phone, the same sidebar slides in as a drawer.",
+		"desktopFile": "slides/02-map-desktop.png",
+		"mobileFile": "slides/02-map-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Kezdd egy kérdéssel",
+		"titleEn": "Start with a question",
+		"bodyHu": "Írj a szövegmezőbe bármit: kérdést, feladatot, egy félkész gondolatot. Ha friss tudás kell, Alfy utánanéz a weben, és megmutatja a forrásait. Csatolhatsz fájlt is, és kérdezhetsz róla. A válasz alatti két javaslat egy koppintással elküldhető.\n\nHol találod: a kezdőlapon a szövegmező; a „+” gombbal a modellt, a stílust és a gondolkodást állítod.",
+		"bodyEn": "Type anything in the box: a question, a task, a half-formed thought. When it needs fresh facts, Alfy looks on the web and shows its sources. Attach a file and ask about it. Tap one of the two suggestions under a reply to send it.\n\nWhere to find it: the box on the home page; the “+” button holds the model, the style and thinking.",
+		"altTextHu": "A szövegmező melletti + menü: Fájl csatolása, Képességek, Atlas jelentés, a Gondolkodás kapcsolója, valamint a Modell és a Stílus választó. Telefonon alulról kicsúszó lapként.",
+		"altTextEn": "The plus menu beside the message box: Attach file, Skills, Atlas report, the Thinking switch, and the Model and Style pickers. On a phone it rises from the bottom as a sheet.",
+		"desktopFile": "slides/03-ask-desktop.png",
+		"mobileFile": "slides/03-ask-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Alfy nemcsak válaszol, készít is",
+		"titleEn": "Alfy answers, and makes things too",
+		"bodyHu": "Ha leírod, mi kell, Alfy dokumentumot ír, kis alkalmazást épít, vagy táblára rendezi az ötleteidet. Ezek a beszélgetés mellett jelennek meg: ott szerkesztheted és letöltheted őket, és megmaradnak.\n\nHol találod: a beszélgetés fejlécének jobb oldali gombja felsorolja, mit készített a beszélgetés.",
+		"bodyEn": "Tell Alfy what you are after, and it writes a document, builds a small app, or lays your ideas out on a canvas. They appear beside the chat, where you can edit and download them, and they stay.\n\nWhere to find it: the button at the right of the chat header lists everything the chat made.",
+		"altTextHu": "Az „Amit ez a beszélgetés készített” lista: egy dokumentum, egy fájl, egy alkalmazás és egy tábla, a fejléc gombjával megnyitva. Telefonon a beszélgetés, amelyben Alfy egy dokumentumot készített, a kártyájával.",
+		"altTextEn": "The “What this chat made” list: a document, a file, an app and a canvas, opened from the header button. On a phone, a chat in which Alfy made a document, with its card.",
+		"desktopFile": "slides/04-makes-desktop.png",
+		"mobileFile": "slides/04-makes-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Semmi sem vész el",
+		"titleEn": "Nothing gets lost",
+		"bodyHu": "Amit Alfy átír, azt jelölve látod, és te döntesz: „Megtartom” vagy „Visszavonom”. Amit közben te módosítottál, ahhoz nem nyúl. Az Előzményekben napok szerint rendezve találod a változatokat: elnevezheted, megnézheted és visszaállíthatod őket.\n\nHol találod: a panel fejlécében a legutóbbi változást mutató gomb nyitja az Előzményeket.",
+		"bodyEn": "What Alfy rewrites is marked, and you decide: “Keep” or “Undo”. What you changed yourself, Alfy leaves alone. History keeps every version, listed by day: you can name one, look at it, or bring it back.\n\nWhere to find it: the button in the panel header that shows the latest change opens History.",
+		"altTextHu": "Egy dokumentum Előzményei: napokra bontott lista Alfy még rád váró javaslatával, egy megtartott módosításával, a te elnevezett szerkesztéseddel és az első vázlattal; mellette egy változat előnézete a Visszaállítás gombbal. Telefonon az Előzmények lap.",
+		"altTextEn": "A document’s History: a list by day with Alfy’s suggestion that still waits for you, a change you kept, your own named edit and the first draft; beside it a preview of one version with the Restore button. On a phone, the History sheet.",
+		"desktopFile": "slides/05-history-desktop.png",
+		"mobileFile": "slides/05-history-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Projektek és utasítások",
+		"titleEn": "Projects and instructions",
+		"bodyHu": "A projektben egy téma csevegései, fájljai és utasításai egy helyre kerülnek, és minden új csevegés rögtön ismeri a témát. Amit Alfynak mindig tudnia kell rólad vagy a munkádról, írd le egyszer, és minden csevegésben érvényes lesz.\n\nHol találod: oldalsáv › Projektek; Profil és beállítások › Profil › Az asszisztens viselkedése.",
+		"bodyEn": "In a project, one subject’s chats, files and instructions live together, and every new chat knows the subject from its first message. What Alfy should always know about you or your work, write once, and it applies in every chat.\n\nWhere to find it: sidebar › Projects; Profile & Settings › Profile › Assistant behaviour.",
+		"altTextHu": "A Balatoni nyaralás projekt oldala: a projekt neve, a szövegmező, alatta az Utasítások és a fájlok száma, majd a projekt négy csevegése. Telefonon ugyanez az oldal.",
+		"altTextEn": "The page of the Balatoni nyaralás project: its name, the message box, under it the Instructions and the number of files, then the project’s four chats. On a phone, the same page.",
+		"desktopFile": "slides/06-projects-desktop.png",
+		"mobileFile": "slides/06-projects-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Tudásbázis és keresés",
+		"titleEn": "Knowledge base and search",
+		"bodyHu": "Amit feltöltesz, és amit Alfy készít, a Tudásbázisban találod meg: egy listában, típus szerint szűrheted. Ha nem jut eszedbe, hol volt valami, a Keresés a beszélgetéseid és a dokumentumaid szövegében is megtalálja.\n\nHol találod: oldalsáv › Tudásbázis › Dokumentumok; a keresés az oldalsáv tetején.",
+		"bodyEn": "What you upload and what Alfy makes is in the Knowledge base: one list you can filter by type. If you cannot remember where something was, Search finds it in the text of your chats and documents too.\n\nWhere to find it: sidebar › Knowledge base › Documents; Search at the top of the sidebar.",
+		"altTextHu": "A Munkaterület keresése ablak a „szállás” szóra: a beszélgetések és a dokumentumok találatai kiemelt szavakkal, fent a típus szerinti szűrők. Telefonon ugyanez a keresőlap.",
+		"altTextEn": "The workspace search for the word “szállás”: hits in chats and in documents with the words highlighted, and the filters by type on top. On a phone, the same search sheet.",
+		"desktopFile": "slides/07-search-desktop.png",
+		"mobileFile": "slides/07-search-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Amit Alfy megjegyez, te irányítod",
+		"titleEn": "What Alfy remembers is up to you",
+		"bodyHu": "Alfy a beszélgetéseken át megjegyzi, ami fontos rólad. A Memóriaprofilban elolvashatod és javíthatod, a Beállításokban ki is kapcsolhatod. Ha egy beszélgetésből nem szeretnéd, hogy tanuljon, indítsd inkognitóban.\n\nHol találod: Tudásbázis › Memóriaprofil; inkognitó: a kezdőlap jobb felső sarkában a maszk.",
+		"bodyEn": "Across your chats Alfy remembers what matters about you. Read and correct it in the Memory Profile, or switch memory off in Settings. For a chat Alfy should not learn from, start it in incognito.\n\nWhere to find it: Knowledge base › Memory Profile; incognito: the mask at the top right of the home page.",
+		"altTextHu": "A Memóriaprofil: az „Amit rólad megjegyeztem” összefoglaló, a kategóriák szerinti szűrők és a megjegyzett tények, mindegyiken Szerkesztés és Törlés gombbal. Telefonon ugyanez az oldal.",
+		"altTextEn": "The Memory Profile: the “What I remember about you” summary, the filters by category and the remembered facts, each with Edit and Delete buttons. On a phone, the same page.",
+		"desktopFile": "slides/08-memory-desktop.png",
+		"mobileFile": "slides/08-memory-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "feature",
+		"titleHu": "Hozd át, amid van",
+		"titleEn": "Bring what you already have",
+		"bodyHu": "Hozd át a régi ChatGPT-beszélgetéseidet, és folytasd ott, ahol abbahagytad. A naptáradat, leveleidet, fényképeidet és fájljaidat is összekötheted Alfyval: olvasni mindet tud, írni csak az engedélyeddel.\n\nHol találod: Profil és beállítások › Kapcsolatok; importálás: Profil › Adatok és adatvédelem.",
+		"bodyEn": "Bring your old ChatGPT conversations over and carry on where you left off. Connect your calendar, email, photos and files too: Alfy can read them all, and write only if you allow it.\n\nWhere to find it: Profile & Settings › Connections; import: Profile › Data & privacy.",
+		"altTextHu": "A Beállítások Kapcsolatok oldala: a Kapcsolat hozzáadása lista a Nextcloud, Immich, Email, Google, Apple iCloud, Plex, OwnTracks, GitHub, OneDrive és CalDAV szolgáltatással. Telefonon ugyanez az oldal.",
+		"altTextEn": "The Connections page of the settings: the Add a connection list with Nextcloud, Immich, Email, Google, Apple iCloud, Plex, OwnTracks, GitHub, OneDrive and CalDAV. On a phone, the same page.",
+		"actionLabelHu": "Importálás ChatGPT-ből",
+		"actionLabelEn": "Import from ChatGPT",
+		"actionDestination": "internal:chatgpt-import",
+		"desktopFile": "slides/09-bring-desktop.png",
+		"mobileFile": "slides/09-bring-mobile.png"
+	},
+	{
+		"layoutType": "standard",
+		"semanticRole": "data_disclosure",
+		"titleHu": "Mi történik az adataiddal",
+		"titleEn": "What happens to your data",
+		"bodyHu": "Az AlfyAI nem teljesen helyi: amit írsz, feltöltesz, vagy Alfy a csatlakoztatott fiókjaidból kiolvas, az a választott modellhez kerül (a felhős modellnél a szolgáltatójához, annak feltételei szerint). A webes keresés a keresőkifejezést is kiküldi. A memóriát és a használati adatokat az AlfyAI tárolja. Nem adjuk el az adataidat.\n\nHol találod: Profil › Adatok és adatvédelem.",
+		"bodyEn": "AlfyAI is not fully local: what you write, upload, or what it reads from your connected accounts goes to the model you choose (with a cloud model, to its provider, under its own terms). A web search also sends out the search phrase. AlfyAI stores your memory and usage data. We do not sell your data.\n\nWhere to find it: Profile › Data & privacy.",
+		"altTextHu": "A Beállítások Adatok és adatvédelem kártyája: az Adatvédelmi irányelvek, az Importálás ChatGPT-ből és az Adataim letöltése sor, mindegyik a saját gombjával. Telefonon ugyanez a kártya.",
+		"altTextEn": "The Data & privacy card of the settings: the Privacy policy, Import from ChatGPT and Download my data rows, each with its own button. On a phone, the same card.",
+		"desktopFile": "slides/10-data-desktop.png",
+		"mobileFile": "slides/10-data-mobile.png"
+	}
+]
