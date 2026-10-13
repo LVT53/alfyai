@@ -13,7 +13,7 @@
 		"titleHu": "Alkalmazás: kis eszköz, ami itt fut",
 		"titleEn": "An app: a small tool that runs here",
 		"bodyHu": "Mondd el, mire van szükséged: költségkövetőre, kalkulátorra, kvízre. Alfy megépíti, ellenőrzi benne az adatokat, és a panelben azonnal használhatod. Megjegyzi, amit beírtál; a „Módosítás…” gombbal átépítheted.\n\nHol találod: a válasz alatti „Alkalmazás” kártyán; a panel fejlécében le is töltheted.",
-		"bodyEn": "Say what you need: a cost tracker, a calculator, a quiz. Alfy builds it, checks its facts, and you use it in the panel at once. It remembers what you type; “Change this app…” rebuilds it.\n\nWhere to find it: the “App” card under the reply; the panel header downloads it.",
+		"bodyEn": "Say what you need: a cost tracker, a calculator, a quiz. Alfy builds it, checks its facts, and you use it in the panel at once. It remembers what you type; “Change this app…” rebuilds it.\n\nWhere to find it: the “App” card under the reply; download it from the panel header.",
 		"altTextHu": "Egy költségkövető alkalmazás a panelben: az Előnézet és a Kód fül, a Módosítás… gomb, a homokozó sávja és a felvett kiadások",
 		"altTextEn": "A cost-tracker app in the panel: the Preview and Code tabs, the Change this app… button, the sandbox bar and the expenses entered",
 		"desktopFile": "slides/02-app-desktop.png",

@@ -57,7 +57,7 @@ section O (what is deliberately not in 2.2) and appendix P (shipped in productio
 | B4 | Tick checklist items in place, in the Document and on its card in the chat. | The open Document, or the card. | "Feladatlista" | NEW |
 | B5 | See status and date chips in a plan Alfy wrote and change a status from the chip's dropdown (a Document written for a trip or a budget). | The open Document ▸ a chip in the text. | "Állapot"; "Dátum"; "Lefoglalva", "Lefoglalandó", "Kifizetve", "Lemondva" | NEW |
 | B6 | Keep any Alfy reply as a Document and keep working on it. A second press opens the same Document, titled by the reply's first sentence. | Hover a reply ▸ its action row ▸ "Megnyitás dokumentumként". | "Megnyitás dokumentumként"; "Megnyitás…"; "Dokumentum megnyitása" | NEW |
-| B7 | Download a Document as PDF, Word or Markdown; the file actually reaches the browser (it did not in the first build) and is named after the item's title, accents kept. | The open Document ▸ the download icon "Letöltés"; also Tudásbázis ▸ Dokumentumok ▸ a row's actions. | "Letöltés"; "PDF"; "Word"; "Markdown"; "A fájl előkészítése…" | NEW |
+| B7 | Download a Document as PDF, Word or Markdown; the file actually reaches the browser (in the first Artifacts build it was made and never arrived) and is named after the item's title, accents kept. | The open Document ▸ the download icon "Letöltés"; also Tudásbázis ▸ Dokumentumok ▸ a row's actions. | "Letöltés"; "PDF"; "Word"; "Markdown"; "A fájl előkészítése…" | NEW |
 | B8 | Ask for "a document" and get the in-app Document; ask for a PDF, DOCX or XLSX (or say you want a download) and get a downloadable file. Alfy does not make two files for one request. | A chat request. | (behaviour: ruling 77, F10) | CHANGED |
 | B9 | Delete a Document; the chat card then says it was deleted and offers "Újragenerálás", which makes it again under the same id from the original request. | The open Document ▸ the trash icon "Dokumentum törlése"; a list row's ⋮ ▸ delete; a deleted card ▸ "Újragenerálás". | "Törlöd ezt a dokumentumot?"; "Ez a dokumentum törölve lett"; "Újragenerálás"; "Dokumentum törölve" | NEW |
 | B10 | Trust the editor: your typing survives going offline, a conflict is named, the text you wrote while the Document was deleted can be saved as a new Document. | The open Document. | "Ütközés"; "Mentés új dokumentumként"; "Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van." | NEW |
@@ -267,19 +267,20 @@ first open, but only the first-open moment and only for those three, and nothing
 header count button. Without the 2.2 card a new user also has no "where to find it".
 
 **Proposal (for the owner; nothing is published).** Keep the onboarding short; do not turn it into the release notes.
-Add two standard slides before the data-disclosure slide, and replace the placeholder feature slide with the first:
+Replace the placeholder feature slide ("Introduce a released feature") with the first of these two standard slides, and add
+the second before the data-disclosure slide (wording in both languages, and the pictures to use, are in
+`campaign-2.2-copy.md`, section "Onboarding update"):
 
-1. **Alfy készít, te szerkeszted** / *Alfy makes it, you shape it*: "Kérd meg Alfyt, hogy írjon dokumentumot, építsen kis
-   alkalmazást vagy tegyen táblára ötleteket. Beszélgetés mellett nyílnak meg, ott szerkesztheted, és a fejléc jobb szélén a
-   számláló gomb mutatja, mi készült." (Where: the chat header's count button.)
-2. **Projektek és utasítások** / *Projects and instructions*: "Egy projekt a csevegéseidet, a fájljaidat és az utasításaidat
-   tartja egyben. Amit mindig tudnia kell, azt egyszer írd le: Profil és beállítások ▸ Személyes utasítások." (Where:
-   sidebar ▸ Projektek.)
+1. **Alfy nemcsak válaszol, készít is** / *Alfy answers, and makes things too*: a Document, an App or a board opens beside the
+   chat, you edit it and approve every change Alfy makes. Where: the button at the right of the chat header shows what the
+   chat made.
+2. **Projektek és utasítások** / *Projects and instructions*: a project keeps chats, files and instructions together;
+   what Alfy should always know is written once. Where: sidebar ▸ Projektek, and Profil és beállítások ▸ Profil ▸ Az
+   asszisztens viselkedése.
 
-The same two slides, with pictures taken from the 2.2 build, are in `campaign-2.2-copy.md` (section "Onboarding
-update"). Alternatively, leave the onboarding as it is and rely on the 2.2 card, which a new user will see on the next
-load; the cost is a gap of one page load between "set up AlfyAI" and "what AlfyAI can do". If the owner wants a new
-user to skip a release card that describes things they never lacked, the change is a code one (a creation-date check in
+Alternatively, leave the onboarding as it is and rely on the 2.2 card, which a new user will see on the next load; the
+cost is a gap of one page load between "set up AlfyAI" and "what AlfyAI can do". If the owner wants a new user to skip a
+release card that describes things they never lacked, the change is a code one (a creation-date check in
 `getEligibleCampaignForUser`), not a content one, and it is outside this brief.
 
 ---
@@ -290,7 +291,7 @@ Five sources, cross-checked against each other; the numbers in the header are fr
 
 | Source | What it gave | Check against the others |
 |---|---|---|
-| (a) `git diff origin/main origin/dev -- src/lib/i18n/` | 803 added keys (657 new `artifacts.*`: canvas 223, document 150, history 140, app 54, delete 28, panel 12, deleted 11, tour 10, card 9; `knowledge.documents.*` 28; `projects.*` 45; `instructions.*` 23; `admin.campaigns.*` 18; `analytics.parallel*` 6; `toolActivity.*` 5; `chat.artifacts.*` 4; `composerCommands.instruction.*` 4; `profileTab.personalInstructions*` 5), 64 removed (`contextSources.*` 28, `home.suggest*` 31, `contextUsageRing` 3, `sidebar.failedCreateProjectConversation`), 12 changed. | Each namespace maps to a route or component in (b), a merge in (d) and a ruling in (e). `artifacts.type.slides`, `knowledge.documents.filter.slides` and the `slides` count strings are in the dictionary but unreachable (ruling 69). |
+| (a) `git diff origin/main origin/dev -- src/lib/i18n/` | 803 added keys (657 new `artifacts.*`: canvas 223, document 150, history 140, app 54, delete 28, panel 12, deleted 11, tour 10, card 9; `knowledge.documents.*` 28; `projects.*` 45; `instructions.*` 23; `admin.campaigns.*` 18; `analytics.parallel*` 6; `toolActivity.*` 5; `chat.artifacts.*` 4; `composerCommands.instruction.*` 4; `profileTab.personalInstructions*` 5), 64 removed (`contextSources.*` 28, `home.suggest.*` 27 and four more `home.*` suggestion labels = 31, `contextUsageRing` 3, `sidebar.failedCreateProjectConversation`, `knowledge.documentCount`), 12 changed. | Each namespace maps to a route or component in (b), a merge in (d) and a ruling in (e). `artifacts.type.slides`, `knowledge.documents.filter.slides` and the `slides` count strings are in the dictionary but unreachable (ruling 69). |
 | (b) `git diff --stat origin/main origin/dev -- src/routes/` and `src/lib/components/` | 87 added route files, 41 of them not tests (the project page and its two dialogs, 23 `/api/artifacts/*` routes, the tours routes, the project-knowledge routes, the instruction-suggestion route, the file-job routes, the image thumbnail route), 3 deleted (`task-steering`, the landing-incognito pair that moved), 75 modified; 3 deleted components (`EvidenceManager`, `EvidencePreferenceControl`, `HomeSuggestionRail`) and 184 added non-test components. | Every added route has a string or a documented behaviour in (a)/(e). |
 | (c) Settings and admin | One new admin key (`PARALLEL_FREE_MONTHLY_USD`) and a `number` control; the Campaigns pane's tour type; the Profile tab's "Személyes utasítások" row; the analytics meter. | Matches Slice B and Slice C of Feature 1 and `drizzle/…106` to `…113`. |
 | (d) 53 first-parent merges and 5 ADRs (0064 to 0068; 0012 amended) | The order of the work: Workspaces (7 slices, 2026-09-24/25), Artifacts waves 1 to 4 (09-25 to 10-07), the redesign (09-27/29), Canvas (09-30), owner walks (10-01), tours (10-05/06), Phase 5 versions (10-12), the friction build (10-12), the exfil channels and the WebRTC guard (10-12/13). | The merge bodies name what each wave contains; every wave's name appears in the groups above. |

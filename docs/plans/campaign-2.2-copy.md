@@ -51,8 +51,8 @@ one; `create-release-campaign.ts` wants at least four). What bounds a deck is th
 
 - **A title and a body in both languages on every slide, alt text in both when a slide has pictures, and a button needs
   both labels and an allow-listed destination** (the publish checklist reads 12 / 12 for this deck, `preview/admin-hu.png`).
-- **A body past about 360 characters makes a phone card scroll** (390x844: every body here fits whole; measured in
-  `preview/cards-*-phone.png`). The test pins 360.
+- **A body past about 400 characters (a little over 300 when the slide has a button) makes a 390x844 phone card scroll**;
+  every body here fits whole (`preview/cards-*-phone.png`). The test pins 360, so a longer edit fails before it is seen.
 - **The pictures are 16:10 (1600x1000) and 9:16 (1080x1920)**, and the card draws them at most 520 and 190 pixels wide, so
   a full window is unreadable in it: these are tight crops (see "The pictures").
 - **A button goes only where the allow-list says**: `/`, `/chat`, `/knowledge`, `/settings`, `/settings/profile`,
@@ -103,7 +103,7 @@ Hungarian first. Titles and bodies are the exact strings in `slides.json`. Every
 
   > Say what you need: a cost tracker, a calculator, a quiz. Alfy builds it, checks its facts, and you use it in the panel at once. It remembers what you type; “Change this app…” rebuilds it.
   >
-  > Where to find it: the “App” card under the reply; the panel header downloads it.
+  > Where to find it: the “App” card under the reply; download it from the panel header.
 
 - **altTextHu**: Egy költségkövető alkalmazás a panelben: az Előnézet és a Kód fül, a Módosítás… gomb, a homokozó sávja és a felvett kiadások
 - **altTextEn**: A cost-tracker app in the panel: the Preview and Code tabs, the Change this app… button, the sandbox bar and the expenses entered

@@ -49,7 +49,12 @@ type Manifest = {
 	timeZone: string;
 	user: { email: string; password: string };
 	project: { id: string };
-	conversations: { plan: string; photo: string };
+	conversations: {
+		plan: string;
+		comparison: string;
+		photo: string;
+		packing: string;
+	};
 };
 
 const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as Manifest;
