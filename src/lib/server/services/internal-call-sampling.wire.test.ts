@@ -48,6 +48,7 @@ vi.mock("../prompts", async (importOriginal) => {
 
 import { generateApp } from "./artifacts/app/generate";
 import { verifyApp } from "./artifacts/app/verify";
+import { readConversationLanguage } from "./chat-turn/conversation-language";
 import { generateFollowUpSuggestions } from "./chat-turn/follow-up-suggestions";
 import { persistAssistantRailSummary } from "./chat-turn/rail-summary";
 import { classifyThoughtStepChunk } from "./chat-turn/thought-step-classifier";
@@ -212,6 +213,16 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			targetLanguage: "hu",
 		});
 		expect(wire()).toEqual(PROFILE);
+	});
+
+	it("conversation language: a JSON verdict keeps temperature 0, family top_p/top_k ride along", async () => {
+		await readConversationLanguage({
+			userId: "u1",
+			conversationId: "c1",
+			latestUserMessage: HU_USER,
+			reply: HU_REPLY,
+		});
+		expect(wire()).toEqual(keepsOwnTemperature(0));
 	});
 
 	it("turn acknowledgment: a JSON classification keeps temperature 0, family top_p/top_k ride along", async () => {

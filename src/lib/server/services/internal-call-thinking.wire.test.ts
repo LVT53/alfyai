@@ -44,6 +44,7 @@ vi.mock("../prompts", async (importOriginal) => {
 	return { ...actual, getSystemPrompt: (prompt: string) => prompt };
 });
 
+import { readConversationLanguage } from "./chat-turn/conversation-language";
 import { generateFollowUpSuggestions } from "./chat-turn/follow-up-suggestions";
 import { persistAssistantRailSummary } from "./chat-turn/rail-summary";
 import { classifyThoughtStepChunk } from "./chat-turn/thought-step-classifier";
@@ -138,6 +139,16 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 				"The user wants a weekly meal plan in Hungarian, so I should list dishes per day.",
 			currentActivityClass: null,
 			targetLanguage: "hu",
+		});
+		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
+	});
+
+	it("conversation language (the verdict after a reply)", async () => {
+		await readConversationLanguage({
+			userId: "u1",
+			conversationId: "c1",
+			latestUserMessage: HU_USER,
+			reply: HU_REPLY,
 		});
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
