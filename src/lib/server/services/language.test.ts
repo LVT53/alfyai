@@ -40,10 +40,21 @@ describe("readReplyLanguage", () => {
 	});
 
 	it("does not count the words both languages use", () => {
-		// "a", "is", "be", "de", "ha", "van", "volt", "mi", "ki", "el", "le", "meg"
-		// and "az" prove nothing about either language, however often they come.
-		const homographs = "a is be de ha van volt mi ki el le meg az ".repeat(20);
-		expect(readReplyLanguage(homographs)).toBe("unknown");
+		// Each of these is an everyday word of the other language, or an English
+		// name, unit or abbreviation (MIT, IDE, TI-84, "12 volt", "a van", "AZ",
+		// "Meg"), so none proves anything about either language, however often it
+		// comes. One word at a time: a single one on either list would tip a text
+		// made of it alone. The lists' comments name these words; this holds them to it.
+		const homographs =
+			"a az is be de ha van volt mi ki el le meg most mint fog mit ide hat ti ma ok at no hi en".split(
+				" ",
+			);
+		for (const word of homographs) {
+			expect(readReplyLanguage(`${word} `.repeat(20)), word).toBe("unknown");
+		}
+		expect(readReplyLanguage(`${homographs.join(" ")} `.repeat(20))).toBe(
+			"unknown",
+		);
 	});
 
 	it("does not count names, places or loanwords", () => {

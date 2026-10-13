@@ -71,11 +71,11 @@ const HUNGARIAN_WORDS: ReadonlySet<string> = new Set(
 	lehet lehetne kell kellene tud tudok tudsz tudunk fogok lesz lenne
 	legyen volna lett már majd talán esetleg minden mindig soha néha néhány
 	több kevés sok nagyon elég túl ilyen olyan milyen melyik hogyan miért
-	mikor hol hová honnan merre kik mit miben mire oda itt ott innen onnan
+	mikor hol hová honnan merre kik miben mire oda itt ott innen onnan
 	után előtt között alatt felett fölött mellett mögött szerint miatt helyett
 	nélkül által számára részére iránt felé felől óta múlva közben kívül belül
 	nekem neked neki nekünk nektek nekik velem veled vele velünk tőlem tőled
-	tőle hozzám hozzád hozzá rólam rólad róla rám rád én ő ők ti ön önök magam
+	tőle hozzám hozzád hozzá rólam rólad róla rám rád én ő ők ön önök magam
 	magad magát egyik másik mindegyik valamelyik valami valaki semmi senki
 	bármi bárki bármely szinte körülbelül például azaz vagyis stb kérem kérlek
 	köszönöm szívesen természetesen persze íme szia üdv először másodszor
