@@ -25,7 +25,7 @@ const markdownMocks = vi.hoisted(() => ({
 }));
 
 const STANDARD_REPORT_CSP =
-	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 vi.mock("pdfjs-dist", () => ({
 	GlobalWorkerOptions: {

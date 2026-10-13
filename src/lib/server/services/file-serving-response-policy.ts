@@ -24,8 +24,16 @@ export type ParsedFileServingRange =
 const RESTRICTED_PREVIEW_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
+// A generated HTML report runs script of the app's own (the section menu, the
+// source tooltips), so this is the widest preview policy there is, and still no
+// wider than the others in what it may load: `img-src data:` (ADR-0068). The
+// report's pictures are inlined as data: URIs when it is rendered
+// (`file-production/report-images.ts`), so it never has to fetch one, and a
+// remote address in it would be a request nobody clicked. Keep it in step with
+// `TRUSTED_HTML_RUNTIME_CSP` (the same policy as the preview's own meta tag)
+// and `allowsTrustedHtmlPreviewRuntime`, which recognises this header by its text.
 const STANDARD_REPORT_PREVIEW_CSP =
-	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 export type FileServingPreviewProfile = "standard-report";
 

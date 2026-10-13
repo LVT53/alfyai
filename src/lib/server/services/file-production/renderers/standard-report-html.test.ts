@@ -1136,3 +1136,109 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).not.toContain("[x]");
 	});
 });
+
+// ADR-0068. A report previewed in the app is held to `img-src data:`, and one
+// opened from disk should not call every host it shows a picture from, so the
+// renderer never writes a remote address where a picture goes. A picture is the
+// bytes `resolveReportImages` fetched, inlined, or a placeholder with its alt
+// text.
+describe("AlfyAI Standard Report HTML renderer: pictures", () => {
+	const PICTURE = "https://example.com/pic.png";
+	const INLINED = "data:image/png;base64,iVBORw0KGgo=";
+
+	function sourceWith(
+		image: Record<string, unknown>,
+	): import("../source-schema").GeneratedDocumentSource {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Picture report",
+			blocks: [
+				{ type: "paragraph", text: "Before the picture." },
+				{
+					type: "image",
+					altText: "A chart of sales",
+					caption: "Sales by quarter",
+					sourceAttribution: {
+						title: "Example",
+						url: "https://example.com/where-it-came-from",
+					},
+					...image,
+				},
+			],
+		});
+		if (!validation.ok) throw new Error(validation.message);
+		return validation.source;
+	}
+
+	const render = (
+		source: import("../source-schema").GeneratedDocumentSource,
+		images?: ReadonlyMap<string, string>,
+	) =>
+		renderStandardReportHtml(source, undefined, images).content.toString(
+			"utf8",
+		);
+
+	it("draws a picture that was fetched as its own bytes", () => {
+		const html = render(
+			sourceWith({ source: { kind: "https", url: PICTURE } }),
+			new Map([[PICTURE, INLINED]]),
+		);
+
+		expect(html).toContain(`<img src="${INLINED}" alt="A chart of sales"`);
+		expect(html).not.toContain(PICTURE);
+	});
+
+	it.each([
+		["no pictures were fetched at all", undefined],
+		[
+			"this one was not fetched",
+			new Map([["https://example.com/other.png", INLINED]]),
+		],
+		["it came back empty", new Map([[PICTURE, ""]])],
+	])("draws a placeholder with the alt text when %s", (_name, images) => {
+		const html = render(
+			sourceWith({ source: { kind: "https", url: PICTURE } }),
+			images as ReadonlyMap<string, string> | undefined,
+		);
+
+		expect(html).toContain('class="report-figure image-placeholder"');
+		expect(html).toContain('aria-label="A chart of sales"');
+		expect(html).toContain("Sales by quarter");
+		expect(html).not.toMatch(/<img [^>]*alt="A chart of sales"/);
+		expect(html).not.toContain(PICTURE);
+	});
+
+	it("never writes a remote address where the browser would load it, whatever the report holds", () => {
+		const html = render(
+			sourceWith({ source: { kind: "https", url: PICTURE } }),
+			new Map([[PICTURE, INLINED]]),
+		);
+
+		expect(html).not.toMatch(/<img\b[^>]*\bsrc="(?!data:)/);
+		expect(html).not.toMatch(/\bsrcset=/);
+		expect(html).not.toMatch(/url\(\s*["']?https?:/i);
+		expect(html).not.toMatch(/<link\b[^>]*\bhref="https?:/i);
+		expect(html).not.toMatch(/<script\b[^>]*\bsrc=/i);
+		// The attribution is a link the reader may follow; it is not loaded.
+		expect(html).toContain('href="https://example.com/where-it-came-from"');
+	});
+
+	it("draws a picture that carries its own bytes, as before", () => {
+		const html = render(
+			sourceWith({
+				source: { kind: "data", mimeType: "image/png", data: "iVBORw0KGgo=" },
+			}),
+		);
+
+		expect(html).toContain('<img src="data:image/png;base64,iVBORw0KGgo="');
+	});
+
+	it("keeps drawing the placeholder for a stored file or artifact, which the file cannot carry", () => {
+		const html = render(
+			sourceWith({ source: { kind: "generated_file", fileId: "file-1" } }),
+		);
+
+		expect(html).toContain('class="report-figure image-placeholder"');
+	});
+});

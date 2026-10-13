@@ -325,24 +325,34 @@ function readResponseHeader(response: Response, name: string): string | null {
 	return response.headers?.get(name) ?? null;
 }
 
+/**
+ * What a response must say before its HTML runs script in the preview: the
+ * generated report's policy, directive by directive and exactly. It is the
+ * widest policy the app serves and still loads pictures from itself only
+ * (`img-src data:`, ADR-0068); a response that allows more of anything, remote
+ * pictures included, is not that profile, and its HTML gets the static preview.
+ */
+const TRUSTED_HTML_RUNTIME_DIRECTIVES: Record<string, string> = {
+	"default-src": "'none'",
+	"img-src": "data:",
+	"style-src": "'unsafe-inline'",
+	"script-src": "'unsafe-inline'",
+	"object-src": "'none'",
+	"base-uri": "'none'",
+	"form-action": "'none'",
+};
+
 export function allowsTrustedHtmlPreviewRuntime(
 	contentSecurityPolicy: string | null,
 ): boolean {
-	const normalized = (contentSecurityPolicy ?? "")
-		.replace(/\s+/g, " ")
-		.trim()
-		.toLowerCase();
-	if (!normalized) return false;
-
-	return [
-		"default-src 'none'",
-		"img-src https: http: data:",
-		"style-src 'unsafe-inline'",
-		"script-src 'unsafe-inline'",
-		"object-src 'none'",
-		"base-uri 'none'",
-		"form-action 'none'",
-	].every((token) => normalized.includes(token));
+	const directives = new Map<string, string>();
+	for (const part of (contentSecurityPolicy ?? "").split(";")) {
+		const [name, ...sources] = part.trim().toLowerCase().split(/\s+/);
+		if (name && !directives.has(name)) directives.set(name, sources.join(" "));
+	}
+	return Object.entries(TRUSTED_HTML_RUNTIME_DIRECTIVES).every(
+		([name, sources]) => directives.get(name) === sources,
+	);
 }
 
 /**

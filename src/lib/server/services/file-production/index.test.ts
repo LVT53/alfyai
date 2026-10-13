@@ -107,6 +107,7 @@ describe("file production service", () => {
 
 	afterEach(async () => {
 		vi.doUnmock("./worker-runner");
+		vi.doUnmock("./report-images");
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();
@@ -3587,6 +3588,88 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			sourceArtifact?.id,
 		]);
 		expect(storeGeneratedFile).toHaveBeenCalledTimes(3);
+	});
+
+	// ADR-0068: a report's pictures go into the file as bytes. The preview is held
+	// to `img-src data:` and a report opened outside the app calls no host, so the
+	// adapter resolves the pictures before it renders and hands them to the HTML.
+	it("inlines the pictures of an HTML report as data: URIs and writes no remote address into it", async () => {
+		const PICTURE = "https://example.com/pic.png";
+		const INLINED = "data:image/png;base64,iVBORw0KGgo=";
+		vi.doMock("./report-images", async (importOriginal) => ({
+			...(await importOriginal<typeof import("./report-images")>()),
+			resolveReportImages: vi.fn(async () => new Map([[PICTURE, INLINED]])),
+		}));
+		const { db } = await import("$lib/server/db");
+		const { createOrReuseFileProductionJob, executeNextFileProductionJob } =
+			await import("./index");
+		await createOrReuseFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Picture report",
+			origin: "unified_produce",
+			idempotencyKey: "turn-1:document-source-html-picture",
+			sourceMode: "document_source",
+			documentIntent: "An HTML report with a picture",
+			requestJson: {
+				sourceMode: "document_source",
+				outputs: [{ type: "html" }],
+				documentSource: {
+					version: 1,
+					template: "alfyai_standard_report",
+					title: "Picture report",
+					blocks: [
+						{
+							type: "image",
+							source: { kind: "https", url: PICTURE },
+							altText: "A picture",
+						},
+					],
+				},
+			},
+			now: new Date("2026-05-03T20:20:00.000Z"),
+		});
+		let html = "";
+		const storeGeneratedFile = vi.fn(async (_conversationId, _userId, file) => {
+			html = file.content.toString("utf8");
+			const id = "file-html-picture";
+			const now = new Date("2026-05-03T20:21:00.000Z");
+			await db.insert(schema.chatGeneratedFiles).values({
+				id,
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userId: "user-1",
+				filename: file.filename,
+				mimeType: file.mimeType,
+				sizeBytes: file.content.length,
+				storagePath: `conv-1/${id}`,
+				createdAt: now,
+			});
+			return {
+				id,
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				artifactId: null,
+				userId: "user-1",
+				filename: file.filename,
+				mimeType: file.mimeType,
+				sizeBytes: file.content.length,
+				storagePath: `conv-1/${id}`,
+				createdAt: now.getTime(),
+			};
+		});
+
+		const result = await executeNextFileProductionJob({
+			workerId: "worker-html-picture",
+			executeCode: vi.fn(),
+			storeGeneratedFile,
+			now: new Date("2026-05-03T20:21:00.000Z"),
+		});
+
+		expect(result?.files.map((file) => file.mimeType)).toEqual(["text/html"]);
+		expect(html).toContain(`<img src="${INLINED}" alt="A picture"`);
+		expect(html).not.toContain(PICTURE);
 	});
 
 	it("persists generated-document source JSON and the rendered markdown on a generated_output artifact", async () => {

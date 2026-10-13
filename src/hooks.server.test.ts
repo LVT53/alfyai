@@ -1266,7 +1266,7 @@ describe("hooks.server.ts", () => {
 		// generated HTML report may run scripts. It is an endpoint response, so
 		// it carries no x-sveltekit-page stamp.
 		const previewCsp =
-			"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 		function handlePreview(): Promise<Response> {
 			return handleHtml({

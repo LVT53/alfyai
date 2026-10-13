@@ -209,7 +209,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(result.headers["Content-Type"]).toBe("text/html; charset=utf-8");
 		expect(result.headers["Content-Security-Policy"]).toBe(
-			"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 		);
 		expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
 		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");

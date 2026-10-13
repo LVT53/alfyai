@@ -3,6 +3,7 @@ import {
 	type ReportFavicons,
 	reportFaviconHost,
 } from "../report-favicons";
+import { EMPTY_REPORT_IMAGES, type ReportImages } from "../report-images";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentInlineSegment,
@@ -81,6 +82,8 @@ type ReportLanguage = "en" | "hu";
 interface ReportChrome {
 	/** Host -> self-contained `data:` icon (see `report-favicons.ts`). */
 	favicons: ReportFavicons;
+	/** Picture address -> self-contained `data:` picture (see `report-images.ts`). */
+	images: ReportImages;
 	language: ReportLanguage;
 	sections: string;
 	reportSectionsLabel: string;
@@ -97,10 +100,12 @@ interface ReportChrome {
 function reportChrome(
 	language: GeneratedDocumentSource["language"],
 	favicons: ReportFavicons = EMPTY_REPORT_FAVICONS,
+	images: ReportImages = EMPTY_REPORT_IMAGES,
 ): ReportChrome {
 	if (language === "hu") {
 		return {
 			favicons,
+			images,
 			language: "hu",
 			sections: "Szakaszok",
 			reportSectionsLabel: "Jelentésszakaszok",
@@ -116,6 +121,7 @@ function reportChrome(
 	}
 	return {
 		favicons,
+		images,
 		language: "en",
 		sections: "Sections",
 		reportSectionsLabel: "Report sections",
@@ -362,10 +368,18 @@ function renderTable(
 	].join("");
 }
 
+// Where a picture's bytes are: in the file. A picture that names an address is
+// the bytes `resolveReportImages` fetched for it, inlined, or nothing (the
+// placeholder below); the address itself is never written where a browser would
+// load it (ADR-0068: a remote `<img>` is a request nobody clicked, from the
+// preview and from a report opened outside the app alike).
 function renderImageSource(
 	block: Extract<GeneratedDocumentBlock, { type: "image" }>,
+	chrome: ReportChrome,
 ): string | null {
-	if (block.source.kind === "https") return block.source.url;
+	if (block.source.kind === "https") {
+		return chrome.images.get(block.source.url) || null;
+	}
 	if (block.source.kind === "data") {
 		return `data:${block.source.mimeType};base64,${block.source.data}`;
 	}
@@ -374,8 +388,9 @@ function renderImageSource(
 
 function renderImage(
 	block: Extract<GeneratedDocumentBlock, { type: "image" }>,
+	chrome: ReportChrome,
 ): string {
-	const src = renderImageSource(block);
+	const src = renderImageSource(block, chrome);
 	const attributionHref = linkableUrl(block.sourceAttribution?.url);
 	const attribution = block.sourceAttribution
 		? `<p class="figure-source">Source: ${
@@ -844,7 +859,7 @@ function renderBlock(
 			// chrome strings this `options.chrome` already carries.
 			return `<figure class="chart-figure">${renderChartSvg(block, { language: options.chrome.language }).svg}</figure>`;
 		case "image":
-			return renderImage(block);
+			return renderImage(block, options.chrome);
 	}
 }
 
@@ -962,8 +977,14 @@ export function renderStandardReportHtml(
 	 * the network, so it stays synchronous and unit-testable.
 	 */
 	favicons: ReportFavicons = EMPTY_REPORT_FAVICONS,
+	/**
+	 * Pictures resolved by `resolveReportImages`. Omitted (or empty) means every
+	 * picture that names an address draws its placeholder: like the icons, the
+	 * renderer itself never reaches the network.
+	 */
+	images: ReportImages = EMPTY_REPORT_IMAGES,
 ): StandardReportHtmlRenderResult {
-	const chrome = reportChrome(source.language, favicons);
+	const chrome = reportChrome(source.language, favicons, images);
 	const sourceIndex = collectReportSources(source.blocks);
 	const visibleBlocks =
 		source.blocks[0]?.type === "heading" &&

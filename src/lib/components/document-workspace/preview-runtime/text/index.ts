@@ -21,8 +21,10 @@ export type TextPreviewRenderResult =
 			trustedRuntime: boolean;
 	  };
 
+// The report's own policy as a meta tag (ADR-0068): pictures from itself only,
+// like the header `file-serving-response-policy.ts` serves it with.
 const TRUSTED_HTML_RUNTIME_CSP =
-	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
+	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 export async function renderTextPreview(
 	adapter: TextRuntimeAdapter | HtmlRuntimeAdapter,

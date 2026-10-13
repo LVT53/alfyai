@@ -34,6 +34,7 @@ import {
 	StandardReportPdfRenderError,
 } from "./renderers/standard-report-pdf";
 import { resolveReportFavicons } from "./report-favicons";
+import { resolveReportImages } from "./report-images";
 import {
 	markGeneratedDocumentSourceArtifactFailed,
 	persistGeneratedDocumentSourceArtifact,
@@ -435,6 +436,11 @@ async function renderDocumentSource(
 				userId: input.userId,
 				conversationId: input.conversationId,
 			});
+			// The pictures too (ADR-0068): a report previewed in the app is held to
+			// `img-src data:`, and one opened outside it should call no host, so the
+			// bytes go into the file. The same guarded fetch the PDF makes of them.
+			await budget.yieldIfDue();
+			const images = await resolveReportImages(request.documentSource);
 			// HTML and Markdown lay out in microseconds and stay synchronous, so
 			// their bound is a gate on either side rather than checks inside them:
 			// a render already out of time never starts, and one that somehow
@@ -442,6 +448,7 @@ async function renderDocumentSource(
 			const rendered = renderStandardReportHtml(
 				request.documentSource,
 				favicons,
+				images,
 			);
 			budget.checkpoint();
 			files.push({
