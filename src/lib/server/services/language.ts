@@ -200,50 +200,45 @@ export function readReplyLanguage(
 }
 
 /**
- * The language of a turn's REPLY, for what the app writes after it (chips, rail
- * headline, title). In this order:
+ * The deterministic fallback for the language of what the app writes after a
+ * reply (chips, rail headline, title), for a turn whose model call did not name
+ * it (chat-turn/conversation-language.ts asks the model first, because a reader
+ * of the reply cannot tell a requested piece, a pasted text and an explicit
+ * request for another language from the person's own). In this order:
  *
  *  1. The person's message (P), when the reader can name it and either the reply
  *     says nothing (R is "unknown": code, a table, a bare piece of writing too
  *     short to name) or it differs from R and the reply still holds at least two
- *     of P's closed-class words. That second case is a requested piece in the
- *     other language (an English email in a Hungarian chat): the whole reply may
- *     read as the piece's language, but the assistant's own words around it are
- *     in the person's.
+ *     of P's closed-class words (a requested piece in the other language: the
+ *     whole reply may read as the piece's language, but the assistant's own words
+ *     around it are in the person's).
  *  2. Else the reply's own words (R).
- *  3. Else the language of the previous reply in the conversation.
+ *  3. Else the language stored on the conversation's previous reply.
  *  4. Else the account's UI language, and English if there is none.
  *
- * `read` is what the text itself said, with the message's help ("unknown" when
- * nothing did): it is what a message stores and the next turn falls back to;
- * `language` is always one of the two. A user's message is mostly too short for
- * the reader to name (it needs four closed-class words), so rule 1 fires mainly
- * for messages with a full sentence in them.
+ * A user's message is mostly too short for the reader to name (it needs four
+ * closed-class words), so step 1 fires mainly for messages with a full sentence
+ * in them; a short request for a piece in another language, answered by the piece
+ * alone, reads as the piece's language here. That is the reason the model is asked.
  */
 export function afterReplyLanguage(params: {
 	reply: string;
 	latestUserMessage?: string;
 	previous?: SupportedLanguage | null;
 	uiLanguage?: SupportedLanguage | null;
-}): { language: SupportedLanguage; read: ReplyLanguage } {
+}): SupportedLanguage {
 	const counts = countWitnesses(stripNonProse(params.reply));
 	const reply = decide(counts, DEFAULT_MIN_WITNESSES);
 	const message = params.latestUserMessage
 		? readReplyLanguage(params.latestUserMessage.slice(0, 2_000))
 		: "unknown";
 
-	let read: ReplyLanguage = "unknown";
 	if (
 		message !== "unknown" &&
 		(reply === "unknown" || (message !== reply && counts[message] >= 2))
 	) {
-		read = message;
-	} else if (reply !== "unknown") {
-		read = reply;
+		return message;
 	}
-	if (read !== "unknown") return { language: read, read };
-	return {
-		language: params.previous ?? params.uiLanguage ?? "en",
-		read: "unknown",
-	};
+	if (reply !== "unknown") return reply;
+	return params.previous ?? params.uiLanguage ?? "en";
 }

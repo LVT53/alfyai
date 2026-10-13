@@ -16,9 +16,19 @@
 //      naming the language; the fixtures are ASCII too, so anything found was
 //      written by the server;
 //   2. compared between the two accounts after blanking ids and times: the chat
-//      call, the chips, the rail headline, the title, the memory judge and every
-//      other call must be byte-identical. Only the thought-step status line is
-//      written in the account's UI language (owner decision 2).
+//      call, the language call, the chips, the rail headline, the title, the
+//      memory judge and every other call must be byte-identical. Only the
+//      thought-step status line is written in the account's UI language (owner
+//      decision 2), and so is the nightly persona summary (a screen, not a
+//      turn).
+//
+// One exception is by design and held in reply-language.test.ts (I4): the
+// language of what follows a reply is named by the model (the language call
+// above, which sees the person's own words and never the account), and only
+// when that call fails AND the reply says nothing AND nothing was recorded
+// before it does the account's UI language name it. The call itself names the
+// two languages it chooses between, the way Atlas's does, so the scan for the
+// app naming a language skips it (and only it).
 //
 // Two more layers keep it from regressing:
 //
@@ -62,6 +72,7 @@ import { resolveTurnReplyLanguage } from "../../src/lib/server/services/chat-tur
 import { classifyThoughtStepChunk } from "../../src/lib/server/services/chat-turn/thought-step-classifier";
 import { resolveTurnAcknowledgment } from "../../src/lib/server/services/chat-turn/turn-acknowledgment";
 import { refreshConversationSummary } from "../../src/lib/server/services/conversation-summaries";
+import type { SupportedLanguage } from "../../src/lib/server/services/language";
 import { runUserMemoryConsolidation } from "../../src/lib/server/services/memory-consolidation";
 import { generateAndStorePersonaSummary } from "../../src/lib/server/services/memory-consolidation/summary";
 import { runMemoryJudgeOnSegment } from "../../src/lib/server/services/memory-judge";
@@ -112,6 +123,12 @@ const NAMES_THE_LANGUAGE = /Hungar|Magyar/i;
 
 type Offender = { call: string; where: string; found: string; around: string };
 
+/**
+ * The one call that names the two languages it chooses between: asking which
+ * language a conversation is in cannot be done without them.
+ */
+const NAMES_THE_LANGUAGES_BY_DESIGN = /^conversation language/;
+
 function offendersIn(item: Pick<Capture, "call" | "body">): Offender[] {
 	const found: Offender[] = [];
 	for (const leaf of leaves(item.body, "")) {
@@ -126,7 +143,9 @@ function offendersIn(item: Pick<Capture, "call" | "body">): Offender[] {
 			});
 			break; // one per string is enough to fail it
 		}
-		const named = NAMES_THE_LANGUAGE.exec(text);
+		const named = NAMES_THE_LANGUAGES_BY_DESIGN.test(item.call)
+			? null
+			: NAMES_THE_LANGUAGE.exec(text);
 		if (named) {
 			found.push({
 				call: item.call,
@@ -157,6 +176,29 @@ afterAll(() => {
 const conversationOf = (world: World, index: number) =>
 	[world.withHistory, world.inProject, world.fresh][index % 3];
 
+/**
+ * The language a turn names after its reply, with the request of the call that
+ * names it labelled as its own (the chips and rail drivers send theirs next).
+ */
+async function namedLanguage(
+	world: World,
+	message: string,
+	conversationId: string,
+): Promise<{ language: SupportedLanguage }> {
+	const named: { language: SupportedLanguage } = { language: "en" };
+	await capture(`conversation language (${world.uiLanguage}-ui)`, async () => {
+		const turn = await resolveTurnReplyLanguage({
+			userId: world.userId,
+			conversationId,
+			reply: REPLY,
+			latestUserMessage: message,
+			uiLanguage: world.uiLanguage,
+		});
+		named.language = turn.language;
+	});
+	return named;
+}
+
 /** Every model call one turn makes, driven through the app's own entry. */
 const DRIVERS: Array<{
 	name: string;
@@ -177,17 +219,25 @@ const DRIVERS: Array<{
 			generateTitle(message, REPLY, "auto", world.uiLanguage),
 	},
 	{
-		// What follows a reply follows the reply: the language is read from it
-		// once, by the same function the turn's completion asks.
-		name: "follow-up chips",
-		drive: async (world, message, conversationId) => {
-			const read = await resolveTurnReplyLanguage({
+		// The one small call after the reply that names the conversation's
+		// language for the person: it sees the person's words and the start of the
+		// reply, never the account.
+		name: "conversation language",
+		drive: (world, message, conversationId) =>
+			resolveTurnReplyLanguage({
 				userId: world.userId,
 				conversationId,
 				reply: REPLY,
 				latestUserMessage: message,
 				uiLanguage: world.uiLanguage,
-			});
+			}),
+	},
+	{
+		// What follows a reply is in the language the turn named, by the same
+		// function the turn's completion asks.
+		name: "follow-up chips",
+		drive: async (world, message, conversationId) => {
+			const read = await namedLanguage(world, message, conversationId);
 			return generateFollowUpSuggestions({
 				userId: world.userId,
 				conversationId,
@@ -204,13 +254,7 @@ const DRIVERS: Array<{
 	{
 		name: "rail headline",
 		drive: async (world, message, conversationId) => {
-			const read = await resolveTurnReplyLanguage({
-				userId: world.userId,
-				conversationId,
-				reply: REPLY,
-				latestUserMessage: message,
-				uiLanguage: world.uiLanguage,
-			});
+			const read = await namedLanguage(world, message, conversationId);
 			return persistAssistantRailSummary({
 				userId: world.userId,
 				conversationId,
@@ -287,16 +331,39 @@ const DRIVERS: Array<{
 ];
 
 /**
- * The calls whose request may name the account's language, and why. None is a
- * turn's reply, a tool, or a thing written after one.
+ * The drivers whose every request may name the account's language, and why. None
+ * is a turn's reply, a tool, or a thing written after one.
  */
 const WRITTEN_IN_THE_UI_LANGUAGE: Record<string, string> = {
 	"thought step":
 		"the status line is written while Alfy thinks, before any reply text exists (owner decision 2)",
 	"persona summary":
 		"a nightly text the person reads under Memory, in their own language: a screen, not a turn",
-	"memory consolidation": "ends in the persona summary",
 };
+
+/**
+ * The one request inside another driver that may name it, by the schema it asks
+ * for: a consolidation ends in the persona summary, and nothing else it sends
+ * does.
+ */
+const UI_LANGUAGE_REQUEST_SCHEMAS: Record<string, string> = {
+	persona_summary:
+		"the nightly persona summary a consolidation ends in: a screen, not a turn",
+};
+
+function schemaNameOf(item: Capture): string {
+	return (
+		(
+			item.body.response_format as
+				| { json_schema?: { name?: string } }
+				| undefined
+		)?.json_schema?.name ?? ""
+	);
+}
+
+/** The requests that are held to the rule: all but the screen's own. */
+const heldToTheRule = (item: Capture) =>
+	!(schemaNameOf(item) in UI_LANGUAGE_REQUEST_SCHEMAS);
 
 async function requestsOf(
 	world: World,
@@ -333,7 +400,7 @@ describe("the app's requests hold no server-authored Hungarian, whatever the acc
 				// cap, a skipped consolidation): the call must have happened.
 				if (driver.name !== "memory consolidation")
 					expect(seen.length).toBeGreaterThan(0);
-				expect(seen.flatMap(offendersIn)).toEqual([]);
+				expect(seen.filter(heldToTheRule).flatMap(offendersIn)).toEqual([]);
 			}, 60_000);
 		}
 	}
@@ -390,8 +457,12 @@ describe("the UI language reaches no request but the status line's (I2)", () => 
 	for (const driver of DRIVERS) {
 		if (driver.name in WRITTEN_IN_THE_UI_LANGUAGE) continue;
 		it(`${driver.name}: byte-identical requests for an account shown in English and one shown in Hungarian`, async () => {
-			const english = await requestsOf(en, driver);
-			const hungarian = await requestsOf(hu, driver);
+			const english = (await requestsOf(en, driver)).map((requests) =>
+				requests.filter(heldToTheRule),
+			);
+			const hungarian = (await requestsOf(hu, driver)).map((requests) =>
+				requests.filter(heldToTheRule),
+			);
 			expect(english.map((r) => r.length)).toEqual(
 				hungarian.map((r) => r.length),
 			);
@@ -494,6 +565,8 @@ const MODEL_CALLERS: Record<string, string> = {
 	"lib/server/services/chat-turn/follow-up-suggestions.ts":
 		"driver: follow-up chips",
 	"lib/server/services/chat-turn/rail-summary.ts": "driver: rail headline",
+	"lib/server/services/chat-turn/conversation-language.ts":
+		"driver: conversation language (it names the two languages it chooses between, by design)",
 	"lib/server/services/chat-turn/thought-step-classifier.ts":
 		"driver: thought step",
 	"lib/server/services/chat-turn/turn-acknowledgment.ts":

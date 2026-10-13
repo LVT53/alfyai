@@ -69,6 +69,16 @@ vi.mock("$lib/server/services/analytics", () => ({
 	recordMessageAnalytics: vi.fn(async () => undefined),
 }));
 
+// The one small call that names the conversation's language after the reply
+// (chat-turn/conversation-language.ts): faked here, the real one is a control
+// model call; its answer is set per test.
+const { mockReadConversationLanguage } = vi.hoisted(() => ({
+	mockReadConversationLanguage: vi.fn(async () => null as "en" | "hu" | null),
+}));
+vi.mock("$lib/server/services/chat-turn/conversation-language", () => ({
+	readConversationLanguage: mockReadConversationLanguage,
+}));
+
 vi.mock("$lib/server/services/conversation-summaries", () => ({
 	refreshConversationSummary: vi.fn(async () => undefined),
 }));
@@ -81,7 +91,8 @@ vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
 	getLastMessage: vi.fn(async () => null),
-	getLastReplyLanguage: vi.fn(async () => null),
+	getLastConversationLanguage: vi.fn(async () => null),
+	getPreviousUserMessageText: vi.fn(async () => null),
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 }));
@@ -275,6 +286,8 @@ const mockResolveEffectiveSkillDefinition =
 describe("POST /api/chat/send", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockReadConversationLanguage.mockReset();
+		mockReadConversationLanguage.mockResolvedValue(null);
 		configMockState.composerCommandRegistryEnabled = true;
 		mockRequireAuth.mockReturnValue(undefined);
 		mockCheckStreamCapacity.mockReset();
@@ -872,16 +885,19 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
-	// What is written after the reply follows the reply that was written
-	// (chat-turn/reply-language.ts): its language is read once and stored on the
-	// assistant message for the next reply that says nothing by itself (the rail
-	// headline is written in it: finalize.test.ts). The account's UI language is
-	// only the last fallback, never the reply's language.
-	it("reads the language of the reply and stores it on the message", async () => {
+	// What is written after the reply is in the language of the conversation for
+	// the person (chat-turn/reply-language.ts): named once, after the reply, and
+	// stored on the assistant message beside what the reply's own words read as
+	// (the rail headline is written in it: finalize.test.ts). The account's UI
+	// language is only the last fallback.
+	it("names the language of the conversation and stores it on the message, beside what the reply reads as", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Tell me what to do this weekend" },
 			assistantMessage: { content: "Hungarian answer" },
 		});
+		// The person writes English; the model answered in Hungarian (the failure
+		// the owner asked never to see): the record says both.
+		mockReadConversationLanguage.mockResolvedValue("en");
 		const hungarianReply =
 			"Természetesen segítek. Először gyűjtsd össze, hogy mi az, ami nem fér bele a határidőbe, aztán döntsd el, hogy melyiket lehet kihagyni, mert nem minden egyformán fontos, és nem kell mindent megcsinálnod.";
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
@@ -910,7 +926,16 @@ describe("POST /api/chat/send", () => {
 			hungarianReply,
 			undefined,
 			undefined,
-			expect.objectContaining({ replyLanguage: "hu" }),
+			expect.objectContaining({
+				conversationLanguage: "en",
+				replyLanguage: "hu",
+			}),
+		);
+		expect(mockReadConversationLanguage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				latestUserMessage: "Tell me what to do this weekend",
+				reply: hungarianReply,
+			}),
 		);
 	});
 

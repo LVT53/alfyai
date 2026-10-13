@@ -2,18 +2,21 @@
 //
 // No code reads the person's message, their history or their account and turns a
 // guess into an order. Every Normal Chat turn carries the same rule, in the same
-// place, and the model chooses under it; what the app writes after the reply
-// follows the reply it actually got. This file holds the invariants that make
-// that so, against the app's own entry points and a capturing fake provider:
+// place, and the model chooses under it; what the app writes after the reply is
+// in the language of the conversation for the person, which the model names in
+// one small call after the reply (and a deterministic chain names when it
+// cannot). This file holds the invariants that make that so, against the app's
+// own entry points and a capturing fake provider:
 //
 //   I1  nothing guesses: the turn guidance holds REPLY_LANGUAGE_RULE byte for byte
-//       whatever the message or the account, and the code that guessed is gone;
+//       whatever the message or the account, nothing else in the chat request
+//       tells the model a reply language, and the code that guessed is gone;
 //   I2  the UI language reaches no model request but the status-line call, and
 //       I3  what the app writes into a request is one English scaffold
 //       (english-request-purity.test.ts);
-//   I4  after the reply, chips, rail headline and title take the language of
-//       the reply that was written; I5 observability (language.test.ts,
-//       chat-turn/reply-language.test.ts).
+//   I4  after the reply, chips, rail headline and title take the language the
+//       model names for the person, whatever language the reply is in;
+//       I5 observability (language.test.ts, chat-turn/reply-language.test.ts).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,11 +34,14 @@ vi.hoisted(() => {
 });
 
 import { generateFollowUpSuggestions } from "../../src/lib/server/services/chat-turn/follow-up-suggestions";
+import { LANGUAGE_PROBES } from "../../src/lib/server/services/chat-turn/language-probes.test-helpers";
 import { persistAssistantRailSummary } from "../../src/lib/server/services/chat-turn/rail-summary";
 import { resolveTurnReplyLanguage } from "../../src/lib/server/services/chat-turn/reply-language";
+import { createConversation } from "../../src/lib/server/services/conversations";
 import {
 	createMessage,
-	getLastReplyLanguage,
+	getLastConversationLanguage,
+	getPreviousUserMessageText,
 } from "../../src/lib/server/services/messages";
 import { REPLY_LANGUAGE_RULE } from "../../src/lib/server/services/normal-chat-context";
 import { generateTitle } from "../../src/lib/server/services/title-generator";
@@ -47,6 +53,7 @@ import {
 	leaves,
 	removeFakeProvider,
 	seedWorld,
+	setConversationLanguageAnswer,
 	type World,
 } from "./language-capture";
 
@@ -167,22 +174,59 @@ describe("I1: nothing guesses the reply language", () => {
 	});
 });
 
-// --- I4: what follows the reply follows the reply ------------------------------
+// --- I4: what follows the reply is in the language the model names -----------------
 
 const HUNGARIAN_REPLY =
 	"Természetesen segítek. Először gyűjtsd össze, hogy mi az, ami nem fér bele a határidőbe, aztán döntsd el, hogy melyiket lehet kihagyni, mert nem minden egyformán fontos, és nem kell mindent megcsinálnod egyszerre. Ha szeretnéd, hogy közösen nézzük át a listát, akkor írd le, hogy mi van rajta.";
-const ENGLISH_REPLY =
-	"Of course. First list everything that does not fit the deadline, then decide which of the items can be left out, because they are not all equally important and you do not need to do everything at once. If you would like us to go through the list together, write down what is on it.";
 
-/** The chips, the rail headline and the title of one turn, as the app asks for them. */
+/**
+ * What the Hungarian prompts carry and the English ones do not, in the system
+ * prompt of each call (the person's own words and the reply are in the request
+ * too, and may say "Hungarian" themselves).
+ */
+const HUNGARIAN_CHIPS_PROMPT = "in Hungarian, best first";
+const HUNGARIAN_RAIL_PROMPT = "Write the headline in Hungarian.";
+const HUNGARIAN_TITLE_EXAMPLE = "React komponens létrehozási alapok";
+
+/** A reply with no words of any language in it: the reader cannot name it. */
+const CODE_REPLY = [
+	"```ts",
+	"export function total(items: Array<{ price: number }>): number {",
+	"\treturn items.reduce((sum, item) => sum + item.price, 0);",
+	"}",
+	"",
+	"export const answer = total([{ price: 2 }, { price: 3 }, { price: 5 }]);",
+	"```",
+	"",
+	"```ts",
+	"console.log(answer); // 10",
+	"```",
+].join("\n");
+
+type AfterReply = {
+	language: string;
+	via: string;
+	/** The request each call sent, or null when it sent none (a reply too short to need one). */
+	chips: string | null;
+	rail: string | null;
+	title: string | null;
+};
+
+/**
+ * The language call, then the chips, the rail headline and the title of one turn,
+ * as the app asks for them, with the fake model answering the call as set.
+ */
 async function afterReply(
 	world: World,
 	reply: string,
 	message: string,
-): Promise<{ chips: string; rail: string; title: string }> {
-	const read = await resolveTurnReplyLanguage({
+	answer: "en" | "hu" | "unusable",
+	conversationId: string = world.fresh,
+): Promise<AfterReply> {
+	setConversationLanguageAnswer(answer);
+	const turn = await resolveTurnReplyLanguage({
 		userId: world.userId,
-		conversationId: world.fresh,
+		conversationId,
 		reply,
 		latestUserMessage: message,
 		uiLanguage: world.uiLanguage,
@@ -190,70 +234,143 @@ async function afterReply(
 	const [chips] = await capture("chips", () =>
 		generateFollowUpSuggestions({
 			userId: world.userId,
-			conversationId: world.fresh,
+			conversationId,
 			userMessage: message,
 			assistantResponse: reply,
-			responseLanguage: read.language,
+			responseLanguage: turn.language,
 		}),
 	);
 	const [rail] = await capture("rail", () =>
 		persistAssistantRailSummary({
 			userId: world.userId,
-			conversationId: world.fresh,
+			conversationId,
 			assistantMessageId: "no-such-message",
 			assistantResponse: reply,
-			responseLanguage: read.language,
+			responseLanguage: turn.language,
 		}),
 	);
 	const [title] = await capture("title", () =>
-		generateTitle(message, reply, "auto", world.uiLanguage),
+		generateTitle(message, reply, "auto", world.uiLanguage, turn.language),
 	);
+	const body = (request: { body: unknown } | undefined) =>
+		request ? JSON.stringify(request.body) : null;
 	return {
-		chips: JSON.stringify(chips?.body),
-		rail: JSON.stringify(rail?.body),
-		title: JSON.stringify(title?.body),
+		language: turn.language,
+		via: turn.via,
+		chips: body(chips),
+		rail: body(rail),
+		title: body(title),
 	};
 }
 
-describe("I4: chips, rail headline and title take the language of the reply that was written", () => {
-	it("a Hungarian reply gets Hungarian ones, for an account shown in English", async () => {
+function expectWrittenIn(
+	sent: AfterReply,
+	language: "en" | "hu",
+	label: string,
+): void {
+	const hungarian = language === "hu";
+	if (sent.chips !== null) {
+		expect(sent.chips.includes(HUNGARIAN_CHIPS_PROMPT), `${label}: chips`).toBe(
+			hungarian,
+		);
+	}
+	if (sent.rail !== null) {
+		expect(sent.rail.includes(HUNGARIAN_RAIL_PROMPT), `${label}: rail`).toBe(
+			hungarian,
+		);
+	}
+	// The Hungarian title prompt carries Hungarian example titles.
+	if (sent.title !== null) {
+		expect(
+			sent.title.includes(HUNGARIAN_TITLE_EXAMPLE),
+			`${label}: title`,
+		).toBe(hungarian);
+	}
+}
+
+describe("I4: chips, rail headline and title are written in the language the model names for the person", () => {
+	it("every row of the review's probe table, in both directions: the person's language, whatever the reply reads as", async () => {
+		const asked = { chips: 0, rail: 0, title: 0 };
+		for (const probe of LANGUAGE_PROBES) {
+			const world = probe.uiLanguage === "en" ? en : hu;
+			// A good model's answer to the question, as the table says it.
+			const sent = await afterReply(
+				world,
+				probe.reply,
+				probe.message,
+				probe.person,
+			);
+			expect(sent.via, probe.id).toBe("model");
+			expect(sent.language, probe.id).toBe(probe.person);
+			expectWrittenIn(sent, probe.person, probe.id);
+			for (const key of ["chips", "rail", "title"] as const) {
+				if (sent[key] !== null) asked[key] += 1;
+			}
+		}
+		// A short reply needs no chips or rail headline; most rows are long enough
+		// that the test is about requests that were really sent.
+		expect(asked.chips).toBeGreaterThanOrEqual(LANGUAGE_PROBES.length - 6);
+		expect(asked.rail).toBeGreaterThanOrEqual(LANGUAGE_PROBES.length - 8);
+		expect(asked.title).toBe(LANGUAGE_PROBES.length);
+	});
+
+	it("an English writer given a Hungarian reply gets English ones (the model failed, the chips do not follow it)", async () => {
 		const sent = await afterReply(
 			en,
 			HUNGARIAN_REPLY,
 			"Help me plan what to cut from this week.",
+			"en",
 		);
-		expect(sent.chips).toContain("in Hungarian");
-		expect(sent.rail).toContain("in Hungarian");
-		// The Hungarian title prompt carries Hungarian example titles.
-		expect(sent.title).toContain("React komponens létrehozási alapok");
+		expectWrittenIn(sent, "en", "an English writer, a Hungarian reply");
 	});
 
-	it("an English reply gets English ones, for an account shown in Hungarian", async () => {
-		const sent = await afterReply(
-			hu,
-			ENGLISH_REPLY,
-			"Segíts eldönteni, mit hagyjak ki a héten.",
-		);
-		expect(sent.chips).not.toContain("in Hungarian");
-		expect(sent.rail).not.toContain("in Hungarian");
-		expect(sent.title).not.toContain("React komponens létrehozási alapok");
-	});
-
-	it("the person's own title language still wins", async () => {
+	it("the person's own title language still wins over the conversation's", async () => {
 		const [title] = await capture("title", () =>
-			generateTitle("Plan my week", HUNGARIAN_REPLY, "en", "hu"),
+			generateTitle("Plan my week", HUNGARIAN_REPLY, "en", "hu", "hu"),
 		);
-		expect(JSON.stringify(title?.body)).not.toContain(
-			"React komponens létrehozási alapok",
+		expect(JSON.stringify(title?.body)).not.toContain(HUNGARIAN_TITLE_EXAMPLE);
+		const [hungarian] = await capture("title", () =>
+			generateTitle("Plan my week", HUNGARIAN_REPLY, "hu", "en", "en"),
 		);
+		expect(JSON.stringify(hungarian?.body)).toContain(HUNGARIAN_TITLE_EXAMPLE);
+	});
+
+	it("an answer the app cannot use falls to the reply's own words", async () => {
+		const sent = await afterReply(
+			en,
+			HUNGARIAN_REPLY,
+			"Help me plan what to cut from this week.",
+			"unusable",
+		);
+		expect(sent.via).toBe("fallback");
+		expect(sent.language).toBe("hu");
+		expectWrittenIn(sent, "hu", "unusable answer, a Hungarian reply");
+	});
+
+	it("an answer the app cannot use, a reply that says nothing and nothing before it: the account's UI language is the last fallback (the one place it reaches a request after a reply)", async () => {
+		const fresh = await createConversation(hu.userId, "Nothing yet");
+		const sent = await afterReply(hu, CODE_REPLY, "ok", "unusable", fresh.id);
+		expect(sent.via).toBe("fallback");
+		expect(sent.language).toBe("hu");
+		expectWrittenIn(sent, "hu", "the UI language as the last fallback");
+
+		const freshEnglish = await createConversation(en.userId, "Nothing yet");
+		const english = await afterReply(
+			en,
+			CODE_REPLY,
+			"ok",
+			"unusable",
+			freshEnglish.id,
+		);
+		expectWrittenIn(english, "en", "the UI language as the last fallback");
 	});
 });
 
-// --- I5: the reply's language is on the record -----------------------------------
+// --- I5: the language is on the record ----------------------------------------------
 
-describe("I5: the language a reply was read as is stored on it and read back", () => {
-	it("falls back, for a reply that says nothing, to the conversation's last reply that did", async () => {
-		const conversationId = en.fresh;
+describe("I5: the conversation's language is stored on the reply and read back", () => {
+	it("reads back the last reply that has one, scoped to the account", async () => {
+		const conversationId = (await createConversation(en.userId, "Stored")).id;
 		await createMessage(conversationId, "user", "Segíts a tervvel.");
 		await createMessage(
 			conversationId,
@@ -261,31 +378,90 @@ describe("I5: the language a reply was read as is stored on it and read back", (
 			HUNGARIAN_REPLY,
 			undefined,
 			undefined,
-			{ replyLanguage: "hu" },
+			{ conversationLanguage: "hu", replyLanguage: "hu" },
 		);
 		await createMessage(conversationId, "user", "ok");
+		// An older reply (from before this was recorded) has none: it is skipped.
+		await createMessage(conversationId, "assistant", "Rendben.");
+
+		expect(await getLastConversationLanguage(conversationId, en.userId)).toBe(
+			"hu",
+		);
+		// Another account's call reads as having none.
+		expect(
+			await getLastConversationLanguage(conversationId, hu.userId),
+		).toBeNull();
+	});
+
+	it("reads back the person's message before the one being answered, whether or not the answered one is stored yet", async () => {
+		const conversationId = (await createConversation(en.userId, "Earlier")).id;
+		await createMessage(conversationId, "user", "Translate it to Hungarian");
+		await createMessage(conversationId, "assistant", "Here you go.");
+		await createMessage(conversationId, "user", "Now make it more formal");
+
+		// The turn's own message is not stored yet (send, stream): the newest
+		// stored one is the one before it.
+		expect(
+			await getPreviousUserMessageText(
+				conversationId,
+				en.userId,
+				"Thanks, that is perfect",
+			),
+		).toBe("Now make it more formal");
+		// A retry has stored it: the one before that.
+		expect(
+			await getPreviousUserMessageText(
+				conversationId,
+				en.userId,
+				"Now make it more formal",
+			),
+		).toBe("Translate it to Hungarian");
+		expect(
+			await getPreviousUserMessageText(
+				conversationId,
+				hu.userId,
+				"Thanks, that is perfect",
+			),
+		).toBeNull();
+		const empty = await createConversation(en.userId, "Empty");
+		expect(
+			await getPreviousUserMessageText(empty.id, en.userId, "hi"),
+		).toBeNull();
+	});
+
+	it("a turn whose call fails and whose reply says nothing falls back to the language stored on the conversation", async () => {
+		const conversationId = (await createConversation(en.userId, "Fallback")).id;
+		await createMessage(conversationId, "user", "Segíts a tervvel.");
 		await createMessage(
 			conversationId,
 			"assistant",
-			"Rendben.",
+			HUNGARIAN_REPLY,
 			undefined,
 			undefined,
-			{ replyLanguage: "unknown" },
+			{ conversationLanguage: "hu", replyLanguage: "hu" },
 		);
 
-		// The newest reply read as unknown and is skipped.
-		expect(await getLastReplyLanguage(conversationId, en.userId)).toBe("hu");
-		// Another account's call reads as having none.
-		expect(await getLastReplyLanguage(conversationId, hu.userId)).toBeNull();
-
-		const read = await resolveTurnReplyLanguage({
+		setConversationLanguageAnswer("unusable");
+		const turn = await resolveTurnReplyLanguage({
 			userId: en.userId,
 			conversationId,
 			reply: "Done.",
 			latestUserMessage: "ok",
 			uiLanguage: "en",
 		});
-		expect(read).toEqual({ language: "hu", read: "unknown" });
+		expect(turn).toEqual({ language: "hu", reply: "unknown", via: "fallback" });
+
+		// And when the model answers, it is the model.
+		setConversationLanguageAnswer("en");
+		expect(
+			await resolveTurnReplyLanguage({
+				userId: en.userId,
+				conversationId,
+				reply: "Done.",
+				latestUserMessage: "ok",
+				uiLanguage: "en",
+			}),
+		).toEqual({ language: "en", reply: "unknown", via: "model" });
 	});
 });
 

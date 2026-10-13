@@ -564,10 +564,10 @@ async function runStandardSendTurn({
 		forceWebSearch: turn.forceWebSearch,
 	});
 
-	// What the reply was written in, read once (chat-turn/reply-language.ts): the
-	// rail headline and the `replyLanguage` stored on the message follow the reply
-	// the person got, not a guess made before it.
-	const replyLanguage = await resolveTurnReplyLanguage({
+	// The language of the conversation for the person, named once after the reply
+	// (chat-turn/reply-language.ts): the rail headline and the record on the
+	// message follow it, not a guess made before the reply.
+	const turnLanguage = await resolveTurnReplyLanguage({
 		userId: user.id,
 		conversationId: turn.conversationId,
 		reply: finalResponseText,
@@ -577,7 +577,7 @@ async function runStandardSendTurn({
 
 	const completion = await finalizeChatTurn({
 		turnKind: "send",
-		responseLanguage: replyLanguage?.language ?? user.uiLanguage ?? "en",
+		responseLanguage: turnLanguage?.language ?? user.uiLanguage ?? "en",
 		userId: user.id,
 		conversationId: turn.conversationId,
 		userMessageContent: turn.normalizedMessage,
@@ -587,7 +587,12 @@ async function runStandardSendTurn({
 		assistantResponse: finalResponseText,
 		assistantMetadata: {
 			evidenceStatus: "pending",
-			...(replyLanguage ? { replyLanguage: replyLanguage.read } : {}),
+			...(turnLanguage
+				? {
+						conversationLanguage: turnLanguage.language,
+						replyLanguage: turnLanguage.reply,
+					}
+				: {}),
 			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
 			...(modelRunArtifacts.citationGate.repair
 				? { citationAudit: modelRunArtifacts.citationGate.repair }

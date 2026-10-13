@@ -196,7 +196,13 @@ describe("readReplyLanguage", () => {
 	});
 });
 
-describe("afterReplyLanguage", () => {
+// The deterministic fallback for a turn whose call to the model, which names the
+// language of the conversation for the person, did not answer
+// (chat-turn/conversation-language.ts). It reads the reply and, when it can, the
+// message, and cannot tell a requested piece, a pasted text and an explicit
+// request for another language from the person's own: those turns are what the
+// call is for (reply-language.test.ts holds them, with the call faked).
+describe("afterReplyLanguage (the fallback)", () => {
 	const ENGLISH_EMAIL_REPLY = [
 		"Íme az e-mail, amit kértél, és amit szükség szerint még átírhatunk:",
 		"",
@@ -214,14 +220,14 @@ describe("afterReplyLanguage", () => {
 				latestUserMessage: "Which is better, a heat pump or a gas boiler?",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 		expect(
 			afterReplyLanguage({
 				reply: HUNGARIAN_REPLIES[0],
 				latestUserMessage: "Melyik jobb, a hőszivattyú vagy a gázkazán?",
 				uiLanguage: "en",
 			}),
-		).toEqual({ language: "hu", read: "hu" });
+		).toBe("hu");
 	});
 
 	it("a requested piece in the other language does not change the language of the assistant's own words (both directions)", () => {
@@ -234,7 +240,7 @@ describe("afterReplyLanguage", () => {
 				latestUserMessage: HUNGARIAN_USER_MESSAGE,
 				uiLanguage: "en",
 			}),
-		).toEqual({ language: "hu", read: "hu" });
+		).toBe("hu");
 
 		// An English person asks for a Hungarian email: English around it.
 		const hungarianEmailReply = [
@@ -252,7 +258,7 @@ describe("afterReplyLanguage", () => {
 					"Write an email in Hungarian to my colleague, saying that I will not come in tomorrow because I am ill.",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 	});
 
 	it("an explicit request for the reply in a language is the language of the reply", () => {
@@ -266,7 +272,7 @@ describe("afterReplyLanguage", () => {
 					"Válaszolj angolul, kérlek: mi a fotoszintézis, és hogyan működik?",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 	});
 
 	it("a reply that says nothing falls to the message, then the last reply, then the UI language", () => {
@@ -280,7 +286,7 @@ describe("afterReplyLanguage", () => {
 				previous: "hu",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 		// A short "ok" says nothing either: the language of the last reply.
 		expect(
 			afterReplyLanguage({
@@ -289,7 +295,7 @@ describe("afterReplyLanguage", () => {
 				previous: "hu",
 				uiLanguage: "en",
 			}),
-		).toEqual({ language: "hu", read: "unknown" });
+		).toBe("hu");
 		// Nothing before it: the account's UI language.
 		expect(
 			afterReplyLanguage({
@@ -297,12 +303,9 @@ describe("afterReplyLanguage", () => {
 				latestUserMessage: "ok",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "hu", read: "unknown" });
+		).toBe("hu");
 		// Not even that: English.
-		expect(afterReplyLanguage({ reply: "", latestUserMessage: "" })).toEqual({
-			language: "en",
-			read: "unknown",
-		});
+		expect(afterReplyLanguage({ reply: "", latestUserMessage: "" })).toBe("en");
 	});
 
 	it("a bare piece in the other language, with no commentary around it, is read through the message when the reader cannot name it", () => {
@@ -321,7 +324,7 @@ describe("afterReplyLanguage", () => {
 				previous: "hu",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 	});
 
 	it("a long bare piece that the reader names is named: the reply wins when it holds none of the message's words", () => {
@@ -337,20 +340,21 @@ describe("afterReplyLanguage", () => {
 					"Please answer in Hungarian: how do I plan the week so that nothing is forgotten?",
 				uiLanguage: "en",
 			}),
-		).toEqual({ language: "hu", read: "hu" });
+		).toBe("hu");
 	});
 
-	it("the previous reply's language is a fallback only: it never overrules a reply that names a language", () => {
-		// A short message the reader cannot name does not stand in for the chat's
-		// language: the reply decides, and only a reply that says nothing falls back.
+	it("the stored language is a fallback only: it never overrules a reply that names a language, so a person who switches language is followed", () => {
+		// The conversation was Hungarian; the person now writes English and gets an
+		// English reply. What was stored must not hold them to Hungarian.
 		expect(
 			afterReplyLanguage({
-				reply: ENGLISH_EMAIL_REPLY,
-				latestUserMessage: "Fordítsd le angolra.",
+				reply: ENGLISH_REPLIES[0],
+				latestUserMessage: "Thanks. Can you say that again in plain words?",
 				previous: "hu",
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
+		// And a reply that says nothing falls back to it.
 		expect(
 			afterReplyLanguage({
 				reply: "Done.",
@@ -358,7 +362,7 @@ describe("afterReplyLanguage", () => {
 				previous: "hu",
 				uiLanguage: "en",
 			}),
-		).toEqual({ language: "hu", read: "unknown" });
+		).toBe("hu");
 	});
 
 	it("the message overrules the reply only when the reply holds two of its words", () => {
@@ -371,6 +375,6 @@ describe("afterReplyLanguage", () => {
 				latestUserMessage: HUNGARIAN_USER_MESSAGE,
 				uiLanguage: "hu",
 			}),
-		).toEqual({ language: "en", read: "en" });
+		).toBe("en");
 	});
 });

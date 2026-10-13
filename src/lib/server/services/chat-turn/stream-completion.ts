@@ -102,8 +102,8 @@ export interface StreamCompletionFacts {
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	// The account's UI language: the last fallback of the language what is
-	// written after the reply is in (reply-language.ts), for a reply whose words
-	// and whose message say nothing and that follows no earlier one.
+	// written after the reply is in (reply-language.ts), for a turn whose
+	// language call failed and whose reply says nothing and follows no earlier one.
 	uiLanguage?: SupportedLanguage;
 	wasStopped: boolean;
 	conversationId: string;
@@ -492,12 +492,13 @@ export async function completeStreamTurn(
 			wasStopped && finalResponse.trim().length === 0
 				? "Stopped"
 				: finalResponse;
-		// What the reply was written in, read once (reply-language.ts): the
-		// follow-up chips, the rail headline and the `replyLanguage` stored on the
-		// message below all follow the reply the person got, never a guess made
-		// before it. Best-effort: a failure here is the account's UI language,
-		// never a failed turn.
-		const replyLanguage = finalResponse.trim()
+		// The language of the conversation for the person, named once after the
+		// reply (reply-language.ts: the model's answer, else the deterministic
+		// chain): the follow-up chips, the rail headline and the title below all
+		// follow it, and the message records it, never a guess made before the
+		// reply. Best-effort: a failure here is the account's UI language, never a
+		// failed turn.
+		const turnLanguage = finalResponse.trim()
 			? await resolveTurnReplyLanguage({
 					userId,
 					conversationId,
@@ -506,7 +507,7 @@ export async function completeStreamTurn(
 					uiLanguage,
 				}).catch(() => null)
 			: null;
-		const responseLanguage = replyLanguage?.language ?? uiLanguage ?? "en";
+		const responseLanguage = turnLanguage?.language ?? uiLanguage ?? "en";
 		// Issue 7.5 — resolved (not deferred) here: by the time the stream has
 		// fully finished, every pending write this turn's tool calls created
 		// already exists in the DB (createPendingWrite is awaited inside the
@@ -615,9 +616,15 @@ export async function completeStreamTurn(
 				providerDisplayName,
 				providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
-				// What the words of the reply were read as: a later reply that says
-				// nothing by itself falls back to it (messages.ts getLastReplyLanguage).
-				...(replyLanguage ? { replyLanguage: replyLanguage.read } : {}),
+				// The language the conversation was in for the person at this reply
+				// (a later turn whose call fails falls back to it: messages.ts
+				// getLastConversationLanguage) and what the words of the reply say.
+				...(turnLanguage
+					? {
+							conversationLanguage: turnLanguage.language,
+							replyLanguage: turnLanguage.reply,
+						}
+					: {}),
 				...(completionWarningCodes.length > 0
 					? {
 							completionWarningCodes,

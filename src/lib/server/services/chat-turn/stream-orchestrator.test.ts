@@ -89,6 +89,16 @@ vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(() =>
 		Promise.resolve({ messages: [], hasMoreBefore: false }),
 	),
+	// What the turn's language lookup reads (chat-turn/reply-language.ts):
+	// nothing on record here.
+	getLastConversationLanguage: vi.fn(async () => null),
+	getPreviousUserMessageText: vi.fn(async () => null),
+}));
+
+// The small call that names the conversation's language after the reply: down
+// here, so the deterministic chain is what these tests meet.
+vi.mock("$lib/server/services/chat-turn/conversation-language", () => ({
+	readConversationLanguage: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
@@ -1500,8 +1510,9 @@ describe("stream-orchestrator SSE contract", () => {
 			]),
 		);
 
-		// A reply of one word says nothing about its language, nor does the
-		// message, nor is there an earlier reply: the account's language it is.
+		// The call that names the language is down, a reply of one word says
+		// nothing about its language, nor does the message, nor is there an
+		// earlier reply: the account's language it is.
 		const response = runStream(
 			{ conversationId: "ui-fallback-conv", normalizedMessage: "ok" },
 			{ uiLanguage: "hu" },

@@ -444,19 +444,23 @@ export async function generateTitle(
 	assistantResponse: string,
 	titleLanguage?: "auto" | "en" | "hu",
 	uiLanguage?: "en" | "hu",
+	conversationLanguage?: "en" | "hu" | null,
 ): Promise<string> {
 	const config = getConfig();
-	// The person's own setting wins; otherwise the title is in the language of
-	// the reply that was written, read from its words, never a guess made before
-	// it (language.ts's afterReplyLanguage).
+	// The person's own setting wins; otherwise the title is in the language the
+	// conversation is in for the person, the one the turn named after its reply
+	// and recorded on it (chat-turn/reply-language.ts), so it agrees with the
+	// chips; a caller that has none gets the deterministic chain on the texts
+	// (language.ts's afterReplyLanguage), never a guess made before the reply.
 	const language: "en" | "hu" =
 		titleLanguage === "en" || titleLanguage === "hu"
 			? titleLanguage
-			: afterReplyLanguage({
+			: (conversationLanguage ??
+				afterReplyLanguage({
 					reply: assistantResponse,
 					latestUserMessage: userMessage,
 					uiLanguage,
-				}).language;
+				}));
 	const codeRelated = isCodeRelated(userMessage, assistantResponse);
 	const systemPrompt = resolveConfiguredTitleSystemPrompt(
 		language,

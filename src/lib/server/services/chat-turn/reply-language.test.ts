@@ -1,13 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getLastReplyLanguageMock } = vi.hoisted(() => ({
-	getLastReplyLanguageMock: vi.fn(),
+const {
+	getLastConversationLanguageMock,
+	getPreviousUserMessageTextMock,
+	readConversationLanguageMock,
+} = vi.hoisted(() => ({
+	getLastConversationLanguageMock: vi.fn(),
+	getPreviousUserMessageTextMock: vi.fn(),
+	readConversationLanguageMock: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
-	getLastReplyLanguage: getLastReplyLanguageMock,
+	getLastConversationLanguage: getLastConversationLanguageMock,
+	getPreviousUserMessageText: getPreviousUserMessageTextMock,
 }));
 
+vi.mock("./conversation-language", () => ({
+	readConversationLanguage: readConversationLanguageMock,
+}));
+
+import { readReplyLanguage } from "../language";
+import { LANGUAGE_PROBES } from "./language-probes.test-helpers";
 import {
 	getReplyLanguageStats,
 	resetReplyLanguageStatsForTests,
@@ -37,8 +50,12 @@ describe("resolveTurnReplyLanguage", () => {
 	let warn: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(() => {
-		getLastReplyLanguageMock.mockReset();
-		getLastReplyLanguageMock.mockResolvedValue(null);
+		getLastConversationLanguageMock.mockReset();
+		getLastConversationLanguageMock.mockResolvedValue(null);
+		getPreviousUserMessageTextMock.mockReset();
+		getPreviousUserMessageTextMock.mockResolvedValue(null);
+		readConversationLanguageMock.mockReset();
+		readConversationLanguageMock.mockResolvedValue(null);
 		resetReplyLanguageStatsForTests();
 		info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -49,83 +66,189 @@ describe("resolveTurnReplyLanguage", () => {
 		warn.mockRestore();
 	});
 
-	it("reads the reply, not the account: an English reply is English for an account shown in Hungarian", async () => {
-		expect(await turn({ uiLanguage: "hu" })).toEqual({
-			language: "en",
-			read: "en",
+	describe("the model names the language (the call faked)", () => {
+		it("takes the language the model names for the person, whatever the reply reads as and whatever the account is shown in", async () => {
+			for (const probe of LANGUAGE_PROBES) {
+				getLastConversationLanguageMock.mockResolvedValue(probe.previous);
+				getPreviousUserMessageTextMock.mockResolvedValue(
+					probe.previousMessage ?? null,
+				);
+				readConversationLanguageMock.mockReset();
+				readConversationLanguageMock.mockResolvedValue(probe.person);
+
+				const result = await turn({
+					reply: probe.reply,
+					latestUserMessage: probe.message,
+					uiLanguage: probe.uiLanguage,
+				});
+
+				expect(result.language, probe.id).toBe(probe.person);
+				expect(result.via, probe.id).toBe("model");
+				// The reader on the reply text is kept for the record, not for the choice.
+				expect(result.reply, probe.id).toBe(readReplyLanguage(probe.reply));
+				// The call is given what the person wrote, what they wrote before it
+				// and the start of the reply: nothing else, and not the account.
+				expect(readConversationLanguageMock, probe.id).toHaveBeenCalledTimes(1);
+				expect(readConversationLanguageMock, probe.id).toHaveBeenCalledWith({
+					userId: "user-1",
+					conversationId: "conv-1",
+					latestUserMessage: probe.message,
+					previousUserMessage: probe.previousMessage ?? null,
+					reply: probe.reply,
+				});
+			}
 		});
-		expect(await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" })).toEqual({
-			language: "hu",
-			read: "hu",
+
+		it("is a table with teeth: in many rows the reply reads as the other language than the person's", () => {
+			const reversed = LANGUAGE_PROBES.filter((probe) => {
+				const read = readReplyLanguage(probe.reply);
+				return read !== "unknown" && read !== probe.person;
+			});
+			// Both directions: an English writer given a Hungarian piece, a Hungarian
+			// writer given an English one.
+			expect(reversed.length).toBeGreaterThanOrEqual(10);
+			expect(reversed.some((p) => p.person === "en")).toBe(true);
+			expect(reversed.some((p) => p.person === "hu")).toBe(true);
 		});
-	});
 
-	it("falls back to the conversation's last known reply language, then to the account's", async () => {
-		getLastReplyLanguageMock.mockResolvedValue("hu");
-		expect(
-			await turn({ reply: "Done.", latestUserMessage: "ok", uiLanguage: "en" }),
-		).toEqual({ language: "hu", read: "unknown" });
-		expect(getLastReplyLanguageMock).toHaveBeenCalledWith("conv-1", "user-1");
-
-		getLastReplyLanguageMock.mockResolvedValue(null);
-		expect(
-			await turn({ reply: "Done.", latestUserMessage: "ok", uiLanguage: "hu" }),
-		).toEqual({ language: "hu", read: "unknown" });
-	});
-
-	it("goes on without the conversation's history when it cannot be read", async () => {
-		getLastReplyLanguageMock.mockRejectedValue(new Error("db down"));
-		expect(
-			await turn({ reply: "Done.", latestUserMessage: "ok", uiLanguage: "hu" }),
-		).toEqual({ language: "hu", read: "unknown" });
-	});
-
-	it("logs one content-free line per turn", async () => {
-		await turn({ uiLanguage: "en" });
-		await turn({ reply: "Done.", latestUserMessage: "ok", uiLanguage: "hu" });
-
-		expect(info.mock.calls.map((call: unknown[]) => call[0])).toEqual([
-			"[LANGUAGE] ui=en reply=en",
-			"[LANGUAGE] ui=hu reply=unknown",
-		]);
-		for (const [line] of [...info.mock.calls, ...warn.mock.calls]) {
-			expect(String(line)).not.toContain("heat pump");
-			expect(String(line)).not.toContain("user-1");
-			expect(String(line)).not.toContain("conv-1");
-		}
-		expect(warn).not.toHaveBeenCalled();
-	});
-
-	it("warns, and counts, when an account shown in English got a reply read as Hungarian", async () => {
-		await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" });
-
-		expect(info).toHaveBeenCalledWith("[LANGUAGE] ui=en reply=hu");
-		expect(warn).toHaveBeenCalledTimes(1);
-		expect(String(warn.mock.calls[0][0])).toContain("ui=en reply=hu");
-		const stats = getReplyLanguageStats();
-		expect(stats.englishAccountHungarianReplyCount).toBe(1);
-		expect(stats.lastEnglishAccountHungarianReplyAt).toBeGreaterThan(0);
-	});
-
-	it("does not warn for a Hungarian reply to an account shown in Hungarian, or an English one to an account shown in English", async () => {
-		await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "hu" });
-		await turn({ uiLanguage: "en" });
-
-		expect(warn).not.toHaveBeenCalled();
-		expect(getReplyLanguageStats()).toMatchObject({
-			turnsRead: 2,
-			unreadCount: 0,
-			englishAccountHungarianReplyCount: 0,
-			lastEnglishAccountHungarianReplyAt: null,
+		it("takes the model's answer when the history cannot be read", async () => {
+			getLastConversationLanguageMock.mockRejectedValue(new Error("db down"));
+			getPreviousUserMessageTextMock.mockRejectedValue(new Error("db down"));
+			readConversationLanguageMock.mockResolvedValue("hu");
+			const result = await turn({ reply: "Done.", latestUserMessage: "ok" });
+			expect(result).toMatchObject({ language: "hu", via: "model" });
+			expect(readConversationLanguageMock).toHaveBeenCalledWith(
+				expect.objectContaining({ previousUserMessage: null }),
+			);
 		});
 	});
 
-	it("counts the turns it could not read", async () => {
-		await turn({ reply: "Done.", latestUserMessage: "ok" });
+	describe("the model does not name it: the deterministic chain decides", () => {
+		it("a reply the reader names is its own language, for an account shown in either", async () => {
+			expect(await turn({ uiLanguage: "hu" })).toEqual({
+				language: "en",
+				reply: "en",
+				via: "fallback",
+			});
+			expect(await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" })).toEqual({
+				language: "hu",
+				reply: "hu",
+				via: "fallback",
+			});
+		});
 
-		expect(getReplyLanguageStats()).toMatchObject({
-			turnsRead: 1,
-			unreadCount: 1,
+		it("a reply that says nothing falls to the conversation's stored language, then the account's", async () => {
+			getLastConversationLanguageMock.mockResolvedValue("hu");
+			expect(
+				await turn({
+					reply: "Done.",
+					latestUserMessage: "ok",
+					uiLanguage: "en",
+				}),
+			).toEqual({ language: "hu", reply: "unknown", via: "fallback" });
+			expect(getLastConversationLanguageMock).toHaveBeenCalledWith(
+				"conv-1",
+				"user-1",
+			);
+
+			getLastConversationLanguageMock.mockResolvedValue(null);
+			expect(
+				await turn({
+					reply: "Done.",
+					latestUserMessage: "ok",
+					uiLanguage: "hu",
+				}),
+			).toEqual({ language: "hu", reply: "unknown", via: "fallback" });
+		});
+
+		it("goes on when the call throws, and when the history cannot be read", async () => {
+			readConversationLanguageMock.mockRejectedValue(new Error("model down"));
+			getLastConversationLanguageMock.mockRejectedValue(new Error("db down"));
+			getPreviousUserMessageTextMock.mockRejectedValue(new Error("db down"));
+			expect(
+				await turn({
+					reply: "Done.",
+					latestUserMessage: "ok",
+					uiLanguage: "hu",
+				}),
+			).toEqual({ language: "hu", reply: "unknown", via: "fallback" });
+		});
+	});
+
+	describe("observability: one content-free line, one warning, a few counters", () => {
+		it("logs the account's UI language, the conversation's language and what the reply reads as", async () => {
+			await turn({ uiLanguage: "en" });
+			readConversationLanguageMock.mockResolvedValue("hu");
+			await turn({
+				reply: "Done.",
+				latestUserMessage: "ok",
+				uiLanguage: "en",
+			});
+
+			expect(info.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+				"[LANGUAGE] ui=en conversation=en reply=en",
+				"[LANGUAGE] ui=en conversation=hu reply=unknown",
+			]);
+			for (const [line] of [...info.mock.calls, ...warn.mock.calls]) {
+				expect(String(line)).not.toContain("heat pump");
+				expect(String(line)).not.toContain("user-1");
+				expect(String(line)).not.toContain("conv-1");
+			}
+			expect(warn).not.toHaveBeenCalled();
+		});
+
+		it("warns, and counts, when the model answered an English writer in Hungarian", async () => {
+			// An account shown in English; the model says the person writes English;
+			// the reply reads as Hungarian: the failure the owner asked never to see.
+			readConversationLanguageMock.mockResolvedValue("en");
+			await turn({
+				reply: HUNGARIAN_REPLY,
+				latestUserMessage: "What should I cut from this week?",
+				uiLanguage: "en",
+			});
+
+			expect(info).toHaveBeenCalledWith(
+				"[LANGUAGE] ui=en conversation=en reply=hu",
+			);
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(String(warn.mock.calls[0][0])).toContain(
+				"ui=en conversation=en reply=hu",
+			);
+			const stats = getReplyLanguageStats();
+			expect(stats.englishAccountHungarianReplyCount).toBe(1);
+			expect(stats.lastEnglishAccountHungarianReplyAt).toBeGreaterThan(0);
+		});
+
+		it("does not warn for a Hungarian writer who kept the default UI language, nor for a requested piece the model named as theirs elsewhere", async () => {
+			// ui=en by default, conversation=hu, reply=hu: a Hungarian speaker.
+			readConversationLanguageMock.mockResolvedValue("hu");
+			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "en" });
+			// ui=hu, conversation=hu, reply=hu.
+			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "hu" });
+			// ui=en, conversation=en, reply=en.
+			readConversationLanguageMock.mockResolvedValue("en");
+			await turn({ uiLanguage: "en" });
+			// ui=hu, conversation=en, reply=hu: not the condition (the account is shown in Hungarian).
+			await turn({ reply: HUNGARIAN_REPLY, uiLanguage: "hu" });
+
+			expect(warn).not.toHaveBeenCalled();
+			expect(getReplyLanguageStats()).toMatchObject({
+				turnsRead: 4,
+				englishAccountHungarianReplyCount: 0,
+				lastEnglishAccountHungarianReplyAt: null,
+			});
+		});
+
+		it("counts the turns whose reply it could not read, and the turns the model did not name the language", async () => {
+			await turn({ reply: "Done.", latestUserMessage: "ok" });
+			readConversationLanguageMock.mockResolvedValue("en");
+			await turn({ reply: "Done.", latestUserMessage: "ok" });
+
+			expect(getReplyLanguageStats()).toMatchObject({
+				turnsRead: 2,
+				unreadCount: 2,
+				conversationLanguageFallbackCount: 1,
+			});
 		});
 	});
 });

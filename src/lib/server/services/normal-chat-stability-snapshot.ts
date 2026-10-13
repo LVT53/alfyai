@@ -42,9 +42,14 @@ export type NormalChatStabilitySnapshot = {
  */
 export type ReplyLanguageStabilitySnapshot = {
 	turnsRead: number;
-	/** Replies whose words (and the message) named no language. */
+	/** Replies whose own words named no language (code, a table, "Done."). */
 	unreadCount: number;
-	/** Replies read as Hungarian for an account whose UI language is English. */
+	/** Turns the model did not name the conversation's language for: the chain did. */
+	conversationLanguageFallbackCount: number;
+	/**
+	 * Replies that read as Hungarian for a person the model says writes English,
+	 * on an account shown in English: the failure the owner asked never to see.
+	 */
 	englishAccountHungarianReplyCount: number;
 	lastEnglishAccountHungarianReplyAt: string | null;
 };
@@ -203,6 +208,7 @@ function buildReplyLanguageSnapshot(
 	return {
 		turnsRead: stats.turnsRead,
 		unreadCount: stats.unreadCount,
+		conversationLanguageFallbackCount: stats.conversationLanguageFallbackCount,
 		englishAccountHungarianReplyCount: stats.englishAccountHungarianReplyCount,
 		lastEnglishAccountHungarianReplyAt:
 			stats.lastEnglishAccountHungarianReplyAt === null

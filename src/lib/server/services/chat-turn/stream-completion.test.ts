@@ -60,9 +60,10 @@ vi.mock("./follow-up-suggestions", () => ({
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
 }));
 
-// What the reply was written in (reply-language.ts), seamed: the glue tests
-// below assert what completeStreamTurn asks it and what it does with the
-// answer; the reader itself is tested in language.test.ts and
+// The language of the conversation for the person, named after the reply
+// (reply-language.ts), seamed: the glue tests below assert what
+// completeStreamTurn asks it and what it does with the answer; the reader and
+// the call are tested in language.test.ts, conversation-language.test.ts and
 // reply-language.test.ts.
 vi.mock("./reply-language", () => ({
 	resolveTurnReplyLanguage: mockResolveTurnReplyLanguage,
@@ -257,7 +258,8 @@ describe("completeStreamTurn", () => {
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
 		mockResolveTurnReplyLanguage.mockResolvedValue({
 			language: "en",
-			read: "en",
+			reply: "en",
+			via: "model",
 		});
 		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 		mockTouchConversation.mockResolvedValue(undefined);
@@ -2335,10 +2337,13 @@ describe("completeStreamTurn", () => {
 			});
 		});
 
-		it("reads the reply once and hands its language to the suggester, the post-turn tail and the stored message", async () => {
+		it("names the language once and hands it to the suggester, the post-turn tail and the stored message", async () => {
+			// The model named Hungarian for the person while the reply's own words
+			// read English: the chips, the rail and the record follow the person.
 			mockResolveTurnReplyLanguage.mockResolvedValue({
 				language: "hu",
-				read: "hu",
+				reply: "en",
+				via: "model",
 			});
 
 			await completeStreamTurn({ ...defaultParams, uiLanguage: "en" });
@@ -2359,10 +2364,12 @@ describe("completeStreamTurn", () => {
 			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 				expect.objectContaining({ responseLanguage: "hu" }),
 			);
-			// What the words said is kept on the message, for the next reply that
-			// says nothing by itself.
+			// Both are kept on the message: the language the conversation was in for
+			// the person (the next turn's fallback) and what the reply's words said
+			// (the record behind the log line).
 			expect(getPersistedAssistantMetadata()).toMatchObject({
-				replyLanguage: "hu",
+				conversationLanguage: "hu",
+				replyLanguage: "en",
 			});
 		});
 
@@ -2376,6 +2383,9 @@ describe("completeStreamTurn", () => {
 			);
 			expect(getPersistedAssistantMetadata()).not.toHaveProperty(
 				"replyLanguage",
+			);
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty(
+				"conversationLanguage",
 			);
 		});
 

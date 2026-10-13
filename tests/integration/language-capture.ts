@@ -62,6 +62,20 @@ export type Capture = {
 export const captures: Capture[] = [];
 let currentCall = "";
 
+/**
+ * What the fake model answers when it is asked which language a conversation is
+ * in for the person (chat-turn/conversation-language.ts): a good model's answer,
+ * set by the test, or an answer the app cannot use.
+ */
+export type ConversationLanguageAnswer = "en" | "hu" | "unusable";
+let conversationLanguageAnswer: ConversationLanguageAnswer = "en";
+
+export function setConversationLanguageAnswer(
+	answer: ConversationLanguageAnswer,
+): void {
+	conversationLanguageAnswer = answer;
+}
+
 /** What the fake model answers, by the schema the caller asked for. */
 function cannedReply(body: Record<string, unknown>): string {
 	const name =
@@ -74,6 +88,11 @@ function cannedReply(body: Record<string, unknown>): string {
 				"Draft the email to the landlord",
 			],
 		});
+	}
+	if (name === "conversation_language") {
+		return conversationLanguageAnswer === "unusable"
+			? JSON.stringify({ language: "de" })
+			: JSON.stringify({ language: conversationLanguageAnswer });
 	}
 	if (name === "rail_headline")
 		return JSON.stringify({ headline: "Choosing a heating system" });
@@ -138,14 +157,23 @@ export function removeFakeProvider(): void {
 	vi.unstubAllGlobals();
 }
 
-/** Runs `fn` and returns the requests it made, each labelled with `call`. */
+/**
+ * Runs `fn` and returns the requests it made, each labelled with `call`. A
+ * capture inside another labels its own requests and gives the label back, so
+ * a driver can mark the one request that is not its own.
+ */
 export async function capture(
 	call: string,
 	fn: () => Promise<unknown>,
 ): Promise<Capture[]> {
+	const outer = currentCall;
 	currentCall = call;
 	const before = captures.length;
-	await fn();
+	try {
+		await fn();
+	} finally {
+		currentCall = outer;
+	}
 	return captures.slice(before);
 }
 

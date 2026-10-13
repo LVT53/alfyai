@@ -135,6 +135,7 @@ describe("getNormalChatStabilitySnapshot", () => {
 			getReplyLanguageStats: () => ({
 				turnsRead: 40,
 				unreadCount: 6,
+				conversationLanguageFallbackCount: 3,
 				englishAccountHungarianReplyCount: 2,
 				lastEnglishAccountHungarianReplyAt: Date.parse(
 					"2026-06-04T09:30:00.000Z",
@@ -142,12 +143,14 @@ describe("getNormalChatStabilitySnapshot", () => {
 			}),
 		});
 
-		// A Hungarian reply to an account shown in English is something to see,
-		// not a fault of the system: the status stays what its components say.
+		// A Hungarian reply to a person writing English, on an account shown in
+		// English, is something to see, not a fault of the system: the status stays
+		// what its components say.
 		expect(snapshot.status).toBe("ok");
 		expect(snapshot.replyLanguage).toEqual({
 			turnsRead: 40,
 			unreadCount: 6,
+			conversationLanguageFallbackCount: 3,
 			englishAccountHungarianReplyCount: 2,
 			lastEnglishAccountHungarianReplyAt: "2026-06-04T09:30:00.000Z",
 		});
