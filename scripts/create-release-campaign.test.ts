@@ -10,6 +10,12 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+import artifactsDict from "$lib/i18n/artifacts";
+import chatDict from "$lib/i18n/chat";
+import commonDict from "$lib/i18n/common";
+import knowledgeDict from "$lib/i18n/knowledge";
+import projectsDict from "$lib/i18n/projects";
+import settingsDict from "$lib/i18n/settings";
 import { createInMemoryDatabase } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import { publishCampaign } from "$lib/server/services/announcement-campaigns";
@@ -507,10 +513,10 @@ describe("create-release-campaign", () => {
 		const deck22 = join(process.cwd(), "docs/plans/campaign-2.2/deck");
 		const deck22En = join(process.cwd(), "docs/plans/campaign-2.2/deck-en");
 
-		it("is a valid deck: five slides, both languages and both devices, on the allowlist", () => {
+		it("is a valid deck: ten slides, both languages and both devices, on the allowlist", () => {
 			const loaded = loadDeck(deck22, { isAllowedActionDestination });
 
-			expect(loaded.slides).toHaveLength(5);
+			expect(loaded.slides).toHaveLength(10);
 			for (const slide of loaded.slides) {
 				expect(slide.images.desktop).toMatchObject({
 					width: 1600,
@@ -523,14 +529,97 @@ describe("create-release-campaign", () => {
 					mimeType: "image/png",
 				});
 			}
-			// The one button: Start a chat, on slide 2.
+			// The two buttons: Open settings (Instructions, slide 7) and Open Knowledge base (slide 8).
 			expect(loaded.slides.map((slide) => slide.actionDestination)).toEqual([
 				null,
-				"/",
 				null,
+				null,
+				null,
+				null,
+				null,
+				"/settings",
+				"/knowledge",
 				null,
 				null,
 			]);
+		});
+
+		it("tells every slide's reader where to find the thing, in both languages, in a body a phone shows whole", () => {
+			const { slides } = loadDeck(deck22, { isAllowedActionDestination });
+
+			for (const slide of slides) {
+				// The last paragraph of a body is its "where to find it" line.
+				expect(slide.bodyHu.split("\n\n").at(-1)).toMatch(/^Hol találod: /);
+				expect(slide.bodyEn.split("\n\n").at(-1)).toMatch(
+					/^Where to find it: /,
+				);
+				// Measured in the reader's card on a 390x844 phone: past this the card scrolls.
+				expect(slide.bodyHu.length).toBeLessThanOrEqual(360);
+				expect(slide.bodyEn.length).toBeLessThanOrEqual(360);
+				// Slides is shelved (ruling 69): no slide may name it.
+				for (const text of [
+					slide.titleHu,
+					slide.titleEn,
+					slide.bodyHu,
+					slide.bodyEn,
+				]) {
+					expect(text).not.toMatch(/diasor|slides/i);
+				}
+			}
+		});
+
+		it("quotes the labels the app draws, word for word in both languages", () => {
+			const dictionaries = [
+				artifactsDict,
+				chatDict,
+				commonDict,
+				knowledgeDict,
+				projectsDict,
+				settingsDict,
+			];
+			const label = (key: string, language: "en" | "hu"): string => {
+				for (const dictionary of dictionaries) {
+					const value = (
+						dictionary[language] as Record<string, string | undefined>
+					)[key];
+					if (value !== undefined) return value;
+				}
+				throw new Error(`No dictionary has ${key}`);
+			};
+			const { slides } = loadDeck(deck22, { isAllowedActionDestination });
+			const wording = (index: number) => ({
+				hu: slides[index].bodyHu,
+				en: slides[index].bodyEn,
+			});
+			// slide number (1-based) -> the dictionary keys whose labels its body quotes
+			const quoted: Array<[number, string[]]> = [
+				[1, ["chat.artifacts.keepAsDocument"]],
+				[2, ["artifacts.app.action.regenerate"]],
+				[3, ["artifacts.canvas.insert", "artifacts.canvas.ask"]],
+				[
+					4,
+					[
+						"artifacts.document.change.keep",
+						"artifacts.document.change.undo",
+						"artifacts.document.comment.add",
+						"artifacts.document.comment.ask",
+					],
+				],
+				[6, ["projects.filesTitle", "home.projectsHeading"]],
+				[
+					7,
+					["sidebar.settings", "settingsProfile", "profileTab.assistantTitle"],
+				],
+				[8, ["sidebar.knowledgeBase", "knowledge.documents"]],
+			];
+			for (const [number, keys] of quoted) {
+				const { hu, en } = wording(number - 1);
+				for (const key of keys) {
+					// A label that ends in an ellipsis is quoted whole; the dictionary's own words, not a paraphrase.
+					expect(hu, `slide ${number}, ${key}`).toContain(label(key, "hu"));
+					expect(en, `slide ${number}, ${key}`).toContain(label(key, "en"));
+				}
+			}
 		});
 
 		it("has an English-interface alternate with the very same words", () => {
@@ -556,7 +645,7 @@ describe("create-release-campaign", () => {
 			expect(result.status).toBe("published");
 			expect(result.releaseVersion).toBe("2.2.0");
 			expect(result.identityKey).toBe("release_update:2.2.0:r1");
-			expect(result.slideCount).toBe(5);
+			expect(result.slideCount).toBe(10);
 		});
 	});
 

@@ -33,9 +33,13 @@ const MANIFEST_PATH = resolve(
 	process.env.CAMPAIGN_MANIFEST || "./data/campaign-2-2-manifest.json",
 );
 
+// CAMPAIGN_PROBE=1 also saves each desktop scene as a whole 1440x900 window (for choosing the clip by eye).
+const PROBE = process.env.CAMPAIGN_PROBE === "1";
+
 const DESKTOP = { width: 1440, height: 900 };
-const PHONE = { width: 360, height: 640 };
-const PHONE_SCALE = 3;
+// A large phone (432 CSS pixels wide, as a Pixel 8 Pro or an iPhone Pro Max is): 9:16 at exactly 2.5x gives 1080x1920.
+const PHONE = { width: 432, height: 768 };
+const PHONE_SCALE = 2.5;
 const DESKTOP_PICTURE = { width: 1600, height: 1000 };
 const PHONE_PICTURE = { width: 1080, height: 1920 };
 
@@ -45,7 +49,12 @@ type Manifest = {
 	timeZone: string;
 	user: { email: string; password: string };
 	project: { id: string };
-	conversations: { plan: string; photo: string };
+	conversations: {
+		plan: string;
+		comparison: string;
+		photo: string;
+		packing: string;
+	};
 };
 
 const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as Manifest;
@@ -75,15 +84,6 @@ async function settle(page: Page, ms = 1200): Promise<void> {
 	await page.evaluate(() => {
 		(document.activeElement as HTMLElement | null)?.blur?.();
 	});
-}
-
-/** The chat shows its beginning: the first request and what Alfy made from it. */
-async function scrollChatToTop(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		const scroller = document.querySelector<HTMLElement>(".scroll-container");
-		if (scroller) scroller.scrollTop = 0;
-	});
-	await page.waitForTimeout(800);
 }
 
 async function openChat(page: Page, conversationId: string): Promise<void> {
@@ -133,45 +133,85 @@ async function openHistory(page: Page): Promise<void> {
 
 const PLAN = /Háromnapos program/;
 const BOARD = /Program napokra/;
+const APP = /Balatoni költségkeret/;
+const COMPARISON = /Szállások összehasonlítása/;
 const NAMED_VERSION = "Ezt küldtem el a családnak";
+
+async function waitForEditor(page: Page): Promise<void> {
+	await page
+		.locator(".document-editor-host .ProseMirror")
+		.waitFor({ state: "visible", timeout: 20000 });
+}
+
+async function openProject(page: Page): Promise<void> {
+	await page.goto(`${BASE_URL}/projects/${manifest.project.id}`, {
+		waitUntil: "domcontentloaded",
+	});
+	await page
+		.getByTestId("project-greeting")
+		.waitFor({ state: "visible", timeout: 20000 });
+}
 
 const SCENES: Scene[] = [
 	{
-		// 1. Projects: the files a project knows, and what its chats made.
+		// 1. A Document: the one you and Alfy both write on (tabs, a table, a checklist).
 		id: 1,
-		name: "projects",
+		name: "document",
 		desktop: {
-			clip: { x: 99, y: 65, height: 770 },
+			clip: { x: 496, y: 0, height: 590 },
 			prepare: async (page) => {
-				await page.goto(`${BASE_URL}/projects/${manifest.project.id}`, {
-					waitUntil: "domcontentloaded",
-				});
-				await page.getByTestId("project-files-button").click();
-				await page
-					.getByTestId("project-file-row")
-					.first()
-					.waitFor({ state: "visible", timeout: 20000 });
-				await settle(page);
+				await openChat(page, manifest.conversations.comparison);
+				await openItem(page, COMPARISON, false);
+				await waitForEditor(page);
+				await settle(page, 2000);
 			},
 		},
 		phone: {
 			prepare: async (page) => {
-				await page.goto(`${BASE_URL}/projects/${manifest.project.id}`, {
-					waitUntil: "domcontentloaded",
-				});
-				await page
-					.getByTestId("project-greeting")
-					.waitFor({ state: "visible", timeout: 20000 });
-				await settle(page);
+				await openChat(page, manifest.conversations.comparison);
+				await openItem(page, COMPARISON, true);
+				await waitForEditor(page);
+				// The second tab: what is left to do, a checklist with ticks.
+				await page.getByText("Teendők", { exact: true }).first().click();
+				await settle(page, 2000);
 			},
 		},
 	},
 	{
-		// 2. Artifacts: what a chat made opens beside it.
+		// 2. An App: a small tool that runs in the panel and that Alfy has checked.
 		id: 2,
-		name: "artifacts",
+		name: "app",
 		desktop: {
-			clip: { x: 0, y: 0, height: 900 },
+			clip: { x: 496, y: 0, height: 590 },
+			prepare: async (page) => {
+				await openChat(page, manifest.conversations.plan);
+				await openItem(page, APP, false);
+				await page
+					.locator("iframe")
+					.first()
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 2500);
+			},
+		},
+		phone: {
+			prepare: async (page) => {
+				await openChat(page, manifest.conversations.plan);
+				await openItem(page, APP, true);
+				await page
+					.locator("iframe")
+					.first()
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 2500);
+			},
+		},
+	},
+	{
+		// 3. A Canvas: a free surface (frames, notes, a chart, a checklist, marks drawn by hand).
+		id: 3,
+		name: "canvas",
+		desktop: {
+			viewport: { width: DESKTOP.width, height: 592 },
+			clip: { x: 496, y: 0, height: 590 },
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.plan);
 				await openItem(page, BOARD, false);
@@ -179,37 +219,41 @@ const SCENES: Scene[] = [
 					.locator(".svelte-flow__node")
 					.first()
 					.waitFor({ state: "visible", timeout: 20000 });
-				await scrollChatToTop(page);
-				await settle(page, 2000);
+				await settle(page, 2500);
 			},
 		},
 		phone: {
 			prepare: async (page) => {
-				// On a phone the cards are the way in: what Alfy made, with a way to open it.
 				await openChat(page, manifest.conversations.plan);
-				await settle(page);
-				// The Document's card, with the change that waits for the reader, in the middle.
+				await openItem(page, BOARD, true);
 				await page
-					.getByTestId("artifact-card")
+					.locator(".svelte-flow__node")
 					.first()
-					.evaluate((card) => card.scrollIntoView({ block: "center" }));
-				await page.waitForTimeout(800);
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 2500);
+				// A phone board is read zoomed in: two steps of the zoom control, then the pointer goes.
+				const zoomIn = page.getByRole("button", {
+					name: /^(Nagyítás|Zoom in)$/,
+				});
+				await zoomIn.click();
+				await page.waitForTimeout(400);
+				await zoomIn.click();
+				await page.mouse.move(0, 0);
+				await page.waitForTimeout(900);
 			},
 		},
 	},
 	{
-		// 3. Working together: Alfy's change waits for Keep or Undo, and a margin comment asked @Alfy.
-		id: 3,
+		// 4. Working together: Alfy's change waits for Keep or Undo, and a margin comment asked @Alfy.
+		id: 4,
 		name: "together",
 		desktop: {
-			viewport: { width: DESKTOP.width, height: 840 },
-			clip: { x: 494, y: 249, height: 590 },
+			viewport: { width: DESKTOP.width, height: 830 },
+			clip: { x: 504, y: 245, height: 585 },
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.plan);
 				await openItem(page, PLAN, false);
-				await page
-					.locator(".document-editor-host .ProseMirror")
-					.waitFor({ state: "visible", timeout: 20000 });
+				await waitForEditor(page);
 				await settle(page, 2000);
 			},
 		},
@@ -217,25 +261,25 @@ const SCENES: Scene[] = [
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.plan);
 				await openItem(page, PLAN, true);
+				await waitForEditor(page);
 				await page
-					.locator(".document-editor-host .ProseMirror")
-					.waitFor({ state: "visible", timeout: 20000 });
+					.getByText("Ebéd egy halsütödében", { exact: false })
+					.first()
+					.evaluate((line) => line.scrollIntoView({ block: "center" }));
 				await settle(page, 2000);
 			},
 		},
 	},
 	{
-		// 4. History: a named version, previewed, with Restore.
-		id: 4,
+		// 5. History: a named version, previewed, with Restore.
+		id: 5,
 		name: "history",
 		desktop: {
-			clip: { x: 494, y: 48, height: 590 },
+			clip: { x: 494, y: 50, height: 590 },
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.plan);
 				await openItem(page, PLAN, false);
-				await page
-					.locator(".document-editor-host .ProseMirror")
-					.waitFor({ state: "visible", timeout: 20000 });
+				await waitForEditor(page);
 				await openHistory(page);
 				await page
 					.getByTestId("history-option")
@@ -248,20 +292,93 @@ const SCENES: Scene[] = [
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.plan);
 				await openItem(page, PLAN, true);
-				await page
-					.locator(".document-editor-host .ProseMirror")
-					.waitFor({ state: "visible", timeout: 20000 });
+				await waitForEditor(page);
 				await openHistory(page);
 				await settle(page, 1500);
 			},
 		},
 	},
 	{
-		// 5. Privacy: a picture from an address nobody gave stays a link.
-		id: 5,
+		// 6. Projects: their own page, and the Files window with what the chats made.
+		id: 6,
+		name: "projects",
+		desktop: {
+			clip: { x: 355, y: 88, height: 450 },
+			prepare: async (page) => {
+				await openProject(page);
+				await page.getByTestId("project-files-button").click();
+				await page
+					.getByTestId("project-file-row")
+					.first()
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page);
+			},
+		},
+		phone: {
+			prepare: async (page) => {
+				await openProject(page);
+				await settle(page);
+			},
+		},
+	},
+	{
+		// 7. Instructions: the dialog a project's, a person's or a /instruction opens.
+		id: 7,
+		name: "instructions",
+		desktop: {
+			clip: { x: 380, y: 235, height: 430 },
+			prepare: async (page) => {
+				await openProject(page);
+				await page.getByTestId("project-instructions-button").click();
+				await page
+					.getByTestId("instructions-textarea")
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 1500);
+			},
+		},
+		phone: {
+			prepare: async (page) => {
+				await openProject(page);
+				await page.getByTestId("project-instructions-button").click();
+				await page
+					.getByTestId("instructions-textarea")
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 1500);
+			},
+		},
+	},
+	{
+		// 8. Everything in one place: the Knowledge base's Documents tab, filtered by kind.
+		id: 8,
+		name: "knowledge",
+		desktop: {
+			clip: { x: 180, y: 12, height: 700 },
+			prepare: async (page) => {
+				await page.goto(`${BASE_URL}/knowledge`, {
+					waitUntil: "domcontentloaded",
+				});
+				await page
+					.getByTestId("documents-filter-chips")
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 2000);
+			},
+		},
+		phone: {
+			prepare: async (page) => {
+				await page.goto(`${BASE_URL}/knowledge`, {
+					waitUntil: "domcontentloaded",
+				});
+				await settle(page, 2500);
+			},
+		},
+	},
+	{
+		// 9. Privacy: a picture from an address nobody gave stays a link.
+		id: 9,
 		name: "privacy",
 		desktop: {
-			clip: { x: 372, y: 160, height: 440 },
+			viewport: { width: DESKTOP.width, height: 640 },
+			clip: { x: 390, y: 50, height: 400 },
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.photo);
 				await settle(page);
@@ -271,7 +388,39 @@ const SCENES: Scene[] = [
 			prepare: async (page) => {
 				await openChat(page, manifest.conversations.photo);
 				await settle(page);
-				await scrollChatToTop(page);
+				await page.evaluate(() => {
+					const scroller =
+						document.querySelector<HTMLElement>(".scroll-container");
+					if (scroller) scroller.scrollTop = scroller.scrollHeight;
+				});
+				await page.waitForTimeout(800);
+			},
+		},
+	},
+	{
+		// 10. The small things: the home page, where the project cards stand where the suggestion chips were.
+		id: 10,
+		name: "home",
+		desktop: {
+			clip: { x: 340, y: 200, height: 500 },
+			prepare: async (page) => {
+				await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
+				await page
+					.getByTestId("home-greeting")
+					.waitFor({ state: "visible", timeout: 20000 });
+				await settle(page, 1500);
+			},
+		},
+		phone: {
+			// On a phone the small thing to see is the two follow-ups under a reply, at rest.
+			prepare: async (page) => {
+				await openChat(page, manifest.conversations.packing);
+				await page.evaluate(() => {
+					const scroller =
+						document.querySelector<HTMLElement>(".scroll-container");
+					if (scroller) scroller.scrollTop = scroller.scrollHeight;
+				});
+				await settle(page, 1500);
 			},
 		},
 	},
@@ -379,6 +528,13 @@ async function main(): Promise<void> {
 				const desktopPage = await desktop.newPage();
 				await scene.desktop.prepare(desktopPage);
 				const desktopPath = join(outDir, `slide-${scene.id}-desktop.png`);
+				if (PROBE) {
+					mkdirSync(join(outDir, "probe"), { recursive: true });
+					await desktopPage.screenshot({
+						path: join(outDir, "probe", `slide-${scene.id}-desktop.png`),
+						animations: "disabled",
+					});
+				}
 				const desktopBytes = await desktopPage.screenshot({
 					path: desktopPath,
 					clip: { x: clip.x, y: clip.y, width, height: clip.height },

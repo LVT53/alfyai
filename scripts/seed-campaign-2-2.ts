@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 // Seeds the sample content the AlfyAI 2.2 release campaign's screenshots are taken from:
-// one Hungarian user, a project with instructions and files, chats that made a Document, a
-// Canvas board, an App and a File, a Document with a followable history (a named version, a
-// change Alfy made that the user kept, a change that is still waiting for Keep or Undo and a
-// margin comment that asks @Alfy), and a reply whose picture was not loaded.
+// one Hungarian user with personal instructions, a project with instructions and files, chats
+// that made a Document (with tabs, a table and a checklist), a Canvas board (frames, notes, a
+// chart, a checklist and drawn marks), an App that Alfy checked and a File, a Document with a
+// followable history (a named version, a change Alfy made that the user kept, a change that is
+// still waiting for Keep or Undo and a margin comment that asks @Alfy), and a reply whose
+// picture was not loaded.
 //
 // Everything here is invented sample content in Hungarian: no real person, address or file.
 // It is written through the same services the app uses (`artifacts`, `projects`, the knowledge
@@ -108,6 +110,12 @@ const PROJECT_INSTRUCTIONS = [
 	"Az árakat mindig forintban add meg, és jelöld, ha valamit nem tudsz biztosan.",
 ].join("\n");
 
+const PERSONAL_INSTRUCTIONS = [
+	"Magyarul válaszolj, és tegezz.",
+	"Röviden és lényegre törően írj, a hosszú felsorolások helyett inkább összefüggő mondatokat.",
+	"Ha valamiben nem vagy biztos, mondd ki.",
+].join("\n");
+
 const PROJECT_FILES: { name: string; text: string }[] = [
 	{
 		name: "szallas-ajanlatok.txt",
@@ -195,6 +203,14 @@ const COMPARISON_MD = [
 	"## Javaslat",
 	"",
 	"A Vitorlás Vendégház a legjobb választás: két hálószoba, kert, és a lemondás is rugalmas. A Nádas Apartman olcsóbb, de négyen szűk, és nem módosítható a foglalás.",
+	"",
+	"## Teendők a foglalás előtt",
+	"",
+	"- [x] Lemondási feltételek átnézve",
+	"- [x] Ár összevetve a kerettel (450 000 Ft)",
+	"- [ ] Rákérdezni a gyerekágyra",
+	"- [ ] Foglalás a Vitorlás Vendégházban",
+	"- [ ] Előleg átutalása",
 ].join("\n");
 
 const BUDGET_CSV = [
@@ -397,12 +413,30 @@ function boardBody(): {
 			{
 				id: "rain",
 				type: "sticky",
-				position: { x: 330, y: 380 },
+				position: { x: 330, y: 400 },
 				width: 280,
 				data: {
 					kind: "sticky",
 					text: "Esős napra: játszóház vagy múzeum a környéken, a strand átkerül vasárnap reggelre.",
 					tone: "plain",
+				},
+			},
+			{
+				id: "costs",
+				type: "chart",
+				position: { x: 660, y: 380 },
+				width: 360,
+				data: {
+					kind: "chart",
+					label: "Tervezett kiadások (ezer Ft)",
+					code: JSON.stringify({
+						type: "bar",
+						data: {
+							labels: ["Szállás", "Étkezés", "Utazás", "Programok", "Tartalék"],
+							datasets: [{ label: "ezer Ft", data: [118, 95, 42, 38, 50] }],
+						},
+						options: { plugins: { legend: { display: false } } },
+					}),
 				},
 			},
 		],
@@ -411,7 +445,33 @@ function boardBody(): {
 			{ id: "e2", source: "day-2", target: "day-3" },
 		],
 		viewport: { x: 0, y: 0, zoom: 1 },
-		annotations: [],
+		// What a reader draws by hand: a ring round the beach slot, an arrow to the rain plan, a word.
+		annotations: [
+			{
+				id: "m1",
+				kind: "ellipse",
+				color: "var(--ink-red)",
+				size: 3,
+				from: { x: 340, y: 214 },
+				to: { x: 604, y: 302 },
+			},
+			{
+				id: "m2",
+				kind: "arrow",
+				color: "var(--ink-red)",
+				size: 3,
+				from: { x: 472, y: 306 },
+				to: { x: 472, y: 394 },
+			},
+			{
+				id: "m3",
+				kind: "text",
+				color: "var(--ink-red)",
+				size: 22,
+				at: { x: 490, y: 338 },
+				text: "ha esik",
+			},
+		],
 	};
 }
 
@@ -474,6 +534,7 @@ async function main(): Promise<void> {
 			role: "admin",
 			uiLanguage: "hu",
 			theme: "light",
+			personalInstructions: PERSONAL_INSTRUCTIONS,
 		})
 		.run();
 	// The first-open tours are somebody else's screenshots: this reader has seen them.
@@ -696,7 +757,10 @@ async function main(): Promise<void> {
 		body: APP_HTML,
 		author: "alfy",
 		versionSummary: madeAppSummary(APP_PROMPT),
-		metadata: { glitchRuleIds: [] },
+		metadata: {
+			glitchRuleIds: [],
+			verification: { checked: true, verdict: "clean", reason: null },
+		},
 	});
 	const app = must(appCreated.ok ? appCreated.artifact : null, "the App");
 	setVersionTime(versionIdOf(app.id, 1), wall(2, "19:26"));
@@ -989,14 +1053,41 @@ async function main(): Promise<void> {
 		"Hasonlítsd össze a három szállásajánlatot a projekt fájljai alapján.",
 		wall(3, "18:24"),
 	);
-	const comparison = await artifactsFacade.createDocumentArtifact({
+	// Two tabs, the way a Document with sections has them: the comparison, and what is left to do.
+	const comparisonParsed = parseDocument(COMPARISON_MD);
+	const todoBlock = must(
+		comparisonParsed.blocks.find((block) =>
+			block.markdown.includes("Teendők a foglalás előtt"),
+		),
+		"the to-do heading",
+	);
+	const comparisonCreated = await artifactsFacade.createArtifact({
 		userId,
 		conversationId: compareChat,
+		kind: "document",
 		title: "Szállások összehasonlítása",
-		markdown: COMPARISON_MD,
+		body: comparisonParsed.markdown,
+		metadata: {
+			tabs: [
+				{
+					id: randomUUID(),
+					title: "Összehasonlítás",
+					startBlockId: must(comparisonParsed.blocks[0], "the first block").id,
+				},
+				{
+					id: randomUUID(),
+					title: "Teendők",
+					startBlockId: todoBlock.id,
+				},
+			],
+		},
 		author: "alfy",
-		summary: VERSION_SUMMARY.alfyFirstDraft,
+		versionSummary: VERSION_SUMMARY.alfyFirstDraft,
 	});
+	const comparison = must(
+		comparisonCreated.ok ? comparisonCreated.artifact : null,
+		"the comparison",
+	);
 	setVersionTime(versionIdOf(comparison.id, 1), wall(3, "18:30"));
 	backdate(comparison.id, wall(3, "18:30"), wall(3, "18:30"));
 	addMessage(
@@ -1060,7 +1151,7 @@ async function main(): Promise<void> {
 		"Mit vigyünk magunkkal egy balatoni hétvégére két gyerekkel?",
 		wall(4, "21:00"),
 	);
-	addMessage(
+	const packReply = addMessage(
 		packChat,
 		"assistant",
 		[
@@ -1074,6 +1165,18 @@ async function main(): Promise<void> {
 		].join("\n"),
 		wall(4, "21:05"),
 	);
+	// The two follow-ups under the reply: what the reader might send next, in their own words.
+	db.update(schema.messages)
+		.set({
+			metadataJson: JSON.stringify({
+				followUps: [
+					"Készíts ebből ellenőrzőlistát",
+					"Mi férjen a hűtőtáskába?",
+				],
+			}),
+		})
+		.where(eq(schema.messages.id, packReply))
+		.run();
 
 	// -- chats outside the project ------------------------------------------
 	const menuChat = addConversation(
