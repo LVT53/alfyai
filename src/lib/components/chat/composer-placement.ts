@@ -80,14 +80,21 @@ export function computeMenuPlacement(
 	 * on the landing page's centred composer puts it over the textarea.
 	 */
 	minSpaceAbove: number = MENU_MIN_SPACE_ABOVE,
+	/**
+	 * How close the surface may come to the window's left and right edges. The
+	 * composer's own margin by default; a surface with a margin of its own to
+	 * keep (the context ring's popup on a phone has always stood 4px from the
+	 * sides) says so. The top and bottom keep the composer's.
+	 */
+	sideMargin: number = MENU_MARGIN,
 ): MenuPlacement {
 	const spaceAbove = triggerRect.top;
 	const spaceBelow = viewport.height - triggerRect.bottom;
 
 	const left = clamp(
 		triggerRect.left,
-		MENU_MARGIN,
-		viewport.width - width - MENU_MARGIN,
+		sideMargin,
+		viewport.width - width - sideMargin,
 	);
 
 	const flip = spaceAbove < minSpaceAbove && spaceBelow > spaceAbove;

@@ -151,7 +151,7 @@ async function capturePass(
 	await ringButton.waitFor({ state: "visible", timeout: 10000 });
 	await ringButton.click({ force: true });
 	await page
-		.locator(".ring-popover--open, .ring-popover--mobile-visible")
+		.locator(".ring-popover--visible")
 		.first()
 		.waitFor({ state: "visible", timeout: 5000 });
 	await page
