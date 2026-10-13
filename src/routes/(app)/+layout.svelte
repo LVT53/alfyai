@@ -34,6 +34,7 @@ import {
 } from "$lib/client/api/campaigns";
 import { conversationExists } from "$lib/client/api/conversations";
 import {
+	mayAutoShowCampaign,
 	shouldPersistCampaignCompletion,
 	type CampaignDisplayMode,
 } from "$lib/client/campaign-replay";
@@ -135,6 +136,13 @@ let announcedSessionAlertCount = 0;
 // actually is.
 let sessionNoticeHeight = $state(0);
 let activeCampaign: Campaign | null = $state(null);
+// Asked once, as this document starts, before the chat has taken a first
+// message up and before any request: a load that is a send continuing (the
+// landing page's full navigation into the chat it just made) is not an arrival,
+// and no card opens over the turn it started. The next arrival asks again.
+const campaignMayAutoShow = browser
+	? mayAutoShowCampaign(untrack(() => page.params.conversationId))
+	: true;
 let campaignMode: CampaignDisplayMode = $state("auto");
 let campaignSlideIndex = $state(0);
 let campaignViewedSlideIds = new Set<string>();
@@ -522,7 +530,7 @@ async function refreshCampaignSetupPreferences() {
 }
 
 async function checkEligibleCampaign() {
-	if (!browser || activeCampaign) return;
+	if (!browser || activeCampaign || !campaignMayAutoShow) return;
 	try {
 		const campaign = await fetchEligibleCampaign();
 		if (campaign && !activeCampaign) {

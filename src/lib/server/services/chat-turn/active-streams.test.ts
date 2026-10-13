@@ -17,6 +17,7 @@ import {
 	setDraining,
 	subscribeToStream,
 	unregisterActiveChatStream,
+	userHasActiveChatStream,
 	wasActiveChatStreamStopRequested,
 } from "./active-streams";
 
@@ -444,6 +445,39 @@ describe("active chat streams registry", () => {
 		} finally {
 			unregisterActiveChatStream("stream-owned-active-check", controller);
 		}
+	});
+
+	it("says whether one user has a turn running, for as long as it runs", () => {
+		const controller = new AbortController();
+		const otherController = new AbortController();
+		expect(userHasActiveChatStream("user-running")).toBe(false);
+
+		registerActiveChatStream({
+			streamId: "stream-running-1",
+			userId: "user-running",
+			controller,
+			conversationId: "conversation-running-1",
+		});
+		registerActiveChatStream({
+			streamId: "stream-running-2",
+			userId: "user-running",
+			controller: otherController,
+			conversationId: "conversation-running-2",
+		});
+
+		try {
+			expect(userHasActiveChatStream("user-running")).toBe(true);
+			// Not another user's.
+			expect(userHasActiveChatStream("user-not-running")).toBe(false);
+
+			// Still running while any one of them is.
+			unregisterActiveChatStream("stream-running-1", controller);
+			expect(userHasActiveChatStream("user-running")).toBe(true);
+		} finally {
+			unregisterActiveChatStream("stream-running-1", controller);
+			unregisterActiveChatStream("stream-running-2", otherController);
+		}
+		expect(userHasActiveChatStream("user-running")).toBe(false);
 	});
 
 	it("does not reuse a same-id buffer across owners", () => {

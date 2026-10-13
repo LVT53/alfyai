@@ -10,6 +10,7 @@ import {
 	announcementCampaigns,
 	announcementCampaignUserStates,
 	campaignAssets,
+	users,
 } from "$lib/server/db/schema";
 import {
 	isShippedArtifactTourType,
@@ -1156,8 +1157,8 @@ async function getPublishedCampaignFromRow(campaign: DraftRow, db: CampaignDb) {
 	};
 }
 
-async function latestPublishedOfTypes(
-	types: readonly AnnouncementCampaignType[],
+async function latestPublishedByType(
+	type: AnnouncementCampaignType,
 	db: CampaignDb,
 ) {
 	const campaign = db
@@ -1165,7 +1166,7 @@ async function latestPublishedOfTypes(
 		.from(announcementCampaigns)
 		.where(
 			and(
-				inArray(announcementCampaigns.type, [...types]),
+				eq(announcementCampaigns.type, type),
 				eq(announcementCampaigns.status, "published"),
 			),
 		)
@@ -1175,10 +1176,6 @@ async function latestPublishedOfTypes(
 		)
 		.get();
 	return campaign ? getPublishedCampaignFromRow(campaign, db) : null;
-}
-
-function latestPublishedByType(type: AnnouncementCampaignType, db: CampaignDb) {
-	return latestPublishedOfTypes([type], db);
 }
 
 async function userHasFinishedSnapshot(
@@ -1199,22 +1196,84 @@ async function userHasFinishedSnapshot(
 	return Boolean(row);
 }
 
+/**
+ * Whether the account has finished or skipped ANY first-run onboarding, of
+ * whatever revision, published or since archived. A state row is written only
+ * when the reader leaves the card (Finish, Skip or the close button), so an
+ * account that was shown a welcome and lost the tab has not been through one
+ * and is shown it again; one that left it never is.
+ */
+function userHasFinishedAnyOnboarding(userId: string, db: CampaignDb) {
+	const row = db
+		.select({ id: announcementCampaignUserStates.id })
+		.from(announcementCampaignUserStates)
+		.innerJoin(
+			announcementCampaignSnapshots,
+			eq(
+				announcementCampaignUserStates.snapshotId,
+				announcementCampaignSnapshots.id,
+			),
+		)
+		.where(
+			and(
+				eq(announcementCampaignUserStates.userId, userId),
+				eq(announcementCampaignSnapshots.type, "first_run_onboarding"),
+			),
+		)
+		.get();
+	return Boolean(row);
+}
+
+/**
+ * Whether the account existed before the campaign was published. A release
+ * update tells the people who were here what changed; an account made after it
+ * has no "before", and the welcome it was shown was its introduction. Derived
+ * from the account's own age, never from a stored "seen" row, so finishing a
+ * welcome writes nothing that could use the release up.
+ */
+function accountPredates(
+	userId: string,
+	publishedAt: Date | null,
+	db: CampaignDb,
+) {
+	if (!publishedAt) return true;
+	const account = db
+		.select({ createdAt: users.createdAt })
+		.from(users)
+		.where(eq(users.id, userId))
+		.get();
+	if (!account) return false;
+	return account.createdAt.getTime() < publishedAt.getTime();
+}
+
+/**
+ * The one campaign the app shell may open by itself for this account on an
+ * arrival (ADR-0012, amended 2026-10-13):
+ *
+ * 1. The latest published first-run onboarding, if the account has never been
+ *    through one. It is for a new account: publishing a new revision, or
+ *    archiving the old one, never reaches an account that finished or skipped
+ *    a welcome.
+ * 2. Otherwise the latest published release update, if the account has not
+ *    finished it and was here before it was published. Finishing a welcome
+ *    never uses it up, and an account made after it is not handed it.
+ *
+ * Only one at a time, and the latest release only: no queue.
+ */
 export async function getEligibleCampaignForUser(
 	userId: string,
 	options: CampaignServiceOptions = {},
 ) {
 	const db = database(options);
 	const onboarding = await latestPublishedByType("first_run_onboarding", db);
-	if (
-		onboarding &&
-		!(await userHasFinishedSnapshot(userId, onboarding.snapshotId, db))
-	) {
+	if (onboarding && !userHasFinishedAnyOnboarding(userId, db)) {
 		return onboarding;
 	}
 	const release = await latestPublishedByType("release_update", db);
 	if (
 		release &&
-		!(await userHasFinishedSnapshot(userId, release.snapshotId, db))
+		!(await userHasFinishedSnapshot(userId, release.snapshotId, db)) &&
+		accountPredates(userId, release.publishedAt, db)
 	) {
 		return release;
 	}
@@ -1222,28 +1281,25 @@ export async function getEligibleCampaignForUser(
 }
 
 /**
- * The campaigns that announce something to the whole app: a first-run
- * onboarding and a release note. A tour is not one: it is about one kind of
- * item and shows in that kind's panel (decisions.md ruling 32).
- */
-const ANNOUNCEMENT_CAMPAIGN_TYPES = [
-	"first_run_onboarding",
-	"release_update",
-] as const satisfies readonly AnnouncementCampaignType[];
-
-/**
- * The newest published ANNOUNCEMENT campaign, for the sidebar version badge's
- * replay (ADR-0012: the badge opens the latest published campaign). Without a
- * type predicate a published `artifact_tour` newer than the last note became the
- * badge's campaign, and a click opened a kind tour and recorded it as a replay
- * of the release; with a release note as the only type, a newer first-run
- * onboarding stopped being what the badge opened. The rule is here, once, so no
- * caller has an argument to get wrong.
+ * What the sidebar version badge replays: the latest published release update,
+ * which is what the version it carries is about, and only when none has been
+ * published the latest first-run onboarding, so the badge always has something
+ * to open. Never a tour: the first-open tour of a kind of item
+ * (`artifact_tour`) shows in that kind's panel and is no announcement.
+ *
+ * "Whichever was published last" made the badge depend on the order an admin
+ * pressed Publish in: a welcome published after the release took the badge
+ * over, and a click on `v2.2` opened a welcome for new accounts. The rule is
+ * here, once, so no caller has an argument to get wrong.
  */
 export async function getLatestPublishedAnnouncement(
 	options: CampaignServiceOptions = {},
 ) {
-	return latestPublishedOfTypes(ANNOUNCEMENT_CAMPAIGN_TYPES, database(options));
+	const db = database(options);
+	return (
+		(await latestPublishedByType("release_update", db)) ??
+		(await latestPublishedByType("first_run_onboarding", db))
+	);
 }
 
 function eventTypeForCompletion(

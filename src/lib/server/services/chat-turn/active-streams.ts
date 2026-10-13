@@ -642,6 +642,14 @@ export function checkStreamCapacity(userId: string): StreamCapacityCheck {
 	};
 }
 
+/**
+ * Whether one of this user's chat turns is running in this process right now.
+ * Nothing the app shows on its own (an announcement) opens over a running turn.
+ */
+export function userHasActiveChatStream(userId: string): boolean {
+	return (userStreamCounts.get(userId) ?? 0) > 0;
+}
+
 export function getStreamStats(): StreamStats {
 	const config = getConfig();
 	return {

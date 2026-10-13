@@ -228,6 +228,9 @@ describe("create-release-campaign", () => {
 					email: "viewer@example.com",
 					passwordHash: "hash",
 					role: "user",
+					// An account that was here before any campaign below is published: a
+					// release update is for those (announcement-campaigns.audience.test.ts).
+					createdAt: new Date(Date.now() - 30 * 86_400_000),
 				},
 			])
 			.run();
@@ -743,7 +746,7 @@ describe("create-release-campaign", () => {
 			});
 			// Publishing one is not like publishing a release: say who it reaches.
 			expect(result.warnings.join("\n")).toMatch(
-				/every account that has not finished THIS revision/,
+				/only to an account that has never finished or skipped a welcome/,
 			);
 			const slides = db
 				.select()
@@ -1108,7 +1111,7 @@ describe("create-release-campaign", () => {
 			});
 		});
 
-		it("is shown once more to an account that finished the last onboarding, before the release card", async () => {
+		it("is not shown again to an account that finished the last onboarding: the release card is what it gets", async () => {
 			const publish = async (name: string) => {
 				const created = await runCreateReleaseCampaign(
 					options({
@@ -1136,7 +1139,7 @@ describe("create-release-campaign", () => {
 				await getEligibleCampaignForUser("viewer-user", { db }),
 			).toBeNull();
 
-			// 2.2 is published: a release card waits, and a new onboarding revision comes before it.
+			// 2.2 is published: a release card waits for an account that was here.
 			const release = await runCreateReleaseCampaign(
 				options({ name: "AlfyAI 2.2", version: "2.2.0", deck: deckDir }),
 				{ db, storageRoot },
@@ -1146,24 +1149,43 @@ describe("create-release-campaign", () => {
 				(await getEligibleCampaignForUser("viewer-user", { db }))?.type,
 			).toBe("release_update");
 
+			// The next welcome revision is a new snapshot, and still not for this
+			// account: it has been through a welcome, so the release stays next.
 			const next = await publish("AlfyAI 2.2 üdvözlő");
+			expect(next.identityKey).toBe("first_run_onboarding:v1:r2");
 			const shown = await getEligibleCampaignForUser("viewer-user", { db });
-			expect(shown).toMatchObject({
+			expect(shown).toMatchObject({ type: "release_update" });
+			expect(shown?.id).toBe(release.campaignId);
+
+			// An account that has not been through one is shown the new revision.
+			db.insert(schema.users)
+				.values({
+					id: "newcomer-user",
+					email: "newcomer@example.com",
+					passwordHash: "hash",
+					role: "user",
+				})
+				.run();
+			expect(
+				await getEligibleCampaignForUser("newcomer-user", { db }),
+			).toMatchObject({
 				type: "first_run_onboarding",
 				identityKey: "first_run_onboarding:v1:r2",
 			});
-			expect(shown?.id).toBe(next.campaignId);
+			expect(
+				(await getEligibleCampaignForUser("newcomer-user", { db }))?.id,
+			).toBe(next.campaignId);
 
-			// Finishing it hands the next load to the release card.
+			// Finishing the release is the end of it for the viewer.
 			await completeCampaignForUser(
-				next.campaignId as string,
+				release.campaignId as string,
 				"viewer-user",
 				"completed",
 				{ db },
 			);
 			expect(
-				(await getEligibleCampaignForUser("viewer-user", { db }))?.type,
-			).toBe("release_update");
+				await getEligibleCampaignForUser("viewer-user", { db }),
+			).toBeNull();
 		});
 	});
 

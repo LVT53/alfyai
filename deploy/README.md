@@ -349,11 +349,16 @@ Those are the two things the service's publish validation asks of a first-run on
 that lacks them is refused before anything is written. Two things are different about an onboarding
 once it is published, and the script says so when it publishes one:
 
-- Eligibility is per user and per published snapshot. A new onboarding **revision** is a new
-  snapshot, so every account that has not finished it, **existing accounts included**, sees it once
-  on its next load, before any release announcement (`getEligibleCampaignForUser`).
-- The sidebar badge replays the newest published announcement, onboarding or release. Publish the
-  onboarding **before** the release campaign if the badge should open the release.
+- A welcome is for **new accounts**: `getEligibleCampaignForUser` shows the newest published one
+  only to an account that has never finished or skipped any welcome, of any revision. A new
+  revision, or the old one archived, does not reach an account that has been through one, so you
+  can replace the welcome without every account seeing it again. It shows before any release card.
+- A release card is for every account that was here before it was published and has not seen it,
+  whether or not that account finished a welcome. An account made after the release was published is
+  not handed it (the welcome was its introduction).
+- The sidebar badge replays the newest published **release update**, and the onboarding only while
+  no release is published, whichever was published last: the order of the two Publish clicks no
+  longer matters.
 
 An onboarding that is already published is not touched: the new one is the next revision, and the
 newest published one is what a user is shown. Archive the old one in Administration → Campaigns

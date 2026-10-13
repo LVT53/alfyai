@@ -730,16 +730,17 @@ async function findExistingCampaign(
 }
 
 /**
- * What publishing an onboarding does that a release does not. Eligibility is
- * per user and per snapshot (`getEligibleCampaignForUser`), and a new
- * onboarding revision is a new snapshot: nobody has finished it yet, existing
- * accounts included, and it shows before any release announcement.
+ * What publishing an onboarding does that a release does not. A welcome is for
+ * an account that has never been through one (`getEligibleCampaignForUser`): a
+ * new revision, or an old one archived, reaches nobody who finished or skipped
+ * a welcome, and it shows before any release card. A release update is for the
+ * accounts that were here before it was published.
  */
 const ONBOARDING_REACH_NOTE =
-	"A published onboarding is shown once to every account that has not finished THIS revision, " +
-	"existing accounts included, and before any release announcement. Publish it before the release " +
-	"campaign if the sidebar badge should replay the release (the badge opens the newest published " +
-	"announcement).";
+	"A published onboarding is shown only to an account that has never finished or skipped a welcome " +
+	"(a new account), before any release announcement; accounts that have been through one are not " +
+	"shown this revision. The sidebar badge opens the newest release update, and this onboarding only " +
+	"while none is published.";
 
 /**
  * The badge in the sidebar takes the higher of the package version and the
