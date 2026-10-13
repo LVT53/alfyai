@@ -111,7 +111,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		expect(result).toEqual({
@@ -142,7 +141,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "make the background dark",
-			language: "en",
 		});
 
 		expect(generateApp).toHaveBeenCalledWith(
@@ -161,7 +159,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		const newest = versionRows(app.id).find((row) => row.versionNumber === 2);
@@ -199,7 +196,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		expect(result).toEqual({
@@ -218,7 +214,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		const versions = versionRows(app.id).sort(
@@ -241,7 +236,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		await expect(
@@ -264,7 +258,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		const comments = await listComments({ userId: OWNER, artifactId: app.id });
@@ -297,7 +290,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		const comments = await listComments({ userId: OWNER, artifactId: app.id });
@@ -311,7 +303,6 @@ describe("regenerateApp", () => {
 			artifactId: "does-not-exist",
 			conversationId: CONVERSATION,
 			prompt: "x",
-			language: "en",
 		});
 		expect(result).toEqual({ ok: false, reason: "not_found" });
 		expect(generateApp).not.toHaveBeenCalled();
@@ -325,7 +316,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 			expectVersion: 5,
 		});
 
@@ -353,7 +343,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		expect(result).toEqual({
@@ -390,7 +379,6 @@ describe("regenerateApp", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 		});
 
 		const versions = versionRows(app.id).sort(
@@ -417,7 +405,6 @@ describe("regenerateApp — ruling 53: writes nothing after an abort", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 			abortSignal: controller.signal,
 		});
 
@@ -442,7 +429,6 @@ describe("regenerateApp — ruling 53: writes nothing after an abort", () => {
 			artifactId: app.id,
 			conversationId: CONVERSATION,
 			prompt: "add a currency switch",
-			language: "en",
 			abortSignal: controller.signal,
 		});
 

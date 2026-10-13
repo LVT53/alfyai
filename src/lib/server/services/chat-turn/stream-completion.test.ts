@@ -33,6 +33,7 @@ const {
 	mockRecordAssistantTurnAnalytics,
 	mockRecordCompletedTurnContextUsage,
 	mockGenerateFollowUpSuggestions,
+	mockResolveTurnReplyLanguage,
 	mockListMessageWindow,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
@@ -43,6 +44,7 @@ const {
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 	mockRecordCompletedTurnContextUsage: vi.fn(),
 	mockGenerateFollowUpSuggestions: vi.fn(),
+	mockResolveTurnReplyLanguage: vi.fn(),
 	mockListMessageWindow: vi.fn(async () => ({
 		messages: [] as Array<{ role: string; content: string }>,
 		hasMoreBefore: false,
@@ -56,6 +58,14 @@ const {
 vi.mock("./follow-up-suggestions", () => ({
 	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
+}));
+
+// What the reply was written in (reply-language.ts), seamed: the glue tests
+// below assert what completeStreamTurn asks it and what it does with the
+// answer; the reader itself is tested in language.test.ts and
+// reply-language.test.ts.
+vi.mock("./reply-language", () => ({
+	resolveTurnReplyLanguage: mockResolveTurnReplyLanguage,
 }));
 
 // Post-turn prompt usage write (context usage ring). Seamed so the glue
@@ -245,6 +255,10 @@ describe("completeStreamTurn", () => {
 		mockPersistAssistantTurnState.mockResolvedValue(defaultTurnState);
 		mockPersistAssistantEvidence.mockResolvedValue(undefined);
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
+		mockResolveTurnReplyLanguage.mockResolvedValue({
+			language: "en",
+			read: "en",
+		});
 		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 		mockTouchConversation.mockResolvedValue(undefined);
 		mockGetStreamBuffer.mockReturnValue(null);
@@ -2311,6 +2325,7 @@ describe("completeStreamTurn", () => {
 				userMessage: "user message",
 				assistantResponse: "response text",
 				recentHistory: [],
+				responseLanguage: "en",
 			});
 			expect(getLatestEndPayload()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
@@ -2320,14 +2335,47 @@ describe("completeStreamTurn", () => {
 			});
 		});
 
-		it("hands the turn's resolved language to the suggester and to the post-turn tail", async () => {
-			await completeStreamTurn({ ...defaultParams, responseLanguage: "hu" });
+		it("reads the reply once and hands its language to the suggester, the post-turn tail and the stored message", async () => {
+			mockResolveTurnReplyLanguage.mockResolvedValue({
+				language: "hu",
+				read: "hu",
+			});
 
+			await completeStreamTurn({ ...defaultParams, uiLanguage: "en" });
+
+			// Asked once, with the reply as the person got it, the message it
+			// answers and the account's UI language as the last fallback.
+			expect(mockResolveTurnReplyLanguage).toHaveBeenCalledTimes(1);
+			expect(mockResolveTurnReplyLanguage).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				reply: "response text",
+				latestUserMessage: "user message",
+				uiLanguage: "en",
+			});
 			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
 				expect.objectContaining({ responseLanguage: "hu" }),
 			);
 			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+			// What the words said is kept on the message, for the next reply that
+			// says nothing by itself.
+			expect(getPersistedAssistantMetadata()).toMatchObject({
+				replyLanguage: "hu",
+			});
+		});
+
+		it("falls to the account's UI language, and stores nothing, when the reading fails", async () => {
+			mockResolveTurnReplyLanguage.mockRejectedValue(new Error("db down"));
+
+			await completeStreamTurn({ ...defaultParams, uiLanguage: "hu" });
+
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty(
+				"replyLanguage",
 			);
 		});
 

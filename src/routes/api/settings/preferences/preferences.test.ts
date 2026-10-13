@@ -4,6 +4,7 @@ vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
 }));
 
+const invalidateHomeSummary = vi.hoisted(() => vi.fn());
 const updateSet = vi.hoisted(() => vi.fn());
 const updateWhere = vi.hoisted(() => vi.fn(async () => undefined));
 
@@ -15,6 +16,10 @@ vi.mock("$lib/server/db", () => ({
 			}),
 		})),
 	},
+}));
+
+vi.mock("$lib/server/services/home-summary", () => ({
+	invalidateHomeSummary,
 }));
 
 vi.mock("$lib/server/db/schema", () => ({
@@ -82,5 +87,28 @@ describe("settings preferences route", () => {
 				modelPreferenceMode: "explicit",
 			}),
 		);
+	});
+
+	// The home screen's running-job labels are written in the UI language and
+	// cached per user for 30 seconds: switching language drops the cache, so the
+	// old language's labels are not shown for half a minute.
+	it("drops the cached home summary when the UI language changes, and only then", async () => {
+		await PATCH(makeEvent({ theme: "dark" }));
+		expect(invalidateHomeSummary).not.toHaveBeenCalled();
+
+		const response = await PATCH(makeEvent({ uiLanguage: "hu" }));
+
+		expect(response.status).toBe(200);
+		expect(updateSet).toHaveBeenLastCalledWith(
+			expect.objectContaining({ uiLanguage: "hu" }),
+		);
+		expect(invalidateHomeSummary).toHaveBeenCalledWith("user-1");
+	});
+
+	it("keeps the cached home summary when the language sent is refused", async () => {
+		const response = await PATCH(makeEvent({ uiLanguage: "de" }));
+
+		expect(response.status).toBe(400);
+		expect(invalidateHomeSummary).not.toHaveBeenCalled();
 	});
 });

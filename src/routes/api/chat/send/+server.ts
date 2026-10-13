@@ -21,7 +21,7 @@ import {
 	parseChatTurnRequest,
 	preflightAtlasTurnSources,
 	preflightChatTurn,
-	resolveTurnResponseLanguage,
+	resolveTurnReplyLanguage,
 	runPlainNormalChatSendModel,
 } from "$lib/server/services/chat-turn";
 import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
@@ -186,21 +186,16 @@ async function runAtlasSendTurn({
 		);
 	}
 	const config = getConfig();
-	// The same one resolved language every other part of this turn uses
-	// (AGENTS.md: language.ts's shared resolver, no second policy) — not a
-	// raw per-message-only detection, which ignored the account's uiLanguage
-	// and so always answered these two admin errors in English whenever the
-	// opening message itself was too short/ambiguous to read on its own.
-	const responseLanguage = await resolveTurnResponseLanguage({
-		message: turn.normalizedMessage,
-		conversationId: turn.conversationId,
-		user: buildModelUser(user),
-	});
+	// The kickoff message and these errors are the app's own words, not a reply
+	// the model wrote: they follow the account's UI language, like every other
+	// piece of chrome. (The report's own language is read from the question by
+	// the Atlas pipeline at job start, not decided here.)
+	const chromeLanguage: SupportedLanguage = user.uiLanguage ?? "en";
 	if (config.atlasWorkerEnabled === false) {
 		return json(
 			{
 				error:
-					responseLanguage === "hu"
+					chromeLanguage === "hu"
 						? "Az Atlas jelenleg ki van kapcsolva."
 						: "Atlas is currently disabled.",
 				code: "ATLAS_DISABLED",
@@ -212,7 +207,7 @@ async function runAtlasSendTurn({
 		return json(
 			{
 				error:
-					responseLanguage === "hu"
+					chromeLanguage === "hu"
 						? "Az Atlas használatához be kell állítani a Parallel keresést."
 						: "Atlas requires Parallel search to be configured.",
 				code: "ATLAS_PARALLEL_REQUIRED",
@@ -289,7 +284,7 @@ async function runAtlasSendTurn({
 		});
 		const assistantResponse = buildAtlasKickoffAssistantMessage({
 			profile: intake.job.profile,
-			language: responseLanguage,
+			language: chromeLanguage,
 		});
 		if (intake.reused && intake.job.assistantMessageId) {
 			await touchConversation(user.id, turn.conversationId).catch(
@@ -326,7 +321,7 @@ async function runAtlasSendTurn({
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
-			responseLanguage,
+			responseLanguage: chromeLanguage,
 			userId: user.id,
 			conversationId: turn.conversationId,
 			userMessageContent: turn.normalizedMessage,
@@ -422,7 +417,7 @@ async function runAtlasSendTurn({
 		return json(
 			{
 				error:
-					responseLanguage === "hu"
+					chromeLanguage === "hu"
 						? "Nem sikerült elindítani az Atlast. Próbáld újra."
 						: "Failed to start Atlas. Please try again.",
 				code: "ATLAS_KICKOFF_FAILED",
@@ -520,18 +515,6 @@ async function runStandardSendTurn({
 	const personalityPrompt = await resolvePersonalityPrompt(
 		turn.personalityProfileId,
 	);
-	// Resolved ONCE here (not inside runPlainNormalChatSendModel) so it can
-	// use the conversation's real prior-message history and this account's
-	// UI-language preference — both unavailable this deep inside chat-turn/
-	// without a second DB round trip. The result rides `resolvedResponseLanguage`
-	// through to prepareOutboundContext and createToolPack, so the reply's
-	// language guard and the tool catalogue's locale can never disagree.
-	const resolvedResponseLanguage = await resolveTurnResponseLanguage({
-		message: upstreamMessage,
-		conversationId: turn.conversationId,
-		user: buildModelUser(user),
-	});
-
 	const modelRunResult = await runPlainNormalChatSendModel({
 		userId: user.id,
 		runtimeConfig,
@@ -539,7 +522,6 @@ async function runStandardSendTurn({
 		conversationId: turn.conversationId,
 		modelId: turn.modelId,
 		user: buildModelUser(user),
-		resolvedResponseLanguage,
 		attachmentIds: turn.attachmentIds,
 		activeDocumentArtifactId: turn.activeDocumentArtifactId,
 		attachmentTraceId: turn.attachmentTraceId,
@@ -582,9 +564,20 @@ async function runStandardSendTurn({
 		forceWebSearch: turn.forceWebSearch,
 	});
 
+	// What the reply was written in, read once (chat-turn/reply-language.ts): the
+	// rail headline and the `replyLanguage` stored on the message follow the reply
+	// the person got, not a guess made before it.
+	const replyLanguage = await resolveTurnReplyLanguage({
+		userId: user.id,
+		conversationId: turn.conversationId,
+		reply: finalResponseText,
+		latestUserMessage: turn.normalizedMessage,
+		uiLanguage: user.uiLanguage,
+	}).catch(() => null);
+
 	const completion = await finalizeChatTurn({
 		turnKind: "send",
-		responseLanguage: resolvedResponseLanguage,
+		responseLanguage: replyLanguage?.language ?? user.uiLanguage ?? "en",
 		userId: user.id,
 		conversationId: turn.conversationId,
 		userMessageContent: turn.normalizedMessage,
@@ -594,6 +587,7 @@ async function runStandardSendTurn({
 		assistantResponse: finalResponseText,
 		assistantMetadata: {
 			evidenceStatus: "pending",
+			...(replyLanguage ? { replyLanguage: replyLanguage.read } : {}),
 			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
 			...(modelRunArtifacts.citationGate.repair
 				? { citationAudit: modelRunArtifacts.citationGate.repair }
@@ -727,13 +721,11 @@ function buildModelUser(user: {
 	id: string;
 	displayName: string | null;
 	email: string | null;
-	uiLanguage?: SupportedLanguage;
 }) {
 	return {
 		id: user.id,
 		displayName: user.displayName,
 		email: user.email,
-		uiLanguage: user.uiLanguage,
 	};
 }
 

@@ -27,7 +27,6 @@ export { logRefusedAddresses } from "./log";
 export {
 	allAddressesRefusedMessage,
 	imagesLeftOutWarning,
-	type ProvenanceLanguage,
 	someAddressesRefusedNote,
 } from "./refusal-text";
 export {

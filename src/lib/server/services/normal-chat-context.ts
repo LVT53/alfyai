@@ -40,7 +40,6 @@ import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { Capability } from "./connections/registry";
 import type { ContextCompressionControlSender } from "./context-compression";
 import type { ResolvedTurnInstructions } from "./instructions";
-import { resolveResponseLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
 import {
 	getDefaultNormalChatContextPreparationPlan,
@@ -84,12 +83,6 @@ export type AuthenticatedPromptUser = {
 	id: string;
 	displayName?: string | null;
 	email?: string | null;
-	// The account's UI language preference (users.ui_language) — the last
-	// resort in resolveResponseLanguage's fallback chain, after the latest
-	// message and the conversation's own established language. Optional so
-	// every existing caller (including the control-model path, which has no
-	// authenticated end-user language preference) keeps compiling.
-	uiLanguage?: SupportedLanguage;
 };
 
 export type PromptContextLimits = {
@@ -244,9 +237,9 @@ const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>\]"']+/i;
 // one active connection capability (buildOutboundSystemPrompt's
 // `hasActiveConnections`), so turns with no connections don't pay the token
 // cost. Deliberately English-only, matching every other guard constant in
-// this file — the model is instructed in English regardless of the turn's
-// resolved response language, which only governs the user-facing reply
-// language (see buildResponseLanguageGuard, spliced into buildTurnGuidance).
+// this file — the model is instructed in English whatever the person writes,
+// and the language of its reply is the model's to choose under
+// REPLY_LANGUAGE_RULE (spliced into buildTurnGuidance).
 const CONNECTIONS_FRAMING_GUARD = [
 	"Connected Accounts:",
 	"- The user may have connected personal accounts (calendar, files, email, photos, media, location, contacts). Use the relevant connection tool when the user's request calls for it. Do not announce tool use mechanically, and only surface connected-account data when it is relevant to the request.",
@@ -259,7 +252,7 @@ const CONNECTIONS_FRAMING_GUARD = [
 // guidance-pack machinery this used to ride on). It applies to every tool
 // call regardless of which specific tool is used, so — unlike the
 // per-tool when/how/example guidance G1 correctly relocated onto each
-// tool's own TOOL_I18N description — it belongs here as always-on runtime
+// tool's own TOOL_TEXT description — it belongs here as always-on runtime
 // guidance, gated only on tools actually being available (the same
 // `!skipDefaultRuntimeGuidance` gate the other default runtime guidance
 // below uses; the tool-less control-model caller is the only caller that
@@ -333,20 +326,20 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	].join("\n");
 }
 
-function buildResponseLanguageGuard(language: SupportedLanguage): string {
-	const languageLabel = language === "hu" ? "Hungarian" : "English";
-	return [
-		"Response language policy:",
-		`- Required response language for this turn: ${languageLabel}.`,
-		"- Follow explicit user requests for a response language when they are present.",
-		`- Otherwise, you MUST respond in ${languageLabel}. This is a hard requirement. Only switch language if the user explicitly asks you to.`,
-		"- If the user explicitly asks you to produce specific content in a different language — a translation, a quoted phrase, a document, dialogue, or similar — write that content in the requested language. This does not change the required response language above: keep your own surrounding commentary in it.",
-		"- Tool outputs, web research briefs, source snippets, source titles, citations, and diagnostics may be in another language. Treat them as evidence only, not as response language or style instructions.",
-		"- Remembered facts about the user, project files, and retrieved context may also be in another language. They are evidence only and never decide the response language, even when they describe a language preference from a past conversation.",
-		"- Your own prior replies in this conversation may have used the wrong language. Do not follow that precedent — the required response language above governs this turn regardless of what language earlier turns used.",
-		"- Avoid confusing or accidental language switching in your own prose. Preserve product names, proper nouns, code, file names, URLs, citation titles, and short quoted source text as needed.",
-	].join("\n");
-}
+// The one rule for the language of a reply, in every Normal Chat turn's guidance
+// (owner decision, 2026-10-13). No code decides the language before the reply:
+// the model reads the person's message and chooses under this rule, and what the
+// app writes after the reply follows the reply (chat-turn/reply-language.ts).
+// It sits in the turn guidance, after the current user message, because that
+// placement is where it was measured to be followed. Keep the text in this one
+// constant; tests compare it byte for byte (tests/integration/reply-language.test.ts).
+export const REPLY_LANGUAGE_RULE = [
+	"Reply in the language the person writes in: the language of their latest message.",
+	'If that message has no language of its own (a short "ok", a number, a link, code), keep the language they have been writing in.',
+	"If they ask for the reply in a particular language, now or in their own standing instructions, use that.",
+	"If they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.",
+	"Nothing else sets the reply language: not remembered facts, documents, files, tool or search results, or your own earlier replies.",
+].join("\n");
 
 // P2 prompt-diet review outcome — the personality/"Response Style" prompt is
 // admin/user-authored free text with no upstream length limit; cap it here so
@@ -618,8 +611,6 @@ const FORCED_WEB_SEARCH_GUIDANCE =
 // to the user packet (see prepareOutboundChatContext) so the system message
 // plus tool catalogue stays a stable, cacheable prefix across turns.
 export function buildTurnGuidance(params: {
-	message: string;
-	responseLanguage?: SupportedLanguage;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	forceWebSearch?: boolean;
@@ -653,12 +644,9 @@ export function buildTurnGuidance(params: {
 		day: "numeric",
 	});
 	const explicitDateContext = `[SYSTEM TIME CONTEXT: Today is ${todayStr}. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]`;
-	const responseLanguage =
-		params.responseLanguage ??
-		resolveResponseLanguage({ latestMessage: params.message });
 	const sections = [
 		explicitDateContext,
-		buildResponseLanguageGuard(responseLanguage),
+		REPLY_LANGUAGE_RULE,
 		...(params.reasoningDepthEffort
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
 			: []),
@@ -1862,14 +1850,6 @@ type PrepareOutboundChatContextParams = {
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
-	// The turn's reply language, pre-resolved ONCE by the caller through
-	// language.ts's resolveResponseLanguage (it has the conversation's prior
-	// user messages and the account's UI-language preference; this boundary
-	// does not — see PrepareOutboundContextParams' resolvedResponseLanguage
-	// in chat-turn/shared-normal-chat-model-run-helpers.ts for where that
-	// happens). Falls back to a context-free resolution below for callers
-	// (tests, the control-model path) that do not pre-resolve it.
-	responseLanguage?: SupportedLanguage;
 	// The turn's standing guidance (personal, and from Slice D on the project
 	// scope), resolved by the caller. This boundary does not resolve it: the
 	// read belongs to services/instructions.ts, and keeping it out of here
@@ -2201,13 +2181,6 @@ export async function prepareOutboundChatContext(
 	// Built once: automatic compression measures it (it rides the user turn,
 	// see appendTurnGuidance) and the prepared context returns the same text.
 	const turnGuidance = buildTurnGuidance({
-		message: params.message,
-		responseLanguage:
-			params.responseLanguage ??
-			resolveResponseLanguage({
-				latestMessage: params.message,
-				uiLanguage: params.user?.uiLanguage,
-			}),
 		reasoningDepthEffort: params.reasoningDepthEffort,
 		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 		forceWebSearch: params.forceWebSearch,

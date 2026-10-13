@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EVAL_CASES } from "./cases";
 import { runToolSuite, TOOL_SUITES } from "./run-tool-suite";
-import { scoreCanvasEval } from "./suites/canvas";
+import { canvasUserTurn, scoreCanvasEval } from "./suites/canvas";
 import { encodeToolPathResponse, type ToolPathRequestSpec } from "./tool-path";
 
 const REAL_FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -138,7 +138,7 @@ describe("run-tool-suite: a live run through the tools", () => {
 		]);
 	});
 
-	it("asks the model for a real case exactly as the suite says: tools, auto choice, the case's language and message", async () => {
+	it("asks the model for a real case exactly as the suite says: tools, auto choice, the case's message and the turn guidance", async () => {
 		const seen: ToolPathRequestSpec[] = [];
 		const send = vi.fn(
 			async (_endpoint: unknown, spec: ToolPathRequestSpec) => {
@@ -157,14 +157,15 @@ describe("run-tool-suite: a live run through the tools", () => {
 		);
 		expect(seen).toHaveLength(1);
 		expect(seen[0]).toMatchObject({
-			language: "hu",
 			toolChoice: "auto",
 			thinking: "off",
 		});
 		const hungarian = EVAL_CASES.canvas.find(
 			(c) => c.id === "canvas-create-vienna-hu",
 		);
-		expect(seen[0].user).toBe(hungarian?.prompt);
+		// The message as the person wrote it (Hungarian), then the app's turn
+		// guidance: the one rule that names no language.
+		expect(seen[0].user).toBe(canvasUserTurn(hungarian?.prompt ?? ""));
 	});
 
 	it("can run the same cases with thinking on, without touching the suite", async () => {

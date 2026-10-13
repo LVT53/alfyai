@@ -23,6 +23,7 @@ import { refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db/index";
 import { conversations, messages, users } from "$lib/server/db/schema";
 import { persistAssistantRailSummary } from "$lib/server/services/chat-turn/rail-summary";
+import { afterReplyLanguage } from "$lib/server/services/language";
 
 function hasRailSummary(metadataJson: string | null): boolean {
 	if (!metadataJson) return false;
@@ -103,8 +104,12 @@ async function main() {
 					userId: convo.userId,
 					conversationId: convo.id,
 					assistantMessageId: m.id,
-					userMessage: lastUserMessage,
 					assistantResponse: m.content,
+					// The headline follows the reply that was written, as it does live.
+					responseLanguage: afterReplyLanguage({
+						reply: m.content,
+						latestUserMessage: lastUserMessage,
+					}).language,
 				});
 				// Re-read to tell "generated" from "skipped-because-short/failed-degrade".
 				const after = (

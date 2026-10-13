@@ -180,6 +180,17 @@ export const ATLAS_V3_NATIVE_SOURCES: readonly AtlasV3NativeSourceSet[] = [
 	},
 ];
 
+/**
+ * A cue is a word of the query, not a run of letters inside one: "huf" is in
+ * "shuffle" and "Hufflepuff", and an English query that said so was sent to the
+ * Magyar Közlöny. The start must be a word start; a short cue must also end a
+ * word, a long one may carry a suffix ("magyarországon").
+ */
+function queryNamesPlace(haystack: string, cue: string): boolean {
+	const end = cue.length <= 4 ? "(?![\\p{L}\\p{N}])" : "";
+	return new RegExp(`(?<![\\p{L}\\p{N}])${cue}${end}`, "u").test(haystack);
+}
+
 /** The jurisdictions a request mentions, best guess, deterministic. */
 export function atlasV3NativeSourcesForRequest(input: {
 	query: string;
@@ -187,7 +198,7 @@ export function atlasV3NativeSourcesForRequest(input: {
 }): AtlasV3NativeSourceSet[] {
 	const haystack = input.query.toLowerCase();
 	const matched = ATLAS_V3_NATIVE_SOURCES.filter((entry) =>
-		entry.cues.some((cue) => haystack.includes(cue)),
+		entry.cues.some((cue) => queryNamesPlace(haystack, cue)),
 	);
 	// A Hungarian-language request is about Hungary unless it says otherwise:
 	// the v2 minimum-wage report was written in Hungarian and cited four

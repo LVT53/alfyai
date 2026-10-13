@@ -96,7 +96,7 @@ describe("prompts", () => {
 	});
 
 	// P2 prompt diet — the tool table and its per-tool mechanics (parameter
-	// examples, JSON shapes) moved entirely to each tool's own TOOL_I18N
+	// examples, JSON shapes) moved entirely to each tool's own TOOL_TEXT
 	// description (see normal-chat-tools/index.test.ts); the base prompt now
 	// only names the tools it has cross-tool policy for, in the `## Tools`
 	// paragraph.

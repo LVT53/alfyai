@@ -47,7 +47,7 @@ describe("POST /api/conversations/[id]/artifacts/[artifactId]/regenerate", () =>
 		expect(mockRecreate).not.toHaveBeenCalled();
 	});
 
-	it("makes the item again for the caller in this conversation, in the language it was asked in", async () => {
+	it("makes the item again for the caller in this conversation, whatever a body says about language", async () => {
 		mockRecreate.mockResolvedValue({
 			ok: true,
 			created: true,
@@ -56,6 +56,8 @@ describe("POST /api/conversations/[id]/artifacts/[artifactId]/regenerate", () =>
 			title: "Weekend",
 		});
 
+		// A client that still sends a language: it is not read (the App is made
+		// in the language of the brief the model kept, not the interface's).
 		const response = await POST(makeEvent({ body: { language: "hu" } }));
 
 		expect(response.status).toBe(200);
@@ -70,35 +72,8 @@ describe("POST /api/conversations/[id]/artifacts/[artifactId]/regenerate", () =>
 			userId: "owner",
 			conversationId: "conv-1",
 			artifactId: "doc-1",
-			language: "hu",
 			abortSignal: expect.any(AbortSignal),
 		});
-	});
-
-	it("falls back to English for a missing, unknown or unreadable language", async () => {
-		mockRecreate.mockResolvedValue({
-			ok: true,
-			created: true,
-			artifactId: "doc-1",
-			kind: "document",
-			title: "Weekend",
-		});
-
-		for (const event of [
-			makeEvent({}),
-			makeEvent({ body: { language: "de" } }),
-			makeEvent({ body: { language: 3 } }),
-			makeEvent({ rawBody: "{not json" }),
-		]) {
-			await POST(event);
-		}
-
-		expect(mockRecreate.mock.calls.map((call) => call[0].language)).toEqual([
-			"en",
-			"en",
-			"en",
-			"en",
-		]);
 	});
 
 	it("hands the service a signal that fires when the request is abandoned", async () => {

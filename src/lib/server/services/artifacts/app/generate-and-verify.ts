@@ -46,7 +46,8 @@ export interface GenerateAndVerifyAppParams {
 	conversationId: string | null;
 	/** The brief: what to build. Generation's whole prompt (spec §2.11 — no chat history, nothing else from the session). */
 	prompt: string;
-	language: "en" | "hu";
+	/** The person's own message, when it is not the prompt (see `AppGenerationRequest.requestText`). */
+	requestText?: string;
 	/** When the caller already knows it (a regeneration keeps the old title unless the app's own `<title>`/`<h1>` changes it). */
 	title?: string | null;
 	/** A change to an App that exists: the app as it is now, with `prompt` as the change (see `AppGenerationRequest.currentHtml`). */
@@ -69,7 +70,7 @@ export async function generateAndVerifyApp(
 		userId: params.userId,
 		conversationId: params.conversationId,
 		prompt: params.prompt,
-		language: params.language,
+		requestText: params.requestText,
 		title: params.title,
 		currentHtml: params.currentHtml,
 		modelId: params.modelId,
@@ -84,7 +85,6 @@ export async function generateAndVerifyApp(
 		conversationId: params.conversationId,
 		html: generation.html,
 		prompt: params.prompt,
-		language: params.language,
 		abortSignal: params.abortSignal,
 	});
 

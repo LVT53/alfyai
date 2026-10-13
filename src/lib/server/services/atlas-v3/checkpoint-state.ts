@@ -43,6 +43,8 @@ export interface AtlasV3SeedCheckpoint {
 
 export interface AtlasV3ResumeState {
 	ask?: AtlasV3Ask;
+	/** The language the job started in (the ask checkpoint); absent on an older one. */
+	language?: "en" | "hu";
 	bank?: AtlasV3EvidenceBank;
 	memo?: AtlasV3Memo;
 	completedRounds?: number;
@@ -94,6 +96,9 @@ export function readAtlasV3ResumeState(
 		switch (entry.checkpoint.phase) {
 			case "ask":
 				if (isRecord(data.ask)) state.ask = data.ask as unknown as AtlasV3Ask;
+				if (data.language === "en" || data.language === "hu") {
+					state.language = data.language;
+				}
 				break;
 			case "research":
 				if (isRecord(data.bank)) {

@@ -27,6 +27,7 @@ import { createAtlasV3LocalSources } from "./local-sources";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
 import { stripAtlasV3FenceEchoes } from "./prompt-fence";
+import { resolveAtlasQuestionLanguage } from "./question-language";
 import { createAtlasV3ResearchWeb } from "./research-web-adapter";
 import { type AtlasV3SeedReads, loadAtlasV3ParentSeed } from "./seed";
 import type { AtlasV3PipelineResult } from "./types";
@@ -205,6 +206,12 @@ export async function runAtlasV3PipelineForClaimedJob(
 				},
 			}),
 			models: calls,
+			questionLanguage: (job) =>
+				resolveAtlasQuestionLanguage({
+					userId: job.userId,
+					conversationId: job.conversationId,
+					query: job.query,
+				}),
 			runPython: runAtlasV3Calculation,
 			heartbeat: input.heartbeat,
 			applyGeneratedTitle: input.applyGeneratedTitle,

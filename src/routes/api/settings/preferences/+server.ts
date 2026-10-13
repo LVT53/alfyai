@@ -8,6 +8,7 @@ import {
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import {
 	modelPreferenceStorageForExplicitChoice,
 	modelPreferenceStorageForSystemDefault,
@@ -124,6 +125,11 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 
 	await db.update(users).set(updates).where(eq(users.id, userId));
+
+	// The home screen's figures and running-job labels are written in the UI
+	// language and cached per user for 30 seconds: a person who switches
+	// language should not see the old one's phase labels for half a minute.
+	if (updates.uiLanguage !== undefined) invalidateHomeSummary(userId);
 
 	return json({ success: true });
 };

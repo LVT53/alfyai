@@ -23,7 +23,6 @@ function baseInput(
 		conversationId: "conv-1",
 		title: "Trip cost splitter",
 		prompt: "Split costs between three friends on a trip.",
-		language: "en" as const,
 		...overrides,
 	};
 }
@@ -113,44 +112,41 @@ describe("createAppFromBrief — the happy path", () => {
 		);
 	});
 
-	it("uses the turn's own resolved language, never re-detecting it from the brief (ruling 55)", async () => {
+	it("hands the person's own message to the generator, and guesses no language from the brief (ruling 55)", async () => {
 		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
 		createArtifact.mockResolvedValue({
 			ok: true,
 			artifact: { id: "artifact-1", title: "x" },
 		});
 
-		// "Anna" and "Peti" are exactly the kind of Hungarian-looking letter
-		// pairs/names that the old per-message `detectLanguage(prompt)` guess
-		// misread as Hungarian (ruling 55's whole reason for removing it): a
-		// turn resolved as English must still generate an English app.
+		// The brief is the model's text and can be in any language ("Anna" and
+		// "Peti" read as Hungarian to a word-list detector): the App is written in
+		// the language of the person's words, which the generator reads itself.
 		await createAppFromBrief(
 			baseInput({
 				prompt:
 					"Split the trip costs between Anna and Peti, who paid for what.",
-				language: "en",
+				requestText: "Készíts egy költségosztó alkalmazást az útra.",
 			}),
 		);
 
-		expect(generateAndVerifyApp).toHaveBeenCalledWith(
-			expect.objectContaining({ language: "en" }),
+		const params = generateAndVerifyApp.mock.calls[0][0];
+		expect(params.requestText).toBe(
+			"Készíts egy költségosztó alkalmazást az útra.",
 		);
+		expect(params).not.toHaveProperty("language");
 	});
 
-	it("passes a Hungarian-resolved turn through as Hungarian", async () => {
+	it("hands nothing extra when the turn has no request text", async () => {
 		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
 		createArtifact.mockResolvedValue({
 			ok: true,
 			artifact: { id: "artifact-1", title: "x" },
 		});
 
-		await createAppFromBrief(
-			baseInput({ prompt: "Készíts egy kvízt", language: "hu" }),
-		);
+		await createAppFromBrief(baseInput({ prompt: "A quiz about rivers." }));
 
-		expect(generateAndVerifyApp).toHaveBeenCalledWith(
-			expect.objectContaining({ language: "hu" }),
-		);
+		expect(generateAndVerifyApp.mock.calls[0][0].requestText).toBeUndefined();
 	});
 
 	it("persists the glitch rule ids and verification summary as metadata", async () => {

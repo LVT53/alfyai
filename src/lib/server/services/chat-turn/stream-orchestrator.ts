@@ -261,16 +261,6 @@ export interface StreamOrchestratorOptions {
 	turn: ChatTurnPreflight;
 	prepareTurn?: undefined;
 	upstreamMessage: string;
-	// The turn's reply language, resolved ONCE by the caller (the stream/retry
-	// route) via resolveTurnResponseLanguage — before this function builds the
-	// thought-step classifier session, which needs it ahead of the model run
-	// itself and therefore ahead of any point deeper in this pipeline where it
-	// could otherwise be resolved. Threaded into modelRunParams below so
-	// prepareOutboundContext/createToolPack don't redundantly re-resolve it.
-	// Optional so a caller that skips it (a test constructing options by
-	// hand) still compiles; the reasoning-phase classifier then falls back to
-	// "en", matching createThoughtStepClassifierSession's own default.
-	resolvedResponseLanguage?: SupportedLanguage;
 	downstreamAbortSignal: AbortSignal;
 	requestStartTime: number;
 	startedResetGeneration?: StreamCompletionFact<number>;
@@ -313,7 +303,6 @@ export function runChatStreamOrchestrator(
 		user,
 		turn,
 		upstreamMessage,
-		resolvedResponseLanguage,
 		downstreamAbortSignal,
 		requestStartTime,
 		startedResetGeneration,
@@ -521,20 +510,13 @@ export function runChatStreamOrchestrator(
 				userId: user.id,
 				conversationId,
 				signal: downstreamSignal,
-				// Amendment (2026-08-16) to ADR-0056 — the summary must render in
-				// the conversation's response language, not whatever language the
-				// model happens to reason in (DeepSeek always reasons in English).
-				// `resolvedResponseLanguage` is the SAME value the route resolved
-				// once via resolveTurnResponseLanguage and that
-				// buildResponseLanguageGuard (normal-chat-context.ts) uses to tell
-				// the model itself what language to answer in — read here rather
-				// than re-detecting from `normalizedMessage` a second time, which
-				// used to mean this and the actual reply language could disagree
-				// whenever the per-message detector was ambiguous (a fresh
-				// detectLanguage() call has no way to fall back to the
-				// conversation's established language or the account's UI
-				// language the way the shared resolver does).
-				targetLanguage: resolvedResponseLanguage ?? "en",
+				// The status line is written while Alfy thinks, before any reply text
+				// exists, so no reply language can be known yet: it follows the
+				// account's UI language (owner decision, 2026-10-13). This is the one
+				// model call the UI language reaches; the reply itself is the model's
+				// to word under REPLY_LANGUAGE_RULE, and what is written after it
+				// follows the reply (reply-language.ts).
+				targetLanguage: user.uiLanguage ?? "en",
 				onStep: (step) => {
 					emitResponseActivity({
 						id: `thought-step:${step.id}`,
@@ -846,10 +828,7 @@ export function runChatStreamOrchestrator(
 				streamClosedWithoutFinish: boolean;
 			}) => {
 				await completeStreamTurn({
-					// The turn's own reply language (resolved once by the route): the
-					// follow-up chips and the rail headline follow it, not a fresh
-					// read of the latest message.
-					responseLanguage: resolvedResponseLanguage,
+					uiLanguage: user.uiLanguage,
 					wasStopped: args.wasStopped,
 					conversationId,
 					streamId: streamId ?? null,
@@ -1200,9 +1179,7 @@ export function runChatStreamOrchestrator(
 						id: user.id,
 						displayName: user.displayName,
 						email: user.email,
-						uiLanguage: user.uiLanguage,
 					},
-					resolvedResponseLanguage,
 					attachmentIds: safeAttachmentIds,
 					activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
 					attachmentTraceId: attachmentTraceId ?? undefined,

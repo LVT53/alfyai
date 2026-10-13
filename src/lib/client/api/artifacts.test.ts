@@ -1432,7 +1432,7 @@ describe("version announcements", () => {
 
 // Polish G2-A: "Regenerate" on a chat card whose Document or App was deleted.
 describe("regenerateDeletedArtifact", () => {
-	it("asks the conversation to make the item again, in the reader's language, and returns what came back", async () => {
+	it("asks the conversation to make the item again, sending no language, and returns what came back", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({
 				ok: true,
@@ -1444,7 +1444,7 @@ describe("regenerateDeletedArtifact", () => {
 		);
 
 		await expect(
-			regenerateDeletedArtifact("conv-1", "doc-1", "hu", fetchMock),
+			regenerateDeletedArtifact("conv-1", "doc-1", fetchMock),
 		).resolves.toEqual({
 			ok: true,
 			created: true,
@@ -1457,7 +1457,6 @@ describe("regenerateDeletedArtifact", () => {
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ language: "hu" }),
 			},
 		);
 	});
@@ -1473,27 +1472,27 @@ describe("regenerateDeletedArtifact", () => {
 				jsonResponse({ ok: false, reason }, status),
 			);
 			await expect(
-				regenerateDeletedArtifact("conv-1", "doc-1", "en", fetchMock),
+				regenerateDeletedArtifact("conv-1", "doc-1", fetchMock),
 			).resolves.toEqual({ ok: false, reason });
 		}
 		const failed = vi.fn(async () =>
 			jsonResponse({ ok: false, reason: "failed", detail: "Nope." }, 422),
 		);
 		await expect(
-			regenerateDeletedArtifact("conv-1", "doc-1", "en", failed),
+			regenerateDeletedArtifact("conv-1", "doc-1", failed),
 		).resolves.toEqual({ ok: false, reason: "failed", detail: "Nope." });
 	});
 
 	it("reads an unreadable answer, or a dead connection, as a plain failure", async () => {
 		const html = vi.fn(async () => new Response("<html>", { status: 502 }));
 		await expect(
-			regenerateDeletedArtifact("conv-1", "doc-1", "en", html),
+			regenerateDeletedArtifact("conv-1", "doc-1", html),
 		).resolves.toEqual({ ok: false, reason: "failed" });
 		const offline = vi.fn(async () => {
 			throw new TypeError("network");
 		});
 		await expect(
-			regenerateDeletedArtifact("conv-1", "doc-1", "en", offline),
+			regenerateDeletedArtifact("conv-1", "doc-1", offline),
 		).resolves.toEqual({ ok: false, reason: "failed" });
 	});
 });

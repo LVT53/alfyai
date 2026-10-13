@@ -123,6 +123,36 @@ describe("getNormalChatStabilitySnapshot", () => {
 		expect(JSON.stringify(snapshot)).not.toContain("brave-key");
 	});
 
+	it("reports what replies were read as, content-free, without degrading the system", async () => {
+		const snapshot = await getNormalChatStabilitySnapshot({
+			getConfig: () => config(),
+			getStreamStats: () => streamStats(),
+			listProviders: async () => [provider()],
+			listEnabledProviderModels: async () => [
+				{ id: "model-1", providerId: "provider-1" } as ProviderModel,
+			],
+			getAllMetrics: () => [],
+			getReplyLanguageStats: () => ({
+				turnsRead: 40,
+				unreadCount: 6,
+				englishAccountHungarianReplyCount: 2,
+				lastEnglishAccountHungarianReplyAt: Date.parse(
+					"2026-06-04T09:30:00.000Z",
+				),
+			}),
+		});
+
+		// A Hungarian reply to an account shown in English is something to see,
+		// not a fault of the system: the status stays what its components say.
+		expect(snapshot.status).toBe("ok");
+		expect(snapshot.replyLanguage).toEqual({
+			turnsRead: 40,
+			unreadCount: 6,
+			englishAccountHungarianReplyCount: 2,
+			lastEnglishAccountHungarianReplyAt: "2026-06-04T09:30:00.000Z",
+		});
+	});
+
 	it("marks saturated streams, missing search, invalid context, and failed maintenance as degraded", async () => {
 		const metrics: MaintenanceMetrics[] = [
 			{

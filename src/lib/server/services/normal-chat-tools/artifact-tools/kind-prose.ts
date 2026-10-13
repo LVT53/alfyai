@@ -54,8 +54,7 @@ const chartHeightOf = (type: string): number =>
 const CHART_HEIGHT = chartHeightOf("bar");
 const ROUND_CHART_HEIGHT = chartHeightOf("pie");
 const DIAGRAM_WIDTH = defaultNodeWidth("mermaid");
-const SIZE_FACTS_EN = `a block you add is ${NODE_WIDTH} wide (a checklist ${CHECKLIST_WIDTH}, a chart ${CHART_WIDTH}, a diagram ${DIAGRAM_WIDTH}, a frame the size you give it); a note is ${NOTE_MIN_HEIGHT} tall for up to two lines (about ${charsPerLine()} characters a line), plus ${NOTE_LINE_HEIGHT} for each further line; a checklist is ${CHECKLIST_BASE_HEIGHT} plus ${CHECKLIST_ROW_HEIGHT} an item; a chart is ${CHART_HEIGHT} tall (${ROUND_CHART_HEIGHT} for a pie, doughnut, radar or polar chart)`;
-const SIZE_FACTS_HU = `Egy blokk ${NODE_WIDTH} széles (a feladatlista ${CHECKLIST_WIDTH}, a diagram ${CHART_WIDTH}, az ábra ${DIAGRAM_WIDTH}, a keret: amit megadsz), egy jegyzet két sorig ${NOTE_MIN_HEIGHT} magas (soronként kb. ${charsPerLine()} karakter), minden további sor +${NOTE_LINE_HEIGHT}, egy feladatlista ${CHECKLIST_BASE_HEIGHT} + ${CHECKLIST_ROW_HEIGHT} elemenként, egy diagram ${CHART_HEIGHT} magas (kör-, fánk-, radar- vagy polárdiagramnál ${ROUND_CHART_HEIGHT})`;
+const SIZE_FACTS = `a block you add is ${NODE_WIDTH} wide (a checklist ${CHECKLIST_WIDTH}, a chart ${CHART_WIDTH}, a diagram ${DIAGRAM_WIDTH}, a frame the size you give it); a note is ${NOTE_MIN_HEIGHT} tall for up to two lines (about ${charsPerLine()} characters a line), plus ${NOTE_LINE_HEIGHT} for each further line; a checklist is ${CHECKLIST_BASE_HEIGHT} plus ${CHECKLIST_ROW_HEIGHT} an item; a chart is ${CHART_HEIGHT} tall (${ROUND_CHART_HEIGHT} for a pie, doughnut, radar or polar chart)`;
 
 /** No-Oxford-comma list join matching this tool family's existing prose
  *  style: "a" / "a or b" / "a, b or c". */
@@ -68,10 +67,6 @@ function joinList(items: readonly string[], connector: string): string {
 
 export function joinOr(items: readonly string[]): string {
 	return joinList(items, "or");
-}
-
-function joinVagy(items: readonly string[]): string {
-	return joinList(items, "vagy");
 }
 
 /**
@@ -109,93 +104,57 @@ export const CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE = {
 } as const;
 
 interface KindCopy {
-	labelEn: string;
-	labelHu: string;
-	/** edit_artifact's opening clause needs Hungarian's accusative case
-	 *  ("Dokumentumot", not "Dokumentum") — nowhere else does. */
-	labelHuAccusative: string;
+	label: string;
 	/** create_artifact's "Choose artifactType by what you are keeping" clause. */
-	createChoiceEn: string;
-	createChoiceHu: string;
+	createChoice: string;
 	/** create_artifact's opening "Use it for..." example phrase. Slides has
-	 *  none in either language — the original prose never named one there,
-	 *  and dropping a kind must not invent wording it never had. */
-	useCaseEn?: string;
-	useCaseHu?: string;
-	/** create_artifact's `body` field description (EN only: every field-level
-	 *  `.describe()` in this tool family is EN-only; only the top-level
-	 *  TOOL_I18N description/errorPrefix are bilingual). */
-	bodyFormatEn: string;
+	 *  none — the original prose never named one there, and dropping a kind
+	 *  must not invent wording it never had. */
+	useCase?: string;
+	/** create_artifact's `body` field description. */
+	bodyFormat: string;
 	/** edit_artifact's own per-kind rule sentence (used when this kind is not
 	 *  part of the document/slides patches merge below). */
-	editRuleEn: string;
-	editRuleHu: string;
+	editRule: string;
 }
 
 const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 	document: {
-		labelEn: "Document",
-		labelHu: "Dokumentum",
-		labelHuAccusative: "Dokumentumot",
-		createChoiceEn:
+		label: "Document",
+		createChoice:
 			"document for rich text read and edited over time — plans, checklists, itineraries, letters, drafts, trackers",
-		createChoiceHu:
-			"document gazdag szövegű, idővel olvasott és szerkesztett tartalomhoz — tervek, feladatlisták, útitervek, levelek, vázlatok, nyomkövetők",
-		useCaseEn: "checklist, plan, itinerary, letter, draft, tracker",
-		useCaseHu:
-			"feladatlistához, tervhez, útitervhez, levélhez, vázlathoz, nyomkövetőhöz",
-		bodyFormatEn: "Documents: Markdown.",
-		editRuleEn:
+		useCase: "checklist, plan, itinerary, letter, draft, tracker",
+		bodyFormat: "Documents: Markdown.",
+		editRule:
 			"Documents: send patches, one op per block, each with the baseHash you read.",
-		editRuleHu:
-			"Dokumentumoknál: küldj patches-t, blokkonként egy műveletet, mindegyikhez az általad olvasott baseHash-sel.",
 	},
 	app: {
-		labelEn: "App",
-		labelHu: "Alkalmazás",
-		labelHuAccusative: "Alkalmazást",
-		createChoiceEn:
+		label: "App",
+		createChoice:
 			"app for an interactive tool with inputs and results — a calculator, splitter, quiz",
-		createChoiceHu:
-			"app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz",
-		useCaseEn: "small interactive tool",
-		useCaseHu: "kis interaktív eszközhöz",
-		bodyFormatEn:
+		useCase: "small interactive tool",
+		bodyFormat:
 			"Apps: a brief of what the app is for and does, in the user's words — never HTML (the app is built from it).",
-		editRuleEn:
+		editRule:
 			"Apps: send instruction — what to change, in one call (no read first); the whole App is rebuilt before the call returns.",
-		editRuleHu:
-			"Alkalmazásoknál: küldj instruction-t — mit változtass, egy hívásban (olvasás nélkül); az egész alkalmazás újraépül, mire a hívás visszatér.",
 	},
 	canvas: {
-		labelEn: "Canvas",
-		labelHu: "Tábla",
-		labelHuAccusative: "Táblát",
-		createChoiceEn:
+		label: "Canvas",
+		createChoice:
 			"canvas for a board of notes and frames arranged in space, with arrows between them",
-		createChoiceHu:
-			"canvas térben elrendezett jegyzetek és keretek táblájához, nyilakkal összekötve",
-		useCaseEn: "board",
-		useCaseHu: "táblához",
-		bodyFormatEn: `Canvas: the board as JSON, e.g. ${JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)} — or {} for an empty board. Edges go in "edges", never in "nodes". Sizes: ${SIZE_FACTS_EN}. Leave 10 or more between blocks, and make each frame big enough for its blocks; or leave a block's position out and it is placed in its parentId frame's next free place (the frame grows to fit).`,
-		editRuleEn: `Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most ${MAX_OPS_PER_DIFF} ops and ${MAX_NEW_NODES_PER_DIFF} new nodes. A frame goes earlier in the list than what goes inside it. Sizes: ${SIZE_FACTS_EN}. Leave position out and the block is placed for you (beside near, else in its parentId frame, else on free ground); a position you give is kept if free, else moved. A block's kind cannot change: remove it and add a new one.`,
-		editRuleHu: `Tábláknál: küldj ops-ot, a tábla minden módosításához egy műveletet, a blokkokat és nyilakat a read_artifact által adott azonosítókkal címezve (baseHash nincs) — legfeljebb ${MAX_OPS_PER_DIFF} műveletet és ${MAX_NEW_NODES_PER_DIFF} új blokkot. A keret előbb szerepeljen a listában, mint ami benne van. ${SIZE_FACTS_HU}. A pozíciót hagyd el, és az app helyezi el a blokkot (a near mellé, különben a parentId keretbe, különben szabad helyre); az adott pozíció megmarad, ha szabad, különben odébb kerül. Egy blokk típusa nem változtatható: töröld, és adj hozzá újat.`,
+		useCase: "board",
+		bodyFormat: `Canvas: the board as JSON, e.g. ${JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)} — or {} for an empty board. Edges go in "edges", never in "nodes". Sizes: ${SIZE_FACTS}. Leave 10 or more between blocks, and make each frame big enough for its blocks; or leave a block's position out and it is placed in its parentId frame's next free place (the frame grows to fit).`,
+		editRule: `Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most ${MAX_OPS_PER_DIFF} ops and ${MAX_NEW_NODES_PER_DIFF} new nodes. A frame goes earlier in the list than what goes inside it. Sizes: ${SIZE_FACTS}. Leave position out and the block is placed for you (beside near, else in its parentId frame, else on free ground); a position you give is kept if free, else moved. A block's kind cannot change: remove it and add a new one.`,
 	},
 	// Not yet advertised (no create handler registered — see
 	// advertisedArtifactKinds() in create.ts). Kept ready for Wave 4.
 	slides: {
-		labelEn: "Slides",
-		labelHu: "Diasor",
-		labelHuAccusative: "Diasort",
-		createChoiceEn:
+		label: "Slides",
+		createChoice:
 			"slides for a small ordered deck to present, with a beginning and an end",
-		createChoiceHu:
-			"slides kis, sorrendben bemutatható diasorhoz, elejével és végével",
-		bodyFormatEn: "Slides: the deck JSON.",
-		editRuleEn:
+		bodyFormat: "Slides: the deck JSON.",
+		editRule:
 			"Slides: send patches, one op per slide field, each with the baseHash you read.",
-		editRuleHu:
-			"Diasoroknál: küldj patches-t, diamezőnként egy műveletet, mindegyikhez az általad olvasott baseHash-sel.",
 	},
 };
 
@@ -221,32 +180,26 @@ export function artifactKindEnumPhrase(
 }
 
 /** The opening "Use it for a ... the user keeps working on" example phrase
- *  (EN: "Use it for a ${phrase} ..."; HU: "Használd ${phrase}, ..."). */
+ *  ("Use it for a ${phrase} ..."). */
 export function createArtifactUseCasePhrase(
 	kinds: readonly CreatableArtifactKind[],
-	lang: "en" | "hu",
 ): string {
-	const items = pick(kinds, (c) => (lang === "en" ? c.useCaseEn : c.useCaseHu));
-	return lang === "en" ? joinOr(items) : joinVagy(items);
+	return joinOr(pick(kinds, (c) => c.useCase));
 }
 
 /** The "Choose artifactType by what you are keeping: ..." clause, including
  *  its trailing period. */
 export function createArtifactChoiceClause(
 	kinds: readonly CreatableArtifactKind[],
-	lang: "en" | "hu",
 ): string {
-	const items = pick(kinds, (c) =>
-		lang === "en" ? c.createChoiceEn : c.createChoiceHu,
-	);
-	return `${items.join("; ")}.`;
+	return `${pick(kinds, (c) => c.createChoice).join("; ")}.`;
 }
 
-/** The `body` field's own `.describe()` text (EN only). */
+/** The `body` field's own `.describe()` text. */
 export function createArtifactBodyFormat(
 	kinds: readonly CreatableArtifactKind[],
 ): string {
-	return pick(kinds, (c) => c.bodyFormatEn).join(" ");
+	return pick(kinds, (c) => c.bodyFormat).join(" ");
 }
 
 // ── kind-name lists (read_artifact, edit_artifact's opening clause, and the
@@ -256,32 +209,15 @@ export function artifactKindListEn(
 	kinds: readonly CreatableArtifactKind[],
 	options: { withFile?: boolean } = {},
 ): string {
-	const labels = pick(kinds, (c) => c.labelEn);
+	const labels = pick(kinds, (c) => c.label);
 	return joinOr(options.withFile ? [...labels, "File"] : labels);
-}
-
-export function artifactKindListHu(
-	kinds: readonly CreatableArtifactKind[],
-	options: { withFile?: boolean } = {},
-): string {
-	const labels = pick(kinds, (c) => c.labelHu);
-	return joinVagy(options.withFile ? [...labels, "Fájl"] : labels);
-}
-
-/** edit_artifact's own opening clause needs Hungarian's accusative case. */
-export function artifactKindListHuAccusative(
-	kinds: readonly CreatableArtifactKind[],
-): string {
-	return joinVagy(pick(kinds, (c) => c.labelHuAccusative));
 }
 
 // ── edit_artifact rules (top-level description, and the `patches`/`ops`
 //    field descriptions on its advertised schema) ──────────────────────────
 
-const DOCUMENT_AND_SLIDES_MERGED_RULE = {
-	en: "Documents and Slides: send patches, one op per block or slide field, each with the baseHash you read.",
-	hu: "Dokumentumoknál és Diasoroknál: küldj patches-t, blokkonként vagy diamezőnként egy műveletet, mindegyikhez az általad olvasott baseHash-sel.",
-} as const;
+const DOCUMENT_AND_SLIDES_MERGED_RULE =
+	"Documents and Slides: send patches, one op per block or slide field, each with the baseHash you read.";
 
 /** The edit rules sentence(s): Document and Slides share one merged sentence
  *  when both are advertised (matching the shipped prose), Canvas and App
@@ -289,33 +225,18 @@ const DOCUMENT_AND_SLIDES_MERGED_RULE = {
  *  the document/slides rule, then canvas, then app. */
 export function editArtifactRuleClause(
 	kinds: readonly CreatableArtifactKind[],
-	lang: "en" | "hu",
 ): string {
 	const has = (kind: CreatableArtifactKind) => kinds.includes(kind);
 	const parts: string[] = [];
 	if (has("document") && has("slides")) {
-		parts.push(DOCUMENT_AND_SLIDES_MERGED_RULE[lang]);
+		parts.push(DOCUMENT_AND_SLIDES_MERGED_RULE);
 	} else if (has("document")) {
-		parts.push(
-			lang === "en"
-				? KIND_COPY.document.editRuleEn
-				: KIND_COPY.document.editRuleHu,
-		);
+		parts.push(KIND_COPY.document.editRule);
 	} else if (has("slides")) {
-		parts.push(
-			lang === "en" ? KIND_COPY.slides.editRuleEn : KIND_COPY.slides.editRuleHu,
-		);
+		parts.push(KIND_COPY.slides.editRule);
 	}
-	if (has("canvas")) {
-		parts.push(
-			lang === "en" ? KIND_COPY.canvas.editRuleEn : KIND_COPY.canvas.editRuleHu,
-		);
-	}
-	if (has("app")) {
-		parts.push(
-			lang === "en" ? KIND_COPY.app.editRuleEn : KIND_COPY.app.editRuleHu,
-		);
-	}
+	if (has("canvas")) parts.push(KIND_COPY.canvas.editRule);
+	if (has("app")) parts.push(KIND_COPY.app.editRule);
 	return parts.join(" ");
 }
 
@@ -405,24 +326,20 @@ export const EDIT_ARTIFACT_APP_EXAMPLE = {
  *  need its own once it has a create handler and an op schema of its own. */
 export function editArtifactExampleClause(
 	kinds: readonly CreatableArtifactKind[],
-	lang: "en" | "hu",
 ): string {
 	const examples: string[] = [];
 	if (kinds.includes("document")) {
-		const json = JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE);
-		examples.push(lang === "en" ? `Example: ${json}.` : `Példa: ${json}.`);
+		examples.push(
+			`Example: ${JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE)}.`,
+		);
 	}
 	if (kinds.includes("canvas")) {
-		const json = JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE);
 		examples.push(
-			lang === "en" ? `Canvas example: ${json}.` : `Tábla-példa: ${json}.`,
+			`Canvas example: ${JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE)}.`,
 		);
 	}
 	if (kinds.includes("app")) {
-		const json = JSON.stringify(EDIT_ARTIFACT_APP_EXAMPLE);
-		examples.push(
-			lang === "en" ? `App example: ${json}.` : `Alkalmazás-példa: ${json}.`,
-		);
+		examples.push(`App example: ${JSON.stringify(EDIT_ARTIFACT_APP_EXAMPLE)}.`);
 	}
 	return examples.join(" ");
 }

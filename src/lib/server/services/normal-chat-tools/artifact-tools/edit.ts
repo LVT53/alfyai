@@ -129,7 +129,7 @@ export function buildEditArtifactModelInputSchema(
 			.max(200)
 			.optional()
 			.describe(
-				"What you changed, in one short past-tense line with no subject (\u201cMoved the museum to Thursday\u201d; in Hungarian \u201cÁttette a múzeumot csütörtökre\u201d or \u201cEsős napi terv hozzáadva\u201d, never \u201cÁttettem …\u201d); shown next to Keep/Undo and in History.",
+				"What you changed, in the conversation's language: one short past-tense line with no subject and never in the first person; shown next to Keep/Undo and in History.",
 			),
 	});
 }
@@ -222,8 +222,6 @@ export interface EditArtifactHandlerParams {
 	ops?: unknown[];
 	/** An App: what to change (F2, ruling 77). */
 	instruction?: string;
-	/** The turn's resolved language (ruling 55), for the one kind that generates text of its own: an App's rebuild writes its labels in it. */
-	language?: "en" | "hu";
 	summary?: string;
 	/**
 	 * What this turn has already done, for a kind that judges an edit against what
@@ -537,7 +535,6 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			artifactId: params.artifactId,
 			conversationId: params.conversationId,
 			prompt: instruction,
-			language: params.language ?? "en",
 			abortSignal: params.abortSignal,
 		});
 		if (!result.ok) {
@@ -683,7 +680,6 @@ export async function runEditArtifactTool(params: {
 	patches?: unknown[];
 	ops?: unknown[];
 	instruction?: string;
-	language?: "en" | "hu";
 	summary?: string;
 	turnContext?: EditArtifactHandlerParams["turnContext"];
 	abortSignal: AbortSignal;
@@ -797,7 +793,6 @@ export async function runEditArtifactTool(params: {
 		patches: params.patches,
 		ops: params.ops,
 		instruction: params.instruction,
-		language: params.language,
 		summary: params.summary,
 		turnContext: params.turnContext,
 		abortSignal: params.abortSignal,

@@ -353,21 +353,19 @@ function createNeutralStreamingResult(
 
 function runStream(
 	overrides: Partial<ChatTurnPreflight> = {},
-	orchestratorOverrides: Partial<
-		Pick<StreamOrchestratorOptions, "resolvedResponseLanguage">
-	> = {},
+	user: Partial<StreamOrchestratorOptions["user"]> = {},
 ) {
 	return runChatStreamOrchestrator({
 		user: {
 			id: "u1",
 			displayName: "User",
 			email: "u@test.com",
+			...user,
 		},
 		turn: createTurn(overrides),
 		upstreamMessage: "Hello",
 		downstreamAbortSignal: new AbortController().signal,
 		requestStartTime: Date.now(),
-		...orchestratorOverrides,
 	});
 }
 
@@ -1378,79 +1376,12 @@ describe("stream-orchestrator SSE contract", () => {
 		});
 	});
 
-	// Follow-up (2026-08-16) to ADR-0056's amendment — summary LANGUAGE. The
-	// classifier session must receive the turn's resolved response language
-	// (the SAME value `buildResponseLanguageGuard` uses to tell the model
-	// what language to answer in), not a language guessed at the classifier
-	// call site itself. Root-cause fix (2026-09-25): resolving that value now
-	// needs the conversation's message history and the account's UI-language
-	// preference, both unavailable this deep in the pipeline without a
-	// second DB round trip — so the caller (the stream route) resolves it
-	// once via resolveTurnResponseLanguage and passes it in as
-	// `resolvedResponseLanguage`, exactly like a real request would.
-	it("threads the turn's resolved response language into the classifier session as targetLanguage", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { createThoughtStepClassifierSession } = await import(
-			"$lib/server/services/chat-turn/thought-step-classifier"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "Szia" },
-				finishEvent,
-			]),
-		);
-
-		const response = runStream(
-			{
-				conversationId: "hu-language-conv",
-				normalizedMessage: "Szia, tudnál segíteni ebben a kérdésben?",
-			},
-			{ resolvedResponseLanguage: "hu" },
-		);
-		await readSseResponse(response);
-
-		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
-			expect.objectContaining({ targetLanguage: "hu" }),
-		);
-	});
-
-	it("hands the same resolved language on to the post-turn tail (the rail headline) and not a fresh read of the message", async () => {
-		const { runStreamingNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
-		);
-		const { runPostTurnTasks } = await import(
-			"$lib/server/services/chat-turn/finalize-steps"
-		);
-		(
-			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
-		).mockResolvedValue(
-			createNeutralStreamingResult([
-				{ type: "text_delta", text: "Szia" },
-				finishEvent,
-			]),
-		);
-
-		const response = runStream(
-			{
-				conversationId: "hu-language-tail-conv",
-				// no accent: read on its own this message is English
-				normalizedMessage: "Mikor ultessem el a paradicsompalantakat?",
-			},
-			{ resolvedResponseLanguage: "hu" },
-		);
-		await readSseResponse(response);
-		await new Promise((resolve) => setTimeout(resolve, 0));
-
-		expect(runPostTurnTasks).toHaveBeenCalledWith(
-			expect.objectContaining({ responseLanguage: "hu" }),
-		);
-	});
-
-	it("threads English as the target language for an English turn", async () => {
+	// Follow-up (2026-08-16) to ADR-0056's amendment — summary LANGUAGE. A status
+	// line is written while Alfy thinks, before any reply text exists, so no
+	// reply language can be known yet: the classifier session gets the account's
+	// UI language (owner decision, 2026-10-13), never a language guessed from
+	// the message. It is the one model call the UI language reaches.
+	it("threads the account's UI language into the classifier session as targetLanguage", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
@@ -1466,17 +1397,120 @@ describe("stream-orchestrator SSE contract", () => {
 			]),
 		);
 
+		// An English message from an account shown in Hungarian: the status line
+		// is Hungarian (the UI), whatever the message says.
 		const response = runStream(
 			{
-				conversationId: "en-language-conv",
+				conversationId: "hu-ui-conv",
 				normalizedMessage: "Could you help me with this question?",
 			},
-			{ resolvedResponseLanguage: "en" },
+			{ uiLanguage: "hu" },
 		);
 		await readSseResponse(response);
 
 		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
-			expect.objectContaining({ targetLanguage: "en" }),
+			expect.objectContaining({ targetLanguage: "hu" }),
+		);
+	});
+
+	it("threads English as the target language for an account shown in English, and for one with no UI language", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const classifierSession = createThoughtStepClassifierSession as ReturnType<
+			typeof vi.fn
+		>;
+		for (const [index, user] of [{ uiLanguage: "en" as const }, {}].entries()) {
+			classifierSession.mockClear();
+			(
+				runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+			).mockResolvedValue(
+				createNeutralStreamingResult([
+					{ type: "text_delta", text: "Szia" },
+					finishEvent,
+				]),
+			);
+
+			const response = runStream(
+				{
+					streamId: `en-ui-stream-${index}`,
+					conversationId: `en-ui-conv-${index}`,
+					normalizedMessage: "Szia, tudnál segíteni ebben a kérdésben?",
+				},
+				user,
+			);
+			await readSseResponse(response);
+
+			expect(classifierSession).toHaveBeenCalledWith(
+				expect.objectContaining({ targetLanguage: "en" }),
+			);
+		}
+	});
+
+	it("does not hand the UI language to the model run: the chat call never sees it", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const run = runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>;
+		run.mockClear();
+		run.mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream(
+			{
+				conversationId: "no-ui-language-conv",
+				normalizedMessage: "Could you help me with this question?",
+			},
+			{ uiLanguage: "hu" },
+		);
+		await readSseResponse(response);
+
+		expect(run).toHaveBeenCalledTimes(1);
+		const params = run.mock.calls[0][0];
+		expect(Object.keys(params.user).sort()).toEqual([
+			"displayName",
+			"email",
+			"id",
+		]);
+		expect(Object.keys(params).filter((key) => /language/i.test(key))).toEqual(
+			[],
+		);
+	});
+
+	it("hands the account's UI language on to completion, where it is the last fallback of what is written after the reply", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { runPostTurnTasks } = await import(
+			"$lib/server/services/chat-turn/finalize-steps"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Done." },
+				finishEvent,
+			]),
+		);
+
+		// A reply of one word says nothing about its language, nor does the
+		// message, nor is there an earlier reply: the account's language it is.
+		const response = runStream(
+			{ conversationId: "ui-fallback-conv", normalizedMessage: "ok" },
+			{ uiLanguage: "hu" },
+		);
+		await readSseResponse(response);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(runPostTurnTasks).toHaveBeenCalledWith(
+			expect.objectContaining({ responseLanguage: "hu" }),
 		);
 	});
 

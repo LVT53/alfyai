@@ -1,4 +1,4 @@
-MODEL-FACING TOOL CATALOGUE (en) - THIS FILE IS THE CACHED PROMPT PREFIX.
+MODEL-FACING TOOL CATALOGUE (English, whatever language the person writes) - THIS FILE IS THE CACHED PROMPT PREFIX.
 
 Written by src/lib/server/services/normal-chat-tools/index.test.ts; never edit it by hand.
 Below is the chat request's `tools` array, pretty-printed: every tool's name, description
@@ -1046,7 +1046,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "maxLength": 4000
           },
           "summary": {
-            "description": "What you changed, in one short past-tense line with no subject (“Moved the museum to Thursday”; in Hungarian “Áttette a múzeumot csütörtökre” or “Esős napi terv hozzáadva”, never “Áttettem …”); shown next to Keep/Undo and in History.",
+            "description": "What you changed, in the conversation's language: one short past-tense line with no subject and never in the first person; shown next to Keep/Undo and in History.",
             "type": "string",
             "maxLength": 200
           }

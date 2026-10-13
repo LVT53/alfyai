@@ -81,7 +81,7 @@ vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
 	getLastMessage: vi.fn(async () => null),
-	listRecentUserMessageTexts: vi.fn(async () => []),
+	getLastReplyLanguage: vi.fn(async () => null),
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 }));
@@ -674,13 +674,10 @@ describe("POST /api/chat/send", () => {
 
 	describe("Atlas admin error language", () => {
 		// runAtlasSendTurn's own two admin error strings (ATLAS_DISABLED,
-		// ATLAS_PARALLEL_REQUIRED) used to pick a language with a raw
-		// detectLanguage(turn.normalizedMessage) call — ignoring the account's
-		// uiLanguage entirely, so an ambiguous opening message (too short to
-		// read on its own) always fell back to English even for a Hungarian
-		// user. They now go through the turn's one resolved language
-		// (resolveTurnResponseLanguage), the same value the rest of the turn
-		// uses, which does fall back to uiLanguage.
+		// ATLAS_PARALLEL_REQUIRED) and its kickoff message are the app's own
+		// words, not a reply the model wrote: they are chrome, so they follow the
+		// account's UI language whatever the opening message says (owner
+		// decision, 2026-10-13: no code reads the message and guesses a language).
 		//
 		// The base getConfig() mock (set up in the vi.mock("$lib/server/config-
 		// store", ...) factory above) reads composerCommandRegistryEnabled off
@@ -707,7 +704,7 @@ describe("POST /api/chat/send", () => {
 			}
 		});
 
-		it("returns the Hungarian ATLAS_DISABLED message for a Hungarian-UI user's ambiguous opening message", async () => {
+		it("returns the Hungarian ATLAS_DISABLED message for a Hungarian-UI user", async () => {
 			vi.mocked(getConfig).mockImplementation(() =>
 				atlasConfigOverride({ atlasWorkerEnabled: false }),
 			);
@@ -735,7 +732,7 @@ describe("POST /api/chat/send", () => {
 			expect(body.error).toBe("Az Atlas jelenleg ki van kapcsolva.");
 		});
 
-		it("keeps the English ATLAS_DISABLED message for an English-UI user's same ambiguous message", async () => {
+		it("returns the English ATLAS_DISABLED message for an English-UI user", async () => {
 			vi.mocked(getConfig).mockImplementation(() =>
 				atlasConfigOverride({ atlasWorkerEnabled: false }),
 			);
@@ -763,7 +760,7 @@ describe("POST /api/chat/send", () => {
 			expect(body.error).toBe("Atlas is currently disabled.");
 		});
 
-		it("returns the Hungarian ATLAS_PARALLEL_REQUIRED message for a Hungarian-UI user's ambiguous opening message", async () => {
+		it("returns the Hungarian ATLAS_PARALLEL_REQUIRED message for a Hungarian-UI user", async () => {
 			vi.mocked(getConfig).mockImplementation(() =>
 				atlasConfigOverride({ parallelApiKey: "" }),
 			);
@@ -793,7 +790,7 @@ describe("POST /api/chat/send", () => {
 			);
 		});
 
-		it("still resolves a clearly-Hungarian message to Hungarian regardless of uiLanguage", async () => {
+		it("follows the account's UI language, not the language of the opening message", async () => {
 			vi.mocked(getConfig).mockImplementation(() =>
 				atlasConfigOverride({ atlasWorkerEnabled: false }),
 			);
@@ -818,7 +815,9 @@ describe("POST /api/chat/send", () => {
 			expect(response.status).toBe(503);
 			const body = await response.json();
 			expect(body.code).toBe("ATLAS_DISABLED");
-			expect(body.error).toBe("Az Atlas jelenleg ki van kapcsolva.");
+			// A Hungarian question from an account shown in English: the error is
+			// the app's own sentence, in the account's language.
+			expect(body.error).toBe("Atlas is currently disabled.");
 		});
 	});
 
@@ -870,6 +869,48 @@ describe("POST /api/chat/send", () => {
 					modelDisplayName: "Provider Model A",
 				},
 			}),
+		);
+	});
+
+	// What is written after the reply follows the reply that was written
+	// (chat-turn/reply-language.ts): its language is read once and stored on the
+	// assistant message for the next reply that says nothing by itself (the rail
+	// headline is written in it: finalize.test.ts). The account's UI language is
+	// only the last fallback, never the reply's language.
+	it("reads the language of the reply and stores it on the message", async () => {
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
+			userMessage: { content: "Tell me what to do this weekend" },
+			assistantMessage: { content: "Hungarian answer" },
+		});
+		const hungarianReply =
+			"Természetesen segítek. Először gyűjtsd össze, hogy mi az, ami nem fér bele a határidőbe, aztán döntsd el, hogy melyiket lehet kihagyni, mert nem minden egyformán fontos, és nem kell mindent megcsinálnod.";
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: hungarianReply,
+			rawResponse: {},
+			contextStatus: undefined,
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			providerUsage: null,
+		});
+
+		const response = await POST(
+			makeEvent(
+				{
+					message: "Tell me what to do this weekend",
+					conversationId: "conv-1",
+				},
+				{ id: "user-1", email: "test@example.com", uiLanguage: "en" },
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			hungarianReply,
+			undefined,
+			undefined,
+			expect.objectContaining({ replyLanguage: "hu" }),
 		);
 	});
 

@@ -420,19 +420,17 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			turnId: "turn-1",
 			artifactId: "artifact-1",
 			instruction: "Make the background dark and add a Reset button",
-			language: "en",
 			abortSignal: new AbortController().signal,
 			...overrides,
 		});
 	}
 
-	it("rebuilds the App in place through the panel's own rebuild, in the turn's language, and answers with the version it wrote", async () => {
+	it("rebuilds the App in place through the panel's own rebuild, and answers with the version it wrote", async () => {
 		getArtifactMock.mockResolvedValue(appDetail());
 		regenerateAppMock.mockResolvedValue(rebuilt);
 		const controller = new AbortController();
 
 		const result = await run({
-			language: "hu",
 			abortSignal: controller.signal,
 		});
 
@@ -442,7 +440,6 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			artifactId: "artifact-1",
 			conversationId: "conv-1",
 			prompt: "Make the background dark and add a Reset button",
-			language: "hu",
 			abortSignal: controller.signal,
 		});
 		expect(result.modelPayload).toEqual({

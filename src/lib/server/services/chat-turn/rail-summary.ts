@@ -1,10 +1,7 @@
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { updateMessageRailSummary } from "$lib/server/services/messages";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
-import {
-	generateShortLocalText,
-	resolveShortTextLanguage,
-} from "./short-local-text";
+import { generateShortLocalText } from "./short-local-text";
 
 /**
  * A1 (owner idea) — the post-turn jump-rail summary step.
@@ -105,24 +102,20 @@ export async function persistAssistantRailSummary(params: {
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string;
-	/** The turn's user message — the deterministic language signal. */
-	userMessage: string;
 	/** The assistant reply being summarized. */
 	assistantResponse: string;
 	/**
-	 * The turn's reply language, decided once per turn; the headline is in the
-	 * language the reply is in. Without it the language is read off the user
-	 * message alone, which misreads a Hungarian message with little evidence.
+	 * The language of the reply that was written (reply-language.ts): the
+	 * headline is in it, whatever language the account is shown in.
 	 */
-	responseLanguage?: SupportedLanguage;
+	responseLanguage: SupportedLanguage;
 }): Promise<void> {
 	const response = params.assistantResponse.trim();
 	// Short/empty replies: the verbatim 120-char start is already glanceable,
 	// so the deterministic fallback is honest and complete — no control call.
 	if (response.length < RAIL_SUMMARY_MIN_CONTENT_LENGTH) return;
 
-	const language =
-		params.responseLanguage ?? resolveShortTextLanguage(params.userMessage);
+	const language = params.responseLanguage;
 
 	const summary = await generateShortLocalText({
 		prompt: response.slice(0, RAIL_SUMMARY_SOURCE_CHAR_BUDGET),

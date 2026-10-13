@@ -228,8 +228,8 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -240,6 +240,7 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -319,7 +320,6 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			userId: "u1",
 			conversationId: "c1",
 			prompt: "Egy egyszerű visszaszámláló alkalmazás",
-			language: "hu",
 		}).catch(() => null);
 		expect(wire()).toEqual(PROFILE);
 	});
@@ -330,7 +330,6 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			conversationId: "c1",
 			html: "<!doctype html><html><body>12:00</body></html>",
 			prompt: "egy óra",
-			language: "hu",
 		}).catch(() => null);
 		expect(wire()).toEqual(keepsOwnTemperature(0));
 	});
@@ -373,6 +372,7 @@ describe("a family with no sampling profile sends exactly what it always sent", 
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual({ temperature: 0.4 });
 	});
@@ -410,8 +410,8 @@ describe("a family with no sampling profile sends exactly what it always sent", 
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(wire()).toEqual({ temperature: 0.1 });
 	});

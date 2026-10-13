@@ -70,11 +70,12 @@ import { extractVerbatimTopic } from "./turn-acknowledgment";
  * reasoning stream is in English regardless of the conversation's UI/response
  * language (DeepSeek always reasons in English), so a summary written "in the
  * same language as the fragment" surfaced English prose in Hungarian chats.
- * `createThoughtStepClassifierSession` now takes a `targetLanguage`
- * (threaded from the turn's own deterministic response-language signal —
- * `detectLanguage`, the SAME function `buildResponseLanguageGuard` already
- * uses to tell the model itself what language to answer in; see
- * stream-orchestrator.ts) and the classifier prompt instructs the model to
+ * `createThoughtStepClassifierSession` now takes a `targetLanguage` (the
+ * account's UI language, threaded from the stream orchestrator: a status line
+ * is written while Alfy thinks, before any reply text exists, so no reply
+ * language can be known yet — and the model's own reply language is its to
+ * choose, see normal-chat-context.ts's REPLY_LANGUAGE_RULE) and the
+ * classifier prompt instructs the model to
  * write the summary in that language while copying technical terms, proper
  * nouns, identifiers, and numbers VERBATIM from the (possibly English)
  * fragment. `hasVerbatimContentWordTether` needs no change for this: it
@@ -849,9 +850,9 @@ export async function classifyThoughtStepChunk(params: {
 	chunkText: string;
 	currentActivityClass: ThoughtStepClassifierActivityClass | null;
 	signal?: AbortSignal;
-	/** The conversation's response language, threaded from the turn (see
-	 * stream-orchestrator.ts, `detectLanguage(normalizedMessage)`) — NOT
-	 * detected here. Defaults to English when the caller has no signal. */
+	/** The language the status line is written in: the account's UI language,
+	 * threaded from the stream orchestrator — NOT detected here. Defaults to
+	 * English when the caller has no signal. */
 	targetLanguage?: SupportedLanguage;
 }): Promise<ThoughtStepClassifierResult | null> {
 	if (
@@ -977,12 +978,10 @@ export function createThoughtStepClassifierSession(params: {
 	 * sample degrades silently on its own via `classify` returning `null`. */
 	enabled?: boolean;
 	classify?: ThoughtStepClassifyFn;
-	/** The conversation's response language, threaded from the turn (see
-	 * stream-orchestrator.ts, `detectLanguage(normalizedMessage)` — the same
-	 * deterministic signal `buildResponseLanguageGuard` already uses to tell
-	 * the model itself what language to answer in). Fixed for the life of
-	 * the turn, so it is bound once here rather than passed per sample.
-	 * Defaults to English when the caller has no signal. */
+	/** The language the status lines are written in: the account's UI language
+	 * (see stream-orchestrator.ts). Fixed for the life of the turn, so it is
+	 * bound once here rather than passed per sample. Defaults to English when
+	 * the caller has no signal. */
 	targetLanguage?: SupportedLanguage;
 	/** Fired once per NEW step (never for a continuation, which extends the
 	 * existing step in place instead). */

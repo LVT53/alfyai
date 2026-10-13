@@ -156,8 +156,8 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
-			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
@@ -168,6 +168,7 @@ describe("short internal calls on a qwen-family model: thinking is off in the fo
 			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
+			responseLanguage: "hu",
 		});
 		expect(sentBody().chat_template_kwargs).toEqual({ enable_thinking: false });
 	});

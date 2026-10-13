@@ -25,7 +25,7 @@ import {
 	classifyAppExtractionFailure,
 	extractAppHtml,
 } from "$lib/server/services/artifacts/app/generate";
-import { classifyLanguageSignal } from "$lib/server/services/language";
+import { readReplyLanguage } from "$lib/server/services/language";
 import { type AppEvaluation, evaluateApp } from "../browser-eval";
 import { resolveEvalArtifactsConfig } from "../config";
 import type {
@@ -115,10 +115,10 @@ function buildCase(entry: AppPrompt): EvalCase {
 		description: `${entry.title} (${entry.lang})`,
 		// The contract prompt, then production's OWN request+language-instruction
 		// shape (buildAppRequestMessage, generate.ts) — never a re-typed
-		// instruction sentence that could quietly drift from the real one
-		// (ruling 55: the eval generates with the fixture's declared language,
-		// the same way production passes the turn's own resolved language).
-		prompt: `${APP_CONTRACT_PROMPT}\n\n${buildAppRequestMessage({ prompt: entry.text, language: entry.lang })}`,
+		// instruction sentence that could quietly drift from the real one. The
+		// fixture's declared language is not sent: the App is asked to be in the
+		// language of the request (ruling 55), and the scorer checks it was.
+		prompt: `${APP_CONTRACT_PROMPT}\n\n${buildAppRequestMessage({ prompt: entry.text })}`,
 		language: entry.lang,
 		// App generation is thinking-off by policy regardless of the harness's
 		// own default (spec §2.9) — asserted explicitly rather than inherited.
@@ -141,7 +141,7 @@ const KNOWN_BAD_CASE: EvalCase = {
 	suite: "app",
 	description:
 		"A recorded answer that is a bare word instead of a fenced app — must score bad, proving the scorer can see a failure.",
-	prompt: `${APP_CONTRACT_PROMPT}\n\n${buildAppRequestMessage({ prompt: "Make a memory card game with 8 pairs.", language: "en" })}`,
+	prompt: `${APP_CONTRACT_PROMPT}\n\n${buildAppRequestMessage({ prompt: "Make a memory card game with 8 pairs." })}`,
 	knownBad: true,
 	language: "en",
 	thinking: "off",
@@ -173,9 +173,9 @@ function stripToVisibleText(html: string): string {
 /**
  * Ruling 55: "a UI in the wrong language is broken". Checks the `<html
  * lang>` attribute and the visible text (through the repo's own
- * `classifyLanguageSignal`) against the fixture's declared language, and
+ * `readReplyLanguage`) against the fixture's declared language, and
  * returns a description of the mismatch, or `null` when there is none (or
- * not enough evidence to be sure either way — `classifyLanguageSignal`'s
+ * not enough evidence to be sure either way — `readReplyLanguage`'s
  * "unknown" is an honest non-verdict, not a pass).
  */
 function detectAppLanguageMismatch(
@@ -192,7 +192,7 @@ function detectAppLanguageMismatch(
 		}
 	}
 
-	const signal = classifyLanguageSignal(stripToVisibleText(html));
+	const signal = readReplyLanguage(stripToVisibleText(html));
 	if (signal === other) {
 		return `the visible text reads as ${other}, expected ${expected}`;
 	}

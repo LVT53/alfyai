@@ -117,13 +117,14 @@ const GENERATION_MAX_OUTPUT_TOKENS = 900;
 
 // ── Tool descriptions (hand-copied, READ-ONLY provenance) ───────────────
 //
-// `TOOL_I18N` in src/lib/server/services/normal-chat-tools/index.ts (~line
-// 173) is NOT exported, and this harness must not modify that file (G1 owns
-// it). The five descriptions below are copied by hand from `TOOL_I18N.en` /
-// `TOOL_I18N.hu` for the five tools this harness evaluates, exactly the same
-// convention scripts/skill-eval-fixtures.ts already uses for the guidance
-// pack "before" text. If TOOL_I18N's wording changes, this block must be
-// re-synced by hand — there is no automatic drift detection.
+// The tool text in src/lib/server/services/normal-chat-tools/index.ts is NOT
+// exported, and this harness must not modify that file (G1 owns it). The five
+// descriptions below are short stand-ins for the five tools this harness
+// evaluates, the same convention scripts/skill-eval-fixtures.ts already uses
+// for the guidance pack "before" text. The app's catalogue is English whatever
+// language the person writes, so a fixture's language is the language of its
+// PROMPT only; the tools are always these. There is no automatic drift
+// detection.
 type ToolGuidanceToolName =
 	| "research_web"
 	| "fetch_url"
@@ -131,45 +132,29 @@ type ToolGuidanceToolName =
 	| "produce_file"
 	| "memory_context";
 
-const TOOL_DESCRIPTIONS: Record<
-	"en" | "hu",
-	Record<ToolGuidanceToolName, string>
-> = {
-	en: {
-		research_web:
-			"Search and fetch current web sources, returning compact citation-ready evidence.",
-		fetch_url:
-			"Fetch and read specific web pages by URL, returning citation-ready page content. Use when the user gives a link or you need full details/specs from a page beyond search snippets.",
-		image_search: "Search the web for image results for the current request.",
-		produce_file:
-			"Queue generation of downloadable files for the current conversation.",
-		memory_context:
-			"Retrieve bounded durable memory, named project-folder context, project continuity, persona memory, or account history for this conversation.",
-	},
-	hu: {
-		research_web:
-			"Keresés az interneten aktuális források után, tömör, hivatkozásra kész bizonyítékokkal.",
-		fetch_url:
-			"Konkrét weboldalak letöltése és elolvasása URL alapján, hivatkozásra kész oldaltartalommal. Akkor használd, ha a felhasználó megad egy linket, vagy ha a keresési részleteken túl egy oldal teljes tartalmára/adataira van szükséged.",
-		image_search: "Képkeresés az interneten az aktuális kéréshez.",
-		produce_file:
-			"Letölthető fájlok generálásának ütemezése az aktuális beszélgetéshez.",
-		memory_context:
-			"Tartós memória, projektmappa-kontextus, folytonosság, személyre szabott memória vagy fiókelőzmények lekérése ehhez a beszélgetéshez.",
-	},
+const TOOL_DESCRIPTIONS: Record<ToolGuidanceToolName, string> = {
+	research_web:
+		"Search and fetch current web sources, returning compact citation-ready evidence.",
+	fetch_url:
+		"Fetch and read specific web pages by URL, returning citation-ready page content. Use when the user gives a link or you need full details/specs from a page beyond search snippets.",
+	image_search: "Search the web for image results for the current request.",
+	produce_file:
+		"Queue generation of downloadable files for the current conversation.",
+	memory_context:
+		"Retrieve bounded durable memory, named project-folder context, project continuity, persona memory, or account history for this conversation.",
 };
 
 /**
- * Builds the definition-only tool set for one fixture's language: name +
- * description (matching the app's real per-language tool description) +
- * zod input schema, and deliberately NO `execute`. Mirrors the real app's 5
+ * Builds the definition-only tool set: name + description (the app's tool
+ * text is English for every fixture) + zod input schema, and deliberately NO
+ * `execute`. Mirrors the real app's 5
  * Parallel/file/memory tools; deliberately excludes connection tools,
  * `read_generated_file`, and the `done` tool the tool-termination guidance
  * pack references (see the report's "Limitations" section for why that's
  * fine for a tool-SELECTION signal).
  */
-function buildToolDefinitions(language: "en" | "hu") {
-	const descriptions = TOOL_DESCRIPTIONS[language];
+function buildToolDefinitions() {
+	const descriptions = TOOL_DESCRIPTIONS;
 	return {
 		research_web: tool({
 			description: descriptions.research_web,
@@ -404,7 +389,7 @@ async function generateForFixture(params: {
 }): Promise<GenerationResult> {
 	const { model, fixture } = params;
 	const system = buildSystemPromptForFixture(fixture);
-	const tools = buildToolDefinitions(fixture.language);
+	const tools = buildToolDefinitions();
 
 	const result = await generateText({
 		model,

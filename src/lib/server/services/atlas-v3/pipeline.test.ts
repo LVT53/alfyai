@@ -3,9 +3,10 @@
 // answer table with a citation per cell, no claim repeated across sections,
 // mechanically numbered citations, and an abstention that renders as one.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import type { AtlasPipelineJobContext } from "../atlas/types";
+import { ATLAS_V3_ASK_SYSTEM } from "./ask";
 import { getAtlasV3ProfileConfig } from "./config";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
@@ -16,7 +17,10 @@ import {
 	fakeResearchWeb,
 	readAnswer,
 } from "./test-support";
-import type { AtlasV3ProgressDetails } from "./types";
+import {
+	ATLAS_V3_CHECKPOINT_SCHEMA_VERSION,
+	type AtlasV3ProgressDetails,
+} from "./types";
 
 const JOB: AtlasPipelineJobContext = {
 	id: "job-1",
@@ -1210,5 +1214,119 @@ describe("runAtlasV3Pipeline, local sources", () => {
 		expect(
 			items.filter((item) => item.includes("contained nothing bearing")),
 		).toHaveLength(1);
+	});
+});
+
+// The report is written in the language of the question, which no code reads and
+// guesses: the model is asked once at job start (question-language.ts), the
+// answer rides the ask checkpoint, and a job that resumes keeps it.
+describe("runAtlasV3Pipeline, the language of the report", () => {
+	type Dependencies = Parameters<typeof runAtlasV3Pipeline>[0]["dependencies"];
+
+	async function runWith(options: {
+		questionLanguage?: (job: AtlasPipelineJobContext) => Promise<"en" | "hu">;
+		earlierCheckpoints?: Array<{ roundNumber: number; checkpoint: unknown }>;
+	}) {
+		const fakes = buildFakes();
+		const askSystems: string[] = [];
+		const written: Array<{ stage: string; checkpoint: unknown }> = [];
+		const baseAsk = fakes.dependencies.models.ask;
+		const dependencies = {
+			...fakes.dependencies,
+			models: {
+				...fakes.dependencies.models,
+				ask: async (input: Parameters<typeof baseAsk>[0]) => {
+					askSystems.push(input.system);
+					return baseAsk(input);
+				},
+			},
+			...(options.questionLanguage
+				? { questionLanguage: options.questionLanguage }
+				: {}),
+			...(options.earlierCheckpoints
+				? { loadCheckpoints: async () => options.earlierCheckpoints ?? [] }
+				: {}),
+			writeCheckpoint: async (input: {
+				stage: string;
+				checkpoint: unknown;
+			}) => {
+				written.push({ stage: input.stage, checkpoint: input.checkpoint });
+			},
+		} as unknown as Dependencies;
+		const result = await runAtlasV3Pipeline({
+			job: JOB,
+			now: new Date("2026-09-10T00:00:00Z"),
+			dependencies,
+		});
+		return { result, askSystems, written };
+	}
+
+	const askData = (written: Array<{ stage: string; checkpoint: unknown }>) =>
+		(
+			written.find((entry) => entry.stage === "ask")?.checkpoint as {
+				data: { language?: string };
+			}
+		)?.data;
+
+	it("is the language the model read the question as, and rides the ask checkpoint", async () => {
+		const questionLanguage = vi.fn(async () => "hu" as const);
+
+		const { askSystems, written } = await runWith({ questionLanguage });
+
+		expect(questionLanguage).toHaveBeenCalledTimes(1);
+		expect(questionLanguage).toHaveBeenCalledWith(JOB);
+		expect(askSystems).toEqual([ATLAS_V3_ASK_SYSTEM.hu]);
+		expect(askData(written)?.language).toBe("hu");
+	});
+
+	it("is English when nothing says otherwise: no word list reads the question", async () => {
+		const { askSystems, written } = await runWith({});
+
+		expect(askSystems).toEqual([ATLAS_V3_ASK_SYSTEM.en]);
+		expect(askData(written)?.language).toBe("en");
+	});
+
+	it("is English when the question to the model fails", async () => {
+		const { askSystems } = await runWith({
+			questionLanguage: async () => {
+				throw new Error("control model down");
+			},
+		});
+
+		expect(askSystems).toEqual([ATLAS_V3_ASK_SYSTEM.en]);
+	});
+
+	it("is kept by a job that resumes, which does not ask again", async () => {
+		const questionLanguage = vi.fn(async () => "en" as const);
+		// The ask phase finished in Hungarian before the restart.
+		const earlier = [
+			{
+				roundNumber: 1,
+				checkpoint: {
+					schema: ATLAS_V3_CHECKPOINT_SCHEMA_VERSION,
+					phase: "ask",
+					data: {
+						ask: {
+							decision: "Whether EU solar growth stalled in 2025",
+							implicitRequirements: [],
+							perspectives: [],
+							shape: "comparison",
+							coreQuestion: "How much solar did the EU add?",
+							title: "EU solar",
+							subQuestions: ["EU solar additions 2025"],
+						},
+						language: "hu",
+					},
+				},
+			},
+		];
+
+		const { askSystems } = await runWith({
+			questionLanguage,
+			earlierCheckpoints: earlier,
+		});
+
+		expect(questionLanguage).not.toHaveBeenCalled();
+		expect(askSystems).toEqual([]);
 	});
 });

@@ -428,7 +428,7 @@ describe("the tool recorder feeds the user's source ledger", () => {
 });
 
 describe("fetch_url opens only an address the user typed or a tool returned", () => {
-	it("never calls Parallel for an address that came from neither, and says so in the turn's language", async () => {
+	it("never calls Parallel for an address that came from neither, and says so", async () => {
 		const set = tools();
 
 		const result = await fetchUrl(set, [EXFIL]);
@@ -441,15 +441,6 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 		// The refused address is the model's own words: it is never handed back.
 		expect(JSON.stringify(result)).not.toContain("exfil.example");
 		expect(JSON.stringify(result)).not.toContain("PRIVATE-DATA");
-	});
-
-	it("answers in Hungarian on a Hungarian turn", async () => {
-		const result = await fetchUrl(tools({ language: "hu" }), [EXFIL]);
-
-		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
-		expect(String(result.error)).toMatch(/research_web/);
-		expect(String(result.error)).toMatch(/Semmi nem lett letöltve/);
-		expect(JSON.stringify(result)).not.toContain("exfil.example");
 	});
 
 	it("keeps the refused address only in the call's own input, and counts it", async () => {
@@ -973,17 +964,6 @@ describe("produce_file leaves out a picture whose address has no source", () => 
 			intakeBlocks().filter((block) => block.type === "image"),
 		).toHaveLength(1);
 		expect(result.warnings).toBeUndefined();
-	});
-
-	it("says it in Hungarian on a Hungarian turn", async () => {
-		const set = tools({ language: "hu" });
-
-		const result = (await set.tools.produce_file.execute(
-			request(documentWith(httpsImage(EXFIL))),
-			{ toolCallId: "call-pictures", messages: [] },
-		)) as { warnings?: string[] };
-
-		expect(result.warnings?.[0]).toMatch(/kép kimaradt a dokumentumból/);
 	});
 
 	it("leaves a document with no refused picture exactly as it was, with no warning", async () => {

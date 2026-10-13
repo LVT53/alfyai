@@ -1,6 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { resolveResponseLanguage, type SupportedLanguage } from "../language";
+import { readReplyLanguage, type SupportedLanguage } from "../language";
 import type {
 	JsonControlMessageResult,
 	JsonControlResponseSchema,
@@ -12,7 +12,7 @@ import type {
  * Title generation, turn acknowledgment, and (later, Tier A1) the jump-rail
  * summary all ask a small local control model for a short piece of text and
  * then apply the same discipline to the result: strip leaked reasoning, check
- * plausibility, and (for language-sensitive surfaces) resolve/verify HU vs EN.
+ * plausibility, and (for language-sensitive surfaces) check HU vs EN.
  * That discipline used to live only inside `title-generator.ts`; the
  * control-model call + cost/timeout/concurrency plumbing used to live only
  * inside `turn-acknowledgment.ts`. This module owns both, once, so new callers
@@ -20,8 +20,7 @@ import type {
  *
  * Two layers:
  *  - a pure, easily-tested cleanup/language core (`stripLeakedThinking`,
- *    `isReasoningLeak`, `isPlausibleShortText`, `resolveShortTextLanguage`,
- *    `isHungarianText`),
+ *    `isReasoningLeak`, `isPlausibleShortText`),
  *  - a control-model call primitive (`callShortLocalControlModel`) that owns
  *    the concurrency cap, the hard-timeout signal, and the ADR-0047 cost
  *    accounting in ONE place, plus a plain-text convenience
@@ -402,46 +401,6 @@ export function isPlausibleShortText(
 	return true;
 }
 
-/**
- * Resolve the target language for a short local-model surface: an explicit
- * preference wins outright ("en"/"hu"); otherwise (including an "auto"
- * preference) this delegates the whole cascade to language.ts's shared
- * `resolveResponseLanguage` — an explicit request for the reply language in
- * the user's message ("answer in English", "válaszolj magyarul"; a message that
- * only mentions a language is not one, and neither is a request for a piece of
- * writing in it, "írj egy e-mailt angolul"), then the message's own detected
- * language, then
- * (2026-09-25 language review) the caller's `uiLanguage` when the message is
- * genuinely ambiguous, then English. No second fallback policy lives here:
- * this used to fall straight to `detectLanguage` on an ambiguous message,
- * which collapses to English even for a Hungarian-UI user whose message
- * just happened to be too short/ambiguous to read on its own.
- */
-export function resolveShortTextLanguage(
-	userMessage: string,
-	preference?: "auto" | "en" | "hu",
-	uiLanguage?: SupportedLanguage,
-): "en" | "hu" {
-	if (preference === "en") return "en";
-	if (preference === "hu") return "hu";
-	return resolveResponseLanguage({ latestMessage: userMessage, uiLanguage });
-}
-
-const HUNGARIAN_CHARS = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
-const STRONG_HUNGARIAN_WORDS =
-	/\b(és|hogy|nem|van|meg|ez|egy|kell|azt|volt)\b/i;
-
-/**
- * Coarse "is this text Hungarian" check used for language parity (does the
- * generated line match the resolved language). Kept byte-identical to the
- * former `title-generator.isTitleHungarian`.
- */
-export function isHungarianText(text: string): boolean {
-	if (HUNGARIAN_CHARS.test(text)) return true;
-	const matches = text.match(STRONG_HUNGARIAN_WORDS);
-	return (matches?.length ?? 0) >= 2;
-}
-
 // --- control-model call primitive -------------------------------------------
 
 // Per-feature in-flight counters for the concurrency cap. Each feature (e.g.
@@ -730,9 +689,13 @@ function cleanShortLocalText(
 		return null;
 	}
 
+	// A line in the other language than the one asked for is dropped, but only
+	// when its words are plain about it: a short line often has too few
+	// closed-class words to say (language.ts's reader, at its lower bar).
 	const expectLanguage = cleanup.expectLanguage ?? params.language;
-	if (expectLanguage && isHungarianText(text) !== (expectLanguage === "hu")) {
-		return null;
+	if (expectLanguage) {
+		const read = readReplyLanguage(text, { minWitnesses: 2 });
+		if (read !== "unknown" && read !== expectLanguage) return null;
 	}
 	if (cleanup.rejectIdentifiers && containsInternalIdentifier(text)) {
 		return null;

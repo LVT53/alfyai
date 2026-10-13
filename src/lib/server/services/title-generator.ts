@@ -5,10 +5,9 @@ import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import {
 	askWithThinkingRetry,
-	isHungarianText,
 	isPlausibleShortText,
-	resolveShortTextLanguage,
 } from "./chat-turn/short-local-text";
+import { afterReplyLanguage, readReplyLanguage } from "./language";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
 import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
@@ -447,11 +446,17 @@ export async function generateTitle(
 	uiLanguage?: "en" | "hu",
 ): Promise<string> {
 	const config = getConfig();
-	const language = resolveShortTextLanguage(
-		userMessage,
-		titleLanguage,
-		uiLanguage,
-	);
+	// The person's own setting wins; otherwise the title is in the language of
+	// the reply that was written, read from its words, never a guess made before
+	// it (language.ts's afterReplyLanguage).
+	const language: "en" | "hu" =
+		titleLanguage === "en" || titleLanguage === "hu"
+			? titleLanguage
+			: afterReplyLanguage({
+					reply: assistantResponse,
+					latestUserMessage: userMessage,
+					uiLanguage,
+				}).language;
 	const codeRelated = isCodeRelated(userMessage, assistantResponse);
 	const systemPrompt = resolveConfiguredTitleSystemPrompt(
 		language,
@@ -484,11 +489,13 @@ export async function generateTitle(
 		console.info("[TITLE_GENERATE] Fallback: empty cleanedTitle");
 		return fallbackTitle(userMessage);
 	}
-	const titleIsHungarian = isHungarianText(cleanedTitle);
-	if (titleIsHungarian !== (language === "hu")) {
+	// A title in the other language than the one asked for is replaced, but only
+	// when its words are plain about it (a short title often has too few to say).
+	const titleRead = readReplyLanguage(cleanedTitle, { minWitnesses: 2 });
+	if (titleRead !== "unknown" && titleRead !== language) {
 		console.info("[TITLE_GENERATE] Fallback: language mismatch", {
 			expected: language,
-			titleIsHungarian,
+			got: titleRead,
 			cleanedTitle,
 		});
 		return fallbackTitle(userMessage);

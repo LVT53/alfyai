@@ -231,7 +231,6 @@ async function readWeb(params: {
 			userId: params.userId,
 			conversationId: `canvas-live:${randomUUID()}`,
 			turnId: randomUUID(),
-			language: "en",
 			recorder: NO_RECORDER,
 		});
 		// The tool ends itself at the signal, but a read is bounded by THIS deadline

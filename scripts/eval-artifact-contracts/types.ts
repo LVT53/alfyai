@@ -13,11 +13,11 @@ export interface EvalCase {
 	/** A fixture the suite expects to FAIL, proving the harness can see a failure. */
 	knownBad?: boolean;
 	/**
-	 * The language this case's fixture declares, when the suite is
-	 * language-sensitive (ruling 55 — today, `app`). Generation is asked to
-	 * answer in this language (mirroring how production passes the turn's
-	 * own resolved language, never a per-message guess), and a suite's
-	 * scorer may check the response actually came back in it.
+	 * The language this case's fixture is written in, when the suite is
+	 * language-sensitive (ruling 55 — `app`, `canvas`). It is never sent: the
+	 * model reads the request and answers in its language, as in production
+	 * (no code decides the language), and a suite's scorer checks that the
+	 * response actually came back in it.
 	 */
 	language?: "en" | "hu";
 	/**

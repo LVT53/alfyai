@@ -441,7 +441,6 @@ describe("persistAssistantEvidence — what the turn made", () => {
 			artifactType: "slides",
 			title: "Quarterly deck",
 			body: "# Slide one",
-			language: "en",
 			abortSignal: new AbortController().signal,
 		});
 		entries.push({

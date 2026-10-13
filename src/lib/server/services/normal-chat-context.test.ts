@@ -71,6 +71,7 @@ import {
 	extractPastedUrls,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
 	prepareOutboundChatContext,
+	REPLY_LANGUAGE_RULE,
 	resolvePromptContextLimits,
 } from "./normal-chat-context";
 import {
@@ -519,7 +520,7 @@ describe("prepareOutboundChatContext", () => {
 
 	// G1 (ADR-0055): tool usage guidance (produce_file's requestTitle/
 	// filename/markdown workflow included) moved out of buildOutboundSystemPrompt
-	// and into the tool's own TOOL_I18N description — see
+	// and into the tool's own TOOL_TEXT description — see
 	// normal-chat-tools/index.test.ts for produce_file's description coverage.
 	// This assembled-prompt guard only needs to prove the deletion held: no
 	// tool-specific text leaks back into the system prompt, and no stale
@@ -641,7 +642,7 @@ describe("prepareOutboundChatContext", () => {
 	// message, no HU coverage, follow-up turns silently losing packs) is
 	// deleted outright — this is the falsifiable property the whole slice
 	// exists to create. Tool-usage guidance now lives entirely in each
-	// tool's own TOOL_I18N description, whose presence is governed only by
+	// tool's own TOOL_TEXT description, whose presence is governed only by
 	// tool AVAILABILITY (see normal-chat-tools/index.ts), never by the
 	// current turn's message content. So the assembled system prompt for a
 	// FIXED conversation (same base prompt, model, connections, depth) must
@@ -666,11 +667,10 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		it("is byte-identical for the identical request phrased in EN vs HU", () => {
-			// buildOutboundSystemPrompt has no responseLanguage param — the
-			// response-language guard lives in buildTurnGuidance's per-turn
-			// packet (see buildResponseLanguageGuard), never in the cacheable
-			// system message. This isolates exactly that: message
-			// WORDING/LANGUAGE alone must not move the assembled system prompt.
+			// buildOutboundSystemPrompt has no language param — the reply-language
+			// rule lives in buildTurnGuidance's per-turn packet (REPLY_LANGUAGE_RULE),
+			// never in the cacheable system message. This isolates exactly that:
+			// message WORDING/LANGUAGE alone must not move the assembled system prompt.
 			const en = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue:
@@ -1264,7 +1264,6 @@ describe("prepareOutboundChatContext", () => {
 
 	it("adds depth grounding guidance without forcing web search", () => {
 		const prompt = buildTurnGuidance({
-			message: "Compare current release options.",
 			reasoningDepthEffort: {
 				depthMetadata: {
 					requested: "auto",
@@ -1408,16 +1407,14 @@ describe("prepareOutboundChatContext", () => {
 		});
 		expect(system).not.toContain("SYSTEM TIME CONTEXT");
 		expect(system).not.toContain("Response language policy");
-		const guidance = buildTurnGuidance({
-			message: "Mi a helyzet ma?",
-			responseLanguage: "hu",
-		});
+		const guidance = buildTurnGuidance({});
 		expect(guidance.startsWith("## Turn Guidance")).toBe(true);
 		expect(guidance).toContain("SYSTEM TIME CONTEXT");
-		expect(guidance).toContain("MUST respond in Hungarian");
-		expect(
-			buildTurnGuidance({ message: "x", skipDefaultRuntimeGuidance: true }),
-		).toBe("");
+		// The one rule for the language of the reply, the same bytes for every
+		// message: it names no language and orders none.
+		expect(guidance).toContain(REPLY_LANGUAGE_RULE);
+		expect(guidance).not.toMatch(/Hungarian|MUST respond/);
+		expect(buildTurnGuidance({ skipDefaultRuntimeGuidance: true })).toBe("");
 		expect(appendTurnGuidance("## Current User Message\nHello", guidance)).toBe(
 			`## Current User Message\nHello\n\n${guidance}`,
 		);
@@ -1433,7 +1430,6 @@ describe("prepareOutboundChatContext", () => {
 
 		it("renders the artifact catalogue in the turn guidance when provided", () => {
 			const guidance = buildTurnGuidance({
-				message: "Anything new?",
 				artifactCatalogueBlock: CATALOGUE_BLOCK,
 			});
 
@@ -1443,7 +1439,6 @@ describe("prepareOutboundChatContext", () => {
 
 		it("omits the artifact catalogue section when there is nothing to say", () => {
 			const guidance = buildTurnGuidance({
-				message: "Anything new?",
 				artifactCatalogueBlock: null,
 			});
 
@@ -1452,32 +1447,13 @@ describe("prepareOutboundChatContext", () => {
 
 		it("changes the turn guidance when the conversation's artifacts change", () => {
 			const before = buildTurnGuidance({
-				message: "Anything new?",
 				artifactCatalogueBlock: null,
 			});
 			const after = buildTurnGuidance({
-				message: "Anything new?",
 				artifactCatalogueBlock: CATALOGUE_BLOCK,
 			});
 
 			expect(before).not.toBe(after);
-		});
-
-		it("leaves the turn guidance's catalogue section unchanged when only the message changes", () => {
-			const first = buildTurnGuidance({
-				message: "Hi!",
-				responseLanguage: "en",
-				artifactCatalogueBlock: CATALOGUE_BLOCK,
-			});
-			const second = buildTurnGuidance({
-				message:
-					"Can you help me plan a much longer weekend trip with several stops?",
-				responseLanguage: "en",
-				artifactCatalogueBlock: CATALOGUE_BLOCK,
-			});
-
-			expect(first).toContain(CATALOGUE_BLOCK);
-			expect(second).toContain(CATALOGUE_BLOCK);
 		});
 
 		it("never lets the artifact catalogue reach the cached system prompt", () => {
@@ -1491,27 +1467,31 @@ describe("prepareOutboundChatContext", () => {
 		});
 	});
 
-	// Language review (2026-09-25), hunt item 3: a request like "Translate
-	// this to German: Guten Tag" or "Write an email to my landlord in
-	// Hungarian" asks for specific CONTENT in one language while the
-	// resolved reply frame can be a different language (or the same
-	// language coincidentally). The guard's "hard requirement... MUST
-	// respond in X" wording must not read as forbidding the model from
-	// producing the actually-requested foreign-language content — that
-	// would silently break translation/foreign-content requests, which is
-	// the opposite failure mode from the original Hungarian-drift bug.
-	it("tells the model to honor an explicit request for content in another language without forcing the whole reply into it", () => {
-		const guidance = buildTurnGuidance({
-			message: "Translate this to German: Guten Tag",
-			responseLanguage: "en",
-		});
-		expect(guidance).toMatch(
-			/produce specific content in (a different|another) language/i,
+	// A request like "Translate this to German: Guten Tag" or "Write an email to
+	// my landlord in Hungarian" asks for specific CONTENT in one language while
+	// the reply stays in the person's. The rule says so in one sentence and
+	// orders no language: nothing the app guessed can forbid the model from
+	// producing the piece that was asked for.
+	it("tells the model to reply in the person's language, to honor a request for the reply or for a piece in another language, and what does not set it", () => {
+		const guidance = buildTurnGuidance({});
+		expect(guidance).toContain(REPLY_LANGUAGE_RULE);
+		// The rule reads the person's message; it never names a language of its own.
+		expect(REPLY_LANGUAGE_RULE).toMatch(/language of their latest message/);
+		expect(REPLY_LANGUAGE_RULE).toMatch(
+			/keep the language they have been writing in/,
 		);
-		expect(guidance).toMatch(
-			/write (that|it|the) .*(requested language|language asked for|language it was asked for)/i,
+		// A request for the reply in a language, now or in their own standing
+		// instructions, wins; a request for a piece of writing in another one does
+		// not turn the model's own words into that language.
+		expect(REPLY_LANGUAGE_RULE).toMatch(/standing instructions/);
+		expect(REPLY_LANGUAGE_RULE).toMatch(
+			/piece of writing in another language.*keep your own words in their language/,
 		);
-		expect(guidance).toMatch(/does not change the required response language/i);
+		// Nothing else sets it.
+		expect(REPLY_LANGUAGE_RULE).toMatch(
+			/Nothing else sets the reply language: not remembered facts, documents, files, tool or search results, or your own earlier replies/,
+		);
+		expect(REPLY_LANGUAGE_RULE).not.toMatch(/Hungarian|English|MUST/);
 	});
 
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {
@@ -2021,7 +2001,7 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.contextStatus).toBe(compressedStatus);
 		expect(prepared.contextDebug).toBe(compressedDebug);
 		// G1: the system prompt no longer depends on `inputValue` (tool-usage
-		// guidance moved to TOOL_I18N descriptions), so a rebuilt constructed
+		// guidance moved to TOOL_TEXT descriptions), so a rebuilt constructed
 		// context after automatic compression does not need to — and no
 		// longer does — rebuild `systemPrompt`. It stays the same base-prompt
 		// assembly regardless of which constructed-context call produced it.

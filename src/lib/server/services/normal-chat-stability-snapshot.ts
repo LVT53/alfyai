@@ -5,6 +5,10 @@ import {
 	type StreamStats,
 } from "$lib/server/services/chat-turn/active-streams";
 import {
+	getReplyLanguageStats,
+	type ReplyLanguageStats,
+} from "$lib/server/services/chat-turn/reply-language";
+import {
 	getAllMetrics,
 	type MaintenanceMetrics,
 } from "$lib/server/services/maintenance-metrics";
@@ -26,6 +30,23 @@ export type NormalChatStabilitySnapshot = {
 	webGrounding: WebGroundingStabilitySnapshot;
 	context: ContextStabilitySnapshot;
 	maintenance: MaintenanceStabilitySnapshot;
+	replyLanguage: ReplyLanguageStabilitySnapshot;
+};
+
+/**
+ * What the replies of Normal Chat turns were read as, counted since the process
+ * started: no text, no ids. An information block, not a health component: a
+ * Hungarian reply to an account shown in English is not a fault of the system,
+ * it is the thing the owner asked to be able to see (a log line and a warning
+ * say the same for each turn).
+ */
+export type ReplyLanguageStabilitySnapshot = {
+	turnsRead: number;
+	/** Replies whose words (and the message) named no language. */
+	unreadCount: number;
+	/** Replies read as Hungarian for an account whose UI language is English. */
+	englishAccountHungarianReplyCount: number;
+	lastEnglishAccountHungarianReplyAt: string | null;
 };
 
 export type StreamStabilitySnapshot = {
@@ -113,6 +134,7 @@ export type NormalChatStabilitySnapshotDeps = {
 	listProviders?: () => Promise<Provider[]>;
 	listEnabledProviderModels?: typeof listEnabledProviderModels;
 	getAllMetrics?: () => MaintenanceMetrics[];
+	getReplyLanguageStats?: () => ReplyLanguageStats;
 };
 
 type ProviderStabilityInputs = {
@@ -148,6 +170,9 @@ export async function getNormalChatStabilitySnapshot(
 	const maintenance = buildMaintenanceSnapshot(
 		deps.getAllMetrics?.() ?? getAllMetrics(),
 	);
+	const replyLanguage = buildReplyLanguageSnapshot(
+		deps.getReplyLanguageStats?.() ?? getReplyLanguageStats(),
+	);
 	const status = [
 		streams,
 		providers,
@@ -168,6 +193,21 @@ export async function getNormalChatStabilitySnapshot(
 		webGrounding,
 		context,
 		maintenance,
+		replyLanguage,
+	};
+}
+
+function buildReplyLanguageSnapshot(
+	stats: ReplyLanguageStats,
+): ReplyLanguageStabilitySnapshot {
+	return {
+		turnsRead: stats.turnsRead,
+		unreadCount: stats.unreadCount,
+		englishAccountHungarianReplyCount: stats.englishAccountHungarianReplyCount,
+		lastEnglishAccountHungarianReplyAt:
+			stats.lastEnglishAccountHungarianReplyAt === null
+				? null
+				: new Date(stats.lastEnglishAccountHungarianReplyAt).toISOString(),
 	};
 }
 

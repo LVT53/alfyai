@@ -4646,49 +4646,24 @@ describe("createNormalChatTools", () => {
 	describe("connection write guidance in tool descriptions (Redesign R8)", () => {
 		it.each([
 			{
-				lang: "en" as const,
 				tool: "files",
 				writeSubstring: "save",
 				confirmSubstring: "propos",
 				enableSubstring: "enabled writes",
 			},
 			{
-				lang: "en" as const,
 				tool: "email",
 				writeSubstring: "send",
 				confirmSubstring: "propos",
 				enableSubstring: "enabled writes",
 			},
 			{
-				lang: "en" as const,
 				tool: "photos",
 				writeSubstring: "add photos to",
 				confirmSubstring: "propos",
 				enableSubstring: "enabled writes",
 			},
-			{
-				lang: "hu" as const,
-				tool: "files",
-				writeSubstring: "mentés",
-				confirmSubstring: "javasol",
-				enableSubstring: "engedélyezve kell lennie",
-			},
-			{
-				lang: "hu" as const,
-				tool: "email",
-				writeSubstring: "küldés",
-				confirmSubstring: "javasol",
-				enableSubstring: "engedélyezve kell lennie",
-			},
-			{
-				lang: "hu" as const,
-				tool: "photos",
-				writeSubstring: "album",
-				confirmSubstring: "javasol",
-				enableSubstring: "engedélyezve kell lennie",
-			},
-		])("$lang $tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
-			lang,
+		])("$tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
 			tool,
 			writeSubstring,
 			confirmSubstring,
@@ -4698,7 +4673,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				language: lang,
 				enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
 			});
 
@@ -4715,7 +4689,7 @@ describe("createNormalChatTools", () => {
 			);
 		});
 
-		it("email description warns a sent email cannot be unsent (en)", () => {
+		it("email description warns a sent email cannot be unsent ", () => {
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
 				conversationId: "conversation-1",
@@ -4726,19 +4700,7 @@ describe("createNormalChatTools", () => {
 			expect(tools.email?.description).toContain("cannot be unsent");
 		});
 
-		it("email description warns a sent email cannot be unsent (hu)", () => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				language: "hu",
-				enabledConnectionCapabilities: new Set(["email"]),
-			});
-
-			expect(tools.email?.description).toContain("nem lehet visszavonni");
-		});
-
-		it("photos description says originals are never deleted or modified (en)", () => {
+		it("photos description says originals are never deleted or modified", () => {
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
 				conversationId: "conversation-1",
@@ -4748,27 +4710,13 @@ describe("createNormalChatTools", () => {
 
 			expect(tools.photos?.description).toContain("never deletes or modifies");
 		});
-
-		it("photos description says originals are never deleted or modified (hu)", () => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				language: "hu",
-				enabledConnectionCapabilities: new Set(["photos"]),
-			});
-
-			expect(tools.photos?.description).toContain(
-				"soha nem törli és nem módosítja",
-			);
-		});
 	});
 
 	// G1 (ADR-0055) — the Normal Chat guidance-pack selector (English regex
 	// on the latest message, no HU coverage) is deleted; each core tool's
 	// usage rules (when to call, argument shape, one example, output
-	// handling, failure behaviour) now live directly on its own TOOL_I18N
-	// description, in BOTH languages, unconditionally — tool AVAILABILITY
+	// handling, failure behaviour) now live directly on its own TOOL_TEXT
+	// description, unconditionally — tool AVAILABILITY
 	// (not message content) governs whether the model sees this guidance.
 	// RED before the migration: research_web/fetch_url/memory_context/
 	// image_search/produce_file were each a single terse sentence with none
@@ -4780,33 +4728,18 @@ describe("createNormalChatTools", () => {
 			| "memory_context"
 			| "image_search"
 			| "produce_file",
-			{ en: string[]; hu: string[] }
+			string[]
 		> = {
-			research_web: {
-				// P2 prompt diet — the citation-formatting and "if unavailable
-				// say so" sentences were removed as duplicates of the base
-				// prompt's `## Tools` policy and reliability rules; this tool's
-				// description now carries only its own parameter contract,
-				// example, and output-handling behaviour.
-				en: ["objective", "searchQueries", "answerBriefMarkdown"],
-				hu: ["objective", "searchQueries", "answerBriefMarkdown"],
-			},
-			fetch_url: {
-				en: ["objective", "answerBriefMarkdown"],
-				hu: ["objective", "answerBriefMarkdown"],
-			},
-			memory_context: {
-				en: ["`persona`", "`history`", "`project`", "conversationId"],
-				hu: ["`persona`", "`history`", "`project`", "conversationId"],
-			},
-			image_search: {
-				en: ["![alt text](url)", "invisible"],
-				hu: ["![alt szöveg](url)", "láthatatlan"],
-			},
-			produce_file: {
-				en: ["patches", "read_generated_file", "requestTitle"],
-				hu: ["patches", "read_generated_file", "requestTitle"],
-			},
+			// P2 prompt diet — the citation-formatting and "if unavailable
+			// say so" sentences were removed as duplicates of the base
+			// prompt's `## Tools` policy and reliability rules; this tool's
+			// description now carries only its own parameter contract,
+			// example, and output-handling behaviour.
+			research_web: ["objective", "searchQueries", "answerBriefMarkdown"],
+			fetch_url: ["objective", "answerBriefMarkdown"],
+			memory_context: ["`persona`", "`history`", "`project`", "conversationId"],
+			image_search: ["![alt text](url)", "invisible"],
+			produce_file: ["patches", "read_generated_file", "requestTitle"],
 		};
 
 		it.each(
@@ -4814,19 +4747,14 @@ describe("createNormalChatTools", () => {
 				Object.keys(USAGE_RULE_FRAGMENTS) as Array<
 					keyof typeof USAGE_RULE_FRAGMENTS
 				>
-			).flatMap((toolName) => [
-				{ toolName, lang: "en" as const },
-				{ toolName, lang: "hu" as const },
-			]),
-		)("$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour) in $lang", ({
+			).map((toolName) => ({ toolName })),
+		)("$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour)", ({
 			toolName,
-			lang,
 		}) => {
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				language: lang,
 			});
 			const description = requireTool(
 				(tools as Record<string, { description: string } | undefined>)[
@@ -4834,41 +4762,23 @@ describe("createNormalChatTools", () => {
 				],
 			).description;
 
-			for (const fragment of USAGE_RULE_FRAGMENTS[toolName][lang]) {
+			for (const fragment of USAGE_RULE_FRAGMENTS[toolName]) {
 				expect(description).toContain(fragment);
 			}
 		});
 
-		it("image_search carries the markdown-embed-or-invisible rule in hu at real length (not ~6 words)", () => {
+		it("image_search carries the markdown-embed-or-invisible rule at real length (not ~6 words)", () => {
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				language: "hu",
-			});
-
-			const description = tools.image_search.description ?? "";
-			expect(description).toContain("![alt szöveg](url)");
-			expect(description).toContain("láthatatlan");
-			// Guards against the description regressing back to the ~6-word
-			// stub ("Képkeresés az interneten az aktuális kéréshez.") the
-			// slice's TDD red phase started from.
-			expect(description.split(/\s+/).filter(Boolean).length).toBeGreaterThan(
-				20,
-			);
-		});
-
-		it("image_search carries the markdown-embed-or-invisible rule in en at parity length with hu", () => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				language: "en",
 			});
 
 			const description = tools.image_search.description ?? "";
 			expect(description).toContain("![alt text](url)");
 			expect(description).toContain("invisible");
+			// Guards against the description regressing back to the ~6-word
+			// stub the slice's TDD red phase started from.
 			expect(description.split(/\s+/).filter(Boolean).length).toBeGreaterThan(
 				20,
 			);
@@ -4883,8 +4793,8 @@ describe("createNormalChatTools", () => {
 // use this for X, use Y" — which several descriptions simply did not have.
 // The rewrite gave all of them one template (purpose · when to call · when
 // NOT to call, naming the tool to use instead · what it returns · cost or
-// prerequisite). These guards keep the negative clause present in BOTH
-// languages and keep the catalogue inside its token budget, because the Qwen
+// prerequisite). These guards keep the negative clause present
+// and keep the catalogue inside its token budget, because the Qwen
 // chat template renders every description verbatim into the prompt on every
 // single turn.
 // Feature 2 · Artifacts (Slice 5a, decisions.md ruling 43). The domain logic
@@ -4897,9 +4807,7 @@ describe("createNormalChatTools", () => {
 // throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
 // exactly the "an id this conversation does not have" case.
 describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
-	function artifactTools(
-		overrides: { language?: "en" | "hu"; requestText?: string } = {},
-	) {
+	function artifactTools(overrides: { requestText?: string } = {}) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
@@ -4918,91 +4826,55 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 	// including the tool-catalogue snapshot and token-budget tests below.
 	const realDocumentHandler = CREATE_ARTIFACT_HANDLERS.document;
 
-	// Ruling 55: the create closure threads ctx.language to the per-kind
-	// handler instead of each kind re-detecting it from the model's body.
-	// "document" stands in for any kind here — the wiring is in the shared
-	// create_artifact closure, not in a specific kind's own handler.
-	describe("create_artifact threads ctx.language to the handler (ruling 55)", () => {
+	// The create closure hands the per-kind handler the person's own message of
+	// the turn, never a language the server guessed: the one kind that writes
+	// text of its own, an App, writes it in the language of these words (or the
+	// one they ask for). "document" stands in for any kind here — the wiring is
+	// in the shared create_artifact closure, not in a specific kind's handler.
+	describe("create_artifact hands the handler the person's own message", () => {
 		afterEach(() => {
 			CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
 		});
 
-		it("passes the turn's own resolved language through unchanged", async () => {
-			let receivedLanguage: string | undefined;
+		function recordRequestText(): Array<string | undefined> {
+			const received: Array<string | undefined> = [];
 			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
-				receivedLanguage = params.language;
+				received.push(params.requestText);
 				return {
 					ok: true,
 					value: { artifactId: "artifact-1", title: params.title },
 				};
 			};
-			const { tools } = artifactTools({ language: "hu" });
+			return received;
+		}
 
-			await tools.create_artifact.execute?.(
-				{ artifactType: "document", title: "Terv", body: "tartalom" },
-				{ toolCallId: "call-1", messages: [] },
-			);
-
-			expect(receivedLanguage).toBe("hu");
-		});
-
-		// Ruling 75: the turn keeps its language when the message asks for content in
-		// another one, so the App (which the server writes itself, in ONE language) is
-		// told the language the person asked for, not the turn's.
-		it("passes the language the message asks the content in, when it names one", async () => {
-			const received: string[] = [];
-			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
-				received.push(params.language);
-				return {
-					ok: true,
-					value: { artifactId: "artifact-1", title: params.title },
-				};
-			};
-			const call = (overrides: Parameters<typeof artifactTools>[0]) =>
-				artifactTools(overrides).tools.create_artifact.execute?.(
-					{ artifactType: "document", title: "Kvíz", body: "tartalom" },
+		it("passes the turn's request text through unchanged", async () => {
+			const received = recordRequestText();
+			for (const requestText of [
+				"Készíts egy kvíz alkalmazást angolul",
+				"Create a quiz app in Hungarian",
+			]) {
+				await artifactTools({ requestText }).tools.create_artifact.execute?.(
+					{ artifactType: "document", title: "Quiz", body: "content" },
 					{ toolCallId: "call-1", messages: [] },
 				);
+			}
 
-			await call({
-				language: "hu",
-				requestText: "Készíts egy kvíz alkalmazást angolul",
-			});
-			await call({
-				language: "en",
-				requestText: "Create a quiz app in Hungarian",
-			});
-			// Nothing asked for: the turn's own language, as ever.
-			await call({
-				language: "hu",
-				requestText: "Készíts egy kvíz alkalmazást",
-			});
-			// A question about a language asks for no content in it.
-			await call({
-				language: "hu",
-				requestText: "Hogy mondják angolul, hogy kvíz?",
-			});
-
-			expect(received).toEqual(["en", "hu", "hu", "hu"]);
+			expect(received).toEqual([
+				"Készíts egy kvíz alkalmazást angolul",
+				"Create a quiz app in Hungarian",
+			]);
 		});
 
-		it('defaults to "en" when the turn context carries no language', async () => {
-			let receivedLanguage: string | undefined;
-			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
-				receivedLanguage = params.language;
-				return {
-					ok: true,
-					value: { artifactId: "artifact-1", title: params.title },
-				};
-			};
-			const { tools } = artifactTools();
+		it("passes nothing when the turn carries no request text", async () => {
+			const received = recordRequestText();
 
-			await tools.create_artifact.execute?.(
+			await artifactTools().tools.create_artifact.execute?.(
 				{ artifactType: "document", title: "Plan", body: "content" },
 				{ toolCallId: "call-1", messages: [] },
 			);
 
-			expect(receivedLanguage).toBe("en");
+			expect(received).toEqual([undefined]);
 		});
 	});
 
@@ -5336,14 +5208,13 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 // exist." Exercises the REAL wiring (createNormalChatTools), not just
 // kind-prose.ts's fragment functions directly, so a regression anywhere in
 // the assembly path — the schemas in create.ts/edit.ts, or the descriptions
-// built in index.ts — is caught here, in both languages.
+// built in index.ts — is caught here.
 describe("advertised artifact kinds match the registry (only tell the model what exists)", () => {
-	function buildArtifactTools(lang: "en" | "hu") {
+	function buildArtifactTools() {
 		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: lang,
 		}).tools;
 	}
 
@@ -5354,16 +5225,10 @@ describe("advertised artifact kinds match the registry (only tell the model what
 	}
 
 	// Canvas registered in Wave 3; Slides has no create handler yet.
-	const SLIDES_MARKERS = {
-		en: ["slides", "Slides"],
-		hu: ["Diasor", "diasor"],
-	} as const;
+	const SLIDES_MARKERS = ["slides", "Slides"] as const;
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions slides", (lang) => {
-		const tools = buildArtifactTools(lang);
+	it("with today's registry, no create_artifact/read_artifact/edit_artifact text mentions slides", () => {
+		const tools = buildArtifactTools();
 		const surfaces = [
 			tools.create_artifact.description,
 			schemaJson(tools.create_artifact.inputSchema),
@@ -5374,8 +5239,8 @@ describe("advertised artifact kinds match the registry (only tell the model what
 		];
 
 		for (const surface of surfaces) {
-			for (const marker of SLIDES_MARKERS[lang]) {
-				expect(surface, `${lang} marker "${marker}"`).not.toContain(marker);
+			for (const marker of SLIDES_MARKERS) {
+				expect(surface, `marker "${marker}"`).not.toContain(marker);
 			}
 		}
 	});
@@ -5387,7 +5252,7 @@ describe("advertised artifact kinds match the registry (only tell the model what
 				reason: "not used by this test",
 			});
 
-			const tools = buildArtifactTools("en");
+			const tools = buildArtifactTools();
 
 			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("slides");
 			expect(tools.create_artifact.description).toContain(
@@ -5399,23 +5264,19 @@ describe("advertised artifact kinds match the registry (only tell the model what
 	});
 
 	it("removing slides's handler again drops it from create_artifact's schema and description", () => {
-		const before = buildArtifactTools("en");
+		const before = buildArtifactTools();
 		expect(schemaJson(before.create_artifact.inputSchema)).not.toContain(
 			"slides",
 		);
 		expect(before.create_artifact.description).not.toContain("slides for");
 	});
 
-	it("Canvas is registered: create_artifact offers it, in both languages, with the board's own words", () => {
-		for (const lang of ["en", "hu"] as const) {
-			const tools = buildArtifactTools(lang);
-			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
-			expect(tools.create_artifact.description).toContain(
-				lang === "en"
-					? "canvas for a board of notes and frames arranged in space, with arrows between them"
-					: "canvas térben elrendezett jegyzetek és keretek táblájához, nyilakkal összekötve",
-			);
-		}
+	it("Canvas is registered: create_artifact offers it, with the board's own words", () => {
+		const tools = buildArtifactTools();
+		expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+		expect(tools.create_artifact.description).toContain(
+			"canvas for a board of notes and frames arranged in space, with arrows between them",
+		);
 	});
 });
 
@@ -5423,16 +5284,15 @@ describe("advertised artifact kinds match the registry (only tell the model what
 // showed the model the real Document `op` values, so it guessed seven wrong
 // synonyms in a row and gave up, duplicating the document with
 // create_artifact instead of retrying the edit. Through the REAL wiring
-// (createNormalChatTools, both languages), not kind-prose.ts's functions in
+// (createNormalChatTools), not kind-prose.ts's functions in
 // isolation, so a regression in the assembly path (edit.ts's schema factory,
 // index.ts's description builder) is caught here too.
-describe("edit_artifact's Document op contract is shown to the model, in both languages (dev incident, 2026-09-26)", () => {
-	function buildArtifactTools(lang: "en" | "hu") {
+describe("edit_artifact's Document op contract is shown to the model (dev incident, 2026-09-26)", () => {
+	function buildArtifactTools() {
 		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: lang,
 		}).tools;
 	}
 
@@ -5443,9 +5303,7 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 	}
 
 	it("the schema shown to the model carries all five real op values as a discriminated union", () => {
-		const schema = schemaJson(
-			buildArtifactTools("en").edit_artifact.inputSchema,
-		);
+		const schema = schemaJson(buildArtifactTools().edit_artifact.inputSchema);
 		for (const kind of PATCH_OP_KINDS) {
 			expect(schema).toContain(kind);
 		}
@@ -5461,18 +5319,13 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 		}
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("the %s description carries the SAME worked example, and its own never-duplicate sentence", (lang) => {
-		const description = buildArtifactTools(lang).edit_artifact.description;
+	it("the description carries the SAME worked example, and its own never-duplicate sentence", () => {
+		const description = buildArtifactTools().edit_artifact.description;
 		expect(description).toContain(
 			JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE),
 		);
 		expect(description).toContain(
-			lang === "en"
-				? "Never make a new item to work around a refused edit"
-				: "Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet",
+			"Never make a new item to work around a refused edit",
 		);
 	});
 });
@@ -5483,31 +5336,26 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 // produce_file for a DOCX (twice). The rule is on both tools it chooses between,
 // so it meets the model whichever description it is weighing.
 describe("a request for a document with no file format named is a Document, not a file (F10, ruling 77)", () => {
-	function buildTools(lang: "en" | "hu") {
+	function buildTools() {
 		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: lang,
 		}).tools;
 	}
 
-	it.each([
-		["en", "A request for a document with no file format named is a Document"],
-		["hu", "Ha a felhasználó formátum nélkül kér dokumentumot, az Dokumentum"],
-	] as const)("the %s create_artifact and produce_file descriptions both say it, and name the other tool", (lang, rule) => {
-		const tools = buildTools(lang);
+	it("the create_artifact and produce_file descriptions both say it, and name the other tool", () => {
+		const rule =
+			"A request for a document with no file format named is a Document";
+		const tools = buildTools();
 		expect(tools.create_artifact.description).toContain(rule);
 		expect(tools.produce_file.description).toContain(rule);
 		expect(tools.produce_file.description).toContain("create_artifact");
 		expect(tools.create_artifact.description).toContain("produce_file");
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("the %s create_artifact description sends a named format or a download to produce_file", (lang) => {
-		const description = buildTools(lang).create_artifact.description;
+	it("the create_artifact description sends a named format or a download to produce_file", () => {
+		const description = buildTools().create_artifact.description;
 		expect(description).toContain("PDF, DOCX");
 	});
 });
@@ -5516,12 +5364,11 @@ describe("a request for a document with no file format named is a Document, not 
 // IS changed from the chat, and how. It quoted "Apps are not edited here" in its
 // own thinking and made a second App instead.
 describe("edit_artifact tells the model how an App is changed (F2, ruling 77)", () => {
-	function buildArtifactTools(lang: "en" | "hu") {
+	function buildArtifactTools() {
 		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: lang,
 		}).tools;
 	}
 
@@ -5531,27 +5378,17 @@ describe("edit_artifact tells the model how an App is changed (F2, ruling 77)", 
 		);
 	}
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("the %s description gives the App an instruction rule and its worked example, and never says Apps are not edited here", (lang) => {
-		const description = buildArtifactTools(lang).edit_artifact.description;
+	it("the description gives the App an instruction rule and its worked example, and never says Apps are not edited here", () => {
+		const description = buildArtifactTools().edit_artifact.description;
 		expect(description).toContain("instruction");
 		expect(description).toContain(JSON.stringify(EDIT_ARTIFACT_APP_EXAMPLE));
-		for (const retired of [
-			"not edited here",
-			"nem szerkesztjük",
-			"new App with the changes",
-			"új Alkalmazást a változtatásokkal",
-		]) {
+		for (const retired of ["not edited here", "new App with the changes"]) {
 			expect(description).not.toContain(retired);
 		}
 	});
 
 	it("the schema shown to the model carries `instruction`, described for Apps, and the executed schema takes it", () => {
-		const schema = schemaJson(
-			buildArtifactTools("en").edit_artifact.inputSchema,
-		);
+		const schema = schemaJson(buildArtifactTools().edit_artifact.inputSchema);
 		expect(schema).toContain('"instruction"');
 		expect(schema).toContain("Apps only");
 	});
@@ -5580,19 +5417,18 @@ describe("edit_artifact tells the model how an App is changed (F2, ruling 77)", 
 	});
 });
 
-// Ruling 62, through the REAL wiring (createNormalChatTools, both languages):
+// Ruling 62, through the REAL wiring (createNormalChatTools):
 // the Canvas `ops` the model is shown is the board vocabulary's own schema, the
 // description carries the worked example the tests parse, and create_artifact's
 // `body` shows the board a create accepts. A regression in the assembly path
 // (edit.ts's schema factory, kind-prose.ts, index.ts's description builders) is
 // caught here rather than by the next live check.
-describe("edit_artifact and create_artifact show the Canvas contract to the model, in both languages (ruling 62)", () => {
-	function buildArtifactTools(lang: "en" | "hu") {
+describe("edit_artifact and create_artifact show the Canvas contract to the model (ruling 62)", () => {
+	function buildArtifactTools() {
 		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: lang,
 		}).tools;
 	}
 
@@ -5603,9 +5439,7 @@ describe("edit_artifact and create_artifact show the Canvas contract to the mode
 	}
 
 	it("the schema shown to the model carries all eight op names, and only the five blocks it may add", () => {
-		const schema = schemaJson(
-			buildArtifactTools("en").edit_artifact.inputSchema,
-		);
+		const schema = schemaJson(buildArtifactTools().edit_artifact.inputSchema);
 		for (const op of [
 			"add_frame",
 			"add_node",
@@ -5628,11 +5462,8 @@ describe("edit_artifact and create_artifact show the Canvas contract to the mode
 		expect(schema).toContain('"const":"replaceBlock"');
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("the %s edit description carries the Canvas worked example and the Document's", (lang) => {
-		const description = buildArtifactTools(lang).edit_artifact.description;
+	it("the edit description carries the Canvas worked example and the Document's", () => {
+		const description = buildArtifactTools().edit_artifact.description;
 		expect(description).toContain(JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE));
 		expect(description).toContain(
 			JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE),
@@ -5640,9 +5471,7 @@ describe("edit_artifact and create_artifact show the Canvas contract to the mode
 	});
 
 	it("create_artifact's body field shows the board a create accepts", () => {
-		const schema = schemaJson(
-			buildArtifactTools("en").create_artifact.inputSchema,
-		);
+		const schema = schemaJson(buildArtifactTools().create_artifact.inputSchema);
 		// Inside a JSON schema string the example's quotes are escaped once more.
 		expect(schema).toContain(
 			JSON.stringify(JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)).slice(
@@ -5666,22 +5495,16 @@ describe("tool description hygiene", () => {
 		"tasks",
 	] as const;
 
-	const NEGATIVE_CASE_MARKER = {
-		en: "Do not use",
-		hu: "Ne használd",
-	} as const;
-
-	// `done` is a turn-control tool with a single, untranslated description
-	// (it is not in TOOL_I18N), so it carries the English marker in both
-	// languages.
-	const LANGUAGE_NEUTRAL_TOOLS = new Set(["done"]);
+	const NEGATIVE_CASE_MARKER = "Do not use";
 
 	// Measured against the served model's vLLM /tokenize endpoint
 	// (Qwen3.8-Flash-Next), these descriptions come out at 4.05-4.69
-	// chars/token in English and 2.94-3.26 in Hungarian. The divisors below
-	// are the dense end of each range, so estimateTokens over-counts slightly
-	// and never lets a description through that really exceeds the budget.
-	const CHARS_PER_TOKEN = { en: 4.0, hu: 2.9 } as const;
+	// chars/token. The divisor below is the dense end of that range, so
+	// estimateTokens over-counts slightly and never lets a description through
+	// that really exceeds the budget. (The catalogue is English whatever the
+	// person writes; until 2026-10-13 a Hungarian one existed beside it, at
+	// 2.94-3.26 chars/token, and its own ceiling of 8,406.)
+	const CHARS_PER_TOKEN = 4.0;
 	// Today's binding cases, re-measured (not inherited) with the estimator
 	// below: map_route in Hungarian (~703 estimated tokens, coverage suffix
 	// included) per tool, and 4,098 en / 6,504 hu for the whole catalogue.
@@ -5893,13 +5716,13 @@ describe("tool description hygiene", () => {
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 859;
-	const CATALOGUE_TOKEN_CEILING = { en: 5222, hu: 8406 } as const;
+	const CATALOGUE_TOKEN_CEILING = 5222;
 
-	function estimateTokens(text: string, lang: "en" | "hu"): number {
-		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
+	function estimateTokens(text: string): number {
+		return Math.ceil(text.length / CHARS_PER_TOKEN);
 	}
 
-	function buildFullToolSet(language: "en" | "hu") {
+	function buildFullToolSet() {
 		// map_route needs ORS configured and research_web/fetch_url need the
 		// Parallel key, so the catalogue below is every tool a fully connected
 		// user's turn can see.
@@ -5916,19 +5739,16 @@ describe("tool description hygiene", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language,
 			enabledConnectionCapabilities: new Set(ALL_CONNECTION_CAPABILITIES),
 		}).tools;
 	}
 
-	function buildFullToolCatalogue(
-		language: "en" | "hu",
-	): Array<{ name: string; description: string }> {
+	function buildFullToolCatalogue(): Array<{
+		name: string;
+		description: string;
+	}> {
 		return Object.entries(
-			buildFullToolSet(language) as unknown as Record<
-				string,
-				{ description?: string }
-			>,
+			buildFullToolSet() as unknown as Record<string, { description?: string }>,
 		).map(([name, definition]) => ({
 			name,
 			description: definition.description ?? "",
@@ -5978,12 +5798,9 @@ describe("tool description hygiene", () => {
 		return sentTools;
 	}
 
-	function renderCatalogueSnapshot(
-		language: "en" | "hu",
-		sentTools: unknown,
-	): string {
+	function renderCatalogueSnapshot(sentTools: unknown): string {
 		return [
-			`MODEL-FACING TOOL CATALOGUE (${language}) - THIS FILE IS THE CACHED PROMPT PREFIX.`,
+			"MODEL-FACING TOOL CATALOGUE (English, whatever language the person writes) - THIS FILE IS THE CACHED PROMPT PREFIX.",
 			"",
 			"Written by src/lib/server/services/normal-chat-tools/index.test.ts; never edit it by hand.",
 			"Below is the chat request's `tools` array, pretty-printed: every tool's name, description",
@@ -6005,7 +5822,7 @@ describe("tool description hygiene", () => {
 
 	it("exposes the whole tool catalogue when everything is configured and connected", () => {
 		expect(
-			buildFullToolCatalogue("en")
+			buildFullToolCatalogue()
 				.map((entry) => entry.name)
 				.sort(),
 		).toEqual(
@@ -6044,47 +5861,33 @@ describe("tool description hygiene", () => {
 	// bare synchronous `tool()`, no async work to bound).
 	it("has a TOOL_TIMEOUTS_MS row for every enveloped tool in the full catalogue", () => {
 		const ENVELOPE_EXEMPT_TOOLS = new Set(["done"]);
-		for (const { name } of buildFullToolCatalogue("en")) {
+		for (const { name } of buildFullToolCatalogue()) {
 			if (ENVELOPE_EXEMPT_TOOLS.has(name)) continue;
 			expect(TOOL_TIMEOUTS_MS[name], name).toBeGreaterThan(0);
 		}
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("every %s tool description states the case where it must NOT be called", (language) => {
-		for (const { name, description } of buildFullToolCatalogue(language)) {
-			const marker = LANGUAGE_NEUTRAL_TOOLS.has(name)
-				? NEGATIVE_CASE_MARKER.en
-				: NEGATIVE_CASE_MARKER[language];
-
-			expect(description, `${language}:${name}`).toContain(marker);
+	it("every tool description states the case where it must NOT be called", () => {
+		for (const { name, description } of buildFullToolCatalogue()) {
+			expect(description, name).toContain(NEGATIVE_CASE_MARKER);
 		}
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("no single %s tool description exceeds the per-tool token ceiling", (language) => {
-		for (const { name, description } of buildFullToolCatalogue(language)) {
-			expect(
-				estimateTokens(description, language),
-				`${language}:${name}`,
-			).toBeLessThanOrEqual(PER_TOOL_TOKEN_CEILING);
+	it("no single tool description exceeds the per-tool token ceiling", () => {
+		for (const { name, description } of buildFullToolCatalogue()) {
+			expect(estimateTokens(description), name).toBeLessThanOrEqual(
+				PER_TOOL_TOKEN_CEILING,
+			);
 		}
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("the whole %s tool catalogue stays inside its prompt token budget", (language) => {
-		const total = buildFullToolCatalogue(language).reduce(
-			(sum, entry) => sum + estimateTokens(entry.description, language),
+	it("the whole tool catalogue stays inside its prompt token budget", () => {
+		const total = buildFullToolCatalogue().reduce(
+			(sum, entry) => sum + estimateTokens(entry.description),
 			0,
 		);
 
-		expect(total).toBeLessThanOrEqual(CATALOGUE_TOKEN_CEILING[language]);
+		expect(total).toBeLessThanOrEqual(CATALOGUE_TOKEN_CEILING);
 	});
 
 	// THIS SNAPSHOT IS THE CACHED PROMPT PREFIX. The tool catalogue — every
@@ -6100,17 +5903,14 @@ describe("tool description hygiene", () => {
 	// It snapshots the configuration the budget tests above measure (see the
 	// file headers), with the health cache cleared so no degraded-tool hint can
 	// leak into a description.
-	it.each([
-		"en",
-		"hu",
-	] as const)("the %s tool catalogue the model is sent matches its frozen snapshot", async (language) => {
+	it("the tool catalogue the model is sent matches its frozen snapshot", async () => {
 		resetToolHealthCacheForTests();
 
-		const sentTools = await captureToolsAsSent(buildFullToolSet(language));
+		const sentTools = await captureToolsAsSent(buildFullToolSet());
 
-		await expect(
-			renderCatalogueSnapshot(language, sentTools),
-		).toMatchFileSnapshot(`./tool-catalogue.${language}.snapshot.txt`);
+		await expect(renderCatalogueSnapshot(sentTools)).toMatchFileSnapshot(
+			"./tool-catalogue.en.snapshot.txt",
+		);
 	});
 });
 
@@ -6347,21 +6147,16 @@ describe("use_skill tool", () => {
 		resolveSkillInstructionsForUseMock.mockReset();
 	});
 
-	it("names the real catalogue heading in every language it is described in", () => {
-		for (const language of ["en", "hu"] as const) {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				language,
-			});
-			// The heading is not localized (buildSkillCatalogueBlock always emits
-			// SKILLS_AVAILABLE_HEADING), so a description that quotes a translated
-			// heading points the model at a block that never exists.
-			expect(tools.use_skill.description, language).toContain(
-				SKILLS_AVAILABLE_HEADING,
-			);
-		}
+	it("names the real catalogue heading", () => {
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		// The heading is not localized (buildSkillCatalogueBlock always emits
+		// SKILLS_AVAILABLE_HEADING), so a description that quotes another heading
+		// points the model at a block that never exists.
+		expect(tools.use_skill.description).toContain(SKILLS_AVAILABLE_HEADING);
 	});
 
 	it("returns the resolved envelope and records the loaded skill on the tool call", async () => {
@@ -6613,37 +6408,20 @@ describe("suggest_instruction tool", () => {
 		});
 	});
 
-	it("describes the offer in the user's own language", () => {
-		const en = createNormalChatTools({
+	it("describes the offer the user will see, and that nothing is saved until they look", () => {
+		const { tools } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
-			language: "en",
-		});
-		const hu = createNormalChatTools({
-			userId: "user-1",
-			conversationId: "conversation-1",
-			turnId: "turn-1",
-			language: "hu",
 		});
 
 		// The row the user sees, and the fact that nothing is saved until they
 		// look at it, are the two things the model has to expect.
-		expect(en.tools.suggest_instruction.description).toContain(
+		expect(tools.suggest_instruction.description).toContain(
 			"Review and Dismiss",
 		);
-		expect(en.tools.suggest_instruction.description).toContain(
+		expect(tools.suggest_instruction.description).toContain(
 			"nothing is saved until they review it",
-		);
-		expect(hu.tools.suggest_instruction.description).toContain(
-			"Áttekintés és Elvetés",
-		);
-		expect(hu.tools.suggest_instruction.description).toContain(
-			"semmi sem mentődik, amíg át nem tekinti",
-		);
-		// A localized description is not an English one with a marker glued on.
-		expect(hu.tools.suggest_instruction.description).not.toContain(
-			"standing instruction",
 		);
 	});
 });

@@ -360,7 +360,7 @@ describe("Context Access v1 integrated regression harness", () => {
 
 	it("keeps the model-facing direct tool contract on memory_context modes only", async () => {
 		// G1 (ADR-0055): tool usage guidance now lives on the tool's own
-		// description (TOOL_I18N), not in a message-content-selected system
+		// description (TOOL_TEXT), not in a message-content-selected system
 		// prompt guard — so this regression check moves to the tool contract
 		// itself, where `memory_context` is registered unconditionally (its
 		// availability does not depend on any connection/capability gate).

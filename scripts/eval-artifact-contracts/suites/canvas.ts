@@ -36,7 +36,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ALFYAI_NEMOTRON_PROMPT } from "$lib/server/prompts";
-import { classifyLanguageSignal } from "$lib/server/services/language";
+import { readReplyLanguage } from "$lib/server/services/language";
+import { REPLY_LANGUAGE_RULE } from "$lib/server/services/normal-chat-context";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
@@ -216,21 +217,20 @@ export const CANVAS_EVAL_CASES: EvalCase[] = [
 ];
 
 /**
- * The system prompt of a case: the real base prompt, then the turn's
- * required-language sentence exactly as `buildResponseLanguageGuard`
- * (`normal-chat-context.ts`) writes its first two bullets — a test keeps the two
- * in step. The rest of a real turn's system content (date, memory) is left out:
- * nothing in it bears on a board.
+ * The system prompt of a case: the real base prompt. The rest of a real turn's
+ * system content (date, memory) is left out: nothing in it bears on a board.
  */
-export function canvasSystemPrompt(language: ToolPathLanguage): string {
-	const label = language === "hu" ? "Hungarian" : "English";
-	return [
-		ALFYAI_NEMOTRON_PROMPT,
-		"",
-		"Response language policy:",
-		`- Required response language for this turn: ${label}.`,
-		`- Otherwise, you MUST respond in ${label}. This is a hard requirement. Only switch language if the user explicitly asks you to.`,
-	].join("\n");
+export function canvasSystemPrompt(): string {
+	return ALFYAI_NEMOTRON_PROMPT;
+}
+
+/**
+ * What a case sends as the person's turn: their message, then the turn guidance
+ * the app appends after it (`normal-chat-context.ts`: the one reply-language
+ * rule, which names no language; the model reads the message and chooses).
+ */
+export function canvasUserTurn(prompt: string): string {
+	return `${prompt}\n\n## Turn Guidance\n${REPLY_LANGUAGE_RULE}`;
 }
 
 // A lookup the app answers and the model goes on from: an empty or failed one,
@@ -284,13 +284,11 @@ export function readArtifactAnswer(
  */
 export const CANVAS_TOOL_SUITE: ToolSuite = {
 	requestFor(evalCase: EvalCase): ToolPathRequestSpec {
-		const language = evalCase.language ?? "en";
 		const fixture = fixtureByCaseId.get(evalCase.id);
 		const tools = fixture ? toolsFor(fixture) : null;
 		return {
-			system: canvasSystemPrompt(language),
-			user: evalCase.prompt,
-			language,
+			system: canvasSystemPrompt(),
+			user: canvasUserTurn(evalCase.prompt),
 			toolChoice: "auto",
 			// A fresh conversation has no memory to recall, no skill to use and no
 			// instruction scope to suggest into (the snapshot's header lists these
@@ -554,7 +552,8 @@ function languageProblem(
 	declared: ToolPathLanguage,
 ): string | null {
 	if (text.trim() === "") return null;
-	const signal = classifyLanguageSignal(text);
+	// Board notes are a few words each: the lower bar of the same reader.
+	const signal = readReplyLanguage(text, { minWitnesses: 2 });
 	const other = declared === "hu" ? "en" : "hu";
 	return signal === other
 		? `the board's new words read as ${signal}, but the request declares ${declared}`

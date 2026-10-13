@@ -254,8 +254,7 @@ export type RunPostTurnTasksParams = {
 	// never races it — without gating the send path's other, independent tail
 	// work. Optional: a caller with no evidence write in flight simply omits it.
 	evidenceWriteBarrier?: Promise<unknown>;
-	// The turn's reply language, decided once per turn (resolveTurnResponseLanguage);
-	// the rail headline is written in it. Optional: a caller without one leaves
-	// the rail summary to read the language off the user message.
-	responseLanguage?: SupportedLanguage;
+	// The language of the reply that was written (chat-turn/reply-language.ts);
+	// the rail headline is written in it.
+	responseLanguage: SupportedLanguage;
 };

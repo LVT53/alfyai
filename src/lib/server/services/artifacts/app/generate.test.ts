@@ -127,7 +127,6 @@ function baseRequest(
 		userId: "user-1",
 		conversationId: "conv-1",
 		prompt: "Make me a cost splitter for the Vienna trip",
-		language: "en" as const,
 		...overrides,
 	};
 }
@@ -502,20 +501,37 @@ describe("generateApp — the prompt is the whole session", () => {
 			role: "user",
 			content: expect.stringContaining("Build me a pomodoro timer"),
 		});
-		expect(runArgs.messages[0].content).toContain("English");
+		expect(runArgs.messages[0].content).toContain(
+			"in the language of the request above",
+		);
 	});
 
-	it("writes the language instruction in Hungarian for a Hungarian request", async () => {
+	it("shows the generator the person's own words, which set the language, and names no language itself", async () => {
 		runStreamingNormalChatModelRun.mockImplementation(() =>
 			asAsyncIterable(fenceEvents(MINIMAL_APP_HTML)),
 		);
 
 		await generateApp(
-			baseRequest({ language: "hu", prompt: "Segíts egy bevásárlólistát" }),
+			baseRequest({
+				prompt: "A shopping list app with a tick box for each item.",
+				requestText: "Segíts egy bevásárlólistát készíteni.",
+			}),
 		);
 
-		const runArgs = runStreamingNormalChatModelRun.mock.calls[0][0];
-		expect(runArgs.messages[0].content).toContain("Hungarian");
+		const content: string =
+			runStreamingNormalChatModelRun.mock.calls[0][0].messages[0].content;
+		expect(content).toContain('"Segíts egy bevásárlólistát készíteni."');
+		expect(content).toMatch(/in the language of those words/);
+		expect(content).not.toMatch(/Hungarian|English/);
+	});
+
+	it("shows only the start of a long message of the person's", () => {
+		const message = buildAppRequestMessage({
+			prompt: "Make a quiz.",
+			requestText: `Csinálj egy kvízt. ${"Hosszú szöveg. ".repeat(200)}`,
+		});
+		expect(message.length).toBeLessThan(900);
+		expect(message).toContain("Csinálj egy kvízt.");
 	});
 
 	// F2 (ruling 77): a change to an App is a change to THAT App. The generator
@@ -544,18 +560,20 @@ describe("generateApp — the prompt is the whole session", () => {
 		);
 		// What the change does not touch stays, saved data included.
 		expect(content).toMatch(/storage keys/i);
-		// The app comes before the instruction, and the language line closes it.
+		// The app comes before the instruction, and the language line closes it:
+		// the app's text stays in the language it is in unless the change asks
+		// for another.
 		expect(content.indexOf(MINIMAL_APP_HTML)).toBeLessThan(
 			content.indexOf("Make the background dark"),
 		);
-		expect(content.trimEnd()).toMatch(/English: every label/);
+		expect(content.trimEnd()).toMatch(
+			/stays in the language it is in, unless the change asks for another language\.$/,
+		);
 	});
 
-	it("a request with no current app is byte-identical to what it always was", async () => {
-		expect(
-			buildAppRequestMessage({ prompt: "Build me a timer", language: "en" }),
-		).toBe(
-			"Build me a timer\n\nWrite the whole app in English: every label, button, empty state and error message.",
+	it("a request with no current app is the brief and one language sentence that names no language", async () => {
+		expect(buildAppRequestMessage({ prompt: "Build me a timer" })).toBe(
+			"Build me a timer\n\nWrite the whole app (every label, button, empty state and error message) in the language of the request above, unless it asks for the app in another language.",
 		);
 	});
 });

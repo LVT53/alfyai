@@ -13,7 +13,6 @@ type ToolLike = { description?: string };
 
 export function collectDegradedToolHints(
 	snapshot: ToolHealthSnapshot | null,
-	lang: "en" | "hu",
 ): Map<string, string> {
 	const hints = new Map<string, string>();
 	if (!snapshot) return hints;
@@ -28,9 +27,7 @@ export function collectDegradedToolHints(
 		const joined = backends.join(", ");
 		hints.set(
 			tool,
-			lang === "hu"
-				? `FIGYELEM: az eszköz háttérszolgáltatása (${joined}) jelenleg hibásként van jelentve. Ha a hívás sikertelen, mondd ki egyértelműen, és ne tégy úgy, mintha sikerült volna.`
-				: `NOTE: this tool's backend (${joined}) is currently reported as degraded. If the call fails, say so plainly and do not pretend it succeeded.`,
+			`NOTE: this tool's backend (${joined}) is currently reported as degraded. If the call fails, say so plainly and do not pretend it succeeded.`,
 		);
 	}
 	return hints;
