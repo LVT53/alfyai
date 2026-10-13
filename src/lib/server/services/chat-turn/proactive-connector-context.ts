@@ -20,10 +20,10 @@
 //     whether the block is built or injected. Functionality is preserved in
 //     incognito, matching how memory RECALL already behaves.
 //   - Locality (Option A): every capability's raw text is routed through
-//     `decideLocalDistill` (reused verbatim from
-//     normal-chat-tools/connector-distill.ts — the same gate the calendar/
-//     email tools themselves use) before it can be part of the returned
-//     block. If Option A is active for a cloud model and distillation comes
+//     `decideLocalDistillForPrompt` (the same decision the calendar/email tools
+//     make through normal-chat-tools/connector-distill.ts, minus the tool-call
+//     mark: this summary goes into the prompt, never into a tool result)
+//     before it can be part of the returned block. If Option A is active for a cloud model and distillation comes
 //     back `unavailable`, that capability's section is WITHHELD entirely —
 //     never the raw text.
 //   - Budget-bounded: the combined block is truncated to
@@ -33,7 +33,7 @@
 //   - A broken/needs_reauth/slow connector is silently skipped (never
 //     throws, never breaks the turn, never logs a secret).
 import { isConversationIncognito } from "$lib/server/services/memory-controls";
-import { decideLocalDistill } from "$lib/server/services/normal-chat-tools/connector-distill";
+import { decideLocalDistillForPrompt } from "$lib/server/services/normal-chat-tools/connector-distill";
 import { truncateToTokenBudget } from "$lib/server/utils/prompt-context";
 import { appleListEvents } from "../connections/providers/apple-caldav";
 import {
@@ -265,7 +265,7 @@ async function buildCapabilitySection(params: {
 	}
 
 	const rawText = lines.join("\n");
-	const decision = await decideLocalDistill({
+	const decision = await decideLocalDistillForPrompt({
 		userId,
 		modelId,
 		capability,

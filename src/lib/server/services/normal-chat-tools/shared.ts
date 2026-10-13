@@ -215,13 +215,31 @@ export function createToolCallRecorder(
 // takes only its candidates (url-provenance/turn.ts). The summary is asked for
 // deep inside the tool, so `decideLocalDistill` marks the call it runs in and
 // `executeToolWithEnvelope` writes the mark on the entry before the result is
-// observed or recorded. Outside a tool call there is nothing to mark.
+// observed or recorded. Outside a tool call there is nothing to mark, and that
+// is an error, not a no-op: a summary with no call to carry the mark would count
+// as a tool's own words (the mark used to vanish there without a sound, so a
+// connector path added outside the envelope would have passed every test). The
+// one summary that is not a tool's result, the proactive block spliced into the
+// prompt, asks for itself without a mark (`decideLocalDistillForPrompt`).
 const callInProgress = new AsyncLocalStorage<{ localDistilled: boolean }>();
 
-/** Marks the tool call running now as one whose result a local model summarised. */
+/** True while a tool call runs in this async context: what a summary is asked for inside. */
+export function isInsideToolCall(): boolean {
+	return callInProgress.getStore() !== undefined;
+}
+
+/**
+ * Marks the tool call running now as one whose result a local model summarised.
+ * Throws outside a tool call (ADR-0068: it fails closed, never to nothing).
+ */
 export function markCallLocallyDistilled(): void {
 	const call = callInProgress.getStore();
-	if (call) call.localDistilled = true;
+	if (!call) {
+		throw new Error(
+			"markCallLocallyDistilled was called outside a tool call: there is no call to mark, and a summary nobody marked would count as a tool's own words (ADR-0068)",
+		);
+	}
+	call.localDistilled = true;
 }
 
 // ── Timeout ────────────────────────────────────────────────────

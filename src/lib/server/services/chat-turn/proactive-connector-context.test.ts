@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
 	googleListEvents: vi.fn(),
 	appleListEvents: vi.fn(),
 	imapListRecent: vi.fn(),
-	decideLocalDistill: vi.fn(),
+	decideLocalDistillForPrompt: vi.fn(),
 	isConversationIncognito: vi.fn(),
 }));
 
@@ -23,7 +23,7 @@ vi.mock("../connections/providers/imap", () => ({
 	imapListRecent: mocks.imapListRecent,
 }));
 vi.mock("$lib/server/services/normal-chat-tools/connector-distill", () => ({
-	decideLocalDistill: mocks.decideLocalDistill,
+	decideLocalDistillForPrompt: mocks.decideLocalDistillForPrompt,
 }));
 vi.mock("$lib/server/services/memory-controls", () => ({
 	isConversationIncognito: mocks.isConversationIncognito,
@@ -94,10 +94,12 @@ describe("buildProactiveConnectorContext", () => {
 		mocks.googleListEvents.mockReset();
 		mocks.appleListEvents.mockReset();
 		mocks.imapListRecent.mockReset();
-		mocks.decideLocalDistill.mockReset();
+		mocks.decideLocalDistillForPrompt.mockReset();
 		mocks.isConversationIncognito.mockReset();
 		mocks.isConversationIncognito.mockResolvedValue(false);
-		mocks.decideLocalDistill.mockResolvedValue({ shouldDistill: false });
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
+			shouldDistill: false,
+		});
 		mocks.resolveConnectionsForCapability.mockResolvedValue([]);
 	});
 
@@ -282,7 +284,7 @@ describe("buildProactiveConnectorContext locality (Option A)", () => {
 		mocks.resolveConnectionsForCapability.mockReset();
 		mocks.googleListEvents.mockReset();
 		mocks.imapListRecent.mockReset();
-		mocks.decideLocalDistill.mockReset();
+		mocks.decideLocalDistillForPrompt.mockReset();
 		mocks.isConversationIncognito.mockReset();
 		mocks.isConversationIncognito.mockResolvedValue(false);
 		mocks.resolveConnectionsForCapability.mockImplementation(
@@ -302,7 +304,7 @@ describe("buildProactiveConnectorContext locality (Option A)", () => {
 	});
 
 	it("injects only the distilled summary — never the raw title/location — when Option A is active for a cloud model", async () => {
-		mocks.decideLocalDistill.mockResolvedValue({
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
 			shouldDistill: true,
 			distilled: "One work meeting this afternoon.",
 		});
@@ -313,7 +315,7 @@ describe("buildProactiveConnectorContext locality (Option A)", () => {
 			activeCapabilities: new Set(["calendar"]),
 		});
 
-		expect(mocks.decideLocalDistill).toHaveBeenCalledWith(
+		expect(mocks.decideLocalDistillForPrompt).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: "user-1",
 				modelId: "model1",
@@ -328,7 +330,7 @@ describe("buildProactiveConnectorContext locality (Option A)", () => {
 	});
 
 	it("withholds the capability entirely (never falls back to raw text) when distillation is unavailable", async () => {
-		mocks.decideLocalDistill.mockResolvedValue({
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
 			shouldDistill: true,
 			unavailable: true,
 		});
@@ -343,7 +345,9 @@ describe("buildProactiveConnectorContext locality (Option A)", () => {
 	});
 
 	it("injects the raw text when the local-distill gate opts out (shouldDistill: false)", async () => {
-		mocks.decideLocalDistill.mockResolvedValue({ shouldDistill: false });
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
+			shouldDistill: false,
+		});
 
 		const result = await buildProactiveConnectorContext({
 			...baseParams,
@@ -360,10 +364,12 @@ describe("buildProactiveConnectorContext budget", () => {
 		__resetProactiveConnectorContextCacheForTests();
 		mocks.resolveConnectionsForCapability.mockReset();
 		mocks.googleListEvents.mockReset();
-		mocks.decideLocalDistill.mockReset();
+		mocks.decideLocalDistillForPrompt.mockReset();
 		mocks.isConversationIncognito.mockReset();
 		mocks.isConversationIncognito.mockResolvedValue(false);
-		mocks.decideLocalDistill.mockResolvedValue({ shouldDistill: false });
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
+			shouldDistill: false,
+		});
 		mocks.resolveConnectionsForCapability.mockImplementation(
 			async (_userId: string, capability: string) =>
 				capability === "calendar" ? [connection()] : [],
@@ -401,10 +407,12 @@ describe("buildProactiveConnectorContext cache", () => {
 		__resetProactiveConnectorContextCacheForTests();
 		mocks.resolveConnectionsForCapability.mockReset();
 		mocks.googleListEvents.mockReset();
-		mocks.decideLocalDistill.mockReset();
+		mocks.decideLocalDistillForPrompt.mockReset();
 		mocks.isConversationIncognito.mockReset();
 		mocks.isConversationIncognito.mockResolvedValue(false);
-		mocks.decideLocalDistill.mockResolvedValue({ shouldDistill: false });
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
+			shouldDistill: false,
+		});
 		mocks.resolveConnectionsForCapability.mockImplementation(
 			async (_userId: string, capability: string) =>
 				capability === "calendar" ? [connection()] : [],
@@ -478,9 +486,11 @@ describe("buildProactiveConnectorContext incognito", () => {
 		__resetProactiveConnectorContextCacheForTests();
 		mocks.resolveConnectionsForCapability.mockReset();
 		mocks.googleListEvents.mockReset();
-		mocks.decideLocalDistill.mockReset();
+		mocks.decideLocalDistillForPrompt.mockReset();
 		mocks.isConversationIncognito.mockReset();
-		mocks.decideLocalDistill.mockResolvedValue({ shouldDistill: false });
+		mocks.decideLocalDistillForPrompt.mockResolvedValue({
+			shouldDistill: false,
+		});
 		mocks.resolveConnectionsForCapability.mockImplementation(
 			async (_userId: string, capability: string) =>
 				capability === "calendar" ? [connection()] : [],

@@ -14,6 +14,17 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runTasksTool, sanitizeTasksToolInput } from "./tasks";
 
+// These tests drive the tool's core directly, outside the envelope a real call
+// runs in, to look at what a summary does to the payload. The mark the envelope
+// carries is not what they are about (connector-distill.test.ts and
+// shared.test.ts hold it), and a summary asked for with no call to mark is
+// refused (ADR-0068), so the call is stood in for.
+vi.mock("./shared", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./shared")>()),
+	isInsideToolCall: () => true,
+	markCallLocallyDistilled: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/connections/resolve", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/resolve")
