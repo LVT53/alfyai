@@ -280,7 +280,7 @@ export const MIN_SLIDES = 4;
  * deck problem and not a publish failure. The test publishes an onboarding
  * deck, so a control the service stops accepting fails there.
  */
-export const ONBOARDING_SETUP_CONTROLS = [
+const ONBOARDING_SETUP_CONTROLS = [
 	"ui_language",
 	"theme",
 	"model_default",
@@ -735,7 +735,7 @@ async function findExistingCampaign(
  * onboarding revision is a new snapshot: nobody has finished it yet, existing
  * accounts included, and it shows before any release announcement.
  */
-export const ONBOARDING_REACH_NOTE =
+const ONBOARDING_REACH_NOTE =
 	"A published onboarding is shown once to every account that has not finished THIS revision, " +
 	"existing accounts included, and before any release announcement. Publish it before the release " +
 	"campaign if the sidebar badge should replay the release (the badge opens the newest published " +
