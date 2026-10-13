@@ -4,12 +4,8 @@ import { t } from "$lib/i18n";
 import type { DocumentOutlineEntry } from "$lib/server/services/knowledge/types";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { portalToBody } from "$lib/utils/portal";
+import { followAnchor } from "./anchored-popup";
 import { buildOutlineQuote } from "./composer-chip-presentation";
-import {
-	computeMenuPlacement,
-	MENU_GAP,
-	MENU_MARGIN,
-} from "./composer-placement";
 
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): renders the
 // heading outline extracted from a long attachment. Clicking a row hands
@@ -57,10 +53,10 @@ let showAll = $state(false);
 // was laid out from THAT layer instead and opened a few hundred pixels from
 // its icon. So the popover is painted in <body> (`portalToBody`, the remedy
 // the other composer popovers use), where fixed means the window whatever
-// the composer sits in, and is placed by the composer's own
-// `computeMenuPlacement` from the button's rect and the popover's own size:
-// above the button when it fits there, below it when it does not and there is
-// more room, always inside the window.
+// the composer sits in, and is placed by `followAnchor` (anchored-popup.ts,
+// the composer's own `computeMenuPlacement` fed the button's rect and the
+// popover's own size): above the button when it fits there, below it when it
+// does not and there is more room, always inside the window.
 //
 // Because it is no longer next to its button in the page's order, Tab could
 // not reach it: focus goes in when it opens, Tab and Shift+Tab stay in it,
@@ -77,33 +73,6 @@ let rootElement = $state<HTMLDivElement | null>(null);
 let disclosureButton = $state<HTMLButtonElement | null>(null);
 let popoverElement = $state<HTMLDivElement | null>(null);
 let popoverStyle = $state(UNPLACED_STYLE);
-
-function placePopover() {
-	const button = disclosureButton;
-	const popover = popoverElement;
-	if (!button || !popover || typeof window === "undefined") return;
-	// Its own size decides where it can go: the width is its widest row
-	// (between the CSS minimum and maximum), the height is its list up to the
-	// cap. Neither is a number this file could write down, and a width that is
-	// guessed leaves a short list standing a phone's width away from its icon.
-	const width = popover.getBoundingClientRect().width;
-	const height = Math.min(
-		popover.scrollHeight + popover.offsetHeight - popover.clientHeight,
-		POPOVER_MAX_HEIGHT,
-	);
-	const placement = computeMenuPlacement(
-		button.getBoundingClientRect(),
-		{ width: window.innerWidth, height: window.innerHeight },
-		width,
-		// The room it needs above the button to hang there whole.
-		height + MENU_GAP + MENU_MARGIN,
-	);
-	const edge =
-		placement.top !== null
-			? `top:${placement.top}px;`
-			: `bottom:${placement.bottom}px;`;
-	popoverStyle = `left:${placement.left}px;${edge}max-height:${Math.min(POPOVER_MAX_HEIGHT, placement.maxHeight)}px;`;
-}
 
 function closePopover() {
 	collapsedOverride = true;
@@ -136,44 +105,24 @@ $effect(() => {
 	return () => document.removeEventListener("pointerdown", onPointerdown, true);
 });
 
-/** What the placement was made for: where the button is, and how big the window is. */
-function anchorKey(): string {
-	const rect = disclosureButton?.getBoundingClientRect();
-	return [rect?.left, rect?.top, window.innerWidth, window.innerHeight].join(
-		"|",
-	);
-}
-
 // Placed once its own box exists (`bind:this` lands after the effect above
-// first runs), again whenever the list changes size, and again whenever the
-// button is not where the placement was made for. The button can move with no
-// event at all: the home page's composer glides to its place for 420ms after
-// a resize, the chip row reflows when another file finishes its read and its
-// pill grows, a banner arrives above the composer. So while the popover is
-// open the button is looked at once a frame (one rectangle read; a resize and
-// a scroll are covered by the same look). Left hidden again on the way out,
-// so the next opening is never seen where the last one stood.
+// first runs), and followed for as long as it is open: whenever the list
+// changes size and whenever the button is not where the placement was made
+// for (anchored-popup.ts says how). Left hidden again on the way out, so the
+// next opening is never seen where the last one stood.
 $effect(() => {
 	const popover = popoverElement;
 	if (variant !== "disclosure" || collapsed || !popover) return;
-	let placedFor = "";
-	const place = () => {
-		placePopover();
-		placedFor = anchorKey();
-	};
-	let frame = 0;
-	const follow = () => {
-		if (anchorKey() !== placedFor) place();
-		frame = requestAnimationFrame(follow);
-	};
-	place();
-	frame = requestAnimationFrame(follow);
-	const observer =
-		typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
-	observer?.observe(popover);
+	const stopFollowing = followAnchor({
+		anchor: () => disclosureButton,
+		popup: popover,
+		maxHeight: POPOVER_MAX_HEIGHT,
+		onPlace: (style) => {
+			popoverStyle = style;
+		},
+	});
 	return () => {
-		cancelAnimationFrame(frame);
-		observer?.disconnect();
+		stopFollowing();
 		popoverStyle = UNPLACED_STYLE;
 	};
 });
