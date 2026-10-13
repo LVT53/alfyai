@@ -53,6 +53,9 @@ describe("announcement campaign service", () => {
 					email: "viewer@example.com",
 					passwordHash: "hash",
 					role: "user",
+					// A long-standing account: a release update is for the accounts that
+					// were here before it was published (announcement-campaigns.audience.test.ts).
+					createdAt: new Date(Date.now() - 30 * 86_400_000),
 				},
 			])
 			.run();
@@ -1568,10 +1571,12 @@ describe("announcement campaign service", () => {
 		expect(await getLatestPublishedAnnouncement({ db })).toBeNull();
 	});
 
-	// RC-T Minor 9 and ADR-0012: the badge opens the latest published
-	// ANNOUNCEMENT campaign, which is a first-run onboarding as well as a release
-	// note; only a tour is left out (ruling 32).
-	describe("an onboarding is an announcement too", () => {
+	// RC-T Minor 9 and ADR-0012: the badge opens a published ANNOUNCEMENT
+	// campaign, a release note first and a first-run onboarding when there is no
+	// release note; a tour is never one (ruling 32). The rule that a release
+	// note comes first, whatever was published last, is held by
+	// announcement-campaigns.audience.test.ts.
+	describe("an onboarding is the badge's fallback announcement", () => {
 		async function publishOnboardingAt(secondsAgo: number) {
 			await publishFirstRunOnboardingCampaign(db, {
 				campaignId: "badge-onboarding",
@@ -1587,14 +1592,14 @@ describe("announcement campaign service", () => {
 				.run();
 		}
 
-		it("is what the badge replays when it is newer than the last release note", async () => {
+		it("is not what the badge replays when it is newer than the last release note: the release is", async () => {
 			await publishReleaseNoteThenTour(); // release 60 s ago, a tour just now
 			await publishOnboardingAt(30);
 
 			const latest = await getLatestPublishedAnnouncement({ db });
 
-			expect(latest?.type).toBe("first_run_onboarding");
-			expect(latest?.id).toBe("badge-onboarding");
+			expect(latest?.type).toBe("release_update");
+			expect(latest?.id).toBe("badge-release");
 		});
 
 		it("gives way to a release note published after it", async () => {

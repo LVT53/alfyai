@@ -183,3 +183,46 @@ export async function publishFirstRunOnboardingCampaign(
 		ids: input.snapshotIds,
 	});
 }
+
+/**
+ * A published release update with one image-free slide. The slide and snapshot
+ * ids are made from `campaignId`, so any number of releases can sit in one
+ * database.
+ */
+export async function publishReleaseUpdateCampaign(
+	db: CampaignTestDb,
+	input: {
+		campaignId: string;
+		name: string;
+		releaseVersion: string;
+	},
+) {
+	await createCampaignDraft(
+		{
+			type: "release_update",
+			name: input.name,
+			releaseVersion: input.releaseVersion,
+			createdByUserId: "admin-user",
+		},
+		{ db, ids: [input.campaignId] },
+	);
+	await updateCampaignDraft(
+		input.campaignId,
+		{
+			slides: [
+				{
+					id: `${input.campaignId}-slide`,
+					layoutType: "standard",
+					sortOrder: 1,
+					title: { en: `${input.name}: news`, hu: `${input.name}: hírek` },
+					body: { en: "What changed.", hu: "Ami változott." },
+				},
+			],
+		},
+		{ db },
+	);
+	return publishCampaign(input.campaignId, "admin-user", {
+		db,
+		ids: [`${input.campaignId}-snapshot`, `${input.campaignId}-snap-slide`],
+	});
+}
