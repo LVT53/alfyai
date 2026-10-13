@@ -1,55 +1,108 @@
 [
-  {
-    "titleHu": "Projektek, amik tudják, min dolgozol",
-    "titleEn": "Projects that know what you’re working on",
-    "bodyHu": "Adj egy projektnek utasításokat és fájlokat, és minden beszélgetése tudni fogja, miről van szó. Alfy az utasításokat minden válaszánál követi, a fájlokat pedig akkor olvassa el, amikor szüksége van rájuk. A projekt azt is megmutatja, amit a beszélgetései készítettek.",
-    "bodyEn": "Give a project instructions and files, and every chat in it knows what it is about. Alfy follows the instructions in every reply and reads the files when it needs them. The project also shows what its chats made.",
-    "altTextHu": "A Balatoni nyaralás projekt Fájlok ablaka: három feltöltött fájl és négy elem, amit a beszélgetései készítettek",
-    "altTextEn": "The Files window of the Balatoni nyaralás project: three uploaded files and four items its chats made",
-    "desktopFile": "slides/01-projects-desktop.png",
-    "mobileFile": "slides/01-projects-mobile.png"
-  },
-  {
-    "titleHu": "Alfy dokumentumot, alkalmazást és táblát is készít",
-    "titleEn": "Alfy makes documents, apps and canvases too",
-    "bodyHu": "Kérhetsz tőle dokumentumot, alkalmazást, táblát vagy fájlt. Mind a beszélgetés mellett nyílik meg, ott szerkesztheted és letöltheted, a fejlécben pedig látod, hány elem készült benne.",
-    "bodyEn": "Ask for a document, an app, a canvas or a file. Each one opens beside the chat, where you can edit and download it, and the header shows how many the chat has made.",
-    "altTextHu": "Egy beszélgetés a háromnapos programról, mellette megnyitva egy napokra bontott tábla",
-    "altTextEn": "A chat about a three-day plan with a day-by-day canvas open beside it",
-    "actionLabelHu": "Új beszélgetés",
-    "actionLabelEn": "Start a chat",
-    "actionDestination": "/",
-    "desktopFile": "slides/02-artifacts-desktop.png",
-    "mobileFile": "slides/02-artifacts-mobile.png"
-  },
-  {
-    "titleHu": "Alfy módosít, te döntesz",
-    "titleEn": "Alfy edits, you decide",
-    "bodyHu": "Ha Alfy átír valamit a dokumentumodban vagy a táblán, látod, mi változott, és te döntöd el: „Megtartom” vagy „Visszavonom”. Megjegyzést is írhatsz bárhová, és ha @Alfy-t említesz, válaszol, kérésedre pedig javít is.",
-    "bodyEn": "When Alfy changes something in your document or canvas, you see what changed and decide: “Keep” or “Undo”. Leave a comment anywhere, and mention @Alfy to get an answer, or a fix if you ask for one.",
-    "altTextHu": "Egy dokumentum, benne Alfy egy módosítása a Megtartom és Visszavonom gombokkal, mellette egy @Alfy-nak szóló megjegyzés és a válasza",
-    "altTextEn": "A document with one change by Alfy and its Keep and Undo buttons, beside a comment addressed to @Alfy and its answer",
-    "desktopFile": "slides/03-together-desktop.png",
-    "mobileFile": "slides/03-together-mobile.png"
-  },
-  {
-    "titleHu": "Minden változatra visszatérhetsz",
-    "titleEn": "Go back to any version",
-    "bodyHu": "Az Előzmények napokra bontva mutatja, mi változott és ki változtatta. Elnevezhetsz egy változatot, megnézheted előnézetben, és visszaállíthatod. A visszaállítás sem töröl semmit: új lépésként megmarad.",
-    "bodyEn": "History lists every change by day and says who made it. Name a version, preview it, and restore it. Restoring deletes nothing: it is kept as a new step.",
-    "altTextHu": "Egy dokumentum Előzmények nézete egy elnevezett változattal, annak előnézetével és a Visszaállítás gombbal",
-    "altTextEn": "A document’s History view with a named version, its preview and the Restore button",
-    "desktopFile": "slides/04-history-desktop.png",
-    "mobileFile": "slides/04-history-mobile.png"
-  },
-  {
-    "titleHu": "Alfy magától nem nyit meg idegen oldalakat",
-    "titleEn": "Alfy won’t open unknown pages on its own",
-    "bodyHu": "Alfy csak olyan oldalt és képet tölt be, amelynek a címét te adtad meg, vagy amelyet az egyik eszköze talált. Minden más cím hivatkozás marad a válaszban, amíg rá nem kattintasz. Közben sok apróságot is csiszoltunk, főleg telefonon és a panel mozgásán.",
-    "bodyEn": "Alfy loads a page or a picture only if you gave its address or one of its tools found it. Any other address stays a link in the reply until you click it. Along the way we polished many small things, mostly on phones and in how the panel moves.",
-    "altTextHu": "Egy válasz, amelyben három kép nem töltődött be, hanem hivatkozásként jelenik meg",
-    "altTextEn": "A reply in which three pictures are shown as links instead of being loaded",
-    "desktopFile": "slides/05-privacy-desktop.png",
-    "mobileFile": "slides/05-privacy-mobile.png"
-  }
+	{
+		"titleHu": "Dokumentum, amit ketten írtok",
+		"titleEn": "A document you write together",
+		"bodyHu": "Kérd meg Alfyt, hogy írjon meg egy tervet vagy levelet. A beszélgetés mellett nyílik meg: szerkesztheted, füleket és táblázatot adhatsz hozzá, és letöltheted PDF-ként, Wordként vagy Markdownként.\n\nHol találod: a válasz alatti kártyán, vagy a fejléc jobb oldali gombján. Bármelyik válaszból lehet dokumentum: „Megnyitás dokumentumként”.",
+		"bodyEn": "Ask Alfy to write a plan or a letter. It opens beside the chat: edit it, add tabs and tables, and download it as PDF, Word or Markdown.\n\nWhere to find it: the card under the reply, or the button at the right of the chat header. Any reply can become one: “Open as document”.",
+		"altTextHu": "Egy dokumentum a beszélgetés mellett: fülek, formázó eszköztár és egy összehasonlító táblázat; fent a megjegyzések, a letöltés, a törlés és a kibontás gombja. Telefonon a Teendők fül jelölőnégyzetes listája.",
+		"altTextEn": "A document open beside the chat: tabs, a formatting toolbar and a comparison table; at the top the buttons for comments, download, delete and expand. On a phone, the Teendők tab with its checklist.",
+		"desktopFile": "slides/01-document-desktop.png",
+		"mobileFile": "slides/01-document-mobile.png"
+	},
+	{
+		"titleHu": "Alkalmazás: kis eszköz, ami itt fut",
+		"titleEn": "An app: a small tool that runs here",
+		"bodyHu": "Mondd el, mire van szükséged: költségkövetőre, kalkulátorra, kvízre. Alfy megépíti, ellenőrzi benne az adatokat, és a panelben azonnal használhatod. Megjegyzi, amit beírtál; a „Módosítás…” gombbal átépítheted.\n\nHol találod: a válasz alatti „Alkalmazás” kártyán; a panel fejlécében le is töltheted.",
+		"bodyEn": "Say what you need: a cost tracker, a calculator, a quiz. Alfy builds it, checks its facts, and you use it in the panel at once. It remembers what you type; “Change this app…” rebuilds it.\n\nWhere to find it: the “App” card under the reply; the panel header downloads it.",
+		"altTextHu": "Egy költségkövető alkalmazás a panelben: az Előnézet és a Kód fül, a Módosítás… gomb, a homokozó sávja és a felvett kiadások",
+		"altTextEn": "A cost-tracker app in the panel: the Preview and Code tabs, the Change this app… button, the sandbox bar and the expenses entered",
+		"desktopFile": "slides/02-app-desktop.png",
+		"mobileFile": "slides/02-app-mobile.png"
+	},
+	{
+		"titleHu": "Tábla: szabad felület az ötleteidnek",
+		"titleEn": "A canvas: a free surface for your ideas",
+		"bodyHu": "Jegyzetek, keretek, diagramok, listák, térkép, fájlok: úgy rendezed el őket, ahogy gondolkodsz. Rajzolhatsz is rá, Alfy pedig rendet rak, ha kéred. A kész táblát PNG-képként letöltheted.\n\nHol találod: kérj táblát („tedd a táblára az útiterveket”); lent az eszköztárban a „Beszúrás” és az „Alfy megkérdezése”.",
+		"bodyEn": "Notes, frames, charts, lists, a map, files: arrange them the way you think. Draw on it, and Alfy tidies up when you ask. Download the finished board as a PNG.\n\nWhere to find it: ask for a board (“put the trip options on a board”); “Insert” and “Ask Alfy” are in the toolbar at the bottom.",
+		"altTextHu": "Egy tábla napokra bontott keretekkel és jegyzetekkel, egy ellenőrzőlistával, egy diagrammal és kézzel rajzolt jelekkel; alul az eszköztár a Beszúrás gombbal",
+		"altTextEn": "A canvas with day frames and notes, a checklist, a chart and marks drawn by hand; at the bottom the toolbar with the Insert button",
+		"desktopFile": "slides/03-canvas-desktop.png",
+		"mobileFile": "slides/03-canvas-mobile.png"
+	},
+	{
+		"titleHu": "Alfy módosít, te döntesz",
+		"titleEn": "Alfy edits, you decide",
+		"bodyHu": "Ha Alfy átír valamit a dokumentumodban vagy a táblán, látod, mi változott: „Megtartom” vagy „Visszavonom”. Megjegyzést írhatsz bárhová; ha @Alfyt említed, válaszol, kérésre javít is. Amit közben te írtál át, ahhoz nem nyúl.\n\nHol találod: jelölj ki szöveget, és válaszd a „Megjegyzés” vagy az „Alfy megkérdezése” gombot.",
+		"bodyEn": "When Alfy changes your document or canvas, you see what changed and decide: “Keep” or “Undo”. Comment anywhere; mention @Alfy to get an answer, or a fix if you ask for one. What you changed meanwhile, Alfy leaves alone.\n\nWhere to find it: select some text and choose “Comment” or “Ask Alfy”.",
+		"altTextHu": "Egy dokumentum Alfy egy módosításával és a Megtartom, Visszavonom gombokkal, mellette egy @Alfyt kérdező megjegyzés és a válasza, alul a Mindet megtartom sáv",
+		"altTextEn": "A document with one change by Alfy and its Keep and Undo buttons, beside a comment that asks @Alfy and its answer, with the Keep all bar at the bottom",
+		"desktopFile": "slides/04-together-desktop.png",
+		"mobileFile": "slides/04-together-mobile.png"
+	},
+	{
+		"titleHu": "Minden változatra visszatérhetsz",
+		"titleEn": "Go back to any version",
+		"bodyHu": "Az Előzmények napokra bontva mutatja, ki mit változtatott. Elnevezhetsz egy változatot, megnézheted, és visszaállíthatod; a mostani is megmarad. Dokumentumnál, alkalmazásnál és táblánál is működik.\n\nHol találod: a panel fejlécében a legutóbbi változást mutató gomb („Alfy módosította · 19 órája”).",
+		"bodyEn": "History lists every change by day and says who made it. Name a version, preview it, restore it; what you have now stays. It works for documents, apps and canvases.\n\nWhere to find it: the button in the panel header that shows the latest change (“Changed by Alfy · 19 h ago”).",
+		"altTextHu": "Egy dokumentum Előzmények nézete: napokra bontott változatlista, egy elnevezett változat és az előnézete a Visszaállítás gombbal",
+		"altTextEn": "A document's History view: a version list grouped by day, a named version and its preview with the Restore button",
+		"desktopFile": "slides/05-history-desktop.png",
+		"mobileFile": "slides/05-history-mobile.png"
+	},
+	{
+		"titleHu": "Minden projektnek saját oldala van",
+		"titleEn": "Every project has its own page",
+		"bodyHu": "A projekt oldalán egy helyen vannak a csevegései, az utasításai és a fájljai. Az itt indított csevegés már tudja, miről szól a projekt. A Fájlok ablakban feltölthetsz vagy a könyvtárból adhatsz hozzá, és ott látod azt is, amit a csevegések készítettek.\n\nHol találod: a kezdőlapon a Projektek kártyái, vagy az oldalsávban a projekt sora melletti gomb.",
+		"bodyEn": "A project's page keeps its chats, instructions and files in one place. A chat started there already knows the project. In the Files window you upload or add from your library, and you see what the chats made.\n\nWhere to find it: the Projects cards on the home page, or the button beside a project in the sidebar.",
+		"altTextHu": "A Balatoni nyaralás projekt Fájlok ablaka: feltöltött fájlok és a csevegések készítette alkalmazás, dokumentum és tábla; fent a Hozzáadás a könyvtárból és a Feltöltés gomb. Telefonon a projekt oldala.",
+		"altTextEn": "The Files window of the Balatoni nyaralás project: uploaded files and the app, document and canvas its chats made; at the top the Add from library and Upload buttons. On a phone, the project's page.",
+		"desktopFile": "slides/06-projects-desktop.png",
+		"mobileFile": "slides/06-projects-mobile.png"
+	},
+	{
+		"titleHu": "Utasítások, amiket nem kell ismételned",
+		"titleEn": "Instructions you never have to repeat",
+		"bodyHu": "Írd le egyszer, hogyan válaszoljon Alfy: minden csevegésben, vagy egy projekt csevegéseiben. Az /instruction paranccsal is felvehetsz egyet, és Alfy felajánlja, ha észreveszi, hogy valami nálad mindig érvényes.\n\nHol találod: Profil és beállítások › Profil › Az asszisztens viselkedése.",
+		"bodyEn": "Write down once how Alfy should answer: in every chat, or in the chats of one project. You can add one with /instruction too, and Alfy offers to when it notices something that always applies to you.\n\nWhere to find it: Profile & Settings › Profile › Assistant behaviour.",
+		"altTextHu": "A projekt Utasítások ablaka a szöveggel, a 310 / 2000 karakterszámlálóval, a Mégsem és a Mentés gombbal",
+		"altTextEn": "The project's Instructions window with its text, the 310 / 2000 character counter, and the Cancel and Save buttons",
+		"actionLabelHu": "Beállítások megnyitása",
+		"actionLabelEn": "Open settings",
+		"actionDestination": "/settings",
+		"desktopFile": "slides/07-instructions-desktop.png",
+		"mobileFile": "slides/07-instructions-mobile.png"
+	},
+	{
+		"titleHu": "Amit Alfy készített, egy helyen találod",
+		"titleEn": "Everything Alfy made, in one place",
+		"bodyHu": "A Tudásbázis Dokumentumok lapján egy listában látod a feltöltött fájlokat és Alfy dokumentumait, alkalmazásait és tábláit; típus szerint szűrhetsz, és a keresés is megtalálja őket.\n\nHol találod: oldalsáv › Tudásbázis › Dokumentumok.",
+		"bodyEn": "The Knowledge base's Documents tab lists your uploaded files and Alfy's documents, apps and canvases in one place; filter by type, and search finds them too.\n\nWhere to find it: sidebar › Knowledge base › Documents.",
+		"altTextHu": "A Tudásbázis Dokumentumok lapja: típus szerinti szűrők számlálóval, és egy lista Alfy alkalmazásáról, dokumentumairól és tábláiról",
+		"altTextEn": "The Knowledge base's Documents tab: filters by type with counts, and a list of Alfy's app, documents and canvas",
+		"actionLabelHu": "Tudásbázis megnyitása",
+		"actionLabelEn": "Open Knowledge base",
+		"actionDestination": "/knowledge",
+		"desktopFile": "slides/08-knowledge-desktop.png",
+		"mobileFile": "slides/08-knowledge-mobile.png"
+	},
+	{
+		"titleHu": "Alfy magától nem nyit meg idegen oldalakat",
+		"titleEn": "Alfy won’t open unknown pages on its own",
+		"bodyHu": "Alfy csak olyan oldalt és képet tölt be, amelynek a címét te adtad meg, vagy amelyet az egyik eszköze talált. Minden más cím hivatkozás marad a válaszban, amíg rá nem kattintasz. Az alkalmazások internet nélkül, védett környezetben futnak.\n\nHol találod: nem kell beállítanod semmit; ha kép helyett hivatkozást látsz, ez az oka.",
+		"bodyEn": "Alfy loads a page or a picture only if you gave its address or one of its tools found it. Any other address stays a link in the reply until you click it. Apps run in a sandbox with no internet.\n\nWhere to find it: nothing to set up; if you see a link instead of a picture, this is why.",
+		"altTextHu": "Egy válasz, amelyben három kép nem töltődött be, hanem hivatkozásként jelenik meg",
+		"altTextEn": "A reply in which three pictures are shown as links instead of being loaded",
+		"desktopFile": "slides/09-privacy-desktop.png",
+		"mobileFile": "slides/09-privacy-mobile.png"
+	},
+	{
+		"titleHu": "A kisebb változások",
+		"titleEn": "The smaller changes",
+		"bodyHu": "Alfy a te nyelveden válaszol, a javasolt folytatások egy koppintással elmennek, az első dokumentum, alkalmazás vagy tábla megnyitásakor pedig rövid bemutató segít. Eltűnt a „Kontextusforrások kezelése” panel és a kezdőlapi ötletsor: a helyén a projektek kártyái állnak.\n\nHol találod: a bemutatót a panel listájában egy sor ⋮ menüje indítja újra.",
+		"bodyEn": "Alfy answers in the language you write, the suggested follow-ups send with one tap, and a short tour helps the first time you open a document, app or canvas. The “Manage context sources” panel and the home page’s suggestion row are gone: project cards stand there now.\n\nWhere to find it: the ⋮ menu of a row in the panel list replays a tour.",
+		"altTextHu": "A kezdőlap szövegmezővel, a projektek kártyáival és a legutóbbi beszélgetésekkel. Telefonon egy beszélgetés, amelyben a válasz alatt két javasolt folytatás látszik.",
+		"altTextEn": "The home page with the composer, the project cards and the recent chats. On a phone, a chat in which two suggested follow-ups show under the reply.",
+		"desktopFile": "slides/10-small-desktop.png",
+		"mobileFile": "slides/10-small-mobile.png"
+	}
 ]
