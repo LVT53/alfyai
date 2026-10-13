@@ -324,7 +324,7 @@ Both are shown to a person who has just signed up, so they are written to be dif
 | | The welcome (this) | The 2.2 release card |
 |---|---|---|
 | Question it answers | What is this, what do I do first, where is everything? | What can it do, in each part? |
-| Shape | A map (slides 1, 2, 3, 6, 7, 9, 10) and the first steps (3, 4, 8) | One feature per slide, in depth (Document, App, Canvas, comments, History, projects, instructions, Knowledge, privacy) |
+| Shape | A map (slides 1, 2, 6, 7, 9, 10) and the first steps (3, 4, 5, 8) | One feature per slide, in depth (Document, App, Canvas, comments, History, projects, instructions, Knowledge, privacy) |
 | Pictures | A new user's empty home page, the sidebar, the "+" menu, a weekly menu (the Document), the search, the memory, the settings | The trip plan, the cost app, the board, the Files window, the Instructions window |
 | Shared topics | History, projects and instructions, the Knowledge base, privacy | the same, with the words and the pictures of the feature |
 
@@ -490,6 +490,30 @@ CAMPAIGN_OUT_DIR=./data/onboarding-2-2-previews CAMPAIGN_MANIFEST=./data/campaig
 also saves each desktop scene as a whole window, for choosing a crop by eye. The sample users are scratch accounts on that
 scratch database; their sign-ins are in the two seed scripts. A picture that waits on the page is tried a second time in a
 fresh window before the run gives up.
+
+## Checks that were run
+
+- **The unit tests.** `scripts/create-release-campaign.test.ts` (47 tests): the script's argument rules (`--type`, no
+  `--version` for an onboarding), the deck rules (one setup slide with its controls, a data disclosure, no onboarding keys
+  in a release deck), creation, replace-a-draft and dry-run for an onboarding, and the welcome deck's own tests: its shape,
+  the where-line and the lengths, every quoted label against the dictionaries, no run of five words shared with the release
+  card, the English alternate, publishing through the service's validation, and that a new revision is shown once more to an
+  account that finished the last one, before the release card.
+- **The card in the real shell, with nothing published.** With the browser's answer to `/api/campaigns/eligible` replaced by
+  the draft, a fresh account's shell opens the card on the setup slide; the language control switches the card to English
+  and back (and writes the preference); slide 9's button opens the ChatGPT import window and the card is still there when it
+  closes; the last slide has Finish and no Skip; the progress bar has ten segments. A real publish, even into the scratch
+  database, was not made: the brief says to publish nothing.
+- **The agent gate, once, at `f88df0c50`, with the campaign specs** (`scripts/gates.sh agent <out-dir> --port 5590
+  --workers 4 tests/e2e/admin-users-campaigns.spec.ts tests/e2e/artifact-tours-admin.spec.ts`): all gates passed in
+  3m28s. `npm run check`: 0 errors and 17 warnings, all in `RouteItinerary.svelte`, `ToolActivityRow.svelte` and
+  `ThinkingBlock.svelte` and all on `dev` before this branch (none in a file the branch touches); biome clean; migrations
+  ok; vitest 1094 files and 19012 tests passed; build ok (unused CSS 32 and aria 2, the baseline); the chunk check ok;
+  Fallow no new finding against the baseline (circular dependencies 4, unchanged); Playwright 41 passed (the two campaign
+  specs in full and the smoke tests of every other file). An earlier run at `5b0300f97` found two new Fallow findings
+  (two exports of `create-release-campaign.ts` that only the script reads; they are private now) and a vitest run that
+  passed all 19012 tests and then reported one worker-teardown error from `chatgpt-import/index.test.ts` (that file passes
+  alone, 20 tests; the error did not come back).
 
 ## For the owner to decide
 
