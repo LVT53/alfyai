@@ -1476,22 +1476,44 @@ describe("prepareOutboundChatContext", () => {
 		const guidance = buildTurnGuidance({});
 		expect(guidance).toContain(REPLY_LANGUAGE_RULE);
 		// The rule reads the person's message; it never names a language of its own.
-		expect(REPLY_LANGUAGE_RULE).toMatch(/language of their latest message/);
+		expect(REPLY_LANGUAGE_RULE).toMatch(
+			/language of the person's latest message, judged by its own words/,
+		);
 		expect(REPLY_LANGUAGE_RULE).toMatch(
 			/keep the language they have been writing in/,
 		);
-		// A request for the reply in a language, now or in their own standing
-		// instructions, wins; a request for a piece of writing in another one does
-		// not turn the model's own words into that language.
-		expect(REPLY_LANGUAGE_RULE).toMatch(/standing instructions/);
+		// A request for the reply in a language, in the message or in their own
+		// standing instructions, wins; a request for a piece of writing in another
+		// one does not turn the model's own words into that language.
+		expect(REPLY_LANGUAGE_RULE).toMatch(
+			/in this message or in their standing instructions \(Your Instructions, Project Instructions\)/,
+		);
 		expect(REPLY_LANGUAGE_RULE).toMatch(
 			/piece of writing in another language.*keep your own words in their language/,
 		);
-		// Nothing else sets it.
+		// Nothing else sets it: not who they are, not what is remembered (not even
+		// a fact about the language they use), not the material of the turn.
 		expect(REPLY_LANGUAGE_RULE).toMatch(
-			/Nothing else sets the reply language: not remembered facts, documents, files, tool or search results, or your own earlier replies/,
+			/Nothing else sets the reply language: not who they are \(their name, nationality or where they live\), not remembered facts \(even one about the language they use\), documents, files, tool or search results, or your own earlier replies/,
 		);
 		expect(REPLY_LANGUAGE_RULE).not.toMatch(/Hungarian|English|MUST/);
+	});
+
+	it("names the instruction sections the system prompt really has", () => {
+		const system = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Hello",
+			instructions: {
+				personal: "Always answer briefly.",
+				project: { id: "p1", name: "Kitchen", text: "Quote costs in euros." },
+			},
+		});
+		// The rule points at "Your Instructions" and "Project Instructions": the
+		// model has to find a section by that name.
+		expect(system).toContain("## Your Instructions");
+		expect(system).toContain("## Project Instructions");
+		expect(REPLY_LANGUAGE_RULE).toContain("Your Instructions");
+		expect(REPLY_LANGUAGE_RULE).toContain("Project Instructions");
 	});
 
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {

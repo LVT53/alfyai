@@ -334,11 +334,11 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 // placement is where it was measured to be followed. Keep the text in this one
 // constant; tests compare it byte for byte (tests/integration/reply-language.test.ts).
 export const REPLY_LANGUAGE_RULE = [
-	"Reply in the language the person writes in: the language of their latest message.",
+	"Reply in the language of the person's latest message, judged by its own words.",
 	'If that message has no language of its own (a short "ok", a number, a link, code), keep the language they have been writing in.',
-	"If they ask for the reply in a particular language, now or in their own standing instructions, use that.",
+	"If they ask for the reply in a particular language, in this message or in their standing instructions (Your Instructions, Project Instructions), use that.",
 	"If they ask for a piece of writing in another language (an email, a translation), write that piece in it and keep your own words in their language.",
-	"Nothing else sets the reply language: not remembered facts, documents, files, tool or search results, or your own earlier replies.",
+	"Nothing else sets the reply language: not who they are (their name, nationality or where they live), not remembered facts (even one about the language they use), documents, files, tool or search results, or your own earlier replies.",
 ].join("\n");
 
 // P2 prompt-diet review outcome — the personality/"Response Style" prompt is

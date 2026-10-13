@@ -187,20 +187,24 @@ export function readReplyLanguage(
 
 /**
  * The language of a turn's REPLY, for what the app writes after it (chips, rail
- * headline, title).
+ * headline, title). In this order:
  *
- * The reply's own words decide (R). The one exception is a reply that carries a
- * piece the person asked for in the other language (an English email in a
- * Hungarian chat): the whole reply may then read as the piece's language, but the
- * assistant's own words around it are in the person's. So when the language the
- * person has been writing in (P: their message, else the previous reply) is not
- * R, and the reply still holds at least two of P's closed-class words, P is the
- * language. When the reply says nothing (code, a table, a short "Done"), the
- * person's message does; then the language of the previous reply in the
- * conversation; last, the account's UI language. `read` is what the text itself
- * said, with the message's help ("unknown" when nothing did): it is what a
- * message stores and the next turn falls back to; `language` is always one of
- * the two.
+ *  1. The person's message (P), when the reader can name it and either the reply
+ *     says nothing (R is "unknown": code, a table, a bare piece of writing too
+ *     short to name) or it differs from R and the reply still holds at least two
+ *     of P's closed-class words. That second case is a requested piece in the
+ *     other language (an English email in a Hungarian chat): the whole reply may
+ *     read as the piece's language, but the assistant's own words around it are
+ *     in the person's.
+ *  2. Else the reply's own words (R).
+ *  3. Else the language of the previous reply in the conversation.
+ *  4. Else the account's UI language, and English if there is none.
+ *
+ * `read` is what the text itself said, with the message's help ("unknown" when
+ * nothing did): it is what a message stores and the next turn falls back to;
+ * `language` is always one of the two. A user's message is mostly too short for
+ * the reader to name (it needs four closed-class words), so rule 1 fires mainly
+ * for messages with a full sentence in them.
  */
 export function afterReplyLanguage(params: {
 	reply: string;
@@ -213,14 +217,15 @@ export function afterReplyLanguage(params: {
 	const message = params.latestUserMessage
 		? readReplyLanguage(params.latestUserMessage.slice(0, 2_000))
 		: "unknown";
-	const person: ReplyLanguage =
-		message !== "unknown" ? message : (params.previous ?? "unknown");
 
-	let read: ReplyLanguage = reply;
-	if (person !== "unknown" && person !== reply && counts[person] >= 2) {
-		read = person;
-	} else if (reply === "unknown") {
+	let read: ReplyLanguage = "unknown";
+	if (
+		message !== "unknown" &&
+		(reply === "unknown" || (message !== reply && counts[message] >= 2))
+	) {
 		read = message;
+	} else if (reply !== "unknown") {
+		read = reply;
 	}
 	if (read !== "unknown") return { language: read, read };
 	return {

@@ -19,6 +19,7 @@ export function buildJudgeSystemPrompt(): string {
 		"Category meanings: 'about_you' = identity/background facts (nationality, profession, life situation); 'preferences' = likes, dislikes, and standing style requests; 'goals_ongoing_work' = things the user is actively trying to accomplish or working toward; 'constraints_boundaries' = limits, restrictions, and things the user will NOT do or does NOT want — including explicit negative statements of intent (e.g. 'I don't plan to work in Ireland' is a constraint/boundary, not a goal, because it rules something out rather than pursuing it).",
 		"Scope: 'project' when the fact only matters inside the current project, otherwise 'global'.",
 		"expiryClass: 'durable' for identity/preferences/standing facts about who the user is; 'time_bound' (with expiresInDays) only for concrete situations or tasks with a natural end date (an active search, a deadline, a temporary residence).",
+		"Do not record which language the person speaks or wants replies in (the reply already follows the language they write in).",
 		"Include a short verbatim sourceQuote from the segment for each decision.",
 		"It is normal and correct to return an empty decisions array for most conversations.",
 		"",

@@ -259,29 +259,25 @@ describe("afterReplyLanguage", () => {
 		).toEqual({ language: "hu", read: "hu" });
 	});
 
-	it("a short message in a Hungarian chat is read through the chat's language", () => {
-		// "Fordítsd le angolra." is too short to read on its own; the chat has been
-		// Hungarian, and the assistant's own words around the translation are too.
+	it("the previous reply's language is a fallback only: it never overrules a reply that names a language", () => {
+		// A short message the reader cannot name does not stand in for the chat's
+		// language: the reply decides, and only a reply that says nothing falls back.
 		expect(
 			afterReplyLanguage({
 				reply: ENGLISH_EMAIL_REPLY,
 				latestUserMessage: "Fordítsd le angolra.",
 				previous: "hu",
-				uiLanguage: "en",
-			}),
-		).toEqual({ language: "hu", read: "hu" });
-		// The same English reply in a chat that has been English stays English.
-		expect(
-			afterReplyLanguage({
-				reply: ENGLISH_EMAIL_REPLY.replace(/^[^\n]*\n/, "").replace(
-					/\n[^\n]*$/,
-					"",
-				),
-				latestUserMessage: "ok",
-				previous: "en",
 				uiLanguage: "hu",
 			}),
 		).toEqual({ language: "en", read: "en" });
+		expect(
+			afterReplyLanguage({
+				reply: "Done.",
+				latestUserMessage: "ok",
+				previous: "hu",
+				uiLanguage: "en",
+			}),
+		).toEqual({ language: "hu", read: "unknown" });
 	});
 
 	it("the message overrules the reply only when the reply holds two of its words", () => {

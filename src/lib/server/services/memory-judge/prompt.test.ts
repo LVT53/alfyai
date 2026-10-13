@@ -39,6 +39,19 @@ describe("judge prompts", () => {
 		expect(p).toContain("own words");
 	});
 
+	// A remembered "magyar nyelvű kommunikáció" pulled English prompts into
+	// Hungarian in the measured runs: the reply follows the language the person
+	// writes in, so the judge records no fact about it. The examples it shows are
+	// English and name no language at all.
+	it("tells the judge not to record which language the person speaks or wants replies in", () => {
+		const p = buildJudgeSystemPrompt();
+		expect(p).toContain(
+			"Do not record which language the person speaks or wants replies in (the reply already follows the language they write in).",
+		);
+		expect(p).not.toMatch(/Hungar|Magyar/);
+		expect(p).not.toMatch(/(?=\P{ASCII})\p{L}/u);
+	});
+
 	it("tells the model where the targetItemId for update/strengthen comes from", () => {
 		const p = buildJudgeSystemPrompt();
 		// The user message lists facts as `- [<id>] (...)`; the contract must say
