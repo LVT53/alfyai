@@ -18,7 +18,11 @@ import projectsDict from "$lib/i18n/projects";
 import settingsDict from "$lib/i18n/settings";
 import { createInMemoryDatabase } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
-import { publishCampaign } from "$lib/server/services/announcement-campaigns";
+import {
+	completeCampaignForUser,
+	getEligibleCampaignForUser,
+	publishCampaign,
+} from "$lib/server/services/announcement-campaigns";
 import {
 	ADMIN_CAMPAIGNS_PATH,
 	CampaignRunError,
@@ -867,6 +871,299 @@ describe("create-release-campaign", () => {
 			expect(db.select().from(schema.announcementCampaigns).all()).toHaveLength(
 				2,
 			);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// The AlfyAI 2.2 first-run onboarding: the welcome a person who has never used AlfyAI sees
+	// -----------------------------------------------------------------------
+
+	describe("the AlfyAI 2.2 first-run onboarding (docs/plans/onboarding-2.2)", () => {
+		const welcome = join(process.cwd(), "docs/plans/onboarding-2.2/deck");
+		const welcomeEn = join(process.cwd(), "docs/plans/onboarding-2.2/deck-en");
+		const release22 = join(process.cwd(), "docs/plans/campaign-2.2/deck");
+		const load = (dir = welcome) =>
+			loadDeck(dir, { isAllowedActionDestination, type: "onboarding" });
+
+		it("is a valid onboarding deck: ten slides, the setup slide first and the data disclosure last", () => {
+			const { slides } = load();
+
+			expect(slides).toHaveLength(10);
+			for (const slide of slides) {
+				expect(slide.images.desktop).toMatchObject({
+					width: 1600,
+					height: 1000,
+					mimeType: "image/png",
+				});
+				expect(slide.images.mobile).toMatchObject({
+					width: 1080,
+					height: 1920,
+					mimeType: "image/png",
+				});
+			}
+			expect(slides.map((slide) => slide.layoutType)).toEqual([
+				"setup",
+				...Array(9).fill("standard"),
+			]);
+			expect(slides[0].setupControls).toEqual([
+				"ui_language",
+				"theme",
+				"model_default",
+				"ai_style",
+			]);
+			expect(slides.map((slide) => slide.semanticRole)).toEqual([
+				...Array(9).fill("feature"),
+				"data_disclosure",
+			]);
+			// One button: the import, on the slide that says "bring what you have".
+			expect(slides.map((slide) => slide.actionDestination)).toEqual([
+				...Array(8).fill(null),
+				"internal:chatgpt-import",
+				null,
+			]);
+			expect(slides[8].actionLabelHu).toBe("Importálás ChatGPT-ből");
+			expect(slides[8].actionLabelEn).toBe("Import from ChatGPT");
+		});
+
+		it("tells every slide's reader where to find the thing, in both languages, in a body a phone shows whole", () => {
+			const { slides } = load();
+
+			slides.forEach((slide, index) => {
+				// The last paragraph of a body is its "where to find it" line.
+				expect(slide.bodyHu.split("\n\n").at(-1)).toMatch(/^Hol találod: /);
+				expect(slide.bodyEn.split("\n\n").at(-1)).toMatch(
+					/^Where to find it: /,
+				);
+				// Measured in the reader's card on a 390x844 phone (scripts/campaign-previews-2-2.ts): past
+				// this the card scrolls. The setup slide carries four controls under its words, so it
+				// scrolls on a phone whatever they say (and on a laptop-height window); a slide with a button
+				// has the button to fit as well.
+				const limit = index === 0 ? 270 : slide.actionDestination ? 310 : 380;
+				expect(
+					slide.bodyHu.length,
+					`slide ${index + 1} (HU)`,
+				).toBeLessThanOrEqual(limit);
+				expect(
+					slide.bodyEn.length,
+					`slide ${index + 1} (EN)`,
+				).toBeLessThanOrEqual(limit);
+				// Slides is shelved (ruling 69): no slide may name it.
+				for (const text of [
+					slide.titleHu,
+					slide.titleEn,
+					slide.bodyHu,
+					slide.bodyEn,
+				]) {
+					expect(text).not.toMatch(/diasor|slides/i);
+				}
+			});
+		});
+
+		it("quotes the labels the app draws, word for word in both languages", () => {
+			const dictionaries = [
+				artifactsDict,
+				chatDict,
+				commonDict,
+				knowledgeDict,
+				projectsDict,
+				settingsDict,
+			];
+			const label = (key: string, language: "en" | "hu"): string => {
+				for (const dictionary of dictionaries) {
+					const value = (
+						dictionary[language] as Record<string, string | undefined>
+					)[key];
+					if (value !== undefined) return value;
+				}
+				throw new Error(`No dictionary has ${key}`);
+			};
+			const { slides } = load();
+			// slide number (1-based) -> the dictionary keys whose labels its body quotes
+			const quoted: Array<[number, string[]]> = [
+				[
+					1,
+					[
+						"sidebar.settings",
+						"settingsProfile",
+						"settings_sectionPreferences",
+					],
+				],
+				[2, ["sidebar.search", "sidebar.knowledgeBase"]],
+				[
+					5,
+					[
+						"artifacts.document.change.keep",
+						"artifacts.document.change.undo",
+						"artifacts.history.title",
+					],
+				],
+				[
+					6,
+					[
+						"sidebar.projects",
+						"sidebar.settings",
+						"settingsProfile",
+						"profileTab.assistantTitle",
+					],
+				],
+				[7, ["sidebar.knowledgeBase", "knowledge.documents", "sidebar.search"]],
+				[8, ["memory.title"]],
+				[
+					9,
+					[
+						"sidebar.settings",
+						"settingsConnections",
+						"settingsProfile",
+						"settings_sectionDataPrivacy",
+					],
+				],
+				[10, ["settingsProfile", "settings_sectionDataPrivacy"]],
+			];
+			for (const [number, keys] of quoted) {
+				const slide = slides[number - 1];
+				for (const key of keys) {
+					expect(slide.bodyHu, `slide ${number}, ${key}`).toContain(
+						label(key, "hu"),
+					);
+					expect(slide.bodyEn, `slide ${number}, ${key}`).toContain(
+						label(key, "en"),
+					);
+				}
+			}
+			// The button is the Settings page's own import button.
+			expect(slides[8].actionLabelHu).toBe(
+				label("chatgptImport.settingsButton", "hu"),
+			);
+			expect(slides[8].actionLabelEn).toBe(
+				label("chatgptImport.settingsButton", "en"),
+			);
+		});
+
+		it("does not repeat the 2.2 release card, which the same person sees on a later load", () => {
+			const words = (text: string) =>
+				text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+			/** The longest run of words two texts share. */
+			const longestSharedRun = (a: string[], b: string[]) => {
+				let best = 0;
+				let previous = new Array<number>(b.length + 1).fill(0);
+				for (let i = 1; i <= a.length; i += 1) {
+					const row = new Array<number>(b.length + 1).fill(0);
+					for (let j = 1; j <= b.length; j += 1) {
+						if (a[i - 1] === b[j - 1]) {
+							row[j] = previous[j - 1] + 1;
+							best = Math.max(best, row[j]);
+						}
+					}
+					previous = row;
+				}
+				return best;
+			};
+			// The first paragraph is the words; the last is the "where" line, which names the same labels.
+			const first = (body: string) => body.split("\n\n")[0];
+			const mine = load().slides;
+			const theirs = loadDeck(release22, { isAllowedActionDestination }).slides;
+			for (const [index, slide] of mine.entries()) {
+				for (const [other, card] of theirs.entries()) {
+					for (const language of ["Hu", "En"] as const) {
+						const run = longestSharedRun(
+							words(first(slide[`body${language}`])),
+							words(first(card[`body${language}`])),
+						);
+						expect(
+							run,
+							`welcome slide ${index + 1} and release slide ${other + 1} (${language})`,
+						).toBeLessThan(5);
+					}
+				}
+			}
+		});
+
+		it("has an English-interface alternate with the very same words", () => {
+			const alternate = load(welcomeEn);
+			const main = load();
+
+			expect(
+				alternate.slides.map(({ images: _images, ...copy }) => copy),
+			).toEqual(main.slides.map(({ images: _images, ...copy }) => copy));
+		});
+
+		it("creates and publishes through the service's own validation, as the next first-run onboarding", async () => {
+			const result = await runCreateReleaseCampaign(
+				options({
+					type: "onboarding",
+					version: null,
+					name: "AlfyAI 2.2 üdvözlő",
+					deck: welcome,
+					publish: true,
+				}),
+				{ db, storageRoot },
+			);
+
+			expect(result).toMatchObject({
+				status: "published",
+				type: "first_run_onboarding",
+				releaseVersion: null,
+				identityKey: "first_run_onboarding:v1:r1",
+				slideCount: 10,
+			});
+		});
+
+		it("is shown once more to an account that finished the last onboarding, before the release card", async () => {
+			const publish = async (name: string) => {
+				const created = await runCreateReleaseCampaign(
+					options({
+						type: "onboarding",
+						version: null,
+						name,
+						deck: welcome,
+					}),
+					{ db, storageRoot },
+				);
+				await publishCampaign(created.campaignId as string, "admin-user", {
+					db,
+				});
+				return created;
+			};
+
+			const old = await publish("Welcome 2.0");
+			await completeCampaignForUser(
+				old.campaignId as string,
+				"viewer-user",
+				"completed",
+				{ db },
+			);
+			expect(
+				await getEligibleCampaignForUser("viewer-user", { db }),
+			).toBeNull();
+
+			// 2.2 is published: a release card waits, and a new onboarding revision comes before it.
+			const release = await runCreateReleaseCampaign(
+				options({ name: "AlfyAI 2.2", version: "2.2.0", deck: deckDir }),
+				{ db, storageRoot },
+			);
+			await publishCampaign(release.campaignId as string, "admin-user", { db });
+			expect(
+				(await getEligibleCampaignForUser("viewer-user", { db }))?.type,
+			).toBe("release_update");
+
+			const next = await publish("AlfyAI 2.2 üdvözlő");
+			const shown = await getEligibleCampaignForUser("viewer-user", { db });
+			expect(shown).toMatchObject({
+				type: "first_run_onboarding",
+				identityKey: "first_run_onboarding:v1:r2",
+			});
+			expect(shown?.id).toBe(next.campaignId);
+
+			// Finishing it hands the next load to the release card.
+			await completeCampaignForUser(
+				next.campaignId as string,
+				"viewer-user",
+				"completed",
+				{ db },
+			);
+			expect(
+				(await getEligibleCampaignForUser("viewer-user", { db }))?.type,
+			).toBe("release_update");
 		});
 	});
 
