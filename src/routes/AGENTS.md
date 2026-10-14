@@ -102,3 +102,10 @@ logout/                # Logout page
 - Adding route-local AI SDK UI stream part shapes without updating the browser parser
 - Putting raw `fetch` boilerplate in pages instead of `src/lib/client/api/`
 - Removing the Knowledge Documents AI-facing version panel because normalized documents are hidden as standalone rows
+
+## Other API Endpoints
+
+- Other API endpoints:
+  - [`src/routes/api/chat/stream/buffer/+server.ts`](./src/routes/api/chat/stream/buffer/+server.ts) — stream buffer replay for reconnection
+  - [`src/routes/api/chat/stream/status/+server.ts`](./src/routes/api/chat/stream/status/+server.ts) — stream capacity/status check
+  - `src/routes/api/favicon/+server.ts` — same-origin favicon proxy (ADR 0043). Unauthenticated-safe, source-site `/favicon.ico` first with a DuckDuckGo fallback, cached, fails gracefully to a generic icon. Replaces the direct third-party Google S2 call in `ThinkingBlock` so researched domains do not leak to Google and favicons work behind firewalls.
