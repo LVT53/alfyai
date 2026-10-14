@@ -57,7 +57,6 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Runtime config flows through `src/lib/server/config-store.ts`. Do not bypass it in code that should respect admin overrides.
 - New Composer Command, Skill, Skill Session, Skill Note, and Linked Source UI labels, errors, confirmations, empty states, and accessibility strings must be localized in both English and Hungarian.
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
-- `src/lib/server/db/index.ts` is connection/bootstrap only. Do not reintroduce runtime schema mutation there.
 - `src/lib/client/conversation-session.ts` owns landing-to-chat handoff state. Do not scatter raw `sessionStorage` keys across pages or components.
 - `src/lib/client/api/` owns reusable browser `fetch` logic. Stores should not become ad hoc HTTP clients.
 - `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/services/ai-sdk-ui-stream-contract.ts` owns AI SDK UI stream frame encoding, complete-block decoding, terminal detection, and metadata extraction for Normal Chat stream/reconnect/browser responses. `src/lib/server/services/chat-turn/stream.ts` owns runtime emission helpers for text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts through that shared contract. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, terminal checks, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
@@ -486,28 +485,6 @@ Do not:
 - write tar contents to host filesystem
 - bypass timeout/resource limits
 - add new languages without security review
-
-### Database And Persistence
-
-- DB bootstrap and Drizzle binding:
-  - [`src/lib/server/db/index.ts`](./src/lib/server/db/index.ts)
-- Schema:
-  - [`src/lib/server/db/schema.ts`](./src/lib/server/db/schema.ts)
-- Shared semantic embedding store:
-  - [`src/lib/server/services/semantic-embeddings.ts`](./src/lib/server/services/semantic-embeddings.ts)
-- Explicit DB prep:
-  - [`scripts/prepare-db.ts`](./scripts/prepare-db.ts)
-
-Legacy/avoidance notes:
-
-`src/lib/server/db/compat.ts` is a narrow compatibility shim. Do not add new DB wrapper modules unless there is a verified compatibility need; new persistence logic should normally live in the relevant service and use `db` plus `schema.ts` directly.
-
-Do not:
-
-- put schema mutation back into `db/index.ts`
-- create new mini repository layers for each table without a strong reason
-- spread one feature's persistence logic across route handlers, DB wrapper modules, and service files at the same time
-- add a table to `schema.ts` without a corresponding migration in `drizzle/` — every new `sqliteTable()` MUST have a matching `CREATE TABLE` migration file and a `_journal.json` entry. Run `npm run check:migrations` to verify this before committing.
 
 ### Browser API, Stores, And Session Handoff
 

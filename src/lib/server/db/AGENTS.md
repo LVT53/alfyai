@@ -52,3 +52,31 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
   the schema; only how a query runs is owned centrally. Per-table wrappers remain forbidden.)
 - Do NOT read `DATABASE_PATH` directly - use `getDatabasePath()` from `env.ts`
 - Do NOT bypass foreign keys - pragma is enabled
+
+## Connection Bootstrap
+
+- `src/lib/server/db/index.ts` is connection/bootstrap only. Do not reintroduce runtime schema mutation there.
+
+## Database And Persistence
+
+- DB bootstrap and Drizzle binding:
+  - [`src/lib/server/db/index.ts`](./src/lib/server/db/index.ts)
+- Schema:
+  - [`src/lib/server/db/schema.ts`](./src/lib/server/db/schema.ts)
+- Shared semantic embedding store:
+  - [`src/lib/server/services/semantic-embeddings.ts`](./src/lib/server/services/semantic-embeddings.ts)
+- Explicit DB prep:
+  - [`scripts/prepare-db.ts`](./scripts/prepare-db.ts)
+
+
+Legacy/avoidance notes:
+
+`src/lib/server/db/compat.ts` is a narrow compatibility shim. Do not add new DB wrapper modules unless there is a verified compatibility need; new persistence logic should normally live in the relevant service and use `db` plus `schema.ts` directly.
+
+
+Do not:
+
+- put schema mutation back into `db/index.ts`
+- create new mini repository layers for each table without a strong reason
+- spread one feature's persistence logic across route handlers, DB wrapper modules, and service files at the same time
+- add a table to `schema.ts` without a corresponding migration in `drizzle/` — every new `sqliteTable()` MUST have a matching `CREATE TABLE` migration file and a `_journal.json` entry. Run `npm run check:migrations` to verify this before committing.
