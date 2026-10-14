@@ -62,7 +62,6 @@ let {
 	content = "",
 	thinkingIsDone = false,
 	segments = [],
-	streaming = false,
 	thinkingDurationSeconds = 0,
 	// P1 (ADR-0056) — true once the assistant's visible answer text has
 	// started streaming (MessageBubble's own `hasVisibleContent`). Distinct
@@ -140,7 +139,6 @@ let {
 	content?: string;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
-	streaming?: boolean;
 	thinkingDurationSeconds?: number;
 	answerStarted?: boolean;
 	liveThoughtStepClass?: string;

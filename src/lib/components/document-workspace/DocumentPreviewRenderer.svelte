@@ -28,7 +28,6 @@ let {
 	previewUrl = null,
 	filename,
 	mimeType,
-	onClose = () => undefined,
 	currentPage = $bindable(1),
 	totalPages = $bindable(0),
 }: {
@@ -37,7 +36,6 @@ let {
 	previewUrl?: string | null;
 	filename: string;
 	mimeType: string | null;
-	onClose?: () => void;
 	currentPage?: number;
 	totalPages?: number;
 } = $props();

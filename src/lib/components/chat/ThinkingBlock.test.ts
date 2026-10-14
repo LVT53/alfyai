@@ -1456,7 +1456,6 @@ describe("ThinkingBlock", () => {
 					content: "Considering the request",
 					thinkingIsDone: false,
 					segments: [],
-					streaming: true,
 				},
 			});
 
@@ -1991,7 +1990,6 @@ describe("ThinkingBlock", () => {
 					content: "Considering the request",
 					thinkingIsDone: false,
 					segments: [],
-					streaming: true,
 				},
 			});
 

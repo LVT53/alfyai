@@ -2871,7 +2871,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								previewUrl={activeDocument.previewUrl ?? null}
 								filename={activeDocument.filename}
 								mimeType={activeDocument.mimeType}
-								onClose={handleCloseWorkspace}
 								bind:currentPage={currentPage}
 								bind:totalPages={currentTotalPages}
 							/>
@@ -3211,7 +3210,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							previewUrl={activeDocument.previewUrl ?? null}
 							filename={activeDocument.filename}
 							mimeType={activeDocument.mimeType}
-							onClose={handleCloseWorkspace}
 							bind:currentPage={currentPage}
 							bind:totalPages={currentTotalPages}
 						/>

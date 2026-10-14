@@ -60,7 +60,6 @@ function openPreview(
 		previewUrl: string | null;
 		filename: string;
 		mimeType: string | null;
-		onClose: () => void;
 	}> = {},
 ) {
 	return render(DocumentPreviewRenderer, {
@@ -69,7 +68,6 @@ function openPreview(
 			artifactId: "test-123",
 			filename: "document.pdf",
 			mimeType: "application/pdf",
-			onClose: vi.fn(),
 			...overrides,
 		},
 	});
@@ -118,7 +116,6 @@ function deferredPreviewResponse(content: string, type = "text/plain") {
 }
 
 describe("DocumentPreviewRenderer", () => {
-	const mockOnClose = vi.fn();
 	const createObjectURL = vi.fn(() => "blob:preview-url");
 	const revokeObjectURL = vi.fn();
 
@@ -206,7 +203,6 @@ describe("DocumentPreviewRenderer", () => {
 	it("renders nothing when closed", () => {
 		const { container } = openPreview({
 			open: false,
-			onClose: mockOnClose,
 		});
 
 		expect(container.innerHTML.trim()).toBe("<!---->");
@@ -215,7 +211,7 @@ describe("DocumentPreviewRenderer", () => {
 	it("shows loading state while the runtime fetch is pending", () => {
 		mockPendingFetch();
 
-		openPreview({ onClose: mockOnClose });
+		openPreview();
 
 		expect(screen.getByText("Loading preview...")).toBeInTheDocument();
 		expect(document.querySelector(".spinner")).toBeInTheDocument();
@@ -236,7 +232,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "notes.ts",
 			mimeType: "text/plain",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("Network error")).toBeInTheDocument();
@@ -263,7 +258,6 @@ describe("DocumentPreviewRenderer", () => {
 			artifactId: "first-artifact",
 			filename: "first.txt",
 			mimeType: "text/plain",
-			onClose: mockOnClose,
 		});
 
 		await waitFor(() => {
@@ -298,7 +292,7 @@ describe("DocumentPreviewRenderer", () => {
 			status: 404,
 		});
 
-		openPreview({ onClose: mockOnClose });
+		openPreview();
 
 		expect(await screen.findByText("File not found")).toBeInTheDocument();
 	});
@@ -309,7 +303,6 @@ describe("DocumentPreviewRenderer", () => {
 			previewUrl: null,
 			filename: "source-less.pdf",
 			mimeType: "application/pdf",
-			onClose: mockOnClose,
 		});
 
 		expect(screen.getByText("Preview not available")).toBeInTheDocument();
@@ -328,7 +321,6 @@ describe("DocumentPreviewRenderer", () => {
 			previewUrl: "   ",
 			filename: "source-less.pdf",
 			mimeType: "application/pdf",
-			onClose: mockOnClose,
 		});
 
 		expect(screen.getByText("Preview not available")).toBeInTheDocument();
@@ -343,7 +335,6 @@ describe("DocumentPreviewRenderer", () => {
 
 		openPreview({
 			filename: "embedded.pdf",
-			onClose: mockOnClose,
 		});
 
 		expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
@@ -360,10 +351,10 @@ describe("DocumentPreviewRenderer", () => {
 	it("does not close on Escape because the workspace shell owns closing", async () => {
 		mockPendingFetch();
 
-		openPreview({ onClose: mockOnClose });
+		openPreview();
 		await fireEvent.keyDown(window, { key: "Escape" });
 
-		expect(mockOnClose).not.toHaveBeenCalled();
+		expect(screen.getByText("Loading preview...")).toBeInTheDocument();
 	});
 
 	it("shows unsupported-file messaging with the local download fallback", async () => {
@@ -372,7 +363,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "archive.unknown",
 			mimeType: "application/octet-stream",
-			onClose: mockOnClose,
 		});
 
 		expect(
@@ -388,7 +378,7 @@ describe("DocumentPreviewRenderer", () => {
 	it("leaves supported-file downloads to the workspace shell", async () => {
 		mockFetchBlob(new Blob(["PDF content"], { type: "application/pdf" }));
 
-		openPreview({ onClose: mockOnClose });
+		openPreview();
 
 		expect(await screen.findByTestId("pdf-preview")).toBeInTheDocument();
 		expect(
@@ -402,7 +392,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "document.pdf",
 			mimeType: "application/pdf",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByTestId("pdf-preview")).toBeInTheDocument();
@@ -418,7 +407,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "image.png",
 			mimeType: "image/png",
-			onClose: mockOnClose,
 		});
 
 		expect(
@@ -436,7 +424,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "notes.ts",
 			mimeType: "text/plain",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("const answer = 42;")).toBeInTheDocument();
@@ -452,7 +439,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "metrics.csv",
 			mimeType: "text/csv",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("Name")).toBeInTheDocument();
@@ -466,7 +452,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "notes.md",
 			mimeType: "text/markdown",
-			onClose: mockOnClose,
 		});
 
 		expect(
@@ -493,7 +478,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "site.html",
 			mimeType: "text/html",
-			onClose: mockOnClose,
 		});
 
 		const frame = await screen.findByTitle("site.html preview");
@@ -543,7 +527,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "atlas-report.html",
 			mimeType: "text/html",
-			onClose: mockOnClose,
 		});
 
 		const frame = await screen.findByTitle("atlas-report.html preview");
@@ -571,7 +554,6 @@ describe("DocumentPreviewRenderer", () => {
 			filename: "document.docx",
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("Mock DOCX content")).toBeInTheDocument();
@@ -591,7 +573,6 @@ describe("DocumentPreviewRenderer", () => {
 			filename: "spreadsheet.xlsx",
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("Total")).toBeInTheDocument();
@@ -610,7 +591,6 @@ describe("DocumentPreviewRenderer", () => {
 			filename: "slides.pptx",
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-			onClose: mockOnClose,
 		});
 
 		const slideTwoImage = await screen.findByAltText("Slide 2");
@@ -639,7 +619,6 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({
 			filename: "document.odt",
 			mimeType: "application/vnd.oasis.opendocument.text",
-			onClose: mockOnClose,
 		});
 
 		expect(await screen.findByText("ODT Title")).toBeInTheDocument();
