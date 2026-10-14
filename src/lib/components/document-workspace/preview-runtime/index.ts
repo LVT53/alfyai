@@ -1,12 +1,12 @@
 import {
 	getEntryByFilename,
 	getEntryByMimeType,
+	getPreviewLanguage,
 	isGenericMimeType,
 	normalizeMimeType,
 } from "$lib/shared/file-types";
 import {
 	determinePreviewFileType,
-	getPreviewLanguage,
 	type PreviewFileType,
 } from "$lib/utils/file-preview";
 import type { OfficePreviewRenderResult } from "./office";
@@ -291,7 +291,7 @@ async function buildPreviewAdapter({
 			blob,
 			text,
 			textKind: getTextPreviewKind(mimeType, filename),
-			language: getPreviewLanguage(mimeType, filename),
+			language: getPreviewLanguage(filename, mimeType),
 		};
 	}
 
