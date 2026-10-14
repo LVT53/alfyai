@@ -60,6 +60,32 @@ const BASELINE = {
 	),
 };
 
+/**
+ * A package.json spec for Fallow that names one release, or an error. A range would let the
+ * release the gate runs drift from the one the committed baseline was made with.
+ */
+export function exactFallowVersion(spec) {
+	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(spec ?? "")) {
+		throw new Error(
+			`package.json must pin fallow to an exact version, and devDependencies.fallow is ${JSON.stringify(spec)}: run \`npm install -D -E fallow@<version>\``,
+		);
+	}
+	return spec;
+}
+
+/**
+ * The Fallow release the gate runs: package.json's pin. A bare `npx fallow` runs whatever
+ * node_modules holds and, where it holds nothing (a fresh checkout, CI), fetches the latest
+ * release, whose report is not the baseline's; `npx -y fallow@<this>` is the same report on
+ * every machine.
+ */
+export function fallowVersion() {
+	return exactFallowVersion(
+		JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).devDependencies
+			?.fallow,
+	);
+}
+
 const STEP_ORDER = [
 	"check",
 	"biome",
@@ -212,15 +238,17 @@ export function defineSteps(args) {
 		fallow: {
 			cmd: [
 				"npx",
-				"fallow",
+				"-y",
+				`fallow@${fallowVersion()}`,
 				"--no-cache",
 				"--format",
 				"json",
 				"--quiet",
 				"--score",
-				"--output-file",
-				join(args.outDir, "fallow.json"),
 			],
+			// The report is stdout. `--output-file` is refused outside the project root and the
+			// system temp dir (Fallow 3), and the out-dir is the caller's to choose.
+			stdout: join(args.outDir, "fallow.json"),
 			parse: () =>
 				compareFallow(join(args.outDir, "fallow.json"), args.fallowBaseline),
 		},
@@ -435,13 +463,17 @@ function runCommand(step, name, outDir) {
 	const startedAt = Date.now();
 	return new Promise((done) => {
 		const fd = openSync(logPath, "w");
+		// A step whose result is its stdout (Fallow's JSON report) gets a file for it, and the
+		// log keeps stderr.
+		const out = step.stdout ? openSync(step.stdout, "w") : fd;
 		const child = spawn(step.cmd[0], step.cmd.slice(1), {
 			cwd: ROOT,
 			env: { ...childEnv(), ...(step.env ?? {}) },
-			stdio: ["ignore", fd, fd],
+			stdio: ["ignore", out, fd],
 			detached: true,
 		});
 		closeSync(fd);
+		if (out !== fd) closeSync(out);
 		active.add(child);
 		child.on("error", () => {
 			active.delete(child);

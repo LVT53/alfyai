@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	compareFallow,
 	defineSteps,
+	exactFallowVersion,
+	fallowVersion,
 	parseArgs,
 	parseBuildLog,
 	parseCheckLog,
@@ -119,6 +121,55 @@ describe("the chunks step", () => {
 				"[artifact-chunks] No build manifest at x — run `npm run build` first.",
 			).ok,
 		).toBe(false);
+	});
+});
+
+// A bare `npx fallow` runs what node_modules holds, and where that is nothing (a fresh
+// checkout, CI) npx fetches the latest release, which reports differently from the baseline's.
+// So the step names the release package.json pins, and says where the report goes: stdout,
+// because Fallow 3 refuses `--output-file` outside the project root and the system temp dir.
+describe("the Fallow step", () => {
+	const options = {
+		mode: "release",
+		outDir: "/somewhere/outside/the/repo",
+		workers: undefined,
+		port: undefined,
+		skip: new Set(),
+		fallowBaseline: "/tmp/none.json",
+		schedule: "overlap",
+		specs: [],
+	};
+	const pinned = JSON.parse(
+		readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
+	).devDependencies.fallow;
+
+	it("runs exactly the release package.json pins, installed or not", () => {
+		expect(pinned).toMatch(/^\d+\.\d+\.\d+$/);
+		expect(fallowVersion()).toBe(pinned);
+		const { cmd } = defineSteps(options).fallow;
+		expect(cmd.slice(0, 3)).toEqual(["npx", "-y", `fallow@${pinned}`]);
+	});
+
+	it("takes the report from stdout, so the out-dir can be anywhere", () => {
+		const step = defineSteps(options).fallow;
+		expect(step.cmd).not.toContain("--output-file");
+		expect(step.stdout).toBe("/somewhere/outside/the/repo/fallow.json");
+	});
+
+	it("refuses a range, a tag or nothing as the pin", () => {
+		expect(exactFallowVersion("3.33.1")).toBe("3.33.1");
+		expect(exactFallowVersion("3.34.0-beta.1")).toBe("3.34.0-beta.1");
+		for (const spec of [
+			"^3.33.1",
+			"~3.33.1",
+			">=3.33",
+			"latest",
+			"3",
+			"",
+			undefined,
+		]) {
+			expect(() => exactFallowVersion(spec)).toThrow(/exact version/);
+		}
 	});
 });
 
