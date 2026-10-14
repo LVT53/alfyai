@@ -484,21 +484,6 @@ Do not:
 - bypass timeout/resource limits
 - add new languages without security review
 
-### Browser API, Stores, And Session Handoff
-
-- Stores:
-  - [`src/lib/stores/conversations.ts`](./src/lib/stores/conversations.ts)
-  - [`src/lib/stores/projects.ts`](./src/lib/stores/projects.ts)
-  - [`src/lib/stores/settings.ts`](./src/lib/stores/settings.ts)
-  - [`src/lib/stores/avatar.ts`](./src/lib/stores/avatar.ts)
-  - [`src/lib/stores/theme.ts`](./src/lib/stores/theme.ts)
-  - [`src/lib/stores/ui.ts`](./src/lib/stores/ui.ts)
-Rules:
-
-- stores own browser state, optimistic updates, and UI-facing transitions.
-Do not:
-
-- make stores mutate unrelated domains because it feels convenient
 ### Additional Active Services
 
 - Other API endpoints:

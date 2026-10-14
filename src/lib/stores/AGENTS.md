@@ -44,3 +44,21 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 - **No cross-domain mutations**: A store should not directly mutate another store's state. Route through actions or page logic.
 - **No HTTP client bloat**: Stores are not API clients. Keep HTTP logic in `client/api/`.
 - **No server-side storage access**: Never access `localStorage` during SSR. Guard with environment checks.
+
+## Stores And Browser API
+
+- Stores:
+  - [`src/lib/stores/conversations.ts`](./src/lib/stores/conversations.ts)
+  - [`src/lib/stores/projects.ts`](./src/lib/stores/projects.ts)
+  - [`src/lib/stores/settings.ts`](./src/lib/stores/settings.ts)
+  - [`src/lib/stores/avatar.ts`](./src/lib/stores/avatar.ts)
+  - [`src/lib/stores/theme.ts`](./src/lib/stores/theme.ts)
+  - [`src/lib/stores/ui.ts`](./src/lib/stores/ui.ts)
+
+Rules:
+
+- stores own browser state, optimistic updates, and UI-facing transitions.
+
+Do not:
+
+- make stores mutate unrelated domains because it feels convenient
