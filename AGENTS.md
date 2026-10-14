@@ -57,8 +57,6 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Runtime config flows through `src/lib/server/config-store.ts`. Do not bypass it in code that should respect admin overrides.
 - New Composer Command, Skill, Skill Session, Skill Note, and Linked Source UI labels, errors, confirmations, empty states, and accessibility strings must be localized in both English and Hungarian.
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
-- `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/services/ai-sdk-ui-stream-contract.ts` owns AI SDK UI stream frame encoding, complete-block decoding, terminal detection, and metadata extraction for Normal Chat stream/reconnect/browser responses. `src/lib/server/services/chat-turn/stream.ts` owns runtime emission helpers for text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts through that shared contract. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, terminal checks, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
-- `src/lib/services/streaming.ts` owns the browser stream transport contract, including the distinction between a user-requested stop and a local detach during navigation/unmount. Do not collapse those paths back into one generic abort that marks background disconnects as explicit stops.
 ## App Map
 
 ### Request Bootstrap

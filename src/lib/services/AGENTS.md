@@ -47,3 +47,8 @@ table-layout.ts      - Markdown table rendering
 - **Don't duplicate AI SDK UI stream frame parsers** in browser or server adapters — use `ai-sdk-ui-stream-contract.ts`
 - **Don't collapse stop and detach** into one generic abort — they have different server semantics
 - **Don't eager-import heavy deps** like Shiki — lazy-load through the markdown pipeline
+
+## Stream Protocol And Transport
+
+- `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/services/ai-sdk-ui-stream-contract.ts` owns AI SDK UI stream frame encoding, complete-block decoding, terminal detection, and metadata extraction for Normal Chat stream/reconnect/browser responses. `src/lib/server/services/chat-turn/stream.ts` owns runtime emission helpers for text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts through that shared contract. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, terminal checks, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
+- `src/lib/services/streaming.ts` owns the browser stream transport contract, including the distinction between a user-requested stop and a local detach during navigation/unmount. Do not collapse those paths back into one generic abort that marks background disconnects as explicit stops.
