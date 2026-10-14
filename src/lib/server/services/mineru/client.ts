@@ -774,18 +774,6 @@ export class MineruClient {
 	private safeExcerpt(text: string): string {
 		return truncateMineruBody(redactMineruSecrets(text, this.config.apiKey));
 	}
-
-	// Aliases for the names the slice brief used. `createJob` / `getJob` /
-	// `cancelJob` are the spec's §2.4 names and the ones to prefer.
-	createParseJob(input: CreateJobInput): Promise<MineruJob> {
-		return this.createJob(input);
-	}
-	getParseJob(input: GetJobInput): Promise<MineruJob> {
-		return this.getJob(input);
-	}
-	cancelParseJob(input: GetJobInput): Promise<void> {
-		return this.cancelJob(input);
-	}
 }
 
 // ---------------------------------------------------------------------------
