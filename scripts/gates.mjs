@@ -12,7 +12,7 @@
 //   --workers N            Playwright workers (default: E2E_WORKERS, else the config's default)
 //   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
 //   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright
-//   --fallow-baseline F    Fallow baseline to compare against
+//   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
 //   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
 //                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
 //                          done and vitest runs beside it on a few threads. Default: overlap for release
@@ -40,7 +40,7 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { cpus, homedir, loadavg } from "node:os";
+import { cpus, loadavg } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -52,12 +52,10 @@ const BASELINE = {
 	buildUnusedCss: 32,
 	buildAria: 2,
 	fallowCircular: 4,
-	fallowFile: join(
-		homedir(),
-		".cache",
-		"alfyai-artifacts",
-		"fallow-baseline-00ef6d2a.json",
-	),
+	// The `check` section of the report the pinned Fallow made at the last accepted state of
+	// the tree. It lives in the repo, so every checkout and every agent compares with the same
+	// one; AGENTS.md ("Fallow Audit Gate") says when and how it is made again.
+	fallowFile: join(ROOT, ".fallow", "baseline.json"),
 };
 
 /**
@@ -235,6 +233,9 @@ export function defineSteps(args) {
 			after: ["build"],
 			parse: parseChunksLog,
 		},
+		// Fallow reads `.svelte-kit/tsconfig.json` when it exists and warns on stderr (fallow.log)
+		// when it does not; the findings are the same either way (checked on the tree this baseline
+		// was made from), so it needs no sync first and runs beside the build.
 		fallow: {
 			cmd: [
 				"npx",

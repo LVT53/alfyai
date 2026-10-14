@@ -594,3 +594,40 @@ describe("the default schedule", () => {
 		).toBe("overlap");
 	});
 });
+
+// The baseline is a file in the repo, made by the release package.json pins. One made by another
+// release is the comparison the gate used to get wrong (a 2.96 baseline against a 3.x report), so
+// bumping Fallow and making the baseline again are one change, and this is what says so.
+describe("the committed Fallow baseline", () => {
+	const baselinePath = join(
+		import.meta.dirname,
+		"..",
+		".fallow",
+		"baseline.json",
+	);
+
+	it("is what the gate compares with unless told otherwise", () => {
+		expect(parseArgs(["agent", "/tmp/gates-test"]).fallowBaseline).toBe(
+			baselinePath,
+		);
+		expect(
+			parseArgs(["agent", "/tmp/gates-test", "--fallow-baseline", "/x.json"])
+				.fallowBaseline,
+		).toBe("/x.json");
+	});
+
+	it("holds only the check section, made by the release package.json pins", () => {
+		const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+		expect(Object.keys(baseline)).toEqual(["check"]);
+		expect(
+			baseline.check.version,
+			"the baseline was made by another Fallow release than package.json pins: make it again (AGENTS.md, Fallow Audit Gate)",
+		).toBe(fallowVersion());
+	});
+
+	it("is a baseline the comparison can read, and the tree it describes passes against it", () => {
+		const result = compareFallow(baselinePath, baselinePath);
+		expect(result.text).toContain("new_vs_baseline=0 gone_vs_baseline=0");
+		expect(result.ok).toBe(true);
+	});
+});
