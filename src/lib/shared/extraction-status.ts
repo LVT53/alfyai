@@ -39,8 +39,6 @@ export const DOCUMENT_EXTRACTION_TERMINAL_STATUSES = [
 	"failed",
 	"canceled",
 ] as const;
-export type DocumentExtractionTerminalStatus =
-	(typeof DOCUMENT_EXTRACTION_TERMINAL_STATUSES)[number];
 
 /** The three phases an extractor may report while it owns a job. */
 export type ExtractionPhase = "uploading" | "parsing" | "downloading";
@@ -78,11 +76,7 @@ export type ExtractionErrorCode = (typeof EXTRACTION_ERROR_CODES)[number];
  *    exponentially backed-off window that does NOT consume the attempt budget.
  *  - `none` — trying again changes nothing until a human changes something.
  */
-export const EXTRACTION_AUTO_RETRY_POLICIES = [
-	"none",
-	"attempts",
-	"outage",
-] as const;
+const EXTRACTION_AUTO_RETRY_POLICIES = ["none", "attempts", "outage"] as const;
 export type ExtractionAutoRetryPolicy =
 	(typeof EXTRACTION_AUTO_RETRY_POLICIES)[number];
 
@@ -176,16 +170,14 @@ export const RETRYABLE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> 
  * downtime, and a backend restart takes longer than that, so every in-flight
  * document used to fail permanently on a blip it had nothing to do with.
  */
-export const OUTAGE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> =
+const OUTAGE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> =
 	new Set<ExtractionErrorCode>(
 		EXTRACTION_ERROR_CODES.filter(
 			(code) => EXTRACTION_ERROR_POLICIES[code].autoRetry === "outage",
 		),
 	);
 
-export function isOutageExtractionErrorCode(
-	code: ExtractionErrorCode,
-): boolean {
+function isOutageExtractionErrorCode(code: ExtractionErrorCode): boolean {
 	return OUTAGE_EXTRACTION_ERROR_CODES.has(code);
 }
 

@@ -70,7 +70,7 @@ function asBlockComponent(component: unknown): BlockComponent {
  * here — no template edits. Strategies with no entry (only `prose`) fall through
  * to the `{@html}` prose lane.
  */
-export const BLOCK_RENDERERS: Partial<
+const BLOCK_RENDERERS: Partial<
 	Record<BlockRenderStrategy, BlockRendererEntry>
 > = {
 	code: {

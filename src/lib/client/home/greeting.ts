@@ -45,7 +45,7 @@ export type GreetingGroup =
 	| "running"
 	| "firstVisit";
 
-export const GREETING_TIME_OF_DAY = [
+const GREETING_TIME_OF_DAY = [
 	"morning",
 	"afternoon",
 	"evening",
@@ -90,17 +90,17 @@ export const GREETING_MAX_LINE_CHARS = 38;
 export const GREETING_REFERENCE_NAME_CHARS = 12;
 
 /** At or under this many messages, the week reads as quiet outright. */
-export const GREETING_QUIET_ABSOLUTE = 3;
+const GREETING_QUIET_ABSOLUTE = 3;
 
 /** At or over this many, it reads as busy outright. */
-export const GREETING_BUSY_ABSOLUTE = 12;
+const GREETING_BUSY_ABSOLUTE = 12;
 
 /**
  * Between the two absolutes the week is judged against the user's own median
  * week, but only once there are enough past weeks for a median to mean
  * anything.
  */
-export const GREETING_BASELINE_MIN_WEEKS = 3;
+const GREETING_BASELINE_MIN_WEEKS = 3;
 
 export interface GreetingWeekInput {
 	/** Message counts per week, oldest first; the last entry is this week. */
@@ -394,7 +394,7 @@ export function isBackAfterGap(week: GreetingWeekInput): boolean {
 	return week.total <= GREETING_QUIET_ABSOLUTE;
 }
 
-export function greetingFactsFor(context: GreetingContext): GreetingFacts {
+function greetingFactsFor(context: GreetingContext): GreetingFacts {
 	return {
 		timeOfDay: timeOfDayFor(context.now.getHours()),
 		weekday: context.now.getDay(),
@@ -422,7 +422,7 @@ export function greetingFactsFor(context: GreetingContext): GreetingFacts {
  * independent, which is what "different users get different greetings" rests
  * on.
  */
-export function greetingSeed(input: string): number {
+function greetingSeed(input: string): number {
 	let hash = 0x811c9dc5;
 	for (let index = 0; index < input.length; index += 1) {
 		hash ^= input.charCodeAt(index);

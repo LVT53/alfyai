@@ -18,7 +18,7 @@ export const MAX_SNIPPET_LENGTH = 120;
 const MAX_EYEBROW_LENGTH = 60;
 
 /** The rail only appears once the conversation has this many assistant turns. */
-export const MIN_TURNS_FOR_RAIL = 6;
+const MIN_TURNS_FOR_RAIL = 6;
 
 /** A single navigable turn on the jump-rail. */
 export interface JumpRailTurn {

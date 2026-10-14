@@ -11,7 +11,7 @@ const MAX_DISPLAYED_SECONDS = 59 * 60 + 59; // 59:59
 
 /** A queued/running job whose createdAt is older than this is rendered in the
  * amber "stale" honesty state. Pure client heuristic (ADR-0043 Slice 4). */
-export const STALE_THRESHOLD_MS = 90_000;
+const STALE_THRESHOLD_MS = 90_000;
 
 /**
  * Format the elapsed time between `createdAtMs` and `nowMs` as "m:ss".

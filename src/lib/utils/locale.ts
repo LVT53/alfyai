@@ -17,7 +17,7 @@
 
 /** The languages the app ships. Mirrors `UiLanguage` in $lib/stores/settings
  *  and `SupportedLanguage` on the server, without importing either. */
-export type FormattingLanguage = "en" | "hu";
+type FormattingLanguage = "en" | "hu";
 
 const LOCALE_BY_LANGUAGE: Record<FormattingLanguage, string> = {
 	en: "en-GB",

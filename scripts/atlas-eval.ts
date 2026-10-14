@@ -492,7 +492,6 @@ class Session {
 // ---------------------------------------------------------------------------
 
 const CITATION_PATTERN = /\[(\d{1,3})\]/g;
-const CONFIDENCE_MARKS = { corroborated: "ᶜ", single: "ˢ", inferred: "ⁱ" };
 
 /**
  * Number extraction and variant matching, kept deliberately simple and
@@ -2219,8 +2218,6 @@ async function main(): Promise<void> {
 
 // Exported for the unit test; the script body only runs when invoked directly.
 export {
-	buildMarkdownReport,
-	CONFIDENCE_MARKS,
 	claimsPerThousandWords,
 	computeMetrics,
 	coreAnswerPresent,
@@ -2245,7 +2242,6 @@ export {
 	verdictInWindow,
 	verdictSection,
 	volatileDateCoverage,
-	WORD_BUDGETS,
 };
 
 const invokedDirectly = process.argv[1]?.endsWith("atlas-eval.ts");

@@ -11,7 +11,7 @@ import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
  * The ledger row every upload response now carries. Phase 3: the request ends
  * when the bytes are stored, so `queued` is the ordinary answer.
  */
-export function makeExtractionJobDTO(
+function makeExtractionJobDTO(
 	overrides: Partial<DocumentExtractionJobDTO> = {},
 ): DocumentExtractionJobDTO {
 	return {
@@ -134,7 +134,7 @@ export const mockIsKnowledgeUploadProjectError = vi.mocked(
 export const mockValidateKnowledgeUploadProject = vi.mocked(
 	validateKnowledgeUploadProject,
 );
-export const mockGetUploadFormatGate = vi.mocked(getUploadFormatGate);
+const mockGetUploadFormatGate = vi.mocked(getUploadFormatGate);
 const OPEN_UPLOAD_FORMAT_GATE = {
 	disabledEntryIds: new Set<string>(),
 	reason: null as "backend_version" | null,

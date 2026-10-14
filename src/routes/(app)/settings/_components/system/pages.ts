@@ -7,7 +7,7 @@
 import { ADVANCED_KEY_SPECS } from "$lib/config/admin-config-registry";
 import type { I18nKey } from "$lib/i18n";
 
-export const SYSTEM_PAGE_IDS = [
+const SYSTEM_PAGE_IDS = [
 	"general",
 	"models",
 	"aiTasks",
@@ -99,19 +99,18 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
  * Key → page. The Advanced page owns everything in the registry that a named
  * page has not already claimed, so a key can never be counted twice.
  */
-export const SYSTEM_PAGE_BY_KEY: Readonly<Record<string, SystemPageId>> =
-	(() => {
-		const map: Record<string, SystemPageId> = {};
-		for (const [page, keys] of Object.entries(NAMED_PAGE_KEYS)) {
-			for (const key of keys ?? []) {
-				map[key] = page as SystemPageId;
-			}
+const SYSTEM_PAGE_BY_KEY: Readonly<Record<string, SystemPageId>> = (() => {
+	const map: Record<string, SystemPageId> = {};
+	for (const [page, keys] of Object.entries(NAMED_PAGE_KEYS)) {
+		for (const key of keys ?? []) {
+			map[key] = page as SystemPageId;
 		}
-		for (const spec of ADVANCED_KEY_SPECS) {
-			if (!map[spec.key]) map[spec.key] = "advanced";
-		}
-		return map;
-	})();
+	}
+	for (const spec of ADVANCED_KEY_SPECS) {
+		if (!map[spec.key]) map[spec.key] = "advanced";
+	}
+	return map;
+})();
 
 export function pageForKey(key: string): SystemPageId | undefined {
 	return SYSTEM_PAGE_BY_KEY[key];

@@ -20,11 +20,8 @@
  * second list. 8000 leaves room for four such lists.
  */
 
-/** Bound parameters SQLite will accept in one statement. */
-export const SQLITE_MAX_BOUND_PARAMETERS = 32_766;
-
 /** Ids per batch. See the note above on why this is not the full ceiling. */
-export const MAX_IDS_PER_BATCH = 8_000;
+const MAX_IDS_PER_BATCH = 8_000;
 
 /**
  * `values` split into runs of at most `size`. An empty input yields no batches

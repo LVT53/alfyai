@@ -18,7 +18,7 @@
 export type ReasoningDepth = "thorough" | "quick";
 export type ThinkingMode = "auto" | "on" | "off";
 
-export function isReasoningDepth(value: unknown): value is ReasoningDepth {
+function isReasoningDepth(value: unknown): value is ReasoningDepth {
 	return value === "thorough" || value === "quick";
 }
 
@@ -28,7 +28,7 @@ export function reasoningDepthToThinkingMode(
 	return reasoningDepth === "quick" ? "off" : "on";
 }
 
-export function thinkingModeToReasoningDepth(
+function thinkingModeToReasoningDepth(
 	thinkingMode: ThinkingMode | undefined,
 ): ReasoningDepth {
 	return thinkingMode === "off" ? "quick" : "thorough";
