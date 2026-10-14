@@ -322,8 +322,10 @@ export function parseChunksLog(log) {
 	};
 }
 
-// Fallow: the comparison wave-2-5/gates.sh made in python. Positions are dropped
-// from each finding, so a finding that only moved down a file is not a new one.
+// Fallow: the comparison wave-2-5/gates.sh made in python. A finding is its kind (the list it
+// sits in), its path and its name. What only says where it is, or how Fallow words it, is
+// dropped from it, so a finding that moved down a file, or that Fallow 3 dresses with an id,
+// suggested actions, a severity or a reachability note, is not a new one.
 const POSITION_KEYS = new Set([
 	"line",
 	"col",
@@ -338,28 +340,76 @@ const POSITION_KEYS = new Set([
 	"start_line",
 	"end_line",
 ]);
+// Fallow 3 puts these on a finding and 2.x did not. The id is a hash that moves with the
+// finding, the actions are advice, the severity follows the rules, and the caveats appear
+// when an import could not be resolved in that run (no node_modules, no .svelte-kit yet).
+const FALLOW_3_DRESSING_KEYS = new Set([
+	"finding_id",
+	"actions",
+	"effective_severity",
+	"reachability_caveats",
+]);
 function normalise(value) {
 	if (Array.isArray(value)) return value.map(normalise);
 	if (value && typeof value === "object") {
 		return Object.fromEntries(
 			Object.keys(value)
-				.filter((key) => !POSITION_KEYS.has(key))
+				.filter(
+					(key) => !POSITION_KEYS.has(key) && !FALLOW_3_DRESSING_KEYS.has(key),
+				)
 				.sort()
 				.map((key) => [key, normalise(value[key])]),
 		);
 	}
 	return value;
 }
+
+/**
+ * Health score, duplication and size from the report, for the summary line. Information only:
+ * nothing here is ever read by the gate, and a report that lacks a value just leaves it out.
+ */
+function fallowInformation(report) {
+	const parts = [];
+	const health = report.health?.health_score;
+	if (typeof health?.score === "number") {
+		parts.push(
+			`health ${health.score.toFixed(1)}${health.grade ? ` (${health.grade})` : ""}`,
+		);
+	}
+	const duplication = report.dupes?.stats?.duplication_percentage;
+	if (typeof duplication === "number") {
+		parts.push(`duplication ${duplication.toFixed(1)}%`);
+	}
+	const lines = report.health?.vital_signs?.total_loc;
+	if (typeof lines === "number") {
+		parts.push(`${lines.toLocaleString("en-US")} LOC`);
+	}
+	if (parts.length === 0) return "";
+	return `; fallow ${report.version ?? "?"}: ${parts.join(", ")} (information only)`;
+}
+
 export function compareFallow(currentPath, baselinePath) {
-	let current;
+	let report;
 	let baseline;
 	try {
-		current = JSON.parse(readFileSync(currentPath, "utf8")).check;
+		report = JSON.parse(readFileSync(currentPath, "utf8"));
 	} catch {
 		return { ok: false, text: "no Fallow report was written" };
 	}
+	// The report is the step's stdout, so a Fallow that failed to start its analysis leaves its
+	// error here as JSON, with no check section.
+	const current = report?.check;
+	if (!current || typeof current !== "object") {
+		return {
+			ok: false,
+			text: report?.error
+				? `Fallow failed: ${String(report.message).slice(0, 200)}`
+				: "the Fallow report has no check section",
+		};
+	}
 	try {
 		baseline = JSON.parse(readFileSync(baselinePath, "utf8")).check;
+		if (!baseline || typeof baseline !== "object") throw new Error("no check");
 	} catch {
 		return {
 			ok: false,
@@ -380,7 +430,7 @@ export function compareFallow(currentPath, baselinePath) {
 		for (const entry of before) if (!now.has(entry)) gone += 1;
 	}
 	const circular = current.circular_dependencies?.length ?? 0;
-	const text = `total=${current.total_issues} circular=${circular} new_vs_baseline=${added.length} gone_vs_baseline=${gone}`;
+	const text = `total=${current.total_issues} circular=${circular} new_vs_baseline=${added.length} gone_vs_baseline=${gone}${fallowInformation(report)}`;
 	return {
 		ok: added.length === 0 && circular <= BASELINE.fallowCircular,
 		text:
