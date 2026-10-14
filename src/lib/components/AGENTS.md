@@ -134,3 +134,65 @@ These are **page-internal** — do not import them from other pages. If logic be
 Chat-route presentation rule:
 - `ChatComposerPanel` and `ChatMessagePane` are part of the chat-detail layout, not the landing-page hero. Keep the composer bottom-docked on the chat route and keep the message surface visible even when a brand-new conversation has no persisted messages yet.
 - The app shell must not infer "current conversation was deleted" purely from the sidebar list. Empty bootstrap chats may be real before they become list-visible.
+
+## Component Boundaries
+
+- Chat rendering components live under [`src/lib/components/chat/`](./src/lib/components/chat/).
+- Layout/navigation components live under [`src/lib/components/layout/`](./src/lib/components/layout/).
+- Sidebar-specific pieces live under [`src/lib/components/sidebar/`](./src/lib/components/sidebar/).
+
+
+Important component boundaries:
+
+- [`src/lib/components/layout/Sidebar.svelte`](./src/lib/components/layout/Sidebar.svelte)
+  - navigation shell and store-driven sidebar state
+- [`src/lib/components/layout/Header.svelte`](./src/lib/components/layout/Header.svelte)
+  - top-level app shell interactions
+- [`src/lib/components/sidebar/ConversationList.svelte`](./src/lib/components/sidebar/ConversationList.svelte)
+  - owns sidebar drag/drop state and project-drop move orchestration through the existing conversations store path
+
+
+Do not:
+
+- bury durable business logic inside a presentational component because it is "already open"
+- duplicate chat state transitions in both page files and chat components
+- move project-folder drag/drop persistence into `ConversationItem.svelte` or `ProjectItem.svelte`; those components stay event emitters
+- use unused legacy-looking components as templates without checking whether they are actually live
+
+
+## Visual System And Layout Guardrails
+
+- Design tokens live in:
+  - [`src/app.css`](./src/app.css)
+  - [`tailwind.config.ts`](./tailwind.config.ts)
+- Token categories already defined:
+  - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
+- Font ownership:
+  - UI chrome uses `Nimbus Sans L`
+  - long-form message content uses `Libre Baskerville`
+  - code uses the mono stack defined in `tailwind.config.ts`
+
+
+Rules:
+
+- prefer semantic CSS custom properties over hardcoded hex values when a token already exists
+- keep spacing on the existing 4px-derived scale exposed through the spacing tokens
+- preserve the reading-first visual direction: quiet UI chrome, generous spacing, and message content as the focal surface
+- if you change color, spacing, radius, or typography primitives, update both `src/app.css` and the Tailwind mapping when needed
+- **Icon sourcing**: all UI icons MUST come from [Lucide](https://lucide.dev) via `@lucide/svelte`. Never write inline `<svg>` elements for icons — always import the equivalent Lucide component. The only exceptions are: (a) the custom brand logo (`LogoMark.svelte`), (b) data visualization SVGs that are charts/graphs not icons (`ContextUsageRing.svelte`), and (c) icons that have no Lucide equivalent (verify before concluding none exists). When adding a new icon, import it from `@lucide/svelte` with the correct PascalCase name, set `size` and `strokeWidth` to match the design system, and always include `aria-hidden="true"` on decorative icons.
+
+
+Scroll ownership contract:
+
+- `body` should not become the scrolling surface
+- the authenticated app shell contains layout overflow
+- the sidebar list owns sidebar scrolling
+- [`src/lib/components/chat/MessageArea.svelte`](./src/lib/components/chat/MessageArea.svelte) owns conversation scrolling
+
+
+Do not:
+
+- reintroduce body scrolling to solve a local layout bug
+- hardcode one-off colors in components when the token system can express the change
+- change typography choices in chat surfaces casually; those are part of the product identity
+- move scroll responsibility between body, page, and message list without testing desktop and mobile behavior together
