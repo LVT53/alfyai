@@ -1,4 +1,5 @@
 <script lang="ts">
+// fallow-ignore-file unrendered-component -- rendered as <stateViews.CanvasStates> in CanvasEditor.svelte, after import("./state-parts")
 /**
  * What the panel body says when a board cannot be shown: it did not load, it is not
  * the reader's, or it was deleted while it was open. Rare, and loaded on demand
