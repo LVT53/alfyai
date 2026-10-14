@@ -1,6 +1,6 @@
 # Server Services — Internal Map
 
-Parent: [AGENTS.md](../../../AGENTS.md) lists every service file and its role. This file covers **cross-service dependencies, complexity ordering, and data flow** — what the parent doesn't document.
+Parent: [AGENTS.md](../../../../AGENTS.md) holds the rules that apply everywhere. This file covers each service's role and ownership, **cross-service dependencies, complexity ordering, and data flow**; Rules In Other Files, at the end, says which rules live in a subfolder's file.
 
 ## Complexity Hotspots (by line count)
 
@@ -261,7 +261,7 @@ Do:
 
 ## Additional Active Services
 
-These services are actively imported but not documented in the feature sections above:
+Other services in active use:
 
 - Server utilities and helpers:
   - [`src/lib/server/auth/hooks.ts`](../auth/hooks.ts) — `requireAuth`, `getBearerToken` helpers. Canonical auth enforcement point for API routes; mirrors `hooks.server.ts` logic in a reusable form.

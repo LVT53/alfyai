@@ -1,6 +1,6 @@
 # Components — Hierarchy and Contracts
 
-Parent: [AGENTS.md](../../../AGENTS.md) defines component categories and boundary rules. This file maps the **component hierarchy, store dependencies, and page-to-component usage** — what the parent doesn't document.
+Parent: [AGENTS.md](../../../AGENTS.md) holds the rules that apply everywhere. This file maps the **component hierarchy, store dependencies, and page-to-component usage**, and holds the component boundary rules and the visual system.
 
 ## Component Hierarchy
 
