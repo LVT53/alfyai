@@ -341,10 +341,11 @@ const POSITION_KEYS = new Set([
 	"start_line",
 	"end_line",
 ]);
-// Fallow 3 puts these on a finding and 2.x did not. The id is a hash that moves with the
-// finding, the actions are advice, the severity follows the rules, and the caveats appear
-// when an import could not be resolved in that run (no node_modules, no .svelte-kit yet).
-const FALLOW_3_DRESSING_KEYS = new Set([
+// Not part of what a finding IS. The id is a hash that moves with the finding, the actions are
+// advice that each release words its own way, the severity follows the rules, and the caveats
+// appear when an import could not be resolved in that run (no node_modules, no .svelte-kit
+// yet). The id, the severity and the caveats are new in Fallow 3; 2.96 already had the actions.
+const DRESSING_KEYS = new Set([
 	"finding_id",
 	"actions",
 	"effective_severity",
@@ -355,9 +356,7 @@ function normalise(value) {
 	if (value && typeof value === "object") {
 		return Object.fromEntries(
 			Object.keys(value)
-				.filter(
-					(key) => !POSITION_KEYS.has(key) && !FALLOW_3_DRESSING_KEYS.has(key),
-				)
+				.filter((key) => !POSITION_KEYS.has(key) && !DRESSING_KEYS.has(key))
 				.sort()
 				.map((key) => [key, normalise(value[key])]),
 		);
