@@ -52,3 +52,47 @@ conversation-session.ts - Landing draft IDs, pending message replay
 - **Don't duplicate error handling** - let the base wrapper normalize HTTP errors
 - **Don't bypass auth** - always route through the shared HTTP wrapper
 - **Don't reimplement admin CRUD** in `settings.ts` - import from `api/admin.ts` and re-export for backward compat
+
+## Client Boundaries
+
+- `src/lib/client/conversation-session.ts` owns landing-to-chat handoff state. Do not scatter raw `sessionStorage` keys across pages or components.
+- `src/lib/client/api/` owns reusable browser `fetch` logic. Stores should not become ad hoc HTTP clients.
+
+## Browser API, Stores, And Session Handoff
+
+- Shared browser API:
+  - [`src/lib/client/api/_utils.ts`](./src/lib/client/api/_utils.ts) — shared list-unwrapping helper for API responses
+  - [`src/lib/client/api/admin.ts`](./src/lib/client/api/admin.ts) — reusable admin-side user management browser calls
+  - [`src/lib/client/api/auth.ts`](./src/lib/client/api/auth.ts)
+  - [`src/lib/client/api/http.ts`](./src/lib/client/api/http.ts)
+  - [`src/lib/client/api/conversations.ts`](./src/lib/client/api/conversations.ts)
+  - [`src/lib/client/api/knowledge.ts`](./src/lib/client/api/knowledge.ts)
+  - [`src/lib/client/api/workspace-search.ts`](./src/lib/client/api/workspace-search.ts)
+  - [`src/lib/client/api/models.ts`](./src/lib/client/api/models.ts)
+  - [`src/lib/client/api/projects.ts`](./src/lib/client/api/projects.ts)
+  - [`src/lib/client/api/settings.ts`](./src/lib/client/api/settings.ts)
+- Session handoff:
+  - [`src/lib/client/conversation-session.ts`](./src/lib/client/conversation-session.ts)
+
+
+Rules:
+
+- `client/api/` owns reusable request/response parsing and shared HTTP behavior.
+- `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
+- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls.
+- `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.
+- `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, and memory browser calls.
+- `src/lib/client/api/workspace-search.ts` owns reusable browser calls for server-backed Workspace Search.
+- `src/lib/client/api/models.ts` owns reusable model-list browser calls.
+- `src/lib/client/api/settings.ts` owns reusable settings/account/avatar/admin/analytics browser calls.
+- `src/lib/client/api/settings.ts` re-exports admin functions from `api/admin.ts` for backward compat; admin calls live in `api/admin.ts`
+- `conversation-session.ts` owns landing draft IDs, pending first-message replay, previous-conversation markers, and draft cleanup rules.
+
+
+Do not:
+
+- put raw `fetch` + `res.ok` + JSON parsing boilerplate into stores
+- open-code reusable browser auth, model, conversation-detail, evidence, title, or knowledge fetches in pages/components when they can live in `src/lib/client/api/`
+- open-code settings/admin/analytics browser fetches in `settings/+page.svelte` when they can live in `src/lib/client/api/settings.ts`
+- invent new `sessionStorage` keys in components or pages when the conversation-session helper should own them
+- move reusable HTTP error handling into page files

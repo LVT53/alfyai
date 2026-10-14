@@ -57,8 +57,6 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Runtime config flows through `src/lib/server/config-store.ts`. Do not bypass it in code that should respect admin overrides.
 - New Composer Command, Skill, Skill Session, Skill Note, and Linked Source UI labels, errors, confirmations, empty states, and accessibility strings must be localized in both English and Hungarian.
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
-- `src/lib/client/conversation-session.ts` owns landing-to-chat handoff state. Do not scatter raw `sessionStorage` keys across pages or components.
-- `src/lib/client/api/` owns reusable browser `fetch` logic. Stores should not become ad hoc HTTP clients.
 - `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/services/ai-sdk-ui-stream-contract.ts` owns AI SDK UI stream frame encoding, complete-block decoding, terminal detection, and metadata extraction for Normal Chat stream/reconnect/browser responses. `src/lib/server/services/chat-turn/stream.ts` owns runtime emission helpers for text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts through that shared contract. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, terminal checks, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
 - `src/lib/services/streaming.ts` owns the browser stream transport contract, including the distinction between a user-requested stop and a local detach during navigation/unmount. Do not collapse those paths back into one generic abort that marks background disconnects as explicit stops.
 ## App Map
@@ -488,17 +486,6 @@ Do not:
 
 ### Browser API, Stores, And Session Handoff
 
-- Shared browser API:
-  - [`src/lib/client/api/_utils.ts`](./src/lib/client/api/_utils.ts) — shared list-unwrapping helper for API responses
-  - [`src/lib/client/api/admin.ts`](./src/lib/client/api/admin.ts) — reusable admin-side user management browser calls
-  - [`src/lib/client/api/auth.ts`](./src/lib/client/api/auth.ts)
-  - [`src/lib/client/api/http.ts`](./src/lib/client/api/http.ts)
-  - [`src/lib/client/api/conversations.ts`](./src/lib/client/api/conversations.ts)
-  - [`src/lib/client/api/knowledge.ts`](./src/lib/client/api/knowledge.ts)
-  - [`src/lib/client/api/workspace-search.ts`](./src/lib/client/api/workspace-search.ts)
-  - [`src/lib/client/api/models.ts`](./src/lib/client/api/models.ts)
-  - [`src/lib/client/api/projects.ts`](./src/lib/client/api/projects.ts)
-  - [`src/lib/client/api/settings.ts`](./src/lib/client/api/settings.ts)
 - Stores:
   - [`src/lib/stores/conversations.ts`](./src/lib/stores/conversations.ts)
   - [`src/lib/stores/projects.ts`](./src/lib/stores/projects.ts)
@@ -506,32 +493,12 @@ Do not:
   - [`src/lib/stores/avatar.ts`](./src/lib/stores/avatar.ts)
   - [`src/lib/stores/theme.ts`](./src/lib/stores/theme.ts)
   - [`src/lib/stores/ui.ts`](./src/lib/stores/ui.ts)
-- Session handoff:
-  - [`src/lib/client/conversation-session.ts`](./src/lib/client/conversation-session.ts)
-
 Rules:
 
-- `client/api/` owns reusable request/response parsing and shared HTTP behavior.
-- `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
-- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls.
-- `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.
-- `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, and memory browser calls.
-- `src/lib/client/api/workspace-search.ts` owns reusable browser calls for server-backed Workspace Search.
-- `src/lib/client/api/models.ts` owns reusable model-list browser calls.
-- `src/lib/client/api/settings.ts` owns reusable settings/account/avatar/admin/analytics browser calls.
-- `src/lib/client/api/settings.ts` re-exports admin functions from `api/admin.ts` for backward compat; admin calls live in `api/admin.ts`
 - stores own browser state, optimistic updates, and UI-facing transitions.
-- `conversation-session.ts` owns landing draft IDs, pending first-message replay, previous-conversation markers, and draft cleanup rules.
-
 Do not:
 
-- put raw `fetch` + `res.ok` + JSON parsing boilerplate into stores
-- open-code reusable browser auth, model, conversation-detail, evidence, title, or knowledge fetches in pages/components when they can live in `src/lib/client/api/`
-- open-code settings/admin/analytics browser fetches in `settings/+page.svelte` when they can live in `src/lib/client/api/settings.ts`
-- invent new `sessionStorage` keys in components or pages when the conversation-session helper should own them
 - make stores mutate unrelated domains because it feels convenient
-- move reusable HTTP error handling into page files
-
 ### Additional Active Services
 
 - Other API endpoints:
