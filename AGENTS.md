@@ -59,14 +59,6 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
 ## App Map
 
-### Chat Flow
-
-Do:
-
-- working-document continuity should continue to build on generated-output artifacts.
-- working-document continuity should prefer the shared resolver’s “current generated document” signal over generic latest-output heuristics. If a generated document is selected because of active focus or a query match, do not layer a second recency-only boost on top.
-- keep document-selection observability compact and authority-scoped. Extend the `[CONTEXT] Working document selection` summary in `knowledge/context.ts` instead of reintroducing noisy per-artifact debug logs across routes.
-
 ### Artifacts
 
 Feature 2 (ADR-0066): a family of five kinds — Document, App, Canvas, Slides, File — that live beside the conversation, behind one card and one panel. A new family on the *existing* `artifacts` backbone, never a parallel document store: the family's own rows are written with `type: "artifact"`, its kind carried in `metadata_json.artifactType`; produced files keep `type: "generated_output"` (ruling 18) and are read as the family's `file` kind — this is the one place the family spans two `type` values, and it is deliberate.
@@ -145,112 +137,6 @@ The first time a user opens a Document, an App or a Canvas the panel shows a thr
 - **The card is a region, not a dialog.** It traps no focus and makes nothing inert; it takes focus when it shows unless the reader is already typing, gives it back when it goes, and Escape is Skip only while focus is inside it. Next and "Got it" are one button so the keyboard keeps its place. The chrome is `artifacts.tour.*`; the tour's own words are content (code copy or campaign), never in the dictionary.
 - **e2e.** The shared e2e admin has seen every tour (`tests/e2e/global-setup.ts` writes the rows), so no other spec meets a card; `tests/e2e/artifact-tours.spec.ts` signs in as users of its own (`artifact-tours-helpers.ts`). A published tour is taken back out the way an admin does it, by archiving (`archiveTour`; ruling 71 gives the kind its code copy back, so no later spec meets a tour nobody has seen); `publishTour` duplicates the kind's last campaign when an earlier test left no draft, and can reword the summary (the empty state's line). `artifact-tours-empty-states.spec.ts` covers the empty states with readers who have finished every tour (`markToursSeen`).
 
-### Knowledge And Context
-
-- Public boundary:
-  - [`src/lib/server/services/knowledge.ts`](./src/lib/server/services/knowledge.ts)
-- Internal modules:
-  - [`src/lib/server/services/knowledge/store.ts`](./src/lib/server/services/knowledge/store.ts)
-  - [`src/lib/server/services/knowledge/store/core.ts`](./src/lib/server/services/knowledge/store/core.ts)
-  - [`src/lib/server/services/knowledge/store/attachments.ts`](./src/lib/server/services/knowledge/store/attachments.ts)
-  - [`src/lib/server/services/knowledge/store/documents.ts`](./src/lib/server/services/knowledge/store/documents.ts)
-  - [`src/lib/server/services/knowledge/store/cleanup.ts`](./src/lib/server/services/knowledge/store/cleanup.ts)
-  - [`src/lib/server/services/knowledge/upload-intake.ts`](./src/lib/server/services/knowledge/upload-intake.ts)
-  - [`src/lib/server/services/knowledge/context.ts`](./src/lib/server/services/knowledge/context.ts)
-  - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
-  - [`src/lib/server/services/knowledge/project-knowledge.ts`](./src/lib/server/services/knowledge/project-knowledge.ts) — owns project-file links and the project's FILES (`listProjectKnowledge`: what a turn's prompt section and file-name mentions read, so it never lists a Document, App or Canvas — a family row is not prompt-ready as a linked source and a mention of its name would 409 the turn); the person's bundle, files plus what the chats made, is `listProjectBundle` in the artifacts service
-- Related services:
-  - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
-  - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
-  - [`src/lib/server/services/document-resolution.ts`](./src/lib/server/services/document-resolution.ts)
-  - [`src/lib/server/services/extraction/`](./src/lib/server/services/extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
-  - [`src/lib/shared/file-types/`](./src/lib/shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
-  - [`src/lib/server/services/evidence-family.ts`](./src/lib/server/services/evidence-family.ts)
-  - [`src/lib/server/services/knowledge-labels.ts`](./src/lib/server/services/knowledge-labels.ts)
-  - [`src/lib/server/services/tei-embedder.ts`](./src/lib/server/services/tei-embedder.ts)
-  - [`src/lib/server/services/tei-reranker.ts`](./src/lib/server/services/tei-reranker.ts)
-
-Responsibility split:
-
-- `store.ts`
-  - public facade for store internals
-- `store/core.ts`
-  - artifact CRUD
-  - artifact mapping and shared selection helpers
-- `store/attachments.ts`
-  - attachment readiness
-  - uploaded attachment persistence
-  - auto-rename on file name conflicts
-  - attachment linking and listing
-- `store/documents.ts`
-  - normalized-document creation
-  - logical document listing
-  - artifact query matching
-  - document search composition consumed by Workspace Search
-- generated chat files and uploaded attachments should converge on one working-document model built on the existing artifact backbone; do not create a parallel document persistence subsystem
-- `store/cleanup.ts`
-  - artifact deletion
-  - cross-conversation reference checks
-  - bulk cleanup actions
-- `upload-intake.ts`
-  - shared knowledge upload limits
-  - optional conversation validation
-  - uploaded source persistence through the store
-  - normalized artifact creation, prompt readiness, and upload trace output
-- `context.ts`
-  - relevant-artifact lookup
-  - working-set and context status operations
-  - context-related reads/writes used during chat
-- `store/documents.ts`
-  - artifact-level semantic shortlist retrieval for source/normalized/generated artifacts
-  - lexical candidate fetch, embedding shortlist, and TEI rerank before handing results to higher-level document/focus authority
-- `working-document-selection.ts`
-  - live Working Document signal collapse for active workspace focus, current generated document, correction/refinement, move-on/reset, and caller-ready prompt/retrieval/task-evidence views
-- `document-resolution.ts`
-  - current/relevant generated-document family selection
-  - shared query/focus-aware generated-document ordering
-- `tei-embedder.ts` / `tei-reranker.ts`
-  - thin Hugging Face Text Embeddings Inference clients only
-  - semantic shortlist/rerank helpers should flow through higher-level retrieval services; these clients should not become a second ranking authority
-  - rerank-shaped evidence/chunk/historical/tool call sites should prefer `tei-reranker.ts` over `task-state/control-model.ts`
-- `capsules.ts`
-  - work capsules
-  - generated outputs
-  - artifact-to-capsule mapping
-  - workflow summary only, not document lineage authority
-
-Do not:
-
-- dump new unrelated knowledge behavior back into `knowledge.ts`
-- mix file storage concerns with context-ranking heuristics in the same new helper
-- place large retrieval heuristics in route files
-- add a second parallel artifact service outside the `knowledge` boundary
-
-### Knowledge Library
-
-- Document workspace preview:
-  - [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](./src/lib/components/document-workspace/DocumentWorkspace.svelte)
-  - [`src/lib/components/document-workspace/DocumentPreviewRenderer.svelte`](./src/lib/components/document-workspace/DocumentPreviewRenderer.svelte)
-
-Rules:
-
-- Direct library uploads through `/api/knowledge/upload` may omit `conversationId`; when present, Knowledge Upload Intake must validate that the conversation belongs to the user before any artifact insert or link write
-- File versioning is NOT supported - single version per file
-- Auto-rename on name conflicts (counter suffix) - no overwrite
-- Import from Obsidian/Notion flattens hierarchy, stores original path in metadata
-- File preview uses client-side libraries (PDF.js, Mammoth.js, SheetJS, PPTXjs) - no external services
-- Storage quota is display-only - no enforcement
-- Global Workspace Search surfaces conversation, project, message, and document hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
-
-Do not:
-
-- add file versioning/history
-- add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](docs/adr/0066-artifacts-are-a-family-of-five-types.md))
-- allow AI to edit existing uploaded library files (AI generates NEW files only; Artifacts are the ADR-0065/0066 exception)
-- add batch operations in v1
-- add file deduplication (allow duplicates with auto-rename)
-- use external hosted services for file preview
-
 ### Memory, Continuity, And The Memory Judge
 
 Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.
@@ -284,8 +170,6 @@ Rules:
 - `memory.ts` is the public read facade for the Knowledge Base Memory Profile and keeps `/api/knowledge/memory/overview` as a projection-backed wrapper. It must not depend on a live external overview service, raw markdown cleanup, or task-memory tables.
 - `memory-behavior-log.ts` owns the persisted normalized event log (recorded via `recordMemoryBehaviorEvent`, backed by the `memory_events` table) for important state changes (deadlines, preference updates, fact replacement, project continuity transitions, document supersession). Add new event types there; do not create ad hoc side logs or route-local event tables.
 - `memory-maintenance.ts` owns per-user maintenance scheduling and lazy semantic-embedding backfill. Chat-triggered maintenance stays serialized/debounced there; generated-output duplicate repair and dormant-family (`historical`) downgrades reuse `evidence-family.ts` from there rather than a separate sweep. Historical families are soft-deprioritized, not hidden.
-- Artifact retrieval and cleanup treat linked conversation ownership as stronger authority than `artifacts.userId` alone. Conversation-scoped working artifacts (`generated_output`, `work_capsule`) are not valid retrieval candidates once their conversation link is gone.
-
 Do not:
 
 - create a new top-level continuity service when `task-state.ts` can own the behavior

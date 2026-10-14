@@ -60,3 +60,130 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 - Do NOT route TEI reranking through control-model chat completions
 - Do NOT add per-candidate debug logs; keep retrieval observability summary-level
 - Do NOT bypass `document-resolution.ts` for generated-document selection heuristics
+
+## Working-Document Continuity
+
+Do:
+
+- working-document continuity should continue to build on generated-output artifacts.
+- working-document continuity should prefer the shared resolver’s “current generated document” signal over generic latest-output heuristics. If a generated document is selected because of active focus or a query match, do not layer a second recency-only boost on top.
+- keep document-selection observability compact and authority-scoped. Extend the `[CONTEXT] Working document selection` summary in `knowledge/context.ts` instead of reintroducing noisy per-artifact debug logs across routes.
+
+
+## Knowledge And Context
+
+- Public boundary:
+  - [`src/lib/server/services/knowledge.ts`](./src/lib/server/services/knowledge.ts)
+- Internal modules:
+  - [`src/lib/server/services/knowledge/store.ts`](./src/lib/server/services/knowledge/store.ts)
+  - [`src/lib/server/services/knowledge/store/core.ts`](./src/lib/server/services/knowledge/store/core.ts)
+  - [`src/lib/server/services/knowledge/store/attachments.ts`](./src/lib/server/services/knowledge/store/attachments.ts)
+  - [`src/lib/server/services/knowledge/store/documents.ts`](./src/lib/server/services/knowledge/store/documents.ts)
+  - [`src/lib/server/services/knowledge/store/cleanup.ts`](./src/lib/server/services/knowledge/store/cleanup.ts)
+  - [`src/lib/server/services/knowledge/upload-intake.ts`](./src/lib/server/services/knowledge/upload-intake.ts)
+  - [`src/lib/server/services/knowledge/context.ts`](./src/lib/server/services/knowledge/context.ts)
+  - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
+  - [`src/lib/server/services/knowledge/project-knowledge.ts`](./src/lib/server/services/knowledge/project-knowledge.ts) — owns project-file links and the project's FILES (`listProjectKnowledge`: what a turn's prompt section and file-name mentions read, so it never lists a Document, App or Canvas — a family row is not prompt-ready as a linked source and a mention of its name would 409 the turn); the person's bundle, files plus what the chats made, is `listProjectBundle` in the artifacts service
+- Related services:
+  - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
+  - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
+  - [`src/lib/server/services/document-resolution.ts`](./src/lib/server/services/document-resolution.ts)
+  - [`src/lib/server/services/extraction/`](./src/lib/server/services/extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
+  - [`src/lib/shared/file-types/`](./src/lib/shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
+  - [`src/lib/server/services/evidence-family.ts`](./src/lib/server/services/evidence-family.ts)
+  - [`src/lib/server/services/knowledge-labels.ts`](./src/lib/server/services/knowledge-labels.ts)
+  - [`src/lib/server/services/tei-embedder.ts`](./src/lib/server/services/tei-embedder.ts)
+  - [`src/lib/server/services/tei-reranker.ts`](./src/lib/server/services/tei-reranker.ts)
+
+
+Responsibility split:
+
+- `store.ts`
+  - public facade for store internals
+- `store/core.ts`
+  - artifact CRUD
+  - artifact mapping and shared selection helpers
+- `store/attachments.ts`
+  - attachment readiness
+  - uploaded attachment persistence
+  - auto-rename on file name conflicts
+  - attachment linking and listing
+- `store/documents.ts`
+  - normalized-document creation
+  - logical document listing
+  - artifact query matching
+  - document search composition consumed by Workspace Search
+- generated chat files and uploaded attachments should converge on one working-document model built on the existing artifact backbone; do not create a parallel document persistence subsystem
+- `store/cleanup.ts`
+  - artifact deletion
+  - cross-conversation reference checks
+  - bulk cleanup actions
+- `upload-intake.ts`
+  - shared knowledge upload limits
+  - optional conversation validation
+  - uploaded source persistence through the store
+  - normalized artifact creation, prompt readiness, and upload trace output
+- `context.ts`
+  - relevant-artifact lookup
+  - working-set and context status operations
+  - context-related reads/writes used during chat
+- `store/documents.ts`
+  - artifact-level semantic shortlist retrieval for source/normalized/generated artifacts
+  - lexical candidate fetch, embedding shortlist, and TEI rerank before handing results to higher-level document/focus authority
+- `working-document-selection.ts`
+  - live Working Document signal collapse for active workspace focus, current generated document, correction/refinement, move-on/reset, and caller-ready prompt/retrieval/task-evidence views
+- `document-resolution.ts`
+  - current/relevant generated-document family selection
+  - shared query/focus-aware generated-document ordering
+- `tei-embedder.ts` / `tei-reranker.ts`
+  - thin Hugging Face Text Embeddings Inference clients only
+  - semantic shortlist/rerank helpers should flow through higher-level retrieval services; these clients should not become a second ranking authority
+  - rerank-shaped evidence/chunk/historical/tool call sites should prefer `tei-reranker.ts` over `task-state/control-model.ts`
+- `capsules.ts`
+  - work capsules
+  - generated outputs
+  - artifact-to-capsule mapping
+  - workflow summary only, not document lineage authority
+
+
+Do not:
+
+- dump new unrelated knowledge behavior back into `knowledge.ts`
+- mix file storage concerns with context-ranking heuristics in the same new helper
+- place large retrieval heuristics in route files
+- add a second parallel artifact service outside the `knowledge` boundary
+
+
+## Knowledge Library
+
+- Document workspace preview:
+  - [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](./src/lib/components/document-workspace/DocumentWorkspace.svelte)
+  - [`src/lib/components/document-workspace/DocumentPreviewRenderer.svelte`](./src/lib/components/document-workspace/DocumentPreviewRenderer.svelte)
+
+
+Rules:
+
+- Direct library uploads through `/api/knowledge/upload` may omit `conversationId`; when present, Knowledge Upload Intake must validate that the conversation belongs to the user before any artifact insert or link write
+- File versioning is NOT supported - single version per file
+- Auto-rename on name conflicts (counter suffix) - no overwrite
+- Import from Obsidian/Notion flattens hierarchy, stores original path in metadata
+- File preview uses client-side libraries (PDF.js, Mammoth.js, SheetJS, PPTXjs) - no external services
+- Storage quota is display-only - no enforcement
+- Global Workspace Search surfaces conversation, project, message, and document hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
+
+
+Do not:
+
+- add file versioning/history
+- add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](docs/adr/0066-artifacts-are-a-family-of-five-types.md))
+- allow AI to edit existing uploaded library files (AI generates NEW files only; Artifacts are the ADR-0065/0066 exception)
+- add batch operations in v1
+- add file deduplication (allow duplicates with auto-rename)
+- use external hosted services for file preview
+
+
+## Retrieval Ownership
+
+Rules:
+
+- Artifact retrieval and cleanup treat linked conversation ownership as stronger authority than `artifacts.userId` alone. Conversation-scoped working artifacts (`generated_output`, `work_capsule`) are not valid retrieval candidates once their conversation link is gone.
