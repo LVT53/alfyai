@@ -62,3 +62,7 @@ Rules:
 Do not:
 
 - make stores mutate unrelated domains because it feels convenient
+
+## Rules In Other Files
+
+- `ui.ts`'s fold of the sidebar while the side panel needs room: `src/lib/components/document-workspace/AGENTS.md`.

@@ -96,3 +96,9 @@ Do not:
 - open-code settings/admin/analytics browser fetches in `settings/+page.svelte` when they can live in `src/lib/client/api/settings.ts`
 - invent new `sessionStorage` keys in components or pages when the conversation-session helper should own them
 - move reusable HTTP error handling into page files
+
+## Rules In Other Files
+
+- `workspace-dock.ts`, `document-workspace-state.ts`, `panel-history.ts`: `src/lib/components/document-workspace/AGENTS.md`.
+- `api/artifacts.ts`, `artifact-versions.ts`, `downloads.ts`: `src/lib/components/artifacts/AGENTS.md`. `api/artifact-tours.ts`: `src/lib/components/artifacts/tour/AGENTS.md`.
+- `campaign-replay.ts` and `normal-chat-client-turn-runtime.ts`: `src/routes/(app)/AGENTS.md`.

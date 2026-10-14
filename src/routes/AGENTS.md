@@ -109,3 +109,7 @@ logout/                # Logout page
   - [`src/routes/api/chat/stream/buffer/+server.ts`](api/chat/stream/buffer/+server.ts) — stream buffer replay for reconnection
   - [`src/routes/api/chat/stream/status/+server.ts`](api/chat/stream/status/+server.ts) — stream capacity/status check
   - `src/routes/api/favicon/+server.ts` — same-origin favicon proxy (ADR 0043). Unauthenticated-safe, source-site `/favicon.ico` first with a DuckDuckGo fallback, cached, fails gracefully to a generic icon. Replaces the direct third-party Google S2 call in `ThinkingBlock` so researched domains do not leak to Google and favicons work behind firewalls.
+
+## Rules In Other Files
+
+- `api/artifacts/` and `api/conversations/[id]/artifacts/`: `src/lib/server/services/artifacts/AGENTS.md`. `api/artifact-tours/`: `src/lib/components/artifacts/tour/AGENTS.md`. `api/chat/files/`: `src/lib/server/services/file-production/AGENTS.md`.

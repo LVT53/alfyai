@@ -16,3 +16,8 @@ Do:
 Do not:
 
 - add a second type-label i18n family beside `artifacts.type.*`, or let the word "Artifact" reach a user-visible string
+
+## Rules In Other Files
+
+- `canvas/`, `document/`, `history/` and `tour/` each have their own AGENTS.md.
+- The panel shell (`DocumentWorkspace.svelte`): `../document-workspace/AGENTS.md`. The server side of the family: `src/lib/server/services/artifacts/AGENTS.md`.

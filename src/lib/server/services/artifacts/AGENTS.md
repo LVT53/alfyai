@@ -23,3 +23,9 @@ Do not:
 
 - add a `type: "artifact"` row for a produced file, or otherwise re-type `generated_output` — `knowledge/store/core.ts` and `account-lifecycle/index.ts` both key ownership/Clear-Memory behavior on that exact value
 - hand-write a second copy of the op or patch schema a tool advertises, or add a second writer of id-addressed changes: the schema the model is shown is the one its handler parses (ruling 62), and a diff lands only through `applyArtifactOps` (ruling 14)
+
+## Rules In Other Files
+
+- A board (Canvas): body, ops, what Alfy may add, placement, review, comments, exports: `src/lib/components/artifacts/canvas/AGENTS.md`.
+- The panel and the family's components: `src/lib/components/document-workspace/AGENTS.md` and `src/lib/components/artifacts/AGENTS.md`, whose `document/`, `history/` and `tour/` folders have their own.
+- Produced files and exports as jobs: `../file-production/AGENTS.md`.
