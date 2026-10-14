@@ -112,7 +112,6 @@ const memoryProfilePayload = {
 } satisfies MemoryProfilePublicPayload;
 
 function pageData(): {
-	documents: [];
 	library: {
 		documents: [];
 		results: [];
@@ -126,11 +125,8 @@ function pageData(): {
 			totalPages: number;
 		};
 	};
-	userDisplayName: string;
-	initialTab: "memory" | "documents";
 } {
 	return {
-		documents: [],
 		library: {
 			documents: [],
 			results: [],
@@ -144,8 +140,6 @@ function pageData(): {
 				totalPages: 0,
 			},
 		},
-		userDisplayName: "Test User",
-		initialTab: "memory",
 	};
 }
 

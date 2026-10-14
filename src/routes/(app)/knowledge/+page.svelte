@@ -72,8 +72,9 @@ const MEMORY_UPDATE_ERROR_MESSAGE = "Failed to update memory profile.";
 
 let { data }: PageProps = $props();
 const getData = () => data;
-const initialDocuments = (getData().documents ?? []) as KnowledgeDocumentItem[];
 const initialLibrary = getData().library;
+const initialDocuments: KnowledgeDocumentItem[] =
+	initialLibrary?.documents ?? [];
 
 let activeTab = $state<KnowledgeTab>(getKnowledgeTabFromUrl(kitPage.url));
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
