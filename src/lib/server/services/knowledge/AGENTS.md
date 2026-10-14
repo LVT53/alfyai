@@ -166,8 +166,7 @@ Rules:
 - Direct library uploads through `/api/knowledge/upload` may omit `conversationId`; when present, Knowledge Upload Intake must validate that the conversation belongs to the user before any artifact insert or link write
 - File versioning is NOT supported - single version per file
 - Auto-rename on name conflicts (counter suffix) - no overwrite
-- Import from Obsidian/Notion flattens hierarchy, stores original path in metadata
-- File preview uses client-side libraries (PDF.js, Mammoth.js, SheetJS, PPTXjs) - no external services
+- File preview uses client-side libraries (pdf.js, mammoth, exceljs, pptxviewjs), no external services
 - Storage quota is display-only - no enforcement
 - Global Workspace Search surfaces conversation, project, message, and document hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
 
@@ -177,7 +176,7 @@ Do not:
 - add file versioning/history
 - add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](../../../../../docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](../../../../../docs/adr/0066-artifacts-are-a-family-of-five-types.md))
 - allow AI to edit existing uploaded library files (AI generates NEW files only; Artifacts are the ADR-0065/0066 exception)
-- add batch operations in v1
+- add batch operations
 - add file deduplication (allow duplicates with auto-rename)
 - use external hosted services for file preview
 
