@@ -44,3 +44,16 @@ Internal helpers for `task-state.ts`: folder-anchored project continuity, artifa
 - Do not reintroduce an inferred project-continuity bucket substrate; folder membership is the single continuity authority (ADR-0051).
 - Do not add new JSON parsing logic outside `mappers.ts` or `utils/json.ts`.
 - Do not duplicate chunk selection logic in routes; use `getPromptArtifactSnippets()`.
+
+## Task-State Boundary
+
+- `src/lib/server/services/task-state.ts` may use semantic shortlist and rerank signals when routing the current turn onto an existing task, but active/revived/candidate truth and project continuity state still remain deterministic there.
+- `src/lib/server/services/task-state.ts` is the continuity boundary. Do not reintroduce a parallel `project-memory` architecture.
+- `src/lib/server/services/task-state/control-model.ts` is still for structured control-model work such as routing, verification, and semantic JSON tasks. Do not route TEI reranking back through that chat-completions path.
+
+## Continuity
+
+Rules:
+
+- `task-state.ts` remains the continuity facade (task routing, checkpoints, evidence-context assembly, semantic task revival). Keep project continuity status/event truth deterministic in `task-state/continuity.ts`, which prefers the latest `project_paused`/`project_resumed` task-domain event over an older still-active row.
+- User-selected task evidence preferences stay family-aware for working documents: pinning/excluding one version clears contradictory preference links for sibling versions in the same family. Live Working Document selection signals belong in `working-document-selection.ts`, recomputed per turn.
