@@ -181,37 +181,6 @@ Do not:
 - document a config variable publicly without confirming it exists in real code paths
 - add admin-configurable behavior in the UI without threading it through `config-store.ts`
 
-### Sandbox Execution And File Production
-
-- Sandbox configuration:
-  - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts)
-- Sandbox execution service:
-  - [`src/lib/server/services/sandbox-execution.ts`](./src/lib/server/services/sandbox-execution.ts)
-- File production API:
-  - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts)
-- Chat-linked file storage:
-  - [`src/lib/server/services/chat-files.ts`](./src/lib/server/services/chat-files.ts)
-
-Security model:
-
-- **Container isolation**: Docker containers with no network access (`NetworkMode: 'none'`)
-- **Non-root execution**: Containers run as UID 1000:1000, not root
-- **Capability dropping**: All Linux capabilities dropped (`CapDrop: ['ALL']`, `Privileged: false`)
-- **Resource limits**: 60s timeout, 1GB memory, 50MB max file size, 100 process limit
-- **Readonly rootfs**: Container filesystem is readonly; writable tmpfs for `/output` and `/tmp`
-- **In-memory extraction**: Generated files are collected in-memory only. Prefer the Docker archive path first, but keep the in-container `/output` inspection and controlled readback fallback available when archive reads miss tmpfs-backed outputs. Never write sandbox contents to host disk.
-- **Path traversal protection**: Rejects `..`, absolute paths, null bytes, symlinks, devices
-- **Aggregate limits**: Max 20 output files, 50MB total output
-- **Image bootstrap**: The sandbox config auto-pulls the pinned base image on first use if it is missing, but the app process still needs working Docker daemon access and image-pull permission on the host
-
-Do not:
-
-- add network access to sandbox containers
-- run containers as root
-- write tar contents to host filesystem
-- bypass timeout/resource limits
-- add new languages without security review
-
 ### Additional Active Services
 
 - Chat rendering components live under [`src/lib/components/chat/`](./src/lib/components/chat/).
