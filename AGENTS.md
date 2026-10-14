@@ -1,18 +1,14 @@
 # AGENTS.md
 
-**Generated:** 2026-04-06 15:20 UTC  
-**Commit:** 2322eed  
-**Branch:** main  
-
-This file is the canonical engineering map for AlfyAI. Read it before changing code. Public setup, deployment, and environment documentation live in [README.md](./README.md). Product and design notes in other docs are supplemental, not the source of truth for code placement.
+This file is the canonical engineering map for AlfyAI: the rules that hold everywhere, and which folder AGENTS.md holds the rest (Folder Rules). Read it before changing code. Public setup, deployment, and environment documentation live in [README.md](./README.md). Product and design notes in other docs are supplemental, not the source of truth for code placement.
 
 ## Mandatory Docs Check
 
-- Before touching code, check current documentation through Context7 and the Svelte/SvelteKit MCP docs tools for the relevant framework or library surface.
+- Before touching code, check current documentation for the relevant framework or library surface: through Context7 and the Svelte/SvelteKit MCP docs tools when the session has them, otherwise the official docs on the web.
 - This is especially required for Svelte, SvelteKit, Tailwind, Vitest, Playwright, Drizzle, and any fast-moving integration used by this app.
 - Do not write framework code purely from memory when an MCP-backed docs check can confirm the current API or recommended pattern.
 - The goal is to avoid stale code, deprecated patterns, and implementations that drift away from the real versions used in this repo.
-- If the Svelte MCP/docs tool is unavailable in the current session, use the best available official docs path before coding and call out that fallback explicitly.
+- Say which docs you checked when the MCP docs tools were not available.
 
 ## Fallow Audit Gate
 
@@ -30,21 +26,15 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Treat new `svelte-check` diagnostics as regressions. Fix them in the same patch unless the user explicitly asks to defer them.
 - If `npm run check` fails because of pre-existing diagnostics unrelated to the patch, report the exact current count and files, and do not introduce any new diagnostics.
 
-## Svelte 5 Migration Rules
+## Svelte 5
 
-- Prefer Svelte 5 callback props over `createEventDispatcher` for component-to-parent communication.
-- Prefer `$props()` and typed `PageProps` / `LayoutProps` in SvelteKit route components.
-- Prefer modern event attributes like `onclick` and `onsubmit` over legacy `on:` directives in touched files.
+- Write runes-mode Svelte 5: callback props for component-to-parent communication, `$props()` (typed `PageProps` / `LayoutProps` in route components), event attributes such as `onclick` and `onsubmit`, `{@render children()}` and snippets for composition, and an effect or an action where older code used `afterUpdate` / `beforeUpdate`. The migration is finished: `src` has no `createEventDispatcher`, `on:` directive, `<slot>`, `afterUpdate` or `beforeUpdate` left.
 - In rune components, declare `bind:this` refs with `$state(...)` when the ref is later read by effects or handlers.
 - Touch event attributes are passive by default in Svelte 5. If a handler truly needs `preventDefault()` (for example custom touch dragging), attach a non-passive listener via an action or explicit `addEventListener`, not legacy event modifiers.
-- Prefer `{@render children()}` in layouts over legacy route `<slot />` usage.
-- Do not introduce new `afterUpdate` or `beforeUpdate` calls; use a modern effect- or action-based approach instead.
-- Do not introduce new legacy `<slot>` usage in app components; prefer explicit props or snippets when composition is needed.
-- Legacy syntax that still exists in untouched files is migration debt, not a pattern to copy forward.
 
 ## Purpose
 
-- Use the existing boundaries in this file before inventing new ones.
+- Use the existing boundaries in this file and the folder AGENTS.md files before inventing new ones.
 - Optimize for reliability, low duplication, and clear ownership.
 - Keep behavior stable at the route, SSE, DB, and component-contract layers unless the change is explicitly intended to alter those contracts.
 - Prefer extending an existing subsystem over adding a new top-level service, store, or client helper.
@@ -113,11 +103,7 @@ Notes:
 - Title-generator prompt variants flow through `env.ts`, `config-store.ts`, and the admin system settings UI. Keep English/Hungarian base prompts and code-only appendices aligned across those layers.
 - TEI endpoint/model tuning also flows through `env.ts` plus `config-store.ts`. Keep API keys env-only, and keep runtime overrides on the non-secret fields.
 - `config-store.ts` remains the override-aware runtime config boundary. `getDatabasePath()` is for early DB/bootstrap code, not for general runtime settings reads.
-- Context token limits are admin-configurable via `config-store.ts`:
-  - `MAX_MODEL_CONTEXT` (default: 262144) - Maximum tokens the model context window supports
-  - `COMPACTION_UI_THRESHOLD` (default: 209715) - UI warning threshold at 80% of max
-  - `TARGET_CONSTRUCTED_CONTEXT` (default: 157286) - Target context size at 60% of max
-  - Use getter functions in `config-store.ts` (e.g., `getMaxModelContext()`, `getCompactionUiThreshold()`, `getTargetConstructedContext()`) to read these values with admin overrides applied.
+- Context token limits (`MAX_MODEL_CONTEXT`, `COMPACTION_UI_THRESHOLD`, `TARGET_CONSTRUCTED_CONTEXT`) are admin-configurable. Their defaults and ratios live in `src/lib/model-context-defaults.ts`; read them through the getters in `config-store.ts` (`getMaxModelContext()`, `getCompactionUiThreshold()`, `getTargetConstructedContext()`), which apply admin overrides.
 
 If you add a new runtime-configurable setting:
 
@@ -143,7 +129,6 @@ Do not:
   - related tests
 - Admin settings can override env-backed defaults. A change that looks correct in `.env` may still be superseded at runtime.
 - Auxiliary services such as title generation and context summarization should degrade gracefully. Do not make them hard dependencies of the core chat path unless that behavior change is intentional.
-- Do not restore deleted `project-memory.ts`-style architecture or add duplicate DB wrapper files. New persistence should stay in the owning service unless a narrow compatibility shim belongs in `db/compat.ts`.
 
 ## Change Placement Guide
 
@@ -214,7 +199,7 @@ Name the specs that cover what you changed (they run in full; the `@smoke` set c
 
 Playwright runs against the **production build** (`npm run build` first, about 15 s alone; a build older than `src/` is refused before any server starts, and a build that does not hydrate stops the run in two seconds), with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. **Never run `npm run check` or `npm test` while `npm run build` runs** (both run `svelte-kit sync`, which rewrites `.svelte-kit/` under the build: it still exits 0 and the app it made does not hydrate); `scripts/gates.sh` orders them for you.
 
-- **The release gate:** `scripts/gates.sh release <out-dir> --port <base>` runs the same static gates, then the whole Playwright suite minus `tests/e2e/quarantine.json` (6 workers by default; `--workers 8` on a quiet machine). About 8.5 minutes on this Mac against 51 before: the e2e run starts when the build is done and vitest runs beside it on three threads (`--schedule phased` runs the static gates first and the e2e run alone: 10.7 minutes). An agent's run is phased: a few spec files finish in a minute, and vitest on three threads would be its longest step. A new spec joins the gate by existing; a spec or test leaves it only through the quarantine list, by name, with its reason (a unit test refuses an entry without one).
+- **The release gate:** `scripts/gates.sh release <out-dir> --port <base>` runs the same static gates, then the whole Playwright suite minus `tests/e2e/quarantine.json` (6 workers by default; `--workers 8` on a quiet machine). About 8.5 minutes on this Mac: the e2e run starts when the build is done and vitest runs beside it on three threads (`--schedule phased` runs the static gates first and the e2e run alone: 10.7 minutes). An agent's run is phased: a few spec files finish in a minute, and vitest on three threads would be its longest step. A new spec joins the gate by existing; a spec or test leaves it only through the quarantine list, by name, with its reason (a unit test refuses an entry without one).
 - A flaky test is a bug in the test or the app: find the cause (shared state, a measurement taken mid-animation: `waitForStableBoundingBox`, `waitForMotionToSettle`, `expectTopmost` in `tests/e2e/helpers.ts`). Never a blanket retry, a longer global timeout or a weaker assertion. A worker keeps its database from one spec file to the next, so state a spec sets (an admin override, a provider, the user's model, a language) is put back in that spec's own cleanup (`clearAdminConfig`, `deleteProvidersWithPrefix` in `helpers.ts`).
 - Only one e2e run per worktree at a time (they share the databases and `build/`); a second one is refused with the holder's process id.
 
@@ -247,7 +232,7 @@ Run these too when relevant:
 
 - [README.md](./README.md)
   - public setup, deployment, stack, env vars, operational caveats
-- [AGENTS.md](./AGENTS.md)
+- [AGENTS.md](./AGENTS.md) and the folder AGENTS.md files it lists
   - canonical engineering boundaries and placement rules
 - Supplemental references
   - [deploy/README.md](./deploy/README.md)
