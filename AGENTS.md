@@ -57,9 +57,40 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Runtime config flows through `src/lib/server/config-store.ts`. Do not bypass it in code that should respect admin overrides.
 - New Composer Command, Skill, Skill Session, Skill Note, and Linked Source UI labels, errors, confirmations, empty states, and accessibility strings must be localized in both English and Hungarian.
 - `src/lib/server/env.ts` owns environment parsing, including `getDatabasePath()` for DB bootstrap-only access. Do not read `DATABASE_PATH` directly anywhere else.
-## App Map
+- The model chooses the reply language under one rule, and everything the app writes into a model request is English (ruling 79). Read `src/lib/server/services/chat-turn/AGENTS.md`, which holds the rule and its five invariants, before changing prompt text or adding a model call.
+- An address the app requests without a click comes from the user's own words or a tool's result, never from the model's (ADR-0068). Read `src/lib/server/services/url-provenance/AGENTS.md` before adding anything that loads, embeds or fetches an address on its own.
 
-### Config And Environment
+## Folder Rules
+
+Each folder below keeps the rules for its code in its own AGENTS.md. Claude Code, OpenCode and dsh add that file, with every AGENTS.md between it and the root, the first time an agent Reads a file in the folder. A file reached any other way (a Bash `cat` or `sed`, Grep, Glob, a Write of a new file) adds nothing: Read the folder's AGENTS.md yourself before changing code you reached that way.
+
+Server:
+
+- `src/lib/server/services/` — every service and its role: Normal Chat prompt assembly, model runs and sampling, tools, web grounding, embeddings, titles; where each memory, tour and campaign rule lives.
+- `src/lib/server/services/chat-turn/` — the Normal Chat turn (send, stream, retry); the reply-language rule (ruling 79); follow-up chips; short-text cleanup.
+- `src/lib/server/services/artifacts/` — the artifact family (Document, App, Canvas, Slides, File): facade, tables, History derivation, the App audit and WebRTC guard, delete and Regenerate.
+- `src/lib/server/services/file-production/` — durable file jobs, exports, renderers, report pictures.
+- `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
+- `src/lib/server/services/memory-profile/` — all profile memory (every `memory-*/` folder and `memory*.ts`): the intake judge, consolidation, recall, user-protected facts.
+- `src/lib/server/services/task-state/` — task continuity.
+- `src/lib/server/services/url-provenance/` — ADR-0068: which addresses the app may fetch without a click.
+- `src/lib/server/db/` — connection bootstrap, schema, migrations; `src/lib/server/sandbox/` — the sandbox's security model; `src/lib/server/utils/` — shared server helpers.
+
+Browser and shared:
+
+- `src/lib/client/` — reusable browser `fetch` calls and the landing-to-chat handoff; `src/lib/stores/` — browser state; `src/lib/services/` — the stream protocol and browser stream transport.
+- `src/lib/shared/artifacts/` — shared artifact types, and where the board's rules live.
+- `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
+- `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
+- `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
+- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/` and `tour/` each keep their own file.
+
+Routes and tests:
+
+- `src/routes/` — API routes; `src/routes/(app)/` — the app shell, page boundaries, announcements.
+- `tests/` — the e2e harness and spec conventions.
+
+## Config And Environment
 
 - Environment parsing:
   - [`src/lib/server/env.ts`](./src/lib/server/env.ts)
