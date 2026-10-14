@@ -12,9 +12,9 @@
 
 Important component boundaries:
 
-- [`src/lib/components/chat/MessageInput.svelte`](./src/lib/components/chat/MessageInput.svelte)
+- [`src/lib/components/chat/MessageInput.svelte`](MessageInput.svelte)
   - composer UI, attachments, local draft emission
   - not cross-page orchestration
-- [`src/lib/components/chat/MessageArea.svelte`](./src/lib/components/chat/MessageArea.svelte)
+- [`src/lib/components/chat/MessageArea.svelte`](MessageArea.svelte)
   - message list rendering and viewport behavior
   - generated-file reveal behavior at the bottom of the conversation scroll surface

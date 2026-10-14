@@ -73,27 +73,27 @@ Do:
 ## Knowledge And Context
 
 - Public boundary:
-  - [`src/lib/server/services/knowledge.ts`](./src/lib/server/services/knowledge.ts)
+  - [`src/lib/server/services/knowledge.ts`](../knowledge.ts)
 - Internal modules:
-  - [`src/lib/server/services/knowledge/store.ts`](./src/lib/server/services/knowledge/store.ts)
-  - [`src/lib/server/services/knowledge/store/core.ts`](./src/lib/server/services/knowledge/store/core.ts)
-  - [`src/lib/server/services/knowledge/store/attachments.ts`](./src/lib/server/services/knowledge/store/attachments.ts)
-  - [`src/lib/server/services/knowledge/store/documents.ts`](./src/lib/server/services/knowledge/store/documents.ts)
-  - [`src/lib/server/services/knowledge/store/cleanup.ts`](./src/lib/server/services/knowledge/store/cleanup.ts)
-  - [`src/lib/server/services/knowledge/upload-intake.ts`](./src/lib/server/services/knowledge/upload-intake.ts)
-  - [`src/lib/server/services/knowledge/context.ts`](./src/lib/server/services/knowledge/context.ts)
-  - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
-  - [`src/lib/server/services/knowledge/project-knowledge.ts`](./src/lib/server/services/knowledge/project-knowledge.ts) — owns project-file links and the project's FILES (`listProjectKnowledge`: what a turn's prompt section and file-name mentions read, so it never lists a Document, App or Canvas — a family row is not prompt-ready as a linked source and a mention of its name would 409 the turn); the person's bundle, files plus what the chats made, is `listProjectBundle` in the artifacts service
+  - [`src/lib/server/services/knowledge/store.ts`](store.ts)
+  - [`src/lib/server/services/knowledge/store/core.ts`](store/core.ts)
+  - [`src/lib/server/services/knowledge/store/attachments.ts`](store/attachments.ts)
+  - [`src/lib/server/services/knowledge/store/documents.ts`](store/documents.ts)
+  - [`src/lib/server/services/knowledge/store/cleanup.ts`](store/cleanup.ts)
+  - [`src/lib/server/services/knowledge/upload-intake.ts`](upload-intake.ts)
+  - [`src/lib/server/services/knowledge/context.ts`](context.ts)
+  - [`src/lib/server/services/knowledge/capsules.ts`](capsules.ts)
+  - [`src/lib/server/services/knowledge/project-knowledge.ts`](project-knowledge.ts) — owns project-file links and the project's FILES (`listProjectKnowledge`: what a turn's prompt section and file-name mentions read, so it never lists a Document, App or Canvas — a family row is not prompt-ready as a linked source and a mention of its name would 409 the turn); the person's bundle, files plus what the chats made, is `listProjectBundle` in the artifacts service
 - Related services:
-  - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
-  - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
-  - [`src/lib/server/services/document-resolution.ts`](./src/lib/server/services/document-resolution.ts)
-  - [`src/lib/server/services/extraction/`](./src/lib/server/services/extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
-  - [`src/lib/shared/file-types/`](./src/lib/shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
-  - [`src/lib/server/services/evidence-family.ts`](./src/lib/server/services/evidence-family.ts)
-  - [`src/lib/server/services/knowledge-labels.ts`](./src/lib/server/services/knowledge-labels.ts)
-  - [`src/lib/server/services/tei-embedder.ts`](./src/lib/server/services/tei-embedder.ts)
-  - [`src/lib/server/services/tei-reranker.ts`](./src/lib/server/services/tei-reranker.ts)
+  - [`src/lib/server/services/working-set.ts`](../working-set.ts)
+  - [`src/lib/server/services/workspace-search.ts`](../workspace-search.ts)
+  - [`src/lib/server/services/document-resolution.ts`](../document-resolution.ts)
+  - [`src/lib/server/services/extraction/`](../extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
+  - [`src/lib/shared/file-types/`](../../../shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
+  - [`src/lib/server/services/evidence-family.ts`](../evidence-family.ts)
+  - [`src/lib/server/services/knowledge-labels.ts`](../knowledge-labels.ts)
+  - [`src/lib/server/services/tei-embedder.ts`](../tei-embedder.ts)
+  - [`src/lib/server/services/tei-reranker.ts`](../tei-reranker.ts)
 
 
 Responsibility split:
@@ -157,8 +157,8 @@ Do not:
 ## Knowledge Library
 
 - Document workspace preview:
-  - [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](./src/lib/components/document-workspace/DocumentWorkspace.svelte)
-  - [`src/lib/components/document-workspace/DocumentPreviewRenderer.svelte`](./src/lib/components/document-workspace/DocumentPreviewRenderer.svelte)
+  - [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](../../../components/document-workspace/DocumentWorkspace.svelte)
+  - [`src/lib/components/document-workspace/DocumentPreviewRenderer.svelte`](../../../components/document-workspace/DocumentPreviewRenderer.svelte)
 
 
 Rules:
@@ -175,7 +175,7 @@ Rules:
 Do not:
 
 - add file versioning/history
-- add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](docs/adr/0066-artifacts-are-a-family-of-five-types.md))
+- add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](../../../../../docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](../../../../../docs/adr/0066-artifacts-are-a-family-of-five-types.md))
 - allow AI to edit existing uploaded library files (AI generates NEW files only; Artifacts are the ADR-0065/0066 exception)
 - add batch operations in v1
 - add file deduplication (allow duplicates with auto-rename)

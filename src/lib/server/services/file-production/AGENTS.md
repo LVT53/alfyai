@@ -1,33 +1,33 @@
 # File Production
 
 - Chat-generated files and durable file production:
-  - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts)
-  - [`src/routes/api/chat/files/jobs/[id]/retry/+server.ts`](./src/routes/api/chat/files/jobs/[id]/retry/+server.ts)
-  - [`src/routes/api/chat/files/jobs/[id]/cancel/+server.ts`](./src/routes/api/chat/files/jobs/[id]/cancel/+server.ts)
-  - [`src/routes/api/chat/files/[id]/download/+server.ts`](./src/routes/api/chat/files/[id]/download/+server.ts)
-  - [`src/routes/api/chat/files/[id]/preview/+server.ts`](./src/routes/api/chat/files/[id]/preview/+server.ts)
-  - [`src/lib/server/services/chat-files.ts`](./src/lib/server/services/chat-files.ts)
-- [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/)
-  - [`index.ts`](./src/lib/server/services/file-production/index.ts) is the public facade; keep callers on this boundary unless they are inside file-production internals.
-  - [`read-model.ts`](./src/lib/server/services/file-production/read-model.ts) owns read-only conversation/job card projection, legacy generated-file backfill, internally-visible job-linked file hydration without loading the worker/rendering/storage graph, and the dismissed-job filter (dismissed failed/cancelled jobs are excluded from the conversation-detail job list unless explicitly requested — see ADR 0043).
-  - [`job-ledger.ts`](./src/lib/server/services/file-production/job-ledger.ts) owns durable job, attempt, retry, cancellation, stale-recovery, dismiss (persisted acknowledged-flag for failed/cancelled jobs — see ADR 0043), and produced-file-link state transitions.
-  - [`worker-runner.ts`](./src/lib/server/services/file-production/worker-runner.ts) owns worker identity, startup recovery, lazy wakeup, drain-to-idle execution, and current-attempt orchestration.
-  - [`execution-adapter.ts`](./src/lib/server/services/file-production/execution-adapter.ts) owns persisted request parsing plus document-source renderer or sandbox program dispatch.
-  - [`storage-adapter.ts`](./src/lib/server/services/file-production/storage-adapter.ts) owns output validation, generated-file storage, job-file linking, source-first produced-file mapping, and post-success memory sync.
-- [`src/lib/components/chat/FileProductionCard.svelte`](./src/lib/components/chat/FileProductionCard.svelte)
-- [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](./src/lib/components/document-workspace/DocumentWorkspace.svelte)
+  - [`src/routes/api/chat/files/produce/+server.ts`](../../../../routes/api/chat/files/produce/+server.ts)
+  - [`src/routes/api/chat/files/jobs/[id]/retry/+server.ts`](../../../../routes/api/chat/files/jobs/[id]/retry/+server.ts)
+  - [`src/routes/api/chat/files/jobs/[id]/cancel/+server.ts`](../../../../routes/api/chat/files/jobs/[id]/cancel/+server.ts)
+  - [`src/routes/api/chat/files/[id]/download/+server.ts`](../../../../routes/api/chat/files/[id]/download/+server.ts)
+  - [`src/routes/api/chat/files/[id]/preview/+server.ts`](../../../../routes/api/chat/files/[id]/preview/+server.ts)
+  - [`src/lib/server/services/chat-files.ts`](../chat-files.ts)
+- [`src/lib/server/services/file-production/`](./)
+  - [`index.ts`](index.ts) is the public facade; keep callers on this boundary unless they are inside file-production internals.
+  - [`read-model.ts`](read-model.ts) owns read-only conversation/job card projection, legacy generated-file backfill, internally-visible job-linked file hydration without loading the worker/rendering/storage graph, and the dismissed-job filter (dismissed failed/cancelled jobs are excluded from the conversation-detail job list unless explicitly requested — see ADR 0043).
+  - [`job-ledger.ts`](job-ledger.ts) owns durable job, attempt, retry, cancellation, stale-recovery, dismiss (persisted acknowledged-flag for failed/cancelled jobs — see ADR 0043), and produced-file-link state transitions.
+  - [`worker-runner.ts`](worker-runner.ts) owns worker identity, startup recovery, lazy wakeup, drain-to-idle execution, and current-attempt orchestration.
+  - [`execution-adapter.ts`](execution-adapter.ts) owns persisted request parsing plus document-source renderer or sandbox program dispatch.
+  - [`storage-adapter.ts`](storage-adapter.ts) owns output validation, generated-file storage, job-file linking, source-first produced-file mapping, and post-success memory sync.
+- [`src/lib/components/chat/FileProductionCard.svelte`](../../../components/chat/FileProductionCard.svelte)
+- [`src/lib/components/document-workspace/DocumentWorkspace.svelte`](../../../components/document-workspace/DocumentWorkspace.svelte)
 - Generated files and production job refresh:
-  - [`src/lib/services/streaming.ts`](./src/lib/services/streaming.ts) — `StreamMetadata.generatedFiles` field
+  - [`src/lib/services/streaming.ts`](../../../services/streaming.ts) — `StreamMetadata.generatedFiles` field
   - Stream completion links new file-production jobs and any produced chat files to the persisted assistant message so job-backed cards survive refreshes
   - Conversation detail returns `fileProductionJobs` alongside `generatedFiles`; legacy chat files are backfilled into succeeded job rows by the file-production service
   - Chat page refreshes conversation detail after file-producing turns and while queued/running production jobs exist
-  - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts) stays an auth/HTTP adapter; `src/lib/server/services/file-production/` owns intake parsing, validation, durable job creation/reuse, failed-job persistence, and worker wakeup
+  - [`src/routes/api/chat/files/produce/+server.ts`](../../../../routes/api/chat/files/produce/+server.ts) stays an auth/HTTP adapter; `src/lib/server/services/file-production/` owns intake parsing, validation, durable job creation/reuse, failed-job persistence, and worker wakeup
   - File-production state and execution rules stay in the deep modules behind the facade. Do not put job ledger transitions, worker drain loops, persisted request parsing, renderer dispatch, or generated-file storage/linking back into `index.ts`, routes, renderers, or chat-file services.
   - The Conversation Detail Read Model may import `file-production/read-model.ts` directly. General callers may use the public facade, but must not make read paths eagerly load worker-runner, renderer, sandbox, or generated-file storage modules.
   - Source-first generated-document source artifacts start as pending and non-durable, promote to durable only after rendered files attach successfully, and stay non-prompt-eligible if rendering/storage fails before attachment.
-  - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) now ensures the sandbox runtime images exist before container creation, warms them in the background at app startup, and supports both the Python runtime (`python:3.11-slim`) and the JavaScript runtime (`node:22-bookworm-slim`)
-  - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) must wait for exec inspection to report `Running === false` before the archive reader inspects `/output`; do not treat an early stream close as proof that the sandbox command has finished
-  - [`src/lib/server/services/sandbox-execution.ts`](./src/lib/server/services/sandbox-execution.ts) must surface output-archive read failures as explicit execution errors instead of collapsing them into the same empty-file 422 path used for real zero-output runs
+  - [`src/lib/server/sandbox/config.ts`](../../sandbox/config.ts) now ensures the sandbox runtime images exist before container creation, warms them in the background at app startup, and supports both the Python runtime (`python:3.11-slim`) and the JavaScript runtime (`node:22-bookworm-slim`)
+  - [`src/lib/server/sandbox/config.ts`](../../sandbox/config.ts) must wait for exec inspection to report `Running === false` before the archive reader inspects `/output`; do not treat an early stream close as proof that the sandbox command has finished
+  - [`src/lib/server/services/sandbox-execution.ts`](../sandbox-execution.ts) must surface output-archive read failures as explicit execution errors instead of collapsing them into the same empty-file 422 path used for real zero-output runs
   - File-production/server tracing now mainly uses `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]`, `[NORMAL_CHAT_CONTEXT]`, and `[MEMORY_MAINTENANCE]`; preserve those prefixes when extending the debugging path so node logs stay grep-friendly
 
 

@@ -3,21 +3,21 @@
 Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.
 
 - Continuity boundary:
-  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, mappers)
+  - [`src/lib/server/services/task-state.ts`](../task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, mappers)
 - Profile memory judge (intake):
-  - [`src/lib/server/services/memory-judge/`](./src/lib/server/services/memory-judge/) — `index.ts` (per-segment run), `runner.ts` (idle/dirty sweep), `segment.ts` (watermarks), `prompt.ts`, `schema.ts`
+  - [`src/lib/server/services/memory-judge/`](../memory-judge/) — `index.ts` (per-segment run), `runner.ts` (idle/dirty sweep), `segment.ts` (watermarks), `prompt.ts`, `schema.ts`
 - Consolidation (nightly rework):
-  - [`src/lib/server/services/memory-consolidation/`](./src/lib/server/services/memory-consolidation/) — `index.ts` (runner + scheduler), `steps.ts` (expire/renew, reconcile/merge), `summary.ts` (persona summary)
+  - [`src/lib/server/services/memory-consolidation/`](../memory-consolidation/) — `index.ts` (runner + scheduler), `steps.ts` (expire/renew, reconcile/merge), `summary.ts` (persona summary)
 - Recuration (one-time cleanup):
-  - [`src/lib/server/services/memory-recuration.ts`](./src/lib/server/services/memory-recuration.ts)
+  - [`src/lib/server/services/memory-recuration.ts`](../memory-recuration.ts)
 - Fact store authority:
-  - [`src/lib/server/services/memory-profile/`](./src/lib/server/services/memory-profile/) — see its narrow seams (`projection-store.ts`, `read-model.ts`, `active-context.ts`, `telemetry.ts`, `review.ts`, `dirty-ledger.ts`, `types.ts`)
+  - [`src/lib/server/services/memory-profile/`](./) — see its narrow seams (`projection-store.ts`, `read-model.ts`, `active-context.ts`, `telemetry.ts`, `review.ts`, `dirty-ledger.ts`, `types.ts`)
 - Recall into prompts:
-  - [`src/lib/server/services/memory-context/`](./src/lib/server/services/memory-context/)
+  - [`src/lib/server/services/memory-context/`](../memory-context/)
 - Public read facade + maintenance/orchestration:
-  - [`src/lib/server/services/memory.ts`](./src/lib/server/services/memory.ts), [`src/lib/server/services/memory-maintenance.ts`](./src/lib/server/services/memory-maintenance.ts)
+  - [`src/lib/server/services/memory.ts`](../memory.ts), [`src/lib/server/services/memory-maintenance.ts`](../memory-maintenance.ts)
 - Event log:
-  - [`src/lib/server/services/memory-behavior-log.ts`](./src/lib/server/services/memory-behavior-log.ts)
+  - [`src/lib/server/services/memory-behavior-log.ts`](../memory-behavior-log.ts)
 
 
 Rules:

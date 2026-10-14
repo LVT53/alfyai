@@ -48,12 +48,12 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 ## Stores And Browser API
 
 - Stores:
-  - [`src/lib/stores/conversations.ts`](./src/lib/stores/conversations.ts)
-  - [`src/lib/stores/projects.ts`](./src/lib/stores/projects.ts)
-  - [`src/lib/stores/settings.ts`](./src/lib/stores/settings.ts)
-  - [`src/lib/stores/avatar.ts`](./src/lib/stores/avatar.ts)
-  - [`src/lib/stores/theme.ts`](./src/lib/stores/theme.ts)
-  - [`src/lib/stores/ui.ts`](./src/lib/stores/ui.ts)
+  - [`src/lib/stores/conversations.ts`](conversations.ts)
+  - [`src/lib/stores/projects.ts`](projects.ts)
+  - [`src/lib/stores/settings.ts`](settings.ts)
+  - [`src/lib/stores/avatar.ts`](avatar.ts)
+  - [`src/lib/stores/theme.ts`](theme.ts)
+  - [`src/lib/stores/ui.ts`](ui.ts)
 
 Rules:
 

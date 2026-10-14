@@ -83,25 +83,25 @@ failures → retry-cleanup.ts
 ## Chat Flow
 
 - Route entrypoints:
-  - [`src/routes/api/chat/send/+server.ts`](./src/routes/api/chat/send/+server.ts)
-  - [`src/routes/api/chat/stream/+server.ts`](./src/routes/api/chat/stream/+server.ts)
-  - [`src/routes/api/chat/stream/stop/+server.ts`](./src/routes/api/chat/stream/stop/+server.ts)
+  - [`src/routes/api/chat/send/+server.ts`](../../../../routes/api/chat/send/+server.ts)
+  - [`src/routes/api/chat/stream/+server.ts`](../../../../routes/api/chat/stream/+server.ts)
+  - [`src/routes/api/chat/stream/stop/+server.ts`](../../../../routes/api/chat/stream/stop/+server.ts)
 - Shared pipeline:
-  - [`src/lib/server/services/chat-turn/index.ts`](./src/lib/server/services/chat-turn/index.ts)
+  - [`src/lib/server/services/chat-turn/index.ts`](index.ts)
     - The single entrypoint into chat-turn (F1). The `send`, `stream`, and `retry` routes drive a Normal Chat turn through this facade and import chat-turn only from it, rather than reaching into individual submodules. It is a facade *inside* this module directory, not a new top-level `services/*.ts` boundary. Stream-lifecycle/capacity utilities used by auxiliary routes (`stream/stop|status|buffer`, `admin/drain`, `health`) still import `active-streams` directly.
-  - [`src/lib/server/services/chat-turn/request.ts`](./src/lib/server/services/chat-turn/request.ts)
-  - [`src/lib/server/services/chat-turn/preflight.ts`](./src/lib/server/services/chat-turn/preflight.ts)
-  - [`src/lib/server/services/chat-turn/normalizer.ts`](./src/lib/server/services/chat-turn/normalizer.ts)
+  - [`src/lib/server/services/chat-turn/request.ts`](request.ts)
+  - [`src/lib/server/services/chat-turn/preflight.ts`](preflight.ts)
+  - [`src/lib/server/services/chat-turn/normalizer.ts`](normalizer.ts)
     - Canonical assistant-output normalization for send, stream, retry, and title generation.
-  - [`src/lib/server/services/chat-turn/stream-orchestrator.ts`](./src/lib/server/services/chat-turn/stream-orchestrator.ts)
+  - [`src/lib/server/services/chat-turn/stream-orchestrator.ts`](stream-orchestrator.ts)
     - Orchestrates the full chat-turn streaming pipeline: neutral Normal Chat model-run events, tool-call marker handling, token/thinking framing, stream buffer management.
     - Imported by the `stream` and `retry` routes via the `chat-turn/index.ts` facade (F1).
-  - [`src/lib/server/services/chat-turn/stream.ts`](./src/lib/server/services/chat-turn/stream.ts)
+  - [`src/lib/server/services/chat-turn/stream.ts`](stream.ts)
     - Re-export hub for stream sub-modules:
-      - [`thinking-normalizer.ts`](./src/lib/server/services/chat-turn/thinking-normalizer.ts)
-  - [`src/lib/server/services/chat-turn/active-streams.ts`](./src/lib/server/services/chat-turn/active-streams.ts)
-  - [`src/lib/server/services/chat-turn/finalize.ts`](./src/lib/server/services/chat-turn/finalize.ts)
-  - [`src/lib/server/services/chat-turn/types.ts`](./src/lib/server/services/chat-turn/types.ts)
+      - [`thinking-normalizer.ts`](thinking-normalizer.ts)
+  - [`src/lib/server/services/chat-turn/active-streams.ts`](active-streams.ts)
+  - [`src/lib/server/services/chat-turn/finalize.ts`](finalize.ts)
+  - [`src/lib/server/services/chat-turn/types.ts`](types.ts)
 
 Do:
 

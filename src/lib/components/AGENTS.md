@@ -137,18 +137,18 @@ Chat-route presentation rule:
 
 ## Component Boundaries
 
-- Chat rendering components live under [`src/lib/components/chat/`](./src/lib/components/chat/).
-- Layout/navigation components live under [`src/lib/components/layout/`](./src/lib/components/layout/).
-- Sidebar-specific pieces live under [`src/lib/components/sidebar/`](./src/lib/components/sidebar/).
+- Chat rendering components live under [`src/lib/components/chat/`](chat/).
+- Layout/navigation components live under [`src/lib/components/layout/`](layout/).
+- Sidebar-specific pieces live under [`src/lib/components/sidebar/`](sidebar/).
 
 
 Important component boundaries:
 
-- [`src/lib/components/layout/Sidebar.svelte`](./src/lib/components/layout/Sidebar.svelte)
+- [`src/lib/components/layout/Sidebar.svelte`](layout/Sidebar.svelte)
   - navigation shell and store-driven sidebar state
-- [`src/lib/components/layout/Header.svelte`](./src/lib/components/layout/Header.svelte)
+- [`src/lib/components/layout/Header.svelte`](layout/Header.svelte)
   - top-level app shell interactions
-- [`src/lib/components/sidebar/ConversationList.svelte`](./src/lib/components/sidebar/ConversationList.svelte)
+- [`src/lib/components/sidebar/ConversationList.svelte`](sidebar/ConversationList.svelte)
   - owns sidebar drag/drop state and project-drop move orchestration through the existing conversations store path
 
 
@@ -163,8 +163,8 @@ Do not:
 ## Visual System And Layout Guardrails
 
 - Design tokens live in:
-  - [`src/app.css`](./src/app.css)
-  - [`tailwind.config.ts`](./tailwind.config.ts)
+  - [`src/app.css`](../../app.css)
+  - [`tailwind.config.ts`](../../../tailwind.config.ts)
 - Token categories already defined:
   - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
 - Font ownership:
@@ -187,7 +187,7 @@ Scroll ownership contract:
 - `body` should not become the scrolling surface
 - the authenticated app shell contains layout overflow
 - the sidebar list owns sidebar scrolling
-- [`src/lib/components/chat/MessageArea.svelte`](./src/lib/components/chat/MessageArea.svelte) owns conversation scrolling
+- [`src/lib/components/chat/MessageArea.svelte`](chat/MessageArea.svelte) owns conversation scrolling
 
 
 Do not:

@@ -233,26 +233,26 @@ task-state.ts (facade — 1,535 lines)
 ## Chat Flow: Conversation Detail And Upstream Services
 
 - Conversation detail hydration:
-  - [`src/lib/server/services/conversation-detail/read-model.ts`](./src/lib/server/services/conversation-detail/read-model.ts)
+  - [`src/lib/server/services/conversation-detail/read-model.ts`](conversation-detail/read-model.ts)
     - Owns refreshable `/api/conversations/[id]` GET payload assembly for chat page load and browser hydration.
     - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
     - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)`.
 - Upstream integrations:
-  - [`src/lib/server/services/normal-chat-context.ts`](./src/lib/server/services/normal-chat-context.ts)
+  - [`src/lib/server/services/normal-chat-context.ts`](normal-chat-context.ts)
     - Owns model-facing prompt assembly, outbound search/date guidance, context fit, and authenticated account-level prompt personalization fields such as display name and email.
-  - [`src/lib/server/services/normal-chat-model/`](./src/lib/server/services/normal-chat-model/)
+  - [`src/lib/server/services/normal-chat-model/`](normal-chat-model/)
     - Owns Vercel AI SDK/OpenAI-compatible plain and streaming model execution, provider-attempt/failover policy, provider usage mapping, tool-call events, and neutral model-run events.
-  - [`src/lib/server/services/provider-model-runtime-defaults.ts`](./src/lib/server/services/provider-model-runtime-defaults.ts)
+  - [`src/lib/server/services/provider-model-runtime-defaults.ts`](provider-model-runtime-defaults.ts)
     - Owns provider-model runtime and persistence defaults for context limits, max output tokens, reasoning effort, and thinking mode.
-  - [`src/lib/server/services/normal-chat-stability-snapshot.ts`](./src/lib/server/services/normal-chat-stability-snapshot.ts)
+  - [`src/lib/server/services/normal-chat-stability-snapshot.ts`](normal-chat-stability-snapshot.ts)
     - Owns content-free operational stability snapshots for Normal Chat streams, providers, tools, web grounding, context limits, and maintenance metrics.
-  - [`src/lib/server/services/normal-chat-tools/`](./src/lib/server/services/normal-chat-tools/)
+  - [`src/lib/server/services/normal-chat-tools/`](normal-chat-tools/)
     - Owns app-backed AI SDK tools such as `produce_file`, `research_web` (Parallel Search), `fetch_url` (Parallel Extract, on-demand page read), `image_search` (Brave), and `memory_context`, plus the shared tool execution envelope for timeout, abort, model-safe failure, and recorder behavior.
-  - [`src/lib/server/services/normal-chat-control-model.ts`](./src/lib/server/services/normal-chat-control-model.ts)
+  - [`src/lib/server/services/normal-chat-control-model.ts`](normal-chat-control-model.ts)
     - Owns structured JSON control-model calls used by context compression and similar control tasks.
-  - [`src/lib/server/services/title-generator.ts`](./src/lib/server/services/title-generator.ts)
-  - [`src/lib/server/services/messages.ts`](./src/lib/server/services/messages.ts)
-  - [`src/lib/server/services/message-evidence.ts`](./src/lib/server/services/message-evidence.ts)
+  - [`src/lib/server/services/title-generator.ts`](title-generator.ts)
+  - [`src/lib/server/services/messages.ts`](messages.ts)
+  - [`src/lib/server/services/message-evidence.ts`](message-evidence.ts)
     - Owns evidence channel types for document-backed artifacts
 
 Do:
@@ -264,15 +264,15 @@ Do:
 These services are actively imported but not documented in the feature sections above:
 
 - Server utilities and helpers:
-  - [`src/lib/server/auth/hooks.ts`](./src/lib/server/auth/hooks.ts) — `requireAuth`, `getBearerToken` helpers. Canonical auth enforcement point for API routes; mirrors `hooks.server.ts` logic in a reusable form.
-  - [`src/lib/server/services/attachment-trace.ts`](./src/lib/server/services/attachment-trace.ts) — logging helper for chat/file-production tracing. Adds `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]` correlation context. Consumed by stream-orchestrator and file-production services.
-  - [`src/lib/server/services/language.ts`](./src/lib/server/services/language.ts) — the deterministic readers of a text's language: `readReplyLanguage` (a reply), `readShortTextLanguage` (a title, a headline, a status line) and `afterReplyLanguage` (the fallback chain for a turn whose language call failed). They decide nothing before a reply. Consumed by `chat-turn/reply-language.ts`, the title generator, the short-text parity check and the eval scorers.
-  - [`src/lib/server/services/conversation-drafts.ts`](./src/lib/server/services/conversation-drafts.ts) — draft management for conversations. Used by conversation routes for draft save/load.
-  - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly.
-  - [`src/lib/server/api/responses.ts`](./src/lib/server/api/responses.ts) — shared JSON response helpers (`createJsonErrorResponse`, `createJsonResponse`) for API routes. Used across route files for consistent error/success formatting.
-  - [`src/lib/server/services/analytics.ts`](./src/lib/server/services/analytics.ts) — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion is consumed by chat-turn finalization; `getAnalyticsDashboardReadModel(...)` owns `/api/analytics` payload assembly for personal, admin system, per-user, timeline, and mock analytics. `src/routes/api/analytics/+server.ts` stays a route adapter for auth, query parameters, and JSON response mapping.
-  - [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/) — durable file-production jobs, source validation, renderers, sandbox execution, retry/cancel, and legacy generated-file backfill.
+  - [`src/lib/server/auth/hooks.ts`](../auth/hooks.ts) — `requireAuth`, `getBearerToken` helpers. Canonical auth enforcement point for API routes; mirrors `hooks.server.ts` logic in a reusable form.
+  - [`src/lib/server/services/attachment-trace.ts`](attachment-trace.ts) — logging helper for chat/file-production tracing. Adds `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]` correlation context. Consumed by stream-orchestrator and file-production services.
+  - [`src/lib/server/services/language.ts`](language.ts) — the deterministic readers of a text's language: `readReplyLanguage` (a reply), `readShortTextLanguage` (a title, a headline, a status line) and `afterReplyLanguage` (the fallback chain for a turn whose language call failed). They decide nothing before a reply. Consumed by `chat-turn/reply-language.ts`, the title generator, the short-text parity check and the eval scorers.
+  - [`src/lib/server/services/conversation-drafts.ts`](conversation-drafts.ts) — draft management for conversations. Used by conversation routes for draft save/load.
+  - [`src/lib/server/prompts.ts`](../prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly.
+  - [`src/lib/server/api/responses.ts`](../api/responses.ts) — shared JSON response helpers (`createJsonErrorResponse`, `createJsonResponse`) for API routes. Used across route files for consistent error/success formatting.
+  - [`src/lib/server/services/analytics.ts`](analytics.ts) — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion is consumed by chat-turn finalization; `getAnalyticsDashboardReadModel(...)` owns `/api/analytics` payload assembly for personal, admin system, per-user, timeline, and mock analytics. `src/routes/api/analytics/+server.ts` stays a route adapter for auth, query parameters, and JSON response mapping.
+  - [`src/lib/server/services/file-production/`](file-production/) — durable file-production jobs, source validation, renderers, sandbox execution, retry/cancel, and legacy generated-file backfill.
 
 - Active project service:
-  - [`src/lib/server/services/projects.ts`](./src/lib/server/services/projects.ts) — project CRUD using `db` + `schema.ts` directly. Not a legacy DB wrapper; active service.
-  - [`projects.ts`](./src/lib/server/services/projects.ts) also owns the project-page reads (`getProjectPageData`, `getProjectInstructions`) and `listRecentlyActiveProjects`, the single definition of "a project with recent activity"; lists carry `hasInstructions` and never the instruction text, and `home-summary.ts` consumes `listRecentlyActiveProjects` rather than re-deriving project activity.
+  - [`src/lib/server/services/projects.ts`](projects.ts) — project CRUD using `db` + `schema.ts` directly. Not a legacy DB wrapper; active service.
+  - [`projects.ts`](projects.ts) also owns the project-page reads (`getProjectPageData`, `getProjectInstructions`) and `listRecentlyActiveProjects`, the single definition of "a project with recent activity"; lists carry `hasInstructions` and never the instruction text, and `home-summary.ts` consumes `listRecentlyActiveProjects` rather than re-deriving project activity.

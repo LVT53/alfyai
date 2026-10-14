@@ -61,18 +61,18 @@ conversation-session.ts - Landing draft IDs, pending message replay
 ## Browser API, Stores, And Session Handoff
 
 - Shared browser API:
-  - [`src/lib/client/api/_utils.ts`](./src/lib/client/api/_utils.ts) — shared list-unwrapping helper for API responses
-  - [`src/lib/client/api/admin.ts`](./src/lib/client/api/admin.ts) — reusable admin-side user management browser calls
-  - [`src/lib/client/api/auth.ts`](./src/lib/client/api/auth.ts)
-  - [`src/lib/client/api/http.ts`](./src/lib/client/api/http.ts)
-  - [`src/lib/client/api/conversations.ts`](./src/lib/client/api/conversations.ts)
-  - [`src/lib/client/api/knowledge.ts`](./src/lib/client/api/knowledge.ts)
-  - [`src/lib/client/api/workspace-search.ts`](./src/lib/client/api/workspace-search.ts)
-  - [`src/lib/client/api/models.ts`](./src/lib/client/api/models.ts)
-  - [`src/lib/client/api/projects.ts`](./src/lib/client/api/projects.ts)
-  - [`src/lib/client/api/settings.ts`](./src/lib/client/api/settings.ts)
+  - [`src/lib/client/api/_utils.ts`](api/_utils.ts) — shared list-unwrapping helper for API responses
+  - [`src/lib/client/api/admin.ts`](api/admin.ts) — reusable admin-side user management browser calls
+  - [`src/lib/client/api/auth.ts`](api/auth.ts)
+  - [`src/lib/client/api/http.ts`](api/http.ts)
+  - [`src/lib/client/api/conversations.ts`](api/conversations.ts)
+  - [`src/lib/client/api/knowledge.ts`](api/knowledge.ts)
+  - [`src/lib/client/api/workspace-search.ts`](api/workspace-search.ts)
+  - [`src/lib/client/api/models.ts`](api/models.ts)
+  - [`src/lib/client/api/projects.ts`](api/projects.ts)
+  - [`src/lib/client/api/settings.ts`](api/settings.ts)
 - Session handoff:
-  - [`src/lib/client/conversation-session.ts`](./src/lib/client/conversation-session.ts)
+  - [`src/lib/client/conversation-session.ts`](conversation-session.ts)
 
 
 Rules:

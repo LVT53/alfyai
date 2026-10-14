@@ -33,13 +33,13 @@ Sandboxed container execution for AI-generated file production. Isolated Python/
 ## Sandbox Execution And File Production
 
 - Sandbox configuration:
-  - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts)
+  - [`src/lib/server/sandbox/config.ts`](config.ts)
 - Sandbox execution service:
-  - [`src/lib/server/services/sandbox-execution.ts`](./src/lib/server/services/sandbox-execution.ts)
+  - [`src/lib/server/services/sandbox-execution.ts`](../services/sandbox-execution.ts)
 - File production API:
-  - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts)
+  - [`src/routes/api/chat/files/produce/+server.ts`](../../../routes/api/chat/files/produce/+server.ts)
 - Chat-linked file storage:
-  - [`src/lib/server/services/chat-files.ts`](./src/lib/server/services/chat-files.ts)
+  - [`src/lib/server/services/chat-files.ts`](../services/chat-files.ts)
 
 
 Security model:

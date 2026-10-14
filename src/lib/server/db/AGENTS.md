@@ -60,13 +60,13 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 ## Database And Persistence
 
 - DB bootstrap and Drizzle binding:
-  - [`src/lib/server/db/index.ts`](./src/lib/server/db/index.ts)
+  - [`src/lib/server/db/index.ts`](index.ts)
 - Schema:
-  - [`src/lib/server/db/schema.ts`](./src/lib/server/db/schema.ts)
+  - [`src/lib/server/db/schema.ts`](schema.ts)
 - Shared semantic embedding store:
-  - [`src/lib/server/services/semantic-embeddings.ts`](./src/lib/server/services/semantic-embeddings.ts)
+  - [`src/lib/server/services/semantic-embeddings.ts`](../services/semantic-embeddings.ts)
 - Explicit DB prep:
-  - [`scripts/prepare-db.ts`](./scripts/prepare-db.ts)
+  - [`scripts/prepare-db.ts`](../../../../scripts/prepare-db.ts)
 
 
 Legacy/avoidance notes:
