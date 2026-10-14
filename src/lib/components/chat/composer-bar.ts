@@ -24,9 +24,6 @@
 
 import type { I18nKey } from "$lib/i18n";
 
-/** The three controls that stay on the bar. */
-export type ComposerBarIcon = "attach" | "accounts" | "thinking";
-
 /**
  * A tooltip, as a key plus its parameters. Returned rather than resolved so
  * this module stays free of the i18n store and the component keeps ownership
@@ -131,11 +128,7 @@ export type ComposerMenuRowKind =
 	| "switch";
 
 /** The three headings the menu draws, in the order it draws them. */
-export const COMPOSER_MENU_SECTIONS = [
-	"message",
-	"switches",
-	"conversation",
-] as const;
+const COMPOSER_MENU_SECTIONS = ["message", "switches", "conversation"] as const;
 
 export type ComposerMenuSectionId = (typeof COMPOSER_MENU_SECTIONS)[number];
 

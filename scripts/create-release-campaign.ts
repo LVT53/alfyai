@@ -75,9 +75,9 @@ if (!process.env.DATABASE_PATH) process.env.DATABASE_PATH = "./data/chat.db";
 // ---------------------------------------------------------------------------
 
 /** 16:10, the ratio `campaign-assets.ts` enforces for a desktop crop. */
-export const DESKTOP_TARGET = { width: 1600, height: 1000 } as const;
+const DESKTOP_TARGET = { width: 1600, height: 1000 } as const;
 /** 9:16, the ratio `campaign-assets.ts` enforces for a mobile crop. */
-export const MOBILE_TARGET = { width: 1080, height: 1920 } as const;
+const MOBILE_TARGET = { width: 1080, height: 1920 } as const;
 
 const VARIANTS = ["desktop", "mobile"] as const;
 export type Variant = (typeof VARIANTS)[number];
@@ -118,7 +118,7 @@ const FLAGS_WITH_VALUES = new Set([
 ]);
 const BOOLEAN_FLAGS = new Set(["--publish", "--dry-run", "--replace-draft"]);
 
-export const USAGE = `Usage:
+const USAGE = `Usage:
   DATABASE_PATH=<path> npx tsx scripts/create-release-campaign.ts \\
     --deck <dir> --name "AlfyAI 2.0" --version 2.0.0 --admin-email <email> \\
     [--png-dir <dir>] [--publish] [--dry-run] [--replace-draft]
@@ -272,7 +272,7 @@ export function readImageInfo(path: string): ImageInfo {
 // Deck loading and validation
 // ---------------------------------------------------------------------------
 
-export const MIN_SLIDES = 4;
+const MIN_SLIDES = 4;
 
 /**
  * The preferences an onboarding's setup slide may offer: the service's own list
@@ -645,7 +645,7 @@ export class CampaignRunError extends Error {}
  * printing an invented one would send the operator somewhere that ignores it.
  */
 export const ADMIN_CAMPAIGNS_PATH = "/settings";
-export const ADMIN_CAMPAIGNS_HINT =
+const ADMIN_CAMPAIGNS_HINT =
 	"open the Administration tab, then the Campaigns sub-tab";
 
 async function resolveAdminUser(

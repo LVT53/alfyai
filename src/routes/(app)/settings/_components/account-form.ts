@@ -17,7 +17,7 @@ import type { I18nKey } from "$lib/i18n";
 import { intlLocale } from "$lib/utils/locale";
 
 /** Minimum length the server enforces; mirrored here so the user hears it first. */
-export const MIN_PASSWORD_LENGTH = 8;
+const MIN_PASSWORD_LENGTH = 8;
 
 export type AccountFormValues = {
 	name: string;

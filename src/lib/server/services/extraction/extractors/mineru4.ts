@@ -399,7 +399,9 @@ export function createMineru4Extractor(
 			);
 
 			const config = resolveConfig();
-			const client = createClient(config);
+			// Annotated so Fallow can tell this is a MineruClient: it does not follow the
+			// return type of `createClient`, and `statFile` is called here and nowhere else.
+			const client: MineruClient = createClient(config);
 			const deadlineAt = now() + config.jobTimeoutMs;
 
 			// -- 1. capabilities, before a byte moves --------------------------

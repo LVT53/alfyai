@@ -8,15 +8,17 @@
 // disagree about what a file is. See docs/plans/mineru4/phase1-registry-spec.md
 // rows 3-12.
 //
-// The four exported functions keep their historical ARGUMENT ORDER
+// The three exported functions keep their historical ARGUMENT ORDER
 // (mimeType first, filename second, except `getPreviewContentType`), which is
 // the opposite of the registry's, so that none of the importers listed in the
-// spec's importer sweep has to change.
+// spec's importer sweep has to change. The fourth, `getPreviewLanguage`, is
+// not wrapped here any more: it is the registry's own, `(filename, mimeType)`,
+// and a second one of the same name with the arguments the other way round was
+// a trap.
 
 import {
 	getContentTypeForFile,
 	getPreviewKind,
-	getPreviewLanguage as getRegistryPreviewLanguage,
 	isPreviewable,
 	type PreviewKind,
 } from "$lib/shared/file-types";
@@ -43,11 +45,4 @@ export function isPreviewableFile(
 	filename: string,
 ): boolean {
 	return isPreviewable(filename, mimeType);
-}
-
-export function getPreviewLanguage(
-	mimeType: string | null,
-	filename: string,
-): string | undefined {
-	return getRegistryPreviewLanguage(filename, mimeType);
 }

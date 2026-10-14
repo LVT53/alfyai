@@ -1,4 +1,5 @@
 <script lang="ts">
+// fallow-ignore-file unrendered-component -- rendered as <pictureViews.CanvasDownload> in CanvasEditor.svelte, after import("./export-parts")
 /**
  * The header's Download for a board (Feature 2 · Artifacts, Slice 3, T7): a
  * popover under the button on desktop, a sheet on phones (`AnchoredPopover`, the

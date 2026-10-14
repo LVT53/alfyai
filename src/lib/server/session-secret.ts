@@ -83,9 +83,7 @@ export function isProductionRuntime(
 	return true;
 }
 
-export function describeSessionSecretProblem(
-	problem: SessionSecretProblem,
-): string {
+function describeSessionSecretProblem(problem: SessionSecretProblem): string {
 	switch (problem) {
 		case "missing":
 			return "SESSION_SECRET is not set (or is empty).";

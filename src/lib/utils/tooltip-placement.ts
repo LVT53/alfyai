@@ -24,10 +24,10 @@ export const SOURCE_TOOLTIP_MARGIN = 12;
 export const SOURCE_TOOLTIP_OFFSET = 6;
 // The tooltip's clamped width band. The min doubles as the smallest boundary
 // width worth constraining to the chat column (below it, fall back to viewport).
-export const SOURCE_TOOLTIP_MIN_WIDTH = 180;
-export const SOURCE_TOOLTIP_MAX_WIDTH = 352;
+const SOURCE_TOOLTIP_MIN_WIDTH = 180;
+const SOURCE_TOOLTIP_MAX_WIDTH = 352;
 // Height assumed when the tooltip has not been measured yet (width/height 0).
-export const SOURCE_TOOLTIP_FALLBACK_HEIGHT = 48;
+const SOURCE_TOOLTIP_FALLBACK_HEIGHT = 48;
 
 /** Visible viewport bounds, as read from `window.visualViewport` / `window`. */
 export interface ViewportBounds {

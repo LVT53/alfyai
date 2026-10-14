@@ -40,7 +40,7 @@ export const MENU_MARGIN = 16;
  * with rows in it. 320px is roughly the point where the menu shows its
  * sections rather than a sliver of the first one.
  */
-export const MENU_MIN_SPACE_ABOVE = 320;
+const MENU_MIN_SPACE_ABOVE = 320;
 /** The desktop menu's width — `min(17.5rem, …)` in the component's CSS. */
 export const MENU_WIDTH = 280;
 

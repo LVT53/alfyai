@@ -130,7 +130,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
  * as "the script is broken", which sends an operator looking in entirely the
  * wrong place on the one night they are least able to afford it.
  */
-export class BackfillUsageError extends Error {
+class BackfillUsageError extends Error {
 	override readonly name = "BackfillUsageError";
 }
 
@@ -161,7 +161,7 @@ export interface BackfillArgs {
  * and reports `succeeded`. Over a whole library nobody would notice by
  * reading; over a snapshot it is one line.
  */
-export const DEFAULT_SHRINK_THRESHOLD = 0.5;
+const DEFAULT_SHRINK_THRESHOLD = 0.5;
 
 function readFlagValue(argv: string[], flag: string): string | null {
 	const eqPrefix = `${flag}=`;
@@ -843,7 +843,7 @@ export function filterOnlyFailed(
  * that the cleanup paths can delete is not a safety record, and one filed
  * under one user's directory would also be deleted with that user.
  */
-export const BACKFILL_SNAPSHOT_DIR = ["data", "backfill-snapshots"] as const;
+const BACKFILL_SNAPSHOT_DIR = ["data", "backfill-snapshots"] as const;
 
 export interface SnapshotEntry {
 	userId: string;
@@ -877,7 +877,7 @@ function snapshotStamp(now: Date): string {
  * Entries for documents the loop then refuses are harmless — the comparison
  * only ever looks at documents that went on to succeed.
  */
-export async function captureBackfillSnapshot(
+async function captureBackfillSnapshot(
 	items: PlanItem[],
 	options: { tier?: string | null; now?: Date } = {},
 ): Promise<BackfillSnapshot> {
@@ -951,7 +951,7 @@ export async function captureBackfillSnapshot(
 }
 
 /** Writes the snapshot and returns the path it went to. */
-export async function writeBackfillSnapshot(
+async function writeBackfillSnapshot(
 	snapshot: BackfillSnapshot,
 	options: { now?: Date } = {},
 ): Promise<string> {
@@ -1266,7 +1266,7 @@ export interface StatusReport {
  *
  * Nothing is repaired, requeued or deleted here. It is a list to look at.
  */
-export function findShrunkDocuments(
+function findShrunkDocuments(
 	snapshot: BackfillSnapshot,
 	after: Map<string, { contentLength: number; chunkCount: number }>,
 	threshold: number,

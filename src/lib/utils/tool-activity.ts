@@ -20,10 +20,7 @@ import type { I18nKey } from "$lib/i18n";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import type {
-	ThinkingSegment,
-	ToolCallMapData,
-} from "$lib/server/services/messages-types";
+import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { formatByteSize } from "$lib/utils/format";
 import {
@@ -205,7 +202,7 @@ type VerbName = keyof typeof VERB_KEYS;
  * test covers the Atlas grammar too — an Atlas row that lost a translation
  * would otherwise print a raw key in the chat.
  */
-export const ATLAS_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
+const ATLAS_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"atlasActivity.verb",
 	"atlasActivity.questionsProgress",
 	"atlasActivity.stopped",
@@ -455,10 +452,7 @@ function mapMeta(map: ToolCallMapData): string {
  * measured in how many it found ("6 departures"). Distance is deliberately
  * absent: nobody asks how many kilometres a bus ride is.
  */
-export function transitMeta(
-	map: ToolCallMapData,
-	translate: Translate,
-): string {
+function transitMeta(map: ToolCallMapData, translate: Translate): string {
 	if (map.departures) {
 		return translate("toolActivity.departuresCount", {
 			count: map.departures.length,
@@ -479,10 +473,7 @@ export function transitMeta(
  * train, walk"). Distance is left out for the same reason it is on a transit
  * row — a journey is measured in time, not kilometres.
  */
-export function journeyMeta(
-	map: ToolCallMapData,
-	translate: Translate,
-): string {
+function journeyMeta(map: ToolCallMapData, translate: Translate): string {
 	const modeKeys: I18nKey[] = [];
 	for (const leg of map.transitLegs ?? []) {
 		const key: I18nKey =
@@ -1511,7 +1502,7 @@ export function atlasPlanProgress(plan: AtlasPlanEntry[]): {
 }
 
 /** "45s" / "6 min", from the job's own timestamps. Never negative. */
-export function atlasElapsedLabel(
+function atlasElapsedLabel(
 	startMs: number,
 	endMs: number,
 	translate: Translate,
@@ -1636,12 +1627,3 @@ export function buildAtlasActivityItem(
 		body: { kind: "atlas" },
 	};
 }
-
-/** Narrowing helper so callers can share one guard. */
-export function isToolCallSegment(
-	segment: ThinkingSegment,
-): segment is ToolCallSegment {
-	return segment.type === "tool_call";
-}
-
-export { formatByteSize };

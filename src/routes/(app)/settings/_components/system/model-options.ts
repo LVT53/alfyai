@@ -41,7 +41,7 @@ export interface ModelOptionInput {
 	configuredValues?: ReadonlyArray<string | undefined>;
 }
 
-export function isExplicitProviderModelId(modelId: string): boolean {
+function isExplicitProviderModelId(modelId: string): boolean {
 	return modelId.startsWith("provider:") && modelId.split(":").length >= 3;
 }
 

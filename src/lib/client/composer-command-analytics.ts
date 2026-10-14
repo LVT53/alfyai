@@ -13,10 +13,7 @@ import type { FetchLike } from "./api/http";
 // question would otherwise be silently dropped instead of recorded.
 const ACTIVITY_EVENT_NAME_MAX_LENGTH = 64;
 
-export type ActivityClientKind =
-	| "composer_command"
-	| "follow_up_click"
-	| "answer_now";
+type ActivityClientKind = "composer_command" | "follow_up_click" | "answer_now";
 
 function postActivityEvent(params: {
 	kind: ActivityClientKind;

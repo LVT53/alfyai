@@ -346,7 +346,7 @@ function parseIntegerEnv(value: string | undefined, fallback: number): number {
  * default so a deployment that sets none keeps the synthesis/audit model
  * split.
  */
-export function parseOptionalConfiguredModelIdEnv(
+function parseOptionalConfiguredModelIdEnv(
 	value: string | undefined,
 	key: string,
 ): ModelId | null {

@@ -34,7 +34,7 @@ export function isPageCountKind(value: unknown): value is PageCountKind {
 }
 
 /** The three things a count can honestly be a count OF. */
-export const PAGE_COUNT_UNITS = ["page", "slide", "sheet"] as const;
+const PAGE_COUNT_UNITS = ["page", "slide", "sheet"] as const;
 export type PageCountUnit = (typeof PAGE_COUNT_UNITS)[number];
 
 /**

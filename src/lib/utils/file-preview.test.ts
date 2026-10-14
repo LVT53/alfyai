@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { getPreviewLanguage } from "$lib/shared/file-types";
 import {
 	determinePreviewFileType,
 	getPreviewContentType,
-	getPreviewLanguage,
 	isPreviewableFile,
 } from "./file-preview";
 
@@ -86,7 +86,7 @@ describe("file-preview utils", () => {
 		expect(getPreviewContentType("bundle.js", "application/javascript")).toBe(
 			"application/javascript",
 		);
-		expect(getPreviewLanguage("application/javascript", "x.bin")).toBe(
+		expect(getPreviewLanguage("x.bin", "application/javascript")).toBe(
 			"javascript",
 		);
 	});
@@ -115,28 +115,28 @@ describe("file-preview utils", () => {
 	});
 
 	it("exposes syntax languages for code-like previewable formats", () => {
-		expect(getPreviewLanguage(null, "script.py")).toBe("python");
-		expect(getPreviewLanguage(null, "styles.css")).toBe("css");
-		expect(getPreviewLanguage(null, "theme.scss")).toBe("scss");
-		expect(getPreviewLanguage(null, "script.sh")).toBe("bash");
-		expect(getPreviewLanguage(null, "component.tsx")).toBe("tsx");
-		expect(getPreviewLanguage(null, "query.graphql")).toBe("graphql");
-		expect(getPreviewLanguage(null, "main.rs")).toBe("rust");
-		expect(getPreviewLanguage(null, "program.c")).toBe("c");
-		expect(getPreviewLanguage(null, "config.xml")).toBe("xml");
-		expect(getPreviewLanguage(null, "doc.md")).toBe("markdown");
-		expect(getPreviewLanguage("application/javascript", "script.bin")).toBe(
+		expect(getPreviewLanguage("script.py", null)).toBe("python");
+		expect(getPreviewLanguage("styles.css", null)).toBe("css");
+		expect(getPreviewLanguage("theme.scss", null)).toBe("scss");
+		expect(getPreviewLanguage("script.sh", null)).toBe("bash");
+		expect(getPreviewLanguage("component.tsx", null)).toBe("tsx");
+		expect(getPreviewLanguage("query.graphql", null)).toBe("graphql");
+		expect(getPreviewLanguage("main.rs", null)).toBe("rust");
+		expect(getPreviewLanguage("program.c", null)).toBe("c");
+		expect(getPreviewLanguage("config.xml", null)).toBe("xml");
+		expect(getPreviewLanguage("doc.md", null)).toBe("markdown");
+		expect(getPreviewLanguage("script.bin", "application/javascript")).toBe(
 			"javascript",
 		);
-		expect(getPreviewLanguage("application/x-sh", "script.bin")).toBe("bash");
+		expect(getPreviewLanguage("script.bin", "application/x-sh")).toBe("bash");
 	});
 
 	it("normalizes MIME parameters when selecting preview languages", () => {
-		expect(getPreviewLanguage("text/markdown; charset=utf-8", "download")).toBe(
+		expect(getPreviewLanguage("download", "text/markdown; charset=utf-8")).toBe(
 			"markdown",
 		);
 		expect(
-			getPreviewLanguage("application/javascript; charset=utf-8", "download"),
+			getPreviewLanguage("download", "application/javascript; charset=utf-8"),
 		).toBe("javascript");
 	});
 

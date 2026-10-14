@@ -57,12 +57,7 @@ export function isSupportedFileProductionOutputType(type: string): boolean {
 	return getExpectedExtensionForOutputType(type) !== null;
 }
 
-/** Sorted, for tests and diagnostics. */
-export function getRequestableOutputTokens(): readonly string[] {
-	return Object.keys(OUTPUT_TOKEN_EXTENSIONS).sort();
-}
-
-export function getEntryForOutputType(type: string): FileTypeEntry | null {
+function getEntryForOutputType(type: string): FileTypeEntry | null {
 	return ENTRY_BY_OUTPUT_TOKEN.get(normalizeRequestedOutputType(type)) ?? null;
 }
 

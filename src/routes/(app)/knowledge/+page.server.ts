@@ -25,15 +25,6 @@ const KIND_FILTERS = new Set<KnowledgeDocumentKindFilter>([
 	"uploaded",
 ]);
 const FILE_FAMILY_FILTERS = new Set<FileFamily>(FILE_FAMILY_ORDER);
-const DOCUMENT_TAB_PARAMS = [
-	"q",
-	"sort",
-	"dir",
-	"page",
-	"pageSize",
-	"type",
-	"family",
-];
 
 function parsePositiveInteger(value: string | null): number | null {
 	if (!value) return null;
@@ -72,18 +63,6 @@ function parseFileFamilyFilter(value: string | null): FileFamily | null {
 	return family && FILE_FAMILY_FILTERS.has(family) ? family : null;
 }
 
-function resolveInitialTab(url: URL): "memory" | "documents" {
-	const requestedTab = url.searchParams.get("tab");
-	const hasDocumentQuery = DOCUMENT_TAB_PARAMS.some((param) =>
-		url.searchParams.has(param),
-	);
-	// Documents is the default tab (friction audit F23, ruling 77); the Memory
-	// Profile is `?tab=memory`.
-	return requestedTab === "memory" && !hasDocumentQuery
-		? "memory"
-		: "documents";
-}
-
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) {
@@ -101,10 +80,5 @@ export const load: PageServerLoad = async (event) => {
 		),
 	});
 
-	return {
-		documents: library.documents,
-		library,
-		userDisplayName: user.displayName,
-		initialTab: resolveInitialTab(event.url),
-	};
+	return { library };
 };

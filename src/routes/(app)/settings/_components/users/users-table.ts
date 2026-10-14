@@ -64,7 +64,7 @@ export function userInitials(user: AdminManagedUserSummary): string {
 	return `${words[0][0]}${words[1][0]}`.toUpperCase();
 }
 
-export function matchesUserSearch(
+function matchesUserSearch(
 	user: AdminManagedUserSummary,
 	query: string,
 ): boolean {

@@ -12,7 +12,7 @@
 //   --workers N            Playwright workers (default: E2E_WORKERS, else the config's default)
 //   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
 //   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright
-//   --fallow-baseline F    Fallow baseline to compare against
+//   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
 //   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
 //                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
 //                          done and vitest runs beside it on a few threads. Default: overlap for release
@@ -40,7 +40,7 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { cpus, homedir, loadavg } from "node:os";
+import { cpus, loadavg } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -52,13 +52,37 @@ const BASELINE = {
 	buildUnusedCss: 32,
 	buildAria: 2,
 	fallowCircular: 4,
-	fallowFile: join(
-		homedir(),
-		".cache",
-		"alfyai-artifacts",
-		"fallow-baseline-00ef6d2a.json",
-	),
+	// The `check` section of the report the pinned Fallow made at the last accepted state of
+	// the tree. It lives in the repo, so every checkout and every agent compares with the same
+	// one; AGENTS.md ("Fallow Audit Gate") says when and how it is made again.
+	fallowFile: join(ROOT, ".fallow", "baseline.json"),
 };
+
+/**
+ * A package.json spec for Fallow that names one release, or an error. A range would let the
+ * release the gate runs drift from the one the committed baseline was made with.
+ */
+export function exactFallowVersion(spec) {
+	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(spec ?? "")) {
+		throw new Error(
+			`package.json must pin fallow to an exact version, and devDependencies.fallow is ${JSON.stringify(spec)}: run \`npm install -D -E fallow@<version>\``,
+		);
+	}
+	return spec;
+}
+
+/**
+ * The Fallow release the gate runs: package.json's pin. A bare `npx fallow` runs whatever
+ * node_modules holds and, where it holds nothing (a fresh checkout, CI), fetches the latest
+ * release, whose report is not the baseline's; `npx -y fallow@<this>` is the same report on
+ * every machine.
+ */
+export function fallowVersion() {
+	return exactFallowVersion(
+		JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).devDependencies
+			?.fallow,
+	);
+}
 
 const STEP_ORDER = [
 	"check",
@@ -209,18 +233,23 @@ export function defineSteps(args) {
 			after: ["build"],
 			parse: parseChunksLog,
 		},
+		// Fallow reads `.svelte-kit/tsconfig.json` when it exists and warns on stderr (fallow.log)
+		// when it does not; the findings are the same either way (checked on the tree this baseline
+		// was made from), so it needs no sync first and runs beside the build.
 		fallow: {
 			cmd: [
 				"npx",
-				"fallow",
+				"-y",
+				`fallow@${fallowVersion()}`,
 				"--no-cache",
 				"--format",
 				"json",
 				"--quiet",
 				"--score",
-				"--output-file",
-				join(args.outDir, "fallow.json"),
 			],
+			// The report is stdout. `--output-file` is refused outside the project root and the
+			// system temp dir (Fallow 3), and the out-dir is the caller's to choose.
+			stdout: join(args.outDir, "fallow.json"),
 			parse: () =>
 				compareFallow(join(args.outDir, "fallow.json"), args.fallowBaseline),
 		},
@@ -294,8 +323,10 @@ export function parseChunksLog(log) {
 	};
 }
 
-// Fallow: the comparison wave-2-5/gates.sh made in python. Positions are dropped
-// from each finding, so a finding that only moved down a file is not a new one.
+// Fallow: the comparison wave-2-5/gates.sh made in python. A finding is its kind (the list it
+// sits in), its path and its name. What only says where it is, or how Fallow words it, is
+// dropped from it, so a finding that moved down a file, or that Fallow 3 dresses with an id,
+// suggested actions, a severity or a reachability note, is not a new one.
 const POSITION_KEYS = new Set([
 	"line",
 	"col",
@@ -310,28 +341,75 @@ const POSITION_KEYS = new Set([
 	"start_line",
 	"end_line",
 ]);
+// Not part of what a finding IS. The id is a hash that moves with the finding, the actions are
+// advice that each release words its own way, the severity follows the rules, and the caveats
+// appear when an import could not be resolved in that run (no node_modules, no .svelte-kit
+// yet). The id, the severity and the caveats are new in Fallow 3; 2.96 already had the actions.
+const DRESSING_KEYS = new Set([
+	"finding_id",
+	"actions",
+	"effective_severity",
+	"reachability_caveats",
+]);
 function normalise(value) {
 	if (Array.isArray(value)) return value.map(normalise);
 	if (value && typeof value === "object") {
 		return Object.fromEntries(
 			Object.keys(value)
-				.filter((key) => !POSITION_KEYS.has(key))
+				.filter((key) => !POSITION_KEYS.has(key) && !DRESSING_KEYS.has(key))
 				.sort()
 				.map((key) => [key, normalise(value[key])]),
 		);
 	}
 	return value;
 }
+
+/**
+ * Health score, duplication and size from the report, for the summary line. Information only:
+ * nothing here is ever read by the gate, and a report that lacks a value just leaves it out.
+ */
+function fallowInformation(report) {
+	const parts = [];
+	const health = report.health?.health_score;
+	if (typeof health?.score === "number") {
+		parts.push(
+			`health ${health.score.toFixed(1)}${health.grade ? ` (${health.grade})` : ""}`,
+		);
+	}
+	const duplication = report.dupes?.stats?.duplication_percentage;
+	if (typeof duplication === "number") {
+		parts.push(`duplication ${duplication.toFixed(1)}%`);
+	}
+	const lines = report.health?.vital_signs?.total_loc;
+	if (typeof lines === "number") {
+		parts.push(`${lines.toLocaleString("en-US")} LOC`);
+	}
+	if (parts.length === 0) return "";
+	return `; fallow ${report.version ?? "?"}: ${parts.join(", ")} (information only)`;
+}
+
 export function compareFallow(currentPath, baselinePath) {
-	let current;
+	let report;
 	let baseline;
 	try {
-		current = JSON.parse(readFileSync(currentPath, "utf8")).check;
+		report = JSON.parse(readFileSync(currentPath, "utf8"));
 	} catch {
 		return { ok: false, text: "no Fallow report was written" };
 	}
+	// The report is the step's stdout, so a Fallow that failed to start its analysis leaves its
+	// error here as JSON, with no check section.
+	const current = report?.check;
+	if (!current || typeof current !== "object") {
+		return {
+			ok: false,
+			text: report?.error
+				? `Fallow failed: ${String(report.message).slice(0, 200)}`
+				: "the Fallow report has no check section",
+		};
+	}
 	try {
 		baseline = JSON.parse(readFileSync(baselinePath, "utf8")).check;
+		if (!baseline || typeof baseline !== "object") throw new Error("no check");
 	} catch {
 		return {
 			ok: false,
@@ -352,7 +430,7 @@ export function compareFallow(currentPath, baselinePath) {
 		for (const entry of before) if (!now.has(entry)) gone += 1;
 	}
 	const circular = current.circular_dependencies?.length ?? 0;
-	const text = `total=${current.total_issues} circular=${circular} new_vs_baseline=${added.length} gone_vs_baseline=${gone}`;
+	const text = `total=${current.total_issues} circular=${circular} new_vs_baseline=${added.length} gone_vs_baseline=${gone}${fallowInformation(report)}`;
 	return {
 		ok: added.length === 0 && circular <= BASELINE.fallowCircular,
 		text:
@@ -435,13 +513,17 @@ function runCommand(step, name, outDir) {
 	const startedAt = Date.now();
 	return new Promise((done) => {
 		const fd = openSync(logPath, "w");
+		// A step whose result is its stdout (Fallow's JSON report) gets a file for it, and the
+		// log keeps stderr.
+		const out = step.stdout ? openSync(step.stdout, "w") : fd;
 		const child = spawn(step.cmd[0], step.cmd.slice(1), {
 			cwd: ROOT,
 			env: { ...childEnv(), ...(step.env ?? {}) },
-			stdio: ["ignore", fd, fd],
+			stdio: ["ignore", out, fd],
 			detached: true,
 		});
 		closeSync(fd);
+		if (out !== fd) closeSync(out);
 		active.add(child);
 		child.on("error", () => {
 			active.delete(child);

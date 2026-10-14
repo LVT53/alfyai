@@ -26,11 +26,11 @@ import {
 } from "$lib/shared/extraction-status";
 
 /** Poll cadence while a job is young enough to plausibly be about to finish. */
-export const EXTRACTION_POLL_FAST_MS = 1000;
+const EXTRACTION_POLL_FAST_MS = 1000;
 /** Poll cadence after {@link EXTRACTION_POLL_ESCALATE_AFTER_MS}. */
-export const EXTRACTION_POLL_SLOW_MS = 2500;
+const EXTRACTION_POLL_SLOW_MS = 2500;
 /** How long the fast cadence lasts, measured from the moment the poller armed. */
-export const EXTRACTION_POLL_ESCALATE_AFTER_MS = 10_000;
+const EXTRACTION_POLL_ESCALATE_AFTER_MS = 10_000;
 /**
  * The batch endpoint's own cap, so asking for more is impossible rather than
  * a 400. A caller with a long list is chunked, never refused.

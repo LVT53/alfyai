@@ -47,7 +47,7 @@ export type MarkdownBlockKind =
  * closes, mirroring how code blocks flush during streaming.
  */
 export const DIAGRAM_FENCE_KINDS = ["mermaid", "chart", "csv"] as const;
-export type DiagramFenceKind = (typeof DIAGRAM_FENCE_KINDS)[number];
+type DiagramFenceKind = (typeof DIAGRAM_FENCE_KINDS)[number];
 const DIAGRAM_FENCE_LANGS = new Set<string>(DIAGRAM_FENCE_KINDS);
 
 /**
@@ -424,7 +424,7 @@ function tableCellText(cell: Tokens.TableCell | undefined): string {
  * table without that column and, when exactly one numeric column sits next to
  * a label column, return the Chart.js config the bars were standing in for.
  */
-export function rescueBarColumnTable(token: Tokens.Table): TableRescue | null {
+function rescueBarColumnTable(token: Tokens.Table): TableRescue | null {
 	const header = token.header ?? [];
 	const rows = token.rows ?? [];
 	if (header.length === 0 || rows.length === 0) return null;

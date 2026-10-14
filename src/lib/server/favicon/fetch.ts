@@ -19,7 +19,7 @@
  *   - reject non-image content-types and empty bodies.
  */
 import { createOutboundFetch, type OutboundFetch } from "$lib/server/outbound";
-import { GLOBE_FALLBACK_SVG, GLOBE_FALLBACK_SVG_BYTES } from "./globe";
+import { GLOBE_FALLBACK_SVG_BYTES } from "./globe";
 import type { FaviconCache } from "./lru";
 
 export type FetchFaviconResult =
@@ -138,5 +138,3 @@ async function tryFetchImage(
 		return null;
 	}
 }
-
-export { GLOBE_FALLBACK_SVG };

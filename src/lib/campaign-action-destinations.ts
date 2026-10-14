@@ -11,7 +11,7 @@
  */
 
 /** Destinations the action button navigates to, as same-origin paths. */
-export const ALLOWED_ACTION_PATHS = [
+const ALLOWED_ACTION_PATHS = [
 	"/",
 	"/chat",
 	"/knowledge",
@@ -27,7 +27,7 @@ export const ALLOWED_ACTION_PATHS = [
  * value here needs a matching branch there — `internal:chatgpt-import` opens
  * `ImportChatGPTModal.svelte`.
  */
-export const ALLOWED_INTERNAL_ACTIONS = ["internal:chatgpt-import"] as const;
+const ALLOWED_INTERNAL_ACTIONS = ["internal:chatgpt-import"] as const;
 
 /** Everything the admin destination select may offer, in display order. */
 export const ALLOWED_ACTION_DESTINATIONS = [

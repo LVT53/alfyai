@@ -1,16 +1,17 @@
 // Vendored brand glyph path data for BrandIcon.svelte.
 //
-// Sourced from the `simple-icons` npm package (devDependency only — see
-// package.json; NOT a runtime dependency). Each entry's `path` is copied
-// verbatim from that package's icons/<slug>.svg at the version pinned in
-// package.json (simple-icons ^16.25.0), and rendered monochrome via
-// `fill="currentColor"` by BrandIcon.svelte — we intentionally drop Simple
-// Icons' brand hex colors here (see BrandIcon.svelte's module doc for why).
+// Sourced from the `simple-icons` npm package, which is NOT a dependency of
+// this project (dev or runtime): it is installed only to add or refresh a
+// glyph. Each entry's `path` is copied verbatim from that package's
+// icons/<slug>.svg (simple-icons 16.25.0 when these were vendored), and
+// rendered monochrome via `fill="currentColor"` by BrandIcon.svelte — we
+// intentionally drop Simple Icons' brand hex colors here (see
+// BrandIcon.svelte's module doc for why).
 // Simple Icons' SVGs are CC0-licensed; the brand marks themselves remain
 // their respective trademark owners' property. Using them to label
 // "connect to X" UI rows is standard practice.
 //
-// To refresh a glyph: bump the simple-icons devDependency, then copy the
+// To refresh a glyph: `npm install --no-save simple-icons`, then copy the
 // new `d` attribute from node_modules/simple-icons/icons/<slug>.svg, then
 // re-run the optical-size normalization below (see `viewBox`/`bbox` doc).
 

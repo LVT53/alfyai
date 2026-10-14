@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	compareFallow,
 	defineSteps,
+	exactFallowVersion,
+	fallowVersion,
 	parseArgs,
 	parseBuildLog,
 	parseCheckLog,
@@ -122,6 +124,55 @@ describe("the chunks step", () => {
 	});
 });
 
+// A bare `npx fallow` runs what node_modules holds, and where that is nothing (a fresh
+// checkout, CI) npx fetches the latest release, which reports differently from the baseline's.
+// So the step names the release package.json pins, and says where the report goes: stdout,
+// because Fallow 3 refuses `--output-file` outside the project root and the system temp dir.
+describe("the Fallow step", () => {
+	const options = {
+		mode: "release",
+		outDir: "/somewhere/outside/the/repo",
+		workers: undefined,
+		port: undefined,
+		skip: new Set(),
+		fallowBaseline: "/tmp/none.json",
+		schedule: "overlap",
+		specs: [],
+	};
+	const pinned = JSON.parse(
+		readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
+	).devDependencies.fallow;
+
+	it("runs exactly the release package.json pins, installed or not", () => {
+		expect(pinned).toMatch(/^\d+\.\d+\.\d+$/);
+		expect(fallowVersion()).toBe(pinned);
+		const { cmd } = defineSteps(options).fallow;
+		expect(cmd.slice(0, 3)).toEqual(["npx", "-y", `fallow@${pinned}`]);
+	});
+
+	it("takes the report from stdout, so the out-dir can be anywhere", () => {
+		const step = defineSteps(options).fallow;
+		expect(step.cmd).not.toContain("--output-file");
+		expect(step.stdout).toBe("/somewhere/outside/the/repo/fallow.json");
+	});
+
+	it("refuses a range, a tag or nothing as the pin", () => {
+		expect(exactFallowVersion("3.33.1")).toBe("3.33.1");
+		expect(exactFallowVersion("3.34.0-beta.1")).toBe("3.34.0-beta.1");
+		for (const spec of [
+			"^3.33.1",
+			"~3.33.1",
+			">=3.33",
+			"latest",
+			"3",
+			"",
+			undefined,
+		]) {
+			expect(() => exactFallowVersion(spec)).toThrow(/exact version/);
+		}
+	});
+});
+
 describe("the Fallow comparison", () => {
 	const dirs: string[] = [];
 	afterEach(() => {
@@ -129,13 +180,14 @@ describe("the Fallow comparison", () => {
 			rmSync(dir, { recursive: true, force: true });
 	});
 
-	function files(baseline: unknown, current: unknown) {
+	// `extra` is the rest of the report beside its `check` section (health, dupes, version).
+	function files(baseline: unknown, current: unknown, extra: object = {}) {
 		const dir = mkdtempSync(join(tmpdir(), "gates-fallow-"));
 		dirs.push(dir);
 		const baselinePath = join(dir, "baseline.json");
 		const currentPath = join(dir, "current.json");
 		writeFileSync(baselinePath, JSON.stringify({ check: baseline }));
-		writeFileSync(currentPath, JSON.stringify({ check: current }));
+		writeFileSync(currentPath, JSON.stringify({ check: current, ...extra }));
 		return { baselinePath, currentPath };
 	}
 	const unused = (path: string, name: string, line: number) => ({
@@ -144,7 +196,46 @@ describe("the Fallow comparison", () => {
 		line,
 		col: 3,
 	});
+	// A finding the way Fallow 3.33 writes it: the same kind, path and name as 2.x, and an id,
+	// advice, a severity and (when an import was unresolved in that run) a reachability note.
+	const unused3 = (path: string, name: string, line: number) => ({
+		path,
+		export_name: name,
+		is_type_only: false,
+		is_re_export: false,
+		line,
+		col: 1,
+		span_start: line * 40,
+		finding_id: `dc1:unused-export:${path}:${line}`,
+		actions: [
+			{
+				type: "remove-export",
+				auto_fixable: true,
+				description: "Remove the unused export from the public API",
+			},
+			{
+				type: "suppress-line",
+				auto_fixable: false,
+				description: "Suppress with an inline comment above the line",
+				comment: `// fallow-ignore-next-line unused-export ${line}`,
+			},
+		],
+		effective_severity: line > 100 ? "warn" : "error",
+		...(line > 100
+			? { reachability_caveats: ["incomplete-import-graph"] }
+			: {}),
+	});
 	const cycle = (a: string) => ({ files: [a, "b.ts"] });
+	// What a 3.x report carries beside `check` that the summary line shows.
+	const SCORED = {
+		version: "3.33.1",
+		health: {
+			health_score: { score: 85.1, grade: "A" },
+			vital_signs: { total_loc: 1023784 },
+		},
+		dupes: { stats: { duplication_percentage: 4.383930057744735 } },
+	};
+	const clean = { total_issues: 0, circular_dependencies: [] };
 
 	it("passes when only a finding's position moved", () => {
 		const { baselinePath, currentPath } = files(
@@ -164,6 +255,54 @@ describe("the Fallow comparison", () => {
 		expect(result.text).toContain("new_vs_baseline=0");
 	});
 
+	it("passes when a Fallow 3 finding moved: its position, id, advice and severity are not its identity", () => {
+		const { baselinePath, currentPath } = files(
+			{
+				total_issues: 1,
+				unused_exports: [unused3("a.ts", "x", 10)],
+				circular_dependencies: [],
+			},
+			{
+				total_issues: 1,
+				unused_exports: [unused3("a.ts", "x", 142)],
+				circular_dependencies: [],
+			},
+		);
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(true);
+		expect(result.text).toContain("new_vs_baseline=0 gone_vs_baseline=0");
+	});
+
+	it("passes a Fallow 3 finding against a 2.96 baseline that holds the same kind, path and name", () => {
+		const { baselinePath, currentPath } = files(
+			{
+				total_issues: 1,
+				// Fallow 2.96's shape: no id and no severity, and advice worded its own way
+				unused_exports: [
+					{
+						path: "a.ts",
+						export_name: "x",
+						is_type_only: false,
+						line: 3,
+						col: 1,
+						span_start: 120,
+						is_re_export: false,
+						actions: [
+							{ type: "remove-export", description: "Remove the export" },
+						],
+					},
+				],
+				circular_dependencies: [],
+			},
+			{
+				total_issues: 1,
+				unused_exports: [unused3("a.ts", "x", 3)],
+				circular_dependencies: [],
+			},
+		);
+		expect(compareFallow(currentPath, baselinePath).ok).toBe(true);
+	});
+
 	it("fails on a finding the baseline did not have, and names it", () => {
 		const { baselinePath, currentPath } = files(
 			{
@@ -181,6 +320,31 @@ describe("the Fallow comparison", () => {
 		expect(result.ok).toBe(false);
 		expect(result.text).toContain("new_vs_baseline=1");
 		expect(result.text).toContain("fresh");
+	});
+
+	it("names a new Fallow 3 finding by its path and name, not by what Fallow wrote around it", () => {
+		const { baselinePath, currentPath } = files(
+			{
+				total_issues: 1,
+				unused_exports: [unused3("a.ts", "x", 1)],
+				circular_dependencies: [],
+			},
+			{
+				total_issues: 2,
+				unused_exports: [
+					unused3("a.ts", "x", 1),
+					unused3("new.ts", "fresh", 5),
+				],
+				circular_dependencies: [],
+			},
+		);
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(false);
+		expect(result.text).toContain("new_vs_baseline=1");
+		expect(result.text).toContain('"export_name":"fresh"');
+		expect(result.text).toContain('"path":"new.ts"');
+		expect(result.text).not.toContain("finding_id");
+		expect(result.text).not.toContain("suppress-line");
 	});
 
 	it("counts what is gone, and does not fail for it", () => {
@@ -214,6 +378,84 @@ describe("the Fallow comparison", () => {
 		expect(
 			compareFallow(currentPath, "/nonexistent/baseline.json").text,
 		).toContain("no Fallow baseline");
+	});
+
+	it("says what Fallow said when its stdout is an error and not a report", () => {
+		const { baselinePath, currentPath } = files({}, {});
+		writeFileSync(
+			currentPath,
+			JSON.stringify({
+				error: true,
+				message: "the path is outside the project root",
+				exit_code: 2,
+			}),
+		);
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(false);
+		expect(result.text).toBe(
+			"Fallow failed: the path is outside the project root",
+		);
+		writeFileSync(currentPath, JSON.stringify({ kind: "combined" }));
+		expect(compareFallow(currentPath, baselinePath)).toEqual({
+			ok: false,
+			text: "the Fallow report has no check section",
+		});
+	});
+
+	it("shows the health score and grade, duplication and size, as information", () => {
+		const { baselinePath, currentPath } = files(clean, clean, SCORED);
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(true);
+		expect(result.text).toBe(
+			"total=0 circular=0 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: health 85.1 (A), duplication 4.4%, 1,023,784 LOC (information only)",
+		);
+	});
+
+	it("never judges by them: a failing score, heavy duplication and a huge tree still pass", () => {
+		const { baselinePath, currentPath } = files(clean, clean, {
+			version: "3.33.1",
+			health: {
+				health_score: { score: 3, grade: "F" },
+				vital_signs: { total_loc: 9_000_000_000 },
+			},
+			dupes: { stats: { duplication_percentage: 99.94 } },
+		});
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(true);
+		expect(result.text).toContain("health 3.0 (F), duplication 99.9%");
+	});
+
+	it("leaves out what the report does not carry", () => {
+		const bare = files(clean, clean);
+		expect(compareFallow(bare.currentPath, bare.baselinePath).text).toBe(
+			"total=0 circular=0 new_vs_baseline=0 gone_vs_baseline=0",
+		);
+		const partial = files(clean, clean, {
+			version: "3.33.1",
+			dupes: { stats: { duplication_percentage: 2 } },
+			health: { health_score: null, vital_signs: {} },
+		});
+		expect(compareFallow(partial.currentPath, partial.baselinePath).text).toBe(
+			"total=0 circular=0 new_vs_baseline=0 gone_vs_baseline=0; fallow 3.33.1: duplication 2.0% (information only)",
+		);
+	});
+
+	it("keeps the information on a failing line too, after the count and before the names", () => {
+		const { baselinePath, currentPath } = files(
+			clean,
+			{
+				total_issues: 1,
+				unused_exports: [unused3("new.ts", "fresh", 5)],
+				circular_dependencies: [],
+			},
+			SCORED,
+		);
+		const result = compareFallow(currentPath, baselinePath);
+		expect(result.ok).toBe(false);
+		const [first, second] = result.text.split("\n");
+		expect(first).toContain("new_vs_baseline=1");
+		expect(first).toContain("health 85.1 (A)");
+		expect(second).toContain("NEW unused_exports");
 	});
 });
 
@@ -350,5 +592,42 @@ describe("the default schedule", () => {
 		expect(
 			parseArgs(["agent", "/tmp/gates-test", "--schedule", "overlap"]).schedule,
 		).toBe("overlap");
+	});
+});
+
+// The baseline is a file in the repo, made by the release package.json pins. One made by another
+// release is the comparison the gate used to get wrong (a 2.96 baseline against a 3.x report), so
+// bumping Fallow and making the baseline again are one change, and this is what says so.
+describe("the committed Fallow baseline", () => {
+	const baselinePath = join(
+		import.meta.dirname,
+		"..",
+		".fallow",
+		"baseline.json",
+	);
+
+	it("is what the gate compares with unless told otherwise", () => {
+		expect(parseArgs(["agent", "/tmp/gates-test"]).fallowBaseline).toBe(
+			baselinePath,
+		);
+		expect(
+			parseArgs(["agent", "/tmp/gates-test", "--fallow-baseline", "/x.json"])
+				.fallowBaseline,
+		).toBe("/x.json");
+	});
+
+	it("holds only the check section, made by the release package.json pins", () => {
+		const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+		expect(Object.keys(baseline)).toEqual(["check"]);
+		expect(
+			baseline.check.version,
+			"the baseline was made by another Fallow release than package.json pins: make it again (AGENTS.md, Fallow Audit Gate)",
+		).toBe(fallowVersion());
+	});
+
+	it("is a baseline the comparison can read, and the tree it describes passes against it", () => {
+		const result = compareFallow(baselinePath, baselinePath);
+		expect(result.text).toContain("new_vs_baseline=0 gone_vs_baseline=0");
+		expect(result.ok).toBe(true);
 	});
 });

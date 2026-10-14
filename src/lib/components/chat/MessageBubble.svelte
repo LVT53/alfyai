@@ -1062,7 +1062,6 @@ function sendFollowUp(question: string) {
 			content={message.thinking ?? ''}
 			thinkingIsDone={thinkingIsDone}
 			segments={thinkingSegmentsForDisplay}
-			streaming={markdownIsStreaming}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
 			answerStarted={hasVisibleContent}
 			liveThoughtStepClass={liveThoughtStepActivity?.detail}

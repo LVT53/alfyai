@@ -4,7 +4,6 @@ import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
 // its `await import("./office")` split. See `./kinds`.
 import type { OfficePreviewKind, OfficeRuntimeAdapter } from "./kinds";
 
-export { isOfficePreviewKind } from "./kinds";
 export type { OfficePreviewKind, OfficeRuntimeAdapter };
 
 export type OfficePreviewRenderResult =
