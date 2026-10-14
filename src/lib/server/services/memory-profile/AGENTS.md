@@ -38,4 +38,4 @@ Do not:
 - create a new top-level continuity service when `task-state.ts` can own the behavior
 - add a second intake path, regex persona pipeline, or temporal-truth/salience/supersession subsystem outside `memory-judge`/`memory-consolidation`/`memory-profile`
 - copy the `user_authored`/metadata parse helpers, `clip`, token estimation, or prompt-compaction helpers into another service
-- create or restore `project-memory.ts`, `persona-memory.ts`, or any external memory adapter (e.g. the removed Honcho dual-brain — memory is local-only, see ADR-0045)
+- create or restore `project-memory.ts`, `persona-memory.ts`, or any external memory adapter (memory is local-only, see ADR-0045)
