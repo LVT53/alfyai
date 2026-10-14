@@ -4,9 +4,8 @@
  *
  * Renders a vendored, monochrome `currentColor` brand glyph for a
  * connection provider — Lucide dropped brand glyphs, so real brand SVGs
- * (sourced from the `simple-icons` devDependency, see
- * ./brand-icon-data.ts) are vendored/inlined here rather than pulled in
- * as a runtime dependency. Deliberately neutral/monochrome to match the
+ * (sourced from the `simple-icons` package, see ./brand-icon-data.ts) are
+ * vendored/inlined here rather than pulled in as a dependency. Deliberately neutral/monochrome to match the
  * app's calm aesthetic — the ONE place brand color is used is
  * GoogleSignInButton.svelte, per Google's sign-in branding guidelines.
  *
