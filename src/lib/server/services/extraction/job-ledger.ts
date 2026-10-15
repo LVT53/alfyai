@@ -38,7 +38,7 @@ import {
 	isProcessAlive,
 	type ParsedWorkerId,
 	parseWorkerId,
-} from "../worker-identity";
+} from "../jobs/worker-identity";
 import { getExtractionConfig } from "./config";
 import {
 	type ExtractionHandle,

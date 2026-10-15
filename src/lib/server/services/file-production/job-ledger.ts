@@ -15,7 +15,7 @@ import {
 	isProcessAlive,
 	type ParsedWorkerId,
 	parseWorkerId,
-} from "../worker-identity";
+} from "../jobs/worker-identity";
 import { getFileProductionWorkerConfig } from "./config";
 
 export interface CreateFileProductionJobInput {
