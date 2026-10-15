@@ -722,19 +722,28 @@ export function wake(kind: JobKind): void {
 // Inline
 // ---------------------------------------------------------------------------
 
-function budgetTimer(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
+/**
+ * Resolves when the budget runs out or the caller's signal aborts. `dispose`
+ * clears the timer and takes the listener off the caller's signal, however the
+ * wait ended (the run finishing early is the third way): a request's signal
+ * lives far longer than an upload that was done at once.
+ */
+function budgetTimer(
+	ms: number,
+	signal?: AbortSignal,
+): { expired: Promise<void>; dispose: () => void } {
+	let dispose = (): void => {};
+	const expired = new Promise<void>((resolve) => {
 		const timer = setTimeout(resolve, ms);
 		timer.unref?.();
-		signal?.addEventListener(
-			"abort",
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
+		const onAbort = (): void => resolve();
+		signal?.addEventListener("abort", onAbort, { once: true });
+		dispose = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+		};
 	});
+	return { expired, dispose };
 }
 
 /**
@@ -774,7 +783,12 @@ export async function runInline(
 	// back in the queue behind a backoff must have its timer armed by a drain, not
 	// wait for the next tick.
 	const run = runAttempt(kind, claimed, { workerId }).then(() => wake(kind));
-	await Promise.race([run, budgetTimer(budgetMs, options.signal)]);
+	const budget = budgetTimer(budgetMs, options.signal);
+	try {
+		await Promise.race([run, budget.expired]);
+	} finally {
+		budget.dispose();
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@
 // Every test here therefore does the same thing: it starts the engine, it never
 // calls a wake it did not cause, and it only moves the clock.
 
+import { getEventListeners } from "node:events";
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "./testing/harness";
@@ -892,6 +893,64 @@ describe("an inline run", () => {
 		for (const { row } of [none, aborted, off, stopped]) {
 			expect(job(row.id).status).toBe("queued");
 		}
+	});
+
+	it("leaves no timer and no listener behind when the run finishes inside the budget", async () => {
+		const control = inlineKind();
+		const { row } = await h.engine.enqueue(control.kind, {
+			values: { userId: h.userId, label: "inline" },
+		});
+		// A request's signal lives as long as the request: a listener left on it by
+		// every upload that finished early would pile up there.
+		const controller = new AbortController();
+		const added = vi.spyOn(controller.signal, "addEventListener");
+		const removed = vi.spyOn(controller.signal, "removeEventListener");
+		const timersBefore = vi.getTimerCount();
+
+		await h.engine.runInline(control.kind, row.id, {
+			budgetMs: 60_000,
+			signal: controller.signal,
+		});
+
+		expect(job(row.id).status).toBe("succeeded");
+		// The budget timer is gone (the heartbeat's was cleared with the run).
+		expect(vi.getTimerCount()).toBe(timersBefore);
+		const listeners = added.mock.calls.map(([, listener]) => listener);
+		expect(listeners).toHaveLength(1);
+		expect(removed.mock.calls.map(([, listener]) => listener)).toEqual(
+			listeners,
+		);
+		expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+	});
+
+	it("takes its listener off the signal when the budget runs out too", async () => {
+		const control = inlineKind();
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		control.run = async (ctx) => {
+			await gate;
+			await ctx.succeed();
+		};
+		const { row } = await h.engine.enqueue(control.kind, {
+			values: { userId: h.userId, label: "inline" },
+		});
+		const controller = new AbortController();
+
+		const inline = h.engine.runInline(control.kind, row.id, {
+			budgetMs: 500,
+			signal: controller.signal,
+		});
+		await vi.advanceTimersByTimeAsync(500);
+		await inline;
+
+		expect(job(row.id).status).toBe("running");
+		expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+
+		release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(job(row.id).status).toBe("succeeded");
 	});
 
 	it("is cut short by the signal while it waits", async () => {
