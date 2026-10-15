@@ -24,7 +24,7 @@ import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/
 import { atlasResearchJob } from "$lib/server/services/atlas/research-job";
 import { validateSession } from "$lib/server/services/auth";
 import { extractionJob } from "$lib/server/services/extraction/extraction-job";
-import { ensureFileProductionWorker } from "$lib/server/services/file-production";
+import { fileProductionJob } from "$lib/server/services/file-production/production-job";
 import { startJobs, stopJobs } from "$lib/server/services/jobs";
 import {
 	ensureMemoryConsolidationScheduler,
@@ -237,17 +237,14 @@ export const init: ServerInit = async () => {
 	ensureMemoryConsolidationScheduler();
 	ensureRoutingRegionScheduler();
 	prewarmSandboxImageInBackground();
-	ensureFileProductionWorker().catch((error) =>
-		console.error("Failed to start file production worker:", error),
-	);
-	// The job engine: Atlas research and document extraction run on it, and file
-	// production will. Deliberately not awaited: its boot sweeps (the dead-worker
-	// reclaim, the stale-attempt sweep) and the first drain of each kind must never
-	// sit between the process starting and it answering a health check. Extraction's
-	// status words were rewritten to the engine's by `ensureRuntimeConfigReady`
+	// The job engine: Atlas research, document extraction and file production run on
+	// it. Deliberately not awaited: its boot sweeps (the dead-worker reclaim, the
+	// stale-attempt sweep) and the first drain of each kind must never sit between
+	// the process starting and it answering a health check. Extraction's status
+	// words were rewritten to the engine's by `ensureRuntimeConfigReady`
 	// (db/compat.ts), which is awaited above, before any kind starts.
-	startJobs([atlasResearchJob, extractionJob]).catch((error) =>
-		console.error("Failed to start the job engine:", error),
+	startJobs([atlasResearchJob, extractionJob, fileProductionJob]).catch(
+		(error) => console.error("Failed to start the job engine:", error),
 	);
 
 	// Graceful shutdown: adapter-node's graceful_shutdown handler calls

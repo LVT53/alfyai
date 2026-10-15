@@ -43,7 +43,8 @@ UPDATE `file_production_jobs` SET `started_at` = (SELECT `started_at` FROM `file
 -- the engine's (status, priority, created_at) under the same name. Two `=` terms
 -- joined by `or`, not an `in (...)` list, so SQLite can see the index's own terms
 -- in the query's. The previous release's queries filter on `status` and order by
--- `created_at`; they still read this index for the filter.
-DROP INDEX `file_production_jobs_live_claim_idx`;
+-- `created_at`; they still read this index for the filter. `IF EXISTS`, because a
+-- database whose index was dropped by hand must not stop the deploy here.
+DROP INDEX IF EXISTS `file_production_jobs_live_claim_idx`;
 --> statement-breakpoint
 CREATE INDEX `file_production_jobs_live_claim_idx` ON `file_production_jobs` (`status`,`priority`,`created_at`) WHERE "file_production_jobs"."status" = 'queued' or "file_production_jobs"."status" = 'running';

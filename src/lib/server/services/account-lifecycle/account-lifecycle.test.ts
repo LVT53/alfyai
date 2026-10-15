@@ -1157,6 +1157,63 @@ describe("full account erasure leaves no person-linked survivor", () => {
 			attempts.find((row) => row.id === "keep-me-extraction-attempt")?.status,
 		).toBe("running");
 	});
+
+	// File production is on the job engine as well: the quiesce used to write the
+	// cancelled state with SQL of its own, which a run this process had going could
+	// not see, so a file could still be stored into an account being erased.
+	it("cancels the user's file-production jobs before deletion, sparing another user's", async () => {
+		seedEveryUserScopedTable("quiesce-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { sqlite } = openMigratedDb();
+		// Both users get a live job with a running attempt, which is the state that
+		// matters.
+		for (const owner of ["quiesce-me", "keep-me"]) {
+			sqlite
+				.prepare(
+					`UPDATE file_production_jobs
+					 SET status = 'running', current_attempt_id = ?
+					 WHERE user_id = ?`,
+				)
+				.run(`${owner}-file-attempt`, owner);
+		}
+		sqlite
+			.prepare("UPDATE file_production_job_attempts SET status = 'running'")
+			.run();
+		sqlite.close();
+
+		const { quiesceUserWorkspace } = await import("./index");
+		await quiesceUserWorkspace("quiesce-me");
+
+		const { db: appDb } = await import("$lib/server/db");
+		const jobs = await appDb
+			.select({
+				userId: schema.fileProductionJobs.userId,
+				status: schema.fileProductionJobs.status,
+				cancelRequestedAt: schema.fileProductionJobs.cancelRequestedAt,
+				errorCode: schema.fileProductionJobs.errorCode,
+			})
+			.from(schema.fileProductionJobs);
+		const mine = jobs.find((row) => row.userId === "quiesce-me");
+		const theirs = jobs.find((row) => row.userId === "keep-me");
+		expect(mine?.status).toBe("cancelled");
+		expect(mine?.cancelRequestedAt).not.toBeNull();
+		expect(mine?.errorCode).toBeNull();
+		expect(theirs?.status).toBe("running");
+
+		const attempts = await appDb
+			.select({
+				id: schema.fileProductionJobAttempts.id,
+				status: schema.fileProductionJobAttempts.status,
+			})
+			.from(schema.fileProductionJobAttempts);
+		expect(
+			attempts.find((row) => row.id === "quiesce-me-file-attempt")?.status,
+		).toBe("cancelled");
+		expect(
+			attempts.find((row) => row.id === "keep-me-file-attempt")?.status,
+		).toBe("running");
+	});
 });
 
 describe("clear memory and knowledge keeps the account and chats", () => {

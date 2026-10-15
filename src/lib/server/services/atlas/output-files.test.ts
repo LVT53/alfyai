@@ -10,16 +10,14 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 // `atlas/output.test.ts` lines 47-100 and 2631-2750.
 
 const fileProductionMocks = vi.hoisted(() => ({
-	drainFileProductionWorker: vi.fn(async () => undefined),
-	listConversationFileProductionJobs: vi.fn(),
 	submitFileProductionIntake: vi.fn(),
+	waitForFileProductionJobVerdict: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/file-production", () => ({
-	drainFileProductionWorker: fileProductionMocks.drainFileProductionWorker,
-	listConversationFileProductionJobs:
-		fileProductionMocks.listConversationFileProductionJobs,
 	submitFileProductionIntake: fileProductionMocks.submitFileProductionIntake,
+	waitForFileProductionJobVerdict:
+		fileProductionMocks.waitForFileProductionJobVerdict,
 }));
 
 function fileProductionJob(
@@ -117,9 +115,7 @@ describe("Atlas output files bridge", () => {
 		});
 	});
 
-	it("waits for an asynchronously claimed file-production output job before returning file ids", async () => {
-		vi.useFakeTimers();
-		vi.setTimerTickMode("nextTimerAsync");
+	it("waits for the file-production kind's verdict before returning file ids", async () => {
 		const { renderAtlasOutputs } = await import("./output-files");
 		const source = documentSource({
 			title: "Async Atlas Output",
@@ -172,24 +168,73 @@ describe("Atlas output files bridge", () => {
 			job: runningJob,
 			reused: false,
 		});
-		fileProductionMocks.listConversationFileProductionJobs
-			.mockResolvedValueOnce([runningJob])
-			.mockResolvedValueOnce([succeededJob]);
+		let settle: (value: unknown) => void = () => undefined;
+		fileProductionMocks.waitForFileProductionJobVerdict.mockReturnValue(
+			new Promise((resolve) => {
+				settle = resolve;
+			}),
+		);
 
-		const outputs = await renderAtlasOutputs({
+		let finished = false;
+		const pending = renderAtlasOutputs({
 			userId: "user-1",
 			conversationId: "conv-1",
 			assistantMessageId: "assistant-1",
 			jobId: "atlas-job-async",
 			source,
+		}).then((outputs) => {
+			finished = true;
+			return outputs;
 		});
 
-		expect(outputs).toEqual({
+		// The job is running: nothing is returned until the verdict comes.
+		await vi.waitFor(() => {
+			expect(
+				fileProductionMocks.waitForFileProductionJobVerdict,
+			).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				jobId: "fp-job-async",
+				timeoutMs: 120_000,
+			});
+		});
+		await Promise.resolve();
+		expect(finished).toBe(false);
+
+		settle({ settled: true, job: succeededJob });
+		expect(await pending).toEqual({
 			fileProductionJobId: "fp-job-async",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
 			markdownChatGeneratedFileId: "file-md",
 		});
+	});
+
+	it("says what it last saw when the verdict does not come in time", async () => {
+		const { renderAtlasOutputs } = await import("./output-files");
+		fileProductionMocks.submitFileProductionIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: fileProductionJob({ id: "fp-job-slow", status: "queued" }),
+			reused: false,
+		});
+		fileProductionMocks.waitForFileProductionJobVerdict
+			.mockResolvedValueOnce({
+				settled: false,
+				job: fileProductionJob({ id: "fp-job-slow", status: "queued" }),
+			})
+			.mockResolvedValueOnce({ settled: false, job: null });
+		const render = () =>
+			renderAtlasOutputs({
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				jobId: "atlas-job-slow",
+				source: documentSource(),
+			});
+
+		await expect(render()).rejects.toThrow(/latest status was queued/);
+		await expect(render()).rejects.toThrow(/the output job was not found/);
 	});
 
 	it("persists Atlas lifecycle document intent through request metadata", async () => {
@@ -250,9 +295,10 @@ describe("Atlas output files bridge", () => {
 			job: fileProductionJob({ id: "fp-job-failed", status: "running" }),
 			reused: false,
 		});
-		fileProductionMocks.listConversationFileProductionJobs.mockResolvedValue([
-			failedJob,
-		]);
+		fileProductionMocks.waitForFileProductionJobVerdict.mockResolvedValue({
+			settled: true,
+			job: failedJob,
+		});
 
 		await expect(
 			renderAtlasOutputs({

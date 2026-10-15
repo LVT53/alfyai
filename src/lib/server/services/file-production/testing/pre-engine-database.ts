@@ -8,22 +8,18 @@
 // landed is taken back, once, and the job behind it runs). Both are about a
 // database that is NOT fresh, which `migrate()` over an empty file can never show,
 // so the helper stops the migrations one entry before the engine's, seeds rows with
-// the old release's own column set and words, and only then lets the rest run.
+// the old release's own column set and words, and only then lets the rest run
+// (`jobs/testing/pre-engine.ts` builds the file and writes the rows).
 
-import {
-	copyFileSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import {
+	insertRow,
+	migrateUpToBefore,
+	removeDatabaseBeforeMigration,
+	type SeedValue,
+} from "../../jobs/testing/pre-engine";
 
 /** The journal entry of the migration that puts file production on the engine. */
 export const FILE_PRODUCTION_ENGINE_MIGRATION_TAG =
@@ -54,7 +50,7 @@ export const PRE_ENGINE_FILE_PRODUCTION_JOB_COLUMNS = [
 	"dismissed",
 ] as const;
 
-/** The six columns the migration adds, and what an existing row holds in each (before the backfill). */
+/** The six columns the migration adds. */
 export const ENGINE_FILE_PRODUCTION_JOB_NEW_COLUMNS = [
 	"attempt_count",
 	"run_after",
@@ -73,8 +69,6 @@ export const OLD_PROCESS_WORKER_ID =
 
 /** What the succeeded job's second attempt kept as its warnings. */
 export const SEED_WARNING = "Used a fallback font for one heading.";
-
-export type SeedValue = string | number | null;
 
 export interface PreEngineFileProductionDatabase {
 	dbPath: string;
@@ -107,59 +101,14 @@ export interface PreEngineFileProductionDatabase {
  * connection finds the file as a deploy would.
  */
 export function createPreEngineFileProductionDatabase(): PreEngineFileProductionDatabase {
-	const workDir = mkdtempSync(
-		join(tmpdir(), "alfyai-file-production-pre-engine-"),
+	const database = migrateUpToBefore(
+		FILE_PRODUCTION_ENGINE_MIGRATION_TAG,
+		"alfyai-file-production-pre-engine-",
 	);
-	const before = join(workDir, "drizzle-before");
-
-	const journal = JSON.parse(
-		readFileSync("./drizzle/meta/_journal.json", "utf8"),
-	) as { entries: Array<{ tag: string }> };
-	const cutoff = journal.entries.findIndex(
-		(entry) => entry.tag === FILE_PRODUCTION_ENGINE_MIGRATION_TAG,
-	);
-	if (cutoff <= 0) {
-		rmSync(workDir, { recursive: true, force: true });
-		throw new Error(
-			`The journal has no entry ${FILE_PRODUCTION_ENGINE_MIGRATION_TAG}: the pre-engine database cannot be built.`,
-		);
-	}
-	// Truncating the journal and copying only the SQL it still lists is what makes
-	// the later `migrate()` a real upgrade step and not a replay.
-	const kept = journal.entries.slice(0, cutoff);
-	const keptTags = new Set(kept.map((entry) => entry.tag));
-	mkdirSync(join(before, "meta"), { recursive: true });
-	writeFileSync(
-		join(before, "meta", "_journal.json"),
-		JSON.stringify({ ...journal, entries: kept }),
-	);
-	for (const file of readdirSync("./drizzle")) {
-		if (!file.endsWith(".sql")) continue;
-		if (!keptTags.has(file.slice(0, -".sql".length))) continue;
-		copyFileSync(join("./drizzle", file), join(before, file));
-	}
-
-	const dbPath = join(workDir, "pre-engine.db");
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("foreign_keys = ON");
-	migrate(drizzle(sqlite), { migrationsFolder: before });
-
-	const insertRow = (
-		table: string,
-		row: Record<string, SeedValue>,
-		verb = "INSERT",
-	): void => {
-		const columns = Object.keys(row);
-		sqlite
-			.prepare(
-				`${verb} INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
-			)
-			.run(...columns.map((column) => row[column]));
-	};
+	const { sqlite, dbPath } = database;
 
 	const insertJob = (values: Record<string, SeedValue>): void => {
-		insertRow("file_production_jobs", {
+		insertRow(sqlite, "file_production_jobs", {
 			conversation_id: "conv-1",
 			assistant_message_id: "msg-1",
 			user_id: "user-1",
@@ -182,7 +131,7 @@ export function createPreEngineFileProductionDatabase(): PreEngineFileProduction
 	};
 
 	const insertAttempt = (values: Record<string, SeedValue>): void => {
-		insertRow("file_production_job_attempts", {
+		insertRow(sqlite, "file_production_job_attempts", {
 			attempt_number: 1,
 			status: "running",
 			claimed_at: SEED_EPOCH,
@@ -211,7 +160,7 @@ export function createPreEngineFileProductionDatabase(): PreEngineFileProduction
 				"INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('msg-1', 'conv-1', 'assistant', 'Here is the file.', ?)",
 			)
 			.run(SEED_EPOCH);
-		insertRow("chat_generated_files", {
+		insertRow(sqlite, "chat_generated_files", {
 			id: "file-1",
 			conversation_id: "conv-1",
 			assistant_message_id: "msg-1",
@@ -268,7 +217,7 @@ export function createPreEngineFileProductionDatabase(): PreEngineFileProduction
 				finished_at: SEED_EPOCH + 90,
 				diagnostics_json: JSON.stringify({ warnings: [SEED_WARNING] }),
 			});
-			insertRow("file_production_job_files", {
+			insertRow(sqlite, "file_production_job_files", {
 				id: "link-1",
 				job_id: "job-succeeded",
 				chat_generated_file_id: "file-1",
@@ -357,12 +306,7 @@ export function createPreEngineFileProductionDatabase(): PreEngineFileProduction
 			}
 		},
 		cleanup() {
-			try {
-				sqlite.close();
-			} catch {
-				// Closed by the test already.
-			}
-			rmSync(workDir, { recursive: true, force: true });
+			removeDatabaseBeforeMigration(database);
 		},
 	};
 }

@@ -33,13 +33,16 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 vi.mock("$lib/server/services/file-production", async () => {
-	const { waitForFileProductionJobVerdict } = await import(
-		"$lib/server/services/file-production/job-wait"
+	const { pollingVerdictWait } = await import(
+		"$lib/server/services/file-production/testing/verdict-poll"
 	);
+	const getConversationFileProductionJob = vi.fn();
 	return {
 		submitFileProductionIntake: vi.fn(),
-		getConversationFileProductionJob: vi.fn(),
-		waitForFileProductionJobVerdict,
+		getConversationFileProductionJob,
+		waitForFileProductionJobVerdict: pollingVerdictWait(
+			getConversationFileProductionJob,
+		),
 	};
 });
 
@@ -172,7 +175,6 @@ async function callProduceFile(
 		userId: USER,
 		conversationId: CONVERSATION,
 		turnId: "turn-1",
-		fileProductionVerdictPollIntervalMs: 1,
 	});
 	await tools.produce_file.execute(input, {
 		toolCallId: "tool-call-1",

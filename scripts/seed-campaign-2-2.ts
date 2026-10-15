@@ -497,6 +497,10 @@ async function main(): Promise<void> {
 	const { storeGeneratedFile } = await import(
 		"$lib/server/services/chat-files"
 	);
+	const { fileProductionJob } = await import(
+		"$lib/server/services/file-production/production-job"
+	);
+	const { enqueue } = await import("$lib/server/services/jobs");
 	const { blockVisibleText, parseDocument } = await import(
 		"$lib/shared/artifact-document/blocks"
 	);
@@ -810,22 +814,21 @@ async function main(): Promise<void> {
 			updatedAt: fileAt,
 		})
 		.run();
-	const jobId = randomUUID();
-	db.insert(schema.fileProductionJobs)
-		.values({
-			id: jobId,
+	// A job that is already done, born through the engine (`born: succeeded`), with
+	// the story's own time as its clock.
+	const { row: fileJob } = await enqueue(fileProductionJob, {
+		now: fileAt,
+		born: { status: "succeeded" },
+		values: {
 			conversationId: planChat,
 			assistantMessageId: assistantFileMessage,
 			userId,
 			title: "balatoni-koltsegvetes.csv",
-			status: "succeeded",
 			origin: "unified_produce",
 			sourceMode: "inline_text",
-			createdAt: fileAt,
-			updatedAt: fileAt,
-			completedAt: fileAt,
-		})
-		.run();
+		},
+	});
+	const jobId = fileJob.id;
 	db.insert(schema.fileProductionJobFiles)
 		.values({
 			id: randomUUID(),

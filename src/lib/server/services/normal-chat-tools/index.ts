@@ -7,7 +7,6 @@ import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import {
-	getConversationFileProductionJob,
 	submitFileProductionIntake,
 	waitForFileProductionJobVerdict,
 } from "$lib/server/services/file-production";
@@ -149,7 +148,6 @@ import {
 	outputTypeFromFilename,
 	PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
 	PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
-	PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
 	PRODUCE_FILE_VERDICT_WAIT_MS,
 	type ProduceFileModelPayload,
 	produceFileInputSchema,
@@ -277,13 +275,11 @@ export interface CreateNormalChatToolsContext {
 	// 3) pack resources whose keywords match this request — the same
 	// selectSkillResources logic the forced `$` skill injection uses.
 	requestText?: string;
-	// How long produce_file waits in-turn for the file-production ledger's
-	// verdict, and how often it looks. Defaults to
-	// PRODUCE_FILE_VERDICT_WAIT_MS / PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS;
-	// overridden only by tests and by callers that stage the worker themselves
-	// (0 means "report whatever the ledger already says, do not wait").
+	// How long produce_file waits in-turn for the file-production job's verdict.
+	// Defaults to PRODUCE_FILE_VERDICT_WAIT_MS; overridden only by tests and by
+	// callers that stage the worker themselves (0 means "report whatever the job
+	// already says, do not wait").
 	fileProductionVerdictWaitMs?: number;
-	fileProductionVerdictPollIntervalMs?: number;
 }
 
 // ── Tool text ──────────────────────────────────────────────────
@@ -477,18 +473,12 @@ async function resolveProduceFileVerdict(params: {
 	reused: boolean;
 	signal?: AbortSignal;
 	waitMs?: number;
-	pollIntervalMs?: number;
 }): Promise<ProduceFileModelPayload> {
 	const verdict = await waitForFileProductionJobVerdict({
-		getJob: () =>
-			getConversationFileProductionJob({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				jobId: params.job.id,
-			}),
+		userId: params.userId,
+		conversationId: params.conversationId,
+		jobId: params.job.id,
 		timeoutMs: params.waitMs ?? PRODUCE_FILE_VERDICT_WAIT_MS,
-		pollIntervalMs:
-			params.pollIntervalMs ?? PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
 		signal: params.signal,
 	});
 
@@ -1438,7 +1428,6 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											reused: result.reused,
 											signal: abortSignal,
 											waitMs: ctx.fileProductionVerdictWaitMs,
-											pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
 										})
 									: buildProduceFileIntakeFailurePayload(result),
 								// Intake's own substitutions (e.g. an output type taken

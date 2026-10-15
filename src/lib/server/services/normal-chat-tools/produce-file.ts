@@ -2732,7 +2732,6 @@ export function sanitizeUnsafeProduceFileInput(
  * document renders and the ordinary program run, and anything slower reports
  * `running` honestly instead of guessing. */
 export const PRODUCE_FILE_VERDICT_WAIT_MS = 20_000;
-export const PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS = 400;
 
 /** Cap on `message`: enough of a traceback to fix the program, not enough to
  * blow up the next turn's prompt. */

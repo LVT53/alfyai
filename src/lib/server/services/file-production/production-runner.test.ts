@@ -455,24 +455,213 @@ describe("the file-production handler", () => {
 		expect((await readJob(jobId)).status).toBe("cancelled");
 	});
 
-	it("settles a job whose run threw instead of leaving it running", async () => {
+	it("settles a job whose run threw instead of leaving it running, and keeps the error off the card", async () => {
 		const jobId = fixture.seedJob({ userId, conversationId });
 		await installSeams();
 		const execution = await import("./execution-adapter");
 		vi.spyOn(
 			execution,
 			"executePersistedFileProductionRequest",
-		).mockRejectedValueOnce(new Error("the renderer fell over"));
+		).mockRejectedValueOnce(
+			new Error("ENOENT: no such file or directory, open '/home/alfy/secret'"),
+		);
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		await drainFileProductionJobs();
 
 		// A drain used to log "Worker drain failed" and leave the row `running` until
-		// the stale window; the engine fails it, retryable, and the person can retry.
+		// the stale window flipped it to the words below; now it settles at once, with
+		// the same words (the card shows a code it has no line for as it is, and a
+		// message like this one names the host's paths). The real error is in the log.
 		expect(await readJob(jobId)).toMatchObject({
 			status: "failed",
 			retryable: true,
-			errorCode: "job_failed",
-			errorMessage: "the renderer fell over",
+			errorCode: "worker_heartbeat_timeout",
+			errorMessage: "File production worker stopped before finishing.",
+		});
+		expect(await readAttempts(jobId)).toMatchObject([
+			{ status: "failed", errorCode: "worker_heartbeat_timeout" },
+		]);
+		expect(logged).toHaveBeenCalledWith(
+			"[FILE_PRODUCTION] Attempt threw",
+			expect.objectContaining({
+				jobId,
+				error: expect.objectContaining({
+					message: expect.stringContaining("ENOENT"),
+				}),
+			}),
+		);
+	});
+});
+
+describe("the kind is woken by what makes work", () => {
+	it("runs a job the moment it is made, retried or regenerated, with nothing waking the worker by hand", async () => {
+		// The Retry and Regenerate routes and the intake used to wake the worker
+		// themselves; now the engine wakes the kind after the commit that leaves work
+		// to claim. This is that, end to end, with the engine started.
+		const { startJobs, fileProductionJob } = await engine();
+		const {
+			createOrReuseFileProductionJob,
+			regenerateFileProductionJob,
+			retryFileProductionJob,
+		} = await import("./production-job");
+		await installSeams();
+		let outcome: "fail" | "succeed" = "fail";
+		seams.executeCode = async () =>
+			outcome === "fail"
+				? { files: [], stdout: "", stderr: "", error: "the program exited" }
+				: textOutput();
+		seams.storeGeneratedFile = fakeStore();
+		seams.syncGeneratedFilesToMemory = async () => undefined;
+		await startJobs([fileProductionJob], {
+			startInNonServingContextForTests: true,
+		});
+
+		const { job } = await createOrReuseFileProductionJob({
+			userId,
+			conversationId,
+			title: "Woken report",
+			origin: "unified_produce",
+			idempotencyKey: "wake-1",
+			sourceMode: "program",
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "print('hi')",
+					filename: "out.txt",
+				},
+				outputs: [{ type: "txt" }],
+			},
+		});
+		await vi.waitFor(
+			async () => expect((await readJob(job.id)).status).toBe("failed"),
+			{ timeout: 5_000 },
+		);
+
+		// Retry: the same job, a new attempt.
+		outcome = "succeed";
+		expect(
+			await retryFileProductionJob({ userId, jobId: job.id }),
+		).toMatchObject({ id: job.id, status: "queued" });
+		await vi.waitFor(
+			async () => expect((await readJob(job.id)).status).toBe("succeeded"),
+			{ timeout: 5_000 },
+		);
+
+		// Regenerate: the file was deleted, and the job makes it again.
+		fixture.sqlite.prepare("DELETE FROM chat_generated_files").run();
+		expect(
+			await regenerateFileProductionJob({ userId, jobId: job.id }),
+		).toMatchObject({ id: job.id, status: "queued" });
+		await vi.waitFor(
+			async () => {
+				const row = await readJob(job.id);
+				expect(row.status).toBe("succeeded");
+				expect(row.attemptCount).toBe(3);
+			},
+			{ timeout: 5_000 },
+		);
+		expect(
+			(await readAttempts(job.id)).map((attempt) => [
+				attempt.attemptNumber,
+				attempt.status,
+			]),
+		).toEqual([
+			[1, "failed"],
+			[2, "succeeded"],
+			[3, "succeeded"],
+		]);
+	});
+});
+
+describe("waiting for a verdict", () => {
+	const wait = async (
+		input: Partial<{
+			userId: string;
+			timeoutMs: number;
+			jobId: string;
+		}> & { jobId: string },
+	) => {
+		const { waitForFileProductionJobVerdict } = await import(
+			"./production-job"
+		);
+		return waitForFileProductionJobVerdict({
+			userId,
+			conversationId,
+			timeoutMs: 60_000,
+			...input,
+		});
+	};
+
+	it("resolves with the card the moment this process settles the job, without a poll", async () => {
+		const jobId = fixture.seedJob({ userId, conversationId });
+		const waiting = wait({ jobId });
+
+		await drainFileProductionJobs({
+			executeCode: async () => textOutput(),
+			storeGeneratedFile: fakeStore(),
+			syncGeneratedFilesToMemory: async () => undefined,
+		});
+
+		expect(await waiting).toMatchObject({
+			settled: true,
+			job: {
+				id: jobId,
+				status: "succeeded",
+				files: [expect.objectContaining({ filename: "out.txt" })],
+			},
+		});
+	});
+
+	it("resolves with a failure's card, error included", async () => {
+		const jobId = fixture.seedJob({ userId, conversationId });
+		const waiting = wait({ jobId });
+
+		await drainFileProductionJobs({
+			executeCode: async () => ({
+				files: [],
+				stdout: "",
+				stderr: "",
+				error: "the program exited",
+			}),
+		});
+
+		expect(await waiting).toMatchObject({
+			settled: true,
+			job: {
+				id: jobId,
+				status: "failed",
+				error: { code: "program_execution_failed", retryable: true },
+			},
+		});
+	});
+
+	it("says what it saw when the verdict does not come in time", async () => {
+		const jobId = fixture.seedJob({ userId, conversationId });
+
+		expect(await wait({ jobId, timeoutMs: 30 })).toMatchObject({
+			settled: false,
+			job: { id: jobId, status: "queued" },
+		});
+	});
+
+	it("never hands a job to someone it is not theirs, and says nothing of one that does not exist", async () => {
+		const jobId = fixture.seedJob({ userId, conversationId });
+		await drainFileProductionJobs({
+			executeCode: async () => textOutput(),
+			storeGeneratedFile: fakeStore(),
+			syncGeneratedFilesToMemory: async () => undefined,
+		});
+
+		// The job has settled, and the engine says so; the card is read for its owner.
+		expect(await wait({ jobId, userId: "user-2", timeoutMs: 0 })).toEqual({
+			settled: false,
+			job: null,
+		});
+		expect(await wait({ jobId: "no-such-job", timeoutMs: 0 })).toEqual({
+			settled: false,
+			job: null,
 		});
 	});
 });
@@ -565,6 +754,16 @@ describe("a file-production job that was running at the cutover", () => {
 			expect((await readJob("job-queued")).status).toBe("succeeded");
 		});
 		expect(await readJob("job-queued")).toMatchObject({ attemptCount: 1 });
+		// Nothing is left running that nobody is running.
+		const db = await appDb();
+		expect(
+			db
+				.select({ status: schema.fileProductionJobs.status })
+				.from(schema.fileProductionJobs)
+				.all()
+				.map((row) => row.status)
+				.sort(),
+		).toEqual(["cancelled", "failed", "failed", "succeeded", "succeeded"]);
 
 		// The rows that were not live are as the previous release left them, and the
 		// succeeded one still reads its warnings through the attempt it names.

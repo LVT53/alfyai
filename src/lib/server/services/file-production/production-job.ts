@@ -37,6 +37,7 @@ import {
 	waitForVerdict,
 } from "$lib/server/services/jobs";
 import { getFileProductionWorkerConfig } from "./config";
+import { lostFileProductionAttempt } from "./lost-attempt";
 import {
 	getConversationFileProductionJob,
 	mapFileProductionJobRow,
@@ -47,11 +48,6 @@ import type { FileProductionJob } from "./types";
 // The definition
 // ---------------------------------------------------------------------------
 
-/** What an attempt the engine took back is told, as it always was. */
-const STALE_WORKER_MESSAGE = "File production worker stopped before finishing.";
-const RESTART_MESSAGE = "File production stopped when the server restarted.";
-const STATE_LOST_MESSAGE =
-	"File production worker state was lost before finishing.";
 /** What a queued job the fork snapshot found abandoned is told. */
 const QUEUE_TIMEOUT_MESSAGE =
 	"File production worker did not start before the queue timeout.";
@@ -83,19 +79,7 @@ export const fileProductionJob = defineJobKind({
 			staleAfterMs: config.staleAttemptMs,
 		};
 	},
-	lostAttempt: (reason) => {
-		switch (reason) {
-			case "state-lost":
-				return { code: "worker_state_lost", message: STATE_LOST_MESSAGE };
-			case "dead-worker":
-				return { code: "worker_heartbeat_timeout", message: RESTART_MESSAGE };
-			default:
-				return {
-					code: "worker_heartbeat_timeout",
-					message: STALE_WORKER_MESSAGE,
-				};
-		}
-	},
+	lostAttempt: lostFileProductionAttempt,
 	// ADR-0005: never requeue. The job settles failed with the failure's own
 	// `retryable`, and the person's Retry is the only way back.
 	onFailure: (failure) => ({ requeue: false, retryable: failure.retryable }),

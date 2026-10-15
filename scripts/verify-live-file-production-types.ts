@@ -46,8 +46,8 @@
 //     `negative-program-pdf-signature-mismatch`) proving two ways a bad
 //     request is refused rather than silently mis-produced.
 //
-// `FileProductionJob` (`file-production/types.ts`) and both `mapJobRow`
-// implementations (`job-ledger.ts`, `read-model.ts`) now serialize
+// `FileProductionJob` (`file-production/types.ts`) and its mapper
+// (`mapFileProductionJobRow` in `read-model.ts`) now serialize
 // `source_mode` to the client as `sourceMode`, so every `document-*`,
 // `program-*` and `inline-*` case below asserts `job.sourceMode` against the
 // value the intake route is expected to have stored — `"document_source"`,

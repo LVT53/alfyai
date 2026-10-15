@@ -9,6 +9,8 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../src/lib/server/db/schema";
 import { SANDBOX_PYTHON_SITE_PACKAGES_RELPATH } from "../../src/lib/server/sandbox/python-version";
+import { drainFileProductionJobs } from "../../src/lib/server/services/file-production/testing/run-once";
+import { resetSeams } from "../../src/lib/server/services/file-production/testing/runner-seams";
 
 const REPO_ROOT = process.cwd();
 const ORIGINAL_DATABASE_PATH = process.env.DATABASE_PATH;
@@ -156,25 +158,6 @@ async function expectResponseStatus(
 	}
 }
 
-async function installDeterministicProduceFileToolWake() {
-	vi.doMock("$lib/server/services/file-production", async (importOriginal) => {
-		const actual =
-			await importOriginal<
-				typeof import("../../src/lib/server/services/file-production")
-			>();
-		return {
-			...actual,
-			submitFileProductionIntake: (
-				input: import("../../src/lib/server/services/file-production").SubmitFileProductionIntakeInput,
-			) =>
-				actual.submitFileProductionIntake({
-					...input,
-					wakeWorker: async () => {},
-				}),
-		};
-	});
-}
-
 describe("File Production journey gate", () => {
 	beforeEach(async () => {
 		tempRoot = await mkdtemp(join(tmpdir(), "alfyai-file-production-"));
@@ -190,12 +173,11 @@ describe("File Production journey gate", () => {
 			recursive: true,
 		});
 		process.chdir(tempRoot);
+		resetSeams();
 		vi.resetModules();
-		await installDeterministicProduceFileToolWake();
 	});
 
 	afterEach(async () => {
-		vi.doUnmock("$lib/server/services/file-production");
 		try {
 			const { sqlite } = await import("../../src/lib/server/db");
 			sqlite.close();
@@ -231,10 +213,9 @@ describe("File Production journey gate", () => {
 			const { createNormalChatTools } = await import(
 				"../../src/lib/server/services/normal-chat-tools"
 			);
-			const {
-				assignFileProductionJobsToAssistantMessage,
-				drainFileProductionWorker,
-			} = await import("$lib/server/services/file-production");
+			const { assignFileProductionJobsToAssistantMessage } = await import(
+				"$lib/server/services/file-production"
+			);
 			const { getConversationDetail } = await import(
 				"../../src/lib/server/services/conversation-detail/read-model"
 			);
@@ -248,9 +229,9 @@ describe("File Production journey gate", () => {
 				userId: JOURNEY_USER_ID,
 				conversationId: JOURNEY_CONVERSATION_ID,
 				turnId: "journey-turn",
-				// This journey stages the worker itself (installDeterministicProduceFileToolWake
-				// above makes intake's wake a no-op), so the tool must not sit on its
-				// in-turn wait: it polls once and reports the job as still running,
+				// This journey stages the worker itself (a test never starts the job
+				// engine, so intake's wake runs nothing), so the tool must not sit on
+				// its in-turn wait: it looks once and reports the job as still running,
 				// which is exactly the verdict a job this far from settling deserves.
 				fileProductionVerdictWaitMs: 0,
 			});
@@ -311,9 +292,7 @@ describe("File Production journey gate", () => {
 				"tool adapter",
 			);
 
-			await drainFileProductionWorker({
-				workerId: "journey-worker",
-				now: new Date("2026-05-03T21:00:01.000Z"),
+			await drainFileProductionJobs({
 				syncGeneratedFilesToMemory: async () => {},
 			});
 			await assignFileProductionJobsToAssistantMessage(
@@ -387,10 +366,9 @@ describe("File Production journey gate", () => {
 			const { createNormalChatTools } = await import(
 				"../../src/lib/server/services/normal-chat-tools"
 			);
-			const {
-				assignFileProductionJobsToAssistantMessage,
-				drainFileProductionWorker,
-			} = await import("$lib/server/services/file-production");
+			const { assignFileProductionJobsToAssistantMessage } = await import(
+				"$lib/server/services/file-production"
+			);
 			const { getConversationDetail } = await import(
 				"../../src/lib/server/services/conversation-detail/read-model"
 			);
@@ -455,9 +433,7 @@ describe("File Production journey gate", () => {
 				.where(eq(schemaModule.fileProductionJobs.id, jobId));
 			expect(queued.sourceMode).toBe("inline_text");
 
-			await drainFileProductionWorker({
-				workerId: "journey-worker-inline",
-				now: new Date("2026-05-03T21:10:01.000Z"),
+			await drainFileProductionJobs({
 				syncGeneratedFilesToMemory: async () => {},
 			});
 			await assignFileProductionJobsToAssistantMessage(
@@ -524,10 +500,9 @@ describe("File Production journey gate", () => {
 			const { createNormalChatTools } = await import(
 				"../../src/lib/server/services/normal-chat-tools"
 			);
-			const {
-				assignFileProductionJobsToAssistantMessage,
-				drainFileProductionWorker,
-			} = await import("$lib/server/services/file-production");
+			const { assignFileProductionJobsToAssistantMessage } = await import(
+				"$lib/server/services/file-production"
+			);
 			const { getConversationDetail } = await import(
 				"../../src/lib/server/services/conversation-detail/read-model"
 			);
@@ -574,9 +549,7 @@ describe("File Production journey gate", () => {
 				"tool adapter",
 			);
 
-			await drainFileProductionWorker({
-				workerId: "journey-worker-program",
-				now: new Date("2026-05-03T21:05:01.000Z"),
+			await drainFileProductionJobs({
 				syncGeneratedFilesToMemory: async () => {},
 			});
 			await assignFileProductionJobsToAssistantMessage(

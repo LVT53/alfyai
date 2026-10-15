@@ -215,6 +215,22 @@ describe("File-production jobs on the engine migration", () => {
 		);
 	});
 
+	it("migrates a database whose live index was already dropped by hand", () => {
+		const old = openPreEngine();
+		old.seedLiveRows();
+		old.sqlite.prepare("DROP INDEX file_production_jobs_live_claim_idx").run();
+
+		old.upgrade();
+
+		const index = old.sqlite
+			.prepare(
+				"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'file_production_jobs_live_claim_idx'",
+			)
+			.get() as { sql: string } | undefined;
+		expect(index?.sql).toMatch(/\(`status`,`priority`,`created_at`\)/);
+		expect(old.readJobs()).toHaveLength(5);
+	});
+
 	it("declares the same columns in the SQL and in schema.ts", () => {
 		const old = openPreEngine();
 		old.upgrade();

@@ -1,12 +1,24 @@
+// The façade.
+//
+// Job writes and the job kind are re-exported directly; the intake, the read model
+// and the source persistence are loaded through a lazy `import()`, so a caller that
+// only reads a report or a card never loads their graphs. What runs a job is the job
+// engine (`services/jobs`), started once from `hooks.server.ts` with the kind this
+// folder defines (`production-job.ts`); there is no worker to ensure, wake or drain
+// from here, and the renderers, the sandbox client and the chat-file store are
+// loaded by the engine on the first claim (`production-runner.ts`), never from here.
+
 import type {
 	FileProductionIntakeResult,
 	SubmitFileProductionIntakeInput,
 } from "./intake";
+import {
+	createFailedFileProductionJob,
+	createOrReuseFileProductionJob,
+} from "./production-job";
 
-type JobLedgerModule = typeof import("./job-ledger");
 type SourcePersistenceModule = typeof import("./source-persistence");
 type ReadModelModule = typeof import("./read-model");
-type WorkerRunnerModule = typeof import("./worker-runner");
 
 export type {
 	FileProductionIntakeConversationIdResult,
@@ -14,56 +26,42 @@ export type {
 	SubmitFileProductionIntakeInput,
 } from "./intake";
 export { getFileProductionIntakeConversationId } from "./intake";
+export { assignFileProductionJobsToAssistantMessage } from "./job-links";
 export type {
 	CancelFileProductionJobInput,
-	ClaimedFileProductionJob,
-	ClaimFileProductionJobInput,
 	CreateFailedFileProductionJobInput,
 	CreateFileProductionJobInput,
 	CreateOrReuseFileProductionJobInput,
 	CreateOrReuseFileProductionJobResult,
 	DismissFileProductionJobInput,
-	FailFileProductionAttemptInput,
-	FileProductionJobAttempt,
-	OwnedFileProductionAttemptInput,
-	ReclaimDeadWorkerFileProductionAttemptsInput,
+	FileProductionJobVerdict,
 	ReconcileStaleFileProductionJobsInput,
-	RecoverStaleFileProductionAttemptsInput,
 	RegenerateFileProductionJobInput,
 	RetryFileProductionJobInput,
-} from "./job-ledger";
-export type {
-	FileProductionJobLookup,
-	FileProductionJobVerdict,
 	WaitForFileProductionJobVerdictInput,
-} from "./job-wait";
+} from "./production-job";
 export {
-	isTerminalFileProductionJobStatus,
+	cancelActiveFileProductionForUser,
+	cancelFileProductionJob,
+	createFailedFileProductionJob,
+	createFileProductionJob,
+	createOrReuseFileProductionJob,
+	dismissFileProductionJob,
+	reconcileStaleFileProductionJobs,
+	regenerateFileProductionJob,
+	retryFileProductionJob,
 	waitForFileProductionJobVerdict,
-} from "./job-wait";
+} from "./production-job";
 export type { FileProductionJobState } from "./read-model";
 export { ARTIFACT_EXPORT_JOB_ORIGIN } from "./types";
-export type {
-	DrainFileProductionWorkerInput,
-	ExecuteNextFileProductionJobInput,
-	ExecuteNextFileProductionJobResult,
-} from "./worker-runner";
-
-async function loadJobLedger(): Promise<JobLedgerModule> {
-	return import("./job-ledger");
-}
 
 async function loadReadModel(): Promise<ReadModelModule> {
 	return import("./read-model");
 }
 
-async function loadWorkerRunner(): Promise<WorkerRunnerModule> {
-	return import("./worker-runner");
-}
-
 /**
  * A job's persisted report source, user- and conversation-scoped. Lazy, so a
- * caller that only reads a report never loads the worker or renderer graph.
+ * caller that only reads a report never loads the renderer graph.
  */
 export async function getGeneratedDocumentSourceForFileProductionJob(
 	...args: Parameters<
@@ -76,78 +74,6 @@ export async function getGeneratedDocumentSourceForFileProductionJob(
 		"./source-persistence"
 	);
 	return getGeneratedDocumentSourceForFileProductionJob(...args);
-}
-
-export async function createFileProductionJob(
-	...args: Parameters<JobLedgerModule["createFileProductionJob"]>
-): ReturnType<JobLedgerModule["createFileProductionJob"]> {
-	const { createFileProductionJob } = await loadJobLedger();
-	return createFileProductionJob(...args);
-}
-
-export async function createOrReuseFileProductionJob(
-	...args: Parameters<JobLedgerModule["createOrReuseFileProductionJob"]>
-): ReturnType<JobLedgerModule["createOrReuseFileProductionJob"]> {
-	const { createOrReuseFileProductionJob } = await loadJobLedger();
-	return createOrReuseFileProductionJob(...args);
-}
-
-export async function createFailedFileProductionJob(
-	...args: Parameters<JobLedgerModule["createFailedFileProductionJob"]>
-): ReturnType<JobLedgerModule["createFailedFileProductionJob"]> {
-	const { createFailedFileProductionJob } = await loadJobLedger();
-	return createFailedFileProductionJob(...args);
-}
-
-export async function assignFileProductionJobsToAssistantMessage(
-	...args: Parameters<
-		JobLedgerModule["assignFileProductionJobsToAssistantMessage"]
-	>
-): ReturnType<JobLedgerModule["assignFileProductionJobsToAssistantMessage"]> {
-	const { assignFileProductionJobsToAssistantMessage } = await loadJobLedger();
-	return assignFileProductionJobsToAssistantMessage(...args);
-}
-
-export async function regenerateFileProductionJob(
-	...args: Parameters<JobLedgerModule["regenerateFileProductionJob"]>
-): ReturnType<JobLedgerModule["regenerateFileProductionJob"]> {
-	const { regenerateFileProductionJob } = await loadJobLedger();
-	return regenerateFileProductionJob(...args);
-}
-
-export async function cancelFileProductionJob(
-	...args: Parameters<JobLedgerModule["cancelFileProductionJob"]>
-): ReturnType<JobLedgerModule["cancelFileProductionJob"]> {
-	const { cancelFileProductionJob } = await loadJobLedger();
-	return cancelFileProductionJob(...args);
-}
-
-export async function dismissFileProductionJob(
-	...args: Parameters<JobLedgerModule["dismissFileProductionJob"]>
-): ReturnType<JobLedgerModule["dismissFileProductionJob"]> {
-	const { dismissFileProductionJob } = await loadJobLedger();
-	return dismissFileProductionJob(...args);
-}
-
-export async function claimNextFileProductionJob(
-	...args: Parameters<JobLedgerModule["claimNextFileProductionJob"]>
-): ReturnType<JobLedgerModule["claimNextFileProductionJob"]> {
-	const { claimNextFileProductionJob } = await loadJobLedger();
-	return claimNextFileProductionJob(...args);
-}
-
-export async function failFileProductionJobAttempt(
-	...args: Parameters<JobLedgerModule["failFileProductionJobAttempt"]>
-): ReturnType<JobLedgerModule["failFileProductionJobAttempt"]> {
-	const { failFileProductionJobAttempt } = await loadJobLedger();
-	return failFileProductionJobAttempt(...args);
-}
-
-export async function heartbeatFileProductionJobAttempt(
-	...args: Parameters<JobLedgerModule["heartbeatFileProductionJobAttempt"]>
-): ReturnType<JobLedgerModule["heartbeatFileProductionJobAttempt"]> {
-	const { heartbeatFileProductionJobAttempt } = await loadJobLedger();
-	return heartbeatFileProductionJobAttempt(...args);
 }
 
 export async function listConversationFileProductionJobs(
@@ -180,80 +106,19 @@ export async function listConversationFileProductionJobStates(
 	return listConversationFileProductionJobStates(...args);
 }
 
-export async function reconcileStaleFileProductionJobs(
-	...args: Parameters<JobLedgerModule["reconcileStaleFileProductionJobs"]>
-): ReturnType<JobLedgerModule["reconcileStaleFileProductionJobs"]> {
-	const { reconcileStaleFileProductionJobs } = await loadJobLedger();
-	return reconcileStaleFileProductionJobs(...args);
-}
-
-export async function recoverStaleFileProductionAttempts(
-	...args: Parameters<JobLedgerModule["recoverStaleFileProductionAttempts"]>
-): ReturnType<JobLedgerModule["recoverStaleFileProductionAttempts"]> {
-	const { recoverStaleFileProductionAttempts } = await loadJobLedger();
-	return recoverStaleFileProductionAttempts(...args);
-}
-
-export async function reclaimDeadWorkerFileProductionAttempts(
-	...args: Parameters<
-		JobLedgerModule["reclaimDeadWorkerFileProductionAttempts"]
-	>
-): ReturnType<JobLedgerModule["reclaimDeadWorkerFileProductionAttempts"]> {
-	const { reclaimDeadWorkerFileProductionAttempts } = await loadJobLedger();
-	return reclaimDeadWorkerFileProductionAttempts(...args);
-}
-
-export async function retryFileProductionJob(
-	...args: Parameters<JobLedgerModule["retryFileProductionJob"]>
-): ReturnType<JobLedgerModule["retryFileProductionJob"]> {
-	const { retryFileProductionJob } = await loadJobLedger();
-	return retryFileProductionJob(...args);
-}
-
-export async function drainFileProductionWorker(
-	...args: Parameters<WorkerRunnerModule["drainFileProductionWorker"]>
-): ReturnType<WorkerRunnerModule["drainFileProductionWorker"]> {
-	const { drainFileProductionWorker } = await loadWorkerRunner();
-	return drainFileProductionWorker(...args);
-}
-
-export async function executeNextFileProductionJob(
-	...args: Parameters<WorkerRunnerModule["executeNextFileProductionJob"]>
-): ReturnType<WorkerRunnerModule["executeNextFileProductionJob"]> {
-	const { executeNextFileProductionJob } = await loadWorkerRunner();
-	return executeNextFileProductionJob(...args);
-}
-
-export function wakeFileProductionWorker(): void {
-	void loadWorkerRunner()
-		.then(({ wakeFileProductionWorker }) => wakeFileProductionWorker())
-		.catch((error) => {
-			console.error("[FILE_PRODUCTION] Failed to wake worker", { error });
-		});
-}
-
-export async function ensureFileProductionWorker(
-	...args: Parameters<WorkerRunnerModule["ensureFileProductionWorker"]>
-): ReturnType<WorkerRunnerModule["ensureFileProductionWorker"]> {
-	const { ensureFileProductionWorker } = await loadWorkerRunner();
-	return ensureFileProductionWorker(...args);
-}
-
+/**
+ * Validates and normalises a request, then makes the job (or hands back the one
+ * the request's key already made). The engine wakes the kind after the commit that
+ * made a queued job, so there is nothing to wake from here.
+ */
 export async function submitFileProductionIntake(
 	input: SubmitFileProductionIntakeInput,
 ): Promise<FileProductionIntakeResult> {
-	const [{ submitFileProductionIntakeWithDependencies }, jobLedger] =
-		await Promise.all([import("./intake"), loadJobLedger()]);
-	const wakeFileProductionWorker =
-		input.wakeWorker ??
-		(async () => {
-			const { wakeFileProductionWorker } = await loadWorkerRunner();
-			return wakeFileProductionWorker();
-		});
-
+	const { submitFileProductionIntakeWithDependencies } = await import(
+		"./intake"
+	);
 	return submitFileProductionIntakeWithDependencies(input, {
-		createOrReuseFileProductionJob: jobLedger.createOrReuseFileProductionJob,
-		createFailedFileProductionJob: jobLedger.createFailedFileProductionJob,
-		wakeFileProductionWorker,
+		createOrReuseFileProductionJob,
+		createFailedFileProductionJob,
 	});
 }

@@ -116,7 +116,6 @@ export interface SubmitFileProductionIntakeInput {
 	 */
 	reuse?: "any" | "usable";
 	now?: Date;
-	wakeWorker?: () => void | Promise<void>;
 	signal?: AbortSignal;
 }
 
@@ -127,7 +126,6 @@ export interface FileProductionIntakeDependencies {
 	createFailedFileProductionJob: (
 		input: CreateFailedFileProductionJobInput,
 	) => Promise<FileProductionJob>;
-	wakeFileProductionWorker: () => void | Promise<void>;
 }
 
 export type FileProductionIntakeResult =
@@ -787,11 +785,8 @@ export async function submitFileProductionIntakeWithDependencies(
 		now: input.now,
 	});
 
-	if (result.job.status === "queued" || result.job.status === "running") {
-		throwIfAborted(input.signal);
-		await dependencies.wakeFileProductionWorker();
-	}
-
+	// A queued job needs no wake from here: the engine wakes the kind itself after
+	// the commit that made (or handed back) the job.
 	throwIfAborted(input.signal);
 	const warnings =
 		request.sourceMode === "program" ? request.warnings : ([] as string[]);

@@ -19,6 +19,7 @@ import { FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY } from "$lib/server/services/file-
 import type { JobRunContext } from "$lib/server/services/jobs";
 import { executePersistedFileProductionRequest } from "./execution-adapter";
 import { linkProducedFilesToJob } from "./job-links";
+import { lostFileProductionAttempt } from "./lost-attempt";
 import {
 	storeFileProductionOutputs,
 	syncFileProductionOutputsToMemory,
@@ -28,8 +29,36 @@ import {
  * One attempt. Returns when the attempt has written its verdict (a success, or a
  * failure the policy decided) or when it was told to stop; a return with neither
  * is turned into a failure by the engine.
+ *
+ * An error nobody mapped (a database that would not answer, a file system that
+ * failed) is not something the person should read: the card shows an unknown
+ * code's message as it is, and such a message can name the host's paths. It
+ * settles the job as the stale-attempt take-back does, with the words the person
+ * has always seen when a run stopped without a verdict (before the engine, only
+ * two minutes later), and the real error goes to the log.
  */
 export async function runFileProduction(
+	ctx: JobRunContext<typeof fileProductionJobs>,
+): Promise<void> {
+	try {
+		await runAttempt(ctx);
+	} catch (error) {
+		// A throw after an abort is the abort's doing (a request cancelled, a
+		// container stopped), and after a verdict there is nothing left to say: `fail`
+		// refuses both quietly.
+		if (!ctx.signal.aborted) {
+			console.error("[FILE_PRODUCTION] Attempt threw", {
+				jobId: ctx.row.id,
+				attemptId: ctx.attempt.id,
+				attemptNumber: ctx.attempt.number,
+				error,
+			});
+		}
+		await ctx.fail({ ...lostFileProductionAttempt("stale"), retryable: true });
+	}
+}
+
+async function runAttempt(
 	ctx: JobRunContext<typeof fileProductionJobs>,
 ): Promise<void> {
 	const job = ctx.row;

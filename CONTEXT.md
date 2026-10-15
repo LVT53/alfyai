@@ -2130,15 +2130,15 @@ The normalized start of a **File Production Request**, where AlfyAI decides whet
 _Avoid_: route-local file job, tool-specific export path, transient generation task
 
 **File Production Job Ledger**:
-The file-production deep module that owns durable job, attempt, retry, cancellation, stale-recovery, and produced-file-link state transitions.
+The durable file-production job and attempt rows. Every lifecycle transition of them (claim, heartbeat, settle, retry, cancel, stale recovery, reclaiming a dead worker's attempt) belongs to the job engine (`services/jobs/`, ADR-0069); `file-production/production-job.ts` is the file-production kind's definition and the functions that make, reuse, retry, regenerate, cancel and dismiss a job, and `job-links.ts` keeps the produced-file and reply-message links.
 _Avoid_: route-local job state, renderer-owned retry state, worker-owned DB rules
 
 **File Production Read Model**:
 The file-production deep module that projects **File Production Card** state for conversation detail, including legacy generated-file backfill and internally-visible job-linked files that are not yet attached to an assistant message.
 _Avoid_: worker import side effect, chat-file public list, route-local job projection
 
-**File Production Worker Runner**:
-The file-production deep module that owns in-process worker identity, startup recovery, lazy wakeups, drain-to-idle execution, and current-attempt orchestration.
+**File Production Handler**:
+The file-production deep module the job engine loads on the first claim (`production-runner.ts`): it runs the persisted request through the **File Production Execution Adapter**, stores the outputs through the **Generated File Storage Adapter**, and settles the job in one fenced transaction. Worker identity, startup recovery, wakeups and draining are the job engine's.
 _Avoid_: route-owned worker loop, renderer queue, always-on polling loop
 
 **File Production Execution Adapter**:
@@ -2248,9 +2248,9 @@ _Avoid_: source message button, primary document action, source viewer
 - **File Production Intake** creates or reuses durable **File Production Card** state; it is not a stream-only or tool-specific concern.
 - A malformed **File Production Request** still produces a durable failed **File Production Card** through **File Production Intake** when enough conversation ownership is known.
 - The public file-production facade delegates to deep modules; callers should import the facade unless they are inside the file-production boundary or the **Conversation Detail Read Model** needs **File Production Read Model** without loading worker/rendering/storage modules.
-- **File Production Job Ledger** is the durable state authority for **File Production Cards** and attempts; renderers, routes, and worker code should not reimplement job state transitions.
+- **File Production Job Ledger** is the durable state authority for **File Production Cards** and attempts; renderers, routes, and the handler should not reimplement job state transitions, which belong to the job engine.
 - **File Production Read Model** is the projection authority for conversation-visible **File Production Cards**; it may hydrate job-linked unassigned files for finalization, and **Generated File Serving** may serve those unassigned files only when the read model confirms a succeeded job link for the requesting user and conversation.
-- **File Production Worker Runner** consumes **File Production Job Ledger**, **File Production Execution Adapter**, and **Generated File Storage Adapter** rather than owning their rules inline.
+- **File Production Handler** consumes **File Production Execution Adapter** and **Generated File Storage Adapter** rather than owning their rules inline.
 - **File Production Execution Adapter** decides how a persisted request runs; it does not own durable job state or generated-file storage.
 - **Generated File Storage Adapter** stores and links outputs after execution and before job success; output validation failures do not create produced-file links.
 - A `document_source` **File Production Request** that passes intake validation and ownership checks persists its canonical **Generated Document Source** through **Generated Document Source Persistence** before PDF, DOCX, or HTML rendering begins.

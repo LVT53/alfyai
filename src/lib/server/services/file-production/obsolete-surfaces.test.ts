@@ -38,51 +38,64 @@ describe("file-production architecture boundaries", () => {
 		expect(source).not.toContain("file-production/source-schema");
 	});
 
-	it("keeps durable job state transitions behind the ledger module", () => {
+	it("keeps durable job state transitions behind the job engine", () => {
 		const facade = readSource(
 			"src/lib/server/services/file-production/index.ts",
 		);
-		const ledger = readSource(
-			"src/lib/server/services/file-production/job-ledger.ts",
+		const kind = readSource(
+			"src/lib/server/services/file-production/production-job.ts",
+		);
+		const links = readSource(
+			"src/lib/server/services/file-production/job-links.ts",
 		);
 
-		expect(facade).toContain(
-			'type JobLedgerModule = typeof import("./job-ledger")',
-		);
-		expect(facade).toContain("loadJobLedger()");
 		expect(facade).not.toContain("function mapJobRow");
 		expect(facade).not.toContain("fileProductionJobAttempts");
-		expect(ledger).toContain(
-			"export async function claimNextFileProductionJob",
-		);
-		expect(ledger).toContain("fileProductionJobAttempts");
+		// The kind is defined once, on the engine, and says what is particular to
+		// file production; the engine owns every lifecycle transition.
+		expect(kind).toContain("defineJobKind");
+		expect(kind).toContain('from "$lib/server/services/jobs"');
+		expect(kind).toContain('name: "file-production"');
+		// What remains beside it writes the links a job carries, never its lifecycle.
+		expect(links).not.toContain("fileProductionJobAttempts");
+		// The ledger, the worker and the wait helper they replaced are gone, and a
+		// file that comes back under those names is a second way to run a job.
+		for (const gone of ["job-ledger.ts", "worker-runner.ts", "job-wait.ts"]) {
+			expect(
+				readSource(`src/lib/server/services/file-production/${gone}`),
+				gone,
+			).toBe("");
+		}
 	});
 
-	it("keeps worker execution lazy-loaded behind the facade", () => {
+	it("keeps the handler lazy-loaded behind the kind's definition", () => {
 		const facade = readSource(
 			"src/lib/server/services/file-production/index.ts",
 		);
-		const workerRunner = readSource(
-			"src/lib/server/services/file-production/worker-runner.ts",
+		const kind = readSource(
+			"src/lib/server/services/file-production/production-job.ts",
+		);
+		const productionRunner = readSource(
+			"src/lib/server/services/file-production/production-runner.ts",
 		);
 		const executionAdapter = readSource(
 			"src/lib/server/services/file-production/execution-adapter.ts",
 		);
 
-		expect(facade).toContain(
-			'type WorkerRunnerModule = typeof import("./worker-runner")',
-		);
-		expect(facade).toContain('return import("./worker-runner")');
-		expect(facade).not.toMatch(/^import\s+\{[\s\S]*from "\.\/worker-runner";/m);
-		expect(facade).not.toContain("DEFAULT_WORKER_ID");
-		expect(facade).not.toContain("workerInitialized");
-		expect(facade).not.toContain("drainPromise");
+		// The engine loads the handler on the first claim: the definition names it
+		// with a dynamic import, so a route that only reads, retries or cancels never
+		// imports a renderer or the sandbox client.
+		expect(kind).toContain('import("./production-runner")');
+		expect(kind).not.toMatch(/^import\s[^;]*from "\.\/production-runner";/m);
+		expect(facade).not.toMatch(/^import\s[^;]*from "\.\/production-runner";/m);
+		expect(facade).not.toContain('from "./execution-adapter"');
 		expect(facade).not.toContain("parseFileProductionJobRequest");
 		expect(facade).not.toContain("renderStandardReportPdf");
 		expect(facade).not.toContain("executeSandboxCode");
-		expect(workerRunner).toContain("const DEFAULT_WORKER_ID");
-		expect(workerRunner).toContain("let workerInitialized");
-		expect(workerRunner).toContain("let drainPromise");
+		expect(productionRunner).toContain("executePersistedFileProductionRequest");
+		// The scheduler's state and the loop are the engine's.
+		expect(productionRunner).not.toContain("setInterval");
+		expect(productionRunner).not.toContain("DEFAULT_WORKER_ID");
 		expect(executionAdapter).toContain(
 			"function parseFileProductionJobRequest",
 		);
@@ -91,8 +104,8 @@ describe("file-production architecture boundaries", () => {
 	});
 
 	it("keeps generated-file storage and linking behind the storage adapter", () => {
-		const workerRunner = readSource(
-			"src/lib/server/services/file-production/worker-runner.ts",
+		const productionRunner = readSource(
+			"src/lib/server/services/file-production/production-runner.ts",
 		);
 		const storageAdapter = readSource(
 			"src/lib/server/services/file-production/storage-adapter.ts",
@@ -101,7 +114,7 @@ describe("file-production architecture boundaries", () => {
 			"src/lib/server/services/file-production/index.ts",
 		);
 
-		expect(workerRunner).toContain('from "./storage-adapter"');
+		expect(productionRunner).toContain('from "./storage-adapter"');
 		for (const directStorageImport of [
 			"storeGeneratedFile as",
 			"syncGeneratedFilesToMemory as",
@@ -111,7 +124,7 @@ describe("file-production architecture boundaries", () => {
 			"mapChatFileToProducedFile",
 			"mapChatFileToSourceProducedFile",
 		]) {
-			expect(workerRunner).not.toContain(directStorageImport);
+			expect(productionRunner).not.toContain(directStorageImport);
 			expect(storageAdapter).toContain(directStorageImport.replace(" as", ""));
 			expect(facade).not.toContain(directStorageImport);
 		}
@@ -152,7 +165,7 @@ describe("file-production architecture boundaries", () => {
 			"export async function listConversationFileProductionJobs",
 		);
 		for (const eagerFileProductionImport of [
-			"file-production/worker-runner",
+			"file-production/production-runner",
 			"file-production/execution-adapter",
 			"file-production/storage-adapter",
 		]) {
@@ -163,8 +176,12 @@ describe("file-production architecture boundaries", () => {
 		for (const eagerImport of [
 			'from "./index"',
 			"from './index'",
-			'from "./worker-runner"',
-			"from './worker-runner'",
+			'from "./production-runner"',
+			"from './production-runner'",
+			// The kind's definition reads the read model (the card a wait hands back),
+			// so the read model must never read the kind.
+			'from "./production-job"',
+			"from './production-job'",
 			'from "./execution-adapter"',
 			"from './execution-adapter'",
 			'from "./storage-adapter"',
@@ -225,17 +242,17 @@ describe("file-production architecture boundaries", () => {
 		}
 	});
 
-	it("keeps legacy job backfill out of the durable ledger", () => {
-		const ledger = readSource(
-			"src/lib/server/services/file-production/job-ledger.ts",
+	it("keeps legacy job backfill out of the job kind", () => {
+		const kind = readSource(
+			"src/lib/server/services/file-production/production-job.ts",
 		);
 
-		expect(ledger).not.toContain("$lib/server/services/chat-files");
-		expect(ledger).not.toContain(
+		expect(kind).not.toContain("$lib/server/services/chat-files");
+		expect(kind).not.toContain(
 			"export async function listConversationFileProductionJobs",
 		);
-		expect(ledger).not.toContain("function ensureLegacyJobs");
-		expect(ledger).not.toContain("function legacyJobId");
-		expect(ledger).not.toContain("function legacyJobFileLinkId");
+		expect(kind).not.toContain("function ensureLegacyJobs");
+		expect(kind).not.toContain("function legacyJobId");
+		expect(kind).not.toContain("function legacyJobFileLinkId");
 	});
 });
