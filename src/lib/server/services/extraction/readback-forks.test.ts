@@ -105,7 +105,7 @@ afterEach(async () => {
 
 describe("forking a conversation whose generated file is still being read back", () => {
 	it("gives the copy its own file id, so the ledger's unique index cannot collide", async () => {
-		const ledger = await import("./job-ledger");
+		const ledger = await import("./extraction-job");
 		const { job: sourceJob } = await ledger.enqueueExtractionJob({
 			userId,
 			conversationId: sourceConversationId,
@@ -174,7 +174,7 @@ describe("forking a conversation whose generated file is still being read back",
 	});
 
 	it("keeps the unique index on the ONE job per chat file", async () => {
-		const ledger = await import("./job-ledger");
+		const ledger = await import("./extraction-job");
 		const first = await ledger.enqueueExtractionJob({
 			userId,
 			conversationId: sourceConversationId,

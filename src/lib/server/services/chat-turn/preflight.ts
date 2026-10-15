@@ -3,7 +3,6 @@ import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadat
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	getExtractionConfig,
-	getExtractionJobForArtifact,
 	getExtractionJobsForArtifacts,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
@@ -176,9 +175,6 @@ export async function preflightAtlasTurnSources(params: {
  */
 const MAX_ATTACHMENTS_WORTH_WAITING_FOR = 5;
 
-/** How often the bounded wait re-reads a job while it is still running. */
-const PREFLIGHT_POLL_INTERVAL_MS = 150;
-
 type AttachmentReadinessFailure = {
 	status: number;
 	message: string;
@@ -278,14 +274,12 @@ async function waitForPendingExtractions(params: {
 		if (params.signal?.aborted) return;
 		const remainingMs = deadline - Date.now();
 		if (remainingMs <= 0) return;
-		const artifactId = job.sourceArtifactId;
-		if (!artifactId) continue;
+		if (!job.sourceArtifactId) continue;
 
 		await waitForExtractionJobVerdict({
-			getJob: () =>
-				getExtractionJobForArtifact({ userId: params.userId, artifactId }),
+			jobId: job.id,
+			userId: params.userId,
 			timeoutMs: remainingMs,
-			pollIntervalMs: PREFLIGHT_POLL_INTERVAL_MS,
 			signal: params.signal,
 		});
 	}

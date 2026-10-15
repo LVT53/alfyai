@@ -15,7 +15,10 @@
 // browser reads (`shared/extraction-status.ts`, which keeps `canceled` and the
 // phase words: only the stored words changed).
 
+import { and, asc, eq } from "drizzle-orm";
+import { db } from "$lib/server/db";
 import {
+	artifacts,
 	documentExtractionJobAttempts,
 	documentExtractionJobs,
 } from "$lib/server/db/schema";
@@ -24,15 +27,42 @@ import type {
 	FailureHistory,
 	JobFailure,
 } from "$lib/server/services/jobs";
-import { defineJobKind } from "$lib/server/services/jobs";
-import { isExtractionErrorCode } from "$lib/shared/extraction-status";
-import { getExtractionConfig } from "./config";
 import {
+	cancel,
+	cancelAll,
+	defineJobKind,
+	enqueue,
+	reopen,
+	waitForVerdict,
+} from "$lib/server/services/jobs";
+import type {
+	DocumentExtractionJobDTO,
+	ExtractionErrorCode,
+} from "$lib/shared/extraction-status";
+import { isExtractionErrorCode } from "$lib/shared/extraction-status";
+import { getIntakeRoute } from "$lib/shared/file-types";
+import { getExtractionConfig } from "./config";
+import { serializeHints } from "./hints";
+import { getExtractionJobById } from "./read-model";
+import {
+	carryExtractionOutageWaits,
 	decideExtractionRetry,
 	extractionRetryBudgetLeft,
 	isEmptyExtractionOutageState,
 	parseExtractionOutageState,
 } from "./retry-policy";
+import type {
+	DocumentExtractionAttemptRow,
+	DocumentExtractionIntakeRoute,
+	DocumentExtractionJobRow,
+	DocumentExtractionOrigin,
+} from "./types";
+import { EXTRACTION_PRIORITY_UPLOAD } from "./types";
+
+export type {
+	DocumentExtractionAttemptRow,
+	DocumentExtractionJobRow,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // The definition
@@ -40,7 +70,7 @@ import {
 
 /**
  * The phases an attempt moves through, in order. The engine refuses a report that
- * would move one backwards, which is what `state-machine.ts` used to say.
+ * would move one backwards (the old state machine said the same, in a table).
  * `uploading` is the first: a claim starts there, as it always did.
  */
 export const EXTRACTION_PHASES = [
@@ -154,3 +184,373 @@ export const extractionJob = defineJobKind({
 	handler: () =>
 		import("./extraction-runner").then((module) => module.runExtraction),
 });
+
+// ---------------------------------------------------------------------------
+// Starting a job
+// ---------------------------------------------------------------------------
+
+export interface EnqueueExtractionJobInput {
+	userId: string;
+	conversationId: string | null;
+	origin: DocumentExtractionOrigin;
+	intakeRoute: DocumentExtractionIntakeRoute;
+	fileName: string;
+	mimeType: string | null;
+	sizeBytes: number;
+	sourceArtifactId?: string | null;
+	chatGeneratedFileId?: string | null;
+	priority?: number;
+	/** Opaque, durable extraction hints. The engine stores and forwards them. */
+	hints?: Readonly<Record<string, unknown>> | null;
+	/**
+	 * A dedupe hit whose normalized artifact already exists. The job is born
+	 * `succeeded` with no attempt row and the worker never sees it.
+	 */
+	normalizedArtifactId?: string | null;
+	/** Born-failed, for a file no extractor can be asked to read. */
+	failure?: {
+		errorCode: ExtractionErrorCode;
+		errorMessage: string;
+		retryable?: boolean;
+	} | null;
+	now?: Date;
+}
+
+export interface EnqueueExtractionJobResult {
+	job: DocumentExtractionJobRow;
+	reused: boolean;
+}
+
+type JobReader = Pick<typeof db, "select">;
+
+/** The job a source artifact or a generated file already has: both carry a partial UNIQUE index. */
+function findExistingJob(
+	reader: JobReader,
+	input: {
+		sourceArtifactId?: string | null;
+		chatGeneratedFileId?: string | null;
+	},
+): DocumentExtractionJobRow | null {
+	if (input.sourceArtifactId) {
+		return (
+			reader
+				.select()
+				.from(documentExtractionJobs)
+				.where(
+					eq(documentExtractionJobs.sourceArtifactId, input.sourceArtifactId),
+				)
+				.limit(1)
+				.get() ?? null
+		);
+	}
+	if (input.chatGeneratedFileId) {
+		return (
+			reader
+				.select()
+				.from(documentExtractionJobs)
+				.where(
+					eq(
+						documentExtractionJobs.chatGeneratedFileId,
+						input.chatGeneratedFileId,
+					),
+				)
+				.limit(1)
+				.get() ?? null
+		);
+	}
+	return null;
+}
+
+/**
+ * Idempotent on `(source_artifact_id)` / `(chat_generated_file_id)`, both of which
+ * carry a partial UNIQUE index. The engine finds and inserts in one transaction, and
+ * the loser of a race it cannot see rereads the winner's row rather than throwing:
+ * two concurrent uploads of the same artifact make ONE job.
+ *
+ * A dedupe hit whose normalized artifact exists is born `succeeded`, and a file no
+ * extractor can read is born `failed`; neither is ever claimed.
+ */
+export async function enqueueExtractionJob(
+	input: EnqueueExtractionJobInput,
+): Promise<EnqueueExtractionJobResult> {
+	if (!input.sourceArtifactId && !input.chatGeneratedFileId) {
+		throw new Error(
+			"enqueueExtractionJob requires a sourceArtifactId or a chatGeneratedFileId",
+		);
+	}
+
+	const born = input.normalizedArtifactId
+		? ({ status: "succeeded" } as const)
+		: input.failure
+			? ({
+					status: "failed",
+					code: input.failure.errorCode,
+					message: input.failure.errorMessage,
+					retryable: input.failure.retryable ?? false,
+				} as const)
+			: undefined;
+
+	const { row, reused } = await enqueue(extractionJob, {
+		now: input.now,
+		priority: input.priority ?? EXTRACTION_PRIORITY_UPLOAD,
+		born,
+		values: {
+			userId: input.userId,
+			conversationId: input.conversationId,
+			sourceArtifactId: input.sourceArtifactId ?? null,
+			chatGeneratedFileId: input.chatGeneratedFileId ?? null,
+			normalizedArtifactId: input.normalizedArtifactId ?? null,
+			origin: input.origin,
+			intakeRoute: input.intakeRoute,
+			fileName: input.fileName,
+			mimeType: input.mimeType,
+			sizeBytes: input.sizeBytes,
+			hintsJson: serializeHints(input.hints),
+		},
+		idempotency: {
+			find: (tx) => findExistingJob(tx, input),
+			onExisting: () => "reuse",
+		},
+	});
+	return { job: row, reused };
+}
+
+export interface MaterializeLegacyExtractionJobInput {
+	userId: string;
+	sourceArtifactId: string;
+	fileName?: string | null;
+	mimeType?: string | null;
+	sizeBytes?: number | null;
+	conversationId?: string | null;
+	intakeRoute?: DocumentExtractionIntakeRoute;
+	now?: Date;
+}
+
+/**
+ * The route a pre-ledger artifact would get if it were uploaded today.
+ *
+ * `reject` collapses to `mineru`: the file is already in the library, so the retry
+ * has to resolve to a route the worker can run, and `mineru` is what the pre-ledger
+ * path used for everything it did not read inline.
+ */
+function resolveLegacyIntakeRoute(
+	fileName: string,
+	mimeType: string | null,
+): DocumentExtractionIntakeRoute {
+	return getIntakeRoute(fileName, mimeType) === "direct-text"
+		? "direct-text"
+		: "mineru";
+}
+
+/**
+ * Turns a pre-ledger artifact into a real, `failed` + `retryable` row so the Retry
+ * button has something to act on: an enqueue born failed.
+ *
+ * This is the ONLY place a legacy artifact is written. The read model synthesises
+ * legacy rows for display and writes nothing, because the artifact table is
+ * unbounded per user and has no anchor to bound a backfill sweep, unlike the
+ * file-production backfill, which is scoped to one conversation's chat files.
+ */
+export async function materializeLegacyExtractionJob(
+	input: MaterializeLegacyExtractionJobInput,
+): Promise<DocumentExtractionJobRow | null> {
+	const existing = findExistingJob(db, {
+		sourceArtifactId: input.sourceArtifactId,
+	});
+	if (existing) {
+		return existing.userId === input.userId ? existing : null;
+	}
+
+	// The artifact is the only record of what this document actually is, and the
+	// retry endpoint only knows its name. Stamping every legacy row `mineru` sent a
+	// pre-ledger `.txt` to the backend parser on retry instead of through direct
+	// text: a remote round trip, and a different result, for a file the registry can
+	// read locally.
+	const [artifact] = await db
+		.select({
+			name: artifacts.name,
+			mimeType: artifacts.mimeType,
+			sizeBytes: artifacts.sizeBytes,
+		})
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.id, input.sourceArtifactId),
+				eq(artifacts.userId, input.userId),
+			),
+		)
+		.limit(1);
+
+	const fileName = input.fileName ?? artifact?.name ?? "document";
+	const mimeType = input.mimeType ?? artifact?.mimeType ?? null;
+
+	const { job } = await enqueueExtractionJob({
+		userId: input.userId,
+		conversationId: input.conversationId ?? null,
+		origin: "upload",
+		intakeRoute:
+			input.intakeRoute ?? resolveLegacyIntakeRoute(fileName, mimeType),
+		fileName,
+		mimeType,
+		sizeBytes: input.sizeBytes ?? artifact?.sizeBytes ?? 0,
+		sourceArtifactId: input.sourceArtifactId,
+		failure: {
+			errorCode: "legacy_unknown",
+			errorMessage:
+				"This document predates the extraction ledger, so its result is unknown.",
+			retryable: true,
+		},
+		now: input.now,
+	});
+
+	return job.userId === input.userId ? job : null;
+}
+
+// ---------------------------------------------------------------------------
+// Retry and Cancel
+// ---------------------------------------------------------------------------
+
+export interface RetryExtractionJobInput {
+	userId: string;
+	jobId: string;
+	/** Replaces the stored hints for the next attempt when supplied. */
+	hints?: Readonly<Record<string, unknown>> | null;
+	/**
+	 * The automatic attempt budget. The hard ceiling on total attempts is derived
+	 * from it; omitted, the live config value is used.
+	 */
+	maxAttempts?: number;
+}
+
+/**
+ * The user's Retry button. Legal from `failed` and `cancelled` only, through the
+ * engine's `reopen` (rather than its `retry`) because it takes new hints.
+ *
+ * `attempt_count` is deliberately NOT reset: attempt numbers stay unique per job,
+ * which is what makes the attempt table readable after the fact. What the reopening
+ * does is clear the error state and the backoff gate, so the claim picks the job up
+ * immediately and the retry policy grants it exactly one more attempt before
+ * capping again.
+ *
+ * Bounded by `extractionAttemptCeiling`, measured in DOCUMENT attempts: a job that
+ * spent twelve attempts waiting for a backend that was down has used none of the
+ * user's budget, and refusing the button there would punish them for the outage.
+ * Without a ceiling, "one more attempt per press" has no end.
+ *
+ * A user retry starts a fresh outage window (they are asking us to look again, and
+ * the backend may well be back); `waits` is carried so the attempt discount survives.
+ * The checkpoint is kept: a cancel and a terminal failure clear it, so there is
+ * nothing to resume unless a row the previous release left still holds a handle.
+ */
+export async function retryExtractionJob(
+	input: RetryExtractionJobInput,
+): Promise<DocumentExtractionJobRow | null> {
+	const maxAttempts = input.maxAttempts ?? getExtractionConfig().maxAttempts;
+	return reopen(extractionJob, input.jobId, {
+		userId: input.userId,
+		from: ["failed", "cancelled"],
+		allow: (_tx, row) => extractionRetryBudgetLeft(row, maxAttempts),
+		patch: () =>
+			input.hints === undefined
+				? {}
+				: { hintsJson: serializeHints(input.hints) },
+		keepCheckpoint: true,
+		retryState: carryExtractionOutageWaits,
+	});
+}
+
+export interface CancelExtractionJobInput {
+	userId: string;
+	jobId: string;
+}
+
+/**
+ * The user's Cancel button. Legal from `queued` and from `running`.
+ *
+ * The row goes `cancelled` at once and a run this process has going is told at
+ * once (its signal aborts), where the previous worker found out at its next
+ * heartbeat. Whether the remote cleanup succeeds has no bearing on the row: a user
+ * who pressed Cancel is owed a cancelled job, not a job that stays "parsing"
+ * because a backend would not answer. The stored handle is DROPPED, unlike on a
+ * take-back: a user cancel is the one abort that DELETEs the remote job, so a later
+ * Retry must not resume a job the backend has thrown away.
+ */
+export async function cancelExtractionJob(
+	input: CancelExtractionJobInput,
+): Promise<DocumentExtractionJobRow | null> {
+	return cancel(extractionJob, input.jobId, { userId: input.userId });
+}
+
+/**
+ * Account erasure's quiesce (ADR-0030): cancel everything of the user's that is
+ * queued or running, so an in-flight extraction stops at once instead of writing a
+ * normalized artifact and its chunk rows into an account whose erasure has already
+ * started.
+ */
+export async function cancelActiveDocumentExtractionForUser(
+	userId: string,
+): Promise<{ cancelled: number }> {
+	return { cancelled: await cancelAll(extractionJob, { userId }) };
+}
+
+// ---------------------------------------------------------------------------
+// Reading and waiting
+// ---------------------------------------------------------------------------
+
+export async function getExtractionJobRow(
+	jobId: string,
+): Promise<DocumentExtractionJobRow | null> {
+	const [row] = await db
+		.select()
+		.from(documentExtractionJobs)
+		.where(eq(documentExtractionJobs.id, jobId))
+		.limit(1);
+	return row ?? null;
+}
+
+export async function listExtractionJobAttempts(
+	jobId: string,
+): Promise<DocumentExtractionAttemptRow[]> {
+	return db
+		.select()
+		.from(documentExtractionJobAttempts)
+		.where(eq(documentExtractionJobAttempts.jobId, jobId))
+		.orderBy(asc(documentExtractionJobAttempts.attemptNumber));
+}
+
+export type ExtractionJobVerdict =
+	| { settled: true; job: DocumentExtractionJobDTO }
+	| { settled: false; job: DocumentExtractionJobDTO | null };
+
+export interface WaitForExtractionJobVerdictInput {
+	jobId: string;
+	/** Whose job it is: the DTO that comes back is read for this user and no other. */
+	userId: string;
+	/** Upper bound on the whole wait. */
+	timeoutMs: number;
+	/** Aborting stops the wait and reports the last seen job as non-terminal. */
+	signal?: AbortSignal;
+}
+
+/**
+ * Resolves as soon as the job is succeeded, failed or cancelled, or when the bound
+ * elapses. Never throws for a still-running job: an unsettled verdict is a
+ * legitimate outcome that callers must report honestly. It listens to the engine's
+ * settle event (a verdict this process wrote arrives at once) and reads the row once
+ * a second as the fallback for one it did not.
+ */
+export async function waitForExtractionJobVerdict(
+	input: WaitForExtractionJobVerdictInput,
+): Promise<ExtractionJobVerdict> {
+	const verdict = await waitForVerdict(extractionJob, input.jobId, {
+		timeoutMs: input.timeoutMs,
+		signal: input.signal,
+	});
+	const job = await getExtractionJobById({
+		userId: input.userId,
+		jobId: input.jobId,
+	});
+	return job && verdict.settled
+		? { settled: true, job }
+		: { settled: false, job };
+}

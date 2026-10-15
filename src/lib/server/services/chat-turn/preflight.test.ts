@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
 	resolvePendingSkillApplication: vi.fn(),
 	resolveReasoningDepthSelection: vi.fn(),
 	getExtractionJobsForArtifacts: vi.fn(),
-	getExtractionJobForArtifact: vi.fn(),
 	waitForExtractionJobVerdict: vi.fn(),
 	getExtractionConfig: vi.fn(),
 }));
@@ -18,7 +17,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("$lib/server/services/extraction", () => ({
 	getExtractionConfig: mocks.getExtractionConfig,
 	getExtractionJobsForArtifacts: mocks.getExtractionJobsForArtifacts,
-	getExtractionJobForArtifact: mocks.getExtractionJobForArtifact,
 	waitForExtractionJobVerdict: mocks.waitForExtractionJobVerdict,
 }));
 
@@ -108,7 +106,6 @@ function resetPreflightMocks() {
 	mocks.assertPromptReadyAttachments.mockResolvedValue(undefined);
 	mocks.isAttachmentReadinessError.mockReturnValue(false);
 	mocks.getExtractionJobsForArtifacts.mockResolvedValue([]);
-	mocks.getExtractionJobForArtifact.mockResolvedValue(null);
 	mocks.waitForExtractionJobVerdict.mockResolvedValue({
 		settled: false,
 		job: null,
@@ -462,8 +459,13 @@ describe("preflightChatTurn attachment send gate", () => {
 		});
 
 		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledTimes(1);
+		// The wait is for the job, by id, and read for the person who is sending.
 		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledWith(
-			expect.objectContaining({ timeoutMs: expect.any(Number) }),
+			expect.objectContaining({
+				jobId: "job-1",
+				userId: "user-1",
+				timeoutMs: expect.any(Number),
+			}),
 		);
 		expect(result.ok).toBe(true);
 	});

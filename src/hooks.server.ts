@@ -23,7 +23,7 @@ import {
 import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/app/sandbox-response";
 import { atlasResearchJob } from "$lib/server/services/atlas/research-job";
 import { validateSession } from "$lib/server/services/auth";
-import { ensureExtractionWorker } from "$lib/server/services/extraction";
+import { extractionJob } from "$lib/server/services/extraction/extraction-job";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import { startJobs, stopJobs } from "$lib/server/services/jobs";
 import {
@@ -240,16 +240,14 @@ export const init: ServerInit = async () => {
 	ensureFileProductionWorker().catch((error) =>
 		console.error("Failed to start file production worker:", error),
 	);
-	// Deliberately not awaited: the stale-attempt sweep and the first drain must
-	// never sit between the process starting and it answering a health check.
-	ensureExtractionWorker().catch((error) =>
-		console.error("Failed to start document extraction worker:", error),
-	);
-	// The job engine: Atlas runs on it, and so will the other two kinds. Not
-	// awaited either, for the same reason: its boot sweeps and first drain must
-	// never sit between the process starting and it answering a health check.
-	startJobs([atlasResearchJob]).catch((error) =>
-		console.error("Failed to start Atlas worker:", error),
+	// The job engine: Atlas research and document extraction run on it, and file
+	// production will. Deliberately not awaited: its boot sweeps (the dead-worker
+	// reclaim, the stale-attempt sweep) and the first drain of each kind must never
+	// sit between the process starting and it answering a health check. Extraction's
+	// status words were rewritten to the engine's by `ensureRuntimeConfigReady`
+	// (db/compat.ts), which is awaited above, before any kind starts.
+	startJobs([atlasResearchJob, extractionJob]).catch((error) =>
+		console.error("Failed to start the job engine:", error),
 	);
 
 	// Graceful shutdown: adapter-node's graceful_shutdown handler calls

@@ -255,6 +255,37 @@ describe("the extraction handler", () => {
 		expect(readJob(job.id).status).toBe("succeeded");
 	});
 
+	it("never moves the job back a phase, and does not take that for a lost claim", async () => {
+		// A backend that forgot its ids is re-submitted from the top, so an extractor
+		// can legitimately report `uploading` after `downloading`. The engine refuses a
+		// backward phase; the handler must neither abort over it nor let the row slip.
+		const { drain, extractionJob } = await engine();
+		const artifactId = await seedStoredDocument();
+		const job = await enqueueJob(artifactId);
+		const seen: Array<{ phase: string | null; aborted: boolean }> = [];
+		const base = createFakeExtractor({ steps: [{ kind: "succeed" }] });
+		useExtractor({
+			...base,
+			async extract(request) {
+				request.onProgress({ phase: "downloading" });
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				request.onProgress({ phase: "uploading" });
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				seen.push({
+					phase: readJob(job.id).phase,
+					aborted: request.signal.aborted,
+				});
+				return base.extract(request);
+			},
+		});
+		fakePersist();
+
+		await drain(extractionJob);
+
+		expect(seen).toEqual([{ phase: "downloading", aborted: false }]);
+		expect(readJob(job.id).status).toBe("succeeded");
+	});
+
 	it("hands the extractor the artifact's hash, id and owner", async () => {
 		// Δ1/Δ2: the ledger already holds the verified digest, so a backend must
 		// never have to re-stream 200 MB to recompute it.
@@ -788,6 +819,42 @@ describe("draining the queue", () => {
 
 		seams.config = { workerEnabled: true };
 		await drain(extractionJob);
+		expect(readJob(job.id).status).toBe("succeeded");
+	});
+});
+
+describe("a started engine, on its own timers", () => {
+	// Ruling 6. Nothing here involves a take-back or a wake: the attempt fails with
+	// `unavailable`, the policy requeues it behind a backoff, and the question is
+	// whether the engine schedules anything to pick it up.
+	it("re-drains by itself when a retryable failure's backoff gate opens", async () => {
+		const { startJobs, inspectJobsForTests, extractionJob } = await engine();
+		const job = await enqueueJob(await seedStoredDocument("flaky.pdf"));
+		const extractor = useExtractor(
+			createFakeExtractor({
+				steps: [{ kind: "throw", code: "unavailable" }, { kind: "succeed" }],
+			}),
+		);
+		fakePersist();
+		// The handler loads on the first claim; load it now, so that the module
+		// system's real I/O is not waited for under a clock that does not move.
+		await import("./extraction-runner");
+		vi.useFakeTimers();
+
+		await startJobs([extractionJob], {
+			startInNonServingContextForTests: true,
+		});
+		// The boot drain is fire-and-forget: let the first attempt run and write its
+		// verdict.
+		await vi.waitFor(() => {
+			expect(readJob(job.id).status).toBe("queued");
+		});
+		expect(extractor.calls).toHaveLength(1);
+		expect(inspectJobsForTests().extraction.backoffArmed).toBe(true);
+
+		// Only the clock moves: no upload, no retry, no wake.
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(extractor.calls).toHaveLength(2);
 		expect(readJob(job.id).status).toBe("succeeded");
 	});
 });

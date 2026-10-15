@@ -30,24 +30,24 @@ vi.mock("$lib/server/services/mineru/capabilities", () => ({
 	},
 }));
 
-const { wake } = vi.hoisted(() => ({ wake: vi.fn() }));
-
-// The façade reaches the worker through a lazy `import("./worker-runner")`, so
-// stubbing that module is enough to observe the wake without letting a timer
-// loose in a test process. Deliberately NOT an `importOriginal` mock of the
-// façade: that keeps one resolved copy of the ledger alive across
-// `vi.resetModules()`, and every case after the first would then read the
-// previous case's database.
-vi.mock("$lib/server/services/extraction/worker-runner", () => ({
-	wakeExtractionWorker: wake,
-}));
-
 type Route = typeof import("./+server");
-type Ledger = typeof import("$lib/server/services/extraction/job-ledger");
+type Ledger = typeof import("$lib/server/services/extraction/extraction-job");
+type Jobs = typeof import("$lib/server/services/jobs");
 
 let fixture: LedgerFixture;
 let route: Route;
 let ledger: Ledger;
+let jobs: Jobs;
+
+/**
+ * How many times the job engine was asked to wake the extraction kind. The route
+ * calls nothing itself: the engine wakes its kind whenever a transition leaves
+ * claimable work, and a wake does nothing in a process that never started the
+ * engine, so no timer is loosed in a test process.
+ */
+function wakes(): number {
+	return jobs.inspectJobsForTests().extraction?.wakeRequests ?? 0;
+}
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
@@ -86,7 +86,6 @@ function makeEvent(
 beforeEach(async () => {
 	probe.tiers = ["flash", "basic"];
 	probe.error = null;
-	wake.mockClear();
 
 	fixture = createLedgerFixture("extraction-reextract-route");
 	fixture.seedUser(OWNER);
@@ -95,10 +94,12 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	route = await import("./+server");
-	ledger = await import("$lib/server/services/extraction/job-ledger");
+	ledger = await import("$lib/server/services/extraction/extraction-job");
+	jobs = await import("$lib/server/services/jobs");
 });
 
 afterEach(() => {
+	jobs.resetJobsForTests();
 	fixture.cleanup();
 });
 
@@ -137,6 +138,7 @@ function jobRow(jobId: string) {
 		status: string;
 		hints_json: string | null;
 		remote_handle_json: string | null;
+		retry_state_json: string | null;
 		attempt_count: number;
 	};
 }
@@ -172,9 +174,8 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 			reextract: true,
 		});
 		expect(row.remote_handle_json).toBeNull();
-		// The façade wakes the worker through a lazy import, so the call lands a
-		// microtask after the response.
-		await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(1));
+		// The engine woke its kind: the job is claimable.
+		expect(wakes()).toBeGreaterThan(0);
 	});
 
 	it("refuses a tier that is not higher than the recorded one, before any job write", async () => {
@@ -201,7 +202,7 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 
 		expect(jobRow(job.id).status).toBe("succeeded");
 		expect(jobRow(job.id).hints_json).toBeNull();
-		expect(wake).not.toHaveBeenCalled();
+		expect(wakes()).toBe(0);
 	});
 
 	it("refuses the tier the document is already at", async () => {
@@ -265,7 +266,7 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 
 		expect(jobRow(job.id).status).toBe("succeeded");
 		expect(jobRow(job.id).hints_json).toBeNull();
-		expect(wake).not.toHaveBeenCalled();
+		expect(wakes()).toBe(0);
 	});
 
 	it("refuses a tier that is not a tier at all", async () => {
@@ -454,19 +455,19 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 	});
 
 	// The ceiling counts DOCUMENT attempts — `attempt_count` minus the attempts
-	// that were spent waiting on an unreachable backend (`$outage.waits`).
-	// `retryExtractionJob` discounts them; this route must too, or one 30-minute
-	// outage (about twelve waits at the default window) permanently disables
-	// Re-extract for a document that never failed once, while the Retry button
-	// beside it still works.
+	// that were spent waiting on an unreachable backend (`waits` in the job's
+	// `retry_state_json`). `retryExtractionJob` discounts them; this route must
+	// too, or one 30-minute outage (about twelve waits at the default window)
+	// permanently disables Re-extract for a document that never failed once, while
+	// the Retry button beside it still works.
 	it("discounts outage waits from the ceiling, exactly as Retry does", async () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
 		fixture.sqlite
 			.prepare(
-				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+				"UPDATE document_extraction_jobs SET attempt_count = ?, retry_state_json = ? WHERE id = ?",
 			)
-			.run(12, JSON.stringify({ $outage: { since: null, waits: 12 } }), job.id);
+			.run(12, JSON.stringify({ since: null, waits: 12 }), job.id);
 
 		const response = await route.POST(
 			makeEvent(artifactId, OWNER, { tier: "basic" }),
@@ -475,30 +476,33 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		expect(response.status).toBe(200);
 	});
 
-	// `$outage.waits` is cumulative and is the ONLY record of which attempts
-	// were not the document's fault. Replacing the whole `hints_json` column
-	// destroys it, so the waits retroactively start counting against both the
-	// ceiling and the Retry button.
+	// `waits` is cumulative and is the ONLY record of which attempts were not the
+	// document's fault. Forgetting it on a reopening destroys it, so the waits
+	// retroactively start counting against both the ceiling and the Retry button.
 	it("carries the outage discount across a re-extraction", async () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
 		fixture.sqlite
 			.prepare(
-				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+				"UPDATE document_extraction_jobs SET attempt_count = ?, retry_state_json = ? WHERE id = ?",
 			)
-			.run(6, JSON.stringify({ $outage: { since: 1_000, waits: 3 } }), job.id);
+			.run(6, JSON.stringify({ since: 1_000, waits: 3 }), job.id);
 
 		const response = await route.POST(
 			makeEvent(artifactId, OWNER, { tier: "basic" }),
 		);
 		expect(response.status).toBe(200);
 
+		// The hints are the caller's alone: the policy's memory is not a key in them.
 		expect(JSON.parse(jobRow(job.id).hints_json ?? "null")).toEqual({
 			tier: "basic",
 			reextract: true,
-			// A re-extraction is a fresh look, so the CURRENT window is cleared,
-			// but the cumulative discount survives — same rule as Retry.
-			$outage: { since: null, waits: 3 },
+		});
+		// A re-extraction is a fresh look, so the CURRENT window is cleared, but the
+		// cumulative discount survives — same rule as Retry.
+		expect(JSON.parse(jobRow(job.id).retry_state_json ?? "null")).toEqual({
+			since: null,
+			waits: 3,
 		});
 	});
 

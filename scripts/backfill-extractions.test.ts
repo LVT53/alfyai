@@ -1,5 +1,5 @@
 // scripts/backfill-extractions.ts, exercised against a real migrated SQLite
-// fixture — the same `createLedgerFixture` helper the extraction ledger's own
+// fixture — the same `createLedgerFixture` helper the extraction job's own
 // integration tests use. Each test owns a throwaway cwd (for
 // `data/knowledge/<userId>/…` files `resolveDeletablePath` can see) and a
 // throwaway database, and imports the script fresh after pointing
@@ -17,6 +17,8 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "$lib/server/services/extraction/testing/ledger-fixtures";
+import { runExtractionOnce } from "$lib/server/services/extraction/testing/run-once";
+import { resetSeams } from "$lib/server/services/extraction/testing/runner-seams";
 import { MINERU_TIER_IDS } from "$lib/server/services/mineru/config";
 import {
 	createFakeMineruServer,
@@ -38,6 +40,7 @@ let script: ScriptModule;
 async function reimport() {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
+	resetSeams();
 	script = await import("./backfill-extractions");
 }
 
@@ -387,7 +390,8 @@ describe("buildBackfillPlan: tier logic", () => {
 				sourceArtifactId: "doc-pdf",
 				intakeRoute: "mineru",
 				fileName: "report.pdf",
-				status: "parsing",
+				status: "running",
+				phase: "parsing",
 			})
 			.run();
 
@@ -425,9 +429,8 @@ describe("applyBackfillPlan: idempotency, --limit", () => {
 		expect(result.failed).toHaveLength(0);
 
 		// The job now exists, stamped by the script, and queued — simulate the
-		// worker finishing it successfully at the requested tier (the full,
-		// real worker + fake MinerU server path is covered separately in
-		// extraction-replace-path.e2e.test.ts).
+		// engine finishing it successfully at the requested tier (the full,
+		// real engine + fake MinerU server path is covered separately below).
 		const [job] = fixture.db
 			.select()
 			.from(schema.documentExtractionJobs)
@@ -1307,20 +1310,58 @@ describe("main: exit codes and operator-facing errors", () => {
 });
 
 describe("the script is not a second extraction worker", () => {
-	it("never calls wakeExtractionWorker", async () => {
-		// `wakeExtractionWorker` is in-process: it starts a drain in whoever calls
-		// it. From this CLI it could not reach the server's worker at all, and it
-		// DID turn the script into a competing claimant that `process.exit` then
-		// killed mid-attempt. Asserted against the source, because under vitest
-		// the function is a deliberate no-op and a behavioural test would pass
-		// either way. The server's scheduler idle-ticks the queue on its own.
+	it("never starts, wakes or drains the job engine, and never loads the handler", async () => {
+		// `startJobs`, `drain` and `runInline` are in-process: they start a drain in
+		// whoever calls them. From this CLI they could not reach the server's worker
+		// at all, and they WOULD turn the script into a competing claimant that
+		// `process.exit` then killed mid-attempt. Asserted against the source,
+		// because under vitest the engine is a deliberate no-op until a test asks
+		// and a behavioural test would pass either way. (The requeue wakes the kind,
+		// which is inert in a process that never called `startJobs`: that is
+		// asserted below.) The server's scheduler idle-ticks the queue on its own.
 		const source = await readFile(
 			join(REPO_ROOT, "scripts", "backfill-extractions.ts"),
 			"utf8",
 		);
 		const code = source.slice(source.indexOf("import { config"));
-		expect(code).not.toMatch(/\bwakeExtractionWorker\s*\(/);
-		expect(code).not.toMatch(/import\s*\([^)]*worker-runner/);
+		expect(code).not.toMatch(/\b(startJobs|drain|runInline|wake)\s*\(/);
+		expect(code).not.toMatch(/import\s*\([^)]*services\/jobs/);
+		expect(code).not.toMatch(/import\s*\([^)]*extraction-runner/);
+	});
+
+	it("leaves the requeued job queued: waking the engine starts nothing here", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-1",
+			userId: "user-1",
+			name: "a.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "a.pdf"),
+		});
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null },
+		);
+		expect(result.enqueued).toHaveLength(1);
+
+		// Let any drain the requeue's wake might have started run to its end.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		const [job] = fixture.db
+			.select()
+			.from(schema.documentExtractionJobs)
+			.where(eq(schema.documentExtractionJobs.sourceArtifactId, "doc-1"))
+			.all();
+		expect(job?.status).toBe("queued");
+		expect(job?.attemptCount).toBe(0);
+		expect(
+			fixture.sqlite
+				.prepare("SELECT count(*) AS n FROM document_extraction_job_attempts")
+				.get(),
+		).toEqual({ n: 0 });
 	});
 });
 
@@ -1410,15 +1451,11 @@ describe("the replace path, end to end against a real MinerU 4 fixture", () => {
 		expect(applyResult.failed).toEqual([]);
 		expect(applyResult.enqueued).toHaveLength(1);
 
-		// Run the REAL worker against the fake server — no scripted extractor,
-		// no fake `persistResult`: the same worker-runner + extractors/mineru4 +
-		// extraction/persist path a live deployment runs.
-		const worker = await import(
-			"$lib/server/services/extraction/worker-runner"
-		);
-		const outcome = await worker.executeNextExtractionJob({
-			workerId: "backfill-e2e",
-		});
+		// Run the REAL engine and handler against the fake server — no scripted
+		// extractor, no fake `persistResult`: the same job engine + extraction
+		// handler + extractors/mineru4 + extraction/persist path a live deployment
+		// runs.
+		const outcome = await runExtractionOnce(fixture.sqlite);
 		expect(outcome?.status).toBe("succeeded");
 
 		// The source document's identity is untouched.

@@ -1,4 +1,4 @@
-// End-to-end over the real ledger, the real worker and a scripted extractor.
+// End-to-end over the real job engine, the extraction kind and a scripted extractor.
 // The unit files prove each transition in isolation; this one proves the
 // sequences a user actually lives through.
 
@@ -6,7 +6,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { EXTRACTION_ERROR_CODES } from "$lib/shared/extraction-status";
 import {
 	createFakeExtractor,
@@ -16,20 +15,23 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
+import { type RunOnceOptions, runExtractionOnce } from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
-type Worker = typeof import("./worker-runner");
-type Ledger = typeof import("./job-ledger");
+type Jobs = typeof import("$lib/server/services/jobs");
+type Kind = typeof import("./extraction-job");
 type ReadModel = typeof import("./read-model");
 
 let fixture: LedgerFixture;
-let worker: Worker;
-let ledger: Ledger;
+let jobs: Jobs;
+let ledger: Kind;
 let readModel: ReadModel;
 let storageDir: string;
 
 const PAST = new Date(Date.now() - 600_000);
 
 beforeEach(async () => {
+	resetSeams();
 	fixture = createLedgerFixture("integration");
 	fixture.seedUser("user-1");
 	fixture.seedUser("user-2");
@@ -37,15 +39,22 @@ beforeEach(async () => {
 
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
-	worker = await import("./worker-runner");
-	ledger = await import("./job-ledger");
+	jobs = await import("$lib/server/services/jobs");
+	ledger = await import("./extraction-job");
 	readModel = await import("./read-model");
-	worker.resetExtractionWorkerForTests();
 });
 
 afterEach(async () => {
+	jobs.resetJobsForTests();
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed early.
+	}
 	fixture.cleanup();
 	await rm(storageDir, { recursive: true, force: true });
+	vi.restoreAllMocks();
 });
 
 async function seedJob(
@@ -75,22 +84,22 @@ async function seedJob(
 }
 
 function persistInto(fixtureRef: LedgerFixture, userId = "user-1") {
-	return (async () => {
+	return async () => {
 		const id = fixtureRef.seedArtifact({
 			userId,
 			type: "normalized_document",
 			name: `normalized-${Math.random()}.md`,
 		});
-		return { id } as Artifact;
-	}) as never;
+		return { id };
+	};
 }
 
+/** Runs the engine over what is claimable, and says which job it ran. */
 async function runOnce(
 	extractor: FakeExtractor,
-	overrides: Record<string, unknown> = {},
+	overrides: Omit<RunOnceOptions, "resolveExtractor" | "persistResult"> = {},
 ) {
-	return worker.executeNextExtractionJob({
-		workerId: "worker-1",
+	return runExtractionOnce(fixture.sqlite, {
 		resolveExtractor: () => extractor,
 		persistResult: persistInto(fixture),
 		...overrides,
@@ -253,7 +262,7 @@ describe("5 — a worker restart resumes the remote job", () => {
 			emitHandleAfterPhase: "parsing",
 		});
 
-		const running = runOnce(extractor, { heartbeatMs: 250 });
+		const running = runOnce(extractor, { config: { heartbeatMs: 250 } });
 		await vi.waitFor(async () => {
 			expect(
 				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
@@ -261,23 +270,13 @@ describe("5 — a worker restart resumes the remote job", () => {
 		});
 
 		// The process "dies": the attempt stops heartbeating and is recovered.
-		await ledger.recoverStaleExtractionAttempts({
+		await jobs.recover(ledger.extractionJob, {
 			staleBefore: new Date(Date.now() + 60_000),
-			maxAttempts: 3,
-			retryBaseMs: 2000,
-			retryMaxMs: 60000,
-			outageWindowMs: 1_800_000,
 		});
 		await running;
 		clearBackoffGates();
 
-		expect(
-			await worker.executeNextExtractionJob({
-				workerId: "worker-restarted",
-				resolveExtractor: () => extractor,
-				persistResult: persistInto(fixture),
-			}),
-		).toEqual({ jobId, status: "succeeded" });
+		expect(await runOnce(extractor)).toEqual({ jobId, status: "succeeded" });
 
 		expect(extractor.calls).toHaveLength(2);
 		expect(extractor.calls[0].resumed).toBe(false);
@@ -323,9 +322,12 @@ describe("7 — cancel while parsing", () => {
 			emitHandleAfterPhase: "parsing",
 		});
 
-		const running = runOnce(extractor, { heartbeatMs: 100 });
+		const running = runOnce(extractor, { config: { heartbeatMs: 100 } });
 		await vi.waitFor(async () => {
-			expect((await ledger.getExtractionJobRow(jobId))?.status).toBe("parsing");
+			expect(await ledger.getExtractionJobRow(jobId)).toMatchObject({
+				status: "running",
+				phase: "parsing",
+			});
 		});
 
 		await ledger.cancelExtractionJob({ userId: "user-1", jobId });
@@ -335,40 +337,8 @@ describe("7 — cancel while parsing", () => {
 			"remote-parsing",
 		]);
 		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.status).toBe("canceled");
+		expect(row?.status).toBe("cancelled");
 		expect(row?.completedAt).not.toBeNull();
-	});
-});
-
-describe("8 — concurrency caps hold across users and priorities", () => {
-	it("never exceeds the caps and never lets a readback jump an upload", async () => {
-		for (const userId of ["user-1", "user-2"]) {
-			for (let i = 0; i < 2; i += 1) {
-				await seedJob({ userId, name: `${userId}-upload-${i}.pdf` });
-			}
-			await seedJob({
-				userId,
-				name: `${userId}-readback.pdf`,
-				priority: 10,
-			});
-		}
-
-		const claims: string[] = [];
-		for (let i = 0; i < 4; i += 1) {
-			const claimed = await ledger.claimNextExtractionJob({
-				workerId: `w${i}`,
-				globalLimit: 2,
-				perUserLimit: 1,
-			});
-			if (claimed) claims.push(claimed.job.fileName);
-		}
-
-		// Global cap 2 means only two ever run; per-user cap 1 means they belong
-		// to different users; priority means both are uploads, not readbacks.
-		expect(claims).toHaveLength(2);
-		// One per user, because per-user 1 forces the second seat to the other.
-		expect(new Set(claims.map((name) => name.split("-")[1])).size).toBe(2);
-		expect(claims.every((name) => name.includes("upload"))).toBe(true);
 	});
 });
 
@@ -395,7 +365,7 @@ describe("9 — no ledger transaction is held across the extractor", () => {
 		expect(await runOnce(extractor)).toEqual({ jobId, status: "succeeded" });
 		expect(competingWriteSucceeded).toBe(true);
 		expect((await ledger.getExtractionJobRow(other.jobId))?.status).toBe(
-			"canceled",
+			"cancelled",
 		);
 	});
 });
@@ -470,8 +440,7 @@ describe("legacy artifacts alongside real rows", () => {
 		});
 
 		const routesSeen: string[] = [];
-		const result = await worker.executeNextExtractionJob({
-			workerId: "worker-legacy",
+		const result = await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: (intakeRoute) => {
 				routesSeen.push(intakeRoute);
 				return createFakeExtractor({

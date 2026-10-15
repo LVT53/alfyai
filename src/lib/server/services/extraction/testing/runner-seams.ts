@@ -12,16 +12,32 @@
 
 import { vi } from "vitest";
 import type { DocumentExtractor } from "../contracts";
+import type { DocumentExtractionIntakeRoute } from "../types";
 
 export interface RunnerSeams {
 	/** The extractor every route resolves to; null = the real registry. */
 	extractor: DocumentExtractor | null;
+	/** Picks an extractor per route, for a test that wants to see which routes ran. Wins over `extractor`. */
+	resolveExtractor:
+		| null
+		| ((route: DocumentExtractionIntakeRoute) => DocumentExtractor);
 	/** The indexing step; null = the real one. */
 	persist:
 		| null
 		| ((params: unknown) => Promise<{
 				id: string;
-				metadata?: Record<string, unknown>;
+				metadata?: Record<string, unknown> | null;
+		  }>);
+	/**
+	 * The real indexing step, as it was before the spy replaced it: for a test that
+	 * wants to run it and then do something to the world (a cancel that lands while
+	 * the chunks are inserted). Null until the seams are installed.
+	 */
+	realPersist:
+		| null
+		| ((params: never) => Promise<{
+				id: string;
+				metadata?: Record<string, unknown> | null;
 		  }>);
 	/** Config values laid over the real ones. */
 	config: Record<string, unknown>;
@@ -32,7 +48,9 @@ export interface RunnerSeams {
 
 export const seams: RunnerSeams = {
 	extractor: null,
+	resolveExtractor: null,
 	persist: null,
+	realPersist: null,
 	config: {},
 	onResolve: null,
 	installed: false,
@@ -41,7 +59,9 @@ export const seams: RunnerSeams = {
 /** Back to the real thing, for the next test. Call after `vi.resetModules()`. */
 export function resetSeams(): void {
 	seams.extractor = null;
+	seams.resolveExtractor = null;
 	seams.persist = null;
+	seams.realPersist = null;
 	seams.config = {};
 	seams.onResolve = null;
 	seams.installed = false;
@@ -56,10 +76,15 @@ export async function installSeams(): Promise<void> {
 	const config = await import("../config");
 	const resolveExtractor = registry.resolveExtractor;
 	const createNormalized = persist.createNormalizedArtifactFromExtraction;
+	seams.realPersist = createNormalized;
 	const getExtractionConfig = config.getExtractionConfig;
 	vi.spyOn(registry, "resolveExtractor").mockImplementation((route) => {
 		seams.onResolve?.();
-		return seams.extractor ?? resolveExtractor(route);
+		return (
+			seams.resolveExtractor?.(route) ??
+			seams.extractor ??
+			resolveExtractor(route)
+		);
 	});
 	vi.spyOn(
 		persist,

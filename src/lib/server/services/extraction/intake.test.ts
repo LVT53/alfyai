@@ -1,16 +1,14 @@
-// Every enqueue wakes the worker.
+// Intake: what `startUploadExtraction` and `startGeneratedFileReadback` do with
+// the job an upload or a generated file becomes.
 //
-// The live failure this file guards: a job sat `queued` 212 seconds past its
-// own backoff gate, and a `.txt` upload arrived in the middle of that wait and
-// did not unstick it — the direct-text path settles inline and used to return
-// before the `wakeExtractionWorker()` at the bottom of the function. The same
-// hole exists on every early return: a dedupe hit, an unsupported type. None of
-// them leaves a job of its OWN queued, which is not the same thing as there
-// being nothing to do.
-//
-// The wake itself is a no-op under vitest by design (a test that uploaded a
-// file would otherwise drain with the real extractor registry), so what these
-// assert is that the call was MADE.
+// Waking the worker is not the intake's business any more: the job engine wakes its
+// kind itself whenever a transition leaves claimable work, and a job waiting behind
+// a backoff gate has the timer the drain that requeued it armed (the live failure
+// this file once guarded, a job queued 212 seconds past its own gate while a `.txt`
+// upload arrived and did not unstick it, is the engine's `rearmAfterDrain` and idle
+// tick now, and is tested there). What is left to prove here is what the intake
+// itself decides: the route stamped on the job, which jobs settle inside the request,
+// which are born settled, and what a re-upload of the same bytes means.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,17 +22,20 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
+import { runExtractionOnce } from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
 type Intake = typeof import("./intake");
-type Worker = typeof import("./worker-runner");
+type Jobs = typeof import("$lib/server/services/jobs");
 
 let fixture: LedgerFixture;
 let intake: Intake;
-let worker: Worker;
+let jobs: Jobs;
 let storageDir: string;
 const userId = "user-1";
 
 beforeEach(async () => {
+	resetSeams();
 	fixture = createLedgerFixture("intake");
 	fixture.seedUser(userId);
 	storageDir = await mkdtemp(join(tmpdir(), "alfyai-intake-"));
@@ -42,18 +43,25 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	intake = await import("./intake");
-	worker = await import("./worker-runner");
-	worker.resetExtractionWorkerForTests();
+	jobs = await import("$lib/server/services/jobs");
 });
 
 afterEach(async () => {
-	worker.resetExtractionWorkerForTests();
+	jobs.resetJobsForTests();
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed early.
+	}
 	fixture.cleanup();
 	await rm(storageDir, { recursive: true, force: true });
+	vi.restoreAllMocks();
 });
 
+/** How many times the engine was asked to wake the extraction kind. */
 function wakes(): number {
-	return worker.inspectExtractionSchedulerForTests().wakeRequests;
+	return jobs.inspectJobsForTests().extraction?.wakeRequests ?? 0;
 }
 
 async function storedArtifact(
@@ -80,7 +88,7 @@ async function storedArtifact(
 }
 
 describe("startUploadExtraction", () => {
-	it("wakes on the inline direct-text path that settles inside the request", async () => {
+	it("settles a direct-text upload inside the request", async () => {
 		const artifact = await storedArtifact("notes.txt", "text/plain");
 
 		const dto = await intake.startUploadExtraction({
@@ -91,10 +99,24 @@ describe("startUploadExtraction", () => {
 		});
 
 		expect(dto.status).toBe("succeeded");
+		expect(dto.normalizedArtifactId).not.toBeNull();
+	});
+
+	it("leaves the job queued for the engine when the inline budget is zero, and says so to the engine", async () => {
+		const artifact = await storedArtifact("notes.txt", "text/plain");
+
+		const dto = await intake.startUploadExtraction({
+			userId,
+			conversationId: null,
+			artifact,
+			inlineBudgetMs: 0,
+		});
+
+		expect(dto.status).toBe("queued");
 		expect(wakes()).toBeGreaterThan(0);
 	});
 
-	it("wakes when the job is left queued for the worker", async () => {
+	it("leaves a PDF queued for the engine", async () => {
 		const artifact = await storedArtifact("report.pdf", "application/pdf");
 
 		const dto = await intake.startUploadExtraction({
@@ -104,10 +126,11 @@ describe("startUploadExtraction", () => {
 		});
 
 		expect(dto.status).toBe("queued");
+		expect(dto.intakeRoute).toBe("mineru");
 		expect(wakes()).toBeGreaterThan(0);
 	});
 
-	it("wakes on a dedupe hit that is born succeeded", async () => {
+	it("answers a dedupe hit as succeeded without running anything", async () => {
 		const artifact = await storedArtifact("dupe.pdf", "application/pdf");
 		const normalizedArtifactId = fixture.seedArtifact({
 			userId,
@@ -122,11 +145,14 @@ describe("startUploadExtraction", () => {
 			existingNormalizedArtifactId: normalizedArtifactId,
 		});
 
-		expect(dto.status).toBe("succeeded");
-		expect(wakes()).toBeGreaterThan(0);
+		expect(dto).toMatchObject({
+			status: "succeeded",
+			normalizedArtifactId,
+			attemptCount: 0,
+		});
 	});
 
-	it("wakes on an unsupported type that is born failed", async () => {
+	it("answers an unsupported type as failed without ever queueing it", async () => {
 		const artifact = await storedArtifact("clip.mp4", "video/mp4");
 
 		const dto = await intake.startUploadExtraction({
@@ -135,8 +161,12 @@ describe("startUploadExtraction", () => {
 			artifact,
 		});
 
-		expect(dto.status).toBe("failed");
-		expect(wakes()).toBeGreaterThan(0);
+		expect(dto).toMatchObject({
+			status: "failed",
+			attemptCount: 0,
+			error: { code: "unsupported_type" },
+		});
+		expect(wakes()).toBe(0);
 	});
 
 	// Phase 5 P5-B: the MinerU-4 availability gate's html fallback (amended
@@ -162,10 +192,10 @@ describe("startUploadExtraction", () => {
 				},
 			);
 			vi.resetModules();
+			resetSeams();
 			const freshIntake: Intake = await import("./intake");
-			const freshWorker: Worker = await import("./worker-runner");
-			freshWorker.resetExtractionWorkerForTests();
-			return { freshIntake, freshWorker };
+			jobs = await import("$lib/server/services/jobs");
+			return { freshIntake };
 		}
 
 		it("keeps html on the mineru route while the gate is open", async () => {
@@ -231,7 +261,7 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 			.all();
 	}
 
-	it("retries a canceled direct-text job and settles it inline", async () => {
+	it("retries a cancelled direct-text job and settles it inline", async () => {
 		const artifact = await storedArtifact(
 			"minutes.txt",
 			"text/plain",
@@ -248,7 +278,7 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 		});
 		expect(first.status).toBe("queued");
 
-		const ledger = await import("./job-ledger");
+		const ledger = await import("./extraction-job");
 		await ledger.cancelExtractionJob({ userId, jobId: first.id });
 
 		const second = await intake.startUploadExtraction({
@@ -336,7 +366,6 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 			.set({
 				status: "failed",
 				attemptCount: ceiling,
-				currentAttemptId: null,
 				errorCode: "max_attempts",
 				errorMessage: "This document has been tried as often as it may be.",
 				retryable: true,
@@ -357,12 +386,12 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 	});
 
 	it("turns two simultaneous re-uploads into exactly one retry", async () => {
-		// Counts the ledger transitions rather than inferring them: "one retry"
-		// is a claim about the CAS inside `retryExtractionJob`, and a test that
-		// only looked at the final row could not tell one transition from two.
+		// Counts the transitions rather than inferring them: "one retry" is a claim
+		// about the engine's compare-and-set inside `retryExtractionJob`, and a test
+		// that only looked at the final row could not tell one transition from two.
 		const retried: (string | null)[] = [];
-		vi.doMock("./job-ledger", async (importOriginal) => {
-			const actual = await importOriginal<typeof import("./job-ledger")>();
+		vi.doMock("./extraction-job", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("./extraction-job")>();
 			return {
 				...actual,
 				retryExtractionJob: async (
@@ -376,9 +405,9 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 		});
 		try {
 			vi.resetModules();
+			resetSeams();
 			const freshIntake: Intake = await import("./intake");
-			const freshWorker: Worker = await import("./worker-runner");
-			freshWorker.resetExtractionWorkerForTests();
+			jobs = await import("$lib/server/services/jobs");
 
 			const artifact = await storedArtifact("race.pdf", "application/pdf");
 			const first = await freshIntake.startUploadExtraction({
@@ -386,8 +415,7 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 				conversationId: null,
 				artifact,
 			});
-			await freshWorker.executeNextExtractionJob({
-				workerId: "worker-race-1",
+			await runExtractionOnce(fixture.sqlite, {
 				resolveExtractor: () =>
 					createFakeExtractor({
 						steps: [{ kind: "throw", code: "backend_misconfigured" }],
@@ -419,8 +447,7 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 			expect(requeued).toHaveLength(1);
 			expect(requeued[0]?.attemptCount).toBe(1);
 
-			await freshWorker.executeNextExtractionJob({
-				workerId: "worker-race-2",
+			await runExtractionOnce(fixture.sqlite, {
 				resolveExtractor: () =>
 					createFakeExtractor({
 						steps: [{ kind: "succeed", text: "Read at last." }],
@@ -428,18 +455,16 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 			});
 			expect(jobRows(artifact.id)[0]?.attemptCount).toBe(2);
 			expect(
-				await freshWorker.executeNextExtractionJob({
-					workerId: "worker-race-3",
+				await runExtractionOnce(fixture.sqlite, {
 					resolveExtractor: () =>
 						createFakeExtractor({ steps: [{ kind: "succeed" }] }),
 				}),
 			).toBeNull();
 		} finally {
 			// The mock has to go before the next test, and not only because it is
-			// tidy: a ledger module left mocked keeps the database singleton it
-			// closed over, so the test after this one would write to the previous
-			// fixture's file.
-			vi.doUnmock("./job-ledger");
+			// tidy: a module left mocked keeps the database singleton it closed over,
+			// so the test after this one would write to the previous fixture's file.
+			vi.doUnmock("./extraction-job");
 			vi.resetModules();
 		}
 	});
@@ -470,7 +495,7 @@ describe("startGeneratedFileReadback", () => {
 			);
 	}
 
-	it("wakes when the readback job is queued", async () => {
+	it("queues a readback behind uploads, and says so to the engine", async () => {
 		await seedGeneratedFile("generated.pdf", "application/pdf");
 
 		const dto = await intake.startGeneratedFileReadback({
@@ -484,9 +509,15 @@ describe("startGeneratedFileReadback", () => {
 
 		expect(dto.status).toBe("queued");
 		expect(wakes()).toBeGreaterThan(0);
+		const [row] = fixture.db.select().from(schema.documentExtractionJobs).all();
+		expect(row).toMatchObject({
+			origin: "generated_file_readback",
+			priority: 10,
+			chatGeneratedFileId: "gen-1",
+		});
 	});
 
-	it("wakes even when the readback is refused outright", async () => {
+	it("answers a refused readback as failed, never queued", async () => {
 		await seedGeneratedFile("clip.mp4", "video/mp4");
 
 		const dto = await intake.startGeneratedFileReadback({
@@ -499,6 +530,6 @@ describe("startGeneratedFileReadback", () => {
 		});
 
 		expect(dto.status).toBe("failed");
-		expect(wakes()).toBeGreaterThan(0);
+		expect(dto.error?.code).toBe("unsupported_type");
 	});
 });

@@ -1,13 +1,17 @@
 // The façade.
 //
-// Ledger reads and ledger writes are re-exported directly; anything that can
-// reach an extractor is loaded through a lazy `import()`. That split is the
-// whole point of this file: a poll endpoint that only reads rows must not pull
-// `node:fs` and a backend HTTP client into its bundle, and a static re-export
-// of the worker would do exactly that. Mirrors `file-production/index.ts`.
+// Job reads and job writes are re-exported directly; anything that can reach an
+// extractor is loaded through a lazy `import()` (the intake) or by the job engine
+// on the first claim (the handler). That split is the whole point of this file: a
+// poll endpoint that only reads rows must not pull `node:fs` and a backend HTTP
+// client into its bundle, and a static re-export of the handler would do exactly
+// that. Mirrors `file-production/index.ts`.
+//
+// What runs a job is the job engine (`services/jobs`), started once from
+// `hooks.server.ts` with the kind this folder defines (`extraction-job.ts`); there
+// is no worker to ensure, wake or drain from here.
 
 type IntakeModule = typeof import("./intake");
-type WorkerRunnerModule = typeof import("./worker-runner");
 
 export type { ExtractionConfig } from "./config";
 export { getExtractionConfig } from "./config";
@@ -20,39 +24,30 @@ export type {
 	ExtractionProgress,
 } from "./contracts";
 export type {
-	StartGeneratedFileReadbackParams,
-	StartUploadExtractionParams,
-} from "./intake";
-export type {
 	CancelExtractionJobInput,
-	ClaimExtractionJobInput,
-	ClaimedExtractionJob,
-	CompleteExtractionAttemptInput,
 	DocumentExtractionAttemptRow,
 	DocumentExtractionJobRow,
 	EnqueueExtractionJobInput,
 	EnqueueExtractionJobResult,
-	FailExtractionAttemptInput,
+	ExtractionJobVerdict,
 	MaterializeLegacyExtractionJobInput,
-	OwnedAttemptInput,
-	RecoverStaleExtractionAttemptsInput,
 	RetryExtractionJobInput,
-} from "./job-ledger";
+	WaitForExtractionJobVerdictInput,
+} from "./extraction-job";
 export {
+	cancelActiveDocumentExtractionForUser,
 	cancelExtractionJob,
 	enqueueExtractionJob,
 	getExtractionJobRow,
-	isCancelRequested,
 	listExtractionJobAttempts,
 	materializeLegacyExtractionJob,
 	retryExtractionJob,
-} from "./job-ledger";
+	waitForExtractionJobVerdict,
+} from "./extraction-job";
 export type {
-	ExtractionJobLookup,
-	ExtractionJobVerdict,
-	WaitForExtractionJobVerdictInput,
-} from "./job-wait";
-export { waitForExtractionJobVerdict } from "./job-wait";
+	StartGeneratedFileReadbackParams,
+	StartUploadExtractionParams,
+} from "./intake";
 export {
 	getExtractionJobById,
 	getExtractionJobForArtifact,
@@ -60,6 +55,8 @@ export {
 	LEGACY_EXTRACTION_GRACE_MS,
 	mapExtractionJobRow,
 } from "./read-model";
+export type { ReadbackExtractionSink } from "./readback-sink";
+export { setGeneratedFileReadbackSink } from "./readback-sink";
 export type {
 	DocumentExtractionIntakeRoute,
 	DocumentExtractionOrigin,
@@ -68,18 +65,9 @@ export {
 	EXTRACTION_PRIORITY_READBACK,
 	EXTRACTION_PRIORITY_UPLOAD,
 } from "./types";
-export type {
-	ExecuteNextExtractionJobInput,
-	ExecuteNextExtractionJobResult,
-	ReadbackExtractionSink,
-} from "./worker-runner";
 
 async function loadIntake(): Promise<IntakeModule> {
 	return import("./intake");
-}
-
-async function loadWorkerRunner(): Promise<WorkerRunnerModule> {
-	return import("./worker-runner");
 }
 
 export async function startUploadExtraction(
@@ -94,45 +82,4 @@ export async function startGeneratedFileReadback(
 ): ReturnType<IntakeModule["startGeneratedFileReadback"]> {
 	const { startGeneratedFileReadback } = await loadIntake();
 	return startGeneratedFileReadback(...args);
-}
-
-export async function drainExtractionWorker(
-	...args: Parameters<WorkerRunnerModule["drainExtractionWorker"]>
-): ReturnType<WorkerRunnerModule["drainExtractionWorker"]> {
-	const { drainExtractionWorker } = await loadWorkerRunner();
-	return drainExtractionWorker(...args);
-}
-
-export async function executeNextExtractionJob(
-	...args: Parameters<WorkerRunnerModule["executeNextExtractionJob"]>
-): ReturnType<WorkerRunnerModule["executeNextExtractionJob"]> {
-	const { executeNextExtractionJob } = await loadWorkerRunner();
-	return executeNextExtractionJob(...args);
-}
-
-export async function runDirectTextExtractionInline(
-	...args: Parameters<WorkerRunnerModule["runDirectTextExtractionInline"]>
-): ReturnType<WorkerRunnerModule["runDirectTextExtractionInline"]> {
-	const { runDirectTextExtractionInline } = await loadWorkerRunner();
-	return runDirectTextExtractionInline(...args);
-}
-
-export async function setGeneratedFileReadbackSink(
-	...args: Parameters<WorkerRunnerModule["setGeneratedFileReadbackSink"]>
-): Promise<void> {
-	const { setGeneratedFileReadbackSink } = await loadWorkerRunner();
-	setGeneratedFileReadbackSink(...args);
-}
-
-export function wakeExtractionWorker(): void {
-	void loadWorkerRunner()
-		.then(({ wakeExtractionWorker }) => wakeExtractionWorker())
-		.catch((error) => {
-			console.error("[EXTRACTION] Failed to wake worker", { error });
-		});
-}
-
-export async function ensureExtractionWorker(): Promise<void> {
-	const { ensureExtractionWorker } = await loadWorkerRunner();
-	return ensureExtractionWorker();
 }

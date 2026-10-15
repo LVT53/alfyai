@@ -208,9 +208,10 @@ back to `direct-text` on an old backend, in which case the cap applies to them a
 
 ## The async extraction flow
 
-An upload returns as soon as the bytes are stored; a durable ledger
-(`document_extraction_jobs`, [`src/lib/server/services/extraction/`](../src/lib/server/services/extraction/))
-then claims the job, runs it, and persists the result, so a process restart resumes rather than
+An upload returns as soon as the bytes are stored; a durable job
+(`document_extraction_jobs`, [`src/lib/server/services/extraction/`](../src/lib/server/services/extraction/),
+run by the shared job engine in [`src/lib/server/services/jobs/`](../src/lib/server/services/jobs/))
+is then claimed, run, and its result persisted, so a process restart resumes rather than
 restarts. The route decision above (`mineru` vs. `direct-text` vs. `reject`) is read once, at
 enqueue time, from the shared registry (adjusted for the MinerU-4 gate); nothing downstream
 re-derives it.
@@ -433,8 +434,8 @@ Running the script again after a partial run (or after `--limit` capped an earli
 touches what is left; a full second run against an already-completed library enqueues nothing.
 
 **Fairness.** The script enqueues every eligible document up front rather than throttling in
-rounds: the worker's own claim query
-([`job-ledger.ts`](../src/lib/server/services/extraction/job-ledger.ts), the `headIds` query) already
+rounds: the job engine's own claim query
+([`ledger.ts`](../src/lib/server/services/jobs/ledger.ts), the `headIds` query) already
 claims one row **per user** — that user's oldest claimable job — before it ever looks at priority or
 age, so flooding the queue with one account's whole library cannot starve any other account's claim.
 
@@ -498,8 +499,9 @@ a different tier from the Knowledge list. Documents still queued or failed are n
 (they have not been rewritten), and a legacy document that had no text before the backfill can
 never be flagged, because it had nothing to lose.
 
-**It enqueues; it does not extract.** The script writes ledger rows and stops. The running server's
-own extraction worker picks the queue up on its next idle tick (5–60 s) and drains it at the
+**It enqueues; it does not extract.** The script writes ledger rows and stops (the job engine is never
+started in the script's process, so waking it from there does nothing). The running server's own
+extraction worker picks the queue up on its next idle tick (5–60 s) and drains it at the
 concurrency the admin Advanced page sets (`documentExtractionMaxConcurrency` /
 `documentExtractionPerUserConcurrency`) — so the backfill's rate is that setting, not anything the
 script chooses, and stopping it is a matter of turning the worker off, not of killing the script. A

@@ -32,7 +32,7 @@ import {
 import {
 	type ReadbackExtractionSink,
 	setGeneratedFileReadbackSink,
-} from "./worker-runner";
+} from "./readback-sink";
 
 /**
  * The wrapper's wire format. It now lives in a dependency-free module of its
@@ -246,19 +246,20 @@ const readbackSink: ReadbackExtractionSink = (input) =>
 	});
 
 /**
- * Points the worker at this module's sink.
+ * Points the extraction handler at this module's sink.
  *
- * Idempotent by construction — the worker holds one slot, not a list — so a
- * double import, an HMR re-evaluation or a test that called
- * `resetExtractionWorkerForTests()` all end with exactly one registration.
+ * Idempotent by construction — the handler reads one slot, not a list — so a
+ * double import, an HMR re-evaluation or a test that cleared the slot all end with
+ * exactly one registration.
  *
  * Registration has to be synchronous and has to happen at import, not at the
- * first enqueue: a readback job queued before a restart is claimed by
- * `ensureExtractionWorker()` during server init, and a sink registered from a
- * promise would be racing that claim. `chat-files.ts` imports this module
- * statically and is itself on the boot import path (`hooks.server.ts` →
- * `memory-maintenance.ts` → `chat-files.ts`), so the slot is filled before
- * `init()` runs.
+ * first enqueue: a readback job queued before a restart is claimed by the job
+ * engine during server init (`startJobs`), and a sink registered from a promise
+ * would be racing that claim. `chat-files.ts` imports this module statically and is
+ * itself on the boot import path (`hooks.server.ts` → `memory-maintenance.ts` →
+ * `chat-files.ts`), so the slot is filled before `init()` runs. The slot is a module
+ * of its own (`readback-sink.ts`) so that registering here costs nothing: the
+ * handler, the extractor registry and the MinerU client load on the first claim.
  */
 export function ensureGeneratedFileReadbackSinkRegistered(): void {
 	setGeneratedFileReadbackSink(readbackSink);

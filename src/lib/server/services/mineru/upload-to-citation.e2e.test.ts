@@ -4,8 +4,8 @@
 //
 //   POST /api/knowledge/upload
 //     -> upload-intake        (magic bytes, storage, artifact row)
-//     -> the extraction ledger (a queued job, one per source artifact)
-//     -> the worker            (claim, heartbeat, progress, verdict)
+//     -> the extraction job    (a queued job, one per source artifact)
+//     -> the job engine        (claim, heartbeat, progress, verdict)
 //     -> extractors/mineru4    (capabilities, upload, job, poll, download)
 //     -> mineru/result         (zip -> blocks -> prompt markdown -> pages)
 //     -> mineru/bundle         (normalized.md, pages.json, images/)
@@ -14,7 +14,7 @@
 //     -> task-state/artifacts  (the snippet the MODEL sees, with "[p. N]")
 //
 // Every other test of this phase cuts one of those seams: the extractor tests
-// stub the ledger, `mineru/integration.test.ts` always passes a fake
+// stub the engine, `mineru/integration.test.ts` always passes a fake
 // `persistResult`, and `upload-route-to-artifact.integration.test.ts` uses a
 // fake extractor. Each is a reasonable unit test, and not one of them would
 // notice if the pieces stopped fitting together — which is the failure mode of
@@ -34,6 +34,8 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "$lib/server/services/extraction/testing/ledger-fixtures";
+import { runExtractionOnce } from "$lib/server/services/extraction/testing/run-once";
+import { resetSeams } from "$lib/server/services/extraction/testing/runner-seams";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
@@ -54,7 +56,7 @@ beforeEach(async () => {
 	fixture.seedUser(USER_ID);
 	server = await createFakeMineruServer({ fixtureInput: "pdf" });
 
-	// `knowledgeUserDir`, the bundle directory and the worker's source lookup
+	// `knowledgeUserDir`, the bundle directory and the handler's source lookup
 	// all hang off `process.cwd()`, so the test owns a throwaway one rather
 	// than writing into the checkout's `data/`.
 	cwdDir = await mkdtemp(join(tmpdir(), "alfyai-mineru-e2e-"));
@@ -76,6 +78,7 @@ beforeEach(async () => {
 	process.env.SMALL_FILE_THRESHOLD_CHARS = "1";
 
 	vi.resetModules();
+	resetSeams();
 });
 
 afterEach(async () => {
@@ -129,14 +132,9 @@ describe("upload → MinerU 4 → chunks with pages → a cited prompt snippet",
 		expect(payload.extraction.status).toBe("queued");
 		expect(payload.promptReady).toBe(false);
 
-		// 2. The worker runs the REAL extractor against the fake server. No
+		// 2. The engine runs the REAL extractor against the fake server. No
 		//    `persistResult` override: `persist.ts` is in the path too.
-		const worker = await import(
-			"$lib/server/services/extraction/worker-runner"
-		);
-		const outcome = await worker.executeNextExtractionJob({
-			workerId: "mineru-e2e",
-		});
+		const outcome = await runExtractionOnce(fixture.sqlite);
 		expect(outcome).toEqual({
 			jobId: expect.any(String),
 			status: "succeeded",

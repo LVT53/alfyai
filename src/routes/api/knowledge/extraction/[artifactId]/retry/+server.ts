@@ -18,7 +18,6 @@ import {
 	getExtractionJobForArtifact,
 	materializeLegacyExtractionJob,
 	retryExtractionJob,
-	wakeExtractionWorker,
 } from "$lib/server/services/extraction";
 import type { RequestHandler } from "./$types";
 
@@ -60,10 +59,9 @@ export const POST: RequestHandler = async (event) => {
 		jobId = materialized.id;
 	}
 
+	// The engine wakes its kind itself: nothing to call from here.
 	const retried = await retryExtractionJob({ userId: user.id, jobId });
 	if (!retried) return notFound();
-
-	wakeExtractionWorker();
 
 	const job = await getExtractionJobById({ userId: user.id, jobId });
 	if (!job) return notFound();

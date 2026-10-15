@@ -163,6 +163,17 @@ export function readExtractionRetryState(
 	}
 }
 
+/**
+ * What a reopening (the user's Retry, Re-extract) carries across of the policy's
+ * memory: `waits` is cumulative and never reset, because it is what the attempt
+ * budget is discounted by, and the outage window starts again. Nothing to carry
+ * leaves the column empty. Takes the parsed state the engine hands a `reopen`.
+ */
+export function carryExtractionOutageWaits(state: unknown): unknown {
+	const outage = parseExtractionOutageState(state);
+	return outage.waits > 0 ? { since: null, waits: outage.waits } : null;
+}
+
 /** True when there is nothing to remember: the column is better left empty. */
 export function isEmptyExtractionOutageState(
 	state: ExtractionOutageState,

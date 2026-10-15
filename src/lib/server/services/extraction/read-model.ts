@@ -21,20 +21,22 @@ import {
 	documentExtractionJobs,
 } from "$lib/server/db/schema";
 import type {
+	DocumentExtractionActiveStatus,
 	DocumentExtractionJobDTO,
 	DocumentExtractionStatus,
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import {
+	isActiveExtractionStatus,
 	isExtractionErrorCode,
 	isTerminalExtractionStatus,
 	legacyExtractionJobId,
 } from "$lib/shared/extraction-status";
 import { getExtractionConfig } from "./config";
 import {
-	extractionAttemptCeiling,
 	extractionDocumentAttempts,
-	readExtractionOutageState,
+	extractionRetryBudgetLeft,
+	readExtractionRetryState,
 } from "./retry-policy";
 import type { DocumentExtractionJobRow } from "./types";
 
@@ -48,11 +50,32 @@ export const LEGACY_EXTRACTION_GRACE_MS = 5 * 60 * 1000;
 const LEGACY_UNKNOWN_MESSAGE =
 	"This document predates the extraction ledger, so its result is unknown.";
 
+/**
+ * The word the browser reads for a stored status. The job engine stores five
+ * (queued, running, succeeded, failed, cancelled) and the DTO's vocabulary kept the
+ * ledger's eight: a running job says which phase it is in, and a cancelled one is
+ * `canceled`, with one l, the way every client surface already spells it
+ * (`shared/extraction-status.ts`, pinned by its test).
+ *
+ * A word the engine does not store (a row the previous release wrote in the deploy
+ * window, before the startup shim rewrote it) is already in the DTO's vocabulary and
+ * passes through as it is.
+ */
+function dtoStatusOf(row: DocumentExtractionJobRow): DocumentExtractionStatus {
+	if (row.status === "running") {
+		return isActiveExtractionStatus(row.phase as DocumentExtractionStatus)
+			? (row.phase as DocumentExtractionActiveStatus)
+			: "uploading";
+	}
+	if (row.status === "cancelled") return "canceled";
+	return row.status as DocumentExtractionStatus;
+}
+
 export function mapExtractionJobRow(
 	row: DocumentExtractionJobRow,
 	maxAttempts: number,
 ): DocumentExtractionJobDTO {
-	const status = row.status as DocumentExtractionStatus;
+	const status = dtoStatusOf(row);
 	const terminal = isTerminalExtractionStatus(status);
 	const code: ExtractionErrorCode | null = isExtractionErrorCode(row.errorCode)
 		? row.errorCode
@@ -65,7 +88,7 @@ export function mapExtractionJobRow(
 	// outage, and would silently close the Retry button they are owed.
 	const attemptCount = extractionDocumentAttempts(
 		row.attemptCount,
-		readExtractionOutageState(row.hintsJson),
+		readExtractionRetryState(row.retryState),
 	);
 
 	return {
@@ -84,9 +107,11 @@ export function mapExtractionJobRow(
 		// (`empty_result`, `too_large`) cannot be helped by trying once more.
 		//
 		// The ceiling overrides both. `retryExtractionJob` refuses past it, so
-		// offering the button there would be a promise the ledger will not keep.
+		// offering the button there would be a promise the engine will not keep:
+		// this is the very rule the kind's `userRetry` applies, asked of the same
+		// helper.
 		retryable:
-			attemptCount < extractionAttemptCeiling(maxAttempts) &&
+			extractionRetryBudgetLeft(row, maxAttempts) &&
 			(status === "canceled" ||
 				(status === "failed" && Boolean(row.retryable))),
 		cancelable: !terminal && row.cancelRequestedAt === null,
