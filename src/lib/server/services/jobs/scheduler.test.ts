@@ -496,6 +496,57 @@ describe("backoff", () => {
 	});
 });
 
+describe("a policy that never gives up", () => {
+	it("ends a drain that keeps claiming the same job, and the next tick carries on", async () => {
+		// A policy that requeues with no delay, for a handler that always fails:
+		// without a limit this is a loop that writes the database as fast as it can.
+		h.control.decide = () => ({ requeue: true, delayMs: 0 });
+		h.control.run = async (ctx) => {
+			await ctx.fail({ code: "flaky", message: "Flaky.", retryable: true });
+		};
+		await boot();
+		const { row } = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(job(row.id)).toMatchObject({ status: "queued", attemptCount: 10 });
+		expect(console.warn).toHaveBeenCalledWith(
+			"[TEST] Job claimed 10 times in a row; ending this drain",
+			{ jobId: row.id },
+		);
+
+		// It is not abandoned: the next tick drains again, ten attempts at a time.
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
+		expect(job(row.id).attemptCount).toBe(20);
+	});
+
+	it("does not mind many jobs, or a job that is retried a few times", async () => {
+		let calls = 0;
+		h.control.decide = (_failure, history) =>
+			history.attempts < 4
+				? { requeue: true, delayMs: 0 }
+				: { requeue: false, retryable: true };
+		h.control.run = async (ctx) => {
+			calls += 1;
+			if (ctx.attempt.number < 4) {
+				await ctx.fail({ code: "flaky", message: "Flaky.", retryable: true });
+				return;
+			}
+			await ctx.succeed();
+		};
+		await boot();
+		const ids = [] as string[];
+		for (let n = 0; n < 15; n += 1) ids.push((await enqueue()).row.id);
+		await vi.advanceTimersByTimeAsync(0);
+
+		for (const id of ids) expect(job(id).status).toBe("succeeded");
+		expect(calls).toBe(15 * 4);
+		expect(console.warn).not.toHaveBeenCalledWith(
+			expect.stringContaining("in a row"),
+			expect.anything(),
+		);
+	});
+});
+
 describe("the switch", () => {
 	it("stops new claims while a running attempt finishes, and resumes at the next tick", async () => {
 		await boot();

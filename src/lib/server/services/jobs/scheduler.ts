@@ -269,20 +269,30 @@ function runBootSweeps(kind: JobKind): void {
 // Drain
 // ---------------------------------------------------------------------------
 
-/** Claims and runs one job. Returns whether it ran one. */
-async function runNextJob(kind: JobKind): Promise<boolean> {
-	if (jobsState().stopped) return false;
+/**
+ * A drain that claims the same job this many times in a row is spinning: a policy
+ * that requeues with no delay, again and again, and a handler that never gets it
+ * right. Every real policy is bounded (Atlas takes a lost attempt back three
+ * times; extraction backs off by seconds, which a drain does not wait for), so
+ * this never trips on one; on a policy bug it turns a hot loop that writes the
+ * database as fast as it can into ten attempts per idle tick.
+ */
+const MAX_CLAIMS_OF_ONE_JOB_IN_A_ROW = 10;
+
+/** Claims and runs one job. Returns its id, or null when there was nothing to run (or no leave to). */
+async function runNextJob(kind: JobKind): Promise<string | null> {
+	if (jobsState().stopped) return null;
 	const { definition } = internalsOf(kind);
 	// Read per step, never captured, so switching a kind off stops the very next
 	// claim, including the one the loop is about to make, without a restart. An
 	// attempt already running is untouched: it keeps its heartbeat and reports.
-	if (!definition.enabled()) return false;
+	if (!definition.enabled()) return null;
 
 	const workerId = workerIdFor(kind.name);
 	const claimed = claimNext(kind, { workerId });
-	if (!claimed) return false;
+	if (!claimed) return null;
 	await runAttempt(kind, claimed, { workerId });
-	return true;
+	return claimed.row.id;
 }
 
 /**
@@ -298,9 +308,23 @@ async function runNextJob(kind: JobKind): Promise<boolean> {
  */
 async function drainLoop(kind: JobKind): Promise<void> {
 	const state = kindScheduler(kind.name);
+	let lastJobId: string | null = null;
+	let inARow = 0;
 	try {
 		for (;;) {
-			if (await runNextJob(kind)) continue;
+			const ranJobId = await runNextJob(kind);
+			if (ranJobId !== null) {
+				inARow = ranJobId === lastJobId ? inARow + 1 : 1;
+				lastJobId = ranJobId;
+				if (inARow >= MAX_CLAIMS_OF_ONE_JOB_IN_A_ROW) {
+					console.warn(
+						`${kind.logPrefix} Job claimed ${inARow} times in a row; ending this drain`,
+						{ jobId: ranJobId },
+					);
+					return;
+				}
+				continue;
+			}
 			if (jobsState().stopped) return;
 			if (Date.now() - state.lastRecoveryAt < idleTickIntervalMs(kind)) return;
 			if (runSweep(kind, "drain").requeued === 0) return;
