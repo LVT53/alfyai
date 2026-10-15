@@ -31,9 +31,10 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | Builder check | done | 7 questions; 6 settled as my calls in design.md and plan.md; the push scope asked of the owner |
 | S1 engine | done, merged `50d58309e` | 14 commits, 264 engine tests; gates at `884a14257`: check 0/17, vitest 19,173, smoke 236/236, Fallow 0 new. Sonnet, 872k tokens, 78 min |
 | R1 | done, merged `7747381ed` | Opus, 507k tokens, 38 min: 7 engine fixes with failing tests first; 4 design points settled in design.md ('After the engine review') |
-| S2 Atlas | running | Sonnet, branch `jobs/s2-atlas` |
-| S3 extraction | running | Sonnet, branch `jobs/s3-extraction`; also the engine touch-ups from R1 |
-| S4 file production | not started | |
+| S2 Atlas | done, merged `527c48928` | Sonnet, 661k tokens, 38 min; gates at `be7c1769c`: check 0/17, vitest 19,206, Playwright 37/37, Fallow 0 new. Two findings went to the touch-up agent |
+| S3 extraction | running | Sonnet, branch `jobs/s3-extraction` |
+| S2b touch-ups | running | Sonnet, branch `jobs/s2b-touchups`: beat clamp, runInline cleanup, previous-incarnation ids, rows re-read after onTransition, AGENTS.md lines, Atlas heartbeat_at stamped (not nulled) |
+| S4 file production | not started | Coordination checked 2026-10-15 03:05 UTC: the upload-analysis session (local_3cfe1b3e) last ran 2026-10-14 18:47, has no branch or worktree, and no branch but this run's touches `file-production/`. Nothing in flight; S4 may go after S3 |
 | R2 | not started | |
 | Ship | not started | |
 
@@ -44,3 +45,4 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | 2026-10-15 00:00 | 72 | 6 | start |
 | 2026-10-15 00:15 | 73 | 14 | after recon and the caller inventory (Sonnet, 389k tokens) |
 | 2026-10-15 01:42 | 77 | 41 | S1 merged; R1 dispatched alone (5-hour window resets 04:50) |
+| 2026-10-15 03:00 | 79 | 58 | S2 merged; S3 and the touch-up agent dispatched together |
