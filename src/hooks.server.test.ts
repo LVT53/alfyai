@@ -8,11 +8,14 @@ const mockRefreshConfig = vi.fn(async () => undefined);
 const mockEnsureMemoryMaintenanceScheduler = vi.fn();
 const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
-const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
 const mockStartJobs = vi.fn(async () => undefined);
 const mockStopJobs = vi.fn();
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
+const fileProductionJobStub = {
+	name: "file-production",
+	logPrefix: "[FILE_PRODUCTION]",
+};
 const mockSentryInit = vi.fn();
 const mockSentrySetUser = vi.fn();
 const mockSentryHandle = vi.fn<() => Handle>(
@@ -75,8 +78,8 @@ vi.mock("$lib/server/db/compat", () => ({
 	ensureRuntimeSchemaCompatibility: mockEnsureRuntimeSchemaCompatibility,
 }));
 
-vi.mock("$lib/server/services/file-production", () => ({
-	ensureFileProductionWorker: mockEnsureFileProductionWorker,
+vi.mock("$lib/server/services/file-production/production-job", () => ({
+	fileProductionJob: fileProductionJobStub,
 }));
 
 vi.mock("$lib/server/services/atlas/research-job", () => ({
@@ -139,7 +142,6 @@ describe("hooks.server.ts", () => {
 		vi.clearAllMocks();
 		mockRefreshConfig.mockResolvedValue(undefined);
 		mockEnsureRuntimeSchemaCompatibility.mockResolvedValue(undefined);
-		mockEnsureFileProductionWorker.mockResolvedValue(undefined);
 		mockStartJobs.mockResolvedValue(undefined);
 	});
 
@@ -218,12 +220,12 @@ describe("hooks.server.ts", () => {
 		expect(mockRefreshConfig).toHaveBeenCalledOnce();
 		expect(mockEnsureMemoryMaintenanceScheduler).toHaveBeenCalledOnce();
 		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
-		expect(mockEnsureFileProductionWorker).toHaveBeenCalledOnce();
 		expect(mockStartJobs).toHaveBeenCalledOnce();
 		// Every kind that runs on the engine, in one call.
 		expect(mockStartJobs).toHaveBeenCalledWith([
 			atlasResearchJobStub,
 			extractionJobStub,
+			fileProductionJobStub,
 		]);
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
@@ -231,9 +233,6 @@ describe("hooks.server.ts", () => {
 		expect(mockRefreshConfig.mock.invocationCallOrder[0]).toBeLessThan(
 			mockEnsureMemoryMaintenanceScheduler.mock.invocationCallOrder[0],
 		);
-		expect(
-			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
-		).toBeLessThan(mockEnsureFileProductionWorker.mock.invocationCallOrder[0]);
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockStartJobs.mock.invocationCallOrder[0]);

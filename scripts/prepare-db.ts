@@ -143,6 +143,12 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["document_extraction_jobs", "requested_by"],
 	["document_extraction_jobs", "phase"],
 	["document_extraction_jobs", "retry_state_json"],
+	["file_production_jobs", "attempt_count"],
+	["file_production_jobs", "run_after"],
+	["file_production_jobs", "priority"],
+	["file_production_jobs", "checkpoint_json"],
+	["file_production_jobs", "retry_state_json"],
+	["file_production_jobs", "started_at"],
 ];
 
 const baselineAdoptionRequiredTables = [

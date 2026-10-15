@@ -6,21 +6,14 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/services/file-production", () => ({
 	retryFileProductionJob: vi.fn(),
-	wakeFileProductionWorker: vi.fn(),
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	retryFileProductionJob,
-	wakeFileProductionWorker,
-} from "$lib/server/services/file-production";
+import { retryFileProductionJob } from "$lib/server/services/file-production";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockRetryFileProductionJob = retryFileProductionJob as ReturnType<
-	typeof vi.fn
->;
-const mockWakeFileProductionWorker = wakeFileProductionWorker as ReturnType<
 	typeof vi.fn
 >;
 type RetryJobEvent = Parameters<typeof POST>[0];
@@ -65,7 +58,6 @@ describe("POST /api/chat/files/jobs/[id]/retry", () => {
 			userId: "user-1",
 			jobId: "job-1",
 		});
-		expect(mockWakeFileProductionWorker).toHaveBeenCalledTimes(1);
 		expect(data.job).toMatchObject({
 			id: "job-1",
 			status: "queued",

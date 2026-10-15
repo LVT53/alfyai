@@ -1,23 +1,26 @@
 // What the file-production worker says out loud.
 //
-// The stuck-job shape this branch fixes produced ZERO `[FILE_PRODUCTION]`
-// orchestration lines: the worker started silently, the boot sweep reclaimed
-// silently, and a failed attempt wrote its code only into the ledger. These
-// lines are the minimum that makes the sequence readable in a journal — and
-// they carry ids, counts, codes and durations only, never a title the user
-// chose, a prompt, or a byte of the produced file, because this log ends up in
-// places the document is not allowed to reach.
+// The stuck-job shape this fixes produced ZERO `[FILE_PRODUCTION]` orchestration
+// lines: the worker started silently, the boot sweep reclaimed silently, and a
+// failed attempt wrote its code only into the ledger. These lines are the minimum
+// that makes the sequence readable in a journal — and they carry ids, counts, codes
+// and durations only, never a title the user chose, a prompt, or a byte of the
+// produced file, because this log ends up in places the document is not allowed to
+// reach.
+//
+// The lines come from the job engine now (`services/jobs`: it says what happened
+// to the attempt, and what the boot sweeps found); the words are the ones the
+// worker used before the engine, and this test pins them.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createFileProductionLedgerFixture,
 	type FileProductionLedgerFixture,
 } from "./testing/ledger-fixtures";
-
-type Worker = typeof import("./worker-runner");
+import { drainFileProductionJobs } from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
 let fixture: FileProductionLedgerFixture;
-let worker: Worker;
 /** Only what `payloadsFor` reads, so the spy's own generics stay out of it. */
 type ConsoleSpy = { mock: { calls: unknown[][] } };
 let info: ConsoleSpy;
@@ -27,6 +30,7 @@ const userId = "user-1";
 const conversationId = "conv-1";
 
 beforeEach(async () => {
+	resetSeams();
 	fixture = createFileProductionLedgerFixture("fp-logging");
 	fixture.seedUser(userId);
 	fixture.seedConversation(conversationId, userId);
@@ -34,15 +38,24 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	delete process.env.FILE_PRODUCTION_STALE_ATTEMPT_MS;
 	vi.resetModules();
-	worker = await import("./worker-runner");
-	worker.resetFileProductionWorkerForTests();
 
 	info = vi.spyOn(console, "info").mockImplementation(() => {});
 	warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-afterEach(() => {
-	worker.resetFileProductionWorkerForTests();
+afterEach(async () => {
+	try {
+		const { resetJobsForTests } = await import("$lib/server/services/jobs");
+		resetJobsForTests();
+	} catch {
+		// The engine was never imported.
+	}
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed early.
+	}
 	vi.useRealTimers();
 	fixture.cleanup();
 	vi.restoreAllMocks();
@@ -57,13 +70,18 @@ function payloadsFor(
 		.map((call) => call[1] as Record<string, unknown>);
 }
 
+async function startEngine() {
+	const { startJobs } = await import("$lib/server/services/jobs");
+	const { fileProductionJob } = await import("./production-job");
+	await startJobs([fileProductionJob], {
+		startInNonServingContextForTests: true,
+	});
+}
+
 describe("[FILE_PRODUCTION] worker log lines", () => {
 	it("announces what it actually started with", async () => {
 		vi.useFakeTimers();
-		await worker.ensureFileProductionWorker({
-			startInNonServingContextForTests: true,
-			workerId: "log-worker",
-		});
+		await startEngine();
 
 		expect(payloadsFor(info, "[FILE_PRODUCTION] Worker started")).toMatchObject(
 			[{ idleTickMs: 30_000, staleAttemptMs: 120_000, heartbeatMs: 15_000 }],
@@ -77,8 +95,7 @@ describe("[FILE_PRODUCTION] worker log lines", () => {
 			title: "Secret quarterly numbers",
 		});
 
-		await worker.drainFileProductionWorker({
-			workerId: "log-worker",
+		await drainFileProductionJobs({
 			executeCode: async () => ({
 				files: [],
 				stdout: "",
@@ -116,7 +133,7 @@ describe("[FILE_PRODUCTION] worker log lines", () => {
 			requestJson: { sourceMode: "nonsense" },
 		});
 
-		await worker.drainFileProductionWorker({ workerId: "log-worker" });
+		await drainFileProductionJobs();
 
 		expect(
 			payloadsFor(warn, "[FILE_PRODUCTION] Job will not be retried"),
@@ -128,7 +145,7 @@ describe("[FILE_PRODUCTION] worker log lines", () => {
 	it("says nothing about a sweep that reclaimed nothing", async () => {
 		// This one runs forever on an idle box; a line per tick would drown the
 		// lines that matter.
-		await worker.drainFileProductionWorker({ workerId: "log-worker" });
+		await drainFileProductionJobs();
 		expect(
 			payloadsFor(warn, "[FILE_PRODUCTION] Reclaimed stale attempts"),
 		).toEqual([]);
@@ -139,10 +156,7 @@ describe("[FILE_PRODUCTION] worker log lines", () => {
 		fixture.seedOrphanedRunningJob({ jobId, heartbeatAgeMs: 10 * 60 * 1000 });
 		vi.useFakeTimers();
 
-		await worker.ensureFileProductionWorker({
-			startInNonServingContextForTests: true,
-			workerId: "log-worker",
-		});
+		await startEngine();
 
 		expect(
 			payloadsFor(warn, "[FILE_PRODUCTION] Reclaimed stale attempts"),

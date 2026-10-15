@@ -6,19 +6,14 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/services/file-production", () => ({
 	regenerateFileProductionJob: vi.fn(),
-	wakeFileProductionWorker: vi.fn(),
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	regenerateFileProductionJob,
-	wakeFileProductionWorker,
-} from "$lib/server/services/file-production";
+import { regenerateFileProductionJob } from "$lib/server/services/file-production";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockRegenerate = regenerateFileProductionJob as ReturnType<typeof vi.fn>;
-const mockWake = wakeFileProductionWorker as ReturnType<typeof vi.fn>;
 type RegenerateJobEvent = Parameters<typeof POST>[0];
 
 function makeEvent(user = { id: "user-1" }, id = "job-1"): RegenerateJobEvent {
@@ -40,7 +35,7 @@ describe("POST /api/chat/files/jobs/[id]/regenerate", () => {
 		mockRequireAuth.mockReturnValue(undefined);
 	});
 
-	it("queues the signed-in user's job again and wakes the worker", async () => {
+	it("queues the signed-in user's job again", async () => {
 		mockRegenerate.mockResolvedValue({
 			id: "job-1",
 			conversationId: "conv-1",
@@ -60,11 +55,10 @@ describe("POST /api/chat/files/jobs/[id]/regenerate", () => {
 			userId: "user-1",
 			jobId: "job-1",
 		});
-		expect(mockWake).toHaveBeenCalledTimes(1);
 		expect(data.job).toMatchObject({ id: "job-1", status: "queued" });
 	});
 
-	it("answers 404 — and wakes nothing — when there is nothing to make again", async () => {
+	it("answers 404 when there is nothing to make again", async () => {
 		mockRegenerate.mockResolvedValue(null);
 
 		const response = await POST(makeEvent());
@@ -73,6 +67,5 @@ describe("POST /api/chat/files/jobs/[id]/regenerate", () => {
 		expect(await response.json()).toEqual({
 			error: "File production job not found or has nothing to regenerate",
 		});
-		expect(mockWake).not.toHaveBeenCalled();
 	});
 });

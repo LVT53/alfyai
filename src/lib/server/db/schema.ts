@@ -1674,7 +1674,21 @@ export const chatGeneratedFiles = sqliteTable(
 export const fileProductionJobs = sqliteTable(
 	"file_production_jobs",
 	{
-		id: text("id").primaryKey(),
+		// The job engine's lifecycle columns (services/jobs/columns.ts): id, user,
+		// status, phase, priority, run_after, attempt_count, current_attempt_id,
+		// retryable, error_code, error_message, checkpoint, retry_state,
+		// cancel_requested_at, started_at, completed_at, created_at, updated_at.
+		// File production keeps the SQL name it already had for one of them: `phase`
+		// is `stage` (a card's `stage`; nothing sets one today). It never backs off
+		// or checkpoints (ADR-0005: a failed job waits for the person's Retry), so
+		// `run_after`, `checkpoint_json` and `retry_state_json` stay empty. The
+		// default status stays `succeeded`, for the rows that predate the ledger.
+		// Everything below is the kind's own.
+		...jobColumns({
+			userId: () => users.id,
+			sqlNames: { phase: "stage" },
+			statusDefault: "succeeded",
+		}),
 		conversationId: text("conversation_id")
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
@@ -1684,34 +1698,15 @@ export const fileProductionJobs = sqliteTable(
 				onDelete: "set null",
 			},
 		),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
 		title: text("title").notNull(),
-		status: text("status").notNull().default("succeeded"),
-		stage: text("stage"),
 		origin: text("origin").notNull().default("legacy_generated_file"),
-		currentAttemptId: text("current_attempt_id"),
-		retryable: integer("retryable", { mode: "boolean" })
-			.notNull()
-			.default(false),
 		dismissed: integer("dismissed", { mode: "boolean" })
 			.notNull()
 			.default(false),
-		errorCode: text("error_code"),
-		errorMessage: text("error_message"),
-		completedAt: integer("completed_at", { mode: "timestamp" }),
-		cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
 		idempotencyKey: text("idempotency_key"),
 		requestJson: text("request_json"),
 		sourceMode: text("source_mode"),
 		documentIntent: text("document_intent"),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
 	},
 	(table) => ({
 		conversationIdx: index("file_production_jobs_conversation_idx").on(
@@ -1735,71 +1730,30 @@ export const fileProductionJobs = sqliteTable(
 			table.sourceMode,
 			table.createdAt,
 		),
-		// The claim and the idle tick, and nothing else. Both used to scan the
-		// whole table on every claim and every tick, which on a busy ledger is a
-		// scan of mostly terminal rows to find the handful that are still live.
-		//
-		// Partial, so the index holds only those live rows (5 of 20 000 in the
-		// measurement). Written as two `=` terms joined by `or` rather than an
-		// `in (…)` list on purpose: SQLite only uses a partial index when it can
-		// see the index's own WHERE terms in the query's, and it proves
-		// `status = 'running'` implies `status = 'queued' or status = 'running'`
-		// while it does NOT prove it implies `status in ('queued','running')`.
-		// With the `in` spelling the claim probes still scanned.
-		// `readQueueSnapshot` uses the same `or` spelling for the same reason.
-		//
-		// `createdAt` second so the claim's `order by created_at asc` is served
-		// by the index order instead of a temp b-tree.
-		liveClaimIdx: index("file_production_jobs_live_claim_idx")
-			.on(table.status, table.createdAt)
-			.where(sql`${table.status} = 'queued' or ${table.status} = 'running'`),
+		// The claim and the idle tick, and nothing else: the engine's live partial
+		// index over (status, priority, created_at) (see `liveClaimIndex` for why it
+		// is spelled with `or`). It was (status, created_at) before the engine.
+		liveClaimIdx: liveClaimIndex("file_production_jobs_live_claim_idx", table),
 	}),
 );
 
+// One row per claim of a file-production job: the fencing token every write a run
+// makes is checked against (services/jobs). The columns after the engine's own are
+// file production's: the claim inserts the attempt without them, so they are
+// nullable (nothing writes them today).
 export const fileProductionJobAttempts = sqliteTable(
 	"file_production_job_attempts",
 	{
-		id: text("id").primaryKey(),
-		jobId: text("job_id")
-			.notNull()
-			.references(() => fileProductionJobs.id, { onDelete: "cascade" }),
-		attemptNumber: integer("attempt_number").notNull(),
-		status: text("status").notNull().default("running"),
-		stage: text("stage"),
+		...jobAttemptColumns({
+			jobId: () => fileProductionJobs.id,
+			sqlNames: { phase: "stage" },
+		}),
 		mode: text("mode"),
 		renderer: text("renderer"),
 		runtime: text("runtime"),
-		workerId: text("worker_id"),
-		claimedAt: integer("claimed_at", { mode: "timestamp" }),
-		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
-		startedAt: integer("started_at", { mode: "timestamp" }),
-		finishedAt: integer("finished_at", { mode: "timestamp" }),
-		errorCode: text("error_code"),
-		errorMessage: text("error_message"),
-		retryable: integer("retryable", { mode: "boolean" })
-			.notNull()
-			.default(false),
-		diagnosticsJson: text("diagnostics_json"),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
 	},
 	(table) => ({
-		jobNumberUniqueIdx: uniqueIndex(
-			"file_production_job_attempts_job_number_unique_idx",
-		).on(table.jobId, table.attemptNumber),
-		jobIdx: index("file_production_job_attempts_job_idx").on(
-			table.jobId,
-			table.createdAt,
-		),
-		workerIdx: index("file_production_job_attempts_worker_idx").on(
-			table.workerId,
-			table.status,
-			table.heartbeatAt,
-		),
+		...jobAttemptIndexes("file_production_job_attempts", table),
 	}),
 );
 

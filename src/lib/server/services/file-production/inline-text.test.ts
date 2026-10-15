@@ -16,6 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import type { FileInput } from "$lib/server/services/chat-files";
 import type { StoreGeneratedFileDependency } from "./storage-adapter";
+import { runNextFileProductionJob } from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
 let dbPath: string;
 
@@ -134,15 +136,32 @@ function inlineBody(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+/**
+ * How many times the file-production kind was woken since the test began. The
+ * engine counts a wake even where it starts nothing (a test never calls
+ * `startJobs`).
+ */
+async function wakesOfTheKind(): Promise<number> {
+	const { inspectJobsForTests } = await import("$lib/server/services/jobs");
+	return inspectJobsForTests()["file-production"]?.wakeRequests ?? 0;
+}
+
 describe("inline_text production mode", () => {
 	beforeEach(async () => {
 		dbPath = `/tmp/alfyai-inline-text-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
+		resetSeams();
 		vi.resetModules();
 		seedDatabase();
 	});
 
 	afterEach(async () => {
+		try {
+			const { resetJobsForTests } = await import("$lib/server/services/jobs");
+			resetJobsForTests();
+		} catch {
+			// The engine was never imported.
+		}
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();
@@ -159,12 +178,10 @@ describe("inline_text production mode", () => {
 	it("queues an inline_text job and persists the mode and the content", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker,
 			now: NOW,
 		});
 
@@ -174,7 +191,7 @@ describe("inline_text production mode", () => {
 			job: { conversationId: "conv-1", status: "queued", files: [] },
 		});
 		if (!result.ok) throw new Error("expected inline_text intake to succeed");
-		expect(wakeWorker).toHaveBeenCalledTimes(1);
+		expect(await wakesOfTheKind()).toBe(1);
 
 		const [row] = await db
 			.select({
@@ -200,24 +217,20 @@ describe("inline_text production mode", () => {
 	});
 
 	it("writes the content byte for byte, with no container and no sandbox call", async () => {
-		const { submitFileProductionIntake, executeNextFileProductionJob } =
-			await import("./index");
+		const { submitFileProductionIntake } = await import("./index");
 		const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 		const executeCode = vi.fn();
 
 		await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-inline",
+		const result = await runNextFileProductionJob({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: NOW,
 		});
 
 		expect(result).toMatchObject({
@@ -239,8 +252,7 @@ describe("inline_text production mode", () => {
 	});
 
 	it("carries CRLF and a trailing newline through untouched", async () => {
-		const { submitFileProductionIntake, executeNextFileProductionJob } =
-			await import("./index");
+		const { submitFileProductionIntake } = await import("./index");
 		const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 		const content = "alpha\r\nbravo\r\n\r\ncharlie\n";
 
@@ -252,22 +264,18 @@ describe("inline_text production mode", () => {
 					files: [{ filename: "log.txt", outputType: "txt" }],
 				},
 			}),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
-		await executeNextFileProductionJob({
-			workerId: "worker-inline-crlf",
+		await runNextFileProductionJob({
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: NOW,
 		});
 
 		expect(stored[0].content.toString("utf8")).toBe(content);
 	});
 
 	it("produces a tsv output, new in Phase 6", async () => {
-		const { submitFileProductionIntake, executeNextFileProductionJob } =
-			await import("./index");
+		const { submitFileProductionIntake } = await import("./index");
 		const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 		const content = "region\trevenue\nNorth\t24.25\nSouth\t25.75\n";
 
@@ -280,14 +288,11 @@ describe("inline_text production mode", () => {
 					files: [{ filename: "quarterly-summary.tsv", outputType: "tsv" }],
 				},
 			}),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-inline-tsv",
+		const result = await runNextFileProductionJob({
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: NOW,
 		});
 
 		expect(result).toMatchObject({ job: { status: "succeeded" } });
@@ -300,8 +305,7 @@ describe("inline_text production mode", () => {
 
 	it("writes one file per requested output and links them under one job", async () => {
 		const { db } = await import("$lib/server/db");
-		const { submitFileProductionIntake, executeNextFileProductionJob } =
-			await import("./index");
+		const { submitFileProductionIntake } = await import("./index");
 		const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 
 		const intake = await submitFileProductionIntake({
@@ -316,16 +320,13 @@ describe("inline_text production mode", () => {
 					],
 				},
 			}),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
 		if (!intake.ok) throw new Error("expected intake to succeed");
 
-		await executeNextFileProductionJob({
-			workerId: "worker-inline-two",
+		await runNextFileProductionJob({
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: NOW,
 		});
 
 		expect(stored.map((file) => file.filename)).toEqual([
@@ -348,13 +349,11 @@ describe("inline_text production mode", () => {
 		const first = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
 		const second = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: new Date(NOW.getTime() + 1000),
 		});
 
@@ -370,23 +369,19 @@ describe("inline_text production mode", () => {
 	});
 
 	it("re-runs the same persisted bytes on retry", async () => {
-		const { submitFileProductionIntake, executeNextFileProductionJob } =
-			await import("./index");
+		const { submitFileProductionIntake } = await import("./index");
 		const first = makeStoreGeneratedFile();
 
 		const intake = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
 		if (!intake.ok) throw new Error("expected intake to succeed");
 
-		await executeNextFileProductionJob({
-			workerId: "worker-retry-1",
+		await runNextFileProductionJob({
 			storeGeneratedFile: first.storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: NOW,
 		});
 
 		// Resubmitting the identical request replays the verdict rather than
@@ -394,7 +389,6 @@ describe("inline_text production mode", () => {
 		const replay = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: new Date(NOW.getTime() + 2000),
 		});
 		expect(replay).toMatchObject({
@@ -406,17 +400,13 @@ describe("inline_text production mode", () => {
 	});
 
 	it("cancels a queued inline_text job without producing anything", async () => {
-		const {
-			submitFileProductionIntake,
-			cancelFileProductionJob,
-			executeNextFileProductionJob,
-		} = await import("./index");
+		const { submitFileProductionIntake, cancelFileProductionJob } =
+			await import("./index");
 		const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 
 		const intake = await submitFileProductionIntake({
 			userId: "user-1",
 			body: inlineBody(),
-			wakeWorker: vi.fn(),
 			now: NOW,
 		});
 		if (!intake.ok) throw new Error("expected intake to succeed");
@@ -424,14 +414,11 @@ describe("inline_text production mode", () => {
 		const cancelled = await cancelFileProductionJob({
 			userId: "user-1",
 			jobId: intake.job.id,
-			now: new Date(NOW.getTime() + 500),
 		});
 		expect(cancelled?.status).toBe("cancelled");
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-cancelled",
+		const result = await runNextFileProductionJob({
 			storeGeneratedFile,
-			now: new Date(NOW.getTime() + 1000),
 		});
 		expect(result).toBeNull();
 		expect(stored).toHaveLength(0);
@@ -443,7 +430,6 @@ describe("inline_text production mode", () => {
 			return submitFileProductionIntake({
 				userId: "user-1",
 				body,
-				wakeWorker: vi.fn(),
 				now: NOW,
 			});
 		}
@@ -598,8 +584,7 @@ describe("inline_text production mode", () => {
 		});
 
 		it("fails a job whose content carries a NUL byte, at the same validation the sandbox path uses", async () => {
-			const { submitFileProductionIntake, executeNextFileProductionJob } =
-				await import("./index");
+			const { submitFileProductionIntake } = await import("./index");
 			const { listConversationFileProductionJobs } = await import("./index");
 			const { storeGeneratedFile, stored } = makeStoreGeneratedFile();
 
@@ -611,15 +596,12 @@ describe("inline_text production mode", () => {
 						files: [{ filename: "summary.md", outputType: "md" }],
 					},
 				}),
-				wakeWorker: vi.fn(),
 				now: NOW,
 			});
 			if (!intake.ok) throw new Error("expected intake to succeed");
 
-			const result = await executeNextFileProductionJob({
-				workerId: "worker-nul",
+			const result = await runNextFileProductionJob({
 				storeGeneratedFile,
-				now: NOW,
 			});
 
 			expect(result).toBeNull();

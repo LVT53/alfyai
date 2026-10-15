@@ -1247,12 +1247,12 @@ describe("schema core tables", () => {
 		});
 	});
 
-	// The claim runs `status = 'running' limit 1` and then
-	// `status = 'queued' order by created_at asc limit 1`; the idle tick runs one
+	// The engine's claim counts the `running` rows and then reads
+	// the `queued` ones `order by priority, created_at`; the idle tick runs one
 	// aggregate over the same two statuses, forever, on boxes where nobody
 	// produces anything. All three used to scan the whole table.
 	describe("file_production_jobs live-claim index", () => {
-		it("is a partial index on (status, created_at) over the live statuses", () => {
+		it("is a partial index on (status, priority, created_at) over the live statuses", () => {
 			const indexNames = (
 				sqlite.prepare("PRAGMA index_list(file_production_jobs)").all() as {
 					name: string;
@@ -1269,12 +1269,13 @@ describe("schema core tables", () => {
 			).find((index) => index.name === "file_production_jobs_live_claim_idx");
 			expect(partial?.partial).toBe(1);
 
-			// `created_at` second, so the claim's ORDER BY needs no temp b-tree.
+			// `priority` and `created_at` after the status, so the claim's ORDER BY needs no temp b-tree.
 			const columns = sqlite
 				.prepare("PRAGMA index_info(file_production_jobs_live_claim_idx)")
 				.all() as { name: string }[];
 			expect(columns.map((column) => column.name)).toEqual([
 				"status",
+				"priority",
 				"created_at",
 			]);
 		});
@@ -1302,7 +1303,7 @@ describe("schema core tables", () => {
 				),
 			).toContain("file_production_jobs_live_claim_idx");
 			const queued = planFor(
-				"SELECT * FROM file_production_jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1",
+				"SELECT * FROM file_production_jobs WHERE status = 'queued' ORDER BY priority ASC, created_at ASC LIMIT 1",
 			);
 			expect(queued).toContain("file_production_jobs_live_claim_idx");
 			expect(queued).not.toContain("TEMP B-TREE");

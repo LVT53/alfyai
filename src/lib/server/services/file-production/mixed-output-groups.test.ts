@@ -75,7 +75,7 @@ describe("architecture boundary", () => {
 
 	it("keeps intake free of the heavy production modules", () => {
 		for (const heavy of [
-			"./worker-runner",
+			"./production-runner",
 			"./execution-adapter",
 			"./storage-adapter",
 			"./renderers/",

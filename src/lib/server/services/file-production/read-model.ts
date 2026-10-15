@@ -373,7 +373,6 @@ async function ensureLegacyJobs(files: ReadModelChatFile[]): Promise<void> {
 				userId: file.userId,
 				title: file.documentLabel ?? file.filename,
 				status: "succeeded",
-				stage: null,
 				origin: "legacy_generated_file",
 				createdAt,
 				updatedAt: createdAt,
@@ -467,7 +466,7 @@ async function loadSucceededJobWarnings(
 	return warningsByJobId;
 }
 
-function mapJobRow(
+export function mapFileProductionJobRow(
 	job: typeof fileProductionJobs.$inferSelect,
 	files: FileProductionJob["files"],
 	warnings: string[] = [],
@@ -478,7 +477,7 @@ function mapJobRow(
 		assistantMessageId: job.assistantMessageId,
 		title: job.title,
 		status: job.status as FileProductionJob["status"],
-		stage: job.stage,
+		stage: job.phase,
 		createdAt: job.createdAt.getTime(),
 		updatedAt: job.updatedAt.getTime(),
 		files,
@@ -553,7 +552,7 @@ export async function listConversationFileProductionJobs(
 		const jobLinks = (linksByJobId.get(job.id) ?? []).sort(
 			(a, b) => a.sortOrder - b.sortOrder,
 		);
-		const mapped = mapJobRow(
+		const mapped = mapFileProductionJobRow(
 			job,
 			jobLinks
 				.map((link) => fileById.get(link.chatGeneratedFileId))
@@ -610,7 +609,7 @@ export async function getConversationFileProductionJob(input: {
 		.from(fileProductionJobFiles)
 		.where(eq(fileProductionJobFiles.jobId, job.id));
 	if (links.length === 0) {
-		return mapJobRow(job, []);
+		return mapFileProductionJobRow(job, []);
 	}
 
 	const files = (
@@ -622,7 +621,7 @@ export async function getConversationFileProductionJob(input: {
 	const fileById = new Map(files.map((file) => [file.id, file]));
 	const warningsByJobId = await loadSucceededJobWarnings([job]);
 
-	return mapJobRow(
+	return mapFileProductionJobRow(
 		job,
 		[...links]
 			.sort((a, b) => a.sortOrder - b.sortOrder)

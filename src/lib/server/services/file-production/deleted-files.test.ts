@@ -24,8 +24,10 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 const { listConversationFileProductionJobs } = await import("./read-model");
-const { claimNextFileProductionJob, regenerateFileProductionJob } =
-	await import("./job-ledger");
+const { fileProductionJob, regenerateFileProductionJob } = await import(
+	"./production-job"
+);
+const { claimNext } = await import("$lib/server/services/jobs/ledger");
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
@@ -245,8 +247,8 @@ describe("regenerateFileProductionJob", () => {
 			}),
 		});
 		// A worker picks it up like any queued job.
-		const claimed = await claimNextFileProductionJob({ workerId: "worker-1" });
-		expect(claimed?.job.id).toBe("job-1");
+		const claimed = claimNext(fileProductionJob, { workerId: "worker-1" });
+		expect(claimed?.row.id).toBe("job-1");
 	});
 
 	it("refuses while a file of the job still exists — that job has nothing to make again", async () => {

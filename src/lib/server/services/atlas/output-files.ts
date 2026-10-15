@@ -9,9 +9,7 @@
 // The idempotency key below is kept byte-for-byte as `atlas-output:v2:` even
 // though v2 is gone: a job resumed mid-flight after this rename must land on
 // the SAME File Production job it already created, not fork a duplicate.
-import { waitForFileProductionJobVerdict } from "$lib/server/services/file-production/job-wait";
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
-import type { FileProductionJob } from "$lib/server/services/file-production/types";
 
 export interface AtlasOutputIds {
 	fileProductionJobId: string | null;
@@ -33,8 +31,7 @@ export interface RenderAtlasOutputsInput {
 	}) => Promise<AtlasOutputIds>;
 }
 
-const ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS = 250;
-const ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS = 120_000;
+const ATLAS_OUTPUT_JOB_TIMEOUT_MS = 120_000;
 
 function atlasDocumentIntent(input: {
 	jobId: string;
@@ -45,72 +42,39 @@ function atlasDocumentIntent(input: {
 		.join("; ");
 }
 
-type ListConversationFileProductionJobs = (
-	userId: string,
-	conversationId: string,
-) => Promise<FileProductionJob[]>;
-
-async function findConversationFileProductionJob(input: {
-	userId: string;
-	conversationId: string;
-	jobId: string;
-	listConversationFileProductionJobs: ListConversationFileProductionJobs;
-}): Promise<FileProductionJob | null> {
-	const jobs = await input.listConversationFileProductionJobs(
-		input.userId,
-		input.conversationId,
-	);
-	return jobs.find((job) => job.id === input.jobId) ?? null;
-}
-
-// Atlas keeps its own timeout/interval and its own throw-on-unsettled
-// contract (an Atlas run has no answer without its output files), but the
-// polling loop itself is the shared one in file-production/job-wait.ts.
-async function waitForAtlasOutputFileProductionJob(input: {
-	userId: string;
-	conversationId: string;
-	jobId: string;
-	listConversationFileProductionJobs: ListConversationFileProductionJobs;
-}): Promise<FileProductionJob> {
-	const verdict = await waitForFileProductionJobVerdict({
-		getJob: () => findConversationFileProductionJob(input),
-		timeoutMs: ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS,
-		pollIntervalMs: ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS,
-	});
-	if (verdict.settled) {
-		return verdict.job;
-	}
-
-	throw new Error(
-		verdict.job
-			? `Atlas output files were not produced before the timeout; latest status was ${verdict.job.status}.`
-			: "Atlas output files were not produced before the timeout; the output job was not found.",
-	);
-}
-
 async function createFileProductionAtlasOutputJob(input: {
 	userId: string;
 	conversationId: string;
 	body: unknown;
 }): Promise<AtlasOutputIds> {
-	const {
-		drainFileProductionWorker,
-		listConversationFileProductionJobs,
-		submitFileProductionIntake,
-	} = await import("$lib/server/services/file-production");
+	const { submitFileProductionIntake, waitForFileProductionJobVerdict } =
+		await import("$lib/server/services/file-production");
+	// The intake's enqueue wakes the file-production kind, which the job engine
+	// runs on its own; this step only waits for the verdict.
 	const result = await submitFileProductionIntake({
-		...input,
-		wakeWorker: () => drainFileProductionWorker(),
+		userId: input.userId,
+		body: input.body,
 	});
 	if (!result.ok) {
 		throw new Error(result.error);
 	}
-	const completedJob = await waitForAtlasOutputFileProductionJob({
+	// Atlas keeps its own timeout and its own throw-on-unsettled contract (an Atlas
+	// run has no answer without its output files); the wait itself is the file-
+	// production kind's, on the job engine: it resolves the moment the job settles.
+	const verdict = await waitForFileProductionJobVerdict({
 		userId: input.userId,
 		conversationId: input.conversationId,
 		jobId: result.job.id,
-		listConversationFileProductionJobs,
+		timeoutMs: ATLAS_OUTPUT_JOB_TIMEOUT_MS,
 	});
+	if (!verdict.settled) {
+		throw new Error(
+			verdict.job
+				? `Atlas output files were not produced before the timeout; latest status was ${verdict.job.status}.`
+				: "Atlas output files were not produced before the timeout; the output job was not found.",
+		);
+	}
+	const completedJob = verdict.job;
 	if (completedJob.status !== "succeeded") {
 		throw new Error(
 			completedJob.error?.message

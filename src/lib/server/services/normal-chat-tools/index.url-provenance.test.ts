@@ -48,13 +48,16 @@ import { resetToolResultCacheForTests } from "./tool-result-cache";
 // may have written, so each of these is code, and each is held here.
 
 vi.mock("$lib/server/services/file-production", async () => {
-	const { waitForFileProductionJobVerdict } = await import(
-		"$lib/server/services/file-production/job-wait"
+	const { pollingVerdictWait } = await import(
+		"$lib/server/services/file-production/testing/verdict-poll"
 	);
+	const getConversationFileProductionJob = vi.fn();
 	return {
 		submitFileProductionIntake: vi.fn(),
-		getConversationFileProductionJob: vi.fn(),
-		waitForFileProductionJobVerdict,
+		getConversationFileProductionJob,
+		waitForFileProductionJobVerdict: pollingVerdictWait(
+			getConversationFileProductionJob,
+		),
 	};
 });
 vi.mock("$lib/server/services/analytics", () => ({

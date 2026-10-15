@@ -7,6 +7,11 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { getFileProductionLimits } from "./limits";
+import {
+	drainFileProductionJobs,
+	runNextFileProductionJob,
+} from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
 let dbPath: string;
 const XLSX_MIME_TYPE =
@@ -97,17 +102,35 @@ async function buildExcelJsSmokeWorkbook(): Promise<Buffer> {
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+/**
+ * How many times the file-production kind was woken since the test began. The
+ * engine counts a wake even where it starts nothing (a test never calls
+ * `startJobs`), which is what lets a test say "this intake queued work and woke the
+ * kind" and "this one queued nothing and woke nothing".
+ */
+async function wakesOfTheKind(): Promise<number> {
+	const { inspectJobsForTests } = await import("$lib/server/services/jobs");
+	return inspectJobsForTests()["file-production"]?.wakeRequests ?? 0;
+}
+
 describe("file production service", () => {
 	beforeEach(async () => {
 		dbPath = `/tmp/alfyai-file-production-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
+		resetSeams();
 		vi.resetModules();
 		await seedLegacyGeneratedFile();
 	});
 
 	afterEach(async () => {
-		vi.doUnmock("./worker-runner");
+		vi.doUnmock("./production-runner");
 		vi.doUnmock("./report-images");
+		try {
+			const { resetJobsForTests } = await import("$lib/server/services/jobs");
+			resetJobsForTests();
+		} catch {
+			// The engine was never imported.
+		}
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();
@@ -201,7 +224,7 @@ describe("file production service", () => {
 			userId: "user-1",
 			title: "Quarterly report package",
 			status: "succeeded",
-			stage: null,
+			phase: null,
 			origin: "native",
 			createdAt: now,
 			updatedAt: now,
@@ -269,7 +292,7 @@ describe("file production service", () => {
 	});
 
 	// `sourceMode` is stored on `file_production_jobs.source_mode` and is now
-	// part of the client-facing job DTO (both `mapJobRow` implementations) so
+	// part of the client-facing job DTO (`mapFileProductionJobRow`) so
 	// `FileProductionCard` and callers can tell an inline_text job apart from a
 	// document-source or program one without guessing from its files.
 	it("carries sourceMode through creation and the read model", async () => {
@@ -308,7 +331,6 @@ describe("file production service", () => {
 
 	it("accepts a parsed program-mode intake request and wakes queued work", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -327,7 +349,6 @@ describe("file production service", () => {
 					filename: "data.csv",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:20.000Z"),
 		});
 
@@ -343,15 +364,15 @@ describe("file production service", () => {
 				files: [],
 			},
 		});
-		expect(wakeWorker).toHaveBeenCalledTimes(1);
+		expect(await wakesOfTheKind()).toBe(1);
 	});
 
-	it("does not load the worker runner when invalid intake cannot queue work", async () => {
+	it("does not load the job handler when invalid intake cannot queue work", async () => {
 		let workerRunnerLoaded = false;
-		vi.doMock("./worker-runner", () => {
+		vi.doMock("./production-runner", () => {
 			workerRunnerLoaded = true;
 			return {
-				wakeFileProductionWorker: vi.fn(),
+				runFileProduction: vi.fn(),
 			};
 		});
 		const { submitFileProductionIntake } = await import("./index");
@@ -383,7 +404,6 @@ describe("file production service", () => {
 	it("accepts model-friendly document-source intake and stores normalized source", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -425,7 +445,6 @@ describe("file production service", () => {
 					],
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:25.000Z"),
 		});
 
@@ -470,12 +489,11 @@ describe("file production service", () => {
 				]),
 			},
 		});
-		expect(wakeWorker).toHaveBeenCalledTimes(1);
+		expect(await wakesOfTheKind()).toBe(1);
 	});
 
 	it("persists malformed program intake as a durable failed job", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -491,7 +509,6 @@ describe("file production service", () => {
 					sourceCode: 'puts "bad"',
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.000Z"),
 		});
 
@@ -512,7 +529,7 @@ describe("file production service", () => {
 				},
 			},
 		});
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 	});
 
 	// The program-mode output type used to default to a `"file"` sentinel that
@@ -523,7 +540,6 @@ describe("file production service", () => {
 	// before a container is ever created.
 	it("rejects program intake that names no output type, before any work is queued", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -539,7 +555,6 @@ describe("file production service", () => {
 						"from openpyxl import Workbook\nWorkbook().save('/output/out')",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.500Z"),
 		});
 
@@ -556,7 +571,7 @@ describe("file production service", () => {
 				error: { code: "missing_program_output_type", retryable: false },
 			},
 		});
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 	});
 
 	// `/api/chat/files/produce` is reachable without the produce_file tool
@@ -566,7 +581,6 @@ describe("file production service", () => {
 	// shape the tool refuses by name got a generic `unsupported_source_mode`.
 	it("refuses a mixed-family request at intake, not only in the chat tool", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -578,7 +592,6 @@ describe("file production service", () => {
 				requestedOutputs: [{ type: "pdf" }, { type: "md" }],
 				markdown: "# Mixed output negative case\n\nBody text.\n",
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.650Z"),
 		});
 
@@ -594,7 +607,7 @@ describe("file production service", () => {
 		});
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.error).toContain("Cannot produce pdf, md from one request");
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 	});
 
 	// The two shapes the rule must NOT touch: a caller-authored program may
@@ -603,7 +616,6 @@ describe("file production service", () => {
 	// `document-markdown` live row).
 	it("still accepts a caller-authored program that names both families", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -620,7 +632,6 @@ describe("file production service", () => {
 						"from pathlib import Path\nPath('/output/a.pdf').write_bytes(b'%PDF-1.4')\nPath('/output/a.md').write_text('# hi')",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.700Z"),
 		});
 
@@ -629,7 +640,6 @@ describe("file production service", () => {
 
 	it("rejects an unsupported program output type at intake rather than after the run", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -646,7 +656,6 @@ describe("file production service", () => {
 						"from openpyxl import Workbook\nWorkbook().save('/output/out.xlsx')",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.600Z"),
 		});
 
@@ -658,13 +667,12 @@ describe("file production service", () => {
 				"Output type file is not supported. Use one of: xlsx, docx, pptx, pdf, csv, zip",
 			job: { status: "failed" },
 		});
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 	});
 
 	it("falls back to program.filename's type when the named type is unsupported, with a warning", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -682,7 +690,6 @@ describe("file production service", () => {
 					filename: "budget.xlsx",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.700Z"),
 		});
 
@@ -701,7 +708,7 @@ describe("file production service", () => {
 		expect(JSON.parse(row?.requestJson ?? "{}").outputs).toEqual([
 			{ type: "xlsx" },
 		]);
-		expect(wakeWorker).toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBeGreaterThan(0);
 	});
 
 	it("still refuses an unsupported type when program.filename names no supported type either", async () => {
@@ -721,7 +728,6 @@ describe("file production service", () => {
 					filename: "chart.png",
 				},
 			},
-			wakeWorker: vi.fn(),
 			now: new Date("2026-05-03T19:31:26.800Z"),
 		});
 		expect(result).toMatchObject({
@@ -734,7 +740,6 @@ describe("file production service", () => {
 	it("derives the program output type from program.filename when none is named", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -751,7 +756,6 @@ describe("file production service", () => {
 					filename: "fruits.xlsx",
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:26.700Z"),
 		});
 
@@ -764,12 +768,11 @@ describe("file production service", () => {
 		expect(JSON.parse(stored.requestJson ?? "{}").outputs).toEqual([
 			{ type: "xlsx" },
 		]);
-		expect(wakeWorker).toHaveBeenCalledTimes(1);
+		expect(await wakesOfTheKind()).toBe(1);
 	});
 
 	it("persists static limit failures during intake and logs the limit detail", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		const result = await submitFileProductionIntake({
@@ -794,7 +797,6 @@ describe("file production service", () => {
 						'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:27.000Z"),
 		});
 
@@ -814,7 +816,7 @@ describe("file production service", () => {
 				},
 			},
 		});
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 		expect(warnSpy).toHaveBeenCalledWith(
 			"[FILE_PRODUCTION] Static limit failed",
 			expect.objectContaining({
@@ -829,7 +831,6 @@ describe("file production service", () => {
 
 	it("persists malformed document-source intake as a durable failed job", async () => {
 		const { submitFileProductionIntake } = await import("./index");
-		const wakeWorker = vi.fn();
 
 		const result = await submitFileProductionIntake({
 			userId: "user-1",
@@ -847,7 +848,6 @@ describe("file production service", () => {
 					blocks: [{ type: "rawHtml", html: "<script>alert(1)</script>" }],
 				},
 			},
-			wakeWorker,
 			now: new Date("2026-05-03T19:31:28.000Z"),
 		});
 
@@ -871,7 +871,7 @@ describe("file production service", () => {
 				},
 			},
 		});
-		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(await wakesOfTheKind()).toBe(0);
 	});
 
 	it("reuses one failed intake job for the same idempotency key", async () => {
@@ -893,13 +893,11 @@ describe("file production service", () => {
 		const first = await submitFileProductionIntake({
 			userId: "user-1",
 			body,
-			wakeWorker: vi.fn(),
 			now: new Date("2026-05-03T19:31:29.000Z"),
 		});
 		const second = await submitFileProductionIntake({
 			userId: "user-1",
 			body: { ...body, requestTitle: "Duplicate broken export" },
-			wakeWorker: vi.fn(),
 			now: new Date("2026-05-03T19:31:30.000Z"),
 		});
 		const rows = await db
@@ -942,7 +940,7 @@ describe("file production service", () => {
 			userId: "user-1",
 			title: "Analysis report",
 			status: "succeeded",
-			stage: null,
+			phase: null,
 			origin: "unified_produce",
 			createdAt: now,
 			updatedAt: now,
@@ -997,7 +995,7 @@ describe("file production service", () => {
 			userId: "user-1",
 			title: "Fast report",
 			status: "succeeded",
-			stage: null,
+			phase: null,
 			origin: "unified_produce",
 			createdAt: now,
 			updatedAt: now,
@@ -1321,272 +1319,14 @@ describe("file production service", () => {
 		});
 	});
 
-	it("claims the oldest queued job and records the running attempt", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			listConversationFileProductionJobs,
-		} = await import("./index");
-		const first = await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "First queued report",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:32:00.000Z"),
-		});
-		const second = await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "Second queued report",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:33:00.000Z"),
-		});
-
-		const claimed = await claimNextFileProductionJob({
-			workerId: "worker-1",
-			now: new Date("2026-05-03T19:34:00.000Z"),
-		});
-
-		expect(claimed).toMatchObject({
-			job: {
-				id: first.id,
-				status: "running",
-			},
-			attempt: {
-				jobId: first.id,
-				attemptNumber: 1,
-				status: "running",
-				workerId: "worker-1",
-				errorCode: null,
-				errorMessage: null,
-				retryable: false,
-			},
-		});
-		expect(claimed?.attempt.claimedAt).toBe(
-			new Date("2026-05-03T19:34:00.000Z").getTime(),
-		);
-		expect(claimed?.attempt.heartbeatAt).toBe(
-			new Date("2026-05-03T19:34:00.000Z").getTime(),
-		);
-
-		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
-		expect(jobs.find((job) => job.id === first.id)?.status).toBe("running");
-		expect(jobs.find((job) => job.id === second.id)?.status).toBe("queued");
-	});
-
-	it("only lets the claiming worker heartbeat or fail the current attempt", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			failFileProductionJobAttempt,
-			heartbeatFileProductionJobAttempt,
-			listConversationFileProductionJobs,
-		} = await import("./index");
-		const job = await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "Owned attempt",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:35:00.000Z"),
-		});
-		const claimed = await claimNextFileProductionJob({
-			workerId: "worker-owner",
-			now: new Date("2026-05-03T19:36:00.000Z"),
-		});
-
-		expect(claimed?.job.id).toBe(job.id);
-		if (!claimed)
-			throw new Error("Expected worker to claim file production job");
-		await expect(
-			heartbeatFileProductionJobAttempt({
-				jobId: job.id,
-				attemptId: claimed.attempt.id,
-				workerId: "worker-late",
-				now: new Date("2026-05-03T19:37:00.000Z"),
-			}),
-		).resolves.toBe(false);
-		await expect(
-			failFileProductionJobAttempt({
-				jobId: job.id,
-				attemptId: claimed.attempt.id,
-				workerId: "worker-late",
-				errorCode: "renderer_timeout",
-				errorMessage: "Renderer timed out.",
-				retryable: true,
-				now: new Date("2026-05-03T19:38:00.000Z"),
-			}),
-		).resolves.toBe(false);
-
-		expect(
-			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
-				(row) => row.id === job.id,
-			)?.status,
-		).toBe("running");
-
-		await expect(
-			heartbeatFileProductionJobAttempt({
-				jobId: job.id,
-				attemptId: claimed.attempt.id,
-				workerId: "worker-owner",
-				now: new Date("2026-05-03T19:39:00.000Z"),
-			}),
-		).resolves.toBe(true);
-		await expect(
-			failFileProductionJobAttempt({
-				jobId: job.id,
-				attemptId: claimed.attempt.id,
-				workerId: "worker-owner",
-				errorCode: "renderer_timeout",
-				errorMessage: "Renderer timed out.",
-				retryable: true,
-				now: new Date("2026-05-03T19:40:00.000Z"),
-			}),
-		).resolves.toBe(true);
-
-		expect(
-			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
-				(row) => row.id === job.id,
-			),
-		).toMatchObject({
-			status: "failed",
-			error: {
-				code: "renderer_timeout",
-				message: "Renderer timed out.",
-				retryable: true,
-			},
-		});
-	});
-
-	it("recovers stale running attempts as retryable infrastructure failures", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			listConversationFileProductionJobs,
-			recoverStaleFileProductionAttempts,
-		} = await import("./index");
-		const job = await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "Stale running report",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:41:00.000Z"),
-		});
-		await claimNextFileProductionJob({
-			workerId: "worker-stale",
-			now: new Date("2026-05-03T19:42:00.000Z"),
-		});
-
-		const recovered = await recoverStaleFileProductionAttempts({
-			staleBefore: new Date("2026-05-03T19:50:00.000Z"),
-			now: new Date("2026-05-03T19:51:00.000Z"),
-		});
-
-		expect(recovered).toEqual({ recovered: 1 });
-		expect(
-			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
-				(row) => row.id === job.id,
-			),
-		).toMatchObject({
-			status: "failed",
-			error: {
-				code: "worker_heartbeat_timeout",
-				message: "File production worker stopped before finishing.",
-				retryable: true,
-			},
-		});
-	});
-
-	// Ruling 5, the same change as the extraction worker's. It matters more
-	// here: this claim refuses while ANY row is `running`, so one attempt a
-	// deploy orphaned holds every later production for every user until the
-	// stale window closes — minutes on a box that was serving again in seconds.
-	it("reclaims a dead process's attempt at boot, without the stale window", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			listConversationFileProductionJobs,
-			reclaimDeadWorkerFileProductionAttempts,
-			recoverStaleFileProductionAttempts,
-		} = await import("./index");
-		const job = await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "Orphaned by a deploy",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:41:00.000Z"),
-		});
-		await claimNextFileProductionJob({
-			workerId: "file-production:box-1:9001:nonce-a",
-			now: new Date("2026-05-03T19:42:00.000Z"),
-		});
-
-		// Its heartbeat is seconds old, so a stale sweep declines to touch it.
-		expect(
-			await recoverStaleFileProductionAttempts({
-				staleBefore: new Date("2026-05-03T19:41:30.000Z"),
-				now: new Date("2026-05-03T19:42:05.000Z"),
-			}),
-		).toEqual({ recovered: 0 });
-
-		expect(
-			await reclaimDeadWorkerFileProductionAttempts({
-				workerId: "file-production:box-1:4242:nonce-b",
-				isProcessAlive: (pid) => pid === 4242,
-				now: new Date("2026-05-03T19:42:05.000Z"),
-			}),
-		).toEqual({ recovered: 1 });
-
-		// ADR-0005: failed + retryable, NOT requeued. The user presses Retry.
-		expect(
-			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
-				(row) => row.id === job.id,
-			),
-		).toMatchObject({
-			status: "failed",
-			error: { code: "worker_heartbeat_timeout", retryable: true },
-		});
-	});
-
-	it("leaves another host's and the previous id format's attempts to the stale sweep", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			reclaimDeadWorkerFileProductionAttempts,
-		} = await import("./index");
-		await createFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: "Someone else's box",
-			origin: "unified_produce",
-			now: new Date("2026-05-03T19:41:00.000Z"),
-		});
-		await claimNextFileProductionJob({
-			workerId: "file-production:box-2:9001:nonce-a",
-			now: new Date("2026-05-03T19:42:00.000Z"),
-		});
-
-		expect(
-			await reclaimDeadWorkerFileProductionAttempts({
-				workerId: "file-production:box-1:4242:nonce-b",
-				isProcessAlive: (pid) => pid === 4242,
-				now: new Date("2026-05-03T19:42:05.000Z"),
-			}),
-		).toEqual({ recovered: 0 });
-	});
-
 	it("reconciles stale queued and running jobs while preserving fresh queued work", async () => {
 		const {
-			claimNextFileProductionJob,
 			createFileProductionJob,
 			listConversationFileProductionJobs,
 			reconcileStaleFileProductionJobs,
 		} = await import("./index");
+		const { fileProductionJob } = await import("./production-job");
+		const { claimNext } = await import("$lib/server/services/jobs/ledger");
 		const runningJob = await createFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1595,7 +1335,7 @@ describe("file production service", () => {
 			origin: "unified_produce",
 			now: new Date("2026-05-03T19:41:00.000Z"),
 		});
-		await claimNextFileProductionJob({
+		claimNext(fileProductionJob, {
 			workerId: "worker-stale",
 			now: new Date("2026-05-03T19:42:00.000Z"),
 		});
@@ -1662,7 +1402,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Running without attempt",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: null,
 				createdAt: staleTime,
@@ -1675,7 +1415,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Running missing attempt",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: "missing-attempt",
 				createdAt: staleTime,
@@ -1688,7 +1428,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Running failed attempt",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: "failed-attempt",
 				createdAt: staleTime,
@@ -1701,7 +1441,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Running null heartbeat",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: "null-heartbeat-attempt",
 				createdAt: staleTime,
@@ -1714,7 +1454,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Fresh running",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: "fresh-attempt",
 				createdAt: freshTime,
@@ -1727,7 +1467,7 @@ describe("file production service", () => {
 				userId: "user-1",
 				title: "Fresh running without attempt",
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				origin: "unified_produce",
 				currentAttemptId: null,
 				createdAt: freshTime,
@@ -1740,7 +1480,7 @@ describe("file production service", () => {
 				jobId: "running-failed-attempt",
 				attemptNumber: 1,
 				status: "failed",
-				stage: "rendering",
+				phase: "rendering",
 				workerId: "worker-lost",
 				claimedAt: staleTime,
 				heartbeatAt: staleTime,
@@ -1757,7 +1497,7 @@ describe("file production service", () => {
 				jobId: "running-null-heartbeat",
 				attemptNumber: 1,
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				workerId: "worker-lost",
 				claimedAt: staleTime,
 				heartbeatAt: null,
@@ -1771,7 +1511,7 @@ describe("file production service", () => {
 				jobId: "fresh-running",
 				attemptNumber: 1,
 				status: "running",
-				stage: "rendering",
+				phase: "rendering",
 				workerId: "worker-fresh",
 				claimedAt: freshTime,
 				heartbeatAt: freshTime,
@@ -1796,7 +1536,6 @@ describe("file production service", () => {
 			"running-no-attempt",
 			"running-missing-attempt",
 			"running-failed-attempt",
-			"running-null-heartbeat",
 		]) {
 			expect(jobs.find((job) => job.id === jobId)).toMatchObject({
 				status: "failed",
@@ -1806,6 +1545,18 @@ describe("file production service", () => {
 				},
 			});
 		}
+		// An attempt with no beat on record at all is a stale attempt to the engine
+		// (its rule for "nobody has touched it since"), not a lost one. The claim
+		// always writes the first beat, so no run of either release leaves such a row.
+		expect(
+			jobs.find((job) => job.id === "running-null-heartbeat"),
+		).toMatchObject({
+			status: "failed",
+			error: {
+				code: "worker_heartbeat_timeout",
+				retryable: true,
+			},
+		});
 		expect(jobs.find((job) => job.id === "fresh-running")).toMatchObject({
 			status: "running",
 			error: null,
@@ -1822,18 +1573,19 @@ describe("file production service", () => {
 			.where(eq(schema.fileProductionJobAttempts.id, "null-heartbeat-attempt"));
 		expect(nullHeartbeatAttempt).toMatchObject({
 			status: "failed",
-			errorCode: "worker_state_lost",
+			errorCode: "worker_heartbeat_timeout",
 			retryable: true,
 		});
 	});
 
 	it("retries a retryable failed job under the same job identity with a new attempt number", async () => {
-		const {
-			claimNextFileProductionJob,
-			createFileProductionJob,
-			failFileProductionJobAttempt,
-			retryFileProductionJob,
-		} = await import("./index");
+		const { createFileProductionJob, retryFileProductionJob } = await import(
+			"./index"
+		);
+		const { fileProductionJob } = await import("./production-job");
+		const { claimNext, fail } = await import(
+			"$lib/server/services/jobs/ledger"
+		);
 		const job = await createFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1842,28 +1594,32 @@ describe("file production service", () => {
 			origin: "unified_produce",
 			now: new Date("2026-05-03T19:52:00.000Z"),
 		});
-		const firstClaim = await claimNextFileProductionJob({
+		const firstClaim = claimNext(fileProductionJob, {
 			workerId: "worker-retry-1",
 			now: new Date("2026-05-03T19:53:00.000Z"),
 		});
 		if (!firstClaim)
 			throw new Error("Expected first retry worker to claim job");
-		await failFileProductionJobAttempt({
-			jobId: job.id,
-			attemptId: firstClaim.attempt.id,
-			workerId: "worker-retry-1",
-			errorCode: "renderer_timeout",
-			errorMessage: "Renderer timed out.",
-			retryable: true,
-			now: new Date("2026-05-03T19:54:00.000Z"),
-		});
+		fail(
+			fileProductionJob,
+			{
+				jobId: job.id,
+				attemptId: firstClaim.attempt.id,
+				workerId: "worker-retry-1",
+			},
+			{
+				code: "renderer_timeout",
+				message: "Renderer timed out.",
+				retryable: true,
+			},
+			{ now: new Date("2026-05-03T19:54:00.000Z") },
+		);
 
 		const retried = await retryFileProductionJob({
 			userId: "user-1",
 			jobId: job.id,
-			now: new Date("2026-05-03T19:55:00.000Z"),
 		});
-		const secondClaim = await claimNextFileProductionJob({
+		const secondClaim = claimNext(fileProductionJob, {
 			workerId: "worker-retry-2",
 			now: new Date("2026-05-03T19:56:00.000Z"),
 		});
@@ -1874,27 +1630,63 @@ describe("file production service", () => {
 			error: null,
 		});
 		expect(secondClaim).toMatchObject({
-			job: {
+			row: {
 				id: job.id,
 				status: "running",
 			},
-			attempt: {
-				jobId: job.id,
-				attemptNumber: 2,
-				status: "running",
-				workerId: "worker-retry-2",
-			},
+			attempt: { number: 2 },
 		});
+		// Same job, two attempts: the first failed with the code it gave, the
+		// second is the one running.
+		const { db } = await import("$lib/server/db");
+		const attempts = await db
+			.select()
+			.from(schema.fileProductionJobAttempts)
+			.where(eq(schema.fileProductionJobAttempts.jobId, job.id))
+			.orderBy(schema.fileProductionJobAttempts.attemptNumber);
+		expect(
+			attempts.map((attempt) => [
+				attempt.attemptNumber,
+				attempt.status,
+				attempt.workerId,
+			]),
+		).toEqual([
+			[1, "failed", "worker-retry-1"],
+			[2, "running", "worker-retry-2"],
+		]);
+	});
+
+	it("does not retry a failure that was not retryable, and not for another person", async () => {
+		const { createFailedFileProductionJob, retryFileProductionJob } =
+			await import("./index");
+		const failed = await createFailedFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			title: "Refused",
+			origin: "unified_produce",
+			errorCode: "source_too_large",
+			errorMessage: "The source is too large.",
+			retryable: false,
+		});
+
+		expect(
+			await retryFileProductionJob({ userId: "user-1", jobId: failed.id }),
+		).toBeNull();
+		expect(
+			await retryFileProductionJob({ userId: "user-2", jobId: failed.id }),
+		).toBeNull();
 	});
 
 	it("cancels queued and running jobs as persisted terminal states", async () => {
 		const {
 			cancelFileProductionJob,
-			claimNextFileProductionJob,
 			createFileProductionJob,
-			failFileProductionJobAttempt,
 			listConversationFileProductionJobs,
 		} = await import("./index");
+		const { fileProductionJob } = await import("./production-job");
+		const { claimNext, fail } = await import(
+			"$lib/server/services/jobs/ledger"
+		);
 		const queuedJob = await createFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1908,18 +1700,17 @@ describe("file production service", () => {
 			cancelFileProductionJob({
 				userId: "user-1",
 				jobId: queuedJob.id,
-				now: new Date("2026-05-03T19:58:00.000Z"),
 			}),
 		).resolves.toMatchObject({
 			id: queuedJob.id,
 			status: "cancelled",
 		});
-		await expect(
-			claimNextFileProductionJob({
+		expect(
+			claimNext(fileProductionJob, {
 				workerId: "worker-cancel",
 				now: new Date("2026-05-03T19:59:00.000Z"),
 			}),
-		).resolves.toBeNull();
+		).toBeNull();
 
 		const runningJob = await createFileProductionJob({
 			userId: "user-1",
@@ -1929,7 +1720,7 @@ describe("file production service", () => {
 			origin: "unified_produce",
 			now: new Date("2026-05-03T20:00:00.000Z"),
 		});
-		const claimed = await claimNextFileProductionJob({
+		const claimed = claimNext(fileProductionJob, {
 			workerId: "worker-cancel",
 			now: new Date("2026-05-03T20:01:00.000Z"),
 		});
@@ -1939,23 +1730,28 @@ describe("file production service", () => {
 			cancelFileProductionJob({
 				userId: "user-1",
 				jobId: runningJob.id,
-				now: new Date("2026-05-03T20:02:00.000Z"),
 			}),
 		).resolves.toMatchObject({
 			id: runningJob.id,
 			status: "cancelled",
 		});
-		await expect(
-			failFileProductionJobAttempt({
-				jobId: runningJob.id,
-				attemptId: claimed.attempt.id,
-				workerId: "worker-cancel",
-				errorCode: "renderer_timeout",
-				errorMessage: "Renderer timed out.",
-				retryable: true,
-				now: new Date("2026-05-03T20:03:00.000Z"),
-			}),
-		).resolves.toBe(false);
+		// The worker that held the job reports its failure late: nothing is written
+		// over the cancel.
+		expect(
+			fail(
+				fileProductionJob,
+				{
+					jobId: runningJob.id,
+					attemptId: claimed.attempt.id,
+					workerId: "worker-cancel",
+				},
+				{
+					code: "renderer_timeout",
+					message: "Renderer timed out.",
+					retryable: true,
+				},
+			),
+		).toMatchObject({ applied: false });
 
 		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
 		expect(jobs.find((row) => row.id === queuedJob.id)?.status).toBe(
@@ -1971,7 +1767,6 @@ describe("file production service", () => {
 		const {
 			cancelFileProductionJob,
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -1997,13 +1792,11 @@ describe("file production service", () => {
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-cancel-after-exec",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => {
 				await cancelFileProductionJob({
 					userId: "user-1",
 					jobId: created.job.id,
-					now: new Date("2026-05-03T20:03:45.000Z"),
 				});
 				return {
 					files: [
@@ -2020,7 +1813,6 @@ describe("file production service", () => {
 				};
 			}),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:03:40.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2045,7 +1837,6 @@ describe("file production service", () => {
 		const {
 			assignFileProductionJobsToAssistantMessage,
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
@@ -2130,12 +1921,10 @@ describe("file production service", () => {
 		});
 		const syncGeneratedFilesToMemory = vi.fn(async () => undefined);
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-exec",
+		const result = await runNextFileProductionJob({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory,
-			now: new Date("2026-05-03T20:05:00.000Z"),
 		});
 
 		expect(result).toMatchObject({
@@ -2197,7 +1986,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2249,8 +2037,7 @@ describe("file production service", () => {
 			})
 			.mockRejectedValueOnce(new Error("disk full during second output"));
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-partial-storage",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -2269,7 +2056,6 @@ describe("file production service", () => {
 				error: null,
 			})),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:05:35.000Z"),
 		});
 		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
 		const links = await db
@@ -2305,7 +2091,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2331,8 +2116,7 @@ describe("file production service", () => {
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-limit",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -2351,7 +2135,6 @@ describe("file production service", () => {
 				maxOutputFileBytes: 4,
 				maxTotalOutputBytes: 20,
 			},
-			now: new Date("2026-05-03T20:07:00.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2387,7 +2170,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2412,8 +2194,7 @@ describe("file production service", () => {
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-invalid-xlsx",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -2429,7 +2210,6 @@ describe("file production service", () => {
 				error: null,
 			})),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:07:45.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2456,7 +2236,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2493,11 +2272,9 @@ describe("file production service", () => {
 		}));
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-missing-program-outputs",
+		const result = await runNextFileProductionJob({
 			executeCode,
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:07:47.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2525,7 +2302,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2550,8 +2326,7 @@ describe("file production service", () => {
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-renamed-program-output",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -2565,7 +2340,6 @@ describe("file production service", () => {
 				error: null,
 			})),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:07:49.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2592,7 +2366,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -2616,8 +2389,7 @@ describe("file production service", () => {
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-xlsx-produced-csv",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -2631,7 +2403,6 @@ describe("file production service", () => {
 				error: null,
 			})),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:07:51.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -2658,7 +2429,6 @@ describe("file production service", () => {
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			drainFileProductionWorker,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const sourceCode = `
@@ -2758,12 +2528,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		await drainFileProductionWorker({
-			workerId: "worker-exceljs-smoke",
+		await drainFileProductionJobs({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: new Date("2026-05-03T20:08:00.000Z"),
 		});
 
 		expect(executeCode).toHaveBeenCalledWith(sourceCode, "javascript", {
@@ -2799,11 +2567,8 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 
 	it("keeps a valid workbook written before the program exited non-zero, with the error as a warning", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			createOrReuseFileProductionJob,
-			drainFileProductionWorker,
-			getConversationFileProductionJob,
-		} = await import("./index");
+		const { createOrReuseFileProductionJob, getConversationFileProductionJob } =
+			await import("./index");
 		const workbookBuffer = await buildExcelJsSmokeWorkbook();
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
@@ -2870,12 +2635,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		await drainFileProductionWorker({
-			workerId: "worker-self-check",
+		await drainFileProductionJobs({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: new Date("2026-05-03T20:08:00.000Z"),
 		});
 
 		const job = await getConversationFileProductionJob({
@@ -2896,11 +2659,8 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 	});
 
 	it("still fails a non-zero program exit whose output does not satisfy the request", async () => {
-		const {
-			createOrReuseFileProductionJob,
-			drainFileProductionWorker,
-			getConversationFileProductionJob,
-		} = await import("./index");
+		const { createOrReuseFileProductionJob, getConversationFileProductionJob } =
+			await import("./index");
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -2938,12 +2698,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		}));
 		const storeGeneratedFile = vi.fn();
 
-		await drainFileProductionWorker({
-			workerId: "worker-half-written",
+		await drainFileProductionJobs({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: new Date("2026-05-03T20:08:00.000Z"),
 		});
 
 		const job = await getConversationFileProductionJob({
@@ -3015,11 +2773,8 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			stderr: "Traceback (most recent call last):\nMemoryError",
 		},
 	])("does not keep output after a non-zero exit for $name", async (testCase) => {
-		const {
-			createOrReuseFileProductionJob,
-			drainFileProductionWorker,
-			getConversationFileProductionJob,
-		} = await import("./index");
+		const { createOrReuseFileProductionJob, getConversationFileProductionJob } =
+			await import("./index");
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -3056,12 +2811,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		}));
 		const storeGeneratedFile = vi.fn();
 
-		await drainFileProductionWorker({
-			workerId: "worker-crashed-output",
+		await drainFileProductionJobs({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-			now: new Date("2026-05-03T20:08:00.000Z"),
 		});
 
 		const job = await getConversationFileProductionJob({
@@ -3081,7 +2834,6 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -3106,8 +2858,7 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-xlsx-scratch",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(async () => ({
 				files: [
 					{
@@ -3126,7 +2877,6 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 				error: null,
 			})),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:08:45.000Z"),
 		});
 
 		expect(result).toBeNull();
@@ -3156,7 +2906,6 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			drainFileProductionWorker,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const failedJob = await createOrReuseFileProductionJob({
@@ -3249,11 +2998,9 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		await drainFileProductionWorker({
-			workerId: "worker-drain",
+		await drainFileProductionJobs({
 			executeCode,
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:14:00.000Z"),
 		});
 
 		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
@@ -3275,8 +3022,7 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 
 	it("executes a queued document-source PDF job without using the sandbox", async () => {
 		const { db } = await import("$lib/server/db");
-		const { createOrReuseFileProductionJob, executeNextFileProductionJob } =
-			await import("./index");
+		const { createOrReuseFileProductionJob } = await import("./index");
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -3333,12 +3079,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-document-source",
+		const result = await runNextFileProductionJob({
 			executeCode,
 			storeGeneratedFile,
 			syncGeneratedFilesToMemory,
-			now: new Date("2026-05-03T20:09:00.000Z"),
 		});
 		const sourceArtifacts = await db
 			.select()
@@ -3408,7 +3152,6 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -3441,11 +3184,9 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		});
 		const storeGeneratedFile = vi.fn();
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-document-source-render-failure",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:09:31.000Z"),
 		});
 
 		const sourceArtifacts = await db
@@ -3494,7 +3235,6 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		const { db } = await import("$lib/server/db");
 		const {
 			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
 			listConversationFileProductionJobs,
 		} = await import("./index");
 		const created = await createOrReuseFileProductionJob({
@@ -3548,11 +3288,9 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-document-multi",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:11:00.000Z"),
 		});
 
 		expect(result?.job.id).toBe(created.job.id);
@@ -3601,8 +3339,7 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			resolveReportImages: vi.fn(async () => new Map([[PICTURE, INLINED]])),
 		}));
 		const { db } = await import("$lib/server/db");
-		const { createOrReuseFileProductionJob, executeNextFileProductionJob } =
-			await import("./index");
+		const { createOrReuseFileProductionJob } = await import("./index");
 		await createOrReuseFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -3660,11 +3397,9 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			};
 		});
 
-		const result = await executeNextFileProductionJob({
-			workerId: "worker-html-picture",
+		const result = await runNextFileProductionJob({
 			executeCode: vi.fn(),
 			storeGeneratedFile,
-			now: new Date("2026-05-03T20:21:00.000Z"),
 		});
 
 		expect(result?.files.map((file) => file.mimeType)).toEqual(["text/html"]);

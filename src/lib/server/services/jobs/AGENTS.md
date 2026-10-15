@@ -50,7 +50,7 @@ export const widgetJob = defineJobKind({
 });
 ```
 
-Where the kinds are defined (each in a file named for its domain, not a shared name): `atlas/research-job.ts` (on the engine since slice S2), `extraction/extraction-job.ts`, `file-production/production-job.ts`. Until their slices land, extraction and file production still run on their own ledgers and workers. The engine's own test kind is `testing/test-kind.ts`.
+Where the kinds are defined (each in a file named for its domain, not a shared name): `atlas/research-job.ts`, `extraction/extraction-job.ts`, `file-production/production-job.ts`. All three run on the engine, started once from `hooks.server.ts`. The engine's own test kind is `testing/test-kind.ts`.
 
 The rows `enqueue`, `cancel`, `retry`, `reopen` and the claim (`ctx.row`) hand back are read again after `onTransition` ran, in the same transaction, so they carry the domain columns the hook wrote (Atlas's `stage`) and a caller needs no second read.
 

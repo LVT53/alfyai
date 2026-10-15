@@ -80,13 +80,16 @@ import { resetToolResultCacheForTests } from "./tool-result-cache";
 // is the real one: produce_file's whole point now is that it reports the
 // ledger's verdict, so the wait itself has to be under test.
 vi.mock("$lib/server/services/file-production", async () => {
-	const { waitForFileProductionJobVerdict } = await import(
-		"$lib/server/services/file-production/job-wait"
+	const { pollingVerdictWait } = await import(
+		"$lib/server/services/file-production/testing/verdict-poll"
 	);
+	const getConversationFileProductionJob = vi.fn();
 	return {
 		submitFileProductionIntake: vi.fn(),
-		getConversationFileProductionJob: vi.fn(),
-		waitForFileProductionJobVerdict,
+		getConversationFileProductionJob,
+		waitForFileProductionJobVerdict: pollingVerdictWait(
+			getConversationFileProductionJob,
+		),
 	};
 });
 vi.mock("$lib/server/services/analytics", () => ({
@@ -1349,7 +1352,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-success",
@@ -1394,7 +1396,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-failed",
@@ -1437,7 +1438,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = (await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-long",
@@ -1490,7 +1490,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-retryable",
@@ -1528,7 +1527,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-noretry",
@@ -1601,7 +1599,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const first = await tools.produce_file.execute(
 				programCall({ program: { language: "python", sourceCode: "v1(" } }),
@@ -1654,7 +1651,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			for (const [index, sourceCode] of ["v1()", "v2()"].entries()) {
 				await tools.produce_file.execute(
@@ -1700,7 +1696,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			for (const toolCallId of ["a1", "a2"]) {
 				await tools.produce_file.execute(programCall(), {
@@ -1747,7 +1742,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			// A fresh title each time dodges the per-artifact counter entirely.
 			const results = [];
@@ -1792,7 +1786,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-empty",
@@ -1819,7 +1812,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 5,
 			});
 			const pending = tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-aborted",
@@ -1861,7 +1853,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = (await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-paths",
@@ -1892,7 +1883,6 @@ describe("createNormalChatTools", () => {
 				userId: "user-1",
 				conversationId: "conversation-1",
 				turnId: "turn-1",
-				fileProductionVerdictPollIntervalMs: 1,
 			});
 			const result = (await tools.produce_file.execute(programCall(), {
 				toolCallId: "call-wait-sandbox-paths",

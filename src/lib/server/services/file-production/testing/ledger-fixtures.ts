@@ -1,12 +1,13 @@
-// A migrated, seeded SQLite file for file-production worker tests.
+// A migrated, seeded SQLite file for the tests of the file-production kind and
+// its handler.
 //
 // It talks to better-sqlite3 directly rather than to `$lib/server/db`, because
 // the modules under test capture that singleton at import time: a test has to
-// create and seed the file BEFORE it imports the ledger or the worker, and a
+// create and seed the file BEFORE it imports the job engine or the kind, and a
 // helper that went through the singleton would open the previous test's
 // database.
 //
-// The design is the one the extraction worker's fixture uses, deliberately
+// The design is the one the extraction tests' fixture uses, deliberately
 // re-implemented rather than imported: ADR-0005 keeps file-production and
 // extraction as separate boundaries, and `obsolete-surfaces.test.ts` exists to
 // stop one reaching into the other — test helpers included.
@@ -115,7 +116,7 @@ export function createFileProductionLedgerFixture(
 					userId: input.userId,
 					title: input.title ?? "Quarterly report",
 					status: input.status ?? "queued",
-					stage: null,
+					phase: null,
 					origin: "unified_produce",
 					currentAttemptId: null,
 					retryable: false,
@@ -154,7 +155,7 @@ export function createFileProductionLedgerFixture(
 					jobId: input.jobId,
 					attemptNumber: 1,
 					status: "running",
-					stage: null,
+					phase: null,
 					workerId: input.workerId ?? "worker-that-died",
 					claimedAt: heartbeatAt,
 					heartbeatAt,

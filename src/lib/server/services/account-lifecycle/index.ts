@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	adminConfig,
@@ -8,8 +8,6 @@ import {
 	announcementCampaigns,
 	artifacts,
 	campaignAssets,
-	fileProductionJobAttempts,
-	fileProductionJobs,
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
@@ -17,6 +15,7 @@ import { cancelActiveAtlasJobsForUser, deleteAtlasJobsForUser } from "../atlas";
 import { deleteAllChatFilesForUser } from "../chat-files";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { cancelActiveDocumentExtractionForUser } from "../extraction";
+import { cancelActiveFileProductionForUser } from "../file-production";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -33,7 +32,6 @@ import {
 export const DETACHED_SHARED_CONTENT_OWNER_ID = "detached-shared-content-owner";
 export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
 	"detached-shared-content-owner@alfyai.local";
-const ACTIVE_FILE_PRODUCTION_STATUSES = ["queued", "running"] as const;
 
 /**
  * ONE owner for the account lifecycle. Every destructive account operation —
@@ -257,65 +255,11 @@ async function resolveDetachedSharedContentOwnerId(
 export async function quiesceUserWorkspace(userId: string): Promise<void> {
 	requestActiveChatStreamsStopForUser(userId);
 	await cancelActiveAtlasJobsForUser(userId);
+	// File production and extraction are on the job engine: a job being produced or
+	// parsed when erasure started is cancelled and its run told at once, instead of
+	// storing a file, or a normalized artifact and its chunk rows, into an account
+	// that asked to be forgotten.
 	await cancelActiveFileProductionForUser(userId);
-	// Extraction is on the job engine: a job being parsed when erasure started is
-	// cancelled and its run told at once, instead of writing a normalized artifact
-	// and its chunk rows into an account that asked to be forgotten.
 	await cancelActiveDocumentExtractionForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
-}
-
-async function cancelActiveFileProductionForUser(
-	userId: string,
-): Promise<void> {
-	const now = new Date();
-	const activeJobs = await db
-		.select({
-			id: fileProductionJobs.id,
-			currentAttemptId: fileProductionJobs.currentAttemptId,
-		})
-		.from(fileProductionJobs)
-		.where(
-			and(
-				eq(fileProductionJobs.userId, userId),
-				inArray(fileProductionJobs.status, ACTIVE_FILE_PRODUCTION_STATUSES),
-			),
-		);
-	if (activeJobs.length === 0) return;
-
-	const activeAttemptIds = activeJobs
-		.map((job) => job.currentAttemptId)
-		.filter((id): id is string => Boolean(id));
-
-	db.transaction((tx) => {
-		if (activeAttemptIds.length > 0) {
-			tx.update(fileProductionJobAttempts)
-				.set({
-					status: "cancelled",
-					finishedAt: now,
-					updatedAt: now,
-				})
-				.where(inArray(fileProductionJobAttempts.id, activeAttemptIds))
-				.run();
-		}
-
-		tx.update(fileProductionJobs)
-			.set({
-				status: "cancelled",
-				stage: null,
-				retryable: false,
-				errorCode: null,
-				errorMessage: null,
-				completedAt: now,
-				cancelRequestedAt: now,
-				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(fileProductionJobs.userId, userId),
-					inArray(fileProductionJobs.status, ACTIVE_FILE_PRODUCTION_STATUSES),
-				),
-			)
-			.run();
-	});
 }
