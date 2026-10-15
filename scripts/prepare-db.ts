@@ -141,6 +141,8 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["routing_regions", "gtfs_url"],
 	["routing_regions", "gtfs_feeds"],
 	["document_extraction_jobs", "requested_by"],
+	["document_extraction_jobs", "phase"],
+	["document_extraction_jobs", "retry_state_json"],
 ];
 
 const baselineAdoptionRequiredTables = [

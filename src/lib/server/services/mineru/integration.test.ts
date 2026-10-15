@@ -420,7 +420,7 @@ describe("a document the reader cannot open", () => {
 		// resume. Live this cost three attempts, two of them `resumed: true`
 		// against the same terminal job, and then a Retry that resumed it again.
 		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 	});
 
 	it("survives the whole round trip to the DTO the chip reads", async () => {
@@ -460,8 +460,7 @@ describe("an ordinary parse failure keeps its budget", () => {
 		for (let i = 0; i < 3; i += 1) {
 			clearBackoffGates();
 			await run();
-			const handle = (await ledger.getExtractionJobRow(jobId))
-				?.remoteHandleJson;
+			const handle = (await ledger.getExtractionJobRow(jobId))?.checkpoint;
 			if (handle) remoteJobIds.push(JSON.parse(handle).remoteJobId);
 		}
 
@@ -520,9 +519,9 @@ describe("cancel while parsing", () => {
 		});
 		// The handle exists before the first poll, which is what makes the remote
 		// cancel possible at all.
-		expect(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-		).toContain("job_");
+		expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toContain(
+			"job_",
+		);
 
 		await ledger.cancelExtractionJob({ userId, jobId });
 		expect(await running).toEqual({ jobId, status: "canceled" });
@@ -551,11 +550,10 @@ describe("a worker that died mid-parse", () => {
 		const orphaned = run({ heartbeatMs: 600_000 }).catch(() => null);
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
-		const handleJson = (await ledger.getExtractionJobRow(jobId))
-			?.remoteHandleJson;
+		const handleJson = (await ledger.getExtractionJobRow(jobId))?.checkpoint;
 
 		await ledger.recoverStaleExtractionAttempts({
 			staleBefore: new Date(Date.now() + 60_000),
@@ -609,11 +607,11 @@ describe("a worker that died mid-parse", () => {
 		const orphaned = run({ heartbeatMs: 100 }).catch(() => null);
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
 		const handleJson = (await ledger.getExtractionJobRow(jobId))
-			?.remoteHandleJson as string;
+			?.checkpoint as string;
 		const remoteJobId = JSON.parse(handleJson).remoteJobId as string;
 
 		// Another worker reclaims the attempt out from under the running one.
@@ -634,7 +632,7 @@ describe("a worker that died mid-parse", () => {
 
 		// And the handle the next attempt needs is still on the row.
 		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.remoteHandleJson).toContain(remoteJobId);
+		expect(row?.checkpoint).toContain(remoteJobId);
 		expect(row?.status).not.toBe("canceled");
 		expect(row?.status).not.toBe("failed");
 	});
@@ -707,7 +705,7 @@ describe("a backend that is not answering", () => {
 				// Not one of the document's three attempts was spent.
 				expect(dto?.attemptCount).toBe(0);
 
-				const gate = row?.nextAttemptAt?.getTime();
+				const gate = row?.runAfter?.getTime();
 				expect(gate).toBeGreaterThan(Date.now());
 				// Nothing is claimable before the gate: the wait is real.
 				expect(await run()).toBeNull();
@@ -746,12 +744,12 @@ describe("a user cancel", () => {
 
 		const running = run({ heartbeatMs: 100 });
 		await vi.waitFor(async () => {
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-			).toContain("job_");
+			expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toContain(
+				"job_",
+			);
 		});
 		const firstRemoteJobId = JSON.parse(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson ?? "{}",
+			(await ledger.getExtractionJobRow(jobId))?.checkpoint ?? "{}",
 		).remoteJobId as string;
 
 		await ledger.cancelExtractionJob({ userId, jobId });
@@ -773,7 +771,7 @@ describe("a user cancel", () => {
 		// the user never caused, on a document that parses perfectly fresh.
 		const canceled = await ledger.getExtractionJobRow(jobId);
 		expect(canceled?.status).toBe("canceled");
-		expect(canceled?.remoteHandleJson).toBeNull();
+		expect(canceled?.checkpoint).toBeNull();
 
 		server.setOptions({ neverFinish: false });
 		server.resetLog();

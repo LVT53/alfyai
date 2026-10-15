@@ -268,12 +268,12 @@ export async function enqueueExtractionJob(
 		status,
 		attemptCount: 0,
 		currentAttemptId: null,
-		remoteHandleJson: null,
+		checkpoint: null,
 		hintsJson: serializeHints(input.hints),
 		retryable: failedAtBirth ? (input.failure?.retryable ?? false) : false,
 		errorCode: failedAtBirth ? (input.failure?.errorCode ?? null) : null,
 		errorMessage: failedAtBirth ? (input.failure?.errorMessage ?? null) : null,
-		nextAttemptAt: null,
+		runAfter: null,
 		cancelRequestedAt: null,
 		startedAt: status === "queued" ? null : now,
 		completedAt: status === "queued" ? null : now,
@@ -379,8 +379,8 @@ export async function claimNextExtractionJob(
 		const gate = and(
 			eq(documentExtractionJobs.status, "queued"),
 			or(
-				isNull(documentExtractionJobs.nextAttemptAt),
-				lte(documentExtractionJobs.nextAttemptAt, now),
+				isNull(documentExtractionJobs.runAfter),
+				lte(documentExtractionJobs.runAfter, now),
 			),
 			directTextOnly
 				? eq(documentExtractionJobs.intakeRoute, "direct-text")
@@ -455,7 +455,7 @@ export async function claimNextExtractionJob(
 
 			const attemptNumber = candidate.attemptCount + 1;
 			const attemptId = randomUUID();
-			const resumeHandle = parseExtractionHandle(candidate.remoteHandleJson);
+			const resumeHandle = parseExtractionHandle(candidate.checkpoint);
 
 			const updated = tx
 				.update(documentExtractionJobs)
@@ -467,7 +467,7 @@ export async function claimNextExtractionJob(
 					retryable: false,
 					errorCode: null,
 					errorMessage: null,
-					nextAttemptAt: null,
+					runAfter: null,
 					updatedAt: now,
 				})
 				.where(
@@ -490,7 +490,7 @@ export async function claimNextExtractionJob(
 				phase: "uploading",
 				extractor: null,
 				resumed: resumeHandle !== null,
-				remoteHandleJson: candidate.remoteHandleJson,
+				remoteHandleJson: candidate.checkpoint,
 				workerId: input.workerId,
 				claimedAt: now,
 				heartbeatAt: now,
@@ -611,7 +611,7 @@ export async function reportExtractionProgress(
 		tx.update(documentExtractionJobs)
 			.set({
 				status: input.status,
-				...(handleJson === undefined ? {} : { remoteHandleJson: handleJson }),
+				...(handleJson === undefined ? {} : { checkpoint: handleJson }),
 				updatedAt: now,
 			})
 			.where(
@@ -706,7 +706,7 @@ export async function completeExtractionAttempt(
 				retryable: false,
 				errorCode: null,
 				errorMessage: null,
-				remoteHandleJson: null,
+				checkpoint: null,
 				// A hint has done its job once the extraction it steered succeeded;
 				// leaving it would silently re-apply to a later user retry. The
 				// reserved `$outage` bookkeeping is NOT a hint and must survive:
@@ -866,14 +866,14 @@ export async function failExtractionAttempt(
 				errorCode: decision.jobErrorCode,
 				errorMessage: input.errorMessage,
 				retryable: decision.jobRetryable,
-				nextAttemptAt,
+				runAfter: nextAttemptAt,
 				completedAt: decision.requeue ? null : now,
 				hintsJson: withOutageState(job.hintsJson, decision.outage),
 				// An outage wait KEEPS the handle even when the failure asked for it
 				// to be cleared only because the job went terminal: the remote job
 				// may well still be there when the backend comes back.
 				...(input.clearHandle || (!decision.requeue && !decision.outageWait)
-					? { remoteHandleJson: null }
+					? { checkpoint: null }
 					: {}),
 				updatedAt: now,
 			})
@@ -1028,7 +1028,7 @@ function reclaimRunningAttempt(
 			errorCode: decision.jobErrorCode,
 			errorMessage: STALE_WORKER_MESSAGE,
 			retryable: decision.jobRetryable,
-			nextAttemptAt: decision.requeue
+			runAfter: decision.requeue
 				? new Date(now.getTime() + decision.delayMs)
 				: null,
 			completedAt: decision.requeue ? null : now,
@@ -1223,7 +1223,7 @@ export async function retryExtractionJob(
 				errorCode: null,
 				errorMessage: null,
 				retryable: false,
-				nextAttemptAt: null,
+				runAfter: null,
 				cancelRequestedAt: null,
 				completedAt: null,
 				hintsJson: withOutageState(
@@ -1301,7 +1301,7 @@ export async function cancelExtractionJob(
 				completedAt: now,
 				currentAttemptId: null,
 				retryable: false,
-				nextAttemptAt: null,
+				runAfter: null,
 				// The handle is DROPPED, unlike on a stale reclaim.
 				//
 				// A user cancel is the one abort that DELETEs the remote job, so the
@@ -1310,7 +1310,7 @@ export async function cancelExtractionJob(
 				// answers `status: "canceled"`, which the error table reads as
 				// "canceled by someone else" — a `job_failed` the user never caused,
 				// on a document that would have parsed perfectly from scratch.
-				remoteHandleJson: null,
+				checkpoint: null,
 				updatedAt: now,
 			})
 			.where(

@@ -209,13 +209,13 @@ export async function requeueExtractionJobForReextraction(
 				errorCode: null,
 				errorMessage: null,
 				retryable: false,
-				nextAttemptAt: null,
+				runAfter: null,
 				cancelRequestedAt: null,
 				completedAt: null,
 				// The previous parse's remote handle belongs to a job that is over.
 				// Resuming into it would hand the extractor a finished remote job
 				// and, worse, one parsed at the tier the user is trying to leave.
-				remoteHandleJson: null,
+				checkpoint: null,
 				hintsJson: withOutageState(
 					input.hints === undefined
 						? job.hintsJson

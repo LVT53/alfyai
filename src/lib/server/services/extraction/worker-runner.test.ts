@@ -106,7 +106,7 @@ describe("executeNextExtractionJob", () => {
 		const row = await ledger.getExtractionJobRow(job.id);
 		expect(row?.status).toBe("succeeded");
 		expect(row?.normalizedArtifactId).not.toBeNull();
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 
 		const [attempt] = await ledger.listExtractionJobAttempts(job.id);
 		expect(attempt.status).toBe("succeeded");
@@ -237,7 +237,7 @@ describe("executeNextExtractionJob", () => {
 
 		const row = await ledger.getExtractionJobRow(job.id);
 		expect(row?.status).toBe("queued");
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 	});
 
 	it("aborts and writes nothing when the claim is lost mid-extraction", async () => {
@@ -291,7 +291,7 @@ describe("executeNextExtractionJob", () => {
 
 		await vi.waitFor(async () => {
 			const row = await ledger.getExtractionJobRow(job.id);
-			expect(row?.remoteHandleJson).not.toBeNull();
+			expect(row?.checkpoint).not.toBeNull();
 		});
 		await ledger.cancelExtractionJob({ userId, jobId: job.id });
 

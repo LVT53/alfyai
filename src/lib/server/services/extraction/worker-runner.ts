@@ -901,7 +901,7 @@ async function readExtractionQueueSnapshot(
 	// `next_attempt_at` is a drizzle `timestamp` column: unix SECONDS.
 	const nowSeconds = Math.floor(nowMs / 1000);
 	const status = documentExtractionJobs.status;
-	const gate = documentExtractionJobs.nextAttemptAt;
+	const gate = documentExtractionJobs.runAfter;
 
 	const [row] = await db
 		.select({

@@ -96,7 +96,7 @@ export function mapExtractionJobRow(
 		startedAt: row.startedAt ? row.startedAt.getTime() : null,
 		// Carried for a queued row so the chip can say "we'll try again at…"
 		// rather than "waiting to be read" while a backend is down.
-		nextAttemptAt: row.nextAttemptAt ? row.nextAttemptAt.getTime() : null,
+		nextAttemptAt: row.runAfter ? row.runAfter.getTime() : null,
 		legacy: false,
 	};
 }

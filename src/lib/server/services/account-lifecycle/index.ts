@@ -330,7 +330,7 @@ async function cancelActiveDocumentExtractionForUser(
 				status: "canceled",
 				currentAttemptId: null,
 				retryable: false,
-				nextAttemptAt: null,
+				runAfter: null,
 				completedAt: now,
 				cancelRequestedAt: now,
 				updatedAt: now,

@@ -345,7 +345,9 @@ describe("claimNextExtractionJob", () => {
 				)
 				.all() as Array<{ detail: string }>;
 			const detail = plan.map((row) => row.detail).join(" | ");
-			expect(detail).toContain("document_extraction_jobs_claim_idx");
+			// The planner may pick the engine's live partial index or the previous
+			// release's full one; both lead with `status`, which is the point.
+			expect(detail).toMatch(/document_extraction_jobs_(live_)?claim_idx/);
 			expect(detail).not.toMatch(/\bSCAN document_extraction_jobs\b(?! USING)/);
 		});
 	});
@@ -371,7 +373,7 @@ describe("progress and heartbeat", () => {
 
 		let row = await ledger.getExtractionJobRow(claimed.job.id);
 		expect(row?.status).toBe("parsing");
-		expect(row?.remoteHandleJson).toContain("r1");
+		expect(row?.checkpoint).toContain("r1");
 
 		expect(
 			await ledger.reportExtractionProgress({
@@ -491,7 +493,7 @@ describe("completion", () => {
 		const row = await ledger.getExtractionJobRow(claimed.job.id);
 		expect(row?.status).toBe("succeeded");
 		expect(row?.normalizedArtifactId).toBe(normalizedId);
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 		expect(row?.hintsJson).toBeNull();
 		expect(row?.completedAt).not.toBeNull();
 
@@ -585,7 +587,7 @@ describe("failure", () => {
 		expect(row?.status).toBe("failed");
 		expect(row?.errorCode).toBe("too_large");
 		expect(row?.retryable).toBe(false);
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 	});
 
 	it("T10: exhausting the attempts reports max_attempts, still user-retryable", async () => {
@@ -638,7 +640,7 @@ describe("failure", () => {
 			...RETRY,
 		});
 		expect(
-			(await ledger.getExtractionJobRow(first.job.id))?.remoteHandleJson,
+			(await ledger.getExtractionJobRow(first.job.id))?.checkpoint,
 		).toContain("r1");
 
 		const second = await claim();
@@ -657,7 +659,7 @@ describe("failure", () => {
 			...RETRY,
 		});
 		expect(
-			(await ledger.getExtractionJobRow(second.job.id))?.remoteHandleJson,
+			(await ledger.getExtractionJobRow(second.job.id))?.checkpoint,
 		).toBeNull();
 	});
 });
@@ -733,7 +735,7 @@ describe("user actions", () => {
 		expect(retried?.status).toBe("queued");
 		expect(retried?.attemptCount).toBe(1);
 		expect(retried?.errorCode).toBeNull();
-		expect(retried?.nextAttemptAt).toBeNull();
+		expect(retried?.runAfter).toBeNull();
 
 		// Attempt numbers stay unique: the next claim is attempt 2, not attempt 1.
 		const next = await claim();
@@ -969,7 +971,7 @@ describe("the outage budget in the ledger", () => {
 		expect(row?.status).toBe("queued");
 		expect(row?.errorCode).toBe("unavailable");
 		expect(row?.attemptCount).toBe(8);
-		expect(row?.nextAttemptAt).not.toBeNull();
+		expect(row?.runAfter).not.toBeNull();
 
 		// Every one of those eight is recorded as an outage wait, so the
 		// document's own budget — and the user's Retry budget on top of it — is

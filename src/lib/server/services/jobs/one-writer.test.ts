@@ -362,6 +362,8 @@ const ALLOWED: Record<string, string> = {
 		"The legacy backfill inserts succeeded rows for chat files that predate the ledger: it becomes a born-succeeded `enqueue` in slice S4, or stays here by name if the backfill must keep its files' timestamps.",
 	"src/lib/server/services/account-lifecycle/index.ts":
 		"Account erasure's quiesce cancels extraction and file-production jobs with raw updates of its own: it becomes `cancelAll` in slices S3 and S4.",
+	"src/lib/server/db/compat.ts":
+		"The extraction vocabulary shim: re-applies migration 1777140000115's idempotent rewrite of the old status words once at startup, for rows the previous release wrote in the deploy window. It goes with the shim, in the cleanup after production has run this release.",
 	"src/lib/server/services/conversation-forks.ts":
 		"Copies settled file-production job and job-file rows into a fork: a snapshot, not a transition. This one stays.",
 	"scripts/seed-campaign-2-2.ts":

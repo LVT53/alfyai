@@ -182,7 +182,7 @@ describe("[EXTRACTION] worker log lines", () => {
 		});
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
 		await ledger.cancelExtractionJob({ userId, jobId });

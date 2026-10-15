@@ -78,11 +78,11 @@ describe("recoverStaleExtractionAttempts", () => {
 		expect(row?.errorCode).toBe("stale_worker");
 		expect(row?.retryable).toBe(true);
 		expect(row?.currentAttemptId).toBeNull();
-		expect(row?.nextAttemptAt).not.toBeNull();
+		expect(row?.runAfter).not.toBeNull();
 
 		// The remote job is very likely still healthy; the next attempt should
 		// resume it rather than pay for the same parse twice.
-		expect(row?.remoteHandleJson).toContain("r1");
+		expect(row?.checkpoint).toContain("r1");
 
 		const [attempt] = await ledger.listExtractionJobAttempts(claimed.job.id);
 		expect(attempt.status).toBe("failed");
@@ -248,7 +248,7 @@ describe("reclaimDeadWorkerExtractionAttempts", () => {
 		expect(row?.status).toBe("queued");
 		expect(row?.errorCode).toBe("stale_worker");
 		// The remote job is still there; the next attempt resumes it.
-		expect(row?.remoteHandleJson).toContain("r1");
+		expect(row?.checkpoint).toContain("r1");
 	});
 
 	it("never touches its own attempts", async () => {

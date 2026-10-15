@@ -999,9 +999,14 @@ describe("schema core tables", () => {
 			expect(byName.get("cancel_requested_at")).toMatchObject({ notnull: 0 });
 			expect(byName.get("created_at")).toMatchObject({ notnull: 1 });
 			expect(byName.get("updated_at")).toMatchObject({ notnull: 1 });
+			// The job engine's two additions (migration 1777140000115): the phase an
+			// active job used to carry as its status, and the retry policy's memory.
+			// Both nullable, so the previous release's inserts keep working.
+			expect(byName.get("phase")).toMatchObject({ notnull: 0 });
+			expect(byName.get("retry_state_json")).toMatchObject({ notnull: 0 });
 		});
 
-		it("has the five indexes the claim and the read paths need", () => {
+		it("has the six indexes the claim and the read paths need", () => {
 			const indexNames = (
 				sqlite.prepare("PRAGMA index_list(document_extraction_jobs)").all() as {
 					name: string;
@@ -1015,6 +1020,7 @@ describe("schema core tables", () => {
 				"document_extraction_jobs_chat_file_unique_idx",
 			);
 			expect(indexNames).toContain("document_extraction_jobs_claim_idx");
+			expect(indexNames).toContain("document_extraction_jobs_live_claim_idx");
 			expect(indexNames).toContain("document_extraction_jobs_user_status_idx");
 			expect(indexNames).toContain("document_extraction_jobs_conversation_idx");
 

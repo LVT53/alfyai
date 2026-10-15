@@ -256,7 +256,7 @@ describe("5 — a worker restart resumes the remote job", () => {
 		const running = runOnce(extractor, { heartbeatMs: 250 });
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
 
@@ -300,15 +300,13 @@ describe("6 — a forgotten handle is cleared and the next attempt submits fresh
 
 		await runOnce(extractor);
 		clearBackoffGates();
-		expect(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-		).toContain("remote-parsing");
+		expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toContain(
+			"remote-parsing",
+		);
 
 		// Attempt 2 resumes and is told the remote no longer knows the job.
 		await runOnce(extractor);
-		expect(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-		).toBeNull();
+		expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toBeNull();
 		clearBackoffGates();
 
 		expect(await runOnce(extractor)).toEqual({ jobId, status: "succeeded" });
