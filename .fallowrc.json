@@ -1,7 +1,6 @@
 {
 	"$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
 	"entry": [
-		"scripts/honcho-backfill.ts",
 		"scripts/repair-orphaned-generated-files.ts",
 		"scripts/seed-admin.ts",
 		"scripts/seed-test-user.ts",
