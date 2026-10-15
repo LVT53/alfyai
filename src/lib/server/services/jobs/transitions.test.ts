@@ -615,6 +615,28 @@ describe("fail", () => {
 		expect(heard).toEqual(["failed"]);
 	});
 
+	it("runs a requeue at once, with a valid time, when the policy's delay is not a usable number", async () => {
+		for (const delayMs of [Number.NaN, Number.POSITIVE_INFINITY, -5_000]) {
+			const { jobId, owned } = await running();
+			h.control.decide = () => ({ requeue: true, delayMs });
+			const before = Date.now();
+
+			const outcome = h.ledger.fail(h.control.kind, owned, {
+				code: "x",
+				message: "m",
+				retryable: true,
+			});
+
+			expect(outcome.requeued).toBe(true);
+			expect(outcome.runAfter?.getTime()).toBeGreaterThanOrEqual(before);
+			expect(outcome.runAfter?.getTime()).toBeLessThan(before + 2_000);
+			expect(job(jobId).runAfter).toBeInstanceOf(Date);
+			expect(Number.isNaN(job(jobId).runAfter?.getTime())).toBe(false);
+			// Out of the way, so the next round claims its own job.
+			h.ledger.cancel(h.control.kind, jobId, { userId: h.userId });
+		}
+	});
+
 	it("settles the job failed, and says so, when the policy itself throws", async () => {
 		const { jobId, owned } = await running();
 		h.control.decide = () => {

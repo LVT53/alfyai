@@ -765,9 +765,14 @@ export function applyFailure(
 	});
 
 	const requeue = decision.requeue;
-	const runAfter = decision.requeue
-		? new Date(now.getTime() + Math.max(0, decision.delayMs))
-		: null;
+	// A delay a Date cannot hold (NaN, infinity) is a policy bug, and an invalid
+	// date in `run_after` would be worse than running at once; a negative is none.
+	const delayMs = decision.requeue
+		? Number.isFinite(decision.delayMs)
+			? Math.max(0, decision.delayMs)
+			: 0
+		: 0;
+	const runAfter = decision.requeue ? new Date(now.getTime() + delayMs) : null;
 	const set: Partial<typeof jobs.$inferInsert> = {
 		status: requeue ? "queued" : "failed",
 		errorCode: decision.code ?? failure.code,
