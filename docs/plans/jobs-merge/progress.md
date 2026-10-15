@@ -33,7 +33,7 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | R1 | done, merged `7747381ed` | Opus, 507k tokens, 38 min: 7 engine fixes with failing tests first; 4 design points settled in design.md ('After the engine review') |
 | S2 Atlas | done, merged `527c48928` | Sonnet, 661k tokens, 38 min; gates at `be7c1769c`: check 0/17, vitest 19,206, Playwright 37/37, Fallow 0 new. Two findings went to the touch-up agent |
 | S3 extraction | running | Sonnet, branch `jobs/s3-extraction` |
-| S2b touch-ups | running | Sonnet, branch `jobs/s2b-touchups`: beat clamp, runInline cleanup, previous-incarnation ids, rows re-read after onTransition, AGENTS.md lines, Atlas heartbeat_at stamped (not nulled) |
+| S2b touch-ups | done, merged `e742522d9` | Sonnet, 498k tokens, 29 min, 6 fixes test-first; gates at `2772f8ff7`: vitest 19,219, Playwright 27/27. Extraction and file production keep their own dead-worker check until S3/S4 remove it |
 | S4 file production | not started | Coordination checked 2026-10-15 03:05 UTC: the upload-analysis session (local_3cfe1b3e) last ran 2026-10-14 18:47, has no branch or worktree, and no branch but this run's touches `file-production/`. Nothing in flight; S4 may go after S3 |
 | R2 | not started | |
 | Ship | not started | |
