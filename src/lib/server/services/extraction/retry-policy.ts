@@ -125,6 +125,71 @@ export function readExtractionOutageState(
 }
 
 /**
+ * The same state, from what the engine keeps: the job's `retry_state_json`.
+ *
+ * It holds the state object itself (`{ since, waits }`), where the previous
+ * release kept it under a reserved `$outage` key inside `hints_json`. The engine
+ * hands a policy the column already parsed (`FailureHistory.state`); a read model
+ * has the column's text. Anything that is not an object with those two fields
+ * answers empty, which is also what an unreadable column was always read as.
+ */
+export function parseExtractionOutageState(
+	state: unknown,
+): ExtractionOutageState {
+	if (!state || typeof state !== "object" || Array.isArray(state)) {
+		return EMPTY_EXTRACTION_OUTAGE_STATE;
+	}
+	const record = state as Record<string, unknown>;
+	return {
+		since:
+			typeof record.since === "number" && Number.isFinite(record.since)
+				? record.since
+				: null,
+		waits:
+			typeof record.waits === "number" && Number.isFinite(record.waits)
+				? Math.max(0, Math.trunc(record.waits))
+				: 0,
+	};
+}
+
+export function readExtractionRetryState(
+	retryStateJson: string | null | undefined,
+): ExtractionOutageState {
+	if (!retryStateJson) return EMPTY_EXTRACTION_OUTAGE_STATE;
+	try {
+		return parseExtractionOutageState(JSON.parse(retryStateJson));
+	} catch {
+		return EMPTY_EXTRACTION_OUTAGE_STATE;
+	}
+}
+
+/** True when there is nothing to remember: the column is better left empty. */
+export function isEmptyExtractionOutageState(
+	state: ExtractionOutageState,
+): boolean {
+	return state.since === null && state.waits === 0;
+}
+
+/**
+ * Whether the user's Retry (and Re-extract) still has an attempt to grant: the
+ * document attempts a job has used, outage waits excluded, against the ceiling.
+ * One rule, read by the kind's `userRetry`, by the re-extract transition and by
+ * the DTO's `retryable`, so the button is never drawn for a press the engine
+ * would refuse.
+ */
+export function extractionRetryBudgetLeft(
+	job: { attemptCount: number; retryState: string | null },
+	maxAttempts: number,
+): boolean {
+	return (
+		extractionDocumentAttempts(
+			job.attemptCount,
+			readExtractionRetryState(job.retryState),
+		) < extractionAttemptCeiling(maxAttempts)
+	);
+}
+
+/**
  * Attempts actually spent ON THE DOCUMENT: every claim, minus the ones that
  * ended in "the backend is not answering". This, not `attempt_count`, is what
  * the budget and the ceiling are measured against.

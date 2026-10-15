@@ -13,7 +13,11 @@ import {
 	EXTRACTION_USER_RETRY_GRANTS,
 	extractionAttemptCeiling,
 	extractionDocumentAttempts,
+	extractionRetryBudgetLeft,
+	isEmptyExtractionOutageState,
+	parseExtractionOutageState,
 	readExtractionOutageState,
+	readExtractionRetryState,
 } from "./retry-policy";
 
 /** Pins the jitter so an exponent bug cannot hide inside a range assertion. */
@@ -455,5 +459,86 @@ describe("readExtractionOutageState", () => {
 				waits: 0,
 			});
 		}
+	});
+});
+
+describe("the state the engine keeps on the job (retry_state_json)", () => {
+	it("reads the state object itself, where the previous release kept it under a hints key", () => {
+		expect(
+			readExtractionRetryState(JSON.stringify({ since: 42, waits: 3 })),
+		).toEqual({ since: 42, waits: 3 });
+		expect(readExtractionRetryState('{"since":null,"waits":2}')).toEqual({
+			since: null,
+			waits: 2,
+		});
+	});
+
+	it("answers empty for anything it cannot read", () => {
+		for (const json of [null, undefined, "", "not json", "[]", "5", "null"]) {
+			expect(readExtractionRetryState(json)).toEqual({
+				since: null,
+				waits: 0,
+			});
+		}
+	});
+
+	it("takes the parsed form the engine hands a policy, and distrusts a field of the wrong kind", () => {
+		expect(parseExtractionOutageState({ since: 7, waits: 1.9 })).toEqual({
+			since: 7,
+			waits: 1,
+		});
+		expect(
+			parseExtractionOutageState({ since: "yesterday", waits: -3 }),
+		).toEqual({ since: null, waits: 0 });
+		for (const state of [null, undefined, 4, "x", []]) {
+			expect(parseExtractionOutageState(state)).toEqual({
+				since: null,
+				waits: 0,
+			});
+		}
+	});
+
+	it("knows when there is nothing to remember", () => {
+		expect(isEmptyExtractionOutageState({ since: null, waits: 0 })).toBe(true);
+		expect(isEmptyExtractionOutageState({ since: null, waits: 1 })).toBe(false);
+		expect(isEmptyExtractionOutageState({ since: 5, waits: 0 })).toBe(false);
+	});
+});
+
+describe("extractionRetryBudgetLeft", () => {
+	const ceiling = 3 + EXTRACTION_USER_RETRY_GRANTS;
+
+	it("is true below the ceiling and false at it", () => {
+		expect(
+			extractionRetryBudgetLeft(
+				{ attemptCount: ceiling - 1, retryState: null },
+				3,
+			),
+		).toBe(true);
+		expect(
+			extractionRetryBudgetLeft({ attemptCount: ceiling, retryState: null }, 3),
+		).toBe(false);
+	});
+
+	it("does not charge the attempts an outage spent to the document", () => {
+		const outage = JSON.stringify({ since: null, waits: 12 });
+		expect(
+			extractionRetryBudgetLeft(
+				{ attemptCount: ceiling + 4, retryState: outage },
+				3,
+			),
+		).toBe(true);
+		expect(
+			extractionRetryBudgetLeft(
+				{ attemptCount: ceiling + 12, retryState: outage },
+				3,
+			),
+		).toBe(false);
+	});
+
+	it("follows the configured automatic budget", () => {
+		expect(
+			extractionRetryBudgetLeft({ attemptCount: ceiling, retryState: null }, 4),
+		).toBe(true);
 	});
 });
