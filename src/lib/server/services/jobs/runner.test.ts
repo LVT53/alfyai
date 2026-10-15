@@ -190,6 +190,47 @@ describe("the heartbeat", () => {
 		expect(job(jobId).status).toBe("running");
 	});
 
+	it("beats at least three times in a stale window, whatever heartbeat the kind asks for", async () => {
+		// A heartbeat near or above the stale window would let one missed beat make
+		// a healthy attempt look stale.
+		h.control.config.heartbeatMs = 120_000;
+		h.control.config.staleAfterMs = 60_000;
+		const { jobId } = await startRun(async (ctx) => {
+			await blockUntilAborted(ctx.signal);
+		});
+		const claimed = heartbeatSeconds(jobId);
+
+		await vi.advanceTimersByTimeAsync(19_999);
+		expect(heartbeatSeconds(jobId)).toBe(claimed);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(heartbeatSeconds(jobId)).toBe(claimed + 20);
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect(heartbeatSeconds(jobId)).toBe(claimed + 40);
+	});
+
+	it("is never taken back by a sweep while its handler is busy, however slow the kind's heartbeat", async () => {
+		h.control.config.heartbeatMs = 120_000;
+		h.control.config.staleAfterMs = 60_000;
+		let signal: AbortSignal | null = null;
+		const { jobId } = await startRun(async (ctx) => {
+			signal = ctx.signal;
+			await blockUntilAborted(ctx.signal);
+		});
+
+		// Two minutes, a stale sweep every five seconds; its default window is the
+		// kind's own.
+		for (let elapsed = 5_000; elapsed <= 120_000; elapsed += 5_000) {
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(h.recovery.takeBack(h.control.kind, { reason: "stale" })).toEqual({
+				recovered: 0,
+				requeued: 0,
+			});
+		}
+
+		expect((signal as unknown as AbortSignal).aborted).toBe(false);
+		expect(job(jobId).status).toBe("running");
+	});
+
 	it("stops beating when the run ends", async () => {
 		const { jobId, drained } = await startRun(async (ctx) => {
 			await ctx.succeed();

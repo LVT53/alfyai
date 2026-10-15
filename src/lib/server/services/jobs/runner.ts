@@ -38,6 +38,16 @@ import type {
 /** A beat faster than this is a waste of writes, whatever the kind asks for. */
 const MIN_HEARTBEAT_MS = 250;
 
+/**
+ * How often the runner beats: the kind's heartbeat, but at least three times in
+ * its stale window. A lease configured with a heartbeat near or above the window
+ * would otherwise let one missed beat make a healthy attempt look stale, and the
+ * half-window rule below abort it.
+ */
+function beatIntervalMs(heartbeatMs: number, staleAfterMs: number): number {
+	return Math.max(MIN_HEARTBEAT_MS, Math.min(heartbeatMs, staleAfterMs / 3));
+}
+
 const NOT_APPLIED: FailOutcome = {
 	applied: false,
 	requeued: false,
@@ -172,7 +182,7 @@ async function run(
 				}
 			}
 		},
-		Math.max(MIN_HEARTBEAT_MS, lease.heartbeatMs),
+		beatIntervalMs(lease.heartbeatMs, lease.staleAfterMs),
 	);
 	heartbeat.unref?.();
 
