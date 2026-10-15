@@ -1,4 +1,5 @@
-// The `import_jobs` row of a ChatGPT import, and the one place that writes it.
+// How the `import_jobs` row of a ChatGPT import is settled when the import
+// stops.
 //
 // The row is a progress and audit record that the import request writes as it
 // goes; it is not a job. Nothing claims it, beats on it or retries it (ADR-0069
@@ -9,13 +10,30 @@
 // `error_log` has two shapes, kept readable: free text on a failed row, and a
 // JSON array of the per-conversation errors on a completed one.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { importJobs } from "$lib/server/db/schema";
 
 /** What a row says when the import behind it stopped before it finished. */
 export const INTERRUPTED_IMPORT_LOG =
 	"Interrupted: the import stopped before it finished. The conversations it imported before it stopped were kept.";
+
+/**
+ * Settle an import's row as failed, with a free-text log, unless something has
+ * already settled it. Returns whether it did.
+ */
+export function failImportRow(
+	jobId: string,
+	errorLog: string,
+	now = new Date(),
+): boolean {
+	const failed = db
+		.update(importJobs)
+		.set({ status: "failed", errorLog, updatedAt: now })
+		.where(and(eq(importJobs.id, jobId), eq(importJobs.status, "processing")))
+		.run();
+	return failed.changes > 0;
+}
 
 /**
  * Settle every import still `processing` as failed and interrupted. Called once

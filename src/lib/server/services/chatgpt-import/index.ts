@@ -9,6 +9,7 @@ import {
 } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
 import { generateImportEmbeddings } from "./embeddings";
+import { failImportRow } from "./import-row";
 import {
 	type BranchInfo,
 	type ParseResult,
@@ -126,8 +127,6 @@ export async function importConversations(
 ): Promise<ImportResult> {
 	const projectId = await validateImportProjectId(userId, options.projectId);
 	const jobId = randomUUID();
-	const conversationIds: string[] = [];
-	const errors: { conversationTitle?: string; reason: string }[] = [];
 	const now = new Date();
 
 	await db.insert(importJobs).values({
@@ -139,6 +138,35 @@ export async function importConversations(
 		createdAt: now,
 		updatedAt: now,
 	});
+
+	try {
+		return await importIntoRow(jobId, userId, zipBuffer, projectId, options);
+	} catch (err) {
+		// Whatever stopped the import, its row must not stay `processing`.
+		try {
+			failImportRow(
+				jobId,
+				`Import failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+			);
+		} catch (settleErr) {
+			console.error(
+				"[CHATGPT_IMPORT] Could not mark the failed import's row:",
+				settleErr,
+			);
+		}
+		throw err;
+	}
+}
+
+async function importIntoRow(
+	jobId: string,
+	userId: string,
+	zipBuffer: Buffer,
+	projectId: string | null,
+	options: ImportOptions,
+): Promise<ImportResult> {
+	const conversationIds: string[] = [];
+	const errors: { conversationTitle?: string; reason: string }[] = [];
 
 	let parseResult: ParseResult;
 	try {

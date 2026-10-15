@@ -194,6 +194,27 @@ describe("importConversations", () => {
 		expect(job?.errorLog).toContain("Invalid ZIP format");
 	});
 
+	it("marks its row failed, in plain words, when it throws after starting", async () => {
+		harness.seedUser();
+
+		await expect(
+			runImport({
+				conversations: [harness.makeParsedConversation()],
+				importOptions: {
+					onProgress: () => {
+						throw new Error("disk full");
+					},
+				},
+			}),
+		).rejects.toThrow("disk full");
+
+		const [job] = harness.readImportJobsForUser();
+		expect(job).toMatchObject({
+			status: "failed",
+			errorLog: "Import failed: disk full",
+		});
+	});
+
 	it("returns parser-level errors alongside successful conversations", async () => {
 		harness.seedUser();
 		const parsed = harness.makeParsedConversation({ title: "Valid" });
