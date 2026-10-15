@@ -18,9 +18,14 @@ function record(name, ok, detail = "") {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().slice(11, 19);
 
+// The app refuses a form-type request (a multipart upload) whose Origin is missing
+// or foreign (SvelteKit's CSRF check, enforced since the exfil-channels work), so
+// every request carries the instance's own public origin.
+const ORIGIN = process.env.APP_ORIGIN ?? "https://ai.dev.alfydesign.com";
+
 let cookie = "";
 async function api(path, init = {}) {
-	const headers = { ...(cookie ? { cookie } : {}), ...(init.headers ?? {}) };
+	const headers = { origin: ORIGIN, ...(cookie ? { cookie } : {}), ...(init.headers ?? {}) };
 	if (!(init.body instanceof FormData) && !headers["content-type"]) headers["content-type"] = "application/json";
 	const res = await fetch(`${BASE}${path}`, { ...init, headers });
 	const sc = res.headers.getSetCookie?.() ?? [];
