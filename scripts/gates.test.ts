@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,8 @@ import {
 	parseChunksLog,
 	parseVitestLog,
 	readPlaywrightReport,
+	runSteps,
+	summarise,
 	// @ts-expect-error — plain .mjs script, no type declarations
 } from "./gates.mjs";
 
@@ -130,6 +133,206 @@ describe("the build step", () => {
 		const { env } = defineSteps(options).build;
 		expect(env.DATABASE_PATH).toBe(
 			"/somewhere/outside/the/repo/build-analyse.db",
+		);
+	});
+});
+
+// What `npm run build` writes when it fails, as it really did for the failures a developer meets
+// (Vite 8, whose Rolldown report follows `error during build:`), trimmed to the lines that matter,
+// colour codes and all. The reason is in the FIRST lines of the report. The last line is a closing
+// brace, a stack frame or Node's version, so the reader that shows a step's last line (`lastLine`)
+// says nothing here, and a build that failed looked as innocent as `unused-css=0 aria=0`.
+const ESC = "\u001b";
+const BUILD_START = [
+	"",
+	"> alfyai@2.2.0 build",
+	"> NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets",
+	"",
+	"vite v8.1.3 building ssr environment for production...",
+];
+const ROLLDOWN_STACK = [
+	"    at aggregateBindingErrorsIntoJsError (file:///repo/node_modules/rolldown/dist/shared/error-BlQ0-ek7.mjs:48:18)",
+	"    at unwrapBindingResult (file:///repo/node_modules/rolldown/dist/shared/error-BlQ0-ek7.mjs:18:128)",
+	"    at async CAC.<anonymous> (file:///repo/node_modules/vite/dist/node/cli.js:777:3) {",
+	"  errors: [Getter/Setter]",
+	"}",
+];
+// `export const broken = ;` at the end of src/lib/model-context-defaults.ts
+const BUILD_SYNTAX_ERROR = [
+	...BUILD_START,
+	`${ESC}[2Ktransforming...✓ 5356 modules transformed.`,
+	"✗ Build failed in 4.09s",
+	"error during build:",
+	"Build failed with 1 error:",
+	"",
+	`${ESC}[31m[builtin:vite-transform] ${ESC}[0mUnexpected token`,
+	`    ${ESC}[38;5;246m╭${ESC}[0m${ESC}[38;5;246m─${ESC}[0m${ESC}[38;5;246m[${ESC}[0m src/lib/model-context-defaults.ts:89:23 ${ESC}[38;5;246m]${ESC}[0m`,
+	`    ${ESC}[38;5;246m│${ESC}[0m`,
+	` ${ESC}[38;5;246m89 │${ESC}[0m export const broken = ;`,
+	`${ESC}[38;5;240m   │${ESC}[0m                       ┬  `,
+	`${ESC}[38;5;246m────╯${ESC}[0m`,
+	"",
+	...ROLLDOWN_STACK,
+].join("\n");
+// `<p>{#if}</p>` at the end of src/routes/+error.svelte: the path comes out absolute.
+const REPO = join(import.meta.dirname, "..");
+const BUILD_SVELTE_ERROR = [
+	...BUILD_START,
+	"transforming...✓ 5356 modules transformed.",
+	"✗ Build failed in 3.98s",
+	"error during build:",
+	"Build failed with 1 error:",
+	"",
+	`[plugin vite-plugin-svelte:compile] ${REPO}/src/routes/+error.svelte:43:7`,
+	`RolldownError: ${REPO}/src/routes/+error.svelte:43:7 Expected whitespace`,
+	"https://svelte.dev/e/expected_whitespace",
+	" 41 |    </div>",
+	" 43 |  <p>{#if}</p>",
+	"              ^",
+	...ROLLDOWN_STACK,
+].join("\n");
+// The post-build analyse pass opening a DATABASE_PATH whose directory is missing: a Node process
+// that dies, with no Vite report at all.
+const BUILD_NODE_CRASH = [
+	...BUILD_START,
+	`${ESC}[2Ktransforming...✓ 5357 modules transformed.`,
+	"rendering chunks...",
+	"",
+	"node:internal/event_target:1118",
+	"  process.nextTick(() => { throw err; });",
+	"                           ^",
+	"TypeError: Cannot open database because the directory does not exist",
+	"    at new Database (/repo/node_modules/better-sqlite3/lib/database.js:65:9)",
+	"    at file:///repo/.svelte-kit/output/server/chunks/db.js:59:14",
+	"    at async analyse (file:///repo/node_modules/@sveltejs/kit/src/core/postbuild/analyse.js:75:16)",
+	"",
+	"Node.js v22.23.3",
+].join("\n");
+// The second script of the build failing, after a listing of every chunk it made: some of them
+// have "error" in their name.
+const BUILD_LATE_FAILURE = [
+	...BUILD_START,
+	".svelte-kit/output/server/chunks/provider-model-route-errors.js     0.27 kB │ gzip:   0.18 kB",
+	".svelte-kit/output/server/chunks/error-message.js                   0.61 kB │ gzip:   0.39 kB",
+	".svelte-kit/output/server/entries/pages/_error.svelte.js            2.00 kB │ gzip:   0.80 kB",
+	"✓ built in 11.58s",
+	"",
+	"> Using @sveltejs/adapter-node",
+	"Circular dependency: node_modules/d3-interpolate/src/value.js -> node_modules/d3-interpolate/src/array.js -> node_modules/d3-interpolate/src/value.js",
+	"  ✔ done",
+	"[build] Failed to patch BODY_SIZE_LIMIT default: Error: ENOENT: no such file or directory, open '/repo/build/handler.js'",
+	"    at async open (node:internal/fs/promises:639:25)",
+	"    at async main (file:///repo/scripts/patch-body-size-limit.mjs:11:17) {",
+	"  errno: -2,",
+	"  code: 'ENOENT',",
+	"}",
+].join("\n");
+
+// V8 out of memory, which a build on a machine busy with other gates can meet: it ends in native
+// frames.
+const BUILD_OUT_OF_MEMORY = [
+	...BUILD_START,
+	"",
+	"<--- Last few GCs --->",
+	"",
+	"[75569:0x768340c000]       46 ms: Mark-Compact 20.2 (49.8) -> 19.5 (52.8) MB, pooled: 0 MB, 2.71 / 0.00 ms",
+	"",
+	"<--- JS stacktrace --->",
+	"",
+	"FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+	"----- Native stack trace -----",
+	"",
+	" 1: 0x105ae56c8 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node@22/22.23.3_2/lib/libnode.127.dylib]",
+	" 2: 0x10505dc50 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node@22/22.23.3_2/lib/libnode.127.dylib]",
+].join("\n");
+
+describe("the build step, when the build failed", () => {
+	it("gives the first lines of the build's own error report, where its reason is", () => {
+		const result = parseBuildLog(BUILD_SYNTAX_ERROR, 1);
+		expect(result.ok).toBe(false);
+		expect(result.text).toBe(
+			[
+				"error during build:",
+				"      Build failed with 1 error:",
+				"      [builtin:vite-transform] Unexpected token",
+				"      ╭─[ src/lib/model-context-defaults.ts:89:23 ]",
+			].join("\n"),
+		);
+	});
+
+	it("does not report the warning counts of a build that never finished", () => {
+		const { text } = parseBuildLog(BUILD_SYNTAX_ERROR, 1);
+		expect(text).not.toContain("unused-css");
+		expect(text).not.toContain("aria=");
+	});
+
+	it("shows a path in the repo as a repo path", () => {
+		const { text } = parseBuildLog(BUILD_SVELTE_ERROR, 1);
+		expect(text).toBe(
+			[
+				"error during build:",
+				"      Build failed with 1 error:",
+				"      [plugin vite-plugin-svelte:compile] src/routes/+error.svelte:43:7",
+				"      RolldownError: src/routes/+error.svelte:43:7 Expected whitespace",
+			].join("\n"),
+		);
+		expect(text).not.toContain(REPO);
+	});
+
+	it("starts at the error of a Node process that died, not at Node's version line", () => {
+		const { ok, text } = parseBuildLog(BUILD_NODE_CRASH, 1);
+		expect(ok).toBe(false);
+		expect(text).toBe(
+			"TypeError: Cannot open database because the directory does not exist",
+		);
+	});
+
+	it("gives the FATAL ERROR line of an out-of-memory crash, without its native frames", () => {
+		expect(parseBuildLog(BUILD_OUT_OF_MEMORY, 134)).toEqual({
+			ok: false,
+			text: "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+		});
+	});
+
+	it("is not led astray by chunk names with error in them in a long listing", () => {
+		const { text } = parseBuildLog(BUILD_LATE_FAILURE, 1);
+		expect(text).toBe(
+			"[build] Failed to patch BODY_SIZE_LIMIT default: Error: ENOENT: no such file or directory, open '/repo/build/handler.js'",
+		);
+	});
+
+	it("shows the last line of a log with no error report in it, as the other steps do", () => {
+		const log =
+			"> alfyai@2.2.0 check:worker-assets\n[worker-assets] No client build at /x/client — run `npm run build` first.\n";
+		expect(parseBuildLog(log, 1)).toEqual({
+			ok: false,
+			text: "[worker-assets] No client build at /x/client — run `npm run build` first.",
+		});
+	});
+
+	it("says there was no output when the command wrote none, as when it never started", () => {
+		expect(parseBuildLog("", 127)).toEqual({ ok: false, text: "no output" });
+	});
+
+	it("cuts a line too long for the screen", () => {
+		const { text } = parseBuildLog(
+			`error during build:\n${"x".repeat(500)}`,
+			1,
+		);
+		expect(text.split("\n").every((line: string) => line.length < 200)).toBe(
+			true,
+		);
+	});
+
+	it("still judges a build that exited 0 by its warnings, whether or not it is told the exit code", () => {
+		const unusedCss = (count: number) =>
+			Array(count)
+				.fill('WARNING "x.svelte" Unused CSS selector ".a"')
+				.join("\n");
+		expect(parseBuildLog(unusedCss(0), 0).ok).toBe(true);
+		expect(parseBuildLog(unusedCss(1), 0).ok).toBe(false);
+		expect(parseBuildLog(unusedCss(0)).text).toBe(
+			"unused-css=0 aria=0 (baseline 0/0)",
 		);
 	});
 });
@@ -662,5 +865,227 @@ describe("the committed Fallow baseline", () => {
 		const result = compareFallow(baselinePath, baselinePath);
 		expect(result.text).toContain("new_vs_baseline=0 gone_vs_baseline=0");
 		expect(result.ok).toBe(true);
+	});
+});
+
+// The gate runner without its processes. `runSteps` starts the steps and `summarise` writes the
+// screen; the test hands `runSteps` a stand-in for the command each step runs, so nothing really
+// starts and the same code that runs the gates is what is read here.
+describe("running the steps", () => {
+	const dirs: string[] = [];
+	afterEach(() => {
+		for (const dir of dirs.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	/**
+	 * One run of the steps as `defineSteps` makes them, for the arguments after `agent <out-dir>`.
+	 * `exits` and `logs` say how a step's stand-in command ends and what it wrote, by step name; a
+	 * step reads its log as fine unless `real` names it, so a test about which steps run does not
+	 * need a believable log for each of the eight.
+	 */
+	async function gate(
+		argv: string[],
+		{
+			exits = {},
+			logs = {},
+			real = [],
+		}: {
+			exits?: Record<string, number>;
+			logs?: Record<string, string>;
+			real?: string[];
+		} = {},
+	) {
+		const outDir = mkdtempSync(join(tmpdir(), "gates-run-"));
+		dirs.push(outDir);
+		const args = parseArgs(["agent", outDir, ...argv]);
+		const steps: Record<string, { parse: unknown }> = defineSteps(args);
+		for (const [name, step] of Object.entries(steps)) {
+			if (!real.includes(name)) {
+				step.parse = () => ({ ok: true, text: `${name} read fine` });
+			}
+		}
+		const started: string[] = [];
+		const run = async (_step: unknown, name: string, dir: string) => {
+			started.push(name);
+			const logPath = join(dir, `${name}.log`);
+			writeFileSync(logPath, logs[name] ?? "");
+			const now = Date.now();
+			return { code: exits[name] ?? 0, startedAt: now, endedAt: now, logPath };
+		};
+		const results = await runSteps(args, steps, { run, log: () => {} });
+		const { summary, passed }: { summary: string; passed: boolean } = summarise(
+			{
+				header: ["gates agent at the header"],
+				results,
+				startedAt: 0,
+				endedAt: 0,
+				outDir,
+			},
+		);
+		return { started, results, summary, lines: summary.split("\n"), passed };
+	}
+	const everyStep = Object.keys(defineSteps(options));
+	const needsTheBuild = ["check", "vitest", "chunks", "playwright"];
+
+	it("starts every step when none is skipped, those that need the build after it", async () => {
+		const { started, passed } = await gate([]);
+		expect([...started].sort()).toEqual([...everyStep].sort());
+		for (const name of needsTheBuild) {
+			expect(started.indexOf("build")).toBeLessThan(started.indexOf(name));
+		}
+		expect(passed).toBe(true);
+	});
+
+	it("starts no step it is told to skip, and the screen says it was skipped", async () => {
+		const { started, lines } = await gate(["--skip", "check,vitest"]);
+		expect(started).not.toContain("check");
+		expect(started).not.toContain("vitest");
+		expect(lines).toContain("check      skip");
+		expect(lines).toContain("vitest     skip");
+	});
+
+	it("does not start the steps that wait for a build that failed, and says they were not run", async () => {
+		const { started, lines, passed } = await gate([], { exits: { build: 1 } });
+		for (const name of needsTheBuild) {
+			expect(started).not.toContain(name);
+			expect(lines).toContain(`${name.padEnd(10)} FAIL not run: build failed`);
+		}
+		// Those that never needed the build still ran.
+		for (const name of ["biome", "migrations", "fallow"]) {
+			expect(started).toContain(name);
+		}
+		expect(passed).toBe(false);
+		expect(lines.find((line) => line.startsWith("total"))).toContain(
+			"FAILED: check, vitest, build, chunks, playwright",
+		);
+	});
+
+	// A failed build used to read `exit=1 FAIL ... :: unused-css=0 aria=0 (baseline 0/0)`: the reason
+	// was only in build.log. The line now carries the first lines of the build's own error report, in
+	// the layout the other steps use for a second line (Fallow's NEW lines, Playwright's FAILED), and
+	// the steps blocked behind it say they were blocked, as before.
+	it("shows why a build failed on the build's own line, and the steps behind it still say they were not run", async () => {
+		const { lines } = await gate([], {
+			real: ["build"],
+			exits: { build: 1 },
+			logs: { build: BUILD_SYNTAX_ERROR },
+		});
+		const at = lines.findIndex((line) => line.startsWith("build"));
+		expect(lines[at]).toMatch(
+			/^build {6}exit=1 FAIL\s+0s \(\+0s\) :: error during build:$/,
+		);
+		expect(lines.slice(at + 1, at + 4)).toEqual([
+			"      Build failed with 1 error:",
+			"      [builtin:vite-transform] Unexpected token",
+			"      ╭─[ src/lib/model-context-defaults.ts:89:23 ]",
+		]);
+		expect(lines.join("\n")).not.toContain("unused-css");
+		for (const name of needsTheBuild) {
+			expect(lines).toContain(`${name.padEnd(10)} FAIL not run: build failed`);
+		}
+	});
+
+	it("writes the screen in the order of the steps: the header, a line for each, the verdict, the logs", async () => {
+		const { lines } = await gate([]);
+		expect(lines[0]).toBe("gates agent at the header");
+		const stepLines = lines.slice(1, 1 + everyStep.length);
+		expect(stepLines.map((line) => line.split(" ")[0])).toEqual([
+			"check",
+			"biome",
+			"migrations",
+			"vitest",
+			"build",
+			"chunks",
+			"fallow",
+			"playwright",
+		]);
+		expect(stepLines[0]).toMatch(
+			/^check {6}exit=0 ok {3}\s+0s \(\+0s\) :: check read fine$/,
+		);
+		expect(lines[1 + everyStep.length]).toMatch(
+			/^total 0s; load at end [\d. ]+; ALL GATES PASSED$/,
+		);
+		expect(lines.at(-1)).toMatch(/^logs: /);
+	});
+
+	// Every step the caller does not skip runs. The build used to start only as the thing another
+	// step waits for, so with check, vitest, chunks and playwright all skipped nothing asked for
+	// it: it never ran and its line was missing from the screen (Fallow alone showed no `build`
+	// line at all), and a run that skipped everything ran nothing and printed ALL GATES PASSED.
+	it.each(
+		everyStep,
+	)("runs %s, and only it, when every other step is skipped", async (name) => {
+		const others = everyStep.filter((other) => other !== name);
+		const { started, results, lines, passed } = await gate([
+			"--skip",
+			others.join(","),
+		]);
+		expect(started).toEqual([name]);
+		expect(passed).toBe(true);
+		// Every step has a result, skipped or run, and so a line on the screen.
+		expect(Object.keys(results).sort()).toEqual([...everyStep].sort());
+		for (const other of others) {
+			expect(lines).toContain(`${other.padEnd(10)} skip`);
+		}
+	});
+
+	it("fails a run that skipped every step, and says that nothing ran", async () => {
+		const { started, lines, passed } = await gate([
+			"--skip",
+			everyStep.join(","),
+		]);
+		expect(started).toEqual([]);
+		expect(passed).toBe(false);
+		for (const name of everyStep) {
+			expect(lines).toContain(`${name.padEnd(10)} skip`);
+		}
+		const total = lines.find((line) => line.startsWith("total")) ?? "";
+		expect(total).toContain(
+			"FAILED: nothing ran (every step was skipped), so nothing was checked",
+		);
+		expect(total).not.toContain("ALL GATES PASSED");
+	});
+
+	// AGENTS.md ("Fallow Audit Gate") tells an agent to run the Fallow step alone with this command.
+	// The test holds both the text there and what the command does.
+	const fallowAlone = "check,biome,migrations,vitest,build,chunks,playwright";
+	it("still runs Fallow alone with the command AGENTS.md documents", async () => {
+		const agents = readFileSync(
+			join(import.meta.dirname, "..", "AGENTS.md"),
+			"utf8",
+		);
+		expect(agents).toContain(
+			`scripts/gates.sh agent "$TMPDIR/alfyai-gates" --skip ${fallowAlone}`,
+		);
+		const { started, passed } = await gate(["--skip", fallowAlone]);
+		expect(started).toEqual(["fallow"]);
+		expect(passed).toBe(true);
+	});
+});
+
+// The real script, for the part only a process shows: its exit code and what it prints. Skipping
+// every step starts nothing, so this needs no stand-in and takes no time.
+describe("the gate runner as a command", () => {
+	it("exits 1, says nothing ran and prints no pass when every step is skipped", () => {
+		const outDir = mkdtempSync(join(tmpdir(), "gates-command-"));
+		try {
+			const run = spawnSync(
+				process.execPath,
+				[
+					join(import.meta.dirname, "gates.mjs"),
+					"agent",
+					outDir,
+					"--skip",
+					Object.keys(defineSteps(options)).join(","),
+				],
+				{ encoding: "utf8" },
+			);
+			expect(run.status).toBe(1);
+			expect(run.stdout).toContain("FAILED: nothing ran");
+			expect(run.stdout).not.toContain("ALL GATES PASSED");
+		} finally {
+			rmSync(outDir, { recursive: true, force: true });
+		}
 	});
 });

@@ -11,7 +11,9 @@
 // Options
 //   --workers N            Playwright workers (default: E2E_WORKERS, else the config's default)
 //   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
-//   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright
+//   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright.
+//                          Every step left in runs, the build too (a step of its own, not only what check,
+//                          vitest, chunks and playwright wait for); a run that leaves none in fails
 //   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
 //   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
 //                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
@@ -186,8 +188,8 @@ function filesWithSmokeTests() {
 // -------------------------------------------------------------- the steps
 
 /**
- * One step: how to run it and how to read its log. `parse(log)` returns
- * `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
+ * One step: how to run it and how to read its log. `parse(log, code)` takes the log and the exit
+ * code and returns `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
  */
 export function defineSteps(args) {
 	const jsonReport = join(args.outDir, "playwright.json");
@@ -308,7 +310,49 @@ export function parseVitestLog(log) {
 	};
 }
 
-export function parseBuildLog(log) {
+// Why a build failed, which is the FIRST lines of its own error report and not its last line (what
+// `lastLine` gives the other steps): a Vite failure ends in a stack trace and a closing brace, a
+// Node process that died in its version line, an out-of-memory crash in native frames. The log
+// before the report can run to a thousand lines of chunk sizes, some of them for files with
+// "error" in the name, so the report is found by how a line starts: Vite's "error during build:",
+// the name of a thrown error ("TypeError: ...", "RolldownError: ...", "FATAL ERROR: ..."), or the
+// "failed" line one of the build's own scripts prints after its [tag].
+const BUILD_ERROR_START =
+	/^(?:error during build\b|(?:fatal )?\w*error\b|\[[\w-]+\].*\bfailed\b)/i;
+// Where the report stops being a message: the first stack frame, or the heading of a native one.
+const BUILD_STACK_START = /^(?:at\s|-{3,} .*stack trace)/i;
+const BUILD_REASON_LINES = 4;
+const BUILD_REASON_WIDTH = 160;
+
+function buildFailure(log) {
+	const lines = stripAnsi(log)
+		// a path in the repo is shown as a repo path
+		.replaceAll(`${ROOT}/`, "")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const start = lines.findIndex((line) => BUILD_ERROR_START.test(line));
+	// No report to be found: what the other steps show, the log's last line, or that there is none.
+	if (start === -1)
+		return (lines.at(-1) ?? "no output").slice(0, BUILD_REASON_WIDTH);
+	const reason = [];
+	for (const line of lines.slice(start)) {
+		if (BUILD_STACK_START.test(line) || reason.length === BUILD_REASON_LINES) {
+			break;
+		}
+		reason.push(line.slice(0, BUILD_REASON_WIDTH));
+	}
+	return reason.join("\n      ");
+}
+
+/**
+ * Judge the build from its log and its exit code. One that did not exit 0 says why it failed;
+ * one that did is held to the warning counts.
+ */
+export function parseBuildLog(log, code = 0) {
+	// The counts of a build that never finished are no news (`unused-css=0 aria=0` read as if it
+	// had been fine); why it stopped is what its line on the screen is for.
+	if (code !== 0) return { ok: false, text: buildFailure(log) };
 	const css = count(log, "Unused CSS selector");
 	const aria = count(log, "must have an ARIA role");
 	const over = css > BASELINE.buildUnusedCss || aria > BASELINE.buildAria;
@@ -561,17 +605,17 @@ function runCommand(step, name, outDir) {
 	});
 }
 
-async function main() {
-	const args = parseArgs(process.argv.slice(2));
-	mkdirSync(args.outDir, { recursive: true });
-	const steps = defineSteps(args);
-	const startedAt = Date.now();
-	const header = [
-		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
-		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
-	];
-	for (const line of header) console.log(line);
-
+/**
+ * Run the steps for `args` and return how each went, by step name: `{ skipped }`, `{ blocked }` (a
+ * step it waits for failed) or `{ code, ok, ms, startOffset, text }`. `run(step, name, outDir)` starts
+ * one step's command and says how it ended: `runCommand`, or in a test one that starts nothing. `log`
+ * prints the one-line note each step leaves when it is done.
+ */
+export async function runSteps(
+	args,
+	steps,
+	{ startedAt = Date.now(), run = runCommand, log = console.log } = {},
+) {
 	const results = {};
 	const memo = new Map();
 	const runStep = (name) => {
@@ -585,8 +629,8 @@ async function main() {
 					return { blocked: `not run: ${dependency} failed` };
 				}
 			}
-			const ran = await runCommand(step, name, args.outDir);
-			const verdict = step.parse(readFileSync(ran.logPath, "utf8"));
+			const ran = await run(step, name, args.outDir);
+			const verdict = step.parse(readFileSync(ran.logPath, "utf8"), ran.code);
 			const result = {
 				code: ran.code,
 				ok: ran.code === 0 && verdict.ok,
@@ -594,7 +638,7 @@ async function main() {
 				startOffset: ran.startedAt - startedAt,
 				text: verdict.text,
 			};
-			console.log(
+			log(
 				`  ${name.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${minutes(result.ms)}`,
 			);
 			return result;
@@ -606,34 +650,37 @@ async function main() {
 		return promise;
 	};
 
-	// The schedule. The build starts at once, with biome, the migration check and Fallow beside
-	// it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
+	// The schedule. Every step is a lane of its own, so what the caller did not skip always runs:
+	// the build too, which was no lane and started only as the step another one waits for, so with
+	// check, vitest, chunks and playwright all skipped nothing asked for it and the gate ran
+	// nothing and passed. The build starts at once, with biome, the migration check and Fallow
+	// beside it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
 	// the build is done (see the header: a sync during the build breaks the app it makes).
 	// Phased: the e2e run starts when vitest, which wants every core, is done, so the
 	// browsers do not share the machine with it. Overlap: nothing waits for vitest, which
 	// shares the machine on a few threads.
-	const lanes = [
-		runStep("check"),
-		runStep("biome"),
-		runStep("migrations"),
-		runStep("fallow"),
-		runStep("chunks"),
-		runStep("vitest"),
-	];
-	lanes.push(
-		(async () => {
-			if (args.schedule === "phased") await runStep("vitest");
-			await runStep("playwright");
-		})(),
+	await Promise.all(
+		STEP_ORDER.map((name) =>
+			name === "playwright" && args.schedule === "phased"
+				? runStep("vitest").then(() => runStep("playwright"))
+				: runStep(name),
+		),
 	);
-	await Promise.all(lanes);
+	return results;
+}
 
-	const endedAt = Date.now();
+/**
+ * The summary screen for a run, and whether the run passed: the header, a line for each step, then
+ * the total and the verdict. A run passes when at least one step ran and none failed. A run that
+ * skipped every step checked nothing, and says so instead of passing.
+ */
+export function summarise({ header, results, startedAt, endedAt, outDir }) {
 	const out = [...header];
 	const failed = [];
+	// Every step has a result, skipped or run, and so a line: one that is missing is a bug in the
+	// runner and stops it here, where it once dropped off the screen without a word.
 	for (const name of STEP_ORDER) {
 		const r = results[name];
-		if (!r) continue;
 		if (r.skipped) {
 			out.push(`${name.padEnd(10)} skip`);
 		} else if (r.blocked) {
@@ -646,11 +693,45 @@ async function main() {
 			);
 		}
 	}
+	const nothingRan = STEP_ORDER.every((name) => results[name].skipped);
+	let verdict = "ALL GATES PASSED";
+	if (nothingRan) {
+		verdict =
+			"FAILED: nothing ran (every step was skipped), so nothing was checked";
+	} else if (failed.length > 0) {
+		verdict = `FAILED: ${failed.join(", ")}`;
+	}
 	out.push(
-		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${failed.length === 0 ? "ALL GATES PASSED" : `FAILED: ${failed.join(", ")}`}`,
-		`logs: ${relative(ROOT, args.outDir) || args.outDir}`,
+		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${verdict}`,
+		`logs: ${relative(ROOT, outDir) || outDir}`,
 	);
-	const summary = out.join("\n");
+	return {
+		summary: out.join("\n"),
+		passed: !nothingRan && failed.length === 0,
+	};
+}
+
+async function main() {
+	const args = parseArgs(process.argv.slice(2));
+	mkdirSync(args.outDir, { recursive: true });
+	const steps = defineSteps(args);
+	const startedAt = Date.now();
+	const header = [
+		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
+		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
+	];
+	for (const line of header) console.log(line);
+
+	const results = await runSteps(args, steps, { startedAt });
+
+	const endedAt = Date.now();
+	const { summary, passed } = summarise({
+		header,
+		results,
+		startedAt,
+		endedAt,
+		outDir: args.outDir,
+	});
 	console.log(`\n${summary}`);
 	writeFileSync(join(args.outDir, "summary.txt"), `${summary}\n`);
 	writeFileSync(
@@ -666,7 +747,7 @@ async function main() {
 			2,
 		),
 	);
-	process.exit(failed.length === 0 ? 0 : 1);
+	process.exit(passed ? 0 : 1);
 }
 
 // Only run when executed directly, so the unit test can import the readers.
