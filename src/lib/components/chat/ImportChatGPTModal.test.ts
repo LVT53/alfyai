@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { importChatGPTData } from "$lib/client/api/chatgpt-import";
+import { ApiError } from "$lib/client/api/http";
 import ImportChatGPTModal from "./ImportChatGPTModal.svelte";
 
 const mockConversations = [
@@ -198,6 +200,36 @@ describe("ImportChatGPTModal", () => {
 
 		expect(screen.getByLabelText("Project folder")).toBeInTheDocument();
 		expect(screen.getByText("My Project")).toBeInTheDocument();
+	});
+
+	it("says in the reader's words that an import is already running", async () => {
+		vi.mocked(importChatGPTData).mockRejectedValueOnce(
+			new ApiError(
+				"A ChatGPT import is already running for this account. Wait for it to finish, then try again.",
+				{ status: 409, errorKey: "chatgptImport.alreadyRunning" },
+			),
+		);
+		render(ImportChatGPTModal, {
+			props: { show: true, onClose: vi.fn(), projects: [] },
+		});
+
+		await fireEvent.drop(
+			screen.getByRole("button", { name: "Drop ZIP file here" }),
+			{ dataTransfer: { files: [createZipFile()] } },
+		);
+		await fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "Import 2 selected" }),
+		);
+
+		expect(
+			await screen.findByText(
+				"An import is already running. Wait for it to finish, then try again.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText(/already running for this account/),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows error for non-zip files", async () => {

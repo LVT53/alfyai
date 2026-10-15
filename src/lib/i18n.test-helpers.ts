@@ -24,6 +24,9 @@ const AUDITED_PREFIXES = [
 	// namespace this list does not name is a namespace it does not check.
 	"attachmentPicker.",
 	"atlasDownload.",
+	// The ChatGPT import dialog, including the refusal the server names by
+	// `errorKey` when the person's last import is still running.
+	"chatgptImport.",
 	"composerBar.",
 	"composerCommandRegistry.",
 	"composerCommands.",

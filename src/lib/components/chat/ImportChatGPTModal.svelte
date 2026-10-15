@@ -6,6 +6,7 @@ import { Upload, Check, AlertCircle } from "@lucide/svelte";
 import type { Project } from "$lib/server/services/projects";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
+import { ApiError } from "$lib/client/api/http";
 
 interface ChatGPTConversation {
 	title: string;
@@ -212,8 +213,14 @@ async function startImport(): Promise<void> {
 		importProgress = { current: selectedCount, total: selectedCount };
 		importState = "complete";
 	} catch (err) {
+		// The server names this refusal by key, so it reads in the reader's
+		// language; any other failure keeps the server's own sentence.
 		errorMessage =
-			err instanceof Error ? err.message : $t("chatgptImport.importError");
+			err instanceof ApiError && err.errorKey === "chatgptImport.alreadyRunning"
+				? $t("chatgptImport.alreadyRunning")
+				: err instanceof Error
+					? err.message
+					: $t("chatgptImport.importError");
 		importState = "error";
 	}
 }
