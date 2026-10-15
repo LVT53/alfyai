@@ -29,8 +29,8 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | Design + ADR-0069 | done, `87cb83b2b` | |
 | Plan | done, `1e8e8177a` | |
 | Builder check | done | 7 questions; 6 settled as my calls in design.md and plan.md; the push scope asked of the owner |
-| S1 engine | running | Sonnet agent in its own worktree, branch `jobs/s1-engine`; three builder-check rulings sent to it mid-run |
-| R1 | not started | |
+| S1 engine | done, merged `50d58309e` | 14 commits, 264 engine tests; gates at `884a14257`: check 0/17, vitest 19,173, smoke 236/236, Fallow 0 new. Sonnet, 872k tokens, 78 min |
+| R1 | running | Opus, branch `jobs/r1-review` |
 | S2 Atlas | not started | |
 | S3 extraction | not started | |
 | S4 file production | not started | |
@@ -43,3 +43,4 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 |---|---|---|---|
 | 2026-10-15 00:00 | 72 | 6 | start |
 | 2026-10-15 00:15 | 73 | 14 | after recon and the caller inventory (Sonnet, 389k tokens) |
+| 2026-10-15 01:42 | 77 | 41 | S1 merged; R1 dispatched alone (5-hour window resets 04:50) |
