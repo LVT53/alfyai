@@ -17,6 +17,7 @@ import {
 	fail,
 	type ProgressUpdate,
 	progress,
+	readAttemptStatus,
 	readJobRow,
 	type SucceedOptions,
 	succeed,
@@ -113,15 +114,28 @@ async function run(
 	 */
 	const finished = (): boolean => signal.aborted || verdictWritten;
 
-	/** The claim is gone: say why. A cancel is not a lost lease, and a handler cares. */
+	/**
+	 * The claim is gone: say why. A cancel is not a lost lease, and a handler
+	 * cares: it cleans its remote work up on "cancelled", and leaves it for the
+	 * next attempt to resume on "lease-lost".
+	 *
+	 * A cancel clears the checkpoint, so once one has touched this claim no later
+	 * attempt resumes this one's remote work. Either row can say so and either can
+	 * have moved on before this run notices: the attempt keeps saying `cancelled`
+	 * after Retry requeues the job, and the job says `cancelled` when the cancel
+	 * landed after the attempt had been taken back. So both are read.
+	 */
 	const abortBecauseClaimIsGone = (): void => {
 		let reason: JobAbortReason = "lease-lost";
 		try {
-			if (readJobRow(kind, owned.jobId)?.status === "cancelled") {
+			if (
+				readAttemptStatus(kind, owned.attemptId) === "cancelled" ||
+				readJobRow(kind, owned.jobId)?.status === "cancelled"
+			) {
 				reason = "cancelled";
 			}
 		} catch {
-			// The row cannot be read right now; the conservative answer is that the
+			// The rows cannot be read right now; the conservative answer is that the
 			// lease is lost, which is also what a handler that cannot tell does.
 		}
 		abort(reason);

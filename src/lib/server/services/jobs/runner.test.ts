@@ -270,6 +270,59 @@ describe("cancel", () => {
 		expect((signal as unknown as AbortSignal).reason).toBe("cancelled");
 	});
 
+	it("is heard as a cancel from another process even when Retry has requeued the job since", async () => {
+		// The reason tells a handler whether to clean its remote work up. A cancel
+		// clears the checkpoint, so no later attempt resumes this one's remote job:
+		// read off the JOB alone, a Retry pressed before this run's next beat made
+		// it "lease-lost", and the remote job was left running for nobody.
+		let signal: AbortSignal | null = null;
+		const { jobId } = await startRun(async (ctx) => {
+			if (ctx.attempt.number > 1) {
+				await ctx.succeed();
+				return;
+			}
+			signal = ctx.signal;
+			await blockUntilAborted(ctx.signal);
+		});
+		h.fixture.sqlite
+			.prepare(
+				"update test_jobs set status = 'cancelled', checkpoint_json = null where id = ?",
+			)
+			.run(jobId);
+		h.fixture.sqlite
+			.prepare(
+				"update test_job_attempts set status = 'cancelled' where job_id = ?",
+			)
+			.run(jobId);
+		h.fixture.sqlite
+			.prepare("update test_jobs set status = 'queued' where id = ?")
+			.run(jobId);
+
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect((signal as unknown as AbortSignal).reason).toBe("cancelled");
+	});
+
+	it("is heard as a cancel when the job was cancelled after its attempt was taken back", async () => {
+		// Taken back and requeued (the checkpoint kept for the next attempt), then
+		// cancelled while queued (the checkpoint cleared): nobody resumes it now.
+		let signal: AbortSignal | null = null;
+		const { jobId } = await startRun(async (ctx) => {
+			signal = ctx.signal;
+			await blockUntilAborted(ctx.signal);
+		});
+		h.fixture.sqlite
+			.prepare("update test_job_attempts set status = 'failed' where job_id = ?")
+			.run(jobId);
+		h.fixture.sqlite
+			.prepare("update test_jobs set status = 'cancelled' where id = ?")
+			.run(jobId);
+
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect((signal as unknown as AbortSignal).reason).toBe("cancelled");
+	});
+
 	it("logs a cancel it honoured", async () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
 		const { jobId, drained } = await startRun(async (ctx) => {

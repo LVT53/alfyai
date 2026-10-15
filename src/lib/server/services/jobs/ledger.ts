@@ -119,6 +119,22 @@ export function readJobRow(kind: JobKind, jobId: string): ShapeRow | null {
 	);
 }
 
+/** An attempt's status, or null when there is no such attempt. */
+export function readAttemptStatus(
+	kind: JobKind,
+	attemptId: string,
+): string | null {
+	const { attempts } = internalsOf(kind);
+	return (
+		db
+			.select({ status: attempts.status })
+			.from(attempts)
+			.where(eq(attempts.id, attemptId))
+			.limit(1)
+			.get()?.status ?? null
+	);
+}
+
 /** Whether Retry may reopen this row. One rule, read by `retry` and `describeJob` alike. */
 export function retryAllowed(
 	definition: EngineDefinition,
