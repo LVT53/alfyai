@@ -28,6 +28,7 @@
 		"scripts/seed-campaign-data.ts",
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",
+		"docs/plans/jobs-merge/verify-jobs.mjs",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],
