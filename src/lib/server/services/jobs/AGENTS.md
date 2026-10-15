@@ -14,6 +14,42 @@ Everything a caller uses is exported from [`index.ts`](./index.ts), which import
 
 A kind's `JobKindDefinition` supplies only what is particular to it: tables, `enabled()`, `limits()`, `lease()`, an optional `claimable` condition, `phases`, `lostAttempt(reason)`, the pure `onFailure(failure, history)` policy, `userRetry`, `onTransition`, a lazily loaded `handler()` and `inline`. The handler gets a `JobRunContext`: `row`, `attempt: { id, number }`, `signal`, and the fenced `progress`, `write`, `succeed` and `fail`.
 
+A kind's two tables are declared in `schema.ts` (with a hand-written, expand-only migration) from the builders; its definition and its handler live in its own folder:
+
+```ts
+// schema.ts
+export const widgetJobs = sqliteTable(
+	"widget_jobs",
+	{
+		...jobColumns({ userId: () => users.id, sqlNames: { retryable: "error_retryable" } }),
+		title: text("title").notNull(), // the kind's domain columns
+	},
+	(table) => ({ liveClaimIdx: liveClaimIndex("widget_jobs_live_claim_idx", table) }),
+);
+export const widgetJobAttempts = sqliteTable(
+	"widget_job_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => widgetJobs.id }),
+		extractor: text("extractor"), // the kind's own attempt columns: nullable or defaulted
+	},
+	(table) => ({ ...jobAttemptIndexes("widget_job_attempts", table) }),
+);
+
+// widget/widget-job.ts
+export const widgetJob = defineJobKind({
+	name: "widget",
+	logPrefix: "[WIDGET]",
+	tables: { jobs: widgetJobs, attempts: widgetJobAttempts },
+	enabled: () => getConfig().widgetWorkerEnabled, // read live, before every claim and on every tick
+	limits: () => ({ global: 2, perUser: 1 }), // counted over rows, across processes
+	lease: () => ({ heartbeatMs: 15_000, staleAfterMs: 120_000 }),
+	lostAttempt: () => ({ code: "widget_worker_lost", message: "The widget worker stopped before finishing." }),
+	onFailure: (failure, { attempts }) =>
+		attempts < 3 ? { requeue: true, delayMs: 0 } : { requeue: false, retryable: failure.retryable },
+	handler: () => import("./widget-runner").then((module) => module.runWidget), // loaded on first claim
+});
+```
+
 Where the kinds are defined (each in a file named for its domain, not a shared name): `atlas/research-job.ts`, `extraction/extraction-job.ts`, `file-production/production-job.ts`. Until their slices land, only the engine's own test kind (`testing/test-kind.ts`) exists.
 
 ## Files
