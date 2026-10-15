@@ -72,7 +72,7 @@ export function mapAtlasJobRowToCard(
 				? {
 						code: job.errorCode,
 						message: job.errorMessage,
-						retryable: job.errorRetryable,
+						retryable: job.retryable,
 					}
 				: null,
 		createdAt: job.createdAt.getTime(),

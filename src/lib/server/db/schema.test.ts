@@ -752,7 +752,7 @@ describe("schema core tables", () => {
 	});
 
 	describe("atlas tables", () => {
-		it("defines exactly the two Atlas-owned persistence tables", () => {
+		it("defines exactly the three Atlas-owned persistence tables", () => {
 			const tableNames = sqlite
 				.prepare(
 					"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'atlas_%' ORDER BY name",
@@ -760,6 +760,7 @@ describe("schema core tables", () => {
 				.all() as { name: string }[];
 
 			expect(tableNames.map((table) => table.name)).toEqual([
+				"atlas_job_attempts",
 				"atlas_jobs",
 				"atlas_round_checkpoints",
 			]);
@@ -783,6 +784,28 @@ describe("schema core tables", () => {
 				expect.objectContaining({
 					name: "atlas_round_checkpoints_job_round_unique_idx",
 					unique: 1,
+				}),
+			);
+		});
+
+		it("keeps one attempt number per Atlas job, and the live claim index, durable", () => {
+			const attemptIndexes = sqlite
+				.prepare("PRAGMA index_list(atlas_job_attempts)")
+				.all() as { name: string; unique: number }[];
+			const jobIndexes = sqlite
+				.prepare("PRAGMA index_list(atlas_jobs)")
+				.all() as { name: string; partial: number }[];
+
+			expect(attemptIndexes).toContainEqual(
+				expect.objectContaining({
+					name: "atlas_job_attempts_job_number_unique_idx",
+					unique: 1,
+				}),
+			);
+			expect(jobIndexes).toContainEqual(
+				expect.objectContaining({
+					name: "atlas_jobs_live_claim_idx",
+					partial: 1,
 				}),
 			);
 		});

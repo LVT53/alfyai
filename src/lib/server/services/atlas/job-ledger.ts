@@ -368,7 +368,7 @@ export async function claimNextAtlasJob(
 					startedAt: now,
 					errorCode: null,
 					errorMessage: null,
-					errorRetryable: false,
+					retryable: false,
 					failureMetadataJson: null,
 					updatedAt: now,
 				})
@@ -603,7 +603,7 @@ export async function recoverStaleAtlasJobs(
 			startedAt: null,
 			errorCode: "atlas_worker_heartbeat_timeout",
 			errorMessage: "Atlas worker heartbeat timed out before completion.",
-			errorRetryable: true,
+			retryable: true,
 			updatedAt: now,
 		})
 		.where(
@@ -671,7 +671,7 @@ export async function failAtlasJob(input: FailAtlasJobInput): Promise<boolean> {
 			completedAt: now,
 			errorCode: input.errorCode,
 			errorMessage: input.errorMessage,
-			errorRetryable: input.retryable,
+			retryable: input.retryable,
 			failureMetadataJson:
 				input.failureMetadata === undefined
 					? null

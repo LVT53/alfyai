@@ -8,6 +8,12 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import {
+	jobAttemptColumns,
+	jobAttemptIndexes,
+	jobColumns,
+	liveClaimIndex,
+} from "../services/jobs/columns";
 
 export const users = sqliteTable("users", {
 	id: text("id").primaryKey(),
@@ -1992,10 +1998,16 @@ export const documentExtractionJobAttempts = sqliteTable(
 export const atlasJobs = sqliteTable(
 	"atlas_jobs",
 	{
-		id: text("id").primaryKey(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
+		// The job engine's lifecycle columns (services/jobs/columns.ts): id, user,
+		// status, phase, priority, run_after, attempt_count, current_attempt_id,
+		// retryable, error_code, error_message, checkpoint, retry_state,
+		// cancel_requested_at, started_at, completed_at, created_at, updated_at.
+		// Atlas keeps the SQL name it already had for one of them: `retryable` is
+		// `error_retryable`. Everything below is the kind's own.
+		...jobColumns({
+			userId: () => users.id,
+			sqlNames: { retryable: "error_retryable" },
+		}),
 		conversationId: text("conversation_id")
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
@@ -2022,15 +2034,19 @@ export const atlasJobs = sqliteTable(
 		clientAtlasTurnId: text("client_atlas_turn_id").notNull(),
 		idempotencyKey: text("idempotency_key").notNull(),
 		title: text("title").notNull(),
-		status: text("status").notNull().default("queued"),
+		// The card's own words for where the run is (queued, ask, research, ...).
+		// The engine's `phase` is not used by Atlas: its handler reports through
+		// `ctx.write`, which moves these three.
 		stage: text("stage").notNull().default("queued"),
 		progressPercent: integer("progress_percent").notNull().default(0),
 		progressDetailsJson: text("progress_details_json").notNull().default("{}"),
+		// The job-level fence of the release before the engine. Nothing reads them
+		// and the engine does not write them: the kind clears both on every
+		// transition (atlas/research-job.ts `onTransition`) so a process still
+		// running the old ledger can never write through its fence. They go in a
+		// later cleanup, once production has run this release.
 		workerId: text("worker_id"),
 		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
-		startedAt: integer("started_at", { mode: "timestamp" }),
-		completedAt: integer("completed_at", { mode: "timestamp" }),
-		cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
 		inputTokens: integer("input_tokens").notNull().default(0),
 		outputTokens: integer("output_tokens").notNull().default(0),
 		totalTokens: integer("total_tokens").notNull().default(0),
@@ -2062,18 +2078,7 @@ export const atlasJobs = sqliteTable(
 		).references(() => chatGeneratedFiles.id, {
 			onDelete: "set null",
 		}),
-		errorCode: text("error_code"),
-		errorMessage: text("error_message"),
-		errorRetryable: integer("error_retryable", { mode: "boolean" })
-			.notNull()
-			.default(false),
 		failureMetadataJson: text("failure_metadata_json"),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
 	},
 	(table) => [
 		uniqueIndex("atlas_jobs_idempotency_unique_idx").on(table.idempotencyKey),
@@ -2089,7 +2094,20 @@ export const atlasJobs = sqliteTable(
 		),
 		index("atlas_jobs_parent_idx").on(table.parentAtlasJobId, table.createdAt),
 		index("atlas_jobs_assistant_message_idx").on(table.assistantMessageId),
+		liveClaimIndex("atlas_jobs_live_claim_idx", table),
 	],
+);
+
+// One row per claim of an Atlas job: the fencing token every write a run makes
+// is checked against (services/jobs). Atlas has no attempt columns of its own.
+export const atlasJobAttempts = sqliteTable(
+	"atlas_job_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => atlasJobs.id }),
+	},
+	(table) => ({
+		...jobAttemptIndexes("atlas_job_attempts", table),
+	}),
 );
 
 export const atlasRoundCheckpoints = sqliteTable(

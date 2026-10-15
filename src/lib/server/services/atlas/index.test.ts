@@ -448,7 +448,7 @@ describe("Atlas persistence foundation", () => {
 			costUsdMicros: 4567,
 			errorCode: "atlas_audit_failed",
 			errorMessage: "Audit failed after bounded retries.",
-			errorRetryable: true,
+			retryable: true,
 			failureMetadataJson:
 				'{"rawPrompt":"SYSTEM_SENTINEL","apiKey":"SECRET_SENTINEL"}',
 			createdAt: now,
@@ -771,7 +771,7 @@ describe("Atlas persistence foundation", () => {
 			workerId: null,
 			progressPercent: 0,
 			errorCode: "atlas_worker_heartbeat_timeout",
-			errorRetryable: true,
+			retryable: true,
 		});
 		expect(rows.find((row) => row.id === secondSameUser.job.id)).toMatchObject({
 			status: "cancelled",
