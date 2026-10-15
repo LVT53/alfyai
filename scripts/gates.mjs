@@ -188,8 +188,8 @@ function filesWithSmokeTests() {
 // -------------------------------------------------------------- the steps
 
 /**
- * One step: how to run it and how to read its log. `parse(log)` returns
- * `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
+ * One step: how to run it and how to read its log. `parse(log, code)` takes the log and the exit
+ * code and returns `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
  */
 export function defineSteps(args) {
 	const jsonReport = join(args.outDir, "playwright.json");
@@ -310,7 +310,49 @@ export function parseVitestLog(log) {
 	};
 }
 
-export function parseBuildLog(log) {
+// Why a build failed, which is the FIRST lines of its own error report and not its last line (what
+// `lastLine` gives the other steps): a Vite failure ends in a stack trace and a closing brace, a
+// Node process that died in its version line, an out-of-memory crash in native frames. The log
+// before the report can run to a thousand lines of chunk sizes, some of them for files with
+// "error" in the name, so the report is found by how a line starts: Vite's "error during build:",
+// the name of a thrown error ("TypeError: ...", "RolldownError: ...", "FATAL ERROR: ..."), or the
+// "failed" line one of the build's own scripts prints after its [tag].
+const BUILD_ERROR_START =
+	/^(?:error during build\b|(?:fatal )?\w*error\b|\[[\w-]+\].*\bfailed\b)/i;
+// Where the report stops being a message: the first stack frame, or the heading of a native one.
+const BUILD_STACK_START = /^(?:at\s|-{3,} .*stack trace)/i;
+const BUILD_REASON_LINES = 4;
+const BUILD_REASON_WIDTH = 160;
+
+function buildFailure(log) {
+	const lines = stripAnsi(log)
+		// a path in the repo is shown as a repo path
+		.replaceAll(`${ROOT}/`, "")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const start = lines.findIndex((line) => BUILD_ERROR_START.test(line));
+	// No report to be found: what the other steps show, the log's last line, or that there is none.
+	if (start === -1)
+		return (lines.at(-1) ?? "no output").slice(0, BUILD_REASON_WIDTH);
+	const reason = [];
+	for (const line of lines.slice(start)) {
+		if (BUILD_STACK_START.test(line) || reason.length === BUILD_REASON_LINES) {
+			break;
+		}
+		reason.push(line.slice(0, BUILD_REASON_WIDTH));
+	}
+	return reason.join("\n      ");
+}
+
+/**
+ * Judge the build from its log and its exit code. One that did not exit 0 says why it failed;
+ * one that did is held to the warning counts.
+ */
+export function parseBuildLog(log, code = 0) {
+	// The counts of a build that never finished are no news (`unused-css=0 aria=0` read as if it
+	// had been fine); why it stopped is what its line on the screen is for.
+	if (code !== 0) return { ok: false, text: buildFailure(log) };
 	const css = count(log, "Unused CSS selector");
 	const aria = count(log, "must have an ARIA role");
 	const over = css > BASELINE.buildUnusedCss || aria > BASELINE.buildAria;
@@ -588,7 +630,7 @@ export async function runSteps(
 				}
 			}
 			const ran = await run(step, name, args.outDir);
-			const verdict = step.parse(readFileSync(ran.logPath, "utf8"));
+			const verdict = step.parse(readFileSync(ran.logPath, "utf8"), ran.code);
 			const result = {
 				code: ran.code,
 				ok: ran.code === 0 && verdict.ok,

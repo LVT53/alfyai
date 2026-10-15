@@ -137,6 +137,206 @@ describe("the build step", () => {
 	});
 });
 
+// What `npm run build` writes when it fails, as it really did for the failures a developer meets
+// (Vite 8, whose Rolldown report follows `error during build:`), trimmed to the lines that matter,
+// colour codes and all. The reason is in the FIRST lines of the report. The last line is a closing
+// brace, a stack frame or Node's version, so the reader that shows a step's last line (`lastLine`)
+// says nothing here, and a build that failed looked as innocent as `unused-css=0 aria=0`.
+const ESC = "\u001b";
+const BUILD_START = [
+	"",
+	"> alfyai@2.2.0 build",
+	"> NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets",
+	"",
+	"vite v8.1.3 building ssr environment for production...",
+];
+const ROLLDOWN_STACK = [
+	"    at aggregateBindingErrorsIntoJsError (file:///repo/node_modules/rolldown/dist/shared/error-BlQ0-ek7.mjs:48:18)",
+	"    at unwrapBindingResult (file:///repo/node_modules/rolldown/dist/shared/error-BlQ0-ek7.mjs:18:128)",
+	"    at async CAC.<anonymous> (file:///repo/node_modules/vite/dist/node/cli.js:777:3) {",
+	"  errors: [Getter/Setter]",
+	"}",
+];
+// `export const broken = ;` at the end of src/lib/model-context-defaults.ts
+const BUILD_SYNTAX_ERROR = [
+	...BUILD_START,
+	`${ESC}[2Ktransforming...✓ 5356 modules transformed.`,
+	"✗ Build failed in 4.09s",
+	"error during build:",
+	"Build failed with 1 error:",
+	"",
+	`${ESC}[31m[builtin:vite-transform] ${ESC}[0mUnexpected token`,
+	`    ${ESC}[38;5;246m╭${ESC}[0m${ESC}[38;5;246m─${ESC}[0m${ESC}[38;5;246m[${ESC}[0m src/lib/model-context-defaults.ts:89:23 ${ESC}[38;5;246m]${ESC}[0m`,
+	`    ${ESC}[38;5;246m│${ESC}[0m`,
+	` ${ESC}[38;5;246m89 │${ESC}[0m export const broken = ;`,
+	`${ESC}[38;5;240m   │${ESC}[0m                       ┬  `,
+	`${ESC}[38;5;246m────╯${ESC}[0m`,
+	"",
+	...ROLLDOWN_STACK,
+].join("\n");
+// `<p>{#if}</p>` at the end of src/routes/+error.svelte: the path comes out absolute.
+const REPO = join(import.meta.dirname, "..");
+const BUILD_SVELTE_ERROR = [
+	...BUILD_START,
+	"transforming...✓ 5356 modules transformed.",
+	"✗ Build failed in 3.98s",
+	"error during build:",
+	"Build failed with 1 error:",
+	"",
+	`[plugin vite-plugin-svelte:compile] ${REPO}/src/routes/+error.svelte:43:7`,
+	`RolldownError: ${REPO}/src/routes/+error.svelte:43:7 Expected whitespace`,
+	"https://svelte.dev/e/expected_whitespace",
+	" 41 |    </div>",
+	" 43 |  <p>{#if}</p>",
+	"              ^",
+	...ROLLDOWN_STACK,
+].join("\n");
+// The post-build analyse pass opening a DATABASE_PATH whose directory is missing: a Node process
+// that dies, with no Vite report at all.
+const BUILD_NODE_CRASH = [
+	...BUILD_START,
+	`${ESC}[2Ktransforming...✓ 5357 modules transformed.`,
+	"rendering chunks...",
+	"",
+	"node:internal/event_target:1118",
+	"  process.nextTick(() => { throw err; });",
+	"                           ^",
+	"TypeError: Cannot open database because the directory does not exist",
+	"    at new Database (/repo/node_modules/better-sqlite3/lib/database.js:65:9)",
+	"    at file:///repo/.svelte-kit/output/server/chunks/db.js:59:14",
+	"    at async analyse (file:///repo/node_modules/@sveltejs/kit/src/core/postbuild/analyse.js:75:16)",
+	"",
+	"Node.js v22.23.3",
+].join("\n");
+// The second script of the build failing, after a listing of every chunk it made: some of them
+// have "error" in their name.
+const BUILD_LATE_FAILURE = [
+	...BUILD_START,
+	".svelte-kit/output/server/chunks/provider-model-route-errors.js     0.27 kB │ gzip:   0.18 kB",
+	".svelte-kit/output/server/chunks/error-message.js                   0.61 kB │ gzip:   0.39 kB",
+	".svelte-kit/output/server/entries/pages/_error.svelte.js            2.00 kB │ gzip:   0.80 kB",
+	"✓ built in 11.58s",
+	"",
+	"> Using @sveltejs/adapter-node",
+	"Circular dependency: node_modules/d3-interpolate/src/value.js -> node_modules/d3-interpolate/src/array.js -> node_modules/d3-interpolate/src/value.js",
+	"  ✔ done",
+	"[build] Failed to patch BODY_SIZE_LIMIT default: Error: ENOENT: no such file or directory, open '/repo/build/handler.js'",
+	"    at async open (node:internal/fs/promises:639:25)",
+	"    at async main (file:///repo/scripts/patch-body-size-limit.mjs:11:17) {",
+	"  errno: -2,",
+	"  code: 'ENOENT',",
+	"}",
+].join("\n");
+
+// V8 out of memory, which a build on a machine busy with other gates can meet: it ends in native
+// frames.
+const BUILD_OUT_OF_MEMORY = [
+	...BUILD_START,
+	"",
+	"<--- Last few GCs --->",
+	"",
+	"[75569:0x768340c000]       46 ms: Mark-Compact 20.2 (49.8) -> 19.5 (52.8) MB, pooled: 0 MB, 2.71 / 0.00 ms",
+	"",
+	"<--- JS stacktrace --->",
+	"",
+	"FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+	"----- Native stack trace -----",
+	"",
+	" 1: 0x105ae56c8 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node@22/22.23.3_2/lib/libnode.127.dylib]",
+	" 2: 0x10505dc50 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node@22/22.23.3_2/lib/libnode.127.dylib]",
+].join("\n");
+
+describe("the build step, when the build failed", () => {
+	it("gives the first lines of the build's own error report, where its reason is", () => {
+		const result = parseBuildLog(BUILD_SYNTAX_ERROR, 1);
+		expect(result.ok).toBe(false);
+		expect(result.text).toBe(
+			[
+				"error during build:",
+				"      Build failed with 1 error:",
+				"      [builtin:vite-transform] Unexpected token",
+				"      ╭─[ src/lib/model-context-defaults.ts:89:23 ]",
+			].join("\n"),
+		);
+	});
+
+	it("does not report the warning counts of a build that never finished", () => {
+		const { text } = parseBuildLog(BUILD_SYNTAX_ERROR, 1);
+		expect(text).not.toContain("unused-css");
+		expect(text).not.toContain("aria=");
+	});
+
+	it("shows a path in the repo as a repo path", () => {
+		const { text } = parseBuildLog(BUILD_SVELTE_ERROR, 1);
+		expect(text).toBe(
+			[
+				"error during build:",
+				"      Build failed with 1 error:",
+				"      [plugin vite-plugin-svelte:compile] src/routes/+error.svelte:43:7",
+				"      RolldownError: src/routes/+error.svelte:43:7 Expected whitespace",
+			].join("\n"),
+		);
+		expect(text).not.toContain(REPO);
+	});
+
+	it("starts at the error of a Node process that died, not at Node's version line", () => {
+		const { ok, text } = parseBuildLog(BUILD_NODE_CRASH, 1);
+		expect(ok).toBe(false);
+		expect(text).toBe(
+			"TypeError: Cannot open database because the directory does not exist",
+		);
+	});
+
+	it("gives the FATAL ERROR line of an out-of-memory crash, without its native frames", () => {
+		expect(parseBuildLog(BUILD_OUT_OF_MEMORY, 134)).toEqual({
+			ok: false,
+			text: "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+		});
+	});
+
+	it("is not led astray by chunk names with error in them in a long listing", () => {
+		const { text } = parseBuildLog(BUILD_LATE_FAILURE, 1);
+		expect(text).toBe(
+			"[build] Failed to patch BODY_SIZE_LIMIT default: Error: ENOENT: no such file or directory, open '/repo/build/handler.js'",
+		);
+	});
+
+	it("shows the last line of a log with no error report in it, as the other steps do", () => {
+		const log =
+			"> alfyai@2.2.0 check:worker-assets\n[worker-assets] No client build at /x/client — run `npm run build` first.\n";
+		expect(parseBuildLog(log, 1)).toEqual({
+			ok: false,
+			text: "[worker-assets] No client build at /x/client — run `npm run build` first.",
+		});
+	});
+
+	it("says there was no output when the command wrote none, as when it never started", () => {
+		expect(parseBuildLog("", 127)).toEqual({ ok: false, text: "no output" });
+	});
+
+	it("cuts a line too long for the screen", () => {
+		const { text } = parseBuildLog(
+			`error during build:\n${"x".repeat(500)}`,
+			1,
+		);
+		expect(text.split("\n").every((line: string) => line.length < 200)).toBe(
+			true,
+		);
+	});
+
+	it("still judges a build that exited 0 by its warnings, whether or not it is told the exit code", () => {
+		const unusedCss = (count: number) =>
+			Array(count)
+				.fill('WARNING "x.svelte" Unused CSS selector ".a"')
+				.join("\n");
+		expect(parseBuildLog(unusedCss(0), 0).ok).toBe(true);
+		expect(parseBuildLog(unusedCss(1), 0).ok).toBe(false);
+		expect(parseBuildLog(unusedCss(0)).text).toBe(
+			"unused-css=0 aria=0 (baseline 0/0)",
+		);
+	});
+});
+
 describe("the chunks step", () => {
 	const OK = `[artifact-chunks] CanvasEditor: _app/immutable/chunks/BGz8QRPi.js — 210.3 kB raw, 62.8 kB gzip; loads 12 chunk(s) of its own (229.6 kB raw, 70.9 kB gzip) and 31 shared
 [artifact-chunks]   @xyflow: _app/immutable/chunks/BGz8QRPi.js
@@ -759,6 +959,31 @@ describe("running the steps", () => {
 		expect(lines.find((line) => line.startsWith("total"))).toContain(
 			"FAILED: check, vitest, build, chunks, playwright",
 		);
+	});
+
+	// A failed build used to read `exit=1 FAIL ... :: unused-css=0 aria=0 (baseline 0/0)`: the reason
+	// was only in build.log. The line now carries the first lines of the build's own error report, in
+	// the layout the other steps use for a second line (Fallow's NEW lines, Playwright's FAILED), and
+	// the steps blocked behind it say they were blocked, as before.
+	it("shows why a build failed on the build's own line, and the steps behind it still say they were not run", async () => {
+		const { lines } = await gate([], {
+			real: ["build"],
+			exits: { build: 1 },
+			logs: { build: BUILD_SYNTAX_ERROR },
+		});
+		const at = lines.findIndex((line) => line.startsWith("build"));
+		expect(lines[at]).toMatch(
+			/^build {6}exit=1 FAIL\s+0s \(\+0s\) :: error during build:$/,
+		);
+		expect(lines.slice(at + 1, at + 4)).toEqual([
+			"      Build failed with 1 error:",
+			"      [builtin:vite-transform] Unexpected token",
+			"      ╭─[ src/lib/model-context-defaults.ts:89:23 ]",
+		]);
+		expect(lines.join("\n")).not.toContain("unused-css");
+		for (const name of needsTheBuild) {
+			expect(lines).toContain(`${name.padEnd(10)} FAIL not run: build failed`);
+		}
 	});
 
 	it("writes the screen in the order of the steps: the header, a line for each, the verdict, the logs", async () => {
