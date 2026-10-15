@@ -89,6 +89,130 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		sqlite.close();
 	}
 
+	/**
+	 * A conversation as the import leaves it: its messages carry
+	 * `import_source = 'chatgpt'` (unless `imported` is false, a chat of the
+	 * person's own), and nothing else has written to it yet.
+	 */
+	function seedImportedConversation(row: {
+		id: string;
+		userId?: string;
+		title?: string;
+		createdAt?: Date;
+		incognito?: boolean;
+		imported?: boolean;
+		messages?: { role: string; content: string }[];
+	}) {
+		const { sqlite, db } = openSeedDatabase();
+		const createdAt = row.createdAt ?? new Date();
+		db.insert(schema.conversations)
+			.values({
+				id: row.id,
+				userId: row.userId ?? "test-user",
+				title: row.title ?? "Imported Conversation",
+				memoryIncognito: row.incognito ?? false,
+				createdAt,
+				updatedAt: createdAt,
+			})
+			.run();
+		const messages = row.messages ?? [
+			{ role: "user", content: "Hello" },
+			{ role: "assistant", content: "Hi there!" },
+		];
+		db.insert(schema.messages)
+			.values(
+				messages.map((message, index) => ({
+					id: `${row.id}-m${index + 1}`,
+					conversationId: row.id,
+					messageSequence: index + 1,
+					role: message.role,
+					content: message.content,
+					importSource: row.imported === false ? null : "chatgpt",
+					createdAt,
+				})),
+			)
+			.run();
+		sqlite.close();
+	}
+
+	/** An imported fork of `sourceId`, as `importConversationBranches` makes it. */
+	function seedImportedFork(forkId: string, sourceId: string) {
+		seedImportedConversation({ id: forkId, title: "Fork" });
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.conversationForks)
+			.values({
+				id: `${forkId}-link`,
+				forkConversationId: forkId,
+				userId: "test-user",
+				sourceConversationId: sourceId,
+				sourceConversationIdSnapshot: sourceId,
+				sourceAssistantMessageIdSnapshot: "chatgpt:div-1",
+				copiedForkPointMessageId: `${forkId}-m1`,
+				sourceTitle: "Source",
+				forkSequence: 1,
+			})
+			.run();
+		sqlite.close();
+	}
+
+	function seedSummary(
+		conversationId: string,
+		summary: string,
+		userId = "test-user",
+	) {
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.conversationSummaries)
+			.values({ conversationId, userId, summary, source: "model" })
+			.run();
+		sqlite.close();
+	}
+
+	/** What a Clear Memory leaves behind: a newer reset generation, and when. */
+	function seedMemoryReset(
+		resetGeneration: number,
+		advancedAt: Date,
+		userId = "test-user",
+	) {
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.memoryResetGenerations)
+			.values({ userId, resetGeneration, advancedAt })
+			.onConflictDoUpdate({
+				target: schema.memoryResetGenerations.userId,
+				set: { resetGeneration, advancedAt },
+			})
+			.run();
+		sqlite.close();
+	}
+
+	function deleteConversation(conversationId: string) {
+		const { sqlite, db } = openSeedDatabase();
+		db.delete(schema.conversations)
+			.where(eq(schema.conversations.id, conversationId))
+			.run();
+		sqlite.close();
+	}
+
+	function markIncognito(conversationId: string) {
+		const { sqlite, db } = openSeedDatabase();
+		db.update(schema.conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(schema.conversations.id, conversationId))
+			.run();
+		sqlite.close();
+	}
+
+	function readSummary(conversationId: string) {
+		const sqlite = new Database(dbPath);
+		const db = drizzle(sqlite, { schema });
+		const row = db
+			.select()
+			.from(schema.conversationSummaries)
+			.where(eq(schema.conversationSummaries.conversationId, conversationId))
+			.get();
+		sqlite.close();
+		return row;
+	}
+
 	function readImportJob(jobId: string) {
 		const sqlite = new Database(dbPath);
 		const db = drizzle(sqlite, { schema });
@@ -262,17 +386,24 @@ export function createChatGptImportTestHarness(dbPath: string) {
 	return {
 		cleanup,
 		countConversations,
+		deleteConversation,
 		makeBranch,
 		makeParsedConversation,
+		markIncognito,
 		readConversation,
 		readConversationsQueuedForJudge,
 		readForks,
 		readImportJob,
 		readImportJobsForUser,
 		readMessages,
+		readSummary,
 		runImportConversations,
+		seedImportedConversation,
+		seedImportedFork,
 		seedImportJob,
+		seedMemoryReset,
 		seedProject,
+		seedSummary,
 		seedUser,
 	};
 }

@@ -1,7 +1,5 @@
 import { generateText } from "ai";
 import { getConfig } from "$lib/server/config-store";
-import { db } from "$lib/server/db";
-import { conversationSummaries } from "$lib/server/db/schema";
 import {
 	createOpenAICompatibleProviderForNormalChatModelRun,
 	resolveNormalChatModelRunProvider,
@@ -239,62 +237,4 @@ async function combineChunkSummaries(
 	});
 
 	return result.text.trim();
-}
-
-export async function storeConversationSummary(
-	userId: string,
-	conversationId: string,
-	summary: string,
-): Promise<void> {
-	try {
-		const now = new Date();
-		await db
-			.insert(conversationSummaries)
-			.values({
-				conversationId,
-				userId,
-				summary,
-				source: "chatgpt-import",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.onConflictDoUpdate({
-				target: [conversationSummaries.conversationId],
-				set: {
-					summary,
-					source: "chatgpt-import",
-					updatedAt: new Date(),
-				},
-			});
-	} catch (err) {
-		console.error(
-			"[CHATGPT_IMPORT] Failed to store conversation summary:",
-			err,
-		);
-		throw err;
-	}
-}
-
-/**
- * Full summarization pipeline: summarize and store in DB. The import queued the
- * conversation for the memory judge when it stored the messages. Designed for
- * fire-and-forget usage during import. All failures are logged, never
- * propagated.
- */
-export async function summarizeAndStoreConversation(
-	userId: string,
-	conversationId: string,
-	messages: { role: string; content: string }[],
-	title: string,
-): Promise<void> {
-	try {
-		const summary = await summarizeConversation(messages, title);
-		await storeConversationSummary(userId, conversationId, summary);
-	} catch (err) {
-		console.error(
-			"[CHATGPT_IMPORT] Summarization failed for conversation",
-			conversationId,
-			err,
-		);
-	}
 }

@@ -11,12 +11,12 @@ import {
 	startImportRow,
 	writeImportProgress,
 } from "./import-row";
+import { startImportedSummaryDrain } from "./owed-summaries";
 import {
 	type BranchInfo,
 	type ParseResult,
 	parseConversationsJson,
 } from "./parser";
-import { summarizeAndStoreConversation } from "./summarizer";
 
 interface ImportOptions {
 	projectId?: string | null;
@@ -275,19 +275,6 @@ async function importIntoRow(
 						err instanceof Error ? err.message : String(err),
 					);
 				});
-
-				summarizeAndStoreConversation(
-					userId,
-					conversation.id,
-					conv.messages,
-					conv.title || "Imported Conversation",
-				).catch((summarizeErr) => {
-					console.error(
-						"[CHATGPT_IMPORT] Summarization failed for conversation",
-						conversation.id,
-						summarizeErr,
-					);
-				});
 			}
 		} catch (err) {
 			errors.push({
@@ -303,6 +290,13 @@ async function importIntoRow(
 		processedConversations: totalConversations,
 		errors,
 	});
+
+	// The summaries: one model call per conversation, written in the background
+	// one at a time. What a restart cuts short is still owed, and memory
+	// maintenance starts the drain again (owed-summaries.ts).
+	if (conversationIds.length > 0) {
+		void startImportedSummaryDrain(userId);
+	}
 
 	return { jobId, conversationIds, errors };
 }

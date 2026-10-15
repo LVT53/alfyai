@@ -17,10 +17,10 @@ vi.mock("./embeddings", () => ({
 	generateImportEmbeddings: vi.fn(async () => undefined),
 }));
 
-// A summary is a model call that outlives the request; here it never finishes,
-// as a restart would leave it.
-vi.mock("./summarizer", () => ({
-	summarizeAndStoreConversation: vi.fn(() => new Promise<void>(() => {})),
+// The summaries are model calls that outlive the request; here their drain
+// never finishes, as a restart would leave it.
+vi.mock("./owed-summaries", () => ({
+	startImportedSummaryDrain: vi.fn(() => new Promise<void>(() => {})),
 }));
 type ChatGptImportTestHarness = ReturnType<
 	typeof createChatGptImportTestHarness
@@ -510,6 +510,32 @@ describe("importConversations", () => {
 		expect(harness.readConversationsQueuedForJudge()).toEqual(
 			[...result.conversationIds].sort(),
 		);
+	});
+
+	it("starts writing the summaries once its conversations are stored", async () => {
+		harness.seedUser();
+		const { startImportedSummaryDrain } = await import("./owed-summaries");
+
+		await runImport({
+			conversations: [
+				harness.makeParsedConversation({ title: "A" }),
+				harness.makeParsedConversation({ title: "B" }),
+			],
+		});
+
+		// One drain for the person, one model call at a time, not one detached
+		// call per conversation.
+		expect(startImportedSummaryDrain).toHaveBeenCalledTimes(1);
+		expect(startImportedSummaryDrain).toHaveBeenCalledWith("test-user");
+	});
+
+	it("starts no summaries when it imported nothing", async () => {
+		harness.seedUser();
+		const { startImportedSummaryDrain } = await import("./owed-summaries");
+
+		await runImport({ zipName: "empty-zip" });
+
+		expect(startImportedSummaryDrain).not.toHaveBeenCalled();
 	});
 
 	describe("one import per person at a time", () => {

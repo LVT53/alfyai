@@ -1,62 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as schema from "$lib/server/db/schema";
 
 let dbPath: string;
 
-function openSeedDatabase() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-	return { sqlite, db };
-}
-
-function seedUser(userId = "test-user", email = "test@example.com") {
-	const { sqlite, db } = openSeedDatabase();
-	db.insert(schema.users)
-		.values({
-			id: userId,
-			email,
-			passwordHash: "hash",
-		})
-		.run();
-	sqlite.close();
-}
-
-function readSummary(conversationId: string) {
-	const sqlite = new Database(dbPath);
-	const db = drizzle(sqlite, { schema });
-	const row = db
-		.select()
-		.from(schema.conversationSummaries)
-		.where(eq(schema.conversationSummaries.conversationId, conversationId))
-		.get();
-	sqlite.close();
-	return row;
-}
-
-const {
-	mockGenerateText,
-	mockGetConfig,
-	mockMarkMemoryDirty,
-	mockCreateOpenAICompatible,
-} = vi.hoisted(() => {
-	const mockModel = vi.fn();
-	return {
-		mockGenerateText: vi.fn(),
-		mockGetConfig: vi.fn(() => ({
-			requestTimeoutMs: 300000,
-		})),
-		mockMarkMemoryDirty: vi.fn(async () => undefined),
-		mockCreateOpenAICompatible: vi.fn(() => mockModel),
-	};
-});
+const { mockGenerateText, mockGetConfig, mockCreateOpenAICompatible } =
+	vi.hoisted(() => {
+		const mockModel = vi.fn();
+		return {
+			mockGenerateText: vi.fn(),
+			mockGetConfig: vi.fn(() => ({
+				requestTimeoutMs: 300000,
+			})),
+			mockCreateOpenAICompatible: vi.fn(() => mockModel),
+		};
+	});
 
 vi.mock("ai", () => ({
 	generateText: mockGenerateText,
@@ -90,10 +48,6 @@ vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 
 vi.mock("$lib/server/services/openai-compatible-url", () => ({
 	normalizeOpenAICompatibleBaseUrl: (url: string) => url,
-}));
-
-vi.mock("$lib/server/services/memory-profile/dirty-ledger", () => ({
-	markMemoryDirty: mockMarkMemoryDirty,
 }));
 
 describe("summarizer — pure helpers", () => {
@@ -156,71 +110,6 @@ describe("summarizer — pure helpers", () => {
 			{ role: "assistant", content: "A" },
 		];
 		expect(formatMessagesForPrompt(messages)).toBe("user: Q\n\nassistant: A");
-	});
-});
-
-describe("summarizer — storeConversationSummary", () => {
-	beforeEach(() => {
-		dbPath = `/tmp/alfyai-summarizer-${randomUUID()}.db`;
-		process.env.DATABASE_PATH = dbPath;
-		vi.resetModules();
-	});
-
-	afterEach(() => {
-		try {
-			unlinkSync(dbPath);
-		} catch {
-			/* best-effort cleanup */
-		}
-	});
-
-	it("inserts a summary into the conversation_summaries table", async () => {
-		seedUser();
-		const { db } = openSeedDatabase();
-
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-1",
-				userId: "test-user",
-				title: "Test",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.run();
-
-		const { storeConversationSummary } = await import("./summarizer");
-
-		await storeConversationSummary("test-user", "conv-1", "Test summary text");
-
-		const row = readSummary("conv-1");
-		expect(row).toBeTruthy();
-		expect(row?.summary).toBe("Test summary text");
-		expect(row?.source).toBe("chatgpt-import");
-		expect(row?.userId).toBe("test-user");
-	});
-
-	it("upserts when summary already exists", async () => {
-		seedUser();
-		const { db } = openSeedDatabase();
-
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-2",
-				userId: "test-user",
-				title: "Test",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.run();
-
-		const { storeConversationSummary } = await import("./summarizer");
-
-		await storeConversationSummary("test-user", "conv-2", "First summary");
-		await storeConversationSummary("test-user", "conv-2", "Updated summary");
-
-		const row = readSummary("conv-2");
-		expect(row?.summary).toBe("Updated summary");
-		expect(row?.source).toBe("chatgpt-import");
 	});
 });
 
@@ -297,100 +186,5 @@ describe("summarizer — summarizeConversation", () => {
 		await expect(summarizeConversation(messages, "Error Chat")).rejects.toThrow(
 			"Model unavailable",
 		);
-	});
-});
-
-describe("summarizer — summarizeAndStoreConversation", () => {
-	beforeEach(() => {
-		dbPath = `/tmp/alfyai-summarizer-${randomUUID()}.db`;
-		process.env.DATABASE_PATH = dbPath;
-		vi.resetModules();
-		vi.clearAllMocks();
-
-		mockGenerateText.mockResolvedValue({
-			text: "Auto-generated summary text.",
-			reasoningText: undefined,
-			response: { body: {} },
-			output: undefined,
-		});
-	});
-
-	afterEach(() => {
-		try {
-			unlinkSync(dbPath);
-		} catch {
-			/* best-effort cleanup */
-		}
-	});
-
-	it("summarizes and stores in DB, leaving the judge's queue to the import", async () => {
-		seedUser();
-		const { db } = openSeedDatabase();
-
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-full",
-				userId: "test-user",
-				title: "Full Test",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.run();
-
-		const { summarizeAndStoreConversation } = await import("./summarizer");
-
-		const messages = [
-			{ role: "user", content: "Hello" },
-			{ role: "assistant", content: "Hi!" },
-		];
-
-		await summarizeAndStoreConversation(
-			"test-user",
-			"conv-full",
-			messages,
-			"Full Test",
-		);
-
-		const row = readSummary("conv-full");
-		expect(row?.summary).toBe("Auto-generated summary text.");
-		expect(row?.source).toBe("chatgpt-import");
-
-		// The import queued the conversation for the memory judge when it stored
-		// the messages; a second mark here would only queue it again.
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
-	});
-
-	it("does not throw when model call fails (graceful failure)", async () => {
-		mockGenerateText.mockRejectedValue(new Error("Model unavailable"));
-
-		seedUser();
-		const { db } = openSeedDatabase();
-
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-graceful",
-				userId: "test-user",
-				title: "Graceful",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.run();
-
-		const { summarizeAndStoreConversation } = await import("./summarizer");
-
-		const messages = [{ role: "user", content: "Hello" }];
-
-		await expect(
-			summarizeAndStoreConversation(
-				"test-user",
-				"conv-graceful",
-				messages,
-				"Graceful",
-			),
-		).resolves.toBeUndefined();
-
-		const row = readSummary("conv-graceful");
-		expect(row).toBeFalsy();
 	});
 });
