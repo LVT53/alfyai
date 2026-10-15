@@ -33,6 +33,9 @@ export {
 	drain,
 	inspectJobsForTests,
 	resetJobsForTests,
+	runInline,
+	startJobs,
+	stopJobs,
 	wake,
 } from "./scheduler";
 export type * from "./types";
