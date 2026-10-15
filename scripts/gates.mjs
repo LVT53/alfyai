@@ -561,17 +561,17 @@ function runCommand(step, name, outDir) {
 	});
 }
 
-async function main() {
-	const args = parseArgs(process.argv.slice(2));
-	mkdirSync(args.outDir, { recursive: true });
-	const steps = defineSteps(args);
-	const startedAt = Date.now();
-	const header = [
-		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
-		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
-	];
-	for (const line of header) console.log(line);
-
+/**
+ * Run the steps for `args` and return how each went, by step name: `{ skipped }`, `{ blocked }` (a
+ * step it waits for failed) or `{ code, ok, ms, startOffset, text }`. `run(step, name, outDir)` starts
+ * one step's command and says how it ended: `runCommand`, or in a test one that starts nothing. `log`
+ * prints the one-line note each step leaves when it is done.
+ */
+export async function runSteps(
+	args,
+	steps,
+	{ startedAt = Date.now(), run = runCommand, log = console.log } = {},
+) {
 	const results = {};
 	const memo = new Map();
 	const runStep = (name) => {
@@ -585,7 +585,7 @@ async function main() {
 					return { blocked: `not run: ${dependency} failed` };
 				}
 			}
-			const ran = await runCommand(step, name, args.outDir);
+			const ran = await run(step, name, args.outDir);
 			const verdict = step.parse(readFileSync(ran.logPath, "utf8"));
 			const result = {
 				code: ran.code,
@@ -594,7 +594,7 @@ async function main() {
 				startOffset: ran.startedAt - startedAt,
 				text: verdict.text,
 			};
-			console.log(
+			log(
 				`  ${name.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${minutes(result.ms)}`,
 			);
 			return result;
@@ -627,8 +627,14 @@ async function main() {
 		})(),
 	);
 	await Promise.all(lanes);
+	return results;
+}
 
-	const endedAt = Date.now();
+/**
+ * The summary screen for a run, and whether the run passed: the header, a line for each step, then
+ * the total and the verdict.
+ */
+export function summarise({ header, results, startedAt, endedAt, outDir }) {
 	const out = [...header];
 	const failed = [];
 	for (const name of STEP_ORDER) {
@@ -648,9 +654,32 @@ async function main() {
 	}
 	out.push(
 		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${failed.length === 0 ? "ALL GATES PASSED" : `FAILED: ${failed.join(", ")}`}`,
-		`logs: ${relative(ROOT, args.outDir) || args.outDir}`,
+		`logs: ${relative(ROOT, outDir) || outDir}`,
 	);
-	const summary = out.join("\n");
+	return { summary: out.join("\n"), passed: failed.length === 0 };
+}
+
+async function main() {
+	const args = parseArgs(process.argv.slice(2));
+	mkdirSync(args.outDir, { recursive: true });
+	const steps = defineSteps(args);
+	const startedAt = Date.now();
+	const header = [
+		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
+		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
+	];
+	for (const line of header) console.log(line);
+
+	const results = await runSteps(args, steps, { startedAt });
+
+	const endedAt = Date.now();
+	const { summary, passed } = summarise({
+		header,
+		results,
+		startedAt,
+		endedAt,
+		outDir: args.outDir,
+	});
 	console.log(`\n${summary}`);
 	writeFileSync(join(args.outDir, "summary.txt"), `${summary}\n`);
 	writeFileSync(
@@ -666,7 +695,7 @@ async function main() {
 			2,
 		),
 	);
-	process.exit(failed.length === 0 ? 0 : 1);
+	process.exit(passed ? 0 : 1);
 }
 
 // Only run when executed directly, so the unit test can import the readers.

@@ -13,6 +13,8 @@ import {
 	parseChunksLog,
 	parseVitestLog,
 	readPlaywrightReport,
+	runSteps,
+	summarise,
 	// @ts-expect-error — plain .mjs script, no type declarations
 } from "./gates.mjs";
 
@@ -662,5 +664,122 @@ describe("the committed Fallow baseline", () => {
 		const result = compareFallow(baselinePath, baselinePath);
 		expect(result.text).toContain("new_vs_baseline=0 gone_vs_baseline=0");
 		expect(result.ok).toBe(true);
+	});
+});
+
+// The gate runner without its processes. `runSteps` starts the steps and `summarise` writes the
+// screen; the test hands `runSteps` a stand-in for the command each step runs, so nothing really
+// starts and the same code that runs the gates is what is read here.
+describe("running the steps", () => {
+	const dirs: string[] = [];
+	afterEach(() => {
+		for (const dir of dirs.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	/**
+	 * One run of the steps as `defineSteps` makes them, for the arguments after `agent <out-dir>`.
+	 * `exits` and `logs` say how a step's stand-in command ends and what it wrote, by step name; a
+	 * step reads its log as fine unless `real` names it, so a test about which steps run does not
+	 * need a believable log for each of the eight.
+	 */
+	async function gate(
+		argv: string[],
+		{
+			exits = {},
+			logs = {},
+			real = [],
+		}: {
+			exits?: Record<string, number>;
+			logs?: Record<string, string>;
+			real?: string[];
+		} = {},
+	) {
+		const outDir = mkdtempSync(join(tmpdir(), "gates-run-"));
+		dirs.push(outDir);
+		const args = parseArgs(["agent", outDir, ...argv]);
+		const steps: Record<string, { parse: unknown }> = defineSteps(args);
+		for (const [name, step] of Object.entries(steps)) {
+			if (!real.includes(name)) {
+				step.parse = () => ({ ok: true, text: `${name} read fine` });
+			}
+		}
+		const started: string[] = [];
+		const run = async (_step: unknown, name: string, dir: string) => {
+			started.push(name);
+			const logPath = join(dir, `${name}.log`);
+			writeFileSync(logPath, logs[name] ?? "");
+			const now = Date.now();
+			return { code: exits[name] ?? 0, startedAt: now, endedAt: now, logPath };
+		};
+		const results = await runSteps(args, steps, { run, log: () => {} });
+		const { summary, passed }: { summary: string; passed: boolean } = summarise(
+			{
+				header: ["gates agent at the header"],
+				results,
+				startedAt: 0,
+				endedAt: 0,
+				outDir,
+			},
+		);
+		return { started, results, summary, lines: summary.split("\n"), passed };
+	}
+	const everyStep = Object.keys(defineSteps(options));
+	const needsTheBuild = ["check", "vitest", "chunks", "playwright"];
+
+	it("starts every step when none is skipped, those that need the build after it", async () => {
+		const { started, passed } = await gate([]);
+		expect([...started].sort()).toEqual([...everyStep].sort());
+		for (const name of needsTheBuild) {
+			expect(started.indexOf("build")).toBeLessThan(started.indexOf(name));
+		}
+		expect(passed).toBe(true);
+	});
+
+	it("starts no step it is told to skip, and the screen says it was skipped", async () => {
+		const { started, lines } = await gate(["--skip", "check,vitest"]);
+		expect(started).not.toContain("check");
+		expect(started).not.toContain("vitest");
+		expect(lines).toContain("check      skip");
+		expect(lines).toContain("vitest     skip");
+	});
+
+	it("does not start the steps that wait for a build that failed, and says they were not run", async () => {
+		const { started, lines, passed } = await gate([], { exits: { build: 1 } });
+		for (const name of needsTheBuild) {
+			expect(started).not.toContain(name);
+			expect(lines).toContain(`${name.padEnd(10)} FAIL not run: build failed`);
+		}
+		// Those that never needed the build still ran.
+		for (const name of ["biome", "migrations", "fallow"]) {
+			expect(started).toContain(name);
+		}
+		expect(passed).toBe(false);
+		expect(lines.find((line) => line.startsWith("total"))).toContain(
+			"FAILED: check, vitest, build, chunks, playwright",
+		);
+	});
+
+	it("writes the screen in the order of the steps: the header, a line for each, the verdict, the logs", async () => {
+		const { lines } = await gate([]);
+		expect(lines[0]).toBe("gates agent at the header");
+		const stepLines = lines.slice(1, 1 + everyStep.length);
+		expect(stepLines.map((line) => line.split(" ")[0])).toEqual([
+			"check",
+			"biome",
+			"migrations",
+			"vitest",
+			"build",
+			"chunks",
+			"fallow",
+			"playwright",
+		]);
+		expect(stepLines[0]).toMatch(
+			/^check {6}exit=0 ok {3}\s+0s \(\+0s\) :: check read fine$/,
+		);
+		expect(lines[1 + everyStep.length]).toMatch(
+			/^total 0s; load at end [\d. ]+; ALL GATES PASSED$/,
+		);
+		expect(lines.at(-1)).toMatch(/^logs: /);
 	});
 });
