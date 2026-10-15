@@ -138,6 +138,18 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		return conversation;
 	}
 
+	function countConversations(userId = "test-user") {
+		const sqlite = new Database(dbPath);
+		const db = drizzle(sqlite, { schema });
+		const rows = db
+			.select({ id: schema.conversations.id })
+			.from(schema.conversations)
+			.where(eq(schema.conversations.userId, userId))
+			.all();
+		sqlite.close();
+		return rows.length;
+	}
+
 	function readForks(sourceConversationId: string) {
 		const sqlite = new Database(dbPath);
 		const db = drizzle(sqlite, { schema });
@@ -229,6 +241,7 @@ export function createChatGptImportTestHarness(dbPath: string) {
 
 	return {
 		cleanup,
+		countConversations,
 		makeBranch,
 		makeParsedConversation,
 		readConversation,

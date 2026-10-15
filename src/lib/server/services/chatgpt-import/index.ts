@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import {
-	conversationForks,
-	importJobs,
-	messages,
-	projects,
-} from "$lib/server/db/schema";
+import { conversationForks, messages, projects } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
 import { generateImportEmbeddings } from "./embeddings";
-import { failImportRow } from "./import-row";
+import {
+	completeImportRow,
+	failImportRow,
+	startImportRow,
+	writeImportProgress,
+} from "./import-row";
 import {
 	type BranchInfo,
 	type ParseResult,
@@ -27,6 +27,8 @@ export interface ImportResult {
 	conversationIds: string[];
 	errors: { conversationTitle?: string; reason: string }[];
 }
+
+export { ChatGptImportAlreadyRunningError } from "./import-row";
 
 export class ChatGptImportProjectAccessError extends Error {
 	constructor(projectId: string) {
@@ -126,18 +128,8 @@ export async function importConversations(
 	options: ImportOptions = {},
 ): Promise<ImportResult> {
 	const projectId = await validateImportProjectId(userId, options.projectId);
-	const jobId = randomUUID();
-	const now = new Date();
-
-	await db.insert(importJobs).values({
-		id: jobId,
-		userId,
-		status: "processing",
-		totalConversations: 0,
-		processedConversations: 0,
-		createdAt: now,
-		updatedAt: now,
-	});
+	// Throws ChatGptImportAlreadyRunningError while the person's last import runs.
+	const jobId = startImportRow(userId);
 
 	try {
 		return await importIntoRow(jobId, userId, zipBuffer, projectId, options);
@@ -173,14 +165,10 @@ async function importIntoRow(
 		parseResult = await parseConversationsJson(zipBuffer);
 	} catch (err) {
 		console.error("[CHATGPT_IMPORT] Failed to parse ZIP:", err);
-		await db
-			.update(importJobs)
-			.set({
-				status: "failed",
-				errorLog: `Parse error: ${err instanceof Error ? err.message : "Unknown error"}`,
-				updatedAt: new Date(),
-			})
-			.where(eq(importJobs.id, jobId));
+		failImportRow(
+			jobId,
+			`Parse error: ${err instanceof Error ? err.message : "Unknown error"}`,
+		);
 		return {
 			jobId,
 			conversationIds,
@@ -201,24 +189,15 @@ async function importIntoRow(
 
 	const totalConversations = parseResult.conversations.length;
 
-	await db
-		.update(importJobs)
-		.set({ totalConversations, updatedAt: new Date() })
-		.where(eq(importJobs.id, jobId));
-
-	if (totalConversations === 0) {
-		await db
-			.update(importJobs)
-			.set({
-				status: "completed",
-				errorLog: errors.length > 0 ? JSON.stringify(errors) : null,
-				updatedAt: new Date(),
-			})
-			.where(eq(importJobs.id, jobId));
-		return { jobId, conversationIds, errors };
-	}
-
 	for (let i = 0; i < totalConversations; i++) {
+		// Before each conversation the row moves, which is how a running import
+		// is told from a stopped one, and an import whose row was settled
+		// meanwhile stops here, before it makes anything else.
+		writeImportProgress(jobId, {
+			totalConversations,
+			processedConversations: i,
+		});
+
 		const conv = parseResult.conversations[i];
 		try {
 			const conversation = await createConversation(
@@ -288,22 +267,13 @@ async function importIntoRow(
 			});
 		}
 
-		await db
-			.update(importJobs)
-			.set({ processedConversations: i + 1, updatedAt: new Date() })
-			.where(eq(importJobs.id, jobId));
-
 		options.onProgress?.(i + 1, totalConversations);
 	}
 
-	await db
-		.update(importJobs)
-		.set({
-			status: "completed",
-			errorLog: errors.length > 0 ? JSON.stringify(errors) : null,
-			updatedAt: new Date(),
-		})
-		.where(eq(importJobs.id, jobId));
+	completeImportRow(jobId, {
+		processedConversations: totalConversations,
+		errors,
+	});
 
 	return { jobId, conversationIds, errors };
 }
