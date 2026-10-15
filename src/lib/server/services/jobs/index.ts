@@ -39,6 +39,7 @@ export {
 	wake,
 } from "./scheduler";
 export type * from "./types";
+export { waitForVerdict } from "./wait";
 
 /**
  * Creates a job, or finds the one this request repeats, and wakes the kind.
