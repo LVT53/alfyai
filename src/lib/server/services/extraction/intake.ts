@@ -3,6 +3,7 @@
 // route decision is stamped and exactly one place where a dedupe hit
 // short-circuits.
 
+import { runInline } from "$lib/server/services/jobs";
 import {
 	getUploadFormatGate,
 	resolveEffectiveIntakeRoute,
@@ -17,9 +18,10 @@ import { getIntakeRoute } from "$lib/shared/file-types";
 import { getExtractionConfig } from "./config";
 import {
 	enqueueExtractionJob,
+	extractionJob,
 	getExtractionJobRow,
 	retryExtractionJob,
-} from "./job-ledger";
+} from "./extraction-job";
 import { mapExtractionJobRow } from "./read-model";
 import type {
 	DocumentExtractionIntakeRoute,
@@ -29,10 +31,6 @@ import {
 	EXTRACTION_PRIORITY_READBACK,
 	EXTRACTION_PRIORITY_UPLOAD,
 } from "./types";
-import {
-	runDirectTextExtractionInline,
-	wakeExtractionWorker,
-} from "./worker-runner";
 
 export interface StartUploadExtractionParams {
 	userId: string;
@@ -50,7 +48,7 @@ export interface StartUploadExtractionParams {
 /**
  * Whether a re-upload of the same bytes is the user asking to try again.
  *
- * `canceled` always is: they stopped it, and dropping the file back in is the
+ * `cancelled` always is: they stopped it, and dropping the file back in is the
  * plainest way of saying they changed their mind. A `failed` job depends
  * entirely on WHY it failed, and that question already has one answer —
  * `EXTRACTION_ERROR_POLICIES[code].userRetryable`, the same table the Retry
@@ -66,7 +64,7 @@ export interface StartUploadExtractionParams {
  * only writes one on a path that already decided not to offer the button.
  */
 function reuploadIsRetry(job: DocumentExtractionJobRow): boolean {
-	if (job.status === "canceled") return true;
+	if (job.status === "cancelled") return true;
 	if (job.status !== "failed") return false;
 	return (
 		isExtractionErrorCode(job.errorCode) &&
@@ -87,14 +85,12 @@ function reuploadIsRetry(job: DocumentExtractionJobRow): boolean {
 async function retryReusedUploadJob(params: {
 	job: DocumentExtractionJobRow;
 	userId: string;
-	now?: Date;
 }): Promise<DocumentExtractionJobRow> {
 	if (!reuploadIsRetry(params.job)) return params.job;
 
 	const retried = await retryExtractionJob({
 		userId: params.userId,
 		jobId: params.job.id,
-		now: params.now,
 	});
 	if (retried) return retried;
 
@@ -165,39 +161,29 @@ export async function startUploadExtraction(
 	// `unsupported_type`, and retrying the last of those immediately would be
 	// asking the worker to read a file the registry has already refused.
 	const job = reused
-		? await retryReusedUploadJob({
-				job: enqueued,
-				userId: params.userId,
-				now: params.now,
-			})
+		? await retryReusedUploadJob({ job: enqueued, userId: params.userId })
 		: enqueued;
 
-	// Every path wakes, including the two that return without leaving a job of
-	// their own queued. A wake is one claim query against an indexed status
-	// scan, and the thing it costs nothing to catch is the job some OTHER
-	// enqueue left behind a backoff gate: an idle box has no other reason to
-	// look. The inline direct-text settle used to return here without waking at
-	// all, which is why a `.txt` upload could not unstick anything.
+	// No wake here: the engine wakes its kind itself whenever a transition leaves
+	// claimable work (an enqueue, a retry), and a job waiting behind a backoff gate
+	// has the timer the drain that requeued it armed.
 	const dto = mapExtractionJobRow(job, config.maxAttempts);
-	if (dto.status !== "queued") {
-		wakeExtractionWorker();
-		return dto;
-	}
+	if (dto.status !== "queued") return dto;
 
 	if (job.intakeRoute === "direct-text") {
-		const budgetMs = params.inlineBudgetMs ?? config.inlineBudgetMs;
-		const settled = await runDirectTextExtractionInline({
-			jobId: job.id,
-			budgetMs,
+		// A `.txt` can answer `succeeded` inside its own request instead of making
+		// the person watch a spinner for work that takes 30 ms: it runs here, past
+		// the caps (local CPU, not a backend seat), for as long as the budget lasts,
+		// and goes on in the background if the budget runs out. Either way the job is
+		// read back and reported as it is.
+		await runInline(extractionJob, job.id, {
+			budgetMs: params.inlineBudgetMs ?? config.inlineBudgetMs,
 			signal: params.signal,
 		});
-		if (settled) {
-			wakeExtractionWorker();
-			return settled;
-		}
+		const row = await getExtractionJobRow(job.id);
+		if (row) return mapExtractionJobRow(row, config.maxAttempts);
 	}
 
-	wakeExtractionWorker();
 	return dto;
 }
 
@@ -248,10 +234,6 @@ export async function startGeneratedFileReadback(
 		now: params.now,
 	});
 
-	// Unconditional for the same reason as the upload path: a readback that
-	// dedupes into a terminal row is still the only thing that happened on this
-	// box for the last hour, and the queue may be holding a job behind a gate.
-	const dto = mapExtractionJobRow(job, config.maxAttempts);
-	wakeExtractionWorker();
-	return dto;
+	// The engine woke its kind if this left a job queued; nothing waits on it.
+	return mapExtractionJobRow(job, config.maxAttempts);
 }

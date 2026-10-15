@@ -1834,14 +1834,29 @@ export const fileProductionJobFiles = sqliteTable(
 // Deliberately NOT rows in `file_production_jobs`: that ledger's
 // `conversation_id` is NOT NULL and FK-bound to `conversations`, and a
 // Knowledge-page upload has no conversation at all. The claim/heartbeat/attempt
-// shape is copied; the table is not shared.
+// shape is the job engine's (services/jobs); the table is not shared.
 export const documentExtractionJobs = sqliteTable(
 	"document_extraction_jobs",
 	{
-		id: text("id").primaryKey(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
+		// The job engine's lifecycle columns (services/jobs/columns.ts): id, user,
+		// status, phase, priority, run_after, attempt_count, current_attempt_id,
+		// retryable, error_code, error_message, checkpoint, retry_state,
+		// cancel_requested_at, started_at, completed_at, created_at, updated_at.
+		// Extraction keeps the SQL names it already had for two of them: `runAfter`
+		// is `next_attempt_at` (the backoff gate: claim ignores queued rows whose
+		// gate is in the future) and `checkpoint` is `remote_handle_json` (the
+		// opaque resumable ExtractionHandle JSON, which survives attempts). The
+		// engine's `status` is queued | running | succeeded | failed | cancelled;
+		// the word an active job used to carry (uploading | parsing | downloading |
+		// indexing) is its `phase`, and the retry policy's outage counter is its
+		// `retryState` (it used to ride in `hints_json` under `$outage`).
+		...jobColumns({
+			userId: () => users.id,
+			sqlNames: {
+				runAfter: "next_attempt_at",
+				checkpoint: "remote_handle_json",
+			},
+		}),
 		// Nullable: Knowledge-page uploads have no conversation.
 		conversationId: text("conversation_id").references(() => conversations.id, {
 			onDelete: "set null",
@@ -1861,7 +1876,7 @@ export const documentExtractionJobs = sqliteTable(
 		// deleted ("Forget all results", or any delete of a normalized_document)
 		// would otherwise be a job pointing at nothing that can never be
 		// re-enqueued (the partial UNIQUE index makes a fresh enqueue reuse it)
-		// and never retried (retry is legal only from failed/canceled). The
+		// and never retried (retry is legal only from failed/cancelled). The
 		// result and the record of producing it are deleted together, which lets
 		// the read model fall back to a synthesised legacy status and lets Retry
 		// re-extract the source.
@@ -1873,46 +1888,26 @@ export const documentExtractionJobs = sqliteTable(
 		origin: text("origin").notNull().default("upload"),
 		/** Shared file-type registry verdict, stamped at enqueue: "direct-text" | "mineru". */
 		intakeRoute: text("intake_route").notNull(),
-		/** Ascending = sooner. 0 = user upload, 10 = generated-file readback. */
-		priority: integer("priority").notNull().default(0),
 		fileName: text("file_name").notNull(),
 		mimeType: text("mime_type"),
 		sizeBytes: integer("size_bytes").notNull().default(0),
-		/** queued | uploading | parsing | downloading | indexing | succeeded | failed | canceled */
-		status: text("status").notNull().default("queued"),
-		attemptCount: integer("attempt_count").notNull().default(0),
-		currentAttemptId: text("current_attempt_id"),
-		/** Opaque resumable handle (ExtractionHandle JSON). Survives attempts. */
-		remoteHandleJson: text("remote_handle_json"),
-		/** Opaque, caller-supplied extraction hints. The ledger never inspects them. */
+		/**
+		 * Opaque, caller-supplied extraction hints (a tier, the re-extract marker).
+		 * The engine never inspects them; the retry policy's own counter is
+		 * `retry_state_json`, not a key in here.
+		 */
 		hintsJson: text("hints_json"),
 		/**
 		 * Who/what asked for this row, beyond the normal upload/re-extract paths.
 		 * Null for everything the app itself creates. `scripts/backfill-extractions.ts`
 		 * is the one writer today, stamping `"backfill"` AFTER materializing/requeuing
-		 * through the normal service functions — never inspected by the ledger or the
-		 * worker, and deliberately NOT cleared by `completeExtractionAttempt` the way
-		 * `hints_json` is, because it has to survive success: it is what lets the
-		 * script tell its own rows apart from an organic upload or a user's own
-		 * re-extraction on a later, resumed run.
+		 * through the normal service functions — never inspected by the engine or the
+		 * handler, and deliberately NOT cleared on success the way `hints_json` is,
+		 * because it has to survive success: it is what lets the script tell its own
+		 * rows apart from an organic upload or a user's own re-extraction on a later,
+		 * resumed run.
 		 */
 		requestedBy: text("requested_by"),
-		retryable: integer("retryable", { mode: "boolean" })
-			.notNull()
-			.default(false),
-		errorCode: text("error_code"),
-		errorMessage: text("error_message"),
-		/** Backoff gate: claim ignores queued rows whose nextAttemptAt is in the future. */
-		nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
-		cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
-		startedAt: integer("started_at", { mode: "timestamp" }),
-		completedAt: integer("completed_at", { mode: "timestamp" }),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
 	},
 	(table) => ({
 		sourceArtifactUniqueIdx: uniqueIndex(
@@ -1925,11 +1920,18 @@ export const documentExtractionJobs = sqliteTable(
 		)
 			.on(table.chatGeneratedFileId)
 			.where(sql`${table.chatGeneratedFileId} IS NOT NULL`),
-		// Claim scan: status + priority + createdAt, in the claim's ORDER BY order.
+		// The previous release's claim scan. The engine reads the live partial
+		// index below instead; this one stays until a later cleanup, because a
+		// previous-release process keeps claiming for up to two minutes after
+		// `db:prepare`.
 		claimIdx: index("document_extraction_jobs_claim_idx").on(
 			table.status,
 			table.priority,
 			table.createdAt,
+		),
+		liveClaimIdx: liveClaimIndex(
+			"document_extraction_jobs_live_claim_idx",
+			table,
 		),
 		userStatusIdx: index("document_extraction_jobs_user_status_idx").on(
 			table.userId,
@@ -1942,56 +1944,25 @@ export const documentExtractionJobs = sqliteTable(
 	}),
 );
 
+// One row per claim of an extraction job: the fencing token every write a run
+// makes is checked against (services/jobs). The columns after the engine's own
+// are extraction's: they are written inside the `apply` of the handler's
+// `ctx.write` and `ctx.succeed`, and the claim inserts the attempt without them.
 export const documentExtractionJobAttempts = sqliteTable(
 	"document_extraction_job_attempts",
 	{
-		id: text("id").primaryKey(),
-		jobId: text("job_id")
-			.notNull()
-			.references(() => documentExtractionJobs.id, { onDelete: "cascade" }),
-		attemptNumber: integer("attempt_number").notNull(),
-		/** running | succeeded | failed | canceled */
-		status: text("status").notNull().default("running"),
-		/** Last observed job status while this attempt owned the job. */
-		phase: text("phase"),
-		/** DocumentExtractor.name, e.g. "direct-text" | "mineru3". */
+		...jobAttemptColumns({ jobId: () => documentExtractionJobs.id }),
+		/** DocumentExtractor.name, e.g. "direct-text" | "mineru4". */
 		extractor: text("extractor"),
 		/** true when this attempt resumed a handle instead of submitting fresh. */
 		resumed: integer("resumed", { mode: "boolean" }).notNull().default(false),
+		/** Written by the previous release; the job's checkpoint holds the handle now. */
 		remoteHandleJson: text("remote_handle_json"),
-		workerId: text("worker_id"),
-		claimedAt: integer("claimed_at", { mode: "timestamp" }),
-		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
-		startedAt: integer("started_at", { mode: "timestamp" }),
-		finishedAt: integer("finished_at", { mode: "timestamp" }),
-		errorCode: text("error_code"),
-		errorMessage: text("error_message"),
-		retryable: integer("retryable", { mode: "boolean" })
-			.notNull()
-			.default(false),
 		textLength: integer("text_length"),
 		pageCount: integer("page_count"),
-		diagnosticsJson: text("diagnostics_json"),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
 	},
 	(table) => ({
-		jobNumberUniqueIdx: uniqueIndex(
-			"document_extraction_job_attempts_job_number_unique_idx",
-		).on(table.jobId, table.attemptNumber),
-		jobIdx: index("document_extraction_job_attempts_job_idx").on(
-			table.jobId,
-			table.createdAt,
-		),
-		workerIdx: index("document_extraction_job_attempts_worker_idx").on(
-			table.workerId,
-			table.status,
-			table.heartbeatAt,
-		),
+		...jobAttemptIndexes("document_extraction_job_attempts", table),
 	}),
 );
 

@@ -1113,7 +1113,7 @@ describe("full account erasure leaves no person-linked survivor", () => {
 			sqlite
 				.prepare(
 					`UPDATE document_extraction_jobs
-					 SET status = 'parsing', current_attempt_id = ?
+					 SET status = 'running', phase = 'parsing', current_attempt_id = ?
 					 WHERE user_id = ?`,
 				)
 				.run(`${owner}-extraction-attempt`, owner);
@@ -1137,11 +1137,11 @@ describe("full account erasure leaves no person-linked survivor", () => {
 			.from(schema.documentExtractionJobs);
 		const mine = jobs.find((row) => row.userId === "quiesce-me");
 		const theirs = jobs.find((row) => row.userId === "keep-me");
-		expect(mine?.status).toBe("canceled");
+		expect(mine?.status).toBe("cancelled");
 		expect(mine?.cancelRequestedAt).not.toBeNull();
-		// The worker is told, not just overwritten: it polls `cancel_requested_at`
-		// and aborts rather than finishing its write.
-		expect(theirs?.status).toBe("parsing");
+		// Through the job engine's `cancelAll`, so a run this process has going is
+		// told at once (its signal aborts) instead of finishing its write.
+		expect(theirs?.status).toBe("running");
 
 		const attempts = await appDb
 			.select({
@@ -1152,7 +1152,7 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(
 			attempts.find((row) => row.id === "quiesce-me-extraction-attempt")
 				?.status,
-		).toBe("canceled");
+		).toBe("cancelled");
 		expect(
 			attempts.find((row) => row.id === "keep-me-extraction-attempt")?.status,
 		).toBe("running");

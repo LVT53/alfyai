@@ -35,6 +35,12 @@ vi.mock("drizzle-orm", () => ({
 	sql: vi.fn(),
 }));
 
+// The extraction module defines its job kind when it is imported, which reads the
+// real schema; this test fakes the schema wholesale and reads no extraction jobs.
+vi.mock("$lib/server/services/extraction", () => ({
+	getExtractionJobsForArtifacts: vi.fn(async () => []),
+}));
+
 vi.mock("../../attachment-trace", () => ({
 	hasMeaningfulAttachmentText: vi.fn(),
 	logAttachmentTrace: vi.fn(),

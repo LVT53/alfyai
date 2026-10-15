@@ -116,8 +116,12 @@ live service over with a single atomic symlink flip, then restarts the systemd u
 `/api/health` (rolling back on failure). Every change deploys to **staging** first
 (`scripts/deploy-dev.sh`) and is verified there before production. For host-managed `adapter-node`
 runs, `npm start` runs `npm run check:migrations && npm run db:prepare && node build`, applying pending
-Drizzle migrations before serving. Full runbook, release layout, staging flow, and operational caveats
-are in [deploy/README.md](deploy/README.md).
+Drizzle migrations before serving. `src/lib/server/db/compat.ts` also re-applies, at every start and
+before the job engine starts, the idempotent rewrite of the document-extraction ledger's status words
+that migration `1777140000115` made (the previous release keeps serving for up to two minutes after
+`db:prepare` and writes the old words); it goes in the cleanup after production has run that release.
+Full runbook, release layout, staging flow, and operational caveats are in
+[deploy/README.md](deploy/README.md).
 
 ## Architecture
 

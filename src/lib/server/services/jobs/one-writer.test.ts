@@ -352,16 +352,14 @@ function scanTree(): Map<string, Violation[]> {
 const ALLOWED: Record<string, string> = {
 	"src/lib/server/services/atlas/research-job.ts":
 		"Atlas's onTransition clears the pre-engine fence column worker_id and sets heartbeat_at to the transition's time on every transition, so a pre-engine Atlas process can never write but its boot recovery still finds a running row; it goes with the column cleanup.",
-	"src/lib/server/services/extraction/job-ledger.ts":
-		"Extraction's own ledger: it moves onto the engine in slice S3 and what is left is domain transitions only.",
-	"src/lib/server/services/extraction/reextract.ts":
-		"Re-extract requeues a settled job with SQL of its own: it becomes a `reopen` in slice S3.",
 	"src/lib/server/services/file-production/job-ledger.ts":
 		"File production's own ledger: it moves onto the engine in slice S4 and what is left is domain transitions only.",
 	"src/lib/server/services/file-production/read-model.ts":
 		"The legacy backfill inserts succeeded rows for chat files that predate the ledger: it becomes a born-succeeded `enqueue` in slice S4, or stays here by name if the backfill must keep its files' timestamps.",
 	"src/lib/server/services/account-lifecycle/index.ts":
-		"Account erasure's quiesce cancels extraction and file-production jobs with raw updates of its own: it becomes `cancelAll` in slices S3 and S4.",
+		"Account erasure's quiesce cancels file-production jobs with a raw update of its own: it becomes `cancelAll` in slice S4 (extraction's already is).",
+	"src/lib/server/db/compat.ts":
+		"The extraction vocabulary shim: re-applies migration 1777140000115's idempotent rewrite of the old status words once at startup, for rows the previous release wrote in the deploy window. It goes with the shim, in the cleanup after production has run this release.",
 	"src/lib/server/services/conversation-forks.ts":
 		"Copies settled file-production job and job-file rows into a fork: a snapshot, not a transition. This one stays.",
 	"scripts/seed-campaign-2-2.ts":

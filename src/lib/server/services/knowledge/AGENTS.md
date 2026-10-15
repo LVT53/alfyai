@@ -88,7 +88,7 @@ Do:
   - [`src/lib/server/services/working-set.ts`](../working-set.ts)
   - [`src/lib/server/services/workspace-search.ts`](../workspace-search.ts)
   - [`src/lib/server/services/document-resolution.ts`](../document-resolution.ts)
-  - [`src/lib/server/services/extraction/`](../extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
+  - [`src/lib/server/services/extraction/`](../extraction/) — durable document extraction: the job kind (`extraction-job.ts`) and its handler (`extraction-runner.ts`) run on the job engine in `services/jobs/`, which owns the lifecycle, the claim, the lease and the take-back; replaced the deleted `document-extraction.ts`
   - [`src/lib/shared/file-types/`](../../../shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
   - [`src/lib/server/services/evidence-family.ts`](../evidence-family.ts)
   - [`src/lib/server/services/knowledge-labels.ts`](../knowledge-labels.ts)

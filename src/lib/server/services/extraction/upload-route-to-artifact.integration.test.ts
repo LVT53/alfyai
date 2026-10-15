@@ -29,6 +29,8 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
+import { runExtractionOnce } from "./testing/run-once";
+import { resetSeams, seams } from "./testing/runner-seams";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -41,6 +43,7 @@ let cwdDir: string;
 let originalCwd: string;
 
 beforeEach(async () => {
+	resetSeams();
 	fixture = createLedgerFixture("upload-e2e");
 	fixture.seedUser(USER_ID);
 
@@ -56,6 +59,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	try {
+		const { resetJobsForTests } = await import("$lib/server/services/jobs");
+		resetJobsForTests();
+	} catch {
+		// The engine was never imported.
+	}
 	process.chdir(originalCwd);
 	fixture.cleanup();
 	await rm(cwdDir, { recursive: true, force: true });
@@ -181,7 +190,6 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		expect(payload.normalizedArtifact).toBeNull();
 		expect(payload.promptReady).toBe(false);
 
-		const worker = await import("./worker-runner");
 		const extractor = createFakeExtractor({
 			steps: [
 				{ kind: "succeed", text: "Scanned page one of the quarterly filing." },
@@ -190,8 +198,7 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 
 		// No `persistResult`: the real `createNormalizedArtifactFromExtraction`
 		// runs, which is the seam every other test replaces.
-		const result = await worker.executeNextExtractionJob({
-			workerId: `worker-${randomUUID()}`,
+		const result = await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () => extractor,
 		});
 
@@ -233,8 +240,7 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 			extraction: { id: string };
 		};
 
-		const worker = await import("./worker-runner");
-		const ledger = await import("./job-ledger");
+		const ledger = await import("./extraction-job");
 
 		// Attempt 1 gets as far as persisting the artifact and is then torn out
 		// from under itself — the shape of a crash during `indexing`, and of a
@@ -242,14 +248,12 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		const first = createFakeExtractor({
 			steps: [{ kind: "succeed", text: "First read." }],
 		});
-		await worker.executeNextExtractionJob({
-			workerId: "worker-a",
+		await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () => first,
 			persistResult: async (params) => {
-				const { createNormalizedArtifactFromExtraction } = await import(
-					"./persist"
-				);
-				const artifact = await createNormalizedArtifactFromExtraction(params);
+				const artifact = await (
+					seams.realPersist as NonNullable<typeof seams.realPersist>
+				)(params as never);
 				// The claim disappears before the completion write lands.
 				await ledger.cancelExtractionJob({
 					userId: USER_ID,
@@ -271,8 +275,7 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		const second = createFakeExtractor({
 			steps: [{ kind: "succeed", text: "Second read." }],
 		});
-		await worker.executeNextExtractionJob({
-			workerId: "worker-b",
+		await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () => second,
 		});
 
@@ -314,9 +317,7 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 			extraction: { id: string };
 		};
 
-		const worker = await import("./worker-runner");
-		await worker.executeNextExtractionJob({
-			workerId: "worker-before-delete",
+		await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({
 					steps: [{ kind: "succeed", text: "First read." }],
@@ -388,8 +389,7 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		} as never)) as Response;
 		expect(retryResponse.status).toBe(200);
 
-		await worker.executeNextExtractionJob({
-			workerId: "worker-after-delete",
+		await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({
 					steps: [{ kind: "succeed", text: "Second read." }],
@@ -473,9 +473,7 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 	}
 
 	async function runWorker(step: FakeExtractorStep) {
-		const worker = await import("./worker-runner");
-		return await worker.executeNextExtractionJob({
-			workerId: `worker-${randomUUID()}`,
+		return await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () => createFakeExtractor({ steps: [step] }),
 		});
 	}
@@ -580,12 +578,12 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 			name: "stopped.pdf",
 			logPrefix: "Chunked",
 		});
-		const ledger = await import("./job-ledger");
+		const ledger = await import("./extraction-job");
 		await ledger.cancelExtractionJob({
 			userId: USER_ID,
 			jobId: first.extraction.id,
 		});
-		expect(jobRowsFor(first.artifact.id)[0]?.status).toBe("canceled");
+		expect(jobRowsFor(first.artifact.id)[0]?.status).toBe("cancelled");
 
 		const second = await uploadViaStoredFile({
 			name: "stopped.pdf",
@@ -643,7 +641,7 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 		// And the same while an attempt is genuinely mid-flight.
 		fixture.db
 			.update(schema.documentExtractionJobs)
-			.set({ status: "parsing", startedAt: new Date() })
+			.set({ status: "running", phase: "parsing", startedAt: new Date() })
 			.where(eq(schema.documentExtractionJobs.id, first.extraction.id))
 			.run();
 

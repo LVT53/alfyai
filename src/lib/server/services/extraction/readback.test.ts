@@ -16,6 +16,8 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
+import { runExtractionOnce } from "./testing/run-once";
+import { resetSeams } from "./testing/runner-seams";
 
 const queueRefresh = vi.hoisted(() => vi.fn());
 vi.mock("$lib/server/services/semantic-embedding-refresh", () => ({
@@ -23,12 +25,12 @@ vi.mock("$lib/server/services/semantic-embedding-refresh", () => ({
 }));
 
 type Readback = typeof import("./readback");
-type Worker = typeof import("./worker-runner");
-type Ledger = typeof import("./job-ledger");
+type Jobs = typeof import("$lib/server/services/jobs");
+type Ledger = typeof import("./extraction-job");
 
 let fixture: LedgerFixture;
 let readback: Readback;
-let worker: Worker;
+let jobs: Jobs;
 let ledger: Ledger;
 let storageDir: string;
 
@@ -127,13 +129,20 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	queueRefresh.mockReset();
-	worker = await import("./worker-runner");
-	ledger = await import("./job-ledger");
-	worker.resetExtractionWorkerForTests();
+	resetSeams();
+	jobs = await import("$lib/server/services/jobs");
+	ledger = await import("./extraction-job");
 	readback = await import("./readback");
 });
 
 afterEach(async () => {
+	jobs.resetJobsForTests();
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed early.
+	}
 	fixture.cleanup();
 	await rm(storageDir, { recursive: true, force: true });
 	vi.restoreAllMocks();
@@ -282,8 +291,7 @@ describe("the registered sink", () => {
 		await seedStoredChatFile();
 		const jobId = await enqueueReadback();
 
-		const result = await worker.executeNextExtractionJob({
-			workerId: "w1",
+		const result = await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({
 					steps: [{ kind: "succeed", text: "Extracted PDF body." }],
@@ -305,8 +313,7 @@ describe("the registered sink", () => {
 		readback.ensureGeneratedFileReadbackSinkRegistered();
 		readback.ensureGeneratedFileReadbackSinkRegistered();
 
-		const result = await worker.executeNextExtractionJob({
-			workerId: "w1",
+		const result = await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({ steps: [{ kind: "succeed", text: "once" }] }),
 		});
@@ -330,8 +337,7 @@ describe("the registered sink", () => {
 
 		expect(await ledger.getExtractionJobRow(jobId)).toBeNull();
 		await expect(
-			worker.executeNextExtractionJob({
-				workerId: "w1",
+			runExtractionOnce(fixture.sqlite, {
 				resolveExtractor: () =>
 					createFakeExtractor({ steps: [{ kind: "succeed" }] }),
 			}),
@@ -346,8 +352,7 @@ describe("the registered sink", () => {
 		const jobId = await enqueueReadback();
 		await rm(join(storageDir, "report.pdf"), { force: true });
 
-		const result = await worker.executeNextExtractionJob({
-			workerId: "w1",
+		const result = await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({
 					steps: [{ kind: "throw", code: "unsupported_type" }],
@@ -371,8 +376,7 @@ describe("the registered sink", () => {
 		await seedStoredChatFile();
 		const jobId = await enqueueReadback();
 
-		await worker.executeNextExtractionJob({
-			workerId: "w1",
+		await runExtractionOnce(fixture.sqlite, {
 			resolveExtractor: () =>
 				createFakeExtractor({ steps: [{ kind: "succeed", text: "body" }] }),
 		});

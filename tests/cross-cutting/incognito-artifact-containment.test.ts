@@ -2005,9 +2005,10 @@ const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 		"embedding backfill; what the embeddings are then USED for is scoped at selection time",
 	"services/task-state/artifacts.ts":
 		"chunk and full-content reads BY ARTIFACT ID; the ids come from the scoped candidate pool, which is why this module needs no incognito term of its own",
-	"services/extraction/job-ledger.ts": "legacy job hydration, by artifact id",
+	"services/extraction/extraction-job.ts":
+		"legacy job hydration, by artifact id",
 	"services/extraction/read-model.ts": "legacy DTO synthesis, by artifact id",
-	"services/extraction/worker-runner.ts":
+	"services/extraction/extraction-runner.ts":
 		"resolves the source of one extraction job, by id",
 	"services/file-production/image-loader.ts":
 		"loads one image artifact by id for the renderer",
@@ -2235,9 +2236,9 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 			"services/memory-maintenance.ts",
 			"services/semantic-embedding-refresh.ts",
 			"services/task-state/artifacts.ts",
-			"services/extraction/job-ledger.ts",
+			"services/extraction/extraction-job.ts",
 			"services/extraction/read-model.ts",
-			"services/extraction/worker-runner.ts",
+			"services/extraction/extraction-runner.ts",
 			"services/file-production/image-loader.ts",
 			"services/knowledge/store/attachments.ts",
 		];

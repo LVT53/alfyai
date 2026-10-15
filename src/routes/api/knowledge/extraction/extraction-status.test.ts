@@ -12,7 +12,7 @@ import {
 } from "$lib/server/services/extraction/testing/ledger-fixtures";
 
 type StatusRoute = typeof import("./+server");
-type Ledger = typeof import("$lib/server/services/extraction/job-ledger");
+type Ledger = typeof import("$lib/server/services/extraction/extraction-job");
 
 let fixture: LedgerFixture;
 let route: StatusRoute;
@@ -40,7 +40,7 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	route = await import("./+server");
-	ledger = await import("$lib/server/services/extraction/job-ledger");
+	ledger = await import("$lib/server/services/extraction/extraction-job");
 });
 
 afterEach(() => {

@@ -7,9 +7,9 @@
  * Reuses the exact "Re-extract at a higher tier" path a user gets from the
  * Knowledge list row action — `materializeLegacyExtractionJob` +
  * `requeueExtractionJobForReextraction` in
- * `src/lib/server/services/extraction/{job-ledger,reextract}.ts` — so a
+ * `src/lib/server/services/extraction/{extraction-job,reextract}.ts` — so a
  * document this script touches goes through the identical replace path: same
- * CAS-guarded ledger transaction, same worker, same
+ * fenced job-engine transition, same handler, same
  * `createNormalizedArtifactFromExtraction` (persist.ts) that rewrites the
  * normalized artifact IN PLACE (keeping its id) and leaves the SOURCE
  * document's id/title/created_at/conversation links untouched. Old chunks and
@@ -70,11 +70,11 @@
  *
  * ── Fairness ────────────────────────────────────────────────────────────
  * This script enqueues every eligible document up front, in one pass, rather
- * than throttling in rounds. `claimNextExtractionJob`
- * (src/lib/server/services/extraction/job-ledger.ts, the `headIds` query) already
+ * than throttling in rounds. The engine's `claimNext`
+ * (src/lib/server/services/jobs/ledger.ts, the `headIds` query) already
  * claims "one row PER USER — that user's oldest claimable job" before it ever
  * looks at priority or age, so flooding the queue with one user's whole
- * library cannot starve any other user's claim; the worker's own fairness
+ * library cannot starve any other user's claim; the engine's own fairness
  * absorbs it. This script bypasses the five-in-flight-per-user re-extraction
  * cap (`MAX_ACTIVE_REEXTRACTIONS_PER_USER`) via
  * `requeueExtractionJobForReextraction`'s own `maxActiveReextractions`
@@ -376,7 +376,7 @@ async function loadDeps() {
 		fileTypes,
 		mineruConfig,
 		capabilities,
-		jobLedger,
+		extractionJob,
 		reextract,
 		storageContainment,
 	] = await Promise.all([
@@ -385,7 +385,7 @@ async function loadDeps() {
 		import("$lib/shared/file-types"),
 		import("$lib/server/services/mineru/config"),
 		import("$lib/server/services/mineru/capabilities"),
-		import("$lib/server/services/extraction/job-ledger"),
+		import("$lib/server/services/extraction/extraction-job"),
 		import("$lib/server/services/extraction/reextract"),
 		import("$lib/server/storage-containment"),
 	]);
@@ -398,7 +398,7 @@ async function loadDeps() {
 		fileTypes,
 		mineruConfig,
 		capabilities,
-		jobLedger,
+		extractionJob,
 		reextract,
 		storageContainment,
 	};
@@ -637,10 +637,11 @@ export async function buildBackfillPlan(
 			route === "mineru" ? (tierHint === "flash" ? "flash" : cliTier) : null;
 		const tierForced = tierHint === "flash";
 
-		// In flight: never touch it.
+		// In flight: never touch it. The engine stores five words; the three that
+		// end a job are the only ones that are not in flight.
 		if (
 			jobRow &&
-			!["succeeded", "failed", "canceled"].includes(jobRow.status)
+			!["succeeded", "failed", "cancelled"].includes(jobRow.status)
 		) {
 			items.push({
 				doc,
@@ -1100,7 +1101,7 @@ export async function applyBackfillPlan(
 			let jobId = item.jobId;
 			if (item.legacy || !jobId) {
 				const materialized =
-					await deps.jobLedger.materializeLegacyExtractionJob({
+					await deps.extractionJob.materializeLegacyExtractionJob({
 						userId: item.doc.userId,
 						sourceArtifactId: item.doc.artifactId,
 						fileName: item.doc.fileName,
@@ -1188,19 +1189,21 @@ export async function applyBackfillPlan(
 		}
 	}
 
-	// Deliberately NOT waking the worker from here.
+	// Deliberately NOT starting, waking or draining the job engine from here.
 	//
-	// That function is in-process: it starts a drain in whatever process calls
-	// it. It cannot reach the SERVER's worker, which is the one that has to run
-	// this queue — and calling it here turned this short-lived CLI into a second
+	// Those are in-process: they start a drain in whatever process calls them.
+	// They cannot reach the SERVER's worker, which is the one that has to run
+	// this queue — and a drain here would turn this short-lived CLI into a second
 	// extraction worker that claimed jobs against the live database and was then
 	// killed by `process.exit` a few milliseconds later, mid-attempt, leaving
-	// rows in `uploading`/`parsing` for the server's stale sweep to reclaim.
-	// Nothing is lost that way, but a MinerU backend that serves one job at a
-	// time gets a competing claimant for no reason.
+	// rows `running` for the server's stale sweep to reclaim. Nothing is lost
+	// that way, but a MinerU backend that serves one job at a time gets a
+	// competing claimant for no reason. (The engine's `wake`, which the requeue
+	// above calls, is inert in a process that never called `startJobs`, which is
+	// this one: it counts the request and starts nothing.)
 	//
 	// Nothing needs waking: the server's scheduler idle-ticks every 5–60 s
-	// (`IDLE_TICK_MIN_MS`/`IDLE_TICK_MAX_MS` in worker-runner.ts) and claims
+	// (`IDLE_TICK_MIN_MS`/`IDLE_TICK_MAX_MS` in jobs/scheduler.ts) and claims
 	// whatever is queued, so the backfill starts draining within a minute.
 
 	return { enqueued, failed, snapshotPath };
@@ -1521,7 +1524,7 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 	for (const [reason, count] of byReason) console.log(`  ${reason}  ${count}`);
 
 	// `in_flight` broken out by the status it is in flight AT. A handful of
-	// `queued` rows is an ordinary busy queue; a pile of `parsing` rows is a
+	// `queued` rows is an ordinary busy queue; a pile of `running` rows is a
 	// worker that died, and those are skipped by every run of this script until
 	// the server's stale sweep reclaims them — which an operator watching a
 	// backfill stall needs to be told, not left to infer from one number.

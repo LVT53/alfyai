@@ -10,7 +10,6 @@ vi.mock("./store", () => ({
 
 vi.mock("$lib/server/services/extraction", () => ({
 	getExtractionConfig: vi.fn(() => ({ inlineBudgetMs: 1500 })),
-	getExtractionJobForArtifact: vi.fn(),
 	startUploadExtraction: vi.fn(),
 	waitForExtractionJobVerdict: vi.fn(),
 }));
@@ -63,7 +62,6 @@ import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	getExtractionConfig,
-	getExtractionJobForArtifact,
 	startUploadExtraction,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
@@ -111,8 +109,6 @@ const mockStartUploadExtraction = startUploadExtraction as ReturnType<
 >;
 const mockWaitForExtractionJobVerdict =
 	waitForExtractionJobVerdict as ReturnType<typeof vi.fn>;
-const mockGetExtractionJobForArtifact =
-	getExtractionJobForArtifact as ReturnType<typeof vi.fn>;
 const mockGetExtractionConfig = getExtractionConfig as ReturnType<typeof vi.fn>;
 
 const now = Date.parse("2026-05-31T10:00:00Z");
@@ -591,8 +587,14 @@ describe("Knowledge Upload Intake", () => {
 			waitForExtraction: true,
 		});
 
+		// The wait is for the job by id, read for the uploader, for the budget the
+		// caller gave.
 		expect(mockWaitForExtractionJobVerdict).toHaveBeenCalledWith(
-			expect.objectContaining({ timeoutMs: 1500 }),
+			expect.objectContaining({
+				jobId: "job-1",
+				userId: "user-1",
+				timeoutMs: 1500,
+			}),
 		);
 		expect(response.extraction.status).toBe("succeeded");
 		expect(response.promptReady).toBe(true);
@@ -654,7 +656,6 @@ describe("Knowledge Upload Intake", () => {
 			promptReady: false,
 		});
 		expect(response.extraction.status).toBe("parsing");
-		expect(mockGetExtractionJobForArtifact).not.toHaveBeenCalled();
 	});
 
 	it("rejects missing conversations before artifact insert or link writes", async () => {

@@ -115,6 +115,12 @@ vi.mock("drizzle-orm/sqlite-core", () => ({
 	),
 }));
 
+// The extraction module defines its job kind when it is imported, which reads the
+// real schema; this test fakes the schema wholesale and reads no extraction jobs.
+vi.mock("$lib/server/services/extraction", () => ({
+	getExtractionJobsForArtifacts: vi.fn(async () => []),
+}));
+
 // `mapArtifactFamilyRow` is the REAL implementation (imported, not mocked):
 // it is a pure row → KnowledgeDocumentItem mapper with no DB calls of its
 // own, so exercising it for real is what proves the artifact-family

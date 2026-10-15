@@ -4,7 +4,6 @@ import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	getExtractionConfig,
-	getExtractionJobForArtifact,
 	startUploadExtraction,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
@@ -187,8 +186,6 @@ export async function validateKnowledgeUploadProject(params: {
 	return projectId;
 }
 
-const EXTRACTION_WAIT_POLL_INTERVAL_MS = 100;
-
 /**
  * Registers the upload with the extraction ledger.
  *
@@ -231,7 +228,6 @@ async function registerUploadExtraction(params: {
  */
 async function awaitExtractionVerdict(params: {
 	userId: string;
-	artifactId: string;
 	extraction: DocumentExtractionJobDTO;
 	waitMs: number;
 	signal?: AbortSignal;
@@ -244,13 +240,9 @@ async function awaitExtractionVerdict(params: {
 	}
 
 	const verdict = await waitForExtractionJobVerdict({
-		getJob: () =>
-			getExtractionJobForArtifact({
-				userId: params.userId,
-				artifactId: params.artifactId,
-			}),
+		jobId: params.extraction.id,
+		userId: params.userId,
 		timeoutMs: params.waitMs,
-		pollIntervalMs: EXTRACTION_WAIT_POLL_INTERVAL_MS,
 		signal: params.signal,
 	});
 
@@ -435,7 +427,6 @@ async function finishKnowledgeUpload(params: {
 	});
 	const extraction = await awaitExtractionVerdict({
 		userId: params.userId,
-		artifactId: params.artifact.id,
 		extraction: enqueued,
 		waitMs: params.waitForExtractionMs ?? 0,
 		signal: params.signal,

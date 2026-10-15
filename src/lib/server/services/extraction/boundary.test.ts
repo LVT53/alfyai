@@ -1,10 +1,11 @@
 // Import-graph guards.
 //
-// The ledger and its read model are imported from request paths that only
-// touch rows — a poll endpoint, a library page load, the send gate. If either
+// The kind's definition and its read model are imported from request paths that
+// only touch rows — a poll endpoint, a library page load, the send gate. If either
 // ever reached an extractor, those requests would drag `node:fs` and a backend
 // HTTP client into their bundle, and every one of them would pay for a
-// dependency it never calls. Same idea as
+// dependency it never calls. The handler is loaded by the job engine on the first
+// claim (a dynamic `import()` in the definition), never statically. Same idea as
 // `file-production/obsolete-surfaces.test.ts`.
 
 import { readFileSync } from "node:fs";
@@ -36,13 +37,13 @@ const FORBIDDEN = [
 	"document-extraction",
 	"chat-files",
 	"./extractors",
-	"./worker-runner",
+	"./extraction-runner",
 	"./intake",
 ];
 
 describe("extraction module boundaries", () => {
 	it.each([
-		"lib/server/services/extraction/job-ledger.ts",
+		"lib/server/services/extraction/extraction-job.ts",
 		"lib/server/services/extraction/read-model.ts",
 	])("keeps %s off every extractor and worker module", (relative) => {
 		const specifiers = staticImportSpecifiers(read(relative));
@@ -69,13 +70,31 @@ describe("extraction module boundaries", () => {
 		).toBe(false);
 	});
 
-	it("loads the worker and the intake lazily from the facade", () => {
+	it("loads the handler and the intake lazily", () => {
 		const facade = read("lib/server/services/extraction/index.ts");
 		const specifiers = staticImportSpecifiers(facade);
-		expect(specifiers).not.toContain("./worker-runner");
+		expect(specifiers).not.toContain("./extraction-runner");
 		expect(specifiers).not.toContain("./intake");
-		expect(facade).toContain('import("./worker-runner")');
 		expect(facade).toContain('import("./intake")');
+		// The job engine loads the handler on the first claim: the definition names
+		// it with a dynamic import, so a route that only reads, retries or cancels
+		// never imports an extractor.
+		const definition = read("lib/server/services/extraction/extraction-job.ts");
+		expect(staticImportSpecifiers(definition)).not.toContain(
+			"./extraction-runner",
+		);
+		expect(definition).toContain('import("./extraction-runner")');
+	});
+
+	it("keeps registering the readback sink free of the handler", () => {
+		// `readback.ts` is on the boot import path (chat-files imports it) and
+		// registers its sink when it is imported: the slot is a module of its own so
+		// that costs nothing.
+		const specifiers = staticImportSpecifiers(
+			read("lib/server/services/extraction/readback.ts"),
+		);
+		expect(specifiers).toContain("./readback-sink");
+		expect(specifiers).not.toContain("./extraction-runner");
 	});
 
 	it("keeps the seam and the shared status off the MinerU protocol", () => {
@@ -85,7 +104,7 @@ describe("extraction module boundaries", () => {
 		// furthest — `extraction-status.ts` reaches Svelte components.
 		for (const relative of [
 			"lib/server/services/extraction/contracts.ts",
-			"lib/server/services/extraction/job-ledger.ts",
+			"lib/server/services/extraction/extraction-job.ts",
 			"lib/server/services/extraction/read-model.ts",
 			"lib/shared/extraction-status.ts",
 		]) {

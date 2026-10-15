@@ -23,7 +23,6 @@ import {
 	getExtractionJobById,
 	getExtractionJobForArtifact,
 	materializeLegacyExtractionJob,
-	wakeExtractionWorker,
 } from "$lib/server/services/extraction";
 import {
 	MAX_ACTIVE_REEXTRACTIONS_PER_USER,
@@ -293,8 +292,7 @@ export const POST: RequestHandler = async (event) => {
 		return notFound();
 	}
 
-	wakeExtractionWorker();
-
+	// The engine wakes its kind itself: nothing to call from here.
 	const dto = await getExtractionJobById({ userId: user.id, jobId });
 	if (!dto) return notFound();
 

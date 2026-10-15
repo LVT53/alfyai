@@ -1,4 +1,4 @@
-// What the worker says out loud.
+// What the extraction worker says out loud.
 //
 // The live incident produced ZERO `[EXTRACTION]` lines across 23 minutes of a
 // stuck job, one stale reclaim and a requeue: everything that happened had to
@@ -7,24 +7,27 @@
 // codes and durations only, never a file name the user chose or a byte of the
 // document, because this log ends up in places the document is not allowed to
 // reach.
+//
+// The lines come from two places now: the handler says what only it knows (a job
+// succeeded, with its extractor and its text length), and the job engine says what
+// happened to the attempt (it failed, was requeued until a time, ran out of
+// attempts, was cancelled, was taken back). The words are the ones the worker used
+// before the engine, and this test pins them.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact } from "$lib/server/services/knowledge/types";
+import * as schema from "$lib/server/db/schema";
 import { createFakeExtractor } from "./testing/fake-extractor";
 import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
-
-type Worker = typeof import("./worker-runner");
-type Ledger = typeof import("./job-ledger");
+import { installSeams, resetSeams, seams } from "./testing/runner-seams";
 
 let fixture: LedgerFixture;
-let worker: Worker;
-let ledger: Ledger;
 let storageDir: string;
 /** Only what `payloadsFor` reads, so the spy's own generics stay out of it. */
 type ConsoleSpy = { mock: { calls: unknown[][] } };
@@ -34,26 +37,42 @@ let warn: ConsoleSpy;
 const userId = "user-1";
 
 beforeEach(async () => {
-	fixture = createLedgerFixture("worker-logging");
+	resetSeams();
+	fixture = createLedgerFixture("extraction-runner-logging");
 	fixture.seedUser(userId);
-	storageDir = await mkdtemp(join(tmpdir(), "alfyai-worker-logging-"));
+	storageDir = await mkdtemp(join(tmpdir(), "alfyai-extraction-logging-"));
 
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
-	worker = await import("./worker-runner");
-	ledger = await import("./job-ledger");
-	worker.resetExtractionWorkerForTests();
 
 	info = vi.spyOn(console, "info").mockImplementation(() => {});
 	warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 afterEach(async () => {
-	worker.resetExtractionWorkerForTests();
+	try {
+		const { resetJobsForTests } = await import("$lib/server/services/jobs");
+		resetJobsForTests();
+	} catch {
+		// The engine was never imported.
+	}
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed early.
+	}
 	fixture.cleanup();
 	await rm(storageDir, { recursive: true, force: true });
 	vi.restoreAllMocks();
 });
+
+async function engine() {
+	await installSeams();
+	const jobs = await import("$lib/server/services/jobs");
+	const { extractionJob } = await import("./extraction-job");
+	return { ...jobs, extractionJob };
+}
 
 async function enqueueStored(name: string): Promise<string> {
 	const absolute = join(storageDir, name);
@@ -63,28 +82,41 @@ async function enqueueStored(name: string): Promise<string> {
 		name,
 		storagePath: relative(process.cwd(), absolute),
 	});
-	const { job } = await ledger.enqueueExtractionJob({
-		userId,
-		conversationId: null,
-		origin: "upload",
-		intakeRoute: "mineru",
-		fileName: name,
-		mimeType: "application/pdf",
-		sizeBytes: 12,
-		sourceArtifactId: artifactId,
+	const { enqueue, extractionJob } = await engine();
+	const { row } = await enqueue(extractionJob, {
+		values: {
+			userId,
+			conversationId: null,
+			sourceArtifactId: artifactId,
+			origin: "upload",
+			intakeRoute: "mineru",
+			fileName: name,
+			mimeType: "application/pdf",
+			sizeBytes: 12,
+		},
 	});
-	return job.id;
+	return row.id;
 }
 
-function fakePersist() {
-	return (async () => {
+function fakePersist(): void {
+	seams.persist = async () => {
 		const id = fixture.seedArtifact({
 			userId,
 			type: "normalized_document",
 			name: "normalized.md",
 		});
-		return { id } as Artifact;
-	}) as never;
+		return { id };
+	};
+}
+
+function readJob(jobId: string) {
+	const row = fixture.db
+		.select()
+		.from(schema.documentExtractionJobs)
+		.where(eq(schema.documentExtractionJobs.id, jobId))
+		.get();
+	if (!row) throw new Error(`No extraction job ${jobId}`);
+	return row;
 }
 
 function payloadsFor(
@@ -98,14 +130,14 @@ function payloadsFor(
 
 describe("[EXTRACTION] worker log lines", () => {
 	it("reports a success with its duration and text length", async () => {
+		const { drain, extractionJob } = await engine();
 		const jobId = await enqueueStored("report.pdf");
-
-		await worker.executeNextExtractionJob({
-			workerId: "w1",
-			resolveExtractor: () =>
-				createFakeExtractor({ steps: [{ kind: "succeed", text: "hello" }] }),
-			persistResult: fakePersist(),
+		seams.extractor = createFakeExtractor({
+			steps: [{ kind: "succeed", text: "hello" }],
 		});
+		fakePersist();
+
+		await drain(extractionJob);
 
 		const [line] = payloadsFor(info, "[EXTRACTION] Job succeeded");
 		expect(line).toMatchObject({
@@ -123,15 +155,13 @@ describe("[EXTRACTION] worker log lines", () => {
 	});
 
 	it("reports a failed attempt with its code and its next attempt time", async () => {
+		const { drain, extractionJob } = await engine();
 		const jobId = await enqueueStored("flaky.pdf");
-
-		await worker.executeNextExtractionJob({
-			workerId: "w1",
-			resolveExtractor: () =>
-				createFakeExtractor({
-					steps: [{ kind: "throw", code: "job_failed" }],
-				}),
+		seams.extractor = createFakeExtractor({
+			steps: [{ kind: "throw", code: "job_failed" }],
 		});
+
+		await drain(extractionJob);
 
 		const [line] = payloadsFor(warn, "[EXTRACTION] Attempt failed");
 		expect(line).toMatchObject({
@@ -146,57 +176,75 @@ describe("[EXTRACTION] worker log lines", () => {
 	});
 
 	it("says when a job has burned its attempts", async () => {
+		const { drain, extractionJob } = await engine();
 		const jobId = await enqueueStored("doomed.pdf");
-		const extractor = createFakeExtractor({
+		seams.extractor = createFakeExtractor({
 			steps: [{ kind: "throw", code: "job_failed" }],
 		});
 
 		for (let attempt = 0; attempt < 3; attempt += 1) {
-			await worker.executeNextExtractionJob({
-				workerId: "w1",
-				resolveExtractor: () => extractor,
-				// Past the backoff gate the previous failure wrote.
-				now: new Date(Date.now() + attempt * 600_000),
-			});
+			await drain(extractionJob);
+			// Past the backoff gate the previous failure wrote.
+			fixture.sqlite
+				.prepare(
+					"UPDATE document_extraction_jobs SET next_attempt_at = NULL WHERE id = ? AND status = 'queued'",
+				)
+				.run(jobId);
 		}
 
-		expect((await ledger.getExtractionJobRow(jobId))?.errorCode).toBe(
-			"max_attempts",
-		);
+		expect(readJob(jobId).errorCode).toBe("max_attempts");
 		expect(
 			payloadsFor(warn, "[EXTRACTION] Job reached max attempts"),
 		).toMatchObject([{ jobId, attemptCount: 3 }]);
 	});
 
 	it("says when a cancel was honoured", async () => {
+		const { drain, extractionJob, cancel } = await engine();
 		const jobId = await enqueueStored("canceled.pdf");
-		const extractor = createFakeExtractor({
+		seams.extractor = createFakeExtractor({
 			steps: [{ kind: "hang" }],
 			emitHandleAfterPhase: "uploading",
 		});
 
-		const running = worker.executeNextExtractionJob({
-			workerId: "w1",
-			resolveExtractor: () => extractor,
-			heartbeatMs: 100,
+		const running = drain(extractionJob);
+		await vi.waitFor(() => {
+			expect(readJob(jobId).checkpoint).not.toBeNull();
 		});
-		await vi.waitFor(async () => {
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-			).not.toBeNull();
-		});
-		await ledger.cancelExtractionJob({ userId, jobId });
+		await cancel(extractionJob, jobId, { userId });
 		await running;
 
 		expect(payloadsFor(info, "[EXTRACTION] Cancel honoured")).toMatchObject([
-			{ jobId, extractor: "fake" },
+			{ jobId, attemptNumber: 1 },
 		]);
 	});
 
+	it("says when an attempt was released without a verdict", async () => {
+		const { drain, extractionJob, recover } = await engine();
+		const jobId = await enqueueStored("taken.pdf");
+		seams.extractor = createFakeExtractor({
+			steps: [{ kind: "hang" }],
+			emitHandleAfterPhase: "uploading",
+		});
+
+		const running = drain(extractionJob);
+		await vi.waitFor(() => {
+			expect(readJob(jobId).checkpoint).not.toBeNull();
+		});
+		await recover(extractionJob, {
+			staleBefore: new Date(Date.now() + 60_000),
+		});
+		await running;
+
+		expect(
+			payloadsFor(warn, "[EXTRACTION] Attempt released without a verdict"),
+		).toMatchObject([{ jobId, attemptNumber: 1 }]);
+	});
+
 	it("says nothing about a sweep that reclaimed nothing", async () => {
+		const { drain, extractionJob } = await engine();
 		// This one runs forever on an idle box; a line per tick would drown the
 		// lines that matter.
-		await worker.drainExtractionWorker({ workerId: "w1" });
+		await drain(extractionJob);
 		expect(payloadsFor(warn, "[EXTRACTION] Reclaimed stale attempts")).toEqual(
 			[],
 		);

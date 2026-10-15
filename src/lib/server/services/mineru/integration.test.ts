@@ -1,22 +1,34 @@
-// MinerU 4, end to end: the real ledger, the real worker, the real extractor
-// registry and an in-process V1 server on a real socket.
+// MinerU 4, end to end: the real job engine, the real extraction handler, the
+// real extractor registry and an in-process V1 server on a real socket.
 //
-// Nothing is stubbed between `executeNextExtractionJob` and the wire except the
-// persist sink, which belongs to a different slice. The extractor is NOT passed
-// in: the worker resolves it through `extractors/registry.ts`, so this file also
-// proves the registry flip. The configuration arrives the way it does in
-// production — through the environment, read by `config-store` — which is why
-// every test re-imports the module graph after setting it.
+// Nothing is stubbed between the engine's `drain` and the wire except the persist
+// sink, which belongs to a different slice. The extractor is NOT passed in: the
+// handler resolves it through `extractors/registry.ts`, so this file also proves
+// the registry flip. The configuration arrives the way it does in production —
+// through the environment, read by `config-store` — which is why every test
+// re-imports the module graph after setting it.
+//
+// A "process" here is a module graph: the engine keeps its running attempts and
+// its worker identity in module state, so a graph imported after
+// `vi.resetModules()` is a restarted process on the same database (`reimportAt`),
+// and a take-back made from it reaches an attempt of the old graph the way one
+// made by a restarted server reaches the attempt of the process that died.
 
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DocumentExtractor } from "$lib/server/services/extraction/contracts";
 import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "$lib/server/services/extraction/testing/ledger-fixtures";
+import {
+	type RunOnceOptions,
+	runExtractionOnce,
+} from "$lib/server/services/extraction/testing/run-once";
+import { resetSeams } from "$lib/server/services/extraction/testing/runner-seams";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import {
 	createFakeMineruServer,
@@ -25,8 +37,7 @@ import {
 	MINERU_FIXTURE_ROOT,
 } from "./testing/fake-server";
 
-type Worker = typeof import("$lib/server/services/extraction/worker-runner");
-type Ledger = typeof import("$lib/server/services/extraction/job-ledger");
+type Ledger = typeof import("$lib/server/services/extraction/extraction-job");
 type Capabilities = typeof import("./capabilities");
 
 /** The nine recorded inputs, with the file each fixture directory carries. */
@@ -56,7 +67,6 @@ const FIXTURE_INPUTS: ReadonlyArray<[string, string, string]> = [
 
 let fixture: LedgerFixture;
 let server: FakeMineruServer;
-let worker: Worker;
 let ledger: Ledger;
 let capabilities: Capabilities;
 let storageDir: string;
@@ -92,7 +102,11 @@ async function boot(
  * The configuration is captured at module load, so "the backend moved" and
  * "the backend came back" are both a re-import. The ledger rows live in the
  * SQLite fixture and survive it, which is exactly what lets one test watch a
- * job wait out an outage and then finish.
+ * job wait out an outage and then finish. The new graph is also a new worker
+ * identity with nothing running in it: a restarted process.
+ *
+ * The test seams are spies on modules of the graph that was just thrown away;
+ * they are put back on the next run, on the new one.
  */
 async function reimportAt(
 	baseUrl: string,
@@ -100,11 +114,10 @@ async function reimportAt(
 ): Promise<void> {
 	process.env.MINERU_API_URL = override ?? baseUrl;
 	vi.resetModules();
-	worker = await import("$lib/server/services/extraction/worker-runner");
-	ledger = await import("$lib/server/services/extraction/job-ledger");
+	resetSeams();
+	ledger = await import("$lib/server/services/extraction/extraction-job");
 	capabilities = await import("./capabilities");
 	capabilities.resetMineruCapabilitiesCacheForTests();
-	worker.resetExtractionWorkerForTests();
 }
 
 /** The persist sink P4-B owns. Here it only records what reached it. */
@@ -153,9 +166,14 @@ async function seedJob(
 	return { jobId: job.id, artifactId };
 }
 
-function run(overrides: Record<string, unknown> = {}) {
-	return worker.executeNextExtractionJob({
-		workerId: "mineru4-worker",
+/**
+ * Drains the extraction kind over the fixture's database and answers for the one
+ * job that ran: its id and the word the browser would show for it, or null when
+ * nothing was claimable. `config` is laid over the real extraction config for the
+ * run (`heartbeatMs`, `maxConcurrency`…).
+ */
+function run(overrides: RunOnceOptions = {}) {
+	return runExtractionOnce(fixture.sqlite, {
 		persistResult: persistSink(),
 		...overrides,
 	});
@@ -196,7 +214,7 @@ afterEach(async () => {
 describe("every recorded input reaches a normalized artifact", () => {
 	it.each(
 		FIXTURE_INPUTS,
-	)("%s parses to non-empty text through the real worker", async (input, file, mimeType) => {
+	)("%s parses to non-empty text through the real engine", async (input, file, mimeType) => {
 		await boot({ fixtureInput: input });
 		const { jobId, artifactId } = await seedJob({
 			fixtureInput: input,
@@ -268,19 +286,24 @@ describe("a slow job walks the status ladder", () => {
 		await boot({ parseDelayMs: 600 });
 		const { jobId } = await seedJob();
 
+		// What the browser would show: a running job is its phase.
 		const seen: string[] = [];
 		const watcher = setInterval(() => {
 			const row = fixture.sqlite
-				.prepare("SELECT status FROM document_extraction_jobs WHERE id = ?")
-				.get(jobId) as { status: string } | undefined;
-			if (row && seen.at(-1) !== row.status) seen.push(row.status);
+				.prepare(
+					"SELECT status, phase FROM document_extraction_jobs WHERE id = ?",
+				)
+				.get(jobId) as { status: string; phase: string | null } | undefined;
+			if (!row) return;
+			const word = row.status === "running" ? row.phase : row.status;
+			if (word && seen.at(-1) !== word) seen.push(word);
 		}, 20);
 		watcher.unref?.();
 
 		expect(await run()).toEqual({ jobId, status: "succeeded" });
 		clearInterval(watcher);
 
-		// The sampler races the worker's last write, so the terminal status is
+		// The sampler races the engine's last write, so the terminal status is
 		// read from the row rather than from the sample: what the samples prove
 		// is that the job was VISIBLE as parsing while it was parsing, which is
 		// the whole point of reporting a phase at all.
@@ -420,7 +443,7 @@ describe("a document the reader cannot open", () => {
 		// resume. Live this cost three attempts, two of them `resumed: true`
 		// against the same terminal job, and then a Retry that resumed it again.
 		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
-		expect(row?.remoteHandleJson).toBeNull();
+		expect(row?.checkpoint).toBeNull();
 	});
 
 	it("survives the whole round trip to the DTO the chip reads", async () => {
@@ -460,8 +483,7 @@ describe("an ordinary parse failure keeps its budget", () => {
 		for (let i = 0; i < 3; i += 1) {
 			clearBackoffGates();
 			await run();
-			const handle = (await ledger.getExtractionJobRow(jobId))
-				?.remoteHandleJson;
+			const handle = (await ledger.getExtractionJobRow(jobId))?.checkpoint;
 			if (handle) remoteJobIds.push(JSON.parse(handle).remoteJobId);
 		}
 
@@ -510,21 +532,24 @@ describe("an ordinary parse failure keeps its budget", () => {
 });
 
 describe("cancel while parsing", () => {
-	it("DELETEs the remote job, settles canceled and leaves no temp directory", async () => {
+	it("DELETEs the remote job, settles cancelled and leaves no temp directory", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
-		const running = run({ heartbeatMs: 100 });
+		const running = run();
 		await vi.waitFor(async () => {
-			expect((await ledger.getExtractionJobRow(jobId))?.status).toBe("parsing");
+			const row = await ledger.getExtractionJobRow(jobId);
+			// A running job is `running`, in the phase the extractor reported.
+			expect([row?.status, row?.phase]).toEqual(["running", "parsing"]);
 		});
 		// The handle exists before the first poll, which is what makes the remote
 		// cancel possible at all.
-		expect(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-		).toContain("job_");
+		expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toContain(
+			"job_",
+		);
 
 		await ledger.cancelExtractionJob({ userId, jobId });
+		// The browser's word for it keeps its one `l`; the row stores the engine's.
 		expect(await running).toEqual({ jobId, status: "canceled" });
 
 		await vi.waitFor(() => {
@@ -533,7 +558,7 @@ describe("cancel while parsing", () => {
 			);
 		});
 		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.status).toBe("canceled");
+		expect(row?.status).toBe("cancelled");
 		expect(persisted).toHaveLength(0);
 		// Temp-directory cleanup is asserted in `extractors/mineru4.test.ts`,
 		// which can give the extractor a private root: counting entries in the
@@ -546,24 +571,50 @@ describe("a worker that died mid-parse", () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
-		// `heartbeatMs` long enough that this attempt never notices it lost the
-		// claim: that is what a killed process looks like from the ledger's side.
-		const orphaned = run({ heartbeatMs: 600_000 }).catch(() => null);
+		// The first process: the real extractor up to the moment the remote job
+		// exists and its handle is on the row, and then nothing. No verdict, no
+		// unwinding, no further write: that is what a killed worker looks like from
+		// the ledger's side. (An abort without a reason counts as a lost claim, so the
+		// real extractor lets go of the remote job without deleting it.)
+		const { mineru4Extractor } = await import(
+			"$lib/server/services/extraction/extractors/mineru4"
+		);
+		const dying: DocumentExtractor = {
+			...mineru4Extractor,
+			extract: async (request) => {
+				const stop = new AbortController();
+				const real = mineru4Extractor.extract({
+					...request,
+					signal: stop.signal,
+					onProgress: (progress) => {
+						request.onProgress(progress);
+						if (progress.handle) stop.abort();
+					},
+				});
+				await real.catch(() => undefined);
+				return new Promise<never>(() => undefined);
+			},
+		};
+		void run({ resolveExtractor: () => dying });
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
-		const handleJson = (await ledger.getExtractionJobRow(jobId))
-			?.remoteHandleJson;
+		const handleJson = (await ledger.getExtractionJobRow(jobId))?.checkpoint;
 
-		await ledger.recoverStaleExtractionAttempts({
-			staleBefore: new Date(Date.now() + 60_000),
-			maxAttempts: 3,
-			retryBaseMs: 2000,
-			retryMaxMs: 60000,
-			outageWindowMs: 1_800_000,
-		});
+		// The restarted process is a fresh module graph on the same database, with a
+		// worker identity of its own and nothing in memory: the engine's record of
+		// what the dead one was running is gone with it, so the sweep that takes its
+		// attempt back has nobody to tell.
+		await reimportAt(server.baseUrl);
+		const engine = await import("$lib/server/services/jobs");
+		engine.resetJobsForTests();
+		expect(
+			await engine.recover(ledger.extractionJob, {
+				staleBefore: new Date(Date.now() + 60_000),
+			}),
+		).toEqual({ recovered: 1 });
 		clearBackoffGates();
 
 		const uploadsBefore = countRequests("POST", "/v1/uploads");
@@ -573,10 +624,7 @@ describe("a worker that died mid-parse", () => {
 		// The remote job can finish now; the restarted worker must pick up the
 		// SAME one.
 		server.setOptions({ neverFinish: false });
-		expect(await run({ workerId: "worker-restarted" })).toEqual({
-			jobId,
-			status: "succeeded",
-		});
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
 
 		expect(countRequests("POST", "/v1/uploads")).toBe(uploadsBefore);
 		expect(countRequests("POST", "/v1/parse/jobs")).toBe(jobsBefore);
@@ -593,40 +641,42 @@ describe("a worker that died mid-parse", () => {
 			).length,
 		).toBeGreaterThan(1);
 
-		await orphaned;
+		// One attempt per process, and only the live one indexed anything.
+		expect(persisted).toHaveLength(1);
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(2);
 	});
 
 	it("does not DELETE the remote job when a stale sweep takes the claim", async () => {
 		// The dangerous variant of the test above: here the running attempt DOES
-		// notice it lost the claim, on its next heartbeat. It used to read that
-		// abort as a cancel and DELETE the very job the new claimant had just
-		// been handed — so a stale sweep during a slow parse destroyed the remote
-		// work the stored handle exists to resume, and the next attempt paid for
-		// a second upload and a second parse.
+		// notice it lost the claim (the sweep ran in its own process, so the engine
+		// tells it at once). It used to read that abort as a cancel and DELETE the
+		// very job the new claimant had just been handed — so a stale sweep during a
+		// slow parse destroyed the remote work the stored handle exists to resume,
+		// and the next attempt paid for a second upload and a second parse.
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
-		const orphaned = run({ heartbeatMs: 100 }).catch(() => null);
+		const orphaned = run();
 		await vi.waitFor(async () => {
 			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+				(await ledger.getExtractionJobRow(jobId))?.checkpoint,
 			).not.toBeNull();
 		});
 		const handleJson = (await ledger.getExtractionJobRow(jobId))
-			?.remoteHandleJson as string;
+			?.checkpoint as string;
 		const remoteJobId = JSON.parse(handleJson).remoteJobId as string;
 
-		// Another worker reclaims the attempt out from under the running one.
-		await ledger.recoverStaleExtractionAttempts({
-			staleBefore: new Date(Date.now() + 60_000),
-			maxAttempts: 3,
-			retryBaseMs: 2000,
-			retryMaxMs: 60000,
-			outageWindowMs: 1_800_000,
-		});
+		// A sweep reclaims the attempt out from under the running one.
+		const { recover } = await import("$lib/server/services/jobs");
+		expect(
+			await recover(ledger.extractionJob, {
+				staleBefore: new Date(Date.now() + 60_000),
+			}),
+		).toEqual({ recovered: 1 });
 
-		// Give the losing attempt time to observe the loss and unwind.
-		expect(await orphaned).toBeNull();
+		// The losing attempt unwinds and leaves the job queued behind its backoff,
+		// for the next attempt to resume.
+		expect(await orphaned).toEqual({ jobId, status: "queued" });
 		expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
 			false,
 		);
@@ -634,9 +684,8 @@ describe("a worker that died mid-parse", () => {
 
 		// And the handle the next attempt needs is still on the row.
 		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.remoteHandleJson).toContain(remoteJobId);
-		expect(row?.status).not.toBe("canceled");
-		expect(row?.status).not.toBe("failed");
+		expect(row?.checkpoint).toContain(remoteJobId);
+		expect(row?.status).toBe("queued");
 	});
 });
 
@@ -707,7 +756,7 @@ describe("a backend that is not answering", () => {
 				// Not one of the document's three attempts was spent.
 				expect(dto?.attemptCount).toBe(0);
 
-				const gate = row?.nextAttemptAt?.getTime();
+				const gate = row?.runAfter?.getTime();
 				expect(gate).toBeGreaterThan(Date.now());
 				// Nothing is claimable before the gate: the wait is real.
 				expect(await run()).toBeNull();
@@ -744,14 +793,14 @@ describe("a user cancel", () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
 
-		const running = run({ heartbeatMs: 100 });
+		const running = run();
 		await vi.waitFor(async () => {
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
-			).toContain("job_");
+			expect((await ledger.getExtractionJobRow(jobId))?.checkpoint).toContain(
+				"job_",
+			);
 		});
 		const firstRemoteJobId = JSON.parse(
-			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson ?? "{}",
+			(await ledger.getExtractionJobRow(jobId))?.checkpoint ?? "{}",
 		).remoteJobId as string;
 
 		await ledger.cancelExtractionJob({ userId, jobId });
@@ -772,8 +821,8 @@ describe("a user cancel", () => {
 		// the error table reads as "canceled by someone else" — a `job_failed`
 		// the user never caused, on a document that parses perfectly fresh.
 		const canceled = await ledger.getExtractionJobRow(jobId);
-		expect(canceled?.status).toBe("canceled");
-		expect(canceled?.remoteHandleJson).toBeNull();
+		expect(canceled?.status).toBe("cancelled");
+		expect(canceled?.checkpoint).toBeNull();
 
 		server.setOptions({ neverFinish: false });
 		server.resetLog();

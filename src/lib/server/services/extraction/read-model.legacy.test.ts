@@ -5,7 +5,7 @@ import {
 } from "./testing/ledger-fixtures";
 
 type ReadModel = typeof import("./read-model");
-type Ledger = typeof import("./job-ledger");
+type Ledger = typeof import("./extraction-job");
 
 let fixture: LedgerFixture;
 let readModel: ReadModel;
@@ -24,7 +24,7 @@ beforeEach(async () => {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	readModel = await import("./read-model");
-	ledger = await import("./job-ledger");
+	ledger = await import("./extraction-job");
 });
 
 afterEach(() => {
@@ -237,7 +237,7 @@ describe("mapExtractionJobRow", () => {
 		if (!canceled) throw new Error("expected the cancel to apply");
 		const mapped = readModel.mapExtractionJobRow(canceled, 3);
 		expect(mapped.cancelable).toBe(false);
-		// The ledger allows T15 (canceled -> queued), so the DTO has to say so:
+		// The engine allows cancelled -> queued, so the DTO has to say so:
 		// a user who hit Stop by mistake otherwise has to delete the document
 		// and upload it again.
 		expect(mapped.retryable).toBe(true);
@@ -255,24 +255,17 @@ describe("mapExtractionJobRow", () => {
 			sizeBytes: 10,
 			sourceArtifactId: artifactId,
 		});
-		const claimed = await ledger.claimNextExtractionJob({
-			workerId: "w",
-			globalLimit: 5,
-			perUserLimit: 5,
-		});
-		await ledger.failExtractionAttempt({
-			jobId: job.id,
-			attemptId: claimed?.attempt.id ?? "",
-			workerId: "w",
-			errorCode: "unavailable",
-			errorMessage: "backend down",
-			retryable: true,
-			clearHandle: false,
-			maxAttempts: 3,
-			retryBaseMs: 2000,
-			retryMaxMs: 60000,
-			outageWindowMs: 1_800_000,
-		});
+		// What the engine leaves after an attempt failed against a backend that is
+		// not answering: queued again behind a gate, the reason kept on the row.
+		fixture.sqlite
+			.prepare(
+				`UPDATE document_extraction_jobs
+				 SET status = 'queued', attempt_count = 1, started_at = unixepoch(),
+				     error_code = 'unavailable', error_message = 'backend down',
+				     retryable = 1, next_attempt_at = unixepoch() + 60
+				 WHERE id = ?`,
+			)
+			.run(job.id);
 
 		const dto = await readModel.getExtractionJobForArtifact({
 			userId,
@@ -312,5 +305,100 @@ describe("getExtractionJobById", () => {
 				jobId: job.id,
 			}),
 		).toBeNull();
+	});
+});
+
+describe("mapExtractionJobRow: the engine's words become the browser's", () => {
+	async function row(set: string, ...params: Array<string | number>) {
+		const artifactId = fixture.seedArtifact({
+			userId,
+			name: `${Math.random()}.pdf`,
+		});
+		const { job } = await ledger.enqueueExtractionJob({
+			userId,
+			conversationId: null,
+			origin: "upload",
+			intakeRoute: "mineru",
+			fileName: "doc.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 10,
+			sourceArtifactId: artifactId,
+		});
+		fixture.sqlite
+			.prepare(`UPDATE document_extraction_jobs SET ${set} WHERE id = ?`)
+			.run(...params, job.id);
+		const [stored] = await readModel.getExtractionJobsForArtifacts({
+			userId,
+			artifactIds: [artifactId],
+		});
+		return stored;
+	}
+
+	it("says which phase a running job is in", async () => {
+		for (const phase of ["uploading", "parsing", "downloading", "indexing"]) {
+			const dto = await row("status = 'running', phase = ?", phase);
+			expect(dto).toMatchObject({
+				status: phase,
+				cancelable: true,
+				retryable: false,
+			});
+		}
+	});
+
+	it("reads a running job with no usable phase as uploading", async () => {
+		expect((await row("status = 'running', phase = NULL")).status).toBe(
+			"uploading",
+		);
+		expect((await row("status = 'running', phase = 'nonsense'")).status).toBe(
+			"uploading",
+		);
+	});
+
+	it("spells a cancelled job the way every client surface does", async () => {
+		const dto = await row(
+			"status = 'cancelled', cancel_requested_at = unixepoch(), attempt_count = 1",
+		);
+		expect(dto).toMatchObject({
+			status: "canceled",
+			cancelable: false,
+			retryable: true,
+		});
+	});
+
+	it("passes a word the previous release wrote in the deploy window straight through", async () => {
+		expect((await row("status = 'parsing'")).status).toBe("parsing");
+		expect((await row("status = 'canceled'")).status).toBe("canceled");
+	});
+
+	it("offers Retry on a failed job only when it says so, and never past the ceiling", async () => {
+		expect(
+			(await row("status = 'failed', retryable = 1, attempt_count = 2"))
+				.retryable,
+		).toBe(true);
+		expect(
+			(await row("status = 'failed', retryable = 0, attempt_count = 1"))
+				.retryable,
+		).toBe(false);
+		// The automatic budget plus every retry a user is granted: 3 + 5.
+		expect(
+			(await row("status = 'failed', retryable = 1, attempt_count = 8"))
+				.retryable,
+		).toBe(false);
+		expect(
+			(await row("status = 'cancelled', attempt_count = 8")).retryable,
+		).toBe(false);
+	});
+
+	it("shows the document's attempts, not the ones an outage spent", async () => {
+		const dto = await row(
+			"status = 'failed', retryable = 1, attempt_count = 12, retry_state_json = ?",
+			JSON.stringify({ since: null, waits: 10 }),
+		);
+		expect(dto).toMatchObject({ attemptCount: 2, retryable: true });
+	});
+
+	it("carries the gate of a queued job as nextAttemptAt", async () => {
+		const dto = await row("status = 'queued', next_attempt_at = 1781000000");
+		expect(dto.nextAttemptAt).toBe(1_781_000_000_000);
 	});
 });

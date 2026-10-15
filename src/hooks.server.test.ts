@@ -12,6 +12,7 @@ const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
 const mockStartJobs = vi.fn(async () => undefined);
 const mockStopJobs = vi.fn();
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
+const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const mockSentryInit = vi.fn();
 const mockSentrySetUser = vi.fn();
 const mockSentryHandle = vi.fn<() => Handle>(
@@ -80,6 +81,10 @@ vi.mock("$lib/server/services/file-production", () => ({
 
 vi.mock("$lib/server/services/atlas/research-job", () => ({
 	atlasResearchJob: atlasResearchJobStub,
+}));
+
+vi.mock("$lib/server/services/extraction/extraction-job", () => ({
+	extractionJob: extractionJobStub,
 }));
 
 vi.mock("$lib/server/services/jobs", () => ({
@@ -215,7 +220,11 @@ describe("hooks.server.ts", () => {
 		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
 		expect(mockEnsureFileProductionWorker).toHaveBeenCalledOnce();
 		expect(mockStartJobs).toHaveBeenCalledOnce();
-		expect(mockStartJobs).toHaveBeenCalledWith([atlasResearchJobStub]);
+		// Every kind that runs on the engine, in one call.
+		expect(mockStartJobs).toHaveBeenCalledWith([
+			atlasResearchJobStub,
+			extractionJobStub,
+		]);
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);
