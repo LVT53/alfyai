@@ -247,8 +247,9 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 	});
 
 	it("renders a freshly claimed row (stage ask, empty details) without a raw key", () => {
-		// `claimNextAtlasJob` now stamps stage "ask", 0% and "{}" details; the
-		// card shows it until the pipeline's first heartbeat lands.
+		// The engine's claim stamps stage "ask", 0% and "{}" details (the Atlas
+		// kind's `onTransition`); the card shows it until the pipeline's first
+		// heartbeat lands.
 		const card = mapAtlasJobRowToCard(
 			storedRow({
 				pipelineVersion: 3,

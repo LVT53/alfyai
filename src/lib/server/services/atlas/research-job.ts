@@ -378,10 +378,21 @@ export interface DeleteAtlasJobsForConversationInput {
 export async function cancelAtlasJob(
 	input: CancelAtlasJobInput,
 ): Promise<AtlasJobCard | null> {
-	const row = await cancel(atlasResearchJob, input.jobId, {
+	const cancelled = await cancel(atlasResearchJob, input.jobId, {
 		userId: input.userId,
 	});
-	return row ? mapAtlasJobRowToCard(row) : null;
+	if (!cancelled) return null;
+	// The engine hands back the row it read before the kind's `onTransition` ran,
+	// and that is what sets the card's `stage` to "cancelled": read it again, so the
+	// card the cancel route returns says what the row now says.
+	const [row] = await db
+		.select()
+		.from(atlasJobs)
+		.where(
+			and(eq(atlasJobs.id, input.jobId), eq(atlasJobs.userId, input.userId)),
+		)
+		.limit(1);
+	return mapAtlasJobRowToCard(row ?? cancelled);
 }
 
 export async function cancelActiveAtlasJobsForUser(

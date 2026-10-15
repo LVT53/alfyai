@@ -21,10 +21,11 @@ import {
 	sentryConnectSource,
 } from "$lib/server/security-headers";
 import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/app/sandbox-response";
-import { ensureAtlasWorker } from "$lib/server/services/atlas";
+import { atlasResearchJob } from "$lib/server/services/atlas/research-job";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureExtractionWorker } from "$lib/server/services/extraction";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
+import { startJobs, stopJobs } from "$lib/server/services/jobs";
 import {
 	ensureMemoryConsolidationScheduler,
 	stopMemoryConsolidationScheduler,
@@ -244,7 +245,10 @@ export const init: ServerInit = async () => {
 	ensureExtractionWorker().catch((error) =>
 		console.error("Failed to start document extraction worker:", error),
 	);
-	ensureAtlasWorker().catch((error) =>
+	// The job engine: Atlas runs on it, and so will the other two kinds. Not
+	// awaited either, for the same reason: its boot sweeps and first drain must
+	// never sit between the process starting and it answering a health check.
+	startJobs([atlasResearchJob]).catch((error) =>
 		console.error("Failed to start Atlas worker:", error),
 	);
 
@@ -259,6 +263,9 @@ export const init: ServerInit = async () => {
 		stopMemoryConsolidationScheduler();
 		stopRoutingRegionScheduler();
 		stopMemoryJudgeRunner();
+		// No new claims and every engine timer cleared; a running job is left to
+		// heartbeat recovery (ADR-0005), which the next boot reclaims by worker id.
+		stopJobs();
 		// Give in-flight work (Atlas jobs, active responses) a grace period
 		// to complete naturally. systemd TimeoutStopSec=90 is the hard cap.
 		setTimeout(() => {

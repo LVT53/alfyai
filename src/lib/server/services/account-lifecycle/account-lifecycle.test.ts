@@ -610,8 +610,19 @@ function seedEveryUserScopedTable(userId: string) {
 			updatedAt: now,
 		})
 		.run();
-	// Transitive-cascade grandchild: no user_id of its own, removed only via
-	// atlas_jobs -> users cascade.
+	// Transitive-cascade grandchildren: no user_id of their own, removed only via
+	// atlas_jobs -> users cascade. The attempt is the job engine's fencing row.
+	db.insert(schema.atlasJobAttempts)
+		.values({
+			id: p("atlas-attempt"),
+			jobId: p("atlas"),
+			attemptNumber: 1,
+			status: "succeeded",
+			workerId: "atlas:test-host:1:nonce",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.atlasRoundCheckpoints)
 		.values({
 			id: p("atlas-checkpoint"),
@@ -918,7 +929,8 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		// Transitive-cascade coverage: rows with no user_id of their own are still
 		// removed because their parent chain terminates at the erased users row.
 		// messages: conversations -> users. file_production_job_attempts:
-		// file_production_jobs -> users. atlas_round_checkpoints: atlas_jobs -> users.
+		// file_production_jobs -> users. atlas_job_attempts and
+		// atlas_round_checkpoints: atlas_jobs -> users.
 		const transitiveSurvivors = {
 			messages: (
 				await db
@@ -933,6 +945,12 @@ describe("full account erasure leaves no person-linked survivor", () => {
 					.where(
 						sql`${schema.fileProductionJobAttempts.id} = 'erase-me-file-attempt'`,
 					)
+			).length,
+			atlasJobAttempts: (
+				await db
+					.select({ id: schema.atlasJobAttempts.id })
+					.from(schema.atlasJobAttempts)
+					.where(sql`${schema.atlasJobAttempts.id} = 'erase-me-atlas-attempt'`)
 			).length,
 			atlasRoundCheckpoints: (
 				await db
@@ -964,6 +982,7 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(transitiveSurvivors).toEqual({
 			messages: 0,
 			fileProductionJobAttempts: 0,
+			atlasJobAttempts: 0,
 			atlasRoundCheckpoints: 0,
 			documentExtractionJobAttempts: 0,
 			artifactKv: 0,

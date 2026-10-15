@@ -31,7 +31,6 @@ vi.mock("$lib/server/services/atlas", () => ({
 	cancelAtlasJob: vi.fn(async () => null),
 	linkAtlasJobAssistantMessage: vi.fn(),
 	submitAtlasJobIntake: vi.fn(),
-	wakeAtlasWorker: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
@@ -198,7 +197,6 @@ import { atlasJobs, conversations, users } from "$lib/server/db/schema";
 import {
 	linkAtlasJobAssistantMessage,
 	submitAtlasJobIntake,
-	wakeAtlasWorker,
 } from "$lib/server/services/atlas";
 import {
 	getChatFilesForAssistantMessage,
@@ -240,7 +238,6 @@ const mockLinkAtlasJobAssistantMessage =
 const mockSubmitAtlasJobIntake = submitAtlasJobIntake as ReturnType<
 	typeof vi.fn
 >;
-const mockWakeAtlasWorker = wakeAtlasWorker as ReturnType<typeof vi.fn>;
 const mockCheckStreamCapacity = checkStreamCapacity as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
@@ -403,6 +400,12 @@ describe("POST /api/chat/send", () => {
 			idempotencyKey: "atlas-key",
 			normalizedQueryHash: "query-hash",
 		});
+		mockLinkAtlasJobAssistantMessage.mockResolvedValueOnce({
+			id: "atlas-job-1",
+			status: "queued",
+			profile: "overview",
+			assistantMessageId: "assistant-msg-1",
+		});
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Research Atlas transport" },
 			assistantMessage: {
@@ -454,7 +457,15 @@ describe("POST /api/chat/send", () => {
 			// ledger (Phase B); the send route no longer resolves or passes it.
 		});
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-		expect(mockWakeAtlasWorker).toHaveBeenCalledOnce();
+		// The route wakes nothing: linking the saved reply to the job is what makes
+		// the job claimable, and the link wakes the job engine.
+		expect(mockLinkAtlasJobAssistantMessage).toHaveBeenCalledOnce();
+		expect(mockLinkAtlasJobAssistantMessage).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			jobId: "atlas-job-1",
+			assistantMessageId: expect.any(String),
+		});
 		expect(mockResolveReasoningDepthSelection).not.toHaveBeenCalled();
 		expect(mockAssertPromptReadyAttachments).not.toHaveBeenCalled();
 		expect(mockAddConversationLinkedContextSources).not.toHaveBeenCalled();

@@ -9,7 +9,6 @@ import {
 	cancelAtlasJob,
 	linkAtlasJobAssistantMessage,
 	submitAtlasJobIntake,
-	wakeAtlasWorker,
 } from "$lib/server/services/atlas";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
@@ -390,7 +389,8 @@ async function runAtlasSendTurn({
 						return intake.job;
 					})
 				: intake.job;
-		wakeAtlasWorker();
+		// No wake here: linking the reply message is what makes the job claimable,
+		// and the link wakes the job engine itself.
 
 		return json({
 			response: { text: assistantResponse },
