@@ -259,8 +259,9 @@ function runBootSweeps(kind: JobKind, atProcessBoot: boolean): void {
 	});
 
 	attempt("state-lost", () => {
-		// No age guard at boot: nothing of this process is running yet, so nobody
-		// can be in the middle of claiming a row.
+		// No age guard at the process's boot: nothing of this process is running
+		// yet, so nobody can be in the middle of claiming a row. Coming on later
+		// keeps the guard (see above).
 		const outcome = takeBack(kind, {
 			reason: "state-lost",
 			...(atProcessBoot
