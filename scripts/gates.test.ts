@@ -22,15 +22,32 @@ import {
 // turns a gate green by saying nothing.
 
 describe("the check step", () => {
-	it("reads svelte-check's closing line, and fails on errors but not warnings", () => {
+	it("reads svelte-check's closing line and passes a clean one", () => {
 		expect(
 			parseCheckLog(
-				"1791378848811 COMPLETED 8411 FILES 0 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS\n",
+				"1791378848811 COMPLETED 8411 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS\n",
 			),
-		).toEqual({ ok: true, text: "0 errors, 17 warnings in 8411 files" });
+		).toEqual({ ok: true, text: "0 errors, 0 warnings in 8411 files" });
+	});
+
+	it("fails on a single warning, naming it (svelte-check itself exits 0 on warnings)", () => {
+		const result = parseCheckLog(
+			"COMPLETED 8411 FILES 0 ERRORS 1 WARNINGS 1 FILES_WITH_PROBLEMS",
+		);
+		expect(result.ok).toBe(false);
+		expect(result.text).toContain("0 errors, 1 warnings in 8411 files");
+		expect(result.text).toContain("NEW CHECK WARNINGS");
+	});
+
+	it("fails on errors, and on the 17 warnings it once let through", () => {
 		expect(
 			parseCheckLog(
-				"COMPLETED 8411 FILES 2 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS",
+				"COMPLETED 8411 FILES 2 ERRORS 0 WARNINGS 1 FILES_WITH_PROBLEMS",
+			).ok,
+		).toBe(false);
+		expect(
+			parseCheckLog(
+				"COMPLETED 8411 FILES 0 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS",
 			).ok,
 		).toBe(false);
 	});

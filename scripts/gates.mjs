@@ -274,9 +274,13 @@ export function parseCheckLog(log) {
 		/COMPLETED (\d+) FILES (\d+) ERRORS (\d+) WARNINGS/,
 	);
 	if (!done) return { ok: false, text: lastLine(log) };
+	const [, files, errors, warnings] = done;
+	// AGENTS.md ("Typecheck Gate") keeps svelte-check at 0 errors and 0 warnings, so a warning
+	// is a regression and not a number to stay under. svelte-check itself exits 0 with
+	// warnings, which is why the verdict is read here and not left to the exit code.
 	return {
-		ok: Number(done[2]) === 0,
-		text: `${done[2]} errors, ${done[3]} warnings in ${done[1]} files`,
+		ok: Number(errors) === 0 && Number(warnings) === 0,
+		text: `${errors} errors, ${warnings} warnings in ${files} files${Number(warnings) > 0 ? "  NEW CHECK WARNINGS" : ""}`,
 	};
 }
 
