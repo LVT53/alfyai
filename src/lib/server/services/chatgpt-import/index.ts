@@ -1,20 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import {
-	conversationForks,
-	importJobs,
-	messages,
-	projects,
-} from "$lib/server/db/schema";
+import { conversationForks, messages, projects } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
+import { markMemoryDirty } from "$lib/server/services/memory-profile/dirty-ledger";
 import { generateImportEmbeddings } from "./embeddings";
+import {
+	completeImportRow,
+	failImportRow,
+	startImportRow,
+	writeImportProgress,
+} from "./import-row";
+import { startImportedSummaryDrain } from "./owed-summaries";
 import {
 	type BranchInfo,
 	type ParseResult,
 	parseConversationsJson,
 } from "./parser";
-import { summarizeAndStoreConversation } from "./summarizer";
 
 interface ImportOptions {
 	projectId?: string | null;
@@ -26,6 +28,8 @@ export interface ImportResult {
 	conversationIds: string[];
 	errors: { conversationTitle?: string; reason: string }[];
 }
+
+export { ChatGptImportAlreadyRunningError } from "./import-row";
 
 export class ChatGptImportProjectAccessError extends Error {
 	constructor(projectId: string) {
@@ -119,40 +123,79 @@ async function importConversationBranches(
 	}
 }
 
+/**
+ * Queue an imported conversation for the memory judge's sweep as soon as its
+ * messages are stored. The judge reads the messages (the summary is only
+ * context for it), and the dirty-ledger row is durable, so a restart that cuts
+ * the background summary short no longer keeps the conversation from the
+ * judge. A failure here is logged and the import goes on.
+ */
+async function queueImportedConversationForMemoryJudge(
+	userId: string,
+	conversationId: string,
+): Promise<void> {
+	try {
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: conversationId },
+		});
+	} catch (err) {
+		console.error(
+			"[CHATGPT_IMPORT] Failed to queue imported conversation for the memory judge:",
+			conversationId,
+			err,
+		);
+	}
+}
+
 export async function importConversations(
 	userId: string,
 	zipBuffer: Buffer,
 	options: ImportOptions = {},
 ): Promise<ImportResult> {
 	const projectId = await validateImportProjectId(userId, options.projectId);
-	const jobId = randomUUID();
+	// Throws ChatGptImportAlreadyRunningError while the person's last import runs.
+	const jobId = startImportRow(userId);
+
+	try {
+		return await importIntoRow(jobId, userId, zipBuffer, projectId, options);
+	} catch (err) {
+		// Whatever stopped the import, its row must not stay `processing`.
+		try {
+			failImportRow(
+				jobId,
+				`Import failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+			);
+		} catch (settleErr) {
+			console.error(
+				"[CHATGPT_IMPORT] Could not mark the failed import's row:",
+				settleErr,
+			);
+		}
+		throw err;
+	}
+}
+
+async function importIntoRow(
+	jobId: string,
+	userId: string,
+	zipBuffer: Buffer,
+	projectId: string | null,
+	options: ImportOptions,
+): Promise<ImportResult> {
 	const conversationIds: string[] = [];
 	const errors: { conversationTitle?: string; reason: string }[] = [];
-	const now = new Date();
-
-	await db.insert(importJobs).values({
-		id: jobId,
-		userId,
-		status: "processing",
-		totalConversations: 0,
-		processedConversations: 0,
-		createdAt: now,
-		updatedAt: now,
-	});
 
 	let parseResult: ParseResult;
 	try {
 		parseResult = await parseConversationsJson(zipBuffer);
 	} catch (err) {
 		console.error("[CHATGPT_IMPORT] Failed to parse ZIP:", err);
-		await db
-			.update(importJobs)
-			.set({
-				status: "failed",
-				errorLog: `Parse error: ${err instanceof Error ? err.message : "Unknown error"}`,
-				updatedAt: new Date(),
-			})
-			.where(eq(importJobs.id, jobId));
+		failImportRow(
+			jobId,
+			`Parse error: ${err instanceof Error ? err.message : "Unknown error"}`,
+		);
 		return {
 			jobId,
 			conversationIds,
@@ -173,24 +216,15 @@ export async function importConversations(
 
 	const totalConversations = parseResult.conversations.length;
 
-	await db
-		.update(importJobs)
-		.set({ totalConversations, updatedAt: new Date() })
-		.where(eq(importJobs.id, jobId));
-
-	if (totalConversations === 0) {
-		await db
-			.update(importJobs)
-			.set({
-				status: "completed",
-				errorLog: errors.length > 0 ? JSON.stringify(errors) : null,
-				updatedAt: new Date(),
-			})
-			.where(eq(importJobs.id, jobId));
-		return { jobId, conversationIds, errors };
-	}
-
 	for (let i = 0; i < totalConversations; i++) {
+		// Before each conversation the row moves, which is how a running import
+		// is told from a stopped one, and an import whose row was settled
+		// meanwhile stops here, before it makes anything else.
+		writeImportProgress(jobId, {
+			totalConversations,
+			processedConversations: i,
+		});
+
 		const conv = parseResult.conversations[i];
 		try {
 			const conversation = await createConversation(
@@ -228,6 +262,12 @@ export async function importConversations(
 					);
 				}
 
+				await queueImportedConversationForMemoryJudge(userId, conversation.id);
+
+				// Not tracked, so a restart loses the vectors not yet written, and
+				// memory maintenance's backfill does not rebuild them. Harmless while
+				// nothing reads an imported conversation's vector, which
+				// embeddings.test.ts holds.
 				generateImportEmbeddings(
 					conversation.id,
 					userId,
@@ -239,19 +279,6 @@ export async function importConversations(
 						err instanceof Error ? err.message : String(err),
 					);
 				});
-
-				summarizeAndStoreConversation(
-					userId,
-					conversation.id,
-					conv.messages,
-					conv.title || "Imported Conversation",
-				).catch((summarizeErr) => {
-					console.error(
-						"[CHATGPT_IMPORT] Summarization failed for conversation",
-						conversation.id,
-						summarizeErr,
-					);
-				});
 			}
 		} catch (err) {
 			errors.push({
@@ -260,22 +287,20 @@ export async function importConversations(
 			});
 		}
 
-		await db
-			.update(importJobs)
-			.set({ processedConversations: i + 1, updatedAt: new Date() })
-			.where(eq(importJobs.id, jobId));
-
 		options.onProgress?.(i + 1, totalConversations);
 	}
 
-	await db
-		.update(importJobs)
-		.set({
-			status: "completed",
-			errorLog: errors.length > 0 ? JSON.stringify(errors) : null,
-			updatedAt: new Date(),
-		})
-		.where(eq(importJobs.id, jobId));
+	completeImportRow(jobId, {
+		processedConversations: totalConversations,
+		errors,
+	});
+
+	// The summaries: one model call per conversation, written in the background
+	// one at a time. What a restart cuts short is still owed, and memory
+	// maintenance starts the drain again (owed-summaries.ts).
+	if (conversationIds.length > 0) {
+		void startImportedSummaryDrain(userId);
+	}
 
 	return { jobId, conversationIds, errors };
 }

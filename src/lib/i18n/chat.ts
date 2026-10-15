@@ -414,6 +414,8 @@ const chatDict = {
 			"Retry keeps the plan and the sources already read.",
 		"atlasActivity.retryPrompt":
 			"Retry the research plan and keep the sources already read.",
+		"chatgptImport.alreadyRunning":
+			"An import is already running. Wait for it to finish, then try again.",
 		"chatgptImport.back": "Back",
 		"chatgptImport.cancel": "Cancel",
 		"chatgptImport.chatsFound": "{count} conversations found",
@@ -1535,6 +1537,8 @@ const chatDict = {
 			"Az újrafutás megtartja a tervet és a már beolvasott forrásokat.",
 		"atlasActivity.retryPrompt":
 			"Futtasd újra a kutatási tervet, és tartsd meg a már beolvasott forrásokat.",
+		"chatgptImport.alreadyRunning":
+			"Már fut egy importálás. Várd meg a végét, aztán próbáld újra.",
 		"chatgptImport.back": "Vissza",
 		"chatgptImport.cancel": "Mégse",
 		"chatgptImport.chatsFound": "{count} beszélgetés található",

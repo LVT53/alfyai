@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChatGptImportTestHarness } from "./index.test-helpers";
-import type { ParsedMessage } from "./parser";
+import type { ParsedMessage, ParseResult } from "./parser";
 
 let dbPath: string;
 
@@ -15,6 +15,12 @@ vi.mock("./parser", async () => {
 
 vi.mock("./embeddings", () => ({
 	generateImportEmbeddings: vi.fn(async () => undefined),
+}));
+
+// The summaries are model calls that outlive the request; here their drain
+// never finishes, as a restart would leave it.
+vi.mock("./owed-summaries", () => ({
+	startImportedSummaryDrain: vi.fn(() => new Promise<void>(() => {})),
 }));
 type ChatGptImportTestHarness = ReturnType<
 	typeof createChatGptImportTestHarness
@@ -192,6 +198,27 @@ describe("importConversations", () => {
 		const job = harness.readImportJob(result.jobId);
 		expect(job?.status).toBe("failed");
 		expect(job?.errorLog).toContain("Invalid ZIP format");
+	});
+
+	it("marks its row failed, in plain words, when it throws after starting", async () => {
+		harness.seedUser();
+
+		await expect(
+			runImport({
+				conversations: [harness.makeParsedConversation()],
+				importOptions: {
+					onProgress: () => {
+						throw new Error("disk full");
+					},
+				},
+			}),
+		).rejects.toThrow("disk full");
+
+		const [job] = harness.readImportJobsForUser();
+		expect(job).toMatchObject({
+			status: "failed",
+			errorLog: "Import failed: disk full",
+		});
 	});
 
 	it("returns parser-level errors alongside successful conversations", async () => {
@@ -457,5 +484,191 @@ describe("importConversations", () => {
 			"Embeddable Chat",
 			parsed.messages,
 		);
+	});
+
+	it("queues every imported conversation for the memory judge before it answers", async () => {
+		harness.seedUser();
+		const branchMessages: ParsedMessage[] = [
+			{ role: "user", content: "Hello" },
+			{ role: "assistant", content: "Another answer" },
+		];
+		const result = await runImport({
+			conversations: [
+				harness.makeParsedConversation({
+					title: "With a fork",
+					branches: [
+						harness.makeBranch("div-1", "branch-1", 0.5, branchMessages),
+					],
+				}),
+				harness.makeParsedConversation({ title: "Plain" }),
+			],
+		});
+
+		// The judge reads the messages, not the summary, and its queue row is
+		// durable: a summary the restart never let finish keeps no conversation
+		// from it. The forks stay out, as before.
+		expect(harness.readConversationsQueuedForJudge()).toEqual(
+			[...result.conversationIds].sort(),
+		);
+	});
+
+	it("starts writing the summaries once its conversations are stored", async () => {
+		harness.seedUser();
+		const { startImportedSummaryDrain } = await import("./owed-summaries");
+
+		await runImport({
+			conversations: [
+				harness.makeParsedConversation({ title: "A" }),
+				harness.makeParsedConversation({ title: "B" }),
+			],
+		});
+
+		// One drain for the person, one model call at a time, not one detached
+		// call per conversation.
+		expect(startImportedSummaryDrain).toHaveBeenCalledTimes(1);
+		expect(startImportedSummaryDrain).toHaveBeenCalledWith("test-user");
+	});
+
+	it("starts no summaries when it imported nothing", async () => {
+		harness.seedUser();
+		const { startImportedSummaryDrain } = await import("./owed-summaries");
+
+		await runImport({ zipName: "empty-zip" });
+
+		expect(startImportedSummaryDrain).not.toHaveBeenCalled();
+	});
+
+	describe("one import per person at a time", () => {
+		it("refuses a second import while the first is still reading its export", async () => {
+			harness.seedUser();
+			const { parseConversationsJson } = await import("./parser");
+			const { ChatGptImportAlreadyRunningError, importConversations } =
+				await import("./index");
+			let finishReading: (result: ParseResult) => void = () => {};
+			vi.mocked(parseConversationsJson).mockReturnValueOnce(
+				new Promise<ParseResult>((resolve) => {
+					finishReading = resolve;
+				}),
+			);
+
+			const first = importConversations("test-user", Buffer.from("first"));
+			await vi.waitFor(() =>
+				expect(parseConversationsJson).toHaveBeenCalledTimes(1),
+			);
+
+			await expect(
+				importConversations("test-user", Buffer.from("second")),
+			).rejects.toBeInstanceOf(ChatGptImportAlreadyRunningError);
+			// The refused import read nothing and left no row of its own.
+			expect(parseConversationsJson).toHaveBeenCalledTimes(1);
+			expect(harness.readImportJobsForUser()).toHaveLength(1);
+
+			finishReading({
+				conversations: [harness.makeParsedConversation()],
+				errors: [],
+			});
+			const result = await first;
+			expect(harness.readImportJob(result.jobId)?.status).toBe("completed");
+
+			// Once the first has finished, the next one runs.
+			vi.mocked(parseConversationsJson).mockResolvedValueOnce({
+				conversations: [harness.makeParsedConversation()],
+				errors: [],
+			});
+			const next = await importConversations("test-user", Buffer.from("next"));
+			expect(harness.readImportJob(next.jobId)?.status).toBe("completed");
+		});
+
+		it("refuses an import while a row of the person's still says processing", async () => {
+			harness.seedUser();
+			harness.seedImportJob({ id: "first", status: "processing" });
+			const { parseConversationsJson } = await import("./parser");
+			const { ChatGptImportAlreadyRunningError } = await import("./index");
+
+			await expect(
+				runImport({ conversations: [harness.makeParsedConversation()] }),
+			).rejects.toBeInstanceOf(ChatGptImportAlreadyRunningError);
+			expect(parseConversationsJson).not.toHaveBeenCalled();
+			expect(harness.readImportJobsForUser().map((job) => job.id)).toEqual([
+				"first",
+			]);
+			expect(harness.readImportJob("first")?.status).toBe("processing");
+		});
+
+		it("names the words the browser shows for the refusal", async () => {
+			const { ChatGptImportAlreadyRunningError } = await import("./index");
+
+			expect(new ChatGptImportAlreadyRunningError().errorKey).toBe(
+				"chatgptImport.alreadyRunning",
+			);
+		});
+
+		it("lets one person import while another person's import runs", async () => {
+			harness.seedUser();
+			harness.seedUser("other-user", "other@example.com");
+			harness.seedImportJob({
+				id: "theirs",
+				userId: "other-user",
+				status: "processing",
+			});
+
+			const result = await runImport({
+				conversations: [harness.makeParsedConversation()],
+			});
+
+			expect(harness.readImportJob(result.jobId)?.status).toBe("completed");
+			expect(harness.readImportJob("theirs")?.status).toBe("processing");
+		});
+
+		it("settles an import that has written nothing for half an hour, then runs the new one", async () => {
+			harness.seedUser();
+			harness.seedImportJob({
+				id: "gone-quiet",
+				status: "processing",
+				updatedAt: new Date(Date.now() - 31 * 60_000),
+			});
+			const { INTERRUPTED_IMPORT_LOG } = await import("./import-row");
+
+			const result = await runImport({
+				conversations: [harness.makeParsedConversation()],
+			});
+
+			expect(harness.readImportJob("gone-quiet")).toMatchObject({
+				status: "failed",
+				errorLog: INTERRUPTED_IMPORT_LOG,
+			});
+			expect(harness.readImportJob(result.jobId)?.status).toBe("completed");
+		});
+
+		it("stops an import whose row was settled under it, before its next conversation", async () => {
+			harness.seedUser();
+			const {
+				ChatGptImportInterruptedError,
+				INTERRUPTED_IMPORT_LOG,
+				settleInterruptedImports,
+			} = await import("./import-row");
+
+			await expect(
+				runImport({
+					conversations: [
+						harness.makeParsedConversation({ title: "First" }),
+						harness.makeParsedConversation({ title: "Second" }),
+					],
+					importOptions: {
+						onProgress: (processed) => {
+							if (processed === 1) settleInterruptedImports();
+						},
+					},
+				}),
+			).rejects.toBeInstanceOf(ChatGptImportInterruptedError);
+
+			// The row says what settled it, not what the stopped import thought.
+			const [job] = harness.readImportJobsForUser();
+			expect(job).toMatchObject({
+				status: "failed",
+				errorLog: INTERRUPTED_IMPORT_LOG,
+			});
+			expect(harness.countConversations()).toBe(1);
+		});
 	});
 });

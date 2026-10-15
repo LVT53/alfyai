@@ -317,6 +317,16 @@ async function performUserMemoryMaintenance(
 		}
 	}
 
+	// The summaries a ChatGPT import still owes, if a restart stopped its drain.
+	// This only starts the drain: it runs in the background, one model call at a
+	// time, and does nothing when nothing is owed.
+	await safe("resume imported summaries", async () => {
+		const { startImportedSummaryDrain } = await import(
+			"./chatgpt-import/owed-summaries"
+		);
+		void startImportedSummaryDrain(userId);
+	});
+
 	await safe("prune checkpoints", () => pruneTaskCheckpoints(userId));
 	await safe("archive stale tasks", () => archiveStaleTaskMemory(userId));
 

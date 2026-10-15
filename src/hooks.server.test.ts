@@ -10,6 +10,7 @@ const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockStartJobs = vi.fn(async () => undefined);
 const mockStopJobs = vi.fn();
+const mockSettleInterruptedImports = vi.fn(() => 0);
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const fileProductionJobStub = {
@@ -95,6 +96,10 @@ vi.mock("$lib/server/services/jobs", () => ({
 	stopJobs: mockStopJobs,
 }));
 
+vi.mock("$lib/server/services/chatgpt-import/import-row", () => ({
+	settleInterruptedImports: mockSettleInterruptedImports,
+}));
+
 function deferred<T = undefined>() {
 	let resolve!: (value: T | PromiseLike<T>) => void;
 	const promise = new Promise<T>((res) => {
@@ -143,6 +148,7 @@ describe("hooks.server.ts", () => {
 		mockRefreshConfig.mockResolvedValue(undefined);
 		mockEnsureRuntimeSchemaCompatibility.mockResolvedValue(undefined);
 		mockStartJobs.mockResolvedValue(undefined);
+		mockSettleInterruptedImports.mockReturnValue(0);
 	});
 
 	it("allows public routes without a session", async () => {
@@ -236,6 +242,40 @@ describe("hooks.server.ts", () => {
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockStartJobs.mock.invocationCallOrder[0]);
+	});
+
+	it("settles the ChatGPT imports a restart interrupted, once the schema is ready", async () => {
+		const { init } = await import("./hooks.server");
+
+		await init();
+
+		// An import runs inside its request, so after a restart nothing is left
+		// to finish a row that still says `processing`.
+		expect(mockSettleInterruptedImports).toHaveBeenCalledOnce();
+		expect(
+			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
+		).toBeLessThan(mockSettleInterruptedImports.mock.invocationCallOrder[0]);
+	});
+
+	it("still boots when settling interrupted ChatGPT imports fails", async () => {
+		mockSettleInterruptedImports.mockImplementation(() => {
+			throw new Error("database is locked");
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const { init } = await import("./hooks.server");
+
+		try {
+			await expect(init()).resolves.toBeUndefined();
+			expect(mockStartJobs).toHaveBeenCalledOnce();
+			expect(consoleError).toHaveBeenCalledWith(
+				"Failed to settle interrupted ChatGPT imports:",
+				expect.any(Error),
+			);
+		} finally {
+			consoleError.mockRestore();
+		}
 	});
 
 	it("waits for runtime config refresh before resolving the first request", async () => {

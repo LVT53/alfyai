@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	ChatGptImportAlreadyRunningError,
 	ChatGptImportProjectAccessError,
 	importConversations,
 } from "$lib/server/services/chatgpt-import";
@@ -50,6 +51,12 @@ export const POST: RequestHandler = async (event) => {
 		});
 		return json(result);
 	} catch (err) {
+		if (err instanceof ChatGptImportAlreadyRunningError) {
+			return json(
+				{ error: err.message, errorKey: err.errorKey },
+				{ status: 409 },
+			);
+		}
 		if (err instanceof ChatGptImportProjectAccessError) {
 			return json({ error: err.message }, { status: 400 });
 		}

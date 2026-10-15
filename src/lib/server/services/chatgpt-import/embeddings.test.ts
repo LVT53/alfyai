@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -183,5 +185,42 @@ describe("generateImportEmbeddings", () => {
 		expect(sourceText).toContain("Title: Long Chat");
 		expect(sourceText).toContain("user: Message content 0");
 		expect(sourceText).toContain("assistant: Message content 49");
+	});
+});
+
+// The import writes these vectors in the background and nothing tracks them,
+// so a restart loses the ones not yet written, and memory maintenance's
+// backfill does not rebuild them (it rebuilds artifact and task-state vectors
+// only). That is harmless only while nothing reads them. A reader of the
+// `imported_conversation` subject must first make the vectors recoverable (a
+// backfill, or a check that the vector exists), then join the list below.
+describe("imported_conversation vectors", () => {
+	const SRC = join(process.cwd(), "src");
+	const NAMING_FILES = [
+		// The subject type itself.
+		"lib/server/services/semantic-embeddings.ts",
+		// The one writer.
+		"lib/server/services/chatgpt-import/embeddings.ts",
+	];
+
+	function sourceFiles(directory: string): string[] {
+		return readdirSync(directory).flatMap((name) => {
+			const path = join(directory, name);
+			if (statSync(path).isDirectory()) return sourceFiles(path);
+			const isSource = /\.(ts|js|svelte)$/.test(name);
+			const isTest = /\.test(-helpers)?\.ts$/.test(name);
+			return isSource && !isTest ? [path] : [];
+		});
+	}
+
+	it("are named by nothing but their type and their writer, so their loss is harmless", () => {
+		const naming = sourceFiles(SRC)
+			.filter((path) =>
+				readFileSync(path, "utf8").includes("imported_conversation"),
+			)
+			.map((path) => relative(SRC, path).split(sep).join("/"))
+			.sort();
+
+		expect(naming).toEqual([...NAMING_FILES].sort());
 	});
 });
