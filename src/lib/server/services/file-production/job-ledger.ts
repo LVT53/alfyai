@@ -187,7 +187,7 @@ export async function createFileProductionJob(
 		userId: input.userId,
 		title: input.title,
 		status: "queued",
-		stage: null,
+		phase: null,
 		origin: input.origin,
 		currentAttemptId: null,
 		retryable: false,
@@ -316,7 +316,7 @@ export async function createFailedFileProductionJob(
 			userId: input.userId,
 			title: input.title,
 			status: "failed",
-			stage: null,
+			phase: null,
 			origin: input.origin,
 			currentAttemptId: null,
 			retryable: input.retryable,
@@ -396,7 +396,7 @@ function mapJobRow(
 		assistantMessageId: job.assistantMessageId,
 		title: job.title,
 		status: job.status as FileProductionJob["status"],
-		stage: job.stage,
+		stage: job.phase,
 		createdAt: job.createdAt.getTime(),
 		updatedAt: job.updatedAt.getTime(),
 		files,
@@ -450,7 +450,7 @@ export async function claimNextFileProductionJob(
 				jobId: queuedJob.id,
 				attemptNumber,
 				status: "running",
-				stage: queuedJob.stage,
+				phase: queuedJob.phase,
 				workerId: input.workerId,
 				claimedAt: now,
 				heartbeatAt: now,
@@ -501,7 +501,7 @@ export async function claimNextFileProductionJob(
 				jobId: queuedJob.id,
 				attemptNumber,
 				status: "running",
-				stage: queuedJob.stage,
+				stage: queuedJob.phase,
 				workerId: input.workerId,
 				claimedAt: now,
 				heartbeatAt: now,
@@ -625,7 +625,7 @@ export async function failFileProductionJobAttempt(
 		tx.update(fileProductionJobs)
 			.set({
 				status: "failed",
-				stage: null,
+				phase: null,
 				retryable: input.retryable,
 				errorCode: input.errorCode,
 				errorMessage: input.errorMessage,
@@ -698,7 +698,7 @@ export async function recoverStaleFileProductionAttempts(
 			tx.update(fileProductionJobs)
 				.set({
 					status: "failed",
-					stage: null,
+					phase: null,
 					retryable: true,
 					errorCode: "worker_heartbeat_timeout",
 					errorMessage: "File production worker stopped before finishing.",
@@ -806,7 +806,7 @@ export async function reclaimDeadWorkerFileProductionAttempts(
 			tx.update(fileProductionJobs)
 				.set({
 					status: "failed",
-					stage: null,
+					phase: null,
 					retryable: true,
 					errorCode: "worker_heartbeat_timeout",
 					errorMessage: DEAD_WORKER_ERROR_MESSAGE,
@@ -889,7 +889,7 @@ export async function reconcileStaleFileProductionJobs(
 				.update(fileProductionJobs)
 				.set({
 					status: "failed",
-					stage: null,
+					phase: null,
 					retryable: true,
 					errorCode: "worker_queue_timeout",
 					errorMessage:
@@ -962,7 +962,7 @@ export async function reconcileStaleFileProductionJobs(
 				.update(fileProductionJobs)
 				.set({
 					status: "failed",
-					stage: null,
+					phase: null,
 					retryable: true,
 					errorCode: "worker_state_lost",
 					errorMessage:
@@ -1029,7 +1029,7 @@ export async function reconcileStaleFileProductionJobs(
 			tx.update(fileProductionJobs)
 				.set({
 					status: "failed",
-					stage: null,
+					phase: null,
 					retryable: true,
 					errorCode: "worker_heartbeat_timeout",
 					errorMessage: "File production worker stopped before finishing.",
@@ -1079,7 +1079,7 @@ export async function retryFileProductionJob(
 		tx.update(fileProductionJobs)
 			.set({
 				status: "queued",
-				stage: null,
+				phase: null,
 				currentAttemptId: null,
 				retryable: false,
 				errorCode: null,
@@ -1155,7 +1155,7 @@ export async function regenerateFileProductionJob(
 		tx.update(fileProductionJobs)
 			.set({
 				status: "queued",
-				stage: null,
+				phase: null,
 				currentAttemptId: null,
 				retryable: false,
 				dismissed: false,
@@ -1227,7 +1227,7 @@ export async function cancelFileProductionJob(
 		tx.update(fileProductionJobs)
 			.set({
 				status: "cancelled",
-				stage: null,
+				phase: null,
 				retryable: false,
 				errorCode: null,
 				errorMessage: null,
@@ -1425,7 +1425,7 @@ export async function completeFileProductionJobAttempt(input: {
 		tx.update(fileProductionJobs)
 			.set({
 				status: "succeeded",
-				stage: null,
+				phase: null,
 				retryable: false,
 				errorCode: null,
 				errorMessage: null,

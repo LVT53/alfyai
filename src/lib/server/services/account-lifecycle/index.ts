@@ -302,7 +302,7 @@ async function cancelActiveFileProductionForUser(
 		tx.update(fileProductionJobs)
 			.set({
 				status: "cancelled",
-				stage: null,
+				phase: null,
 				retryable: false,
 				errorCode: null,
 				errorMessage: null,

@@ -707,7 +707,7 @@ function copyGeneratedWorkSnapshot(params: {
 				userId: params.userId,
 				title: sourceJob.title,
 				status: sourceJob.status,
-				stage: sourceJob.stage,
+				phase: sourceJob.phase,
 				origin: sourceJob.origin,
 				currentAttemptId: null,
 				retryable: sourceJob.retryable,

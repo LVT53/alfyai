@@ -78,7 +78,7 @@ async function seedJob(input: {
 		userId: input.userId ?? "user-1",
 		title: input.title ?? `Job ${input.id}`,
 		status: input.status,
-		stage: null,
+		phase: null,
 		origin: input.origin ?? "unified_produce",
 		errorCode: input.errorCode ?? null,
 		errorMessage: input.errorMessage ?? null,
