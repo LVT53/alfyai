@@ -52,6 +52,30 @@ function lastUserText(body: unknown): string {
 		.join("\n");
 }
 
+/**
+ * The heading the app puts before the current message in its context bundle. The app
+ * does not send the conversation as messages: it sends ONE user message whose sections
+ * hold, among other things, the finished tasks of the user's OTHER conversations with
+ * their request text, and last of all "## Current User Message".
+ */
+const CURRENT_USER_MESSAGE_HEADING = "## Current User Message\n";
+
+/**
+ * What the reader typed THIS turn: the current message's own section of the last user
+ * message, and the whole text when there is no bundle. A scenario belongs to this turn's
+ * message and to nothing the request merely carries, so a PDF turn's request text in the
+ * bundle of a later turn (a board edit, say, on the same worker's server) does not hijack
+ * it (the provider's own scenarios read the message the same way: `currentTurnText`).
+ */
+function currentTurnText(body: unknown): string {
+	const text = lastUserText(body);
+	const start = text.lastIndexOf(CURRENT_USER_MESSAGE_HEADING);
+	if (start === -1) return text;
+	const section = text.slice(start + CURRENT_USER_MESSAGE_HEADING.length);
+	const end = section.indexOf("\n\n## ");
+	return end === -1 ? section : section.slice(0, end);
+}
+
 /** The id of the call the last message answers, when the last message is a tool result. */
 function answeredCallId(body: unknown): string | null {
 	const last = messagesOf(body).at(-1);
@@ -304,7 +328,7 @@ export function scriptedChatTurnReply(
 	) {
 		return null;
 	}
-	const asked = lastUserText(body);
+	const asked = currentTurnText(body);
 	if (asked.includes(AI_SMOKE_PRODUCE_PDF_MARKER)) return producePdfReply(body);
 	const mode = decodeItemTurnMode(asked);
 	if (mode) return itemTurnReply(body, mode);
