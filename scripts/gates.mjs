@@ -230,7 +230,20 @@ export function defineSteps(args) {
 			after: ["build"],
 			parse: parseVitestLog,
 		},
-		build: { cmd: ["npm", "run", "build"], parse: parseBuildLog },
+		// SvelteKit's post-build `analyse` pass imports every server module, and
+		// src/lib/server/db/index.ts opens DATABASE_PATH when it is imported. A fresh checkout has
+		// no ./data/ (git ignores it, and the e2e setup makes it only after the build) and
+		// better-sqlite3 will not make a directory, so the default path failed this step with
+		// "Cannot open database because the directory does not exist". The build gets a scratch
+		// file in the gate's own out-dir instead: that directory exists by construction, and the
+		// build no longer opens (or creates) a developer's real data/chat.db, the rule
+		// src/vitest-setup.ts keeps for the tests. Nothing of it is built in: the server reads
+		// DATABASE_PATH when it starts.
+		build: {
+			cmd: ["npm", "run", "build"],
+			env: { DATABASE_PATH: join(args.outDir, "build-analyse.db") },
+			parse: parseBuildLog,
+		},
 		chunks: {
 			cmd: ["npm", "run", "check:artifact-chunks"],
 			after: ["build"],

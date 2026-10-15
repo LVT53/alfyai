@@ -21,6 +21,18 @@ import {
 // chunk check on this branch), because a reader that stops understanding its log
 // turns a gate green by saying nothing.
 
+// What a gate run is made from, as parseArgs makes it.
+const options = {
+	mode: "release",
+	outDir: "/somewhere/outside/the/repo",
+	workers: undefined,
+	port: undefined,
+	skip: new Set(),
+	fallowBaseline: "/tmp/none.json",
+	schedule: "overlap",
+	specs: [],
+};
+
 describe("the check step", () => {
 	it("reads svelte-check's closing line and passes a clean one", () => {
 		expect(
@@ -109,6 +121,17 @@ describe("the build step", () => {
 	it("no longer lets through the 32 and 2 it was once held at", () => {
 		expect(parseBuildLog(lines(32, 2)).ok).toBe(false);
 	});
+
+	// The analyse pass at the end of `npm run build` imports the server, which opens
+	// DATABASE_PATH. On a fresh checkout ./data/ does not exist (the e2e setup makes it, after
+	// the build) and the default path failed the step: "Cannot open database because the
+	// directory does not exist". So the step opens a file in the out-dir, which the gate made.
+	it("builds against a scratch database in the out-dir, so a checkout without data/ builds", () => {
+		const { env } = defineSteps(options).build;
+		expect(env.DATABASE_PATH).toBe(
+			"/somewhere/outside/the/repo/build-analyse.db",
+		);
+	});
 });
 
 describe("the chunks step", () => {
@@ -149,16 +172,6 @@ describe("the chunks step", () => {
 // So the step names the release package.json pins, and says where the report goes: stdout,
 // because Fallow 3 refuses `--output-file` outside the project root and the system temp dir.
 describe("the Fallow step", () => {
-	const options = {
-		mode: "release",
-		outDir: "/somewhere/outside/the/repo",
-		workers: undefined,
-		port: undefined,
-		skip: new Set(),
-		fallowBaseline: "/tmp/none.json",
-		schedule: "overlap",
-		specs: [],
-	};
 	const pinned = JSON.parse(
 		readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
 	).devDependencies.fallow;
