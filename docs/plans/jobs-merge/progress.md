@@ -35,7 +35,7 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | S3 extraction | done, merged `7416f58c4` | Sonnet, 392k tokens, 78 min; gates at `7b97e2e27`: check 0/17, vitest 19,205, Playwright 74/74, Fallow 0 new. After the merge with the touch-ups: 84 files / 1,426 tests pass (jobs, extraction, atlas, mineru integration, backfill script, db). `db/compat.ts` joined ALLOWED (the shim). The reverse SQL stays manual |
 | S2b touch-ups | done, merged `e742522d9` | Sonnet, 498k tokens, 29 min, 6 fixes test-first; gates at `2772f8ff7`: vitest 19,219, Playwright 27/27. Extraction and file production keep their own dead-worker check until S3/S4 remove it |
 | S4 file production | running (Sonnet, branch `jobs/s4-file-production`) | Coordination checked 2026-10-15 03:05 UTC: the upload-analysis session (local_3cfe1b3e) last ran 2026-10-14 18:47, has no branch or worktree, and no branch but this run's touches `file-production/`. Nothing in flight; S4 may go after S3 |
-| R2 | running | Opus, branch `jobs/r2-data-review`: migrations 114/115, the shim, the rollbacks, the cutover; migration 116 checked by the orchestrator after S4 |
+| R2 | done, merged `262d6e56e` | Opus, 585k tokens, 30 min. Fixed: Re-extract's per-user cap counted cancelled re-extractions as in flight (the browser helper's `canceled`); the rollback runbook could half-commit (now `sqlite3 -bail`, run from the rolled-back release, better-sqlite3 fallback); the reverse SQL now merges outage waits. Added a full rollback round-trip test. Migration 116 is the orchestrator's to check after S4 |
 | Ship | not started | |
 
 ## Budget log
@@ -48,3 +48,11 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | 2026-10-15 03:00 | 79 | 58 | S2 merged; S3 and the touch-up agent dispatched together |
 | 2026-10-15 04:21 | 82 | 85 | S3 merged; S4 held until the 5-hour window resets at 04:50 |
 | 2026-10-15 04:50 | 82 | 0 (reset) | S4 and R2 dispatched side by side |
+
+## Deploy notes (from R2)
+
+- The window between `db:prepare` and the new process is up to the 7b drain (120 s) plus the service stop (up to 120 s).
+- If `deploy-dev.sh` cannot restart the service without a password (`Could not restart … without a password`), it carries on and the OLD release keeps serving the migrated database. Its in-flight extractions then stay `running` and cancelled cards look unfinished until a restart. Confirm the restart in the deploy output; if it was refused, restart the service (ask the owner if the command is blocked) before testing.
+- After an automatic rollback, until `rollback-extraction.sql` has run: attachments of `running`/`cancelled` documents say "still preparing", and re-uploading a cancelled document does not retry it. Nothing is corrupted.
+- Accepted: a Retry or Re-extract pressed in the previous release during the window, on a job in an open outage window, can leave a stale `since` in `retry_state_json` (a later outage may fail it early; still user-retryable).
+- Cleanup later: `prepare-db.ts` should require Atlas's seven new columns; drop the old extraction `claim_idx`, Atlas's dead columns and the shim.
