@@ -108,6 +108,24 @@ export function notifyTransition(
 	runInTransaction((inner) => hook(inner, row, to), tx, "onTransition");
 }
 
+/**
+ * `notifyTransition`, then the row as the hook left it. The hook may write the
+ * kind's own columns (Atlas's `stage`), so a row read before it ran is not the
+ * row a caller should be handed back: it would show those columns as they were.
+ */
+function transitionedRow(
+	kind: JobKind,
+	tx: Tx,
+	row: ShapeRow,
+	to: JobStatus,
+): ShapeRow {
+	const { jobs, definition } = internalsOf(kind);
+	notifyTransition(definition, tx, row, to);
+	// Without a hook nothing can have changed since the row was read.
+	if (!definition.onTransition) return row;
+	return tx.select().from(jobs).where(eq(jobs.id, row.id)).get() ?? row;
+}
+
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
@@ -232,11 +250,13 @@ export function enqueueJob<J extends JobTable>(
 					updatedAt: now,
 				} as typeof jobs.$inferInsert)
 				.run();
-			const row = tx.select().from(jobs).where(eq(jobs.id, id)).get();
-			if (!row)
+			const inserted = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+			if (!inserted)
 				throw new Error(`Enqueued ${definition.name} job ${id} disappeared.`);
-			notifyTransition(definition, tx, row, status);
-			return { row, reused: false };
+			return {
+				row: transitionedRow(kind, tx, inserted, status),
+				reused: false,
+			};
 		});
 
 	let result: { row: ShapeRow; reused: boolean };
@@ -422,8 +442,10 @@ export function claimNext(
 
 			const row = tx.select().from(jobs).where(eq(jobs.id, candidate.id)).get();
 			if (!row || row.currentAttemptId !== attemptId) return null;
-			notifyTransition(definition, tx, row, "running");
-			return { row, attempt: { id: attemptId, number: attemptNumber } };
+			return {
+				row: transitionedRow(kind, tx, row, "running"),
+				attempt: { id: attemptId, number: attemptNumber },
+			};
 		}
 
 		return null;
@@ -914,7 +936,7 @@ function cancelInTx(
 	job: ShapeRow,
 	now: Date,
 ): { row: ShapeRow; abortAttemptId: string | null } | null {
-	const { jobs, attempts, definition } = internalsOf(kind);
+	const { jobs, attempts } = internalsOf(kind);
 	const wasRunning = job.status === "running";
 
 	const settled = tx
@@ -955,9 +977,8 @@ function cancelInTx(
 
 	const row = tx.select().from(jobs).where(eq(jobs.id, job.id)).get();
 	if (!row) return null;
-	notifyTransition(definition, tx, row, "cancelled");
 	return {
-		row,
+		row: transitionedRow(kind, tx, row, "cancelled"),
 		abortAttemptId: wasRunning ? job.currentAttemptId : null,
 	};
 }
@@ -1087,8 +1108,7 @@ export function retry<J extends JobTable>(
 		if (updated.changes === 0) return null;
 
 		const row = tx.select().from(jobs).where(eq(jobs.id, jobId)).get();
-		if (row) notifyTransition(definition, tx, row, "queued");
-		return row ?? null;
+		return row ? transitionedRow(kind, tx, row, "queued") : null;
 	});
 	return reopened as unknown as Row<J> | null;
 }
@@ -1107,7 +1127,7 @@ export function reopen<J extends JobTable>(
 	input: ReopenInput<J>,
 	now: Date = new Date(),
 ): Row<J> | null {
-	const { jobs, definition } = internalsOf(kind);
+	const { jobs } = internalsOf(kind);
 	const reopened = db.transaction((tx) => {
 		const job = tx
 			.select()
@@ -1148,8 +1168,7 @@ export function reopen<J extends JobTable>(
 		if (updated.changes === 0) return null;
 
 		const row = tx.select().from(jobs).where(eq(jobs.id, jobId)).get();
-		if (row) notifyTransition(definition, tx, row, "queued");
-		return row ?? null;
+		return row ? transitionedRow(kind, tx, row, "queued") : null;
 	});
 	return reopened as unknown as Row<J> | null;
 }

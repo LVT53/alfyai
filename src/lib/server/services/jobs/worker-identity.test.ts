@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	belongsToDeadProcess,
 	createWorkerId,
@@ -93,17 +93,35 @@ describe("belongsToDeadProcess", () => {
 		).toBe(false);
 	});
 
-	it("tells an earlier boot that had this pid from this boot", () => {
-		// Same pid, a different boot nonce: the earlier process of that number is
-		// gone. Whether the pid is alive is the process table's answer (it is: it
-		// is us), and the conservative reading of a live pid is a live worker.
-		expect(belongsToDeadProcess(foreign(process.pid), self, here)).toBe(false);
-		expect(belongsToDeadProcess(foreign(process.pid), self, gone)).toBe(true);
+	it("reads an id from an earlier boot of this pid as dead, without asking the process table", () => {
+		// Same host, same pid, another boot nonce: a previous process that had the
+		// number we have now. The process table would answer "alive" (it is us), and
+		// under a container the pid is 1 on every boot, so it must not be asked.
+		const asked = vi.fn(() => true);
+
+		expect(belongsToDeadProcess(foreign(process.pid), self, asked)).toBe(true);
+		expect(belongsToDeadProcess(foreign(process.pid), self, here)).toBe(true);
+		expect(asked).not.toHaveBeenCalled();
+	});
+
+	it("reads an id from this boot of this pid as alive, whatever the process table says", () => {
+		const ours = foreign(process.pid, self?.nonce);
+
+		expect(belongsToDeadProcess(ours, self, here)).toBe(false);
+		expect(belongsToDeadProcess(ours, self, gone)).toBe(false);
 	});
 
 	it("leaves another host's ids alone: its process table is not ours to read", () => {
 		expect(
 			belongsToDeadProcess("test:another-box:999999:old-boot", self, gone),
+		).toBe(false);
+		// Not even one that has our pid and another boot nonce.
+		expect(
+			belongsToDeadProcess(
+				`test:another-box:${process.pid}:old-boot`,
+				self,
+				gone,
+			),
 		).toBe(false);
 	});
 

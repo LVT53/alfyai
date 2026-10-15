@@ -1171,6 +1171,119 @@ describe("reopen", () => {
 	});
 });
 
+describe("the row the engine hands back after the kind's onTransition", () => {
+	// The hook runs inside the transaction that makes the transition and may write
+	// the kind's own columns (Atlas's `stage`). A caller that shows the row it gets
+	// back must see those columns as the hook left them, not as they were when the
+	// row was read, before the hook ran. Here the hook writes the `label` column.
+	beforeEach(() => {
+		h.control.definition.userRetry = { from: ["failed", "cancelled"] };
+		h.control.transitionHook = (tx, row, to) => {
+			tx.update(testJobs)
+				.set({ label: `hook:${to}` })
+				.where(eq(testJobs.id, row.id))
+				.run();
+		};
+	});
+
+	it("enqueue returns the job with the hook's write", async () => {
+		const { row } = await h.engine.enqueue(h.control.kind, {
+			values: { userId: h.userId },
+		});
+
+		expect(row.label).toBe("hook:queued");
+		expect(row).toEqual(job(row.id));
+	});
+
+	it("the claim returns the job with the hook's write", async () => {
+		const { row } = await h.engine.enqueue(h.control.kind, {
+			values: { userId: h.userId },
+		});
+
+		const claimed = h.ledger.claimNext(h.control.kind, { workerId: WORKER });
+
+		// The claim's row is the one stored, hook's write included.
+		expect(job(row.id).label).toBe("hook:running");
+		expect(claimed?.row).toEqual(job(row.id));
+	});
+
+	it("the handler's row has the hook's write", async () => {
+		let seen: string | null | undefined;
+		h.control.run = async (ctx) => {
+			seen = ctx.row.label;
+			await ctx.succeed();
+		};
+		await h.engine.enqueue(h.control.kind, { values: { userId: h.userId } });
+
+		await h.engine.drain(h.control.kind);
+
+		expect(seen).toBe("hook:running");
+	});
+
+	it("cancel returns the job with the hook's write, queued or running", async () => {
+		// The claim takes the oldest job, so the running one goes first.
+		const live = await running();
+		const queued = await h.engine.enqueue(h.control.kind, {
+			values: { userId: h.userId },
+		});
+
+		const fromQueued = h.ledger.cancel(h.control.kind, queued.row.id, {
+			userId: h.userId,
+		});
+		const fromRunning = h.ledger.cancel(h.control.kind, live.jobId, {
+			userId: h.userId,
+		});
+
+		expect(fromQueued?.label).toBe("hook:cancelled");
+		expect(fromQueued).toEqual(job(queued.row.id));
+		expect(fromRunning?.label).toBe("hook:cancelled");
+		expect(fromRunning).toEqual(job(live.jobId));
+	});
+
+	it("cancelAll leaves the hook's write on every job it cancels", async () => {
+		const live = await running();
+		const queued = await h.engine.enqueue(h.control.kind, {
+			values: { userId: h.userId },
+		});
+
+		expect(h.ledger.cancelAll(h.control.kind, { userId: h.userId })).toBe(2);
+
+		expect(job(queued.row.id).label).toBe("hook:cancelled");
+		expect(job(live.jobId).label).toBe("hook:cancelled");
+	});
+
+	it("retry returns the job with the hook's write", () => {
+		const jobId = h.fixture.seedJob({
+			userId: h.userId,
+			status: "failed",
+			label: "hook:failed",
+		});
+
+		const reopened = h.ledger.retry(h.control.kind, jobId, {
+			userId: h.userId,
+		});
+
+		expect(reopened?.label).toBe("hook:queued");
+		expect(reopened).toEqual(job(jobId));
+	});
+
+	it("reopen returns the job with the hook's write", () => {
+		const jobId = h.fixture.seedJob({
+			userId: h.userId,
+			status: "succeeded",
+			label: "hook:succeeded",
+		});
+
+		const reopened = h.ledger.reopen(h.control.kind, jobId, {
+			userId: h.userId,
+			from: ["succeeded"],
+		});
+
+		expect(reopened?.label).toBe("hook:queued");
+		expect(reopened).toEqual(job(jobId));
+	});
+});
+
 describe("waking the kind", () => {
 	const wakes = () => h.engine.inspectJobsForTests().test?.wakeRequests ?? 0;
 

@@ -635,8 +635,9 @@ describe("Atlas persistence foundation", () => {
 			status: "cancelled",
 			stage: "cancelled",
 			workerId: null,
-			heartbeatAt: null,
 		});
+		// The previous release's liveness stamp is the time of the cancel.
+		expect(cancelledRow?.heartbeatAt).toEqual(cancelledRow?.updatedAt);
 		expect(cancelledRow?.cancelRequestedAt).toBeInstanceOf(Date);
 		expect(cancelledRow?.completedAt).toBeInstanceOf(Date);
 		expect(rows.find((row) => row.id === first.job.id)).toMatchObject({

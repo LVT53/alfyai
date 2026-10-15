@@ -345,7 +345,8 @@ describe("Atlas research runner", () => {
 			progressPercent: 0,
 			progressDetailsJson: "{}",
 		});
-		expect(await readJob(jobId)).toMatchObject({
+		const settled = await readJob(jobId);
+		expect(settled).toMatchObject({
 			status: "succeeded",
 			stage: "render",
 			progressPercent: 100,
@@ -364,10 +365,12 @@ describe("Atlas research runner", () => {
 			errorCode: null,
 			retryable: false,
 			attemptCount: 1,
-			// The legacy fence columns are never left set.
+			// The previous release's fence: it can never match a row on its worker id.
 			workerId: null,
-			heartbeatAt: null,
 		});
+		// Its liveness stamp is the time of the transition, so its boot recovery still
+		// finds a row that is running (rollback-atlas.md).
+		expect(settled.heartbeatAt).toEqual(settled.updatedAt);
 		expect(await readAttempts(jobId)).toMatchObject([
 			{ attemptNumber: 1, status: "succeeded" },
 		]);
@@ -567,7 +570,8 @@ describe("Atlas research runner", () => {
 
 		await drain(atlasResearchJob);
 
-		expect(await readJob(jobId)).toMatchObject({
+		const failed = await readJob(jobId);
+		expect(failed).toMatchObject({
 			status: "failed",
 			stage: "failed",
 			errorCode: "atlas_v3_no_answer",
@@ -575,8 +579,8 @@ describe("Atlas research runner", () => {
 			retryable: true,
 			failureMetadataJson: null,
 			workerId: null,
-			heartbeatAt: null,
 		});
+		expect(failed.heartbeatAt).toEqual(failed.updatedAt);
 		expect(await readAttempts(jobId)).toMatchObject([
 			{
 				attemptNumber: 1,
@@ -671,6 +675,35 @@ describe("Atlas research runner", () => {
 		expect(await readJob(jobId)).toMatchObject({ status: "succeeded" });
 	});
 
+	it("leaves a running job that the release before the engine takes back at its boot (the rollback)", async () => {
+		// The previous release requeues, at boot, every row that is `running` with a
+		// heartbeat older than now (`recoverStaleAtlasJobs`). A row with no heartbeat
+		// is never older than anything, so one the engine left running would stay
+		// running for good after a code rollback.
+		const { atlasResearchJob } = await engine();
+		const { claimNext } = await import("$lib/server/services/jobs/ledger");
+		const { jobId } = await kickoffAtlasJob();
+		claimNext(atlasResearchJob, { workerId: "atlas:gone-host:1:1" });
+
+		const running = await readJob(jobId);
+		// The fence of the previous release stays cleared; its liveness stamp does not.
+		expect(running).toMatchObject({ status: "running", workerId: null });
+		expect(running.heartbeatAt).toEqual(running.updatedAt);
+
+		const bootAt = Math.floor(Date.now() / 1000) + 60;
+		const recovered = fixture.sqlite
+			.prepare(
+				"UPDATE atlas_jobs SET status = 'queued', stage = 'queued', progress_percent = 0, progress_details_json = '{}', worker_id = NULL, heartbeat_at = NULL, started_at = NULL, error_code = 'atlas_worker_heartbeat_timeout', error_message = 'Atlas worker heartbeat timed out before completion.', error_retryable = 1, updated_at = ? WHERE status = 'running' AND heartbeat_at < ?",
+			)
+			.run(bootAt, bootAt);
+
+		expect(recovered.changes).toBe(1);
+		expect(await readJob(jobId)).toMatchObject({
+			status: "queued",
+			errorCode: "atlas_worker_heartbeat_timeout",
+		});
+	});
+
 	it("a lost Atlas attempt requeues twice then fails retryable", async () => {
 		const { atlasResearchJob, recover } = await engine();
 		const { claimNext } = await import("$lib/server/services/jobs/ledger");
@@ -705,8 +738,8 @@ describe("Atlas research runner", () => {
 				retryable: true,
 				attemptCount: attempt,
 				workerId: null,
-				heartbeatAt: null,
 			});
+			expect(requeued.heartbeatAt).toEqual(requeued.updatedAt);
 			// No delay: due the moment it was put back.
 			expect(requeued.runAfter?.getTime()).toBeLessThanOrEqual(Date.now());
 		}
@@ -858,9 +891,11 @@ describe("an Atlas job that was running at the cutover", () => {
 			expect((await readJob("job-queued")).status).toBe("running");
 		});
 		// Taken back once, with no attempt row to close (there never was one): the
-		// row is queued again with the reason on it, ready for the next claim, and
-		// the legacy fence columns are cleared so the old ledger can never write.
-		expect(await readJob("job-running")).toMatchObject({
+		// row is queued again with the reason on it, ready for the next claim. The
+		// worker id the old ledger fenced on is cleared, so it can never write; the
+		// heartbeat it left is replaced by the time of the take-back.
+		const requeued = await readJob("job-running");
+		expect(requeued).toMatchObject({
 			status: "queued",
 			stage: "queued",
 			progressPercent: 0,
@@ -870,8 +905,8 @@ describe("an Atlas job that was running at the cutover", () => {
 			attemptCount: 0,
 			currentAttemptId: null,
 			workerId: null,
-			heartbeatAt: null,
 		});
+		expect(requeued.heartbeatAt).toEqual(requeued.updatedAt);
 		expect(await readAttempts("job-running")).toEqual([]);
 		expect(
 			warnings.mock.calls.filter(
