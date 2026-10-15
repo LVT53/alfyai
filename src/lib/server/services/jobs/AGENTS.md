@@ -52,7 +52,7 @@ export const widgetJob = defineJobKind({
 
 Where the kinds are defined (each in a file named for its domain, not a shared name): `atlas/research-job.ts` (on the engine since slice S2), `extraction/extraction-job.ts`, `file-production/production-job.ts`. Until their slices land, extraction and file production still run on their own ledgers and workers. The engine's own test kind is `testing/test-kind.ts`.
 
-An `onTransition` hook runs after the engine has read the row it returns, so the row `cancel`, `retry`, `reopen`, `enqueue` and the claim hand back does not carry what the hook wrote. Atlas's hook writes the card's `stage`, so Atlas's `cancelAtlasJob` reads its row again; a kind whose hook writes domain columns a caller shows must do the same.
+The rows `enqueue`, `cancel`, `retry`, `reopen` and the claim (`ctx.row`) hand back are read again after `onTransition` ran, in the same transaction, so they carry the domain columns the hook wrote (Atlas's `stage`) and a caller needs no second read.
 
 ## Files
 
@@ -78,6 +78,7 @@ An `onTransition` hook runs after the engine has read the row it returns, so the
 - **Every write an attempt makes is fenced**: the job is `running`, points at this attempt, the attempt is `running` under this worker id. A write that finds the claim gone changes nothing and says so; the runner then aborts the signal (`"cancelled"` if the job was cancelled, else `"lease-lost"`) and refuses everything the handler still writes. Never write around the fence.
 - **The heartbeat is the runner's**, on a timer of its own, so the lease measures whether the process is alive and not how long a step takes. A beat that cannot be written is logged and survived until half the stale window has passed; nothing un-awaited may reject (Node 22 exits on an unhandled rejection).
 - **Cancel reaches the run at once** in the process that has it, by aborting the signal after the commit. A handler reacts to `signal.reason`: remote cleanup on `"cancelled"`, never on `"lease-lost"` (the next attempt resumes the remote job from the checkpoint).
+- **An abort listener a handler adds to `ctx.signal` must not throw.** Node's `EventTarget` turns a throw in a listener into an uncaught exception, which ends the process: catch inside it, and never let an async one reject.
 - **A wake does nothing until `startJobs`.** `wake(kind)`, and the wake inside `enqueue`, `retry`, `reopen` and `recover`, only counts the request in a process that has not started the kind, so a script that reopens a job never becomes a second worker. `drain(kind)` is explicit and works without `startJobs`. Nothing is scheduled under vitest or `NODE_ENV=test` unless a test starts the engine on purpose.
 - **Take-backs.** `stale` and `dead-worker` as in the design. The lost-state take-back (a running job whose current attempt row is missing or no longer running) has no age guard at boot, and everywhere else (boot follow-up, idle tick, between drains, `recover`) only takes rows nobody has touched for `staleAfterMs`.
 - **Migrations are expand-only** (`ADD COLUMN`, `CREATE TABLE`, `CREATE INDEX`, `DROP INDEX`; no drop, no rename): the previous release keeps serving and claiming for up to two minutes after `db:prepare`. Legacy SQL names stay (`jobColumns({ sqlNames })`); a kind's table passes `userId: () => users.id` for the foreign key.
