@@ -14,10 +14,12 @@ import type { TestKindControl } from "./test-kind";
 
 export type Engine = typeof import("../index");
 export type Ledger = typeof import("../ledger");
+export type Recovery = typeof import("../recovery");
 
 export interface BootedProcess {
 	engine: Engine;
 	ledger: Ledger;
+	recovery: Recovery;
 	control: TestKindControl;
 	/** The engine's own connection to the file, for tests that break it on purpose. */
 	sqlite: typeof import("$lib/server/db").sqlite;
@@ -35,11 +37,13 @@ async function importEngine(): Promise<BootedProcess> {
 	vi.resetModules();
 	const engine = await import("../index");
 	const ledger = await import("../ledger");
+	const recovery = await import("../recovery");
 	const { sqlite } = await import("$lib/server/db");
 	const { createTestKind } = await import("./test-kind");
 	return {
 		engine,
 		ledger,
+		recovery,
 		sqlite,
 		control: createTestKind(engine.defineJobKind),
 	};

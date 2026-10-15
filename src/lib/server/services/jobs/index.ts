@@ -9,11 +9,13 @@
 
 import type { SQL } from "drizzle-orm";
 import * as ledger from "./ledger";
+import * as recovery from "./recovery";
 import { wake } from "./scheduler";
 import type {
 	EnqueueInput,
 	JobKind,
 	JobTable,
+	RecoverOptions,
 	ReopenInput,
 	Row,
 	ShapeRow,
@@ -80,6 +82,21 @@ export async function retry<J extends JobTable>(
 	const row = ledger.retry(kind, jobId, scope);
 	if (row) wake(kind);
 	return row;
+}
+
+/**
+ * Recovery inside a scope, for a reader that must not show stuck work (the
+ * file-production fork snapshot): old queued jobs fail, stale and lost attempts
+ * are taken back through the kind's policy. Wakes the kind if it did anything,
+ * since a take-back can put work back in the queue.
+ */
+export async function recover<J extends JobTable>(
+	kind: JobKind<J>,
+	options: RecoverOptions<J>,
+): Promise<{ recovered: number }> {
+	const result = recovery.recover(kind, options);
+	if (result.recovered > 0) wake(kind);
+	return result;
 }
 
 /** A reopening by the kind's own rule (Regenerate, Re-extract). Wakes the kind. */

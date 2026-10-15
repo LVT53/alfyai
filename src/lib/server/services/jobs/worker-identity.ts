@@ -86,3 +86,36 @@ export function isProcessAlive(pid: number): boolean {
 		return code !== "ESRCH";
 	}
 }
+
+/**
+ * Does this worker id belong to a process that is provably gone?
+ *
+ * The boot sweep's question. Before it, a deploy left its orphaned attempts
+ * looking perfectly healthy (their beats were seconds old when the old process
+ * died), so nothing touched them until the whole stale window had passed, on a
+ * box that was serving again after eleven seconds. A worker id that carries a
+ * hostname, a pid and a per-boot nonce turns that wait into a question the new
+ * process can answer at boot: same host, a pid that no longer exists, and not us.
+ *
+ * Conservative in every direction that matters:
+ *
+ *  - Anything this process wrote is alive by definition, whatever the slice:
+ *    the inline runner's own id (`<kind>-inline:…`) shares this pid and nonce.
+ *  - An id from another host is never touched: its process table is not ours.
+ *  - An id in an older format carries no hostname and falls back to the stale
+ *    window it has always had.
+ *  - EPERM from the process table means a process we may not signal, which is a
+ *    process that EXISTS. Only a pid that is provably gone is reclaimed.
+ */
+export function belongsToDeadProcess(
+	candidate: string | null | undefined,
+	self: ParsedWorkerId | null,
+	isAlive: (pid: number) => boolean = isProcessAlive,
+): boolean {
+	if (!candidate || !self) return false;
+	const parsed = parseWorkerId(candidate);
+	if (!parsed) return false;
+	if (parsed.hostname !== self.hostname) return false;
+	if (parsed.pid === self.pid && parsed.nonce === self.nonce) return false;
+	return !isAlive(parsed.pid);
+}
