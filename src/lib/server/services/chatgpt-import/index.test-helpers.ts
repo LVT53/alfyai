@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { vi } from "vitest";
@@ -150,6 +150,26 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		return rows.length;
 	}
 
+	/** The conversations the memory judge's sweep will read. */
+	function readConversationsQueuedForJudge(userId = "test-user") {
+		const sqlite = new Database(dbPath);
+		const db = drizzle(sqlite, { schema });
+		const rows = db
+			.select({ scopeId: schema.memoryDirtyLedger.scopeId })
+			.from(schema.memoryDirtyLedger)
+			.where(
+				and(
+					eq(schema.memoryDirtyLedger.userId, userId),
+					eq(schema.memoryDirtyLedger.reason, "deferred_intake"),
+					eq(schema.memoryDirtyLedger.scopeType, "conversation"),
+					eq(schema.memoryDirtyLedger.status, "pending"),
+				),
+			)
+			.all();
+		sqlite.close();
+		return rows.map((row) => row.scopeId).sort();
+	}
+
 	function readForks(sourceConversationId: string) {
 		const sqlite = new Database(dbPath);
 		const db = drizzle(sqlite, { schema });
@@ -245,6 +265,7 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		makeBranch,
 		makeParsedConversation,
 		readConversation,
+		readConversationsQueuedForJudge,
 		readForks,
 		readImportJob,
 		readImportJobsForUser,

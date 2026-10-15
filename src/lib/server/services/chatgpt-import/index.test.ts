@@ -16,6 +16,12 @@ vi.mock("./parser", async () => {
 vi.mock("./embeddings", () => ({
 	generateImportEmbeddings: vi.fn(async () => undefined),
 }));
+
+// A summary is a model call that outlives the request; here it never finishes,
+// as a restart would leave it.
+vi.mock("./summarizer", () => ({
+	summarizeAndStoreConversation: vi.fn(() => new Promise<void>(() => {})),
+}));
 type ChatGptImportTestHarness = ReturnType<
 	typeof createChatGptImportTestHarness
 >;
@@ -477,6 +483,32 @@ describe("importConversations", () => {
 			"test-user",
 			"Embeddable Chat",
 			parsed.messages,
+		);
+	});
+
+	it("queues every imported conversation for the memory judge before it answers", async () => {
+		harness.seedUser();
+		const branchMessages: ParsedMessage[] = [
+			{ role: "user", content: "Hello" },
+			{ role: "assistant", content: "Another answer" },
+		];
+		const result = await runImport({
+			conversations: [
+				harness.makeParsedConversation({
+					title: "With a fork",
+					branches: [
+						harness.makeBranch("div-1", "branch-1", 0.5, branchMessages),
+					],
+				}),
+				harness.makeParsedConversation({ title: "Plain" }),
+			],
+		});
+
+		// The judge reads the messages, not the summary, and its queue row is
+		// durable: a summary the restart never let finish keeps no conversation
+		// from it. The forks stay out, as before.
+		expect(harness.readConversationsQueuedForJudge()).toEqual(
+			[...result.conversationIds].sort(),
 		);
 	});
 

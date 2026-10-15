@@ -323,7 +323,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 		}
 	});
 
-	it("summarizes, stores in DB, and queues the summary for the memory judge", async () => {
+	it("summarizes and stores in DB, leaving the judge's queue to the import", async () => {
 		seedUser();
 		const { db } = openSeedDatabase();
 
@@ -355,18 +355,10 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 		expect(row?.summary).toBe("Auto-generated summary text.");
 		expect(row?.source).toBe("chatgpt-import");
 
-		await vi.waitFor(
-			() => {
-				expect(mockMarkMemoryDirty).toHaveBeenCalledWith(
-					expect.objectContaining({
-						userId: "test-user",
-						reason: "deferred_intake",
-						scope: { type: "conversation", id: "conv-full" },
-					}),
-				);
-			},
-			{ timeout: 1000 },
-		);
+		// The import queued the conversation for the memory judge when it stored
+		// the messages; a second mark here would only queue it again.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
 	});
 
 	it("does not throw when model call fails (graceful failure)", async () => {
@@ -400,38 +392,5 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 
 		const row = readSummary("conv-graceful");
 		expect(row).toBeFalsy();
-	});
-
-	it("does not throw when queuing the memory judge fails", async () => {
-		mockMarkMemoryDirty.mockRejectedValue(new Error("ledger unavailable"));
-
-		seedUser();
-		const { db } = openSeedDatabase();
-
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-queue-fail",
-				userId: "test-user",
-				title: "Queue Fail",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.run();
-
-		const { summarizeAndStoreConversation } = await import("./summarizer");
-
-		const messages = [{ role: "user", content: "Test" }];
-
-		await expect(
-			summarizeAndStoreConversation(
-				"test-user",
-				"conv-queue-fail",
-				messages,
-				"Queue Fail",
-			),
-		).resolves.toBeUndefined();
-
-		const row = readSummary("conv-queue-fail");
-		expect(row?.summary).toBe("Auto-generated summary text.");
 	});
 });

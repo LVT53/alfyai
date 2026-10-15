@@ -275,31 +275,11 @@ export async function storeConversationSummary(
 	}
 }
 
-export async function queueImportedSummaryForMemoryJudge(
-	userId: string,
-	conversationId: string,
-): Promise<void> {
-	try {
-		const { markMemoryDirty } = await import(
-			"$lib/server/services/memory-profile/dirty-ledger"
-		);
-		await markMemoryDirty({
-			userId,
-			reason: "deferred_intake",
-			scope: { type: "conversation", id: conversationId },
-		});
-	} catch (err) {
-		console.error(
-			"[CHATGPT_IMPORT] Failed to queue imported summary for memory judge:",
-			err,
-		);
-	}
-}
-
 /**
- * Full summarization pipeline: summarize, store in DB, and queue the stored
- * summary for the nightly memory judge sweep. Designed for fire-and-forget
- * usage during import. All failures are logged, never propagated.
+ * Full summarization pipeline: summarize and store in DB. The import queued the
+ * conversation for the memory judge when it stored the messages. Designed for
+ * fire-and-forget usage during import. All failures are logged, never
+ * propagated.
  */
 export async function summarizeAndStoreConversation(
 	userId: string,
@@ -310,14 +290,6 @@ export async function summarizeAndStoreConversation(
 	try {
 		const summary = await summarizeConversation(messages, title);
 		await storeConversationSummary(userId, conversationId, summary);
-
-		queueImportedSummaryForMemoryJudge(userId, conversationId).catch((err) => {
-			console.error(
-				"[CHATGPT_IMPORT] Failed to queue imported summary for conversation",
-				conversationId,
-				err,
-			);
-		});
 	} catch (err) {
 		console.error(
 			"[CHATGPT_IMPORT] Summarization failed for conversation",

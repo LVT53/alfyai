@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { conversationForks, messages, projects } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
+import { markMemoryDirty } from "$lib/server/services/memory-profile/dirty-ledger";
 import { generateImportEmbeddings } from "./embeddings";
 import {
 	completeImportRow,
@@ -122,6 +123,32 @@ async function importConversationBranches(
 	}
 }
 
+/**
+ * Queue an imported conversation for the memory judge's sweep as soon as its
+ * messages are stored. The judge reads the messages (the summary is only
+ * context for it), and the dirty-ledger row is durable, so a restart that cuts
+ * the background summary short no longer keeps the conversation from the
+ * judge. A failure here is logged and the import goes on.
+ */
+async function queueImportedConversationForMemoryJudge(
+	userId: string,
+	conversationId: string,
+): Promise<void> {
+	try {
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: conversationId },
+		});
+	} catch (err) {
+		console.error(
+			"[CHATGPT_IMPORT] Failed to queue imported conversation for the memory judge:",
+			conversationId,
+			err,
+		);
+	}
+}
+
 export async function importConversations(
 	userId: string,
 	zipBuffer: Buffer,
@@ -234,6 +261,8 @@ async function importIntoRow(
 						projectId,
 					);
 				}
+
+				await queueImportedConversationForMemoryJudge(userId, conversation.id);
 
 				generateImportEmbeddings(
 					conversation.id,
