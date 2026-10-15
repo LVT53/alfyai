@@ -12,12 +12,10 @@
 // is never reset, so attempt numbers stay unique per job and the history stays
 // readable.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { documentExtractionJobs } from "$lib/server/db/schema";
 import { reopen } from "$lib/server/services/jobs";
-import type { DocumentExtractionStatus } from "$lib/shared/extraction-status";
-import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getExtractionConfig } from "./config";
 import { extractionJob } from "./extraction-job";
 import {
@@ -153,26 +151,33 @@ export async function requeueExtractionJobForReextraction(
 				refusal = "attempt_ceiling";
 				return false;
 			}
-			// Every unfinished job of this user's, filtered in JS rather than with a
-			// LIKE on `hints_json`: the set is bounded by the number of documents a
-			// user has in flight, and a JSON substring match would count a document
-			// whose filename happened to contain the marker.
+			// Every unfinished job of this user's, the marker read in JS rather than
+			// with a LIKE on `hints_json`: the set is bounded by the number of
+			// documents a user has in flight, and a JSON substring match would count a
+			// document whose filename happened to contain the marker.
+			//
+			// Unfinished is the STORED word, the engine's: `queued` or `running`. The
+			// browser's vocabulary (`isTerminalExtractionStatus`) spells a cancel
+			// `canceled` and does not know `cancelled`, so asking it about a stored row
+			// counted every re-extraction the user had stopped as one in flight.
 			const inFlight = tx
 				.select({
 					id: documentExtractionJobs.id,
-					status: documentExtractionJobs.status,
 					hintsJson: documentExtractionJobs.hintsJson,
 				})
 				.from(documentExtractionJobs)
-				.where(eq(documentExtractionJobs.userId, input.userId))
+				.where(
+					and(
+						eq(documentExtractionJobs.userId, input.userId),
+						or(
+							eq(documentExtractionJobs.status, "queued"),
+							eq(documentExtractionJobs.status, "running"),
+						),
+					),
+				)
 				.all()
 				.filter(
-					(row) =>
-						row.id !== job.id &&
-						!isTerminalExtractionStatus(
-							row.status as DocumentExtractionStatus,
-						) &&
-						hintsMarkReextraction(row.hintsJson),
+					(row) => row.id !== job.id && hintsMarkReextraction(row.hintsJson),
 				);
 			if (inFlight.length >= userLimit) {
 				refusal = "user_limit";

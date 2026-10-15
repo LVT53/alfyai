@@ -33,6 +33,15 @@ UPDATE document_extraction_job_attempts SET status = 'canceled' WHERE status = '
 --    hints, which is where the old code reads and writes it. Hints that are not a
 --    JSON object (the old reader dropped those) are replaced by an object holding
 --    just the state, which is what the old code would have written next.
+--
+--    When the hints already hold a `$outage` of their own, the previous release
+--    wrote it: after a deploy that rolled itself back, that release serves on these
+--    rows until this file runs, cannot see `retry_state_json`, and starts a count of
+--    its own from the hints. The two are added together and the earlier window is
+--    kept, the same merge `normalizeExtractionLifecycleWords` makes going the other
+--    way; replacing one with the other would charge the document for waits that
+--    were the backend's. Every CASE is ordered so that `json_type` and
+--    `json_extract` are never asked of text that is not JSON.
 UPDATE document_extraction_jobs
 SET hints_json = json_set(
 		CASE
@@ -42,7 +51,15 @@ SET hints_json = json_set(
 			ELSE hints_json
 		END,
 		'$."$outage"',
-		json(retry_state_json)
+		CASE
+			WHEN hints_json IS NULL THEN json(retry_state_json)
+			WHEN NOT json_valid(hints_json) THEN json(retry_state_json)
+			WHEN json_type(hints_json, '$."$outage"') = 'object' THEN json_object(
+				'since', COALESCE(json_extract(retry_state_json, '$.since'), json_extract(hints_json, '$."$outage".since')),
+				'waits', COALESCE(json_extract(retry_state_json, '$.waits'), 0) + COALESCE(json_extract(hints_json, '$."$outage".waits'), 0)
+			)
+			ELSE json(retry_state_json)
+		END
 	),
 	retry_state_json = NULL
 WHERE retry_state_json IS NOT NULL AND json_valid(retry_state_json);

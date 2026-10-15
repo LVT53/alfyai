@@ -599,6 +599,43 @@ describe("extraction jobs on the engine migration", () => {
 		).toEqual({ n: 0 });
 	});
 
+	it("the reverse SQL adds the outage waits the previous release wrote while it served on the new words", () => {
+		const old = openPreEngine();
+		old.seedEveryOldWord();
+		old.upgrade();
+		// The engine put `job-queued` behind an outage wait: three waits so far, the
+		// window open since the seed. Then the deploy's health check failed and the
+		// script restarted the previous release on these rows before anyone ran the
+		// reverse SQL (rollback-extraction.md, "When to run it"). That release does not
+		// know `retry_state_json`: it claimed the job, found no `$outage` in the hints,
+		// started a count of its own, failed it on the same outage and wrote that count
+		// back as the reserved key.
+		old.sqlite
+			.prepare(
+				"UPDATE document_extraction_jobs SET retry_state_json = ?, hints_json = ?, status = 'queued' WHERE id = 'job-queued'",
+			)
+			.run(
+				JSON.stringify({ since: SEED_EPOCH * 1000, waits: 3 }),
+				JSON.stringify({
+					tier: "basic",
+					$outage: { since: (SEED_EPOCH + 700) * 1000, waits: 1 },
+				}),
+			);
+
+		old.sqlite.exec(
+			readFileSync("docs/plans/jobs-merge/rollback-extraction.sql", "utf8"),
+		);
+
+		const row = byId(old.readJobs()).get("job-queued");
+		// Both counts are the backend's fault, so both stay off the document's
+		// budget; the window is the one the run began with, as the shim keeps it.
+		expect(parseJson(row?.hints_json)).toEqual({
+			tier: "basic",
+			$outage: { since: SEED_EPOCH * 1000, waits: 4 },
+		});
+		expect(row?.retry_state_json).toBeNull();
+	});
+
 	it("the reverse SQL is safe on rows the engine made: a running job with no phase, a requeue with a retry state", () => {
 		const old = openPreEngine();
 		old.seedEveryOldWord();

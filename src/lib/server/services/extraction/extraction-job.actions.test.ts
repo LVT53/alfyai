@@ -698,6 +698,52 @@ describe("requeueExtractionJobForReextraction", () => {
 		expect(asked[2]).toEqual({ ok: false, reason: "user_limit" });
 	});
 
+	it("a cancelled re-extraction holds no seat in the per-user cap", async () => {
+		const { requeueExtractionJobForReextraction, cancelExtractionJob } =
+			await load();
+		const jobs = [];
+		for (let index = 0; index < 3; index += 1) {
+			const artifact = fixture.seedArtifact({
+				userId,
+				name: `doc-${index}.pdf`,
+			});
+			jobs.push(
+				await enqueueJob({
+					sourceArtifactId: artifact,
+					fileName: `doc-${index}.pdf`,
+				}),
+			);
+		}
+		for (const job of jobs) settle(job.id, "status = 'succeeded'");
+
+		// Two re-extractions, both stopped by the user: the hints keep the marker,
+		// and the rows are settled (the engine's `cancelled`, which is also what the
+		// migration made of every `canceled` row the previous release left).
+		for (const job of jobs.slice(0, 2)) {
+			expect(
+				await requeueExtractionJobForReextraction({
+					userId,
+					jobId: job.id,
+					hints: { tier: "advanced", reextract: true },
+					maxActiveReextractions: 2,
+				}),
+			).toMatchObject({ ok: true });
+			expect(
+				await cancelExtractionJob({ userId, jobId: job.id }),
+			).toMatchObject({ status: "cancelled" });
+		}
+
+		// Nothing is in flight, so the third one is not refused.
+		expect(
+			await requeueExtractionJobForReextraction({
+				userId,
+				jobId: jobs[2]?.id ?? "",
+				hints: { tier: "advanced", reextract: true },
+				maxActiveReextractions: 2,
+			}),
+		).toMatchObject({ ok: true });
+	});
+
 	it("carries the outage waits into the new run and starts its window again", async () => {
 		const { requeueExtractionJobForReextraction, readExtractionRetryState } =
 			await load();
