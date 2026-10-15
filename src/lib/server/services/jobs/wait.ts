@@ -22,6 +22,13 @@ import {
 /** How often the row is read when no event arrives. */
 const POLL_MS = 1_000;
 
+/**
+ * The longest delay a timer holds. Node fires a longer one, `Infinity`
+ * included, after 1 ms, which would turn "wait as long as it takes" into "give
+ * up at once"; capped, it is a wait of 24.8 days.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
 export function waitForVerdict(
 	kind: JobKind,
 	jobId: string,
@@ -99,7 +106,10 @@ export function waitForVerdict(
 		};
 
 		// By the clock.
-		const timeout = setTimeout(concludeUnsettled, options.timeoutMs);
+		const timeout = setTimeout(
+			concludeUnsettled,
+			Math.min(options.timeoutMs, MAX_TIMER_MS),
+		);
 		timeout.unref?.();
 		cleanups.push(() => clearTimeout(timeout));
 
