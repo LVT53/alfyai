@@ -520,7 +520,7 @@ Run by the orchestrator.
 1. Merge `feat/jobs-engine` into `dev` in the main checkout.
 2. Run the release gate in a detached worktree: `scripts/gates.sh release <dir> --port 5600 --workers 6`, with `npm ci` under Node 22 and `mkdir -p data` first.
 3. Push `dev`. The push includes the 45 local commits already on `dev`.
-4. Deploy ai.dev with the staging command in the `alfyai-staging-verify-harness` memory. Read the script's output to the end. If it rolled back to the previous release after a failed health check, run `docs/plans/jobs-merge/rollback-extraction.sql` against the staging database before anything else.
+4. Deploy ai.dev with the staging command in the `alfyai-staging-verify-harness` memory. Read the script's output to the end. If it rolled back to the previous release after a failed health check, run `docs/plans/jobs-merge/rollback-extraction.sql` against the staging database before anything else, the way `rollback-extraction.md` says (service stopped, `sqlite3 -bail` or the better-sqlite3 line, from the rolled-back release's directory, then start it again).
    - If S4 was held (by the upload-analysis session or by the budget), S1 to S3 ship without it.
 5. Live checks on the box:
    - status counts per kind before and after (no legacy word left, nothing stuck `running`);
