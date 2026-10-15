@@ -1197,3 +1197,62 @@ describe("waking the kind", () => {
 		expect(wakes()).toBe(before + 2);
 	});
 });
+
+describe("a kind's callback that runs inside a transaction", () => {
+	// A transaction is synchronous: whatever an async callback does after its
+	// first `await` runs after the COMMIT, outside the transaction and outside the
+	// fence. TypeScript accepts an async function where `=> void` or `=> unknown`
+	// is asked for, so these two are not caught by the types; the engine refuses
+	// them, as it already refuses an async `apply`.
+	function asyncHooked(): TestKindControl {
+		return createTestKind(h.engine.defineJobKind, {
+			name: "async-hook",
+			onTransition: async () => {
+				await Promise.resolve();
+			},
+		});
+	}
+
+	it("refuses an onTransition that returns a promise, and the enqueue writes nothing", async () => {
+		const hooked = asyncHooked();
+
+		await expect(
+			h.engine.enqueue(hooked.kind, { values: { userId: h.userId } }),
+		).rejects.toThrow(/promise/);
+		expect(
+			h.fixture.sqlite.prepare("select count(*) as n from test_jobs").get(),
+		).toEqual({ n: 0 });
+	});
+
+	it("refuses an onTransition that returns a promise, and the claim takes nothing", () => {
+		const hooked = asyncHooked();
+		const id = h.fixture.seedJob({ userId: h.userId });
+
+		expect(() => h.ledger.claimNext(hooked.kind, { workerId: WORKER })).toThrow(
+			/promise/,
+		);
+		expect(job(id).status).toBe("queued");
+		expect(h.fixture.readAttempts(id)).toEqual([]);
+	});
+
+	it("refuses a retryState that returns a promise, and the reopen writes nothing", () => {
+		const id = h.fixture.seedJob({
+			userId: h.userId,
+			status: "succeeded",
+			retryState: '{"waits":3}',
+			completedAt: new Date(),
+		});
+
+		expect(() =>
+			h.ledger.reopen(h.control.kind, id, {
+				userId: h.userId,
+				from: ["succeeded"],
+				retryState: async (state) => state,
+			}),
+		).toThrow(/promise/);
+		expect(job(id)).toMatchObject({
+			status: "succeeded",
+			retryState: '{"waits":3}',
+		});
+	});
+});

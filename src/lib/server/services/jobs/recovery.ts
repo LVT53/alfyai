@@ -21,7 +21,7 @@ import { db } from "$lib/server/db";
 import type { JobShape } from "./columns";
 import { internalsOf } from "./define";
 import { emitSettled } from "./events";
-import { applyFailure } from "./ledger";
+import { applyFailure, notifyTransition } from "./ledger";
 import { abortRunningAttempt } from "./state";
 import type {
 	JobFailure,
@@ -244,7 +244,7 @@ export function recover<J extends JobTable>(
 					.run();
 				if (settled.changes === 0) continue;
 				const row = tx.select().from(jobs).where(eq(jobs.id, job.id)).get();
-				if (row) definition.onTransition?.(tx, row, "failed");
+				if (row) notifyTransition(definition, tx, row, "failed");
 				queuedFailed.push(job.id);
 			}
 		}
