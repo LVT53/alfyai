@@ -93,6 +93,27 @@ function takeBackBehindTheRunsBack(jobId: string) {
 		.run(jobId);
 }
 
+/**
+ * Makes every write transaction of the engine's connection fail the way a busy
+ * database does, until the returned function mends it.
+ */
+function breakTheWriter() {
+	const real = h.sqlite.transaction.bind(h.sqlite);
+	let broken = true;
+	h.sqlite.transaction = ((fn: never) => {
+		if (broken) {
+			throw Object.assign(new Error("database is locked"), {
+				code: "SQLITE_BUSY",
+			});
+		}
+		return real(fn);
+	}) as never;
+	return () => {
+		broken = false;
+		h.sqlite.transaction = real as never;
+	};
+}
+
 describe("the context", () => {
 	it("hands the handler the claimed row and the attempt", async () => {
 		let seen: Ctx | null = null;
@@ -354,23 +375,6 @@ describe("a lost lease", () => {
 });
 
 describe("a beat that cannot be written", () => {
-	function breakTheWriter() {
-		const real = h.sqlite.transaction.bind(h.sqlite);
-		let broken = true;
-		h.sqlite.transaction = ((fn: never) => {
-			if (broken) {
-				throw Object.assign(new Error("database is locked"), {
-					code: "SQLITE_BUSY",
-				});
-			}
-			return real(fn);
-		}) as never;
-		return () => {
-			broken = false;
-			h.sqlite.transaction = real as never;
-		};
-	}
-
 	it("never rejects unhandled, and abandons the attempt only after half the stale window", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		let signal: AbortSignal | null = null;
@@ -417,6 +421,136 @@ describe("a beat that cannot be written", () => {
 		expect(heartbeatSeconds(jobId)).toBeGreaterThan(claimed);
 		await realTurn();
 		expect(unhandled).not.toHaveBeenCalled();
+	});
+});
+
+describe("a handler that does not wait for its writes", () => {
+	it("cannot take the process down with a progress write that fails", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { jobId, drained } = await startRun(async (ctx) => {
+			// An extractor's progress callback is synchronous: nothing awaits it.
+			const mend = breakTheWriter();
+			void ctx.progress({ checkpoint: { cursor: 1 } });
+			mend();
+			await ctx.succeed();
+		});
+		await drained;
+		await realTurn();
+
+		expect(unhandled).not.toHaveBeenCalled();
+		expect(warn).toHaveBeenCalledWith(
+			"[TEST] Progress write failed",
+			expect.objectContaining({ jobId }),
+		);
+		expect(job(jobId).status).toBe("succeeded");
+	});
+
+	it("still hands the failure to a handler that does wait", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		let caught: unknown = null;
+		const { jobId, drained } = await startRun(async (ctx) => {
+			const mend = breakTheWriter();
+			try {
+				await ctx.write(() => {});
+			} catch (error) {
+				caught = error;
+			}
+			mend();
+			await ctx.succeed();
+		});
+		await drained;
+		await realTurn();
+
+		expect(caught).toMatchObject({ code: "SQLITE_BUSY" });
+		expect(unhandled).not.toHaveBeenCalled();
+		expect(job(jobId).status).toBe("succeeded");
+	});
+
+	it("is not aborted for a write that failed: the claim is still its own", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		let signal: AbortSignal | null = null;
+		const { drained } = await startRun(async (ctx) => {
+			signal = ctx.signal;
+			const mend = breakTheWriter();
+			void ctx.progress({ phase: "p" });
+			mend();
+			await ctx.succeed();
+		});
+		await drained;
+
+		expect((signal as unknown as AbortSignal).aborted).toBe(false);
+	});
+});
+
+describe("what the handler asks after its verdict", () => {
+	it("is refused quietly, without aborting the run or naming it released", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		let results: unknown[] = [];
+		let signal: AbortSignal | null = null;
+		const { jobId, drained } = await startRun(async (ctx) => {
+			signal = ctx.signal;
+			await ctx.succeed();
+			results = [
+				await ctx.succeed(),
+				await ctx.fail({ code: "late", message: "late", retryable: true }),
+				await ctx.progress({ phase: "late" }),
+				await ctx.write(() => {}),
+			];
+		});
+		await drained;
+
+		expect(results).toEqual([
+			false,
+			{ applied: false, requeued: false, runAfter: null },
+			false,
+			false,
+		]);
+		expect((signal as unknown as AbortSignal).aborted).toBe(false);
+		expect(job(jobId).status).toBe("succeeded");
+		expect(warn).not.toHaveBeenCalled();
+		expect(info).not.toHaveBeenCalledWith(
+			expect.stringContaining("Cancel honoured"),
+			expect.anything(),
+		);
+	});
+
+	it("keeps beating no more: a handler tidying up after success is left alone", async () => {
+		let signal: AbortSignal | null = null;
+		let release: () => void = () => {};
+		const tidy = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const { jobId, drained } = await startRun(async (ctx) => {
+			signal = ctx.signal;
+			await ctx.succeed();
+			await tidy;
+		});
+		const beatsBefore = heartbeatSeconds(jobId);
+
+		await vi.advanceTimersByTimeAsync(5_000);
+		release();
+		await drained;
+
+		expect((signal as unknown as AbortSignal).aborted).toBe(false);
+		expect(heartbeatSeconds(jobId)).toBe(beatsBefore);
+	});
+
+	it("does not make a second verdict of a throw that follows the failure it reported", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const decide = vi.fn(() => ({ requeue: false as const, retryable: false }));
+		h.control.decide = decide;
+		const { jobId, drained } = await startRun(async (ctx) => {
+			await ctx.fail({ code: "bad_input", message: "No.", retryable: false });
+			throw new Error("and then it threw");
+		});
+		await drained;
+
+		expect(decide).toHaveBeenCalledTimes(1);
+		expect(job(jobId)).toMatchObject({
+			status: "failed",
+			errorCode: "bad_input",
+		});
 	});
 });
 

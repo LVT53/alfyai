@@ -161,6 +161,11 @@ export interface JobRunContext<J extends JobTable> {
 	 * beat. `apply` runs inside the fenced transaction, and may write the kind's
 	 * own extra attempt columns for `ctx.attempt.id`. false = this attempt no
 	 * longer owns the job and `apply` did not run.
+	 *
+	 * Rejects when `apply` throws (the transaction is rolled back) or the database
+	 * cannot be written. The promise is observed by the engine either way, so a
+	 * handler that fires and forgets it (`void ctx.write(...)`) cannot crash the
+	 * process; a handler that awaits it sees the rejection.
 	 */
 	write(apply: (tx: Tx) => void): Promise<boolean>;
 	/** Fenced. Settles the job succeeded and runs `apply` in the same transaction. */

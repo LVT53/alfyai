@@ -12,7 +12,16 @@
 
 import type { JobShape } from "./columns";
 import { internalsOf, loadHandler } from "./define";
-import { beat, fail, progress, readJobRow, succeed, write } from "./ledger";
+import {
+	beat,
+	fail,
+	type ProgressUpdate,
+	progress,
+	readJobRow,
+	type SucceedOptions,
+	succeed,
+	write,
+} from "./ledger";
 import { jobsState } from "./state";
 import type {
 	Claimed,
@@ -97,6 +106,13 @@ async function run(
 		if (!signal.aborted) controller.abort(reason);
 	};
 
+	/**
+	 * The run has nothing left to write: it was told to stop, or it has written its
+	 * verdict. A handler may still be tidying up after `succeed()`; what it asks
+	 * the context to do then is refused quietly, and it is not aborted for it.
+	 */
+	const finished = (): boolean => signal.aborted || verdictWritten;
+
 	/** The claim is gone: say why. A cancel is not a lost lease, and a handler cares. */
 	const abortBecauseClaimIsGone = (): void => {
 		let reason: JobAbortReason = "lease-lost";
@@ -116,8 +132,10 @@ async function run(
 		() => {
 			// Once aborted the run is over for writes. A beat that came back to life
 			// after the runner gave up on the lease would keep an abandoned attempt
-			// looking alive and keep the sweep from ever taking it back.
-			if (signal.aborted) return;
+			// looking alive and keep the sweep from ever taking it back. And once the
+			// verdict is written there is no claim left to prove: a beat would find the
+			// job settled and abort a handler that is only tidying up.
+			if (finished()) return;
 			try {
 				if (beat(kind, owned)) {
 					lastBeatOkAtMs = Date.now();
@@ -198,12 +216,33 @@ async function run(
 		return outcome;
 	};
 
+	/**
+	 * A handler may fire and forget (`void ctx.progress(...)`), the way an
+	 * extractor's synchronous progress callback has to. A write that fails (the
+	 * database busy) would then be an unhandled rejection, which Node 22 turns into
+	 * a process exit: the whole server taken down for a status line nobody waited
+	 * on. Attaching a handler here marks the promise handled; a handler that does
+	 * await it still sees the rejection.
+	 */
+	const observed = <Args extends unknown[], Result>(
+		what: string,
+		work: (...args: Args) => Promise<Result>,
+	) => {
+		return (...args: Args): Promise<Result> => {
+			const promise = work(...args);
+			promise.catch((error: unknown) => {
+				console.warn(`${prefix} ${what} failed`, { ...identity, error });
+			});
+			return promise;
+		};
+	};
+
 	const ctx: JobRunContext<JobShape> = {
 		row: claimed.row,
 		attempt: { id: claimed.attempt.id, number: claimed.attempt.number },
 		signal,
-		async progress(update) {
-			if (signal.aborted) return false;
+		progress: observed("Progress write", async (update: ProgressUpdate) => {
+			if (finished()) return false;
 			const result = progress(kind, owned, update);
 			if (result === "applied") {
 				lastBeatOkAtMs = Date.now();
@@ -211,35 +250,44 @@ async function run(
 			}
 			if (result === "lost") abortBecauseClaimIsGone();
 			return false;
-		},
-		async write(apply) {
-			if (signal.aborted) return false;
+		}),
+		write: observed("Domain write", async (apply: (tx: Tx) => void) => {
+			if (finished()) return false;
 			if (write(kind, owned, apply)) {
 				lastBeatOkAtMs = Date.now();
 				return true;
 			}
 			abortBecauseClaimIsGone();
 			return false;
-		},
-		async succeed(succeedOptions) {
-			if (signal.aborted) return false;
-			if (succeed(kind, owned, succeedOptions)) {
-				verdictWritten = true;
-				return true;
-			}
-			abortBecauseClaimIsGone();
-			return false;
-		},
-		async fail(failure, failOptions) {
-			if (signal.aborted) return NOT_APPLIED;
-			return settleFailure(failure, failOptions);
-		},
+		}),
+		succeed: observed(
+			"Success write",
+			async (succeedOptions?: SucceedOptions) => {
+				if (finished()) return false;
+				if (succeed(kind, owned, succeedOptions)) {
+					verdictWritten = true;
+					return true;
+				}
+				abortBecauseClaimIsGone();
+				return false;
+			},
+		),
+		fail: observed(
+			"Failure write",
+			async (
+				failure: JobFailure,
+				failOptions?: { apply?: (tx: Tx) => void },
+			) => {
+				if (finished()) return NOT_APPLIED;
+				return settleFailure(failure, failOptions);
+			},
+		),
 	};
 
 	try {
 		const handler = await loadHandler(internals);
 		await handler(ctx);
-		if (!signal.aborted && !verdictWritten) {
+		if (!finished()) {
 			// It returned and said nothing. The job must not stay `running` and hold a
 			// slot for the length of the stale window, so it fails, through the policy.
 			settleFailure({
@@ -251,7 +299,9 @@ async function run(
 	} catch (error) {
 		// A throw after an abort is the abort's doing (a fetch cancelled, a stream
 		// closed), not the job's: the verdict belongs to whoever holds the job now.
-		if (!signal.aborted) {
+		// A throw after the verdict (a handler that failed the job and then threw) has
+		// nothing left to say either.
+		if (!finished()) {
 			try {
 				settleFailure({
 					code: "job_failed",
