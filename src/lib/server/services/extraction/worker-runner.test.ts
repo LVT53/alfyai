@@ -3,7 +3,7 @@ import { hostname, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact } from "$lib/server/services/knowledge/types";
-import { parseWorkerId } from "../worker-identity";
+import { parseWorkerId } from "../jobs/worker-identity";
 import { createFakeExtractor } from "./testing/fake-extractor";
 import {
 	createLedgerFixture,

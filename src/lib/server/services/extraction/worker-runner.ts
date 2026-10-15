@@ -25,7 +25,7 @@ import type {
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import { DOCUMENT_EXTRACTION_ACTIVE_STATUSES } from "$lib/shared/extraction-status";
-import { createWorkerId } from "../worker-identity";
+import { createWorkerId } from "../jobs/worker-identity";
 import { type ExtractionConfig, getExtractionConfig } from "./config";
 import {
 	type DocumentExtractor,

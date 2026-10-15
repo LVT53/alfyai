@@ -16,7 +16,7 @@ import { eq, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { fileProductionJobs } from "$lib/server/db/schema";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { createWorkerId } from "../worker-identity";
+import { createWorkerId } from "../jobs/worker-identity";
 import {
 	type FileProductionWorkerConfig,
 	getFileProductionWorkerConfig,
