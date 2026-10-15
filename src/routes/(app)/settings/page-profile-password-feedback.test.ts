@@ -8,6 +8,7 @@ import {
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import SettingsPage from "./+page.svelte";
 import type { PageData, PageProps } from "./$types";
@@ -266,15 +267,17 @@ describe("settings page — one Save for the identity card", () => {
 	it("reports a too-short password without calling the server", async () => {
 		renderSettingsPage();
 
-		await fillPasswordForm({ next: "short", confirm: "short" });
+		const oneShort = "x".repeat(MIN_PASSWORD_LENGTH - 1);
+		await fillPasswordForm({ next: oneShort, confirm: oneShort });
 		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);
 		});
+		// Names the minimum from the one number, not from a copy of it in the text.
 		expect(get(toasts)[0]).toMatchObject({
 			type: "error",
-			message: "Password must be at least 8 characters.",
+			message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
 		});
 		expect(mockUpdatePassword).not.toHaveBeenCalled();
 	});

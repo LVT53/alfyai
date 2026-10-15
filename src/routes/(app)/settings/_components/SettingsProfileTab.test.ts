@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
 
 vi.mock("chart.js/auto", () => {
@@ -291,6 +292,17 @@ describe("SettingsProfileTab — one identity card, one Save", () => {
 			screen.getByText(/Leave the password boxes empty/),
 		).toBeInTheDocument();
 		expect(screen.getByText("Change password — optional")).toBeInTheDocument();
+	});
+
+	it("names the minimum length in the placeholders of the new and the confirm box", () => {
+		renderTab();
+
+		// Two boxes share the line, and the number comes from the one constant.
+		expect(
+			screen.getAllByPlaceholderText(
+				`At least ${MIN_PASSWORD_LENGTH} characters`,
+			),
+		).toHaveLength(2);
 	});
 
 	it("calls the one Save and the one Discard", async () => {

@@ -169,6 +169,8 @@ describe("planAccountSave — one Save, optional password", () => {
 		expect(plan(MIN_PASSWORD_LENGTH - 1)).toEqual({
 			ok: false,
 			errorKey: "settings_passwordTooShort",
+			// The message names the minimum, so the plan carries it for `$t`.
+			errorParams: { count: MIN_PASSWORD_LENGTH },
 		});
 		expect(plan(MIN_PASSWORD_LENGTH)).toMatchObject({
 			ok: true,
@@ -200,7 +202,7 @@ describe("planAccountSave — one Save, optional password", () => {
 				}),
 				baseline,
 			),
-		).toEqual({ ok: false, errorKey: "settings_passwordTooShort" });
+		).toMatchObject({ ok: false, errorKey: "settings_passwordTooShort" });
 	});
 });
 

@@ -65,6 +65,14 @@ describe("CreateUserModal", () => {
 		).not.toBeDisabled();
 	});
 
+	it("names the minimum length in the password placeholder, from the one number", () => {
+		renderModal();
+
+		expect(
+			screen.getByPlaceholderText(`At least ${MIN_PASSWORD_LENGTH} characters`),
+		).toBeInTheDocument();
+	});
+
 	it("generates a password and reveals it", async () => {
 		renderModal();
 

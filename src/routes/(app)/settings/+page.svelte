@@ -492,7 +492,10 @@ async function saveAccount() {
 		accountBaseline,
 	);
 	if (!plan.ok) {
-		showToast({ type: "error", message: $t(plan.errorKey) });
+		showToast({
+			type: "error",
+			message: $t(plan.errorKey, plan.errorParams),
+		});
 		return;
 	}
 

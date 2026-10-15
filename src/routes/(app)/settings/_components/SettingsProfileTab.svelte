@@ -40,6 +40,7 @@ import {
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import {
 	fetchUserSkills,
@@ -480,7 +481,7 @@ function handlePersonalitySelect(event: Event) {
 					bind:value={newPassword}
 					bind:shown={showNewPw}
 					autocomplete="new-password"
-					placeholder={$t('profileTab.newPasswordPlaceholder')}
+					placeholder={$t('profileTab.newPasswordPlaceholder', { count: MIN_PASSWORD_LENGTH })}
 				/>
 				<PasswordField
 					id="confirm-pw"
@@ -488,7 +489,7 @@ function handlePersonalitySelect(event: Event) {
 					bind:value={confirmPassword}
 					bind:shown={showConfirmPw}
 					autocomplete="new-password"
-					placeholder={$t('profileTab.newPasswordPlaceholder')}
+					placeholder={$t('profileTab.newPasswordPlaceholder', { count: MIN_PASSWORD_LENGTH })}
 				/>
 			</div>
 

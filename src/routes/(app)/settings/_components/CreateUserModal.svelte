@@ -98,7 +98,7 @@ function generatePassword() {
 							bind:value={password}
 							bind:shown={showPassword}
 							autocomplete="new-password"
-							placeholder={$t('admin.passwordPlaceholder')}
+							placeholder={$t('admin.passwordPlaceholder', { count: MIN_PASSWORD_LENGTH })}
 						/>
 					</div>
 					<button type="button" class="generate-btn" onclick={generatePassword}>

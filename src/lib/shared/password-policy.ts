@@ -6,10 +6,10 @@
  * password through that the server then refuses, or one that refuses what the
  * server would take, is the failure mode this file exists to prevent.
  *
- * Not read from here: the copy that says the number in words ("At least 8
- * characters": `admin.passwordPlaceholder`, `profileTab.newPasswordPlaceholder`
- * and `settings_passwordTooShort`, in English and Hungarian). Change those with
- * this.
+ * The words that name the number (`admin.passwordPlaceholder`,
+ * `profileTab.newPasswordPlaceholder` and `settings_passwordTooShort`, in
+ * English and Hungarian) take it as `{count}` from here, so there is nothing
+ * to change beside it.
  *
  * Client-safe: no server imports, no DB, no env.
  */

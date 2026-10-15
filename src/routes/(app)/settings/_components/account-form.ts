@@ -78,7 +78,12 @@ export type AccountSavePlan =
 			/** Which "it worked" line to show for this particular Save. */
 			successKey: I18nKey;
 	  }
-	| { ok: false; errorKey: I18nKey };
+	| {
+			ok: false;
+			errorKey: I18nKey;
+			/** The numbers the message names, for `$t`, when it names any. */
+			errorParams?: { count: number };
+	  };
 
 /**
  * Decide what one press of Save does, or why it cannot run.
@@ -108,7 +113,11 @@ export function planAccountSave(
 			return { ok: false, errorKey: "settings_passwordMismatch" };
 		}
 		if (values.newPassword.length < MIN_PASSWORD_LENGTH) {
-			return { ok: false, errorKey: "settings_passwordTooShort" };
+			return {
+				ok: false,
+				errorKey: "settings_passwordTooShort",
+				errorParams: { count: MIN_PASSWORD_LENGTH },
+			};
 		}
 	}
 
