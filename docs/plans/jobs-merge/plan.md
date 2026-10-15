@@ -190,6 +190,8 @@ Rules:
   - `another host's or an old-format id waits for the stale window`.
   - `EPERM means alive`.
   - `a running job with no live attempt is taken back as state-lost`, for both a missing attempt row and an attempt not `running`.
+  - `state-lost at boot takes back a fresh row`.
+  - `state-lost on the idle tick leaves a fresh row alone and takes back an old one`: the age guard is `updated_at < now - staleAfterMs`. It applies to the follow-up sweep, the idle tick, the sweep between drains and `recover`, and not to boot.
   - `recover fails old queued jobs only inside its scope`, with code and message from the caller's options, defaulting to `worker_queue_timeout`.
   - `recover takes back stale and lost attempts inside its scope`.
 - [ ] Run, implement, run. Commit: `Job engine: stale, dead-worker and lost-state take-backs`.
@@ -214,6 +216,7 @@ What it does is in the design's "The scheduler". Port the comments from `extract
   - `the boot follow-up sweep runs staleAfterMs after start`.
   - `startJobs twice and a module re-evaluation keep one scheduler`: `vi.resetModules()`, re-import, `startJobs` again, and still one idle tick per kind.
   - `nothing is scheduled outside a serving process unless started for tests`: wakes are counted and `drainRuns` stays 0.
+  - `a wake before startJobs is counted and runs nothing`: run this with the serving check passing, as in a command-line script. `drain(kind)` still runs the work.
   - `stopJobs clears every timer and takes no new work`.
   - `runInline runs an eligible job past the caps within the budget`, and `runInline leaves an ineligible job queued`.
   - `an idle box logs nothing on a tick`: spy on `console`.
@@ -240,7 +243,7 @@ What it does is in the design's "The scheduler". Port the comments from `extract
 
 - [ ] Write `one-writer.test.ts`. It scans every non-test `.ts`/`.svelte` file under `src/` outside `services/jobs/`, `testing/` folders and `*.test.ts`. A file fails when it names a kind table identifier (`fileProductionJobs`, `documentExtractionJobs`, `atlasJobs`, the attempts tables and any later `*Jobs` built with `jobColumns`) and either:
   - has `.set({` or `.values({` with a lifecycle key (`status`, `currentAttemptId`, `attemptCount`, `runAfter`, `nextAttemptAt`, `retryable`, `errorRetryable`, `errorCode`, `errorMessage`, `cancelRequestedAt`, `startedAt`, `completedAt`, `checkpoint`, `remoteHandleJson`, `retryState`, `heartbeatAt`, `workerId`), or
-  - inserts into an attempts table.
+  - inserts into an attempts table, or `.set({` on one with a lifecycle key. A kind's own extra attempt columns (`extractor`, `resumed`, `textLength`, `pageCount`, `mode`, `renderer`, `runtime`) are allowed.
 
   `ALLOWED` lists, with a reason each:
   - `extraction/job-ledger.ts`, `extraction/reextract.ts`, `file-production/job-ledger.ts`, `file-production/read-model.ts` (legacy backfill), `atlas/job-ledger.ts`, `account-lifecycle/index.ts`: "moves to the engine in its kind's slice".
@@ -323,6 +326,7 @@ Handler:
 - Its title becomes `ctx.write`.
 - Completion is `ctx.succeed({ apply })`, writing usage, source counts, output ids, stage and progress 100. Analytics and `notifyAtlasCompletion` run only when it returns true.
 - Failures are `ctx.fail({ code: v3Error?.code ?? "atlas_pipeline_failed", message, retryable: true }, { apply: failure metadata })`.
+- Do not thread `ctx.signal` into `atlas-v3/`. A cancel is noticed when the next `ctx.write` returns false, as today.
 
 - [ ] Port each case of `worker-runner.test.ts` to `research-runner.test.ts` through `drain(atlasResearchJob)` with the pipeline mocked as it is today. Add:
   - `a lost Atlas attempt requeues twice then fails retryable`;
@@ -402,7 +406,7 @@ Definition:
 
 Handler:
 - Progress becomes `ctx.progress({ phase, checkpoint: handle })`.
-- The attempt's `extractor`, `resumed` and `remote_handle_json` are written with `ctx.write`.
+- The attempt's `extractor` and `resumed` are written with `ctx.write`. The attempt-level `remote_handle_json` is no longer written, because the job's checkpoint holds the handle; its column stays.
 - On abort it calls the remote cancel only when `signal.reason === "cancelled"` and the extractor does not cancel on abort itself.
 - Success is `ctx.succeed({ diagnostics, apply })`, which sets `normalized_artifact_id`, `hints_json` to null, and the attempt's `text_length` and `page_count`.
 - Failures are `ctx.fail({ …, discardCheckpoint: failure.handleUnknown })`.
@@ -516,7 +520,8 @@ Run by the orchestrator.
 1. Merge `feat/jobs-engine` into `dev` in the main checkout.
 2. Run the release gate in a detached worktree: `scripts/gates.sh release <dir> --port 5600 --workers 6`, with `npm ci` under Node 22 and `mkdir -p data` first.
 3. Push `dev`. The push includes the 45 local commits already on `dev`.
-4. Deploy ai.dev with the staging command in the `alfyai-staging-verify-harness` memory.
+4. Deploy ai.dev with the staging command in the `alfyai-staging-verify-harness` memory. Read the script's output to the end. If it rolled back to the previous release after a failed health check, run `docs/plans/jobs-merge/rollback-extraction.sql` against the staging database before anything else.
+   - If S4 was held (by the upload-analysis session or by the budget), S1 to S3 ship without it.
 5. Live checks on the box:
    - status counts per kind before and after (no legacy word left, nothing stuck `running`);
    - a `.txt` upload (inline) and a PDF upload (MinerU), then Retry and Cancel on one of them;

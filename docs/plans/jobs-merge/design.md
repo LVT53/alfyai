@@ -128,7 +128,9 @@ export interface JobRunContext<J extends JobTable> {
 	/** Fenced. Moves the phase and/or replaces the checkpoint; counts as a beat.
 	 *  false = this attempt no longer owns the job. */
 	progress(update: { phase?: string; checkpoint?: unknown }): Promise<boolean>;
-	/** Fenced domain write mid-run (Atlas: stage, progress, title). Counts as a beat. */
+	/** Fenced domain write mid-run (Atlas: stage, progress, title). Counts as a beat.
+	 *  This and the `apply` of `succeed` and `fail` may also write the kind's own extra
+	 *  attempt columns (by `attempt.id`); lifecycle columns are only ever the engine's. */
 	write(apply: (tx: Tx) => void): Promise<boolean>;
 	/** Fenced. Settles the job succeeded and runs `apply` in the same transaction. */
 	succeed(options?: { diagnostics?: unknown; apply?: (tx: Tx) => void }): Promise<boolean>;
@@ -283,7 +285,7 @@ The engine takes an attempt back in three ways, all through one transition that 
 
 1. **stale**: a running attempt whose last beat is older than `staleAfterMs`. Run at boot, again `staleAfterMs` after boot (the attempts the restart itself orphaned look healthy at boot), on the idle tick when a running row exists, and between empty drains at most once per tick.
 2. **dead-worker**: at boot, a running attempt whose worker id names this host, a pid that no longer exists, and not this process. An id in an older format, or from another host, waits for the stale path. `EPERM` from `kill(pid, 0)` means alive.
-3. **state-lost**: a running job whose current attempt row is missing or no longer running (every Atlas row that is running at the cutover, since Atlas has no attempts today).
+3. **state-lost**: a running job whose current attempt row is missing or no longer running (every Atlas row that is running at the cutover, since Atlas has no attempts today). At boot it takes back every such row, since nothing of this process is running yet. Everywhere else (the follow-up sweep, the idle tick, between drains, a scoped `recover`) it takes back only rows whose `updated_at` is older than `staleAfterMs`, as the file-production fork reconciler does today, so a row another writer has just made is left alone (**my call**, from the builder check: an e2e spec seeds such a row into a live server).
 
 ### Failures and retries
 
@@ -297,7 +299,7 @@ The user's **Retry** reopens through `userRetry`: file production from `failed` 
 
 ### Cancel
 
-`cancel` settles a queued or running job `cancelled` in one transaction (attempt closed `cancelled` with code `cancelled`; error, checkpoint and `runAfter` cleared; `cancelRequestedAt` kept if set). When this process is running that attempt, its signal aborts at once with `"cancelled"` (today the run waits for its next heartbeat or progress call). A handler reacts to the reason: extraction asks the backend to delete its remote job on `"cancelled"` (unless the extractor already does on abort) and never on `"lease-lost"`, because the next attempt resumes that remote job from the checkpoint.
+`cancel` settles a queued or running job `cancelled` in one transaction (attempt closed `cancelled` with code `cancelled`; error, checkpoint and `runAfter` cleared; `cancelRequestedAt` kept if set). When this process is running that attempt, its signal aborts at once with `"cancelled"` (today the run waits for its next heartbeat or progress call). A handler reacts to the reason: extraction asks the backend to delete its remote job on `"cancelled"` (unless the extractor already does on abort) and never on `"lease-lost"`, because the next attempt resumes that remote job from the checkpoint. File production's renderers and sandbox already take the signal. The Atlas pipeline does not (**my call**: threading it through `atlas-v3/` is a separate job), so Atlas notices a cancel at its next `ctx.write`, which returns false, as it does today at its next heartbeat callback.
 
 `cancelAll` is the same transition over a user's queued and running jobs, optionally narrowed by a domain condition (Atlas: one conversation). Account erasure's quiesce (ADR-0030) calls it for each kind, replacing the raw cancel SQL in `account-lifecycle/index.ts`; conversation cleanup calls it for Atlas before deleting the conversation's Atlas rows, as today. An in-process attempt of a cancelled job aborts at once, which today's raw updates could not do.
 
@@ -309,7 +311,7 @@ One state object per process on `globalThis` under a `Symbol.for` key, so a doub
 - **Idle tick**: one unref'd interval per kind, `heartbeatMs × 2` clamped to 5–60 s. It also supervises the enable switch in both directions: off stops arming work (a running attempt finishes and reports), on does a full start with sweeps. One aggregate query answers "anything to do, and if not yet, when" over the live partial index; an idle box does one index probe per kind per tick and logs nothing.
 - **Backoff timer**: at most one per kind, armed for the earliest future `runAfter` plus one second (timestamps have one-second resolution), at most an hour per hop.
 - **Boot** (`startJobs`): per enabled kind, dead-worker reclaim, the stale sweep, the follow-up sweep after `staleAfterMs`, the idle tick, a drain. A disabled kind gets only the idle tick, which notices the switch.
-- **Wake**: every transition that leaves claimable work (enqueue, requeue, retry, reopen, a linked Atlas reply) wakes its kind after the commit. Callers stop calling wake functions.
+- **Wake**: every transition that leaves claimable work (enqueue, requeue, retry, reopen, a linked Atlas reply) wakes its kind after the commit. Callers stop calling wake functions. A wake does nothing in a process that never called `startJobs`: it is only counted (**my call**: `scripts/backfill-extractions.ts` reopens jobs from the command line and must never become a second worker, a bug it once had). `drain` is the explicit way to run work in such a process.
 - **Inline**: `runInline` claims one eligible job by id, past the caps, and runs it in the caller's async context under the inline worker id; the caller waits at most `budgetMs` and the run finishes in the background if the budget runs out.
 - **Not serving** (vitest, `NODE_ENV=test`, the build's analysis): nothing is scheduled and wakes are counted and dropped, unless a test starts the engine on purpose. Test helpers reset and inspect the state as today's do.
 
@@ -334,7 +336,9 @@ Each kind's definition lives in a file named for its domain (`atlas/research-job
 Each kind moves in its own slice with its own migration, and every migration is expand-only, so the old process survives the two-minute window:
 
 - **Atlas**: `CREATE TABLE atlas_job_attempts`; `ALTER TABLE atlas_jobs ADD COLUMN` for `current_attempt_id`, `attempt_count`, `run_after`, `priority`, `phase`, `checkpoint_json`, `retry_state_json`; the live partial index. The job-level `worker_id` and `heartbeat_at` columns stop being written and stay until a later cleanup. Running Atlas rows at the cutover have no attempt and are taken back as state-lost, which requeues them (today's boot behaviour).
-- **Extraction**: `ADD COLUMN phase`, `ADD COLUMN retry_state_json`; then the one data rewrite of this work: active statuses become `running` with the word in `phase`, `canceled` becomes `cancelled` (jobs and attempts), and `$outage` moves out of `hints_json` into `retry_state_json`. The old process may write the old words in the window, so `db/compat.ts` (the one sanctioned home for a bounded startup shim, noted in the README) re-applies the same idempotent statements once at startup, before `startJobs`. It is removed in the cleanup after production has run this release.
+- **Extraction**: `ADD COLUMN phase`, `ADD COLUMN retry_state_json`; then the one data rewrite of this work: active statuses become `running` with the word in `phase`, `canceled` becomes `cancelled` (jobs and attempts), and `$outage` moves out of `hints_json` into `retry_state_json`. The rewrite is in the migration because `db:prepare` stays the real migration path (AGENTS.md). The old process may write the old words in the window, so `db/compat.ts` (the one sanctioned home for a bounded startup shim, noted in the README) re-applies the same idempotent statements once at startup, before `startJobs`. It is removed in the cleanup after production has run this release.
+  - What the old process does in the window, checked against its code: an attempt it is running fails its own ownership check at its next heartbeat (the row now says `running`), aborts as "claim lost" without a verdict and keeps the remote handle; the new process reclaims it as a dead worker's and resumes it from the checkpoint. A claim it makes writes a phase word and a cancel writes `canceled`; the shim rewrites both. For up to two minutes its read model shows the new words and its Retry refuses a `cancelled` job.
+  - If the deploy's health check fails and the script rolls back to the previous release automatically, the old code meets rewritten rows. The deploy step watches for that and then runs `rollback-extraction.sql` by hand (**my call**: the rollback logic belongs to the release being replaced, so this deploy cannot add a hook to it).
 - **File production**: `ADD COLUMN` for `attempt_count` (backfilled from the attempts table), `run_after`, `priority`, `checkpoint_json`, `retry_state_json`, `started_at`; the live partial index widened to `(status, priority, created_at)`. Since the engine numbers attempts from the attempts table, an `attempt_count` the old process left behind cannot collide.
 - Every slice writes `docs/plans/jobs-merge/rollback-<kind>.md`: Atlas and file production roll back as code (the old code reads the columns the engine writes and ignores the new ones); extraction's needs a reverse SQL file (`running` + phase back into status, `cancelled` back to `canceled`, `retry_state_json` back into `hints_json.$outage`), tested against a copy of a migrated database.
 - Later, not in this run: drop Atlas's dead columns, remove the compat shim, after production has run the release.
@@ -364,7 +368,7 @@ The engine logs with the kind's prefix, keeping today's events and message texts
 
 - The engine is tested at its interface with a test kind whose two tables come from the same builders, created in the test database by the test (not in `schema.ts`, so no migration). Claim order, caps and fairness; fencing of late writes; beats and abort reasons; the three take-backs through `onFailure`; requeue and the backoff timer; cancel's immediate abort; retry and reopen; idempotent enqueue (reuse, replace, insert, born states); a wake during a drain; the switch both ways; an HMR re-evaluation; `waitForVerdict` by event and by poll; `runInline` past the caps.
 - A kind slice deletes the ledger, worker and wait tests the engine's tests now cover (replace, don't layer), keeps its domain tests, and tests its handler and policy through the engine.
-- A source scan keeps one writer: no file outside `services/jobs/` writes a lifecycle column of a kind table (`status`, `currentAttemptId`, `attemptCount`, `runAfter`, `checkpoint`, `retryState`, the attempts tables), with born rows going through `enqueue`.
+- A source scan keeps one writer: no file outside `services/jobs/` writes a lifecycle column of a kind table or of its attempts table (`status`, `currentAttemptId`, `attemptCount`, `runAfter`, `checkpoint`, `retryState`, `heartbeatAt`, `workerId` and the rest of the shape), with born rows going through `enqueue`. A kind's own extra columns are its to write.
 - Each slice runs `scripts/gates.sh agent` with the e2e specs of its area; the integration branch runs the release gate before the deploy.
 
 ## Slices and order (my call)
@@ -379,7 +383,9 @@ The engine logs with the kind's prefix, keeping today's events and message texts
 | review | Opus review of the three migrations, the shim and the rollbacks | |
 | ship | merge into `dev`, release gate, push, deploy to ai.dev, live checks | |
 
-S2 and S3 run side by side after S1's review (disjoint folders; each owns its own migration number). S4 waits until the upload-analysis session (`Add analysis of uploaded files in the sandbox`), which may change `file-production/`, has been told and has said whether it has work in flight there.
+S2 and S3 run side by side after S1's review (disjoint folders; each owns its own migration number). S4 waits until the upload-analysis session (`Add analysis of uploaded files in the sandbox`), which may change `file-production/`, has been told and has said whether it has work in flight there. If S4 is held (by that session or by the budget), S1 to S3 ship to ai.dev on their own (**my call**): each slice leaves the app whole.
+
+Atlas's lease is constants in `atlas/config.ts` (heartbeat 15 s, stale after 120 s, the file-production defaults), not new admin keys (**my call**: a new setting is a five-file change under AGENTS.md, and nobody has asked to tune Atlas's lease). Extraction keeps writing its diagnostic attempt columns (`extractor`, `resumed`, `text_length`, `page_count`) through `write` and `apply`. It stops writing the attempt-level copy of the remote handle, which nothing reads now that the job's checkpoint holds it (**my call**); the column stays.
 
 ## Risks
 

@@ -28,8 +28,8 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 |---|---|---|
 | Design + ADR-0069 | done, `87cb83b2b` | |
 | Plan | done, `1e8e8177a` | |
-| Builder check | running | |
-| S1 engine | not started | |
+| Builder check | done | 7 questions; 6 settled as my calls in design.md and plan.md; the push scope asked of the owner |
+| S1 engine | running | Sonnet agent in its own worktree, branch `jobs/s1-engine`; three builder-check rulings sent to it mid-run |
 | R1 | not started | |
 | S2 Atlas | not started | |
 | S3 extraction | not started | |
