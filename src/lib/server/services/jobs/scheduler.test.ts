@@ -674,6 +674,39 @@ describe("the switch", () => {
 		expect(job(again.row.id).status).toBe("succeeded");
 	});
 
+	it("keeps the age guard on lost rows when it comes on: only the process's boot goes without", async () => {
+		// The rule: a running job with no live attempt is taken back at once only
+		// at boot, when nothing of this process can be running; everywhere else only
+		// once nobody has touched it for a stale window. Coming on in a process that
+		// has been serving for an hour is not boot: a row another writer made a
+		// moment ago (a seed into a live server, the old release mid-deploy) is not
+		// lost yet.
+		h.control.config.staleAfterMs = 30_000;
+		h.control.config.enabled = false;
+		await boot();
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const fresh = h.fixture.seedJob({
+			userId: h.userId,
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: crypto.randomUUID(),
+		});
+		const old = h.fixture.seedJob({
+			userId: h.userId,
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: crypto.randomUUID(),
+			updatedAt: new Date(START.getTime() - 120_000),
+		});
+
+		h.control.config.enabled = true;
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
+
+		expect(inspect().running).toBe(true);
+		expect(job(old).status).toBe("failed");
+		expect(job(fresh).status).toBe("running");
+	});
+
 	it("still drops a wake while it is off", async () => {
 		h.control.config.enabled = false;
 		await boot();

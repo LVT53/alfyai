@@ -207,8 +207,14 @@ function runSweep(kind: JobKind, reason: string): TakeBackResult {
  * already stale, and running jobs with no live attempt at all (every Atlas row at
  * the cutover). Each sweep is its own failure domain: one that throws is logged
  * and must not stop the next, or the tick from being armed.
+ *
+ * The same sweeps run when a kind comes on later in a serving process (the
+ * switch), but only the process's own boot takes lost rows back with no age
+ * guard: an hour into serving, a running row with no attempt that another writer
+ * made a moment ago is not lost yet, and the guard costs nothing for the rows a
+ * dead process left, which are as old as its death.
  */
-function runBootSweeps(kind: JobKind): void {
+function runBootSweeps(kind: JobKind, atProcessBoot: boolean): void {
 	const { definition } = internalsOf(kind);
 	const state = kindScheduler(kind.name);
 	const prefix = definition.logPrefix;
@@ -255,7 +261,12 @@ function runBootSweeps(kind: JobKind): void {
 	attempt("state-lost", () => {
 		// No age guard at boot: nothing of this process is running yet, so nobody
 		// can be in the middle of claiming a row.
-		const outcome = takeBack(kind, { reason: "state-lost" });
+		const outcome = takeBack(kind, {
+			reason: "state-lost",
+			...(atProcessBoot
+				? {}
+				: { updatedBefore: new Date(Date.now() - staleAfterMs) }),
+		});
 		if (outcome.recovered > 0) {
 			console.warn(`${prefix} Reclaimed jobs whose attempt state was lost`, {
 				reason: "boot",
@@ -492,7 +503,7 @@ async function runIdleTick(kind: JobKind): Promise<void> {
 	if (!state.running) {
 		// Live ON. A full start, sweeps included: the queue may have been sitting
 		// untouched for however long the switch was off.
-		await startKindLoops(kind);
+		await startKindLoops(kind, { atProcessBoot: false });
 		return;
 	}
 
@@ -552,8 +563,14 @@ function startIdleTick(kind: JobKind): void {
  * seconds old at boot and so looked perfectly healthy. Without it, a box where
  * nobody does anything for an hour keeps a job `running` for that hour with a
  * heartbeat frozen at the restart.
+ *
+ * `atProcessBoot` is true only from `startJobs`: the switch coming on later, at
+ * the tick or at a wake, keeps the lost-state age guard (see `runBootSweeps`).
  */
-async function startKindLoops(kind: JobKind): Promise<void> {
+async function startKindLoops(
+	kind: JobKind,
+	{ atProcessBoot }: { atProcessBoot: boolean },
+): Promise<void> {
 	const state = kindScheduler(kind.name);
 	if (state.running) return;
 	state.running = true;
@@ -569,7 +586,7 @@ async function startKindLoops(kind: JobKind): Promise<void> {
 		perUserConcurrency: limits.perUser ?? null,
 	});
 
-	runBootSweeps(kind);
+	runBootSweeps(kind, atProcessBoot);
 
 	if (state.bootSweep) clearTimeout(state.bootSweep);
 	state.bootSweep = setTimeout(() => {
@@ -641,7 +658,7 @@ export async function startJobs(
 				startIdleTick(kind);
 				continue;
 			}
-			await startKindLoops(kind);
+			await startKindLoops(kind, { atProcessBoot: true });
 		} catch (error) {
 			console.error(`${kind.logPrefix} Worker failed to start`, { error });
 		}
@@ -695,7 +712,7 @@ export function wake(kind: JobKind): void {
 		console.error(`${kind.logPrefix} Reading the switch failed`, { error });
 		return;
 	}
-	void startKindLoops(kind).catch((error) => {
+	void startKindLoops(kind, { atProcessBoot: false }).catch((error) => {
 		console.error(`${kind.logPrefix} Worker failed to start`, { error });
 	});
 }
