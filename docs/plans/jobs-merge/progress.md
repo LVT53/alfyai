@@ -32,7 +32,7 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | S1 engine | done, merged `50d58309e` | 14 commits, 264 engine tests; gates at `884a14257`: check 0/17, vitest 19,173, smoke 236/236, Fallow 0 new. Sonnet, 872k tokens, 78 min |
 | R1 | done, merged `7747381ed` | Opus, 507k tokens, 38 min: 7 engine fixes with failing tests first; 4 design points settled in design.md ('After the engine review') |
 | S2 Atlas | done, merged `527c48928` | Sonnet, 661k tokens, 38 min; gates at `be7c1769c`: check 0/17, vitest 19,206, Playwright 37/37, Fallow 0 new. Two findings went to the touch-up agent |
-| S3 extraction | running | Sonnet, branch `jobs/s3-extraction` |
+| S3 extraction | done, merged `7416f58c4` | Sonnet, 392k tokens, 78 min; gates at `7b97e2e27`: check 0/17, vitest 19,205, Playwright 74/74, Fallow 0 new. After the merge with the touch-ups: 84 files / 1,426 tests pass (jobs, extraction, atlas, mineru integration, backfill script, db). `db/compat.ts` joined ALLOWED (the shim). The reverse SQL stays manual |
 | S2b touch-ups | done, merged `e742522d9` | Sonnet, 498k tokens, 29 min, 6 fixes test-first; gates at `2772f8ff7`: vitest 19,219, Playwright 27/27. Extraction and file production keep their own dead-worker check until S3/S4 remove it |
 | S4 file production | not started | Coordination checked 2026-10-15 03:05 UTC: the upload-analysis session (local_3cfe1b3e) last ran 2026-10-14 18:47, has no branch or worktree, and no branch but this run's touches `file-production/`. Nothing in flight; S4 may go after S3 |
 | R2 | not started | |
@@ -46,3 +46,4 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | 2026-10-15 00:15 | 73 | 14 | after recon and the caller inventory (Sonnet, 389k tokens) |
 | 2026-10-15 01:42 | 77 | 41 | S1 merged; R1 dispatched alone (5-hour window resets 04:50) |
 | 2026-10-15 03:00 | 79 | 58 | S2 merged; S3 and the touch-up agent dispatched together |
+| 2026-10-15 04:21 | 82 | 85 | S3 merged; S4 held until the 5-hour window resets at 04:50 |
