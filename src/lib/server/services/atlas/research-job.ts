@@ -55,12 +55,17 @@ import {
  * Keeps Atlas's own columns in step with the engine's status, inside the
  * transaction that changes it: the card reads `stage` and progress, not `status`.
  *
- * The same write clears the job-level `worker_id` and `heartbeat_at` on every
- * transition. They are the fence of the release before the engine, which the
- * engine never writes: a process still running the old ledger would match a row
- * on `worker_id`, and a row the engine has touched can never match. Two
- * processes never run at once in a deploy (`systemctl restart` stops the old one
- * first), so this is insurance; the columns go in a later cleanup.
+ * The same write keeps the job-level `worker_id` and `heartbeat_at`, which the
+ * engine never writes, in a state the release before the engine can live with
+ * after a code rollback. `worker_id` is cleared on every transition: it is that
+ * release's fence, so a process still running the old ledger would match a row on
+ * it, and a row the engine has touched can never match. Two processes never run
+ * at once in a deploy (`systemctl restart` stops the old one first), so this is
+ * insurance. `heartbeat_at` is the time of the transition, not null: that release
+ * requeues, at its boot, every row that is `running` with a heartbeat older than
+ * now, and a null one is never older than anything, so a row the engine left
+ * running would stay running for good (docs/plans/jobs-merge/rollback-atlas.md).
+ * The columns go in a later cleanup.
  *
  * Synchronous on purpose: the engine refuses a callback that returns a promise.
  */
@@ -69,6 +74,8 @@ function syncAtlasColumns(
 	row: typeof atlasJobs.$inferSelect,
 	to: JobStatus,
 ): void {
+	// The engine stamps `updated_at` with the time of every transition it makes.
+	const legacyFence = { workerId: null, heartbeatAt: row.updatedAt };
 	switch (to) {
 		case "running":
 			// D1 routing: every claim restamps the row onto pipeline v3, even a queued
@@ -82,8 +89,7 @@ function syncAtlasColumns(
 					progressDetailsJson: "{}",
 					pipelineVersion: ATLAS_CURRENT_PIPELINE_VERSION,
 					failureMetadataJson: null,
-					workerId: null,
-					heartbeatAt: null,
+					...legacyFence,
 				})
 				.where(eq(atlasJobs.id, row.id))
 				.run();
@@ -94,21 +100,20 @@ function syncAtlasColumns(
 					stage: "queued",
 					progressPercent: 0,
 					progressDetailsJson: "{}",
-					workerId: null,
-					heartbeatAt: null,
+					...legacyFence,
 				})
 				.where(eq(atlasJobs.id, row.id))
 				.run();
 			return;
 		case "failed":
 			tx.update(atlasJobs)
-				.set({ stage: "failed", workerId: null, heartbeatAt: null })
+				.set({ stage: "failed", ...legacyFence })
 				.where(eq(atlasJobs.id, row.id))
 				.run();
 			return;
 		case "cancelled":
 			tx.update(atlasJobs)
-				.set({ stage: "cancelled", workerId: null, heartbeatAt: null })
+				.set({ stage: "cancelled", ...legacyFence })
 				.where(eq(atlasJobs.id, row.id))
 				.run();
 			return;
@@ -116,7 +121,7 @@ function syncAtlasColumns(
 			// The handler's `succeed` writes the report's stage, progress, usage and
 			// outputs in the same transaction.
 			tx.update(atlasJobs)
-				.set({ workerId: null, heartbeatAt: null })
+				.set(legacyFence)
 				.where(eq(atlasJobs.id, row.id))
 				.run();
 			return;

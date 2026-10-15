@@ -351,7 +351,7 @@ function scanTree(): Map<string, Violation[]> {
 
 const ALLOWED: Record<string, string> = {
 	"src/lib/server/services/atlas/research-job.ts":
-		"Atlas's onTransition clears the pre-engine fence columns (worker_id, heartbeat_at) on every transition, so a pre-engine Atlas process can never write; it goes with the column cleanup.",
+		"Atlas's onTransition clears the pre-engine fence column worker_id and sets heartbeat_at to the transition's time on every transition, so a pre-engine Atlas process can never write but its boot recovery still finds a running row; it goes with the column cleanup.",
 	"src/lib/server/services/extraction/job-ledger.ts":
 		"Extraction's own ledger: it moves onto the engine in slice S3 and what is left is domain transitions only.",
 	"src/lib/server/services/extraction/reextract.ts":

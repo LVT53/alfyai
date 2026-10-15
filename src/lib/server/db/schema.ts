@@ -2040,11 +2040,14 @@ export const atlasJobs = sqliteTable(
 		stage: text("stage").notNull().default("queued"),
 		progressPercent: integer("progress_percent").notNull().default(0),
 		progressDetailsJson: text("progress_details_json").notNull().default("{}"),
-		// The job-level fence of the release before the engine. Nothing reads them
-		// and the engine does not write them: the kind clears both on every
-		// transition (atlas/research-job.ts `onTransition`) so a process still
-		// running the old ledger can never write through its fence. They go in a
-		// later cleanup, once production has run this release.
+		// The job-level fence and liveness stamp of the release before the engine.
+		// Nothing reads them and the engine does not write them: the kind clears
+		// `worker_id` and sets `heartbeat_at` to the time of the transition on every
+		// transition (atlas/research-job.ts `onTransition`), so a process still
+		// running the old ledger can never write through its fence, and that
+		// release's boot recovery still finds a row left running after a rollback
+		// (docs/plans/jobs-merge/rollback-atlas.md). They go in a later cleanup,
+		// once production has run this release.
 		workerId: text("worker_id"),
 		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
 		inputTokens: integer("input_tokens").notNull().default(0),
