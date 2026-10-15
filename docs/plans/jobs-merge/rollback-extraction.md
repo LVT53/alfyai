@@ -8,7 +8,7 @@ What the migration did, and what the SQL puts back:
 |---|---|
 | `uploading`, `parsing`, `downloading`, `indexing` became `running`; the word moved to the new `phase` column | `running` becomes its `phase` again (`uploading` for a row with none) |
 | `canceled` became `cancelled`, on jobs and on attempts | `cancelled` becomes `canceled` again, on both |
-| the outage counter left `hints_json` (`$outage`) for `retry_state_json`; a `hints_json` left empty became `NULL` | `retry_state_json` goes back under `$outage` in the hints and is cleared |
+| the outage counter left `hints_json` (`$outage`) for `retry_state_json`; a `hints_json` left empty became `NULL` | `retry_state_json` goes back under `$outage` in the hints and is cleared; a `$outage` the previous release wrote meanwhile (below) is added to it, the earlier window kept |
 | (the engine leaves `current_attempt_id` set on a settled job) | cleared on every job that is not in an active word, as the old ledger wrote it |
 
 The two new columns (`phase`, `retry_state_json`) and the live index (`document_extraction_jobs_live_claim_idx`) stay: nothing in the previous release reads them, and every new column is nullable.
@@ -18,18 +18,31 @@ The two new columns (`phase`, `retry_state_json`) and the live index (`document_
 - A planned rollback of the release: after `systemctl stop`, before the previous release starts.
 - **The deploy script rolled back by itself** (its health check failed and it flipped `current` back): the previous release is already serving. Stop its unit, run the SQL, start it again. The script cannot do this for you: the rollback logic belongs to the release being replaced, and that release cannot know a later one rewrote its words (design: "Migration and deploy"). Until the SQL has run, the previous release shows the new words to the person: a `cancelled` job reads as not yet finished and Retry refuses it, and a `running` job is not claimed or swept by the old stale sweep.
 
+On the box, with the service stopped (production `langflow-chat.service` under `/home/alfydesign/apps/langflow-chat`; staging `langflow-chat-dev.service` under `/home/alfydesign/apps/langflow-chat-dev`, stopped and started from `alfyroot`), as the service's own user so any `-wal` or `-shm` file the run leaves is its own:
+
 ```sh
-sqlite3 data/chat.db < docs/plans/jobs-merge/rollback-extraction.sql
+# The release that was rolled BACK: it carries this file, and `current` (the previous
+# release) does not. Its `data` is the shared database, as for every release.
+cd /home/alfydesign/apps/langflow-chat/releases/<sha of the release rolled back>
+sqlite3 -bail data/chat.db < docs/plans/jobs-merge/rollback-extraction.sql
 ```
 
-It is one transaction (all of it applies or none of it), it is idempotent, and it only touches `document_extraction_jobs` and `document_extraction_job_attempts`. Check afterwards:
+`-bail` matters: without it the `sqlite3` shell carries on past a failed statement (a `database is locked` from a process that is still running, say) and the closing `COMMIT` commits what came before it. With it, a failure stops the run and the transaction is rolled back. A host with no `sqlite3` CLI (a minimal Debian box has none) runs the same file through the release's own better-sqlite3, from the same directory:
+
+```sh
+node -e 'const D = require("better-sqlite3"); const db = new D(process.argv[1], { fileMustExist: true, timeout: 10000 }); db.exec(require("fs").readFileSync(process.argv[2], "utf8")); db.close();' data/chat.db docs/plans/jobs-merge/rollback-extraction.sql
+```
+
+`data/chat.db` is the database unless `shared/.env` sets an absolute `DATABASE_PATH`; then use that path.
+
+Run that way, it is one transaction (all of it applies or none of it), it is idempotent, and it only touches `document_extraction_jobs` and `document_extraction_job_attempts`. Check afterwards:
 
 ```sql
 SELECT status, count(*) FROM document_extraction_jobs GROUP BY status;
 SELECT status, count(*) FROM document_extraction_job_attempts GROUP BY status;
 ```
 
-No job may be `running` or `cancelled`, and no attempt `cancelled`. Every other word is one the previous release reads. (`src/lib/server/db/extraction-jobs-engine-migration.test.ts` applies this file to a migrated database seeded in every old word and checks every column against the original.)
+No job may be `running` or `cancelled`, and no attempt `cancelled`. Every other word is one the previous release reads. (`src/lib/server/db/extraction-jobs-engine-migration.test.ts` applies this file to a migrated database seeded in every old word and checks every column against the original; `extraction-jobs-rollback-round-trip.test.ts` lets the real engine move those rows through every state it can leave first, and runs the previous release's claim, boot reclaim and Retry reads against the result.)
 
 ## What the previous release does with the rows the engine left
 
