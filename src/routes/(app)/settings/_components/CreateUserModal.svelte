@@ -2,6 +2,7 @@
 import { Check, TriangleAlert } from "@lucide/svelte";
 import type { UserRole } from "$lib/server/services/auth-types";
 import { t } from "$lib/i18n";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import PasswordField from "./PasswordField.svelte";
 
@@ -27,7 +28,6 @@ let {
 	onCancel: () => void;
 } = $props();
 
-const MIN_PASSWORD_LENGTH = 8;
 const GENERATED_LENGTH = 14;
 const GENERATED_ALPHABET =
 	"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
