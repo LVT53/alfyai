@@ -77,17 +77,20 @@ describe("the build step", () => {
 			...Array(aria).fill("a11y: <div> must have an ARIA role"),
 		].join("\n");
 
-	it("passes at the known warning counts and says they are the baseline", () => {
-		const result = parseBuildLog(lines(32, 2));
+	it("passes on a build with no warning and says the baseline is none", () => {
+		const result = parseBuildLog(lines(0, 0));
 		expect(result.ok).toBe(true);
-		expect(result.text).toBe("unused-css=32 aria=2 (baseline 32/2)");
+		expect(result.text).toBe("unused-css=0 aria=0 (baseline 0/0)");
 	});
 
-	it("fails on one more of either, naming it", () => {
-		expect(parseBuildLog(lines(33, 2))).toMatchObject({ ok: false });
-		expect(parseBuildLog(lines(33, 2)).text).toContain("NEW BUILD WARNINGS");
-		expect(parseBuildLog(lines(32, 3)).ok).toBe(false);
-		expect(parseBuildLog(lines(10, 0)).ok).toBe(true);
+	it("fails on a single warning of either kind, naming it", () => {
+		expect(parseBuildLog(lines(1, 0))).toMatchObject({ ok: false });
+		expect(parseBuildLog(lines(1, 0)).text).toContain("NEW BUILD WARNINGS");
+		expect(parseBuildLog(lines(0, 1)).ok).toBe(false);
+	});
+
+	it("no longer lets through the 32 and 2 it was once held at", () => {
+		expect(parseBuildLog(lines(32, 2)).ok).toBe(false);
 	});
 });
 

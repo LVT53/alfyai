@@ -425,8 +425,15 @@ function pin(range: ItineraryRange | null) {
 	{#if timeline.length > 0}
 		<div class="ri-timeline" data-testid="itinerary-timeline">
 			{#each timeline as row (row.key)}
+				<!--
+					The row is a layout grouping and nothing else (`display: contents`, no
+					box of its own), and the hover only lights up this leg on the map: a
+					pointer extra on text that is all there without it. So it is
+					presentation, not a control.
+				-->
 				<div
 					class="ri-tl-row"
+					role="presentation"
 					class:is-last={row.kind === 'last'}
 					data-testid="itinerary-leg"
 					data-kind={row.kind}

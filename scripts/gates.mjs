@@ -49,8 +49,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The numbers the static gates are held to (phase-5/common.md, the M3 release gates). */
 const BASELINE = {
-	buildUnusedCss: 32,
-	buildAria: 2,
+	// The build prints no warning: one `Unused CSS selector` or `must have an ARIA role` line
+	// fails the step. (phase-5/common.md records the 32 and 2 it was held at before
+	// ToolActivityRow, ThinkingBlock and RouteItinerary were cleaned.)
+	buildUnusedCss: 0,
+	buildAria: 0,
 	fallowCircular: 4,
 	// The `check` section of the report the pinned Fallow made at the last accepted state of
 	// the tree. It lives in the repo, so every checkout and every agent compares with the same
