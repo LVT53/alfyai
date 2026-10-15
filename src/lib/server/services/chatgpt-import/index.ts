@@ -264,6 +264,10 @@ async function importIntoRow(
 
 				await queueImportedConversationForMemoryJudge(userId, conversation.id);
 
+				// Not tracked, so a restart loses the vectors not yet written, and
+				// memory maintenance's backfill does not rebuild them. Harmless while
+				// nothing reads an imported conversation's vector, which
+				// embeddings.test.ts holds.
 				generateImportEmbeddings(
 					conversation.id,
 					userId,

@@ -25,6 +25,12 @@ function buildImportSourceText(
  * Callers SHOULD NOT await this promise on the critical import path — it is
  * designed to run as a fire-and-forget background operation.  Failures are
  * logged and swallowed so they never block the import.
+ *
+ * Nothing tracks the call, so a restart loses the vectors not yet written, and
+ * memory maintenance's backfill rebuilds artifact and task-state vectors only.
+ * That is harmless because nothing reads `imported_conversation` vectors; a
+ * reader must first make them recoverable (`embeddings.test.ts` fails when one
+ * appears).
  */
 export async function generateImportEmbeddings(
 	conversationId: string,
