@@ -461,7 +461,7 @@ const settingsDict = {
 		"admin.parallelFreeMonthlyUsdDescription":
 			"Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.",
 		"admin.password": "Password",
-		"admin.passwordPlaceholder": "At least 8 characters",
+		"admin.passwordPlaceholder": "At least {count} characters",
 		"admin.profileTabNote": `Use the Profile tab for your own account changes. Admin role, session revocation, and deletion are disabled here for the current user.`,
 		"admin.promoteToAdmin": "Promote to Admin",
 		"admin.providerAdded": "Provider added.",
@@ -797,7 +797,6 @@ const settingsDict = {
 		"campaignModal.untitled": "Untitled campaign",
 		settings_admin: "Admin",
 		settings_appearance: "Appearance",
-		settings_atLeast8Chars: "At least 8 characters",
 		settings_autoDetect: "Auto-detect",
 		settings_avatar: "Avatar",
 		// ADR-0043 slice 18a — Profile grouped sections, icon buttons, jargon clearing.
@@ -873,7 +872,7 @@ const settingsDict = {
 		settings_passwordChanged: "Password changed.",
 		settings_passwordLabel: "Password",
 		settings_passwordMismatch: "New passwords do not match.",
-		settings_passwordTooShort: "Password must be at least 8 characters.",
+		settings_passwordTooShort: "Password must be at least {count} characters.",
 		settings_preferences: "Preferences",
 		settings_privacyPolicy: "Privacy policy",
 		settings_privacyControls: "Privacy and Data Controls",
@@ -1842,7 +1841,7 @@ const settingsDict = {
 		"profileTab.passwordOptionalNote":
 			"Leave the password boxes empty to save only your name and email. Filling them changes the password with the same Save.",
 		"profileTab.currentPasswordPlaceholder": "Your password",
-		"profileTab.newPasswordPlaceholder": "At least 8 characters",
+		"profileTab.newPasswordPlaceholder": "At least {count} characters",
 		"profileTab.saveChanges": "Save changes",
 		"profileTab.discard": "Discard",
 		"profileTab.savedAt": "Saved {time}",
@@ -2420,7 +2419,7 @@ const settingsDict = {
 		"admin.parallelFreeMonthlyUsdDescription":
 			"A Parallel hívások addig nem jelentenek költséget a felhasználóknak, amíg a szerver teljes havi használata egy naptári hónapban meg nem haladja ezt az összeget. Utána a szokásos módon számoljuk el. 0 esetén mindig elszámoljuk őket.",
 		"admin.password": "Jelszó",
-		"admin.passwordPlaceholder": "Legalább 8 karakter",
+		"admin.passwordPlaceholder": "Legalább {count} karakter",
 		"admin.profileTabNote": `A saját fiókod módosításait a Profil lapon végezheted el. Az adminisztrátori szerepkör, a munkamenet-visszavonás és a törlés itt le van tiltva az aktuális felhasználónál.`,
 		"admin.promoteToAdmin": "Előléptetés adminisztrátorrá",
 		"admin.providerAdded": "Szolgáltató hozzáadva.",
@@ -2769,7 +2768,6 @@ const settingsDict = {
 		"campaignModal.untitled": "Névtelen kampány",
 		settings_admin: "Admin",
 		settings_appearance: "Megjelenés",
-		settings_atLeast8Chars: "Legalább 8 karakter",
 		settings_autoDetect: "Automatikus",
 		settings_avatar: "Profilkép",
 		// ADR-0043 slice 18a — Profil csoportosított szakaszok, ikongombok, zsargonmentesítés.
@@ -2846,7 +2844,7 @@ const settingsDict = {
 		settings_passwordLabel: "Jelszó",
 		settings_passwordMismatch: "Az új jelszavak nem egyeznek.",
 		settings_passwordTooShort:
-			"A jelszónak legalább 8 karakter hosszúnak kell lennie.",
+			"A jelszónak legalább {count} karakter hosszúnak kell lennie.",
 		settings_preferences: "Beállítások",
 		settings_privacyPolicy: "Adatvédelmi irányelvek",
 		settings_privacyControls: "Adatvédelmi és adatkezelési vezérlők",
@@ -3843,7 +3841,7 @@ const settingsDict = {
 		"profileTab.passwordOptionalNote":
 			"Hagyd üresen a jelszómezőket, ha csak a nevedet és az e-mail-címedet mentenéd. Ha kitöltöd őket, ugyanez a Mentés cseréli a jelszót is.",
 		"profileTab.currentPasswordPlaceholder": "A jelszavad",
-		"profileTab.newPasswordPlaceholder": "Legalább 8 karakter",
+		"profileTab.newPasswordPlaceholder": "Legalább {count} karakter",
 		"profileTab.saveChanges": "Változások mentése",
 		"profileTab.discard": "Elvetés",
 		"profileTab.savedAt": "Mentve {time}",

@@ -49,8 +49,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The numbers the static gates are held to (phase-5/common.md, the M3 release gates). */
 const BASELINE = {
-	buildUnusedCss: 32,
-	buildAria: 2,
+	// The build prints no warning: one `Unused CSS selector` or `must have an ARIA role` line
+	// fails the step. (phase-5/common.md records the 32 and 2 it was held at before
+	// ToolActivityRow, ThinkingBlock and RouteItinerary were cleaned.)
+	buildUnusedCss: 0,
+	buildAria: 0,
 	fallowCircular: 4,
 	// The `check` section of the report the pinned Fallow made at the last accepted state of
 	// the tree. It lives in the repo, so every checkout and every agent compares with the same
@@ -227,7 +230,20 @@ export function defineSteps(args) {
 			after: ["build"],
 			parse: parseVitestLog,
 		},
-		build: { cmd: ["npm", "run", "build"], parse: parseBuildLog },
+		// SvelteKit's post-build `analyse` pass imports every server module, and
+		// src/lib/server/db/index.ts opens DATABASE_PATH when it is imported. A fresh checkout has
+		// no ./data/ (git ignores it, and the e2e setup makes it only after the build) and
+		// better-sqlite3 will not make a directory, so the default path failed this step with
+		// "Cannot open database because the directory does not exist". The build gets a scratch
+		// file in the gate's own out-dir instead: that directory exists by construction, and the
+		// build no longer opens (or creates) a developer's real data/chat.db, the rule
+		// src/vitest-setup.ts keeps for the tests. Nothing of it is built in: the server reads
+		// DATABASE_PATH when it starts.
+		build: {
+			cmd: ["npm", "run", "build"],
+			env: { DATABASE_PATH: join(args.outDir, "build-analyse.db") },
+			parse: parseBuildLog,
+		},
 		chunks: {
 			cmd: ["npm", "run", "check:artifact-chunks"],
 			after: ["build"],
@@ -271,9 +287,13 @@ export function parseCheckLog(log) {
 		/COMPLETED (\d+) FILES (\d+) ERRORS (\d+) WARNINGS/,
 	);
 	if (!done) return { ok: false, text: lastLine(log) };
+	const [, files, errors, warnings] = done;
+	// AGENTS.md ("Typecheck Gate") keeps svelte-check at 0 errors and 0 warnings, so a warning
+	// is a regression and not a number to stay under. svelte-check itself exits 0 with
+	// warnings, which is why the verdict is read here and not left to the exit code.
 	return {
-		ok: Number(done[2]) === 0,
-		text: `${done[2]} errors, ${done[3]} warnings in ${done[1]} files`,
+		ok: Number(errors) === 0 && Number(warnings) === 0,
+		text: `${errors} errors, ${warnings} warnings in ${files} files${Number(warnings) > 0 ? "  NEW CHECK WARNINGS" : ""}`,
 	};
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import {
 	type AccountBaseline,
 	type AccountFormValues,
@@ -155,17 +156,26 @@ describe("planAccountSave — one Save, optional password", () => {
 		).toEqual({ ok: false, errorKey: "settings_passwordMismatch" });
 	});
 
-	it("rejects a password under 8 characters", () => {
-		expect(
+	it("rejects a password one character under the minimum and takes one of exactly that length", () => {
+		const plan = (length: number) =>
 			planAccountSave(
 				values({
 					currentPassword: "old",
-					newPassword: "short",
-					confirmPassword: "short",
+					newPassword: "x".repeat(length),
+					confirmPassword: "x".repeat(length),
 				}),
 				baseline,
-			),
-		).toEqual({ ok: false, errorKey: "settings_passwordTooShort" });
+			);
+		expect(plan(MIN_PASSWORD_LENGTH - 1)).toEqual({
+			ok: false,
+			errorKey: "settings_passwordTooShort",
+			// The message names the minimum, so the plan carries it for `$t`.
+			errorParams: { count: MIN_PASSWORD_LENGTH },
+		});
+		expect(plan(MIN_PASSWORD_LENGTH)).toMatchObject({
+			ok: true,
+			savePassword: true,
+		});
 	});
 
 	it("reports the mismatch before the length, so the message names the box in front of you", () => {
@@ -192,7 +202,7 @@ describe("planAccountSave — one Save, optional password", () => {
 				}),
 				baseline,
 			),
-		).toEqual({ ok: false, errorKey: "settings_passwordTooShort" });
+		).toMatchObject({ ok: false, errorKey: "settings_passwordTooShort" });
 	});
 });
 

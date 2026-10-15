@@ -15,6 +15,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { UserRole } from "$lib/server/services/auth-types";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
@@ -277,8 +278,10 @@ export async function createManagedUser(
 	if (!email?.includes("@")) {
 		throw new Error("A valid email address is required.");
 	}
-	if (password.length < 8) {
-		throw new Error("Password must be at least 8 characters.");
+	if (password.length < MIN_PASSWORD_LENGTH) {
+		throw new Error(
+			`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+		);
 	}
 
 	const existing = await executor.run("userAdmin.findByEmail", (db) =>

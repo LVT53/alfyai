@@ -958,69 +958,10 @@ function handleToggle() {
 		line-height: 1.45;
 	}
 
-	.act-excerpt,
-	.act-map-summary {
+	.act-excerpt {
 		line-height: 1.45;
 		color: var(--text-muted);
 		overflow-wrap: anywhere;
-	}
-
-	.act-map-summary {
-		color: var(--text-primary);
-	}
-
-	.act-transit {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	.act-transit-leg {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: 6px;
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-
-	.act-transit-time {
-		min-width: 5.5em;
-		color: var(--text-primary);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.act-transit-line {
-		padding: 0 5px;
-		border-radius: 4px;
-		background: var(--accent);
-		color: var(--surface-page);
-		font-weight: 600;
-	}
-
-	.act-transit-walk {
-		color: var(--text-muted);
-	}
-
-	.act-transit-where {
-		flex: 1 1 8em;
-		min-width: 0;
-		color: var(--text-primary);
-		overflow-wrap: anywhere;
-	}
-
-	.act-transit-headsign {
-		margin-left: 6px;
-		color: var(--text-muted);
-	}
-
-	.act-transit-meta {
-		margin-left: auto;
-		color: var(--text-muted);
-		white-space: nowrap;
 	}
 
 	.act-code {

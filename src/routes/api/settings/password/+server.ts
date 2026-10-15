@@ -10,6 +10,7 @@ import {
 	recordLoginFailure,
 	recordLoginSuccess,
 } from "$lib/server/services/login-rate-limit";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import type { RequestHandler } from "./$types";
 
 function tooManyAttempts(retryAfterSeconds: number): Response {
@@ -46,9 +47,11 @@ export const PATCH: RequestHandler = async (event) => {
 		);
 	}
 
-	if (body.newPassword.length < 8) {
+	if (body.newPassword.length < MIN_PASSWORD_LENGTH) {
 		return json(
-			{ error: "New password must be at least 8 characters" },
+			{
+				error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+			},
 			{ status: 400 },
 		);
 	}

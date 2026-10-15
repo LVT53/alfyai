@@ -21,16 +21,45 @@ import {
 // chunk check on this branch), because a reader that stops understanding its log
 // turns a gate green by saying nothing.
 
+// What a gate run is made from, as parseArgs makes it.
+const options = {
+	mode: "release",
+	outDir: "/somewhere/outside/the/repo",
+	workers: undefined,
+	port: undefined,
+	skip: new Set(),
+	fallowBaseline: "/tmp/none.json",
+	schedule: "overlap",
+	specs: [],
+};
+
 describe("the check step", () => {
-	it("reads svelte-check's closing line, and fails on errors but not warnings", () => {
+	it("reads svelte-check's closing line and passes a clean one", () => {
 		expect(
 			parseCheckLog(
-				"1791378848811 COMPLETED 8411 FILES 0 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS\n",
+				"1791378848811 COMPLETED 8411 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS\n",
 			),
-		).toEqual({ ok: true, text: "0 errors, 17 warnings in 8411 files" });
+		).toEqual({ ok: true, text: "0 errors, 0 warnings in 8411 files" });
+	});
+
+	it("fails on a single warning, naming it (svelte-check itself exits 0 on warnings)", () => {
+		const result = parseCheckLog(
+			"COMPLETED 8411 FILES 0 ERRORS 1 WARNINGS 1 FILES_WITH_PROBLEMS",
+		);
+		expect(result.ok).toBe(false);
+		expect(result.text).toContain("0 errors, 1 warnings in 8411 files");
+		expect(result.text).toContain("NEW CHECK WARNINGS");
+	});
+
+	it("fails on errors, and on the 17 warnings it once let through", () => {
 		expect(
 			parseCheckLog(
-				"COMPLETED 8411 FILES 2 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS",
+				"COMPLETED 8411 FILES 2 ERRORS 0 WARNINGS 1 FILES_WITH_PROBLEMS",
+			).ok,
+		).toBe(false);
+		expect(
+			parseCheckLog(
+				"COMPLETED 8411 FILES 0 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS",
 			).ok,
 		).toBe(false);
 	});
@@ -77,17 +106,31 @@ describe("the build step", () => {
 			...Array(aria).fill("a11y: <div> must have an ARIA role"),
 		].join("\n");
 
-	it("passes at the known warning counts and says they are the baseline", () => {
-		const result = parseBuildLog(lines(32, 2));
+	it("passes on a build with no warning and says the baseline is none", () => {
+		const result = parseBuildLog(lines(0, 0));
 		expect(result.ok).toBe(true);
-		expect(result.text).toBe("unused-css=32 aria=2 (baseline 32/2)");
+		expect(result.text).toBe("unused-css=0 aria=0 (baseline 0/0)");
 	});
 
-	it("fails on one more of either, naming it", () => {
-		expect(parseBuildLog(lines(33, 2))).toMatchObject({ ok: false });
-		expect(parseBuildLog(lines(33, 2)).text).toContain("NEW BUILD WARNINGS");
-		expect(parseBuildLog(lines(32, 3)).ok).toBe(false);
-		expect(parseBuildLog(lines(10, 0)).ok).toBe(true);
+	it("fails on a single warning of either kind, naming it", () => {
+		expect(parseBuildLog(lines(1, 0))).toMatchObject({ ok: false });
+		expect(parseBuildLog(lines(1, 0)).text).toContain("NEW BUILD WARNINGS");
+		expect(parseBuildLog(lines(0, 1)).ok).toBe(false);
+	});
+
+	it("no longer lets through the 32 and 2 it was once held at", () => {
+		expect(parseBuildLog(lines(32, 2)).ok).toBe(false);
+	});
+
+	// The analyse pass at the end of `npm run build` imports the server, which opens
+	// DATABASE_PATH. On a fresh checkout ./data/ does not exist (the e2e setup makes it, after
+	// the build) and the default path failed the step: "Cannot open database because the
+	// directory does not exist". So the step opens a file in the out-dir, which the gate made.
+	it("builds against a scratch database in the out-dir, so a checkout without data/ builds", () => {
+		const { env } = defineSteps(options).build;
+		expect(env.DATABASE_PATH).toBe(
+			"/somewhere/outside/the/repo/build-analyse.db",
+		);
 	});
 });
 
@@ -129,16 +172,6 @@ describe("the chunks step", () => {
 // So the step names the release package.json pins, and says where the report goes: stdout,
 // because Fallow 3 refuses `--output-file` outside the project root and the system temp dir.
 describe("the Fallow step", () => {
-	const options = {
-		mode: "release",
-		outDir: "/somewhere/outside/the/repo",
-		workers: undefined,
-		port: undefined,
-		skip: new Set(),
-		fallowBaseline: "/tmp/none.json",
-		schedule: "overlap",
-		specs: [],
-	};
 	const pinned = JSON.parse(
 		readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
 	).devDependencies.fallow;

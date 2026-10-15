@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import CreateUserModal from "./CreateUserModal.svelte";
 
 function renderModal(props: Record<string, unknown> = {}) {
@@ -24,7 +25,9 @@ describe("CreateUserModal", () => {
 		const create = screen.getByRole("button", { name: "Create User" });
 		expect(create).toBeDisabled();
 		// The reason is on screen instead of only being inferred from the button.
-		expect(screen.getByText("At least 8 characters")).toBeInTheDocument();
+		expect(
+			screen.getByText(`At least ${MIN_PASSWORD_LENGTH} characters`),
+		).toBeInTheDocument();
 
 		await fireEvent.input(screen.getByLabelText("Email"), {
 			target: { value: "anna.toth@alfy.hu" },
@@ -41,6 +44,33 @@ describe("CreateUserModal", () => {
 			screen.getByRole("button", { name: "Create User" }),
 		).not.toBeDisabled();
 		expect(screen.getByText(/long enough/)).toBeInTheDocument();
+	});
+
+	it("turns Create on at exactly the minimum password length, not one character before", async () => {
+		renderModal();
+
+		await fireEvent.input(screen.getByLabelText("Email"), {
+			target: { value: "anna.toth@alfy.hu" },
+		});
+		await fireEvent.input(screen.getByLabelText("Password"), {
+			target: { value: "x".repeat(MIN_PASSWORD_LENGTH - 1) },
+		});
+		expect(screen.getByRole("button", { name: "Create User" })).toBeDisabled();
+
+		await fireEvent.input(screen.getByLabelText("Password"), {
+			target: { value: "x".repeat(MIN_PASSWORD_LENGTH) },
+		});
+		expect(
+			screen.getByRole("button", { name: "Create User" }),
+		).not.toBeDisabled();
+	});
+
+	it("names the minimum length in the password placeholder, from the one number", () => {
+		renderModal();
+
+		expect(
+			screen.getByPlaceholderText(`At least ${MIN_PASSWORD_LENGTH} characters`),
+		).toBeInTheDocument();
 	});
 
 	it("generates a password and reveals it", async () => {

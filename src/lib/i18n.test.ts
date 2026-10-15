@@ -78,6 +78,24 @@ describe("i18n composer and skills namespaces", () => {
 		}
 	});
 
+	it("parameterizes the minimum password length in the three strings that name it", () => {
+		// They used to spell "8" in words, apart from MIN_PASSWORD_LENGTH, which the
+		// server and both forms read. They now take it as {count}, so the placeholder
+		// has to survive translation and the number must not creep back in. (That every
+		// screen passes `count` is held by the rendered-text tests beside each one.)
+		for (const value of [
+			settingsDict.en["admin.passwordPlaceholder"],
+			settingsDict.hu["admin.passwordPlaceholder"],
+			settingsDict.en["profileTab.newPasswordPlaceholder"],
+			settingsDict.hu["profileTab.newPasswordPlaceholder"],
+			settingsDict.en.settings_passwordTooShort,
+			settingsDict.hu.settings_passwordTooShort,
+		]) {
+			expect(value).toContain("{count}");
+			expect(value).not.toMatch(/\b8\b/);
+		}
+	});
+
 	it("localizes the inherited Skill Draft copy guard", () => {
 		const keys = collectDictionaryKeys();
 

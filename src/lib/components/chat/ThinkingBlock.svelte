@@ -1347,8 +1347,8 @@ function toggleFullReasoning(): void {
 		color: var(--text-primary);
 	}
 
-	.thinking-header:hover .chevron,
-	.thinking-header:focus-visible .chevron {
+	.thinking-header:hover :global(.chevron),
+	.thinking-header:focus-visible :global(.chevron) {
 		color: var(--icon-primary);
 	}
 
@@ -1409,8 +1409,15 @@ function toggleFullReasoning(): void {
 	   the label text next to it (worse still once the label can wrap to two
 	   lines): `display: block` removes the inline-baseline quirk entirely,
 	   and `align-self: center` guarantees it centers on the row's cross axis
-	   regardless of how tall the label grows. */
-	.chevron {
+	   regardless of how tall the label grows.
+
+	   The chevron is a Lucide component, so the `chevron` and `expanded` classes
+	   land on an <svg> this component does not own and a scoped selector can
+	   never match them (it stopped matching when the inline <svg> became a
+	   component). Hence `:global(...)`, hung off `.thinking-header` so it reaches
+	   only this chevron and not the `.chevron` of CodeBlock or
+	   MessageEvidenceDetails. */
+	.thinking-header :global(.chevron) {
 		display: block;
 		align-self: center;
 		color: var(--icon-muted);
@@ -1418,7 +1425,7 @@ function toggleFullReasoning(): void {
 		flex-shrink: 0;
 	}
 
-	.chevron.expanded {
+	.thinking-header :global(.chevron.expanded) {
 		transform: rotate(180deg);
 	}
 
@@ -1652,7 +1659,9 @@ function toggleFullReasoning(): void {
 		50% { opacity: 0.35; }
 	}
 
-	.check-icon {
+	/* A Lucide component like the chevron: `:global(...)` under the one row that
+	   renders it. */
+	.status-step :global(.check-icon) {
 		color: var(--success);
 		width: 12px;
 		height: 12px;
@@ -1889,7 +1898,7 @@ function toggleFullReasoning(): void {
 		animation: none;
 	}
 
-	.chevron {
+	.thinking-header :global(.chevron) {
 		transition: none;
 	}
 
