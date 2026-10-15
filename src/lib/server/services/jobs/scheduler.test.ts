@@ -11,6 +11,7 @@
 // Every test here therefore does the same thing: it starts the engine, it never
 // calls a wake it did not cause, and it only moves the clock.
 
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "./testing/harness";
 import { createTestKind, type TestKindControl } from "./testing/test-kind";
@@ -418,6 +419,33 @@ describe("the sweeps", () => {
 
 		expect(job(id).status).toBe("succeeded");
 		expect(inspect().wakeRequests).toBe(0);
+	});
+
+	it("leaves a job the kind's claim condition holds back alone: no drain per tick for it", async () => {
+		// Atlas: a job whose reply message is not linked yet cannot be claimed, and
+		// the tick must not wake a drain for it every time it looks.
+		const labelled = createTestKind(h.engine.defineJobKind, {
+			name: "labelled",
+			claimable: (jobs) => sql`${jobs.label} is not null`,
+		});
+		await boot(labelled);
+		const held = await h.engine.enqueue(labelled.kind, {
+			values: { userId: h.userId },
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const drains = h.engine.inspectJobsForTests().labelled?.drainRuns;
+
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS * 4);
+		expect(h.engine.inspectJobsForTests().labelled?.drainRuns).toBe(drains);
+		expect(h.engine.inspectJobsForTests().labelled?.backoffArmed).toBe(false);
+		expect(job(held.row.id).status).toBe("queued");
+
+		// Once it is let through, the next tick runs it.
+		h.fixture.sqlite
+			.prepare("update test_jobs set label = 'linked' where id = ?")
+			.run(held.row.id);
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
+		expect(job(held.row.id).status).toBe("succeeded");
 	});
 });
 
