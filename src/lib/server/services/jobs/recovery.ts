@@ -6,8 +6,8 @@
 //
 //  - stale: the attempt's last beat is older than the lease allows;
 //  - dead-worker: the attempt's worker id names this host and a pid that no
-//    longer exists (a restart's orphans, found at boot instead of a stale window
-//    later);
+//    longer exists, or this pid under an earlier boot (a restart's orphans,
+//    found at boot instead of a stale window later);
 //  - state-lost: the job says `running` but its current attempt row is missing
 //    or no longer running (every Atlas row at the cutover: Atlas had no attempts).
 //

@@ -95,12 +95,17 @@ export function isProcessAlive(pid: number): boolean {
  * died), so nothing touched them until the whole stale window had passed, on a
  * box that was serving again after eleven seconds. A worker id that carries a
  * hostname, a pid and a per-boot nonce turns that wait into a question the new
- * process can answer at boot: same host, a pid that no longer exists, and not us.
+ * process can answer at boot: same host, a pid that no longer exists (or one that
+ * is ours now, from an earlier boot), and not us.
  *
  * Conservative in every direction that matters:
  *
  *  - Anything this process wrote is alive by definition, whatever the slice:
  *    the inline runner's own id (`<kind>-inline:…`) shares this pid and nonce.
+ *  - An id with this host and this pid but another boot nonce is a previous
+ *    process that had the number we have now, and it is dead. The process table
+ *    cannot say so (the pid is alive: it is us), and under a container the pid
+ *    is the same on every boot, so it is not asked.
  *  - An id from another host is never touched: its process table is not ours.
  *  - An id in an older format carries no hostname and falls back to the stale
  *    window it has always had.
@@ -116,6 +121,6 @@ export function belongsToDeadProcess(
 	const parsed = parseWorkerId(candidate);
 	if (!parsed) return false;
 	if (parsed.hostname !== self.hostname) return false;
-	if (parsed.pid === self.pid && parsed.nonce === self.nonce) return false;
+	if (parsed.pid === self.pid) return parsed.nonce !== self.nonce;
 	return !isAlive(parsed.pid);
 }

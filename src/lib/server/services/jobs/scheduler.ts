@@ -60,11 +60,11 @@ const workerIds = new Map<string, string>();
  *
  * The nonce and the hostname are what let a BOOT sweep tell "an attempt this very
  * restart orphaned" from "an attempt a healthy process is working on": same host,
- * pid no longer alive, not us. The inline runner's id is `<kind>-inline` here: a
- * real four-segment id of a slice of its own, NOT `<id>:inline`, which the parser
- * refuses (a five-segment id means "I cannot tell whose process this was", which
- * must never read as "dead"). Sharing the process's boot nonce is what keeps our
- * OWN inline attempts from being reclaimed.
+ * pid no longer alive (or ours under an earlier boot), not us. The inline runner's
+ * id is `<kind>-inline` here: a real four-segment id of a slice of its own, NOT
+ * `<id>:inline`, which the parser refuses (a five-segment id means "I cannot tell
+ * whose process this was", which must never read as "dead"). Sharing the process's
+ * boot nonce is what keeps our OWN inline attempts from being reclaimed.
  */
 function workerIdOf(slice: string): string {
 	let id = workerIds.get(slice);
