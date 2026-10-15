@@ -14,7 +14,7 @@
 //   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright.
 //                          Every step left in runs, the build too (a step of its own, not only what check,
 //                          vitest, chunks and playwright wait for); a run that leaves none in fails
-//   --fallow-baseline F   Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
+//   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
 //   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
 //                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
 //                          done and vitest runs beside it on a few threads. Default: overlap for release
