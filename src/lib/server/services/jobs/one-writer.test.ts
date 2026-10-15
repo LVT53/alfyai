@@ -12,13 +12,20 @@
 // `apply` of `ctx.write`, `succeed` and `fail`, which run in the engine's fenced
 // transaction. This scan allows those and refuses the rest.
 //
-// The scan is deliberately dumb: it reads source text. It finds
+// The scan is deliberately dumb: it reads source text, of `src/` and of the
+// `scripts/` that open the same database. It finds
 //
-//   - `update(<kind table>).set({ … })` with a lifecycle key in the object,
+//   - `update(<kind table>).set({ … })` with a lifecycle key in the object, or
+//     in an object a spread in it may spread (`...(failed ? { status } : {})`),
+//   - `update(<kind table>).set(…)` whose columns it cannot read: an argument
+//     that is not an object literal, a spread of a variable, a computed key,
 //   - `insert(<kind table>)` at all,
 //   - `delete(<kind table>)` is NOT a lifecycle write (account and conversation
 //     erasure delete rows; the foreign keys cascade) and is allowed,
 //   - raw SQL `UPDATE <kind table>` / `INSERT INTO <kind table>`.
+//
+// What it cannot see is a kind table reached under another name (an import
+// alias, a variable holding the table); review catches those.
 //
 // `ALLOWED` lists, with a reason each, the files that still do. It can only
 // shrink: the second test fails for an entry that no longer matches, so a slice
@@ -30,6 +37,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, "src");
+const SCRIPTS = join(ROOT, "scripts");
 const ENGINE_DIR = join(SRC, "lib", "server", "services", "jobs");
 const SCHEMA = join(SRC, "lib", "server", "db", "schema.ts");
 
@@ -146,18 +154,16 @@ function braceBody(source: string, openAt: number): string {
 	return source.slice(openAt + 1);
 }
 
-/** The keys of an object literal's body, at its top level (spreads are skipped). */
-function topLevelKeys(body: string): string[] {
-	const keys: string[] = [];
+/** An object literal's body cut at its top-level commas. */
+function topLevelSegments(body: string): string[] {
+	const segments: string[] = [];
 	let depth = 0;
 	let quote: string | null = null;
 	let segment = "";
 	const flush = (): void => {
 		const text = segment.trim();
 		segment = "";
-		if (!text || text.startsWith("...")) return;
-		const key = text.match(/^(?:"([^"]+)"|'([^']+)'|(\w+))/);
-		if (key) keys.push(key[1] ?? key[2] ?? key[3]);
+		if (text) segments.push(text);
 	};
 	for (let i = 0; i < body.length; i += 1) {
 		const char = body[i];
@@ -182,7 +188,60 @@ function topLevelKeys(body: string): string[] {
 		else segment += char;
 	}
 	flush();
-	return keys;
+	return segments;
+}
+
+/**
+ * The bodies of the object literals a spread expression may spread, at its own
+ * level: `(failed ? { status } : {})` gives `status` and nothing.
+ */
+function literalsIn(expression: string): string[] {
+	const bodies: string[] = [];
+	let quote: string | null = null;
+	for (let i = 0; i < expression.length; i += 1) {
+		const char = expression[i];
+		if (quote) {
+			if (char === "\\") i += 1;
+			else if (char === quote) quote = null;
+			continue;
+		}
+		if (char === '"' || char === "'" || char === "`") quote = char;
+		else if (char === "{") {
+			const body = braceBody(expression, i);
+			bodies.push(body);
+			i += body.length + 1;
+		}
+	}
+	return bodies;
+}
+
+/**
+ * The keys an object literal writes at its top level, those of the literals its
+ * spreads may spread included. What a spread of anything else (`...patch`) or a
+ * computed key writes cannot be read from the text, so it is `opaque`.
+ */
+function objectKeys(body: string): { keys: string[]; opaque: string[] } {
+	const keys: string[] = [];
+	const opaque: string[] = [];
+	for (const segment of topLevelSegments(body)) {
+		if (segment.startsWith("...")) {
+			const literals = literalsIn(segment.slice(3));
+			if (literals.length === 0) opaque.push(segment);
+			for (const literal of literals) {
+				const inner = objectKeys(literal);
+				keys.push(...inner.keys);
+				opaque.push(...inner.opaque);
+			}
+			continue;
+		}
+		if (segment.startsWith("[")) {
+			opaque.push(segment);
+			continue;
+		}
+		const key = segment.match(/^(?:"([^"]+)"|'([^']+)'|(\w+))/);
+		if (key) keys.push(key[1] ?? key[2] ?? key[3]);
+	}
+	return { keys, opaque };
 }
 
 interface Violation {
@@ -196,7 +255,7 @@ function findViolations(source: string, tables: KindTables): Violation[] {
 		identifier.split(".").pop() ?? identifier;
 
 	for (const match of source.matchAll(
-		/\.update\(\s*([\w.]+)\s*\)\s*\.set\(\s*\{/g,
+		/\.update\(\s*([\w.]+)\s*\)\s*\.set\(\s*/g,
 	)) {
 		const table = name(match[1]);
 		const lifecycle = tables.jobs.has(table)
@@ -205,13 +264,23 @@ function findViolations(source: string, tables: KindTables): Violation[] {
 				? ATTEMPT_LIFECYCLE_KEYS
 				: null;
 		if (!lifecycle) continue;
-		const keys = topLevelKeys(
-			braceBody(source, match.index + match[0].length - 1),
-		);
+		const argumentAt = match.index + match[0].length;
+		if (source[argumentAt] !== "{") {
+			violations.push({
+				what: `update(${table}).set(<not an object literal>): which columns it writes cannot be read`,
+			});
+			continue;
+		}
+		const { keys, opaque } = objectKeys(braceBody(source, argumentAt));
 		const written = keys.filter((key) => lifecycle.has(key));
 		if (written.length > 0) {
 			violations.push({
 				what: `update(${table}).set({ ${written.join(", ")} })`,
+			});
+		}
+		if (opaque.length > 0) {
+			violations.push({
+				what: `update(${table}).set({ ${opaque.join(", ")} }): which columns it writes cannot be read`,
 			});
 		}
 	}
@@ -253,14 +322,25 @@ function walk(dir: string, found: string[] = []): string[] {
 	return found;
 }
 
+/**
+ * Every file the scan reads, relative to the repository root: the app and the
+ * scripts beside it, which open the same database (the backfill, the seeds).
+ */
+function scannedFiles(): string[] {
+	return [...walk(SRC), ...walk(SCRIPTS)].map((path) =>
+		relative(ROOT, path).split(sep).join("/"),
+	);
+}
+
 function scanTree(): Map<string, Violation[]> {
 	const tables = discoverKindTables(readFileSync(SCHEMA, "utf8"));
 	const result = new Map<string, Violation[]>();
-	for (const path of walk(SRC)) {
-		const violations = findViolations(readFileSync(path, "utf8"), tables);
-		if (violations.length > 0) {
-			result.set(relative(ROOT, path).split(sep).join("/"), violations);
-		}
+	for (const file of scannedFiles()) {
+		const violations = findViolations(
+			readFileSync(join(ROOT, file), "utf8"),
+			tables,
+		);
+		if (violations.length > 0) result.set(file, violations);
 	}
 	return result;
 }
@@ -284,6 +364,8 @@ const ALLOWED: Record<string, string> = {
 		"Account erasure's quiesce cancels extraction and file-production jobs with raw updates of its own: it becomes `cancelAll` in slices S3 and S4.",
 	"src/lib/server/services/conversation-forks.ts":
 		"Copies settled file-production job and job-file rows into a fork: a snapshot, not a transition. This one stays.",
+	"scripts/seed-campaign-2-2.ts":
+		"The 2.2 campaign's demo seed inserts a settled file-production row with fixed timestamps: slice S4 makes it a born-succeeded `enqueue` (its `now` sets the timestamps), or keeps it here by name with the reason.",
 };
 
 // ---------------------------------------------------------------------------
@@ -392,6 +474,45 @@ export const unrelated = sqliteTable("unrelated", { id: text("id") });
 		expect(
 			findViolations(`tx.update(widgetJobs).set({ status: "x" })`, discovered),
 		).not.toEqual([]);
+	});
+
+	it("reads the keys a conditional spread may write", () => {
+		// The ledgers write this shape all the time; a lifecycle key inside it is
+		// as much a write as one at the top level.
+		expect(
+			findViolations(
+				`tx.update(atlasJobs).set({ updatedAt: now, ...(failed ? { status: "failed" } : {}) })`,
+				tables,
+			),
+		).not.toEqual([]);
+		expect(
+			findViolations(
+				`tx.update(fileProductionJobAttempts).set({ mode: "x", ...(warnings ? { diagnosticsJson: w } : {}) })`,
+				tables,
+			),
+		).not.toEqual([]);
+		expect(
+			findViolations(
+				`tx.update(atlasJobs).set({ title, ...(stage !== undefined ? { stage, meta: { status: 1 } } : {}) })`,
+				tables,
+			),
+		).toEqual([]);
+	});
+
+	it("says what it cannot see: a spread of a variable, a computed key, a set of a variable", () => {
+		for (const source of [
+			`tx.update(fileProductionJobs).set({ ...patch, updatedAt: now })`,
+			`tx.update(fileProductionJobs).set({ [column]: value })`,
+			`tx.update(documentExtractionJobs).set(patch)`,
+			`tx.update(atlasJobs)\n\t.set(\n\t\tbuildPatch(row),\n\t)`,
+		]) {
+			expect(findViolations(source, tables), source).not.toEqual([]);
+		}
+	});
+
+	it("reads the scripts as well as the app: a script is a writer too", () => {
+		expect(scannedFiles()).toContain("scripts/backfill-extractions.ts");
+		expect(scannedFiles()).toContain("src/lib/server/services/projects.ts");
 	});
 
 	it("reads the object it is looking at and not what follows it", () => {

@@ -4,8 +4,9 @@
 //
 //  - DRAIN: one loop, one job at a time. It claims until nothing is claimable;
 //    between empty drains it runs the stale sweep at most once per idle tick; a
-//    sweep that requeued work continues the loop. A wake that arrives during a
-//    drain is remembered and honoured after it.
+//    sweep that took anything back (requeued it, or settled it and so freed its
+//    slot) continues the loop. A wake that arrives during a drain is remembered
+//    and honoured after it.
 //  - IDLE TICK: one unref'd interval. It is also the SUPERVISOR of the enable
 //    switch, in both directions, and the only thing that runs on a box where
 //    nobody does anything. An idle box pays one index probe per tick and logs
@@ -206,8 +207,14 @@ function runSweep(kind: JobKind, reason: string): TakeBackResult {
  * already stale, and running jobs with no live attempt at all (every Atlas row at
  * the cutover). Each sweep is its own failure domain: one that throws is logged
  * and must not stop the next, or the tick from being armed.
+ *
+ * The same sweeps run when a kind comes on later in a serving process (the
+ * switch), but only the process's own boot takes lost rows back with no age
+ * guard: an hour into serving, a running row with no attempt that another writer
+ * made a moment ago is not lost yet, and the guard costs nothing for the rows a
+ * dead process left, which are as old as its death.
  */
-function runBootSweeps(kind: JobKind): void {
+function runBootSweeps(kind: JobKind, atProcessBoot: boolean): void {
 	const { definition } = internalsOf(kind);
 	const state = kindScheduler(kind.name);
 	const prefix = definition.logPrefix;
@@ -252,9 +259,15 @@ function runBootSweeps(kind: JobKind): void {
 	});
 
 	attempt("state-lost", () => {
-		// No age guard at boot: nothing of this process is running yet, so nobody
-		// can be in the middle of claiming a row.
-		const outcome = takeBack(kind, { reason: "state-lost" });
+		// No age guard at the process's boot: nothing of this process is running
+		// yet, so nobody can be in the middle of claiming a row. Coming on later
+		// keeps the guard (see above).
+		const outcome = takeBack(kind, {
+			reason: "state-lost",
+			...(atProcessBoot
+				? {}
+				: { updatedBefore: new Date(Date.now() - staleAfterMs) }),
+		});
 		if (outcome.recovered > 0) {
 			console.warn(`${prefix} Reclaimed jobs whose attempt state was lost`, {
 				reason: "boot",
@@ -299,7 +312,10 @@ async function runNextJob(kind: JobKind): Promise<string | null> {
  * Loops until the claim returns nothing, then re-arms.
  *
  * Between empty drains it re-runs the sweep, but no more often than one idle
- * tick: sweeping on every empty claim would be a write storm on a busy box.
+ * tick: sweeping on every empty claim would be a write storm on a busy box. A
+ * sweep that took anything back goes round again, not only one that requeued:
+ * a stale attempt the policy SETTLES (file production never requeues) frees
+ * the slot it held, and the job queued behind it can run now.
  *
  * The re-arm in the `finally` is the other half of it. A drain that requeues a
  * job behind a backoff and then returns has left work in the table with nothing
@@ -327,7 +343,7 @@ async function drainLoop(kind: JobKind): Promise<void> {
 			}
 			if (jobsState().stopped) return;
 			if (Date.now() - state.lastRecoveryAt < idleTickIntervalMs(kind)) return;
-			if (runSweep(kind, "drain").requeued === 0) return;
+			if (runSweep(kind, "drain").recovered === 0) return;
 		}
 	} finally {
 		await rearmAfterDrain(kind);
@@ -488,7 +504,7 @@ async function runIdleTick(kind: JobKind): Promise<void> {
 	if (!state.running) {
 		// Live ON. A full start, sweeps included: the queue may have been sitting
 		// untouched for however long the switch was off.
-		await startKindLoops(kind);
+		await startKindLoops(kind, { atProcessBoot: false });
 		return;
 	}
 
@@ -548,8 +564,14 @@ function startIdleTick(kind: JobKind): void {
  * seconds old at boot and so looked perfectly healthy. Without it, a box where
  * nobody does anything for an hour keeps a job `running` for that hour with a
  * heartbeat frozen at the restart.
+ *
+ * `atProcessBoot` is true only from `startJobs`: the switch coming on later, at
+ * the tick or at a wake, keeps the lost-state age guard (see `runBootSweeps`).
  */
-async function startKindLoops(kind: JobKind): Promise<void> {
+async function startKindLoops(
+	kind: JobKind,
+	{ atProcessBoot }: { atProcessBoot: boolean },
+): Promise<void> {
 	const state = kindScheduler(kind.name);
 	if (state.running) return;
 	state.running = true;
@@ -565,7 +587,7 @@ async function startKindLoops(kind: JobKind): Promise<void> {
 		perUserConcurrency: limits.perUser ?? null,
 	});
 
-	runBootSweeps(kind);
+	runBootSweeps(kind, atProcessBoot);
 
 	if (state.bootSweep) clearTimeout(state.bootSweep);
 	state.bootSweep = setTimeout(() => {
@@ -573,7 +595,8 @@ async function startKindLoops(kind: JobKind): Promise<void> {
 		try {
 			if (!state.running || jobsState().stopped) return;
 			if (!definition.enabled()) return;
-			if (runSweep(kind, "boot-followup").requeued > 0) startDrain(kind);
+			// Anything taken back, settled or requeued, frees the slot it held.
+			if (runSweep(kind, "boot-followup").recovered > 0) startDrain(kind);
 		} catch (error) {
 			console.error(`${definition.logPrefix} Boot follow-up sweep failed`, {
 				error,
@@ -636,7 +659,7 @@ export async function startJobs(
 				startIdleTick(kind);
 				continue;
 			}
-			await startKindLoops(kind);
+			await startKindLoops(kind, { atProcessBoot: true });
 		} catch (error) {
 			console.error(`${kind.logPrefix} Worker failed to start`, { error });
 		}
@@ -668,12 +691,31 @@ export function stopJobs(): void {
  * Says there is work. Counts the request. Does nothing more in a process that
  * has not started this kind (or has stopped it, or has it switched off), so a
  * script that reopens a job never becomes a second worker.
+ *
+ * "Switched off" is the switch as it is NOW, not as the idle tick last saw it.
+ * A wake that finds a started kind paused while its switch says on starts it
+ * then and there (sweeps first, as the tick would), instead of dropping this
+ * wake and every other until the next tick: every kind before the engine read
+ * its switch when it was woken, so turning a worker on took effect at once.
  */
 export function wake(kind: JobKind): void {
 	const state = kindScheduler(kind.name);
 	state.wakeRequests += 1;
-	if (!state.running || jobsState().stopped) return;
-	startDrain(kind);
+	if (jobsState().stopped) return;
+	if (state.running) {
+		startDrain(kind);
+		return;
+	}
+	if (!state.initialized) return;
+	try {
+		if (!internalsOf(kind).definition.enabled()) return;
+	} catch (error) {
+		console.error(`${kind.logPrefix} Reading the switch failed`, { error });
+		return;
+	}
+	void startKindLoops(kind, { atProcessBoot: false }).catch((error) => {
+		console.error(`${kind.logPrefix} Worker failed to start`, { error });
+	});
 }
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,23 @@ function runInTransaction<T>(
 	return result;
 }
 
+/**
+ * Tells the kind about a transition, inside the transaction that makes it, under
+ * the same rule as `apply`. `onTransition` is typed `=> void`, which an async
+ * function satisfies, so the types do not catch one; its writes after the first
+ * `await` would land after the commit, outside the transaction and the fence.
+ */
+export function notifyTransition(
+	definition: EngineDefinition,
+	tx: Tx,
+	row: ShapeRow,
+	to: JobStatus,
+): void {
+	const hook = definition.onTransition;
+	if (!hook) return;
+	runInTransaction((inner) => hook(inner, row, to), tx, "onTransition");
+}
+
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
@@ -99,6 +116,22 @@ export function readJobRow(kind: JobKind, jobId: string): ShapeRow | null {
 	const { jobs } = internalsOf(kind);
 	return (
 		db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).get() ?? null
+	);
+}
+
+/** An attempt's status, or null when there is no such attempt. */
+export function readAttemptStatus(
+	kind: JobKind,
+	attemptId: string,
+): string | null {
+	const { attempts } = internalsOf(kind);
+	return (
+		db
+			.select({ status: attempts.status })
+			.from(attempts)
+			.where(eq(attempts.id, attemptId))
+			.limit(1)
+			.get()?.status ?? null
 	);
 }
 
@@ -202,7 +235,7 @@ export function enqueueJob<J extends JobTable>(
 			const row = tx.select().from(jobs).where(eq(jobs.id, id)).get();
 			if (!row)
 				throw new Error(`Enqueued ${definition.name} job ${id} disappeared.`);
-			definition.onTransition?.(tx, row, status);
+			notifyTransition(definition, tx, row, status);
 			return { row, reused: false };
 		});
 
@@ -389,7 +422,7 @@ export function claimNext(
 
 			const row = tx.select().from(jobs).where(eq(jobs.id, candidate.id)).get();
 			if (!row || row.currentAttemptId !== attemptId) return null;
-			definition.onTransition?.(tx, row, "running");
+			notifyTransition(definition, tx, row, "running");
 			return { row, attempt: { id: attemptId, number: attemptNumber } };
 		}
 
@@ -514,7 +547,7 @@ export function succeed(
 			.run();
 
 		const row = tx.select().from(jobs).where(eq(jobs.id, owned.jobId)).get();
-		if (row) definition.onTransition?.(tx, row, "succeeded");
+		if (row) notifyTransition(definition, tx, row, "succeeded");
 		runInTransaction(options.apply, tx, "succeed's apply");
 		return true;
 	});
@@ -809,7 +842,7 @@ export function applyFailure(
 	if (updated.changes === 0) return null;
 
 	const row = tx.select().from(jobs).where(eq(jobs.id, job.id)).get();
-	if (row) definition.onTransition?.(tx, row, requeue ? "queued" : "failed");
+	if (row) notifyTransition(definition, tx, row, requeue ? "queued" : "failed");
 	return { requeued: requeue, runAfter };
 }
 
@@ -922,7 +955,7 @@ function cancelInTx(
 
 	const row = tx.select().from(jobs).where(eq(jobs.id, job.id)).get();
 	if (!row) return null;
-	definition.onTransition?.(tx, row, "cancelled");
+	notifyTransition(definition, tx, row, "cancelled");
 	return {
 		row,
 		abortAttemptId: wasRunning ? job.currentAttemptId : null,
@@ -1054,7 +1087,7 @@ export function retry<J extends JobTable>(
 		if (updated.changes === 0) return null;
 
 		const row = tx.select().from(jobs).where(eq(jobs.id, jobId)).get();
-		if (row) definition.onTransition?.(tx, row, "queued");
+		if (row) notifyTransition(definition, tx, row, "queued");
 		return row ?? null;
 	});
 	return reopened as unknown as Row<J> | null;
@@ -1094,8 +1127,15 @@ export function reopen<J extends JobTable>(
 			...queuedAgain(now),
 		};
 		if (!input.keepCheckpoint) set.checkpoint = null;
-		if (input.retryState) {
-			const next = input.retryState(parseJson(job.retryState));
+		const rewrite = input.retryState;
+		if (rewrite) {
+			// Typed `=> unknown`, which an async function satisfies: a promise here
+			// would be stored as "{}" and wipe the policy's memory.
+			const next = runInTransaction(
+				() => rewrite(parseJson(job.retryState)),
+				tx,
+				"reopen's retryState",
+			);
 			set.retryState =
 				next === undefined || next === null ? null : JSON.stringify(next);
 		}
@@ -1108,7 +1148,7 @@ export function reopen<J extends JobTable>(
 		if (updated.changes === 0) return null;
 
 		const row = tx.select().from(jobs).where(eq(jobs.id, jobId)).get();
-		if (row) definition.onTransition?.(tx, row, "queued");
+		if (row) notifyTransition(definition, tx, row, "queued");
 		return row ?? null;
 	});
 	return reopened as unknown as Row<J> | null;

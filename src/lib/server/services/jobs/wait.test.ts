@@ -67,6 +67,25 @@ describe("waitForVerdict", () => {
 		});
 	});
 
+	it("waits on for a timeout longer than a timer can hold, as the helpers it replaces did", async () => {
+		// Node fires a timer set for more than 2^31-1 ms (24.8 days), Infinity
+		// included, after 1 ms. The poll loops this replaces counted down to a
+		// deadline, so "wait as long as it takes" waited.
+		for (const timeoutMs of [Number.POSITIVE_INFINITY, 30 * 86_400_000]) {
+			const { jobId, owned } = await running();
+			const waiting = wait(jobId, { timeoutMs });
+
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(await settledOr(waiting)).toBe("pending");
+
+			h.ledger.succeed(h.control.kind, owned);
+			await expect(waiting).resolves.toEqual({
+				settled: true,
+				status: "succeeded",
+			});
+		}
+	});
+
 	it("hears a failure and a cancel the same way", async () => {
 		const failed = await running();
 		const cancelled = await running();

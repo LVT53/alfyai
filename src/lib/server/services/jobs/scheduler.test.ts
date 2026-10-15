@@ -328,6 +328,46 @@ describe("the sweeps", () => {
 		expect(job(jobId).status).toBe("failed");
 	});
 
+	it("drains the job behind a stale one the boot follow-up sweep settles, without waiting for the tick", async () => {
+		// File production never requeues: the sweep SETTLES the stale attempt that
+		// held the only slot, and that frees the slot as surely as a requeue would.
+		h.control.config.global = 1;
+		h.control.config.heartbeatMs = 5_000; // a 10 s tick, so only the follow-up can find it
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const { jobId: stale } = h.fixture.seedRunningJob({
+			userId: h.userId,
+			workerId: "worker-that-died",
+			heartbeatAgeMs: 1_000,
+		});
+		const behind = h.fixture.seedJob({ userId: h.userId });
+
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(job(behind).status).toBe("queued");
+
+		await vi.advanceTimersByTimeAsync(STALE_AFTER_MS + 100);
+
+		expect(job(stale).status).toBe("failed");
+		expect(job(behind).status).toBe("succeeded");
+	});
+
+	it("goes on draining when its own sweep settles the stale job that held the only slot", async () => {
+		h.control.config.global = 1;
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const { jobId: stale } = h.fixture.seedRunningJob({
+			userId: h.userId,
+			workerId: "worker-that-died",
+			heartbeatAgeMs: 60_000,
+		});
+		const behind = h.fixture.seedJob({ userId: h.userId });
+
+		// Not started: an explicit drain, whose first empty claim sweeps.
+		await h.engine.drain(h.control.kind);
+
+		expect(job(stale).status).toBe("failed");
+		expect(job(behind).status).toBe("succeeded");
+	});
+
 	it("reclaims an attempt that only goes stale later, on the idle tick", async () => {
 		await boot();
 		const { jobId } = h.fixture.seedRunningJob({
@@ -604,6 +644,80 @@ describe("the switch", () => {
 		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
 		expect(inspect().running).toBe(true);
 		expect(job(b.row.id).status).toBe("succeeded");
+	});
+
+	it("is on for the next wake once it is turned on, without waiting for the tick", async () => {
+		// Every kind before the engine read its switch when it was woken, so an
+		// admin who turned a worker on saw the next job start at once. A wake that
+		// only trusted the tick's last look would leave it queued for a whole tick
+		// (30 s on a 15 s heartbeat), and drop every wake in between.
+		h.control.config.heartbeatMs = 30_000; // a 60 s tick: only a wake can start it in time
+		h.control.config.enabled = false;
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(inspect().running).toBe(false);
+
+		h.control.config.enabled = true;
+		const { row } = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(inspect().running).toBe(true);
+		expect(job(row.id).status).toBe("succeeded");
+
+		// The same once the tick has paused it and it is turned on again.
+		h.control.config.enabled = false;
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(inspect().running).toBe(false);
+		h.control.config.enabled = true;
+		const again = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(job(again.row.id).status).toBe("succeeded");
+	});
+
+	it("keeps the age guard on lost rows when it comes on: only the process's boot goes without", async () => {
+		// The rule: a running job with no live attempt is taken back at once only
+		// at boot, when nothing of this process can be running; everywhere else only
+		// once nobody has touched it for a stale window. Coming on in a process that
+		// has been serving for an hour is not boot: a row another writer made a
+		// moment ago (a seed into a live server, the old release mid-deploy) is not
+		// lost yet.
+		h.control.config.staleAfterMs = 30_000;
+		h.control.config.enabled = false;
+		await boot();
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const fresh = h.fixture.seedJob({
+			userId: h.userId,
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: crypto.randomUUID(),
+		});
+		const old = h.fixture.seedJob({
+			userId: h.userId,
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: crypto.randomUUID(),
+			updatedAt: new Date(START.getTime() - 120_000),
+		});
+
+		h.control.config.enabled = true;
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
+
+		expect(inspect().running).toBe(true);
+		expect(job(old).status).toBe("failed");
+		expect(job(fresh).status).toBe("running");
+	});
+
+	it("still drops a wake while it is off", async () => {
+		h.control.config.enabled = false;
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		const drains = inspect().drainRuns;
+
+		const { row } = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(inspect()).toMatchObject({ running: false, drainRuns: drains });
+		expect(job(row.id).status).toBe("queued");
 	});
 
 	it("comes on after being off from the start", async () => {
