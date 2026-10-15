@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -781,5 +782,85 @@ describe("running the steps", () => {
 			/^total 0s; load at end [\d. ]+; ALL GATES PASSED$/,
 		);
 		expect(lines.at(-1)).toMatch(/^logs: /);
+	});
+
+	// Every step the caller does not skip runs. The build used to start only as the thing another
+	// step waits for, so with check, vitest, chunks and playwright all skipped nothing asked for
+	// it: it never ran and its line was missing from the screen (Fallow alone showed no `build`
+	// line at all), and a run that skipped everything ran nothing and printed ALL GATES PASSED.
+	it.each(
+		everyStep,
+	)("runs %s, and only it, when every other step is skipped", async (name) => {
+		const others = everyStep.filter((other) => other !== name);
+		const { started, results, lines, passed } = await gate([
+			"--skip",
+			others.join(","),
+		]);
+		expect(started).toEqual([name]);
+		expect(passed).toBe(true);
+		// Every step has a result, skipped or run, and so a line on the screen.
+		expect(Object.keys(results).sort()).toEqual([...everyStep].sort());
+		for (const other of others) {
+			expect(lines).toContain(`${other.padEnd(10)} skip`);
+		}
+	});
+
+	it("fails a run that skipped every step, and says that nothing ran", async () => {
+		const { started, lines, passed } = await gate([
+			"--skip",
+			everyStep.join(","),
+		]);
+		expect(started).toEqual([]);
+		expect(passed).toBe(false);
+		for (const name of everyStep) {
+			expect(lines).toContain(`${name.padEnd(10)} skip`);
+		}
+		const total = lines.find((line) => line.startsWith("total")) ?? "";
+		expect(total).toContain(
+			"FAILED: nothing ran (every step was skipped), so nothing was checked",
+		);
+		expect(total).not.toContain("ALL GATES PASSED");
+	});
+
+	// AGENTS.md ("Fallow Audit Gate") tells an agent to run the Fallow step alone with this command.
+	// The test holds both the text there and what the command does.
+	const fallowAlone = "check,biome,migrations,vitest,build,chunks,playwright";
+	it("still runs Fallow alone with the command AGENTS.md documents", async () => {
+		const agents = readFileSync(
+			join(import.meta.dirname, "..", "AGENTS.md"),
+			"utf8",
+		);
+		expect(agents).toContain(
+			`scripts/gates.sh agent "$TMPDIR/alfyai-gates" --skip ${fallowAlone}`,
+		);
+		const { started, passed } = await gate(["--skip", fallowAlone]);
+		expect(started).toEqual(["fallow"]);
+		expect(passed).toBe(true);
+	});
+});
+
+// The real script, for the part only a process shows: its exit code and what it prints. Skipping
+// every step starts nothing, so this needs no stand-in and takes no time.
+describe("the gate runner as a command", () => {
+	it("exits 1, says nothing ran and prints no pass when every step is skipped", () => {
+		const outDir = mkdtempSync(join(tmpdir(), "gates-command-"));
+		try {
+			const run = spawnSync(
+				process.execPath,
+				[
+					join(import.meta.dirname, "gates.mjs"),
+					"agent",
+					outDir,
+					"--skip",
+					Object.keys(defineSteps(options)).join(","),
+				],
+				{ encoding: "utf8" },
+			);
+			expect(run.status).toBe(1);
+			expect(run.stdout).toContain("FAILED: nothing ran");
+			expect(run.stdout).not.toContain("ALL GATES PASSED");
+		} finally {
+			rmSync(outDir, { recursive: true, force: true });
+		}
 	});
 });

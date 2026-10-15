@@ -11,8 +11,10 @@
 // Options
 //   --workers N            Playwright workers (default: E2E_WORKERS, else the config's default)
 //   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
-//   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright
-//   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
+//   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright.
+//                          Every step left in runs, the build too (a step of its own, not only what check,
+//                          vitest, chunks and playwright wait for); a run that leaves none in fails
+//   --fallow-baseline F   Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
 //   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
 //                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
 //                          done and vitest runs beside it on a few threads. Default: overlap for release
@@ -606,40 +608,37 @@ export async function runSteps(
 		return promise;
 	};
 
-	// The schedule. The build starts at once, with biome, the migration check and Fallow beside
-	// it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
+	// The schedule. Every step is a lane of its own, so what the caller did not skip always runs:
+	// the build too, which was no lane and started only as the step another one waits for, so with
+	// check, vitest, chunks and playwright all skipped nothing asked for it and the gate ran
+	// nothing and passed. The build starts at once, with biome, the migration check and Fallow
+	// beside it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
 	// the build is done (see the header: a sync during the build breaks the app it makes).
 	// Phased: the e2e run starts when vitest, which wants every core, is done, so the
 	// browsers do not share the machine with it. Overlap: nothing waits for vitest, which
 	// shares the machine on a few threads.
-	const lanes = [
-		runStep("check"),
-		runStep("biome"),
-		runStep("migrations"),
-		runStep("fallow"),
-		runStep("chunks"),
-		runStep("vitest"),
-	];
-	lanes.push(
-		(async () => {
-			if (args.schedule === "phased") await runStep("vitest");
-			await runStep("playwright");
-		})(),
+	await Promise.all(
+		STEP_ORDER.map((name) =>
+			name === "playwright" && args.schedule === "phased"
+				? runStep("vitest").then(() => runStep("playwright"))
+				: runStep(name),
+		),
 	);
-	await Promise.all(lanes);
 	return results;
 }
 
 /**
  * The summary screen for a run, and whether the run passed: the header, a line for each step, then
- * the total and the verdict.
+ * the total and the verdict. A run passes when at least one step ran and none failed. A run that
+ * skipped every step checked nothing, and says so instead of passing.
  */
 export function summarise({ header, results, startedAt, endedAt, outDir }) {
 	const out = [...header];
 	const failed = [];
+	// Every step has a result, skipped or run, and so a line: one that is missing is a bug in the
+	// runner and stops it here, where it once dropped off the screen without a word.
 	for (const name of STEP_ORDER) {
 		const r = results[name];
-		if (!r) continue;
 		if (r.skipped) {
 			out.push(`${name.padEnd(10)} skip`);
 		} else if (r.blocked) {
@@ -652,11 +651,22 @@ export function summarise({ header, results, startedAt, endedAt, outDir }) {
 			);
 		}
 	}
+	const nothingRan = STEP_ORDER.every((name) => results[name].skipped);
+	let verdict = "ALL GATES PASSED";
+	if (nothingRan) {
+		verdict =
+			"FAILED: nothing ran (every step was skipped), so nothing was checked";
+	} else if (failed.length > 0) {
+		verdict = `FAILED: ${failed.join(", ")}`;
+	}
 	out.push(
-		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${failed.length === 0 ? "ALL GATES PASSED" : `FAILED: ${failed.join(", ")}`}`,
+		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${verdict}`,
 		`logs: ${relative(ROOT, outDir) || outDir}`,
 	);
-	return { summary: out.join("\n"), passed: failed.length === 0 };
+	return {
+		summary: out.join("\n"),
+		passed: !nothingRan && failed.length === 0,
+	};
 }
 
 async function main() {
