@@ -4,8 +4,9 @@
 //
 //  - DRAIN: one loop, one job at a time. It claims until nothing is claimable;
 //    between empty drains it runs the stale sweep at most once per idle tick; a
-//    sweep that requeued work continues the loop. A wake that arrives during a
-//    drain is remembered and honoured after it.
+//    sweep that took anything back (requeued it, or settled it and so freed its
+//    slot) continues the loop. A wake that arrives during a drain is remembered
+//    and honoured after it.
 //  - IDLE TICK: one unref'd interval. It is also the SUPERVISOR of the enable
 //    switch, in both directions, and the only thing that runs on a box where
 //    nobody does anything. An idle box pays one index probe per tick and logs
@@ -299,7 +300,10 @@ async function runNextJob(kind: JobKind): Promise<string | null> {
  * Loops until the claim returns nothing, then re-arms.
  *
  * Between empty drains it re-runs the sweep, but no more often than one idle
- * tick: sweeping on every empty claim would be a write storm on a busy box.
+ * tick: sweeping on every empty claim would be a write storm on a busy box. A
+ * sweep that took anything back goes round again, not only one that requeued:
+ * a stale attempt the policy SETTLES (file production never requeues) frees
+ * the slot it held, and the job queued behind it can run now.
  *
  * The re-arm in the `finally` is the other half of it. A drain that requeues a
  * job behind a backoff and then returns has left work in the table with nothing
@@ -327,7 +331,7 @@ async function drainLoop(kind: JobKind): Promise<void> {
 			}
 			if (jobsState().stopped) return;
 			if (Date.now() - state.lastRecoveryAt < idleTickIntervalMs(kind)) return;
-			if (runSweep(kind, "drain").requeued === 0) return;
+			if (runSweep(kind, "drain").recovered === 0) return;
 		}
 	} finally {
 		await rearmAfterDrain(kind);
@@ -573,7 +577,8 @@ async function startKindLoops(kind: JobKind): Promise<void> {
 		try {
 			if (!state.running || jobsState().stopped) return;
 			if (!definition.enabled()) return;
-			if (runSweep(kind, "boot-followup").requeued > 0) startDrain(kind);
+			// Anything taken back, settled or requeued, frees the slot it held.
+			if (runSweep(kind, "boot-followup").recovered > 0) startDrain(kind);
 		} catch (error) {
 			console.error(`${definition.logPrefix} Boot follow-up sweep failed`, {
 				error,

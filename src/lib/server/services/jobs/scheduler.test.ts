@@ -328,6 +328,46 @@ describe("the sweeps", () => {
 		expect(job(jobId).status).toBe("failed");
 	});
 
+	it("drains the job behind a stale one the boot follow-up sweep settles, without waiting for the tick", async () => {
+		// File production never requeues: the sweep SETTLES the stale attempt that
+		// held the only slot, and that frees the slot as surely as a requeue would.
+		h.control.config.global = 1;
+		h.control.config.heartbeatMs = 5_000; // a 10 s tick, so only the follow-up can find it
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const { jobId: stale } = h.fixture.seedRunningJob({
+			userId: h.userId,
+			workerId: "worker-that-died",
+			heartbeatAgeMs: 1_000,
+		});
+		const behind = h.fixture.seedJob({ userId: h.userId });
+
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(job(behind).status).toBe("queued");
+
+		await vi.advanceTimersByTimeAsync(STALE_AFTER_MS + 100);
+
+		expect(job(stale).status).toBe("failed");
+		expect(job(behind).status).toBe("succeeded");
+	});
+
+	it("goes on draining when its own sweep settles the stale job that held the only slot", async () => {
+		h.control.config.global = 1;
+		h.control.decide = () => ({ requeue: false, retryable: true });
+		const { jobId: stale } = h.fixture.seedRunningJob({
+			userId: h.userId,
+			workerId: "worker-that-died",
+			heartbeatAgeMs: 60_000,
+		});
+		const behind = h.fixture.seedJob({ userId: h.userId });
+
+		// Not started: an explicit drain, whose first empty claim sweeps.
+		await h.engine.drain(h.control.kind);
+
+		expect(job(stale).status).toBe("failed");
+		expect(job(behind).status).toBe("succeeded");
+	});
+
 	it("reclaims an attempt that only goes stale later, on the idle tick", async () => {
 		await boot();
 		const { jobId } = h.fixture.seedRunningJob({
