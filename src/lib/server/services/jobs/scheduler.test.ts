@@ -606,6 +606,47 @@ describe("the switch", () => {
 		expect(job(b.row.id).status).toBe("succeeded");
 	});
 
+	it("is on for the next wake once it is turned on, without waiting for the tick", async () => {
+		// Every kind before the engine read its switch when it was woken, so an
+		// admin who turned a worker on saw the next job start at once. A wake that
+		// only trusted the tick's last look would leave it queued for a whole tick
+		// (30 s on a 15 s heartbeat), and drop every wake in between.
+		h.control.config.heartbeatMs = 30_000; // a 60 s tick: only a wake can start it in time
+		h.control.config.enabled = false;
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(inspect().running).toBe(false);
+
+		h.control.config.enabled = true;
+		const { row } = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(inspect().running).toBe(true);
+		expect(job(row.id).status).toBe("succeeded");
+
+		// The same once the tick has paused it and it is turned on again.
+		h.control.config.enabled = false;
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(inspect().running).toBe(false);
+		h.control.config.enabled = true;
+		const again = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(job(again.row.id).status).toBe("succeeded");
+	});
+
+	it("still drops a wake while it is off", async () => {
+		h.control.config.enabled = false;
+		await boot();
+		await vi.advanceTimersByTimeAsync(0);
+		const drains = inspect().drainRuns;
+
+		const { row } = await enqueue();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(inspect()).toMatchObject({ running: false, drainRuns: drains });
+		expect(job(row.id).status).toBe("queued");
+	});
+
 	it("comes on after being off from the start", async () => {
 		h.control.config.enabled = false;
 		await boot();

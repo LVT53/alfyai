@@ -668,12 +668,31 @@ export function stopJobs(): void {
  * Says there is work. Counts the request. Does nothing more in a process that
  * has not started this kind (or has stopped it, or has it switched off), so a
  * script that reopens a job never becomes a second worker.
+ *
+ * "Switched off" is the switch as it is NOW, not as the idle tick last saw it.
+ * A wake that finds a started kind paused while its switch says on starts it
+ * then and there (sweeps first, as the tick would), instead of dropping this
+ * wake and every other until the next tick: every kind before the engine read
+ * its switch when it was woken, so turning a worker on took effect at once.
  */
 export function wake(kind: JobKind): void {
 	const state = kindScheduler(kind.name);
 	state.wakeRequests += 1;
-	if (!state.running || jobsState().stopped) return;
-	startDrain(kind);
+	if (jobsState().stopped) return;
+	if (state.running) {
+		startDrain(kind);
+		return;
+	}
+	if (!state.initialized) return;
+	try {
+		if (!internalsOf(kind).definition.enabled()) return;
+	} catch (error) {
+		console.error(`${kind.logPrefix} Reading the switch failed`, { error });
+		return;
+	}
+	void startKindLoops(kind).catch((error) => {
+		console.error(`${kind.logPrefix} Worker failed to start`, { error });
+	});
 }
 
 // ---------------------------------------------------------------------------
