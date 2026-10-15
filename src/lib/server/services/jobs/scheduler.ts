@@ -1,9 +1,11 @@
-// Scheduling: who runs what, and when. (Task 2: the minimal drain only.)
+// Scheduling: who runs what, and when. (Task 4: the drain runs attempts through
+// the runner; the timers, sweeps and inline runs come next.)
 
-import { internalsOf, loadHandler } from "./define";
-import { claimNext, type SucceedOptions, succeed } from "./ledger";
+import { internalsOf } from "./define";
+import { claimNext } from "./ledger";
+import { runAttempt } from "./runner";
 import { jobsState, kindScheduler } from "./state";
-import type { JobKind, JobRunContext, JobTable } from "./types";
+import type { JobKind } from "./types";
 import { createWorkerId } from "./worker-identity";
 
 const workerIds = new Map<string, string>();
@@ -31,8 +33,7 @@ export function wake(kind: JobKind): void {
  * context. For tests and scripts; the scheduler drains on its own.
  */
 export async function drain(kind: JobKind): Promise<void> {
-	const internals = internalsOf(kind);
-	const { definition } = internals;
+	const { definition } = internalsOf(kind);
 	const workerId = workerIdFor(kind.name);
 	const state = kindScheduler(kind.name);
 	state.drainRuns += 1;
@@ -41,21 +42,7 @@ export async function drain(kind: JobKind): Promise<void> {
 		if (!definition.enabled()) return;
 		const claimed = claimNext(kind, { workerId });
 		if (!claimed) return;
-
-		const handler = await loadHandler(internals);
-		const owned = {
-			jobId: claimed.row.id,
-			attemptId: claimed.attempt.id,
-			workerId,
-		};
-		const ctx = {
-			row: claimed.row,
-			attempt: claimed.attempt,
-			signal: new AbortController().signal,
-			succeed: async (options?: SucceedOptions) =>
-				succeed(kind, owned, options),
-		} as unknown as JobRunContext<JobTable>;
-		await handler(ctx as never);
+		await runAttempt(kind, claimed, { workerId });
 	}
 }
 
@@ -81,6 +68,10 @@ export function inspectJobsForTests(): Record<string, KindInspection> {
 
 /** Test helper: forgets every kind's state. */
 export function resetJobsForTests(): void {
-	jobsState().kinds.clear();
+	const state = jobsState();
+	state.kinds.clear();
+	state.running.clear();
+	state.settleListeners.clear();
+	state.stopped = false;
 	workerIds.clear();
 }
