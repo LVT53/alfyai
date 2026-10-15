@@ -307,7 +307,7 @@ The user's **Retry** reopens through `userRetry`: file production from `failed` 
 
 One state object per process on `globalThis` under a `Symbol.for` key, so a double import and an HMR re-evaluation both find it. Per kind:
 
-- **Drain**: one loop, one job at a time. It claims until nothing is claimable; between empty drains it runs the stale sweep at most once per idle tick; a sweep that requeued work continues the loop. A wake during a drain is remembered and honoured after it.
+- **Drain**: one loop, one job at a time. It claims until nothing is claimable; between empty drains it runs the stale sweep at most once per idle tick; a sweep that recovered work (requeued it, or settled the job that held the only slot) continues the loop. A wake during a drain is remembered and honoured after it. A wake on a started kind whose switch has just been turned on starts it at once, sweeps first.
 - **Idle tick**: one unref'd interval per kind, `heartbeatMs × 2` clamped to 5–60 s. It also supervises the enable switch in both directions: off stops arming work (a running attempt finishes and reports), on does a full start with sweeps. One aggregate query answers "anything to do, and if not yet, when" over the live partial index; an idle box does one index probe per kind per tick and logs nothing.
 - **Backoff timer**: at most one per kind, armed for the earliest future `runAfter` plus one second (timestamps have one-second resolution), at most an hour per hop.
 - **Boot** (`startJobs`): per enabled kind, dead-worker reclaim, the stale sweep, the follow-up sweep after `staleAfterMs`, the idle tick, a drain. A disabled kind gets only the idle tick, which notices the switch.
@@ -393,6 +393,15 @@ Atlas's lease is constants in `atlas/config.ts` (heartbeat 15 s, stale after 120
 - **A behaviour drift hidden by a passing suite.** Mitigation: replace-don't-layer keeps the domain tests; each slice runs its area's e2e specs; the live checks on ai.dev drive a real upload, a real file and a real Atlas run.
 - **Extraction's vocabulary rewrite.** The only data rewrite. Mitigation: SQL plus the startup shim for the window, a reverse script, a test on a copy of a migrated database, and the Opus review.
 - **Budget.** The weekly limit was at 72% on 2026-10-15 (resets 2026-10-19 09:00 UTC). Estimated cost per slice is in the plan; the run pauses rather than starting a slice the week cannot finish.
+
+## After the engine review (R1, 2026-10-15)
+
+The Opus review fixed seven engine defects (merge `7747381ed`) and raised four design points, settled here:
+
+- **The pre-engine Atlas fence.** The old Atlas ledger fences its writes on `atlas_jobs.worker_id`, which the engine never writes. Two processes never run at once in a deploy (`systemctl restart` stops the old process, through its shutdown grace period, before it starts the new one), so this cannot bite today. S2's `onTransition` clears `worker_id` and `heartbeat_at` on every transition anyway, as cheap insurance, with an `ALLOWED` entry that goes with the column cleanup (**my call**).
+- **A handler that ignores its signal holds its kind's only drain** until it next writes (Atlas, whose pipeline does not take the signal) or returns. This is not a regression: all three drains await their run today. Later: after an abort, stop waiting for the handler after a grace period, since its writes are refused anyway.
+- **Beat interval against the stale window.** The runner clamps its beat to at most a third of `staleAfterMs`, so a misconfigured lease (extraction's settings allow it) cannot make healthy attempts look stale. This goes in S3, with the review's small items: `runInline` disarms its budget timer and its listener on the caller's signal when the run ends early; an id with this host and pid but another boot nonce counts as a dead previous incarnation; `jobs/AGENTS.md` warns that an abort listener must not throw.
+- **Dead-worker reclaim on the idle tick.** Not needed, for the same `systemctl restart` reason: the boot reclaim sees every attempt the old process left.
 
 ## Left to the builder
 

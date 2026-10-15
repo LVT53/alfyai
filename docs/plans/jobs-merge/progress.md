@@ -30,9 +30,9 @@ The live state of the run that implements [`design.md`](design.md) through [`pla
 | Plan | done, `1e8e8177a` | |
 | Builder check | done | 7 questions; 6 settled as my calls in design.md and plan.md; the push scope asked of the owner |
 | S1 engine | done, merged `50d58309e` | 14 commits, 264 engine tests; gates at `884a14257`: check 0/17, vitest 19,173, smoke 236/236, Fallow 0 new. Sonnet, 872k tokens, 78 min |
-| R1 | running | Opus, branch `jobs/r1-review` |
-| S2 Atlas | not started | |
-| S3 extraction | not started | |
+| R1 | done, merged `7747381ed` | Opus, 507k tokens, 38 min: 7 engine fixes with failing tests first; 4 design points settled in design.md ('After the engine review') |
+| S2 Atlas | running | Sonnet, branch `jobs/s2-atlas` |
+| S3 extraction | running | Sonnet, branch `jobs/s3-extraction`; also the engine touch-ups from R1 |
 | S4 file production | not started | |
 | R2 | not started | |
 | Ship | not started | |
