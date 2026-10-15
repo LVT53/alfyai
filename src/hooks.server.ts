@@ -23,6 +23,7 @@ import {
 import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/app/sandbox-response";
 import { atlasResearchJob } from "$lib/server/services/atlas/research-job";
 import { validateSession } from "$lib/server/services/auth";
+import { settleInterruptedImports } from "$lib/server/services/chatgpt-import/import-row";
 import { extractionJob } from "$lib/server/services/extraction/extraction-job";
 import { fileProductionJob } from "$lib/server/services/file-production/production-job";
 import { startJobs, stopJobs } from "$lib/server/services/jobs";
@@ -230,6 +231,13 @@ export const init: ServerInit = async () => {
 	assertSessionSecret();
 
 	await ensureRuntimeConfigReady();
+	// A ChatGPT import runs inside its request, so a restart leaves its row
+	// `processing` with nothing behind it. Settled here, before the first request.
+	try {
+		settleInterruptedImports();
+	} catch (error) {
+		console.error("Failed to settle interrupted ChatGPT imports:", error);
+	}
 	seedDefaultProviders().catch((error) =>
 		console.error("Failed to seed default providers:", error),
 	);

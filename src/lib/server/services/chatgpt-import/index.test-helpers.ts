@@ -62,6 +62,33 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		sqlite.close();
 	}
 
+	/** An `import_jobs` row as an earlier import (or a stopped one) left it. */
+	function seedImportJob(row: {
+		id: string;
+		userId?: string;
+		status: string;
+		updatedAt?: Date;
+		totalConversations?: number;
+		processedConversations?: number;
+		errorLog?: string | null;
+	}) {
+		const { sqlite, db } = openSeedDatabase();
+		const updatedAt = row.updatedAt ?? new Date();
+		db.insert(schema.importJobs)
+			.values({
+				id: row.id,
+				userId: row.userId ?? "test-user",
+				status: row.status,
+				totalConversations: row.totalConversations ?? 0,
+				processedConversations: row.processedConversations ?? 0,
+				errorLog: row.errorLog ?? null,
+				createdAt: updatedAt,
+				updatedAt,
+			})
+			.run();
+		sqlite.close();
+	}
+
 	function readImportJob(jobId: string) {
 		const sqlite = new Database(dbPath);
 		const db = drizzle(sqlite, { schema });
@@ -72,6 +99,18 @@ export function createChatGptImportTestHarness(dbPath: string) {
 			.get();
 		sqlite.close();
 		return job;
+	}
+
+	function readImportJobsForUser(userId = "test-user") {
+		const sqlite = new Database(dbPath);
+		const db = drizzle(sqlite, { schema });
+		const rows = db
+			.select()
+			.from(schema.importJobs)
+			.where(eq(schema.importJobs.userId, userId))
+			.all();
+		sqlite.close();
+		return rows;
 	}
 
 	function readMessages(conversationId: string) {
@@ -195,8 +234,10 @@ export function createChatGptImportTestHarness(dbPath: string) {
 		readConversation,
 		readForks,
 		readImportJob,
+		readImportJobsForUser,
 		readMessages,
 		runImportConversations,
+		seedImportJob,
 		seedProject,
 		seedUser,
 	};
