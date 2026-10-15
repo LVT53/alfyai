@@ -10,7 +10,7 @@ import type {
 	AtlasProfile,
 } from "./types";
 
-// Re-exported so `atlas/job-ledger.ts` (the write path) and other existing
+// Re-exported so `atlas/research-runner.ts` (the write path) and other existing
 // importers can keep reading it from here; `./progress-details` is the
 // module that actually owns the stored contract and its sanitiser now.
 export { sanitizeAtlasJobProgressDetails };
@@ -72,7 +72,7 @@ export function mapAtlasJobRowToCard(
 				? {
 						code: job.errorCode,
 						message: job.errorMessage,
-						retryable: job.errorRetryable,
+						retryable: job.retryable,
 					}
 				: null,
 		createdAt: job.createdAt.getTime(),

@@ -10,7 +10,7 @@
 // crashing.
 //
 // This module is the shared home for the contract: `atlas/read-model.ts` (the
-// read path) and `atlas/job-ledger.ts` (through `read-model.ts`, the write
+// read path) and `atlas/research-runner.ts` (through `read-model.ts`, the write
 // path) both go through it instead of importing v2 or v3 internals directly.
 // v1 and v2 no longer run (Phase B of the v3-only consolidation), but their
 // rows stay in users' conversations, so their shapes and sanitisers live on

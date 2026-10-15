@@ -1,28 +1,30 @@
+// The Atlas façade: the names the routes, chat-turn code, account erasure and
+// conversation cleanup call. Each function is a lazy delegate, so importing this
+// file costs nothing: the kind and its engine load on the first call, and the v3
+// pipeline only when a job is claimed (`research-job.ts` loads its handler then).
+//
+// Atlas's lifecycle (claim, lease, heartbeat, progress, completion, failure,
+// recovery, scheduling) is the job engine's (services/jobs), started once from
+// `hooks.server.ts` with `startJobs([atlasResearchJob])`. Nothing here claims or
+// runs a job, and no caller wakes a worker: linking the reply message does.
+
 import type {
 	AtlasJobIntakeResult,
 	SubmitAtlasJobIntakeInput,
-} from "./job-ledger";
+} from "./research-job";
 
-type JobLedgerModule = typeof import("./job-ledger");
+type ResearchJobModule = typeof import("./research-job");
 type ReadModelModule = typeof import("./read-model");
-type WorkerRunnerModule = typeof import("./worker-runner");
 
 export type {
-	ApplyAtlasGeneratedTitleInput,
 	AtlasJobIntakeResult,
 	CancelAtlasJobInput,
-	ClaimedAtlasJob,
-	ClaimNextAtlasJobInput,
-	CompleteAtlasJobInput,
 	CreateOrReuseAtlasJobInput,
 	CreateOrReuseAtlasJobResult,
 	DeleteAtlasJobsForConversationInput,
-	FailAtlasJobInput,
-	HeartbeatAtlasJobInput,
 	LinkAtlasJobAssistantMessageInput,
-	RecoverStaleAtlasJobsInput,
 	SubmitAtlasJobIntakeInput,
-} from "./job-ledger";
+} from "./research-job";
 export type {
 	AtlasAction,
 	AtlasJobCard,
@@ -35,107 +37,61 @@ export type {
 	AtlasProfile,
 } from "./types";
 
-async function loadJobLedger(): Promise<JobLedgerModule> {
-	return import("./job-ledger");
+async function loadResearchJob(): Promise<ResearchJobModule> {
+	return import("./research-job");
 }
 
 async function loadReadModel(): Promise<ReadModelModule> {
 	return import("./read-model");
 }
 
-async function loadWorkerRunner(): Promise<WorkerRunnerModule> {
-	return import("./worker-runner");
-}
-
 export async function createOrReuseAtlasJob(
-	...args: Parameters<JobLedgerModule["createOrReuseAtlasJob"]>
-): ReturnType<JobLedgerModule["createOrReuseAtlasJob"]> {
-	const { createOrReuseAtlasJob } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["createOrReuseAtlasJob"]>
+): ReturnType<ResearchJobModule["createOrReuseAtlasJob"]> {
+	const { createOrReuseAtlasJob } = await loadResearchJob();
 	return createOrReuseAtlasJob(...args);
 }
 
 export async function linkAtlasJobAssistantMessage(
-	...args: Parameters<JobLedgerModule["linkAtlasJobAssistantMessage"]>
-): ReturnType<JobLedgerModule["linkAtlasJobAssistantMessage"]> {
-	const { linkAtlasJobAssistantMessage } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["linkAtlasJobAssistantMessage"]>
+): ReturnType<ResearchJobModule["linkAtlasJobAssistantMessage"]> {
+	const { linkAtlasJobAssistantMessage } = await loadResearchJob();
 	return linkAtlasJobAssistantMessage(...args);
 }
 
-export async function claimNextAtlasJob(
-	...args: Parameters<JobLedgerModule["claimNextAtlasJob"]>
-): ReturnType<JobLedgerModule["claimNextAtlasJob"]> {
-	const { claimNextAtlasJob } = await loadJobLedger();
-	return claimNextAtlasJob(...args);
-}
-
-export async function heartbeatAtlasJob(
-	...args: Parameters<JobLedgerModule["heartbeatAtlasJob"]>
-): ReturnType<JobLedgerModule["heartbeatAtlasJob"]> {
-	const { heartbeatAtlasJob } = await loadJobLedger();
-	return heartbeatAtlasJob(...args);
-}
-
-export async function applyAtlasGeneratedTitle(
-	...args: Parameters<JobLedgerModule["applyAtlasGeneratedTitle"]>
-): ReturnType<JobLedgerModule["applyAtlasGeneratedTitle"]> {
-	const { applyAtlasGeneratedTitle } = await loadJobLedger();
-	return applyAtlasGeneratedTitle(...args);
-}
-
 export async function cancelAtlasJob(
-	...args: Parameters<JobLedgerModule["cancelAtlasJob"]>
-): ReturnType<JobLedgerModule["cancelAtlasJob"]> {
-	const { cancelAtlasJob } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["cancelAtlasJob"]>
+): ReturnType<ResearchJobModule["cancelAtlasJob"]> {
+	const { cancelAtlasJob } = await loadResearchJob();
 	return cancelAtlasJob(...args);
 }
 
 export async function cancelActiveAtlasJobsForUser(
-	...args: Parameters<JobLedgerModule["cancelActiveAtlasJobsForUser"]>
-): ReturnType<JobLedgerModule["cancelActiveAtlasJobsForUser"]> {
-	const { cancelActiveAtlasJobsForUser } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["cancelActiveAtlasJobsForUser"]>
+): ReturnType<ResearchJobModule["cancelActiveAtlasJobsForUser"]> {
+	const { cancelActiveAtlasJobsForUser } = await loadResearchJob();
 	return cancelActiveAtlasJobsForUser(...args);
 }
 
 export async function cancelActiveAtlasJobsForConversation(
-	...args: Parameters<JobLedgerModule["cancelActiveAtlasJobsForConversation"]>
-): ReturnType<JobLedgerModule["cancelActiveAtlasJobsForConversation"]> {
-	const { cancelActiveAtlasJobsForConversation } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["cancelActiveAtlasJobsForConversation"]>
+): ReturnType<ResearchJobModule["cancelActiveAtlasJobsForConversation"]> {
+	const { cancelActiveAtlasJobsForConversation } = await loadResearchJob();
 	return cancelActiveAtlasJobsForConversation(...args);
 }
 
 export async function deleteAtlasJobsForUser(
-	...args: Parameters<JobLedgerModule["deleteAtlasJobsForUser"]>
-): ReturnType<JobLedgerModule["deleteAtlasJobsForUser"]> {
-	const { deleteAtlasJobsForUser } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["deleteAtlasJobsForUser"]>
+): ReturnType<ResearchJobModule["deleteAtlasJobsForUser"]> {
+	const { deleteAtlasJobsForUser } = await loadResearchJob();
 	return deleteAtlasJobsForUser(...args);
 }
 
 export async function deleteAtlasJobsForConversation(
-	...args: Parameters<JobLedgerModule["deleteAtlasJobsForConversation"]>
-): ReturnType<JobLedgerModule["deleteAtlasJobsForConversation"]> {
-	const { deleteAtlasJobsForConversation } = await loadJobLedger();
+	...args: Parameters<ResearchJobModule["deleteAtlasJobsForConversation"]>
+): ReturnType<ResearchJobModule["deleteAtlasJobsForConversation"]> {
+	const { deleteAtlasJobsForConversation } = await loadResearchJob();
 	return deleteAtlasJobsForConversation(...args);
-}
-
-export async function recoverStaleAtlasJobs(
-	...args: Parameters<JobLedgerModule["recoverStaleAtlasJobs"]>
-): ReturnType<JobLedgerModule["recoverStaleAtlasJobs"]> {
-	const { recoverStaleAtlasJobs } = await loadJobLedger();
-	return recoverStaleAtlasJobs(...args);
-}
-
-export async function completeAtlasJob(
-	...args: Parameters<JobLedgerModule["completeAtlasJob"]>
-): ReturnType<JobLedgerModule["completeAtlasJob"]> {
-	const { completeAtlasJob } = await loadJobLedger();
-	return completeAtlasJob(...args);
-}
-
-export async function failAtlasJob(
-	...args: Parameters<JobLedgerModule["failAtlasJob"]>
-): ReturnType<JobLedgerModule["failAtlasJob"]> {
-	const { failAtlasJob } = await loadJobLedger();
-	return failAtlasJob(...args);
 }
 
 export async function listConversationAtlasJobs(
@@ -148,21 +104,6 @@ export async function listConversationAtlasJobs(
 export async function submitAtlasJobIntake(
 	input: SubmitAtlasJobIntakeInput,
 ): Promise<AtlasJobIntakeResult> {
-	const { createOrReuseAtlasJob } = await loadJobLedger();
+	const { createOrReuseAtlasJob } = await loadResearchJob();
 	return createOrReuseAtlasJob(input);
-}
-
-export function wakeAtlasWorker(): void {
-	void loadWorkerRunner()
-		.then(({ wakeAtlasWorker }) => wakeAtlasWorker())
-		.catch((error) => {
-			console.error("[ATLAS] Failed to wake worker", { error });
-		});
-}
-
-export async function ensureAtlasWorker(
-	...args: Parameters<WorkerRunnerModule["ensureAtlasWorker"]>
-): ReturnType<WorkerRunnerModule["ensureAtlasWorker"]> {
-	const { ensureAtlasWorker } = await loadWorkerRunner();
-	return ensureAtlasWorker(...args);
 }

@@ -92,6 +92,7 @@ const requiredExistingTables = [
 	"document_extraction_jobs",
 	"document_extraction_job_attempts",
 	"atlas_jobs",
+	"atlas_job_attempts",
 	"atlas_round_checkpoints",
 	"personality_profiles",
 	"user_connections",

@@ -57,7 +57,14 @@ function storedRow(
 		markdownChatGeneratedFileId: "md-1",
 		errorCode: null,
 		errorMessage: null,
-		errorRetryable: false,
+		retryable: false,
+		phase: null,
+		priority: 0,
+		runAfter: null,
+		attemptCount: 0,
+		currentAttemptId: null,
+		checkpoint: null,
+		retryState: null,
 		failureMetadataJson: null,
 		createdAt: new Date(NOW.getTime() - 600_000),
 		updatedAt: NOW,
@@ -178,7 +185,7 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 				progressDetailsJson: V1_DETAILS,
 				errorCode: "atlas_quality_gate_failed",
 				errorMessage: "Atlas could not verify enough claims to publish.",
-				errorRetryable: true,
+				retryable: true,
 				failureMetadataJson: JSON.stringify({ honestyMarkers: [] }),
 				htmlChatGeneratedFileId: null,
 				pdfChatGeneratedFileId: null,
@@ -240,8 +247,9 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 	});
 
 	it("renders a freshly claimed row (stage ask, empty details) without a raw key", () => {
-		// `claimNextAtlasJob` now stamps stage "ask", 0% and "{}" details; the
-		// card shows it until the pipeline's first heartbeat lands.
+		// The engine's claim stamps stage "ask", 0% and "{}" details (the Atlas
+		// kind's `onTransition`); the card shows it until the pipeline's first
+		// heartbeat lands.
 		const card = mapAtlasJobRowToCard(
 			storedRow({
 				pipelineVersion: 3,

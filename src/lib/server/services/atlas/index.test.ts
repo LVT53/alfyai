@@ -45,6 +45,7 @@ describe("Atlas persistence foundation", () => {
 	});
 
 	afterEach(async () => {
+		vi.useRealTimers();
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();
@@ -127,46 +128,6 @@ describe("Atlas persistence foundation", () => {
 			"Compare AI search vendors for enterprise RAG adoption in regulated banks",
 		);
 		expect(result.job.title).not.toBe("Atlas research");
-	});
-
-	it("applies a model-generated Atlas title through the job ledger and read model", async () => {
-		const { db } = await import("$lib/server/db");
-		const now = new Date("2026-06-19T12:05:00.000Z");
-		await db.insert(schema.atlasJobs).values({
-			id: "atlas-generated-title",
-			userId: "user-1",
-			conversationId: "conv-1",
-			action: "create",
-			profile: "overview",
-			normalizedQueryHash: "hash-generated-title",
-			clientAtlasTurnId: "client-generated-title",
-			idempotencyKey:
-				"atlas:v1:user-1:conv-1:create:root:overview:hash-generated-title:client-generated-title",
-			title: "Query Derived Fallback",
-			status: "running",
-			stage: "assemble",
-			workerId: "worker-title",
-			heartbeatAt: now,
-			startedAt: now,
-			createdAt: now,
-			updatedAt: now,
-		});
-
-		const { applyAtlasGeneratedTitle, listConversationAtlasJobs } =
-			await import("./index");
-		const updated = await applyAtlasGeneratedTitle({
-			jobId: "atlas-generated-title",
-			workerId: "worker-title",
-			title: "  Generated Enterprise RAG Strategy  ",
-			now: new Date("2026-06-19T12:06:00.000Z"),
-		});
-		const jobs = await listConversationAtlasJobs("user-1", "conv-1");
-
-		expect(updated?.title).toBe("Generated Enterprise RAG Strategy");
-		expect(jobs[0]).toMatchObject({
-			id: "atlas-generated-title",
-			title: "Generated Enterprise RAG Strategy",
-		});
 	});
 
 	it("repairs a reused legacy default Atlas title from the user query", async () => {
@@ -448,7 +409,7 @@ describe("Atlas persistence foundation", () => {
 			costUsdMicros: 4567,
 			errorCode: "atlas_audit_failed",
 			errorMessage: "Audit failed after bounded retries.",
-			errorRetryable: true,
+			retryable: true,
 			failureMetadataJson:
 				'{"rawPrompt":"SYSTEM_SENTINEL","apiKey":"SECRET_SENTINEL"}',
 			createdAt: now,
@@ -624,25 +585,9 @@ describe("Atlas persistence foundation", () => {
 		expect(reused.job.assistantMessageId).toBe("assistant-msg-1");
 	});
 
-	it("claims queued jobs with global and per-user concurrency limits, heartbeats, cancellation, and stale recovery", async () => {
+	it("cancels a queued Atlas job through the engine and leaves the others alone", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			cancelAtlasJob,
-			claimNextAtlasJob,
-			heartbeatAtlasJob,
-			linkAtlasJobAssistantMessage,
-			listConversationAtlasJobs,
-			recoverStaleAtlasJobs,
-			submitAtlasJobIntake,
-		} = await import("./index");
-		await db.insert(schema.conversations).values({
-			id: "conv-2",
-			userId: "user-1",
-			title: "Second Atlas conversation",
-			createdAt: new Date("2026-06-19T12:00:00.000Z"),
-			updatedAt: new Date("2026-06-19T12:00:00.000Z"),
-		});
-
+		const { cancelAtlasJob, submitAtlasJobIntake } = await import("./index");
 		const first = await submitAtlasJobIntake({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -651,324 +596,60 @@ describe("Atlas persistence foundation", () => {
 			profile: "overview",
 			query: "First query",
 			clientAtlasTurnId: "atlas-turn-1",
-			now: new Date("2026-06-19T12:01:00.000Z"),
 		});
-		const secondSameUser = await submitAtlasJobIntake({
+		const second = await submitAtlasJobIntake({
 			userId: "user-1",
-			conversationId: "conv-2",
+			conversationId: "conv-1",
 			action: "create",
 			parentAtlasJobId: null,
 			profile: "overview",
 			query: "Second query",
 			clientAtlasTurnId: "atlas-turn-2",
-			now: new Date("2026-06-19T12:02:00.000Z"),
 		});
-		await db.insert(schema.messages).values([
-			{
-				id: "atlas-user-1",
-				conversationId: "conv-1",
-				role: "user",
-				content: "First query",
-				messageSequence: 1,
-				createdAt: new Date("2026-06-19T12:01:00.000Z"),
-			},
-			{
-				id: "atlas-assistant-1",
-				conversationId: "conv-1",
-				role: "assistant",
-				content: "Atlas is queued.",
-				messageSequence: 2,
-				createdAt: new Date("2026-06-19T12:01:01.000Z"),
-			},
-			{
-				id: "atlas-user-2",
-				conversationId: "conv-2",
-				role: "user",
-				content: "Second query",
-				messageSequence: 1,
-				createdAt: new Date("2026-06-19T12:02:00.000Z"),
-			},
-			{
-				id: "atlas-assistant-2",
-				conversationId: "conv-2",
-				role: "assistant",
-				content: "Atlas is queued.",
-				messageSequence: 2,
-				createdAt: new Date("2026-06-19T12:02:01.000Z"),
-			},
-		]);
-		await linkAtlasJobAssistantMessage({
+
+		// Another user's Cancel finds nothing.
+		expect(
+			await cancelAtlasJob({ userId: "user-2", jobId: second.job.id }),
+		).toBeNull();
+
+		const cancelled = await cancelAtlasJob({
 			userId: "user-1",
-			conversationId: "conv-1",
-			jobId: first.job.id,
-			assistantMessageId: "atlas-assistant-1",
+			jobId: second.job.id,
 		});
-		await linkAtlasJobAssistantMessage({
+		// A second press finds a settled job.
+		const again = await cancelAtlasJob({
 			userId: "user-1",
-			conversationId: "conv-2",
-			jobId: secondSameUser.job.id,
-			assistantMessageId: "atlas-assistant-2",
+			jobId: second.job.id,
 		});
 
-		const firstClaim = await claimNextAtlasJob({
-			workerId: "atlas-worker-1",
-			now: new Date("2026-06-19T12:03:00.000Z"),
-			globalActiveLimit: 2,
-			perUserActiveLimit: 1,
+		expect(cancelled).toMatchObject({
+			id: second.job.id,
+			status: "cancelled",
+			stage: "cancelled",
+			error: null,
 		});
-		const blockedByPerUserLimit = await claimNextAtlasJob({
-			workerId: "atlas-worker-1",
-			now: new Date("2026-06-19T12:04:00.000Z"),
-			globalActiveLimit: 2,
-			perUserActiveLimit: 1,
-		});
-
-		expect(firstClaim?.job).toMatchObject({
-			id: first.job.id,
-			status: "running",
-			pipelineVersion: 3,
-			stage: "ask",
-			progress: { percent: 0, stage: "ask", details: { queries: [] } },
-		});
-		expect(blockedByPerUserLimit).toBeNull();
-
-		await heartbeatAtlasJob({
-			jobId: first.job.id,
-			workerId: "atlas-worker-1",
-			stage: "search",
-			progressPercent: 20,
-			progressDetails: {
-				queries: ["enterprise retrieval patterns", "hybrid search evaluation"],
-			},
-			now: new Date("2026-06-19T12:05:00.000Z"),
-		});
-		const [jobAfterHeartbeat] = await listConversationAtlasJobs(
-			"user-1",
-			"conv-1",
-		);
-		expect(jobAfterHeartbeat.progress).toMatchObject({
-			percent: 20,
-			stage: "search",
-			details: {
-				queries: ["enterprise retrieval patterns", "hybrid search evaluation"],
-			},
-		});
-		await cancelAtlasJob({
-			userId: "user-1",
-			jobId: secondSameUser.job.id,
-			now: new Date("2026-06-19T12:06:00.000Z"),
-		});
-		const recovered = await recoverStaleAtlasJobs({
-			staleBefore: new Date("2026-06-19T12:05:30.000Z"),
-			now: new Date("2026-06-19T12:16:00.000Z"),
-		});
-
+		expect(again).toBeNull();
 		const rows = await db.select().from(schema.atlasJobs);
-		expect(recovered).toEqual({ recovered: 1 });
+		const cancelledRow = rows.find((row) => row.id === second.job.id);
+		expect(cancelledRow).toMatchObject({
+			status: "cancelled",
+			stage: "cancelled",
+			workerId: null,
+			heartbeatAt: null,
+		});
+		expect(cancelledRow?.cancelRequestedAt).toBeInstanceOf(Date);
+		expect(cancelledRow?.completedAt).toBeInstanceOf(Date);
 		expect(rows.find((row) => row.id === first.job.id)).toMatchObject({
 			status: "queued",
 			stage: "queued",
-			workerId: null,
-			progressPercent: 0,
-			errorCode: "atlas_worker_heartbeat_timeout",
-			errorRetryable: true,
-		});
-		expect(rows.find((row) => row.id === secondSameUser.job.id)).toMatchObject({
-			status: "cancelled",
-			cancelRequestedAt: new Date("2026-06-19T12:06:00.000Z"),
-		});
-	});
-
-	it.each([
-		1, 2,
-	] as const)("restamps a queued v%d row onto pipeline v3 when it is claimed (D1 routing)", async (storedPipelineVersion) => {
-		// A Continue child queued before the v3-only deploy, or a job requeued by
-		// startup recovery, still carries its old stamp and the old pipeline's
-		// stage and details. The claim must hand it to v3 with a clean slate.
-		const { db } = await import("$lib/server/db");
-		const { claimNextAtlasJob } = await import("./index");
-		const now = new Date("2026-06-19T12:03:00.000Z");
-		await db.insert(schema.messages).values({
-			id: "atlas-old-assistant",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Atlas is queued.",
-			messageSequence: 1,
-			createdAt: now,
-		});
-		await db.insert(schema.atlasJobs).values({
-			id: "atlas-old-queued",
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "atlas-old-assistant",
-			action: "continue",
-			parentAtlasJobId: null,
-			profile: "overview",
-			pipelineVersion: storedPipelineVersion,
-			normalizedQueryHash: "hash-old",
-			clientAtlasTurnId: "client-turn-old",
-			idempotencyKey: "atlas:v1:old-queued",
-			title: "Atlas research",
-			status: "queued",
-			stage: storedPipelineVersion === 1 ? "decompose" : "plan",
-			progressPercent: 5,
-			progressDetailsJson: JSON.stringify(
-				storedPipelineVersion === 1
-					? { queries: ["old v1 query"], roundKind: "initial" }
-					: { pipelineVersion: 2, phase: "plan", plan: [] },
-			),
-			createdAt: now,
-			updatedAt: now,
-		});
-
-		const claimed = await claimNextAtlasJob({
-			workerId: "atlas-worker-1",
-			now: new Date("2026-06-19T12:04:00.000Z"),
-			globalActiveLimit: 2,
-			perUserActiveLimit: 1,
-		});
-
-		expect(claimed?.job).toMatchObject({
-			id: "atlas-old-queued",
-			status: "running",
-			pipelineVersion: 3,
-			stage: "ask",
-			progress: { percent: 0, stage: "ask", details: { queries: [] } },
-		});
-		const [row] = await db
-			.select()
-			.from(schema.atlasJobs)
-			.where(eq(schema.atlasJobs.id, "atlas-old-queued"));
-		expect(row?.pipelineVersion).toBe(3);
-		expect(row?.progressDetailsJson).toBe("{}");
-	});
-
-	it("preserves heartbeat stage and percent when omitted while storing sanitized progress details", async () => {
-		const { db } = await import("$lib/server/db");
-		const now = new Date("2026-06-19T12:20:00.000Z");
-		await db.insert(schema.atlasJobs).values({
-			id: "atlas-heartbeat-sanitize",
-			userId: "user-1",
-			conversationId: "conv-1",
-			action: "create",
-			profile: "overview",
-			normalizedQueryHash: "hash-heartbeat-sanitize",
-			clientAtlasTurnId: "client-heartbeat-sanitize",
-			idempotencyKey:
-				"atlas:v1:user-1:conv-1:create:root:overview:hash-heartbeat-sanitize:client-heartbeat-sanitize",
-			title: "Heartbeat Sanitizer",
-			status: "running",
-			stage: "search",
-			progressPercent: 42,
-			progressDetailsJson: JSON.stringify({
-				queries: ["old query"],
-				focus: ["old focus"],
-			}),
-			workerId: "worker-heartbeat",
-			heartbeatAt: now,
-			startedAt: now,
-			createdAt: now,
-			updatedAt: now,
-		});
-		const { heartbeatAtlasJob } = await import("./index");
-
-		const alive = await heartbeatAtlasJob({
-			jobId: "atlas-heartbeat-sanitize",
-			workerId: "worker-heartbeat",
-			progressDetails: {
-				queries: [
-					"  durable RAG adoption query  ",
-					"Fetched page excerpt: raw page text should not persist",
-				],
-				roundKind: "gap-fill",
-				focus: [
-					" source reliability gaps ",
-					"Evidence pack: raw source text should not persist",
-				],
-			},
-			now: new Date("2026-06-19T12:21:00.000Z"),
-		});
-
-		const [row] = await db
-			.select()
-			.from(schema.atlasJobs)
-			.where(eq(schema.atlasJobs.id, "atlas-heartbeat-sanitize"));
-		const persistedDetails = JSON.parse(row?.progressDetailsJson ?? "{}");
-		expect(alive).toBe(true);
-		expect(row).toMatchObject({
-			stage: "search",
-			progressPercent: 42,
-		});
-		expect(persistedDetails).toEqual({
-			queries: ["durable RAG adoption query"],
-			roundKind: "gap-fill",
-			focus: ["source reliability gaps"],
-		});
-		expect(row?.progressDetailsJson).not.toContain("Fetched page excerpt");
-		expect(row?.progressDetailsJson).not.toContain("Evidence pack");
-	});
-
-	it("defaults missing completion usage and source counters to zero", async () => {
-		const { db } = await import("$lib/server/db");
-		const now = new Date("2026-06-19T12:30:00.000Z");
-		await db.insert(schema.atlasJobs).values({
-			id: "atlas-complete-defaults",
-			userId: "user-1",
-			conversationId: "conv-1",
-			action: "create",
-			profile: "overview",
-			normalizedQueryHash: "hash-complete-defaults",
-			clientAtlasTurnId: "client-complete-defaults",
-			idempotencyKey:
-				"atlas:v1:user-1:conv-1:create:root:overview:hash-complete-defaults:client-complete-defaults",
-			title: "Complete Defaults",
-			status: "running",
-			stage: "synthesize",
-			progressPercent: 75,
-			workerId: "worker-complete",
-			heartbeatAt: now,
-			startedAt: now,
-			inputTokens: 11,
-			outputTokens: 12,
-			totalTokens: 23,
-			costUsdMicros: 450,
-			localSourceCount: 2,
-			webSourceCount: 3,
-			acceptedSourceCount: 4,
-			rejectedSourceCount: 5,
-			createdAt: now,
-			updatedAt: now,
-		});
-		const { completeAtlasJob } = await import("./index");
-
-		const completed = await completeAtlasJob({
-			jobId: "atlas-complete-defaults",
-			workerId: "worker-complete",
-			now: new Date("2026-06-19T12:31:00.000Z"),
-		});
-
-		expect(completed).toMatchObject({
-			status: "succeeded",
-			stage: "render",
-			progress: { percent: 100 },
-			usage: {
-				inputTokens: 0,
-				outputTokens: 0,
-				totalTokens: 0,
-				costUsdMicros: 0,
-			},
-			sourceCounts: {
-				local: 0,
-				web: 0,
-				accepted: 0,
-				rejected: 0,
-			},
+			cancelRequestedAt: null,
 		});
 	});
 
 	it("cancels active Atlas jobs for a user without touching completed jobs", async () => {
 		const { db } = await import("$lib/server/db");
-		const now = new Date("2026-06-19T13:00:00.000Z");
+		const seededAt = new Date("2026-06-19T13:00:00.000Z");
+		const cancelledAt = new Date("2026-06-19T13:05:00.000Z");
 		await db.insert(schema.atlasJobs).values([
 			{
 				id: "atlas-queued",
@@ -983,10 +664,12 @@ describe("Atlas persistence foundation", () => {
 				title: "Queued Atlas",
 				status: "queued",
 				stage: "queued",
-				createdAt: now,
-				updatedAt: now,
+				createdAt: seededAt,
+				updatedAt: seededAt,
 			},
 			{
+				// A row the release before the engine left running: a job-level
+				// worker id and no attempt. Cancel settles it all the same.
 				id: "atlas-running",
 				userId: "user-1",
 				conversationId: "conv-1",
@@ -1000,10 +683,10 @@ describe("Atlas persistence foundation", () => {
 				status: "running",
 				stage: "search",
 				workerId: "worker-1",
-				heartbeatAt: now,
-				startedAt: now,
-				createdAt: now,
-				updatedAt: now,
+				heartbeatAt: seededAt,
+				startedAt: seededAt,
+				createdAt: seededAt,
+				updatedAt: seededAt,
 			},
 			{
 				id: "atlas-succeeded",
@@ -1018,14 +701,18 @@ describe("Atlas persistence foundation", () => {
 				title: "Completed Atlas",
 				status: "succeeded",
 				stage: "complete",
-				completedAt: now,
-				createdAt: now,
-				updatedAt: now,
+				completedAt: seededAt,
+				createdAt: seededAt,
+				updatedAt: seededAt,
 			},
 		]);
 
 		const { cancelActiveAtlasJobsForUser } = await import("./index");
-		const result = await cancelActiveAtlasJobsForUser("user-1", now);
+		// The engine stamps a cancel with the clock; fix it so the stamps can be read.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(cancelledAt);
+		const result = await cancelActiveAtlasJobsForUser("user-1");
+		vi.useRealTimers();
 
 		expect(result).toEqual({ cancelled: 2 });
 		const rows = await db
@@ -1045,16 +732,16 @@ describe("Atlas persistence foundation", () => {
 				status: "cancelled",
 				stage: "cancelled",
 				workerId: null,
-				cancelRequestedAt: now,
-				completedAt: now,
+				cancelRequestedAt: cancelledAt,
+				completedAt: cancelledAt,
 			},
 			{
 				id: "atlas-running",
 				status: "cancelled",
 				stage: "cancelled",
 				workerId: null,
-				cancelRequestedAt: now,
-				completedAt: now,
+				cancelRequestedAt: cancelledAt,
+				completedAt: cancelledAt,
 			},
 			{
 				id: "atlas-succeeded",
@@ -1062,8 +749,59 @@ describe("Atlas persistence foundation", () => {
 				stage: "complete",
 				workerId: null,
 				cancelRequestedAt: null,
-				completedAt: now,
+				completedAt: seededAt,
 			},
+		]);
+	});
+
+	it("cancels a conversation's active Atlas jobs and no other conversation's", async () => {
+		const { db } = await import("$lib/server/db");
+		const now = new Date("2026-06-19T13:10:00.000Z");
+		await db.insert(schema.conversations).values({
+			id: "conv-2",
+			userId: "user-1",
+			title: "Second Atlas conversation",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const job = (id: string, conversationId: string) => ({
+			id,
+			userId: "user-1",
+			conversationId,
+			action: "create",
+			profile: "overview",
+			normalizedQueryHash: `hash-${id}`,
+			clientAtlasTurnId: `client-${id}`,
+			idempotencyKey: `atlas:v1:${id}`,
+			title: id,
+			status: "queued",
+			stage: "queued",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db
+			.insert(schema.atlasJobs)
+			.values([
+				job("here-1", "conv-1"),
+				job("here-2", "conv-1"),
+				job("there", "conv-2"),
+			]);
+
+		const { cancelActiveAtlasJobsForConversation } = await import("./index");
+		const result = await cancelActiveAtlasJobsForConversation({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		expect(result).toEqual({ cancelled: 2 });
+		const rows = await db
+			.select({ id: schema.atlasJobs.id, status: schema.atlasJobs.status })
+			.from(schema.atlasJobs)
+			.orderBy(schema.atlasJobs.id);
+		expect(rows).toEqual([
+			{ id: "here-1", status: "cancelled" },
+			{ id: "here-2", status: "cancelled" },
+			{ id: "there", status: "queued" },
 		]);
 	});
 
@@ -1089,16 +827,15 @@ describe("Atlas persistence foundation", () => {
 			createdAt: now,
 			updatedAt: now,
 		});
-		const { cancelAtlasJob, recoverStaleAtlasJobs } = await import("./index");
+		const { cancelAtlasJob } = await import("./index");
+		const { recover } = await import("$lib/server/services/jobs");
+		const { atlasResearchJob } = await import("./research-job");
 
-		await cancelAtlasJob({
-			userId: "user-1",
-			jobId: "atlas-running-cancel",
-			now: new Date("2026-06-19T13:16:00.000Z"),
-		});
-		const recovered = await recoverStaleAtlasJobs({
-			staleBefore: new Date("2026-06-19T13:30:00.000Z"),
-			now: new Date("2026-06-19T13:31:00.000Z"),
+		await cancelAtlasJob({ userId: "user-1", jobId: "atlas-running-cancel" });
+		// The sweep that takes back stale and lost attempts, as far in the future
+		// as it can look: a cancelled job is not one of them.
+		const recovered = await recover(atlasResearchJob, {
+			staleBefore: new Date(Date.now() + 3_600_000),
 		});
 
 		const [row] = await db
