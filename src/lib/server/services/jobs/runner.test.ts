@@ -312,7 +312,9 @@ describe("cancel", () => {
 			await blockUntilAborted(ctx.signal);
 		});
 		h.fixture.sqlite
-			.prepare("update test_job_attempts set status = 'failed' where job_id = ?")
+			.prepare(
+				"update test_job_attempts set status = 'failed' where job_id = ?",
+			)
 			.run(jobId);
 		h.fixture.sqlite
 			.prepare("update test_jobs set status = 'cancelled' where id = ?")
