@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockInstance,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
 	createJobsFixture,
@@ -767,6 +775,7 @@ describe("Atlas research runner", () => {
 // and the job runs again from the start under the engine's fence.
 describe("an Atlas job that was running at the cutover", () => {
 	let preEngine: ReturnType<typeof createPreEngineAtlasDatabase> | null = null;
+	let warn: MockInstance<typeof console.warn> | null = null;
 
 	beforeEach(() => {
 		vi.resetModules();
@@ -814,6 +823,8 @@ describe("an Atlas job that was running at the cutover", () => {
 		}
 		preEngine?.cleanup();
 		preEngine = null;
+		warn?.mockRestore();
+		warn = null;
 	});
 
 	it("a row running at the cutover is taken back and requeued, then runs as attempt 1", async () => {
@@ -824,7 +835,10 @@ describe("an Atlas job that was running at the cutover", () => {
 		// The restarted server opens its own connection to the file.
 		old.close();
 		process.env.DATABASE_PATH = old.dbPath;
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const warnings = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+		warn = warnings;
 		const release = deferred();
 		mocks.runAtlasV3PipelineForClaimedJob
 			// The first claim (the queued row, which is older) holds, so the requeued
@@ -860,7 +874,7 @@ describe("an Atlas job that was running at the cutover", () => {
 		});
 		expect(await readAttempts("job-running")).toEqual([]);
 		expect(
-			warn.mock.calls.filter(
+			warnings.mock.calls.filter(
 				([line]) =>
 					line === "[ATLAS] Reclaimed jobs whose attempt state was lost",
 			),
@@ -894,6 +908,5 @@ describe("an Atlas job that was running at the cutover", () => {
 			status: "succeeded",
 			attemptCount: 1,
 		});
-		warn.mockRestore();
 	});
 });
