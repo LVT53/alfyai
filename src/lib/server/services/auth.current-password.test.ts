@@ -13,10 +13,11 @@ import {
 } from "./login-rate-limit";
 
 // The one place the account password is checked for a settings action that
-// asks for it again (the password change, the email change). Same bcrypt
-// comparison the login uses, same limiter, in its own `account:` namespace so
-// a fumbled password here never costs the person their sign-in. Real account
-// row and the real limiter.
+// asks for it again: the password change, the email change, the data archive,
+// clear memory, clear workspace and delete account all come through here. Same
+// bcrypt comparison the login uses, same limiter, in its own `account:`
+// namespace so a fumbled password here never costs the person their sign-in.
+// Real account row and the real limiter.
 
 const PASSWORD = "current-password-1";
 const BUDGET = LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;

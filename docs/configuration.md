@@ -375,11 +375,16 @@ Failed credential checks are counted in a 15-minute sliding window, per process
 (`src/lib/server/services/login-rate-limit.ts`). Successful logins are not counted and clear the
 email budget, so ordinary use and the Playwright suite are unaffected.
 
+Six Settings actions re-ask for the account password, through one check
+(`checkCurrentPassword` in `src/lib/server/services/auth.ts`): the password change, the email
+change, the data archive, clear memory, clear workspace and delete account. They share the one
+per-account budget below, so a wrong password typed anywhere in Settings spends it everywhere.
+
 | Budget | Failures per 15 min before the penalty starts | Cleared by a success? |
 |---|---:|---|
 | Per email address (`POST /api/auth/login`) | 8 | Yes |
 | Per client address (`POST /api/auth/login`) | 30 | No — otherwise one correct guess resets an attacker's spray counter |
-| Per account (`PATCH /api/settings/password`, wrong current password) | 8 | Yes |
+| Per account (the six Settings password re-asks above) | 8 | Yes |
 
 #### Exceeding a budget does not lock the account
 
@@ -403,8 +408,9 @@ wrong:
 - A **correct** password over the budget succeeds and clears the budget. The legitimate owner is
   never locked out; the worst they suffer is one 8-second wait.
 - A **wrong** password over the budget gets `429` with a `Retry-After` of the delay (not the rest of
-  the window — retrying sooner really is allowed) and an `errorKey` of `login.tooManyAttempts`,
-  which the login page renders localized.
+  the window — retrying sooner really is allowed) and an `errorKey` the browser renders localized:
+  `login.tooManyAttempts` on the login page, `profileTab.currentPasswordTooManyAttempts` for the six
+  Settings actions above (nobody is signing in there, so it does not borrow the sign-in's sentence).
 
 What that buys: guessing one account is capped at roughly one attempt per 8 seconds however many
 connections the attacker opens, because of the single-flight rule. What it does not buy: this is a
