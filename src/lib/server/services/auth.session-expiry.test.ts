@@ -133,7 +133,12 @@ describe("sweepExpiredSessions", () => {
 		expect((await validateSession(shortLived.token))?.id).toBe(userId);
 	});
 
-	it("keeps a session that ends later this very second, as validateSession does", async () => {
+	// The column holds whole seconds and the sweep compares in them, so it does
+	// not delete a row until the second after the one it ends in. That is never
+	// ahead of validateSession (which compares in milliseconds and may refuse the
+	// same row a moment sooner): the sweep never removes what would still be
+	// accepted.
+	it("keeps a session whose expiry second is the current second", async () => {
 		const now = new Date();
 		// Whole seconds are what the column holds, so "now" and the expiry share one.
 		const sameSecond = new Date(Math.floor(now.getTime() / 1000) * 1000);

@@ -1,5 +1,8 @@
-// Throttle for credential endpoints — POST /api/auth/login and the
-// current-password check in PATCH /api/settings/password.
+// Throttle for credential endpoints — POST /api/auth/login, and
+// `checkCurrentPassword` (services/auth.ts), the one check every Settings action
+// that re-asks for the account password goes through: the password change, the
+// email change, the data archive, clear memory, clear workspace and delete
+// account. Those six share one budget per account (the `account:` keys below).
 //
 // A sliding window of timestamps per key in a process-local Map, with LRU
 // eviction so the map cannot outgrow what it protects. Nothing here is
@@ -80,8 +83,9 @@ const MAX_FAILURES_PER_EMAIL = 8;
 const MAX_FAILURES_PER_ADDRESS = 30;
 
 /**
- * Wrong-current-password attempts per account per window, for the settings
- * password change. Its own namespace on purpose: a wrong current password in
+ * Wrong-current-password attempts per account per window, for the Settings
+ * actions that re-ask for the account password (all six share it, see the top
+ * of this file). Its own namespace on purpose: a wrong current password in
  * settings must not lock the same person out of logging in, and vice versa.
  */
 const MAX_FAILURES_PER_ACCOUNT = 8;
@@ -119,7 +123,7 @@ export interface LoginRateLimitKeys {
 	email?: string | null;
 	/** Trusted client address, or null when there is not one (see below). */
 	clientAddress?: string | null;
-	/** User id, for the authenticated password-change endpoint. */
+	/** User id, for the authenticated Settings actions that re-ask for the password. */
 	accountId?: string | null;
 }
 

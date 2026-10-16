@@ -409,8 +409,9 @@ export async function changePassword(
  *
  *  - Expired sessions. `validateSession` already refuses an expired one and
  *    deletes it when it is presented; this removes the ones nobody presents (a
- *    phone that never came back). Strictly before `now`, as `validateSession`
- *    reads it, so a session is never swept that it would still accept.
+ *    phone that never came back). Strictly before `now` in the column's whole
+ *    seconds, which is never ahead of `validateSession` (it compares in
+ *    milliseconds), so a session is never swept that it would still accept.
  *  - Rows that end further away than `latestPlausibleExpiry`: the stray rows
  *    the release before the one that hashes tokens can leave during a deploy.
  *    No lookup can match their id, so they are inert; this makes sure they do

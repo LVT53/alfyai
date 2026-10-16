@@ -414,17 +414,31 @@ describe("memory-maintenance", () => {
 			expect(sweepExpiredSessions).toHaveBeenCalledTimes(2);
 		});
 
-		it("does not let a failed session sweep stop the rest of maintenance", async () => {
+		// The sweep is the last step of a user's pass, so what it must not stop
+		// is the next user's, and what it must not do is go unsaid.
+		it("does not let a failed session sweep stop the rest of maintenance, and says so", async () => {
 			addUserRow("user-1");
+			addUserRow("user-2");
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			vi.mocked(sweepExpiredSessions).mockRejectedValueOnce(
 				new Error("database is locked"),
 			);
 
-			await expect(
-				runUserMemoryMaintenance("user-1", "manual"),
-			).resolves.toBeUndefined();
+			try {
+				await expect(
+					runAllUsersMemoryMaintenance("scheduler"),
+				).resolves.toBeUndefined();
 
-			expect(mockState.mockFindOrphanFiles).toHaveBeenCalledTimes(1);
+				// The sweep did run, and failed; both users' passes still ran.
+				expect(sweepExpiredSessions).toHaveBeenCalledTimes(1);
+				expect(repairGeneratedOutputRetrievalClasses).toHaveBeenCalledTimes(2);
+				expect(warn).toHaveBeenCalledWith(
+					"[MEMORY_MAINTENANCE] Global cleanup failed",
+					expect.objectContaining({ key: "sweepExpiredSessions" }),
+				);
+			} finally {
+				warn.mockRestore();
+			}
 		});
 	});
 
