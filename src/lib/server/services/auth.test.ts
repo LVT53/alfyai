@@ -27,7 +27,9 @@ vi.mock("../db/schema", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+	and: vi.fn((...conditions) => ({ and: conditions })),
 	eq: vi.fn((col, val) => ({ col, val })),
+	ne: vi.fn((col, val) => ({ ne: { col, val } })),
 	sql: Object.assign(
 		vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => values[0]),
 		{ raw: vi.fn() },

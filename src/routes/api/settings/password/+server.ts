@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
-import { verifyPassword } from "$lib/server/services/auth";
+import { revokeOtherSessions, verifyPassword } from "$lib/server/services/auth";
 import {
 	guardCredentialCheck,
 	recordLoginFailure,
@@ -101,5 +101,14 @@ export const PATCH: RequestHandler = async (event) => {
 		.set({ passwordHash: newHash, updatedAt: new Date() })
 		.where(eq(users.id, userId));
 
-	return json({ success: true });
+	// The password a stolen cookie or a forgotten phone was signed in with is
+	// gone, so those sessions go too. This device keeps its own: the person who
+	// just proved they know the old password is not thrown out of the page they
+	// are looking at. The count goes back so the Profile card can say so.
+	const signedOutOtherDevices = await revokeOtherSessions(
+		userId,
+		event.cookies.get("session") ?? null,
+	);
+
+	return json({ success: true, signedOutOtherDevices });
 };

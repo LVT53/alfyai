@@ -3,7 +3,9 @@ import * as bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
-import { users } from "$lib/server/db/schema";
+import { sessions, users } from "$lib/server/db/schema";
+import { createSession, hashSessionToken } from "$lib/server/services/auth";
+import { _resetLoginRateLimitForTests } from "$lib/server/services/login-rate-limit";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { PATCH } from "./+server";
 
@@ -15,6 +17,9 @@ const CURRENT_PASSWORD = "current-password-1";
 let userId: string;
 
 beforeEach(async () => {
+	// The limiter's buckets live as long as the process, so a wrong password in
+	// one case must not count against the next.
+	_resetLoginRateLimitForTests();
 	userId = randomUUID();
 	await db.insert(users).values({
 		id: userId,
@@ -24,16 +29,30 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	// Its sessions go with it (the foreign key cascades).
 	await db.delete(users).where(eq(users.id, userId));
 });
 
-function changePasswordTo(newPassword: string) {
+/**
+ * One PATCH as the signed-in person. `token` is the session cookie of the
+ * device the request comes from, which the route keeps signed in.
+ */
+function changePasswordTo(
+	newPassword: string,
+	options: { currentPassword?: string; token?: string } = {},
+) {
 	return PATCH({
 		request: new Request("http://localhost/api/settings/password", {
 			method: "PATCH",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPassword }),
+			body: JSON.stringify({
+				currentPassword: options.currentPassword ?? CURRENT_PASSWORD,
+				newPassword,
+			}),
 		}),
+		cookies: {
+			get: (name: string) => (name === "session" ? options.token : undefined),
+		},
 		locals: { user: { id: userId } },
 	} as unknown as Parameters<typeof PATCH>[0]);
 }
@@ -44,6 +63,14 @@ async function storedHash(): Promise<string> {
 		.from(users)
 		.where(eq(users.id, userId));
 	return row.hash;
+}
+
+function storedSessionIds() {
+	return db
+		.select({ id: sessions.id })
+		.from(sessions)
+		.where(eq(sessions.userId, userId))
+		.then((rows) => rows.map((row) => row.id));
 }
 
 describe("PATCH /api/settings/password length", () => {
@@ -67,7 +94,86 @@ describe("PATCH /api/settings/password length", () => {
 		const response = await changePasswordTo(newPassword);
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ success: true });
+		expect(await response.json()).toEqual({
+			success: true,
+			signedOutOtherDevices: 0,
+		});
 		expect(await bcrypt.compare(newPassword, await storedHash())).toBe(true);
+	});
+});
+
+// A stolen cookie, or a phone left signed in somewhere, must not outlive the
+// password it was signed in with. The device that changes the password stays.
+describe("PATCH /api/settings/password and the person's other devices", () => {
+	const newPassword = "z".repeat(MIN_PASSWORD_LENGTH);
+
+	it("a password change answers signedOutOtherDevices and leaves only the current session", async () => {
+		const current = await createSession(userId);
+		await createSession(userId);
+		await createSession(userId, { rememberMe: false });
+
+		const response = await changePasswordTo(newPassword, {
+			token: current.token,
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			success: true,
+			signedOutOtherDevices: 2,
+		});
+		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
+		expect(await bcrypt.compare(newPassword, await storedHash())).toBe(true);
+	});
+
+	it("says 0 when this is the only device, and keeps it signed in", async () => {
+		const current = await createSession(userId);
+
+		const response = await changePasswordTo(newPassword, {
+			token: current.token,
+		});
+
+		expect(await response.json()).toMatchObject({ signedOutOtherDevices: 0 });
+		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
+	});
+
+	it("signs out every session when the request carries no session of its own", async () => {
+		await createSession(userId);
+		await createSession(userId);
+
+		const response = await changePasswordTo(newPassword);
+
+		expect(await response.json()).toMatchObject({ signedOutOtherDevices: 2 });
+		expect(await storedSessionIds()).toHaveLength(0);
+	});
+
+	it("a wrong current password signs nobody out", async () => {
+		const current = await createSession(userId);
+		await createSession(userId);
+
+		const response = await changePasswordTo(newPassword, {
+			token: current.token,
+			currentPassword: "not-the-password",
+		});
+
+		expect(response.status).toBe(401);
+		expect(await storedSessionIds()).toHaveLength(2);
+		expect(await bcrypt.compare(CURRENT_PASSWORD, await storedHash())).toBe(
+			true,
+		);
+	});
+
+	it("a new password that is refused signs nobody out", async () => {
+		const current = await createSession(userId);
+		await createSession(userId);
+
+		const response = await changePasswordTo(
+			"x".repeat(MIN_PASSWORD_LENGTH - 1),
+			{
+				token: current.token,
+			},
+		);
+
+		expect(response.status).toBe(400);
+		expect(await storedSessionIds()).toHaveLength(2);
 	});
 });

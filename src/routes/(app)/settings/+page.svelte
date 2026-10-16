@@ -179,6 +179,10 @@ let accountBaseline = $state<AccountBaseline>({
 });
 let accountSaving = $state(false);
 let accountSavedAt = $state<Date | null>(null);
+// How many other devices the last password change signed out. The card names
+// it while it is above zero, so a phone that quietly stopped working is not a
+// surprise; the next Save or a Discard puts it away.
+let signedOutOtherDevices = $state(0);
 
 const accountValues = $derived({
 	name,
@@ -500,13 +504,15 @@ async function saveAccount() {
 	}
 
 	accountSaving = true;
+	signedOutOtherDevices = 0;
 	try {
 		if (plan.saveProfile) {
 			await updateProfile({ name: name.trim() || null, email });
 			accountBaseline = { name, email };
 		}
 		if (plan.savePassword) {
-			await updatePassword({ currentPassword, newPassword });
+			const changed = await updatePassword({ currentPassword, newPassword });
+			signedOutOtherDevices = changed.signedOutOtherDevices;
 			clearPasswordFields();
 		}
 		accountSavedAt = new Date();
@@ -523,6 +529,7 @@ function discardAccount() {
 	name = accountBaseline.name;
 	email = accountBaseline.email;
 	clearPasswordFields();
+	signedOutOtherDevices = 0;
 }
 
 async function changePersonality(id: string | null) {
@@ -1154,6 +1161,7 @@ $effect(() => {
 				{accountSaving}
 				{accountDirty}
 				savedAtLabel={accountSavedAtLabel}
+				{signedOutOtherDevices}
 				onSaveAccount={saveAccount}
 				onDiscardAccount={discardAccount}
 				availableModels={profileAvailableModels}

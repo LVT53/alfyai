@@ -340,6 +340,35 @@ describe("SettingsProfileTab — one identity card, one Save", () => {
 		expect(save).toBeDisabled();
 		expect(save).toHaveTextContent("Saving...");
 	});
+
+	it("names the other devices a password change signed out, and says nothing when there were none", () => {
+		const { unmount } = renderTab({ signedOutOtherDevices: 2 });
+		expect(screen.getByTestId("account-signed-out-others")).toHaveTextContent(
+			"You were signed out on your other devices.",
+		);
+		// A status line a screen reader announces when it appears.
+		expect(screen.getByTestId("account-signed-out-others")).toHaveAttribute(
+			"role",
+			"status",
+		);
+		unmount();
+
+		renderTab({ signedOutOtherDevices: 0 });
+		expect(screen.queryByTestId("account-signed-out-others")).toBeNull();
+	});
+
+	it("says it in Hungarian in a Hungarian interface", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			renderTab({ signedOutOtherDevices: 1 });
+			expect(screen.getByTestId("account-signed-out-others")).toHaveTextContent(
+				"A többi eszközödön kijelentkeztettünk.",
+			);
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
 });
 
 describe("SettingsProfileTab — the default model select", () => {

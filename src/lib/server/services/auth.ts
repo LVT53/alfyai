@@ -1,9 +1,9 @@
 import * as crypto from "node:crypto";
 import type { Cookies } from "@sveltejs/kit";
 import * as bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
-import { db } from "../db/index";
+import { type DatabaseInstance, db } from "../db/index";
 import { sessions, users } from "../db/schema";
 
 const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -26,8 +26,9 @@ export async function verifyPassword(
  *
  * Every reader and writer of a session by its token goes through this, and
  * nothing else in the app turns a token into a row id. `createSession`,
- * `validateSession` and `deleteSession` hash inside, so a caller hands over
- * the token it has (the cookie's value) and never the stored id.
+ * `validateSession`, `deleteSession` and `revokeOtherSessions` hash inside, so
+ * a caller hands over the token it has (the cookie's value) and never the
+ * stored id.
  */
 export function hashSessionToken(token: string): string {
 	return crypto.createHash("sha256").update(token).digest("hex");
@@ -103,6 +104,42 @@ export async function validateSession(
 /** Ends the session behind a cookie's token (sign out). Hashes before it looks up. */
 export async function deleteSession(token: string): Promise<void> {
 	await db.delete(sessions).where(eq(sessions.id, hashSessionToken(token)));
+}
+
+/**
+ * Signs a person out of every device but one, and says how many sessions ended.
+ *
+ * `keepToken` is the session cookie of the device that is acting (the one that
+ * just changed the password): the token, not the stored id, hashed here like
+ * every other lookup. With no token to keep (`null`) nothing is spared, which
+ * is the safe reading of a request that carries no session of its own.
+ *
+ * `database` is the connection the delete runs on; a service that runs on a
+ * `QueryExecutor` (user-admin) hands over the executor's, so the seam it was
+ * given is the one that is written to.
+ */
+export async function revokeOtherSessions(
+	userId: string,
+	keepToken: string | null,
+	database: DatabaseInstance = db,
+): Promise<number> {
+	const ofThePerson = eq(sessions.userId, userId);
+	const result = await database
+		.delete(sessions)
+		.where(
+			keepToken === null
+				? ofThePerson
+				: and(ofThePerson, ne(sessions.id, hashSessionToken(keepToken))),
+		);
+	return result.changes;
+}
+
+/** Signs a person out everywhere, and says how many sessions ended. */
+export async function revokeAllSessions(
+	userId: string,
+	database: DatabaseInstance = db,
+): Promise<number> {
+	return revokeOtherSessions(userId, null, database);
 }
 
 type SessionCookieOptions = {

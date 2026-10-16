@@ -1850,6 +1850,8 @@ const settingsDict = {
 			"Enter your current password to change it.",
 		"profileTab.passwordNeedsNew": "Enter a new password to change it.",
 		"profileTab.accountUpdated": "Profile and password updated.",
+		"profileTab.signedOutOtherDevices":
+			"You were signed out on your other devices.",
 
 		// Your Activity — summary card + full view.
 		"profileTab.activityDesc": "Your own usage — nobody else's.",
@@ -3850,6 +3852,8 @@ const settingsDict = {
 			"Add meg a jelenlegi jelszavad a cseréhez.",
 		"profileTab.passwordNeedsNew": "Add meg az új jelszót a cseréhez.",
 		"profileTab.accountUpdated": "A profil és a jelszó frissült.",
+		"profileTab.signedOutOtherDevices":
+			"A többi eszközödön kijelentkeztettünk.",
 
 		// A tevékenységed — összegzőkártya és teljes nézet.
 		"profileTab.activityDesc": "A saját használatod — senki másé.",

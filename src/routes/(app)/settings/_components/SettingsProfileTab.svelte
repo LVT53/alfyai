@@ -93,6 +93,9 @@ let {
 	accountSaving = false,
 	accountDirty = false,
 	savedAtLabel = "",
+	// How many other devices the last password change signed out; named under
+	// the Save row while it is above zero.
+	signedOutOtherDevices = 0,
 	onSaveAccount,
 	onDiscardAccount,
 	availableModels,
@@ -157,6 +160,7 @@ let {
 	accountSaving?: boolean;
 	accountDirty?: boolean;
 	savedAtLabel?: string;
+	signedOutOtherDevices?: number;
 	onSaveAccount: () => void | Promise<void>;
 	onDiscardAccount: () => void;
 	availableModels: AvailableModel[];
@@ -518,6 +522,15 @@ function handlePersonalitySelect(event: Event) {
 					</span>
 				{/if}
 			</div>
+			{#if signedOutOtherDevices > 0}
+				<p
+					class="identity-note identity-signed-out"
+					role="status"
+					data-testid="account-signed-out-others"
+				>
+					{$t('profileTab.signedOutOtherDevices')}
+				</p>
+			{/if}
 			<p class="identity-note">{$t('profileTab.passwordOptionalNote')}</p>
 		</section>
 	</div>
@@ -1166,6 +1179,12 @@ function handlePersonalitySelect(event: Event) {
 		font-size: 0.75rem;
 		line-height: 1.5;
 		color: var(--text-muted);
+	}
+
+	/* The one line that says something happened because of this Save, so it
+	   reads a step above the note it sits beside. */
+	.identity-signed-out {
+		color: var(--text-secondary);
 	}
 
 	.identity-discard:disabled {

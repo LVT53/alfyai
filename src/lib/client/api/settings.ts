@@ -330,10 +330,18 @@ export async function updateProfile(
 	);
 }
 
+/**
+ * Changes the password. The server signs the person out on every other device
+ * with it, and says how many: the Profile card names that, so a phone that
+ * quietly stopped working is not a surprise.
+ */
 export async function updatePassword(
 	params: PasswordUpdateParams,
-): Promise<void> {
-	await requestJson<{ success?: boolean }>(
+): Promise<{ signedOutOtherDevices: number }> {
+	const result = await requestJson<{
+		success?: boolean;
+		signedOutOtherDevices?: number;
+	}>(
 		"/api/settings/password",
 		{
 			method: "PATCH",
@@ -342,6 +350,11 @@ export async function updatePassword(
 		},
 		"Failed to change password",
 	);
+	const signedOut = result.signedOutOtherDevices;
+	return {
+		signedOutOtherDevices:
+			typeof signedOut === "number" && signedOut > 0 ? signedOut : 0,
+	};
 }
 
 export async function deleteAccount(

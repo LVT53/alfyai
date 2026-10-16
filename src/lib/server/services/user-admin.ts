@@ -16,6 +16,7 @@ import {
 } from "$lib/server/db/schema";
 import type { UserRole } from "$lib/server/services/auth-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
+import { revokeAllSessions } from "./auth";
 import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
@@ -376,9 +377,9 @@ export async function revokeManagedUserSessions(
 		throw new Error("User not found.");
 	}
 
-	await executor.run("userAdmin.revokeSessions", (db) =>
-		db.delete(sessions).where(eq(sessions.userId, targetUserId)),
-	);
+	// The same helper the password change uses, on the connection this call
+	// was given.
+	await revokeAllSessions(targetUserId, executor.db);
 }
 
 export async function deleteManagedUser(

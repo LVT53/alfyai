@@ -46,6 +46,10 @@ import { updatePassword, updateProfile } from "$lib/client/api/settings";
 const mockUpdateProfile = updateProfile as ReturnType<typeof vi.fn>;
 const mockUpdatePassword = updatePassword as ReturnType<typeof vi.fn>;
 
+// What the client call hands back when the server took the change and there
+// was no other device to sign out.
+const PASSWORD_CHANGED = { signedOutOtherDevices: 0 };
+
 const pageData = {
 	userSettings: {
 		id: "user-1",
@@ -153,7 +157,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("changes the password alone when the name and email are untouched", async () => {
-		mockUpdatePassword.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		renderSettingsPage();
 
 		await fillPasswordForm();
@@ -172,7 +176,7 @@ describe("settings page — one Save for the identity card", () => {
 
 	it("does both under the same press, and says so once", async () => {
 		mockUpdateProfile.mockResolvedValue(undefined);
-		mockUpdatePassword.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		renderSettingsPage();
 
 		await renameTo("Renamed User");
@@ -313,7 +317,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("empties the password boxes once the server has taken the change", async () => {
-		mockUpdatePassword.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		renderSettingsPage();
 
 		await fillPasswordForm();
@@ -415,7 +419,7 @@ describe("settings page — one Save for the identity card", () => {
 		// Second press: the profile half is clean now, so only the password
 		// goes — the name is not written to the server twice.
 		clearToasts();
-		mockUpdatePassword.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		await save();
 
 		await waitFor(() => {
@@ -427,5 +431,91 @@ describe("settings page — one Save for the identity card", () => {
 		});
 		expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
 		expect(mockUpdatePassword).toHaveBeenCalledTimes(2);
+	});
+});
+
+// A password change signs the person out on their other devices. The server
+// says how many; the card names it, so a phone that quietly stopped working is
+// not a surprise.
+describe("settings page — the other devices a password change signs out", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		clearToasts();
+	});
+
+	afterEach(() => {
+		cleanup();
+		clearToasts();
+	});
+
+	it("says so under the Save row once the server has signed other devices out", async () => {
+		mockUpdatePassword.mockResolvedValue({ signedOutOtherDevices: 2 });
+		renderSettingsPage();
+
+		expect(screen.queryByTestId("account-signed-out-others")).toBeNull();
+
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() =>
+			expect(screen.getByTestId("account-signed-out-others")).toHaveTextContent(
+				"You were signed out on your other devices.",
+			),
+		);
+	});
+
+	it("says nothing when this was the only device", async () => {
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
+		renderSettingsPage();
+
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => expect(mockUpdatePassword).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(get(toasts)[0]).toMatchObject({ type: "success" }),
+		);
+		expect(screen.queryByTestId("account-signed-out-others")).toBeNull();
+	});
+
+	it("puts the line away with the next Save", async () => {
+		mockUpdatePassword.mockResolvedValue({ signedOutOtherDevices: 1 });
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await fillPasswordForm();
+		await save();
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("account-signed-out-others"),
+			).toBeInTheDocument(),
+		);
+
+		// The next press only renames: no password went, so nobody was signed out.
+		await renameTo("Renamed User");
+		await save();
+
+		await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(screen.queryByTestId("account-signed-out-others")).toBeNull(),
+		);
+	});
+
+	it("puts the line away when the card is discarded", async () => {
+		mockUpdatePassword.mockResolvedValue({ signedOutOtherDevices: 3 });
+		renderSettingsPage();
+
+		await fillPasswordForm();
+		await save();
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("account-signed-out-others"),
+			).toBeInTheDocument(),
+		);
+
+		await renameTo("Renamed User");
+		await fireEvent.click(screen.getByTestId("account-discard"));
+
+		expect(screen.queryByTestId("account-signed-out-others")).toBeNull();
 	});
 });

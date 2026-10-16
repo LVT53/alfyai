@@ -7,6 +7,7 @@ import {
 	fetchAnalytics,
 	fetchUserSettings,
 	saveBlobAsDownload,
+	updatePassword,
 } from "./settings";
 
 describe("settings client API", () => {
@@ -45,6 +46,47 @@ describe("settings client API", () => {
 			},
 		});
 		expect(fetchImpl).toHaveBeenCalledWith("/api/settings");
+	});
+
+	it("reports how many other devices a password change signed out", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ success: true, signedOutOtherDevices: 2 }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await expect(
+			updatePassword({ currentPassword: "old-one", newPassword: "new-one-1" }),
+		).resolves.toEqual({ signedOutOtherDevices: 2 });
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/settings/password",
+			expect.objectContaining({
+				method: "PATCH",
+				body: JSON.stringify({
+					currentPassword: "old-one",
+					newPassword: "new-one-1",
+				}),
+			}),
+		);
+	});
+
+	it("reads an answer without a count as no other device signed out", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(JSON.stringify({ success: true }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await expect(
+			updatePassword({ currentPassword: "old-one", newPassword: "new-one-1" }),
+		).resolves.toEqual({ signedOutOtherDevices: 0 });
 	});
 
 	it("passes independent personal and system month filters to analytics", async () => {
