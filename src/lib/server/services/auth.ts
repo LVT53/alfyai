@@ -102,6 +102,90 @@ export async function checkCurrentPassword(
 	return { outcome: "ok" };
 }
 
+/** What a person asks to change about themselves on the Profile card. */
+export type ProfileUpdateInput = {
+	/** A new display name; blank clears it. Asks for nothing. */
+	name?: string;
+	/**
+	 * A new address. It is what signs the person in, so it asks for
+	 * `currentPassword` when it is not the address already held (the same
+	 * address in other letters is not a change).
+	 */
+	email?: string;
+	currentPassword?: string;
+};
+
+/** How a Profile card change came out. */
+export type ProfileUpdateResult =
+	| { status: "updated"; name: string | null; email: string }
+	| { status: "not_found" }
+	/** The address differs and no password came with it. */
+	| { status: "password_required" }
+	/** The password check did not pass: wrong, or over the limiter's budget. */
+	| {
+			status: "password_refused";
+			check: Exclude<CurrentPasswordCheck, { outcome: "ok" }>;
+	  }
+	| { status: "email_taken" };
+
+/**
+ * Changes the name and/or the email of the signed-in account, or says why not.
+ * Nothing in the request is applied unless all of it is allowed.
+ *
+ * An email change asks for the account password (`checkCurrentPassword`: the
+ * sign-in's comparison and limiter, so a stolen session alone cannot take over
+ * the address), and the password is checked BEFORE the answer to "is this
+ * address taken", so a session without it cannot learn which addresses have
+ * accounts. The card sends the email along with a rename, so an address that
+ * only differs in letters or spaces is not a change and needs no password.
+ */
+export async function updateOwnProfile(
+	userId: string,
+	input: ProfileUpdateInput,
+): Promise<ProfileUpdateResult> {
+	const updates: { updatedAt: Date; name?: string | null; email?: string } = {
+		updatedAt: new Date(),
+	};
+
+	if (input.name !== undefined) {
+		updates.name = input.name.trim() || null;
+	}
+
+	if (input.email !== undefined) {
+		const email = input.email.trim().toLowerCase();
+
+		const [current] = await db
+			.select({ email: users.email })
+			.from(users)
+			.where(eq(users.id, userId));
+		if (!current) return { status: "not_found" };
+
+		if (email !== current.email.trim().toLowerCase()) {
+			if (!input.currentPassword) return { status: "password_required" };
+
+			const check = await checkCurrentPassword(userId, input.currentPassword);
+			if (check.outcome !== "ok") return { status: "password_refused", check };
+
+			const existing = await db
+				.select({ id: users.id })
+				.from(users)
+				.where(and(eq(users.email, email), ne(users.id, userId)));
+			if (existing.length > 0) return { status: "email_taken" };
+
+			updates.email = email;
+		}
+	}
+
+	await db.update(users).set(updates).where(eq(users.id, userId));
+
+	const [updated] = await db
+		.select({ name: users.name, email: users.email })
+		.from(users)
+		.where(eq(users.id, userId));
+	if (!updated) return { status: "not_found" };
+	return { status: "updated", name: updated.name, email: updated.email };
+}
+
 /**
  * What `sessions.id` holds for a session token: its SHA-256, as lowercase hex.
  *
