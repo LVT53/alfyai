@@ -381,6 +381,22 @@ describe("SettingsProfileTab — one identity card, one Save", () => {
 		).toBeTruthy();
 	});
 
+	it("keeps the email's password box away for the same address in other letters", () => {
+		renderTab({ email: "USER@Example.com" });
+
+		expect(screen.queryByTestId("email-change-password")).toBeNull();
+	});
+
+	it("shows the email's password box when the server asked for the password, though the address looks unchanged", () => {
+		renderTab({ emailPasswordWanted: true });
+
+		expect(
+			within(screen.getByTestId("email-change-password")).getByLabelText(
+				"Current password",
+			),
+		).toBeInTheDocument();
+	});
+
 	it("reads the new email's password box in Hungarian in a Hungarian interface", async () => {
 		const { uiLanguage } = await import("$lib/stores/settings");
 		uiLanguage.set("hu");

@@ -3,6 +3,10 @@ import type { Cookies } from "@sveltejs/kit";
 import * as bcrypt from "bcryptjs";
 import { and, eq, gt, lt, ne, or } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
+import {
+	isSameEmailAddress,
+	normalizeEmailAddress,
+} from "$lib/shared/email-address";
 import { type DatabaseInstance, db } from "../db/index";
 import { type QueryExecutor, queryExecutor } from "../db/query-executor";
 import { sessions, users } from "../db/schema";
@@ -152,7 +156,7 @@ export async function updateOwnProfile(
 	}
 
 	if (input.email !== undefined) {
-		const email = input.email.trim().toLowerCase();
+		const email = normalizeEmailAddress(input.email);
 
 		const [current] = await db
 			.select({ email: users.email })
@@ -160,7 +164,8 @@ export async function updateOwnProfile(
 			.where(eq(users.id, userId));
 		if (!current) return { status: "not_found" };
 
-		if (email !== current.email.trim().toLowerCase()) {
+		// The Profile card reads "is this a change" with the same function.
+		if (!isSameEmailAddress(email, current.email)) {
 			if (!input.currentPassword) return { status: "password_required" };
 
 			const check = await checkCurrentPassword(userId, input.currentPassword);

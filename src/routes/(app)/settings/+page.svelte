@@ -73,7 +73,9 @@ import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
 import {
 	formatSavedAt,
 	isAccountDirty,
-	isEmailChanged,
+	isEmailPasswordRequired,
+	isEmailPasswordWanted,
+	needsEmailPassword,
 	planAccountSave,
 	type AccountBaseline,
 } from "./_components/account-form";
@@ -165,6 +167,11 @@ let email = $state(initialUserSettings.email);
 // The account password typed under the email box, which is shown only while
 // the email differs from the saved one: changing it asks for the password.
 let emailPassword = $state("");
+// The server answered that the email needs the password although this page saw
+// no change in the address (the address was changed from another tab, so the
+// saved one this page holds is stale). The box shows until a save lands or the
+// card is discarded, instead of an error about a box that is not there.
+let emailPasswordWanted = $state(false);
 
 let currentPassword = $state("");
 let newPassword = $state("");
@@ -193,6 +200,7 @@ const accountValues = $derived({
 	name,
 	email,
 	emailPassword,
+	emailPasswordWanted,
 	currentPassword,
 	newPassword,
 	confirmPassword,
@@ -520,6 +528,7 @@ async function saveAccount() {
 			name,
 			email,
 			emailPassword,
+			emailPasswordWanted,
 			currentPassword,
 			newPassword,
 			confirmPassword,
@@ -538,16 +547,24 @@ async function saveAccount() {
 	signedOutOtherDevices = 0;
 	try {
 		if (plan.saveProfile) {
-			await updateProfile({
+			const saved = await updateProfile({
 				name: name.trim() || null,
 				email,
-				// Only a changed address carries the password; a rename sends none.
-				...(isEmailChanged(email, accountBaseline.email)
+				// Only a changed address carries the password (or one the server
+				// has said it wants one for); a rename sends none.
+				...(needsEmailPassword(accountValues, accountBaseline)
 					? { currentPassword: emailPassword }
 					: {}),
 			});
+			// What the server holds, not what was typed: it trims the name and
+			// lowercases the address, and keeps the stored address when only its
+			// letters changed. The card shows that, so it never claims an address
+			// the server does not have.
+			name = saved.name ?? "";
+			email = saved.email;
 			accountBaseline = { name, email };
 			emailPassword = "";
+			emailPasswordWanted = false;
 		}
 		if (plan.savePassword) {
 			const changed = await updatePassword({ currentPassword, newPassword });
@@ -557,6 +574,9 @@ async function saveAccount() {
 		accountSavedAt = new Date();
 		showToast({ type: "success", message: $t(plan.successKey) });
 	} catch (error: unknown) {
+		// The server wants the account password for the email although the page
+		// saw no change: show the box the message is about.
+		if (isEmailPasswordRequired(error)) emailPasswordWanted = true;
 		showToast({ type: "error", message: accountErrorMessage(error) });
 	} finally {
 		accountSaving = false;
@@ -568,6 +588,7 @@ function discardAccount() {
 	name = accountBaseline.name;
 	email = accountBaseline.email;
 	emailPassword = "";
+	emailPasswordWanted = false;
 	clearPasswordFields();
 	signedOutOtherDevices = 0;
 }
@@ -1193,6 +1214,7 @@ $effect(() => {
 				bind:name
 				bind:email
 				bind:emailPassword
+				emailPasswordWanted={isEmailPasswordWanted(accountValues, accountBaseline)}
 				bind:currentPassword
 				bind:newPassword
 				bind:confirmPassword

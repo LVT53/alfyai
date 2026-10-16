@@ -52,6 +52,17 @@ const mockUpdatePassword = updatePassword as ReturnType<typeof vi.fn>;
 // was no other device to sign out.
 const PASSWORD_CHANGED = { signedOutOtherDevices: 0 };
 
+// What the server answers a profile save, and what the card shows afterwards:
+// the name trimmed (blank is none) and the address trimmed and lowercased, as
+// the server stores them. The card shows this, not what was typed.
+const serverAnswer = async (params: {
+	name: string | null;
+	email: string;
+}) => ({
+	name: params.name?.trim() || null,
+	email: params.email.trim().toLowerCase(),
+});
+
 const pageData = {
 	userSettings: {
 		id: "user-1",
@@ -146,7 +157,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("saves the profile alone when the password boxes are left empty", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		await renameTo("Renamed User");
@@ -182,7 +193,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("does both under the same press, and says so once", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		renderSettingsPage();
 
@@ -202,7 +213,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("stamps the card with the time it last went clean", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		expect(screen.queryByTestId("account-saved-at")).toBeNull();
@@ -345,7 +356,7 @@ describe("settings page — one Save for the identity card", () => {
 	});
 
 	it("keeps the printed name and email in step with what was saved", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		// The card prints the identity above the boxes that edit it. Before the
@@ -393,7 +404,7 @@ describe("settings page — one Save for the identity card", () => {
 	// typing, and — because the name really did save — sends only the password
 	// the second time.
 	it("reports the half that failed and offers the retry, when the profile saved but the password did not", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		mockUpdatePassword.mockRejectedValue(
 			new Error("Current password is incorrect"),
 		);
@@ -450,6 +461,12 @@ async function changeEmailTo(value: string) {
 			target: { value },
 		},
 	);
+}
+
+function emailInput(): HTMLInputElement {
+	return screen.getByRole("textbox", {
+		name: "Email Address",
+	}) as HTMLInputElement;
 }
 
 function emailPasswordInput(): HTMLInputElement {
@@ -512,7 +529,7 @@ describe("settings page — changing the email asks for the password", () => {
 	});
 
 	it("sends the password along with the new address, and puts the box away", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		await changeEmailTo("new@example.com");
@@ -543,7 +560,7 @@ describe("settings page — changing the email asks for the password", () => {
 	});
 
 	it("sends no password for a rename, even with the email still the saved one", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		await renameTo("Renamed User");
@@ -555,6 +572,169 @@ describe("settings page — changing the email asks for the password", () => {
 				email: "user@example.com",
 			});
 		});
+	});
+
+	// The server lowercases an address and does not call the same address in
+	// other letters a change. The card reads it the same way, and after a save it
+	// shows what the server answered.
+	it("treats the same address in other letters as no change: no box, nothing to save", async () => {
+		renderSettingsPage();
+
+		await changeEmailTo("USER@Example.com");
+
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		await save();
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Nothing to save yet.",
+		});
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+	});
+
+	it("shows the address and name the server answered after a save, not the ones typed", async () => {
+		mockUpdateProfile.mockImplementation(serverAnswer);
+		renderSettingsPage();
+
+		await renameTo("  Renamed User ");
+		await changeEmailTo("  New@Example.COM ");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenCalledOnce();
+		});
+		await waitFor(() => {
+			expect(emailInput().value).toBe("new@example.com");
+		});
+		expect(
+			(
+				screen.getByRole("textbox", {
+					name: "Display Name",
+				}) as HTMLInputElement
+			).value,
+		).toBe("Renamed User");
+		// The identity printed above the boxes is the saved one, too.
+		expect(screen.getByText("new@example.com")).toBeInTheDocument();
+		expect(screen.getByText("Renamed User")).toBeInTheDocument();
+	});
+
+	it("shows the address the server holds when a rename carried the same address in other letters", async () => {
+		mockUpdateProfile.mockImplementation(serverAnswer);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await changeEmailTo("USER@EXAMPLE.COM");
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				name: "Renamed User",
+				email: "USER@EXAMPLE.COM",
+			});
+		});
+		// Not the capitals that were typed: the address the card prints and the
+		// box holds is the one the server answered, which it kept as it was.
+		await waitFor(() => {
+			expect(emailInput().value).toBe("user@example.com");
+		});
+		expect(screen.getByText("user@example.com")).toBeInTheDocument();
+		expect(screen.queryByText("USER@EXAMPLE.COM")).toBeNull();
+	});
+
+	// The card sends no password for an address it sees as unchanged. If the
+	// server disagrees (the email was changed in another tab, so the address
+	// this page holds is not the stored one any more), its answer is that the
+	// email needs the password. The page then shows the box that answer is about,
+	// instead of an error about a box that is not there.
+	it("shows the password box when the server says the email needs one, though the page saw no change", async () => {
+		mockUpdateProfile.mockRejectedValueOnce(
+			new ApiError("password_required", {
+				errorKey: "profileTab.emailNeedsPassword",
+				status: 400,
+			}),
+		);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		await save();
+
+		await waitFor(() => {
+			expect(screen.getByTestId(EMAIL_PASSWORD_BOX)).toBeInTheDocument();
+		});
+		expect(get(toasts)).toHaveLength(1);
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Enter your current password to change your email.",
+		});
+
+		// The box is asked for like any other: no call without it, and the retry
+		// carries it.
+		clearToasts();
+		await save();
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
+
+		mockUpdateProfile.mockImplementation(serverAnswer);
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenLastCalledWith({
+				name: "Renamed User",
+				email: "user@example.com",
+				currentPassword: "old-password",
+			});
+		});
+		// Taken: the box goes away again, with its password.
+		await waitFor(() => {
+			expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		});
+	});
+
+	it("shows no box for a refusal that is not the email asking for its password", async () => {
+		mockUpdateProfile.mockRejectedValueOnce(
+			new ApiError("Email already in use", { status: 409 }),
+		);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+	});
+
+	it("Discard takes the box away that the server asked for", async () => {
+		mockUpdateProfile.mockRejectedValueOnce(
+			new ApiError("password_required", {
+				errorKey: "profileTab.emailNeedsPassword",
+				status: 400,
+			}),
+		);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await save();
+		await waitFor(() => {
+			expect(screen.getByTestId(EMAIL_PASSWORD_BOX)).toBeInTheDocument();
+		});
+
+		await fireEvent.click(screen.getByTestId("account-discard"));
+
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
 	});
 
 	it("keeps the password box filled when the server says it was wrong, so the retry is one retyping", async () => {
@@ -654,7 +834,7 @@ describe("settings page — changing the email asks for the password", () => {
 	});
 
 	it("does both under one Save: the new address with its password, then the password change", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
 		renderSettingsPage();
 
@@ -731,7 +911,7 @@ describe("settings page — the other devices a password change signs out", () =
 
 	it("puts the line away with the next Save", async () => {
 		mockUpdatePassword.mockResolvedValue({ signedOutOtherDevices: 1 });
-		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdateProfile.mockImplementation(serverAnswer);
 		renderSettingsPage();
 
 		await fillPasswordForm();

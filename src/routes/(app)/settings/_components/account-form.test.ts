@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ApiError } from "$lib/client/api/http";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import {
 	type AccountBaseline,
@@ -7,8 +8,11 @@ import {
 	formatSavedAt,
 	isAccountDirty,
 	isEmailChanged,
+	isEmailPasswordRequired,
+	isEmailPasswordWanted,
 	isPasswordStarted,
 	isProfileDirty,
+	needsEmailPassword,
 	planAccountSave,
 } from "./account-form";
 
@@ -49,6 +53,12 @@ describe("isProfileDirty", () => {
 			true,
 		);
 	});
+
+	it("is false when only the letters of the email differ", () => {
+		expect(isProfileDirty(values({ email: "ADMIN@Local" }), baseline)).toBe(
+			false,
+		);
+	});
 });
 
 describe("isEmailChanged", () => {
@@ -60,6 +70,94 @@ describe("isEmailChanged", () => {
 	it("is true once the box holds anything else", () => {
 		expect(isEmailChanged("other@local", "admin@local")).toBe(true);
 		expect(isEmailChanged("", "admin@local")).toBe(true);
+	});
+
+	// The server stores an address lowercased and does not call the same address
+	// in other letters a change, so it asks for no password and keeps the stored
+	// one. The card reads it the same way, or it asked for a password the server
+	// then ignored and showed an address the server does not hold.
+	it("is false for the same address in other letters, as the server reads it", () => {
+		expect(isEmailChanged("Admin@Local", "admin@local")).toBe(false);
+		expect(isEmailChanged("  ADMIN@LOCAL ", "admin@local")).toBe(false);
+		expect(isEmailChanged("admin@local", "Admin@Local")).toBe(false);
+	});
+});
+
+describe("needsEmailPassword", () => {
+	it("is false while the box holds the saved address", () => {
+		expect(needsEmailPassword(values(), baseline)).toBe(false);
+	});
+
+	it("is true once the address is a new one", () => {
+		expect(needsEmailPassword(values({ email: "other@local" }), baseline)).toBe(
+			true,
+		);
+	});
+
+	it("is true when the server said it wants the password, though the address looks unchanged", () => {
+		expect(
+			needsEmailPassword(
+				values({ name: "New Name", emailPasswordWanted: true }),
+				baseline,
+			),
+		).toBe(true);
+	});
+
+	it("is false again once nothing is left to save, whatever the server said", () => {
+		expect(
+			needsEmailPassword(values({ emailPasswordWanted: true }), baseline),
+		).toBe(false);
+	});
+});
+
+describe("isEmailPasswordWanted", () => {
+	it("stands while the server's demand was made and a name or address is still to save", () => {
+		expect(
+			isEmailPasswordWanted(
+				values({ name: "New Name", emailPasswordWanted: true }),
+				baseline,
+			),
+		).toBe(true);
+	});
+
+	it("is false without the demand, and false once there is nothing to save", () => {
+		expect(isEmailPasswordWanted(values({ name: "New Name" }), baseline)).toBe(
+			false,
+		);
+		expect(
+			isEmailPasswordWanted(values({ emailPasswordWanted: true }), baseline),
+		).toBe(false);
+	});
+});
+
+describe("isEmailPasswordRequired", () => {
+	it("recognises the server's answer that the email needs the account password", () => {
+		expect(
+			isEmailPasswordRequired(
+				new ApiError("password_required", {
+					errorKey: "profileTab.emailNeedsPassword",
+					status: 400,
+				}),
+			),
+		).toBe(true);
+	});
+
+	it("is false for any other refusal, and for something that is not one", () => {
+		expect(
+			isEmailPasswordRequired(
+				new ApiError("Current password is incorrect", {
+					errorKey: "profileTab.currentPasswordWrong",
+					status: 401,
+				}),
+			),
+		).toBe(false);
+		expect(
+			isEmailPasswordRequired(
+				new ApiError("Email already in use", { status: 409 }),
+			),
+		).toBe(false);
+		expect(isEmailPasswordRequired(new Error("password_required"))).toBe(false);
+		expect(isEmailPasswordRequired(undefined)).toBe(false);
 	});
 });
 
@@ -171,6 +269,25 @@ describe("planAccountSave — one Save, optional password", () => {
 				baseline,
 			),
 		).toEqual({ ok: false, errorKey: "profileTab.emailNeedsPassword" });
+	});
+
+	it("asks for the email's password when the server said it wants one, though the address looks unchanged", () => {
+		expect(
+			planAccountSave(
+				values({ name: "New Name", emailPasswordWanted: true }),
+				baseline,
+			),
+		).toEqual({ ok: false, errorKey: "profileTab.emailNeedsPassword" });
+		expect(
+			planAccountSave(
+				values({
+					name: "New Name",
+					emailPasswordWanted: true,
+					emailPassword: "old-password",
+				}),
+				baseline,
+			),
+		).toMatchObject({ ok: true, saveProfile: true });
 	});
 
 	it("keeps the email's password apart from the password change's own boxes", () => {

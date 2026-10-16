@@ -117,6 +117,25 @@ describe("settings client API", () => {
 		);
 	});
 
+	// The server trims the name and lowercases the address, and keeps the stored
+	// address when only its letters changed: what the card shows after a save is
+	// what the server answered, not what was typed.
+	it("hands back the name and address the server answered, not the ones sent", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ name: "Ada", email: "ada@example.com" }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await expect(
+			updateProfile({ name: "  Ada ", email: "ADA@Example.com" }),
+		).resolves.toEqual({ name: "Ada", email: "ada@example.com" });
+	});
+
 	it("reads an answer without a count as no other device signed out", async () => {
 		const fetchImpl = vi.fn().mockResolvedValueOnce(
 			new Response(JSON.stringify({ success: true }), {

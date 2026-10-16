@@ -13,7 +13,9 @@
  * and the page both read, and the tests can exercise without a DOM.
  */
 
+import { ApiError } from "$lib/client/api/http";
 import type { I18nKey } from "$lib/i18n";
+import { isSameEmailAddress } from "$lib/shared/email-address";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { intlLocale } from "$lib/utils/locale";
 
@@ -26,6 +28,13 @@ export type AccountFormValues = {
 	 * account password, apart from the three boxes of the password change.
 	 */
 	emailPassword: string;
+	/**
+	 * The server answered that the email needs the account password although
+	 * this page saw no change in the address (it was changed from another tab,
+	 * so the saved address the page holds is stale). The box stays, and asks,
+	 * until a save lands or the card is discarded.
+	 */
+	emailPasswordWanted?: boolean;
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
@@ -52,9 +61,57 @@ export function isProfileDirty(
  * True when the email box no longer holds the saved address. This is what asks
  * for the account password: the box for it is shown exactly while this is true,
  * and the Save will not go without it.
+ *
+ * "The same address" is the server's reading (`isSameEmailAddress`, one
+ * function for both): case and the spaces around it make no difference. The
+ * server keeps the stored address for a change in letters alone and asks for no
+ * password, so a card that asked for one would show an address the server does
+ * not hold.
  */
 export function isEmailChanged(email: string, savedEmail: string): boolean {
-	return email.trim() !== savedEmail.trim();
+	return !isSameEmailAddress(email, savedEmail);
+}
+
+/**
+ * True while the server's demand for the email's password stands: it made one
+ * (`emailPasswordWanted`) and the card still has a name or address to save. With
+ * nothing left to save there is nothing to ask the password for, so the box
+ * goes, and comes back with the next change.
+ */
+export function isEmailPasswordWanted(
+	values: Pick<AccountFormValues, "name" | "email" | "emailPasswordWanted">,
+	baseline: AccountBaseline,
+): boolean {
+	return (
+		values.emailPasswordWanted === true && isProfileDirty(values, baseline)
+	);
+}
+
+/**
+ * True while the email's password box is wanted: the address is a new one, or
+ * the server has said it needs the password for it. The box is shown, the Save
+ * will not go without its password, and the password is sent with the profile.
+ */
+export function needsEmailPassword(
+	values: Pick<AccountFormValues, "name" | "email" | "emailPasswordWanted">,
+	baseline: AccountBaseline,
+): boolean {
+	return (
+		isEmailChanged(values.email, baseline.email) ||
+		isEmailPasswordWanted(values, baseline)
+	);
+}
+
+/**
+ * Is this the server saying the email needs the account password (the profile
+ * route's `password_required`)? When the page sent no password because it saw
+ * no change, this is how it learns it was wrong, and shows the box.
+ */
+export function isEmailPasswordRequired(error: unknown): boolean {
+	return (
+		error instanceof ApiError &&
+		error.errorKey === "profileTab.emailNeedsPassword"
+	);
 }
 
 /**
@@ -120,7 +177,7 @@ export function planAccountSave(
 	// First, because the email box is the first box on the card: changing the
 	// address needs the account password, apart from the password change's own.
 	if (
-		isEmailChanged(values.email, baseline.email) &&
+		needsEmailPassword(values, baseline) &&
 		values.emailPassword.length === 0
 	) {
 		return { ok: false, errorKey: "profileTab.emailNeedsPassword" };

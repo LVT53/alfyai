@@ -85,6 +85,9 @@ let {
 	// needs the account password. Apart from the three boxes of the password
 	// change below, which stay optional.
 	emailPassword = $bindable(""),
+	// The server said the email needs the password although the address looks
+	// unchanged (the page's saved address is stale): the box is shown anyway.
+	emailPasswordWanted = false,
 	currentPassword = $bindable(""),
 	newPassword = $bindable(""),
 	confirmPassword = $bindable(""),
@@ -156,6 +159,7 @@ let {
 	name: string;
 	email: string;
 	emailPassword?: string;
+	emailPasswordWanted?: boolean;
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
@@ -227,8 +231,12 @@ const explicitModelOptions = $derived(
 
 // The password box under the email appears while the email differs from the
 // saved address (`userEmail`, what the server last confirmed): changing it asks
-// for the account password. Whether its text is shown is view state.
-const emailChangePending = $derived(isEmailChanged(email, userEmail));
+// for the account password. It also appears when the server has said it wants
+// the password for the email though the address looks unchanged. Whether its
+// text is shown is view state.
+const emailChangePending = $derived(
+	isEmailChanged(email, userEmail) || emailPasswordWanted,
+);
 let showEmailPw = $state(false);
 
 // ── Full-view overlays ───────────────────────────────────────────────

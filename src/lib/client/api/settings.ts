@@ -321,10 +321,16 @@ export async function uploadAvatar(image: Blob): Promise<void> {
 	);
 }
 
+/**
+ * Saves the name and the email, and hands back what the server now holds. That
+ * is not always what was sent: the name is trimmed, the address is lowercased,
+ * and an address that only differs in letters from the stored one is not a
+ * change, so the stored one stands. The Profile card shows this answer.
+ */
 export async function updateProfile(
 	params: ProfileUpdateParams,
-): Promise<void> {
-	await requestJson<{ name: string | null; email: string }>(
+): Promise<{ name: string | null; email: string }> {
+	return await requestJson<{ name: string | null; email: string }>(
 		"/api/settings/profile",
 		{
 			method: "PATCH",
