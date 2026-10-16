@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Cookies } from "@sveltejs/kit";
 import * as bcrypt from "bcryptjs";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, gt, lt, ne, or } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { type DatabaseInstance, db } from "../db/index";
 import { sessions, users } from "../db/schema";
@@ -13,6 +13,8 @@ import {
 
 const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const REMEMBERED_SESSION_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
+/** How far past the longest session a row may end before it is called what it is. */
+const FAR_FUTURE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 export async function verifyPassword(
 	plaintext: string,
@@ -212,6 +214,32 @@ export async function revokeAllSessions(
 	database: DatabaseInstance = db,
 ): Promise<number> {
 	return revokeOtherSessions(userId, null, database);
+}
+
+/**
+ * Housekeeping for the sessions table, run by memory maintenance. Deletes the
+ * rows nothing will ever use, and says how many it deleted:
+ *
+ *  - Expired sessions. `validateSession` already refuses an expired one and
+ *    deletes it when it is presented; this removes the ones nobody presents (a
+ *    phone that never came back). Strictly before `now`, as `validateSession`
+ *    reads it, so a session is never swept that it would still accept.
+ *  - Rows that end further away than the longest session the app creates plus a
+ *    day. Nothing the app writes does that. What does is a row the release
+ *    before the one that hashes tokens wrote after `db:prepare` had run, while
+ *    it still served (about two minutes of a deploy): the raw token as its id,
+ *    and a millisecond count in the seconds column, which reads back as a date
+ *    tens of thousands of years away. No lookup can match its id, so it is
+ *    inert; this makes sure it does not stay forever.
+ */
+export async function sweepExpiredSessions(now: Date): Promise<number> {
+	const farFuture = new Date(
+		now.getTime() + REMEMBERED_SESSION_DURATION_MS + FAR_FUTURE_GRACE_MS,
+	);
+	const result = await db
+		.delete(sessions)
+		.where(or(lt(sessions.expiresAt, now), gt(sessions.expiresAt, farFuture)));
+	return result.changes;
 }
 
 type SessionCookieOptions = {

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, sqlite } from "$lib/server/db";
 import { sessions, users } from "$lib/server/db/schema";
-import { createSession, validateSession } from "./auth";
+import { createSession, sweepExpiredSessions, validateSession } from "./auth";
 
 // A session ends on the server, not only in the browser. These run against the
 // real sessions table (a migrated database per worker), because the bug was in
@@ -88,5 +88,152 @@ describe("a session's expiry", () => {
 			.prepare("SELECT expires_at AS value FROM sessions WHERE user_id = ?")
 			.get(userId) as { value: number };
 		expect(stored.value).toBe(Math.floor(expiresAt.getTime() / 1000));
+	});
+});
+
+/** A row for the person that ends at `endsAt`, written the way the app now writes one. */
+function insertSessionEnding(id: string, endsAt: Date) {
+	return db.insert(sessions).values({ id, userId, expiresAt: endsAt });
+}
+
+/**
+ * A row as the release before the hashing one wrote it, and the deploy leaves
+ * a few of: the raw token as the id, a millisecond count where seconds belong.
+ * Read back through Drizzle it is a date tens of thousands of years away.
+ */
+function insertRowTheOldReleaseWrote(id: string, expiryMs: number) {
+	sqlite
+		.prepare("INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)")
+		.run(id, userId, expiryMs);
+}
+
+async function idsOfTheUsersSessions() {
+	return (await sessionRowsOfTheUser()).map((row) => row.id).sort();
+}
+
+describe("sweepExpiredSessions", () => {
+	it("the sweep deletes expired sessions only", async () => {
+		const now = new Date();
+		const live = await createSession(userId);
+		const shortLived = await createSession(userId, { rememberMe: false });
+		await insertSessionEnding(
+			"ended-a-second-ago",
+			new Date(now.getTime() - 1000),
+		);
+		await insertSessionEnding(
+			"ended-last-month",
+			new Date(now.getTime() - 30 * ONE_DAY_MS),
+		);
+
+		const deleted = await sweepExpiredSessions(now);
+
+		expect(deleted).toBe(2);
+		expect(await idsOfTheUsersSessions()).toHaveLength(2);
+		expect((await validateSession(live.token))?.id).toBe(userId);
+		expect((await validateSession(shortLived.token))?.id).toBe(userId);
+	});
+
+	it("keeps a session that ends later this very second, as validateSession does", async () => {
+		const now = new Date();
+		// Whole seconds are what the column holds, so "now" and the expiry share one.
+		const sameSecond = new Date(Math.floor(now.getTime() / 1000) * 1000);
+		await insertSessionEnding("ends-now", sameSecond);
+
+		expect(await sweepExpiredSessions(now)).toBe(0);
+		expect(await idsOfTheUsersSessions()).toEqual(["ends-now"]);
+	});
+
+	it("says 0 when there is nothing to sweep", async () => {
+		await createSession(userId);
+
+		expect(await sweepExpiredSessions(new Date())).toBe(0);
+	});
+
+	it("sweeps other people's expired sessions too, and keeps their live ones", async () => {
+		const now = new Date();
+		const strangerId = randomUUID();
+		await db.insert(users).values({
+			id: strangerId,
+			email: `${strangerId}@example.com`,
+			passwordHash: "not-a-real-hash",
+		});
+		try {
+			const strangers = await createSession(strangerId);
+			await db.insert(sessions).values({
+				id: "strangers-old",
+				userId: strangerId,
+				expiresAt: new Date(now.getTime() - ONE_DAY_MS),
+			});
+
+			expect(await sweepExpiredSessions(now)).toBe(1);
+
+			expect((await validateSession(strangers.token))?.id).toBe(strangerId);
+		} finally {
+			await db.delete(users).where(eq(users.id, strangerId));
+		}
+	});
+});
+
+// `db:prepare` runs the migration while the release before this one is still
+// serving, for about two minutes. Anyone who signs in then gets a row of the
+// old shape: the raw token as the id and milliseconds in the seconds column,
+// which reads back as a date tens of thousands of years away. No lookup can
+// match it, so it is inert, but it must not live forever.
+describe("sweepExpiredSessions and the rows the previous release writes during a deploy", () => {
+	it("deletes a row whose expiry is a millisecond count read as seconds", async () => {
+		const now = new Date();
+		const fourteenDaysLater = now.getTime() + REMEMBERED_DAYS * ONE_DAY_MS;
+		insertRowTheOldReleaseWrote(
+			"raw-token-from-the-old-release",
+			fourteenDaysLater,
+		);
+		const live = await createSession(userId);
+
+		const deleted = await sweepExpiredSessions(now);
+
+		expect(deleted).toBe(1);
+		expect(await idsOfTheUsersSessions()).not.toContain(
+			"raw-token-from-the-old-release",
+		);
+		expect((await validateSession(live.token))?.id).toBe(userId);
+	});
+
+	it("keeps a session up to the longest one the app creates plus a day, and not past it", async () => {
+		const now = new Date();
+		const longest = REMEMBERED_DAYS * ONE_DAY_MS;
+		// A fresh remembered session, and one a minute inside the limit: both live.
+		await insertSessionEnding(
+			"just-created",
+			new Date(now.getTime() + longest),
+		);
+		await insertSessionEnding(
+			"inside-the-limit",
+			new Date(now.getTime() + longest + ONE_DAY_MS - 60_000),
+		);
+		// A minute past it: nothing the app creates ends that far away.
+		await insertSessionEnding(
+			"past-the-limit",
+			new Date(now.getTime() + longest + ONE_DAY_MS + 60_000),
+		);
+
+		const deleted = await sweepExpiredSessions(now);
+
+		expect(deleted).toBe(1);
+		expect(await idsOfTheUsersSessions()).toEqual([
+			"inside-the-limit",
+			"just-created",
+		]);
+	});
+
+	it("is harmless until it is swept: no lookup can match such a row, and nothing throws", async () => {
+		const rawToken = "c".repeat(64);
+		insertRowTheOldReleaseWrote(
+			rawToken,
+			Date.now() + REMEMBERED_DAYS * ONE_DAY_MS,
+		);
+
+		await expect(validateSession(rawToken)).resolves.toBeNull();
+		// Looking it up did not disturb it either: only the sweep removes it.
+		expect(await idsOfTheUsersSessions()).toEqual([rawToken]);
 	});
 });

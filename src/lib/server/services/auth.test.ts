@@ -29,7 +29,10 @@ vi.mock("../db/schema", () => ({
 vi.mock("drizzle-orm", () => ({
 	and: vi.fn((...conditions) => ({ and: conditions })),
 	eq: vi.fn((col, val) => ({ col, val })),
+	gt: vi.fn((col, val) => ({ gt: { col, val } })),
+	lt: vi.fn((col, val) => ({ lt: { col, val } })),
 	ne: vi.fn((col, val) => ({ ne: { col, val } })),
+	or: vi.fn((...conditions) => ({ or: conditions })),
 	sql: Object.assign(
 		vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => values[0]),
 		{ raw: vi.fn() },

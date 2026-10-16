@@ -128,6 +128,10 @@ vi.mock("./chatgpt-import/owed-summaries", () => ({
 	startImportedSummaryDrain: vi.fn(async () => undefined),
 }));
 
+vi.mock("./auth", () => ({
+	sweepExpiredSessions: vi.fn(async () => 0),
+}));
+
 vi.mock("./disk-reconciliation", () => ({
 	findOrphanFiles: (
 		...args: Parameters<typeof mockState.mockFindOrphanFiles>
@@ -204,6 +208,7 @@ vi.mock("$lib/server/db", () => ({
 	})(),
 }));
 
+import { sweepExpiredSessions } from "./auth";
 import {
 	repairGeneratedOutputFamilyStatuses,
 	repairGeneratedOutputRetrievalClasses,
@@ -383,6 +388,41 @@ describe("memory-maintenance", () => {
 			addUserRow("user-2");
 
 			await runAllUsersMemoryMaintenance("scheduler");
+
+			expect(mockState.mockFindOrphanFiles).toHaveBeenCalledTimes(1);
+		});
+
+		it("sweeps expired sessions once across all users, as of now", async () => {
+			addUserRow("user-1");
+			addUserRow("user-2");
+			const before = Date.now();
+
+			await runAllUsersMemoryMaintenance("scheduler");
+
+			expect(sweepExpiredSessions).toHaveBeenCalledTimes(1);
+			const [asOf] = vi.mocked(sweepExpiredSessions).mock.calls[0];
+			expect(asOf).toBeInstanceOf(Date);
+			expect(asOf.getTime()).toBeGreaterThanOrEqual(before);
+		});
+
+		it("sweeps again on the next pass", async () => {
+			addUserRow("user-1");
+
+			await runAllUsersMemoryMaintenance("scheduler");
+			await runAllUsersMemoryMaintenance("scheduler");
+
+			expect(sweepExpiredSessions).toHaveBeenCalledTimes(2);
+		});
+
+		it("does not let a failed session sweep stop the rest of maintenance", async () => {
+			addUserRow("user-1");
+			vi.mocked(sweepExpiredSessions).mockRejectedValueOnce(
+				new Error("database is locked"),
+			);
+
+			await expect(
+				runUserMemoryMaintenance("user-1", "manual"),
+			).resolves.toBeUndefined();
 
 			expect(mockState.mockFindOrphanFiles).toHaveBeenCalledTimes(1);
 		});

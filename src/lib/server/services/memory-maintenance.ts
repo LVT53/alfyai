@@ -12,6 +12,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { DAY_MS } from "$lib/server/utils/constants";
+import { sweepExpiredSessions } from "./auth";
 import { deleteOrphanChatFiles } from "./chat-files";
 import { findOrphanFiles } from "./disk-reconciliation";
 import {
@@ -373,6 +374,15 @@ async function performUserMemoryMaintenance(
 	await runGlobalCleanupOnce("findOrphanFiles", async () => {
 		const report = await findOrphanFiles();
 		console.info("[MEMORY_MAINTENANCE] Disk reconciliation report", report);
+	});
+
+	// Sessions that ended, and the stray rows a deploy can leave (see the
+	// function). Not about anyone's memory, but maintenance is the one periodic
+	// pass the server has, and a table nobody presents a row of never tidies
+	// itself.
+	await runGlobalCleanupOnce("sweepExpiredSessions", async () => {
+		const deleted = await sweepExpiredSessions(new Date());
+		console.info("[MEMORY_MAINTENANCE] Expired sessions swept", { deleted });
 	});
 
 	if (errors.length > 0) {
