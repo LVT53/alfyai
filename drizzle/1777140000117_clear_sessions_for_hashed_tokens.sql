@@ -1,0 +1,18 @@
+-- Session tokens are stored as SHA-256 hashes from this release on: the cookie
+-- holds the token and `sessions.id` holds sha256(token), so a copy of the
+-- database holds no session anyone can present. The expiry is also written in
+-- seconds now, the unit the column is read in (it was a millisecond count, which
+-- is why a session never ended on the server).
+--
+-- Every row the release before this one wrote has the raw token as its id and a
+-- millisecond count in `expires_at`. No hashed lookup can find such a row, so
+-- they are removed, and everyone signs in once after the deploy.
+--
+-- `db:prepare` runs this while the previous release is still serving (about two
+-- minutes). A person who signs in during that window gets a row of the old shape
+-- again. It is harmless: no lookup can match its raw id, so the cookie is simply
+-- refused and the person signs in once more. It does not live forever either:
+-- maintenance sweeps a row whose expiry lies further away than the longest
+-- session the app creates plus a day, which is exactly where a millisecond count
+-- read as seconds ends up (`sweepExpiredSessions`, services/auth.ts).
+DELETE FROM `sessions`;

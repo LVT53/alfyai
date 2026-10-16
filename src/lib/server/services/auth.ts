@@ -16,6 +16,23 @@ export async function verifyPassword(
 	return bcrypt.compare(plaintext, hash);
 }
 
+/**
+ * What `sessions.id` holds for a session token: its SHA-256, as lowercase hex.
+ *
+ * The cookie holds the token and the database holds only this, so a copy of the
+ * database (a backup, a stolen file) holds no session anyone can present.
+ * Tokens are 32 random bytes, which is why a plain hash is enough: there is
+ * nothing to guess and nothing to stretch.
+ *
+ * Every reader and writer of a session by its token goes through this, and
+ * nothing else in the app turns a token into a row id. `createSession`,
+ * `validateSession` and `deleteSession` hash inside, so a caller hands over
+ * the token it has (the cookie's value) and never the stored id.
+ */
+export function hashSessionToken(token: string): string {
+	return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 export async function createSession(
 	userId: string,
 	options: SessionCookieOptions = { rememberMe: true },
@@ -33,22 +50,31 @@ export async function createSession(
 	// in `validateSession` never fired and only the cookie's Max-Age ended a
 	// session.
 	await db.insert(sessions).values({
-		id: token,
+		id: hashSessionToken(token),
 		userId: userId,
 		expiresAt,
 	});
 
+	// The raw token goes back to the caller for the cookie and is never stored.
 	return { token, expiresAt };
 }
 
+/**
+ * The person behind a session cookie, or null.
+ *
+ * A cookie from before the release that started hashing finds no row (its
+ * raw value is not any row's id), so it is "signed out" like any unknown
+ * cookie: null, not a throw, and the request gate sends the person to sign in.
+ */
 export async function validateSession(
 	token: string,
 ): Promise<SessionUser | null> {
+	const sessionId = hashSessionToken(token);
 	const sessionResult = await db
 		.select()
 		.from(sessions)
 		.innerJoin(users, eq(sessions.userId, users.id))
-		.where(eq(sessions.id, token));
+		.where(eq(sessions.id, sessionId));
 
 	const [session] = sessionResult;
 	if (!session) {
@@ -58,7 +84,7 @@ export async function validateSession(
 	const { sessions: sessionObj, users: userObj } = session;
 
 	if (sessionObj.expiresAt.getTime() < Date.now()) {
-		await db.delete(sessions).where(eq(sessions.id, token));
+		await db.delete(sessions).where(eq(sessions.id, sessionId));
 		return null;
 	}
 
@@ -74,8 +100,9 @@ export async function validateSession(
 	};
 }
 
+/** Ends the session behind a cookie's token (sign out). Hashes before it looks up. */
 export async function deleteSession(token: string): Promise<void> {
-	await db.delete(sessions).where(eq(sessions.id, token));
+	await db.delete(sessions).where(eq(sessions.id, hashSessionToken(token)));
 }
 
 type SessionCookieOptions = {
