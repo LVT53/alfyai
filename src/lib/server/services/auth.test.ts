@@ -105,8 +105,10 @@ describe("createSession", () => {
 		expect(token).toMatch(/^[a-f0-9]{64}$/);
 
 		const fourteenDays = 14 * 24 * 60 * 60 * 1000;
-		expect(expiresAt).toBeGreaterThanOrEqual(before + fourteenDays - 10);
-		expect(expiresAt).toBeLessThanOrEqual(after + fourteenDays + 10);
+		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+			before + fourteenDays - 10,
+		);
+		expect(expiresAt.getTime()).toBeLessThanOrEqual(after + fourteenDays + 10);
 
 		expect(mockDb.insert).toHaveBeenCalled();
 		expect(insertChain.values).toHaveBeenCalledWith(
@@ -125,8 +127,8 @@ describe("createSession", () => {
 		const after = Date.now();
 
 		const oneDay = 24 * 60 * 60 * 1000;
-		expect(expiresAt).toBeGreaterThanOrEqual(before + oneDay - 10);
-		expect(expiresAt).toBeLessThanOrEqual(after + oneDay + 10);
+		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + oneDay - 10);
+		expect(expiresAt.getTime()).toBeLessThanOrEqual(after + oneDay + 10);
 	});
 
 	it("creates unique tokens on each call", async () => {
@@ -145,7 +147,7 @@ describe("validateSession", () => {
 	});
 
 	it("returns SessionUser for a valid non-expired session", async () => {
-		const futureExpiry = Date.now() + 3600 * 1000;
+		const futureExpiry = new Date(Date.now() + 3600 * 1000);
 		const selectChain = makeSelectChain([
 			{
 				sessions: { id: "tok123", userId: "user-1", expiresAt: futureExpiry },
@@ -172,7 +174,7 @@ describe("validateSession", () => {
 	});
 
 	it("uses email as displayName when name is null", async () => {
-		const futureExpiry = Date.now() + 3600 * 1000;
+		const futureExpiry = new Date(Date.now() + 3600 * 1000);
 		const selectChain = makeSelectChain([
 			{
 				sessions: { id: "tok123", userId: "user-1", expiresAt: futureExpiry },
@@ -199,7 +201,7 @@ describe("validateSession", () => {
 	});
 
 	it("returns null and deletes session when expired", async () => {
-		const pastExpiry = Date.now() - 1000;
+		const pastExpiry = new Date(Date.now() - 1000);
 		const selectChain = makeSelectChain([
 			{
 				sessions: {
@@ -240,7 +242,7 @@ describe("deleteSession", () => {
 describe("setSessionCookie", () => {
 	it("sets httpOnly cookie with lax sameSite and root path", () => {
 		const mockCookies = { set: vi.fn() };
-		const expiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
+		const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
 		setSessionCookie(mockCookies, "my-token", expiresAt);
 
@@ -259,7 +261,7 @@ describe("setSessionCookie", () => {
 
 	it("sets Max-Age for short non-remembered cookies", () => {
 		const mockCookies = { set: vi.fn() };
-		const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+		const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
 		setSessionCookie(mockCookies, "my-token", expiresAt, { rememberMe: false });
 

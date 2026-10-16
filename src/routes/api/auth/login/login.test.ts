@@ -110,7 +110,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "tok-abc",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const response = await POST(
@@ -135,7 +135,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "my-session-token",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const event = makeEvent({
@@ -151,7 +151,7 @@ describe("POST /api/auth/login", () => {
 		expect(mockSetSessionCookie).toHaveBeenCalledWith(
 			event.cookies,
 			"my-session-token",
-			expect.any(Number),
+			expect.any(Date),
 			expect.objectContaining({
 				rememberMe: true,
 			}),
@@ -169,7 +169,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "session-only-token",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const event = makeEvent({
@@ -185,7 +185,7 @@ describe("POST /api/auth/login", () => {
 		expect(mockSetSessionCookie).toHaveBeenCalledWith(
 			event.cookies,
 			"session-only-token",
-			expect.any(Number),
+			expect.any(Date),
 			expect.objectContaining({
 				rememberMe: false,
 			}),
@@ -203,7 +203,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "persistent-token",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const event = makeEvent({
@@ -216,7 +216,7 @@ describe("POST /api/auth/login", () => {
 		expect(mockSetSessionCookie).toHaveBeenCalledWith(
 			event.cookies,
 			"persistent-token",
-			expect.any(Number),
+			expect.any(Date),
 			expect.objectContaining({
 				rememberMe: true,
 			}),
@@ -234,7 +234,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "form-token",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const event = makeFormEvent(
@@ -251,7 +251,7 @@ describe("POST /api/auth/login", () => {
 		expect(mockSetSessionCookie).toHaveBeenCalledWith(
 			event.cookies,
 			"form-token",
-			expect.any(Number),
+			expect.any(Date),
 			expect.objectContaining({
 				rememberMe: true,
 			}),
@@ -321,7 +321,7 @@ describe("POST /api/auth/login", () => {
 		mockVerifyPassword.mockResolvedValue(true);
 		mockCreateSession.mockResolvedValue({
 			token: "tok-xyz",
-			expiresAt: Date.now() + 604800000,
+			expiresAt: new Date(Date.now() + 604800000),
 		});
 
 		const response = await POST(
@@ -351,7 +351,7 @@ describe("POST /api/auth/login", () => {
 			mockVerifyPassword.mockResolvedValue(true);
 			mockCreateSession.mockResolvedValue({
 				token: "tok",
-				expiresAt: Date.now() + 604800000,
+				expiresAt: new Date(Date.now() + 604800000),
 			});
 		}
 

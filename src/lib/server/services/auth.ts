@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Cookies } from "@sveltejs/kit";
 import * as bcrypt from "bcryptjs";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { db } from "../db/index";
 import { sessions, users } from "../db/schema";
@@ -19,18 +19,23 @@ export async function verifyPassword(
 export async function createSession(
 	userId: string,
 	options: SessionCookieOptions = { rememberMe: true },
-): Promise<{ token: string; expiresAt: number }> {
+): Promise<{ token: string; expiresAt: Date }> {
 	const token = crypto.randomBytes(32).toString("hex");
 	const durationMs =
 		options.rememberMe === false
 			? SHORT_SESSION_DURATION_MS
 			: REMEMBERED_SESSION_DURATION_MS;
-	const expiresAt = Date.now() + durationMs;
+	const expiresAt = new Date(Date.now() + durationMs);
 
+	// A Date, so Drizzle writes the column in the unit it reads it back in
+	// (seconds: `integer` in `timestamp` mode). A raw millisecond count here
+	// used to read back as a date tens of thousands of years away, so the check
+	// in `validateSession` never fired and only the cookie's Max-Age ended a
+	// session.
 	await db.insert(sessions).values({
 		id: token,
 		userId: userId,
-		expiresAt: sql`${expiresAt}`,
+		expiresAt,
 	});
 
 	return { token, expiresAt };
@@ -52,7 +57,7 @@ export async function validateSession(
 
 	const { sessions: sessionObj, users: userObj } = session;
 
-	if (Number(sessionObj.expiresAt) < Date.now()) {
+	if (sessionObj.expiresAt.getTime() < Date.now()) {
 		await db.delete(sessions).where(eq(sessions.id, token));
 		return null;
 	}
@@ -80,10 +85,10 @@ type SessionCookieOptions = {
 export function setSessionCookie(
 	cookies: Pick<Cookies, "set">,
 	token: string,
-	expiresAt: number,
+	expiresAt: Date,
 	_options: SessionCookieOptions = { rememberMe: true },
 ): void {
-	const maxAge = Math.floor((expiresAt - Date.now()) / 1000);
+	const maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
 
 	const cookieOptions: Parameters<Cookies["set"]>[2] = {
 		httpOnly: true,
