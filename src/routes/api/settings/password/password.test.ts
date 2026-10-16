@@ -189,6 +189,40 @@ describe("PATCH /api/settings/password and the person's other devices", () => {
 		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
 	});
 
+	// The password write and the sign-out of the other devices are one write.
+	// If the revoke fails, the new password must not be the one that is stored:
+	// the other devices would stay signed in with the password they were opened
+	// with gone, the route would answer 500, and the person's retry with the old
+	// password would be refused as wrong. A trigger makes the DELETE fail the
+	// way a locked or full database would.
+	it("leaves the password as it was, and every session alive, when the revoke fails", async () => {
+		const current = await createSession(userId);
+		await createSession(userId);
+		sqlite.exec(
+			"CREATE TRIGGER fail_session_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'the revoke failed'); END",
+		);
+		try {
+			await expect(
+				changePasswordTo(newPassword, { token: current.token }),
+			).rejects.toThrow("the revoke failed");
+		} finally {
+			sqlite.exec("DROP TRIGGER fail_session_delete");
+		}
+
+		expect(await bcrypt.compare(CURRENT_PASSWORD, await storedHash())).toBe(
+			true,
+		);
+		expect(await storedSessionIds()).toHaveLength(2);
+
+		// The retry the person makes with the password they still have works.
+		const retry = await changePasswordTo(newPassword, {
+			token: current.token,
+		});
+		expect(retry.status).toBe(200);
+		expect(await bcrypt.compare(newPassword, await storedHash())).toBe(true);
+		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
+	});
+
 	it("signs out every session when the request carries no session of its own", async () => {
 		await createSession(userId);
 		await createSession(userId);

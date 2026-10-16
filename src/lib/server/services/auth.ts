@@ -15,6 +15,8 @@ const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const REMEMBERED_SESSION_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
 /** How far past the longest session a row may end before it is called what it is. */
 const FAR_FUTURE_GRACE_MS = 24 * 60 * 60 * 1000;
+/** bcrypt's cost for a stored password (the sign-in's decoy hash uses the same number). */
+const PASSWORD_HASH_COST = 12;
 
 export async function verifyPassword(
 	plaintext: string,
@@ -265,6 +267,47 @@ export async function revokeAllSessions(
 	database: DatabaseInstance = db,
 ): Promise<number> {
 	return revokeOtherSessions(userId, null, database);
+}
+
+/**
+ * Changes a person's password and signs them out of every other device, as ONE
+ * transaction, and says how many devices that was (live sessions only, see
+ * `countLiveSessions`).
+ *
+ * The password a stolen cookie or a forgotten phone was signed in with is gone,
+ * so those sessions go with it; `keepToken` is the session cookie of the device
+ * that is acting, which stays signed in. They are one write on purpose: with two
+ * statements, a revoke that failed left the new password stored and the other
+ * devices signed in, the route answered 500, and the person's retry with the old
+ * password was refused as wrong. Here a failed revoke rolls the password back.
+ *
+ * The caller has already checked the current password (`checkCurrentPassword`).
+ * The hash is made first: bcrypt is slow, and a transaction holds SQLite's write
+ * lock from its first statement.
+ */
+export async function changePassword(
+	userId: string,
+	newPassword: string,
+	keepToken: string | null,
+	database: DatabaseInstance = db,
+): Promise<{ signedOutOtherDevices: number }> {
+	const passwordHash = await bcrypt.hash(newPassword, PASSWORD_HASH_COST);
+	const now = new Date();
+
+	const signedOutOtherDevices = database.transaction((tx) => {
+		tx.update(users)
+			.set({ passwordHash, updatedAt: now })
+			.where(eq(users.id, userId))
+			.run();
+		const removed = tx
+			.delete(sessions)
+			.where(sessionsToRevoke(userId, keepToken))
+			.returning({ expiresAt: sessions.expiresAt })
+			.all();
+		return countLiveSessions(removed, now);
+	});
+
+	return { signedOutOtherDevices };
 }
 
 /**
