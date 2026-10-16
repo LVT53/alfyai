@@ -38,6 +38,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Each turn now logs the interface language, the conversation's language and
   what the reply reads as (without any of its text), and the admin stability
   snapshot counts replies that read as Hungarian for people writing English.
+- Changing your password signs you out on every other device, and the Profile
+  card says so. The device you changed it on stays signed in.
+- Changing your email address asks for your current password, and a wrong one
+  counts against the same limit as a wrong password at sign-in. Changing your
+  name asks for nothing.
 
 ### Fixed
 
@@ -45,6 +50,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   guessed the language wrong: the model reads the message and replies in its
   language, and a request for a particular language, in the message or in your
   instructions, is followed.
+- A sign-in now ends on the server when its time is up. Before, only the
+  browser's cookie ended it: the expiry was stored in milliseconds in a column
+  read as seconds, so a copied cookie outlived it.
 
 ### Removed
 
@@ -52,6 +60,20 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   chat can no longer be taken out of incognito, or put into it once it has
   started — start a new chat to be remembered again. The API refuses both
   writes.
+
+### Security and operations
+
+- Session tokens are stored as SHA-256 hashes, so a copy of the database or a
+  backup holds no session anyone can use.
+- The maintenance pass deletes sessions that have ended, and any row a deploy
+  leaves with an impossible expiry.
+
+### Upgrade notes
+
+- Everyone signs in once after this release: its migration empties the
+  `sessions` table, because stored sessions change form. Tell the people who
+  use your server before you deploy. Anyone who signs in during the couple of
+  minutes between the migration and the restart signs in once more.
 
 ## [2.0.0] - 2026-09-17
 
