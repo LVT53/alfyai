@@ -8,7 +8,7 @@ import {
 	normalizeEmailAddress,
 } from "$lib/shared/email-address";
 import { type DatabaseInstance, db } from "../db/index";
-import { type QueryExecutor, queryExecutor } from "../db/query-executor";
+import type { QueryExecutor } from "../db/query-executor";
 import { sessions, users } from "../db/schema";
 import {
 	guardCredentialCheck,
@@ -336,14 +336,17 @@ function countLiveSessions(
  * just changed the password).
  *
  * The delete runs through `executor.run` (ADR-0059), so the seam times it and
- * counts its failures like any query a migrated service makes. A service that
- * runs on an executor of its own (user-admin) hands it over; the default is the
- * app's.
+ * counts its failures like any query a migrated service makes. The caller hands
+ * over its executor (user-admin passes the one it was given; the app's is
+ * `queryExecutor` in `db/query-executor.ts`). There is no default on purpose:
+ * this file is imported by nearly everything, and that module binds the app's
+ * database when it is imported, which a module that only needs a session check
+ * must not do (tests that stand in for `db` after the import would break).
  */
 export async function revokeOtherSessions(
 	userId: string,
 	keepToken: string | null,
-	executor: QueryExecutor = queryExecutor,
+	executor: QueryExecutor,
 ): Promise<number> {
 	const removed = await executor.run("auth.revokeSessions", (database) =>
 		database
@@ -354,10 +357,13 @@ export async function revokeOtherSessions(
 	return countLiveSessions(removed, new Date());
 }
 
-/** Signs a person out everywhere, and says how many live sessions that ended. */
+/**
+ * Signs a person out everywhere, and says how many live sessions that ended.
+ * Runs through the caller's executor, as `revokeOtherSessions` does.
+ */
 export async function revokeAllSessions(
 	userId: string,
-	executor: QueryExecutor = queryExecutor,
+	executor: QueryExecutor,
 ): Promise<number> {
 	return revokeOtherSessions(userId, null, executor);
 }
