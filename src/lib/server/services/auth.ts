@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs";
 import { and, eq, gt, lt, ne, or } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { type DatabaseInstance, db } from "../db/index";
+import { type QueryExecutor, queryExecutor } from "../db/query-executor";
 import { sessions, users } from "../db/schema";
 import {
 	guardCredentialCheck,
@@ -245,28 +246,31 @@ function countLiveSessions(
  * `keepToken` is the session cookie of the device that is acting (the one that
  * just changed the password).
  *
- * `database` is the connection the delete runs on; a service that runs on a
- * `QueryExecutor` (user-admin) hands over the executor's, so the seam it was
- * given is the one that is written to.
+ * The delete runs through `executor.run` (ADR-0059), so the seam times it and
+ * counts its failures like any query a migrated service makes. A service that
+ * runs on an executor of its own (user-admin) hands it over; the default is the
+ * app's.
  */
 export async function revokeOtherSessions(
 	userId: string,
 	keepToken: string | null,
-	database: DatabaseInstance = db,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<number> {
-	const removed = await database
-		.delete(sessions)
-		.where(sessionsToRevoke(userId, keepToken))
-		.returning({ expiresAt: sessions.expiresAt });
+	const removed = await executor.run("auth.revokeSessions", (database) =>
+		database
+			.delete(sessions)
+			.where(sessionsToRevoke(userId, keepToken))
+			.returning({ expiresAt: sessions.expiresAt }),
+	);
 	return countLiveSessions(removed, new Date());
 }
 
 /** Signs a person out everywhere, and says how many live sessions that ended. */
 export async function revokeAllSessions(
 	userId: string,
-	database: DatabaseInstance = db,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<number> {
-	return revokeOtherSessions(userId, null, database);
+	return revokeOtherSessions(userId, null, executor);
 }
 
 /**

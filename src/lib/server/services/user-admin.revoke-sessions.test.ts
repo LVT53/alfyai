@@ -8,6 +8,10 @@ import {
 	createQueryExecutor,
 	type QueryExecutor,
 } from "$lib/server/db/query-executor";
+import {
+	getQueryTimingSnapshot,
+	resetQueryTimingForTesting,
+} from "$lib/server/db/query-instrumentation";
 import * as schema from "$lib/server/db/schema";
 import { hashSessionToken } from "./auth";
 
@@ -79,6 +83,23 @@ describe("revokeManagedUserSessions", () => {
 
 		expect(sessionsOf("target")).toHaveLength(0);
 		expect(sessionsOf("bystander")).toHaveLength(1);
+	});
+
+	// ADR-0059: a query a migrated service runs goes through `executor.run`,
+	// which is where its timing and outcome are recorded. The revoke used to be
+	// handed the executor's bare connection, which wrote the right rows and
+	// left no trace on the seam.
+	it("runs the revoke through the executor it was handed, so the seam records it", async () => {
+		resetQueryTimingForTesting();
+		addSession("token-1", "target");
+
+		await revokeManagedUserSessions("target", executor);
+
+		expect(
+			getQueryTimingSnapshot().find(
+				(entry) => entry.label === "auth.revokeSessions",
+			),
+		).toMatchObject({ count: 1, errorCount: 0 });
 	});
 
 	it("shows in the Users pane's session count", async () => {

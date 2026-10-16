@@ -377,9 +377,9 @@ export async function revokeManagedUserSessions(
 		throw new Error("User not found.");
 	}
 
-	// The same helper the password change uses, on the connection this call
-	// was given.
-	await revokeAllSessions(targetUserId, executor.db);
+	// The same helper the password change uses, run through the executor this
+	// call was given, so the seam times it like the queries around it.
+	await revokeAllSessions(targetUserId, executor);
 }
 
 export async function deleteManagedUser(
