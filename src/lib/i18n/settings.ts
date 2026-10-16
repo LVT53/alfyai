@@ -1852,6 +1852,8 @@ const settingsDict = {
 		"profileTab.emailNeedsPassword":
 			"Enter your current password to change your email.",
 		"profileTab.currentPasswordWrong": "Current password is incorrect.",
+		"profileTab.currentPasswordTooManyAttempts":
+			"Too many wrong passwords. Please wait a moment and try again.",
 		"profileTab.accountUpdated": "Profile and password updated.",
 		"profileTab.signedOutOtherDevices":
 			"You were signed out on your other devices.",
@@ -3857,6 +3859,8 @@ const settingsDict = {
 		"profileTab.emailNeedsPassword":
 			"Add meg a jelenlegi jelszavad az e-mail-cím módosításához.",
 		"profileTab.currentPasswordWrong": "Hibás a jelenlegi jelszó.",
+		"profileTab.currentPasswordTooManyAttempts":
+			"Túl sok hibás jelszó. Várj egy pillanatot, majd próbáld újra.",
 		"profileTab.accountUpdated": "A profil és a jelszó frissült.",
 		"profileTab.signedOutOtherDevices":
 			"A többi eszközödön kijelentkeztettünk.",

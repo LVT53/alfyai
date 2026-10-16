@@ -96,6 +96,20 @@ describe("i18n composer and skills namespaces", () => {
 		}
 	});
 
+	it("gives Settings its own throttle sentence, which does not talk about signing in", () => {
+		// The password re-asks of Settings (password and email change, archive,
+		// clear memory, clear workspace, delete account) share the sign-in's
+		// limiter, but nobody is signing in there: borrowing
+		// `login.tooManyAttempts` told a person at a Delete account box that their
+		// "sign-in attempts" had failed.
+		expect(settingsDict.en["profileTab.currentPasswordTooManyAttempts"]).toBe(
+			"Too many wrong passwords. Please wait a moment and try again.",
+		);
+		expect(settingsDict.hu["profileTab.currentPasswordTooManyAttempts"]).toBe(
+			"Túl sok hibás jelszó. Várj egy pillanatot, majd próbáld újra.",
+		);
+	});
+
 	it("localizes the inherited Skill Draft copy guard", () => {
 		const keys = collectDictionaryKeys();
 

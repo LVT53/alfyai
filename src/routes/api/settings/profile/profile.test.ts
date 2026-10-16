@@ -122,7 +122,7 @@ describe("PATCH /api/settings/profile: the email asks for the password", () => {
 		expect(throttled.status).toBe(429);
 		expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect(await throttled.json()).toMatchObject({
-			errorKey: "login.tooManyAttempts",
+			errorKey: "profileTab.currentPasswordTooManyAttempts",
 		});
 		expect((await stored()).email).toBe(email);
 	});

@@ -589,7 +589,7 @@ describe("settings page — changing the email asks for the password", () => {
 			new ApiError(
 				"Too many failed attempts. Please wait a moment and try again.",
 				{
-					errorKey: "login.tooManyAttempts",
+					errorKey: "profileTab.currentPasswordTooManyAttempts",
 					status: 429,
 				},
 			),
@@ -607,8 +607,7 @@ describe("settings page — changing the email asks for the password", () => {
 		});
 		expect(get(toasts)[0]).toMatchObject({
 			type: "error",
-			message:
-				"Too many failed sign-in attempts. Please wait a moment and try again.",
+			message: "Too many wrong passwords. Please wait a moment and try again.",
 		});
 	});
 

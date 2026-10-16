@@ -215,7 +215,7 @@ describe("PATCH /api/settings/password and the limiter", () => {
 		expect(throttled.status).toBe(429);
 		expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect(await throttled.json()).toMatchObject({
-			errorKey: "login.tooManyAttempts",
+			errorKey: "profileTab.currentPasswordTooManyAttempts",
 		});
 		expect(await bcrypt.compare(CURRENT_PASSWORD, await storedHash())).toBe(
 			true,

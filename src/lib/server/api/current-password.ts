@@ -7,9 +7,10 @@ import type { CurrentPasswordCheck } from "$lib/server/services/auth";
  * the key the Profile card localizes, so the password change and the email
  * change refuse in the same words.
  *
- * `error` is the English fallback; `errorKey` is what the browser translates
- * (`login.tooManyAttempts` is the sign-in's own sentence, the other is the
- * Profile card's).
+ * `error` is the English fallback; `errorKey` is what the browser translates.
+ * Both are Settings' own sentences: the throttle shares the sign-in's limiter,
+ * but nobody is signing in here, so it does not borrow
+ * `login.tooManyAttempts` ("failed sign-in attempts").
  */
 export function currentPasswordRefusal(
 	check: Exclude<CurrentPasswordCheck, { outcome: "ok" }>,
@@ -20,7 +21,7 @@ export function currentPasswordRefusal(
 				{
 					error:
 						"Too many failed attempts. Please wait a moment and try again.",
-					errorKey: "login.tooManyAttempts",
+					errorKey: "profileTab.currentPasswordTooManyAttempts",
 				},
 				{
 					status: 429,
