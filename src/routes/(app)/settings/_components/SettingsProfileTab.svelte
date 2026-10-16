@@ -52,7 +52,7 @@ import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 } from "$lib/utils/personality-profile-labels";
-import { formatCompactCount } from "./account-form";
+import { formatCompactCount, isEmailChanged } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
 import SettingsDataImport from "./SettingsDataImport.svelte";
@@ -81,6 +81,10 @@ let {
 	onRemovePhoto,
 	name = $bindable(""),
 	email = $bindable(""),
+	// Asked for while the email box differs from the saved address: changing it
+	// needs the account password. Apart from the three boxes of the password
+	// change below, which stay optional.
+	emailPassword = $bindable(""),
 	currentPassword = $bindable(""),
 	newPassword = $bindable(""),
 	confirmPassword = $bindable(""),
@@ -151,6 +155,7 @@ let {
 	onRemovePhoto: () => void | Promise<void>;
 	name: string;
 	email: string;
+	emailPassword?: string;
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
@@ -219,6 +224,12 @@ const systemDefaultModelDisplayName = $derived(
 const explicitModelOptions = $derived(
 	availableModels.filter((model) => model.id !== systemDefaultModel),
 );
+
+// The password box under the email appears while the email differs from the
+// saved address (`userEmail`, what the server last confirmed): changing it asks
+// for the account password. Whether its text is shown is view state.
+const emailChangePending = $derived(isEmailChanged(email, userEmail));
+let showEmailPw = $state(false);
 
 // ── Full-view overlays ───────────────────────────────────────────────
 // Client-only view state; NOT a route change. Each one replaces the Profile
@@ -463,6 +474,18 @@ function handlePersonalitySelect(event: Event) {
 						autocomplete="email"
 					/>
 				</div>
+				{#if emailChangePending}
+					<div data-testid="email-change-password">
+						<PasswordField
+							id="email-change-pw"
+							label={$t('settings_currentPassword')}
+							bind:value={emailPassword}
+							bind:shown={showEmailPw}
+							autocomplete="current-password"
+							placeholder={$t('profileTab.currentPasswordPlaceholder')}
+						/>
+					</div>
+				{/if}
 			</div>
 
 			<hr class="identity-rule" />

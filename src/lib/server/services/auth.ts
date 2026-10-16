@@ -5,6 +5,11 @@ import { and, eq, ne } from "drizzle-orm";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { type DatabaseInstance, db } from "../db/index";
 import { sessions, users } from "../db/schema";
+import {
+	guardCredentialCheck,
+	recordLoginFailure,
+	recordLoginSuccess,
+} from "./login-rate-limit";
 
 const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const REMEMBERED_SESSION_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -14,6 +19,73 @@ export async function verifyPassword(
 	hash: string,
 ): Promise<boolean> {
 	return bcrypt.compare(plaintext, hash);
+}
+
+/** How a check of the account password for a settings action came out. */
+export type CurrentPasswordCheck =
+	| { outcome: "ok" }
+	| { outcome: "wrong" }
+	| { outcome: "no_user" }
+	/**
+	 * Over the limiter's budget: the comparison did not run, or a wrong answer
+	 * was given while a penalty applies. `retryAfterSeconds` is the wait.
+	 */
+	| { outcome: "throttled"; retryAfterSeconds: number };
+
+/**
+ * Checks the password of the signed-in account for a settings action that asks
+ * for it again (changing the password, changing the email).
+ *
+ * The same bcrypt comparison the sign-in uses, run through the same limiter
+ * (`login-rate-limit.ts`): the lockout state is checked before comparing, a
+ * wrong answer is recorded, and a right one clears the count. The count lives
+ * in the limiter's `account:` namespace, on purpose: a fumbled password here
+ * must not slow the person's sign-in down, and the sign-in's count (keyed on the
+ * email) is not this one. This endpoint is already behind a session, so the
+ * threat is a hijacked session guessing the password to change it, not an
+ * anonymous guesser.
+ *
+ * A right password is still accepted while a penalty applies, as at sign-in:
+ * the limiter slows a guesser down, it never locks the owner out.
+ */
+export async function checkCurrentPassword(
+	userId: string,
+	password: string,
+): Promise<CurrentPasswordCheck> {
+	const rateLimitKeys = { accountId: userId };
+
+	const guarded = await guardCredentialCheck(rateLimitKeys, async () => {
+		const [found] = await db.select().from(users).where(eq(users.id, userId));
+		if (!found) return { exists: false, valid: false };
+		return {
+			exists: true,
+			valid: await verifyPassword(password, found.passwordHash),
+		};
+	});
+
+	if (guarded.outcome === "refused") {
+		return {
+			outcome: "throttled",
+			retryAfterSeconds: guarded.block.retryAfterSeconds,
+		};
+	}
+
+	if (!guarded.value.exists) return { outcome: "no_user" };
+
+	if (!guarded.value.valid) {
+		recordLoginFailure(rateLimitKeys);
+		// A wrong answer under a penalty is reported as the throttle it is.
+		if (guarded.throttled) {
+			return {
+				outcome: "throttled",
+				retryAfterSeconds: guarded.throttled.retryAfterSeconds,
+			};
+		}
+		return { outcome: "wrong" };
+	}
+
+	recordLoginSuccess(rateLimitKeys);
+	return { outcome: "ok" };
 }
 
 /**

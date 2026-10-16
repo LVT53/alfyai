@@ -6,6 +6,7 @@ import {
 	formatCompactCount,
 	formatSavedAt,
 	isAccountDirty,
+	isEmailChanged,
 	isPasswordStarted,
 	isProfileDirty,
 	planAccountSave,
@@ -20,6 +21,7 @@ function values(overrides: Partial<AccountFormValues> = {}): AccountFormValues {
 	return {
 		name: baseline.name,
 		email: baseline.email,
+		emailPassword: "",
 		currentPassword: "",
 		newPassword: "",
 		confirmPassword: "",
@@ -46,6 +48,18 @@ describe("isProfileDirty", () => {
 		expect(isProfileDirty(values({ email: "other@local" }), baseline)).toBe(
 			true,
 		);
+	});
+});
+
+describe("isEmailChanged", () => {
+	it("is false while the box holds the saved address, whitespace aside", () => {
+		expect(isEmailChanged("admin@local", "admin@local")).toBe(false);
+		expect(isEmailChanged("  admin@local ", "admin@local")).toBe(false);
+	});
+
+	it("is true once the box holds anything else", () => {
+		expect(isEmailChanged("other@local", "admin@local")).toBe(true);
+		expect(isEmailChanged("", "admin@local")).toBe(true);
 	});
 });
 
@@ -116,6 +130,7 @@ describe("planAccountSave — one Save, optional password", () => {
 		const plan = planAccountSave(
 			values({
 				email: "new@local",
+				emailPassword: "old-password",
 				currentPassword: "old-password",
 				newPassword: "new-password-123",
 				confirmPassword: "new-password-123",
@@ -128,6 +143,76 @@ describe("planAccountSave — one Save, optional password", () => {
 			saveProfile: true,
 			savePassword: true,
 			successKey: "profileTab.accountUpdated",
+		});
+	});
+
+	it("saves a changed email as a profile change once its password is given", () => {
+		expect(
+			planAccountSave(
+				values({ email: "other@local", emailPassword: "old-password" }),
+				baseline,
+			),
+		).toEqual({
+			ok: true,
+			saveProfile: true,
+			savePassword: false,
+			successKey: "settings_profileUpdated",
+		});
+	});
+
+	it("will not save a changed email without the account password", () => {
+		expect(planAccountSave(values({ email: "other@local" }), baseline)).toEqual(
+			{ ok: false, errorKey: "profileTab.emailNeedsPassword" },
+		);
+		// A name changed with it does not smuggle the email through.
+		expect(
+			planAccountSave(
+				values({ name: "New Name", email: "other@local" }),
+				baseline,
+			),
+		).toEqual({ ok: false, errorKey: "profileTab.emailNeedsPassword" });
+	});
+
+	it("keeps the email's password apart from the password change's own boxes", () => {
+		// The current password typed for a password change is not the email's.
+		expect(
+			planAccountSave(
+				values({
+					email: "other@local",
+					currentPassword: "old-password",
+					newPassword: "new-password-123",
+					confirmPassword: "new-password-123",
+				}),
+				baseline,
+			),
+		).toEqual({ ok: false, errorKey: "profileTab.emailNeedsPassword" });
+	});
+
+	it("asks for the email's password before it complains about the password boxes below it", () => {
+		expect(
+			planAccountSave(
+				values({
+					email: "other@local",
+					currentPassword: "old",
+					newPassword: "short",
+					confirmPassword: "other",
+				}),
+				baseline,
+			),
+		).toEqual({ ok: false, errorKey: "profileTab.emailNeedsPassword" });
+	});
+
+	it("asks nothing of a rename, whatever is left in the email's password box", () => {
+		expect(
+			planAccountSave(
+				values({ name: "New Name", emailPassword: "left-over" }),
+				baseline,
+			),
+		).toEqual({
+			ok: true,
+			saveProfile: true,
+			savePassword: false,
+			successKey: "settings_profileUpdated",
 		});
 	});
 

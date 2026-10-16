@@ -357,6 +357,45 @@ describe("SettingsProfileTab — one identity card, one Save", () => {
 		expect(screen.queryByTestId("account-signed-out-others")).toBeNull();
 	});
 
+	it("asks for the account password under the email only while the email is a new one", () => {
+		const { unmount } = renderTab();
+		expect(screen.queryByTestId("email-change-password")).toBeNull();
+		unmount();
+
+		renderTab({ email: "new@example.com" });
+		const box = screen.getByTestId("email-change-password");
+		const field = within(box).getByLabelText("Current password");
+		expect(field).toHaveAttribute("type", "password");
+		expect(field).toHaveAttribute("autocomplete", "current-password");
+		// The email box comes first on the card, so its password box follows it
+		// and precedes the password change's own boxes.
+		const emailInput = screen.getByRole("textbox", { name: "Email Address" });
+		expect(
+			emailInput.compareDocumentPosition(box) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			box.compareDocumentPosition(
+				screen.getByText("Change password — optional"),
+			) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("reads the new email's password box in Hungarian in a Hungarian interface", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			renderTab({ email: "uj@example.com" });
+			expect(
+				within(screen.getByTestId("email-change-password")).getByLabelText(
+					"Jelenlegi jelszó",
+				),
+			).toBeInTheDocument();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
 	it("says it in Hungarian in a Hungarian interface", async () => {
 		const { uiLanguage } = await import("$lib/stores/settings");
 		uiLanguage.set("hu");

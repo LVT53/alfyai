@@ -4,9 +4,11 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "$lib/client/api/http";
 import type { ModelId } from "$lib/model-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { clearToasts, toasts } from "$lib/stores/toast";
@@ -96,9 +98,14 @@ async function fillPasswordForm({
 	next?: string;
 	confirm?: string;
 } = {}) {
-	await fireEvent.input(screen.getByLabelText("Current password"), {
-		target: { value: current },
-	});
+	// By id: with the email changed there is a second "Current password" box,
+	// the one under the email, and this is the password change's own.
+	await fireEvent.input(
+		document.getElementById("current-pw") as HTMLInputElement,
+		{
+			target: { value: current },
+		},
+	);
 	await fireEvent.input(screen.getByLabelText("New password"), {
 		target: { value: next },
 	});
@@ -431,6 +438,251 @@ describe("settings page — one Save for the identity card", () => {
 		});
 		expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
 		expect(mockUpdatePassword).toHaveBeenCalledTimes(2);
+	});
+});
+
+const EMAIL_PASSWORD_BOX = "email-change-password";
+
+async function changeEmailTo(value: string) {
+	await fireEvent.input(
+		screen.getByRole("textbox", { name: "Email Address" }),
+		{
+			target: { value },
+		},
+	);
+}
+
+function emailPasswordInput(): HTMLInputElement {
+	return within(screen.getByTestId(EMAIL_PASSWORD_BOX)).getByLabelText(
+		"Current password",
+	) as HTMLInputElement;
+}
+
+// Changing the email asks for the account password, in a box that exists only
+// while the email differs from the saved address. A rename asks for nothing.
+describe("settings page — changing the email asks for the password", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		clearToasts();
+	});
+
+	afterEach(() => {
+		cleanup();
+		clearToasts();
+	});
+
+	it("shows the password box only while the email differs from the saved one", async () => {
+		renderSettingsPage();
+
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+
+		await changeEmailTo("new@example.com");
+		expect(screen.getByTestId(EMAIL_PASSWORD_BOX)).toBeInTheDocument();
+
+		await changeEmailTo("user@example.com");
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+	});
+
+	it("names the box 'Current password', like the password change's own", async () => {
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+
+		expect(screen.getAllByLabelText("Current password")).toHaveLength(2);
+		expect(emailPasswordInput()).toHaveAttribute(
+			"autocomplete",
+			"current-password",
+		);
+	});
+
+	it("will not call the server for an email change without the password", async () => {
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Enter your current password to change your email.",
+		});
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+	});
+
+	it("sends the password along with the new address, and puts the box away", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				name: "User",
+				email: "new@example.com",
+				currentPassword: "old-password",
+			});
+		});
+		expect(mockUpdatePassword).not.toHaveBeenCalled();
+		expect(get(toasts)[0]).toMatchObject({
+			type: "success",
+			message: "Profile updated.",
+		});
+		// The address is the saved one now, so the box is gone and the next
+		// change starts with an empty one.
+		await waitFor(() => {
+			expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		});
+		await changeEmailTo("again@example.com");
+		expect(emailPasswordInput().value).toBe("");
+	});
+
+	it("sends no password for a rename, even with the email still the saved one", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				name: "Renamed User",
+				email: "user@example.com",
+			});
+		});
+	});
+
+	it("keeps the password box filled when the server says it was wrong, so the retry is one retyping", async () => {
+		mockUpdateProfile.mockRejectedValue(
+			new ApiError("Current password is incorrect", {
+				errorKey: "profileTab.currentPasswordWrong",
+				status: 401,
+			}),
+		);
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "typo-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Current password is incorrect.",
+		});
+		// Not saved: the address is still pending and so is its box.
+		expect(emailPasswordInput().value).toBe("typo-password");
+		expect(screen.queryByTestId("account-saved-at")).toBeNull();
+	});
+
+	it("reads a refusal in the reader's language when the server sent a key the dictionary knows", async () => {
+		mockUpdateProfile.mockRejectedValue(
+			new ApiError(
+				"Too many failed attempts. Please wait a moment and try again.",
+				{
+					errorKey: "login.tooManyAttempts",
+					status: 429,
+				},
+			),
+		);
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message:
+				"Too many failed sign-in attempts. Please wait a moment and try again.",
+		});
+	});
+
+	it("shows the server's own sentence for a refusal it has no key for", async () => {
+		mockUpdateProfile.mockRejectedValue(
+			new ApiError("Email already in use", { status: 409 }),
+		);
+		renderSettingsPage();
+
+		await changeEmailTo("taken@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Email already in use",
+		});
+	});
+
+	it("Discard puts the address back and empties the box", async () => {
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await fireEvent.click(screen.getByTestId("account-discard"));
+
+		expect(
+			(
+				screen.getByRole("textbox", {
+					name: "Email Address",
+				}) as HTMLInputElement
+			).value,
+		).toBe("user@example.com");
+		expect(screen.queryByTestId(EMAIL_PASSWORD_BOX)).toBeNull();
+		await changeEmailTo("new@example.com");
+		expect(emailPasswordInput().value).toBe("");
+	});
+
+	it("does both under one Save: the new address with its password, then the password change", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(PASSWORD_CHANGED);
+		renderSettingsPage();
+
+		await changeEmailTo("new@example.com");
+		await fireEvent.input(emailPasswordInput(), {
+			target: { value: "old-password" },
+		});
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdatePassword).toHaveBeenCalledOnce();
+		});
+		expect(mockUpdateProfile).toHaveBeenCalledWith({
+			name: "User",
+			email: "new@example.com",
+			currentPassword: "old-password",
+		});
+		expect(mockUpdatePassword).toHaveBeenCalledWith({
+			currentPassword: "old-password",
+			newPassword: "new-password-123",
+		});
+		expect(get(toasts)).toHaveLength(1);
+		expect(get(toasts)[0]).toMatchObject({
+			type: "success",
+			message: "Profile and password updated.",
+		});
 	});
 });
 

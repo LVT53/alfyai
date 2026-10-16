@@ -9,6 +9,7 @@ import {
 	type InstructionScope,
 	normalizeInstructionText,
 } from "$lib/shared/instructions";
+import { ApiError } from "$lib/client/api/http";
 import { clearConversationSessionState } from "$lib/client/conversation-session";
 import {
 	clearMemoryAndKnowledge,
@@ -72,6 +73,7 @@ import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
 import {
 	formatSavedAt,
 	isAccountDirty,
+	isEmailChanged,
 	planAccountSave,
 	type AccountBaseline,
 } from "./_components/account-form";
@@ -160,6 +162,9 @@ let activeTab = $state<Tab>("profile");
 
 let name = $state(initialUserSettings.name ?? "");
 let email = $state(initialUserSettings.email);
+// The account password typed under the email box, which is shown only while
+// the email differs from the saved one: changing it asks for the password.
+let emailPassword = $state("");
 
 let currentPassword = $state("");
 let newPassword = $state("");
@@ -187,6 +192,7 @@ let signedOutOtherDevices = $state(0);
 const accountValues = $derived({
 	name,
 	email,
+	emailPassword,
 	currentPassword,
 	newPassword,
 	confirmPassword,
@@ -490,9 +496,31 @@ function clearPasswordFields() {
 	confirmPassword = "";
 }
 
+/**
+ * The line for a Save the server refused. A refusal that carries a key the
+ * dictionary knows (a wrong password, a throttled one) is read in the reader's
+ * language; anything else is the server's own sentence, as it always was.
+ */
+function accountErrorMessage(error: unknown): string {
+	if (error instanceof ApiError && error.errorKey) {
+		const key = error.errorKey as I18nKey;
+		const translated = $t(key);
+		// An unknown key comes back as itself.
+		if (translated !== key) return translated;
+	}
+	return errorMessage(error);
+}
+
 async function saveAccount() {
 	const plan = planAccountSave(
-		{ name, email, currentPassword, newPassword, confirmPassword },
+		{
+			name,
+			email,
+			emailPassword,
+			currentPassword,
+			newPassword,
+			confirmPassword,
+		},
 		accountBaseline,
 	);
 	if (!plan.ok) {
@@ -507,8 +535,16 @@ async function saveAccount() {
 	signedOutOtherDevices = 0;
 	try {
 		if (plan.saveProfile) {
-			await updateProfile({ name: name.trim() || null, email });
+			await updateProfile({
+				name: name.trim() || null,
+				email,
+				// Only a changed address carries the password; a rename sends none.
+				...(isEmailChanged(email, accountBaseline.email)
+					? { currentPassword: emailPassword }
+					: {}),
+			});
 			accountBaseline = { name, email };
+			emailPassword = "";
 		}
 		if (plan.savePassword) {
 			const changed = await updatePassword({ currentPassword, newPassword });
@@ -518,7 +554,7 @@ async function saveAccount() {
 		accountSavedAt = new Date();
 		showToast({ type: "success", message: $t(plan.successKey) });
 	} catch (error: unknown) {
-		showToast({ type: "error", message: errorMessage(error) });
+		showToast({ type: "error", message: accountErrorMessage(error) });
 	} finally {
 		accountSaving = false;
 	}
@@ -528,6 +564,7 @@ async function saveAccount() {
 function discardAccount() {
 	name = accountBaseline.name;
 	email = accountBaseline.email;
+	emailPassword = "";
 	clearPasswordFields();
 	signedOutOtherDevices = 0;
 }
@@ -1152,6 +1189,7 @@ $effect(() => {
 				onRemovePhoto={removePhoto}
 				bind:name
 				bind:email
+				bind:emailPassword
 				bind:currentPassword
 				bind:newPassword
 				bind:confirmPassword

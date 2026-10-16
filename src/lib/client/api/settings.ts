@@ -230,6 +230,11 @@ export async function fetchUserSettings(
 interface ProfileUpdateParams {
 	name: string | null;
 	email: string;
+	/**
+	 * The account password. The server asks for it, and only it, when the
+	 * address differs from the saved one; a rename sends none.
+	 */
+	currentPassword?: string;
 }
 
 interface PasswordUpdateParams {

@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
 import { sessions, users } from "$lib/server/db/schema";
 import { createSession, hashSessionToken } from "$lib/server/services/auth";
-import { _resetLoginRateLimitForTests } from "$lib/server/services/login-rate-limit";
+import {
+	_resetLoginRateLimitForTests,
+	_setLoginRateLimitSleepForTests,
+	LOGIN_RATE_LIMIT_POLICY,
+} from "$lib/server/services/login-rate-limit";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { PATCH } from "./+server";
 
@@ -175,5 +179,67 @@ describe("PATCH /api/settings/password and the person's other devices", () => {
 
 		expect(response.status).toBe(400);
 		expect(await storedSessionIds()).toHaveLength(2);
+	});
+});
+
+// The current-password check is shared with the email change
+// (checkCurrentPassword), and the budget with it: both count in the account's
+// own namespace of the sign-in limiter.
+describe("PATCH /api/settings/password and the limiter", () => {
+	const budget = LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+	const newPassword = "z".repeat(MIN_PASSWORD_LENGTH);
+
+	beforeEach(() => {
+		_setLoginRateLimitSleepForTests(async () => {});
+	});
+
+	afterEach(() => {
+		_setLoginRateLimitSleepForTests();
+	});
+
+	it("counts every wrong current password, and answers the wrong one over budget as a 429", async () => {
+		for (let attempt = 0; attempt < budget; attempt += 1) {
+			const response = await changePasswordTo(newPassword, {
+				currentPassword: "not-the-password",
+			});
+			expect(response.status).toBe(401);
+			expect(await response.json()).toMatchObject({
+				error: "Current password is incorrect",
+			});
+		}
+
+		const throttled = await changePasswordTo(newPassword, {
+			currentPassword: "not-the-password",
+		});
+
+		expect(throttled.status).toBe(429);
+		expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect(await throttled.json()).toMatchObject({
+			errorKey: "login.tooManyAttempts",
+		});
+		expect(await bcrypt.compare(CURRENT_PASSWORD, await storedHash())).toBe(
+			true,
+		);
+	});
+
+	it("still takes the right password over budget", async () => {
+		for (let attempt = 0; attempt < budget + 2; attempt += 1) {
+			await changePasswordTo(newPassword, {
+				currentPassword: "not-the-password",
+			});
+		}
+
+		const response = await changePasswordTo(newPassword);
+
+		expect(response.status).toBe(200);
+		expect(await bcrypt.compare(newPassword, await storedHash())).toBe(true);
+	});
+
+	it("answers 404 for an account that is no longer there", async () => {
+		await db.delete(users).where(eq(users.id, userId));
+
+		const response = await changePasswordTo(newPassword);
+
+		expect(response.status).toBe(404);
 	});
 });

@@ -8,6 +8,7 @@ import {
 	fetchUserSettings,
 	saveBlobAsDownload,
 	updatePassword,
+	updateProfile,
 } from "./settings";
 
 describe("settings client API", () => {
@@ -71,6 +72,47 @@ describe("settings client API", () => {
 					currentPassword: "old-one",
 					newPassword: "new-one-1",
 				}),
+			}),
+		);
+	});
+
+	it("sends the account password with a profile change that carries one, and only then", async () => {
+		const fetchImpl = vi.fn().mockImplementation(
+			async () =>
+				new Response(
+					JSON.stringify({ name: "Ada", email: "ada@example.com" }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await updateProfile({
+			name: "Ada",
+			email: "ada@example.com",
+			currentPassword: "old-one",
+		});
+		await updateProfile({ name: "Ada", email: "ada@example.com" });
+
+		expect(fetchImpl).toHaveBeenNthCalledWith(
+			1,
+			"/api/settings/profile",
+			expect.objectContaining({
+				method: "PATCH",
+				body: JSON.stringify({
+					name: "Ada",
+					email: "ada@example.com",
+					currentPassword: "old-one",
+				}),
+			}),
+		);
+		expect(fetchImpl).toHaveBeenNthCalledWith(
+			2,
+			"/api/settings/profile",
+			expect.objectContaining({
+				body: JSON.stringify({ name: "Ada", email: "ada@example.com" }),
 			}),
 		);
 	});

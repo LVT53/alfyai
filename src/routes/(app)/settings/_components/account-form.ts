@@ -20,6 +20,12 @@ import { intlLocale } from "$lib/utils/locale";
 export type AccountFormValues = {
 	name: string;
 	email: string;
+	/**
+	 * The password typed under the email box. That box exists only while the
+	 * email differs from the saved one: changing the address asks for the
+	 * account password, apart from the three boxes of the password change.
+	 */
+	emailPassword: string;
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
@@ -38,8 +44,17 @@ export function isProfileDirty(
 ): boolean {
 	return (
 		values.name.trim() !== baseline.name.trim() ||
-		values.email.trim() !== baseline.email.trim()
+		isEmailChanged(values.email, baseline.email)
 	);
+}
+
+/**
+ * True when the email box no longer holds the saved address. This is what asks
+ * for the account password: the box for it is shown exactly while this is true,
+ * and the Save will not go without it.
+ */
+export function isEmailChanged(email: string, savedEmail: string): boolean {
+	return email.trim() !== savedEmail.trim();
 }
 
 /**
@@ -100,6 +115,15 @@ export function planAccountSave(
 
 	if (!profileDirty && !passwordStarted) {
 		return { ok: false, errorKey: "profileTab.nothingToSave" };
+	}
+
+	// First, because the email box is the first box on the card: changing the
+	// address needs the account password, apart from the password change's own.
+	if (
+		isEmailChanged(values.email, baseline.email) &&
+		values.emailPassword.length === 0
+	) {
+		return { ok: false, errorKey: "profileTab.emailNeedsPassword" };
 	}
 
 	if (passwordStarted) {
