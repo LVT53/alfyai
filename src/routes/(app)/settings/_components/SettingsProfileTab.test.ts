@@ -294,6 +294,32 @@ describe("SettingsProfileTab — one identity card, one Save", () => {
 		expect(screen.getByText("Change password — optional")).toBeInTheDocument();
 	});
 
+	// The note used to say that emptying the password boxes is how a name AND an
+	// email are saved on their own. Changing the email asks for the current
+	// password, so that was wrong whenever the email changed.
+	it("tells the truth about the email: it asks for the current password, whatever the boxes hold", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		const { unmount } = renderTab();
+		const english = screen.getByText(/Leave the password boxes empty/);
+		expect(english).toHaveTextContent(
+			"Leave the password boxes empty to keep your password. Changing your email asks for your current password.",
+		);
+		expect(english).not.toHaveTextContent(/only your name and email/i);
+		unmount();
+
+		uiLanguage.set("hu");
+		try {
+			renderTab();
+			const hungarian = screen.getByText(/Ha üresen hagyod a jelszómezőket/);
+			expect(hungarian).toHaveTextContent(
+				"Ha üresen hagyod a jelszómezőket, a jelszó nem változik. Az e-mail-cím módosításához a jelenlegi jelszavad kell.",
+			);
+			expect(hungarian).not.toHaveTextContent(/csak a nevedet/);
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
 	it("names the minimum length in the placeholders of the new and the confirm box", () => {
 		renderTab();
 

@@ -1839,7 +1839,7 @@ const settingsDict = {
 		"profileTab.accountTitle": "Your account",
 		"profileTab.passwordSectionLabel": "Change password — optional",
 		"profileTab.passwordOptionalNote":
-			"Leave the password boxes empty to save only your name and email. Filling them changes the password with the same Save.",
+			"Leave the password boxes empty to keep your password. Changing your email asks for your current password.",
 		"profileTab.currentPasswordPlaceholder": "Your password",
 		"profileTab.newPasswordPlaceholder": "At least {count} characters",
 		"profileTab.saveChanges": "Save changes",
@@ -3846,7 +3846,7 @@ const settingsDict = {
 		"profileTab.accountTitle": "A fiókod",
 		"profileTab.passwordSectionLabel": "Jelszócsere — nem kötelező",
 		"profileTab.passwordOptionalNote":
-			"Hagyd üresen a jelszómezőket, ha csak a nevedet és az e-mail-címedet mentenéd. Ha kitöltöd őket, ugyanez a Mentés cseréli a jelszót is.",
+			"Ha üresen hagyod a jelszómezőket, a jelszó nem változik. Az e-mail-cím módosításához a jelenlegi jelszavad kell.",
 		"profileTab.currentPasswordPlaceholder": "A jelszavad",
 		"profileTab.newPasswordPlaceholder": "Legalább {count} karakter",
 		"profileTab.saveChanges": "Változások mentése",
