@@ -23,7 +23,7 @@ import {
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
-import { verifyPassword } from "$lib/server/services/auth";
+import { checkCurrentPassword } from "$lib/server/services/auth";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	isShippedArtifactTourType,
@@ -38,7 +38,9 @@ export type AccountDataArchiveResult =
 			zipStream: ReadableStream<Uint8Array>;
 	  }
 	| { status: "not_found" }
-	| { status: "incorrect_password" };
+	| { status: "incorrect_password" }
+	/** Wrong answers have used up the account's budget (`checkCurrentPassword`). */
+	| { status: "throttled"; retryAfterSeconds: number };
 
 export type AccountDataArchiveInput = {
 	password: string;
@@ -101,8 +103,16 @@ export async function createAccountDataArchive(
 		.limit(1);
 	if (!user) return { status: "not_found" };
 
-	const valid = await verifyPassword(input.password, user.passwordHash);
-	if (!valid) return { status: "incorrect_password" };
+	// The archive is every word the person has written, so the password is asked
+	// for like the email change's: through the one check that shares the
+	// account's budget of wrong answers (a stolen session cannot guess it here
+	// at bcrypt speed and then use it there).
+	const check = await checkCurrentPassword(userId, input.password, database);
+	if (check.outcome === "no_user") return { status: "not_found" };
+	if (check.outcome === "throttled") {
+		return { status: "throttled", retryAfterSeconds: check.retryAfterSeconds };
+	}
+	if (check.outcome === "wrong") return { status: "incorrect_password" };
 
 	const zip = new JSZip();
 	zip.file(ENTRY_FILE, "");

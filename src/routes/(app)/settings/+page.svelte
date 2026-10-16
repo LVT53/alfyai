@@ -497,9 +497,12 @@ function clearPasswordFields() {
 }
 
 /**
- * The line for a Save the server refused. A refusal that carries a key the
- * dictionary knows (a wrong password, a throttled one) is read in the reader's
- * language; anything else is the server's own sentence, as it always was.
+ * The line for an account action the server refused: a Save on the identity
+ * card, or one of the four actions that confirm with the password (the data
+ * archive, clear memory, clear workspace, delete account). A refusal that
+ * carries a key the dictionary knows (a wrong password, a throttled one) is
+ * read in the reader's language; anything else is the server's own sentence,
+ * as it always was.
  */
 function accountErrorMessage(error: unknown): string {
 	if (error instanceof ApiError && error.errorKey) {
@@ -1043,7 +1046,7 @@ async function confirmPrivacyAction() {
 		closePrivacyAction();
 		await goto("/login");
 	} catch (error: unknown) {
-		privacyError = errorMessage(error);
+		privacyError = accountErrorMessage(error);
 	} finally {
 		privacyLoading = false;
 	}
@@ -1057,7 +1060,7 @@ async function downloadArchiveFromDestructiveModal() {
 		await downloadArchive(privacyPassword);
 		privacyMessage = $t("settings_archiveDownloaded");
 	} catch (error: unknown) {
-		privacyError = errorMessage(error);
+		privacyError = accountErrorMessage(error);
 	} finally {
 		privacyLoading = false;
 	}

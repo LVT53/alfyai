@@ -10,6 +10,11 @@ import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
+	_resetLoginRateLimitForTests,
+	_setLoginRateLimitSleepForTests,
+	LOGIN_RATE_LIMIT_POLICY,
+} from "$lib/server/services/login-rate-limit";
+import {
 	ARCHIVE_EXCLUDED_DERIVED_DIRECTORIES,
 	createAccountDataArchive,
 } from "./index";
@@ -414,6 +419,61 @@ describe("createAccountDataArchive", () => {
 		});
 
 		expect(result).toEqual({ status: "incorrect_password" });
+	});
+
+	// The archive is every word the person has written. Its password is asked
+	// for through the check the email change uses, which keeps one budget of
+	// wrong answers per account (and reads the account from the connection the
+	// archive was handed, not from the app's own).
+	describe("when wrong passwords have used up the account's budget", () => {
+		const budget = LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+		const ask = (password: string) =>
+			createAccountDataArchive("user-1", {
+				password,
+				db,
+				rootDir: tempDir,
+				now: new Date("2026-06-15T08:00:00Z"),
+			});
+
+		beforeEach(() => {
+			_resetLoginRateLimitForTests();
+			_setLoginRateLimitSleepForTests(async () => {});
+		});
+
+		afterEach(() => {
+			_setLoginRateLimitSleepForTests();
+			_resetLoginRateLimitForTests();
+		});
+
+		it("reports a wrong password as throttled, with the wait, and builds no archive", async () => {
+			await seedArchiveUser();
+			for (let attempt = 0; attempt < budget; attempt += 1) {
+				expect(await ask("wrong-password")).toEqual({
+					status: "incorrect_password",
+				});
+			}
+
+			const result = await ask("wrong-password");
+
+			expect(result).toMatchObject({ status: "throttled" });
+			expect(
+				(result as { retryAfterSeconds: number }).retryAfterSeconds,
+			).toBeGreaterThan(0);
+		});
+
+		it("still builds the archive for the right password, and forgets the failures", async () => {
+			await seedArchiveUser();
+			for (let attempt = 0; attempt < budget + 1; attempt += 1) {
+				await ask("wrong-password");
+			}
+
+			const right = await ask("correct-password");
+
+			expect(right.status).toBe("ok");
+			expect(await ask("wrong-password")).toEqual({
+				status: "incorrect_password",
+			});
+		});
 	});
 
 	// Personal instructions are the user's own words about how the assistant

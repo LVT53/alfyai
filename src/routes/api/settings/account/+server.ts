@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { passwordThrottledResponse } from "$lib/server/api/current-password";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
 import {
@@ -61,6 +62,10 @@ export const DELETE: RequestHandler = async (event) => {
 		return json({ error: "Incorrect password" }, { status: 401 });
 	}
 
+	if (result.status === "throttled") {
+		return passwordThrottledResponse(result.retryAfterSeconds);
+	}
+
 	clearSessionCookie(event.cookies);
 
 	return json({ success: true });
@@ -97,6 +102,10 @@ export const POST: RequestHandler = async (event) => {
 
 	if (result.status === "incorrect_password") {
 		return json({ error: "Incorrect password" }, { status: 401 });
+	}
+
+	if (result.status === "throttled") {
+		return passwordThrottledResponse(result.retryAfterSeconds);
 	}
 
 	clearSessionCookie(event.cookies);

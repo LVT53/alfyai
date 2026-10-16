@@ -36,28 +36,37 @@ export type CurrentPasswordCheck =
 
 /**
  * Checks the password of the signed-in account for a settings action that asks
- * for it again (changing the password, changing the email).
+ * for it again: the password change, the email change, the data archive, clear
+ * memory, clear workspace and delete account. Every one of them goes through
+ * here, so they share one budget of wrong answers.
  *
  * The same bcrypt comparison the sign-in uses, run through the same limiter
  * (`login-rate-limit.ts`): the lockout state is checked before comparing, a
  * wrong answer is recorded, and a right one clears the count. The count lives
  * in the limiter's `account:` namespace, on purpose: a fumbled password here
  * must not slow the person's sign-in down, and the sign-in's count (keyed on the
- * email) is not this one. This endpoint is already behind a session, so the
- * threat is a hijacked session guessing the password to change it, not an
- * anonymous guesser.
+ * email) is not this one. These endpoints are already behind a session, so the
+ * threat is a hijacked session guessing the password to change the email or to
+ * take the data, not an anonymous guesser.
  *
  * A right password is still accepted while a penalty applies, as at sign-in:
  * the limiter slows a guesser down, it never locks the owner out.
+ *
+ * `database` is the connection the account is read from; a service that runs
+ * on an injected one (the data archive) hands it over.
  */
 export async function checkCurrentPassword(
 	userId: string,
 	password: string,
+	database: DatabaseInstance = db,
 ): Promise<CurrentPasswordCheck> {
 	const rateLimitKeys = { accountId: userId };
 
 	const guarded = await guardCredentialCheck(rateLimitKeys, async () => {
-		const [found] = await db.select().from(users).where(eq(users.id, userId));
+		const [found] = await database
+			.select()
+			.from(users)
+			.where(eq(users.id, userId));
 		if (!found) return { exists: false, valid: false };
 		return {
 			exists: true,

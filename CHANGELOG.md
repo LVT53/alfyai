@@ -67,6 +67,10 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   backup holds no session anyone can use.
 - The maintenance pass deletes sessions that have ended, and any row a deploy
   leaves with an impossible expiry.
+- Downloading your data, clearing your memory or workspace, and deleting your
+  account count wrong passwords against the same limit as changing your email
+  or password. Until now a password could be guessed at on those four without
+  one.
 
 ### Upgrade notes
 

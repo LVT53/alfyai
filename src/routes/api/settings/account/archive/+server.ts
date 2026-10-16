@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { passwordThrottledResponse } from "$lib/server/api/current-password";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { createAccountDataArchive } from "$lib/server/services/account-data-archive";
 import type { RequestHandler } from "./$types";
@@ -47,6 +48,9 @@ export const POST: RequestHandler = async (event) => {
 	}
 	if (result.status === "incorrect_password") {
 		return json({ error: "Incorrect password" }, { status: 401 });
+	}
+	if (result.status === "throttled") {
+		return passwordThrottledResponse(result.retryAfterSeconds);
 	}
 
 	return new Response(result.zipStream, {

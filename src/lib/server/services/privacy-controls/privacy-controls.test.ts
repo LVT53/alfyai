@@ -753,6 +753,58 @@ describe("privacy controls service", () => {
 		});
 	});
 
+	// The three actions share the email change's check, so a stolen session
+	// cannot guess the password on them at bcrypt speed: wrong answers are
+	// counted in the account's budget, and over it they are throttled.
+	it.each([
+		["clearMemoryAndKnowledge"],
+		["clearWorkspaceData"],
+		["eraseUserAccount"],
+	] as const)("%s reports a wrong password over the account's budget as throttled, and does nothing", async (action) => {
+		seedPrivacyUser();
+		const before = await getPrivacySnapshot();
+		const limiter = await import("../login-rate-limit");
+		limiter._setLoginRateLimitSleepForTests(async () => {});
+		const privacy = await import("./index");
+
+		for (
+			let attempt = 0;
+			attempt < limiter.LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+			attempt += 1
+		) {
+			expect(await privacy[action]("user-1", "wrong-password")).toEqual({
+				status: "incorrect_password",
+			});
+		}
+		const result = await privacy[action]("user-1", "wrong-password");
+
+		expect(result).toMatchObject({ status: "throttled" });
+		expect(
+			(result as { retryAfterSeconds: number }).retryAfterSeconds,
+		).toBeGreaterThan(0);
+		await expect(getPrivacySnapshot()).resolves.toEqual(before);
+	});
+
+	it("keeps one budget across the actions, and still takes the right password over it", async () => {
+		seedPrivacyUser();
+		const limiter = await import("../login-rate-limit");
+		limiter._setLoginRateLimitSleepForTests(async () => {});
+		const privacy = await import("./index");
+		const half = limiter.LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount / 2;
+		for (let attempt = 0; attempt < half; attempt += 1) {
+			await privacy.clearMemoryAndKnowledge("user-1", "wrong-password");
+			await privacy.clearWorkspaceData("user-1", "wrong-password");
+		}
+
+		expect(await privacy.eraseUserAccount("user-1", "wrong-password")).toEqual(
+			expect.objectContaining({ status: "throttled" }),
+		);
+		// Over the budget, the owner is slowed down and never locked out.
+		expect(
+			await privacy.clearMemoryAndKnowledge("user-1", "correct-password"),
+		).toMatchObject({ status: "cleared" });
+	});
+
 	it("clears memory and knowledge while preserving chats and generated chat outputs", async () => {
 		seedPrivacyUser();
 		seedAtlasLifecycleData("succeeded");
