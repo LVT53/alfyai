@@ -190,12 +190,58 @@ export async function deleteSession(token: string): Promise<void> {
 }
 
 /**
- * Signs a person out of every device but one, and says how many sessions ended.
+ * The latest moment a session this app wrote can end at, as of `now`: the
+ * longest session it creates plus a day. Nothing the app writes ends later.
+ * What does is a row the release before the one that hashes tokens wrote after
+ * `db:prepare` had run, while it still served (about two minutes of a deploy):
+ * the raw token as its id, and a millisecond count in the seconds column, which
+ * reads back as a date tens of thousands of years away. No lookup can match
+ * such a row, so it is no session at all.
+ */
+function latestPlausibleExpiry(now: Date): Date {
+	return new Date(
+		now.getTime() + REMEMBERED_SESSION_DURATION_MS + FAR_FUTURE_GRACE_MS,
+	);
+}
+
+/**
+ * Which rows of a person a revoke deletes: all of them, bar the session behind
+ * `keepToken`. The token, not the stored id, hashed here like every other
+ * lookup. With no token to keep (`null`) nothing is spared, which is the safe
+ * reading of a request that carries no session of its own.
+ */
+function sessionsToRevoke(userId: string, keepToken: string | null) {
+	const ofThePerson = eq(sessions.userId, userId);
+	return keepToken === null
+		? ofThePerson
+		: and(ofThePerson, ne(sessions.id, hashSessionToken(keepToken)));
+}
+
+/**
+ * How many of the rows a revoke deleted were sessions someone could still have
+ * been using: they had not ended (as `validateSession` reads it) and were not
+ * one of the stray rows a deploy leaves (see `latestPlausibleExpiry`). The
+ * Profile card tells the person "you were signed out on your other devices"
+ * while this is above zero, and a row that was already dead was no device.
+ * Every row is deleted all the same; this only decides which ones are counted.
+ */
+function countLiveSessions(
+	removed: ReadonlyArray<{ expiresAt: Date }>,
+	now: Date,
+): number {
+	const latest = latestPlausibleExpiry(now).getTime();
+	return removed.filter(({ expiresAt }) => {
+		const endsAt = expiresAt.getTime();
+		return endsAt >= now.getTime() && endsAt <= latest;
+	}).length;
+}
+
+/**
+ * Signs a person out of every device but one, and says how many sessions were
+ * live when they ended (rows that had already expired go too, uncounted).
  *
  * `keepToken` is the session cookie of the device that is acting (the one that
- * just changed the password): the token, not the stored id, hashed here like
- * every other lookup. With no token to keep (`null`) nothing is spared, which
- * is the safe reading of a request that carries no session of its own.
+ * just changed the password).
  *
  * `database` is the connection the delete runs on; a service that runs on a
  * `QueryExecutor` (user-admin) hands over the executor's, so the seam it was
@@ -206,18 +252,14 @@ export async function revokeOtherSessions(
 	keepToken: string | null,
 	database: DatabaseInstance = db,
 ): Promise<number> {
-	const ofThePerson = eq(sessions.userId, userId);
-	const result = await database
+	const removed = await database
 		.delete(sessions)
-		.where(
-			keepToken === null
-				? ofThePerson
-				: and(ofThePerson, ne(sessions.id, hashSessionToken(keepToken))),
-		);
-	return result.changes;
+		.where(sessionsToRevoke(userId, keepToken))
+		.returning({ expiresAt: sessions.expiresAt });
+	return countLiveSessions(removed, new Date());
 }
 
-/** Signs a person out everywhere, and says how many sessions ended. */
+/** Signs a person out everywhere, and says how many live sessions that ended. */
 export async function revokeAllSessions(
 	userId: string,
 	database: DatabaseInstance = db,
@@ -233,21 +275,20 @@ export async function revokeAllSessions(
  *    deletes it when it is presented; this removes the ones nobody presents (a
  *    phone that never came back). Strictly before `now`, as `validateSession`
  *    reads it, so a session is never swept that it would still accept.
- *  - Rows that end further away than the longest session the app creates plus a
- *    day. Nothing the app writes does that. What does is a row the release
- *    before the one that hashes tokens wrote after `db:prepare` had run, while
- *    it still served (about two minutes of a deploy): the raw token as its id,
- *    and a millisecond count in the seconds column, which reads back as a date
- *    tens of thousands of years away. No lookup can match its id, so it is
- *    inert; this makes sure it does not stay forever.
+ *  - Rows that end further away than `latestPlausibleExpiry`: the stray rows
+ *    the release before the one that hashes tokens can leave during a deploy.
+ *    No lookup can match their id, so they are inert; this makes sure they do
+ *    not stay forever.
  */
 export async function sweepExpiredSessions(now: Date): Promise<number> {
-	const farFuture = new Date(
-		now.getTime() + REMEMBERED_SESSION_DURATION_MS + FAR_FUTURE_GRACE_MS,
-	);
 	const result = await db
 		.delete(sessions)
-		.where(or(lt(sessions.expiresAt, now), gt(sessions.expiresAt, farFuture)));
+		.where(
+			or(
+				lt(sessions.expiresAt, now),
+				gt(sessions.expiresAt, latestPlausibleExpiry(now)),
+			),
+		);
 	return result.changes;
 }
 

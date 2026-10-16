@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { db } from "$lib/server/db";
+import { db, sqlite } from "$lib/server/db";
 import { sessions, users } from "$lib/server/db/schema";
 import {
 	createSession,
@@ -98,6 +98,76 @@ describe("revokeOtherSessions", () => {
 		// What a copy of the database holds is not what the cookie holds.
 		const storedId = hashSessionToken(current.token);
 		expect(await revokeOtherSessions(userId, storedId)).toBe(2);
+		expect(await sessionIdsOf(userId)).toHaveLength(0);
+	});
+});
+
+// The count goes back to the Profile card, which tells the person "you were
+// signed out on your other devices". A row that was already dead is no device:
+// an expired one, or one of the rows the release before the hashing one wrote
+// while a deploy ran (the raw token as its id, a millisecond count in the
+// seconds column, which reads back as a date tens of thousands of years away
+// and which no lookup can match). Every one of them is still deleted.
+describe("what a revoke counts", () => {
+	const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+	async function addDeadRows() {
+		await db.insert(sessions).values({
+			id: "ended-yesterday",
+			userId,
+			expiresAt: new Date(Date.now() - ONE_DAY_MS),
+		});
+		sqlite
+			.prepare(
+				"INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)",
+			)
+			.run(
+				"raw-token-from-the-old-release",
+				userId,
+				Date.now() + 14 * ONE_DAY_MS,
+			);
+	}
+
+	it("counts the sessions that were live and no row that had already ended", async () => {
+		const current = await createSession(userId);
+		const phone = await createSession(userId);
+		await addDeadRows();
+
+		const signedOut = await revokeOtherSessions(userId, current.token);
+
+		expect(signedOut).toBe(1);
+		expect(await validateSession(phone.token)).toBeNull();
+		// Still deleted: the dead rows go with the live ones.
+		expect(await sessionIdsOf(userId)).toEqual([
+			hashSessionToken(current.token),
+		]);
+	});
+
+	it("says 0 when every other row was already dead, and still deletes them", async () => {
+		const current = await createSession(userId);
+		await addDeadRows();
+
+		expect(await revokeOtherSessions(userId, current.token)).toBe(0);
+		expect(await sessionIdsOf(userId)).toEqual([
+			hashSessionToken(current.token),
+		]);
+	});
+
+	it("counts a session that is about to end, but has not, as live", async () => {
+		const current = await createSession(userId);
+		const soon = new Date(Math.ceil(Date.now() / 1000) * 1000 + 5_000);
+		await db
+			.insert(sessions)
+			.values({ id: "ends-in-a-moment", userId, expiresAt: soon });
+
+		expect(await revokeOtherSessions(userId, current.token)).toBe(1);
+	});
+
+	it("counts the same way when everything is revoked", async () => {
+		await createSession(userId);
+		await addDeadRows();
+
+		expect(await revokeAllSessions(userId)).toBe(1);
 		expect(await sessionIdsOf(userId)).toHaveLength(0);
 	});
 });

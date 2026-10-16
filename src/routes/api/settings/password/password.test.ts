@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { db } from "$lib/server/db";
+import { db, sqlite } from "$lib/server/db";
 import { sessions, users } from "$lib/server/db/schema";
 import { createSession, hashSessionToken } from "$lib/server/services/auth";
 import {
@@ -131,6 +131,55 @@ describe("PATCH /api/settings/password and the person's other devices", () => {
 
 	it("says 0 when this is the only device, and keeps it signed in", async () => {
 		const current = await createSession(userId);
+
+		const response = await changePasswordTo(newPassword, {
+			token: current.token,
+		});
+
+		expect(await response.json()).toMatchObject({ signedOutOtherDevices: 0 });
+		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
+	});
+
+	// The card says "You were signed out on your other devices" while the count
+	// is above zero. A row that had already ended, or one a deploy left with an
+	// impossible expiry, was no device: it is deleted like the rest and not
+	// counted.
+	it("counts only the sessions that were live, though it deletes every other row", async () => {
+		const current = await createSession(userId);
+		await createSession(userId);
+		await db.insert(sessions).values({
+			id: "ended-yesterday",
+			userId,
+			expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+		});
+		sqlite
+			.prepare(
+				"INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)",
+			)
+			.run(
+				"raw-token-from-the-old-release",
+				userId,
+				Date.now() + 14 * 86_400_000,
+			);
+
+		const response = await changePasswordTo(newPassword, {
+			token: current.token,
+		});
+
+		expect(await response.json()).toEqual({
+			success: true,
+			signedOutOtherDevices: 1,
+		});
+		expect(await storedSessionIds()).toEqual([hashSessionToken(current.token)]);
+	});
+
+	it("says 0 when the only other rows were already dead, so the card says nothing", async () => {
+		const current = await createSession(userId);
+		await db.insert(sessions).values({
+			id: "ended-yesterday",
+			userId,
+			expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+		});
 
 		const response = await changePasswordTo(newPassword, {
 			token: current.token,
