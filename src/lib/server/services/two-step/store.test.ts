@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { decodeBase32IgnorePadding } from "@oslojs/encoding";
 import { generateHOTP } from "@oslojs/otp";
-import { and, eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { and, eq, isNull } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "$lib/server/db";
 import {
 	sessions,
@@ -151,6 +151,49 @@ describe("setup", () => {
 			.from(userSecondFactors)
 			.where(eq(userSecondFactors.userId, userId));
 		expect(rows).toHaveLength(1);
+	});
+
+	it("a confirm committing at the transaction boundary is refused, not overwritten", async () => {
+		const { userId, email } = await createUser();
+		const pending = await beginTwoStepSetup(userId, email);
+		expect(pending.ok).toBe(true);
+
+		const now = new Date();
+		const runTransaction = db.transaction.bind(db) as unknown as (
+			callback: (tx: unknown) => unknown,
+		) => unknown;
+		const transactionSpy = vi.spyOn(db, "transaction");
+		transactionSpy.mockImplementation(((callback: (tx: unknown) => unknown) => {
+			// A concurrent confirm commits exactly here: after any guard that ran
+			// outside the transaction, before its own statements. The fixed setup
+			// reads the confirmed row inside the transaction and refuses; a
+			// check-then-act would insert over it and hit the unique index.
+			db.update(userSecondFactors)
+				.set({ confirmedAt: now, lastUsedStep: 0, updatedAt: now })
+				.where(
+					and(
+						eq(userSecondFactors.userId, userId),
+						isNull(userSecondFactors.confirmedAt),
+					),
+				)
+				.run();
+			return runTransaction(callback);
+		}) as never);
+
+		try {
+			const raced = await beginTwoStepSetup(userId, email);
+			expect(raced).toEqual({ ok: false, reason: "already_on" });
+		} finally {
+			transactionSpy.mockRestore();
+		}
+
+		// The confirm won and the refused setup wrote nothing over it.
+		const rows = await db
+			.select()
+			.from(userSecondFactors)
+			.where(eq(userSecondFactors.userId, userId));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.confirmedAt).not.toBeNull();
 	});
 
 	it("setup replaces an unconfirmed factor", async () => {

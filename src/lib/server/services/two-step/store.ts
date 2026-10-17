@@ -268,25 +268,41 @@ export async function listTwoStepEnabled(
  *
  * R13: an unconfirmed factor is replaced (a person who closed the dialog at
  * step 1 starts clean), and a confirmed one refuses with `already_on` — turn
- * it off first, never overwrite a working factor. The delete and insert are
- * one transaction, and the write lock SQLite takes at BEGIN (db/write-lock.ts)
- * makes two racing setups serialize, so the unique (user, kind) index can
- * never see two inserts.
+ * it off first, never overwrite a working factor. The confirmed check, the
+ * delete and the insert are one transaction, and the write lock SQLite takes
+ * at BEGIN (db/write-lock.ts) makes two racing setups serialize. Were the
+ * check outside the transaction, a confirm committing in between would make
+ * the insert hit the unique (user, kind) index and answer 500.
  */
 export async function beginTwoStepSetup(
 	userId: string,
 	email: string,
 ): Promise<SetupStartResult> {
-	if (await isTwoStepEnabled(userId))
-		return { ok: false, reason: "already_on" };
-
 	const secret = generateTotpSecret();
 	const encrypted = encryptConnectionSecret(
 		Buffer.from(secret).toString("base64"),
 	);
 	const now = new Date();
 
+	let alreadyOn = false;
 	db.transaction((tx) => {
+		// Any confirmed factor means two-step sign-in is on, the same rule
+		// `isTwoStepEnabled` applies.
+		const confirmed = tx
+			.select({ id: userSecondFactors.id })
+			.from(userSecondFactors)
+			.where(
+				and(
+					eq(userSecondFactors.userId, userId),
+					isNotNull(userSecondFactors.confirmedAt),
+				),
+			)
+			.get();
+		if (confirmed) {
+			alreadyOn = true;
+			return;
+		}
+
 		tx.delete(userSecondFactors)
 			.where(
 				and(
@@ -311,6 +327,8 @@ export async function beginTwoStepSetup(
 			})
 			.run();
 	});
+
+	if (alreadyOn) return { ok: false, reason: "already_on" };
 
 	return {
 		ok: true,
