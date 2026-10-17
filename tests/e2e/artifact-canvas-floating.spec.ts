@@ -16,7 +16,12 @@ import {
 	openChatAndReload,
 	testUserId,
 } from "./artifact-canvas-helpers";
-import { createEmptyConversation, login } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The layers that float over the board stay where the reader can use them (RC-3
 // N3): the change pill inside the pane, the selection's pill inside the pane and
@@ -233,14 +238,24 @@ test.describe("the layers that float over a board", () => {
 
 		// The control is out of the way: nothing of the block is under it.
 		await expect(zoom).toBeHidden();
+
+		// The review bar's arrival shortens the pane and the board follows it, a
+		// frame at a time, so the box read just after the drag can come from the
+		// middle of that fit. Let the motion settle and measure the block again, so
+		// the corner is taken from where it ended up rather than from a stale frame.
+		await waitForMotionToSettle(page);
+		const node = page.locator(`.svelte-flow__node[data-id="${UPPER}"]`);
+		await waitForStableBoundingBox(node);
+		const settled = await nodeBox(page, UPPER);
 		const corner = {
-			x: Math.min(moved.x + moved.width - 6, chip.x + chip.width - 6),
-			y: Math.min(moved.y + moved.height - 6, chip.y + chip.height - 6),
+			x: Math.min(settled.x + settled.width - 6, chip.x + chip.width - 6),
+			y: Math.min(settled.y + settled.height - 6, chip.y + chip.height - 6),
 		};
-		expect(
-			await topmostIs(page, corner, ".svelte-flow__node"),
-			"the block's corner is the block",
-		).toBe(true);
+		await expect
+			.poll(() => topmostIs(page, corner, ".svelte-flow__node"), {
+				message: "the block's corner is the block",
+			})
+			.toBe(true);
 
 		// Nothing selected: it comes back (a click on the empty top of the pane).
 		const pane = await box(page.getByTestId("canvas-board"));
