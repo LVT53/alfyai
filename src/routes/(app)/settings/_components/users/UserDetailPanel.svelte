@@ -1,5 +1,12 @@
 <script lang="ts">
-import { Check, TriangleAlert, Trash2, UserPlus, Users } from "@lucide/svelte";
+import {
+	Check,
+	ShieldOff,
+	Trash2,
+	TriangleAlert,
+	UserPlus,
+	Users,
+} from "@lucide/svelte";
 import { fade } from "svelte/transition";
 import { t } from "$lib/i18n";
 import type { AdminManagedUserSummary } from "$lib/server/services/user-admin";
@@ -23,9 +30,11 @@ let {
 	message = "",
 	error = "",
 	hiddenByFilter = false,
+	adminHasTwoStep = false,
 	onPromote,
 	onDemote,
 	onRevokeSessions,
+	onResetTwoStep,
 	onDelete,
 }: {
 	user: AdminManagedUserSummary | null;
@@ -38,6 +47,10 @@ let {
 	onPromote: (userId: string) => void;
 	onDemote: (userId: string) => void;
 	onRevokeSessions: (userId: string) => void;
+	/** Opens the reset dialog; never offered on the admin's own account. */
+	onResetTwoStep: (userId: string) => void;
+	/** Whether the ADMIN has a factor: the dialog then also asks for a code. */
+	adminHasTwoStep?: boolean;
 	onDelete: (userId: string) => void;
 } = $props();
 
@@ -174,6 +187,19 @@ function formatDateTime(timestamp: number | null | undefined): string {
 				<dd data-testid="admin-user-last-active">{formatDateTime(user.lastActiveAt)}</dd>
 			</div>
 			<div class="meta-row">
+				<dt>{$t('admin.users.twoStepSignIn')}</dt>
+				<dd data-testid="admin-user-two-step-detail">
+					{#if user.twoStepEnabled}
+						{$t('admin.users.twoStepOnSince', {
+							date: formatDate(user.twoStepSince),
+							count: user.backupCodesLeft,
+						})}
+					{:else}
+						{$t('admin.users.twoStepOffDetail')}
+					{/if}
+				</dd>
+			</div>
+			<div class="meta-row">
 				<dt>{$t('admin.activeSessions')}</dt>
 				<dd class="sessions-cell">
 					<span>{formatCount(user.activeSessionCount)}</span>
@@ -212,6 +238,17 @@ function formatDateTime(timestamp: number | null | undefined): string {
 				>
 					<UserPlus size={14} strokeWidth={2} aria-hidden="true" />
 					{busy ? $t('common.saving') : $t('admin.promoteToAdmin')}
+				</button>
+			{/if}
+			{#if user.twoStepEnabled && !isSelf}
+				<button
+					type="button"
+					class="btn-secondary w-full justify-center gap-1.5"
+					disabled={busy}
+					onclick={() => onResetTwoStep(user.id)}
+				>
+					<ShieldOff size={14} strokeWidth={2} aria-hidden="true" />
+					{$t('admin.users.twoStepResetAction')}
 				</button>
 			{/if}
 			<button

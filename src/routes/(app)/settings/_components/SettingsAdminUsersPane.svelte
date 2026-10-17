@@ -9,6 +9,7 @@ import {
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
 import type { AdminManagedUserSummary } from "$lib/server/services/user-admin";
+import ResetTwoStepDialog from "./users/ResetTwoStepDialog.svelte";
 import UserDetailPanel from "./users/UserDetailPanel.svelte";
 import UsersTable from "./users/UsersTable.svelte";
 import {
@@ -35,6 +36,8 @@ let {
 	modelNames,
 	selectedUserId = $bindable(null),
 	actionUserId = null,
+	adminHasTwoStep = false,
+	onResetTwoStep,
 	onReload,
 	onOpenCreateUser,
 	onPromoteUser,
@@ -56,6 +59,12 @@ let {
 	onDemoteUser: (userId: string) => void | Promise<void>;
 	onDeleteUser: (userId: string) => void | Promise<void>;
 	onRevokeSessions: (userId: string) => void | Promise<void>;
+	/** Whether the ADMIN has a factor: the reset dialog then asks for a code. */
+	adminHasTwoStep?: boolean;
+	onResetTwoStep: (
+		userId: string,
+		input: { password: string; code?: string },
+	) => Promise<void>;
 } = $props();
 
 const LEGACY_SORT_KEYS: UserSortKey[] = [
@@ -72,6 +81,7 @@ let page = $state(1);
 let rowsPerPage = $state(25);
 let deleteCandidateId = $state<string | null>(null);
 let promoteCandidateId = $state<string | null>(null);
+let resetCandidateId = $state<string | null>(null);
 // Captured once so relative "2 min ago" labels stay stable while the admin
 // reads the table, and refreshed whenever the list is reloaded.
 let now = $state(Date.now());
@@ -91,6 +101,9 @@ let selectionHidden = $derived(
 );
 let deleteCandidate = $derived(
 	users.find((user) => user.id === deleteCandidateId) ?? null,
+);
+let resetCandidate = $derived(
+	users.find((user) => user.id === resetCandidateId) ?? null,
 );
 let promoteCandidate = $derived(
 	users.find((user) => user.id === promoteCandidateId) ?? null,
@@ -269,12 +282,14 @@ function confirmDelete() {
 				{currentUserId}
 				{modelNames}
 				{actionUserId}
+				{adminHasTwoStep}
 				message={usersMessage}
 				error={usersError}
 				hiddenByFilter={selectionHidden}
 				onPromote={(userId) => (promoteCandidateId = userId)}
 				onDemote={(userId) => void onDemoteUser(userId)}
 				onRevokeSessions={(userId) => void onRevokeSessions(userId)}
+				onResetTwoStep={(userId) => (resetCandidateId = userId)}
 				onDelete={(userId) => (deleteCandidateId = userId)}
 			/>
 			{#if !selectedUser && (usersMessage || usersError)}
@@ -293,6 +308,15 @@ function confirmDelete() {
 		confirmText={$t('admin.promoteToAdmin')}
 		onCancel={() => (promoteCandidateId = null)}
 		onConfirm={confirmPromote}
+	/>
+{/if}
+
+{#if resetCandidate}
+	<ResetTwoStepDialog
+		userName={userLabel(resetCandidate)}
+		{adminHasTwoStep}
+		onClose={() => (resetCandidateId = null)}
+		onConfirm={(input) => onResetTwoStep(resetCandidate.id, input)}
 	/>
 {/if}
 

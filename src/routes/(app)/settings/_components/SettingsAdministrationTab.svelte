@@ -5,6 +5,7 @@ import {
 	createAdminUser,
 	deleteAdminUser,
 	fetchAdminUsers,
+	resetAdminUserTwoStep,
 	revokeAdminUserSessions,
 	updateAdminUserRole,
 } from "$lib/client/api/settings";
@@ -41,6 +42,7 @@ let {
 	systemAnalyticsUsers = [],
 	excludedUserIds = [],
 	onExcludedUsersChange = undefined,
+	adminHasTwoStep = false,
 }: {
 	currentUserId: string;
 	modelNames: Record<string, string>;
@@ -77,6 +79,8 @@ let {
 	onExcludedUsersChange?:
 		| ((userIds: string[]) => Promise<void> | void)
 		| undefined;
+	/** Whether the ADMIN has a factor: the Users pane's reset asks for a code. */
+	adminHasTwoStep?: boolean;
 } = $props();
 
 let activePane = $state<AdminPane>("system");
@@ -224,6 +228,29 @@ async function handleRevokeSessions(userId: string) {
 	);
 }
 
+/**
+ * The admin reset: the dialog keeps itself open on a refusal, so this throws
+ * after recording the message rather than swallowing it like `runUserAction`.
+ */
+async function handleResetTwoStep(
+	userId: string,
+	input: { password: string; code?: string },
+) {
+	actionUserId = userId;
+	usersMessage = "";
+	usersError = "";
+	try {
+		await resetAdminUserTwoStep(userId, input);
+		usersMessage = $t("admin.users.twoStepResetDone");
+		await refreshUsers(userId);
+	} catch (error) {
+		usersError = errorMessage(error, $t("admin.users.twoStepResetFailed"));
+		throw error;
+	} finally {
+		actionUserId = null;
+	}
+}
+
 async function handleDeleteUser(userId: string) {
 	await runUserAction(
 		userId,
@@ -298,6 +325,8 @@ async function handleDeleteUser(userId: string) {
 		onDemoteUser={handleDemoteUser}
 		onDeleteUser={handleDeleteUser}
 		onRevokeSessions={handleRevokeSessions}
+		{adminHasTwoStep}
+		onResetTwoStep={handleResetTwoStep}
 	/>
 {:else if activePane === 'campaigns'}
 	<SettingsAdminCampaignsPane />

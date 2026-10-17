@@ -73,6 +73,26 @@ export async function revokeAdminUserSessions(userId: string): Promise<void> {
 	);
 }
 
+/**
+ * Turns another person's two-step sign-in off: their factor, backup codes and
+ * every session. The admin proves it with their own password, and with their
+ * own code when they have a factor; the route refuses the admin's own account.
+ */
+export async function resetAdminUserTwoStep(
+	userId: string,
+	input: { password: string; code?: string; backupCode?: string },
+): Promise<void> {
+	await requestVoid(
+		`/api/admin/users/${userId}/two-step/reset`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to reset two-step sign-in",
+	);
+}
+
 export async function updateAdminConfig(
 	config: Record<string, string>,
 ): Promise<void> {

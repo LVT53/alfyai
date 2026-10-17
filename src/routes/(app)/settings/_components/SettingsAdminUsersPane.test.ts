@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminManagedUserSummary } from "$lib/server/services/user-admin";
 import SettingsAdminUsersPane from "./SettingsAdminUsersPane.svelte";
@@ -21,6 +27,9 @@ function user(
 		totalTokenCount: 0,
 		activeSessionCount: 0,
 		favoriteModel: null,
+		twoStepEnabled: false,
+		twoStepSince: null,
+		backupCodesLeft: 0,
 		...overrides,
 	} as AdminManagedUserSummary;
 }
@@ -72,6 +81,8 @@ function renderPane(props: Record<string, unknown> = {}) {
 			onDemoteUser: vi.fn(),
 			onDeleteUser: vi.fn(),
 			onRevokeSessions: vi.fn(),
+			adminHasTwoStep: false,
+			onResetTwoStep: vi.fn().mockResolvedValue(undefined),
 			...props,
 		},
 	});
@@ -205,5 +216,88 @@ describe("SettingsAdminUsersPane", () => {
 		await fireEvent.click(screen.getByRole("button", { name: /Next/ }));
 		expect(screen.getAllByTestId("admin-user-row")).toHaveLength(2);
 		expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
+	});
+});
+
+describe("SettingsAdminUsersPane — two-step sign-in", () => {
+	const withTwoStep = (id: string, since: number, left: number) =>
+		user({
+			id,
+			name: id === "kata" ? "Kata Bíró" : "Levente Alf",
+			twoStepEnabled: true,
+			twoStepSince: since,
+			backupCodesLeft: left,
+		});
+
+	it("shows a quiet On or Off in the table's two-step column", () => {
+		const since = Date.UTC(2026, 9, 2);
+		renderPane({
+			users: [withTwoStep("kata", since, 6), user({ id: "julia" })],
+			selectedUserId: "kata",
+		});
+
+		const rowFor = (id: string) =>
+			screen
+				.getAllByTestId("admin-user-row")
+				.find((row) => row.getAttribute("data-user-id") === id);
+		const kata = rowFor("kata");
+		const julia = rowFor("julia");
+		if (!kata || !julia) throw new Error("expected both rows");
+		expect(within(kata).getByTestId("admin-user-two-step")).toHaveTextContent(
+			"On",
+		);
+		expect(within(julia).getByTestId("admin-user-two-step")).toHaveTextContent(
+			"Off",
+		);
+	});
+
+	it("names the detail row's since date and codes left", () => {
+		const since = Date.UTC(2026, 9, 2);
+		renderPane({
+			users: [withTwoStep("kata", since, 6)],
+			selectedUserId: "kata",
+		});
+
+		const detail = screen.getByTestId("admin-user-detail");
+		expect(
+			within(detail).getByText(/On since .*2026.*6 backup codes left/),
+		).toBeInTheDocument();
+	});
+
+	it("offers the reset only when it is on, and never on the admin's own account", async () => {
+		const since = Date.UTC(2026, 9, 2);
+		renderPane({
+			users: [withTwoStep("kata", since, 6)],
+			selectedUserId: "kata",
+		});
+		expect(
+			screen.getByRole("button", { name: /Reset two-step sign-in/ }),
+		).toBeInTheDocument();
+
+		cleanup();
+		renderPane({
+			currentUserId: "levente",
+			users: [withTwoStep("levente", since, 6), withTwoStep("kata", since, 6)],
+			selectedUserId: "levente",
+		});
+		expect(
+			screen.queryByRole("button", { name: /Reset two-step sign-in/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("opens the reset dialog with the person's name", async () => {
+		const since = Date.UTC(2026, 9, 2);
+		renderPane({
+			users: [withTwoStep("kata", since, 6)],
+			selectedUserId: "kata",
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Reset two-step sign-in/ }),
+		);
+
+		expect(
+			screen.getByText("Reset Kata Bíró's two-step sign-in?"),
+		).toBeInTheDocument();
 	});
 });

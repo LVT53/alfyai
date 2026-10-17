@@ -1331,6 +1331,7 @@ $effect(() => {
 		{#if activeTab === 'administration' && isAdmin}
 			<SettingsAdministrationTab
 				currentUserId={data.userSettings.id}
+				adminHasTwoStep={twoStepStatus.enabled}
 				{modelNames}
 				{availableModels}
 				bind:adminConfig

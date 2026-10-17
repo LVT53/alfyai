@@ -100,6 +100,9 @@ function sortDirectionLabel(key: UserSortKey): string {
 							</span>
 						</button>
 					</th>
+					{#if column.key === 'role'}
+						<th scope="col">{$t('admin.users.column.twoStep')}</th>
+					{/if}
 				{/each}
 				<th class="chevron-col"><span class="sr-only">{$t('admin.users.detailsColumn')}</span></th>
 			</tr>
@@ -132,6 +135,13 @@ function sortDirectionLabel(key: UserSortKey): string {
 						<span class="pill" class:pill-accent={user.role === 'admin'} class:pill-outline={user.role !== 'admin'}>
 							{user.role === 'admin' ? $t('admin.admin') : $t('admin.user')}
 						</span>
+					</td>
+					<td data-testid="admin-user-two-step">
+						{#if user.twoStepEnabled}
+							<span class="pill pill-ok">{$t('admin.users.twoStepOn')}</span>
+						{:else}
+							<span class="two-step-off">{$t('admin.users.twoStepOff')}</span>
+						{/if}
 					</td>
 					<td class="last-active-cell" class:never={!user.lastActiveAt}>{lastActiveText(user)}</td>
 					<td class="numeric">{formatCount(user.messageCount)}</td>
@@ -342,6 +352,16 @@ function sortDirectionLabel(key: UserSortKey): string {
 		font-size: 0.7rem;
 		font-weight: 600;
 		white-space: nowrap;
+	}
+
+	.pill-ok {
+		background: color-mix(in srgb, var(--success) 14%, var(--surface-page));
+		color: color-mix(in srgb, var(--success) 72%, var(--text-primary));
+	}
+
+	.two-step-off {
+		font-size: var(--text-2xs);
+		color: var(--text-faint, var(--text-muted));
 	}
 
 	.pill-accent {

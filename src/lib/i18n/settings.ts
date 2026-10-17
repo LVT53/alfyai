@@ -923,6 +923,24 @@ const settingsDict = {
 		"admin.users.column.messages": "Messages",
 		"admin.users.column.name": "Name",
 		"admin.users.column.role": "Role",
+		"admin.users.column.twoStep": "Two-step",
+		"admin.users.twoStepOn": "On",
+		"admin.users.twoStepOff": "Off",
+		"admin.users.twoStepSignIn": "Two-step sign-in",
+		"admin.users.twoStepOnSince": "On since {date} · {count} backup codes left",
+		"admin.users.twoStepOffDetail": "Off",
+		"admin.users.twoStepResetAction": "Reset two-step sign-in",
+		"admin.users.twoStepResetTitle": "Reset {name}'s two-step sign-in?",
+		"admin.users.twoStepResetMessage":
+			"This turns it off, deletes their backup codes and signs them out everywhere. They can sign in with their password, then turn it on again.",
+		"admin.users.twoStepYourCode": "Your code",
+		"admin.users.twoStepReset": "Reset",
+		"admin.users.twoStepResetDone": "Two-step sign-in reset.",
+		"admin.users.twoStepResetFailed": "Failed to reset two-step sign-in.",
+		"admin.users.twoStepSelfReset":
+			"Use your own account settings to change your own two-step sign-in.",
+		"admin.users.twoStepPasswordRequired": "Your password is required.",
+		"admin.users.twoStepCodeRequired": "Your code is required.",
 		"admin.users.column.tokens": "Tokens",
 		"admin.users.createUserDescription":
 			"They can change their name, password and model afterwards. There is no invite email — hand them the password yourself.",
@@ -2953,6 +2971,27 @@ const settingsDict = {
 		"admin.users.column.messages": "Üzenetek",
 		"admin.users.column.name": "Név",
 		"admin.users.column.role": "Szerepkör",
+		"admin.users.column.twoStep": "Kétlépcsős",
+		"admin.users.twoStepOn": "Be",
+		"admin.users.twoStepOff": "Ki",
+		"admin.users.twoStepSignIn": "Kétlépcsős bejelentkezés",
+		"admin.users.twoStepOnSince":
+			"Bekapcsolva: {date} · {count} tartalékkód maradt",
+		"admin.users.twoStepOffDetail": "Kikapcsolva",
+		"admin.users.twoStepResetAction": "Kétlépcsős bejelentkezés kikapcsolása",
+		"admin.users.twoStepResetTitle":
+			"Kikapcsolod {name} kétlépcsős bejelentkezését?",
+		"admin.users.twoStepResetMessage":
+			"Ezzel kikapcsolod, törlöd a tartalékkódjaikat, és mindenhol kijelentkezteted őket. Jelszóval be tudnak jelentkezni, majd újra bekapcsolhatják.",
+		"admin.users.twoStepYourCode": "A kódod",
+		"admin.users.twoStepReset": "Kikapcsolás",
+		"admin.users.twoStepResetDone": "A kétlépcsős bejelentkezés kikapcsolva.",
+		"admin.users.twoStepResetFailed":
+			"A kétlépcsős bejelentkezés kikapcsolása nem sikerült.",
+		"admin.users.twoStepSelfReset":
+			"A saját kétlépcsős bejelentkezésedet a saját fiókbeállításaidban módosítsd.",
+		"admin.users.twoStepPasswordRequired": "A jelszavad kötelező.",
+		"admin.users.twoStepCodeRequired": "A kódod kötelező.",
 		"admin.users.column.tokens": "Tokenek",
 		"admin.users.createUserDescription":
 			"A nevét, jelszavát és modelljét később ő maga módosíthatja. Nincs meghívó e-mail — a jelszót neked kell átadnod.",

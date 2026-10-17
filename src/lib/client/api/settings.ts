@@ -13,6 +13,7 @@ export {
 	createAdminUser,
 	deleteAdminUser,
 	fetchAdminUsers,
+	resetAdminUserTwoStep,
 	revokeAdminUserSessions,
 	updateAdminConfig,
 	updateAdminUserRole,
