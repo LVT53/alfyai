@@ -1109,6 +1109,9 @@ onMount(() => {
 					slides={slideRailItems}
 					activeIndex={activeSlideIndex}
 					editable={canAddSlide}
+					eyebrow={isNote
+						? 'admin.campaigns.note.tag'
+						: 'admin.campaigns.slides'}
 					onSelect={(index) => (activeSlideIndex = index)}
 					onAdd={() => addSlide('standard')}
 				/>

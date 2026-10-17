@@ -82,7 +82,7 @@ describe("featureNoteLead", () => {
 	it("leads with the campaign type's own word", () => {
 		expect(featureNoteLead(get(t))).toEqual(["Feature note"]);
 		uiLanguage.set("hu");
-		expect(featureNoteLead(get(t))).toEqual(["Új funkció"]);
+		expect(featureNoteLead(get(t))).toEqual(["Funkciójegyzet"]);
 	});
 });
 

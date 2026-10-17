@@ -204,8 +204,12 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 			{/each}
 		</div>
 		<OverflowMenu
-			label={$t('admin.campaigns.slideMenuLabel')}
-			triggerLabel={$t('admin.campaigns.slideMenuTrigger', { number: slideNumber })}
+			label={note
+				? $t('admin.campaigns.note.menuLabel')
+				: $t('admin.campaigns.slideMenuLabel')}
+			triggerLabel={note
+				? $t('admin.campaigns.note.menuTrigger')
+				: $t('admin.campaigns.slideMenuTrigger', { number: slideNumber })}
 			items={menuItems}
 			attention={menuAttention}
 			testId="campaign-slide-menu"
@@ -298,7 +302,12 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 		<div class="field">
 			<span class="field-label">
 				{$t('admin.campaigns.slideAction')}
-				<InfoTooltip text={$t('admin.campaigns.slideActionHelp')} size={13} />
+				<InfoTooltip
+					text={note
+						? $t('admin.campaigns.note.actionHelp')
+						: $t('admin.campaigns.slideActionHelp')}
+					size={13}
+				/>
 			</span>
 			<div class="action-grid">
 				<div>

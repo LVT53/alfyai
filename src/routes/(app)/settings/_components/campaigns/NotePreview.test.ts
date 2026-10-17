@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import { cleanup, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import NotePreview from "./NotePreview.svelte";
@@ -60,24 +60,21 @@ describe("NotePreview", () => {
 		expect(screen.getByText("Keep your account safer.")).toBeInTheDocument();
 	});
 
-	it("is a picture only: inert, so the strip's buttons and link never reach the admin", async () => {
-		render(NotePreview, props());
+	it("renders the reader's strip inside an inert wrapper, so the admin cannot act on it", () => {
+		const { container } = render(NotePreview, props());
 
 		const wrapper = screen.getByTestId("note-preview");
 		expect(wrapper).toHaveAttribute("inert");
+		// The card is a child of the inert wrapper, not a second drawing of it.
 		expect(
 			wrapper.querySelector('[data-testid="feature-note"]'),
 		).not.toBeNull();
-
-		// The strip is in preview mode: neither the dismiss nor the action calls
-		// anything, and neither navigates (jsdom cannot follow the href anyway).
-		const dismiss = screen.getByRole("button", { name: "Dismiss" });
-		const link = screen.getByRole("link", { name: "Set up 2FA" });
-		link.addEventListener("click", (event) => event.preventDefault(), {
-			once: true,
-		});
-		await fireEvent.click(dismiss);
-		await fireEvent.click(link);
+		expect(container.querySelector('[data-testid="feature-note"]')).toBe(
+			wrapper.querySelector('[data-testid="feature-note"]'),
+		);
+		// Preview mode is what makes the strip's own X and CTA no-ops; the strip
+		// test covers that guard.
+		expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
 	});
 
 	it("keeps the card's shape when the draft has no words yet", () => {

@@ -1076,6 +1076,8 @@ const settingsDict = {
 		"admin.campaigns.destination.profile": "Profile",
 		"admin.campaigns.destination.settings": "Settings",
 		"admin.campaigns.duplicateAsDraft": "Duplicate as draft",
+		"admin.campaigns.editCampaignDescription":
+			"Rename this campaign. Its slides stay as they are.",
 		"admin.campaigns.editDetailsTitle": "Campaign details",
 		"admin.campaigns.fieldError.actionLabel": "{language} label is empty.",
 		"admin.campaigns.fieldError.alt": "{language} alt text is empty.",
@@ -1097,11 +1099,15 @@ const settingsDict = {
 		"admin.campaigns.mobileFallsBack": "Uses the desktop crop",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Without its own 9:16 crop, phones show the desktop screenshot letterboxed.",
+		"admin.campaigns.note.actionHelp":
+			"An optional link at the end of the note.",
 		"admin.campaigns.note.bodyHint":
 			"One short sentence: what this feature does for you. It appears on one line beside the action.",
 		"admin.campaigns.note.count":
 			"{count} note{count, plural, one {} other {s}}",
 		"admin.campaigns.note.editorTitle": "Note",
+		"admin.campaigns.note.menuLabel": "Note actions",
+		"admin.campaigns.note.menuTrigger": "Note actions",
 		"admin.campaigns.note.tag": "Note",
 		"admin.campaigns.newCampaign": "New campaign",
 		"admin.campaigns.newCampaignDescription":
@@ -2195,7 +2201,7 @@ const settingsDict = {
 		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
-		"admin.campaigns.type.featureNote": "Új funkció",
+		"admin.campaigns.type.featureNote": "Funkciójegyzet",
 		"admin.campaigns.type.firstRun": "Első indítás",
 		"admin.campaigns.type.release": "Kiadás",
 		"admin.campaigns.type.standard": "Általános",
@@ -3151,6 +3157,8 @@ const settingsDict = {
 		"admin.campaigns.destination.profile": "Profil",
 		"admin.campaigns.destination.settings": "Beállítások",
 		"admin.campaigns.duplicateAsDraft": "Duplikálás piszkozatként",
+		"admin.campaigns.editCampaignDescription":
+			"Nevezd át a kampányt. A diái változatlanok maradnak.",
 		"admin.campaigns.editDetailsTitle": "Kampány adatai",
 		"admin.campaigns.fieldError.actionLabel": "A(z) {language} felirat üres.",
 		"admin.campaigns.fieldError.alt": "A(z) {language} alternatív szöveg üres.",
@@ -3172,10 +3180,13 @@ const settingsDict = {
 		"admin.campaigns.mobileFallsBack": "Az asztali kivágást használja",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Saját 9:16-os kivágás nélkül a telefonok az asztali képernyőképet mutatják, fekete sávokkal.",
+		"admin.campaigns.note.actionHelp": "Opcionális hivatkozás a jegyzet végén.",
 		"admin.campaigns.note.bodyHint":
 			"Egy rövid mondat: mit tesz érted ez a funkció. Egy sorban jelenik meg a művelet mellett.",
 		"admin.campaigns.note.count": "{count} jegyzet",
 		"admin.campaigns.note.editorTitle": "Jegyzet",
+		"admin.campaigns.note.menuLabel": "Jegyzet műveletei",
+		"admin.campaigns.note.menuTrigger": "Jegyzet műveletei",
 		"admin.campaigns.note.tag": "Jegyzet",
 		"admin.campaigns.newCampaign": "Új kampány",
 		"admin.campaigns.newCampaignDescription":

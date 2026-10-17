@@ -1584,6 +1584,10 @@ describe("SettingsAdminCampaignsPane", () => {
 			).toBeInTheDocument();
 			// No "1" where a campaign slide's number would be.
 			expect(within(thumbs[0]).queryByText("1")).toBeNull();
+			// The rail is named for what it holds, not "Slides".
+			expect(document.querySelector(".area-slides .eyebrow")).toHaveTextContent(
+				"Note",
+			);
 		});
 
 		it("offers no add-slide button for a note", async () => {
@@ -1604,16 +1608,42 @@ describe("SettingsAdminCampaignsPane", () => {
 			render(SettingsAdminCampaignsPane);
 			await waitForEditor("Two-factor authentication");
 
-			expect(
-				screen.getByRole("button", { name: "Add slide" }),
-			).toBeInTheDocument();
+			await fireEvent.click(screen.getByRole("button", { name: "Add slide" }));
+
+			// The recovery slide is the note's own shape, and one is enough: Add
+			// disappears again as soon as the note has its slide.
+			expect(screen.queryByRole("button", { name: "Add slide" })).toBeNull();
+			expect(screen.getAllByTestId("admin-campaign-slide-thumb")).toHaveLength(
+				1,
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+			await waitFor(() => expect(mockUpdateAdminCampaign).toHaveBeenCalled());
+			const [, payload] = mockUpdateAdminCampaign.mock.calls[0];
+			expect(payload.slides).toHaveLength(1);
+			expect(payload.slides[0]).toEqual(
+				expect.objectContaining({
+					kind: "standard",
+					layoutType: "standard",
+					semanticRole: "feature",
+					sortOrder: 1,
+				}),
+			);
 		});
 
 		it("gives the note's slide menu Copy only", async () => {
 			openNote();
 			await waitForEditor("Two-factor authentication");
 
+			// The menu is the note's, not a numbered slide's.
+			expect(screen.getByTestId("campaign-slide-menu")).toHaveAttribute(
+				"aria-label",
+				"Note actions",
+			);
 			await openSlideMenu();
+			expect(
+				screen.getByRole("menu", { name: "Note actions" }),
+			).toBeInTheDocument();
 			expect(screen.getAllByRole("menuitem")).toHaveLength(1);
 			expect(
 				screen.getByRole("menuitem", { name: "Copy English to Magyar" }),
@@ -1651,6 +1681,12 @@ describe("SettingsAdminCampaignsPane", () => {
 				"/settings",
 			);
 			expect(screen.getByLabelText("Action label")).toHaveValue("Set up 2FA");
+			// A note's action is a link at the end of the note, not a slide button.
+			expect(
+				screen.getByRole("button", {
+					name: "An optional link at the end of the note.",
+				}),
+			).toBeInTheDocument();
 		});
 
 		it("keeps internal actions out of the note's destination select", async () => {
@@ -1703,6 +1739,17 @@ describe("SettingsAdminCampaignsPane", () => {
 
 			const dialog = screen.getByRole("dialog");
 			expect(within(dialog).getByText("Feature note")).toBeInTheDocument();
+			// Editing describes renaming, not creating a conversation about slides.
+			expect(
+				within(dialog).getByText(
+					"Rename this campaign. Its slides stay as they are.",
+				),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).queryByText(
+					"Name it and pick what it is for. A campaign takes slides; a feature note is one card on the landing page.",
+				),
+			).toBeNull();
 			expect(
 				within(dialog).queryByRole("button", { name: "First-run" }),
 			).toBeNull();
@@ -1785,6 +1832,12 @@ describe("SettingsAdminCampaignsPane", () => {
 				screen.getByRole("button", { name: "New campaign" }),
 			);
 			const dialog = screen.getByRole("dialog");
+			// Creating still describes creating, not renaming.
+			expect(
+				within(dialog).getByText(
+					"Name it and pick what it is for. A campaign takes slides; a feature note is one card on the landing page.",
+				),
+			).toBeInTheDocument();
 			expect(
 				within(dialog).getByRole("button", { name: "First-run" }),
 			).toBeInTheDocument();

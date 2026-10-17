@@ -69,7 +69,9 @@ function confirm() {
 	title={mode === 'create'
 		? $t('admin.campaigns.newCampaign')
 		: $t('admin.campaigns.editDetailsTitle')}
-	description={$t('admin.campaigns.newCampaignDescription')}
+	description={mode === 'create'
+		? $t('admin.campaigns.newCampaignDescription')
+		: $t('admin.campaigns.editCampaignDescription')}
 	onClose={onCancel}
 	maxWidthClass="max-w-[34rem]"
 	zIndexClass="z-[9999]"

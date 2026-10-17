@@ -17,24 +17,28 @@ export type SlideRailItem = {
 <script lang="ts">
 import { Image as ImageIcon, Plus, TriangleAlert } from "@lucide/svelte";
 import { t } from "$lib/i18n";
+import type { I18nKey } from "$lib/i18n";
 
 let {
 	slides,
 	activeIndex = 0,
 	editable = true,
+	eyebrow = "admin.campaigns.slides",
 	onSelect,
 	onAdd,
 }: {
 	slides: SlideRailItem[];
 	activeIndex?: number;
 	editable?: boolean;
+	/** i18n key for the rail's heading: "Slides", or "Note" for a note's one card. */
+	eyebrow?: I18nKey;
 	onSelect: (index: number) => void;
 	onAdd: () => void;
 } = $props();
 </script>
 
 <div class="slide-rail">
-	<p class="eyebrow">{$t('admin.campaigns.slides')}</p>
+	<p class="eyebrow">{$t(eyebrow)}</p>
 
 	<div class="rail-list">
 		{#each slides as slide, index (slide.localId)}
