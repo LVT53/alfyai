@@ -8,6 +8,8 @@ import { userBackupCodes, users } from "$lib/server/db/schema";
 import {
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
+	LOGIN_RATE_LIMIT_POLICY,
+	recordLoginFailure,
 } from "$lib/server/services/login-rate-limit";
 import {
 	beginTwoStepSetup,
@@ -87,6 +89,31 @@ describe("POST /api/settings/two-step/disable", () => {
 		expect((await response.json()).errorKey).toBe(
 			"profileTab.twoStepWrongCode",
 		);
+		expect((await getTwoStepStatus(userId)).enabled).toBe(true);
+	});
+
+	it("answers 429 once the account has spent its wrong-code budget", async () => {
+		const { userId, email, secret } = await enableTwoStep();
+		for (
+			let attempt = 0;
+			attempt < LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+			attempt += 1
+		) {
+			recordLoginFailure({ accountId: userId });
+		}
+		const right = totpAt(secret, new Date());
+		const wrong =
+			right[0] === "0" ? `1${right.slice(1)}` : `0${right.slice(1)}`;
+
+		const response = await POST(
+			makeEvent({ id: userId, email }, { code: wrong }),
+		);
+
+		expect(response.status).toBe(429);
+		expect((await response.json()).errorKey).toBe(
+			"profileTab.twoStepTooManyAttempts",
+		);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect((await getTwoStepStatus(userId)).enabled).toBe(true);
 	});
 

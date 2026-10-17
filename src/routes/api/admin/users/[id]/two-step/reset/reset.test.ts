@@ -15,6 +15,8 @@ import { createSession } from "$lib/server/services/auth";
 import {
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
+	LOGIN_RATE_LIMIT_POLICY,
+	recordLoginFailure,
 } from "$lib/server/services/login-rate-limit";
 import {
 	beginTwoStepSetup,
@@ -158,6 +160,33 @@ describe("POST /api/admin/users/[id]/two-step/reset", () => {
 		);
 		expect(rightCode.status).toBe(200);
 		expect((await getTwoStepStatus(target.id)).enabled).toBe(false);
+	});
+
+	it("answers 429 when the admin's own code check is over budget", async () => {
+		const admin = await createUser("admin");
+		const { secret } = await enableTwoStep(admin.id, admin.email);
+		const target = await seedTarget();
+		for (
+			let attempt = 0;
+			attempt < LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+			attempt += 1
+		) {
+			recordLoginFailure({ accountId: admin.id });
+		}
+		const right = totpAt(secret, new Date());
+		const wrong =
+			right[0] === "0" ? `1${right.slice(1)}` : `0${right.slice(1)}`;
+
+		const response = await POST(
+			makeEvent(admin, target.id, { password: PASSWORD, code: wrong }),
+		);
+
+		expect(response.status).toBe(429);
+		expect((await response.json()).errorKey).toBe(
+			"profileTab.twoStepTooManyAttempts",
+		);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect((await getTwoStepStatus(target.id)).enabled).toBe(true);
 	});
 
 	it("clears the factor, the codes and every session of the person", async () => {

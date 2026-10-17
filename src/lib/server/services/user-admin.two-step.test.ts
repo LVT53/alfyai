@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { decodeBase32IgnorePadding } from "@oslojs/encoding";
 import { generateHOTP } from "@oslojs/otp";
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import {
@@ -69,5 +69,32 @@ describe("the admin user list's two-step fields", () => {
 
 		expect(byId.get(off.id)?.twoStepEnabled).toBe(false);
 		expect(byId.get(off.id)?.backupCodesLeft).toBe(0);
+	});
+
+	it("uses the same number of queries however many users there are", async () => {
+		const first = await createUser();
+		await createUser();
+		await enable(first.id, first.email);
+
+		const selectSpy = vi.spyOn(db, "select");
+		try {
+			await listManagedUsers();
+			const baseline = selectSpy.mock.calls.length;
+			expect(baseline).toBeGreaterThan(0);
+
+			for (let extra = 0; extra < 4; extra += 1) {
+				const user = await createUser();
+				if (extra % 2 === 0) await enable(user.id, user.email);
+			}
+			selectSpy.mockClear();
+			await listManagedUsers();
+
+			// R18: the two-step state comes from the two grouped reads inside
+			// listTwoStepStatuses, so three times the users is not three times
+			// the queries (and one call per user would fail this).
+			expect(selectSpy.mock.calls.length).toBe(baseline);
+		} finally {
+			selectSpy.mockRestore();
+		}
 	});
 });

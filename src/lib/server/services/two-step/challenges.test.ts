@@ -32,17 +32,24 @@ afterEach(async () => {
 });
 
 describe("the sign-in attempt cookie", () => {
-	it("has the spec's flags", () => {
-		const set = vi.fn();
-		setSignInAttemptCookie({ set } as unknown as Pick<Cookies, "set">, "tok");
+	it("has the spec's flags, and is secure in production", () => {
+		const previous = process.env.NODE_ENV;
+		process.env.NODE_ENV = "production";
+		try {
+			const set = vi.fn();
+			setSignInAttemptCookie({ set } as unknown as Pick<Cookies, "set">, "tok");
 
-		expect(set).toHaveBeenCalledWith(SIGN_IN_ATTEMPT_COOKIE, "tok", {
-			httpOnly: true,
-			secure: process.env.NODE_ENV === "production",
-			sameSite: "strict",
-			path: "/api/auth",
-			maxAge: 300,
-		});
+			expect(set).toHaveBeenCalledWith(SIGN_IN_ATTEMPT_COOKIE, "tok", {
+				httpOnly: true,
+				secure: true,
+				sameSite: "strict",
+				path: "/api/auth",
+				maxAge: 300,
+			});
+		} finally {
+			if (previous === undefined) delete process.env.NODE_ENV;
+			else process.env.NODE_ENV = previous;
+		}
 		expect(SIGN_IN_ATTEMPT_COOKIE).toBe("signin_attempt");
 		expect(ATTEMPT_TTL_MS).toBe(300_000);
 	});

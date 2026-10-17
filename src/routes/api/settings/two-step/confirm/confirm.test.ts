@@ -5,10 +5,12 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
 import { sessions, userBackupCodes, users } from "$lib/server/db/schema";
-import { createSession } from "$lib/server/services/auth";
+import { createSession, hashSessionToken } from "$lib/server/services/auth";
 import {
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
+	LOGIN_RATE_LIMIT_POLICY,
+	recordLoginFailure,
 } from "$lib/server/services/login-rate-limit";
 import {
 	beginTwoStepSetup,
@@ -91,15 +93,47 @@ describe("POST /api/settings/two-step/confirm", () => {
 		expect(data.backupCodes).toHaveLength(10);
 		expect(data.signedOutOtherDevices).toBe(1);
 
-		expect(
-			await db.select().from(sessions).where(eq(sessions.userId, userId)),
-		).toHaveLength(1);
+		// The session that survives is THIS one, not merely "one of them".
+		const remaining = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.userId, userId));
+		expect(remaining).toHaveLength(1);
+		expect(remaining[0]?.id).toBe(hashSessionToken(current.token));
 		expect((await getTwoStepStatus(userId)).enabled).toBe(true);
 		const codes = await db
 			.select()
 			.from(userBackupCodes)
 			.where(eq(userBackupCodes.userId, userId));
 		expect(codes).toHaveLength(10);
+	});
+
+	it("answers 429 once the account has spent its wrong-code budget", async () => {
+		const { userId, email } = await createUser();
+		const started = await beginTwoStepSetup(userId, email);
+		if (!started.ok) throw new Error("setup refused");
+		const secret = decodeBase32IgnorePadding(started.key.replaceAll(" ", ""));
+		for (
+			let attempt = 0;
+			attempt < LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount;
+			attempt += 1
+		) {
+			recordLoginFailure({ accountId: userId });
+		}
+		const right = totpAt(secret, new Date());
+		const wrong =
+			right[0] === "0" ? `1${right.slice(1)}` : `0${right.slice(1)}`;
+
+		const response = await POST(
+			makeEvent({ id: userId, email }, { code: wrong }),
+		);
+
+		expect(response.status).toBe(429);
+		expect((await response.json()).errorKey).toBe(
+			"profileTab.twoStepTooManyAttempts",
+		);
+		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+		expect((await getTwoStepStatus(userId)).enabled).toBe(false);
 	});
 
 	it("a wrong code does not finish setup", async () => {
