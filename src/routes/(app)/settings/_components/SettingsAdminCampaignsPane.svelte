@@ -52,6 +52,8 @@ import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
 import { reducedMotionAware } from "$lib/utils/motion";
 import {
+	featureNoteLead,
+	noteCountLabel,
 	tourCountLabel,
 	tourLead,
 	tourStepNumbers,
@@ -59,6 +61,7 @@ import {
 import CampaignDialog from "./campaigns/CampaignDialog.svelte";
 import CampaignRail from "./campaigns/CampaignRail.svelte";
 import ChecklistStatus from "./campaigns/ChecklistStatus.svelte";
+import NotePreview from "./campaigns/NotePreview.svelte";
 import type { OverflowMenuItem } from "./campaigns/OverflowMenu.svelte";
 import OverflowMenu from "./campaigns/OverflowMenu.svelte";
 import PerformanceCard from "./campaigns/PerformanceCard.svelte";
@@ -158,8 +161,16 @@ let isDraftEditable = $derived(draft?.status === "draft");
 // A tour is a campaign of its own kind: one summary slide (the empty-state
 // line) and three steps, with words only and nothing recorded about it.
 let isTour = $derived(draft?.type === "artifact_tour");
+// A feature note is the light sibling: one seeded standard slide of words and
+// one optional action, with no pictures and no queue.
+let isNote = $derived(draft?.type === "feature_note");
 let tourSteps = $derived(tourStepNumbers(draft?.slides ?? []));
 let activeSlide = $derived(draft?.slides[activeSlideIndex] ?? null);
+// A note has exactly one slide, seeded by the server. Add stays available only
+// as a recovery path for a note that somehow has none.
+let canAddSlide = $derived(
+	Boolean(draft && isDraftEditable && (!isNote || draft.slides.length === 0)),
+);
 
 let checklist = $derived(
 	evaluateCampaignChecklist({
@@ -234,17 +245,24 @@ let slideRailItems = $derived<SlideRailItem[]>(
 			failing: isDraftEditable && slideHasFailure(checklist, slide.localId),
 			isSetup: slide.kind === "setup",
 			// A tour is read the way a reader meets it: the empty-state line, then
-			// steps 1, 2, 3. It has no pictures, so no slot is kept for one.
-			...(isTour
+			// steps 1, 2, 3. It has no pictures, so no slot is kept for one. A
+			// feature note is one card: no picture, no number, and its own tag.
+			...(isNote
 				? {
 						picture: false,
-						label: step === null ? "" : String(step),
-						tag:
-							slide.kind === "summary"
-								? $t("admin.campaigns.tour.emptyStateTag")
-								: null,
+						label: "",
+						tag: $t("admin.campaigns.note.tag"),
 					}
-				: {}),
+				: isTour
+					? {
+							picture: false,
+							label: step === null ? "" : String(step),
+							tag:
+								slide.kind === "summary"
+									? $t("admin.campaigns.tour.emptyStateTag")
+									: null,
+						}
+					: {}),
 		};
 	}),
 );
@@ -256,11 +274,14 @@ let activeSlideAttention = $derived(
 );
 
 // A tour records nothing (it writes one "seen" row per reader and no campaign
-// event), so a performance card for it could only ever read zero.
+// event), so a performance card for it could only ever read zero. A feature
+// note has no performance card in v1: its events are still recorded, but
+// "finished all slides" is not what a one-line note does.
 let showPerformance = $derived(
 	Boolean(
 		draft &&
 			!isTour &&
+			!isNote &&
 			(draft.status !== "draft" ||
 				(draft.analyticsSummary?.autoShown ?? 0) > 0),
 	),
@@ -638,9 +659,10 @@ async function publishCampaign() {
 		if (campaign.type === "release_update") {
 			await invalidateAll();
 		}
-		if (campaign.type === "artifact_tour") {
-			// A kind has one live tour: publishing this one archived the revision
-			// it replaced, on the server, so the rail is asked what is live now.
+		if (campaign.type === "artifact_tour" || campaign.type === "feature_note") {
+			// A kind has one live tour and the app has one live feature note:
+			// publishing this one archived the revision it replaced, on the server,
+			// so the rail is asked what is live now.
 			await refreshCampaignList();
 		}
 		showSuccess($t("admin.campaigns.messages.published"));
@@ -883,105 +905,126 @@ let campaignMenuItems = $derived.by<OverflowMenuItem[]>(() => {
 
 let slideMenuItems = $derived<OverflowMenuItem[]>(
 	activeSlide
-		? [
-				{
-					id: "layout",
-					label: $t("admin.campaigns.menu.layout", {
-						value: slideKindLabel(activeSlide.kind),
-					}),
-					icon: Layers,
-					attention: activeSlideAttention.layout,
-					disabled: !isDraftEditable,
-					onSelect: () => openSlideOptions("layout"),
-				},
-				// Purpose (data disclosure) and setup controls are first-run
-				// onboarding's: no tour slide uses either, so a tour's menu has neither.
-				...(isTour
-					? []
-					: [
-							{
-								id: "purpose",
-								label: $t("admin.campaigns.menu.purpose", {
-									value:
-										activeSlide.semanticRole === "data_disclosure"
-											? $t("admin.campaigns.purpose.dataDisclosure")
-											: $t("admin.campaigns.purpose.feature"),
-								}),
-								icon: Flag,
-								attention: activeSlideAttention.purpose,
-								disabled: !isDraftEditable,
-								onSelect: () => openSlideOptions("purpose"),
-							},
-							{
-								id: "setupControls",
-								label:
-									(activeSlide.setupControls?.length ?? 0) === 0
-										? $t("admin.campaigns.menu.setupControlsNone")
-										: $t("admin.campaigns.menu.setupControls", {
-												count: activeSlide.setupControls?.length ?? 0,
-											}),
-								icon: SlidersHorizontal,
-								attention: activeSlideAttention.setupControls,
-								disabled: !isDraftEditable,
-								onSelect: () => openSlideOptions("setupControls"),
-							},
-						]),
-				{
-					id: "copy",
-					label: $t("admin.campaigns.menu.copyEnToHu"),
-					icon: Copy,
-					separatorBefore: true,
-					disabled: !isDraftEditable,
-					onSelect: () => copyEnglishToHungarian(activeSlide.localId),
-				},
-				{
-					id: "up",
-					label: $t("admin.campaigns.menu.moveUp"),
-					icon: ArrowUp,
-					disabled: !isDraftEditable || activeSlideIndex === 0,
-					onSelect: () => moveSlide(activeSlideIndex, -1),
-				},
-				{
-					id: "down",
-					label: $t("admin.campaigns.menu.moveDown"),
-					icon: ArrowDown,
-					disabled:
-						!isDraftEditable ||
-						activeSlideIndex >= (draft?.slides.length ?? 0) - 1,
-					onSelect: () => moveSlide(activeSlideIndex, 1),
-				},
-				{
-					id: "delete-slide",
-					label: $t("admin.campaigns.menu.deleteSlide"),
-					icon: Trash2,
-					danger: true,
-					separatorBefore: true,
-					disabled: !isDraftEditable,
-					onSelect: () => removeSlide(activeSlideIndex),
-				},
-			]
+		? isNote
+			? [
+					// A note is one card, not a deck: its words and action are the
+					// whole content, so the only menu action is copying EN to HU.
+					{
+						id: "copy",
+						label: $t("admin.campaigns.menu.copyEnToHu"),
+						icon: Copy,
+						disabled: !isDraftEditable,
+						onSelect: () => copyEnglishToHungarian(activeSlide.localId),
+					},
+				]
+			: [
+					{
+						id: "layout",
+						label: $t("admin.campaigns.menu.layout", {
+							value: slideKindLabel(activeSlide.kind),
+						}),
+						icon: Layers,
+						attention: activeSlideAttention.layout,
+						disabled: !isDraftEditable,
+						onSelect: () => openSlideOptions("layout"),
+					},
+					// Purpose (data disclosure) and setup controls are first-run
+					// onboarding's: no tour slide uses either, so a tour's menu has neither.
+					...(isTour
+						? []
+						: [
+								{
+									id: "purpose",
+									label: $t("admin.campaigns.menu.purpose", {
+										value:
+											activeSlide.semanticRole === "data_disclosure"
+												? $t("admin.campaigns.purpose.dataDisclosure")
+												: $t("admin.campaigns.purpose.feature"),
+									}),
+									icon: Flag,
+									attention: activeSlideAttention.purpose,
+									disabled: !isDraftEditable,
+									onSelect: () => openSlideOptions("purpose"),
+								},
+								{
+									id: "setupControls",
+									label:
+										(activeSlide.setupControls?.length ?? 0) === 0
+											? $t("admin.campaigns.menu.setupControlsNone")
+											: $t("admin.campaigns.menu.setupControls", {
+													count: activeSlide.setupControls?.length ?? 0,
+												}),
+									icon: SlidersHorizontal,
+									attention: activeSlideAttention.setupControls,
+									disabled: !isDraftEditable,
+									onSelect: () => openSlideOptions("setupControls"),
+								},
+							]),
+					{
+						id: "copy",
+						label: $t("admin.campaigns.menu.copyEnToHu"),
+						icon: Copy,
+						separatorBefore: true,
+						disabled: !isDraftEditable,
+						onSelect: () => copyEnglishToHungarian(activeSlide.localId),
+					},
+					{
+						id: "up",
+						label: $t("admin.campaigns.menu.moveUp"),
+						icon: ArrowUp,
+						disabled: !isDraftEditable || activeSlideIndex === 0,
+						onSelect: () => moveSlide(activeSlideIndex, -1),
+					},
+					{
+						id: "down",
+						label: $t("admin.campaigns.menu.moveDown"),
+						icon: ArrowDown,
+						disabled:
+							!isDraftEditable ||
+							activeSlideIndex >= (draft?.slides.length ?? 0) - 1,
+						onSelect: () => moveSlide(activeSlideIndex, 1),
+					},
+					{
+						id: "delete-slide",
+						label: $t("admin.campaigns.menu.deleteSlide"),
+						icon: Trash2,
+						danger: true,
+						separatorBefore: true,
+						disabled: !isDraftEditable,
+						onSelect: () => removeSlide(activeSlideIndex),
+					},
+				]
 		: [],
 );
 
 let metaLine = $derived.by(() => {
 	if (!draft) return "";
 	// A tour is not a release: it reads as a tour of the kind its release text
-	// names, in the kind's own word (campaign-labels.ts).
+	// names, in the kind's own word (campaign-labels.ts). A feature note is
+	// neither: it leads with its type and counts notes, not slides.
 	const parts: string[] =
 		draft.type === "artifact_tour"
 			? tourLead(draft.releaseVersion, $t)
-			: [
-					draft.type === "first_run_onboarding"
-						? $t("admin.campaigns.type.firstRun")
-						: $t("admin.campaigns.type.release"),
-				];
-	if (draft.type !== "artifact_tour" && draft.releaseVersion) {
+			: draft.type === "feature_note"
+				? featureNoteLead($t)
+				: [
+						draft.type === "first_run_onboarding"
+							? $t("admin.campaigns.type.firstRun")
+							: $t("admin.campaigns.type.release"),
+					];
+	if (
+		draft.type !== "artifact_tour" &&
+		draft.type !== "feature_note" &&
+		draft.releaseVersion
+	) {
 		parts.push(draft.releaseVersion);
 	}
 	parts.push(
 		draft.type === "artifact_tour"
 			? tourCountLabel(draft.slides.length, $t)
-			: $t("admin.campaigns.slideCount", { count: draft.slides.length }),
+			: draft.type === "feature_note"
+				? noteCountLabel(draft.slides.length, $t)
+				: $t("admin.campaigns.slideCount", { count: draft.slides.length }),
 	);
 	if (draft.status === "published" && draft.publishedAt) {
 		parts.push(
@@ -1065,7 +1108,7 @@ onMount(() => {
 				<SlideRail
 					slides={slideRailItems}
 					activeIndex={activeSlideIndex}
-					editable={isDraftEditable}
+					editable={canAddSlide}
 					onSelect={(index) => (activeSlideIndex = index)}
 					onAdd={() => addSlide('standard')}
 				/>
@@ -1194,6 +1237,7 @@ onMount(() => {
 							tour={isTour
 								? { summary: slide.kind === 'summary', step: tourSteps[activeSlideIndex] ?? null }
 								: null}
+							note={isNote}
 							{assetDetails}
 							uploadingVariant={assetLoading === `${slide.localId}:desktop`
 								? 'desktop'
@@ -1247,7 +1291,7 @@ onMount(() => {
 				<section class="preview-card" aria-label={$t('admin.campaigns.previewLabel')}>
 					<div class="preview-head">
 						<p class="eyebrow">{$t('admin.campaigns.preview')}</p>
-						{#if !isTour}
+						{#if !isTour && !isNote}
 						<div class="device-toggle" role="group" aria-label={$t('admin.campaigns.previewDevice')}>
 							<button
 								type="button"
@@ -1274,7 +1318,16 @@ onMount(() => {
 						</div>
 						{/if}
 					</div>
-					{#if isTour}
+					{#if isNote}
+						<!-- A note previews as the reader's own strip, in the language
+						     being edited, and has no desktop or mobile screenshots to
+						     switch between. -->
+						<NotePreview
+							name={draft.name}
+							slides={draft.slides}
+							locale={editLocale}
+						/>
+					{:else if isTour}
 						<!-- A tour is not an announcement: it previews as the card a reader
 						     meets, or as the empty-state line for the summary slide, and has
 						     no desktop and mobile screenshots to switch between. -->

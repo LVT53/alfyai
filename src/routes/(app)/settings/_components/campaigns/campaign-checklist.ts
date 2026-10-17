@@ -18,7 +18,10 @@
  * blocks publishing.
  */
 
-import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+import {
+	INTERNAL_ACTION_PREFIX,
+	isAllowedActionDestination,
+} from "$lib/campaign-action-destinations";
 import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 
 export {
@@ -30,6 +33,7 @@ export type ChecklistCampaignType =
 	| "first_run_onboarding"
 	| "release_update"
 	| "artifact_tour"
+	| "feature_note"
 	| (string & {});
 
 export type ChecklistSlideKind =
@@ -83,7 +87,8 @@ export type ChecklistRuleId =
 	| "setupSlide"
 	| "dataDisclosure"
 	| "tourShape"
-	| "tourKind";
+	| "tourKind"
+	| "noteShape";
 
 /** The three slide properties that live behind the slide's ⋯ menu. */
 export type SlideMenuItem = "layout" | "purpose" | "setupControls";
@@ -170,6 +175,7 @@ export function evaluateCampaignChecklist(
 	}
 
 	const isFirstRun = campaign.type === "first_run_onboarding";
+	const isNote = campaign.type === "feature_note";
 
 	use("name");
 	if (isBlank(campaign.name)) {
@@ -184,7 +190,8 @@ export function evaluateCampaignChecklist(
 	if (
 		campaign.type !== "first_run_onboarding" &&
 		campaign.type !== "release_update" &&
-		campaign.type !== "artifact_tour"
+		campaign.type !== "artifact_tour" &&
+		campaign.type !== "feature_note"
 	) {
 		fail({
 			ruleId: "type",
@@ -211,6 +218,29 @@ export function evaluateCampaignChecklist(
 			path: "slides",
 			messageKey: `${VALIDATION}.slideRequired`,
 		});
+	}
+
+	// A feature note is one short strip, not a deck: exactly one existing
+	// standard slide carrying the feature role, with no screenshot. The server
+	// holds the same rule (`validatePublishInput`, `errors.noteShape` and
+	// `errors.noteAssets`); the client check is the one that keeps Publish
+	// unclickable before the round trip.
+	if (isNote) {
+		use("noteShape");
+		const noteSlide = campaign.slides[0];
+		const wellShaped =
+			campaign.slides.length === 1 &&
+			noteSlide?.kind === "standard" &&
+			noteSlide.semanticRole === "feature" &&
+			!noteSlide.desktopAssetId &&
+			!noteSlide.mobileAssetId;
+		if (!wellShaped) {
+			fail({
+				ruleId: "noteShape",
+				path: "slides",
+				messageKey: `${VALIDATION}.noteShapeInvalid`,
+			});
+		}
 	}
 
 	if (campaign.slides.length > 0) {
@@ -319,7 +349,9 @@ export function evaluateCampaignChecklist(
 		const hasUploadedImage = Boolean(
 			slide.desktopAssetId || slide.mobileAssetId,
 		);
-		if (hasUploadedImage) {
+		// A note has no pictures at all (its `noteShape` rule says so), so it is
+		// never asked for alt text either.
+		if (hasUploadedImage && !isNote) {
 			use("imageAlt");
 			for (const entry of [
 				{ locale: "en" as const, value: slide.altEn },
@@ -338,7 +370,18 @@ export function evaluateCampaignChecklist(
 			}
 		}
 
-		if (!isAllowedActionDestination(slide.actionUrl)) {
+		// A feature note never uses an `internal:` action: the note links to an
+		// app page, while `internal:` actions belong to the campaign modal. The
+		// server states the same rule in its own words (`errors.noteAction`).
+		if (isNote && slide.actionUrl?.startsWith(INTERNAL_ACTION_PREFIX)) {
+			fail({
+				...base,
+				ruleId: "actionDestination",
+				path: `${prefix}.actionDestination`,
+				messageKey: `${VALIDATION}.noteActionInvalid`,
+				field: "actionDestination",
+			});
+		} else if (!isAllowedActionDestination(slide.actionUrl)) {
 			fail({
 				...base,
 				ruleId: "actionDestination",
@@ -514,6 +557,7 @@ const RULE_LABEL: Record<ChecklistRuleId, string> = {
 	dataDisclosure: "admin.campaigns.checklist.rule.dataDisclosure",
 	tourShape: "admin.campaigns.checklist.rule.tourShape",
 	tourKind: "admin.campaigns.checklist.rule.tourKind",
+	noteShape: "admin.campaigns.checklist.rule.noteShape",
 };
 
 /** What a failing row says; the localized ones name the missing language. */
@@ -534,6 +578,7 @@ const FAILURE_LABEL: Record<ChecklistRuleId, string> = {
 	dataDisclosure: "admin.campaigns.checklist.fail.dataDisclosure",
 	tourShape: "admin.campaigns.checklist.fail.tourShape",
 	tourKind: "admin.campaigns.checklist.fail.tourKind",
+	noteShape: "admin.campaigns.checklist.fail.noteShape",
 };
 
 /** The rule label shown in the expanded checklist, per rule id. */

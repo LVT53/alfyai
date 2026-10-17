@@ -33,11 +33,28 @@ let draftName = $state(untrack(() => name));
 let draftType = $state<CampaignType>(untrack(() => type));
 let draftRelease = $state(untrack(() => releaseVersion));
 
-// A tour is not a first-run or release campaign and cannot become one: its
-// kind (the release text) is the one the seed gave it and the server ignores a
-// change to either, so the dialog shows what it is and offers no other choice.
+// A tour and a feature note are campaigns of their own kind and cannot become
+// another: a tour's kind is its release text and a note's one slide is what the
+// server seeded, so the dialog shows what it is and offers no other choice.
 let isTour = $derived(type === "artifact_tour");
-let needsRelease = $derived(!isTour && draftType === "release_update");
+let isNote = $derived(type === "feature_note");
+let isFixedType = $derived(isTour || isNote);
+let fixedTypeLabel = $derived(
+	isTour
+		? tourLead(releaseVersion, $t).join(" · ")
+		: isNote
+			? $t("admin.campaigns.type.featureNote")
+			: "",
+);
+let needsRelease = $derived(!isFixedType && draftType === "release_update");
+// Creating offers all three types. Editing an existing campaign keeps the two
+// it could already become: a note or a tour is seeded with its slide/kind, and
+// switching an existing draft to it would leave it without one.
+let typeOptions = $derived(
+	mode === "create"
+		? (["first_run_onboarding", "release_update", "feature_note"] as const)
+		: (["first_run_onboarding", "release_update"] as const),
+);
 
 function confirm() {
 	onConfirm({
@@ -70,15 +87,15 @@ function confirm() {
 
 		<div>
 			<p class="settings-label">{$t('admin.campaigns.type')}</p>
-			{#if isTour}
+			{#if isFixedType}
 				<div class="pill-row">
 					<span class="pref-pill pref-pill-active type-fixed" data-testid="campaign-dialog-type">
-						{tourLead(releaseVersion, $t).join(' · ')}
+						{fixedTypeLabel}
 					</span>
 				</div>
 			{:else}
 				<div class="pill-row">
-					{#each ['first_run_onboarding', 'release_update'] as const as option (option)}
+					{#each typeOptions as option (option)}
 						<button
 							type="button"
 							class="pref-pill"
@@ -87,7 +104,9 @@ function confirm() {
 						>
 							{option === 'first_run_onboarding'
 								? $t('admin.campaigns.type.firstRun')
-								: $t('admin.campaigns.type.release')}
+								: option === 'release_update'
+									? $t('admin.campaigns.type.release')
+									: $t('admin.campaigns.type.featureNote')}
 						</button>
 					{/each}
 				</div>

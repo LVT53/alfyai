@@ -25,6 +25,7 @@ export type AssetDetails = {
 
 <script lang="ts">
 import { TriangleAlert } from "@lucide/svelte";
+import { INTERNAL_ACTION_PREFIX } from "$lib/campaign-action-destinations";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import type { I18nKey } from "$lib/i18n";
 import type { CampaignAssetVariant } from "$lib/client/api/campaign-assets";
@@ -41,6 +42,10 @@ import OverflowMenu, { type OverflowMenuItem } from "./OverflowMenu.svelte";
 import SlideAssetBlock from "./SlideAssetBlock.svelte";
 
 const BODY_GUIDE_LENGTH = 600;
+// A feature note's body is one short line, not a slide's paragraph: the guide
+// drops from 600 to a note-sized count so the editor says so before the draft
+// grows into something the strip has to wrap.
+const NOTE_BODY_GUIDE_LENGTH = 120;
 
 let {
 	slide,
@@ -53,6 +58,7 @@ let {
 	assetDetails = {},
 	uploadingVariant = null,
 	tour = null,
+	note = false,
 	onUpdate,
 	onLocaleChange,
 	onAssetUpload,
@@ -75,6 +81,13 @@ let {
 	 * the number a reader counts the step by.
 	 */
 	tour?: { summary: boolean; step: number | null } | null;
+	/**
+	 * Set when the slide belongs to a feature note: one seeded standard slide of
+	 * words and one optional action. A note shows no screenshot, so the alt text
+	 * and the asset grid stay out of the editor; its action may not be an
+	 * `internal:` action, so those destinations are not offered.
+	 */
+	note?: boolean;
 	onUpdate: (patch: Partial<EditorSlide>) => void;
 	onLocaleChange: (locale: ChecklistLocale) => void;
 	onAssetUpload: (variant: CampaignAssetVariant, file: File) => void;
@@ -99,36 +112,56 @@ let actionLabel = $derived(
 	(locale === "en" ? slide.actionLabelEn : slide.actionLabelHu) ?? "",
 );
 let tourSummary = $derived(tour?.summary === true);
-// What the slide is called: "Slide 3", or for a tour "Step 1" and "Empty-state
-// line" (a reader never meets a tour's slides as numbered slides).
+// What the slide is called: "Slide 3", for a note just "Note" (it is not one
+// slide of several), and for a tour "Step 1" and "Empty-state line" (a reader
+// never meets a tour's slides as numbered slides).
 let heading = $derived(
-	!tour
-		? $t("admin.campaigns.slideNumber", { number: slideNumber })
-		: tourSummary
-			? $t("admin.campaigns.tour.summarySlide")
-			: $t("admin.campaigns.tour.stepNumber", {
-					number: tour.step ?? slideNumber,
-				}),
+	note
+		? $t("admin.campaigns.note.editorTitle")
+		: !tour
+			? $t("admin.campaigns.slideNumber", { number: slideNumber })
+			: tourSummary
+				? $t("admin.campaigns.tour.summarySlide")
+				: $t("admin.campaigns.tour.stepNumber", {
+						number: tour.step ?? slideNumber,
+					}),
 );
 let failures = $derived(slideFieldFailures(checklist, slide.localId));
+let bodyGuideLength = $derived(
+	note ? NOTE_BODY_GUIDE_LENGTH : BODY_GUIDE_LENGTH,
+);
 let languageName = $derived(
 	locale === "hu"
 		? $t("admin.campaigns.language.hu")
 		: $t("admin.campaigns.language.en"),
 );
-// A destination the select cannot offer — a since-removed value, or an
-// allow-listed path carrying a query string.
-// It is added to the select as its own option rather than silently dropped.
+let actionUrl = $derived((slide.actionUrl ?? "").trim());
+let isInternalAction = $derived(actionUrl.startsWith(INTERNAL_ACTION_PREFIX));
+// The destinations the select may offer. A note links to app pages only; a
+// draft that already carries an internal action still shows it, flagged, so a
+// state that blocks publishing is never silently hidden.
+let destinationOptions = $derived(
+	note
+		? ALLOWED_ACTION_DESTINATIONS.filter(
+				(destination) => !destination.startsWith(INTERNAL_ACTION_PREFIX),
+			)
+		: ALLOWED_ACTION_DESTINATIONS,
+);
+// A destination the select cannot offer — a since-removed value, an internal
+// action on a note, or an allow-listed path carrying a query string. It is
+// added to the select as its own option rather than silently dropped.
 let unknownDestination = $derived(
 	Boolean(
-		slide.actionUrl &&
-			!ALLOWED_ACTION_DESTINATIONS.includes(
-				slide.actionUrl as (typeof ALLOWED_ACTION_DESTINATIONS)[number],
+		actionUrl &&
+			!destinationOptions.includes(
+				actionUrl as (typeof ALLOWED_ACTION_DESTINATIONS)[number],
 			),
 	),
 );
 let unknownDestinationAllowed = $derived(
-	unknownDestination && isAllowedActionDestination(slide.actionUrl),
+	unknownDestination &&
+		isAllowedActionDestination(actionUrl) &&
+		!(note && isInternalAction),
 );
 let desktopDetails = $derived(
 	slide.desktopAssetId ? assetDetails[slide.desktopAssetId] : undefined,
@@ -150,7 +183,7 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 
 <section
 	class="slide-editor"
-	aria-label={tour ? heading : $t('admin.campaigns.slideEditorLabel', { number: slideNumber })}
+	aria-label={tour || note ? heading : $t('admin.campaigns.slideEditorLabel', { number: slideNumber })}
 >
 	<header class="slide-head">
 		<h3 class="slide-title">{heading}</h3>
@@ -212,6 +245,7 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 			<textarea
 				id={`slide-body-${slide.localId}`}
 				class="settings-input body-input"
+				class:body-input-note={note}
 				value={body}
 				disabled={!editable}
 				oninput={(event) => setLocalized('body', event.currentTarget.value)}
@@ -223,16 +257,22 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 						{$t('admin.campaigns.fieldError.body', { language: languageName })}
 					</p>
 				{/if}
-				<span class="char-count" class:char-count-over={body.length > BODY_GUIDE_LENGTH}>
-					{body.length} / {BODY_GUIDE_LENGTH}
+				<span class="char-count" class:char-count-over={body.length > bodyGuideLength}>
+					{body.length} / {bodyGuideLength}
 				</span>
 			</div>
+			{#if note}
+				<p class="field-hint" data-testid="note-body-hint">
+					{$t('admin.campaigns.note.bodyHint')}
+				</p>
+			{/if}
 		</div>
 		{/if}
 
-		<!-- A screenshot, its alt text and a button are an announcement's: no tour
-		     shows any of them, so none is asked for. -->
-		{#if !tour}
+		<!-- A screenshot and its alt text are an announcement's: no tour or note
+		     shows one, so neither is asked for. A note keeps the action, though;
+		     a tour does not (it has no button). -->
+		{#if !tour && !note}
 		<div class="field">
 			<label class="field-label" for={`slide-alt-${slide.localId}`}>
 				{$t('admin.campaigns.slideAlt')}
@@ -252,7 +292,9 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 				</p>
 			{/if}
 		</div>
+		{/if}
 
+		{#if !tour}
 		<div class="field">
 			<span class="field-label">
 				{$t('admin.campaigns.slideAction')}
@@ -268,7 +310,7 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 						onchange={(event) => onUpdate({ actionUrl: event.currentTarget.value })}
 					>
 						<option value="">{$t('admin.campaigns.destination.none')}</option>
-						{#each ALLOWED_ACTION_DESTINATIONS as destination (destination)}
+						{#each destinationOptions as destination (destination)}
 							<option value={destination}>
 								{destination} — {$t(DESTINATION_LABELS[destination] as I18nKey)}
 							</option>
@@ -284,7 +326,11 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 					{#if failures.has('actionDestination')}
 						<p class="field-error">
 							<TriangleAlert size={12} strokeWidth={2.2} aria-hidden="true" />
-							{$t('admin.campaigns.validation.actionDestinationInvalid')}
+							{$t(
+								note && isInternalAction
+									? 'admin.campaigns.validation.noteActionInvalid'
+									: 'admin.campaigns.validation.actionDestinationInvalid',
+							)}
 						</p>
 					{/if}
 				</div>
@@ -309,7 +355,7 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 		{/if}
 	</div>
 
-	{#if !tour}
+	{#if !tour && !note}
 	<div class="asset-grid">
 		<SlideAssetBlock
 			variant="desktop"
@@ -425,6 +471,12 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 	.body-input {
 		min-height: 4.5rem;
 		line-height: 1.55;
+	}
+
+	/* A note is one short line; a slide's paragraph-sized box would suggest
+	   otherwise. */
+	.body-input-note {
+		min-height: 3rem;
 	}
 
 	/* A published campaign is read-only; the greying is the second cue after

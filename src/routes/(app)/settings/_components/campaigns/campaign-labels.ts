@@ -50,6 +50,25 @@ export function tourCountLabel(slideCount: number, t: Translate): string {
 }
 
 /**
+ * The leading words of a feature note's line. A note is not a release and its
+ * type is the whole lead: "Feature note", never "Release · 2.4.0".
+ */
+export function featureNoteLead(t: Translate): string[] {
+	return [t("admin.campaigns.type.featureNote")];
+}
+
+/**
+ * How many a note has, in its own word: one note, never "1 slide". The count
+ * is still a count so the pane can say 0 while a note waits for its seeded
+ * slide (a recovery state, not the normal one).
+ */
+export function noteCountLabel(noteCount: number, t: Translate): string {
+	return t("admin.campaigns.note.count", {
+		count: Math.max(noteCount, 0),
+	});
+}
+
+/**
  * The number of each slide as a reader counts a tour's steps: the summary slide
  * (the empty-state line) has none, and the slides after it are steps 1, 2, 3
  * whatever their place in the list.

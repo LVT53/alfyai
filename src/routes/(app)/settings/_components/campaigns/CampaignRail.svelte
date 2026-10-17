@@ -2,7 +2,12 @@
 import { Plus } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { Campaign, CampaignStatus } from "$lib/client/api/campaigns";
-import { tourCountLabel, tourLead } from "./campaign-labels";
+import {
+	featureNoteLead,
+	noteCountLabel,
+	tourCountLabel,
+	tourLead,
+} from "./campaign-labels";
 
 let {
 	campaigns,
@@ -43,18 +48,22 @@ function metaLine(campaign: Campaign): string {
 			? $t("admin.campaigns.type.firstRun")
 			: campaign.type === "artifact_tour"
 				? tourLead(campaign.releaseVersion, $t).join(" · ")
-				: // `||`, not `??`: a release draft with no version yet carries "",
-					// which is not nullish, so `??` left the row reading " · 3 slides".
-					campaign.releaseVersion?.trim() ||
-					$t("admin.campaigns.versionShort", {
-						version: campaign.version ?? 1,
-					});
+				: campaign.type === "feature_note"
+					? featureNoteLead($t).join(" · ")
+					: // `||`, not `??`: a release draft with no version yet carries "",
+						// which is not nullish, so `??` left the row reading " · 3 slides".
+						campaign.releaseVersion?.trim() ||
+						$t("admin.campaigns.versionShort", {
+							version: campaign.version ?? 1,
+						});
 	// A tour is counted by what a reader meets (its steps and the empty-state
-	// line), not as "4 slides".
+	// line) and a feature note in notes; neither reads as "4 slides".
 	const count =
 		campaign.type === "artifact_tour"
 			? tourCountLabel(slideCount, $t)
-			: $t("admin.campaigns.slideCount", { count: slideCount });
+			: campaign.type === "feature_note"
+				? noteCountLabel(slideCount, $t)
+				: $t("admin.campaigns.slideCount", { count: slideCount });
 	return `${lead} · ${count}`;
 }
 </script>

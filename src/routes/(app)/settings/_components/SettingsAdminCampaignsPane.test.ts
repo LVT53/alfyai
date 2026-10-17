@@ -1514,4 +1514,293 @@ describe("SettingsAdminCampaignsPane", () => {
 			expect(mockInvalidateAll).toHaveBeenCalledTimes(1);
 		});
 	});
+
+	// A feature note is the lighter sibling of a campaign: one standard slide of
+	// words and one optional action, with no pictures, no add/delete controls and
+	// no performance card. The rail and the line above the editor count notes.
+	describe("a feature note campaign", () => {
+		const noteSlide = {
+			id: "note-slide",
+			kind: "standard",
+			sortOrder: 1,
+			semanticRole: "feature",
+			titleEn: "Two-factor authentication",
+			titleHu: "Kétlépcsős azonosítás",
+			bodyEn: "Keep your account safer.",
+			bodyHu: "Tartsd biztonságban a fiókodat.",
+			actionLabelEn: "Set up 2FA",
+			actionLabelHu: "2FA beállítása",
+			actionUrl: "/settings",
+		};
+
+		const noteSummary = {
+			id: "note-1",
+			type: "feature_note",
+			version: 1,
+			name: "Two-factor authentication",
+			status: "draft",
+			slideCount: 1,
+			updatedAt: "2026-10-17T08:00:00.000Z",
+		};
+
+		function openNote(overrides: Record<string, unknown> = {}) {
+			const summary = { ...noteSummary, ...overrides };
+			mockFetchAdminCampaigns.mockResolvedValue([summary]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...summary,
+				slides: [noteSlide],
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+		}
+
+		function editorMeta() {
+			return document.querySelector(".editor-meta")?.textContent ?? "";
+		}
+
+		it("reads the meta line as Feature note · 1 note in the rail and above the editor", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			expect(
+				within(screen.getByTestId("admin-campaign-row")).getByText(
+					"Feature note · 1 note",
+				),
+			).toBeInTheDocument();
+			expect(editorMeta()).toMatch(/^\s*Feature note · 1 note · /);
+			expect(document.body.textContent).not.toContain("1 slide");
+		});
+
+		it("reads the rail as one note: no picture slot, no step number, and the Note tag", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			const thumbs = screen.getAllByTestId("admin-campaign-slide-thumb");
+			expect(thumbs).toHaveLength(1);
+			expect(thumbs[0].querySelector(".thumb")).toBeNull();
+			expect(within(thumbs[0]).getByText("Note")).toBeInTheDocument();
+			expect(
+				within(thumbs[0]).getByText("Two-factor authentication"),
+			).toBeInTheDocument();
+			// No "1" where a campaign slide's number would be.
+			expect(within(thumbs[0]).queryByText("1")).toBeNull();
+		});
+
+		it("offers no add-slide button for a note", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			expect(screen.queryByRole("button", { name: "Add slide" })).toBeNull();
+		});
+
+		it("keeps a recovery Add only when a note has lost its seeded slide", async () => {
+			mockFetchAdminCampaigns.mockResolvedValue([noteSummary]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...noteSummary,
+				slideCount: 0,
+				slides: [],
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Two-factor authentication");
+
+			expect(
+				screen.getByRole("button", { name: "Add slide" }),
+			).toBeInTheDocument();
+		});
+
+		it("gives the note's slide menu Copy only", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			await openSlideMenu();
+			expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+			expect(
+				screen.getByRole("menuitem", { name: "Copy English to Magyar" }),
+			).toBeInTheDocument();
+			for (const name of [
+				/^Layout/,
+				/Purpose/,
+				/Setup controls/,
+				/Move up/,
+				/Move down/,
+				/Delete slide/,
+			]) {
+				expect(
+					screen.queryByRole("menuitem", { name }),
+					String(name),
+				).toBeNull();
+			}
+		});
+
+		it("edits the note's words and action, with no alt text and no screenshots", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			expect(screen.getByRole("heading", { name: "Note" })).toBeInTheDocument();
+			expect(screen.getByLabelText("Title")).toHaveValue(
+				"Two-factor authentication",
+			);
+			expect(screen.getByLabelText("Body")).toHaveValue(
+				"Keep your account safer.",
+			);
+			expect(screen.queryByLabelText(/Alt text/)).toBeNull();
+			expect(screen.queryByText("Desktop screenshot")).toBeNull();
+			expect(screen.queryByText("Mobile screenshot")).toBeNull();
+			expect(screen.getByLabelText("Action destination")).toHaveValue(
+				"/settings",
+			);
+			expect(screen.getByLabelText("Action label")).toHaveValue("Set up 2FA");
+		});
+
+		it("keeps internal actions out of the note's destination select", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			const select = screen.getByLabelText("Action destination");
+			const values = [...select.querySelectorAll("option")].map(
+				(option) => option.value,
+			);
+			expect(values).toContain("/settings");
+			expect(values.every((value) => !value.startsWith("internal:"))).toBe(
+				true,
+			);
+		});
+
+		it("shows a note-sized body hint and character guide", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			expect(screen.getByTestId("note-body-hint")).toHaveTextContent(
+				"One short sentence: what this feature does for you. It appears on one line beside the action.",
+			);
+			expect(screen.getByText(/\/ 120$/)).toBeInTheDocument();
+		});
+
+		it("previews the reader's strip, with no device toggle and no announcement modal", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			const preview = screen.getByTestId("note-preview");
+			expect(preview).toHaveAttribute("inert");
+			expect(within(preview).getByTestId("feature-note")).toBeInTheDocument();
+			expect(
+				within(preview).getByRole("heading", {
+					name: "Two-factor authentication",
+				}),
+			).toBeInTheDocument();
+			expect(screen.queryByRole("group", { name: "Preview size" })).toBeNull();
+			expect(screen.queryByRole("dialog")).toBeNull();
+		});
+
+		it("shows the note's type read-only in its details", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Campaign details" }),
+			);
+
+			const dialog = screen.getByRole("dialog");
+			expect(within(dialog).getByText("Feature note")).toBeInTheDocument();
+			expect(
+				within(dialog).queryByRole("button", { name: "First-run" }),
+			).toBeNull();
+			expect(
+				within(dialog).queryByRole("button", { name: "Release" }),
+			).toBeNull();
+			expect(within(dialog).queryByLabelText("Release")).toBeNull();
+			expect(within(dialog).getByLabelText("Name")).toHaveValue(
+				"Two-factor authentication",
+			);
+		});
+
+		it("shows no performance card for a published note, even with its events recorded", async () => {
+			openNote({
+				status: "published",
+				publishedAt: "2026-10-17T08:00:00.000Z",
+				analyticsSummary: {
+					autoShown: 12,
+					completed: 4,
+					skipped: 2,
+					replayOpened: 0,
+				},
+			});
+			await waitForEditor("Two-factor authentication");
+
+			expect(screen.queryByTestId("campaign-performance")).toBeNull();
+		});
+
+		it("asks for the campaign list again after publishing a note, since the older one was archived", async () => {
+			const draftNote = { ...noteSummary, id: "note-new", name: "Note draft" };
+			const older = {
+				...noteSummary,
+				id: "note-old",
+				name: "Older note",
+				status: "published",
+			};
+			mockFetchAdminCampaigns
+				.mockResolvedValueOnce([draftNote, older])
+				.mockResolvedValue([
+					{ ...draftNote, status: "published" },
+					{ ...older, status: "archived" },
+				]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...draftNote,
+				slides: [noteSlide],
+				validationErrors: [],
+			});
+			mockUpdateAdminCampaign.mockResolvedValue({
+				...draftNote,
+				slides: [noteSlide],
+			});
+			mockPublishAdminCampaign.mockResolvedValue({
+				...draftNote,
+				status: "published",
+				slides: [noteSlide],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Note draft");
+
+			const publish = screen.getByRole("button", { name: "Publish" });
+			expect(publish).not.toBeDisabled();
+			await fireEvent.click(publish);
+
+			await waitFor(() => expect(mockPublishAdminCampaign).toHaveBeenCalled());
+			await waitFor(() => {
+				expect(
+					within(screen.getAllByTestId("admin-campaign-row")[1]).getByText(
+						"Archived",
+					),
+				).toBeInTheDocument();
+			});
+			expect(mockFetchAdminCampaigns).toHaveBeenCalledTimes(2);
+		});
+
+		it("offers Feature note when creating a campaign, and no release version for it", async () => {
+			openNote();
+			await waitForEditor("Two-factor authentication");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "New campaign" }),
+			);
+			const dialog = screen.getByRole("dialog");
+			expect(
+				within(dialog).getByRole("button", { name: "First-run" }),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).getByRole("button", { name: "Release" }),
+			).toBeInTheDocument();
+
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Release" }),
+			);
+			expect(within(dialog).getByLabelText("Release")).toBeInTheDocument();
+
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Feature note" }),
+			);
+			expect(within(dialog).queryByLabelText("Release")).toBeNull();
+		});
+	});
 });

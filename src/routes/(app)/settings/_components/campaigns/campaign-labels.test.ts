@@ -2,7 +2,13 @@ import { get } from "svelte/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
-import { tourCountLabel, tourLead, tourStepNumbers } from "./campaign-labels";
+import {
+	featureNoteLead,
+	noteCountLabel,
+	tourCountLabel,
+	tourLead,
+	tourStepNumbers,
+} from "./campaign-labels";
 
 afterEach(() => uiLanguage.set("en"));
 
@@ -67,5 +73,31 @@ describe("tourLead", () => {
 		expect(tourLead("2.1.0", get(t))).toEqual(["Tour", "2.1.0"]);
 		expect(tourLead("  ", get(t))).toEqual(["Tour"]);
 		expect(tourLead(null, get(t))).toEqual(["Tour"]);
+	});
+});
+
+// A feature note is one line, not a deck: the admin's lines count notes, never
+// slides, and name the campaign type before the count.
+describe("featureNoteLead", () => {
+	it("leads with the campaign type's own word", () => {
+		expect(featureNoteLead(get(t))).toEqual(["Feature note"]);
+		uiLanguage.set("hu");
+		expect(featureNoteLead(get(t))).toEqual(["Új funkció"]);
+	});
+});
+
+describe("noteCountLabel", () => {
+	it("counts a note in notes, never as slides", () => {
+		expect(noteCountLabel(1, get(t))).toBe("1 note");
+	});
+
+	it("says none in the plural", () => {
+		expect(noteCountLabel(0, get(t))).toBe("0 notes");
+	});
+
+	it("says it in Hungarian", () => {
+		uiLanguage.set("hu");
+		expect(noteCountLabel(1, get(t))).toBe("1 jegyzet");
+		expect(noteCountLabel(0, get(t))).toBe("0 jegyzet");
 	});
 });

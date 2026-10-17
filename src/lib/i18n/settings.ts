@@ -145,6 +145,7 @@ const settingsDict = {
 		"admin.campaigns.tour.summarySlide": "Empty-state line",
 		"admin.campaigns.type": "Type",
 		"admin.campaigns.type.feature": "Feature",
+		"admin.campaigns.type.featureNote": "Feature note",
 		"admin.campaigns.type.firstRun": "First-run",
 		"admin.campaigns.type.release": "Release",
 		"admin.campaigns.type.standard": "Standard",
@@ -168,6 +169,10 @@ const settingsDict = {
 		"admin.campaigns.validation.mobileAssetRequired":
 			"Mobile crop asset is required.",
 		"admin.campaigns.validation.nameRequired": "Campaign name is required.",
+		"admin.campaigns.validation.noteActionInvalid":
+			"A feature note's action must point to an app page, not an internal action.",
+		"admin.campaigns.validation.noteShapeInvalid":
+			"A feature note needs exactly one standard slide with the feature purpose and no screenshot.",
 		"admin.campaigns.validation.releaseVersionRequired":
 			"Release/update campaigns require a linked app version.",
 		"admin.campaigns.validation.semanticRoleInvalid":
@@ -1016,6 +1021,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.localizedTitleAndBody":
 			"{language} title and body",
 		"admin.campaigns.checklist.fail.name": "Campaign name",
+		"admin.campaigns.checklist.fail.noteShape":
+			"One standard feature slide, no screenshot",
 		"admin.campaigns.checklist.fail.order": "Slide order",
 		"admin.campaigns.checklist.fail.purpose": "Slide purpose",
 		"admin.campaigns.checklist.fail.releaseVersion": "Release version",
@@ -1042,6 +1049,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.localized":
 			"Title and body in both languages",
 		"admin.campaigns.checklist.rule.name": "Campaign name",
+		"admin.campaigns.checklist.rule.noteShape":
+			"One standard feature slide, no screenshot",
 		"admin.campaigns.checklist.rule.order": "Slides are in a valid order",
 		"admin.campaigns.checklist.rule.purpose": "Every slide has a purpose",
 		"admin.campaigns.checklist.rule.releaseVersion": "Release version",
@@ -1088,9 +1097,15 @@ const settingsDict = {
 		"admin.campaigns.mobileFallsBack": "Uses the desktop crop",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Without its own 9:16 crop, phones show the desktop screenshot letterboxed.",
+		"admin.campaigns.note.bodyHint":
+			"One short sentence: what this feature does for you. It appears on one line beside the action.",
+		"admin.campaigns.note.count":
+			"{count} note{count, plural, one {} other {s}}",
+		"admin.campaigns.note.editorTitle": "Note",
+		"admin.campaigns.note.tag": "Note",
 		"admin.campaigns.newCampaign": "New campaign",
 		"admin.campaigns.newCampaignDescription":
-			"Name it, pick what it is for, and add slides afterwards.",
+			"Name it and pick what it is for. A campaign takes slides; a feature note is one card on the landing page.",
 		"admin.campaigns.previewDesktop": "Desktop preview",
 		"admin.campaigns.previewDevice": "Preview size",
 		"admin.campaigns.previewMobile": "Phone preview",
@@ -1131,7 +1146,7 @@ const settingsDict = {
 			"A first-run campaign needs at least one data-disclosure slide, which is what tells people what the app stores.",
 		"admin.campaigns.slideTitle": "Title",
 		"admin.campaigns.typeHelp":
-			"A first-run campaign greets new accounts once; a release update announces a version to everyone.",
+			"A first-run campaign greets new accounts once; a release update announces a version to everyone; a feature note is one landing-page line about a smaller feature.",
 		"admin.campaigns.untitledCampaign": "Untitled campaign v{version}",
 		"admin.campaigns.updatedOn": "updated {date}",
 		// --- END admin Users & Campaigns redesign keys ---
@@ -2180,6 +2195,7 @@ const settingsDict = {
 		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
+		"admin.campaigns.type.featureNote": "Új funkció",
 		"admin.campaigns.type.firstRun": "Első indítás",
 		"admin.campaigns.type.release": "Kiadás",
 		"admin.campaigns.type.standard": "Általános",
@@ -2203,6 +2219,10 @@ const settingsDict = {
 		"admin.campaigns.validation.mobileAssetRequired":
 			"A mobil kivágott kép kötelező.",
 		"admin.campaigns.validation.nameRequired": "A kampány neve kötelező.",
+		"admin.campaigns.validation.noteActionInvalid":
+			"Az új funkció művelete appon belüli oldalra mutathat, belső műveletre nem.",
+		"admin.campaigns.validation.noteShapeInvalid":
+			"Az új funkcióhoz pontosan egy általános, funkció célú dia kell, képernyőkép nélkül.",
 		"admin.campaigns.validation.releaseVersionRequired":
 			"A kiadási kampányhoz kapcsolt appverzió szükséges.",
 		"admin.campaigns.validation.semanticRoleInvalid":
@@ -3077,6 +3097,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.localizedTitleAndBody":
 			"{language} cím és szöveg",
 		"admin.campaigns.checklist.fail.name": "Kampány neve",
+		"admin.campaigns.checklist.fail.noteShape":
+			"Egy általános funkciódia, képernyőkép nélkül",
 		"admin.campaigns.checklist.fail.order": "Diák sorrendje",
 		"admin.campaigns.checklist.fail.purpose": "Dia célja",
 		"admin.campaigns.checklist.fail.releaseVersion": "Kiadás verziószáma",
@@ -3101,6 +3123,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.layout": "Minden diának van elrendezése",
 		"admin.campaigns.checklist.rule.localized": "Cím és szöveg mindkét nyelven",
 		"admin.campaigns.checklist.rule.name": "Kampány neve",
+		"admin.campaigns.checklist.rule.noteShape":
+			"Egy általános funkciódia, képernyőkép nélkül",
 		"admin.campaigns.checklist.rule.order": "A diák sorrendje érvényes",
 		"admin.campaigns.checklist.rule.purpose": "Minden diának van célja",
 		"admin.campaigns.checklist.rule.releaseVersion": "Kiadás verziószáma",
@@ -3148,9 +3172,14 @@ const settingsDict = {
 		"admin.campaigns.mobileFallsBack": "Az asztali kivágást használja",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Saját 9:16-os kivágás nélkül a telefonok az asztali képernyőképet mutatják, fekete sávokkal.",
+		"admin.campaigns.note.bodyHint":
+			"Egy rövid mondat: mit tesz érted ez a funkció. Egy sorban jelenik meg a művelet mellett.",
+		"admin.campaigns.note.count": "{count} jegyzet",
+		"admin.campaigns.note.editorTitle": "Jegyzet",
+		"admin.campaigns.note.tag": "Jegyzet",
 		"admin.campaigns.newCampaign": "Új kampány",
 		"admin.campaigns.newCampaignDescription":
-			"Adj neki nevet, válaszd ki, mire szól, a diákat utána add hozzá.",
+			"Adj neki nevet, és válaszd ki, mi ez. A kampány diákból áll; az új funkció egyetlen kártya a kezdőlapon.",
 		"admin.campaigns.previewDesktop": "Asztali előnézet",
 		"admin.campaigns.previewDevice": "Előnézet mérete",
 		"admin.campaigns.previewMobile": "Telefonos előnézet",
@@ -3191,7 +3220,7 @@ const settingsDict = {
 			"Az első indítású kampányhoz kell legalább egy adatkezelési dia, amely elmondja, mit tárol az alkalmazás.",
 		"admin.campaigns.slideTitle": "Cím",
 		"admin.campaigns.typeHelp":
-			"Az első indítású kampány egyszer köszönti az új fiókokat; a kiadási frissítés mindenkinek bejelent egy verziót.",
+			"Az első indítású kampány egyszer köszönti az új fiókokat; a kiadási frissítés mindenkinek bejelent egy verziót; az új funkció egyetlen sor a kezdőlapon egy kisebb funkcióról.",
 		"admin.campaigns.untitledCampaign": "Névtelen kampány v{version}",
 		"admin.campaigns.updatedOn": "frissítve: {date}",
 		// --- END admin Users & Campaigns redesign keys ---
