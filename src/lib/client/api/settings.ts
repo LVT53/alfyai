@@ -368,6 +368,77 @@ export async function updatePassword(
 	};
 }
 
+export type TwoStepStatus = {
+	enabled: boolean;
+	/** When the factor was confirmed, in milliseconds, or null when it is off. */
+	since: number | null;
+	backupCodesLeft: number;
+};
+
+export type TwoStepCodeInput = { code?: string; backupCode?: string };
+
+/** Starts (or restarts) setup and returns the QR and the typed key once. */
+export async function setupTwoStep(): Promise<{ qrSvg: string; key: string }> {
+	return requestJson<{ qrSvg: string; key: string }>(
+		"/api/settings/two-step/setup",
+		{ method: "POST" },
+		"Failed to start two-step sign-in setup",
+	);
+}
+
+/**
+ * The working code turns it on, creates the ten backup codes (returned once)
+ * and signs the other devices out; the server says how many that was.
+ */
+export async function confirmTwoStepSetup(code: string): Promise<{
+	backupCodes: string[];
+	signedOutOtherDevices: number;
+}> {
+	return requestJson<{
+		success: boolean;
+		backupCodes: string[];
+		signedOutOtherDevices: number;
+	}>(
+		"/api/settings/two-step/confirm",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ code }),
+		},
+		"That code didn't work.",
+	);
+}
+
+/** Turns it off after a current code or a backup code. */
+export async function disableTwoStep(
+	input: TwoStepCodeInput,
+): Promise<{ wasOn: boolean }> {
+	return requestJson<{ success: boolean; wasOn: boolean }>(
+		"/api/settings/two-step/disable",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to turn off two-step sign-in",
+	);
+}
+
+/** Replaces the ten backup codes and returns the new ones once. */
+export async function regenerateBackupCodes(
+	input: TwoStepCodeInput,
+): Promise<{ backupCodes: string[] }> {
+	return requestJson<{ success: boolean; backupCodes: string[] }>(
+		"/api/settings/two-step/backup-codes",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to make new backup codes",
+	);
+}
+
 export async function deleteAccount(
 	password: string,
 	fetchImpl: FetchLike = fetch,

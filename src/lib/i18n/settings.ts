@@ -1858,6 +1858,57 @@ const settingsDict = {
 		"profileTab.signedOutOtherDevices":
 			"You were signed out on your other devices.",
 
+		// Account security — two-step sign-in (the Account card's row and its
+		// dialogs). Spec §3.4's copy is verbatim; the rest follows its voice.
+		"profileTab.twoStepTitle": "Two-step sign-in",
+		"profileTab.twoStepOnBadge": "On",
+		"profileTab.twoStepOffHelp":
+			"Off. Ask for a code from your phone when you sign in.",
+		"profileTab.twoStepOnHelp":
+			"Since {date}. {count} of {total} backup codes left.",
+		"profileTab.twoStepFewLeft":
+			"Only {count} backup codes left. Make new ones.",
+		"profileTab.twoStepTurnOn": "Turn on",
+		"profileTab.twoStepTurnOff": "Turn off",
+		"profileTab.twoStepNewCodes": "New backup codes",
+		"profileTab.twoStepStepOf": "Step {step} of 3",
+		"profileTab.twoStepSetupTitle": "Scan this code",
+		"profileTab.twoStepSetupLine":
+			"Open your authenticator app (Google Authenticator, Apple Passwords, 1Password) and scan it.",
+		"profileTab.twoStepCantScan": "Can't scan? Enter this key:",
+		"profileTab.twoStepCopy": "Copy",
+		"profileTab.twoStepCopied": "Copied",
+		"profileTab.twoStepNext": "Next",
+		"profileTab.twoStepEnterCodeTitle": "Enter the code from your app",
+		"profileTab.twoStepEnterCodeLine":
+			"Type the 6-digit code your app shows for AlfyAI. Nothing is turned on until it works.",
+		"profileTab.twoStepVerify": "Verify",
+		"profileTab.twoStepSaveCodesTitle": "Save your backup codes",
+		"profileTab.twoStepSaveCodesLine":
+			"If you lose your phone, each code gets you in once. Keep them somewhere safe.",
+		"profileTab.twoStepSavedAck": "I've saved them somewhere safe",
+		"profileTab.twoStepDone": "Done",
+		"profileTab.twoStepDownload": "Download",
+		"profileTab.twoStepDisableTitle": "Turn off two-step sign-in?",
+		"profileTab.twoStepDisableMessage":
+			"Enter a current code or a backup code.",
+		"profileTab.twoStepNewCodesTitle": "Make new backup codes?",
+		"profileTab.twoStepNewCodesMessage":
+			"Enter a current code or a backup code. The old codes stop working.",
+		"profileTab.twoStepCodeOrBackup": "Code or backup code",
+		"profileTab.twoStepWrongCode": "That code didn't work.",
+		"profileTab.twoStepTooManyAttempts":
+			"Too many wrong codes. Please wait a moment and try again.",
+		"profileTab.twoStepUnavailable":
+			"Two-step sign-in is unavailable. Contact your admin.",
+		"profileTab.twoStepNotOn": "Two-step sign-in is not on.",
+		"profileTab.twoStepNoSetup": "Start the setup again.",
+		"profileTab.twoStepAlreadyOn":
+			"Two-step sign-in is already on. Turn it off first.",
+		"profileTab.twoStepCodeRequired": "Enter a code or a backup code.",
+		"profileTab.twoStepOneCodeOnly": "Send a code or a backup code, not both.",
+		"profileTab.twoStepSetupFailed": "Could not start the setup.",
+
 		// Your Activity — summary card + full view.
 		"profileTab.activityDesc": "Your own usage — nobody else's.",
 		"profileTab.activityOpen": "Open Your Activity",
@@ -3864,6 +3915,59 @@ const settingsDict = {
 		"profileTab.accountUpdated": "A profil és a jelszó frissült.",
 		"profileTab.signedOutOtherDevices":
 			"A többi eszközödön kijelentkeztettünk.",
+
+		// Fiókbiztonság — kétlépcsős bejelentkezés (a fiókkártya sora és a
+		// párbeszédei). A spec §3.4 szövege szó szerinti.
+		"profileTab.twoStepTitle": "Kétlépcsős bejelentkezés",
+		"profileTab.twoStepOnBadge": "Bekapcsolva",
+		"profileTab.twoStepOffHelp":
+			"Kikapcsolva. Bejelentkezéskor kérj kódot a telefonodról.",
+		"profileTab.twoStepOnHelp":
+			"Bekapcsolva: {date}. {count} / {total} tartalékkód maradt.",
+		"profileTab.twoStepFewLeft":
+			"Már csak {count} tartalékkód maradt. Készíts újat.",
+		"profileTab.twoStepTurnOn": "Bekapcsolás",
+		"profileTab.twoStepTurnOff": "Kikapcsolás",
+		"profileTab.twoStepNewCodes": "Új tartalékkódok",
+		"profileTab.twoStepStepOf": "{step}. lépés a 3-ból",
+		"profileTab.twoStepSetupTitle": "Olvasd be ezt a kódot",
+		"profileTab.twoStepSetupLine":
+			"Nyisd meg a hitelesítő alkalmazást (Google Authenticator, Apple Passwords, 1Password), és olvasd be.",
+		"profileTab.twoStepCantScan": "Nem tudod beolvasni? Írd be ezt a kulcsot:",
+		"profileTab.twoStepCopy": "Másolás",
+		"profileTab.twoStepCopied": "Másolva",
+		"profileTab.twoStepNext": "Tovább",
+		"profileTab.twoStepEnterCodeTitle": "Írd be az alkalmazásban látható kódot",
+		"profileTab.twoStepEnterCodeLine":
+			"Írd be az AlfyAI 6 jegyű kódját. Semmi sem kapcsol be, amíg nem működik.",
+		"profileTab.twoStepVerify": "Ellenőrzés",
+		"profileTab.twoStepSaveCodesTitle": "Mentsd el a tartalékkódokat",
+		"profileTab.twoStepSaveCodesLine":
+			"Ha elveszíted a telefonodat, mindegyik kód egyszer beenged. Tartsd biztonságos helyen.",
+		"profileTab.twoStepSavedAck": "Elmentettem őket biztonságos helyre",
+		"profileTab.twoStepDone": "Kész",
+		"profileTab.twoStepDownload": "Letöltés",
+		"profileTab.twoStepDisableTitle":
+			"Kikapcsolod a kétlépcsős bejelentkezést?",
+		"profileTab.twoStepDisableMessage":
+			"Adj meg egy aktuális kódot vagy tartalékkódot.",
+		"profileTab.twoStepNewCodesTitle": "Új tartalékkódokat készítesz?",
+		"profileTab.twoStepNewCodesMessage":
+			"Adj meg egy aktuális kódot vagy tartalékkódot. A régi kódok érvénytelenné válnak.",
+		"profileTab.twoStepCodeOrBackup": "Kód vagy tartalékkód",
+		"profileTab.twoStepWrongCode": "Ez a kód nem működött.",
+		"profileTab.twoStepTooManyAttempts":
+			"Túl sok hibás kód. Várj egy kicsit, és próbáld újra.",
+		"profileTab.twoStepUnavailable":
+			"A kétlépcsős bejelentkezés nem elérhető. Keresd az adminodat.",
+		"profileTab.twoStepNotOn": "A kétlépcsős bejelentkezés nincs bekapcsolva.",
+		"profileTab.twoStepNoSetup": "Kezdd újra a beállítást.",
+		"profileTab.twoStepAlreadyOn":
+			"A kétlépcsős bejelentkezés már be van kapcsolva. Előbb kapcsold ki.",
+		"profileTab.twoStepCodeRequired": "Adj meg egy kódot vagy tartalékkódot.",
+		"profileTab.twoStepOneCodeOnly":
+			"Csak kódot vagy csak tartalékkódot küldj.",
+		"profileTab.twoStepSetupFailed": "A beállítást nem sikerült elindítani.",
 
 		// A tevékenységed — összegzőkártya és teljes nézet.
 		"profileTab.activityDesc": "A saját használatod — senki másé.",

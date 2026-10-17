@@ -56,8 +56,12 @@ import { formatCompactCount, isEmailChanged } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
 import SettingsDataImport from "./SettingsDataImport.svelte";
+import TwoStepSettingsRow from "./TwoStepSettingsRow.svelte";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
-import type { AnalyticsResponse } from "$lib/client/api/settings";
+import type {
+	AnalyticsResponse,
+	TwoStepStatus,
+} from "$lib/client/api/settings";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { Project } from "$lib/server/services/projects";
 
@@ -103,6 +107,10 @@ let {
 	// How many other devices the last password change signed out; named under
 	// the Save row while it is above zero.
 	signedOutOtherDevices = 0,
+	// The Account card's two-step row (spec §3.2). The page owns the status;
+	// the row asks for the change through its callback.
+	twoStep = { enabled: false, since: null, backupCodesLeft: 0 },
+	onTwoStepChanged = undefined,
 	onSaveAccount,
 	onDiscardAccount,
 	availableModels,
@@ -170,6 +178,8 @@ let {
 	accountDirty?: boolean;
 	savedAtLabel?: string;
 	signedOutOtherDevices?: number;
+	twoStep?: TwoStepStatus;
+	onTwoStepChanged?: (status: TwoStepStatus) => void;
 	onSaveAccount: () => void | Promise<void>;
 	onDiscardAccount: () => void;
 	availableModels: AvailableModel[];
@@ -527,6 +537,12 @@ function handlePersonalitySelect(event: Event) {
 					placeholder={$t('profileTab.newPasswordPlaceholder', { count: MIN_PASSWORD_LENGTH })}
 				/>
 			</div>
+
+			<hr class="identity-rule" />
+			<TwoStepSettingsRow
+				status={twoStep}
+				onChanged={(next) => onTwoStepChanged?.(next)}
+			/>
 
 			<div class="identity-foot">
 				<button

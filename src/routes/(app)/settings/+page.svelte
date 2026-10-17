@@ -81,6 +81,7 @@ import {
 } from "./_components/account-form";
 import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
+import type { TwoStepStatus } from "$lib/client/api/settings";
 import type { PageProps } from "./$types";
 
 // Extended data interface for admin-specific properties
@@ -111,6 +112,7 @@ interface SettingsPageData {
 	}>;
 	envDefaults?: Record<string, string>;
 	composerCommandRegistryEnabled?: boolean;
+	twoStep?: TwoStepStatus;
 }
 
 let { data }: PageProps = $props();
@@ -123,6 +125,15 @@ const initialPreferences = initialUserSettings.preferences;
 const initialCurrentConfigValues = (getData() as SettingsPageData)
 	.currentConfigValues;
 const isAdmin = initialUserSettings.role === "admin";
+// Spec §3.2's Account row. The server load owns the truth; a change from the
+// row updates this so the card does not wait for a reload.
+let twoStepStatus = $state<TwoStepStatus>(
+	(getData() as SettingsPageData).twoStep ?? {
+		enabled: false,
+		since: null,
+		backupCodesLeft: 0,
+	},
+);
 // ADR-0043 slice 18c: standalone Analytics tab removed for all users.
 // Personal analytics merged into Profile ("Your Activity"); system analytics
 // lives under Administration (admin-only). Only Profile is always shown.
@@ -1225,6 +1236,8 @@ $effect(() => {
 				{accountDirty}
 				savedAtLabel={accountSavedAtLabel}
 				{signedOutOtherDevices}
+				twoStep={twoStepStatus}
+				onTwoStepChanged={(next) => (twoStepStatus = next)}
 				onSaveAccount={saveAccount}
 				onDiscardAccount={discardAccount}
 				availableModels={profileAvailableModels}

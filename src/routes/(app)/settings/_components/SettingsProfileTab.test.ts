@@ -865,3 +865,38 @@ describe("SettingsProfileTab — the phone jump-list", () => {
 		second.restore();
 	});
 });
+
+describe("SettingsProfileTab — the Account card's two-step row", () => {
+	it("shows it off with a Turn on action", () => {
+		renderTab({
+			twoStep: { enabled: false, since: null, backupCodesLeft: 0 },
+		});
+
+		expect(screen.getByText("Two-step sign-in")).toBeInTheDocument();
+		expect(
+			screen.getByText("Off. Ask for a code from your phone when you sign in."),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Turn on" })).toBeInTheDocument();
+	});
+
+	it("shows it on with the date, the codes left and both actions", () => {
+		renderTab({
+			twoStep: {
+				enabled: true,
+				since: Date.UTC(2026, 9, 15),
+				backupCodesLeft: 8,
+			},
+		});
+
+		expect(screen.getByTestId("two-step-on-badge")).toHaveTextContent("On");
+		expect(
+			screen.getByText(/Since .*2026.*8 of 10 backup codes left\./),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "New backup codes" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Turn off" }),
+		).toBeInTheDocument();
+	});
+});
