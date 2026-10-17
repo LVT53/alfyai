@@ -7,6 +7,7 @@ export type CampaignType =
 	| "first_run_onboarding"
 	| "release_update"
 	| "artifact_tour"
+	| "feature_note"
 	| (string & {});
 export type CampaignSlideKind =
 	| "setup"
@@ -116,6 +117,22 @@ export type CampaignSlideDraft = Omit<
 	"campaignId" | "createdAt" | "updatedAt"
 >;
 
+/**
+ * One feature note, mapped from its single published `standard`/`feature`
+ * slide. `id` is the campaign id the delivery calls record showings and
+ * completion against.
+ */
+export type FeatureNote = {
+	id: string;
+	name: string;
+	snapshotId: string;
+	title: { en: string; hu: string };
+	body: { en: string; hu: string };
+	actionLabel: { en: string; hu: string };
+	actionDestination: string | null;
+	publishedAt: string | Date | null;
+};
+
 export type CampaignDraftPayload = {
 	type?: CampaignType;
 	releaseVersion?: string | null;
@@ -144,6 +161,10 @@ type CampaignEventResponse = {
 
 type CampaignCompletionResponse = {
 	state: unknown;
+};
+
+type FeatureNoteResponse = {
+	note: FeatureNote | null;
 };
 
 export type SeedFirstRunCampaignResponse = {
@@ -317,6 +338,19 @@ export async function fetchLatestCampaign(
 	return response.campaign ?? null;
 }
 
+/** The landing strip's one feature note, or `null` when this arrival gets none. */
+export async function fetchEligibleFeatureNote(
+	fetchImpl: FetchLike = fetch,
+): Promise<FeatureNote | null> {
+	const response = await requestJson<FeatureNoteResponse>(
+		"/api/campaigns/feature-note",
+		undefined,
+		"Failed to load feature note",
+		fetchImpl,
+	);
+	return response.note ?? null;
+}
+
 export async function recordCampaignEvent(
 	campaignId: string,
 	payload: {
@@ -339,6 +373,23 @@ export async function recordCampaignEvent(
 	return response.event;
 }
 
+/**
+ * The complete request both completion calls send. `keepalive` is what lets a
+ * CTA's completion survive the navigation its `<a>` starts; an ordinary
+ * completion has no page to outlive, so it leaves the body as it always was.
+ */
+function completionRequest(
+	reason: CampaignCompletionReason,
+	keepalive: boolean,
+): RequestInit {
+	return {
+		method: "POST",
+		headers: jsonHeaders,
+		body: JSON.stringify({ reason }),
+		...(keepalive ? { keepalive: true } : {}),
+	};
+}
+
 export async function completeCampaign(
 	campaignId: string,
 	reason: CampaignCompletionReason,
@@ -346,11 +397,26 @@ export async function completeCampaign(
 ): Promise<unknown> {
 	const response = await requestJson<CampaignCompletionResponse>(
 		`/api/campaigns/${encodeURIComponent(campaignId)}/complete`,
-		{
-			method: "POST",
-			headers: jsonHeaders,
-			body: JSON.stringify({ reason }),
-		},
+		completionRequest(reason, false),
+		"Failed to complete campaign",
+		fetchImpl,
+	);
+	return response.state;
+}
+
+/**
+ * Marks a note completed as the reader leaves for its destination. The same
+ * endpoint and body as `completeCampaign`, sent with `keepalive` so the
+ * navigation does not cancel it.
+ */
+export async function completeCampaignOnLeave(
+	campaignId: string,
+	reason: CampaignCompletionReason,
+	fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+	const response = await requestJson<CampaignCompletionResponse>(
+		`/api/campaigns/${encodeURIComponent(campaignId)}/complete`,
+		completionRequest(reason, true),
 		"Failed to complete campaign",
 		fetchImpl,
 	);

@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	archiveAdminCampaign,
 	completeCampaign,
+	completeCampaignOnLeave,
 	createAdminCampaign,
 	deleteAdminCampaignDraft,
 	duplicateAdminCampaign,
 	fetchAdminCampaign,
 	fetchAdminCampaigns,
 	fetchEligibleCampaign,
+	fetchEligibleFeatureNote,
 	fetchLatestCampaign,
 	publishAdminCampaign,
 	recordCampaignEvent,
@@ -269,6 +271,69 @@ describe("campaign client API", () => {
 				}),
 			],
 		]);
+	});
+
+	it("fetches the eligible feature note, or nothing", async () => {
+		const note = {
+			id: "note-1",
+			name: "Two-factor authentication",
+			snapshotId: "note-1-snapshot",
+			title: {
+				en: "Two-factor authentication",
+				hu: "Kétfaktoros hitelesítés",
+			},
+			body: {
+				en: "Add a second step to signing in.",
+				hu: "Adj egy második lépést a belépéshez.",
+			},
+			actionLabel: { en: "Open settings", hu: "Beállítások megnyitása" },
+			actionDestination: "/settings",
+			publishedAt: "2026-10-17T10:00:00.000Z",
+		};
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ note }))
+			.mockResolvedValueOnce(jsonResponse({ note: null }));
+
+		await expect(fetchEligibleFeatureNote(fetchImpl)).resolves.toEqual(note);
+		await expect(fetchEligibleFeatureNote(fetchImpl)).resolves.toBeNull();
+		expect(fetchImpl.mock.calls).toEqual([
+			["/api/campaigns/feature-note"],
+			["/api/campaigns/feature-note"],
+		]);
+	});
+
+	it("keeps a completion alive when the reader is leaving the page", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ state: { id: "state-1", status: "completed" } }),
+			);
+
+		await expect(
+			completeCampaignOnLeave("note-1", "completed", fetchImpl),
+		).resolves.toEqual({ id: "state-1", status: "completed" });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/campaigns/note-1/complete",
+			expect.objectContaining({
+				method: "POST",
+				keepalive: true,
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "completed" }),
+			}),
+		);
+	});
+
+	it("does not mark an ordinary completion keepalive", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ state: { id: "state-1", status: "skipped" } }),
+			);
+
+		await completeCampaign("note-1", "skipped", fetchImpl);
+
+		expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty("keepalive");
 	});
 
 	it("preserves publish validation field errors", async () => {

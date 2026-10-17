@@ -32,6 +32,21 @@ type BuildFirstRunOnboardingSlidesOptions = {
 	disclosure?: FirstRunOnboardingSlideOverrides;
 };
 
+type FeatureNoteSlideOverrides = Partial<{
+	id: string;
+	layoutType: string;
+	semanticRole: string;
+	sortOrder: number;
+	title: LocalizedText;
+	body: LocalizedText;
+	actionLabel: LocalizedText;
+	actionDestination: string | null;
+	altText: LocalizedText;
+	desktopCropAssetId: string | null;
+	mobileCropAssetId: string | null;
+	setupControls: string[];
+}>;
+
 const defaultSetupSlide = {
 	id: "slide-setup",
 	layoutType: "setup" as const,
@@ -181,6 +196,82 @@ export async function publishFirstRunOnboardingCampaign(
 	return publishCampaign(input.campaignId, "admin-user", {
 		db,
 		ids: input.snapshotIds,
+	});
+}
+
+/**
+ * One valid feature-note slide. A note's slide carries no image and no setup
+ * control on purpose: the note's publish rules refuse both.
+ */
+export function buildFeatureNoteSlide(
+	campaignId: string,
+	overrides: FeatureNoteSlideOverrides = {},
+): CampaignSlideInput {
+	return {
+		id: `${campaignId}-slide`,
+		layoutType: "standard",
+		semanticRole: "feature",
+		sortOrder: 1,
+		title: {
+			en: "Two-factor authentication",
+			hu: "Kétfaktoros hitelesítés",
+		},
+		body: {
+			en: "Add a second step to signing in.",
+			hu: "Adj egy második lépést a belépéshez.",
+		},
+		...overrides,
+	};
+}
+
+/**
+ * A feature-note draft with one filled note slide. The draft is created with
+ * the ids the service uses for the campaign and its seeded slide, then the
+ * slide is overwritten with note copy (or with `slides`, for the shape tests).
+ */
+export async function createFeatureNoteDraft(
+	db: CampaignTestDb,
+	input: {
+		campaignId: string;
+		name?: string;
+		slides?: CampaignSlideInput[];
+	},
+) {
+	await createCampaignDraft(
+		{
+			type: "feature_note",
+			name: input.name,
+			createdByUserId: "admin-user",
+		},
+		{ db, ids: [input.campaignId, `${input.campaignId}-seed-slide`] },
+	);
+
+	return updateCampaignDraft(
+		input.campaignId,
+		{
+			slides: input.slides ?? [buildFeatureNoteSlide(input.campaignId)],
+		},
+		{ db },
+	);
+}
+
+export async function publishFeatureNoteCampaign(
+	db: CampaignTestDb,
+	input: {
+		campaignId: string;
+		name?: string;
+		slides?: CampaignSlideInput[];
+		snapshotIds?: [string, string];
+	},
+) {
+	await createFeatureNoteDraft(db, input);
+
+	return publishCampaign(input.campaignId, "admin-user", {
+		db,
+		ids: input.snapshotIds ?? [
+			`${input.campaignId}-snapshot`,
+			`${input.campaignId}-snap-slide`,
+		],
 	});
 }
 
