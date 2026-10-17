@@ -13,7 +13,6 @@ import {
 	consumeSignInChallenge,
 	findSignInChallengeAccount,
 	SIGN_IN_ATTEMPT_COOKIE,
-	type SignInChallengeResult,
 } from "$lib/server/services/two-step";
 
 /**
@@ -144,9 +143,8 @@ export const POST: RequestHandler = async ({
 		}
 
 		const result = guarded.value;
-		const session = await sessionForResult(result);
 
-		if (!session) {
+		if (!result.ok) {
 			// A wrong code is the account's failure; an attempt that merely ran
 			// out of time or tries was already counted (or never was a guess).
 			if (result.reason === "wrong_code") {
@@ -159,6 +157,11 @@ export const POST: RequestHandler = async ({
 			return restartResponse("missing");
 		}
 
+		// The challenge is spent; only now does a session exist. It carries the
+		// password step's remember-me choice.
+		const session = await createSession(result.userId, {
+			rememberMe: result.rememberMe,
+		});
 		recordLoginSuccess(rateLimitKeys);
 		setSessionCookie(cookies, session.token, session.expiresAt, {
 			rememberMe: result.rememberMe,
@@ -175,9 +178,3 @@ export const POST: RequestHandler = async ({
 		return json({ error: "Internal server error" }, { status: 500 });
 	}
 };
-
-/** Creates the session a successful challenge owes, or null for a refusal. */
-async function sessionForResult(result: SignInChallengeResult) {
-	if (!result.ok) return null;
-	return createSession(result.userId, { rememberMe: result.rememberMe });
-}

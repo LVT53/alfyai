@@ -18,6 +18,7 @@
     "test:e2e:smoke": "E2E_APPLY_QUARANTINE=1 playwright test --grep @smoke",
     "test:unit": "vitest run",
     "seed": "tsx scripts/seed-user.ts",
+    "auth:reset-two-step": "tsx scripts/reset-two-step.ts",
     "db:prepare": "tsx scripts/prepare-db.ts",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

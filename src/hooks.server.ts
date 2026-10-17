@@ -23,6 +23,7 @@ import {
 import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/app/sandbox-response";
 import { atlasResearchJob } from "$lib/server/services/atlas/research-job";
 import { validateSession } from "$lib/server/services/auth";
+import { startAuthSweep, stopAuthSweep } from "$lib/server/services/auth-sweep";
 import { settleInterruptedImports } from "$lib/server/services/chatgpt-import/import-row";
 import { extractionJob } from "$lib/server/services/extraction/extraction-job";
 import { fileProductionJob } from "$lib/server/services/file-production/production-job";
@@ -260,6 +261,12 @@ export const init: ServerInit = async () => {
 		(error) => console.error("Failed to start the job engine:", error),
 	);
 
+	// The account tables' one sweep (R14): expired sessions and dead two-step
+	// rows, every five minutes, from a single unref'd timer. It lives here
+	// beside the job engine so a process has exactly one owner; memory
+	// maintenance used to run the session half, and no longer does.
+	startAuthSweep();
+
 	// Graceful shutdown: adapter-node's graceful_shutdown handler calls
 	// closeIdleConnections(), then server.close(), then after SHUTDOWN_TIMEOUT
 	// (default 30s) calls closeAllConnections(), then emits sveltekit:shutdown.
@@ -267,6 +274,7 @@ export const init: ServerInit = async () => {
 	// TimeoutStopSec (90s) sends SIGKILL.
 	process.on("sveltekit:shutdown", (_reason: string) => {
 		console.log("[SHUTDOWN] Server closed, stopping background workers");
+		stopAuthSweep();
 		stopMemoryMaintenanceScheduler();
 		stopMemoryConsolidationScheduler();
 		stopRoutingRegionScheduler();

@@ -62,6 +62,23 @@ There is no first-user auto-promotion — `npm run seed` never produces an admin
 an admin, ongoing account management lives in the app UI under `Settings > Administration > Users`
 (create users, promote/demote admins, revoke sessions, delete users).
 
+### Two-step sign-in recovery
+
+Two-step sign-in is optional per account and can be turned off in Settings with a
+current code or a backup code. If that is impossible — the phone is gone and the
+backup codes are too, or `SESSION_SECRET` was changed and every stored secret is
+unreadable — run this on the server, the same way `npm run db:prepare` runs there:
+
+```bash
+npm run auth:reset-two-step -- --email person@example.com
+```
+
+It deletes that account's second factor, its backup codes, any pending sign-in
+attempt and every session of that person, and prints what it did. Everyone else
+is untouched. An admin can do the same for another account in
+`Settings > Administration > Users`; the script is the way back when the account
+with the lost phone is the only admin's.
+
 ## Configuration
 
 Configuration is environment-variable first, with selected values optionally overridden later in the
@@ -69,8 +86,8 @@ admin UI. The essentials:
 
 - `SESSION_SECRET` — **required in production**: a server started with `NODE_ENV=production` refuses
   to boot without a real one (`openssl rand -hex 32`). It also derives the encryption keys for stored
-  connection and provider credentials, so changing it makes those undecryptable. Outside production
-  it falls back to an insecure built-in value and warns once.
+  connection and provider credentials and for two-step sign-in secrets, so changing it makes those
+  undecryptable. Outside production it falls back to an insecure built-in value and warns once.
 - `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, `MODEL_1_NAME` — the primary OpenAI-compatible chat model.
 - `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`) and Atlas.
 - `PARALLEL_FREE_MONTHLY_USD` — server-wide Parallel spend every calendar month is free for

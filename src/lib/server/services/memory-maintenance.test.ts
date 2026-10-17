@@ -128,10 +128,6 @@ vi.mock("./chatgpt-import/owed-summaries", () => ({
 	startImportedSummaryDrain: vi.fn(async () => undefined),
 }));
 
-vi.mock("./auth", () => ({
-	sweepExpiredSessions: vi.fn(async () => 0),
-}));
-
 vi.mock("./disk-reconciliation", () => ({
 	findOrphanFiles: (
 		...args: Parameters<typeof mockState.mockFindOrphanFiles>
@@ -208,7 +204,6 @@ vi.mock("$lib/server/db", () => ({
 	})(),
 }));
 
-import { sweepExpiredSessions } from "./auth";
 import {
 	repairGeneratedOutputFamilyStatuses,
 	repairGeneratedOutputRetrievalClasses,
@@ -390,55 +385,6 @@ describe("memory-maintenance", () => {
 			await runAllUsersMemoryMaintenance("scheduler");
 
 			expect(mockState.mockFindOrphanFiles).toHaveBeenCalledTimes(1);
-		});
-
-		it("sweeps expired sessions once across all users, as of now", async () => {
-			addUserRow("user-1");
-			addUserRow("user-2");
-			const before = Date.now();
-
-			await runAllUsersMemoryMaintenance("scheduler");
-
-			expect(sweepExpiredSessions).toHaveBeenCalledTimes(1);
-			const [asOf] = vi.mocked(sweepExpiredSessions).mock.calls[0];
-			expect(asOf).toBeInstanceOf(Date);
-			expect(asOf.getTime()).toBeGreaterThanOrEqual(before);
-		});
-
-		it("sweeps again on the next pass", async () => {
-			addUserRow("user-1");
-
-			await runAllUsersMemoryMaintenance("scheduler");
-			await runAllUsersMemoryMaintenance("scheduler");
-
-			expect(sweepExpiredSessions).toHaveBeenCalledTimes(2);
-		});
-
-		// The sweep is the last step of a user's pass, so what it must not stop
-		// is the next user's, and what it must not do is go unsaid.
-		it("does not let a failed session sweep stop the rest of maintenance, and says so", async () => {
-			addUserRow("user-1");
-			addUserRow("user-2");
-			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-			vi.mocked(sweepExpiredSessions).mockRejectedValueOnce(
-				new Error("database is locked"),
-			);
-
-			try {
-				await expect(
-					runAllUsersMemoryMaintenance("scheduler"),
-				).resolves.toBeUndefined();
-
-				// The sweep did run, and failed; both users' passes still ran.
-				expect(sweepExpiredSessions).toHaveBeenCalledTimes(1);
-				expect(repairGeneratedOutputRetrievalClasses).toHaveBeenCalledTimes(2);
-				expect(warn).toHaveBeenCalledWith(
-					"[MEMORY_MAINTENANCE] Global cleanup failed",
-					expect.objectContaining({ key: "sweepExpiredSessions" }),
-				);
-			} finally {
-				warn.mockRestore();
-			}
 		});
 	});
 

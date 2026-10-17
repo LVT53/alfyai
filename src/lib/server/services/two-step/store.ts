@@ -203,31 +203,63 @@ export async function getTwoStepStatus(userId: string): Promise<TwoStepStatus> {
 }
 
 /**
- * The admin list's column for many accounts at once (R18): one query for the
- * page, never one per row. Every requested id is in the map, so a caller can
- * read `enabled.get(id)` without a second fallback branch.
+ * The status of many accounts at once (R18): the admin page reads every row
+ * from two grouped queries, never one per account. `enabled` and `since` come
+ * from the one factor query; `backupCodesLeft` from one grouped count. Every
+ * requested id is in the map, so a caller never needs a fallback branch.
  */
-export async function listTwoStepEnabled(
+export async function listTwoStepStatuses(
 	userIds: readonly string[],
-): Promise<Map<string, boolean>> {
-	const enabled = new Map<string, boolean>(
-		userIds.map((userId) => [userId, false]),
+): Promise<Map<string, TwoStepStatus>> {
+	const statuses = new Map<string, TwoStepStatus>(
+		userIds.map((userId) => [
+			userId,
+			{ enabled: false, since: null, backupCodesLeft: 0 },
+		]),
 	);
-	if (userIds.length === 0) return enabled;
-	const rows = await db
+	if (userIds.length === 0) return statuses;
+
+	const factorRows = await db
 		.select({
 			userId: userSecondFactors.userId,
 			confirmedAt: userSecondFactors.confirmedAt,
 		})
 		.from(userSecondFactors)
+		.where(inArray(userSecondFactors.userId, [...userIds]));
+	for (const row of factorRows) {
+		if (!row.confirmedAt) continue;
+		const status = statuses.get(row.userId);
+		if (!status) continue;
+		status.enabled = true;
+		status.since = row.confirmedAt;
+	}
+
+	const codeRows = await db
+		.select({ userId: userBackupCodes.userId, value: count() })
+		.from(userBackupCodes)
 		.where(
 			and(
-				inArray(userSecondFactors.userId, [...userIds]),
-				isNotNull(userSecondFactors.confirmedAt),
+				inArray(userBackupCodes.userId, [...userIds]),
+				isNull(userBackupCodes.usedAt),
 			),
-		);
-	for (const row of rows) enabled.set(row.userId, true);
-	return enabled;
+		)
+		.groupBy(userBackupCodes.userId);
+	for (const row of codeRows) {
+		const status = statuses.get(row.userId);
+		if (status) status.backupCodesLeft = Number(row.value);
+	}
+
+	return statuses;
+}
+
+/** The boolean form of {@link listTwoStepStatuses}, for callers that only ask whether it is on. */
+export async function listTwoStepEnabled(
+	userIds: readonly string[],
+): Promise<Map<string, boolean>> {
+	const statuses = await listTwoStepStatuses(userIds);
+	return new Map(
+		[...statuses].map(([userId, status]) => [userId, status.enabled]),
+	);
 }
 
 /**

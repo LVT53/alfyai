@@ -22,6 +22,7 @@ import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
 	eraseUserAccountAsAdmin,
 } from "./privacy-controls";
+import { listTwoStepStatuses } from "./two-step";
 
 export interface CreateManagedUserInput {
 	email: string;
@@ -200,6 +201,11 @@ export async function listManagedUsers(
 		sessionRows.map((row) => [row.userId, Number(row.activeSessionCount ?? 0)]),
 	);
 
+	// Two-step sign-in for the whole page in two grouped reads (R18); the
+	// detail panel reads the same summary, so `since` and the codes left need
+	// no per-user call either.
+	const twoStepByUser = await listTwoStepStatuses(userIds);
+
 	const answeringCallsByUser = new Map<string, number>();
 	for (const row of favoriteModelRows) {
 		answeringCallsByUser.set(
@@ -259,6 +265,9 @@ export async function listManagedUsers(
 					reasoningTokens,
 				favoriteModel: favoriteModelByUser.get(row.id)?.model ?? null,
 				activeSessionCount: sessionsByUser.get(row.id) ?? 0,
+				twoStepEnabled: twoStepByUser.get(row.id)?.enabled ?? false,
+				twoStepSince: twoStepByUser.get(row.id)?.since?.getTime() ?? null,
+				backupCodesLeft: twoStepByUser.get(row.id)?.backupCodesLeft ?? 0,
 				lastActiveAt: row.lastSeenAt
 					? Number(row.lastSeenAt)
 					: Number(row.createdAt),
@@ -430,5 +439,11 @@ export interface AdminManagedUserSummary {
 	totalTokenCount: number;
 	favoriteModel: string | null;
 	activeSessionCount: number;
+	/** Two-step sign-in is on (a confirmed factor exists). */
+	twoStepEnabled: boolean;
+	/** When it was confirmed, in milliseconds, or null when it is off. */
+	twoStepSince: number | null;
+	/** Unspent one-time backup codes; 0 when it is off. */
+	backupCodesLeft: number;
 	lastActiveAt: number | null;
 }

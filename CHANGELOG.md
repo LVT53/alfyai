@@ -65,8 +65,12 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 - Session tokens are stored as SHA-256 hashes, so a copy of the database or a
   backup holds no session anyone can use.
-- The maintenance pass deletes sessions that have ended, and any row a deploy
-  leaves with an impossible expiry.
+- A five-minute auth sweep deletes sessions that have ended, any row a deploy
+  leaves with an impossible expiry, expired two-step sign-in attempts and
+  abandoned setups. It no longer rides on the memory maintenance pass.
+- `scripts/reset-two-step.ts` (`npm run auth:reset-two-step -- --email <address>`)
+  is the recovery path for a lost phone with lost backup codes and for a changed
+  `SESSION_SECRET`, which makes stored two-step secrets unreadable.
 - Downloading your data, clearing your memory or workspace, and deleting your
   account count wrong passwords against the same limit as changing your email
   or password. Until now a password could be guessed at on those four without
@@ -88,6 +92,11 @@ the chat you can open. Atlas reports cite each figure where it stands.
 
 ### Added
 
+- Two-step sign-in is now available for every account, and optional:
+  authenticator-app codes at sign-in plus ten one-time backup codes. It is
+  turned on and off in Settings > Profile > Account with a current code, and an
+  admin can reset it for someone else from the Users pane. "2FA" does not appear
+  in the interface.
 - Maps and transit. Ask for a route by car, on foot, by bike, by public
   transport or a mix, and get a map card with turn-by-turn directions, or a
   journey with departure times, changes and platforms. Regions are built on

@@ -12,6 +12,7 @@ import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
 import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
+import { getTwoStepStatus } from "$lib/server/services/two-step";
 
 export const load: ServerLoad = async (event) => {
 	if (!event.locals.user) throw redirect(302, "/login");
@@ -50,6 +51,15 @@ export const load: ServerLoad = async (event) => {
 		profilePicture: userRow.profilePicture ?? null,
 	};
 
+	// The Account card's row (spec §3.2). A timestamp, not a formatted date:
+	// the reader's own language formats it in the browser (R17).
+	const twoStepStatus = await getTwoStepStatus(userRow.id);
+	const twoStep = {
+		enabled: twoStepStatus.enabled,
+		since: twoStepStatus.since?.getTime() ?? null,
+		backupCodesLeft: twoStepStatus.backupCodesLeft,
+	};
+
 	const isAdmin = userRow.role === "admin";
 	const availableModels = await getAvailableModelsWithProviders();
 	const modelNames: Record<string, string> = {
@@ -63,6 +73,7 @@ export const load: ServerLoad = async (event) => {
 	if (!isAdmin) {
 		return {
 			userSettings,
+			twoStep,
 			modelNames,
 			availableModels,
 			composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled,
@@ -80,6 +91,7 @@ export const load: ServerLoad = async (event) => {
 
 	return {
 		userSettings,
+		twoStep,
 		adminConfigKeys: ADMIN_CONFIG_KEYS,
 		currentConfigValues,
 		configOverrides,

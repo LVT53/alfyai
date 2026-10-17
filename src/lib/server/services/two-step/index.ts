@@ -34,6 +34,7 @@ export {
 	getTwoStepStatus,
 	isTwoStepEnabled,
 	listTwoStepEnabled,
+	listTwoStepStatuses,
 	regenerateBackupCodes,
 	resetTwoStepForUser,
 	sweepTwoStep,
