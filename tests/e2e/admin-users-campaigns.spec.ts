@@ -265,9 +265,10 @@ test.describe("Admin Campaigns screen", () => {
 
 	// Ruling 71: a tour is found by its release text, so a tour whose release
 	// names no kind that ships would publish and reach nobody. The pane's own
-	// "New campaign" dialog only makes first-run and release campaigns, so a
-	// tour with such a release can only come from the API; the arrangement is
-	// made there, and everything the admin sees and clicks is the pane's.
+	// "New campaign" dialog makes first-run, release and feature-note campaigns,
+	// not a tour, so a tour with such a release can only come from the API; the
+	// arrangement is made there, and everything the admin sees and clicks is
+	// the pane's.
 	test("refuses to publish a tour whose release names no kind that ships, and says why in the checklist", async ({
 		page,
 	}) => {
