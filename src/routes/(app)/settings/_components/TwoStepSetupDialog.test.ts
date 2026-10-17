@@ -64,6 +64,31 @@ describe("TwoStepSetupDialog", () => {
 		expect(screen.getByText("Step 1 of 3")).toBeInTheDocument();
 	});
 
+	it("the key's copy control is icon-only and swaps to a check once copied", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.assign(navigator, { clipboard: { writeText } });
+
+		renderDialog();
+		await screen.findByTestId("two-step-key");
+
+		const copy = screen.getByRole("button", { name: "Copy" });
+		expect(copy.textContent?.trim()).toBe("");
+		expect(copy).not.toHaveTextContent("Copy");
+		expect(copy).toHaveAttribute("aria-label", "Copy");
+		expect(copy).toHaveAttribute("title", "Copy");
+		expect(copy.querySelector("svg.lucide-copy")).not.toBeNull();
+		expect(copy.querySelector("svg.lucide-check")).toBeNull();
+
+		await fireEvent.click(copy);
+
+		expect(writeText).toHaveBeenCalledWith(KEY);
+		expect(copy).toHaveAttribute("aria-label", "Copied");
+		expect(copy).toHaveAttribute("title", "Copied");
+		expect(copy.textContent?.trim()).toBe("");
+		expect(copy.querySelector("svg.lucide-check")).not.toBeNull();
+		expect(copy.querySelector("svg.lucide-copy")).toBeNull();
+	});
+
 	it("step 2 does not finish on a wrong code", async () => {
 		mockConfirm.mockRejectedValue(
 			new ApiError("That code didn't work.", {

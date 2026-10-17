@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Copy, KeyRound } from "@lucide/svelte";
+import { Check, Copy, KeyRound } from "@lucide/svelte";
 import { onMount } from "svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
@@ -86,6 +86,12 @@ const title = $derived(
 			? $t("profileTab.twoStepEnterCodeTitle")
 			: $t("profileTab.twoStepSaveCodesTitle"),
 );
+
+// The label lives on the button, not in it: only the icon is visible, so the
+// accessible name and the tooltip both carry the state.
+const keyCopyLabel = $derived(
+	keyCopied ? $t("profileTab.twoStepCopied") : $t("profileTab.twoStepCopy"),
+);
 </script>
 
 <DialogShell
@@ -117,9 +123,18 @@ const title = $derived(
 				<p class="two-step-key-label">{$t('profileTab.twoStepCantScan')}</p>
 				<div class="two-step-key">
 					<code data-testid="two-step-key">{setup.key}</code>
-					<button type="button" class="mini-btn gap-1" onclick={copyKey}>
-						<Copy size={12} strokeWidth={2} aria-hidden="true" />
-						{keyCopied ? $t('profileTab.twoStepCopied') : $t('profileTab.twoStepCopy')}
+					<button
+						type="button"
+						class="mini-btn"
+						aria-label={keyCopyLabel}
+						title={keyCopyLabel}
+						onclick={copyKey}
+					>
+						{#if keyCopied}
+							<Check size={12} strokeWidth={2} aria-hidden="true" />
+						{:else}
+							<Copy size={12} strokeWidth={2} aria-hidden="true" />
+						{/if}
 					</button>
 				</div>
 			{:else}
