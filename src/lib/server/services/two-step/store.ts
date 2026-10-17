@@ -268,16 +268,23 @@ export async function listTwoStepEnabled(
  *
  * R13: an unconfirmed factor is replaced (a person who closed the dialog at
  * step 1 starts clean), and a confirmed one refuses with `already_on` — turn
- * it off first, never overwrite a working factor. The confirmed check, the
- * delete and the insert are one transaction, and the write lock SQLite takes
- * at BEGIN (db/write-lock.ts) makes two racing setups serialize. Were the
- * check outside the transaction, a confirm committing in between would make
- * the insert hit the unique (user, kind) index and answer 500.
+ * it off first, never overwrite a working factor. A cheap pre-check keeps that
+ * refusal from paying the vault's PBKDF2/AES to mint a secret nobody uses; the
+ * confirmed read is then repeated inside the one transaction that deletes and
+ * inserts, and the write lock SQLite takes at BEGIN (db/write-lock.ts) makes
+ * two racing setups serialize. Without the in-transaction read a confirm
+ * committing in between would make the insert hit the unique (user, kind)
+ * index and answer 500.
  */
 export async function beginTwoStepSetup(
 	userId: string,
 	email: string,
 ): Promise<SetupStartResult> {
+	// Cheap refusal before the expensive part: an account that is already on
+	// needs no secret at all.
+	if (await isTwoStepEnabled(userId))
+		return { ok: false, reason: "already_on" };
+
 	const secret = generateTotpSecret();
 	const encrypted = encryptConnectionSecret(
 		Buffer.from(secret).toString("base64"),

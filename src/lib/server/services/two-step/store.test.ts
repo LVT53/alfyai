@@ -12,6 +12,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { createSession } from "$lib/server/services/auth";
+import { encryptConnectionSecret } from "$lib/server/services/connections/vault";
 import {
 	beginTwoStepSetup,
 	confirmTwoStepSetup,
@@ -23,6 +24,17 @@ import {
 	sweepTwoStep,
 	verifySecondFactor,
 } from "./index";
+
+vi.mock("$lib/server/services/connections/vault", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/connections/vault")
+		>();
+	return {
+		...actual,
+		encryptConnectionSecret: vi.fn(actual.encryptConnectionSecret),
+	};
+});
 
 // The service against the real, migrated test database: the replay guard and
 // the single-use spend are conditional UPDATEs, and a mocked query builder
@@ -194,6 +206,19 @@ describe("setup", () => {
 			.where(eq(userSecondFactors.userId, userId));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.confirmedAt).not.toBeNull();
+	});
+
+	it("refuses an already-on account before minting a secret", async () => {
+		const { userId, email } = await createUser();
+		await enableTwoStep(userId, email, new Date());
+		vi.mocked(encryptConnectionSecret).mockClear();
+
+		const refused = await beginTwoStepSetup(userId, email);
+
+		expect(refused).toEqual({ ok: false, reason: "already_on" });
+		// The vault's PBKDF2/AES is the expensive part of a setup call; a
+		// refusal must not pay it.
+		expect(encryptConnectionSecret).not.toHaveBeenCalled();
 	});
 
 	it("setup replaces an unconfirmed factor", async () => {
