@@ -795,6 +795,11 @@ const settingsDict = {
 		"campaignModal.skip": "Skip",
 		"campaignModal.slideCount": "{current} of {total}",
 		"campaignModal.untitled": "Untitled campaign",
+		// The landing feature-note strip's chrome. The note's own words are
+		// admin-authored content; these are the reusable frame around them.
+		"featureNote.announcement": "New feature: {title}",
+		"featureNote.dismiss": "Dismiss",
+		"featureNote.region": "New feature",
 		settings_admin: "Admin",
 		settings_appearance: "Appearance",
 		settings_autoDetect: "Auto-detect",
@@ -2844,6 +2849,11 @@ const settingsDict = {
 		"campaignModal.skip": "Kihagyás",
 		"campaignModal.slideCount": "{current} / {total}",
 		"campaignModal.untitled": "Névtelen kampány",
+		// A kezdőoldali új-funkció sáv szövegei. Magát a bemutatást az admin
+		// írja; ezek a keret szövegei.
+		"featureNote.announcement": "Új funkció: {title}",
+		"featureNote.dismiss": "Bezárás",
+		"featureNote.region": "Új funkció",
 		settings_admin: "Admin",
 		settings_appearance: "Megjelenés",
 		settings_autoDetect: "Automatikus",

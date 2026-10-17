@@ -140,6 +140,17 @@ export function requestLandingReset(): void {
 	landingResetRequested.set(true);
 }
 
+/**
+ * Mirror of the landing page's local `sendStarted`, lifted here so the shared
+ * shell can see a first send start.
+ *
+ * The feature-note strip lives in `(app)/+layout.svelte`, above the page, but
+ * the send begins in `HomeSurface.svelte`'s composer. The strip is hidden the
+ * instant a send starts and stays hidden for the rest of that landing arrival;
+ * the page mirrors its own flag here and resets it when the page goes.
+ */
+export const landingSendStarted = writable<boolean>(false);
+
 // Tracks whether the desktop sidebar is collapsed to icon-only mode
 const initialSidebarCollapsedValue = browser
 	? read("sidebarCollapsed", "true", isValidBool)
