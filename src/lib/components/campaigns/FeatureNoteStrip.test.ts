@@ -120,14 +120,45 @@ describe("FeatureNoteStrip", () => {
 	});
 
 	it("falls back to the feature-note chrome when a note has no title yet", () => {
-		renderNote({
+		const english = renderNote({
 			note: makeNote({ title: { en: "", hu: "" } }),
 		});
-
 		// A draft preview can be empty; the region still needs a name.
 		expect(
 			screen.getByRole("region", { name: "New feature" }),
 		).toBeInTheDocument();
+		english.unmount();
+
+		uiLanguage.set("hu");
+		renderNote({
+			locale: "hu",
+			note: makeNote({ title: { en: "", hu: "" } }),
+		});
+		expect(
+			screen.getByRole("region", { name: "Új funkció" }),
+		).toBeInTheDocument();
+	});
+
+	it("draws the dismiss control as a Lucide X, not a text glyph", () => {
+		renderNote();
+
+		const dismiss = screen.getByRole("button", { name: "Dismiss" });
+		expect(dismiss.querySelector("svg.lucide-x")).not.toBeNull();
+		expect(dismiss.textContent?.trim()).toBe("");
+	});
+
+	it("does not steal focus from the page it lands on", () => {
+		const opener = document.createElement("button");
+		opener.textContent = "Focused before the note";
+		document.body.append(opener);
+		opener.focus();
+
+		try {
+			renderNote();
+			expect(opener).toHaveFocus();
+		} finally {
+			opener.remove();
+		}
 	});
 
 	it("dismisses through onDismiss", async () => {
@@ -194,8 +225,14 @@ describe("FeatureNoteStrip", () => {
 				"an external destination",
 				{ actionDestination: "https://evil.example.com" },
 			],
+			[
+				"a protocol-relative destination",
+				{ actionDestination: "//evil.example.com" },
+			],
+			["a path off the allow-list", { actionDestination: "/not-a-real-route" }],
 			["an internal action", { actionDestination: "internal:chatgpt-import" }],
 			["an empty label", { actionLabel: { en: "", hu: "" } }],
+			["a whitespace-only label", { actionLabel: { en: "   ", hu: "\t" } }],
 		];
 
 		for (const [name, overrides] of cases) {

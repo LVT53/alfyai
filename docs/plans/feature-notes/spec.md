@@ -88,7 +88,7 @@ Publishing a `feature_note` archives every older published `feature_note` in the
   - The shell calls this only after `/api/campaigns/eligible` has returned no campaign on the document load, or on a later landing arrival where no campaign is active. The campaign endpoint's response is unchanged.
 - Impressions reuse `POST /api/campaigns/[id]/events` with `eventType: "auto_shown"`. No new event type.
 - X reuses `POST /api/campaigns/[id]/complete` with `{ reason: "skipped" }`.
-- CTA reuses `POST /api/campaigns/[id]/complete` with `{ reason: "completed" }`.
+- CTA reuses `POST /api/campaigns/[id]/complete` with `{ reason: "completed" }`, sent with `keepalive` so the completion survives the navigation the `<a>` starts.
 - No new table, no migration: impressions are the existing campaign event rows; terminal exits are the existing campaign user-state rows.
 
 `FeatureNote` is the mapped single slide:
@@ -167,7 +167,7 @@ The approved mockup is the reference. The strip:
 ## Testing
 
 - Server: create/publish/validate a note; superseding; eligibility by account age, terminal state and impression count; `getEligibleCampaignForUser`/`getLatestPublishedAnnouncement` ignore notes; analytics counts.
-- Client: `FeatureNote` rendering, localization, X/CTA callbacks, no-CTA state, preview inertness, one `onShown` per mount.
+- Client: `FeatureNote` rendering, localization, X/CTA callbacks, no-CTA state, preview inertness, one `auto_shown` recorded by the shell per accepted landing arrival (the component has no `onShown` prop).
 - Checklist/labels: note shape and action rules mirror the server; rail/meta lines.
 - E2E: publish a note via the admin API; see it on the landing; X; four-impression cap; hidden on send; campaign priority; admin create/publish/preview. Every test archives what it published.
 - Gates: `scripts/gates.sh agent <out-dir> --port <base>` with `tests/e2e/feature-note.spec.ts` plus the campaign/admin specs touched.
