@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Feature note — 2FA mockup</title>
+		<style>
+			@font-face {
+				font-family: "Nimbus Sans L";
+				src: url("../../../static/fonts/NimbusSanL-Regular.woff2") format("woff2");
+				font-weight: 400;
+				font-style: normal;
+				font-display: swap;
+			}
+			@font-face {
+				font-family: "Nimbus Sans L";
+				src: url("../../../static/fonts/NimbusSanL-Bold.woff2") format("woff2");
+				font-weight: 700;
+				font-style: normal;
+				font-display: swap;
+			}
+			@font-face {
+				font-family: "Libre Baskerville";
+				src: url("../../../static/fonts/LibreBaskerville-Regular.woff2") format("woff2");
+				font-weight: 400;
+				font-style: normal;
+				font-display: swap;
+			}
+
+			:root {
+				--font-sans: "Nimbus Sans L", sans-serif;
+				--font-serif: "Libre Baskerville", serif;
+				--accent: #c15f3c;
+				--accent-text: #9f5135;
+				--surface-page: #fafaf8;
+				--surface-elevated: #f4f3ee;
+				--text-primary: #1a1a1a;
+				--text-muted: #6b6b6b;
+				--border-default: rgba(0, 0, 0, 0.08);
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				margin: 0;
+				background: #e9e6dc;
+				color: #1a1a1a;
+				font-family: var(--font-sans);
+			}
+
+			.board {
+				width: max-content;
+				margin: 0 auto;
+				padding: 48px;
+				display: flex;
+				flex-direction: column;
+				gap: 36px;
+			}
+
+			.caption {
+				margin: 0 0 10px;
+				font-size: 11px;
+				font-weight: 700;
+				letter-spacing: 0.14em;
+				text-transform: uppercase;
+				color: #7c776e;
+			}
+
+			/* ---------- The note ---------- */
+
+			.note {
+				--note-bg: #242424;
+				--note-border: rgba(255, 255, 255, 0.12);
+				--note-title: #ececec;
+				--note-body: #a0a0a0;
+				--note-muted: #8a8a8a;
+				--note-accent: #d4836b;
+				--note-accent-text: #e0937c;
+				--note-tile-bg: #1a1a1a;
+				--note-dot: rgba(255, 255, 255, 0.16);
+				--note-close-hover: rgba(255, 255, 255, 0.07);
+				--note-shadow:
+					0 18px 44px rgba(0, 0, 0, 0.46), 0 2px 8px rgba(0, 0, 0, 0.28);
+				width: 620px;
+				display: grid;
+				grid-template-columns: 42px minmax(0, 1fr) 32px;
+				align-items: start;
+				gap: 12px;
+				padding: 10px 12px;
+				border: 1px solid var(--note-border);
+				border-radius: 8px;
+				background: var(--note-bg);
+				box-shadow: var(--note-shadow);
+				color: var(--note-title);
+				font-family: var(--font-sans);
+			}
+
+			.note.light {
+				--note-bg: #f4f3ee;
+				--note-border: rgba(0, 0, 0, 0.1);
+				--note-title: #1a1a1a;
+				--note-body: #6b6b6b;
+				--note-muted: #6b6b6b;
+				--note-accent: #9f5135;
+				--note-accent-text: #9f5135;
+				--note-tile-bg: #fafaf8;
+				--note-dot: rgba(0, 0, 0, 0.14);
+				--note-close-hover: rgba(0, 0, 0, 0.05);
+				--note-shadow:
+					0 18px 44px rgba(35, 30, 25, 0.16), 0 2px 8px rgba(35, 30, 25, 0.08);
+			}
+
+			.note-art {
+				width: 42px;
+				height: 42px;
+				display: grid;
+				place-items: center;
+				overflow: hidden;
+				border: 1px solid var(--note-border);
+				border-radius: 7px;
+				background-color: var(--note-tile-bg);
+				background-image: radial-gradient(var(--note-dot) 1px, transparent 1px);
+				background-size: 7px 7px;
+			}
+
+			.note-art svg {
+				display: block;
+				width: 24px;
+				height: 24px;
+				color: var(--note-accent);
+			}
+
+			.note-copy {
+				display: flex;
+				flex-direction: column;
+				align-items: flex-start;
+				min-width: 0;
+				padding-top: 1px;
+			}
+
+			.note-title {
+				margin: 0;
+				min-width: 0;
+				font-family: var(--font-serif);
+				font-size: 15px;
+				font-weight: 400;
+				line-height: 1.3;
+				color: var(--note-title);
+			}
+
+			.note-body {
+				margin: 0;
+				min-width: 0;
+				font-size: 13px;
+				line-height: 1.45;
+				color: var(--note-body);
+			}
+
+			/* A body with no action (the longer-copy variant) still needs its
+			   one line of breathing room under the title. */
+			.note-copy > .note-body {
+				margin-top: 2px;
+			}
+
+			/* The sentence and the action share one row: the body takes what it
+			   needs, the action stays at the right edge. No third line. */
+			.note-line {
+				display: flex;
+				align-self: stretch;
+				align-items: baseline;
+				justify-content: flex-start;
+				gap: 7px;
+				min-width: 0;
+				margin-top: 2px;
+			}
+
+			/* The action is its own control: a right-aligned link at the end of
+			   the body row, never a continuation of the sentence. */
+			.note-cta {
+				display: inline-flex;
+				flex: none;
+				align-items: baseline;
+				gap: 4px;
+				padding: 2px 0;
+				border-radius: 4px;
+				color: var(--note-accent-text);
+				font-size: 12.5px;
+				font-weight: 600;
+				white-space: nowrap;
+				text-decoration: none;
+			}
+
+			.note-cta:hover {
+				color: var(--note-accent);
+				text-decoration: underline;
+				text-decoration-thickness: 1px;
+				text-underline-offset: 2px;
+			}
+
+			.note-cta .arrow {
+				display: inline-block;
+				font-size: 12px;
+				transform: translateY(-0.5px);
+			}
+
+			.note-close {
+				width: 32px;
+				height: 32px;
+				margin: -5px -5px 0 0;
+				display: grid;
+				place-items: center;
+				border: 0;
+				border-radius: 6px;
+				background: transparent;
+				color: var(--note-muted);
+				cursor: pointer;
+			}
+
+			.note-close:hover {
+				background: var(--note-close-hover);
+				color: var(--note-title);
+			}
+
+			.note-close svg {
+				display: block;
+				width: 14px;
+				height: 14px;
+			}
+
+			/* ---------- Scenes ---------- */
+
+			.scene {
+				position: relative;
+				overflow: hidden;
+				background: #1a1a1a;
+			}
+
+			.scene > img {
+				position: absolute;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+				object-fit: cover;
+				display: block;
+			}
+
+			.scene .app-main {
+				position: absolute;
+				top: 0;
+				left: 64px;
+				right: 0;
+				bottom: 0;
+			}
+
+			#scene-desktop {
+				width: 1280px;
+				height: 800px;
+			}
+
+			#scene-desktop .note {
+				position: absolute;
+				top: 20px;
+				left: 50%;
+				transform: translateX(-50%);
+			}
+
+			#scene-mobile {
+				width: 375px;
+				height: 667px;
+			}
+
+			#scene-mobile .app-main {
+				top: 56px;
+				left: 0;
+			}
+
+			#scene-mobile .note {
+				position: absolute;
+				top: 20px;
+				left: 8px;
+				right: 8px;
+				width: auto;
+				padding: 7px 10px;
+				gap: 10px;
+			}
+
+			#scene-mobile .note-art {
+				width: 40px;
+				height: 40px;
+			}
+
+			#scene-mobile .note-title {
+				font-size: 15px;
+			}
+
+			#scene-mobile .note-body {
+				line-height: 1.45;
+			}
+
+			/* Detail board */
+			#scene-detail {
+				width: 860px;
+				padding: 32px;
+				display: flex;
+				flex-direction: column;
+				gap: 14px;
+				background: #e9e6dc;
+			}
+
+			.detail-label {
+				margin: 0;
+				font-size: 10px;
+				font-weight: 700;
+				letter-spacing: 0.14em;
+				text-transform: uppercase;
+				color: #7c776e;
+			}
+
+			.detail-panel {
+				display: flex;
+				justify-content: center;
+				padding: 24px;
+				border-radius: 8px;
+			}
+
+			.detail-panel.dark {
+				background: #1a1a1a;
+			}
+
+			.detail-panel.light {
+				background: #fafaf8;
+			}
+
+			.detail-panel .note {
+				zoom: 1.2;
+			}
+
+			/* A small set of other appearances / states */
+			#scene-states {
+				width: 860px;
+				padding: 32px;
+				display: flex;
+				flex-direction: column;
+				gap: 24px;
+				background: #e9e6dc;
+			}
+
+			.state-row {
+				display: flex;
+				align-items: flex-start;
+				gap: 20px;
+			}
+
+			.state-label {
+				width: 120px;
+				flex: none;
+				padding-top: 20px;
+				font-size: 10px;
+				font-weight: 700;
+				line-height: 1.4;
+				letter-spacing: 0.12em;
+				text-transform: uppercase;
+				color: #7c776e;
+			}
+
+			.state-panel {
+				flex: 1;
+				display: flex;
+				justify-content: center;
+				padding: 22px;
+				border-radius: 8px;
+				background: #1a1a1a;
+			}
+
+			.state-panel .note {
+				width: 620px;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="board">
+			<section>
+				<p class="caption">Desktop · landing page · floating at the top</p>
+				<div class="scene" id="scene-desktop">
+					<img src="./home-desktop.png" alt="" />
+					<div class="app-main">
+						<div class="note" role="region" aria-label="New feature: Two-factor authentication">
+							<div class="note-art" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+									<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+									<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+								</svg>
+							</div>
+							<div class="note-copy">
+								<h2 class="note-title">Two-factor authentication</h2>
+									<div class="note-line">
+										<p class="note-body">Keep your account safer.</p>
+										<a class="note-cta" href="#">Set up 2FA<span class="arrow">→</span></a>
+									</div>
+							</div>
+							<button class="note-close" type="button" aria-label="Dismiss">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+									<path d="M18 6 6 18M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section>
+				<p class="caption">Phone · landing page · compact, above the composer</p>
+				<div class="scene" id="scene-mobile">
+					<img src="./home-mobile.png" alt="" />
+					<div class="app-main">
+						<div class="note" role="region" aria-label="New feature: Two-factor authentication">
+							<div class="note-art" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+									<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+									<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+								</svg>
+							</div>
+							<div class="note-copy">
+								<h2 class="note-title">Two-factor authentication</h2>
+									<div class="note-line">
+										<p class="note-body">Keep your account safer.</p>
+										<a class="note-cta" href="#">Set up 2FA<span class="arrow">→</span></a>
+									</div>
+							</div>
+							<button class="note-close" type="button" aria-label="Dismiss">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+									<path d="M18 6 6 18M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section>
+				<p class="caption">The same note in both themes, at 1.2×</p>
+				<div id="scene-detail">
+					<p class="detail-label">Dark</p>
+					<div class="detail-panel dark">
+						<div class="note">
+							<div class="note-art" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+									<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+									<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+								</svg>
+							</div>
+							<div class="note-copy">
+								<h2 class="note-title">Two-factor authentication</h2>
+									<div class="note-line">
+										<p class="note-body">Keep your account safer.</p>
+										<a class="note-cta" href="#">Set up 2FA<span class="arrow">→</span></a>
+									</div>
+							</div>
+							<button class="note-close" type="button" aria-label="Dismiss">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+									<path d="M18 6 6 18M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+					</div>
+
+					<p class="detail-label" style="margin-top: 14px">Light</p>
+					<div class="detail-panel light">
+						<div class="note light">
+							<div class="note-art" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+									<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+									<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+								</svg>
+							</div>
+							<div class="note-copy">
+								<h2 class="note-title">Two-factor authentication</h2>
+									<div class="note-line">
+										<p class="note-body">Keep your account safer.</p>
+										<a class="note-cta" href="#">Set up 2FA<span class="arrow">→</span></a>
+									</div>
+							</div>
+							<button class="note-close" type="button" aria-label="Dismiss">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+									<path d="M18 6 6 18M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section>
+				<p class="caption">Variations · longer copy and a second topic</p>
+				<div id="scene-states">
+					<div class="state-row">
+						<p class="state-label">One line<br />of body</p>
+						<div class="state-panel">
+							<div class="note">
+								<div class="note-art" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+									<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+									<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+								</svg>
+								</div>
+								<div class="note-copy">
+									<h2 class="note-title">Two-factor authentication</h2>
+									<div class="note-line">
+										<p class="note-body">Keep your account safer.</p>
+										<a class="note-cta" href="#">Set up 2FA<span class="arrow">→</span></a>
+									</div>
+								</div>
+								<button class="note-close" type="button" aria-label="Dismiss">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+										<path d="M18 6 6 18M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<div class="state-row">
+						<p class="state-label">Longer body,<br />no action</p>
+						<div class="state-panel">
+							<div class="note">
+								<div class="note-art" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+										<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+										<path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
+									</svg>
+								</div>
+								<div class="note-copy">
+									<h2 class="note-title">Sharper answers on long chats</h2>
+									<p class="note-body">
+										Alfy now keeps the important parts of a conversation in view as it grows, so the thread stays coherent when you come back to it.
+									</p>
+								</div>
+								<button class="note-close" type="button" aria-label="Dismiss">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+										<path d="M18 6 6 18M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</main>
+	</body>
+</html>
