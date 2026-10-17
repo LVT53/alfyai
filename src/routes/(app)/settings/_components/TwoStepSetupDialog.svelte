@@ -116,7 +116,7 @@ const title = $derived(
 
 				<p class="two-step-key-label">{$t('profileTab.twoStepCantScan')}</p>
 				<div class="two-step-key">
-					<code>{setup.key}</code>
+					<code data-testid="two-step-key">{setup.key}</code>
 					<button type="button" class="mini-btn gap-1" onclick={copyKey}>
 						<Copy size={12} strokeWidth={2} aria-hidden="true" />
 						{keyCopied ? $t('profileTab.twoStepCopied') : $t('profileTab.twoStepCopy')}
