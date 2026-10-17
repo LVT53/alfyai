@@ -30,7 +30,7 @@ export const POST: RequestHandler = async (event) => {
 		return json(
 			{
 				error: "Enter a code from your authenticator app.",
-				errorKey: "profileTab.twoStepCodeRequired",
+				errorKey: "profileTab.twoStepAuthenticatorCodeRequired",
 			},
 			{ status: 400 },
 		);

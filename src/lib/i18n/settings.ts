@@ -1924,6 +1924,8 @@ const settingsDict = {
 		"profileTab.twoStepAlreadyOn":
 			"Two-step sign-in is already on. Turn it off first.",
 		"profileTab.twoStepCodeRequired": "Enter a code or a backup code.",
+		"profileTab.twoStepAuthenticatorCodeRequired":
+			"Enter the code from your authenticator app.",
 		"profileTab.twoStepOneCodeOnly": "Send a code or a backup code, not both.",
 		"profileTab.twoStepSetupFailed": "Could not start the setup.",
 
@@ -4004,6 +4006,8 @@ const settingsDict = {
 		"profileTab.twoStepAlreadyOn":
 			"A kétlépcsős bejelentkezés már be van kapcsolva. Előbb kapcsold ki.",
 		"profileTab.twoStepCodeRequired": "Adj meg egy kódot vagy tartalékkódot.",
+		"profileTab.twoStepAuthenticatorCodeRequired":
+			"Írd be a hitelesítő alkalmazás kódját.",
 		"profileTab.twoStepOneCodeOnly":
 			"Csak kódot vagy csak tartalékkódot küldj.",
 		"profileTab.twoStepSetupFailed": "A beállítást nem sikerült elindítani.",

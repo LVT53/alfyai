@@ -14,6 +14,7 @@ const LOCALIZED_TWO_STEP_ERROR_KEYS: readonly string[] = [
 	"profileTab.twoStepNoSetup",
 	"profileTab.twoStepAlreadyOn",
 	"profileTab.twoStepCodeRequired",
+	"profileTab.twoStepAuthenticatorCodeRequired",
 	"profileTab.twoStepOneCodeOnly",
 	"profileTab.currentPasswordWrong",
 	"profileTab.currentPasswordTooManyAttempts",

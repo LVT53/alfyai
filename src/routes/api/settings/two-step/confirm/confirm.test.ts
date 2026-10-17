@@ -131,7 +131,7 @@ describe("POST /api/settings/two-step/confirm", () => {
 
 		expect(response.status).toBe(400);
 		expect((await response.json()).errorKey).toBe(
-			"profileTab.twoStepCodeRequired",
+			"profileTab.twoStepAuthenticatorCodeRequired",
 		);
 		expect((await getTwoStepStatus(userId)).enabled).toBe(false);
 		expect(
