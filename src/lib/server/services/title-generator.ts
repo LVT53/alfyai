@@ -143,46 +143,50 @@ async function generateTitleWithAiSdk(
 	return answer === null ? "" : normalizeAssistantOutput(answer);
 }
 
-// Common misspellings dictionary for post-processing correction
-const COMMON_MISSPELLINGS: Record<string, string> = {
-	humantizing: "humanizing",
-	humantize: "humanize",
-	humantized: "humanized",
-	recieve: "receive",
-	recieved: "received",
-	seperate: "separate",
-	seperated: "separated",
-	occured: "occurred",
-	occurance: "occurrence",
-	definately: "definitely",
-	accomodate: "accommodate",
-	acheive: "achieve",
-	beleive: "believe",
-	calender: "calendar",
-	collegue: "colleague",
-	concious: "conscious",
-	existance: "existence",
-	goverment: "government",
-	independant: "independent",
-	maintainance: "maintenance",
-	neccessary: "necessary",
-	noticable: "noticeable",
-	occassion: "occasion",
-	paralell: "parallel",
-	persistant: "persistent",
-	posession: "possession",
-	prefered: "preferred",
-	proffesional: "professional",
-	publically: "publicly",
-	recomend: "recommend",
-	refering: "referring",
-	relevent: "relevant",
-	succesful: "successful",
-	supercede: "supersede",
-	tommorow: "tomorrow",
-	untill: "until",
-	wich: "which",
-};
+// Common misspellings dictionary for post-processing correction. A Map, not a
+// plain object: every word of every title is looked up here, and a word such as
+// "constructor" or "__proto__" is a key on Object.prototype, so an object
+// literal would answer with an inherited value that is not a correction (and
+// `.charAt` on it threw). Map.get only ever sees the dictionary's own entries.
+const COMMON_MISSPELLINGS = new Map<string, string>([
+	["humantizing", "humanizing"],
+	["humantize", "humanize"],
+	["humantized", "humanized"],
+	["recieve", "receive"],
+	["recieved", "received"],
+	["seperate", "separate"],
+	["seperated", "separated"],
+	["occured", "occurred"],
+	["occurance", "occurrence"],
+	["definately", "definitely"],
+	["accomodate", "accommodate"],
+	["acheive", "achieve"],
+	["beleive", "believe"],
+	["calender", "calendar"],
+	["collegue", "colleague"],
+	["concious", "conscious"],
+	["existance", "existence"],
+	["goverment", "government"],
+	["independant", "independent"],
+	["maintainance", "maintenance"],
+	["neccessary", "necessary"],
+	["noticable", "noticeable"],
+	["occassion", "occasion"],
+	["paralell", "parallel"],
+	["persistant", "persistent"],
+	["posession", "possession"],
+	["prefered", "preferred"],
+	["proffesional", "professional"],
+	["publically", "publicly"],
+	["recomend", "recommend"],
+	["refering", "referring"],
+	["relevent", "relevant"],
+	["succesful", "successful"],
+	["supercede", "supersede"],
+	["tommorow", "tomorrow"],
+	["untill", "until"],
+	["wich", "which"],
+]);
 
 // Code-related keywords and patterns
 const CODE_PATTERNS = [
@@ -223,17 +227,15 @@ function correctSpelling(title: string): string {
 		.map((word) => {
 			// Check for exact match (case-insensitive)
 			const lowerWord = word.toLowerCase();
-			if (COMMON_MISSPELLINGS[lowerWord]) {
+			const correction = COMMON_MISSPELLINGS.get(lowerWord);
+			if (correction) {
 				// Preserve original capitalization pattern
 				if (word === word.toUpperCase()) {
-					return COMMON_MISSPELLINGS[lowerWord].toUpperCase();
+					return correction.toUpperCase();
 				} else if (word[0] === word[0]?.toUpperCase()) {
-					return (
-						COMMON_MISSPELLINGS[lowerWord].charAt(0).toUpperCase() +
-						COMMON_MISSPELLINGS[lowerWord].slice(1)
-					);
+					return correction.charAt(0).toUpperCase() + correction.slice(1);
 				}
-				return COMMON_MISSPELLINGS[lowerWord];
+				return correction;
 			}
 			return word;
 		})

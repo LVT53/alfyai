@@ -350,6 +350,53 @@ describe("generateTitle", () => {
 		);
 	});
 
+	// Every word of a generated title goes through the misspellings lookup. A
+	// word that happens to be a key on Object.prototype is not a misspelling, and
+	// the lookup must never reach the prototype chain: "constructor" once made
+	// the cleanup call .charAt on Object.prototype.constructor and throw, so the
+	// title route answered { title: null } and the conversation stayed "New
+	// Conversation". Each case keeps the word exactly as the model wrote it.
+	it.each([
+		["constructor", "Java Employee Constructor UML"],
+		["toString", "JavaScript toString Method Override"],
+		["valueOf", "JavaScript valueOf Type Coercion"],
+		["__proto__", "JavaScript __proto__ Chain Explained"],
+	])("passes the prototype-key word %s through a generated title unchanged", async (_key, title) => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({ choices: [{ message: { content: title } }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await expect(
+			generateTitle("Explain this JavaScript code", "Here is the explanation."),
+		).resolves.toBe(title);
+	});
+
+	it("still corrects a real misspelling and preserves the word's capitalization", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content: "How to recieve RECIEVE Recieve data",
+							},
+						},
+					],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await expect(
+			generateTitle("Explain this JavaScript code", "Here is the explanation."),
+		).resolves.toBe("How to receive RECEIVE Receive data");
+	});
+
 	it("truncates assistant response to 200 chars", async () => {
 		const longResponse = "x".repeat(300);
 		const mockFetch = vi.mocked(fetch);
