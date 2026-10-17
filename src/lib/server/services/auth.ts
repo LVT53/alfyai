@@ -398,15 +398,34 @@ export async function changePassword(
 			.set({ passwordHash, updatedAt: now })
 			.where(eq(users.id, userId))
 			.run();
-		const removed = tx
-			.delete(sessions)
-			.where(sessionsToRevoke(userId, keepToken))
-			.returning({ expiresAt: sessions.expiresAt })
-			.all();
-		return countLiveSessions(removed, now);
+		return revokeOtherSessionsInTransaction(tx, userId, keepToken, now);
 	});
 
 	return { signedOutOtherDevices };
+}
+
+/**
+ * The revoke `changePassword` and the two-step confirm share: delete every
+ * session of the person but the one behind `keepToken`, inside the caller's
+ * transaction, and count the ones that were still live (`countLiveSessions`).
+ *
+ * It exists as one function so "write the security change and sign out the
+ * other devices" is the same statement in both places — R10 makes the second
+ * case a transaction too, and a second copy of this query would be a place
+ * for the two to drift apart.
+ */
+export function revokeOtherSessionsInTransaction(
+	transaction: Pick<DatabaseInstance, "delete">,
+	userId: string,
+	keepToken: string | null,
+	now: Date,
+): number {
+	const removed = transaction
+		.delete(sessions)
+		.where(sessionsToRevoke(userId, keepToken))
+		.returning({ expiresAt: sessions.expiresAt })
+		.all();
+	return countLiveSessions(removed, now);
 }
 
 /**
