@@ -164,12 +164,16 @@ export const POST: RequestHandler = async ({
 			return json({ error: "Invalid email or password" }, { status: 401 });
 		}
 
-		recordLoginSuccess(rateLimitKeys);
-
 		// An account with a confirmed second factor gets no session from the
 		// password alone: it gets a five-minute, single-use attempt, and only
 		// the code step can turn that into a session (spec §5.3). The password
 		// step's remember-me choice travels with the attempt.
+		//
+		// The limiter budget is deliberately NOT cleared here: the wrong codes
+		// are counted under the same keys by the code step, and clearing them
+		// on every correct password would let someone who already has the
+		// password guess codes forever at bcrypt speed (R11). A full sign-in
+		// clears it in `/api/auth/login/two-step`.
 		if (await isTwoStepEnabled(user.id)) {
 			const attempt = await createSignInChallenge(
 				user.id,
@@ -189,6 +193,10 @@ export const POST: RequestHandler = async ({
 
 			return json({ twoStep: true });
 		}
+
+		// No factor: this password success IS the sign-in, so it clears the
+		// budget as it always has.
+		recordLoginSuccess(rateLimitKeys);
 
 		// Create session and set cookie
 		const { token, expiresAt } = await createSession(user.id, { rememberMe });

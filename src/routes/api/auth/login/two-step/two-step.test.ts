@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { decodeBase32IgnorePadding } from "@oslojs/encoding";
 import { generateHOTP } from "@oslojs/otp";
+import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "$lib/server/db";
@@ -11,6 +12,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import {
+	checkLoginRateLimit,
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
 	LOGIN_RATE_LIMIT_POLICY,
@@ -21,9 +23,11 @@ import {
 	createSignInChallenge,
 	SIGN_IN_ATTEMPT_COOKIE,
 } from "$lib/server/services/two-step";
+import { POST as loginPOST } from "../+server";
 import { POST } from "./+server";
 
 type Event = Parameters<typeof POST>[0];
+type LoginEvent = Parameters<typeof loginPOST>[0];
 const STEP_MS = 30_000;
 const CLIENT_ADDRESS = "203.0.113.10";
 const userIds: string[] = [];
@@ -69,11 +73,26 @@ function makeEvent(cookies: CookieJar, body: unknown): Event {
 	} as unknown as Event;
 }
 
-async function createUser(): Promise<{ userId: string; email: string }> {
+/** The password step of the REAL login route, sharing the attempt cookie jar. */
+function makeLoginEvent(cookies: CookieJar, body: unknown): LoginEvent {
+	return {
+		request: new Request("http://localhost/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		}),
+		cookies: { set: cookies.set },
+		getClientAddress: () => CLIENT_ADDRESS,
+	} as unknown as LoginEvent;
+}
+
+async function createUser(
+	passwordHash = "hash",
+): Promise<{ userId: string; email: string }> {
 	const userId = randomUUID();
 	const email = `${userId}@example.com`;
 	userIds.push(userId);
-	await db.insert(users).values({ id: userId, email, passwordHash: "hash" });
+	await db.insert(users).values({ id: userId, email, passwordHash });
 	return { userId, email };
 }
 
@@ -320,6 +339,51 @@ describe("POST /api/auth/login/two-step", () => {
 		expect(data.errorKey).toBe("login.twoStepTooManyAttempts");
 		expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
 		expect(await sessionCount(userId)).toBe(0);
+	});
+
+	it("a correct password does not clear the two-step code budget", async () => {
+		const password = "correct horse battery staple";
+		// Cost 4 keeps nine real bcrypt comparisons cheap; the comparison is
+		// the point (the REAL login route), not the cost.
+		const { userId, email } = await createUser(await bcrypt.hash(password, 4));
+		const { secret } = await enableTwoStep(userId, email);
+		const cookies = makeCookies();
+
+		// Nine rounds of "the password works, the code does not". R11's budget
+		// must survive every password success: if the password step clears it,
+		// the bucket never fills and the 429 never comes (C1).
+		const responses: Response[] = [];
+		for (let round = 0; round < 9; round += 1) {
+			const login = await loginPOST(makeLoginEvent(cookies, { email, password }));
+			expect(login.status).toBe(200);
+			expect((await login.json()).twoStep).toBe(true);
+			expect(cookies.values.get(SIGN_IN_ATTEMPT_COOKIE)).toBeTruthy();
+
+			responses.push(
+				await POST(
+					makeEvent(cookies, { code: wrongCode(secret, new Date()) }),
+				),
+			);
+		}
+
+		expect(responses.slice(0, 8).map((response) => response.status)).toEqual([
+			401, 401, 401, 401, 401, 401, 401, 401,
+		]);
+		expect(responses[8]?.status).toBe(429);
+		expect((await responses[8]?.json()).errorKey).toBe(
+			"login.twoStepTooManyAttempts",
+		);
+		expect(checkLoginRateLimit({ email })).not.toBeNull();
+
+		// Only the full sign-in clears it: the right password and then the
+		// right code. The password step alone must not.
+		const login = await loginPOST(makeLoginEvent(cookies, { email, password }));
+		expect(login.status).toBe(200);
+		const signedIn = await POST(
+			makeEvent(cookies, { code: totpAt(secret, new Date()) }),
+		);
+		expect(signedIn.status).toBe(200);
+		expect(checkLoginRateLimit({ email })).toBeNull();
 	});
 
 	it("an attempt whose factor was reset meanwhile cannot sign in", async () => {
