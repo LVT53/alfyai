@@ -587,3 +587,192 @@ describe("artifact_tour slide shape (Slice 6)", () => {
 		});
 	});
 });
+
+// A feature note is the light sibling of a campaign: one existing standard slide
+// with the feature purpose, words only, and an action that stays inside the app.
+describe("feature_note shape", () => {
+	function noteSlide(overrides: Partial<ChecklistSlide> = {}): ChecklistSlide {
+		return slide({
+			localId: "note-slide",
+			kind: "standard",
+			semanticRole: "feature",
+			sortOrder: 1,
+			titleEn: "Two-factor authentication",
+			titleHu: "Kétlépcsős azonosítás",
+			bodyEn: "Keep your account safer.",
+			bodyHu: "Tartsd biztonságban a fiókodat.",
+			...overrides,
+		});
+	}
+
+	function note(overrides: Partial<ChecklistCampaign> = {}): ChecklistCampaign {
+		return campaign({
+			type: "feature_note",
+			name: "Two-factor authentication",
+			releaseVersion: "",
+			slides: [noteSlide()],
+			...overrides,
+		});
+	}
+
+	it("passes a note with one standard feature slide and copy in both languages", () => {
+		const checklist = evaluateCampaignChecklist(note());
+
+		expect(checklist.ready).toBe(true);
+		expect(
+			checklist.rules.find((rule) => rule.id === "noteShape")?.passed,
+		).toBe(true);
+		expect(checklist.rules.some((rule) => rule.id === "releaseVersion")).toBe(
+			false,
+		);
+		expect(checklist.rules.some((rule) => rule.id === "tourShape")).toBe(false);
+	});
+
+	it("accepts an optional allow-listed action with both labels", () => {
+		const checklist = evaluateCampaignChecklist(
+			note({
+				slides: [
+					noteSlide({
+						actionUrl: "/settings",
+						actionLabelEn: "Set up 2FA",
+						actionLabelHu: "2FA beállítása",
+					}),
+				],
+			}),
+		);
+
+		expect(checklist.ready).toBe(true);
+	});
+
+	it("blocks a note with zero or two slides", () => {
+		for (const slides of [
+			[],
+			[noteSlide(), noteSlide({ localId: "second", sortOrder: 2 })],
+		]) {
+			const checklist = evaluateCampaignChecklist(note({ slides }));
+			expect(checklist.ready, `${slides.length} slides`).toBe(false);
+			expect(
+				checklist.failures.some((failure) => failure.ruleId === "noteShape"),
+				`${slides.length} slides`,
+			).toBe(true);
+		}
+	});
+
+	it("blocks a note carrying a screenshot, and never asks for its alt text", () => {
+		const checklist = evaluateCampaignChecklist(
+			note({ slides: [noteSlide({ desktopAssetId: "crop-1" })] }),
+		);
+
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "noteShape"),
+		).toBe(true);
+		// A note has no pictures, so it is never asked for alt text either.
+		expect(checklist.rules.some((rule) => rule.id === "imageAlt")).toBe(false);
+	});
+
+	it("blocks a data-disclosure purpose on a note", () => {
+		const checklist = evaluateCampaignChecklist(
+			note({ slides: [noteSlide({ semanticRole: "data_disclosure" })] }),
+		);
+
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "noteShape"),
+		).toBe(true);
+	});
+
+	it("blocks an internal action with the note's own message", () => {
+		for (const actionUrl of ["internal:chatgpt-import", "internal:anything"]) {
+			const checklist = evaluateCampaignChecklist(
+				note({
+					slides: [
+						noteSlide({
+							actionUrl,
+							actionLabelEn: "Import",
+							actionLabelHu: "Importálás",
+						}),
+					],
+				}),
+			);
+
+			expect(checklist.ready, actionUrl).toBe(false);
+			expect(
+				checklist.failures
+					.filter((failure) => failure.ruleId === "actionDestination")
+					.map((failure) => failure.messageKey),
+				actionUrl,
+			).toEqual(["admin.campaigns.validation.noteActionInvalid"]);
+		}
+	});
+
+	it("blocks a note missing title or body copy in either language", () => {
+		const checklist = evaluateCampaignChecklist(
+			note({
+				slides: [noteSlide({ titleHu: "", bodyHu: "" })],
+			}),
+		);
+
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures
+				.filter((failure) => failure.ruleId === "localizedContent")
+				.map((failure) => [failure.field, failure.locale]),
+		).toEqual([
+			["title", "hu"],
+			["body", "hu"],
+		]);
+	});
+
+	it("blocks an action destination without labels in both languages", () => {
+		const checklist = evaluateCampaignChecklist(
+			note({ slides: [noteSlide({ actionUrl: "/settings" })] }),
+		);
+
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures
+				.filter((failure) => failure.ruleId === "actionLabels")
+				.map((failure) => [failure.field, failure.locale]),
+		).toEqual([
+			["actionLabel", "en"],
+			["actionLabel", "hu"],
+		]);
+	});
+
+	it("evaluates the note rules only for a note", () => {
+		for (const type of [
+			"release_update",
+			"first_run_onboarding",
+			"artifact_tour",
+		]) {
+			const checklist = evaluateCampaignChecklist(
+				campaign({ type, releaseVersion: "canvas", slides: [slide()] }),
+			);
+			expect(checklist.rules.some((rule) => rule.id === "noteShape")).toBe(
+				false,
+			);
+		}
+	});
+
+	it("says what is wrong in both languages, in the list, the sentence and the passing label", () => {
+		const failing = summarizeFailures(
+			evaluateCampaignChecklist(
+				note({ slides: [noteSlide({ desktopAssetId: "crop-1" })] }),
+			),
+		);
+		expect(failing.map((row) => row.ruleId)).toContain("noteShape");
+		const keys = [
+			failing.find((row) => row.ruleId === "noteShape")?.labelKey,
+			checklistRuleLabelKey("noteShape"),
+			"admin.campaigns.validation.noteShapeInvalid",
+			"admin.campaigns.validation.noteActionInvalid",
+		] as string[];
+		for (const key of keys) {
+			for (const language of ["en", "hu"] as const) {
+				const dictionary = settingsDict[language] as Record<string, string>;
+				expect(dictionary[key], `${language} ${key}`).toBeTruthy();
+			}
+		}
+	});
+});

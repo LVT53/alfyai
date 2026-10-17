@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
-import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+import { and, asc, count, desc, eq, inArray, ne } from "drizzle-orm";
+import {
+	INTERNAL_ACTION_PREFIX,
+	isAllowedActionDestination,
+} from "$lib/campaign-action-destinations";
 import { db as defaultDb } from "$lib/server/db";
 import {
 	announcementCampaignEvents,
@@ -22,7 +25,8 @@ type CampaignDb = typeof defaultDb;
 export type AnnouncementCampaignType =
 	| "first_run_onboarding"
 	| "release_update"
-	| "artifact_tour";
+	| "artifact_tour"
+	| "feature_note";
 export type AnnouncementCampaignStatus = "draft" | "published" | "archived";
 export type AnnouncementCampaignSlideLayout = "setup" | "standard" | "summary";
 export type AnnouncementCampaignSlideRole = "feature" | "data_disclosure";
@@ -74,6 +78,29 @@ export type CampaignServiceOptions = {
 	ids?: string[];
 };
 
+/**
+ * How many landing arrivals may show one feature note. The cap is soft: the
+ * eligibility read and the showing write are separate requests, so two tabs
+ * can exceed it; the next read returns null from the fifth showing onward.
+ */
+export const FEATURE_NOTE_MAX_IMPRESSIONS = 4;
+
+/**
+ * One feature note, mapped from its single published `standard`/`feature`
+ * slide. `id` is the campaign id the delivery calls record showings and
+ * completion against.
+ */
+export type FeatureNote = {
+	id: string;
+	name: string;
+	snapshotId: string;
+	title: { en: string; hu: string };
+	body: { en: string; hu: string };
+	actionLabel: { en: string; hu: string };
+	actionDestination: string | null;
+	publishedAt: Date | null;
+};
+
 export class AnnouncementCampaignValidationError extends Error {
 	constructor(
 		message: string,
@@ -94,6 +121,7 @@ const CAMPAIGN_TYPES = new Set<AnnouncementCampaignType>([
 	"first_run_onboarding",
 	"release_update",
 	"artifact_tour",
+	"feature_note",
 ]);
 const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>([
 	"setup",
@@ -207,7 +235,7 @@ function assertType(value: unknown): AnnouncementCampaignType {
 		return value as AnnouncementCampaignType;
 	}
 	throw new AnnouncementCampaignValidationError("Invalid campaign type.", {
-		type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
+		type: "Campaign type must be first_run_onboarding, release_update, artifact_tour or feature_note.",
 	});
 }
 
@@ -393,7 +421,10 @@ export async function createCampaignDraft(
 	const db = database(options);
 	const nextId = idFactory(options);
 	const type = assertType(input.type);
-	const releaseVersion = nullableTrimString(input.releaseVersion);
+	// A note has no release in its identity (`feature_note:v1:rN`), so a
+	// release version supplied for one is ignored rather than stored.
+	const releaseVersion =
+		type === "feature_note" ? null : nullableTrimString(input.releaseVersion);
 	const campaignVersion = defaultVersionFor(type, releaseVersion);
 	const revision = nextRevision(db, type, campaignVersion);
 	const id = nextId();
@@ -402,21 +433,40 @@ export async function createCampaignDraft(
 		trimString(input.name) ||
 		(type === "first_run_onboarding"
 			? "First-run onboarding"
-			: `Release ${releaseVersion ?? ""}`.trim());
+			: type === "feature_note"
+				? "Feature note"
+				: `Release ${releaseVersion ?? ""}`.trim());
 
-	db.insert(announcementCampaigns)
-		.values({
-			id,
-			type,
-			status: "draft",
-			identityKey,
-			name,
-			campaignVersion,
-			revision,
-			releaseVersion,
-			createdByUserId: input.createdByUserId,
-		})
-		.run();
+	db.transaction((tx) => {
+		tx.insert(announcementCampaigns)
+			.values({
+				id,
+				type,
+				status: "draft",
+				identityKey,
+				name,
+				campaignVersion,
+				revision,
+				releaseVersion,
+				createdByUserId: input.createdByUserId,
+			})
+			.run();
+		// A feature note is authored as one note, not as a deck: its single
+		// standard/feature slide is seeded with the draft, in the same
+		// transaction, so the note has its shape before any admin edit.
+		if (type === "feature_note") {
+			tx.insert(announcementCampaignSlides)
+				.values({
+					id: nextId(),
+					campaignId: id,
+					layoutType: "standard",
+					semanticRole: "feature",
+					sortOrder: 1,
+					updatedAt: new Date(),
+				})
+				.run();
+		}
+	});
 
 	const campaign = await getCampaignById(id, { db });
 	if (!campaign) throw new Error("Failed to create campaign draft.");
@@ -606,7 +656,7 @@ function validatePublishCampaignBasics(
 	}
 	if (!CAMPAIGN_TYPES.has(campaign.type as AnnouncementCampaignType)) {
 		errors.type =
-			"Campaign type must be first_run_onboarding, release_update or artifact_tour.";
+			"Campaign type must be first_run_onboarding, release_update, artifact_tour or feature_note.";
 	}
 	if (
 		!trimString(campaign.campaignVersion) ||
@@ -859,6 +909,36 @@ function validatePublishInput(
 		}
 	}
 
+	// A feature note is one short strip, not a deck: exactly one standard slide
+	// carrying the feature role, no screenshot, and no `internal:` action. Its
+	// title/body, destination and label rules are the shared ones above.
+	if (campaign.type === "feature_note") {
+		const noteSlide = slides[0];
+		const wellShaped =
+			slides.length === 1 &&
+			noteSlide?.layoutType === "standard" &&
+			noteSlide.semanticRole === "feature";
+		if (!wellShaped) {
+			errors.noteShape =
+				"A feature note requires exactly one standard slide with the feature role.";
+		}
+		if (
+			slides.some(
+				(slide) => slide.desktopCropAssetId || slide.mobileCropAssetId,
+			)
+		) {
+			errors.noteAssets = "A feature note cannot carry a screenshot or a crop.";
+		}
+		if (
+			slides.some((slide) =>
+				slide.actionDestination?.startsWith(INTERNAL_ACTION_PREFIX),
+			)
+		) {
+			errors.noteAction =
+				"A feature note's action cannot be an internal action.";
+		}
+	}
+
 	if (Object.keys(errors).length > 0) {
 		throw new AnnouncementCampaignValidationError(
 			"Campaign is not ready to publish.",
@@ -1018,6 +1098,27 @@ export async function publishCampaign(
 					and(
 						eq(announcementCampaigns.type, "artifact_tour"),
 						eq(announcementCampaigns.releaseVersion, campaign.releaseVersion),
+						eq(announcementCampaigns.status, "published"),
+						ne(announcementCampaigns.id, campaignId),
+					),
+				)
+				.all();
+			for (const row of replaced) archivePublishedRow(tx, row, now);
+		}
+		// One live feature note, never a queue: publishing a note archives every
+		// older published note in the same transaction, so archiving the new one
+		// can never resurrect its predecessor. Release updates and the welcome
+		// are untouched (the note never competes with a campaign).
+		if (campaign.type === "feature_note") {
+			const replaced = tx
+				.select({
+					id: announcementCampaigns.id,
+					publishedSnapshotId: announcementCampaigns.publishedSnapshotId,
+				})
+				.from(announcementCampaigns)
+				.where(
+					and(
+						eq(announcementCampaigns.type, "feature_note"),
 						eq(announcementCampaigns.status, "published"),
 						ne(announcementCampaigns.id, campaignId),
 					),
@@ -1300,6 +1401,93 @@ export async function getLatestPublishedAnnouncement(
 		(await latestPublishedByType("release_update", db)) ??
 		(await latestPublishedByType("first_run_onboarding", db))
 	);
+}
+
+/**
+ * How many showings this account has used on one published note. Scoped to the
+ * snapshot rather than the campaign: a showing belongs to the exact note the
+ * reader saw, so a later snapshot of the same campaign cannot inherit an older
+ * note's count.
+ */
+function countFeatureNoteShows(
+	userId: string,
+	snapshotId: string,
+	db: CampaignDb,
+): number {
+	const row = db
+		.select({ count: count() })
+		.from(announcementCampaignEvents)
+		.where(
+			and(
+				eq(announcementCampaignEvents.userId, userId),
+				eq(announcementCampaignEvents.snapshotId, snapshotId),
+				eq(announcementCampaignEvents.eventType, "auto_shown"),
+			),
+		)
+		.get();
+	return Number(row?.count ?? 0);
+}
+
+/**
+ * The feature note the landing strip may show this account, if any.
+ *
+ * The note is not an announcement campaign and is never returned by
+ * `getEligibleCampaignForUser` or `getLatestPublishedAnnouncement`: it is
+ * served only here, to the landing surface. It is the latest published
+ * `feature_note` and only when all of these hold:
+ *
+ * 1. The account was here before the note was published. A note is for the
+ *    people who were already here; a new account's welcome is its
+ *    introduction.
+ * 2. The account has no terminal state for the snapshot (X or the CTA).
+ * 3. The account has used fewer than `FEATURE_NOTE_MAX_IMPRESSIONS` showings.
+ *
+ * The published data is checked again here: a note is exactly one
+ * standard/feature slide, and its action destination must still be an
+ * allow-listed path that is not an `internal:` action. Publish refuses
+ * anything else, so this only guards data written around that rule (or by an
+ * older release); the strip guards its own render for the same reason.
+ */
+export async function getEligibleFeatureNoteForUser(
+	userId: string,
+	options: CampaignServiceOptions = {},
+): Promise<FeatureNote | null> {
+	const db = database(options);
+	const note = await latestPublishedByType("feature_note", db);
+	if (!note) return null;
+	const slide = note.slides.length === 1 ? note.slides[0] : undefined;
+	if (
+		!slide ||
+		slide.layoutType !== "standard" ||
+		slide.semanticRole !== "feature"
+	) {
+		return null;
+	}
+	if (await userHasFinishedSnapshot(userId, note.snapshotId, db)) return null;
+	if (!accountPredates(userId, note.publishedAt, db)) return null;
+	if (
+		countFeatureNoteShows(userId, note.snapshotId, db) >=
+		FEATURE_NOTE_MAX_IMPRESSIONS
+	) {
+		return null;
+	}
+	const destination = slide.actionDestination;
+	const actionDestination =
+		destination &&
+		!destination.startsWith(INTERNAL_ACTION_PREFIX) &&
+		isAllowedActionDestination(destination)
+			? destination
+			: null;
+	return {
+		id: note.id,
+		name: note.name,
+		snapshotId: note.snapshotId,
+		title: { en: slide.title.en, hu: slide.title.hu },
+		body: { en: slide.body.en, hu: slide.body.hu },
+		actionLabel: { en: slide.actionLabel.en, hu: slide.actionLabel.hu },
+		actionDestination,
+		publishedAt: note.publishedAt,
+	};
 }
 
 function eventTypeForCompletion(

@@ -7,6 +7,7 @@ import Header from "$lib/components/layout/Header.svelte";
 import Sidebar from "$lib/components/layout/Sidebar.svelte";
 import Toast from "$lib/components/ui/Toast.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
+import FeatureNoteStrip from "$lib/components/campaigns/FeatureNoteStrip.svelte";
 import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
 import { readTwoStepBackupNotice } from "./two-step-backup-notice";
 import ServerUpdateNotice from "./_components/ServerUpdateNotice.svelte";
@@ -14,6 +15,7 @@ import SessionExpiredNotice from "./_components/SessionExpiredNotice.svelte";
 import type { Component } from "svelte";
 import {
 	currentConversationId,
+	landingSendStarted,
 	sidebarOpen,
 	initUIListeners,
 	sidebarProjectsExpanded,
@@ -26,12 +28,15 @@ import {
 } from "$lib/stores/conversations";
 import {
 	completeCampaign,
+	completeCampaignOnLeave,
 	fetchEligibleCampaign,
+	fetchEligibleFeatureNote,
 	fetchLatestCampaign,
 	recordCampaignEvent,
 	type Campaign,
 	type CampaignEventType,
 	type CampaignSlide,
+	type FeatureNote,
 } from "$lib/client/api/campaigns";
 import { conversationExists } from "$lib/client/api/conversations";
 import {
@@ -137,6 +142,18 @@ let announcedSessionAlertCount = 0;
 // actually is.
 let sessionNoticeHeight = $state(0);
 let activeCampaign: Campaign | null = $state(null);
+// The landing strip's one note for this arrival. It never renders beside the
+// campaign: the campaign check settles first, and any campaign opening while
+// the note is up clears it (see `openCampaign`).
+let activeFeatureNote: FeatureNote | null = $state(null);
+let noteHiddenForArrival = $state(false);
+// These guard the per-arrival flow and are deliberately not `$state`: writing
+// them must not re-run the arrival effect that owns them. `featureNoteArrival`
+// is the token a late response checks, so an arrival the reader has already
+// left cannot draw its note on the next one.
+let featureNoteChecked = false;
+let featureNoteArrival = 0;
+let campaignCheckPromise: Promise<void> | null = null;
 // Asked once, as this document starts, before the chat has taken a first
 // message up and before any request: a load that is a send continuing (the
 // landing page's full navigation into the chat it just made) is not an arrival,
@@ -176,6 +193,9 @@ let twoStepBackupNoticeSeen = "";
 const routeConversationId = $derived(
 	page.url.pathname.match(/^\/chat\/([^/]+)$/)?.[1] ?? null,
 );
+// The only surface a feature note may reach. It is not a route component's
+// job: the note floats over the landing but the shell owns its lifecycle.
+const isLandingRoute = $derived(page.url.pathname === "/");
 const activeConversationTitle = $derived.by(() => {
 	return resolveActiveConversationTitle({
 		routeConversationId,
@@ -521,6 +541,9 @@ async function recordActiveCampaignEvent(
 }
 
 function openCampaign(campaign: Campaign, mode: CampaignDisplayMode) {
+	// The campaign is the only announcement: a note already on the landing
+	// gives way for the rest of this arrival.
+	if (isLandingRoute) hideFeatureNoteForArrival();
 	activeCampaign = campaign;
 	campaignMode = mode;
 	campaignSlideIndex = 0;
@@ -561,6 +584,132 @@ async function checkEligibleCampaign() {
 	} catch (error) {
 		console.warn("Failed to load eligible campaign:", error);
 	}
+}
+
+/**
+ * Start the document's one campaign check, or hand back the one already
+ * running. The note check awaits this, so the campaign always gets the
+ * arrival first and the note endpoint is asked only when no campaign came
+ * back. The check itself stays a mount check: it is never re-run on a
+ * navigation, a list refresh or a send.
+ */
+function ensureCampaignCheck(): Promise<void> {
+	campaignCheckPromise ??= checkEligibleCampaign();
+	return campaignCheckPromise;
+}
+
+/**
+ * End the note for this landing arrival: an X, the CTA, a send, a campaign
+ * opening, or leaving the landing. The flag keeps it gone even if a request
+ * that was already in flight resolves a moment later; the next landing
+ * arrival resets it.
+ */
+function hideFeatureNoteForArrival() {
+	activeFeatureNote = null;
+	noteHiddenForArrival = true;
+}
+
+/**
+ * Ask for the note once for this landing arrival. `arrival` is the token the
+ * arrival effect minted; a response for an earlier arrival is dropped.
+ */
+async function askForFeatureNote(arrival: number) {
+	if (
+		!browser ||
+		!isLandingRoute ||
+		activeCampaign ||
+		activeFeatureNote ||
+		featureNoteChecked ||
+		noteHiddenForArrival ||
+		$landingSendStarted
+	) {
+		return;
+	}
+	featureNoteChecked = true;
+	try {
+		const note = await fetchEligibleFeatureNote();
+		// Everything above may have moved on while the request was in flight:
+		// the reader left, a campaign opened, a send started, or this arrival
+		// gave way to a newer one.
+		if (
+			!note ||
+			arrival !== featureNoteArrival ||
+			!isLandingRoute ||
+			activeCampaign ||
+			noteHiddenForArrival ||
+			$landingSendStarted
+		) {
+			return;
+		}
+		activeFeatureNote = note;
+		// An impression is one accepted arrival, recorded here rather than in
+		// the strip's mount, so a remount under this layout cannot count twice.
+		void recordCampaignEvent(note.id, { eventType: "auto_shown" }).catch(
+			(error) => {
+				console.warn("Failed to record feature note showing:", error);
+			},
+		);
+	} catch (error) {
+		console.warn("Failed to load feature note:", error);
+	}
+}
+
+// A landing arrival — the initial load of "/" or a client-side navigation
+// back to it — is the one moment the note may be asked for. The campaign's
+// document-level check settles first; a note never follows a campaign in the
+// same arrival. Focus, visibility, list refreshes and sends never come through
+// here. The effect deliberately depends on the route alone: everything it
+// reads through `ensureCampaignCheck` is untracked so a campaign opening
+// cannot re-start the arrival.
+$effect(() => {
+	if (!browser) return;
+
+	if (!isLandingRoute) {
+		// Leaving the landing ends its arrival: a note still on screen (only
+		// possible for a frame during navigation) is cleared, and a late
+		// response cannot draw it on the next route.
+		hideFeatureNoteForArrival();
+		featureNoteChecked = true;
+		return;
+	}
+
+	const arrival = ++featureNoteArrival;
+	activeFeatureNote = null;
+	noteHiddenForArrival = false;
+	featureNoteChecked = false;
+
+	void (async () => {
+		await untrack(() => ensureCampaignCheck());
+		if (arrival !== featureNoteArrival) return;
+		await askForFeatureNote(arrival);
+	})();
+});
+
+// Sending is not a dismissal; it only ends the note's place in this arrival.
+// The next landing arrival may show it again if it is still eligible.
+$effect(() => {
+	if (!$landingSendStarted) return;
+	hideFeatureNoteForArrival();
+});
+
+function dismissFeatureNote() {
+	const note = activeFeatureNote;
+	if (!note) return;
+	hideFeatureNoteForArrival();
+	void completeCampaign(note.id, "skipped").catch((error) => {
+		console.warn("Failed to dismiss feature note:", error);
+	});
+}
+
+function followFeatureNoteAction() {
+	const note = activeFeatureNote;
+	if (!note) return;
+	hideFeatureNoteForArrival();
+	// The anchor navigates on its own click; keepalive keeps the completion
+	// request alive through that navigation. Acting ends the note for good.
+	void completeCampaignOnLeave(note.id, "completed").catch((error) => {
+		console.warn("Failed to complete feature note:", error);
+	});
 }
 
 async function handleAppVersionClick() {
@@ -717,7 +866,7 @@ onMount(() => {
 			}
 		})
 		.catch(() => {});
-	void checkEligibleCampaign();
+	void ensureCampaignCheck();
 
 	return () => {
 		cleanupUIListeners();
@@ -776,6 +925,16 @@ onDestroy(() => {
 			{#if routeProgressVisible}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-20 h-1 overflow-hidden">
 					<div class="route-progress h-full w-1/3 rounded-full bg-accent/80"></div>
+				</div>
+			{/if}
+			{#if isLandingRoute && activeFeatureNote && !noteHiddenForArrival && !activeCampaign && !$landingSendStarted}
+				<div class="feature-note-slot">
+					<FeatureNoteStrip
+						note={activeFeatureNote}
+						locale={$uiLanguage}
+						onDismiss={dismissFeatureNote}
+						onAction={followFeatureNoteAction}
+					/>
 				</div>
 			{/if}
 			{@render children()}
@@ -841,6 +1000,26 @@ onDestroy(() => {
 
 	.route-progress {
 		animation: route-progress-slide 1s ease-in-out infinite;
+	}
+
+	/*
+	 * The landing strip floats at the top of the main column, centered on the
+	 * desktop and 8px in from each edge on a phone (the width cap leaves that
+	 * margin). The slot itself is click-through so the landing under it stays
+	 * usable; only the card takes the pointer.
+	 */
+	.feature-note-slot {
+		position: absolute;
+		top: 20px;
+		left: 50%;
+		z-index: 10;
+		width: min(620px, calc(100% - 16px));
+		transform: translateX(-50%);
+		pointer-events: none;
+	}
+
+	.feature-note-slot :global(.feature-note) {
+		pointer-events: auto;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

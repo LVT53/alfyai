@@ -13,6 +13,7 @@ import {
 	type HomeSummary,
 } from "$lib/client/api/home";
 import HomeSurface from "$lib/components/home/HomeSurface.svelte";
+import { landingSendStarted } from "$lib/stores/ui";
 import { onMount } from "svelte";
 import type { PageProps } from "./$types";
 
@@ -23,6 +24,14 @@ let summaryLoaded = $state(false);
 // Bound to the surface: a send has begun, so the poll below has nothing left
 // to usefully refresh while the page hands off to the new chat.
 let sendStarted = $state(false);
+
+// The shell's feature-note strip has to disappear the moment a send starts,
+// and the send starts down in the composer. Mirror the local flag into the
+// shared store; the cleanup is the page handing off, not a dismissal.
+$effect(() => {
+	landingSendStarted.set(sendStarted);
+	return () => landingSendStarted.set(false);
+});
 
 async function refreshHomeSummary() {
 	try {

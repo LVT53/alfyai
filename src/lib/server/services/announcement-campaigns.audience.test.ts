@@ -7,11 +7,16 @@ import * as schema from "$lib/server/db/schema";
 import {
 	archiveCampaign,
 	completeCampaignForUser,
+	FEATURE_NOTE_MAX_IMPRESSIONS,
 	getEligibleCampaignForUser,
+	getEligibleFeatureNoteForUser,
 	getLatestPublishedAnnouncement,
+	recordCampaignEvent,
 } from "./announcement-campaigns";
 import {
+	buildFeatureNoteSlide,
 	buildFirstRunOnboardingImageFreeSlides,
+	publishFeatureNoteCampaign,
 	publishFirstRunOnboardingCampaign,
 	publishReleaseUpdateCampaign,
 } from "./announcement-campaigns.test-helpers";
@@ -270,6 +275,249 @@ describe("who is shown which announcement", () => {
 			const newer = await publishRelease("release-2", 10, "2.2.0");
 
 			expect((await eligible("veteran"))?.id).toBe(newer.id);
+		});
+	});
+
+	describe("a feature note is for accounts that were here before it", () => {
+		/** A published feature note; `ago` is how many days ago it was published. */
+		async function publishNote(
+			id: string,
+			ago: number,
+			action?: { destination: string; label: { en: string; hu: string } },
+		) {
+			const campaign = await publishFeatureNoteCampaign(db, {
+				campaignId: id,
+				name: id,
+				slides: [
+					buildFeatureNoteSlide(id, {
+						actionDestination: action?.destination ?? null,
+						...(action ? { actionLabel: action.label } : {}),
+					}),
+				],
+			});
+			backdate(id, ago);
+			return campaign;
+		}
+
+		/** Drizzle reads a timestamp column back in whole seconds. */
+		const inSeconds = (date: Date) =>
+			new Date(Math.floor(date.getTime() / 1000) * 1000);
+
+		const noteFor = (userId: string) =>
+			getEligibleFeatureNoteForUser(userId, { db });
+
+		async function showNote(campaignId: string, userId: string, times: number) {
+			for (let index = 0; index < times; index += 1) {
+				await recordCampaignEvent(
+					{ campaignId, userId, eventType: "auto_shown" },
+					{ db },
+				);
+			}
+		}
+
+		it("maps its one note slide to the reader's note", async () => {
+			await publishNote("note-1", 5);
+
+			expect(await noteFor("veteran")).toMatchObject({
+				id: "note-1",
+				name: "note-1",
+				snapshotId: "note-1-snapshot",
+				title: {
+					en: "Two-factor authentication",
+					hu: "Kétfaktoros hitelesítés",
+				},
+				body: {
+					en: "Add a second step to signing in.",
+					hu: "Adj egy második lépést a belépéshez.",
+				},
+				actionLabel: { en: "", hu: "" },
+				actionDestination: null,
+				publishedAt: inSeconds(daysAgo(5)),
+			});
+		});
+
+		it("maps the optional action when the note has one", async () => {
+			await publishNote("note-action", 5, {
+				destination: "/settings",
+				label: { en: "Open settings", hu: "Beállítások megnyitása" },
+			});
+
+			expect(await noteFor("veteran")).toMatchObject({
+				actionLabel: {
+					en: "Open settings",
+					hu: "Beállítások megnyitása",
+				},
+				actionDestination: "/settings",
+			});
+		});
+
+		it("is not offered to an account made after it was published", async () => {
+			await publishNote("note-1", 5);
+
+			// "newcomer" was made a day ago, four days after the note.
+			expect(await noteFor("newcomer")).toBeNull();
+		});
+
+		for (const reason of ["skipped", "completed"] as const) {
+			it(`stops for good when the reader leaves it (${reason})`, async () => {
+				await publishNote("note-1", 5);
+				await (reason === "skipped"
+					? skip("note-1", "veteran")
+					: finish("note-1", "veteran"));
+
+				expect(await noteFor("veteran")).toBeNull();
+				// Another reader who was here before it is untouched.
+				bornAt("newcomer", daysAgo(60));
+				expect((await noteFor("newcomer"))?.id).toBe("note-1");
+			});
+		}
+
+		it("allows the fourth showing and returns nothing from the fifth eligibility read", async () => {
+			await publishNote("note-1", 5);
+
+			await showNote("note-1", "veteran", 3);
+			expect((await noteFor("veteran"))?.id).toBe("note-1");
+
+			await showNote("note-1", "veteran", 1);
+			expect(await noteFor("veteran")).toBeNull();
+			expect(FEATURE_NOTE_MAX_IMPRESSIONS).toBe(4);
+		});
+
+		it("starts a newly published note at zero showings", async () => {
+			await publishNote("note-1", 5);
+			await showNote("note-1", "veteran", 4);
+			expect(await noteFor("veteran")).toBeNull();
+
+			const next = await publishNote("note-2", 0);
+
+			expect((await noteFor("veteran"))?.id).toBe(next.id);
+		});
+
+		it("returns nothing when its one slide is missing", async () => {
+			await publishNote("note-1", 5);
+			db.delete(schema.announcementCampaignSnapshotSlides)
+				.where(
+					eq(schema.announcementCampaignSnapshotSlides.campaignId, "note-1"),
+				)
+				.run();
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("returns nothing when its published slide is not a standard feature", async () => {
+			await publishNote("note-1", 5);
+			db.update(schema.announcementCampaignSnapshotSlides)
+				.set({ semanticRole: "data_disclosure" })
+				.where(
+					eq(schema.announcementCampaignSnapshotSlides.campaignId, "note-1"),
+				)
+				.run();
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("returns nothing when its snapshot holds more than one slide", async () => {
+			await publishNote("note-1", 5);
+			db.insert(schema.announcementCampaignSnapshotSlides)
+				.values({
+					id: "note-1-extra-slide",
+					snapshotId: "note-1-snapshot",
+					campaignId: "note-1",
+					layoutType: "standard",
+					semanticRole: "feature",
+					sortOrder: 2,
+					titleEn: "Extra",
+					titleHu: "Extra",
+					bodyEn: "Extra body",
+					bodyHu: "Extra törzs",
+					altTextEn: "",
+					altTextHu: "",
+				})
+				.run();
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("counts showings for the live snapshot, not for another snapshot of the same campaign", async () => {
+			await publishNote("note-1", 5);
+			// A campaign publishes one snapshot; this one is older and must not
+			// become the snapshot the reader is shown, nor contribute its events.
+			db.insert(schema.announcementCampaignSnapshots)
+				.values({
+					id: "note-1-old-snapshot",
+					campaignId: "note-1",
+					identityKey: "feature_note:v1:r0-old",
+					type: "feature_note",
+					name: "note-1",
+					campaignVersion: "v1",
+					revision: 0,
+					publishedAt: daysAgo(6),
+				})
+				.run();
+			for (let index = 0; index < FEATURE_NOTE_MAX_IMPRESSIONS; index += 1) {
+				db.insert(schema.announcementCampaignEvents)
+					.values({
+						id: `note-1-old-show-${index}`,
+						userId: "veteran",
+						campaignId: "note-1",
+						snapshotId: "note-1-old-snapshot",
+						eventType: "auto_shown",
+					})
+					.run();
+			}
+
+			expect((await noteFor("veteran"))?.id).toBe("note-1");
+		});
+
+		for (const destination of [
+			"internal:chatgpt-import",
+			"https://example.com",
+		] as const) {
+			it(`drops an action destination that is no longer safe (${destination})`, async () => {
+				await publishNote("note-action", 5, {
+					destination: "/settings",
+					label: { en: "Open settings", hu: "Beállítások megnyitása" },
+				});
+				db.update(schema.announcementCampaignSnapshotSlides)
+					.set({ actionDestination: destination })
+					.where(
+						eq(
+							schema.announcementCampaignSnapshotSlides.campaignId,
+							"note-action",
+						),
+					)
+					.run();
+
+				const note = await noteFor("veteran");
+				expect(note?.actionDestination).toBeNull();
+				expect(note?.actionLabel).toEqual({
+					en: "Open settings",
+					hu: "Beállítások megnyitása",
+				});
+			});
+		}
+
+		it("returns nothing once the live note is archived, and never resurrects the one it replaced", async () => {
+			await publishNote("note-1", 10);
+			await publishNote("note-2", 5);
+			await archiveCampaign("note-2", { db });
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("is neither what the campaign modal opens nor what the version badge replays", async () => {
+			await publishNote("note-1", 5);
+
+			expect(await eligible("veteran")).toBeNull();
+			expect(await getLatestPublishedAnnouncement({ db })).toBeNull();
+		});
+
+		it("leaves a release update as the campaign the shell opens", async () => {
+			await publishNote("note-1", 5);
+			await publishRelease("release-1", 10);
+
+			expect((await eligible("veteran"))?.id).toBe("release-1");
+			expect((await noteFor("veteran"))?.id).toBe("note-1");
 		});
 	});
 

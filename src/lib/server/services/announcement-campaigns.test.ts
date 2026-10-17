@@ -23,11 +23,16 @@ import {
 	updateCampaignDraft,
 } from "./announcement-campaigns";
 import {
+	buildFeatureNoteSlide,
 	buildFirstRunOnboardingImageFreeSlides,
 	buildFirstRunOnboardingSlides,
+	createFeatureNoteDraft,
 	createFirstRunOnboardingDraft,
+	insertCampaignCrop,
 	insertRequiredCampaignCrops,
+	publishFeatureNoteCampaign,
 	publishFirstRunOnboardingCampaign,
+	publishReleaseUpdateCampaign,
 } from "./announcement-campaigns.test-helpers";
 
 describe("announcement campaign service", () => {
@@ -939,7 +944,7 @@ describe("announcement campaign service", () => {
 			),
 		).rejects.toMatchObject({
 			fieldErrors: {
-				type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
+				type: "Campaign type must be first_run_onboarding, release_update, artifact_tour or feature_note.",
 			},
 		});
 	});
@@ -1447,7 +1452,339 @@ describe("announcement campaign service", () => {
 		});
 	});
 
-	it("names all three types in the thrown type error", async () => {
+	describe("feature notes", () => {
+		it("creates a Feature note draft with one empty standard/feature slide and a v1 identity", async () => {
+			const draft = await createCampaignDraft(
+				{ type: "feature_note", createdByUserId: "admin-user" },
+				{ db, ids: ["note-draft", "note-draft-slide"] },
+			);
+
+			expect(draft).toMatchObject({
+				id: "note-draft",
+				type: "feature_note",
+				status: "draft",
+				name: "Feature note",
+				identityKey: "feature_note:v1:r1",
+				campaignVersion: "v1",
+				revision: 1,
+				releaseVersion: null,
+			});
+			expect(draft.slides).toHaveLength(1);
+			expect(draft.slides[0]).toMatchObject({
+				id: "note-draft-slide",
+				layoutType: "standard",
+				semanticRole: "feature",
+				sortOrder: 1,
+				title: { en: "", hu: "" },
+				body: { en: "", hu: "" },
+				actionLabel: { en: "", hu: "" },
+				actionDestination: null,
+				desktopCropAssetId: null,
+				mobileCropAssetId: null,
+				setupControls: [],
+			});
+
+			const next = await createCampaignDraft(
+				{ type: "feature_note", createdByUserId: "admin-user" },
+				{ db, ids: ["note-draft-2", "note-draft-slide-2"] },
+			);
+			expect(next.identityKey).toBe("feature_note:v1:r2");
+			expect(next.revision).toBe(2);
+		});
+
+		it("ignores a release version supplied for a feature note", async () => {
+			const draft = await createCampaignDraft(
+				{
+					type: "feature_note",
+					name: "Versioned note",
+					releaseVersion: "9.9.9",
+					createdByUserId: "admin-user",
+				},
+				{ db, ids: ["note-versioned", "note-versioned-slide"] },
+			);
+
+			expect(draft.releaseVersion).toBeNull();
+			expect(draft.campaignVersion).toBe("v1");
+			expect(draft.identityKey).toBe("feature_note:v1:r1");
+		});
+
+		it("publishes a feature note with its one standard feature slide", async () => {
+			const published = await publishFeatureNoteCampaign(db, {
+				campaignId: "note-publish",
+			});
+
+			expect(published.status).toBe("published");
+			expect(published.snapshot?.slides).toHaveLength(1);
+			expect(published.snapshot?.slides[0]).toMatchObject({
+				layoutType: "standard",
+				semanticRole: "feature",
+				sortOrder: 1,
+				title: {
+					en: "Two-factor authentication",
+					hu: "Kétfaktoros hitelesítés",
+				},
+				body: {
+					en: "Add a second step to signing in.",
+					hu: "Adj egy második lépést a belépéshez.",
+				},
+			});
+		});
+
+		it("refuses a note that is not exactly one standard feature slide", async () => {
+			const twoSlides = [
+				buildFeatureNoteSlide("note-two-slides"),
+				{
+					...buildFeatureNoteSlide("note-two-slides"),
+					id: "note-two-slides-slide-2",
+					sortOrder: 2,
+				},
+			];
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-two-slides",
+				slides: twoSlides,
+			});
+			await expect(
+				publishCampaign("note-two-slides", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({ noteShape: expect.any(String) }),
+			});
+
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-no-slides",
+				slides: [],
+			});
+			await expect(
+				publishCampaign("note-no-slides", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({ noteShape: expect.any(String) }),
+			});
+
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-disclosure-role",
+				slides: [
+					buildFeatureNoteSlide("note-disclosure-role", {
+						layoutType: "standard",
+						semanticRole: "data_disclosure",
+					}),
+				],
+			});
+			await expect(
+				publishCampaign("note-disclosure-role", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({ noteShape: expect.any(String) }),
+			});
+		});
+
+		for (const variant of ["desktop", "mobile"] as const) {
+			it(`refuses a note with a ${variant} crop`, async () => {
+				insertCampaignCrop(db, `note-${variant}`, variant);
+				const campaignId = `note-with-${variant}-crop`;
+				const crop =
+					variant === "desktop"
+						? { desktopCropAssetId: `note-${variant}` }
+						: { mobileCropAssetId: `note-${variant}` };
+				await createFeatureNoteDraft(db, {
+					campaignId,
+					slides: [
+						buildFeatureNoteSlide(campaignId, {
+							...crop,
+							altText: { en: "Screenshot", hu: "Képernyőkép" },
+						}),
+					],
+				});
+				await expect(
+					publishCampaign(campaignId, "admin-user", { db }),
+				).rejects.toMatchObject({
+					fieldErrors: expect.objectContaining({
+						noteAssets: expect.any(String),
+					}),
+				});
+			});
+		}
+
+		it("refuses setup controls on a note", async () => {
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-with-setup",
+				slides: [
+					buildFeatureNoteSlide("note-with-setup", {
+						setupControls: ["ui_language"],
+					}),
+				],
+			});
+
+			await expect(
+				publishCampaign("note-with-setup", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({
+					"slides.note-with-setup-slide.setupControls":
+						"Setup controls are only allowed on first-run setup slides.",
+				}),
+			});
+		});
+
+		it("refuses a note with an internal action", async () => {
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-internal-action",
+				slides: [
+					buildFeatureNoteSlide("note-internal-action", {
+						actionLabel: { en: "Import", hu: "Importálás" },
+						actionDestination: "internal:chatgpt-import",
+					}),
+				],
+			});
+			await expect(
+				publishCampaign("note-internal-action", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({
+					noteAction: expect.any(String),
+				}),
+			});
+		});
+
+		it("still applies the shared localized-copy and action-label rules to a note", async () => {
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-no-copy",
+				slides: [
+					buildFeatureNoteSlide("note-no-copy", {
+						title: { en: "Only English", hu: "" },
+						body: { en: "Only English body", hu: "" },
+					}),
+				],
+			});
+			await expect(
+				publishCampaign("note-no-copy", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({
+					"slides.note-no-copy-slide.title.hu":
+						"Localized EN/HU title and body are required.",
+					"slides.note-no-copy-slide.body.hu":
+						"Localized EN/HU title and body are required.",
+				}),
+			});
+
+			for (const locale of ["en", "hu"] as const) {
+				const campaignId = `note-missing-${locale}-body`;
+				await createFeatureNoteDraft(db, {
+					campaignId,
+					slides: [
+						buildFeatureNoteSlide(campaignId, {
+							body: {
+								en: locale === "en" ? "" : "Body",
+								hu: locale === "hu" ? "" : "Törzs",
+							},
+						}),
+					],
+				});
+				await expect(
+					publishCampaign(campaignId, "admin-user", { db }),
+				).rejects.toMatchObject({
+					fieldErrors: expect.objectContaining({
+						[`slides.${campaignId}-slide.body.${locale}`]:
+							"Localized EN/HU title and body are required.",
+					}),
+				});
+			}
+
+			await createFeatureNoteDraft(db, {
+				campaignId: "note-action-no-label",
+				slides: [
+					buildFeatureNoteSlide("note-action-no-label", {
+						actionDestination: "/settings",
+					}),
+				],
+			});
+			await expect(
+				publishCampaign("note-action-no-label", "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({
+					"slides.note-action-no-label-slide.actionLabel":
+						"Action labels are required in English and Hungarian when an action is configured.",
+				}),
+			});
+		});
+
+		it("archives the note a newer note replaces and leaves release and first-run campaigns alone", async () => {
+			await publishFirstRunOnboardingCampaign(db, {
+				campaignId: "onboarding-live",
+				snapshotIds: [
+					"onboarding-snapshot",
+					"onboarding-snap-1",
+					"onboarding-snap-2",
+				],
+				name: "Onboarding",
+				slides: buildFirstRunOnboardingImageFreeSlides(),
+			});
+			await publishReleaseUpdateCampaign(db, {
+				campaignId: "release-live",
+				name: "Release",
+				releaseVersion: "2.2.0",
+			});
+			await publishFeatureNoteCampaign(db, {
+				campaignId: "note-a",
+				name: "Note A",
+			});
+			const second = await publishFeatureNoteCampaign(db, {
+				campaignId: "note-b",
+				name: "Note B",
+			});
+
+			expect(second.status).toBe("published");
+			const replaced = await getCampaignById("note-a", { db });
+			expect(replaced?.status).toBe("archived");
+			expect(replaced?.snapshot?.archivedAt).toBeInstanceOf(Date);
+			expect((await getCampaignById("note-b", { db }))?.status).toBe(
+				"published",
+			);
+			expect((await getCampaignById("onboarding-live", { db }))?.status).toBe(
+				"published",
+			);
+			expect((await getCampaignById("release-live", { db }))?.status).toBe(
+				"published",
+			);
+		});
+
+		it("counts a note's showings and its X and CTA exits in the analytics summary", async () => {
+			await publishFeatureNoteCampaign(db, {
+				campaignId: "note-analytics",
+			});
+			await recordCampaignEvent(
+				{
+					campaignId: "note-analytics",
+					userId: "viewer-user",
+					eventType: "auto_shown",
+				},
+				{ db },
+			);
+			await recordCampaignEvent(
+				{
+					campaignId: "note-analytics",
+					userId: "admin-user",
+					eventType: "auto_shown",
+				},
+				{ db },
+			);
+			await completeCampaignForUser(
+				"note-analytics",
+				"viewer-user",
+				"completed",
+				{ db },
+			);
+			await completeCampaignForUser("note-analytics", "admin-user", "skipped", {
+				db,
+			});
+
+			expect(
+				await getCampaignAnalyticsSummary("note-analytics", { db }),
+			).toMatchObject({
+				autoShown: 2,
+				completed: 1,
+				skipped: 1,
+				completionRate: 0.5,
+			});
+		});
+	});
+
+	it("names all four types in the thrown type error", async () => {
 		await expect(
 			createCampaignDraft(
 				{
@@ -1459,7 +1796,7 @@ describe("announcement campaign service", () => {
 			),
 		).rejects.toMatchObject({
 			fieldErrors: {
-				type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
+				type: "Campaign type must be first_run_onboarding, release_update, artifact_tour or feature_note.",
 			},
 		});
 	});
