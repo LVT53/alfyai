@@ -146,11 +146,18 @@ export const POST: RequestHandler = async ({
 
 		if (!result.ok) {
 			// A wrong code is the account's failure; an attempt that merely ran
-			// out of time or tries was already counted (or never was a guess).
+			// out of time was never a guess. An attempt that ran out of TRIES
+			// was: the fifth wrong code is one more guess than the four the
+			// earlier answers counted, so it is recorded too (R11).
 			if (result.reason === "wrong_code") {
 				recordLoginFailure(rateLimitKeys);
 				if (guarded.throttled) return tooManyAttempts(guarded.throttled);
 				return wrongCodeResponse(result.triesLeft);
+			}
+			if (result.reason === "restart" && result.why === "too_many") {
+				recordLoginFailure(rateLimitKeys);
+				if (guarded.throttled) return tooManyAttempts(guarded.throttled);
+				return restartResponse("too_many");
 			}
 			if (result.reason === "restart") return restartResponse(result.why);
 			if (result.reason === "unreadable_secret") return unavailableResponse();

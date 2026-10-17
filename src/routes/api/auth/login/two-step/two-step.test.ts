@@ -12,9 +12,9 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import {
-	checkLoginRateLimit,
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
+	checkLoginRateLimit,
 	LOGIN_RATE_LIMIT_POLICY,
 } from "$lib/server/services/login-rate-limit";
 import {
@@ -341,6 +341,55 @@ describe("POST /api/auth/login/two-step", () => {
 		expect(await sessionCount(userId)).toBe(0);
 	});
 
+	it("the fifth wrong code counts in the limiter", async () => {
+		const { userId, email } = await createUser();
+		const { secret } = await enableTwoStep(userId, email);
+
+		// One full attempt: four wrong codes report the tries left, and the
+		// fifth ends the challenge. R11 counts every wrong code, so that fifth
+		// one must reach the limiter too.
+		const challenge = await createSignInChallenge(userId, false, new Date());
+		const cookies = makeCookies(challenge.token);
+		for (let attempt = 0; attempt < 4; attempt += 1) {
+			const response = await POST(
+				makeEvent(cookies, { code: wrongCode(secret, new Date()) }),
+			);
+			expect(response.status).toBe(401);
+			expect((await response.json()).errorKey).toBe("login.twoStepWrongCode");
+		}
+		const fifth = await POST(
+			makeEvent(cookies, { code: wrongCode(secret, new Date()) }),
+		);
+		expect(fifth.status).toBe(401);
+		expect((await fifth.json()).errorKey).toBe("login.twoStepTooManyTries");
+
+		// Three single-failure challenges: with the fifth counted the bucket is
+		// at eight, so the next wrong code is the limiter's 429. Without it,
+		// the bucket is at seven and that request is an ordinary 401 (M1).
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			const next = await createSignInChallenge(userId, false, new Date());
+			const response = await POST(
+				makeEvent(makeCookies(next.token), {
+					code: wrongCode(secret, new Date()),
+				}),
+			);
+			expect(response.status).toBe(401);
+		}
+
+		const last = await createSignInChallenge(userId, false, new Date());
+		const response = await POST(
+			makeEvent(makeCookies(last.token), {
+				code: wrongCode(secret, new Date()),
+			}),
+		);
+
+		expect(response.status).toBe(429);
+		expect((await response.json()).errorKey).toBe(
+			"login.twoStepTooManyAttempts",
+		);
+		expect(checkLoginRateLimit({ email })).not.toBeNull();
+	});
+
 	it("a correct password does not clear the two-step code budget", async () => {
 		const password = "correct horse battery staple";
 		// Cost 4 keeps nine real bcrypt comparisons cheap; the comparison is
@@ -354,25 +403,25 @@ describe("POST /api/auth/login/two-step", () => {
 		// the bucket never fills and the 429 never comes (C1).
 		const responses: Response[] = [];
 		for (let round = 0; round < 9; round += 1) {
-			const login = await loginPOST(makeLoginEvent(cookies, { email, password }));
+			const login = await loginPOST(
+				makeLoginEvent(cookies, { email, password }),
+			);
 			expect(login.status).toBe(200);
 			expect((await login.json()).twoStep).toBe(true);
 			expect(cookies.values.get(SIGN_IN_ATTEMPT_COOKIE)).toBeTruthy();
 
 			responses.push(
-				await POST(
-					makeEvent(cookies, { code: wrongCode(secret, new Date()) }),
-				),
+				await POST(makeEvent(cookies, { code: wrongCode(secret, new Date()) })),
 			);
 		}
 
 		expect(responses.slice(0, 8).map((response) => response.status)).toEqual([
 			401, 401, 401, 401, 401, 401, 401, 401,
 		]);
-		expect(responses[8]?.status).toBe(429);
-		expect((await responses[8]?.json()).errorKey).toBe(
-			"login.twoStepTooManyAttempts",
-		);
+		const ninth = responses[8];
+		if (!ninth) throw new Error("the ninth code attempt did not answer");
+		expect(ninth.status).toBe(429);
+		expect((await ninth.json()).errorKey).toBe("login.twoStepTooManyAttempts");
 		expect(checkLoginRateLimit({ email })).not.toBeNull();
 
 		// Only the full sign-in clears it: the right password and then the
