@@ -66,15 +66,36 @@ export function formatTotpKey(secret: Uint8Array): string {
  * parameters (algorithm SHA1, period 30, digits 6, issuer AlfyAI) and
  * percent-encodes the account name, so an address with a plus sign or an
  * `@` in it still scans.
+ *
+ * An absolute `imageUrl` adds the `image` parameter, a widely supported
+ * extension of the Key URI Format that apps ignoring it simply skip (Google
+ * Authenticator among them). The phone fetches the image; this server never
+ * does, so the QR itself still contains no fetched content.
  */
-export function totpUri(secret: Uint8Array, accountName: string): string {
-	return createTOTPKeyURI(
+export function totpUri(
+	secret: Uint8Array,
+	accountName: string,
+	imageUrl?: string,
+): string {
+	const uri = createTOTPKeyURI(
 		"AlfyAI",
 		accountName,
 		secret,
 		TOTP_STEP_SECONDS,
 		TOTP_DIGITS,
 	);
+	if (!imageUrl || !isAbsoluteHttpUrl(imageUrl)) return uri;
+	return `${uri}&image=${encodeURIComponent(imageUrl)}`;
+}
+
+/** The provider mark has to be fetchable by the phone, not a path we resolve. */
+function isAbsoluteHttpUrl(value: string): boolean {
+	try {
+		const { protocol } = new URL(value);
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
 }
 
 /**

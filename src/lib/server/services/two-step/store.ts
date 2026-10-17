@@ -279,6 +279,7 @@ export async function listTwoStepEnabled(
 export async function beginTwoStepSetup(
 	userId: string,
 	email: string,
+	imageUrl?: string,
 ): Promise<SetupStartResult> {
 	// Cheap refusal before the expensive part: an account that is already on
 	// needs no secret at all.
@@ -339,7 +340,7 @@ export async function beginTwoStepSetup(
 
 	return {
 		ok: true,
-		qrSvg: renderQrSvg(totpUri(secret, email)),
+		qrSvg: renderQrSvg(totpUri(secret, email, imageUrl)),
 		key: formatTotpKey(secret),
 	};
 }

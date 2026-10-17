@@ -16,7 +16,13 @@ export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
 
-	const result = await beginTwoStepSetup(user.id, user.email);
+	// The phone fetches the mark, so it has to be absolute; `event.url.origin`
+	// is the public origin SvelteKit sees behind the proxy.
+	const result = await beginTwoStepSetup(
+		user.id,
+		user.email,
+		`${event.url.origin}/icon-192.png`,
+	);
 	if (!result.ok) return secondFactorFailureResponse(result.reason);
 
 	return json({ qrSvg: result.qrSvg, key: result.key });

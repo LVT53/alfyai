@@ -96,6 +96,25 @@ describe("TOTP", () => {
 		expect(uri).toContain("period=30");
 		expect(uri).toContain("digits=6");
 	});
+
+	it("adds an absolute provider image, encoded, and only when supplied", () => {
+		const secret = generateTotpSecret();
+		const accountName = "dora@example.com";
+		const imageUrl = "https://alfyai.example/icon-192.png?size=192&theme=light";
+
+		const withImage = totpUri(secret, accountName, imageUrl);
+
+		expect(withImage).toContain(`&image=${encodeURIComponent(imageUrl)}`);
+		expect(withImage.split("&image=")).toHaveLength(2);
+		expect(new URL(withImage).searchParams.get("image")).toBe(imageUrl);
+
+		// No URL means no parameter at all, and a relative one is not a
+		// provider image a phone could fetch.
+		expect(totpUri(secret, accountName)).not.toContain("image=");
+		expect(totpUri(secret, accountName, "/icon-192.png")).not.toContain(
+			"image=",
+		);
+	});
 });
 
 describe("backup codes", () => {

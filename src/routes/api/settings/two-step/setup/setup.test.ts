@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { decodeBase32IgnorePadding } from "@oslojs/encoding";
 import { generateHOTP } from "@oslojs/otp";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "$lib/server/db";
 import { userSecondFactors, users } from "$lib/server/db/schema";
 import {
@@ -12,14 +12,25 @@ import {
 import { getTwoStepStatus } from "$lib/server/services/two-step";
 import { POST } from "./+server";
 
+// The route's call is what this test observes; the real service still runs.
+const beginSetup = vi.hoisted(() => vi.fn());
+vi.mock("$lib/server/services/two-step", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/server/services/two-step")>();
+	beginSetup.mockImplementation(actual.beginTwoStepSetup);
+	return { ...actual, beginTwoStepSetup: beginSetup };
+});
+
 type Event = Parameters<typeof POST>[0];
+const ORIGIN = "https://alfyai.example";
 const userIds: string[] = [];
 
 function makeEvent(user: { id: string; email: string } | null): Event {
 	return {
-		request: new Request("http://localhost/api/settings/two-step/setup", {
+		request: new Request(`${ORIGIN}/api/settings/two-step/setup`, {
 			method: "POST",
 		}),
+		url: new URL(`${ORIGIN}/api/settings/two-step/setup`),
 		locals: { user },
 		cookies: { get: () => undefined },
 	} as unknown as Event;
@@ -36,6 +47,7 @@ async function createUser(): Promise<{ userId: string; email: string }> {
 beforeEach(() => {
 	_resetLoginRateLimitForTests();
 	_setLoginRateLimitSleepForTests(async () => {});
+	beginSetup.mockClear();
 });
 
 afterEach(async () => {
@@ -83,6 +95,19 @@ describe("POST /api/settings/two-step/setup", () => {
 			"profileTab.twoStepAlreadyOn",
 		);
 		expect(started).toBe(true);
+	});
+
+	it("passes the public origin's AlfyAI mark as the authenticator image", async () => {
+		const { userId, email } = await createUser();
+
+		const response = await POST(makeEvent({ id: userId, email }));
+
+		expect(response.status).toBe(200);
+		expect(beginSetup).toHaveBeenCalledWith(
+			userId,
+			email,
+			`${ORIGIN}/icon-192.png`,
+		);
 	});
 });
 
