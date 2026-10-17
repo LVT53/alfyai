@@ -30,7 +30,6 @@ let {
 	message = "",
 	error = "",
 	hiddenByFilter = false,
-	adminHasTwoStep = false,
 	onPromote,
 	onDemote,
 	onRevokeSessions,
@@ -49,8 +48,6 @@ let {
 	onRevokeSessions: (userId: string) => void;
 	/** Opens the reset dialog; never offered on the admin's own account. */
 	onResetTwoStep: (userId: string) => void;
-	/** Whether the ADMIN has a factor: the dialog then also asks for a code. */
-	adminHasTwoStep?: boolean;
 	onDelete: (userId: string) => void;
 } = $props();
 

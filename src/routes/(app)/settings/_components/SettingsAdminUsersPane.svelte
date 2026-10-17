@@ -282,7 +282,6 @@ function confirmDelete() {
 				{currentUserId}
 				{modelNames}
 				{actionUserId}
-				{adminHasTwoStep}
 				message={usersMessage}
 				error={usersError}
 				hiddenByFilter={selectionHidden}
