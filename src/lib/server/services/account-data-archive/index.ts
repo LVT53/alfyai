@@ -83,6 +83,7 @@ export const ARCHIVE_EXCLUDED_DERIVED_DIRECTORIES = [
 ] as const;
 const EXCLUSION_NOTES = [
 	"Passwords, password hashes, active logins, sessions, cookies, service assertions, and API keys are not included.",
+	"Two-step sign-in factors, their secrets, the one-time backup codes and pending sign-in attempts are account security state, not your data, and are not included.",
 	"Private server settings, provider secrets, storage paths, server logs, local process logs, hidden prompt context, assistant thinking traces, raw tool JSON, provider payloads, retry/debug fields, diagnostics, embeddings, and embedding hashes are not included.",
 	"Outside AI provider logs that are outside AlfyAI control are not included.",
 	"Raw ChatGPT import ZIP files, parser internals, summarizer state, and raw database dumps are not included.",

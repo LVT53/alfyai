@@ -186,6 +186,39 @@ function seedEveryUserScopedTable(userId: string) {
 	db.insert(schema.sessions)
 		.values({ id: p("session"), userId, expiresAt: now })
 		.run();
+	// Account security (two-step sign-in): one confirmed factor, one unused
+	// backup code and one password-blessed attempt waiting for its code.
+	db.insert(schema.userSecondFactors)
+		.values({
+			id: p("factor"),
+			userId,
+			kind: "totp",
+			secretCiphertext: "ciphertext",
+			secretIv: "iv",
+			secretAuthTag: "tag",
+			confirmedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.userBackupCodes)
+		.values({
+			id: p("backup-code"),
+			userId,
+			codeHash: p("backup-code-hash"),
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.signInChallenges)
+		.values({
+			id: p("challenge"),
+			userId,
+			rememberMe: false,
+			attempts: 0,
+			expiresAt: now,
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.browserPushSubscriptions)
 		.values({
 			id: p("push"),
@@ -792,10 +825,13 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"projects",
 				"semantic_embeddings",
 				"sessions",
+				"sign_in_challenges",
 				"task_checkpoints",
 				"task_state_evidence_links",
 				"usage_events",
+				"user_backup_codes",
 				"user_connections",
+				"user_second_factors",
 				"user_skill_definitions",
 			].sort(),
 		);

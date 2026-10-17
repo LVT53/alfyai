@@ -42,10 +42,13 @@ import {
 	projects,
 	semanticEmbeddings,
 	sessions,
+	signInChallenges,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
 	usageEvents,
+	userBackupCodes,
 	userConnections,
+	userSecondFactors,
 	userSkillDefinitions,
 } from "$lib/server/db/schema";
 
@@ -453,6 +456,33 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "connection_pending_writes",
 		table: connectionPendingWrites,
 		userColumn: connectionPendingWrites.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// --- Account security (two-step sign-in) ---
+	// A factor, its one-time codes and a password-blessed sign-in attempt are
+	// the account's own security state, not chat or knowledge data. Full
+	// erasure takes them through the FK cascade; neither Clear Memory nor
+	// Clear Workspace may turn a second factor off or leave a half-finished
+	// sign-in attempt behind.
+	{
+		name: "sign_in_challenges",
+		table: signInChallenges,
+		userColumn: signInChallenges.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "user_backup_codes",
+		table: userBackupCodes,
+		userColumn: userBackupCodes.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "user_second_factors",
+		table: userSecondFactors,
+		userColumn: userSecondFactors.userId,
 		erasure: "cascade",
 		resets: [],
 	},

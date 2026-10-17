@@ -87,6 +87,103 @@ export const sessions = sqliteTable("sessions", {
 	expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
 });
 
+/**
+ * A person's second factors. Version 1 writes only `kind = "totp"`; the
+ * column (and the nullable label) is what a passkey will use later without a
+ * second table. `secret_*` is the TOTP secret through the connector vault
+ * (`services/connections/vault.ts`), so the database alone cannot mint codes.
+ *
+ * `last_used_step` is the replay guard: the step of the last accepted code.
+ * `confirmed_at` is NULL while setup is incomplete (step 2 has not proved an
+ * authenticator works); two-step sign-in is ON only when a confirmed factor
+ * exists, so an abandoned setup asks nobody for a code.
+ */
+export const userSecondFactors = sqliteTable(
+	"user_second_factors",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		kind: text("kind").notNull().default("totp"),
+		label: text("label"),
+		secretCiphertext: text("secret_ciphertext").notNull(),
+		secretIv: text("secret_iv").notNull(),
+		secretAuthTag: text("secret_auth_tag").notNull(),
+		lastUsedStep: integer("last_used_step"),
+		confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		// One factor of each kind per person in version 1. The service
+		// replaces an unconfirmed TOTP row, and this makes a double setup
+		// request unable to leave two behind.
+		uniqueIndex("user_second_factors_user_kind_unique_idx").on(
+			table.userId,
+			table.kind,
+		),
+		index("user_second_factors_user_idx").on(table.userId),
+	],
+);
+
+/**
+ * The ten one-time codes shown once at setup. `code_hash` is HMAC-SHA256
+ * under a key derived from SESSION_SECRET (`two-step/codes.ts`), so a copy of
+ * this table cannot be tested against guesses. A row is spent by setting
+ * `used_at`, guarded in SQL so two racing requests cannot both spend it.
+ */
+export const userBackupCodes = sqliteTable(
+	"user_backup_codes",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		codeHash: text("code_hash").notNull(),
+		usedAt: integer("used_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		uniqueIndex("user_backup_codes_code_hash_unique_idx").on(table.codeHash),
+		index("user_backup_codes_user_idx").on(table.userId),
+	],
+);
+
+/**
+ * A correct password, waiting for its second step. The row's id is the
+ * SHA-256 of the token in the `signin_attempt` cookie, so the database holds
+ * no value anyone could present. It expires after five minutes and is
+ * deleted after five wrong codes; only a consumed attempt creates a session.
+ */
+export const signInChallenges = sqliteTable(
+	"sign_in_challenges",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		rememberMe: integer("remember_me", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		attempts: integer("attempts").notNull().default(0),
+		expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("sign_in_challenges_user_idx").on(table.userId),
+		index("sign_in_challenges_expires_idx").on(table.expiresAt),
+	],
+);
+
 export const browserPushSubscriptions = sqliteTable(
 	"browser_push_subscriptions",
 	{

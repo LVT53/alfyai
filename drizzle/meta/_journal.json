@@ -918,6 +918,13 @@
       "when": 1777140000117,
       "tag": "1777140000117_clear_sessions_for_hashed_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1777140000118,
+      "tag": "1777140000118_two_step_sign_in",
+      "breakpoints": true
     }
   ]
 }
