@@ -23,7 +23,7 @@ const TOO_MANY_CODES_MESSAGE =
 	"Too many wrong codes. Please wait a moment and try again.";
 
 /** The 429 for a wrong-code check that is over the limiter's budget. */
-export function tooManyWrongCodes(block: LoginRateLimitBlock): Response {
+function tooManyWrongCodes(block: LoginRateLimitBlock): Response {
 	return json(
 		{ error: TOO_MANY_CODES_MESSAGE, errorKey: TOO_MANY_CODES_KEY },
 		{
