@@ -421,7 +421,10 @@ export async function createCampaignDraft(
 	const db = database(options);
 	const nextId = idFactory(options);
 	const type = assertType(input.type);
-	const releaseVersion = nullableTrimString(input.releaseVersion);
+	// A note has no release in its identity (`feature_note:v1:rN`), so a
+	// release version supplied for one is ignored rather than stored.
+	const releaseVersion =
+		type === "feature_note" ? null : nullableTrimString(input.releaseVersion);
 	const campaignVersion = defaultVersionFor(type, releaseVersion);
 	const revision = nextRevision(db, type, campaignVersion);
 	const id = nextId();
@@ -1401,13 +1404,14 @@ export async function getLatestPublishedAnnouncement(
 }
 
 /**
- * How many showings this account has used on one note. The existing
- * `announcement_campaign_events_user_campaign_event_idx` index
- * `(user_id, campaign_id, event_type)` covers this read.
+ * How many showings this account has used on one published note. Scoped to the
+ * snapshot rather than the campaign: a showing belongs to the exact note the
+ * reader saw, so a later snapshot of the same campaign cannot inherit an older
+ * note's count.
  */
 function countFeatureNoteShows(
 	userId: string,
-	campaignId: string,
+	snapshotId: string,
 	db: CampaignDb,
 ): number {
 	const row = db
@@ -1416,7 +1420,7 @@ function countFeatureNoteShows(
 		.where(
 			and(
 				eq(announcementCampaignEvents.userId, userId),
-				eq(announcementCampaignEvents.campaignId, campaignId),
+				eq(announcementCampaignEvents.snapshotId, snapshotId),
 				eq(announcementCampaignEvents.eventType, "auto_shown"),
 			),
 		)
@@ -1438,9 +1442,11 @@ function countFeatureNoteShows(
  * 2. The account has no terminal state for the snapshot (X or the CTA).
  * 3. The account has used fewer than `FEATURE_NOTE_MAX_IMPRESSIONS` showings.
  *
- * A published note always has its one standard/feature slide (publish
- * refuses anything else); a snapshot without one is not a note, so it is
- * not served.
+ * The published data is checked again here: a note is exactly one
+ * standard/feature slide, and its action destination must still be an
+ * allow-listed path that is not an `internal:` action. Publish refuses
+ * anything else, so this only guards data written around that rule (or by an
+ * older release); the strip guards its own render for the same reason.
  */
 export async function getEligibleFeatureNoteForUser(
 	userId: string,
@@ -1449,15 +1455,29 @@ export async function getEligibleFeatureNoteForUser(
 	const db = database(options);
 	const note = await latestPublishedByType("feature_note", db);
 	if (!note) return null;
-	const slide = note.slides[0];
-	if (!slide) return null;
-	if (await userHasFinishedSnapshot(userId, note.snapshotId, db)) return null;
-	if (!accountPredates(userId, note.publishedAt, db)) return null;
+	const slide = note.slides.length === 1 ? note.slides[0] : undefined;
 	if (
-		countFeatureNoteShows(userId, note.id, db) >= FEATURE_NOTE_MAX_IMPRESSIONS
+		!slide ||
+		slide.layoutType !== "standard" ||
+		slide.semanticRole !== "feature"
 	) {
 		return null;
 	}
+	if (await userHasFinishedSnapshot(userId, note.snapshotId, db)) return null;
+	if (!accountPredates(userId, note.publishedAt, db)) return null;
+	if (
+		countFeatureNoteShows(userId, note.snapshotId, db) >=
+		FEATURE_NOTE_MAX_IMPRESSIONS
+	) {
+		return null;
+	}
+	const destination = slide.actionDestination;
+	const actionDestination =
+		destination &&
+		!destination.startsWith(INTERNAL_ACTION_PREFIX) &&
+		isAllowedActionDestination(destination)
+			? destination
+			: null;
 	return {
 		id: note.id,
 		name: note.name,
@@ -1465,7 +1485,7 @@ export async function getEligibleFeatureNoteForUser(
 		title: { en: slide.title.en, hu: slide.title.hu },
 		body: { en: slide.body.en, hu: slide.body.hu },
 		actionLabel: { en: slide.actionLabel.en, hu: slide.actionLabel.hu },
-		actionDestination: slide.actionDestination,
+		actionDestination,
 		publishedAt: note.publishedAt,
 	};
 }

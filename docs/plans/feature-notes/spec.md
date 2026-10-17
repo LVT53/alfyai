@@ -100,7 +100,7 @@ type FeatureNote = {
   snapshotId: string;
   title: { en: string; hu: string };
   body: { en: string; hu: string };
-  actionLabel: { en: string; hu: string } | null;
+  actionLabel: { en: string; hu: string }; // empty strings when there is no action
   actionDestination: string | null;
   publishedAt: string | Date;
 };

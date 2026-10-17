@@ -404,6 +404,99 @@ describe("who is shown which announcement", () => {
 			expect(await noteFor("veteran")).toBeNull();
 		});
 
+		it("returns nothing when its published slide is not a standard feature", async () => {
+			await publishNote("note-1", 5);
+			db.update(schema.announcementCampaignSnapshotSlides)
+				.set({ semanticRole: "data_disclosure" })
+				.where(
+					eq(schema.announcementCampaignSnapshotSlides.campaignId, "note-1"),
+				)
+				.run();
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("returns nothing when its snapshot holds more than one slide", async () => {
+			await publishNote("note-1", 5);
+			db.insert(schema.announcementCampaignSnapshotSlides)
+				.values({
+					id: "note-1-extra-slide",
+					snapshotId: "note-1-snapshot",
+					campaignId: "note-1",
+					layoutType: "standard",
+					semanticRole: "feature",
+					sortOrder: 2,
+					titleEn: "Extra",
+					titleHu: "Extra",
+					bodyEn: "Extra body",
+					bodyHu: "Extra törzs",
+					altTextEn: "",
+					altTextHu: "",
+				})
+				.run();
+
+			expect(await noteFor("veteran")).toBeNull();
+		});
+
+		it("counts showings for the live snapshot, not for another snapshot of the same campaign", async () => {
+			await publishNote("note-1", 5);
+			// A campaign publishes one snapshot; this one is older and must not
+			// become the snapshot the reader is shown, nor contribute its events.
+			db.insert(schema.announcementCampaignSnapshots)
+				.values({
+					id: "note-1-old-snapshot",
+					campaignId: "note-1",
+					identityKey: "feature_note:v1:r0-old",
+					type: "feature_note",
+					name: "note-1",
+					campaignVersion: "v1",
+					revision: 0,
+					publishedAt: daysAgo(6),
+				})
+				.run();
+			for (let index = 0; index < FEATURE_NOTE_MAX_IMPRESSIONS; index += 1) {
+				db.insert(schema.announcementCampaignEvents)
+					.values({
+						id: `note-1-old-show-${index}`,
+						userId: "veteran",
+						campaignId: "note-1",
+						snapshotId: "note-1-old-snapshot",
+						eventType: "auto_shown",
+					})
+					.run();
+			}
+
+			expect((await noteFor("veteran"))?.id).toBe("note-1");
+		});
+
+		for (const destination of [
+			"internal:chatgpt-import",
+			"https://example.com",
+		] as const) {
+			it(`drops an action destination that is no longer safe (${destination})`, async () => {
+				await publishNote("note-action", 5, {
+					destination: "/settings",
+					label: { en: "Open settings", hu: "Beállítások megnyitása" },
+				});
+				db.update(schema.announcementCampaignSnapshotSlides)
+					.set({ actionDestination: destination })
+					.where(
+						eq(
+							schema.announcementCampaignSnapshotSlides.campaignId,
+							"note-action",
+						),
+					)
+					.run();
+
+				const note = await noteFor("veteran");
+				expect(note?.actionDestination).toBeNull();
+				expect(note?.actionLabel).toEqual({
+					en: "Open settings",
+					hu: "Beállítások megnyitása",
+				});
+			});
+		}
+
 		it("returns nothing once the live note is archived, and never resurrects the one it replaced", async () => {
 			await publishNote("note-1", 10);
 			await publishNote("note-2", 5);

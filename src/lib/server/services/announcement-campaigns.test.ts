@@ -1492,6 +1492,22 @@ describe("announcement campaign service", () => {
 			expect(next.revision).toBe(2);
 		});
 
+		it("ignores a release version supplied for a feature note", async () => {
+			const draft = await createCampaignDraft(
+				{
+					type: "feature_note",
+					name: "Versioned note",
+					releaseVersion: "9.9.9",
+					createdByUserId: "admin-user",
+				},
+				{ db, ids: ["note-versioned", "note-versioned-slide"] },
+			);
+
+			expect(draft.releaseVersion).toBeNull();
+			expect(draft.campaignVersion).toBe("v1");
+			expect(draft.identityKey).toBe("feature_note:v1:r1");
+		});
+
 		it("publishes a feature note with its one standard feature slide", async () => {
 			const published = await publishFeatureNoteCampaign(db, {
 				campaignId: "note-publish",
@@ -1559,25 +1575,54 @@ describe("announcement campaign service", () => {
 			});
 		});
 
-		it("refuses a note with a crop or an internal action", async () => {
-			insertCampaignCrop(db, "note-desktop", "desktop");
+		for (const variant of ["desktop", "mobile"] as const) {
+			it(`refuses a note with a ${variant} crop`, async () => {
+				insertCampaignCrop(db, `note-${variant}`, variant);
+				const campaignId = `note-with-${variant}-crop`;
+				const crop =
+					variant === "desktop"
+						? { desktopCropAssetId: `note-${variant}` }
+						: { mobileCropAssetId: `note-${variant}` };
+				await createFeatureNoteDraft(db, {
+					campaignId,
+					slides: [
+						buildFeatureNoteSlide(campaignId, {
+							...crop,
+							altText: { en: "Screenshot", hu: "Képernyőkép" },
+						}),
+					],
+				});
+				await expect(
+					publishCampaign(campaignId, "admin-user", { db }),
+				).rejects.toMatchObject({
+					fieldErrors: expect.objectContaining({
+						noteAssets: expect.any(String),
+					}),
+				});
+			});
+		}
+
+		it("refuses setup controls on a note", async () => {
 			await createFeatureNoteDraft(db, {
-				campaignId: "note-with-crop",
+				campaignId: "note-with-setup",
 				slides: [
-					buildFeatureNoteSlide("note-with-crop", {
-						desktopCropAssetId: "note-desktop",
-						altText: { en: "Screenshot", hu: "Képernyőkép" },
+					buildFeatureNoteSlide("note-with-setup", {
+						setupControls: ["ui_language"],
 					}),
 				],
 			});
+
 			await expect(
-				publishCampaign("note-with-crop", "admin-user", { db }),
+				publishCampaign("note-with-setup", "admin-user", { db }),
 			).rejects.toMatchObject({
 				fieldErrors: expect.objectContaining({
-					noteAssets: expect.any(String),
+					"slides.note-with-setup-slide.setupControls":
+						"Setup controls are only allowed on first-run setup slides.",
 				}),
 			});
+		});
 
+		it("refuses a note with an internal action", async () => {
 			await createFeatureNoteDraft(db, {
 				campaignId: "note-internal-action",
 				slides: [
@@ -1616,6 +1661,29 @@ describe("announcement campaign service", () => {
 						"Localized EN/HU title and body are required.",
 				}),
 			});
+
+			for (const locale of ["en", "hu"] as const) {
+				const campaignId = `note-missing-${locale}-body`;
+				await createFeatureNoteDraft(db, {
+					campaignId,
+					slides: [
+						buildFeatureNoteSlide(campaignId, {
+							body: {
+								en: locale === "en" ? "" : "Body",
+								hu: locale === "hu" ? "" : "Törzs",
+							},
+						}),
+					],
+				});
+				await expect(
+					publishCampaign(campaignId, "admin-user", { db }),
+				).rejects.toMatchObject({
+					fieldErrors: expect.objectContaining({
+						[`slides.${campaignId}-slide.body.${locale}`]:
+							"Localized EN/HU title and body are required.",
+					}),
+				});
+			}
 
 			await createFeatureNoteDraft(db, {
 				campaignId: "note-action-no-label",
