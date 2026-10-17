@@ -9,6 +9,7 @@ import { createSession, hashSessionToken } from "$lib/server/services/auth";
 import {
 	_resetLoginRateLimitForTests,
 	_setLoginRateLimitSleepForTests,
+	checkLoginRateLimit,
 	LOGIN_RATE_LIMIT_POLICY,
 	recordLoginFailure,
 } from "$lib/server/services/login-rate-limit";
@@ -106,6 +107,37 @@ describe("POST /api/settings/two-step/confirm", () => {
 			.from(userBackupCodes)
 			.where(eq(userBackupCodes.userId, userId));
 		expect(codes).toHaveLength(10);
+	});
+
+	it("refuses a backup code during setup confirmation", async () => {
+		const { userId, email } = await createUser();
+		await createSession(userId);
+		await createSession(userId);
+		const started = await beginTwoStepSetup(userId, email);
+		if (!started.ok) throw new Error("setup refused");
+		// One short of the budget: a request that can never work must not spend
+		// the last wrong-answer slot either.
+		for (
+			let attempt = 0;
+			attempt < LOGIN_RATE_LIMIT_POLICY.maxFailuresPerAccount - 1;
+			attempt += 1
+		) {
+			recordLoginFailure({ accountId: userId });
+		}
+
+		const response = await POST(
+			makeEvent({ id: userId, email }, { backupCode: "AAAAA-AAAAA" }),
+		);
+
+		expect(response.status).toBe(400);
+		expect((await response.json()).errorKey).toBe(
+			"profileTab.twoStepCodeRequired",
+		);
+		expect((await getTwoStepStatus(userId)).enabled).toBe(false);
+		expect(
+			await db.select().from(sessions).where(eq(sessions.userId, userId)),
+		).toHaveLength(2);
+		expect(checkLoginRateLimit({ accountId: userId })).toBeNull();
 	});
 
 	it("answers 429 once the account has spent its wrong-code budget", async () => {

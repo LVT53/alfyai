@@ -22,10 +22,24 @@ export const POST: RequestHandler = async (event) => {
 	const parsed = await readSecondFactorBody(event.request);
 	if (!parsed.ok) return parsed.response;
 
+	// Setup step 2 takes the authenticator code, not a backup code: none exist
+	// until this call succeeds, and an empty code can never verify, so a body
+	// without a `code` is refused before any service call or limiter failure.
+	const code = parsed.input.code;
+	if (!code) {
+		return json(
+			{
+				error: "Enter a code from your authenticator app.",
+				errorKey: "profileTab.twoStepCodeRequired",
+			},
+			{ status: 400 },
+		);
+	}
+
 	const guarded = await runGuardedSecondFactor(userId, () =>
 		confirmTwoStepSetup(
 			userId,
-			parsed.input.code ?? "",
+			code,
 			new Date(),
 			event.cookies.get("session") ?? null,
 		),
