@@ -152,6 +152,30 @@ const commonDict = {
 		"login.rememberMe": "Remember me",
 		"login.showPassword": "Show password",
 		"login.signIn": "Sign in",
+		"login.twoStepTitle": "Enter your code",
+		"login.twoStepLine":
+			"Open your authenticator app and type the 6-digit code for AlfyAI.",
+		"login.twoStepBackupTitle": "Enter a backup code",
+		"login.twoStepBackupLine":
+			"Use one of the backup codes you saved when you turned on two-step sign-in. Each works once.",
+		"login.twoStepCodeLabel": "Code",
+		"login.twoStepBackupLabel": "Backup code",
+		"login.twoStepVerify": "Verify",
+		"login.twoStepVerifying": "Verifying...",
+		"login.twoStepUseBackup": "Use a backup code instead",
+		"login.twoStepUseApp": "Use your authenticator app instead",
+		"login.twoStepBack": "Back to sign in",
+		"login.twoStepWrongCode": "That code didn't work. {count} tries left.",
+		"login.twoStepTooManyTries": "Too many tries. Sign in again.",
+		"login.twoStepExpired": "That took too long. Sign in again.",
+		"login.twoStepRestart": "Sign in again.",
+		"login.twoStepUnavailable":
+			"Two-step sign-in is unavailable. Contact your admin.",
+		"login.twoStepTooManyAttempts":
+			"Too many wrong codes. Please wait a moment and try again.",
+		"login.twoStepBackupCodeUsed": "You used a backup code. {count} left.",
+		"login.twoStepCodeRequired": "Enter the six-digit code.",
+		"login.twoStepBackupRequired": "Enter a backup code.",
 		"login.tooManyAttempts":
 			"Too many failed sign-in attempts. Please wait a moment and try again.",
 		"login.signingIn": "Signing in...",
@@ -446,6 +470,31 @@ const commonDict = {
 		"login.rememberMe": "Emlékezz rám",
 		"login.showPassword": "Jelszó megjelenítése",
 		"login.signIn": "Bejelentkezés",
+		"login.twoStepTitle": "Add meg a kódot",
+		"login.twoStepLine":
+			"Nyisd meg a hitelesítő alkalmazást, és írd be az AlfyAI 6 jegyű kódját.",
+		"login.twoStepBackupTitle": "Add meg a tartalékkódot",
+		"login.twoStepBackupLine":
+			"Használd a kétlépcsős bejelentkezés bekapcsolásakor elmentett egyik tartalékkódot. Mindegyik egyszer használható.",
+		"login.twoStepCodeLabel": "Kód",
+		"login.twoStepBackupLabel": "Tartalékkód",
+		"login.twoStepVerify": "Ellenőrzés",
+		"login.twoStepVerifying": "Ellenőrzés...",
+		"login.twoStepUseBackup": "Inkább tartalékkódot használok",
+		"login.twoStepUseApp": "Inkább a hitelesítő alkalmazást használom",
+		"login.twoStepBack": "Vissza a bejelentkezéshez",
+		"login.twoStepWrongCode":
+			"Ez a kód nem működött. {count} próbálkozás maradt.",
+		"login.twoStepTooManyTries": "Túl sok próbálkozás. Jelentkezz be újra.",
+		"login.twoStepExpired": "Túl sokáig tartott. Jelentkezz be újra.",
+		"login.twoStepRestart": "Jelentkezz be újra.",
+		"login.twoStepUnavailable":
+			"A kétlépcsős bejelentkezés nem elérhető. Keresd az adminodat.",
+		"login.twoStepTooManyAttempts":
+			"Túl sok hibás kód. Várj egy kicsit, és próbáld újra.",
+		"login.twoStepBackupCodeUsed": "Tartalékkódot használtál. {count} maradt.",
+		"login.twoStepCodeRequired": "Írd be a hatjegyű kódot.",
+		"login.twoStepBackupRequired": "Írd be a tartalékkódot.",
 		"login.tooManyAttempts":
 			"Túl sok sikertelen bejelentkezési kísérlet. Várj egy pillanatot, majd próbáld újra.",
 		"login.signingIn": "Bejelentkezés...",

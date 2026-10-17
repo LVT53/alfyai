@@ -2,12 +2,13 @@
 import { onMount, onDestroy, untrack } from "svelte";
 import { page, navigating, updated } from "$app/state";
 import { browser } from "$app/environment";
-import { goto } from "$app/navigation";
+import { goto, replaceState } from "$app/navigation";
 import Header from "$lib/components/layout/Header.svelte";
 import Sidebar from "$lib/components/layout/Sidebar.svelte";
 import Toast from "$lib/components/ui/Toast.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
 import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
+import { readTwoStepBackupNotice } from "./two-step-backup-notice";
 import ServerUpdateNotice from "./_components/ServerUpdateNotice.svelte";
 import SessionExpiredNotice from "./_components/SessionExpiredNotice.svelte";
 import type { Component } from "svelte";
@@ -168,6 +169,10 @@ let shellPayloadSequence = 0;
 let routeProgressVisible = $state(false);
 let routeProgressTimeout: number | null = null;
 const ROUTE_PROGRESS_STUCK_TIMEOUT_MS = 12000;
+// R16: a backup-code sign-in leaves its remaining count in the URL, and the
+// shell turns it into a toast exactly once (the parameter is removed below).
+let twoStepBackupNoticeSeen = "";
+
 const routeConversationId = $derived(
 	page.url.pathname.match(/^\/chat\/([^/]+)$/)?.[1] ?? null,
 );
@@ -188,6 +193,22 @@ const activeConversationIsIncognito = $derived.by(() => {
 		shellConversations,
 		pageData: page.data,
 	});
+});
+
+// R16: "You used a backup code. N left." arrives as a query parameter on the
+// page the sign-in landed on. Read it once, say it as a toast, and take it out
+// of the address bar — never a raw sessionStorage key.
+$effect(() => {
+	const notice = readTwoStepBackupNotice(page.url);
+	if (!notice) return;
+	const key = `${notice.count}:${notice.cleaned.toString()}`;
+	if (twoStepBackupNoticeSeen === key) return;
+	twoStepBackupNoticeSeen = key;
+	showToast({
+		type: "success",
+		message: $t("login.twoStepBackupCodeUsed", { count: notice.count }),
+	});
+	replaceState(notice.cleaned, {});
 });
 
 $effect(() => {
