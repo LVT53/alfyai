@@ -466,7 +466,11 @@ describe("hooks.server.ts", () => {
 		it("still admits the public API routes without a session", async () => {
 			const { handle } = await import("./hooks.server");
 
-			for (const path of ["/api/auth/login", "/api/health"]) {
+			for (const path of [
+				"/api/auth/login",
+				"/api/auth/login/two-step",
+				"/api/health",
+			]) {
 				const resolve = vi.fn(async () => new Response("ok"));
 				const response = await handle({
 					event: makeHookEvent(path),
@@ -475,6 +479,24 @@ describe("hooks.server.ts", () => {
 
 				expect(resolve).toHaveBeenCalledOnce();
 				expect(response.status).toBe(200);
+			}
+		});
+
+		it("admits exactly the two-step route, not paths that merely start with it", async () => {
+			const { handle } = await import("./hooks.server");
+
+			for (const path of [
+				"/api/auth/login/two-step/extra",
+				"/api/auth/login/two-stepish",
+			]) {
+				const resolve = vi.fn(async () => new Response("ok"));
+				const response = await handle({
+					event: makeHookEvent(path),
+					resolve,
+				});
+
+				expect(resolve).not.toHaveBeenCalled();
+				expect([401, 303]).toContain(response.status);
 			}
 		});
 

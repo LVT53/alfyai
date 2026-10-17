@@ -1,5 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const {
+	mockIsTwoStepEnabled,
+	mockCreateSignInChallenge,
+	mockSetSignInAttemptCookie,
+} = vi.hoisted(() => ({
+	mockIsTwoStepEnabled: vi.fn(),
+	mockCreateSignInChallenge: vi.fn(),
+	mockSetSignInAttemptCookie: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/two-step", () => ({
+	isTwoStepEnabled: mockIsTwoStepEnabled,
+	createSignInChallenge: mockCreateSignInChallenge,
+	setSignInAttemptCookie: mockSetSignInAttemptCookie,
+}));
+
 vi.mock("$lib/server/services/auth", () => ({
 	verifyPassword: vi.fn(),
 	createSession: vi.fn(),
@@ -90,6 +106,9 @@ function makeSelectChain(result: unknown[]) {
 describe("POST /api/auth/login", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// By default an account has no second factor: every pre-existing case
+		// keeps its "password in, session out" behaviour.
+		mockIsTwoStepEnabled.mockResolvedValue(false);
 		// The limiter's buckets are process-lifetime, so without this the
 		// deliberate failures in one case would count against the next.
 		_resetLoginRateLimitForTests();
@@ -331,6 +350,82 @@ describe("POST /api/auth/login", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.user.displayName).toBe("noname@example.com");
+	});
+
+	describe("an account with a second factor", () => {
+		const user = {
+			id: "user-1",
+			email: "alice@example.com",
+			name: "Alice",
+			passwordHash: "hash",
+		};
+		const attempt = {
+			token: "attempt-token",
+			expiresAt: new Date(Date.now() + 300_000),
+		};
+
+		beforeEach(() => {
+			mockIsTwoStepEnabled.mockResolvedValue(true);
+			mockDb.select.mockReturnValue(makeSelectChain([user]));
+			mockVerifyPassword.mockResolvedValue(true);
+			mockCreateSignInChallenge.mockResolvedValue(attempt);
+		});
+
+		it("asks for the code and creates no session", async () => {
+			const event = makeEvent({
+				email: "alice@example.com",
+				password: "correct",
+			});
+
+			const response = await POST(event);
+			const data = await response.json();
+
+			expect(response.status).toBe(200);
+			expect(data).toEqual({ twoStep: true });
+			expect(mockCreateSession).not.toHaveBeenCalled();
+			expect(mockSetSessionCookie).not.toHaveBeenCalled();
+			expect(mockSetSignInAttemptCookie).toHaveBeenCalledWith(
+				event.cookies,
+				"attempt-token",
+			);
+		});
+
+		it("carries the password step's remember-me choice into the attempt", async () => {
+			await POST(
+				makeEvent({
+					email: "alice@example.com",
+					password: "correct",
+					rememberMe: true,
+				}),
+			);
+
+			expect(mockCreateSignInChallenge).toHaveBeenCalledWith(
+				"user-1",
+				true,
+				expect.any(Date),
+			);
+		});
+
+		it("redirects a native form post to the code step, with no session", async () => {
+			const event = makeFormEvent(
+				new URLSearchParams({
+					email: "alice@example.com",
+					password: "correct",
+					rememberMe: "on",
+				}),
+			);
+
+			const response = await POST(event);
+
+			expect(response.status).toBe(303);
+			expect(response.headers.get("Location")).toBe("/login?step=two-step");
+			expect(mockCreateSession).not.toHaveBeenCalled();
+			expect(mockSetSessionCookie).not.toHaveBeenCalled();
+			expect(mockSetSignInAttemptCookie).toHaveBeenCalledWith(
+				event.cookies,
+				"attempt-token",
+			);
+		});
 	});
 
 	describe("rate limiting", () => {

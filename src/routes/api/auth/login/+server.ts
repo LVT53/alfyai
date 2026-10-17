@@ -19,6 +19,11 @@ import {
 	recordLoginSuccess,
 	resolveRateLimitClientAddress,
 } from "$lib/server/services/login-rate-limit";
+import {
+	createSignInChallenge,
+	isTwoStepEnabled,
+	setSignInAttemptCookie,
+} from "$lib/server/services/two-step";
 
 type LoginResponseMode = "json" | "redirect";
 
@@ -160,6 +165,30 @@ export const POST: RequestHandler = async ({
 		}
 
 		recordLoginSuccess(rateLimitKeys);
+
+		// An account with a confirmed second factor gets no session from the
+		// password alone: it gets a five-minute, single-use attempt, and only
+		// the code step can turn that into a session (spec §5.3). The password
+		// step's remember-me choice travels with the attempt.
+		if (await isTwoStepEnabled(user.id)) {
+			const attempt = await createSignInChallenge(
+				user.id,
+				rememberMe,
+				new Date(),
+			);
+			setSignInAttemptCookie(cookies, attempt.token);
+
+			if (responseMode === "redirect") {
+				// A native form post (before hydration) lands on the login page's
+				// code step; it needs JS, like the rest of the app (R15).
+				return new Response(null, {
+					status: 303,
+					headers: { Location: "/login?step=two-step" },
+				});
+			}
+
+			return json({ twoStep: true });
+		}
 
 		// Create session and set cookie
 		const { token, expiresAt } = await createSession(user.id, { rememberMe });

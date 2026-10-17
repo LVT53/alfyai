@@ -51,6 +51,11 @@ import {
 const PUBLIC_PATHS = [
 	"/login",
 	"/api/auth/login",
+	// The second step of a two-step sign-in (spec §5.3). The person is not
+	// signed in yet — their session only exists once this route consumes the
+	// five-minute attempt — so the global gate must let it through. Exact
+	// match, like every entry here: no other auth path is added.
+	"/api/auth/login/two-step",
 	// D2 (ADR-0054): the deploy script drains via a bearer token equal to
 	// ALFYAI_API_SIGNING_KEY, with no session cookie. The route itself still
 	// requires either an admin session or that bearer token — this only

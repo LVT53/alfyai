@@ -5,6 +5,18 @@
  * facade (spec §5.4).
  */
 
+export type { SignInChallenge, SignInChallengeResult } from "./challenges";
+export {
+	ATTEMPT_TTL_MS,
+	clearSignInAttemptCookie,
+	consumeSignInChallenge,
+	createSignInChallenge,
+	findSignInChallengeAccount,
+	hashSignInAttemptToken,
+	MAX_TRIES,
+	SIGN_IN_ATTEMPT_COOKIE,
+	setSignInAttemptCookie,
+} from "./challenges";
 export type {
 	DisableResult,
 	RegenerateResult,
