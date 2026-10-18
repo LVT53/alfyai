@@ -10,6 +10,7 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
+import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
@@ -98,15 +99,22 @@ const fetchAvailableModelsMock = vi.hoisted(() =>
 	vi.fn(async (): Promise<AvailableModelsResponse> => ({ providers: [] })),
 );
 
-const fetchExtractionJobsMock = vi.hoisted(() =>
-	vi.fn(async (): Promise<unknown[]> => []),
+const fetchExtractionStatusMock = vi.hoisted(() =>
+	vi.fn(
+		async (
+			_artifactIds: string[],
+		): Promise<{
+			jobs: DocumentExtractionJobDTO[];
+			readiness: AttachmentReadinessSnapshot[];
+		}> => ({ jobs: [], readiness: [] }),
+	),
 );
 const retryExtractionMock = vi.hoisted(() => vi.fn());
 const cancelExtractionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
-	fetchExtractionJobs: fetchExtractionJobsMock,
+	fetchExtractionStatus: fetchExtractionStatusMock,
 	retryExtraction: retryExtractionMock,
 	cancelExtraction: cancelExtractionMock,
 }));
@@ -4512,6 +4520,19 @@ describe("MessageInput extraction chips", () => {
 		};
 	}
 
+	function readiness(
+		overrides: Partial<AttachmentReadinessSnapshot> & { artifactId: string },
+	): AttachmentReadinessSnapshot {
+		return {
+			promptReady: false,
+			promptArtifactId: null,
+			readinessError:
+				"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+			readinessErrorCode: "no_usable_text",
+			...overrides,
+		};
+	}
+
 	function renderComposer() {
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
@@ -4553,7 +4574,10 @@ describe("MessageInput extraction chips", () => {
 			defaultOn: [],
 			accounts: [],
 		});
-		fetchExtractionJobsMock.mockResolvedValue([]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [],
+			readiness: [],
+		});
 	});
 
 	it("shows a chip for the file before the upload POST resolves", async () => {
@@ -4630,9 +4654,10 @@ describe("MessageInput extraction chips", () => {
 			);
 		});
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({ status: "parsing" }),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [extractionJob({ status: "parsing" })],
+			readiness: [],
+		});
 		await waitFor(
 			() => {
 				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
@@ -4642,9 +4667,10 @@ describe("MessageInput extraction chips", () => {
 			{ timeout: 4000 },
 		);
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({ status: "indexing" }),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [extractionJob({ status: "indexing" })],
+			readiness: [],
+		});
 		await waitFor(
 			() => {
 				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
@@ -4654,13 +4680,16 @@ describe("MessageInput extraction chips", () => {
 			{ timeout: 4000 },
 		);
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({
-				status: "succeeded",
-				cancelable: false,
-				normalizedArtifactId: "normalized-1",
-			}),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [],
+		});
 		await waitFor(
 			() => {
 				expect(getByTestId("composer-chip-attachment")).not.toHaveTextContent(
@@ -4695,13 +4724,16 @@ describe("MessageInput extraction chips", () => {
 		expect(chip.querySelector(".composer-chip__remove")).toBeNull();
 		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({
-				status: "succeeded",
-				cancelable: false,
-				normalizedArtifactId: "normalized-1",
-			}),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [],
+		});
 		await waitFor(
 			() => {
 				const settled = getByTestId("composer-chip-attachment");
@@ -4711,6 +4743,246 @@ describe("MessageInput extraction chips", () => {
 			{ timeout: 4000 },
 		);
 		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+	});
+
+	// A late terminal success can still be unusable: extraction finished, but
+	// the normalized text is too thin to send. The status endpoint now carries
+	// the verdict beside the job, and the chip must take it — a green success
+	// with Send open is the silent success this response exists to end.
+	it("shows a late succeeded job with unusable text as a failure", async () => {
+		const {
+			container,
+			getByLabelText,
+			getByPlaceholderText,
+			getByTestId,
+			done,
+		} = renderComposer();
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Use this file" },
+		});
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({ status: "queued" }),
+			},
+		});
+
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [readiness({ artifactId: "artifact-1" })],
+		});
+
+		const chip = await waitFor(
+			() => {
+				const settled = getByTestId("composer-chip-attachment");
+				expect(settled).toHaveTextContent("No usable text");
+				return settled;
+			},
+			{ timeout: 4000 },
+		);
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(getByLabelText("Send message")).toBeDisabled();
+
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		const details = await waitFor(() =>
+			getByTestId("composer-chip-failure-details"),
+		);
+		expect(details).toHaveTextContent(
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+		);
+	});
+
+	// The poller could not see this one: the upload response already carried
+	// the terminal success, so nothing is unsettled and no poll would ever ask
+	// again. This is the mixed-version/deploy-window defense: the current
+	// upload route re-resolves readiness after a terminal verdict, but a
+	// response minted by an older route (or one that answered before the
+	// readiness write landed) still carries the pre-job "still preparing"
+	// sentence. The content verdict lives on the status endpoint, so the
+	// composer asks exactly once for it.
+	it("asks once for the readiness a succeeded upload response could not know", async () => {
+		const {
+			container,
+			getByLabelText,
+			getByPlaceholderText,
+			getByTestId,
+			done,
+		} = renderComposer();
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Use this file" },
+		});
+		await pickFile(container);
+
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [readiness({ artifactId: "artifact-1" })],
+		});
+
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError:
+					"This file is still being prepared for chat. Wait a moment and send it again.",
+				readinessErrorCode: "still_preparing",
+				extraction: extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			},
+		});
+
+		const chip = await waitFor(
+			() => {
+				const settled = getByTestId("composer-chip-attachment");
+				expect(settled).toHaveTextContent("No usable text");
+				return settled;
+			},
+			{ timeout: 4000 },
+		);
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(getByLabelText("Send message")).toBeDisabled();
+		// One extra status read, not a poll loop: the job is terminal, so the
+		// only reason any request happened is the one-shot refresh.
+		expect(fetchExtractionStatusMock).toHaveBeenCalledTimes(1);
+		expect(fetchExtractionStatusMock.mock.calls[0]?.[0]).toEqual([
+			"artifact-1",
+		]);
+	});
+
+	// The other half of the same contract: a verdict that says the text IS
+	// usable settles the chip back to an ordinary attachment — X back, Send
+	// open — instead of leaving it dashed and blocked.
+	it("restores the X and Send when the readiness verdict is ready", async () => {
+		const {
+			container,
+			getByLabelText,
+			getByPlaceholderText,
+			getByTestId,
+			queryByTestId,
+			done,
+		} = renderComposer();
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Use this file" },
+		});
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({ status: "queued" }),
+			},
+		});
+
+		await waitFor(() => expect(getByLabelText("Send message")).toBeDisabled());
+
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [
+				readiness({
+					artifactId: "artifact-1",
+					promptReady: true,
+					promptArtifactId: "normalized-1",
+					readinessError: null,
+					readinessErrorCode: null,
+				}),
+			],
+		});
+
+		const settled = await waitFor(
+			() => {
+				const chip = getByTestId("composer-chip-attachment");
+				expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
+				return chip;
+			},
+			{ timeout: 4000 },
+		);
+		expect(settled).not.toHaveAttribute("aria-busy", "true");
+		expect(getByLabelText("Send message")).not.toBeDisabled();
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+	});
+
+	// The same gap on the restore path: a draft saved mid-extraction can carry
+	// a terminal success whose content verdict was never persisted with it.
+	// The draft effect runs before the poller exists, so `onMount` has to ask
+	// once after creating it — and the one-shot guard must still cap it at one.
+	it("asks once for the readiness of a restored draft's terminal success", async () => {
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [readiness({ artifactId: "artifact-1" })],
+		});
+
+		const { getByTestId } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: vi.fn(),
+			draftVersion: 1,
+			draftText: "Summarise this",
+			draftAttachments: [
+				{
+					artifact: artifact(),
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError:
+						"This file is still being prepared for chat. Wait a moment and send it again.",
+					readinessErrorCode: "still_preparing",
+					extraction: extractionJob({
+						status: "succeeded",
+						cancelable: false,
+						normalizedArtifactId: "normalized-1",
+					}),
+				},
+			],
+		});
+
+		const chip = await waitFor(
+			() => {
+				const settled = getByTestId("composer-chip-attachment");
+				expect(settled).toHaveTextContent("No usable text");
+				return settled;
+			},
+			{ timeout: 4000 },
+		);
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(fetchExtractionStatusMock).toHaveBeenCalledTimes(1);
+		expect(fetchExtractionStatusMock.mock.calls[0]?.[0]).toEqual([
+			"artifact-1",
+		]);
 	});
 
 	// A queued send waits for file processing to finish on its own. A FAILED
@@ -4789,16 +5061,19 @@ describe("MessageInput extraction chips", () => {
 			).toBeDefined(),
 		);
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({
-				id: "job-busy",
-				sourceArtifactId: "artifact-busy",
-				status: "failed",
-				retryable: true,
-				cancelable: false,
-				error: { code: "max_attempts", message: "gave up" },
-			}),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					id: "job-busy",
+					sourceArtifactId: "artifact-busy",
+					status: "failed",
+					retryable: true,
+					cancelable: false,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+			],
+			readiness: [],
+		});
 		const failed = await waitFor(
 			() => {
 				const chip = getAllByTestId("composer-chip-attachment").find(
@@ -4929,7 +5204,7 @@ describe("MessageInput extraction chips", () => {
 			expect(getByTestId("composer-chip-attachment").textContent).toBe(before);
 			// It asks once — it cannot know there is no job without asking — and
 			// then stops for good, because the answer was "nothing here".
-			expect(fetchExtractionJobsMock).toHaveBeenCalledTimes(1);
+			expect(fetchExtractionStatusMock).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -5138,9 +5413,10 @@ describe("MessageInput extraction chips", () => {
 		// The state it was drawn in is not a change: the user can see the chip.
 		expect(announcer).toHaveTextContent("");
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({ status: "succeeded", cancelable: false }),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [extractionJob({ status: "succeeded", cancelable: false })],
+			readiness: [],
+		});
 		await waitFor(
 			() => {
 				expect(announcer).toHaveTextContent("scan.pdf:");
@@ -5294,13 +5570,16 @@ describe("MessageInput extraction chips", () => {
 		const sendButton = getByLabelText("Send message") as HTMLButtonElement;
 		await waitFor(() => expect(sendButton.disabled).toBe(true));
 
-		fetchExtractionJobsMock.mockResolvedValue([
-			extractionJob({
-				status: "succeeded",
-				cancelable: false,
-				normalizedArtifactId: "normalized-1",
-			}),
-		]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [
+				extractionJob({
+					status: "succeeded",
+					cancelable: false,
+					normalizedArtifactId: "normalized-1",
+				}),
+			],
+			readiness: [],
+		});
 
 		await waitFor(() => expect(sendButton.disabled).toBe(false), {
 			timeout: 4000,
@@ -5513,7 +5792,10 @@ describe("MessageInput paste-to-attach", () => {
 			defaultOn: [],
 			accounts: [],
 		});
-		fetchExtractionJobsMock.mockResolvedValue([]);
+		fetchExtractionStatusMock.mockResolvedValue({
+			jobs: [],
+			readiness: [],
+		});
 	});
 
 	afterEach(() => {

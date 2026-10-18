@@ -13,6 +13,7 @@ import type { ApiError } from "./http";
 import {
 	cancelExtraction,
 	fetchExtractionJobs,
+	fetchExtractionStatus,
 	fetchMemoryProfileItemDetail,
 	retryExtraction,
 	submitKnowledgeMemoryAction,
@@ -938,6 +939,17 @@ describe("extraction status client API", () => {
 		legacy: false,
 	};
 
+	// The status response is two-part: the lifecycle rows and the content
+	// verdict for the terminal successes among them.
+	const readiness = {
+		artifactId: "artifact-1",
+		promptReady: false,
+		promptArtifactId: null,
+		readinessError:
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+		readinessErrorCode: "no_usable_text" as const,
+	};
+
 	it("asks for de-duplicated, encoded ids and unwraps the list", async () => {
 		const fetchImpl = vi
 			.fn()
@@ -950,6 +962,116 @@ describe("extraction status client API", () => {
 		expect(fetchImpl).toHaveBeenCalledWith(
 			"/api/knowledge/extraction?artifactIds=artifact-1,a%2Fb",
 		);
+	});
+
+	// A terminal success whose produced text is unusable arrives as a success
+	// WITH a verdict. Dropping the readiness half is exactly the silent
+	// success this endpoint exists to end.
+	it("returns both the jobs and the readiness verdicts", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ jobs: [dto], readiness: [readiness] }),
+			);
+
+		await expect(
+			fetchExtractionStatus(["artifact-1"], fetchImpl),
+		).resolves.toEqual({ jobs: [dto], readiness: [readiness] });
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction?artifactIds=artifact-1",
+		);
+	});
+
+	// The endpoint is asked in chunks, and readiness comes back per chunk.
+	// Returning only the last chunk's verdicts would silently lose the ones
+	// from every earlier batch.
+	it("merges the readiness of every chunk", async () => {
+		const ids = Array.from(
+			{ length: EXTRACTION_STATUS_BATCH_LIMIT + 1 },
+			(_, index) => `artifact-${index}`,
+		);
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({
+					jobs: [dto],
+					readiness: [readiness],
+				}),
+			)
+			.mockResolvedValueOnce(
+				jsonResponse({
+					jobs: [{ ...dto, id: "job-2", sourceArtifactId: "artifact-50" }],
+					readiness: [{ ...readiness, artifactId: "artifact-50" }],
+				}),
+			);
+
+		const result = await fetchExtractionStatus(ids, fetchImpl);
+
+		expect(result.jobs).toHaveLength(2);
+		expect(result.readiness.map((snapshot) => snapshot.artifactId)).toEqual([
+			"artifact-1",
+			"artifact-50",
+		]);
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	// A readiness row this client cannot understand must not take the whole
+	// poll down: the jobs are the lifecycle truth and stay usable without it.
+	it("filters malformed readiness entries and keeps the valid ones", async () => {
+		const ready = {
+			artifactId: "artifact-2",
+			promptReady: true,
+			promptArtifactId: "normalized-2",
+			readinessError: null,
+			readinessErrorCode: null,
+		};
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			jsonResponse({
+				jobs: [dto],
+				readiness: [
+					readiness,
+					{ artifactId: "" },
+					{ artifactId: "artifact-3", promptReady: "yes" },
+					null,
+					"not-a-snapshot",
+					{
+						...readiness,
+						artifactId: "artifact-4",
+						readinessErrorCode: "new_code",
+					},
+					ready,
+				],
+			}),
+		);
+
+		await expect(
+			fetchExtractionStatus(["artifact-1"], fetchImpl),
+		).resolves.toEqual({ jobs: [dto], readiness: [readiness, ready] });
+	});
+
+	it("answers an empty status response when the payload has neither half", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ readiness: "later" }));
+
+		await expect(
+			fetchExtractionStatus(["artifact-1"], fetchImpl),
+		).resolves.toEqual({ jobs: [], readiness: [] });
+	});
+
+	// Existing callers and tests read only the lifecycle half. The wrapper is
+	// how they keep working without knowing the response grew a second half.
+	it("keeps fetchExtractionJobs returning only the jobs half", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ jobs: [dto], readiness: [readiness] }),
+			);
+
+		await expect(
+			fetchExtractionJobs(["artifact-1"], fetchImpl),
+		).resolves.toEqual([dto]);
 	});
 
 	// F22. The fifty-id cap is the endpoint's, so the shared client has to

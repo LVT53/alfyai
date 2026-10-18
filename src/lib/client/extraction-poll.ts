@@ -17,8 +17,12 @@
 // DTOs, so the same module serves a Svelte 5 rune component and a plain page.
 
 import type { FetchLike } from "$lib/client/api/http";
-import { fetchExtractionJobs } from "$lib/client/api/knowledge";
-import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { fetchExtractionStatus } from "$lib/client/api/knowledge";
+import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatusResponse,
+} from "$lib/shared/extraction-status";
 import {
 	EXTRACTION_STATUS_BATCH_LIMIT,
 	isDocumentExtractionStatus,
@@ -40,12 +44,28 @@ export const EXTRACTION_POLL_BATCH_SIZE = EXTRACTION_STATUS_BATCH_LIMIT;
 export interface ExtractionPollerOptions {
 	/** The artifacts to ask about, re-read on every tick. */
 	getArtifactIds: () => string[];
-	/** Called with whatever the endpoint answered, terminal rows included. */
-	onJobs: (jobs: DocumentExtractionJobDTO[]) => void;
+	/**
+	 * Called with whatever the endpoint answered, terminal rows included, and
+	 * the readiness verdicts that came beside them (empty when the server has
+	 * no verdict: queued/active/failed/canceled jobs, or a failed readiness
+	 * read). A one-argument callback keeps working.
+	 */
+	onJobs: (
+		jobs: DocumentExtractionJobDTO[],
+		readiness: AttachmentReadinessSnapshot[],
+	) => void;
 	/** Swallowed by default: a failed poll is retried, never surfaced. */
 	onError?: ((error: unknown) => void) | undefined;
 	fetchImpl?: FetchLike | undefined;
-	/** Test seam over the client API call. */
+	/**
+	 * Test seam over the client API call. The status response is the shape the
+	 * poller actually wants; `fetchJobs` below is the older, lifecycle-only
+	 * seam and is wrapped with an empty readiness list.
+	 */
+	fetchStatus?:
+		| ((artifactIds: string[]) => Promise<DocumentExtractionStatusResponse>)
+		| undefined;
+	/** The legacy test seam: jobs only, no readiness half. */
 	fetchJobs?:
 		| ((artifactIds: string[]) => Promise<DocumentExtractionJobDTO[]>)
 		| undefined;
@@ -88,10 +108,19 @@ export function createExtractionPoller(
 	options: ExtractionPollerOptions,
 ): ExtractionPoller {
 	const now = options.now ?? (() => Date.now());
-	const fetchJobs =
-		options.fetchJobs ??
-		((artifactIds: string[]) =>
-			fetchExtractionJobs(artifactIds, options.fetchImpl));
+	const fetchJobs = options.fetchJobs;
+	const fetchStatus =
+		options.fetchStatus ??
+		(fetchJobs
+			? async (artifactIds: string[]) => ({
+					jobs: await fetchJobs(artifactIds),
+					// The legacy seam cannot see a content verdict. Saying so is
+					// the honest answer: readiness only ever enriches a terminal
+					// result, and a caller on this seam keeps the behaviour it had.
+					readiness: [] as AttachmentReadinessSnapshot[],
+				})
+			: (artifactIds: string[]) =>
+					fetchExtractionStatus(artifactIds, options.fetchImpl));
 
 	// What this poller last saw per artifact. An id it has never seen a DTO for
 	// counts as unsettled, which is what keeps the very first tick from being
@@ -104,6 +133,12 @@ export function createExtractionPoller(
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let armedAt: number | null = null;
 	let inFlight = false;
+	// Set when a poll was asked for while one was already on the wire. The
+	// answer in flight predates whatever the caller just changed (an upload's
+	// terminal job, a Retry), so it must not be the last word — but several
+	// callers inside one window want the same newer state, hence one flag
+	// rather than a queue.
+	let refreshQueued = false;
 	let stopped = false;
 	let listening = false;
 
@@ -193,7 +228,14 @@ export function createExtractionPoller(
 	}
 
 	async function poll(): Promise<void> {
-		if (stopped || inFlight) return;
+		if (stopped) return;
+		if (inFlight) {
+			// `refresh()` during an ordinary poll must not be lost. The caller
+			// asked because something changed after the request left, so the
+			// answer on the wire can be stale by the time it lands.
+			refreshQueued = true;
+			return;
+		}
 		const ids = trackedIds();
 		if (ids.length === 0) {
 			armedAt = null;
@@ -204,6 +246,10 @@ export function createExtractionPoller(
 		inFlight = true;
 		try {
 			const jobs: DocumentExtractionJobDTO[] = [];
+			// Content verdicts are collected across chunks exactly like the jobs:
+			// a poll past the batch cap asked several requests, and the readiness
+			// from an earlier one is as much part of the answer as its jobs.
+			const readiness: AttachmentReadinessSnapshot[] = [];
 			// Ids from chunks that actually came back. A chunk that throws leaves
 			// its own ids unknown; marking them unresolved on the strength of a
 			// failed request would retire them permanently over one 500.
@@ -213,9 +259,10 @@ export function createExtractionPoller(
 
 			for (const batch of chunk(ids, EXTRACTION_POLL_BATCH_SIZE)) {
 				try {
-					const fetched = await fetchJobs(batch);
+					const fetched = await fetchStatus(batch);
 					for (const id of batch) asked.add(id);
-					jobs.push(...fetched);
+					jobs.push(...fetched.jobs);
+					readiness.push(...fetched.readiness);
 				} catch (error) {
 					// Keep what the earlier chunks already answered. Throwing the
 					// whole poll away meant a Knowledge page past fifty documents
@@ -241,7 +288,7 @@ export function createExtractionPoller(
 			for (const id of asked) {
 				if (!answered.has(id)) unresolved.add(id);
 			}
-			if (jobs.length > 0) options.onJobs(jobs);
+			if (jobs.length > 0) options.onJobs(jobs, readiness);
 
 			// Reported only after the partial answer has been delivered, so the
 			// failure is still handled exactly as before.
@@ -262,7 +309,16 @@ export function createExtractionPoller(
 			}
 		} finally {
 			inFlight = false;
-			if (!stopped) schedule();
+			if (stopped) {
+				refreshQueued = false;
+			} else if (refreshQueued) {
+				// Run the one follow-up now; its own finally takes over
+				// scheduling (or disarming) as usual.
+				refreshQueued = false;
+				void poll();
+			} else {
+				schedule();
+			}
 		}
 	}
 

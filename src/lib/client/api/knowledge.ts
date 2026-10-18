@@ -17,7 +17,12 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
-import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
+import { isAttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatusResponse,
+} from "$lib/shared/extraction-status";
 import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import { setDisabledFileTypeIds } from "$lib/stores/upload-format-gate";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
@@ -683,6 +688,13 @@ async function uploadChunkedKnowledgeAttachment(
 /**
  * Ask about the extraction state of any number of documents.
  *
+ * The endpoint answers two things at once. `jobs` is the lifecycle truth;
+ * `readiness` is the content verdict for the terminal successes among them, so
+ * a job that finished with unusable text arrives as a success WITH a verdict
+ * instead of a success the composer has to read as usable. A readiness row
+ * this build cannot parse is dropped: the jobs are the reason the poll exists,
+ * and one unreadable verdict must not cost the caller the lifecycle half.
+ *
  * The endpoint omits ids it cannot resolve for THIS user rather than answering
  * for them, so the returned array is not guaranteed to be as long as the one
  * asked about — callers key the result by `sourceArtifactId` instead of by
@@ -693,18 +705,20 @@ async function uploadChunkedKnowledgeAttachment(
  * The cap is enforced HERE, not only in the poller: this is the shared client
  * for the endpoint, and any other caller handing it a long list would
  * otherwise get a 400 that looks like the endpoint being broken. A list longer
- * than the cap becomes several requests, never a refusal.
+ * than the cap becomes several requests, never a refusal, and both halves are
+ * merged across those requests.
  */
-export async function fetchExtractionJobs(
+export async function fetchExtractionStatus(
 	artifactIds: string[],
 	fetchImpl: FetchLike = fetch,
-): Promise<DocumentExtractionJobDTO[]> {
+): Promise<DocumentExtractionStatusResponse> {
 	const ids = Array.from(
 		new Set(artifactIds.map((id) => id.trim()).filter(Boolean)),
 	);
-	if (ids.length === 0) return [];
+	if (ids.length === 0) return { jobs: [], readiness: [] };
 
 	const jobs: DocumentExtractionJobDTO[] = [];
+	const readiness: AttachmentReadinessSnapshot[] = [];
 	for (
 		let start = 0;
 		start < ids.length;
@@ -712,15 +726,35 @@ export async function fetchExtractionJobs(
 	) {
 		const batch = ids.slice(start, start + EXTRACTION_STATUS_BATCH_LIMIT);
 		const query = batch.map((id) => encodeURIComponent(id)).join(",");
-		const payload = await requestJson<{ jobs?: DocumentExtractionJobDTO[] }>(
+		const payload = await requestJson<{
+			jobs?: DocumentExtractionJobDTO[];
+			readiness?: unknown;
+		}>(
 			`/api/knowledge/extraction?artifactIds=${query}`,
 			undefined,
 			"Failed to check document processing status.",
 			fetchImpl,
 		);
 		jobs.push(..._unwrapList<DocumentExtractionJobDTO>(payload, "jobs"));
+		readiness.push(
+			..._unwrapList<unknown>(payload, "readiness").filter(
+				isAttachmentReadinessSnapshot,
+			),
+		);
 	}
-	return jobs;
+	return { jobs, readiness };
+}
+
+/**
+ * The lifecycle half of the status response, for callers that render job state
+ * only. Kept as the compatibility surface: a caller that never learned about
+ * readiness keeps receiving exactly the array it did before.
+ */
+export async function fetchExtractionJobs(
+	artifactIds: string[],
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO[]> {
+	return (await fetchExtractionStatus(artifactIds, fetchImpl)).jobs;
 }
 
 /**

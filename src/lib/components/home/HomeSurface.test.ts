@@ -34,6 +34,9 @@ const fetchKnowledgeLibraryMock = vi.hoisted(() =>
 	vi.fn(async () => ({ documents: [], results: [], workflows: [] })),
 );
 const fetchExtractionJobsMock = vi.hoisted(() => vi.fn(async () => []));
+const fetchExtractionStatusMock = vi.hoisted(() =>
+	vi.fn(async () => ({ jobs: [], readiness: [] })),
+);
 const discoverSkillsMock = vi.hoisted(() => vi.fn(async () => []));
 const fetchActiveCapabilitiesMock = vi.hoisted(() =>
 	vi.fn(async () => ({ served: [], defaultOn: [], accounts: [] })),
@@ -53,6 +56,7 @@ vi.mock("$lib/client/api/knowledge", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/client/api/knowledge")>()),
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
 	fetchExtractionJobs: fetchExtractionJobsMock,
+	fetchExtractionStatus: fetchExtractionStatusMock,
 }));
 vi.mock("$lib/client/api/skills", () => ({
 	discoverSkills: discoverSkillsMock,

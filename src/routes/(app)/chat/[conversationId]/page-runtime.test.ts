@@ -294,6 +294,9 @@ vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
 vi.mock("$lib/client/api/knowledge", () => ({
 	recordDocumentWorkspaceOpen: vi.fn(),
 	uploadKnowledgeAttachment: vi.fn(),
+	// The real page mounts the composer, whose poller defaults to the status
+	// call. Empty status keeps a mounted composer from reaching a real fetch.
+	fetchExtractionStatus: vi.fn(async () => ({ jobs: [], readiness: [] })),
 }));
 
 vi.mock("$lib/client/api/skills", () => ({

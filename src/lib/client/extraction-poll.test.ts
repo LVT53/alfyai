@@ -1,11 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatusResponse,
+} from "$lib/shared/extraction-status";
 import {
 	createExtractionPoller,
 	EXTRACTION_POLL_BATCH_SIZE,
 	extractionFromUploadResponse,
 	readExtractionJobDTO,
 } from "./extraction-poll";
+
+function readiness(
+	overrides: Partial<AttachmentReadinessSnapshot> & { artifactId: string },
+): AttachmentReadinessSnapshot {
+	return {
+		promptReady: false,
+		promptArtifactId: null,
+		readinessError:
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+		readinessErrorCode: "no_usable_text",
+		...overrides,
+	};
+}
 
 function job(
 	overrides: Partial<DocumentExtractionJobDTO> & { sourceArtifactId: string },
@@ -165,8 +182,57 @@ describe("createExtractionPoller", () => {
 		void poller.refresh();
 		void poller.refresh();
 		await vi.advanceTimersByTimeAsync(4000);
+		// The queued follow-up (see the test below) runs after the first
+		// request settles; it must not overlap it either.
+		await vi.advanceTimersByTimeAsync(4000);
 
 		expect(peak).toBe(1);
+		poller.stop();
+	});
+
+	// A refresh asked for while a request is already on the wire used to be
+	// dropped silently. On the composer that can lose the one-shot readiness
+	// read to a scheduled poll that left a moment earlier: the answer in
+	// flight predates the terminal job the caller just learned about. Exactly
+	// one follow-up, never a pile, and never two requests at once.
+	it("runs one queued refresh after an in-flight poll settles", async () => {
+		let releaseFirst: () => void = () => {};
+		const fetchStatus = vi.fn(async () => {
+			if (fetchStatus.mock.calls.length === 1) {
+				await new Promise<void>((resolve) => {
+					releaseFirst = resolve;
+				});
+			}
+			return {
+				jobs: [job({ sourceArtifactId: "a", status: "succeeded" })],
+				readiness: [],
+			};
+		});
+		const onJobs = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ["a"],
+			onJobs,
+			fetchStatus,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(fetchStatus).toHaveBeenCalledTimes(1);
+
+		// Two callers inside the same window want the same newer state.
+		void poller.refresh();
+		void poller.refresh();
+		expect(fetchStatus).toHaveBeenCalledTimes(1);
+
+		releaseFirst();
+		await vi.advanceTimersByTimeAsync(0);
+		await Promise.resolve();
+		expect(fetchStatus).toHaveBeenCalledTimes(2);
+		expect(onJobs).toHaveBeenCalledTimes(2);
+		// Both polls saw a terminal row; readiness never becomes a reason to
+		// keep the poller armed.
+		expect(poller.active).toBe(false);
+
 		poller.stop();
 	});
 
@@ -393,6 +459,95 @@ describe("createExtractionPoller", () => {
 		await vi.advanceTimersByTimeAsync(20_000);
 		expect(fetchJobs).toHaveBeenCalledTimes(1);
 		removeSpy.mockRestore();
+	});
+
+	// The status endpoint carries the content verdict beside the lifecycle row.
+	// A terminal success must never be delivered without it, or the composer
+	// has no way to tell a usable document from an unusable one.
+	it("delivers the readiness verdicts with the jobs they came with", async () => {
+		const snapshot = readiness({ artifactId: "a" });
+		const fetchStatus = vi.fn(async () => ({
+			jobs: [job({ sourceArtifactId: "a", status: "succeeded" })],
+			readiness: [snapshot],
+		}));
+		const onJobs = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ["a"],
+			onJobs,
+			fetchStatus,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(fetchStatus).toHaveBeenCalledTimes(1);
+		expect(onJobs).toHaveBeenCalledTimes(1);
+		expect(onJobs.mock.calls[0]?.[1]).toEqual([snapshot]);
+		// Readiness is a verdict on a finished job, never a reason to keep
+		// polling: the job is terminal, so the poller disarms as it always did.
+		expect(poller.active).toBe(false);
+
+		poller.stop();
+	});
+
+	it("merges the readiness it got from every chunk", async () => {
+		const ids = Array.from(
+			{ length: EXTRACTION_POLL_BATCH_SIZE + 1 },
+			(_, index) => `artifact-${index}`,
+		);
+		const fetchStatus = vi.fn(
+			async (batch: string[]): Promise<DocumentExtractionStatusResponse> => {
+				const first = batch[0] as string;
+				return {
+					jobs: [job({ sourceArtifactId: first, status: "succeeded" })],
+					readiness: [readiness({ artifactId: first })],
+				};
+			},
+		);
+		const onJobs = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ids,
+			onJobs,
+			fetchStatus,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(fetchStatus).toHaveBeenCalledTimes(2);
+		expect(onJobs).toHaveBeenCalledTimes(1);
+		expect(onJobs.mock.calls[0]?.[1]).toHaveLength(2);
+		expect(
+			(onJobs.mock.calls[0]?.[1] as AttachmentReadinessSnapshot[]).map(
+				(snapshot) => snapshot.artifactId,
+			),
+		).toEqual(["artifact-0", "artifact-50"]);
+
+		poller.stop();
+	});
+
+	// The pre-status seam: a caller that still injects only jobs keeps
+	// working, and says truthfully that it has no content verdict.
+	it("wraps the legacy fetchJobs seam with an empty readiness list", async () => {
+		const fetchJobs = vi.fn(async () => [
+			job({ sourceArtifactId: "a", status: "succeeded" }),
+		]);
+		const onJobs = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ["a"],
+			onJobs,
+			fetchJobs,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(fetchJobs).toHaveBeenCalledTimes(1);
+		expect(onJobs).toHaveBeenCalledTimes(1);
+		expect(onJobs.mock.calls[0]?.[0]).toHaveLength(1);
+		expect(onJobs.mock.calls[0]?.[1]).toEqual([]);
+
+		poller.stop();
 	});
 
 	it("adopts a DTO it did not fetch, so a settled job never arms it", async () => {

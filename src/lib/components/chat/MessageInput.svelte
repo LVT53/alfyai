@@ -116,7 +116,10 @@ import {
 	type ComposerTooltip,
 	thinkingTooltip,
 } from "./composer-bar";
-import { attachmentReadinessReasonKey } from "$lib/shared/attachment-readiness";
+import {
+	attachmentReadinessReasonKey,
+	type AttachmentReadinessSnapshot,
+} from "$lib/shared/attachment-readiness";
 import ComposerChip from "./ComposerChip.svelte";
 import ComposerChipFailureDetails from "./ComposerChipFailureDetails.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
@@ -1297,6 +1300,11 @@ $effect(() => {
 		}
 
 		pendingAttachments = Array.from(merged.values());
+		// A restored draft can carry a terminal success whose content verdict
+		// never travelled with it. The poller will not ask again for a finished
+		// job, so this is the moment to fetch that verdict once. Untracked: the
+		// draft effect must not start depending on the poller's state.
+		untrack(() => refreshStaleReadiness());
 		selectedLinkedSources = composerCommandRegistryEnabled
 			? draftLinkedSources.map((source) => ({
 					...source,
@@ -1407,6 +1415,9 @@ $effect(() => {
 		message = "";
 		pendingAttachments = [];
 		extractionJobs = {};
+		// The next conversation gets a fresh one-shot guard: an artifact the
+		// caller re-adds later must be allowed to ask for its verdict again.
+		readinessRefreshRequested.clear();
 		optimisticUploads = [];
 		selectedLinkedSources = [];
 		pendingSkill = null;
@@ -1761,6 +1772,9 @@ function clearComposerAfterSubmit() {
 	message = "";
 	pendingAttachments = [];
 	extractionJobs = {};
+	// A sent attachment's guard is consumed; re-attaching the same artifact (a
+	// duplicate byte-identical upload reuses its id) must ask again.
+	readinessRefreshRequested.clear();
 	selectedLinkedSources = [];
 	pendingSkill = null;
 	pendingQuotes = [];
@@ -1907,17 +1921,22 @@ onMount(() => {
 	extractionPoller = createExtractionPoller({
 		getArtifactIds: () =>
 			pendingAttachments.map((attachment) => attachment.artifact.id),
-		onJobs: (jobs) => {
+		onJobs: (jobs, readiness) => {
 			const next = { ...extractionJobs };
 			for (const job of jobs) {
 				if (job.sourceArtifactId) next[job.sourceArtifactId] = job;
 			}
 			extractionJobs = next;
+			applyAttachmentReadiness(readiness);
 		},
 		// A poll that fails is retried on the next tick; telling the user their
 		// network hiccuped under a chip that is still correct would be noise.
 		onError: () => undefined,
 	});
+	// A draft restored on the first render may already hold a terminal success
+	// whose content verdict only the status endpoint can supply. The draft
+	// effect ran before this poller existed, so ask now that it does.
+	refreshStaleReadiness();
 	void ensureCapabilitiesLoaded();
 	void fetchAvailableModels()
 		.then((response) => {
@@ -3066,6 +3085,92 @@ function forgetExtractionJob(artifactId: string) {
 	extractionJobs = rest;
 }
 
+/**
+ * Adopt the content verdicts the status endpoint returned beside the jobs.
+ *
+ * Keyed on the display artifact id the poll asked about, exactly like the
+ * upload response seeded `promptReady`/`readinessError`. This is what turns a
+ * terminal `succeeded` job with unusable text into the failure the chip and
+ * the send gate already know how to draw — and what restores the X and Send
+ * when the verdict is ready. The verdict is part of the attachment the draft
+ * persists, so a reload is not sent back to the upload-time sentence.
+ */
+function applyAttachmentReadiness(snapshots: AttachmentReadinessSnapshot[]) {
+	if (snapshots.length === 0) return;
+	const byArtifactId = new Map(
+		snapshots.map((snapshot) => [snapshot.artifactId, snapshot]),
+	);
+	let changed = false;
+	pendingAttachments = pendingAttachments.map((attachment) => {
+		const snapshot = byArtifactId.get(attachment.artifact.id);
+		if (!snapshot) return attachment;
+		// An answer is what the one-shot refresh was waiting for, whether or
+		// not it changed anything.
+		readinessRefreshRequested.delete(attachment.artifact.id);
+		if (
+			attachment.promptReady === snapshot.promptReady &&
+			(attachment.promptArtifactId ?? null) === snapshot.promptArtifactId &&
+			(attachment.readinessError ?? null) === snapshot.readinessError &&
+			(attachment.readinessErrorCode ?? null) === snapshot.readinessErrorCode
+		) {
+			return attachment;
+		}
+		changed = true;
+		return {
+			...attachment,
+			promptReady: snapshot.promptReady,
+			promptArtifactId: snapshot.promptArtifactId,
+			readinessError: snapshot.readinessError,
+			readinessErrorCode: snapshot.readinessErrorCode,
+		};
+	});
+	if (changed) {
+		draftEmissionVersion += 1;
+		void emitDraftChange();
+	}
+}
+
+// Artifacts already asked for the one readiness read the poller cannot make on
+// its own. A terminal `succeeded` job disarms the poller, so an upload response
+// (or a restored draft) carrying that job is the only place its content
+// verdict has not arrived yet. One refresh per artifact closes the gap; the
+// set is what keeps a best-effort readiness read from becoming a retry loop.
+const readinessRefreshRequested = new Set<string>();
+
+/**
+ * Ask once for the verdict the poller cannot see.
+ *
+ * A `succeeded` ledger row says the read finished, not that what it produced
+ * is usable. The upload route mints its `still_preparing` sentence before the
+ * job runs and (now) re-resolves readiness after a terminal verdict, so this
+ * is mainly the mixed-version/deploy-window defense: an upload response from
+ * an older route — or one that answered before the readiness write landed —
+ * can still carry that pre-job sentence, or no code at all, beside a terminal
+ * success. The status endpoint supplies the real verdict, and the poller will
+ * never ask again for a terminal job, so the composer asks here: after the
+ * upload response, a restored draft, or the poller exists in `onMount`.
+ *
+ * Deliberately not an effect: it must not retry on every render. The set
+ * above, cleared when a verdict arrives, on a reset, and when the composer is
+ * sent, is the one-shot guard.
+ */
+function refreshStaleReadiness(): void {
+	const poller = extractionPoller;
+	if (!poller) return;
+	let requested = false;
+	for (const attachment of pendingAttachments) {
+		const job = extractionJobs[attachment.artifact.id];
+		if (!job || job.status !== "succeeded") continue;
+		if (attachment.promptReady) continue;
+		const code = attachment.readinessErrorCode ?? null;
+		if (code !== null && code !== "still_preparing") continue;
+		if (readinessRefreshRequested.has(attachment.artifact.id)) continue;
+		readinessRefreshRequested.add(attachment.artifact.id);
+		requested = true;
+	}
+	if (requested) void poller.refresh();
+}
+
 function addUploadedAttachment(
 	result:
 		| { success: true; attachment: PendingAttachment }
@@ -3083,6 +3188,9 @@ function addUploadedAttachment(
 		applyExtractionJob(readExtractionJobDTO(result.attachment.extraction));
 		retireOptimisticUpload(result.attachment.artifact.name);
 		extractionPoller?.sync();
+		// The upload response can already carry a terminal success while the
+		// content verdict lives only on the status endpoint.
+		refreshStaleReadiness();
 		draftEmissionVersion += 1;
 		void emitDraftChange();
 	} else {
@@ -3106,6 +3214,7 @@ function removePendingAttachment(id: string) {
 		(attachment) => attachment.artifact.id !== id,
 	);
 	forgetExtractionJob(id);
+	readinessRefreshRequested.delete(id);
 	extractionPoller?.sync();
 	if (pendingAttachments.length === 0) {
 		queuedSendAfterProcessing = false;
