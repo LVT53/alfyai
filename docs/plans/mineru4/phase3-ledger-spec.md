@@ -774,7 +774,7 @@ export async function startGeneratedFileReadback(params: {
 
 | Method + path | Request | 200 response | Errors |
 | --- | --- | --- | --- |
-| `GET /api/knowledge/extraction?artifactIds=a,b,c` | ≤50 ids, comma separated | `{ jobs: DocumentExtractionJobDTO[] }` — one entry per **resolvable, owned** id; unknown ids are omitted | 400 `too_many_artifact_ids`, 401 |
+| `GET /api/knowledge/extraction?artifactIds=a,b,c` | ≤50 ids, comma separated | `{ jobs: DocumentExtractionJobDTO[], readiness: AttachmentReadinessSnapshot[] }` — one job per **resolvable, owned** id; unknown ids are omitted. Readiness has one snapshot per terminal-`succeeded` job and is empty otherwise. | 400 `too_many_artifact_ids`, 401 |
 | `POST /api/knowledge/extraction/[artifactId]/retry` | — | `{ job: DocumentExtractionJobDTO }` | 404 `extraction_job_not_found` (unknown/unowned/not retryable), 401 |
 | `POST /api/knowledge/extraction/[artifactId]/cancel` | — | `{ job: DocumentExtractionJobDTO }` | 404 `extraction_job_not_cancelable`, 401 |
 
@@ -782,6 +782,12 @@ Keyed on **artifactId, not jobId**, so a legacy artifact with a synthetic id can
 client knowing whether a row exists. `retry` on a legacy synthetic first calls
 `materializeLegacyExtractionJob`, then `retryExtractionJob`; it then calls `wakeExtractionWorker()`
 (copy of `chat/files/jobs/[id]/retry/+server.ts:28`).
+
+`readiness` is the content verdict, not a second lifecycle: a `succeeded` job can still have produced
+text too thin to send (`no_usable_text`) or no normalized document at all (`not_prepared`), and the
+snapshot says so with `promptReady: false` and a code the client translates. The readiness read is
+best-effort; if it fails the route still answers the jobs with `readiness: []`. The client calls
+`fetchExtractionStatus` for both halves and keeps `fetchExtractionJobs` as the jobs-only wrapper.
 
 ### 2.11 Upload response
 

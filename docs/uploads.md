@@ -242,6 +242,45 @@ originally uploaded bytes and the normalized readable text. Half-written uploads
 are excluded for the same reason — they are not the user's data yet. Both exclusions are named and
 tested in `src/lib/server/services/account-data-archive/index.ts`.
 
+### Polling extraction status and readiness
+
+Surfaces that show a document's processing state poll
+`GET /api/knowledge/extraction?artifactIds=…` (comma-separated, at most 50 ids per request). The
+response has two halves:
+
+- **`jobs`** — `DocumentExtractionJobDTO[]`, one per resolvable, owned id, in the order asked.
+  Unknown and unowned ids stay omitted.
+- **`readiness`** — `AttachmentReadinessSnapshot[]`, one per returned job whose status is terminal
+  `succeeded`. It is empty for queued, active, failed and canceled jobs, and the readiness read is
+  skipped entirely when no returned job succeeded.
+
+A readiness snapshot is:
+
+```json
+{
+  "artifactId": "…",
+  "promptReady": false,
+  "promptArtifactId": null,
+  "readinessError": "This file was uploaded, but no usable readable text could be prepared for chat from it.",
+  "readinessErrorCode": "no_usable_text"
+}
+```
+
+`promptReady: true` carries the normalized document id a chat turn would attach and no error.
+`no_usable_text` means extraction produced a normalized document whose text is too thin to use;
+`not_prepared` means it produced none. The split matters because a `succeeded` job only says the read
+finished; without the verdict a success with unusable text would look ready until the send gate
+refused the turn. The readiness read is best-effort: if it fails, the route logs and still returns
+the jobs with `readiness: []`, so lifecycle polling never stops for a content-read problem.
+
+On the client, `fetchExtractionStatus` in
+[`src/lib/client/api/knowledge.ts`](../src/lib/client/api/knowledge.ts) carries both halves;
+`fetchExtractionJobs` remains the jobs-only compatibility wrapper. The shared
+[`createExtractionPoller`](../src/lib/client/extraction-poll.ts) passes the verdicts beside the jobs,
+and the composer merges them into the attachment. When an upload response or restored draft already
+contains a terminal success without a content verdict, the composer asks the status endpoint once for
+the missing verdict.
+
 Knowledge upload intake is a dedicated boundary
 ([ADR 0024](adr/0024-knowledge-upload-intake-boundary.md)).
 
