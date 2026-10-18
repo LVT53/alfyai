@@ -1,5 +1,17 @@
 // The batch status endpoint every client surface polls.
 //
+// The response is a two-part contract:
+//
+//   { jobs: DocumentExtractionJobDTO[], readiness: AttachmentReadinessSnapshot[] }
+//
+// `jobs` is the lifecycle truth — what happened to each document, in the order
+// the caller asked, with unknown and unowned ids omitted. `readiness` is the
+// content verdict for terminal success only: one snapshot per returned
+// `succeeded` job, so a job that finished with unusable text arrives as a
+// success WITH `promptReady: false` rather than a silent success the client
+// cannot see. Queued, active, failed and canceled jobs carry no readiness row,
+// and when no returned job succeeded the readiness read does not happen at all.
+//
 // Keyed on artifact ids rather than job ids on purpose: the composer, the
 // landing page and the Knowledge list all know which DOCUMENTS they are
 // showing, and a pre-ledger document has no job id at all (the read model
@@ -15,6 +27,8 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getExtractionJobsForArtifacts } from "$lib/server/services/extraction";
+import { readAttachmentReadinessSnapshots } from "$lib/server/services/knowledge/readiness";
+import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import type { RequestHandler } from "./$types";
 
@@ -65,7 +79,7 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	if (artifactIds.length === 0) {
-		return json({ jobs: [] });
+		return json({ jobs: [], readiness: [] });
 	}
 
 	const jobs = await getExtractionJobsForArtifacts({
@@ -73,5 +87,29 @@ export const GET: RequestHandler = async (event) => {
 		artifactIds,
 	});
 
-	return json({ jobs });
+	// Content verdicts are owed only for terminal success, and only when the
+	// job names a source artifact to ask about. Anything else is answered with
+	// no extra read — a poll for queued work must stay as cheap as it was.
+	const succeededArtifactIds = jobs.flatMap((job) =>
+		job.status === "succeeded" && job.sourceArtifactId
+			? [job.sourceArtifactId]
+			: [],
+	);
+
+	let readiness: AttachmentReadinessSnapshot[] = [];
+	if (succeededArtifactIds.length > 0) {
+		try {
+			readiness = await readAttachmentReadinessSnapshots(
+				user.id,
+				succeededArtifactIds,
+			);
+		} catch (error) {
+			// The readiness read is a content verdict, not the job lifecycle. A
+			// failure here must not take job polling down with it and strand the
+			// chip: answer the jobs, with no verdict.
+			console.warn("[EXTRACTION] Readiness lookup failed", { error });
+		}
+	}
+
+	return json({ jobs, readiness });
 };

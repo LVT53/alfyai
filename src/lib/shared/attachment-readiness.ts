@@ -50,6 +50,54 @@ export function isAttachmentReadinessReason(
 }
 
 /**
+ * One attachment's content verdict, as the extraction status endpoint carries
+ * it beside the job.
+ *
+ * The job DTO says what the LIFECYCLE did; this says what the finished work is
+ * worth. A terminal `succeeded` job whose normalized text is thin is the case
+ * this exists for: `promptReady: false` with `no_usable_text`, rather than a
+ * success the client never learns was unusable.
+ *
+ * `promptArtifactId` is the artifact a chat turn would actually attach — the
+ * normalized document — and is null whenever `promptReady` is false.
+ */
+export interface AttachmentReadinessSnapshot {
+	artifactId: string;
+	promptReady: boolean;
+	promptArtifactId: string | null;
+	readinessError: string | null;
+	readinessErrorCode: AttachmentReadinessReason | null;
+}
+
+/**
+ * Structural validation for one readiness snapshot off the wire.
+ *
+ * The status endpoint is the one place these arrive from, and a malformed row
+ * must not cost the caller the jobs beside it: the jobs are the lifecycle
+ * truth, and a readiness row this build cannot read is dropped rather than
+ * turned into an exception. An unrecognised `readinessErrorCode` is malformed
+ * for this client — the chip renders that vocabulary, so it could not say
+ * anything useful about it anyway.
+ */
+export function isAttachmentReadinessSnapshot(
+	value: unknown,
+): value is AttachmentReadinessSnapshot {
+	if (typeof value !== "object" || value === null) return false;
+	const snapshot = value as Record<string, unknown>;
+	return (
+		typeof snapshot.artifactId === "string" &&
+		snapshot.artifactId.length > 0 &&
+		typeof snapshot.promptReady === "boolean" &&
+		(snapshot.promptArtifactId === null ||
+			typeof snapshot.promptArtifactId === "string") &&
+		(snapshot.readinessError === null ||
+			typeof snapshot.readinessError === "string") &&
+		(snapshot.readinessErrorCode === null ||
+			isAttachmentReadinessReason(snapshot.readinessErrorCode))
+	);
+}
+
+/**
  * One refused attachment, as the send gate's 422 carries it.
  *
  * The sibling of `AttachmentExtractionStatusItem`: that one describes a

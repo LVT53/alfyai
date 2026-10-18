@@ -64,15 +64,16 @@ export function getProducibleFormatList(locale: ModelFacingLocale): string {
 }
 
 /**
- * The format list inside `attachments.ts`'s readiness error, WITHOUT the
- * trailing full stop — the caller owns the sentence:
+ * The format list inside the readiness error, WITHOUT the trailing full stop —
+ * the caller owns the sentence:
  *
  *   `This file could not be prepared for chat. Supported extraction currently
  *    works best for ${getSupportedExtractionSummary("en")}.`
  *
  * NOT model-facing despite this module's name: no prompt and no tool
- * description consumes it (the only importer is
- * `knowledge/store/attachments.ts`), so changing it evicts no cached prompt
+ * description consumes it — the readiness authority
+ * (`knowledge/readiness.ts`) owns the sentence, and `store/attachments.ts`
+ * consumes that module's re-export — so changing it evicts no cached prompt
  * prefix. It lives here because it is registry-derived prose with a Hungarian
  * twin, which is what this module is for.
  */

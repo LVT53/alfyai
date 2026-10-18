@@ -12,6 +12,10 @@
 // a well-meaning cleanup cannot silently rename one status string into the
 // other and break a stored row's meaning.
 
+// Type-only: the readiness snapshot is the content verdict carried beside a
+// job, and both vocabularies are shared by the same three surfaces.
+import type { AttachmentReadinessSnapshot } from "./attachment-readiness";
+
 export const DOCUMENT_EXTRACTION_STATUSES = [
 	"queued",
 	"uploading",
@@ -263,6 +267,22 @@ export interface DocumentExtractionJobDTO {
 	nextAttemptAt?: number | null;
 	/** true when the row is synthesised from a pre-ledger artifact. */
 	legacy: boolean;
+}
+
+/**
+ * The batch poll's response: the lifecycle truth and the content verdict,
+ * together.
+ *
+ * `jobs` stays the authority for what happened to each document, in the order
+ * the caller asked. `readiness` carries one snapshot per returned job whose
+ * status is terminal `succeeded` — no rows for queued, active, failed or
+ * canceled jobs, and no readiness read at all when nothing succeeded. A
+ * succeeded job whose text is unusable therefore arrives as a success WITH a
+ * verdict, never as a silent one.
+ */
+export interface DocumentExtractionStatusResponse {
+	jobs: DocumentExtractionJobDTO[];
+	readiness: AttachmentReadinessSnapshot[];
 }
 
 /**

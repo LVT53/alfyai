@@ -24,9 +24,7 @@ import type {
 	DocumentExtractionJobDTO,
 } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
-import { getSupportedExtractionSummary } from "$lib/shared/file-types/model-facing";
 import {
-	hasMeaningfulAttachmentText,
 	logAttachmentTrace,
 	summarizeAttachmentTraceText,
 } from "../../attachment-trace";
@@ -36,6 +34,15 @@ import {
 	readStoredPageCountKind,
 	readStoredTokenEstimate,
 } from "../outline";
+import {
+	EXTRACTION_RETRYABLE_READINESS_ERROR,
+	evaluatePromptArtifactReadiness,
+	extractionReadinessError,
+	NOT_AVAILABLE_READINESS_ERROR,
+	NOT_PREPARED_READINESS_ERROR,
+	NOT_TEXT_READABLE_READINESS_ERROR,
+	STILL_PREPARING_READINESS_ERROR,
+} from "../readiness";
 import {
 	createArtifact,
 	createArtifactLink,
@@ -48,34 +55,14 @@ import {
 	withAttachmentDisplayName,
 } from "./core";
 
-/**
- * Readiness error shown when an uploaded file produced no normalized artifact.
- *
- * Spec row 41: the format list is derived from the registry so it can never
- * advertise a format the upload endpoint refuses. The sentence around it stays
- * here — `getSupportedExtractionSummary` deliberately returns the list WITHOUT
- * a trailing full stop, so the caller owns the punctuation.
- *
- * This string is a RUNTIME error message; it is not part of any prompt, so it
- * does not sit in the model's cached prompt prefix. It still renders
- * byte-identically to the literal this replaced — asserted in
- * `attachments.test.ts` and `model-facing.test.ts`.
- */
-export const NOT_PREPARED_READINESS_ERROR = `This file could not be prepared for chat. Supported extraction currently works best for ${getSupportedExtractionSummary(
-	"en",
-)}.`;
-
-/**
- * Phase 3: extraction runs in the background, so "no normalized artifact yet"
- * is the NORMAL state of a freshly uploaded PDF rather than a verdict on it.
- * These two sentences are what keeps the send gate from calling a document
- * broken one second after the upload that will finish preparing it.
- */
-export const STILL_PREPARING_READINESS_ERROR =
-	"This file is still being prepared for chat. Wait a moment and send it again.";
-
-export const EXTRACTION_RETRYABLE_READINESS_ERROR =
-	"This file could not be prepared for chat. Try the Retry action on it, then send again.";
+// The readiness sentences moved to the one readiness authority
+// (`knowledge/readiness.ts`), which the extraction-status route also uses.
+// Re-exported so this module's existing importers keep working.
+export {
+	EXTRACTION_RETRYABLE_READINESS_ERROR,
+	NOT_PREPARED_READINESS_ERROR,
+	STILL_PREPARING_READINESS_ERROR,
+};
 
 type PromptArtifactDiagnostics = {
 	contentLength: number;
@@ -285,25 +272,36 @@ async function buildPromptAttachmentResolutionItem(params: {
 	requestedArtifactId: string;
 	displayArtifact: Artifact;
 	promptArtifact: Artifact | null;
-	readinessError: string;
-	readinessErrorCode: AttachmentReadinessReason;
+	/**
+	 * The refusal to report instead of the evaluator's own when the artifact is
+	 * not prompt-ready. A non-source attachment keeps its `not_text_readable`
+	 * refusal when its own text is thin; when that text IS meaningful it is
+	 * ready (the display artifact is its own prompt artifact).
+	 */
+	notReadyOverride?: {
+		readinessError: string;
+		readinessErrorCode: AttachmentReadinessReason;
+	};
 }): Promise<PromptAttachmentResolutionItem> {
 	const diagnostics = await getPromptArtifactDiagnostics(
 		params.userId,
 		params.promptArtifact,
 	);
-	const promptReady =
-		Boolean(params.promptArtifact) &&
-		hasMeaningfulAttachmentText(params.promptArtifact?.contentText) &&
-		diagnostics.contentLength > 0;
+	const verdict = evaluatePromptArtifactReadiness(params.promptArtifact);
+	const notReady = params.notReadyOverride ?? {
+		readinessError: verdict.readinessError,
+		readinessErrorCode: verdict.readinessErrorCode,
+	};
 
 	return {
 		requestedArtifactId: params.requestedArtifactId,
 		displayArtifact: params.displayArtifact,
 		promptArtifact: params.promptArtifact,
-		promptReady,
-		readinessError: promptReady ? null : params.readinessError,
-		readinessErrorCode: promptReady ? null : params.readinessErrorCode,
+		promptReady: verdict.promptReady,
+		readinessError: verdict.promptReady ? null : notReady.readinessError,
+		readinessErrorCode: verdict.promptReady
+			? null
+			: notReady.readinessErrorCode,
 		contentLength: diagnostics.contentLength,
 		contentPreview: diagnostics.contentPreview,
 		contentHash: diagnostics.contentHash,
@@ -368,31 +366,6 @@ async function annotateWithExtractionStatus(
 	});
 }
 
-function extractionReadinessError(
-	job: DocumentExtractionJobDTO,
-	fallback: { message: string | null; code: AttachmentReadinessReason | null },
-): { message: string | null; code: AttachmentReadinessReason | null } {
-	if (!isTerminalExtractionStatus(job.status)) {
-		return {
-			message: STILL_PREPARING_READINESS_ERROR,
-			code: "still_preparing",
-		};
-	}
-	if (job.status === "failed") {
-		if (job.retryable) {
-			return {
-				message: EXTRACTION_RETRYABLE_READINESS_ERROR,
-				code: "extraction_retryable",
-			};
-		}
-		// A terminal, non-retryable failure carries an `ExtractionErrorCode` of
-		// its own on the ledger row the client already has. It renders THAT —
-		// one vocabulary, not two — so no readiness code is minted here.
-		if (job.error?.message) return { message: job.error.message, code: null };
-	}
-	return fallback;
-}
-
 export async function resolvePromptAttachmentArtifacts(
 	userId: string,
 	attachmentIds: string[],
@@ -409,7 +382,7 @@ export async function resolvePromptAttachmentArtifacts(
 			displayArtifact: null,
 			promptArtifact: null,
 			promptReady: false,
-			readinessError: "Attached file is no longer available.",
+			readinessError: NOT_AVAILABLE_READINESS_ERROR,
 			readinessErrorCode: "not_available" as const,
 			contentLength: 0,
 			contentPreview: null,
@@ -437,7 +410,7 @@ export async function resolvePromptAttachmentArtifacts(
 					displayArtifact: null,
 					promptArtifact: null,
 					promptReady: false,
-					readinessError: "Attached file is no longer available.",
+					readinessError: NOT_AVAILABLE_READINESS_ERROR,
 					readinessErrorCode: "not_available" as const,
 					contentLength: 0,
 					contentPreview: null,
@@ -456,9 +429,10 @@ export async function resolvePromptAttachmentArtifacts(
 						displayArtifact,
 						displayArtifact,
 					),
-					readinessError:
-						"This attachment does not contain enough readable text to use in chat. Remove it or upload a supported text-readable document.",
-					readinessErrorCode: "not_text_readable",
+					notReadyOverride: {
+						readinessError: NOT_TEXT_READABLE_READINESS_ERROR,
+						readinessErrorCode: "not_text_readable",
+					},
 				});
 			}
 
@@ -487,9 +461,6 @@ export async function resolvePromptAttachmentArtifacts(
 				requestedArtifactId: attachmentId,
 				displayArtifact,
 				promptArtifact: withAttachmentDisplayName(normalized, displayArtifact),
-				readinessError:
-					"This file was uploaded, but no usable readable text could be prepared for chat from it.",
-				readinessErrorCode: "no_usable_text",
 			});
 		}),
 	);

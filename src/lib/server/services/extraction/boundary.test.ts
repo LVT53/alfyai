@@ -8,7 +8,7 @@
 // claim (a dynamic `import()` in the definition), never statically. Same idea as
 // `file-production/obsolete-surfaces.test.ts`.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -40,6 +40,209 @@ const FORBIDDEN = [
 	"./extraction-runner",
 	"./intake",
 ];
+
+type StaticReference = {
+	specifier: string;
+	typeOnly: boolean;
+};
+
+type BoundaryViolation = {
+	importer: string;
+	specifier: string;
+	target: string;
+	forbidden: string;
+};
+
+/**
+ * What the poll path must never reach at RUNTIME.
+ *
+ * Roots are comparable project-relative paths: `store.ts`, `store/core.ts` and
+ * the `store/` directory all normalise to the same `knowledge/store` root, so a
+ * relative `./store` — which the old raw-substring check could never see — is
+ * caught.
+ */
+const FORBIDDEN_RUNTIME_ROOTS = [
+	{
+		forbidden: "the knowledge store",
+		root: "lib/server/services/knowledge/store",
+	},
+	{
+		forbidden: "the extraction extractors",
+		root: "lib/server/services/extraction/extractors",
+	},
+	{
+		forbidden: "the extraction runner",
+		root: "lib/server/services/extraction/extraction-runner",
+	},
+	{
+		forbidden: "the extraction intake",
+		root: "lib/server/services/extraction/intake",
+	},
+	{ forbidden: "the MinerU service", root: "lib/server/services/mineru" },
+] as const;
+
+/**
+ * Every static module reference in a source file: `import ... from`,
+ * `import "..."`, and value `export ... from` alike. Type-only references are
+ * flagged but never followed — TypeScript erases them, so they cannot pull a
+ * module into a bundle.
+ */
+function staticReferences(source: string): StaticReference[] {
+	const references: StaticReference[] = [];
+
+	for (const match of source.matchAll(
+		/^(import|export)(\s+type)?\s[^;]*?from\s+["']([^"']+)["']/gm,
+	)) {
+		references.push({
+			specifier: match[3],
+			typeOnly: Boolean(match[2]),
+		});
+	}
+
+	for (const match of source.matchAll(/^import\s+["']([^"']+)["']/gm)) {
+		references.push({ specifier: match[1], typeOnly: false });
+	}
+
+	return references;
+}
+
+function isAtOrUnder(target: string, root: string): boolean {
+	return target === root || target.startsWith(`${root}/`);
+}
+
+/**
+ * `store/core.ts`, `store/index.ts`, `store.ts` and a bare `store` all collapse
+ * to `.../store`, so directory imports and file imports answer the same root.
+ */
+function comparableTarget(target: string): string {
+	const withoutIndex = target.replace(/\/index\.(ts|js)$/, "");
+	return withoutIndex.replace(/\.(ts|js)$/, "");
+}
+
+/**
+ * Resolve a project-local specifier against the importing file's directory.
+ *
+ * `$lib` is the repository's one source alias (`$lib` -> `src/lib`). Anything
+ * else (a package, `$app/...`, `$env/...`) is external to this graph and
+ * returns null; `node:fs` is caught by the raw specifier before this runs.
+ */
+function resolveSpecifierTarget(
+	importer: string,
+	specifier: string,
+): string | null {
+	if (specifier.startsWith(".")) {
+		return path.posix.normalize(
+			path.posix.join(path.posix.dirname(importer), specifier),
+		);
+	}
+	if (specifier === "$lib") return "lib";
+	if (specifier.startsWith("$lib/")) {
+		return path.posix.normalize(`lib/${specifier.slice("$lib/".length)}`);
+	}
+	return null;
+}
+
+function resolveProjectFile(
+	target: string,
+	overrides: ReadonlyMap<string, string>,
+): string | null {
+	for (const candidate of [
+		target,
+		`${target}.ts`,
+		`${target}.js`,
+		`${target}/index.ts`,
+		`${target}/index.js`,
+	]) {
+		if (overrides.has(candidate)) return candidate;
+		const absolute = path.join(srcRoot, candidate);
+		if (existsSync(absolute) && statSync(absolute).isFile()) return candidate;
+	}
+	return null;
+}
+
+function detectBoundaryViolation(
+	importer: string,
+	reference: StaticReference,
+): BoundaryViolation | null {
+	if (reference.typeOnly) return null;
+
+	if (/^node:fs(\/|$)/.test(reference.specifier)) {
+		return {
+			importer,
+			specifier: reference.specifier,
+			target: reference.specifier,
+			forbidden: "node:fs",
+		};
+	}
+
+	const target = resolveSpecifierTarget(importer, reference.specifier);
+	if (target === null) return null;
+
+	const comparable = comparableTarget(target);
+	const hit = FORBIDDEN_RUNTIME_ROOTS.find((entry) =>
+		isAtOrUnder(comparable, entry.root),
+	);
+	return hit
+		? {
+				importer,
+				specifier: reference.specifier,
+				target,
+				forbidden: hit.forbidden,
+			}
+		: null;
+}
+
+/**
+ * Walk the static module graph from an entry file and collect every forbidden
+ * hop. Dynamic `import()` is deliberately not followed: the intake and the
+ * handler are lazy precisely so a poll never loads them.
+ *
+ * `overrides` lets a test provide a synthetic graph without a violating file
+ * existing on disk.
+ */
+function reachableBoundaryViolations(
+	entry: string,
+	overrides: ReadonlyMap<string, string> = new Map(),
+): BoundaryViolation[] {
+	const violations: BoundaryViolation[] = [];
+	const seen = new Set<string>();
+	const queue: string[] = [entry];
+
+	while (queue.length > 0) {
+		const importer = queue.shift();
+		if (importer === undefined || seen.has(importer)) continue;
+		seen.add(importer);
+
+		// Only runtime server modules are parsed. A `.svelte` component or a
+		// declaration file cannot be followed safely with a regex scanner.
+		if (!importer.endsWith(".ts") || importer.endsWith(".test.ts")) continue;
+
+		const rawSource =
+			overrides.get(importer) ??
+			readFileSync(path.join(srcRoot, importer), "utf8");
+		const source = stripComments(rawSource);
+
+		for (const reference of staticReferences(source)) {
+			const violation = detectBoundaryViolation(importer, reference);
+			if (violation) {
+				violations.push(violation);
+				continue;
+			}
+			if (reference.typeOnly) continue;
+
+			const target = resolveSpecifierTarget(importer, reference.specifier);
+			if (target === null) continue;
+			const file = resolveProjectFile(target, overrides);
+			if (file !== null && !seen.has(file)) queue.push(file);
+		}
+	}
+
+	return violations;
+}
+
+function describeBoundaryViolation(violation: BoundaryViolation): string {
+	return `${violation.importer} imports ${violation.specifier} (${violation.target}), reaching ${violation.forbidden}`;
+}
 
 describe("extraction module boundaries", () => {
 	it.each([
@@ -139,5 +342,112 @@ describe("extraction module boundaries", () => {
 	it("keeps the shared status vocabulary out of $lib/server", () => {
 		const shared = stripComments(read("lib/shared/extraction-status.ts"));
 		expect(shared).not.toMatch(/\$lib\/server/);
+	});
+});
+
+const RUNTIME_BOUNDARY_ENTRIES = [
+	"lib/server/services/knowledge/readiness.ts",
+	"routes/api/knowledge/extraction/+server.ts",
+] as const;
+
+describe("extraction poll runtime boundary", () => {
+	it.each(
+		RUNTIME_BOUNDARY_ENTRIES,
+	)("keeps %s off the parse bundle, transitively", (relative) => {
+		// `knowledge/readiness.ts` is on the poll route and the route is the
+		// poll. Either may read rows and evaluate text, but neither may reach
+		// the knowledge store (which reaches the parse bundle), an extractor,
+		// the runner, intake, MinerU, or `node:fs` — a poll that only asks
+		// whether a finished document's text is usable must not load a zip
+		// reader or a backend HTTP client.
+		const violations = reachableBoundaryViolations(relative);
+		expect(violations.map(describeBoundaryViolation)).toEqual([]);
+	});
+
+	it("resolves a relative ./store import the raw-substring check missed", () => {
+		const [reference] = staticReferences(
+			'import { getArtifactsForUser } from "./store/core";',
+		);
+		expect(reference).toBeDefined();
+		const violation = reference
+			? detectBoundaryViolation(
+					"lib/server/services/knowledge/readiness.ts",
+					reference,
+				)
+			: null;
+		expect(violation).toMatchObject({
+			target: "lib/server/services/knowledge/store/core",
+			forbidden: "the knowledge store",
+		});
+	});
+
+	it("scans value re-exports, not only import lines", () => {
+		const [reference] = staticReferences(
+			'export { startUploadExtraction } from "$lib/server/services/extraction/intake";',
+		);
+		expect(reference).toBeDefined();
+		const violation = reference
+			? detectBoundaryViolation(
+					"routes/api/knowledge/extraction/+server.ts",
+					reference,
+				)
+			: null;
+		expect(violation).toMatchObject({ forbidden: "the extraction intake" });
+	});
+
+	it("catches node:fs and its subpaths", () => {
+		const [reference] = staticReferences(
+			'import { readFile } from "node:fs/promises";',
+		);
+		expect(reference).toBeDefined();
+		const violation = reference
+			? detectBoundaryViolation(
+					"lib/server/services/knowledge/readiness.ts",
+					reference,
+				)
+			: null;
+		expect(violation).toMatchObject({ forbidden: "node:fs" });
+	});
+
+	it("catches a transitive hop, not only a direct import", () => {
+		const overrides = new Map([
+			[
+				"lib/server/services/knowledge/readiness.ts",
+				'import { logAttachmentTrace } from "../attachment-trace";',
+			],
+			[
+				"lib/server/services/attachment-trace.ts",
+				'import { mapArtifact } from "$lib/server/services/knowledge/store/core";',
+			],
+		]);
+
+		const violations = reachableBoundaryViolations(
+			"lib/server/services/knowledge/readiness.ts",
+			overrides,
+		);
+
+		expect(violations.map(describeBoundaryViolation)).toEqual([
+			"lib/server/services/attachment-trace.ts imports $lib/server/services/knowledge/store/core (lib/server/services/knowledge/store/core), reaching the knowledge store",
+		]);
+	});
+
+	it("does not follow type-only references", () => {
+		const [reference] = staticReferences(
+			'import type { Artifact } from "$lib/server/services/knowledge/store/core";',
+		);
+		expect(reference?.typeOnly).toBe(true);
+
+		const overrides = new Map([
+			[
+				"lib/server/services/knowledge/readiness.ts",
+				'import type { Artifact } from "$lib/server/services/knowledge/store/core";',
+			],
+		]);
+		expect(
+			reachableBoundaryViolations(
+				"lib/server/services/knowledge/readiness.ts",
+				overrides,
+			),
+		).toEqual([]);
 	});
 });
