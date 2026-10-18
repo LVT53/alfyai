@@ -215,7 +215,8 @@ describe("MessageInput", () => {
 	});
 
 	it("renders typed URLs as clickable blank-tab links without replacing the textarea", async () => {
-		const { container, getByPlaceholderText, getByRole } = render(MessageInput);
+		const { getByPlaceholderText, getByRole, getByTestId } =
+			render(MessageInput);
 		const input = getByPlaceholderText(
 			"Type a message...",
 		) as HTMLTextAreaElement;
@@ -238,9 +239,38 @@ describe("MessageInput", () => {
 			"Read https://example.com/report and www.example.org",
 		);
 		expect(input).toHaveClass("composer-textarea--link-overlay-active");
-		expect(
-			container.querySelector(".composer-link-highlights"),
-		).toHaveTextContent("Read https://example.com/report and www.example.org");
+
+		// The clipped viewport (the test id) must never move: it matches the
+		// textarea's box, and only its inner content layer follows the scroll.
+		// Moving the clipping box itself is what blanked a scrolled composer.
+		const viewport = getByTestId("composer-link-overlay");
+		const highlights = viewport.querySelector<HTMLElement>(
+			".composer-link-highlights",
+		);
+		if (!highlights) throw new Error("link highlight content layer missing");
+		expect(highlights.parentElement).toBe(viewport);
+		expect(highlights).toHaveTextContent(
+			"Read https://example.com/report and www.example.org",
+		);
+		expect(viewport.style.transform).toBe("");
+		expect(highlights.style.transform).toBe("translateY(-0px)");
+
+		input.scrollTop = 120;
+		await fireEvent.scroll(input);
+
+		expect(viewport.style.transform).toBe("");
+		expect(highlights.style.transform).toBe("translateY(-120px)");
+
+		// The viewport width follows the textarea's client box, not its border
+		// box: a scrollbar that appears takes space from the real text and the
+		// mirrored lines must lose the same space. jsdom has no layout, so pin
+		// the measurement path by handing the handler a client width.
+		Object.defineProperty(input, "clientWidth", {
+			configurable: true,
+			value: 444,
+		});
+		await fireEvent.scroll(input);
+		expect(viewport.style.width).toBe("444px");
 	});
 
 	// Was "from the composer tools toggle", which the "+" menu no longer has.
@@ -1785,6 +1815,73 @@ describe("MessageInput", () => {
 		);
 	});
 
+	// A queue made while the bytes were still moving must not outlive the
+	// upload. A failed request leaves no chip behind at all, so the auto-send
+	// would otherwise fire the moment the upload state went idle.
+	it("drops a queued send when the upload request itself fails", async () => {
+		const sendSpy = vi.fn();
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const {
+			container,
+			getByPlaceholderText,
+			getByTestId,
+			getByText,
+			queryByText,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend: sendSpy,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+		});
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await fireEvent.input(textarea, {
+			target: { value: "Send with the file" },
+		});
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+		await waitFor(() =>
+			expect(getByTestId("composer-chip-upload")).toBeInTheDocument(),
+		);
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined(),
+		);
+
+		completeUpload(doneCallback, {
+			success: false,
+			fileName: "scan.pdf",
+			error: "Upload failed",
+		});
+
+		await waitFor(() =>
+			expect(getByTestId("attachment-error")).toHaveTextContent(
+				"scan.pdf: Upload failed",
+			),
+		);
+		expect(
+			queryByText(
+				"Message will send automatically when file processing finishes.",
+			),
+		).toBeNull();
+		await tick();
+		expect(sendSpy).not.toHaveBeenCalled();
+	});
+
 	it("blocks send when an uploaded attachment is not prompt-ready", async () => {
 		const sendSpy = vi.fn();
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
@@ -1792,13 +1889,19 @@ describe("MessageInput", () => {
 			doneCallback = payload.done;
 		});
 
-		const { container, getByPlaceholderText, getByLabelText, findByText } =
-			render(MessageInput, {
-				conversationId: "conv-1",
-				attachmentsEnabled: true,
-				onSend: sendSpy,
-				onUploadFiles: uploadFilesHandler,
-			});
+		const {
+			container,
+			getByPlaceholderText,
+			getByLabelText,
+			getByTestId,
+			queryByText,
+			queryByTestId,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend: sendSpy,
+			onUploadFiles: uploadFilesHandler,
+		});
 
 		const textarea = getByPlaceholderText(
 			"Type a message...",
@@ -1836,26 +1939,36 @@ describe("MessageInput", () => {
 			},
 		});
 
+		// The chip is the surface now: a short localized clause, an X, and the
+		// server's own sentence in the details popover — never a red line under
+		// the composer.
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveTextContent("Could not be prepared");
+		expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
 		expect(
-			await findByText(
-				/scan\.pdf: This file could not be prepared for chat\./i,
-			),
-		).toBeDefined();
+			queryByText(/scan\.pdf: This file could not be prepared for chat\./),
+		).toBeNull();
+		expect(queryByTestId("attachment-error")).toBeNull();
 		expect(sendButton.disabled).toBe(true);
+
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		expect(
+			await waitFor(() => getByTestId("composer-chip-failure-details")),
+		).toHaveTextContent("This file could not be prepared for chat.");
 
 		await fireEvent.click(sendButton);
 		expect(sendSpy).not.toHaveBeenCalled();
 	});
 
 	// The server's readiness sentence is English whatever the user's language
-	// is. It now travels with a code beside it, and THAT is what the composer
-	// renders — otherwise a Hungarian user reads Hungarian chips above an
-	// English refusal.
+	// is. It now travels with a code beside it, and THAT is what the chip and
+	// its details popover render — otherwise a Hungarian user reads Hungarian
+	// chips above an English refusal.
 	it("renders the readiness refusal in the user's language, from its code", async () => {
 		uiLanguage.set("hu");
 		try {
 			let doneCallback: ((result: UploadDoneResult) => void) | null = null;
-			const { container, findByText } = render(MessageInput, {
+			const { container, getByTestId, queryByText } = render(MessageInput, {
 				conversationId: "conv-1",
 				attachmentsEnabled: true,
 				onUploadFiles: (payload: UploadFilesPayload) => {
@@ -1894,9 +2007,18 @@ describe("MessageInput", () => {
 				},
 			});
 
-			const line = await findByText(/scan\.pdf: Ezt a fájlt nem sikerült/i);
-			expect(line).toBeDefined();
-			expect(line.textContent).not.toContain("could not be prepared");
+			const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+			expect(chip).toHaveTextContent("Nincs előkészítve");
+			await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+			const details = await waitFor(() =>
+				getByTestId("composer-chip-failure-details"),
+			);
+			expect(details).toHaveTextContent(
+				/Ezt a fájlt nem sikerült előkészíteni a csevegéshez/i,
+			);
+			expect(details.textContent).not.toContain("could not be prepared");
+			// The old red per-attachment line is gone.
+			expect(queryByText(/scan\.pdf: /)).toBeNull();
 		} finally {
 			uiLanguage.set("en");
 		}
@@ -1905,7 +2027,7 @@ describe("MessageInput", () => {
 	// A server that predates the codes still has to say something specific.
 	it("falls back to the server sentence when no code came with it", async () => {
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
-		const { container, findByText } = render(MessageInput, {
+		const { container, getByTestId, queryByText } = render(MessageInput, {
 			conversationId: "conv-1",
 			attachmentsEnabled: true,
 			onUploadFiles: (payload: UploadFilesPayload) => {
@@ -1942,11 +2064,249 @@ describe("MessageInput", () => {
 			},
 		});
 
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveTextContent("Could not be prepared");
 		expect(
-			await findByText(
-				/legacy\.pdf: Something specific the old server said\./i,
-			),
-		).toBeDefined();
+			queryByText(/legacy\.pdf: Something specific the old server said\./),
+		).toBeNull();
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		expect(
+			await waitFor(() => getByTestId("composer-chip-failure-details")),
+		).toHaveTextContent("Something specific the old server said.");
+	});
+
+	// The stale readiness row is what used to paint a red "This file is still
+	// being prepared" under a succeeded job. The ledger is the authority: once
+	// the job is terminal, the composer stops repeating the upload response's
+	// earlier verdict.
+	it("never repeats a stale 'still being prepared' verdict after the job succeeded", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const {
+			container,
+			getByPlaceholderText,
+			getByLabelText,
+			getByTestId,
+			queryByText,
+			queryByTestId,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+		});
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.input(textarea, { target: { value: "Use this file" } });
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-stale",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "scan.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError:
+					"This file is still being prepared for chat. Wait a moment and send it again.",
+				readinessErrorCode: "still_preparing",
+				extraction: {
+					id: "job-stale",
+					sourceArtifactId: "artifact-stale",
+					normalizedArtifactId: "normalized-stale",
+					status: "succeeded",
+					intakeRoute: "mineru",
+					fileName: "scan.pdf",
+					attemptCount: 1,
+					maxAttempts: 3,
+					retryable: false,
+					cancelable: false,
+					error: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					startedAt: Date.now(),
+					legacy: false,
+				},
+			},
+		});
+
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(queryByText(/still being prepared for chat/i)).toBeNull();
+		expect(queryByText(/scan\.pdf: /)).toBeNull();
+		expect(getByLabelText("Send message")).not.toBeDisabled();
+
+		// No failure, so there is nothing for a details popover to say.
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+	});
+
+	it("puts a terminal no-job readiness failure on the chip and lets the X remove it", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const { container, getByTestId, queryByTestId } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+		});
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-nojob",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "scan.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError:
+					"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+				readinessErrorCode: "no_usable_text",
+			},
+		});
+
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveTextContent("No usable text");
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		const remove = chip.querySelector(
+			".composer-chip__remove",
+		) as HTMLElement | null;
+		expect(remove).not.toBeNull();
+
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		const popover = await waitFor(() =>
+			getByTestId("composer-chip-failure-details"),
+		);
+		expect(popover).toHaveTextContent(
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+		);
+		// The × is the chip's only focus stop, so the open popover is what its
+		// accessible description points at — not a wrapper nobody can focus.
+		expect(remove?.getAttribute("aria-describedby")).toBe(popover.id);
+
+		// Focusing the chip opens the same detail (it is not a hover-only fact).
+		await fireEvent.mouseLeave(getByTestId("composer-chip-failure-anchor"));
+		await waitFor(() =>
+			expect(queryByTestId("composer-chip-failure-details")).toBeNull(),
+		);
+		await fireEvent.focusIn(getByTestId("composer-chip-failure-anchor"));
+		expect(
+			await waitFor(() => getByTestId("composer-chip-failure-details")),
+		).toHaveTextContent(
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+		);
+
+		await fireEvent.click(remove as HTMLElement);
+		expect(queryByTestId("composer-chip-attachment")).toBeNull();
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+	});
+
+	// A terminal ledger SUCCESS is not a usable attachment: extraction can
+	// succeed at producing a normalized document whose text is still unusable.
+	// The readiness verdict is the authority there, and Send must stay closed.
+	it("treats a succeeded job with an unusable result as a terminal failure", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const { container, getByPlaceholderText, getByLabelText, getByTestId } =
+			render(MessageInput, {
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					doneCallback = payload.done;
+				},
+			});
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Use this file" },
+		});
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-succeeded-unusable",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "scan.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError:
+					"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+				readinessErrorCode: "no_usable_text",
+				extraction: {
+					id: "job-succeeded-unusable",
+					sourceArtifactId: "artifact-succeeded-unusable",
+					normalizedArtifactId: "normalized-unusable",
+					status: "succeeded",
+					intakeRoute: "mineru",
+					fileName: "scan.pdf",
+					attemptCount: 1,
+					maxAttempts: 3,
+					retryable: false,
+					cancelable: false,
+					error: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					startedAt: Date.now(),
+					legacy: false,
+				},
+			},
+		});
+
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveTextContent("No usable text");
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
+		expect(getByLabelText("Send message")).toBeDisabled();
 	});
 
 	it("emits onUploadFiles with all selected files from one picker action", async () => {
@@ -2476,20 +2836,18 @@ describe("MessageInput", () => {
 		expect(accept.split(",")).not.toContain(".zip");
 	});
 
-	it("shows a waiting hint when send is blocked by an unready attachment", async () => {
+	it("keeps Send closed without the old gray extracting hint while a file is being read", async () => {
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
 			doneCallback = payload.done;
 		});
 
-		const { container, getByPlaceholderText, getByTestId } = render(
-			MessageInput,
-			{
+		const { container, getByPlaceholderText, getByTestId, queryByTestId } =
+			render(MessageInput, {
 				conversationId: "conv-1",
 				attachmentsEnabled: true,
 				onUploadFiles: uploadFilesHandler,
-			},
-		);
+			});
 
 		const input = getByPlaceholderText(
 			"Type a message...",
@@ -2534,11 +2892,16 @@ describe("MessageInput", () => {
 			},
 		});
 
+		// The old "Extracting document text… ~10s" line is gone. The chip's
+		// spinner says the same thing without a promise about how long it takes.
 		await waitFor(() => {
-			expect(getByTestId("send-disabled-hint")).toHaveTextContent(
-				"Extracting document text… this can take up to ~10s for scanned PDFs.",
-			);
+			expect(queryByTestId("send-disabled-hint")).toBeNull();
 		});
+		expect(getByTestId("composer-chip-busy")).toBeInTheDocument();
+		expect(getByTestId("composer-chip-attachment")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
 	});
 
 	it("hides the disabled-send hint when the message is over-length", async () => {
@@ -4194,7 +4557,7 @@ describe("MessageInput extraction chips", () => {
 	});
 
 	it("shows a chip for the file before the upload POST resolves", async () => {
-		const { container, getByTestId } = renderComposer();
+		const { container, getByTestId, queryByRole } = renderComposer();
 
 		await pickFile(container);
 
@@ -4204,6 +4567,17 @@ describe("MessageInput extraction chips", () => {
 			expect(getByTestId("composer-chip-upload")).toHaveTextContent("scan.pdf");
 		});
 		expect(getByTestId("composer-chip-upload")).toHaveTextContent("Uploading…");
+		// The spinner stands where the X will be, and there is no X yet.
+		expect(getByTestId("composer-chip-upload")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
+		expect(getByTestId("composer-chip-busy")).toBeInTheDocument();
+		expect(queryByRole("button", { name: /remove scan\.pdf/i })).toBeNull();
+		// The visual spinner is decorative; this is what a screen reader hears.
+		expect(getByTestId("composer-chip-upload")).toHaveTextContent(
+			"Uploading scan.pdf",
+		);
 	});
 
 	it("swaps the optimistic chip for the real one when the upload lands", async () => {
@@ -4228,9 +4602,11 @@ describe("MessageInput extraction chips", () => {
 		await waitFor(() => {
 			expect(queryByTestId("composer-chip-upload")).toBeNull();
 		});
-		expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
-			"Waiting to be read",
-		);
+		const chip = getByTestId("composer-chip-attachment");
+		expect(chip).toHaveTextContent("Waiting to be read");
+		// A queued job is busy too: spinner in the X's slot, no removal.
+		expect(chip).toHaveAttribute("aria-busy", "true");
+		expect(chip.querySelector(".composer-chip__remove")).toBeNull();
 	});
 
 	it("walks the real phases from the DTO the poller reports", async () => {
@@ -4293,6 +4669,238 @@ describe("MessageInput extraction chips", () => {
 			},
 			{ timeout: 4000 },
 		);
+	});
+
+	it("keeps the X off a pending chip and gives it back when the ledger settles", async () => {
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({ status: "parsing" }),
+			},
+		});
+
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveAttribute("aria-busy", "true");
+		expect(chip).toHaveTextContent("Reading…");
+		expect(
+			chip.querySelector('[data-testid="composer-chip-busy"]'),
+		).not.toBeNull();
+		expect(chip.querySelector(".composer-chip__remove")).toBeNull();
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({
+				status: "succeeded",
+				cancelable: false,
+				normalizedArtifactId: "normalized-1",
+			}),
+		]);
+		await waitFor(
+			() => {
+				const settled = getByTestId("composer-chip-attachment");
+				expect(settled).not.toHaveAttribute("aria-busy", "true");
+				expect(settled.querySelector(".composer-chip__remove")).not.toBeNull();
+			},
+			{ timeout: 4000 },
+		);
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+	});
+
+	// A queued send waits for file processing to finish on its own. A FAILED
+	// read never finishes on its own, so the queued intent has to be dropped —
+	// otherwise it fires later, when removing the failed chip happens to reopen
+	// the gate, and sends a message the user queued for a file that was never
+	// used.
+	it("drops a queued send when the attachment it was waiting for fails", async () => {
+		const sendSpy = vi.fn();
+		const dones: Array<(result: UploadDoneResult) => void> = [];
+		const {
+			container,
+			getAllByTestId,
+			getByPlaceholderText,
+			getByText,
+			queryByText,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend: sendSpy,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				dones.push(payload.done);
+			},
+		});
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(textarea, {
+			target: { value: "Send when ready" },
+		});
+
+		// Attachment 1 is ready and STAYS after the failed one is removed —
+		// which is what used to reopen the gate for a stale queued send.
+		await pickFile(container, "ready.pdf");
+		completeUpload(dones[0] ?? null, {
+			success: true,
+			attachment: {
+				artifact: artifact({ id: "artifact-ready", name: "ready.pdf" }),
+				promptReady: true,
+				promptArtifactId: "normalized-ready",
+				readinessError: null,
+			},
+		});
+		await waitFor(() =>
+			expect(getAllByTestId("composer-chip-attachment")).toHaveLength(1),
+		);
+
+		// Attachment 2 is still being read, so the send queues behind it.
+		await pickFile(container, "scan.pdf");
+		completeUpload(dones[1] ?? null, {
+			success: true,
+			attachment: {
+				artifact: artifact({ id: "artifact-busy", name: "scan.pdf" }),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({
+					sourceArtifactId: "artifact-busy",
+					status: "parsing",
+				}),
+			},
+		});
+		await waitFor(() => {
+			const chips = getAllByTestId("composer-chip-attachment");
+			expect(
+				chips.some((chip) => chip.getAttribute("aria-busy") === "true"),
+			).toBe(true);
+		});
+
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined(),
+		);
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({
+				id: "job-busy",
+				sourceArtifactId: "artifact-busy",
+				status: "failed",
+				retryable: true,
+				cancelable: false,
+				error: { code: "max_attempts", message: "gave up" },
+			}),
+		]);
+		const failed = await waitFor(
+			() => {
+				const chip = getAllByTestId("composer-chip-attachment").find(
+					(candidate) =>
+						candidate.textContent?.includes("Could not be read — retry"),
+				);
+				expect(chip).toBeDefined();
+				return chip as HTMLElement;
+			},
+			{ timeout: 4000 },
+		);
+		// Nothing is processing now, so the promise is withdrawn with it.
+		expect(
+			queryByText(
+				"Message will send automatically when file processing finishes.",
+			),
+		).toBeNull();
+
+		const remove = failed.querySelector(
+			".composer-chip__remove",
+		) as HTMLElement;
+		await fireEvent.click(remove);
+		await tick();
+		expect(sendSpy).not.toHaveBeenCalled();
+	});
+
+	// A queued send promises that waiting will finish the job. With a terminal
+	// failure in the same turn that is never true, so the composer must not make
+	// the promise even while another file is still being read.
+	it("promises no automatic send when another attachment has already failed", async () => {
+		const sendSpy = vi.fn();
+		const dones: Array<(result: UploadDoneResult) => void> = [];
+		const { container, getAllByTestId, getByPlaceholderText, queryByText } =
+			render(MessageInput, {
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onSend: sendSpy,
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					dones.push(payload.done);
+				},
+			});
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(textarea, {
+			target: { value: "Send when ready" },
+		});
+
+		await pickFile(container, "failed.pdf");
+		completeUpload(dones[0] ?? null, {
+			success: true,
+			attachment: {
+				artifact: artifact({ id: "artifact-failed", name: "failed.pdf" }),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({
+					id: "job-failed",
+					sourceArtifactId: "artifact-failed",
+					status: "failed",
+					retryable: true,
+					cancelable: false,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+			},
+		});
+		await waitFor(() =>
+			expect(getAllByTestId("composer-chip-attachment")[0]).toHaveTextContent(
+				"Could not be read — retry",
+			),
+		);
+
+		await pickFile(container, "scan.pdf");
+		completeUpload(dones[1] ?? null, {
+			success: true,
+			attachment: {
+				artifact: artifact({ id: "artifact-busy-2", name: "scan.pdf" }),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({
+					id: "job-busy-2",
+					sourceArtifactId: "artifact-busy-2",
+					status: "parsing",
+				}),
+			},
+		});
+		await waitFor(() => {
+			const chips = getAllByTestId("composer-chip-attachment");
+			expect(
+				chips.some((chip) => chip.getAttribute("aria-busy") === "true"),
+			).toBe(true);
+		});
+
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+		await tick();
+		expect(
+			queryByText(
+				"Message will send automatically when file processing finishes.",
+			),
+		).toBeNull();
+		expect(sendSpy).not.toHaveBeenCalled();
 	});
 
 	it("never changes the label on a timer when no job is active", async () => {
@@ -4389,6 +4997,17 @@ describe("MessageInput extraction chips", () => {
 			);
 		});
 		expect(queryByTestId("composer-chip-extraction-cancel")).toBeNull();
+		// A terminal failure is no longer busy: the X is back, and hovering
+		// the failed chip opens the full localized explanation.
+		const failedChip = getByTestId("composer-chip-attachment");
+		expect(failedChip).not.toHaveAttribute("aria-busy", "true");
+		expect(failedChip.querySelector(".composer-chip__remove")).not.toBeNull();
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		const details = await waitFor(() =>
+			getByTestId("composer-chip-failure-details"),
+		);
+		expect(details).toHaveTextContent(/Gave up after several tries/);
+		expect(details).toHaveTextContent(/Use Retry beside the chip/);
 
 		await fireEvent.click(getByTestId("composer-chip-extraction-retry"));
 		expect(retryExtractionMock).toHaveBeenCalledWith("artifact-1");
@@ -4398,6 +5017,38 @@ describe("MessageInput extraction chips", () => {
 				"Waiting to be read",
 			);
 		});
+	});
+
+	// The X stays the normal removal control on a failed chip, retryable or
+	// not: the popover is informational and the Retry button is offered only
+	// where pressing it could help.
+	it("lets the X remove a chip whose read cannot be retried", async () => {
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({
+					status: "failed",
+					retryable: false,
+					cancelable: false,
+					error: { code: "too_large", message: "over the cap" },
+				}),
+			},
+		});
+
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		const remove = chip.querySelector(
+			".composer-chip__remove",
+		) as HTMLElement | null;
+		expect(remove).not.toBeNull();
+		await fireEvent.click(remove as HTMLElement);
+		expect(queryByTestId("composer-chip-attachment")).toBeNull();
 	});
 
 	// F21. Retry requeues the job, so the button that was just pressed
@@ -4452,10 +5103,17 @@ describe("MessageInput extraction chips", () => {
 		await waitFor(() => {
 			expect(queryByTestId("composer-chip-extraction-retry")).toBeNull();
 		});
+		// The requeued job is busy, so the X the old rescue targeted is gone.
+		// Focus must still not fall to <body>: the chip itself is the stable
+		// focus stop while its control slot holds the spinner.
+		const chip = container.querySelector(
+			'[data-testid="composer-chip-attachment"]',
+		) as HTMLElement | null;
+		expect(chip).not.toBeNull();
+		expect(chip?.getAttribute("aria-busy")).toBe("true");
+		expect(chip?.querySelector(".composer-chip__remove")).toBeNull();
 		await waitFor(() => {
-			expect(document.activeElement).toBe(
-				container.querySelector(".composer-chip__remove"),
-			);
+			expect(document.activeElement).toBe(chip);
 		});
 	});
 
@@ -4517,6 +5175,18 @@ describe("MessageInput extraction chips", () => {
 			);
 		});
 		expect(queryByTestId("composer-chip-extraction-retry")).toBeNull();
+		// The popover carries the full explanation — including why the file is
+		// beyond help, which the short chip clause has no room for.
+		await fireEvent.mouseEnter(getByTestId("composer-chip-failure-anchor"));
+		const details = await waitFor(() =>
+			getByTestId("composer-chip-failure-details"),
+		);
+		expect(details).toHaveTextContent(
+			/This file could not be read: Too large to read/,
+		);
+		expect(details).toHaveTextContent(
+			/Remove it, or upload a version that can be read/,
+		);
 	});
 
 	it("says a failed retry failed without rewriting the chip", async () => {
@@ -4556,8 +5226,15 @@ describe("MessageInput extraction chips", () => {
 	});
 
 	it("treats a pending extraction as 'not yet', not as a failure", async () => {
-		const { container, getByPlaceholderText, getByTestId, queryByText, done } =
-			renderComposer();
+		const {
+			container,
+			getByPlaceholderText,
+			getByLabelText,
+			getByTestId,
+			queryByTestId,
+			queryByText,
+			done,
+		} = renderComposer();
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Summarise this" },
@@ -4577,19 +5254,27 @@ describe("MessageInput extraction chips", () => {
 			},
 		});
 
-		await waitFor(() => {
-			expect(getByTestId("send-disabled-hint")).toHaveTextContent(
-				"Extracting document text…",
-			);
-		});
+		const chip = await waitFor(() => getByTestId("composer-chip-attachment"));
+		expect(chip).toHaveTextContent("Reading…");
+		expect(chip).toHaveAttribute("aria-busy", "true");
+		expect(getByLabelText("Send message")).toBeDisabled();
+		// The gray "Extracting document text…" hint is gone; the chip's spinner
+		// is the whole story until the ledger reaches a terminal state.
+		expect(queryByTestId("send-disabled-hint")).toBeNull();
 		expect(
 			queryByText("scan.pdf: This file could not be prepared for chat."),
 		).toBeNull();
+		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
 	});
 
 	it("stops holding Send once the job reaches a terminal status", async () => {
-		const { container, getByPlaceholderText, getByLabelText, done } =
-			renderComposer();
+		const {
+			container,
+			getByPlaceholderText,
+			getByLabelText,
+			getByTestId,
+			done,
+		} = renderComposer();
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Summarise this" },
@@ -4620,6 +5305,9 @@ describe("MessageInput extraction chips", () => {
 		await waitFor(() => expect(sendButton.disabled).toBe(false), {
 			timeout: 4000,
 		});
+		const settled = getByTestId("composer-chip-attachment");
+		expect(settled).not.toHaveAttribute("aria-busy", "true");
+		expect(settled.querySelector(".composer-chip__remove")).not.toBeNull();
 	});
 
 	it("re-hydrates the chip from a draft restored mid-extraction", async () => {
@@ -4650,6 +5338,15 @@ describe("MessageInput extraction chips", () => {
 				"Reading…",
 			);
 		});
+		expect(getByTestId("composer-chip-attachment")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
+		expect(
+			getByTestId("composer-chip-attachment").querySelector(
+				".composer-chip__remove",
+			),
+		).toBeNull();
 		expect(queryByText(/still being prepared for chat/i)).toBeNull();
 	});
 
@@ -4726,6 +5423,29 @@ describe("MessageInput extraction chips", () => {
 		await waitFor(() => {
 			expect(queryByTestId("composer-chip-upload")).toBeNull();
 		});
+	});
+
+	// The gray "Extracting document text… ~10s" line was the composer's only
+	// consumer of this key. Removing the line without the key would leave a
+	// dead translation behind in both dictionaries; removing the key is what
+	// makes a re-introduction of the hint print its own key in the UI.
+	it("has dropped the extracting-document hint key from both locales", async () => {
+		const chatDict = (await import("$lib/i18n/chat")).default;
+		expect(chatDict.en).not.toHaveProperty("chat.extractingDocument");
+		expect(chatDict.hu).not.toHaveProperty("chat.extractingDocument");
+	});
+
+	// The failure details are informational and animated only slightly. The
+	// reduced-motion rule is what keeps "slight" from becoming "none at all"
+	// for a user who asked for less movement: the box still appears, it just
+	// does not fade or rise.
+	it("stops the failure details animation under reduced motion", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/ComposerChipFailureDetails.svelte`,
+			"utf-8",
+		);
+		expect(source).toContain("@keyframes");
+		expect(source).toContain("prefers-reduced-motion: reduce");
 	});
 });
 

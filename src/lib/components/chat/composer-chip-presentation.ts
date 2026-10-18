@@ -7,6 +7,10 @@
 // nothing that imports the `$t` store. A meta clause comes back as the
 // numbers and a template key for the caller to localize.
 
+import {
+	type AttachmentReadinessReason,
+	isAttachmentReadinessReason,
+} from "$lib/shared/attachment-readiness";
 import type {
 	DocumentExtractionJobDTO,
 	DocumentExtractionStatus,
@@ -294,6 +298,119 @@ export function isExtractionPending(
 ): boolean {
 	if (!job) return false;
 	return !isTerminalExtractionStatus(job.status);
+}
+
+/**
+ * Which of the chip's readiness states an attachment is in.
+ *
+ * The chip is the one surface for a file's readiness now: it carries the
+ * progress clause, the failure clause, the spinner and the ×. This is the
+ * decision half — which state, and which sentence it should speak — kept out
+ * of the component so the send gate, the chip and its details popover cannot
+ * disagree about one file.
+ *
+ * `busy` is the state the old UI had no name for. The × must not be offered
+ * while the file cannot be sent anyway: removing it would be the only thing
+ * the user could do with a control that means "done". So a pending ledger row
+ * is busy, and — mirroring `hasUnreadyAttachment`'s fallback — an attachment
+ * with no ledger row at all is busy while its upload response says it is not
+ * prompt-ready, unless that response already names a terminal refusal. The
+ * ledger always wins when it has an opinion: a `succeeded` row settles a chip
+ * to `none` even when the upload response's earlier verdict is still on the
+ * object, which is what finally retires the stale "still being prepared".
+ */
+export type AttachmentChipFailure =
+	| { kind: "none" }
+	| { kind: "busy" }
+	| {
+			kind: "job";
+			/** The chip's short danger clause: a key, localized by the caller. */
+			errorKey: string;
+			retryable: boolean;
+			canceled: boolean;
+			errorCode: ExtractionErrorCode | null;
+	  }
+	| { kind: "readiness"; reason: AttachmentReadinessReason }
+	| { kind: "raw" };
+
+export function attachmentChipFailure(
+	job: DocumentExtractionJobDTO | null | undefined,
+	attachment: {
+		promptReady: boolean;
+		readinessError?: string | null;
+		readinessErrorCode?: string | null;
+	},
+): AttachmentChipFailure {
+	const code = isAttachmentReadinessReason(attachment.readinessErrorCode)
+		? attachment.readinessErrorCode
+		: null;
+
+	if (job) {
+		if (isExtractionPending(job)) return { kind: "busy" };
+		if (job.status === "failed" || job.status === "canceled") {
+			const state = extractionChipState(job);
+			return {
+				kind: "job",
+				errorKey:
+					state.errorKey ??
+					(job.status === "canceled"
+						? "chat.extraction.canceled"
+						: "chat.extraction.failed"),
+				retryable: job.retryable,
+				canceled: job.status === "canceled",
+				errorCode: job.error?.code ?? null,
+			};
+		}
+		// A terminal SUCCESS is not automatically a usable attachment: the
+		// ledger can succeed at producing a normalized document whose text is
+		// still not usable (`no_usable_text`, `not_prepared`, `not_available`).
+		// The server's readiness verdict is the authority for that case, and
+		// the upload-time `still_preparing` sentence is not — it was minted
+		// before the job ran, and repeating it under a succeeded job is the
+		// stale red line this state exists to retire.
+		if (!attachment.promptReady) {
+			if (code && code !== "still_preparing") {
+				return { kind: "readiness", reason: code };
+			}
+			if (!code && attachment.readinessError) return { kind: "raw" };
+		}
+		return { kind: "none" };
+	}
+
+	// A row that has not reached a terminal status yet is "not yet", never a
+	// terminal failure — the same distinction the send gate draws.
+	if (code === "still_preparing") return { kind: "busy" };
+	if (code) return { kind: "readiness", reason: code };
+	if (attachment.promptReady) return { kind: "none" };
+	// No ledger row and no code: a server that predates the readiness codes.
+	// It still has something specific to say, so it becomes a failure rather
+	// than a spinner that would never stop.
+	if (attachment.readinessError) return { kind: "raw" };
+	return { kind: "busy" };
+}
+
+/**
+ * The short danger clause a terminal readiness failure wears on the chip.
+ *
+ * It is deliberately shorter than `chat.attachmentReadiness.*`: those are the
+ * sentences the details popover shows in full. A row of pills is not the place
+ * for a paragraph, and the popover is one hover away.
+ */
+const READINESS_STATUS_KEYS: Record<AttachmentReadinessReason, string> = {
+	not_available: "composerChips.failureNotAvailable",
+	// Never reached — `attachmentChipFailure` answers `busy` for it — but the
+	// table stays exhaustive so a new reason cannot silently print no clause.
+	still_preparing: "composerChips.failureNotPrepared",
+	not_prepared: "composerChips.failureNotPrepared",
+	extraction_retryable: "chat.extraction.failed",
+	not_text_readable: "composerChips.failureNotTextReadable",
+	no_usable_text: "composerChips.failureNoUsableText",
+};
+
+export function attachmentReadinessStatusKey(
+	reason: AttachmentReadinessReason,
+): string {
+	return READINESS_STATUS_KEYS[reason];
 }
 
 export type OutlineQuoteSource = {

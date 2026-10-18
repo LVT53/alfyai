@@ -27,6 +27,7 @@ import {
 	X,
 } from "@lucide/svelte";
 import { getContext, tick } from "svelte";
+import Spinner from "../ui/Spinner.svelte";
 import {
 	COMPOSER_CHIP_ROW_CONTEXT,
 	type ComposerChipKind,
@@ -49,6 +50,9 @@ let {
 	status = null,
 	disabled = false,
 	dashed = false,
+	busy = false,
+	busyLabel = "",
+	detailsId,
 	testId,
 }: {
 	kind: ComposerChipKind;
@@ -69,6 +73,21 @@ let {
 	disabled?: boolean;
 	/** The queued chip's dashed edge — "waiting", not "attached". */
 	dashed?: boolean;
+	/**
+	 * The file is still on its way (uploading, or its read is pending). The
+	 * control slot wears a spinner instead of the ×, and the chip is a
+	 * programmatic focus stop so a control that vanishes cannot strand focus
+	 * on <body>. `busyLabel` is the sentence a screen reader gets in place of
+	 * the removed button.
+	 */
+	busy?: boolean;
+	busyLabel?: string;
+	/**
+	 * The details popover the × describes, while it is open. The × is the
+	 * chip's only focus stop, so this is what a screen reader reads beside
+	 * "Remove …" instead of losing the failure explanation to the mouse.
+	 */
+	detailsId?: string | undefined;
 	testId?: string | undefined;
 } = $props();
 
@@ -95,21 +114,21 @@ let removeButton = $state<HTMLButtonElement | null>(null);
 
 function handleRemove(event: MouseEvent) {
 	event.stopPropagation();
-	if (disabled) return;
-	onRemove?.();
+	removeWithFocusHandoff();
 }
 
-// Keyboard removal: with the chip's × focused — the chip's own focus stop —
-// Delete or Backspace removes it, so a chip row is navigable end to end
-// without reaching for the mouse. The element under the caret is about to
-// leave the DOM, so focus is handed on first: to the next chip's × (or the
-// previous one's), and when this was the last chip, to wherever the row says
-// (the composer's textarea). Otherwise focus would land on <body>.
-function handleKeydown(event: KeyboardEvent) {
-	if (!removable || disabled || !onRemove) return;
-	if (event.key !== "Delete" && event.key !== "Backspace") return;
-	event.preventDefault();
-	event.stopPropagation();
+// The element under the caret — or under the click — is about to leave the
+// DOM, so focus is handed on first: to the next chip's × (or the previous
+// one's), and when this was the last chip, to wherever the row says (the
+// composer's textarea). Otherwise focus would land on <body>.
+//
+// Delete/Backspace on a focused × and a keyboard-activation click
+// (Enter/Space, which browsers deliver as a click with no pointer detail)
+// both come through here. A pointer click hands off too: the clicked button
+// is focused in most browsers, so removing it would otherwise strand the
+// caret on <body> for a switch user driving the pointer.
+function removeWithFocusHandoff() {
+	if (disabled || !onRemove) return;
 	const successor = nextRemoveControl();
 	onRemove();
 	void tick().then(() => {
@@ -119,6 +138,17 @@ function handleKeydown(event: KeyboardEvent) {
 			rowContext?.focusFallback();
 		}
 	});
+}
+
+// Keyboard removal: with the chip's × focused — the chip's own focus stop —
+// Delete or Backspace removes it, so a chip row is navigable end to end
+// without reaching for the mouse.
+function handleKeydown(event: KeyboardEvent) {
+	if (!removable || disabled || !onRemove) return;
+	if (event.key !== "Delete" && event.key !== "Backspace") return;
+	event.preventDefault();
+	event.stopPropagation();
+	removeWithFocusHandoff();
 }
 
 function nextRemoveControl(): HTMLElement | null {
@@ -154,6 +184,8 @@ function handleBodyKeydown(event: KeyboardEvent) {
 	data-chip-tint={tint}
 	data-chip-size={size}
 	data-testid={testId}
+	aria-busy={busy ? "true" : undefined}
+	tabindex="-1"
 >
 	<svelte:element
 		this={isInteractive ? 'button' : 'span'}
@@ -202,12 +234,24 @@ function handleBodyKeydown(event: KeyboardEvent) {
 			<span class="composer-chip__status">{status}</span>
 		{/if}
 	</svelte:element>
-	{#if removable && onRemove}
+	{#if busy}
+		<!-- The control slot where the × will be. There is deliberately no ×
+		     here: a file that has not landed yet cannot be "removed" from the
+		     turn, and offering the control would invite the user to dismiss
+		     the one thing that is still happening. -->
+		<span class="composer-chip__busy" data-testid="composer-chip-busy" aria-hidden="true">
+			<Spinner size={13} />
+		</span>
+		{#if busyLabel}
+			<span class="composer-chip__sr-only">{busyLabel}</span>
+		{/if}
+	{:else if removable && onRemove}
 		<button
 			bind:this={removeButton}
 			type="button"
 			class="composer-chip__remove"
 			aria-label={removeLabel || label}
+			aria-describedby={detailsId}
 			disabled={disabled}
 			onclick={handleRemove}
 			onkeydown={handleKeydown}
@@ -348,6 +392,37 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		color: var(--danger);
 		font-size: var(--text-2xs);
 		font-weight: 600;
+	}
+
+	/* The 20px control slot while the file is on its way. It is the exact
+	   footprint the × takes, so the pill does not change width when the read
+	   settles — the spinner simply becomes the control.
+	   The motion is the shared Spinner's `animate-spin`, which the global
+	   reduced-motion reset in app.css reaches. Nothing in this file declares a
+	   CSS animation of its own: the chip's motion guard
+	   (reduced-motion-transitions.regression.test.ts) exists to keep it that
+	   way. */
+	.composer-chip__busy {
+		display: inline-grid;
+		place-items: center;
+		flex: 0 0 auto;
+		width: 20px;
+		height: 20px;
+		color: var(--text-muted);
+	}
+
+	/* The removed ×'s accessible replacement. Visually hidden, still part of
+	   the chip's text for assistive technology. */
+	.composer-chip__sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 
 	.composer-chip__remove {

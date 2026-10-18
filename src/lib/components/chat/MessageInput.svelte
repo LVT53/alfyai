@@ -116,11 +116,9 @@ import {
 	type ComposerTooltip,
 	thinkingTooltip,
 } from "./composer-bar";
-import {
-	attachmentReadinessReasonKey,
-	isAttachmentReadinessReason,
-} from "$lib/shared/attachment-readiness";
+import { attachmentReadinessReasonKey } from "$lib/shared/attachment-readiness";
 import ComposerChip from "./ComposerChip.svelte";
+import ComposerChipFailureDetails from "./ComposerChipFailureDetails.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
 import {
 	fieldTextRoom,
@@ -128,13 +126,15 @@ import {
 	placeholderMeasurer,
 } from "./placeholder-fit";
 import {
+	attachmentChipFailure,
 	attachmentChipKind,
 	attachmentChipMeta,
+	attachmentReadinessStatusKey,
 	attachmentThumbnailUrl,
 	extractionChipState,
 	extractionReasonKey,
-	isExtractionPending,
 	quoteChipLabel,
+	type AttachmentChipFailure,
 } from "./composer-chip-presentation";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
@@ -559,26 +559,34 @@ let effectiveLinkedSources = $derived(
 		),
 	),
 );
-// The ledger decides, when it has an opinion. `promptReady: false` now means
-// "not yet" for the whole normal case of a document upload, so treating it as
-// the readiness signal would hold Send behind every PDF forever; but a build
-// whose upload endpoint says nothing about extraction still needs an answer,
-// and there `promptReady` is the only one available.
-let hasUnreadyAttachment = $derived(
-	pendingAttachments.some((attachment) => {
-		const job = extractionJobs[attachment.artifact.id];
-		return job ? isExtractionPending(job) : !attachment.promptReady;
-	}),
+// The ledger decides, when it has an opinion. One pure state per pending
+// attachment drives BOTH the chip and the send gate, so a chip that shows a
+// spinner and a Send button that is open cannot disagree: `busy` is "not yet"
+// and any failure is "not like this". A terminal ledger success with no
+// readiness problem at all is the only state that lets Send through.
+let pendingAttachmentStates = $derived(
+	pendingAttachments.map((attachment) =>
+		attachmentChipFailure(extractionJobs[attachment.artifact.id], attachment),
+	),
 );
-let attachmentReadinessErrors = $derived(
-	pendingAttachments.filter((attachment) => {
-		if (!attachment.readinessError) return false;
-		// A red "this file could not be prepared" under a chip that says
-		// "Reading…" is the composer contradicting itself. While the ledger is
-		// still working, the chip is the honest surface and this line waits.
-		const job = extractionJobs[attachment.artifact.id];
-		return !job || !isExtractionPending(job);
-	}),
+// Some work is genuinely in flight — the only case a queued send will ever
+// resolve on its own.
+let hasBusyAttachment = $derived(
+	pendingAttachmentStates.some((failure) => failure.kind === "busy"),
+);
+let hasUnreadyAttachment = $derived(
+	pendingAttachmentStates.some((failure) => failure.kind !== "none"),
+);
+// A failure is not "still processing". A queued send waiting for the last busy
+// attachment would never fire while a terminal failure is on screen, so the
+// composer neither promises nor queues one for such a turn.
+let hasAttachmentFailure = $derived(
+	pendingAttachmentStates.some(
+		(failure) =>
+			failure.kind === "job" ||
+			failure.kind === "readiness" ||
+			failure.kind === "raw",
+	),
 );
 
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): an outline
@@ -605,15 +613,18 @@ let canSend = $derived(canSubmitMessageText(message) && !sendPending);
 // Reason the send button is disabled despite non-empty, non-overlength text
 // (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText,
 // plus the Issue 7.4 cloud-warning gate (see canSend above).
+//
+// "preparing" used to be a third reason here, rendered as a gray "Extracting
+// document text…" line. The pending chip's spinner says the same thing without
+// promising a duration, so the reason is gone — the gate itself is not: Send
+// stays disabled while `hasUnreadyAttachment`.
 let sendDisabledHint = $derived(
 	!canSend && message.trim().length > 0 && !isOverMaxLength
 		? sendPending && checkingCloudWarning
 			? "checkingPrivacy"
 			: isUploadingAttachment
 				? "uploading"
-				: hasUnreadyAttachment
-					? "preparing"
-					: null
+				: null
 		: null,
 );
 let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
@@ -665,40 +676,69 @@ function asI18nKey(key: string): I18nKey {
 }
 
 /**
- * The refusal sentence for one blocked attachment, in the user's language.
+ * The chip's short danger clause for one blocked attachment, in the user's
+ * language — or null when nothing has gone wrong.
+ *
+ * The chip is the surface now. A terminal ledger row's own error clause is
+ * already the most specific thing to say and is reused rather than re-worded;
+ * a no-job readiness refusal gets a deliberately short clause here, because
+ * its full sentence belongs in the details popover one hover away.
+ */
+function attachmentChipStatus(failure: AttachmentChipFailure): string | null {
+	if (failure.kind === "job") return $t(asI18nKey(failure.errorKey));
+	if (failure.kind === "readiness") {
+		return $t(asI18nKey(attachmentReadinessStatusKey(failure.reason)));
+	}
+	if (failure.kind === "raw") return $t("composerChips.failureGeneric");
+	return null;
+}
+
+/**
+ * The full sentence a failed chip reveals on hover/focus.
  *
  * Three sources, in order of how specific they are:
  *
- *  1. A terminal FAILED ledger row already carries an `ExtractionErrorCode`,
- *     and the chip above this line is already naming it. Reuse that clause —
- *     two mappings of one vocabulary would drift, and the user would be told
- *     two different things about one file.
- *  2. Otherwise the server's `readinessErrorCode`, which is the machine twin
- *     of the sentence it sends beside it.
- *  3. Otherwise that sentence itself. English, but a server that predates the
- *     codes should still say something specific rather than nothing.
+ *  1. A terminal ledger row: its own `ExtractionErrorCode` names the cause, and
+ *     the sentence says what the user can do about it (Retry where Retry can
+ *     help, remove/re-upload where it cannot). A canceled read gets its own
+ *     sentence, because "could not be read" is not what happened.
+ *  2. Otherwise the server's `readinessErrorCode`, whose `chat.attachmentReadiness.*`
+ *     sentence is the full explanation in the user's language.
+ *  3. Otherwise the server's own sentence. English, but a server that predates
+ *     the codes should still say something specific rather than nothing.
  */
-function attachmentReadinessText(
+function attachmentFailureDetail(
 	attachment: PendingAttachment,
+	failure: AttachmentChipFailure,
 	translate: (key: I18nKey, params?: Record<string, string | number>) => string,
-): string {
-	const job = extractionJobs[attachment.artifact.id];
-	if (job?.status === "failed") {
-		return translate(
-			asI18nKey(
-				extractionReasonKey({
-					status: job.status,
-					errorCode: job.error?.code ?? null,
-					retryable: job.retryable,
-				}),
-			),
-		);
+): string | null {
+	if (failure.kind === "job") {
+		if (failure.canceled) {
+			return translate(asI18nKey("chat.extraction.failureDetailCanceled"));
+		}
+		if (failure.errorCode) {
+			return translate(
+				asI18nKey(
+					failure.retryable
+						? "chat.extraction.failureDetailRetryable"
+						: "chat.extraction.failureDetail",
+				),
+				{
+					reason: translate(
+						asI18nKey(`chat.extraction.error.${failure.errorCode}`),
+					),
+				},
+			);
+		}
+		return failure.retryable
+			? translate(asI18nKey("chat.attachmentReadiness.extraction_retryable"))
+			: translate(asI18nKey("chat.extraction.failureDetailNoReason"));
 	}
-	const code = attachment.readinessErrorCode;
-	if (isAttachmentReadinessReason(code)) {
-		return translate(asI18nKey(attachmentReadinessReasonKey(code)));
+	if (failure.kind === "readiness") {
+		return translate(asI18nKey(attachmentReadinessReasonKey(failure.reason)));
 	}
-	return attachment.readinessError ?? "";
+	if (failure.kind === "raw") return attachment.readinessError ?? null;
+	return null;
 }
 
 let activeCommandAnnouncement = $derived(
@@ -1325,6 +1365,19 @@ $effect(() => {
 	void attemptDispatch(message);
 });
 
+// A queued send is a promise that the file processing will finish on its own.
+// If a terminal failure appears — the last busy attachment failing, or a second
+// attachment arriving already failed — nothing will finish: the user has to
+// retry or remove it. Leaving the flag set made it fire later, when removing
+// the failed chip happened to reopen the gate — sending a message the user had
+// queued for a file that was never used. A successful busy attachment still
+// auto-sends above; only the failure state clears here.
+$effect(() => {
+	if (hasAttachmentFailure || (hasUnreadyAttachment && !hasBusyAttachment)) {
+		queuedSendAfterProcessing = false;
+	}
+});
+
 function isMobile(): boolean {
 	if (
 		typeof window === "undefined" ||
@@ -1387,6 +1440,9 @@ function adjustHeight() {
 		textarea.style.height = `${minHeight}px`;
 		const maxHeight = isMobileDevice ? 112 : 240;
 		textarea.style.height = `${Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight))}px`;
+		// The height just changed, so the scrollbar may have appeared or gone.
+		// Re-read the client box here instead of waiting on a resize callback.
+		textareaWidth = textarea.clientWidth;
 	});
 }
 
@@ -1526,8 +1582,12 @@ function handleKeyup() {
 }
 
 function handleTextareaScroll(event: Event) {
-	linkHighlightScrollTop = (event.currentTarget as HTMLTextAreaElement)
-		.scrollTop;
+	const field = event.currentTarget as HTMLTextAreaElement;
+	linkHighlightScrollTop = field.scrollTop;
+	// A scrollbar that just took space narrowed the textarea's client box;
+	// keep the mirrored viewport in step even if the ResizeObserver has not
+	// reported the content-box change yet.
+	textareaWidth = field.clientWidth;
 }
 
 /**
@@ -1771,7 +1831,10 @@ function send(nextMessage: string = message) {
 		if (
 			(nextMessage.trim().length > 0 || pendingQuotes.length > 0) &&
 			nextMessage.length <= maxLength &&
-			(isUploadingAttachment || hasUnreadyAttachment)
+			(isUploadingAttachment || hasBusyAttachment) &&
+			// A turn carrying a terminally failed attachment can never become
+			// sendable by waiting, so there is nothing honest to promise.
+			!hasAttachmentFailure
 		) {
 			queuedSendAfterProcessing = true;
 		}
@@ -2953,6 +3016,10 @@ async function uploadFiles(files: FileList | readonly File[] | null) {
 		dropOptimisticUploads(optimisticIds);
 		uploadState = "idle";
 		if (fileInput) fileInput.value = "";
+		// No attachment will appear for this request. A queued "send when the
+		// file is ready" has nothing left to wait for, so it must not fire the
+		// moment the upload state goes idle.
+		queuedSendAfterProcessing = false;
 		attachmentError =
 			error instanceof Error
 				? error.message
@@ -3021,6 +3088,11 @@ function addUploadedAttachment(
 	} else {
 		attachmentError = `${result.fileName}: ${result.error}`;
 		retireOptimisticUpload(result.fileName);
+		// A send queued while this file was uploading promised "when processing
+		// finishes" — but it failed, and no chip exists to retry or remove. If
+		// the flag stayed set, the auto-send effect would fire as soon as the
+		// upload state went idle and send the message without the file.
+		queuedSendAfterProcessing = false;
 	}
 	pendingUploadCount -= 1;
 	if (pendingUploadCount <= 0) {
@@ -3114,7 +3186,14 @@ function restoreChipFocus(item: Element | null | undefined) {
 	// Still somewhere inside the chip (the button survived, or the user moved
 	// on themselves): leave it alone.
 	if (active && active !== document.body && item.contains(active)) return;
-	item.querySelector<HTMLElement>(".composer-chip__remove")?.focus();
+	// Retry requeues the job, which puts the chip into its busy state — and a
+	// busy chip has no × to land on. The chip root is a programmatic focus
+	// stop (tabindex -1) exactly for this: focus stays beside the file the
+	// action was about instead of falling to <body>.
+	const target =
+		item.querySelector<HTMLElement>(".composer-chip__remove") ??
+		item.querySelector<HTMLElement>(".composer-chip");
+	target?.focus();
 }
 
 function editQueuedMessage() {
@@ -3291,40 +3370,55 @@ async function emitDraftChange(force = false) {
 			disabled={isComposerDisabled}
 			onchange={(event) => uploadFiles((event.currentTarget as HTMLInputElement).files)}
 		/>
-		<textarea
-			data-testid="message-input"
-			bind:this={textarea}
-			bind:value={message}
-			oninput={handleInput}
-			onselect={handleSelect}
-			onscroll={handleTextareaScroll}
-			onkeydown={handleKeydown}
-			onkeyup={handleKeyup}
-			onpaste={handlePaste}
-			onfocus={handleTextareaFocus}
-			onblur={handleTextareaBlur}
-			disabled={isComposerDisabled}
-			aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
-			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
-			placeholder={fittedPlaceholder ?? composerPlaceholder}
-			class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
-			class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
-			rows="1"
-		></textarea>
-		{#if composerTextSegments.length > 0}
-			<div
-				class="composer-link-highlights min-h-[72px] px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
-				style={`transform: translateY(-${linkHighlightScrollTop}px);`}
-			>
-				{#each composerTextSegments as segment}
-					{#if segment.kind === 'link'}
-						<a href={segment.href} target="_blank" rel="noopener noreferrer">{segment.text}</a>
-					{:else}
-						<span>{segment.text}</span>
-					{/if}
-				{/each}
-			</div>
-		{/if}
+		<!-- The field wrapper exactly matches the textarea's border box, so the
+		     clipping viewport can be pinned to it and never move. Only the
+		     mirrored content INSIDE the viewport follows the scroll; moving the
+		     clipping box itself is what blanked a full, scrolled composer. -->
+		<div class="composer-field">
+			<textarea
+				data-testid="message-input"
+				bind:this={textarea}
+				bind:value={message}
+				oninput={handleInput}
+				onselect={handleSelect}
+				onscroll={handleTextareaScroll}
+				onkeydown={handleKeydown}
+				onkeyup={handleKeyup}
+				onpaste={handlePaste}
+				onfocus={handleTextareaFocus}
+				onblur={handleTextareaBlur}
+				disabled={isComposerDisabled}
+				aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
+				aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
+				placeholder={fittedPlaceholder ?? composerPlaceholder}
+				class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
+				class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
+				rows="1"
+			></textarea>
+			{#if composerTextSegments.length > 0}
+				<!-- The viewport's width is the textarea's clientWidth, so when a
+				     scrollbar takes space the mirrored lines wrap where the real
+				     ones do. `width: 100%` is the pre-measurement fallback. -->
+				<div
+					class="composer-link-overlay"
+					data-testid="composer-link-overlay"
+					style:width={textareaWidth > 0 ? `${textareaWidth}px` : undefined}
+				>
+					<div
+						class="composer-link-highlights"
+						style={`transform: translateY(-${linkHighlightScrollTop}px);`}
+					>
+						{#each composerTextSegments as segment}
+							{#if segment.kind === 'link'}
+								<a href={segment.href} target="_blank" rel="noopener noreferrer">{segment.text}</a>
+							{:else}
+								<span>{segment.text}</span>
+							{/if}
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</div>
 
 	<!-- Chips redesign (owner-approved boards, 2026-09-15). Five stacked
 	     lists — one per feature — become ONE wrapping row between the
@@ -3404,26 +3498,43 @@ async function emitDraftChange(force = false) {
 				     gone wrong; only a failure takes the chip's danger slot.
 				     Retry and Cancel stand BESIDE the pill, like the Atlas
 				     bell and the outline disclosure — a chip still has exactly
-				     one control of its own, its ×. -->
+				     one control of its own, its ×.
+				     While the file cannot be sent yet — bytes still moving, or
+				     the read pending — the ×'s slot wears a spinner instead:
+				     there is nothing useful to remove. A failed chip keeps its
+				     ×, wears a short danger clause, and reveals the full
+				     explanation on hover/focus. -->
 				{#each pendingAttachments as attachment (attachment.artifact.id)}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
 					{@const chip = extractionChipState(extraction)}
+					{@const failure = attachmentChipFailure(extraction, attachment)}
+					{@const attachmentBusy = failure.kind === 'busy'}
 					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
+					{@const failureDetail = attachmentFailureDetail(attachment, failure, $t)}
 					<li class="composer-chip-item">
-						<ComposerChip
-							kind={attachmentChipKind(attachment.artifact)}
-							label={attachment.artifact.name}
-							meta={chip.progressKey
-								? $t(asI18nKey(chip.progressKey))
-								: chipMetaText(attachment.artifact)}
-							status={chip.errorKey ? $t(asI18nKey(chip.errorKey)) : null}
-							dashed={chip.dashed}
-							thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
-							removable
-							removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
-							onRemove={() => removePendingAttachment(attachment.artifact.id)}
-							testId="composer-chip-attachment"
-						/>
+						<ComposerChipFailureDetails detail={failureDetail}>
+							{#snippet children(detailsId)}
+								<ComposerChip
+									kind={attachmentChipKind(attachment.artifact)}
+									label={attachment.artifact.name}
+									meta={chip.progressKey
+										? $t(asI18nKey(chip.progressKey))
+										: chipMetaText(attachment.artifact)}
+									status={attachmentChipStatus(failure)}
+									dashed={chip.dashed || attachmentBusy}
+									busy={attachmentBusy}
+									busyLabel={attachmentBusy
+										? $t('composerChips.busyPreparing', { name: attachment.artifact.name })
+										: ''}
+									detailsId={detailsId}
+									thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
+									removable
+									removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
+									onRemove={() => removePendingAttachment(attachment.artifact.id)}
+									testId="composer-chip-attachment"
+								/>
+							{/snippet}
+						</ComposerChipFailureDetails>
 						{#if chip.canRetry}
 							<button
 								type="button"
@@ -3466,7 +3577,7 @@ async function emitDraftChange(force = false) {
 				<!-- OQ6 — a file whose bytes are still moving. No artifact id
 				     exists yet, so it cannot be removed or cancelled; it is a
 				     promise that a real chip is coming, in the place the real
-				     chip will take. -->
+				     chip will take. The spinner stands where the × will be. -->
 				{#each optimisticUploads as upload (upload.id)}
 					<li class="composer-chip-item">
 						<ComposerChip
@@ -3474,6 +3585,8 @@ async function emitDraftChange(force = false) {
 							label={upload.name}
 							meta={$t('chat.extraction.uploading')}
 							dashed
+							busy
+							busyLabel={$t('composerChips.busyUploading', { name: upload.name })}
 							testId="composer-chip-upload"
 						/>
 					</li>
@@ -3813,10 +3926,8 @@ async function emitDraftChange(force = false) {
 			<span class="text-[12px] font-sans text-text-muted" data-testid="send-disabled-hint">
 				{#if sendDisabledHint === 'uploading'}
 					{$t('chat.uploadingFile')}
-				{:else if sendDisabledHint === 'checkingPrivacy'}
-					{$t('chat.checkingPrivacy')}
 				{:else}
-					{$t('chat.extractingDocument')}
+					{$t('chat.checkingPrivacy')}
 				{/if}
 			</span>
 		</div>
@@ -3830,12 +3941,12 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
-	{#if isUploadingAttachment || attachmentError || extractionActionError || attachmentReadinessErrors.length > 0 || queuedSendAfterProcessing}
+	{#if isUploadingAttachment || attachmentError || extractionActionError || queuedSendAfterProcessing}
 		<div class="mt-2 flex flex-col gap-1 px-2 text-xs font-sans">
 			{#if uploadState === 'uploading' && sendDisabledHint !== 'uploading'}
 				<span class="text-text-muted">{$t('chat.uploadingFile')}</span>
 			{/if}
-			{#if queuedSendAfterProcessing && (isUploadingAttachment || hasUnreadyAttachment)}
+			{#if queuedSendAfterProcessing && !hasAttachmentFailure && (isUploadingAttachment || hasBusyAttachment)}
 				<span class="text-text-muted">{$t('chat.messageWillSendAutomatically')}</span>
 			{/if}
 			{#if attachmentError}
@@ -3844,11 +3955,6 @@ async function emitDraftChange(force = false) {
 			{#if extractionActionError}
 				<span class="text-danger" data-testid="extraction-action-error">{extractionActionError}</span>
 			{/if}
-			{#each attachmentReadinessErrors as attachment (attachment.artifact.id)}
-				<span class="text-danger">
-					{attachment.artifact.name}: {attachmentReadinessText(attachment, $t)}
-				</span>
-			{/each}
 		</div>
 	{/if}
 
@@ -4429,10 +4535,20 @@ async function emitDraftChange(force = false) {
 		}
 	}
 
+	.composer-field {
+		position: relative;
+	}
+
 	.composer-textarea {
+		display: block;
 		align-self: stretch;
 		position: relative;
 		z-index: 1;
+		/* The mirror layer wraps with these; state them on the real field too so
+		   an unbroken long URL breaks at the same points in both layers instead
+		   of relying on each browser's textarea defaults. */
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
 	}
 
 	.composer-textarea--link-overlay-active {
@@ -4446,18 +4562,47 @@ async function emitDraftChange(force = false) {
 		-webkit-text-fill-color: transparent;
 	}
 
-	.composer-link-highlights {
+	/* The clipping viewport: pinned to the textarea's border box (the field
+	   wrapper) at the same left/top and full height, with the textarea's
+	   clientWidth set inline. It is never transformed — only the layer inside
+	   it moves, so scrolling cannot carry the clipping box out of view. */
+	.composer-link-overlay {
 		position: absolute;
-		top: 8px;
-		left: 8px;
-		right: 8px;
+		top: 0;
+		left: 0;
 		z-index: 2;
-		max-height: 112px;
+		width: 100%;
+		height: 100%;
+		box-sizing: border-box;
 		overflow: hidden;
-		overflow-wrap: anywhere;
+		pointer-events: none;
+	}
+
+	/* The full mirrored text, with no max-height and no clipping of its own.
+	   Its padding, font and line height mirror the textarea's classes so the
+	   lines wrap and sit exactly where the transparent real text does. */
+	.composer-link-highlights {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 7px 13px;
+		overflow-wrap: break-word;
 		pointer-events: none;
 		white-space: pre-wrap;
+		text-align: left;
+		font-family: var(--font-serif);
+		font-size: 15px;
+		line-height: 1.42;
 		color: var(--text-primary);
+	}
+
+	@media (max-width: 767px) {
+		/* app.css holds the composer at 16px below 768px so iOS does not zoom
+		   on focus; the mirrored text must take the same size or its lines
+		   wrap somewhere else. The two classes also outrank a Tailwind
+		   text-size utility if one is ever put back on this layer. */
+		.composer-link-overlay .composer-link-highlights {
+			font-size: 16px;
+		}
 	}
 
 	.composer-link-highlights a {
@@ -4476,10 +4621,8 @@ async function emitDraftChange(force = false) {
 
 	@media (min-width: 768px) {
 		.composer-link-highlights {
-			top: 10px;
-			left: 10px;
-			right: 10px;
-			max-height: 240px;
+			padding: 8px 16px;
+			line-height: 1.35;
 		}
 	}
 

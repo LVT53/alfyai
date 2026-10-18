@@ -92,8 +92,6 @@ const chatDict = {
 			"This attachment does not contain enough readable text to use in chat. Remove it or upload a supported text-readable document.",
 		"chat.attachmentReadiness.no_usable_text":
 			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
-		"chat.extractingDocument":
-			"Extracting document text… this can take up to ~10s for scanned PDFs.",
 		// Phase 3 — the composer chip's per-file extraction state, one clause
 		// per ledger status. The progress clauses are muted meta on the chip
 		// (nothing has gone wrong yet); only the failure ones wear the chip's
@@ -129,6 +127,17 @@ const chatDict = {
 		"chat.extraction.error.unsupported_type": "File type can't be read",
 		"chat.extraction.failed": "Could not be read",
 		"chat.extraction.failedRetry": "Could not be read — retry",
+		// The failed chip's details popover. The chip keeps one line; these are
+		// the full sentences behind it, and they name the cause the ledger
+		// reported (`{reason}`) plus the one action that can help.
+		"chat.extraction.failureDetail":
+			"This file could not be read: {reason}. Remove it, or upload a version that can be read.",
+		"chat.extraction.failureDetailCanceled":
+			"Reading was stopped. Use Retry beside the chip to read it again.",
+		"chat.extraction.failureDetailNoReason":
+			"This file could not be read. Remove it, or upload a version that can be read.",
+		"chat.extraction.failureDetailRetryable":
+			"This file could not be read: {reason}. Use Retry beside the chip to try again, or remove it.",
 		"chat.extraction.indexing": "Filing…",
 		"chat.extraction.parsing": "Reading…",
 		"chat.extraction.queued": "Waiting to be read",
@@ -1170,6 +1179,17 @@ const chatDict = {
 		"composerChips.removeAttachment": "Remove {name}",
 		"composerChips.removeLinkedDocument": "Remove linked document {name}",
 		"composerChips.removeQuote": "Remove quote {name}",
+		// The chip's own readiness states. `busy*` is the accessible sentence
+		// behind the spinner while the × is withheld; `failure*` is the short
+		// danger clause a terminal readiness failure wears, with the full
+		// sentence in the details popover.
+		"composerChips.busyPreparing": "Preparing {name}",
+		"composerChips.busyUploading": "Uploading {name}",
+		"composerChips.failureGeneric": "Could not be prepared",
+		"composerChips.failureNoUsableText": "No usable text",
+		"composerChips.failureNotAvailable": "File unavailable",
+		"composerChips.failureNotPrepared": "Not prepared",
+		"composerChips.failureNotTextReadable": "Not enough text",
 		"composerChips.fileMeta": "{pages} pp · {tokens} tok",
 		"composerChips.filePages": "{pages} pp",
 		// A PPTX counts slides and an XLSX counts sheets; saying "pp" for those
@@ -1263,8 +1283,6 @@ const chatDict = {
 			"Ez a csatolmány nem tartalmaz elég olvasható szöveget a csevegéshez. Távolítsd el, vagy tölts fel egy szövegesen olvasható dokumentumot.",
 		"chat.attachmentReadiness.no_usable_text":
 			"A fájl feltöltése sikerült, de nem sikerült belőle használható szöveget előkészíteni a csevegéshez.",
-		"chat.extractingDocument":
-			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
 		"chat.extraction.busy": "Folyamatban...",
 		"chat.extraction.cancel": "Leállítás",
 		"chat.extraction.cancelA11y": "{name} olvasásának leállítása",
@@ -1293,6 +1311,14 @@ const chatDict = {
 		"chat.extraction.error.unsupported_type": "Ez a fájltípus nem olvasható be",
 		"chat.extraction.failed": "Nem olvasható be",
 		"chat.extraction.failedRetry": "Nem olvasható be — próbáld újra",
+		"chat.extraction.failureDetail":
+			"Ezt a fájlt nem sikerült beolvasni: {reason}. Távolítsd el, vagy tölts fel egy beolvasható változatot.",
+		"chat.extraction.failureDetailCanceled":
+			"A beolvasás leállt. Használd az Újra gombot a chip mellett az újrapróbáláshoz.",
+		"chat.extraction.failureDetailNoReason":
+			"Ezt a fájlt nem sikerült beolvasni. Távolítsd el, vagy tölts fel egy beolvasható változatot.",
+		"chat.extraction.failureDetailRetryable":
+			"Ezt a fájlt nem sikerült beolvasni: {reason}. Használd az Újra gombot a chip mellett, vagy távolítsd el.",
 		"chat.extraction.indexing": "Feldolgozás…",
 		"chat.extraction.parsing": "Olvasás…",
 		"chat.extraction.queued": "Sorban áll",
@@ -2292,6 +2318,13 @@ const chatDict = {
 		"composerChips.removeLinkedDocument":
 			"{name} csatolt dokumentum eltávolítása",
 		"composerChips.removeQuote": "{name} idézet eltávolítása",
+		"composerChips.busyPreparing": "{name} előkészítése",
+		"composerChips.busyUploading": "{name} feltöltése",
+		"composerChips.failureGeneric": "Nem sikerült előkészíteni",
+		"composerChips.failureNoUsableText": "Nincs használható szöveg",
+		"composerChips.failureNotAvailable": "A fájl nem érhető el",
+		"composerChips.failureNotPrepared": "Nincs előkészítve",
+		"composerChips.failureNotTextReadable": "Kevés a szöveg",
 		"composerChips.fileMeta": "{pages} o. · {tokens} token",
 		"composerChips.filePages": "{pages} o.",
 		// Magyarul a számnév után egyes szám áll: "12 dia", "3 munkalap".

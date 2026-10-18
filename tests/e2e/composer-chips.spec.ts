@@ -7,7 +7,7 @@
 // the row survives a loaded turn without pushing the send button out of
 // reach. That is what this spec is for.
 import { expect, type Page, test } from "@playwright/test";
-import { login } from "./helpers";
+import { login, waitForStableBoundingBox } from "./helpers";
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -525,6 +525,124 @@ test.describe("composer chips — one pill, one row", () => {
 		await expect(page.getByTestId("composer-chip-skill")).toHaveCount(0);
 		// With nothing attached, the row is gone entirely.
 		await expect(page.locator(".composer-chip-row")).toHaveCount(0);
+	});
+});
+
+test.describe("composer link overlay", () => {
+	// A full composer turns its real text transparent and paints a mirrored
+	// link layer over it. That layer used to BE the clipped box and was
+	// translated by -scrollTop, so scrolling carried the whole thing out of
+	// view and the composer looked blank. The clipping viewport now stands
+	// still on the textarea's box; only the content inside it moves.
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize(DESKTOP);
+	});
+
+	test("a scrolled composer keeps the highlight viewport on the textarea", async ({
+		page,
+	}) => {
+		await bootstrap(page);
+
+		const input = page.getByTestId("message-input");
+		// The long path has no break opportunity of its own, so only the two
+		// layers' matching overflow-wrap can break it — at the same characters.
+		const url = `https://example.com/${"x".repeat(180)}`;
+		const manyLines = Array.from(
+			{ length: 40 },
+			(_, index) =>
+				`Line ${index + 1}: a draft sentence long enough to fill the composer.`,
+		).join("\n");
+		await input.fill(`${manyLines}\n${url}`);
+
+		await input.evaluate((element) => {
+			const textarea = element as HTMLTextAreaElement;
+			textarea.scrollTop = textarea.scrollHeight;
+		});
+		await expect
+			.poll(() =>
+				input.evaluate((element) => (element as HTMLTextAreaElement).scrollTop),
+			)
+			.toBeGreaterThan(0);
+
+		const overlay = page.getByTestId("composer-link-overlay");
+		const content = overlay.locator(".composer-link-highlights");
+		await expect(overlay).toHaveCount(1);
+		// The viewport is not the moving part. Only the mirrored content is.
+		expect(
+			await overlay.evaluate((element) => getComputedStyle(element).transform),
+		).toBe("none");
+		await expect
+			.poll(() =>
+				content.evaluate((element) => {
+					const transform = getComputedStyle(element).transform;
+					return transform === "none"
+						? 0
+						: new DOMMatrixReadOnly(transform).m42;
+				}),
+			)
+			.toBeLessThan(0);
+
+		await waitForStableBoundingBox(input);
+		const textareaBox = await input.boundingBox();
+		const overlayBox = await overlay.boundingBox();
+		expect(textareaBox).not.toBeNull();
+		expect(overlayBox).not.toBeNull();
+		// It is pinned to the textarea's border box, NOT lifted by -scrollTop.
+		expect(
+			Math.abs((overlayBox?.y ?? 0) - (textareaBox?.y ?? 0)),
+		).toBeLessThanOrEqual(2);
+		expect(
+			Math.abs((overlayBox?.height ?? 0) - (textareaBox?.height ?? 0)),
+		).toBeLessThanOrEqual(2);
+		expect(
+			Math.abs((overlayBox?.x ?? 0) - (textareaBox?.x ?? 0)),
+		).toBeLessThanOrEqual(2);
+
+		// The mirrored text must wrap where the real text does: the viewport is
+		// as wide as the textarea's CLIENT box (which already excludes a
+		// scrollbar), and the content layer's content box matches the
+		// textarea's, so a scrollbar cannot shift the wrap.
+		const textareaClientWidth = await input.evaluate(
+			(element) => (element as HTMLTextAreaElement).clientWidth,
+		);
+		expect(
+			Math.abs((overlayBox?.width ?? 0) - textareaClientWidth),
+		).toBeLessThanOrEqual(2);
+		const textareaContentWidth = await input.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return (
+				(element as HTMLTextAreaElement).clientWidth -
+				Number.parseFloat(style.paddingLeft) -
+				Number.parseFloat(style.paddingRight)
+			);
+		});
+		const mirroredContentWidth = await content.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return (
+				(element as HTMLElement).clientWidth -
+				Number.parseFloat(style.paddingLeft) -
+				Number.parseFloat(style.paddingRight)
+			);
+		});
+		expect(
+			Math.abs(mirroredContentWidth - textareaContentWidth),
+		).toBeLessThanOrEqual(2);
+
+		// Both layers hold the same unbroken URL, so equal content heights mean
+		// both wrapped it at the same characters — no extra or missing line in
+		// the mirror.
+		const textareaScrollHeight = await input.evaluate(
+			(element) => (element as HTMLTextAreaElement).scrollHeight,
+		);
+		const mirroredScrollHeight = await content.evaluate(
+			(element) => (element as HTMLElement).scrollHeight,
+		);
+		expect(
+			Math.abs(mirroredScrollHeight - textareaScrollHeight),
+		).toBeLessThanOrEqual(2);
+
+		// The link is still there (and the mirrored layer still carries it).
+		await expect(content.getByRole("link", { name: url })).toBeVisible();
 	});
 });
 

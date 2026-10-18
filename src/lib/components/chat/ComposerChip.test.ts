@@ -179,11 +179,31 @@ describe("ComposerChip", () => {
 		await fireEvent.keyDown(remove, { key: "Delete" });
 		expect(onRemove).toHaveBeenCalledTimes(1);
 		await waitFor(() => expect(focusFallback).toHaveBeenCalledTimes(1));
+	});
 
-		// A mouse removal leaves focus alone: the pointer is already elsewhere.
+	// Enter/Space on a focused × arrives as a click, and so does a pointer
+	// click; either way the button that had focus is removed. Falling back to
+	// <body> would strand a keyboard or switch user at the top of the page.
+	it("hands focus on when the X is activated, not only on Delete", async () => {
+		const onRemove = vi.fn();
+		const focusFallback = vi.fn();
+		const { getByRole } = render(ComposerChip, {
+			props: {
+				kind: "quote",
+				label: "2.3 Break clause",
+				removable: true,
+				removeLabel: "Remove quote 2.3 Break clause",
+				onRemove,
+			},
+			context: new Map([[COMPOSER_CHIP_ROW_CONTEXT, { focusFallback }]]),
+		});
+		const remove = getByRole("button", {
+			name: "Remove quote 2.3 Break clause",
+		});
+		remove.focus();
 		await fireEvent.click(remove);
-		expect(onRemove).toHaveBeenCalledTimes(2);
-		expect(focusFallback).toHaveBeenCalledTimes(1);
+		expect(onRemove).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(focusFallback).toHaveBeenCalledTimes(1));
 	});
 
 	it("does not remove while disabled", async () => {
@@ -296,5 +316,121 @@ describe("ComposerChip", () => {
 		const chip = getByTestId("chip");
 		expect(chip.textContent).toContain("Invoice reply");
 		expect(chip.textContent).toContain("Unavailable");
+	});
+
+	// A file that is still being uploaded or read has no removal control yet:
+	// the composer's send gate is holding the turn, and the control slot where
+	// the × will appear wears a spinner instead. `aria-busy` plus the echoed
+	// label is what a screen reader hears in place of the removed button.
+	it("puts a spinner in the remove control's place while busy", () => {
+		const { getByTestId, queryByRole } = render(ComposerChip, {
+			props: {
+				kind: "file",
+				label: "scan.pdf",
+				meta: "Uploading…",
+				removable: true,
+				removeLabel: "Remove scan.pdf",
+				onRemove: vi.fn(),
+				busy: true,
+				busyLabel: "Uploading scan.pdf",
+				testId: "chip",
+			},
+		});
+		const chip = getByTestId("chip");
+		expect(chip).toHaveAttribute("aria-busy", "true");
+		expect(getByTestId("composer-chip-busy")).toBeInTheDocument();
+		expect(queryByRole("button")).toBeNull();
+		expect(chip).toHaveTextContent("Uploading scan.pdf");
+	});
+
+	it("gives the X back, and drops the busy label, once the work is done", () => {
+		const { getByTestId, getByRole, queryByTestId } = render(ComposerChip, {
+			props: {
+				kind: "file",
+				label: "scan.pdf",
+				removable: true,
+				removeLabel: "Remove scan.pdf",
+				onRemove: vi.fn(),
+				busy: false,
+				busyLabel: "Uploading scan.pdf",
+				testId: "chip",
+			},
+		});
+		const chip = getByTestId("chip");
+		expect(chip).not.toHaveAttribute("aria-busy", "true");
+		expect(queryByTestId("composer-chip-busy")).toBeNull();
+		expect(
+			getByRole("button", { name: "Remove scan.pdf" }),
+		).toBeInTheDocument();
+	});
+
+	// Pressing Retry on a failed chip requeues the job, which removes both the
+	// Retry button and the X. A keyboard user must not be left on <body>: the
+	// chip itself is a programmatic focus stop (not a tab stop) while busy.
+	it("is a stable programmatic focus stop while its control slot is a spinner", () => {
+		const { getByTestId } = render(ComposerChip, {
+			props: {
+				kind: "file",
+				label: "scan.pdf",
+				removable: true,
+				removeLabel: "Remove scan.pdf",
+				onRemove: vi.fn(),
+				busy: true,
+				testId: "chip",
+			},
+		});
+		const chip = getByTestId("chip");
+		expect(chip).toHaveAttribute("tabindex", "-1");
+		chip.focus();
+		expect(document.activeElement).toBe(chip);
+	});
+
+	// The × is the only focus stop on a chip, so the open failure popover has
+	// to describe THAT — a described-by on a non-focusable wrapper would never
+	// be heard.
+	it("describes the X with the open failure details", () => {
+		const { getByRole } = render(ComposerChip, {
+			props: {
+				kind: "file",
+				label: "scan.pdf",
+				removable: true,
+				removeLabel: "Remove scan.pdf",
+				onRemove: vi.fn(),
+				detailsId: "composer-chip-failure-details-1",
+			},
+		});
+		expect(getByRole("button", { name: "Remove scan.pdf" })).toHaveAttribute(
+			"aria-describedby",
+			"composer-chip-failure-details-1",
+		);
+	});
+
+	// The busy loader is the shared Spinner, not a hand-rolled chip animation:
+	// the chip's motion guard (reduced-motion-transitions.regression.test.ts)
+	// forbids @keyframes/animation: in this file, and the global reduced-motion
+	// reset reaches Spinner's `animate-spin`.
+	it("renders the shared Spinner in the busy slot, with no animation of its own", () => {
+		const { getByTestId } = render(ComposerChip, {
+			props: {
+				kind: "file",
+				label: "scan.pdf",
+				removable: true,
+				removeLabel: "Remove scan.pdf",
+				onRemove: vi.fn(),
+				busy: true,
+				testId: "chip",
+			},
+		});
+		expect(
+			getByTestId("chip").querySelector('[data-testid="spinner"]'),
+		).not.toBeNull();
+
+		const source = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "ComposerChip.svelte"),
+			"utf-8",
+		);
+		expect(source).toContain('from "../ui/Spinner.svelte"');
+		expect(source).not.toContain("@keyframes");
+		expect(source).not.toMatch(/\n\s*animation:/);
 	});
 });
