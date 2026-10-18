@@ -12,7 +12,9 @@ import { createSession, sweepExpiredSessions, validateSession } from "./auth";
 // the check never fired and only the cookie's Max-Age ended a session.
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const REMEMBERED_DAYS = 14;
+/** A session without "remember me" (see `SHORT_SESSION_DURATION_MS` in `auth.ts`). */
+const SHORT_SESSION_MS = 2.5 * ONE_DAY_MS;
+const REMEMBERED_DAYS = 17;
 
 let userId: string;
 
@@ -42,7 +44,7 @@ describe("a session's expiry", () => {
 	it("a session is refused once its expiry has passed", async () => {
 		const { token } = await createSession(userId, { rememberMe: false });
 
-		vi.setSystemTime(Date.now() + ONE_DAY_MS + 1000);
+		vi.setSystemTime(Date.now() + SHORT_SESSION_MS + 1000);
 
 		expect(await validateSession(token)).toBeNull();
 		// The refused session does not linger as a row.
@@ -53,14 +55,14 @@ describe("a session's expiry", () => {
 		const issuedAt = Date.now();
 		const { token } = await createSession(userId, { rememberMe: false });
 
-		vi.setSystemTime(issuedAt + ONE_DAY_MS - 60_000);
+		vi.setSystemTime(issuedAt + SHORT_SESSION_MS - 60_000);
 
 		const user = await validateSession(token);
 		expect(user?.id).toBe(userId);
 		expect(await sessionRowsOfTheUser()).toHaveLength(1);
 	});
 
-	it("a remembered session lasts 14 days, and not a day more", async () => {
+	it("a remembered session lasts 17 days, and not a day more", async () => {
 		const issuedAt = Date.now();
 		const { token } = await createSession(userId, { rememberMe: true });
 
@@ -76,9 +78,11 @@ describe("a session's expiry", () => {
 		const { expiresAt } = await createSession(userId, { rememberMe: false });
 
 		expect(expiresAt).toBeInstanceOf(Date);
-		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(issuedAt + ONE_DAY_MS);
+		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+			issuedAt + SHORT_SESSION_MS,
+		);
 		expect(expiresAt.getTime()).toBeLessThanOrEqual(
-			Date.now() + ONE_DAY_MS + 10,
+			Date.now() + SHORT_SESSION_MS + 10,
 		);
 
 		// What the column itself holds, read around Drizzle's Date mapping: a

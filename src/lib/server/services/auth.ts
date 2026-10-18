@@ -16,10 +16,13 @@ import {
 	recordLoginSuccess,
 } from "./login-rate-limit";
 
-const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
-const REMEMBERED_SESSION_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A session without "remember me": 2.5 days. */
+const SHORT_SESSION_DURATION_MS = 2.5 * DAY_MS;
+/** A session with "remember me": 17 days. */
+const REMEMBERED_SESSION_DURATION_MS = 17 * DAY_MS;
 /** How far past the longest session a row may end before it is called what it is. */
-const FAR_FUTURE_GRACE_MS = 24 * 60 * 60 * 1000;
+const FAR_FUTURE_GRACE_MS = DAY_MS;
 /** bcrypt's cost for a stored password (the sign-in's decoy hash uses the same number). */
 const PASSWORD_HASH_COST = 12;
 

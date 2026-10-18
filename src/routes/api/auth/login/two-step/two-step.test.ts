@@ -190,7 +190,7 @@ describe("POST /api/auth/login/two-step", () => {
 			.from(sessions)
 			.where(eq(sessions.userId, userId));
 		expect(row?.expiresAt.getTime()).toBeGreaterThan(
-			Date.now() + 13 * 24 * 60 * 60 * 1000,
+			Date.now() + 16 * 24 * 60 * 60 * 1000,
 		);
 	});
 

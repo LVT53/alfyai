@@ -99,7 +99,7 @@ describe("createSession", () => {
 		vi.clearAllMocks();
 	});
 
-	it("returns a 64-char hex token and expiresAt ~14 days from now by default", async () => {
+	it("returns a 64-char hex token and expiresAt ~17 days from now by default", async () => {
 		const insertChain = makeInsertChain();
 		mockDb.insert.mockReturnValue(insertChain);
 
@@ -109,11 +109,11 @@ describe("createSession", () => {
 
 		expect(token).toMatch(/^[a-f0-9]{64}$/);
 
-		const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+		const seventeenDays = 17 * 24 * 60 * 60 * 1000;
 		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
-			before + fourteenDays - 10,
+			before + seventeenDays - 10,
 		);
-		expect(expiresAt.getTime()).toBeLessThanOrEqual(after + fourteenDays + 10);
+		expect(expiresAt.getTime()).toBeLessThanOrEqual(after + seventeenDays + 10);
 
 		expect(mockDb.insert).toHaveBeenCalled();
 		expect(insertChain.values).toHaveBeenCalledWith(
@@ -121,7 +121,7 @@ describe("createSession", () => {
 		);
 	});
 
-	it("uses a 1-day expiry when rememberMe is false", async () => {
+	it("uses a 2.5-day expiry when rememberMe is false", async () => {
 		const insertChain = makeInsertChain();
 		mockDb.insert.mockReturnValue(insertChain);
 
@@ -131,9 +131,13 @@ describe("createSession", () => {
 		});
 		const after = Date.now();
 
-		const oneDay = 24 * 60 * 60 * 1000;
-		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + oneDay - 10);
-		expect(expiresAt.getTime()).toBeLessThanOrEqual(after + oneDay + 10);
+		const twoAndAHalfDays = 2.5 * 24 * 60 * 60 * 1000;
+		expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+			before + twoAndAHalfDays - 10,
+		);
+		expect(expiresAt.getTime()).toBeLessThanOrEqual(
+			after + twoAndAHalfDays + 10,
+		);
 	});
 
 	it("creates unique tokens on each call", async () => {
