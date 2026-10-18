@@ -17,11 +17,9 @@ const projectsDict = {
 		"projects.stats": "{count} chats · active {relative}",
 		"projects.statsOne": "1 chat · active {relative}",
 		// The list's heading. Counted, so the singular has its own line; a
-		// project with no chats shows `projects.emptyList` instead.
+		// project with no chats draws no list at all.
 		"projects.listHeading": "{count} chats in this project",
 		"projects.listHeadingOne": "1 chat in this project",
-		"projects.emptyList":
-			"No chats yet. The first message you send here starts one.",
 		// The quiet line under the composer. Slice D ships the instructions
 		// half; Slice E appends the files half after a middot.
 		"projects.instructionsLabel": "Instructions",
@@ -97,7 +95,6 @@ const projectsDict = {
 		"projects.statsOne": "1 csevegés · aktív: {relative}",
 		"projects.listHeading": "{count} csevegés ebben a projektben",
 		"projects.listHeadingOne": "1 csevegés ebben a projektben",
-		"projects.emptyList": "Még nincs csevegés. Az első üzenet itt indít egyet.",
 		"projects.instructionsLabel": "Utasítások",
 		"projects.addInstructions": "Utasítások hozzáadása",
 		"projects.filesLabel": "{count} fájl",

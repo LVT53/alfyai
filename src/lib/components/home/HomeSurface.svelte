@@ -1324,7 +1324,6 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 							running={running}
 							{nowSeconds}
 							heading={projectListHeading}
-							emptyLine={isProjectMode ? $t('projects.emptyList') : null}
 							onAllConversations={requestSearchModalOpen}
 						/>
 

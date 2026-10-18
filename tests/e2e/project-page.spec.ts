@@ -205,7 +205,7 @@ test.describe("Project page", () => {
 		expect(row.projectId).toBe(projectId);
 	});
 
-	test("shows the empty list line for a project with no chats", async ({
+	test("keeps the project page but draws no Recent line when the project has no chats", async ({
 		page,
 	}) => {
 		const projectName = `Empty trip ${randomUUID().slice(0, 8)}`;
@@ -213,13 +213,24 @@ test.describe("Project page", () => {
 
 		await openProjectPage(page, projectId);
 
-		await expect(page.getByTestId("home-empty-line")).toHaveText(
-			"No chats yet. The first message you send here starts one.",
-		);
-		await expect(page.getByTestId("home-list-heading")).toHaveCount(0);
+		// The 0-chat project page is still the whole project page — its record,
+		// its composer and its quiet line. Only Recent is absent: no tagline,
+		// no counted heading and no empty section left behind under the
+		// composer.
 		await expect(page.getByTestId("project-stats")).toContainText(
 			"0 chats · active",
 		);
+		await expect(page.getByTestId("home-empty-line")).toHaveCount(0);
+		await expect(
+			page.getByText(
+				"No chats yet. The first message you send here starts one.",
+			),
+		).toHaveCount(0);
+		await expect(page.getByTestId("home-recent")).toHaveCount(0);
+		await expect(page.getByTestId("home-list-heading")).toHaveCount(0);
+		await expect(page.getByTestId("home-recent-line")).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await expect(page.getByTestId("project-quiet-line")).toBeVisible();
 	});
 
 	/** The landing draft's conversation id, as the session carries it. */

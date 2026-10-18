@@ -32,7 +32,6 @@ let {
 	running = null,
 	nowSeconds = Math.floor(Date.now() / 1000),
 	heading = null,
-	emptyLine = null,
 	onAllConversations,
 }: {
 	recent?: HomeRecentConversation[];
@@ -44,13 +43,6 @@ let {
 	 * list below it is already everything and there is nowhere to go.
 	 */
 	heading?: string | null;
-	/**
-	 * What to say when there is nothing to list. The landing page draws
-	 * nothing at all in that case (an empty Recent is not worth a sentence);
-	 * a project with no chats has to say so, because the page is otherwise
-	 * just a composer with no explanation.
-	 */
-	emptyLine?: string | null;
 	onAllConversations?: () => void;
 } = $props();
 
@@ -75,7 +67,7 @@ function elapsed(startedAt: number): string {
 }
 </script>
 
-{#if recent.length > 0 || running || emptyLine}
+{#if recent.length > 0 || running}
 	<section
 		class="home-recent"
 		aria-label={heading ?? $t('home.recentLabel')}
@@ -98,10 +90,6 @@ function elapsed(startedAt: number): string {
 					</button>
 				{/if}
 			</div>
-		{/if}
-
-		{#if emptyLine && recent.length === 0 && !running}
-			<p class="home-empty-line" data-testid="home-empty-line">{emptyLine}</p>
 		{/if}
 
 		<div class="home-lines">
@@ -212,17 +200,6 @@ function elapsed(startedAt: number): string {
 		color: var(--text-muted);
 		opacity: 0.6;
 		white-space: nowrap;
-	}
-
-	/* A project with no chats has to say so: the page is otherwise a composer
-	   with no explanation of what it belongs to. Same quiet ink again, and it
-	   stands in for the lines rather than beside them. */
-	.home-empty-line {
-		margin: 0;
-		padding: 6px 6px;
-		font-size: 0.8rem;
-		color: var(--text-muted);
-		opacity: 0.7;
 	}
 
 	/* The quiet link is 0.72rem of ink; on a phone it still gets a 44px target. */
