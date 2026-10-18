@@ -20,6 +20,7 @@ import type { MessageEditPayload, MessageRegeneratePayload } from "../_helpers";
 let {
 	messages,
 	conversationId,
+	composerHeight = 0,
 	isIncognito = false,
 	isThinkingActive,
 	modelIcons = {},
@@ -60,6 +61,8 @@ let {
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
+	/** The composer layer's measured height; keeps the jump-to-latest button above it. */
+	composerHeight?: number;
 	/** Renders the one-time "Off the record from here" opening mark. */
 	isIncognito?: boolean;
 	isThinkingActive: boolean;
@@ -142,6 +145,7 @@ let {
 	<MessageArea
 		{messages}
 		{conversationId}
+		{composerHeight}
 		{isIncognito}
 		{isThinkingActive}
 		{modelIcons}

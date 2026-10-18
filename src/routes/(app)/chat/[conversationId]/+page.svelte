@@ -746,6 +746,12 @@ let activeWorkspaceDocumentId = $state<string | null>(
 	initialWorkspaceState?.activeDocumentId ?? null,
 );
 let workspaceOpen = $state(initialWorkspaceState?.isOpen ?? false);
+// Measured by ChatComposerPanel; MessageArea keeps the jump-to-latest button
+// above the composer instead of letting a full-width composer cover it.
+let composerLayerHeight = $state(0);
+function handleComposerLayerHeight(height: number) {
+	composerLayerHeight = height;
+}
 let workspacePresentation = $state<"docked" | "expanded">(
 	initialWorkspaceState?.presentation ?? "docked",
 );
@@ -4028,6 +4034,7 @@ function handleDrop(event: DragEvent) {
 						messages={$messages}
 						conversationId={data.conversation.id}
 						isIncognito={data.conversation.memoryIncognito ?? false}
+						composerHeight={composerLayerHeight}
 						{isThinkingActive}
 						{modelIcons}
 						{fileProductionJobs}
@@ -4119,6 +4126,7 @@ function handleDrop(event: DragEvent) {
 				beforeSend={prepareTurn}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
+				onLayerHeightChange={handleComposerLayerHeight}
 				placeholder={composerPlaceholder}
 			/>
 		</div>

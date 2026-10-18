@@ -40,6 +40,7 @@ import { buildJumpRailTurns } from "./jump-rail";
 let {
 	messages = [],
 	conversationId = null,
+	composerHeight = 0,
 	isIncognito = false,
 	isThinkingActive = false,
 	modelIcons = {},
@@ -80,6 +81,8 @@ let {
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
+	/** Measured composer-layer height; the jump-to-latest button sits above it. */
+	composerHeight?: number;
 	/**
 	 * Incognito, one-way (docs/plans/incognito-one-way-spec.md §5). Renders
 	 * the opening mark — a single dashed-hairline row, once, before the first
@@ -979,7 +982,12 @@ async function scrollToMessage(messageId: string) {
 }
 </script>
 
-<div class="message-area-surface">
+<div
+	class="message-area-surface"
+	style:--composer-layer-height={composerHeight > 0
+		? `${composerHeight}px`
+		: null}
+>
 	<div
 		bind:this={scrollContainer}
 		onscroll={handleScroll}
@@ -1261,7 +1269,13 @@ async function scrollToMessage(messageId: string) {
 	.jump-to-latest-button {
 		position: absolute;
 		right: var(--space-md);
-		bottom: 8rem;
+		/* The composer layer spans the chat column when the document panel
+		   narrows it (and on narrow viewports), so its measured height is the
+		   only bottom that keeps this button above it at every width. */
+		bottom: max(
+			8rem,
+			calc(var(--composer-layer-height, 0px) + var(--space-sm))
+		);
 		z-index: 6;
 		display: inline-flex;
 		align-items: center;
@@ -1613,7 +1627,13 @@ async function scrollToMessage(messageId: string) {
 		   comfortable gap, tracking the same safe-area inset so the gap holds
 		   on notched/home-indicator devices too. */
 		.jump-to-latest-button {
-			bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + 4.75rem + 44px + var(--space-sm));
+			bottom: max(
+				calc(
+					var(--space-md) + env(safe-area-inset-bottom, 0px) + 4.75rem +
+						44px + var(--space-sm)
+				),
+				calc(var(--composer-layer-height, 0px) + var(--space-sm))
+			);
 		}
 	}
 
@@ -1622,8 +1642,5 @@ async function scrollToMessage(messageId: string) {
 			--scroll-clearance-base: 9.5rem;
 		}
 
-		.jump-to-latest-button {
-			bottom: 7rem;
-		}
 	}
 </style>

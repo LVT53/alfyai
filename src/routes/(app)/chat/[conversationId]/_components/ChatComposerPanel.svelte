@@ -72,6 +72,7 @@ let {
 	onCapabilitiesReady = undefined,
 	children,
 	placeholder = null,
+	onLayerHeightChange = undefined,
 }: {
 	sendError: string | null;
 	// R1 (ADR-0060) — defaults to true so existing callers that never show a
@@ -165,6 +166,8 @@ let {
 	 * `placeholder` prop doc already describes for the project page.
 	 */
 	placeholder?: string | null;
+	/** The rendered composer-layer height, for the jump-to-latest button above it. */
+	onLayerHeightChange?: ((height: number) => void) | undefined;
 } = $props();
 
 // The soft-keyboard offset is handled natively by the browser via the
@@ -172,9 +175,24 @@ let {
 // when the keyboard opens the layout viewport shrinks, so the relative parent
 // (`.chat-main`) resizes and this composer — anchored with `position: absolute;
 // bottom: 0` — rides up with it. No manual keyboard-offset math required.
+let layerEl = $state<HTMLElement | null>(null);
+let layerHeight = $state(0);
+$effect(() => {
+	const element = layerEl;
+	if (!element || typeof ResizeObserver === "undefined") return;
+	layerHeight = element.clientHeight;
+	const observer = new ResizeObserver(() => {
+		layerHeight = element.clientHeight;
+	});
+	observer.observe(element);
+	return () => observer.disconnect();
+});
+$effect(() => {
+	onLayerHeightChange?.(layerHeight);
+});
 </script>
 
-<div class='composer-layer'>
+<div class='composer-layer' bind:this={layerEl}>
 	<div class='composer-shell mx-auto flex w-full max-w-[780px] flex-col gap-3'>
 		{#if sendError}
 			<ErrorMessage
