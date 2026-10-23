@@ -1,7 +1,7 @@
 // Data-driven tool health registry. Every Normal Chat tool declares its
 // backend, a `configured` predicate over the runtime config, and (where a
-// server-side backend exists) a cheap probe. Adding a tool is one entry in
-// TOOL_HEALTH_REGISTRY.
+// server-side backend can be checked without spending anything) a cheap
+// probe. Adding a tool is one entry in TOOL_HEALTH_REGISTRY.
 //
 // Probes never throw: every failure is normalized to { ok: false, detail }.
 // They receive an injectable `fetch` so tests can drive them without network.
@@ -132,24 +132,6 @@ function probeParallel(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 				"x-api-key": ctx.config.parallelApiKey,
 			},
 			body: "{}",
-		},
-		expectAuthenticated,
-	);
-}
-
-const BRAVE_IMAGE_SEARCH_PROBE_URL =
-	"https://api.search.brave.com/res/v1/images/search?q=test&count=1";
-
-function probeBrave(ctx: ToolProbeContext): Promise<ToolProbeResult> {
-	return httpProbe(
-		ctx,
-		BRAVE_IMAGE_SEARCH_PROBE_URL,
-		{
-			method: "GET",
-			headers: {
-				Accept: "application/json",
-				"X-Subscription-Token": ctx.config.braveSearchApiKey,
-			},
 		},
 		expectAuthenticated,
 	);
@@ -320,12 +302,14 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		probe: probeParallel,
 		probeKey: PARALLEL_PROBE_KEY,
 	},
+	// Not probed: every Brave call counts against the plan's monthly quota,
+	// and a probe on each five-minute refresh used it up within days. A real
+	// call that fails reports its own error.
 	{
 		id: "image_search",
 		name: "image_search",
 		backend: "Brave Search",
 		configured: (config) => hasValue(config.braveSearchApiKey),
-		probe: probeBrave,
 	},
 	{
 		id: "memory_context",

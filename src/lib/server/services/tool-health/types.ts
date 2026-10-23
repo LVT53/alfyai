@@ -56,7 +56,8 @@ export interface ToolHealthEntry {
 	backend: string;
 	configured: (config: ToolHealthConfig) => boolean;
 	// Cheap reachability/auth check. Omit for tools that have no server-side
-	// backend to probe (per-user connection tools).
+	// backend to probe (per-user connection tools), and for a backend that
+	// bills every call (Brave); the report then says "not probed".
 	probe?: (ctx: ToolProbeContext) => Promise<ToolProbeResult>;
 	// Entries that share a probeKey share one probe run per snapshot: the
 	// first one starts it, the rest reuse its result. Set it whenever several

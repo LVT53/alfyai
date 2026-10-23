@@ -199,6 +199,11 @@ export async function checkToolHealth(
 			const status = deriveStatus(configured, probed, ok, connectedConnections);
 			const detailParts: string[] = [];
 			if (!configured) detailParts.push("not configured");
+			// A backend the registry leaves unprobed (image_search) is configured,
+			// not checked: say so, so its "healthy" is not read as a passed check.
+			if (configured && !entry.probe && !capability) {
+				detailParts.push("not probed");
+			}
 			if (outcome?.detail) detailParts.push(outcome.detail);
 			if (capability && connections.error) {
 				detailParts.push(`connection count unavailable: ${connections.error}`);

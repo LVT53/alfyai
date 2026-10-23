@@ -282,13 +282,6 @@ describe("tool health registry", () => {
 		);
 		expect(parallel?.[1].body).toBe("{}");
 
-		const brave = find(
-			"api.search.brave.com/res/v1/images/search?q=test&count=1",
-		);
-		expect(
-			(brave?.[1].headers as Record<string, string>)["X-Subscription-Token"],
-		).toBe("brave-key");
-
 		expect(find("http://tei-embed:8080/health")).toBeDefined();
 		const reranker = find("http://tei-rerank:8080/health");
 		expect(
@@ -307,11 +300,38 @@ describe("tool health registry", () => {
 		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
 	});
 
+	// Every Brave call is a query against the plan's monthly quota, and the
+	// snapshot is refreshed every five minutes while an admin has the app open.
+	it("never sends Brave a query to check image_search", async () => {
+		const deps = makeDeps(healthyHandler);
+		const tools = byId(await checkToolHealth(deps));
+
+		expect(
+			deps.fetch.mock.calls.some(([url]) =>
+				String(url).includes("api.search.brave.com"),
+			),
+		).toBe(false);
+		expect(tools.image_search.probed).toBe(false);
+	});
+
+	it("says a configured backend it does not probe is not probed", async () => {
+		const tools = byId(await checkToolHealth(makeDeps(healthyHandler)));
+		expect(tools.image_search.detail).toBe("not probed");
+	});
+
+	it("reports a rate-limited backend degraded", async () => {
+		const deps = makeDeps((url) =>
+			url.includes("/v1/search") ? jsonResponse({}, 429) : healthyHandler(url),
+		);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.research_web.status).toBe("degraded");
+		expect(tools.research_web.detail).toContain("rate limited");
+	});
+
 	it("marks configured backends degraded when probes fail, with a detail", async () => {
 		const deps = makeDeps(
 			(url) => {
 				if (url.includes("/v1/search")) return jsonResponse({}, 401);
-				if (url.includes("brave")) return jsonResponse({}, 429);
 				if (url.includes("/v2/health"))
 					return jsonResponse({ status: "not ready" });
 				if (url.includes("tei-embed")) throw new TypeError("fetch failed");
@@ -328,8 +348,6 @@ describe("tool health registry", () => {
 
 		expect(tools.research_web.status).toBe("degraded");
 		expect(tools.research_web.detail).toContain("authentication rejected");
-		expect(tools.image_search.status).toBe("degraded");
-		expect(tools.image_search.detail).toContain("rate limited");
 		expect(tools.map_route.status).toBe("degraded");
 		expect(tools.map_route.detail).toBe("status: not ready");
 		expect(tools.memory_context.status).toBe("degraded");
@@ -432,24 +450,24 @@ describe("tool health registry", () => {
 	it("preserves degradedSince across consecutive degraded runs", async () => {
 		let failing = true;
 		const deps = makeDeps((url) =>
-			failing && url.includes("brave")
+			failing && url.includes("tei-embed")
 				? jsonResponse({}, 500)
 				: healthyHandler(url),
 		);
 		const first = await runToolHealthChecks(deps);
-		const firstSince = byId(first).image_search.degradedSince;
+		const firstSince = byId(first).memory_context.degradedSince;
 		expect(firstSince).toBe(first.checkedAt);
 
 		const second = await runToolHealthChecks({
 			...deps,
 			now: () => Date.parse(first.checkedAt) + 60_000,
 		});
-		expect(byId(second).image_search.degradedSince).toBe(firstSince);
+		expect(byId(second).memory_context.degradedSince).toBe(firstSince);
 
 		failing = false;
 		const third = await runToolHealthChecks(deps);
-		expect(byId(third).image_search.status).toBe("healthy");
-		expect(byId(third).image_search.degradedSince).toBeNull();
+		expect(byId(third).memory_context.status).toBe("healthy");
+		expect(byId(third).memory_context.degradedSince).toBeNull();
 	});
 
 	it("serves the cached snapshot until maxAgeMs elapses", async () => {
