@@ -100,6 +100,7 @@ import {
 	composerQuoteRequest,
 } from "$lib/stores/composer-quote";
 import ContextUsageRing from "./ContextUsageRing.svelte";
+import { followAnchor } from "./anchored-popup";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import AttachmentPickerSheet from "./AttachmentPickerSheet.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
@@ -462,7 +463,16 @@ let attachmentSheetOpen = $state(false);
 let skillsPickerOpen = $state(false);
 let skillCount = $state<number | null>(null);
 let isPhone = $state(isPhoneViewport());
+/** The most the tray grows before its rows scroll: 23rem, 18rem on a phone. */
+const COMMAND_TRAY_MAX_HEIGHT = 368;
+const COMMAND_TRAY_PHONE_MAX_HEIGHT = 288;
+/** 44rem, and never wider than 95% of the composer it opens from. */
+const COMMAND_TRAY_MAX_WIDTH = 704;
+/** Until it has been measured and placed the tray is not seen anywhere. */
+const COMMAND_TRAY_UNPLACED_STYLE = "visibility:hidden;";
 let commandTrayElement = $state<HTMLDivElement | undefined>(undefined);
+let commandTrayStyle = $state(COMMAND_TRAY_UNPLACED_STYLE);
+let composerBox = $state<HTMLDivElement | undefined>(undefined);
 let longPressLabel = $state<string | null>(null);
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let commandToken = $state<
@@ -1263,6 +1273,45 @@ $effect(() => {
 		block: "nearest",
 		inline: "nearest",
 	});
+});
+
+// Where the command tray stands. It used to be an offset from the composer: on
+// a desktop it hung `bottom: calc(100% - 0.4rem)` above it, as tall as 23rem
+// (or the window less 12rem) whatever room there really was up there; on a
+// phone it was pinned 10.5rem above the window's bottom edge. Both were drawn
+// for a composer at the bottom of a conversation. The new-chat and project
+// pages put the greeting band above the composer and the board below it, so on
+// a desktop the tray ran off the top of the window — the highlighted first row
+// with it — and on a phone it lay over the composer it was being typed into.
+//
+// So it is painted in <body> and placed like the composer's other popups
+// (`followAnchor`, anchored-popup.ts), from the composer's own rectangle: above
+// it when it fits there, below it when it does not and there is more room on
+// screen (the part of the window under a phone's keyboard is not room), always
+// inside the window, its rows scrolling in whatever height it is given. It
+// follows the composer while it is open: the home page's composer glides.
+$effect(() => {
+	const tray = commandTrayElement;
+	if (!showCommandTray || !tray) return;
+	const maxHeight = isPhone
+		? COMMAND_TRAY_PHONE_MAX_HEIGHT
+		: COMMAND_TRAY_MAX_HEIGHT;
+	const stopFollowing = followAnchor({
+		anchor: () => composerBox,
+		popup: tray,
+		maxHeight,
+		width: (composer) =>
+			Math.min(COMMAND_TRAY_MAX_WIDTH, composer.width * 0.95),
+		align: "center",
+		visibleViewport: true,
+		onPlace: (style) => {
+			commandTrayStyle = style;
+		},
+	});
+	return () => {
+		stopFollowing();
+		commandTrayStyle = COMMAND_TRAY_UNPLACED_STYLE;
+	};
 });
 
 $effect(() => {
@@ -3414,12 +3463,12 @@ async function emitDraftChange(force = false) {
 		<div
 			bind:this={commandTrayElement}
 			class="command-tray"
-			class:command-tray--phone={isPhone}
 			role="listbox"
 			aria-label={$t('composerCommands.trayLabel')}
 			id="composer-command-tray"
 			data-state={commandTrayClosing ? 'closing' : 'open'}
-			use:portalToBody={isPhone}
+			style={commandTrayStyle}
+			use:portalToBody
 			onanimationend={handleCommandTrayAnimationEnd}
 		>
 			{#if visibleCommandTrayRows.length > 0}
@@ -3469,7 +3518,7 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
-	<div class="message-composer relative z-[2] flex min-h-[70px] flex-col rounded-[1.25rem] border border-border px-[8px] pt-[8px] pb-0 transition-all duration-150 focus-within:border-focus-ring md:min-h-[78px] md:px-[10px] md:pt-[10px]">
+	<div bind:this={composerBox} class="message-composer relative z-[2] flex min-h-[70px] flex-col rounded-[1.25rem] border border-border px-[8px] pt-[8px] pb-0 transition-all duration-150 focus-within:border-focus-ring md:min-h-[78px] md:px-[10px] md:pt-[10px]">
 		<input
 			bind:this={fileInput}
 			type="file"
@@ -4296,22 +4345,26 @@ async function emitDraftChange(force = false) {
 		}
 	}
 
+	/* Painted in <body> and placed from the composer's rectangle at every
+	   width (the effect that follows it): `width`, `left`, the vertical edge
+	   and `max-height` arrive inline. In <body> because a fixed box is only
+	   the window's while no ancestor has a transform, and the new-chat page
+	   centres its composer with one. What is here does not depend on where
+	   the composer is. */
 	.command-tray {
-		position: absolute;
-		left: 50%;
-		bottom: calc(100% - 0.4rem);
-		z-index: 1;
-		width: min(95%, 44rem);
-		max-height: min(23rem, calc(100vh - 12rem));
+		position: fixed;
+		z-index: 60;
+		box-sizing: border-box;
+		max-height: 23rem;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent 24%);
-		border-radius: 1rem 1rem 0.9rem 0.9rem;
+		border-radius: 1rem;
 		background: color-mix(in srgb, var(--surface-page) 80%, #000 20%);
 		box-shadow:
 			0 18px 42px rgba(0, 0, 0, 0.28),
 			0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent 92%);
 		padding: 0.45rem;
-		transform: translateX(-50%) translateY(0);
 		animation: commandTrayIn 150ms cubic-bezier(0.22, 1, 0.36, 1);
 		backdrop-filter: blur(16px);
 	}
@@ -4319,35 +4372,6 @@ async function emitDraftChange(force = false) {
 	.command-tray[data-state="closing"] {
 		pointer-events: none;
 		animation: commandTrayOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-	}
-
-	/* Phone: the tray leaves the composer's flow and pins itself above the
-	   bar. It is also the exact set of rules that needs the portal — a
-	   `position: fixed` element inside the landing page's translated
-	   composer is fixed to the composer, not the viewport — so the class and
-	   `use:portalToBody` are driven by the same `isPhone`, and cannot drift
-	   apart the way a second breakpoint in a media query did. */
-	.command-tray--phone {
-		position: fixed;
-		left: max(0.75rem, env(safe-area-inset-left));
-		right: max(0.75rem, env(safe-area-inset-right));
-		bottom: calc(10.5rem + env(safe-area-inset-bottom));
-		width: auto;
-		max-height: min(18rem, 40vh);
-		border-radius: 1rem;
-		transform: translateY(0);
-		animation: commandTrayMobileIn 150ms cubic-bezier(0.22, 1, 0.36, 1);
-	}
-
-	.command-tray--phone[data-state="closing"] {
-		animation: commandTrayMobileOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.command-tray--phone,
-		.command-tray--phone[data-state="closing"] {
-			animation: none;
-		}
 	}
 
 	:global(.dark) .command-tray {
@@ -4450,22 +4474,22 @@ async function emitDraftChange(force = false) {
 	@keyframes commandTrayIn {
 		from {
 			opacity: 0;
-			transform: translateX(-50%) translateY(0.45rem);
+			transform: translateY(0.45rem);
 		}
 		to {
 			opacity: 1;
-			transform: translateX(-50%) translateY(0);
+			transform: translateY(0);
 		}
 	}
 
 	@keyframes commandTrayOut {
 		from {
 			opacity: 1;
-			transform: translateX(-50%) translateY(0);
+			transform: translateY(0);
 		}
 		to {
 			opacity: 0;
-			transform: translateX(-50%) translateY(0.45rem);
+			transform: translateY(0.45rem);
 		}
 	}
 
@@ -4827,28 +4851,6 @@ async function emitDraftChange(force = false) {
 
 		.command-status {
 			grid-column: 2;
-		}
-	}
-
-	@keyframes commandTrayMobileIn {
-		from {
-			opacity: 0;
-			transform: translateY(0.55rem);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes commandTrayMobileOut {
-		from {
-			opacity: 1;
-			transform: translateY(0);
-		}
-		to {
-			opacity: 0;
-			transform: translateY(0.55rem);
 		}
 	}
 </style>

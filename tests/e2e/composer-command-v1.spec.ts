@@ -1,9 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
+import { COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT } from "../../src/lib/composer-commands";
 import {
 	buildAiSdkUiStreamBody,
 	clearAdminConfig,
 	login,
 	openConversationComposer,
+	waitForStableBoundingBox,
 } from "./helpers";
 
 async function setComposerCommandRegistry(page: Page, enabled: boolean) {
@@ -35,6 +37,47 @@ async function createEmptyConversation(page: Page): Promise<string> {
 		return (await result.json()) as { id: string };
 	});
 	return conversation.id;
+}
+
+/** Projects a test made, removed again after it (see the afterEach below). */
+const createdProjectIds: string[] = [];
+
+async function createProject(page: Page, name: string): Promise<string> {
+	const response = await page.request.post("/api/projects", {
+		data: { name },
+	});
+	expect(response.ok(), `create project -> ${response.status()}`).toBe(true);
+	const { id } = (await response.json()) as { id: string };
+	createdProjectIds.push(id);
+	return id;
+}
+
+/** Enough skills that the tray grows to its cap and its rows scroll. */
+async function mockManySkills(page: Page, count: number) {
+	await page.route("**/api/skills/discovery**", async (route) => {
+		await route.fulfill({
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				skills: Array.from({ length: count }, (_, index) => ({
+					id: `skill-tray-${index + 1}`,
+					ownership: "user",
+					displayName: `Tray skill ${index + 1}`,
+					description: "Draft something useful from what you give it.",
+					activationExamples: [],
+					enabled: true,
+					durationPolicy: "session",
+					questionPolicy: "ask_when_needed",
+					notesPolicy: "none",
+					sourceScope: "selected_sources_only",
+					creationSource: "user_created",
+					version: 1,
+					createdAt: 1,
+					updatedAt: 1,
+				})),
+			}),
+		});
+	});
 }
 
 async function typeComposerCommand(page: Page, command: string) {
@@ -211,9 +254,13 @@ async function mockVariantComposerRoutes(
 }
 
 // The flag is an admin override, a row in this worker's database; the next spec file on the
-// worker meets the default, not whatever the last test here left.
+// worker meets the default, not whatever the last test here left. So is a project a test made.
 test.afterEach(async ({ page }) => {
 	await clearAdminConfig(page, ["COMPOSER_COMMAND_REGISTRY_ENABLED"]);
+	for (const projectId of createdProjectIds.splice(0)) {
+		const removed = await page.request.delete(`/api/projects/${projectId}`);
+		expect(removed.ok(), `project delete -> ${removed.status()}`).toBe(true);
+	}
 });
 
 test.describe("Composer Command V1", () => {
@@ -492,6 +539,82 @@ test.describe("Composer Command V1", () => {
 			},
 		});
 	});
+
+	// The tray was drawn for a composer at the bottom of a conversation. The
+	// new-chat and project pages put the greeting band above the composer and
+	// the board below it: on a desktop the tray ran off the top of the window,
+	// its highlighted first row with it, and on a phone it lay over the
+	// composer it was typed into. It now stands where there is room for it.
+	for (const size of [
+		{ name: "a short desktop window", viewport: { width: 1280, height: 720 } },
+		{ name: "a phone", viewport: { width: 390, height: 844 } },
+	]) {
+		test(`the tray fits the room it has on the new-chat, project and chat pages on ${size.name}`, async ({
+			page,
+		}) => {
+			await page.setViewportSize(size.viewport);
+			await login(page);
+			await setComposerCommandRegistry(page, true);
+			await mockManySkills(page, 9);
+			const projectId = await createProject(page, `Tray room ${size.name}`);
+			const conversationId = await createEmptyConversation(page);
+
+			for (const url of [
+				"/",
+				`/projects/${projectId}`,
+				`/chat/${conversationId}`,
+			]) {
+				await page.goto(url, { waitUntil: "domcontentloaded" });
+				await expect(page.getByTestId("message-input")).toBeEnabled({
+					timeout: 15000,
+				});
+
+				await typeComposerCommand(page, "$");
+				const tray = page.getByRole("listbox", { name: "Composer commands" });
+				await expect(tray).toBeVisible();
+				await expect(tray.getByRole("option")).toHaveCount(
+					COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT,
+				);
+				await waitForStableBoundingBox(tray);
+				const trayBox = await tray.boundingBox();
+				const composerBox = await page
+					.locator(".message-composer")
+					.boundingBox();
+				if (!trayBox || !composerBox) {
+					throw new Error("Command tray or composer box was not measurable.");
+				}
+				const where = `${url} at ${size.viewport.width}x${size.viewport.height}`;
+
+				// Inside the window...
+				expect(trayBox.y, `${where}: top`).toBeGreaterThanOrEqual(0);
+				expect(
+					trayBox.y + trayBox.height,
+					`${where}: bottom`,
+				).toBeLessThanOrEqual(size.viewport.height);
+				expect(trayBox.x, `${where}: left`).toBeGreaterThanOrEqual(0);
+				expect(
+					trayBox.x + trayBox.width,
+					`${where}: right`,
+				).toBeLessThanOrEqual(size.viewport.width);
+				// ...clear of the composer the command is being typed into...
+				expect(
+					trayBox.y + trayBox.height <= composerBox.y + 1 ||
+						trayBox.y >= composerBox.y + composerBox.height - 1,
+					`${where}: the tray covers the composer`,
+				).toBe(true);
+				// ...with the highlighted row on screen, and the last one a scroll
+				// inside the tray away.
+				const options = tray.getByRole("option");
+				await expect(options.first()).toHaveAttribute("aria-selected", "true");
+				await expect(options.first()).toBeInViewport({ ratio: 1 });
+				await options.last().scrollIntoViewIfNeeded();
+				await expect(options.last()).toBeInViewport({ ratio: 1 });
+
+				await page.keyboard.press("Escape");
+				await expect(tray).toBeHidden();
+			}
+		});
+	}
 
 	test("mobile tray stays above the composer with reduced motion", async ({
 		page,

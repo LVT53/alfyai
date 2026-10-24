@@ -332,6 +332,137 @@ describe("followAnchor", () => {
 		expect(observed).toEqual([]);
 	});
 
+	// The composer's command tray: as wide as the composer it opens from (less
+	// a little), centred on it rather than starting at its left edge.
+	it("takes its width from the control and stands centred on it when asked", () => {
+		const { anchor, popup } = setUp({
+			window: { width: 1280, height: 720 },
+			anchor: { left: 278, top: 306, width: 772, height: 152 },
+			listHeight: 200,
+		});
+		const onPlace = vi.fn();
+
+		const stop = followAnchor({
+			anchor: () => anchor,
+			popup,
+			maxHeight: 368,
+			width: (rect) => Math.min(704, rect.width * 0.95),
+			align: "center",
+			onPlace,
+		});
+
+		// Set before the height is read: the list wraps at the width it gets.
+		expect(popup.style.width).toBe("704px");
+		expect(onPlace).toHaveBeenLastCalledWith(
+			`width:704px;left:${278 + (772 - 704) / 2}px;bottom:${720 - 306 + 8}px;max-height:${306 - 16}px;`,
+			false,
+		);
+		stop();
+	});
+
+	// It opens while the user types, so on a phone the keyboard is up: it
+	// covers the bottom of the window without making the window any shorter.
+	describe("measured against what is on screen", () => {
+		function setVisible(offsetTop: number, height: number) {
+			vi.stubGlobal("visualViewport", {
+				offsetTop,
+				offsetLeft: 0,
+				height,
+				width: 390,
+			});
+		}
+
+		it("does not drop under the keyboard when the window says there is room there", () => {
+			const { anchor, popup } = setUp({
+				window: { width: 390, height: 844 },
+				anchor: { left: 4, top: 150, width: 382, height: 138 },
+				listHeight: 280,
+			});
+			const onWindow = vi.fn();
+			const onScreen = vi.fn();
+
+			// Without the option the 556px below the composer look free.
+			const stopWindow = followAnchor({
+				anchor: () => anchor,
+				popup,
+				maxHeight: 288,
+				onPlace: onWindow,
+			});
+			expect(onWindow.mock.lastCall?.[0]).toContain(`top:${288 + 8}px;`);
+			stopWindow();
+
+			// The keyboard leaves 420px: 132 below the composer, 150 above.
+			setVisible(0, 420);
+			const stopScreen = followAnchor({
+				anchor: () => anchor,
+				popup,
+				maxHeight: 288,
+				visibleViewport: true,
+				onPlace: onScreen,
+			});
+			expect(onScreen).toHaveBeenLastCalledWith(
+				`left:16px;bottom:${844 - 150 + 8}px;max-height:${150 - 16}px;`,
+				true,
+			);
+			stopScreen();
+		});
+
+		it("counts from the part of the window that is on screen", () => {
+			// The browser scrolled the window 100px to keep the field in view.
+			const { anchor, popup } = setUp({
+				window: { width: 390, height: 844 },
+				anchor: { left: 4, top: 250, width: 382, height: 138 },
+				listHeight: 100,
+			});
+			setVisible(100, 420);
+			const onPlace = vi.fn();
+
+			const stop = followAnchor({
+				anchor: () => anchor,
+				popup,
+				maxHeight: 288,
+				visibleViewport: true,
+				onPlace,
+			});
+
+			// 8px above the composer, in the window's own coordinates.
+			expect(onPlace).toHaveBeenLastCalledWith(
+				`left:16px;bottom:${844 - 250 + 8}px;max-height:${150 - 16}px;`,
+				false,
+			);
+			stop();
+		});
+
+		it("is placed again when the keyboard comes or goes", () => {
+			const { anchor, popup } = setUp({
+				window: { width: 390, height: 844 },
+				anchor: { left: 4, top: 150, width: 382, height: 138 },
+				listHeight: 280,
+			});
+			vi.useFakeTimers({
+				toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+			});
+			setVisible(0, 844);
+			const onPlace = vi.fn();
+			const stop = followAnchor({
+				anchor: () => anchor,
+				popup,
+				maxHeight: 288,
+				visibleViewport: true,
+				onPlace,
+			});
+			expect(onPlace.mock.lastCall?.[0]).toContain(`top:${288 + 8}px;`);
+
+			setVisible(0, 420);
+			vi.advanceTimersToNextFrame();
+
+			expect(onPlace.mock.lastCall?.[0]).toContain(
+				`bottom:${844 - 150 + 8}px;`,
+			);
+			stop();
+		});
+	});
+
 	it("stops looking once it is stopped", () => {
 		const { state, anchor, popup } = setUp({
 			window: { width: 1024, height: 768 },
