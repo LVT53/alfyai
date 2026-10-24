@@ -138,6 +138,18 @@ async function waitForComposerHydration(page: Page): Promise<void> {
 }
 
 /**
+ * The composer chip of an uploaded file. The file's name alone is not unique
+ * on the page: the chip that goes up the moment a file is picked, before the
+ * upload has even started, carries it twice (its label and its screen-reader
+ * line, "Uploading <name>").
+ */
+function attachmentChip(page: Page, fileName: string) {
+	return page
+		.getByTestId("composer-chip-attachment")
+		.filter({ hasText: fileName });
+}
+
+/**
  * Helper to upload a file in the chat composer
  */
 async function uploadFileInChat(
@@ -149,8 +161,11 @@ async function uploadFileInChat(
 	await expect(fileInput).toBeHidden();
 	await fileInput.setInputFiles(file);
 
-	// Wait for the file to be uploaded and appear as an attachment
-	await expect(page.getByText(file.name)).toBeVisible({ timeout: 15000 });
+	// Uploaded: the attachment chip has replaced the "Uploading" one, and it
+	// is no longer busy.
+	const chip = attachmentChip(page, file.name);
+	await expect(chip).toBeVisible({ timeout: 15000 });
+	await expect(chip).not.toHaveAttribute("aria-busy", "true");
 }
 
 /**
@@ -330,8 +345,8 @@ test.describe("File Fragmentation E2E Tests", () => {
 			await uploadFileInChat(page, LARGE_FILE);
 
 			// Verify both files are attached
-			await expect(page.getByText("small-document.txt")).toBeVisible();
-			await expect(page.getByText("large-document.txt")).toBeVisible();
+			await expect(attachmentChip(page, SMALL_FILE.name)).toBeVisible();
+			await expect(attachmentChip(page, LARGE_FILE.name)).toBeVisible();
 
 			await sendMessageWithAttachments(
 				page,
@@ -423,14 +438,14 @@ From the large document (Technical Specification): It covers system architecture
 			await uploadFileInChat(page, SMALL_FILE);
 
 			// Verify file name is displayed
-			await expect(page.getByText("small-document.txt")).toBeVisible();
+			await expect(attachmentChip(page, SMALL_FILE.name)).toBeVisible();
 
 			// Verify file can be removed
 			const removeButton = page
 				.getByRole("button", { name: "Remove small-document.txt" })
 				.first();
 			await removeButton.click();
-			await expect(page.getByText("small-document.txt")).not.toBeVisible();
+			await expect(attachmentChip(page, SMALL_FILE.name)).not.toBeVisible();
 		});
 
 		test("multiple files can be attached and display correctly", async ({
@@ -443,8 +458,8 @@ From the large document (Technical Specification): It covers system architecture
 			await uploadFileInChat(page, LARGE_FILE);
 
 			// Verify both file names are displayed
-			await expect(page.getByText("small-document.txt")).toBeVisible();
-			await expect(page.getByText("large-document.txt")).toBeVisible();
+			await expect(attachmentChip(page, SMALL_FILE.name)).toBeVisible();
+			await expect(attachmentChip(page, LARGE_FILE.name)).toBeVisible();
 		});
 	});
 });
