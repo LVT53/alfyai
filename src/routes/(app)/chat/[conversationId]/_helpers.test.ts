@@ -1238,6 +1238,38 @@ describe("file production chat helpers", () => {
 		expect(finalized[0].instructionSuggestions).toBeUndefined();
 	});
 
+	// A drafting turn shows the Skill Draft Card instead of the standing-
+	// instruction row, and the card has to be on screen in the session that
+	// produced it: the terminal frame carries the drafts the same way it
+	// carries instructionSuggestions (stream-completion.ts), and the server
+	// sends no offer on a drafting turn, so the two never appear together.
+	it("carries skillDrafts onto the finalized message at completion, without a reload", () => {
+		const draft: SkillDraftProposal = {
+			id: "draft-1",
+			status: "proposed",
+			displayName: "Weekly status",
+			description: "Writes a short weekly status update.",
+			instructions: "Ask for the period, then write one paragraph.",
+			activationExamples: ["Write my weekly status."],
+			durationPolicy: "next_message",
+			questionPolicy: "none",
+			notesPolicy: "none",
+			sourceScope: "current_conversation",
+		};
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				skillDrafts: [draft],
+			},
+		});
+
+		expect(finalized[0].skillDrafts).toEqual([draft]);
+	});
+
 	it("falls back to the message's prior followUps when the terminal frame carries none", () => {
 		const priorFollowUps = ["What about the sequel?"];
 		const list = [

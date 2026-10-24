@@ -1029,6 +1029,13 @@ export function finalizeStreamingMessageList(
 				instructionSuggestions:
 					params.metadata?.instructionSuggestions ??
 					message.instructionSuggestions,
+				// The skill drafts this turn proposed, riding the terminal frame
+				// (stream-completion.ts) the same way instructionSuggestions does,
+				// so the Save/Dismiss card is on screen in the session that
+				// produced it. The server never sends both for one turn — a
+				// drafting turn carries no instruction offer — so the card and the
+				// Review/Dismiss row cannot appear together.
+				skillDrafts: params.metadata?.skillDrafts ?? message.skillDrafts,
 				// The user's own choices for this turn. A terminal frame that names
 				// the persisted assistant message is the server's COMPLETE
 				// statement about them (the frame omits the record entirely when

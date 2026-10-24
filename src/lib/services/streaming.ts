@@ -76,6 +76,13 @@ export interface StreamMetadata {
 	// Review/Dismiss row is on screen in the same session, not only after a
 	// reload. Absent when the turn offered nothing.
 	instructionSuggestions?: import("$lib/shared/instructions").InstructionSuggestion[];
+	// The skill drafts this turn proposed. They are persisted on the assistant
+	// message (chat-turn/finalize.ts) and ride the terminal payload like
+	// instructionSuggestions above so the Save/Dismiss card is on screen in the
+	// same session, not only after a reload. A turn that carries drafts never
+	// carries instructionSuggestions: the card is the turn's one thing to
+	// review. Absent when the turn drafted nothing.
+	skillDrafts?: import("$lib/server/services/skills/types").SkillDraftProposal[];
 	// Finding 4 (web-citation auto-repair) — the final PERSISTED assistant
 	// text, present only when the server's citation repair rewrote what was
 	// already streamed as text-delta frames. The client replaces the

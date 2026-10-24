@@ -6420,6 +6420,11 @@ describe("suggest_instruction tool", () => {
 		expect(tools.suggest_instruction.description).toContain(
 			"nothing is saved until they review it",
 		);
+		// One turn offers one thing to review: when the user asked for a skill,
+		// the draft card owns the turn and this tool must not add a second ask.
+		expect(tools.suggest_instruction.description).toContain(
+			"when the user asked to save a skill — draft the skill instead",
+		);
 	});
 });
 

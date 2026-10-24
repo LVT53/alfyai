@@ -382,7 +382,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	suggest_instruction: {
 		description:
-			'Offer to add a standing instruction when the user just stated a rule for the future ("from now on…", "always…", "never…"), in their own words: {"text": "Only suggest trains, no flights.", "scope": "project"}. The user sees a row with Review and Dismiss; nothing is saved until they review it. Do not use it for a one-off request, or to restate an offer you already made.',
+			'Offer to add a standing instruction when the user just stated a rule for the future ("from now on…", "always…", "never…"), in their own words: {"text": "Only suggest trains, no flights.", "scope": "project"}. The user sees a row with Review and Dismiss; nothing is saved until they review it. Do not use it for a one-off request, to restate an offer you already made, or when the user asked to save a skill — draft the skill instead.',
 		errorPrefix: "Recording the instruction suggestion failed",
 	},
 };

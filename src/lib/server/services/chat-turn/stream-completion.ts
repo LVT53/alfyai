@@ -377,9 +377,12 @@ export async function completeStreamTurn(
 	) => {
 		// Read at terminal time, not at setup time: `toolCallRecords` is the
 		// runtime's live array and only holds this turn's records once the turn
-		// has run.
-		const instructionSuggestions =
-			collectInstructionSuggestions(toolCallRecords);
+		// has run. A turn that drafts a skill carries the draft card instead of
+		// the offer: the two are alternative ways to keep something from this
+		// turn, and the person is asked once.
+		const instructionSuggestions = skillControl.metadata?.skillDrafts?.length
+			? []
+			: collectInstructionSuggestions(toolCallRecords);
 		const streamDepthMetadata = withDepthMetadataModelInfo(
 			depthMetadata ??
 				buildBaselineDepthMetadata({
@@ -436,6 +439,15 @@ export async function completeStreamTurn(
 				// decision to make now: the model has just told the user it exists).
 				...(instructionSuggestions.length > 0
 					? { instructionSuggestions }
+					: {}),
+				// The skill drafts this turn proposed (parsed from the envelope
+				// above, and persisted by finalize from the same records), so the
+				// Save/Dismiss card is on screen in the session that produced it
+				// rather than only after a reload. Omitted entirely when the turn
+				// drafted nothing; a drafting turn never sends the instruction
+				// offers just above.
+				...(skillControl.metadata?.skillDrafts?.length
+					? { skillDrafts: skillControl.metadata.skillDrafts }
 					: {}),
 				// The user's own choices for this turn — the same record written
 				// to assistantMetadata.userIntent below, so the live provenance

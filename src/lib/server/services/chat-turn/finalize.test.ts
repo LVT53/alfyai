@@ -1116,6 +1116,53 @@ describe("finalizeChatTurn", () => {
 			>;
 			expect(metadata).not.toHaveProperty("instructionSuggestions");
 		});
+
+		it("drops the offer when the same turn drafts a skill", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				responseLanguage: "en",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {
+					skillDrafts: [{ id: "draft-1" } as never],
+				},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1", modelDisplayName: "Model One" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				toolCalls: [
+					{
+						name: "suggest_instruction",
+						input: { text: "Only suggest trains." },
+						status: "done",
+						instructionSuggestion: suggestion,
+					},
+				],
+			});
+
+			// One turn asks once: the Skill Draft Card is the thing to review, so
+			// the standing-instruction row must not stand beside it (or in its
+			// place, when the card is the only one the person is expecting).
+			const metadata = mockCreateMessage.mock.calls.at(-1)?.[5] as Record<
+				string,
+				unknown
+			>;
+			expect(metadata).not.toHaveProperty("instructionSuggestions");
+			expect(metadata).toHaveProperty("skillDrafts", [
+				expect.objectContaining({ id: "draft-1" }),
+			]);
+		});
 	});
 
 	it("creates the assistant message before attachment persistence in stream mode", async () => {

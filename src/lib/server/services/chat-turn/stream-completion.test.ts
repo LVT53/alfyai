@@ -776,6 +776,71 @@ describe("completeStreamTurn", () => {
 		expect(getLatestEndPayload()).not.toHaveProperty("instructionSuggestions");
 	});
 
+	// A turn asks once. When the model drafts a skill, the Skill Draft Card is
+	// the thing to review: the same turn's standing-instruction offer must not
+	// ride the terminal frame beside it, and the card itself has to be on screen
+	// in the session that produced it (not only after a reload).
+	it("carries the skill draft card and no instruction offer when the turn drafts a skill", async () => {
+		const suggestion: InstructionSuggestion = {
+			id: "suggestion-1",
+			status: "pending",
+			text: "Start every summary with the heading Next Steps.",
+			scope: { kind: "personal" },
+			createdAt: 1_770_000_000_000,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "I drafted a skill for this.",
+			skillControlEnvelopePayloads: [
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "stream-draft-1",
+							kind: "skill_draft",
+							draft: {
+								id: "draft-1",
+								displayName: "Meeting Notes Skill",
+								description: "Summarizes meeting notes.",
+								instructions: "Summarize the meeting notes concisely.",
+								activationExamples: [],
+								durationPolicy: "next_message",
+								questionPolicy: "none",
+								notesPolicy: "none",
+								sourceScope: "selected_sources_only",
+							},
+						},
+					],
+				}),
+			],
+			toolCallRecords: [
+				{
+					name: "suggest_instruction",
+					input: {},
+					status: "done",
+					instructionSuggestion: suggestion,
+				},
+			],
+		});
+
+		const payload = getLatestEndPayload();
+		expect(payload).toMatchObject({
+			skillDrafts: [expect.objectContaining({ id: "draft-1" })],
+		});
+		expect(payload).not.toHaveProperty("instructionSuggestions");
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"I drafted a skill for this.",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.not.objectContaining({
+				instructionSuggestions: expect.anything(),
+			}),
+		);
+	});
+
 	it("leaves the message body untouched and reports a stable code when the stream closed without finish", async () => {
 		await completeStreamTurn({
 			...defaultParams,

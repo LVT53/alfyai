@@ -23,6 +23,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - Asking Alfy to save a way of working as a skill ("make this a skill") now
   drafts one: the reply shows a card offering Save private skill or Dismiss, and
   the skill exists only after you save it.
+- A reply that drafts a skill shows that card instead of the "add to
+  instructions" offer, so one turn asks you to keep the same thing only once.
 
 ### Changed
 

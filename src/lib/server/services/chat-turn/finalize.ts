@@ -491,9 +491,15 @@ export async function finalizeChatTurn(
 	// send, stream and retry paths from having to remember to. A turn that
 	// offered nothing gets no key at all — `[]` would be a record saying an
 	// offer was made and it was nothing.
-	const instructionSuggestions = collectInstructionSuggestions(
-		params.toolCalls,
-	);
+	//
+	// One turn asks once: when the turn also proposes a skill draft, the Skill
+	// Draft Card is the thing to review, so the standing-instruction offer is
+	// dropped instead of persisted beside it (or in its place).
+	const skillDrafts = params.assistantMetadata.skillDrafts;
+	const instructionSuggestions =
+		Array.isArray(skillDrafts) && skillDrafts.length > 0
+			? []
+			: collectInstructionSuggestions(params.toolCalls);
 	const assistantMetadata = {
 		...params.assistantMetadata,
 		depthMetadata,
