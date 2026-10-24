@@ -5,6 +5,8 @@ import {
 	ensureSidebarExpanded,
 	login,
 	openConversationComposer,
+	renameConversationInSidebar,
+	renameProjectInSidebar,
 } from "./helpers";
 
 async function createConversationTransfer(page: Page, conversationId: string) {
@@ -128,6 +130,50 @@ test.describe("Conversation CRUD operations", () => {
 		await titleInput.press("Escape");
 
 		await expect(page.getByTestId("title-input")).not.toBeVisible();
+	});
+
+	// Owner-reported (2026-10-24): Enter saved the name and then reached the
+	// row's own Enter handler, which opened the chat. Selecting a row marks it
+	// active before it navigates, and the new title shows only once the server
+	// has saved it, so by the time the title is there a stray Enter has already
+	// left its mark.
+	test("saves a rename on Enter without opening the chat", async ({ page }) => {
+		const conversationId = requireConversationId(
+			await createConversation(page),
+		);
+		await openConversationComposer(page);
+		await ensureSidebarExpanded(page);
+		const row = page.locator(
+			`[data-testid="conversation-item"][data-conversation-id="${conversationId}"]`,
+		);
+		await expect(row).not.toHaveClass(/border-accent/);
+
+		await renameConversationInSidebar(page, conversationId, "Renamed on Enter");
+
+		await expect(row).not.toHaveClass(/border-accent/);
+		await expect(page).toHaveURL("/");
+	});
+
+	// The project row's Enter handler opens and closes the folder; the rename's
+	// Enter must not reach it either.
+	test("saves a project rename on Enter without opening or closing the folder", async ({
+		page,
+	}) => {
+		const name = `Enter rename ${Date.now()}`;
+		const created = await page.request.post("/api/projects", {
+			data: { name },
+		});
+		expect(created.ok(), "creating a project must succeed").toBe(true);
+		const { id: projectId } = (await created.json()) as { id: string };
+		// A full load, so the sidebar lists the project the request just made.
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await ensureSidebarExpanded(page);
+		const folder = page.getByTestId(`project-conversations-${projectId}`);
+		await expect(folder).toHaveCount(0);
+
+		await renameProjectInSidebar(page, projectId, `${name}, renamed`);
+
+		await expect(folder).toHaveCount(0);
 	});
 
 	test("deletes a conversation with confirmation dialog", async ({ page }) => {

@@ -11,7 +11,12 @@ import {
 } from "../../src/lib/server/db/schema";
 import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
-import { ensureSidebarExpanded, login, TEST_EMAIL } from "./helpers";
+import {
+	deleteConversationInSidebar,
+	login,
+	renameConversationInSidebar,
+	TEST_EMAIL,
+} from "./helpers";
 
 /**
  * The chat home rebuilt to HomeV4A "Compact".
@@ -352,23 +357,41 @@ test.describe("chat home — Compact", () => {
 		);
 		await expect(line).toContainText(SEEDED.plainConversation);
 
-		await ensureSidebarExpanded(page);
-		const row = page.locator(
-			`[data-testid="conversation-item"][data-conversation-id="${plainConversationId}"]`,
+		await renameConversationInSidebar(
+			page,
+			plainConversationId,
+			"Folder clean-up, renamed",
 		);
-		await row.hover();
-		await row.getByRole("button", { name: "Conversation options" }).click();
-		await page.getByTestId("rename-option").click();
-		const input = page.getByTestId("title-input");
-		await input.fill("Folder clean-up, renamed");
-		// Committed by leaving the field, which keeps this page on screen: Enter
-		// also reaches the row's own Enter handler and opens the chat.
-		await input.press("Tab");
-		await expect(row).toContainText("Folder clean-up, renamed");
 		await expect(page).toHaveURL("/");
 
 		await expect(line).toContainText("Folder clean-up, renamed");
 		await expect(line).not.toContainText(SEEDED.plainConversation);
+	});
+
+	// Owner-reported (2026-10-24): a chat deleted in the sidebar stayed in Recent
+	// until the board's next read, 30 seconds out — a line that led nowhere.
+	test("drops a chat deleted in the sidebar from Recent at once", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		const { atlasConversationId, plainConversationId } =
+			await seedRecent(userId);
+		await gotoHome(page);
+
+		const deletedLine = page.locator(
+			`[data-testid="home-recent-line"][href="/chat/${plainConversationId}"]`,
+		);
+		const keptLine = page.locator(
+			`[data-testid="home-recent-line"][href="/chat/${atlasConversationId}"]`,
+		);
+		await expect(deletedLine).toBeVisible();
+
+		await deleteConversationInSidebar(page, plainConversationId);
+		await expect(page).toHaveURL("/");
+
+		await expect(deletedLine).toHaveCount(0);
+		await expect(keptLine).toBeVisible();
 	});
 
 	test("shows the running line only while a job is in flight", async ({

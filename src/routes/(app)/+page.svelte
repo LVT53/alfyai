@@ -12,6 +12,7 @@ import {
 	fetchHomeSummary,
 	type HomeSummary,
 } from "$lib/client/api/home";
+import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-workspace-state";
 import HomeSurface from "$lib/components/home/HomeSurface.svelte";
 import { landingSendStarted } from "$lib/stores/ui";
 import { onMount } from "svelte";
@@ -33,13 +34,20 @@ $effect(() => {
 	return () => landingSendStarted.set(false);
 });
 
+// Not state: nothing renders it. A delete reads the summary between polls, so
+// two reads can be in flight at once, and only the one started last may land:
+// an older answer arriving second would put a just-deleted chat back.
+let summaryReadSequence = 0;
+
 async function refreshHomeSummary() {
+	const read = ++summaryReadSequence;
 	try {
-		summary = await fetchHomeSummary();
+		const next = await fetchHomeSummary();
+		if (read === summaryReadSequence) summary = next;
 	} catch {
 		// The board degrades to a greeting and a composer rather than to an
 		// error: none of these strips is something the user asked for.
-		summary = EMPTY_HOME_SUMMARY;
+		if (read === summaryReadSequence) summary = EMPTY_HOME_SUMMARY;
 	} finally {
 		summaryLoaded = true;
 	}
@@ -54,8 +62,25 @@ onMount(() => {
 		if (sendStarted) return;
 		void refreshHomeSummary();
 	}, 30_000);
+
+	// A chat deleted in the sidebar leaves Recent now, not at the next poll.
+	// The store raises the event once the server has deleted it, and the
+	// delete has dropped the cached summary, so this read comes back without
+	// the chat and with the next one moved up into its place.
+	const refreshAfterDelete = () => {
+		if (sendStarted) return;
+		void refreshHomeSummary();
+	};
+	window.addEventListener(
+		WORKSPACE_CONVERSATION_DELETED_EVENT,
+		refreshAfterDelete,
+	);
 	return () => {
 		clearInterval(summaryTimer);
+		window.removeEventListener(
+			WORKSPACE_CONVERSATION_DELETED_EVENT,
+			refreshAfterDelete,
+		);
 	};
 });
 </script>

@@ -23,6 +23,9 @@ export const load: PageServerLoad = async (event) => {
 	if (!user) {
 		throw redirect(302, "/login");
 	}
+	// Read again when a chat is deleted in the sidebar (the page's own
+	// listener), so the list and its count drop the chat at once.
+	event.depends(`app:project-page:${event.params.projectId}`);
 
 	const pageData = await getProjectPageData({
 		userId: user.id,

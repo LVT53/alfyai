@@ -184,6 +184,9 @@ export const DELETE: RequestHandler = async (event) => {
 	if (!deleted) {
 		return json({ error: "Conversation not found" }, { status: 404 });
 	}
+	// Same 30-second summary as a rename: a new-chat page opened inside that
+	// window would still list the deleted chat in Recent.
+	invalidateHomeSummary(user.id);
 
 	return json({
 		success: true,

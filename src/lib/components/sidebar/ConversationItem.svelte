@@ -121,6 +121,9 @@ function saveRename() {
 function handleKeydown(e: KeyboardEvent) {
 	if (e.key === "Enter") {
 		e.preventDefault();
+		// The row's own Enter opens the chat, and once `saveRename` has run
+		// `isEditing` no longer holds it back: this Enter only saves.
+		e.stopPropagation();
 		saveRename();
 	} else if (e.key === "Escape") {
 		isEditing = false;
