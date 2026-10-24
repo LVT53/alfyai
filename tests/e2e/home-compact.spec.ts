@@ -11,7 +11,7 @@ import {
 } from "../../src/lib/server/db/schema";
 import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
-import { login, TEST_EMAIL } from "./helpers";
+import { ensureSidebarExpanded, login, TEST_EMAIL } from "./helpers";
 
 /**
  * The chat home rebuilt to HomeV4A "Compact".
@@ -334,6 +334,41 @@ test.describe("chat home — Compact", () => {
 			.filter({ hasText: SEEDED.plainConversation });
 		await expect(plainLine).toContainText("2");
 		await expect(plainLine.getByTestId("home-atlas-badge")).toHaveCount(0);
+	});
+
+	// Owner-reported (2026-10-24): the board's summary is read on arrival and
+	// then every 30 seconds, so a chat renamed in the sidebar kept its old name
+	// here until the next read. The line has to follow the sidebar at once.
+	test("renames a recent line the moment the sidebar renames its chat", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		const { plainConversationId } = await seedRecent(userId);
+		await gotoHome(page);
+
+		const line = page.locator(
+			`[data-testid="home-recent-line"][href="/chat/${plainConversationId}"]`,
+		);
+		await expect(line).toContainText(SEEDED.plainConversation);
+
+		await ensureSidebarExpanded(page);
+		const row = page.locator(
+			`[data-testid="conversation-item"][data-conversation-id="${plainConversationId}"]`,
+		);
+		await row.hover();
+		await row.getByRole("button", { name: "Conversation options" }).click();
+		await page.getByTestId("rename-option").click();
+		const input = page.getByTestId("title-input");
+		await input.fill("Folder clean-up, renamed");
+		// Committed by leaving the field, which keeps this page on screen: Enter
+		// also reaches the row's own Enter handler and opens the chat.
+		await input.press("Tab");
+		await expect(row).toContainText("Folder clean-up, renamed");
+		await expect(page).toHaveURL("/");
+
+		await expect(line).toContainText("Folder clean-up, renamed");
+		await expect(line).not.toContainText(SEEDED.plainConversation);
 	});
 
 	test("shows the running line only while a job is in flight", async ({

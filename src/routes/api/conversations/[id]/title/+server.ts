@@ -5,6 +5,7 @@ import {
 	createJsonResponse,
 } from "$lib/server/api/responses";
 import { updateConversationTitle } from "$lib/server/services/conversations";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import { getLastConversationLanguage } from "$lib/server/services/messages";
 import { generateTitle } from "$lib/server/services/title-generator";
 
@@ -50,6 +51,9 @@ export async function POST({ request, params, locals }: RequestEvent) {
 		});
 
 		await updateConversationTitle(userId, params.id, title);
+		// The same 30-second summary a rename lets go of: the new-chat page's
+		// Recent row must not wait it out for a new chat's first title.
+		invalidateHomeSummary(userId);
 		return createJsonResponse({ title });
 	} catch (error) {
 		console.error("[TITLE_GENERATE] Failed to generate title", {

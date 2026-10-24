@@ -10,6 +10,7 @@ import {
 	setConversationSidebarPinned,
 	updateConversationTitle,
 } from "$lib/server/services/conversations";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
@@ -151,6 +152,9 @@ export const PATCH: RequestHandler = async (event) => {
 	if (!conversation) {
 		return json({ error: "Conversation not found" }, { status: 404 });
 	}
+	// The new-chat page's Recent row is read from a summary held for 30
+	// seconds; a page opened inside that window would draw the old name back.
+	invalidateHomeSummary(user.id);
 
 	return json(conversation);
 };

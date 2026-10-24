@@ -43,6 +43,7 @@ import {
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import {
+	conversations,
 	createNewConversation,
 	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
@@ -242,6 +243,23 @@ const projectListHeading = $derived.by(() => {
 		mode.chatCount === 1 ? "projects.listHeadingOne" : "projects.listHeading",
 		{ count: mode.chatCount },
 	);
+});
+
+// The lines are a server snapshot: the landing reads its summary on arrival
+// and every 30 seconds, the project page reads its chats once per load. A
+// rename lands in the sidebar's store the moment it is saved, so each line
+// takes its title from there whenever the store lists the conversation, and
+// the sidebar and the board never call one chat by two names.
+const recentLines = $derived.by(() => {
+	const titles = new Map(
+		$conversations.map((conversation) => [conversation.id, conversation.title]),
+	);
+	return recent.map((line) => {
+		const title = titles.get(line.id);
+		return title === undefined || title === line.title
+			? line
+			: { ...line, title };
+	});
 });
 
 // The composer's empty box names the project it will start a chat in — the one
@@ -1320,7 +1338,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						/>
 
 						<HomeRecent
-							recent={recent}
+							recent={recentLines}
 							running={running}
 							{nowSeconds}
 							heading={projectListHeading}
