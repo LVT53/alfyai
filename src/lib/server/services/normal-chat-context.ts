@@ -621,6 +621,12 @@ export function buildTurnGuidance(params: {
 	// per user/turn, so it belongs here, not in the (byte-identical) system
 	// prompt. See skills/prompt-context.ts's buildSkillCatalogueBlock.
 	skillCatalogueBlock?: string | null;
+	// The model-facing rules for DRAFTING a new skill (the
+	// `<skill_control_v1>` envelope the draft card is parsed from) — resolved
+	// by the caller beside skillCatalogueBlock and gated on the same composer
+	// registry flag, because the card's Save button is gated on it too. Also
+	// per-turn guidance, never the cached system prompt.
+	skillDraftGuidance?: string | null;
 	// An explicit `$` composer selection's full instructions, forced into
 	// this turn only (see chat-turn/types.ts's AppliedSkillContext) — the
 	// exact same envelope text the `use_skill` tool would return for the
@@ -657,6 +663,9 @@ export function buildTurnGuidance(params: {
 			: []),
 		...(params.skillCatalogueBlock?.trim()
 			? [params.skillCatalogueBlock.trim()]
+			: []),
+		...(params.skillDraftGuidance?.trim()
+			? [params.skillDraftGuidance.trim()]
 			: []),
 		...(params.pendingSkillInstructions?.trim()
 			? [params.pendingSkillInstructions.trim()]
@@ -1886,6 +1895,9 @@ type PrepareOutboundChatContextParams = {
 	// buildTurnGuidance (the user packet), never the system prompt, so the
 	// system message plus tool catalogue stays a stable, cacheable prefix.
 	skillCatalogueBlock?: string | null;
+	// The drafting rules for a new skill, beside the catalogue: per-turn
+	// guidance like it, and gated on the same registry flag by the caller.
+	skillDraftGuidance?: string | null;
 	pendingSkillInstructions?: string | null;
 	// The "## In this chat" artifact catalogue (see buildTurnGuidance above),
 	// resolved by the caller for the same reason skillCatalogueBlock is: it
@@ -2186,6 +2198,7 @@ export async function prepareOutboundChatContext(
 		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 		forceWebSearch: params.forceWebSearch,
 		skillCatalogueBlock: params.skillCatalogueBlock,
+		skillDraftGuidance: params.skillDraftGuidance,
 		pendingSkillInstructions: params.pendingSkillInstructions,
 		artifactCatalogueBlock: params.artifactCatalogueBlock,
 	});

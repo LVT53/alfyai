@@ -1467,6 +1467,62 @@ describe("prepareOutboundChatContext", () => {
 		});
 	});
 
+	// The drafting rules for a skill are per-turn guidance: the composer
+	// registry gate that exposes the Save button also decides whether the
+	// model is told the envelope exists, so they ride the user packet beside
+	// the skills catalogue and never the cached system prompt.
+	describe("skill draft guidance block", () => {
+		const DRAFT_GUIDANCE =
+			'## Drafting a skill\n<skill_control_v1>{"version":1,"operations":[]}</skill_control_v1>';
+
+		it("renders the skill drafting guidance in the turn guidance when provided", () => {
+			const guidance = buildTurnGuidance({
+				skillDraftGuidance: DRAFT_GUIDANCE,
+			});
+
+			expect(guidance).toContain("## Drafting a skill");
+			expect(guidance).toContain("<skill_control_v1>");
+		});
+
+		it("omits the skill drafting guidance when the registry is off or there is nothing to say", () => {
+			const guidance = buildTurnGuidance({
+				skillDraftGuidance: null,
+			});
+
+			expect(guidance).not.toContain("## Drafting a skill");
+			expect(buildTurnGuidance({})).not.toContain("## Drafting a skill");
+		});
+
+		it("never lets the skill drafting guidance reach the cached system prompt", () => {
+			const system = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "Save this as a skill.",
+			});
+
+			expect(system).not.toContain("## Drafting a skill");
+			expect(system).not.toContain("skill_control_v1");
+		});
+
+		it("appends the skill drafting guidance to the turn's user packet", async () => {
+			const prepared = await prepareOutboundChatContext({
+				message: "Save this as a skill.",
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				skillDraftGuidance: DRAFT_GUIDANCE,
+				logLabel: "provider request",
+			});
+
+			expect(prepared.turnGuidance).toContain(DRAFT_GUIDANCE);
+			expect(prepared.systemPrompt).not.toContain(DRAFT_GUIDANCE);
+		});
+	});
+
 	// A request like "Translate this to German: Guten Tag" or "Write an email to
 	// my landlord in Hungarian" asks for specific CONTENT in one language while
 	// the reply stays in the person's. The rule says so in one sentence and

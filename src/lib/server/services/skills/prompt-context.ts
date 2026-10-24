@@ -151,6 +151,23 @@ export function buildSkillCatalogueBlock(
 	return [SKILLS_AVAILABLE_HEADING, ...lines].join("\n");
 }
 
+// The model-facing rules for proposing a skill. The Skill Draft Card flow is
+// the envelope the app already parses, persists and offers for saving
+// (`chat-turn/skill-control-envelope.ts`, `messages.ts`'s `skillDrafts`,
+// `SkillDraftCard.svelte`, the skill-drafts save route), and ADR-0009 keeps
+// the save a user decision: the model drafts, the person saves. Nothing told
+// the model the format before this, so no draft ever reached a turn; the text
+// rides the per-turn guidance (never the cached system prompt) and is gated on
+// the composer registry flag, like the catalogue and the save route.
+export const SKILL_DRAFT_GUIDANCE = `## Drafting a skill
+When the person asks you to keep how you just worked as a reusable skill ("make this a skill", "save this as a skill"), draft it in this block at the end of the reply, with no text inside it:
+
+<skill_control_v1>
+{"version":1,"operations":[{"operationId":"skill-draft-1","kind":"skill_draft","draft":{"id":"weekly-status","displayName":"Weekly status","description":"Writes a short weekly status update from what the conversation already says.","instructions":"Ask for the period, then write one short paragraph: what is done, what is next, what blocks it.","activationExamples":["Write my weekly status."],"sourceScope":"current_conversation"}}]}
+</skill_control_v1>
+
+The app removes the block before the person sees the reply and shows a card with Save private skill and Dismiss: the skill exists only after they save it, so never claim it is saved. The example's \`id\`, \`displayName\` and \`instructions\` are only the shape: write them for the skill the person asked for, with \`activationExamples\` as messages that should load it.`;
+
 // Fetches the user's enabled skills (system packs + their own), ready to pass
 // to buildSkillCatalogueBlock. The catalogue is a prompt the model reads, so a
 // system pack keeps its English name and description whatever language the

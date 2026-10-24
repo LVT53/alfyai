@@ -35,6 +35,7 @@ import {
 import {
 	buildSkillCatalogueBlock,
 	listSkillCatalogueEntries,
+	SKILL_DRAFT_GUIDANCE,
 } from "$lib/server/services/skills/prompt-context";
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -259,22 +260,30 @@ export function resolveActiveDepthEffort(
 	return depthEffort;
 }
 
-// On-demand skill loading's per-turn catalogue line: resolved here (not as a
-// context-preparation pipeline stage) because it only needs the userId already
-// available to every caller of prepareOutboundContext. The catalogue is
-// English whatever the person writes: it is scaffolding the model reads, not
-// text the person does. Fails open (no catalogue) on any lookup error, same
-// posture as every other best-effort context addition in this file.
-async function resolveSkillCatalogueBlock(
-	userId: string | undefined,
-): Promise<string | null> {
-	if (!userId || !getConfig().composerCommandRegistryEnabled) return null;
+// On-demand skill loading's per-turn prompt text: the compact "## Skills
+// available" catalogue line plus the rules for drafting a new skill, resolved
+// here (not as a context-preparation pipeline stage) because they only need the
+// userId already available to every caller of prepareOutboundContext. Both are
+// English whatever the person writes: they are scaffolding the model reads, not
+// text the person does. The catalogue fails open (no catalogue) on any lookup
+// error, same posture as every other best-effort context addition in this file;
+// the drafting rules need no read, so a failed lookup must not take them too.
+// Both are gated on the composer registry flag, which also gates the Skill
+// Draft Card's Save route.
+async function resolveSkillPromptContext(userId: string | undefined): Promise<{
+	catalogueBlock: string | null;
+	draftGuidance: string | null;
+}> {
+	if (!userId || !getConfig().composerCommandRegistryEnabled) {
+		return { catalogueBlock: null, draftGuidance: null };
+	}
+	const draftGuidance = SKILL_DRAFT_GUIDANCE;
 	try {
 		await ensureBuiltInSystemSkillsSeeded(userId);
 		const entries = await listSkillCatalogueEntries(userId);
-		return buildSkillCatalogueBlock(entries);
+		return { catalogueBlock: buildSkillCatalogueBlock(entries), draftGuidance };
 	} catch {
-		return null;
+		return { catalogueBlock: null, draftGuidance };
 	}
 }
 
@@ -320,7 +329,10 @@ export async function prepareOutboundContext(
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
 ): Promise<PreparedModelContext> {
-	const skillCatalogueBlock = await resolveSkillCatalogueBlock(params.userId);
+	const {
+		catalogueBlock: skillCatalogueBlock,
+		draftGuidance: skillDraftGuidance,
+	} = await resolveSkillPromptContext(params.userId);
 	// The "## In this chat" artifact catalogue: a fact about the conversation
 	// (what it has already made), resolved here for the same reason the skill
 	// catalogue is — it needs a DB read prepareOutboundChatContext does not
@@ -367,6 +379,7 @@ export async function prepareOutboundContext(
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
 		skillCatalogueBlock,
+		skillDraftGuidance,
 		pendingSkillInstructions: params.pendingSkillInstructions,
 		artifactCatalogueBlock,
 		onContextPreparationActivity:

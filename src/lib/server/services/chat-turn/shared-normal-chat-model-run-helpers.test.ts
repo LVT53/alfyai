@@ -13,7 +13,26 @@ const mocks = vi.hoisted(() => ({
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 	sendJsonControlMessage: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
+	skillDraftGuidance:
+		"## Drafting a skill\n<skill_control_v1></skill_control_v1>",
 }));
+
+const configState = vi.hoisted(() => ({
+	composerCommandRegistryEnabled: true,
+}));
+
+vi.mock("$lib/server/config-store", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/server/config-store")>();
+	return {
+		...actual,
+		getConfig: () => ({
+			...actual.getConfig(),
+			composerCommandRegistryEnabled:
+				configState.composerCommandRegistryEnabled,
+		}),
+	};
+});
 
 vi.mock("$lib/server/services/instructions", () => ({
 	resolveTurnInstructions: mocks.resolveTurnInstructions,
@@ -22,9 +41,11 @@ vi.mock("$lib/server/services/instructions", () => ({
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
 	listSkillCatalogueEntries: mocks.listSkillCatalogueEntries,
 	// Rendering is covered by skills/prompt-context.test.ts; this stub only
-	// has to prove the catalogue reaches context preparation.
+	// has to prove the catalogue and the drafting rules reach context
+	// preparation.
 	buildSkillCatalogueBlock: (entries: unknown[]) =>
 		entries.length > 0 ? `## Skills available\n- ${entries.length}` : null,
+	SKILL_DRAFT_GUIDANCE: mocks.skillDraftGuidance,
 }));
 
 vi.mock("$lib/server/services/skills/user-skills", () => ({
@@ -300,6 +321,46 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].skillCatalogueBlock,
 		).toContain("## Skills available");
+		// The drafting rules for a skill ride the same per-turn packet: the
+		// card they produce is saved through the same registry gate.
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].skillDraftGuidance,
+		).toBe(mocks.skillDraftGuidance);
+	});
+
+	it("withholds the skill catalogue and drafting rules when the composer registry is off", async () => {
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		mocks.listSkillCatalogueEntries.mockReset();
+		mocks.seedBuiltInSystemSkillDefinitions.mockReset();
+		configState.composerCommandRegistryEnabled = false;
+
+		try {
+			const params = {
+				userId: "user-1",
+				runtimeConfig,
+				message: "Make this a skill.",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1:gpt-4.1" as const,
+				overrideProvider,
+			};
+			const runtime = await resolveProviderRuntime(params);
+
+			await prepareOutboundContext(params, runtime, null, new Set());
+
+			const call = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+			expect(call.skillCatalogueBlock).toBeNull();
+			expect(call.skillDraftGuidance).toBeNull();
+			expect(mocks.listSkillCatalogueEntries).not.toHaveBeenCalled();
+		} finally {
+			configState.composerCommandRegistryEnabled = true;
+		}
 	});
 });
 

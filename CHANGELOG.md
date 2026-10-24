@@ -18,6 +18,12 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ## [Unreleased]
 
+### Added
+
+- Asking Alfy to save a way of working as a skill ("make this a skill") now
+  drafts one: the reply shows a card offering Save private skill or Dismiss, and
+  the skill exists only after you save it.
+
 ### Changed
 
 - Incognito is now chosen once, before a chat exists, and stays on for that

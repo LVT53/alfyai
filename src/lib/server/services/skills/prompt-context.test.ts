@@ -12,9 +12,11 @@ import * as schema from "$lib/server/db/schema";
 // pull in $lib/server/db, which reads DATABASE_PATH at import time; importing
 // them statically here would bind them to whichever DATABASE_PATH happened to
 // be set when this file first loaded, not the per-test path set in beforeEach.
+import { parseSkillControlEnvelopeFromAssistantText } from "$lib/server/services/chat-turn/skill-control-envelope";
 import {
 	buildSkillCatalogueBlock,
 	buildSkillInstructionsEnvelope,
+	SKILL_DRAFT_GUIDANCE,
 	SKILLS_AVAILABLE_HEADING,
 	selectSkillResources,
 } from "./prompt-context";
@@ -186,6 +188,32 @@ describe("skills/prompt-context", () => {
 				const name = line.replace(/^- /, "").split(" — ")[0];
 				expect(name?.startsWith("Skill Number")).toBe(true);
 			}
+		});
+	});
+
+	describe("SKILL_DRAFT_GUIDANCE", () => {
+		it("carries exactly one complete skill_draft envelope the parser accepts", () => {
+			const parsed =
+				parseSkillControlEnvelopeFromAssistantText(SKILL_DRAFT_GUIDANCE);
+
+			expect(parsed.operations).toHaveLength(1);
+			const operation = parsed.operations[0];
+			expect(operation?.kind).toBe("skill_draft");
+			if (operation?.kind !== "skill_draft") return;
+			// The example has to be a draft the card can render and the save
+			// route can persist: the parser drops a draft without these.
+			expect(operation.draft.id).toBeTruthy();
+			expect(operation.draft.displayName).toBeTruthy();
+			expect(operation.draft.instructions).toBeTruthy();
+			expect(operation.draft.activationExamples.length).toBeGreaterThan(0);
+			expect(parsed.visibleText).not.toContain("skill_control_v1");
+		});
+
+		it("says the block is hidden and the person, not the model, saves the skill", () => {
+			expect(SKILL_DRAFT_GUIDANCE).toContain("<skill_control_v1>");
+			expect(SKILL_DRAFT_GUIDANCE).toContain("</skill_control_v1>");
+			expect(SKILL_DRAFT_GUIDANCE).toContain("Save private skill");
+			expect(SKILL_DRAFT_GUIDANCE).toMatch(/never claim it is saved/i);
 		});
 	});
 
