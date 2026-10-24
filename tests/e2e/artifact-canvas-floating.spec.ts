@@ -14,14 +14,10 @@ import {
 	nodeBox,
 	openCanvasPanel,
 	openChatAndReload,
+	settledCamera,
 	testUserId,
 } from "./artifact-canvas-helpers";
-import {
-	createEmptyConversation,
-	login,
-	waitForMotionToSettle,
-	waitForStableBoundingBox,
-} from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // The layers that float over the board stay where the reader can use them (RC-3
 // N3): the change pill inside the pane, the selection's pill inside the pane and
@@ -44,7 +40,7 @@ function note(id: string, x: number, y: number, text: string): CanvasNode {
 /**
  * Two notes one above the other with 48 between them (where the change pill hangs:
  * 16 above the lower note's corner), the lower one changed by Alfy and waiting for
- * the reader's Keep or Undo, the panel open on it.
+ * the reader's Keep or Undo, the panel open on it and the review bar in place.
  */
 async function open(page: Page, at: { x: number; y: number }) {
 	await login(page);
@@ -94,6 +90,18 @@ async function open(page: Page, at: { x: number; y: number }) {
 	if (!applied.ok) throw new Error(applied.reason);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);
+	// The review bar comes a moment after the board (the panel asks the server what
+	// waits once the board is up, and loads the review's parts) and rises under it:
+	// the board is shorter by the bar's height, the toolbar and the zoom control,
+	// pinned to its bottom edge, stand higher by the same, and the board refits to
+	// its pane until the reader touches it. A still board is no sign the bar is in
+	// place: the bar comes in 0 px tall and stays so for a few frames before it
+	// rises, and `openCanvasPanel`'s two still frames of the board can fall in them.
+	// A note dragged to where the zoom control was then has the toolbar rise over
+	// its lower edge. Nothing is measured before the bar has risen and the board
+	// has been fitted to the shorter pane.
+	await expect(page.getByTestId("canvas-review-bar")).toBeVisible();
+	await settledCamera(page);
 }
 
 const changePill = (page: Page) => page.getByTestId("canvas-change-pill");
@@ -236,20 +244,13 @@ test.describe("the layers that float over a board", () => {
 			page.locator(`.svelte-flow__node[data-id="${UPPER}"]`),
 		).toHaveClass(/selected/);
 
-		// The control is out of the way: nothing of the block is under it.
+		// The control is out of the way: nothing of the block is under it. The press
+		// made the camera the reader's, so the board no longer follows its pane: the
+		// block stays where the drag left it, and its corner is taken from there.
 		await expect(zoom).toBeHidden();
-
-		// The review bar's arrival shortens the pane and the board follows it, a
-		// frame at a time, so the box read just after the drag can come from the
-		// middle of that fit. Let the motion settle and measure the block again, so
-		// the corner is taken from where it ended up rather than from a stale frame.
-		await waitForMotionToSettle(page);
-		const node = page.locator(`.svelte-flow__node[data-id="${UPPER}"]`);
-		await waitForStableBoundingBox(node);
-		const settled = await nodeBox(page, UPPER);
 		const corner = {
-			x: Math.min(settled.x + settled.width - 6, chip.x + chip.width - 6),
-			y: Math.min(settled.y + settled.height - 6, chip.y + chip.height - 6),
+			x: Math.min(moved.x + moved.width - 6, chip.x + chip.width - 6),
+			y: Math.min(moved.y + moved.height - 6, chip.y + chip.height - 6),
 		};
 		await expect
 			.poll(() => topmostIs(page, corner, ".svelte-flow__node"), {
