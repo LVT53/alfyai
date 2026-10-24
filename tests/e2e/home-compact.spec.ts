@@ -11,7 +11,7 @@ import {
 } from "../../src/lib/server/db/schema";
 import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
-import { ensureSidebarExpanded, login, TEST_EMAIL } from "./helpers";
+import { login, renameConversationInSidebar, TEST_EMAIL } from "./helpers";
 
 /**
  * The chat home rebuilt to HomeV4A "Compact".
@@ -352,19 +352,11 @@ test.describe("chat home — Compact", () => {
 		);
 		await expect(line).toContainText(SEEDED.plainConversation);
 
-		await ensureSidebarExpanded(page);
-		const row = page.locator(
-			`[data-testid="conversation-item"][data-conversation-id="${plainConversationId}"]`,
+		await renameConversationInSidebar(
+			page,
+			plainConversationId,
+			"Folder clean-up, renamed",
 		);
-		await row.hover();
-		await row.getByRole("button", { name: "Conversation options" }).click();
-		await page.getByTestId("rename-option").click();
-		const input = page.getByTestId("title-input");
-		await input.fill("Folder clean-up, renamed");
-		// Committed by leaving the field, which keeps this page on screen: Enter
-		// also reaches the row's own Enter handler and opens the chat.
-		await input.press("Tab");
-		await expect(row).toContainText("Folder clean-up, renamed");
 		await expect(page).toHaveURL("/");
 
 		await expect(line).toContainText("Folder clean-up, renamed");

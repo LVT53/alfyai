@@ -95,9 +95,8 @@ export async function ensureSidebarExpanded(page: Page) {
 
 /**
  * Renames a project the way a user does: its sidebar row's options menu,
- * Rename, the new name, then leaving the field. Leaving commits the rename
- * without the Enter key, which the row hears as well (it opens or closes the
- * folder).
+ * Rename, the new name and Enter. Returns once the row shows the new name,
+ * which is after the server has saved it.
  */
 export async function renameProjectInSidebar(
 	page: Page,
@@ -112,12 +111,39 @@ export async function renameProjectInSidebar(
 	await row.getByRole("button", { name: "Project options" }).click();
 	await page
 		.locator(".project-menu")
-		.getByRole("menuitem", { name: "Rename" })
+		.getByRole("menuitem", { name: "Rename", exact: true })
 		.click();
 	const input = row.locator("input");
 	await input.fill(name);
-	await input.press("Tab");
+	await input.press("Enter");
 	await expect(row).toContainText(name);
+}
+
+function sidebarConversationRow(page: Page, conversationId: string): Locator {
+	return page.locator(
+		`[data-testid="conversation-item"][data-conversation-id="${conversationId}"]`,
+	);
+}
+
+/**
+ * Renames a chat the way a user does: its sidebar row's options menu, Rename,
+ * the new title and Enter. Returns once the row shows the new title, which is
+ * after the server has saved it.
+ */
+export async function renameConversationInSidebar(
+	page: Page,
+	conversationId: string,
+	title: string,
+) {
+	await ensureSidebarExpanded(page);
+	const row = sidebarConversationRow(page, conversationId);
+	await row.hover();
+	await row.getByRole("button", { name: "Conversation options" }).click();
+	await page.getByTestId("rename-option").click();
+	const input = page.getByTestId("title-input");
+	await input.fill(title);
+	await input.press("Enter");
+	await expect(row).toContainText(title);
 }
 
 export async function createConversation(

@@ -197,6 +197,8 @@ function saveRename() {
 function handleKeydown(e: KeyboardEvent) {
 	if (e.key === "Enter") {
 		e.preventDefault();
+		// The row's own Enter opens or closes the folder; this Enter only saves.
+		e.stopPropagation();
 		saveRename();
 	} else if (e.key === "Escape") {
 		isEditing = false;
