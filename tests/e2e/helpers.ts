@@ -146,6 +146,24 @@ export async function renameConversationInSidebar(
 	await expect(row).toContainText(title);
 }
 
+/**
+ * Deletes a chat from its sidebar row, confirming the dialog. Returns once the
+ * row is gone, which is after the server has deleted it. A chat inside a
+ * project folder is only listed while its folder is open.
+ */
+export async function deleteConversationInSidebar(
+	page: Page,
+	conversationId: string,
+) {
+	await ensureSidebarExpanded(page);
+	const row = sidebarConversationRow(page, conversationId);
+	await row.hover();
+	await row.getByRole("button", { name: "Conversation options" }).click();
+	await page.getByTestId("delete-option").click();
+	await page.getByTestId("confirm-delete").click();
+	await expect(row).toHaveCount(0);
+}
+
 export async function createConversation(
 	page: Page,
 	firstMessage = "Create a test conversation",

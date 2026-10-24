@@ -13,18 +13,20 @@
  * `refreshProjectFiles`, so the quiet line's count and the modal's list are
  * always the same list — the server's last word on it.
  */
+import { invalidate } from "$app/navigation";
 import { ApiError } from "$lib/client/api/http";
 import {
 	fetchProjectFiles,
 	saveProjectInstructions,
 } from "$lib/client/api/projects";
 import { consumeProjectComposerFocus } from "$lib/client/conversation-session";
+import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-workspace-state";
 import HomeSurface from "$lib/components/home/HomeSurface.svelte";
 import InstructionsDialog from "$lib/components/instructions/InstructionsDialog.svelte";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { t } from "$lib/i18n";
 import { projects } from "$lib/stores/projects";
-import { untrack } from "svelte";
+import { onMount, untrack } from "svelte";
 import {
 	type InstructionScope,
 	instructionScopeKey,
@@ -193,6 +195,24 @@ function openFilesDialog(): void {
 $effect(() => {
 	const projectId = data.project.id;
 	void refreshProjectFiles(projectId);
+});
+
+// A chat deleted in the sidebar leaves this page's list, and its count, now
+// rather than on the next visit. The store raises the event once the server has
+// deleted the chat; the project read is the load's, so the load runs again.
+onMount(() => {
+	const reloadAfterDelete = () => {
+		void invalidate(`app:project-page:${data.project.id}`);
+	};
+	window.addEventListener(
+		WORKSPACE_CONVERSATION_DELETED_EVENT,
+		reloadAfterDelete,
+	);
+	return () =>
+		window.removeEventListener(
+			WORKSPACE_CONVERSATION_DELETED_EVENT,
+			reloadAfterDelete,
+		);
 });
 </script>
 

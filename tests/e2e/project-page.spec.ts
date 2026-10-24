@@ -9,6 +9,7 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 import {
+	deleteConversationInSidebar,
 	ensureSidebarExpanded,
 	login,
 	renameProjectInSidebar,
@@ -604,6 +605,51 @@ test.describe("Project page", () => {
 
 		await expect(page.getByTestId("project-greeting")).toHaveText(newName);
 		await expect(page).toHaveTitle(`${newName} · Alfy AI`);
+	});
+
+	// Owner-reported (2026-10-24): a chat deleted in the sidebar stayed in this
+	// page's list, and in its count, until the next visit.
+	test("drops a chat deleted in the sidebar from its list and its count at once", async ({
+		page,
+	}) => {
+		const projectId = await createProject(
+			page,
+			`Lisbon trip ${randomUUID().slice(0, 8)}`,
+		);
+		const keptId = await seedChat({
+			projectId,
+			title: "Where to stay",
+			updatedAt: hoursAgo(2),
+		});
+		const deletedId = await seedChat({
+			projectId,
+			title: "Day trips",
+			updatedAt: hoursAgo(1),
+		});
+		await openProjectPage(page, projectId);
+		const heading = page.getByTestId("home-list-heading");
+		await expect(heading).toHaveText("2 chats in this project");
+
+		// Opened by its address, so its sidebar folder starts closed; the chat's
+		// row is listed only while the folder is open.
+		await ensureSidebarExpanded(page);
+		await page
+			.locator(
+				`[data-testid="project-drop-target"][data-project-id="${projectId}"]`,
+			)
+			.click();
+		await deleteConversationInSidebar(page, deletedId);
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+
+		await expect(
+			page.locator(
+				`[data-testid="home-recent-line"][href="/chat/${deletedId}"]`,
+			),
+		).toHaveCount(0);
+		await expect(
+			page.locator(`[data-testid="home-recent-line"][href="/chat/${keptId}"]`),
+		).toBeVisible();
+		await expect(heading).toHaveText("1 chat in this project");
 	});
 
 	test("redirects home for another user's project id", async ({ page }) => {
