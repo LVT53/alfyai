@@ -522,7 +522,15 @@ test.describe("an App reaching a STUN or TURN server through WebRTC", () => {
 				timeout: 20_000,
 			})
 			.toBeGreaterThan(0);
-		expect(ice.connections, "a TURN-over-TCP connection").toBeGreaterThan(0);
+		// The TURN connection opens a gathering phase after the STUN request goes
+		// out (libwebrtc spaces its phases 50 ms apart), so it is waited for too.
+		await expect
+			.poll(() => ice.connections, {
+				message:
+					"no TURN-over-TCP connection arrived: the harness cannot see TURN",
+				timeout: 20_000,
+			})
+			.toBeGreaterThan(0);
 		await lone.close();
 	});
 
@@ -603,9 +611,14 @@ report();`,
 				timeout: 20_000,
 			})
 			.toBeGreaterThan(0);
-		expect(await nestedProbes(page)).toEqual([
-			{ alfyProbe: "srcdoc", state: "constructed" },
-		]);
+		// The frame's word to the top page and its datagram arrive by unrelated
+		// paths, a few milliseconds apart, so the word is waited for too.
+		await expect
+			.poll(() => nestedProbes(page), {
+				message: "the nested frame's script never reported to the top page",
+				timeout: 20_000,
+			})
+			.toEqual([{ alfyProbe: "srcdoc", state: "constructed" }]);
 	});
 
 	// ---- The guard ---------------------------------------------------------
