@@ -9,7 +9,7 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
-import { login, waitForHydration } from "./helpers";
+import { login, renameProjectInSidebar, waitForHydration } from "./helpers";
 import { sameOriginHeader } from "./request-origin";
 
 /**
@@ -404,6 +404,37 @@ test.describe("home projects row", () => {
 
 		await expect(page).toHaveURL(new RegExp(`/projects/${project}$`));
 		await expect(page.getByTestId("project-greeting")).toHaveText(projectName);
+	});
+
+	// Owner-reported (2026-10-24): the row is read from the home summary on
+	// arrival and then every 30 seconds, so a folder renamed in the sidebar kept
+	// its old name here until the next read. The card has to follow at once.
+	test("renames a card the moment the sidebar renames its project", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearProjectFixtures(userId);
+
+		const oldName = nameOf("Iceland trip");
+		const project = await createProject(page, oldName);
+		await seedChat({
+			projectId: project,
+			title: "Reykjavik in October",
+			updatedAt: hoursAgo(1),
+		});
+
+		await gotoHome(page);
+		const card = page.locator(
+			`[data-testid="home-project-card"][href="/projects/${project}"]`,
+		);
+		await expect(card).toContainText(oldName);
+
+		const newName = nameOf("Iceland, renamed");
+		await renameProjectInSidebar(page, project, newName);
+		await expect(page).toHaveURL("/");
+
+		await expect(card).toContainText(newName);
+		await expect(card).not.toContainText(oldName);
 	});
 
 	test("leaves the row, heading and all, off the board when there is nothing to show", async ({

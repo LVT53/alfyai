@@ -93,6 +93,33 @@ export async function ensureSidebarExpanded(page: Page) {
 	).toBeVisible({ timeout: 5000 });
 }
 
+/**
+ * Renames a project the way a user does: its sidebar row's options menu,
+ * Rename, the new name, then leaving the field. Leaving commits the rename
+ * without the Enter key, which the row hears as well (it opens or closes the
+ * folder).
+ */
+export async function renameProjectInSidebar(
+	page: Page,
+	projectId: string,
+	name: string,
+) {
+	await ensureSidebarExpanded(page);
+	const row = page.locator(
+		`[data-testid="project-drop-target"][data-project-id="${projectId}"]`,
+	);
+	await row.hover();
+	await row.getByRole("button", { name: "Project options" }).click();
+	await page
+		.locator(".project-menu")
+		.getByRole("menuitem", { name: "Rename" })
+		.click();
+	const input = row.locator("input");
+	await input.fill(name);
+	await input.press("Tab");
+	await expect(row).toContainText(name);
+}
+
 export async function createConversation(
 	page: Page,
 	firstMessage = "Create a test conversation",

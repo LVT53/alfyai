@@ -11,6 +11,7 @@ import {
 import {
 	ensureSidebarExpanded,
 	login,
+	renameProjectInSidebar,
 	sendMessage,
 	waitForHydration,
 } from "./helpers";
@@ -584,6 +585,25 @@ test.describe("Project page", () => {
 		await page.getByTestId("chat-title-project-link").click();
 		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
 		await expect(page.getByTestId("project-greeting")).toHaveText(projectName);
+	});
+
+	// Owner-reported (2026-10-24): the page took its name from its own load, so
+	// renaming the folder in the sidebar while standing on its page left the
+	// heading and the tab on the old name until the next visit.
+	test("follows a sidebar rename of its own project in the heading and the tab title", async ({
+		page,
+	}) => {
+		const oldName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, oldName);
+		await openProjectPage(page, projectId);
+		await expect(page.getByTestId("project-greeting")).toHaveText(oldName);
+
+		const newName = `Vienna weekend ${randomUUID().slice(0, 8)}`;
+		await renameProjectInSidebar(page, projectId, newName);
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+
+		await expect(page.getByTestId("project-greeting")).toHaveText(newName);
+		await expect(page).toHaveTitle(`${newName} · Alfy AI`);
 	});
 
 	test("redirects home for another user's project id", async ({ page }) => {

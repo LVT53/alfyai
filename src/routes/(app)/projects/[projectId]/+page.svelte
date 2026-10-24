@@ -23,6 +23,7 @@ import HomeSurface from "$lib/components/home/HomeSurface.svelte";
 import InstructionsDialog from "$lib/components/instructions/InstructionsDialog.svelte";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { t } from "$lib/i18n";
+import { projects } from "$lib/stores/projects";
 import { untrack } from "svelte";
 import {
 	type InstructionScope,
@@ -91,10 +92,19 @@ $effect(() => {
 	projectFilesFailed = false;
 });
 
+// A folder renamed in the sidebar is renamed in the sidebar's store the moment
+// the rename is saved, and this page's load does not run again for it. So the
+// name here is the store's whenever it lists the project — the chat page's
+// title bar reads its project segment the same way — and the load's otherwise.
+const projectName = $derived(
+	$projects.find((project) => project.id === data.project.id)?.name ??
+		data.project.name,
+);
+
 const projectScope = $derived<InstructionScope>({
 	kind: "project",
 	projectId: data.project.id,
-	name: data.project.name,
+	name: projectName,
 });
 const projectScopes = $derived<InstructionScope[]>([projectScope]);
 const instructionTextKey = $derived(instructionScopeKey(projectScope));
@@ -187,13 +197,13 @@ $effect(() => {
 </script>
 
 <svelte:head>
-	<title>{data.project.name} · Alfy AI</title>
+	<title>{projectName} · Alfy AI</title>
 </svelte:head>
 
 <HomeSurface
 	mode={{
 		kind: "project",
-		project: { id: data.project.id, name: data.project.name },
+		project: { id: data.project.id, name: projectName },
 		fileCount: projectFiles?.length,
 		hasMadeItems: projectFiles?.some((file) => file.artifactKind !== undefined),
 		chatCount: data.chatCount,
@@ -225,7 +235,7 @@ $effect(() => {
 <ProjectFilesDialog
 	open={filesDialogOpen}
 	projectId={data.project.id}
-	projectName={data.project.name}
+	projectName={projectName}
 	files={projectFiles}
 	filesFailed={projectFilesFailed}
 	onRefresh={() => refreshProjectFiles(data.project.id)}

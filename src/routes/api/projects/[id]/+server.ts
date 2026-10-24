@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import {
 	deleteProject,
 	getProjectInstructions,
@@ -79,6 +80,10 @@ export const PATCH: RequestHandler = async (event) => {
 	if (!project) {
 		return json({ error: "Project not found" }, { status: 404 });
 	}
+	// The new-chat page's project cards carry the name and whether there are
+	// instructions, read from a summary held for 30 seconds; a page opened
+	// inside that window would draw the old ones back.
+	invalidateHomeSummary(user.id);
 	return json(project);
 };
 

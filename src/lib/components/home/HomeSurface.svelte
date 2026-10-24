@@ -48,6 +48,7 @@ import {
 	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
+import { projects as sidebarProjects } from "$lib/stores/projects";
 import {
 	currentConversationId,
 	landingIncognitoArmed,
@@ -245,11 +246,12 @@ const projectListHeading = $derived.by(() => {
 	);
 });
 
-// The lines are a server snapshot: the landing reads its summary on arrival
+// The board is a server snapshot: the landing reads its summary on arrival
 // and every 30 seconds, the project page reads its chats once per load. A
-// rename lands in the sidebar's store the moment it is saved, so each line
-// takes its title from there whenever the store lists the conversation, and
-// the sidebar and the board never call one chat by two names.
+// rename lands in the sidebar's stores the moment it is saved, so each line
+// takes its title, and each project card its name, from there whenever the
+// store lists it, and the sidebar and the board never call one thing by two
+// names.
 const recentLines = $derived.by(() => {
 	const titles = new Map(
 		$conversations.map((conversation) => [conversation.id, conversation.title]),
@@ -259,6 +261,15 @@ const recentLines = $derived.by(() => {
 		return title === undefined || title === line.title
 			? line
 			: { ...line, title };
+	});
+});
+const projectCards = $derived.by(() => {
+	const names = new Map(
+		$sidebarProjects.map((project) => [project.id, project.name]),
+	);
+	return projects.map((card) => {
+		const name = names.get(card.id);
+		return name === undefined || name === card.name ? card : { ...card, name };
 	});
 });
 
@@ -1333,7 +1344,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						     stats line read, so the two "3 hours ago"s on this screen can
 						     never disagree. -->
 						<HomeProjects
-							{projects}
+							projects={projectCards}
 							formatRelative={(seconds) => formatters.relative(seconds)}
 						/>
 
