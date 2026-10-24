@@ -32,6 +32,10 @@
 // sits under. The Model row keeps its "?" beside the control, not inside it:
 // the guide is a different destination from the picker.
 //
+// What those two rows and the Atlas row open is one picker, three times:
+// ComposerSubmenu (a flyout beside the menu, a sheet on a phone) holding
+// ComposerSubmenuOption rows. It used to be three designs.
+//
 // Accounts are not among them. The plug on the bar opens the per-account
 // popover, so the accounts section in here was a second copy of the same
 // switches — two places showing one state, and the one behind the plus was
@@ -54,6 +58,8 @@ import {
 	Paperclip,
 	Sparkles,
 } from "@lucide/svelte";
+import ComposerSubmenu from "./ComposerSubmenu.svelte";
+import ComposerSubmenuOption from "./ComposerSubmenuOption.svelte";
 import ModelSelector from "./ModelSelector.svelte";
 import {
 	buildComposerMenuRows,
@@ -62,9 +68,7 @@ import {
 	nextMenuIndex,
 } from "./composer-bar";
 import {
-	computeFlyoutPlacement,
 	computeMenuPlacement,
-	type FlyoutPlacement,
 	type MenuPlacement,
 	type PlacementRect,
 } from "./composer-placement";
@@ -199,25 +203,19 @@ const ATLAS_PROFILE_OPTIONS = [
 	"exhaustive",
 ] as const satisfies readonly AtlasProfile[];
 
-// ── Where the menu and its flyouts land ──────────────────────────────
+// ── Where the menu lands ─────────────────────────────────────────────
 //
-// All three used to be CSS offsets from whatever they sat inside, which is
-// the same bug three times: an offset cannot see the window. The menu opened
-// upward from `bottom: calc(100% + 8px)` and had its top cut off on a 720px
-// screen with the composer at the bottom of a conversation; the Model and
-// Atlas pickers opened upward from their own rows and covered the rows above
-// them. The arithmetic is in composer-placement.ts; the only thing that
-// happens here is reading the rects and writing the style.
+// It used to be a CSS offset from whatever it sat inside, and an offset
+// cannot see the window: the menu opened upward from `bottom: calc(100% +
+// 8px)` and had its top cut off on a 720px screen with the composer at the
+// bottom of a conversation. The arithmetic is in composer-placement.ts; the
+// only thing that happens here is reading the rects and writing the style.
+// The pickers it opens place themselves (ComposerSubmenu), beside it.
 //
-// They are portalled to <body> for the same reason the phone sheet is: this
+// It is portalled to <body> for the same reason the phone sheet is: this
 // menu has a `backdrop-filter`, which makes it the containing block for any
 // `position: fixed` descendant — measured against the viewport, drawn
 // relative to the menu.
-
-/** Roughly the Style list's width; it is a column of short profile names. */
-const STYLE_FLYOUT_WIDTH = 224;
-/** `min(19rem, …)`, the Atlas picker's own width. */
-const ATLAS_FLYOUT_WIDTH = 304;
 
 function rectOf(element: Element | null | undefined): PlacementRect | null {
 	if (!element) return null;
@@ -246,8 +244,6 @@ function measureMenu(): MenuPlacement | null {
 // the first frame is already in the right place rather than flying in from
 // the top-left corner of the page.
 let menuPlacement = $state<MenuPlacement | null>(measureMenu());
-let styleFlyout = $state<FlyoutPlacement | null>(null);
-let atlasFlyout = $state<FlyoutPlacement | null>(null);
 
 /** Positioned from the trigger rather than opening in place. */
 let anchored = $derived(!isPhone && Boolean(triggerElement));
@@ -262,42 +258,8 @@ let menuStyle = $derived.by(() => {
 	return `left: ${menuPlacement.left}px; ${edge} max-height: ${menuPlacement.maxHeight}px;`;
 });
 
-function flyoutStyle(
-	placement: FlyoutPlacement | null,
-	width: number,
-): string | undefined {
-	if (!placement) return undefined;
-	return `left: ${placement.left}px; top: ${placement.top}px; width: ${width}px; max-height: ${placement.maxHeight}px;`;
-}
-
-function measureFlyout(rowId: string, width: number): FlyoutPlacement | null {
-	if (typeof window === "undefined") return null;
-	const menuRect = rectOf(root);
-	if (!menuRect) return null;
-	return computeFlyoutPlacement(
-		rectOf(rowElements.get(rowId)) ?? menuRect,
-		menuRect,
-		{ width: window.innerWidth, height: window.innerHeight },
-		{ width },
-	);
-}
-
 function measurePlacement() {
-	if (isPhone) {
-		menuPlacement = null;
-		styleFlyout = null;
-		atlasFlyout = null;
-		return;
-	}
-	menuPlacement = measureMenu();
-	styleFlyout =
-		anchored && activeDropdown === "style"
-			? measureFlyout("style", STYLE_FLYOUT_WIDTH)
-			: null;
-	atlasFlyout =
-		anchored && activeDropdown === "atlas"
-			? measureFlyout("atlas", ATLAS_FLYOUT_WIDTH)
-			: null;
+	menuPlacement = isPhone ? null : measureMenu();
 }
 
 // Re-measure whenever what is on screen changes shape. The reads below are
@@ -305,7 +267,6 @@ function measurePlacement() {
 // up, so nothing it touches is tracked.
 $effect(() => {
 	isPhone;
-	activeDropdown;
 	rows.length;
 	void tick().then(measurePlacement);
 });
@@ -355,21 +316,32 @@ function selectAtlasProfile(profile: AtlasProfile) {
 	closeMenu();
 }
 
-// Parts of this menu that are moved to <body> on a phone so their
-// `position: fixed` means the viewport (see utils/portal). Once moved they
-// are no longer inside `root`, so the outside-click handler would read a tap
-// on an Atlas profile card or a model row as "somewhere else" and close the
-// menu out from under it — before the click that would have chosen anything
-// ever landed. The model guide's backdrop is here for the same reason: it is
-// rendered at the top level by ModelSelector.
+function selectPersonality(id: string | null) {
+	onPersonalityChange?.(id);
+	closeMenu();
+}
+
+// Escape or a sheet's grabber: the picker goes, the menu stays, and focus is
+// back on the row that opened it so the arrow keys carry on from there.
+function closeSubmenu(rowId: "style" | "atlas") {
+	activeDropdown = null;
+	void focusRow(rowIndex(rowId));
+}
+
+// Parts of this menu that live in <body> rather than inside `root`: the
+// pickers it opens (ComposerSubmenu portals itself, so its `position: fixed`
+// means the viewport — see utils/portal). The outside-click handler would
+// otherwise read a tap on an Atlas profile or a model as "somewhere else"
+// and close the menu out from under it, before the click that chooses
+// anything ever landed. The model guide's backdrop is here for the same
+// reason: it is rendered at the top level by ModelSelector.
 const OWN_OVERLAY_SELECTOR = [
 	// The menu itself: on a desktop it is now portalled to <body> too, so
 	// "inside the menu" is no longer a question about this component's
 	// subtree in the composer.
 	".tools-menu",
 	".model-guide-backdrop",
-	".atlas-profile-picker",
-	".model-selector__dropdown",
+	".composer-submenu",
 	".model-selector__scrim",
 ].join(",");
 
@@ -623,55 +595,27 @@ onMount(() => {
 					<span class="menu-row__chevron" aria-hidden="true"><ChevronRight size={15} strokeWidth={2} /></span>
 				</button>
 				{#if atlasOpen}
-					{@const asFlyout = !isPhone && anchored && atlasFlyout !== null}
-					<section
-						class="atlas-profile-picker"
-						class:atlas-profile-picker--sheet={isPhone}
-						class:atlas-profile-picker--flyout={asFlyout}
-						style={asFlyout ? flyoutStyle(atlasFlyout, ATLAS_FLYOUT_WIDTH) : undefined}
-						use:portalToBody={isPhone || asFlyout}
-						transition:menuFly={isPhone
-							? { duration: 250, y: 220, opacity: 1 }
-							: asFlyout
-								? { duration: 150, x: -4, y: 0 }
-								: { duration: 150, y: 4 }}
-						aria-label={$t('composerTools.atlasProfileTitle')}
+					<ComposerSubmenu
+						title={$t('composerTools.atlasProfileTitle')}
+						subtitle={$t('composerTools.atlasProfileSubtitle')}
+						listLabel={$t('composerTools.atlasProfile')}
+						sheet={isPhone}
+						rowElement={rowElements.get('atlas') ?? null}
+						surfaceElement={root ?? null}
+						onDismiss={() => closeSubmenu('atlas')}
+						testId="composer-submenu-atlas"
 					>
-						{#if isPhone}
-							<button
-								type="button"
-								class="tools-menu__grabber"
-								aria-label={$t('composerSheet.close')}
-								onclick={() => { activeDropdown = null; }}
-							><span class="tools-menu__grabber-bar"></span></button>
-						{/if}
-						<h3 class="atlas-profile-picker__title">{$t('composerTools.atlasProfileTitle')}</h3>
-						<p class="atlas-profile-picker__subtitle">{$t('composerTools.atlasProfileSubtitle')}</p>
-						<ul class="atlas-profile-options" role="listbox" aria-label={$t('composerTools.atlasProfile')}>
-							{#each ATLAS_PROFILE_OPTIONS as profile}
-								<li
-									role="option"
-									aria-selected={atlasProfile === profile}
-									class="atlas-profile-card"
-									class:atlas-profile-card--selected={atlasProfile === profile}
-									onclick={() => selectAtlasProfile(profile)}
-									onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectAtlasProfile(profile)}
-									tabindex="0"
-									aria-labelledby={`atlas-profile-${profile}-name`}
-									aria-describedby={`atlas-profile-${profile}-time atlas-profile-${profile}-desc`}
-								>
-									<span class="atlas-profile-radio" aria-hidden="true"></span>
-									<span class="atlas-profile-info">
-										<span class="atlas-profile-row">
-											<span class="atlas-profile-name" id={`atlas-profile-${profile}-name`}>{atlasProfileLabel(profile)}</span>
-											<span class="atlas-profile-time" id={`atlas-profile-${profile}-time`}>{$t(atlasProfileTimeKey(profile))}</span>
-										</span>
-										<span class="atlas-profile-desc" id={`atlas-profile-${profile}-desc`}>{$t(atlasProfileDescriptionKey(profile))}</span>
-									</span>
-								</li>
-							{/each}
-						</ul>
-					</section>
+						{#each ATLAS_PROFILE_OPTIONS as profile (profile)}
+							<ComposerSubmenuOption
+								label={atlasProfileLabel(profile)}
+								meta={$t(atlasProfileTimeKey(profile))}
+								description={$t(atlasProfileDescriptionKey(profile))}
+								selected={atlasProfile === profile}
+								onSelect={() => selectAtlasProfile(profile)}
+								optionId={profile}
+							/>
+						{/each}
+					</ComposerSubmenu>
 				{/if}
 				{#if row.disabled}
 					<p id="atlas-unavailable-reason" class="menu-row__hint">{atlasUnavailableReason}</p>
@@ -703,7 +647,6 @@ onMount(() => {
 					onSelect={selectModel}
 					onTriggerRef={(element) => bindRowElement('model', element)}
 					ownsScrim={!isPhone}
-					flyout={!isPhone && anchored}
 					flyoutAnchor={root ?? null}
 					leadingLabel={$t('composerTools.model')}
 				/>
@@ -732,36 +675,35 @@ onMount(() => {
 						</span>
 					</button>
 					{#if styleOpen}
-						{@const asFlyout = !isPhone && anchored && styleFlyout !== null}
-						<ul
-							class="model-selector__dropdown"
-							class:model-selector__dropdown--flyout={asFlyout}
-							style={asFlyout ? flyoutStyle(styleFlyout, STYLE_FLYOUT_WIDTH) : undefined}
-							use:portalToBody={asFlyout}
-							role="listbox"
+						<ComposerSubmenu
+							title={$t('composerTools.styleTitle')}
+							subtitle={$t('composerTools.styleSubtitle')}
+							listLabel={$t('composerTools.style')}
+							sheet={isPhone}
+							rowElement={rowElements.get('style') ?? null}
+							surfaceElement={root ?? null}
+							onDismiss={() => closeSubmenu('style')}
+							testId="composer-submenu-style"
 						>
-							<li
-								role="option"
-								aria-selected={!selectedPersonalityId}
-								class="model-selector__option"
-								class:model-selector__option--selected={!selectedPersonalityId}
-								onclick={() => { onPersonalityChange?.(null); closeMenu(); }}
-								onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (onPersonalityChange?.(null), closeMenu())}
-								tabindex="0"
-							>{$t('composerTools.defaultStyle')}</li>
-							{#each personalityProfiles as profile}
-								<li
-									role="option"
-									aria-selected={selectedPersonalityId === profile.id}
-									class="model-selector__option"
-									class:model-selector__option--selected={selectedPersonalityId === profile.id}
-									title={getPersonalityProfileDisplayDescription(profile, $t)}
-									onclick={() => { onPersonalityChange?.(profile.id); closeMenu(); }}
-									onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (onPersonalityChange?.(profile.id), closeMenu())}
-									tabindex="0"
-								>{getPersonalityProfileDisplayName(profile, $t)}</li>
+							<!-- What a style does is said on its row: a tooltip
+							     never reaches a phone, and the names alone
+							     ("Warm", "Technical") leave the user guessing. -->
+							<ComposerSubmenuOption
+								label={$t('composerTools.defaultStyle')}
+								description={$t('personalityProfile.default.description')}
+								selected={!selectedPersonalityId}
+								onSelect={() => selectPersonality(null)}
+							/>
+							{#each personalityProfiles as profile (profile.id)}
+								<ComposerSubmenuOption
+									label={getPersonalityProfileDisplayName(profile, $t)}
+									description={getPersonalityProfileDisplayDescription(profile, $t) || null}
+									selected={selectedPersonalityId === profile.id}
+									onSelect={() => selectPersonality(profile.id)}
+									optionId={profile.id}
+								/>
 							{/each}
-						</ul>
+						</ComposerSubmenu>
 					{/if}
 				</div>
 			</div>
@@ -778,12 +720,11 @@ onMount(() => {
 		bottom: calc(100% + 8px);
 		z-index: 40;
 		width: min(17.5rem, calc(100vw - 2rem));
-		border: 1px solid color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
+		/* The surface the pickers it opens share (ComposerSubmenu). */
+		border: 1px solid var(--menu-border);
 		border-radius: 0.72rem;
-		background: color-mix(in srgb, var(--surface-overlay) 88%, var(--surface-page) 12%);
-		box-shadow:
-			0 14px 30px rgba(0, 0, 0, 0.14),
-			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+		background: var(--menu-surface);
+		box-shadow: var(--menu-shadow);
 		padding: 0.32rem;
 		backdrop-filter: blur(14px);
 	}
@@ -826,7 +767,7 @@ onMount(() => {
 		z-index: 60;
 	}
 
-	/* Sits under the sheet (z 60) and the Atlas sub-sheet (z 70) but over the
+	/* Sits under the sheet (z 60) and the picker sheets (z 70) but over the
 	   composer, so the message you were writing is still legible behind it. */
 	.tools-menu__scrim {
 		position: fixed;
@@ -858,14 +799,6 @@ onMount(() => {
 	.tools-menu__grabber:hover .tools-menu__grabber-bar,
 	.tools-menu__grabber:focus-visible .tools-menu__grabber-bar {
 		background: color-mix(in srgb, var(--text-muted) 78%, transparent 22%);
-	}
-
-	:global(.dark) .tools-menu {
-		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-		box-shadow:
-			0 16px 32px rgba(0, 0, 0, 0.4),
-			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
 	}
 
 	/* A section says what the rows under it are about. */
@@ -1176,242 +1109,6 @@ onMount(() => {
 		color: var(--text-secondary);
 	}
 
-	.model-selector__dropdown {
-		position: absolute;
-		bottom: 100%;
-		right: 0;
-		margin: 0 0 0.25rem;
-		padding: 0.24rem;
-		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
-		display: flex;
-		flex-direction: column;
-		gap: 0.12rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
-		border-radius: 0.55rem;
-		box-shadow:
-			0 14px 30px rgba(0, 0, 0, 0.14),
-			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-		list-style: none;
-		min-width: 100%;
-		z-index: 100;
-		animation: dropdownFadeIn 150ms ease-out;
-	}
-
-	/* Beside the menu rather than above the row, so the list no longer
-	   covers the rows it was opened from. Fixed and portalled to <body>:
-	   this menu has a backdrop-filter, which would otherwise make it the
-	   containing block for a fixed child. */
-	.model-selector__dropdown--flyout {
-		position: fixed;
-		right: auto;
-		bottom: auto;
-		margin: 0;
-		min-width: 0;
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		z-index: 140;
-		animation-name: flyoutFadeIn;
-	}
-
-	.model-selector__option {
-		padding: 0.38rem 0.5rem;
-		border-radius: 0.42rem;
-		cursor: pointer;
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		line-height: 1.15;
-		color: var(--text-primary);
-		transition: background-color 150ms ease-out;
-		white-space: nowrap;
-	}
-
-	.model-selector__option:hover,
-	.model-selector__option:focus {
-		background: color-mix(in srgb, var(--accent) 24%, transparent);
-		outline: none;
-	}
-
-	.model-selector__option--selected {
-		background: color-mix(in srgb, var(--accent) 18%, transparent);
-		font-weight: 500;
-	}
-
-	/* "Nothing you tap here is smaller than 44px" — the Style rows are the
-	   last list in this menu that was still drawn at desktop density, which
-	   on a phone put three ~26px targets inside a sheet whose every other
-	   row is 44. */
-	.tools-menu--sheet .model-selector__option {
-		display: flex;
-		align-items: center;
-		min-height: 44px;
-		padding: 0.5rem 0.75rem;
-		font-size: var(--text-sm);
-	}
-
-	/* ── The Atlas profile picker ── */
-	.atlas-profile-picker {
-		position: absolute;
-		right: 0;
-		bottom: 100%;
-		z-index: 120;
-		width: min(19rem, calc(100vw - 2rem));
-		margin-bottom: 0.35rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
-		border-radius: 0.7rem;
-		background: color-mix(in srgb, var(--surface-overlay) 94%, var(--surface-page) 6%);
-		box-shadow:
-			0 16px 34px rgba(0, 0, 0, 0.16),
-			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-		padding: 0.7rem;
-	}
-
-	.atlas-profile-picker--flyout {
-		position: fixed;
-		right: auto;
-		bottom: auto;
-		width: auto;
-		margin: 0;
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		z-index: 140;
-	}
-
-	.atlas-profile-picker--sheet {
-		position: fixed;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		width: auto;
-		margin: 0;
-		max-height: min(80dvh, 36rem);
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		border-radius: 16px 16px 0 0;
-		border-bottom: 0;
-		padding: 0 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
-		z-index: 70;
-	}
-
-	:global(.dark) .atlas-profile-picker {
-		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-		box-shadow:
-			0 18px 36px rgba(0, 0, 0, 0.42),
-			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-	}
-
-	.atlas-profile-picker__title {
-		margin: 0;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 700;
-		line-height: 1.2;
-	}
-
-	.atlas-profile-picker__subtitle {
-		margin: 0.25rem 0 0.65rem;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		line-height: 1.3;
-	}
-
-	.atlas-profile-options {
-		display: grid;
-		gap: 0.45rem;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	.atlas-profile-card {
-		display: flex;
-		gap: 0.58rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent 24%);
-		border-radius: 0.55rem;
-		background: color-mix(in srgb, var(--surface-page) 72%, transparent 28%);
-		padding: 0.62rem;
-		color: var(--text-primary);
-		cursor: pointer;
-		transition:
-			border-color 150ms ease-out,
-			background-color 150ms ease-out,
-			box-shadow 150ms ease-out,
-			transform 150ms ease-out;
-	}
-
-	.atlas-profile-card:hover,
-	.atlas-profile-card:focus {
-		border-color: color-mix(in srgb, var(--accent) 55%, var(--border-default) 45%);
-		background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
-		box-shadow: var(--shadow-sm);
-		outline: none;
-	}
-
-	.atlas-profile-card:active {
-		transform: translateY(1px);
-	}
-
-	.atlas-profile-card--selected {
-		border-color: color-mix(in srgb, var(--accent) 68%, var(--border-default) 32%);
-		background: color-mix(in srgb, var(--accent) 14%, var(--surface-page) 86%);
-	}
-
-	.atlas-profile-radio {
-		width: 0.9rem;
-		height: 0.9rem;
-		flex: 0 0 auto;
-		border: 1.5px solid var(--border-default);
-		border-radius: 999px;
-		margin-top: 0.12rem;
-		box-shadow: inset 0 0 0 3px var(--surface-overlay);
-	}
-
-	.atlas-profile-card--selected .atlas-profile-radio {
-		border-color: var(--accent);
-		background: var(--accent);
-	}
-
-	.atlas-profile-info {
-		display: grid;
-		min-width: 0;
-		gap: 0.22rem;
-	}
-
-	.atlas-profile-row {
-		display: flex;
-		min-width: 0;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.75rem;
-	}
-
-	.atlas-profile-name {
-		overflow: hidden;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 700;
-		line-height: 1.2;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.atlas-profile-time {
-		flex: 0 0 auto;
-		color: var(--text-muted);
-		font-size: var(--text-2xs);
-		line-height: 1.2;
-		white-space: nowrap;
-	}
-
-	.atlas-profile-desc {
-		color: var(--text-secondary);
-		font-size: var(--text-xs);
-		line-height: 1.32;
-	}
-
 	:global(.dark) .model-selector__trigger {
 		color: var(--text-primary);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
@@ -1421,58 +1118,12 @@ onMount(() => {
 		background: color-mix(in srgb, var(--accent) 26%, transparent);
 	}
 
-	:global(.dark) .model-selector__dropdown {
-		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-	}
-
-	:global(.dark) .model-selector__option {
-		color: var(--text-primary);
-	}
-
-	:global(.dark) .model-selector__option:hover,
-	:global(.dark) .model-selector__option:focus {
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
-	}
-
-	:global(.dark) .model-selector__option--selected {
-		background: color-mix(in srgb, var(--accent) 24%, transparent);
-	}
-
-	@keyframes dropdownFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	/* A flyout arrives from the side it opens on, not from below. */
-	@keyframes flyoutFadeIn {
-		from {
-			opacity: 0;
-			transform: translateX(-4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(0);
-		}
-	}
-
 	@media (prefers-reduced-motion: reduce) {
-		.model-selector__dropdown {
-			animation: none;
-		}
-
 		.menu-row,
 		.menu-row__icon,
 		.switch-face,
 		.switch-face__thumb,
-		.model-selector__trigger,
-		.model-selector__option {
+		.model-selector__trigger {
 			transition: none;
 		}
 	}

@@ -50,6 +50,11 @@ const SCOPE = [
 	// hover — are live risks on a shape whose radius is its whole identity.
 	"src/lib/components/chat/ComposerChip.svelte",
 	"src/lib/components/chat/ComposerChipRow.svelte",
+	// The one picker the "+" menu opens for Model, Style and Atlas (2026-10-24)
+	// is in scope for the chips' reason: it is a shared row of the menu's kind,
+	// pulled out of the composer into components of its own.
+	"src/lib/components/chat/ComposerSubmenu.svelte",
+	"src/lib/components/chat/ComposerSubmenuOption.svelte",
 	// The incognito card (2026-09-16) is a menu-shaped surface with one
 	// hoverable control — a switch row until the one-way redesign, a "New
 	// chat" pill since; it is in scope for the same reason the chips are.

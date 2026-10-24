@@ -120,6 +120,23 @@
 		   the app had grown four scrim recipes across four sheets. */
 		--scrim: rgba(0, 0, 0, 0.32);
 
+		/* The composer's "+" menu and every picker it opens (Model, Style,
+		   Atlas) are one surface, so a submenu reads as part of the menu it
+		   hangs off rather than as a panel from somewhere else. */
+		--menu-surface: color-mix(
+			in srgb,
+			var(--surface-overlay) 88%,
+			var(--surface-page) 12%
+		);
+		--menu-border: color-mix(
+			in srgb,
+			var(--border-default) 76%,
+			var(--surface-page) 24%
+		);
+		--menu-shadow:
+			0 14px 30px rgba(0, 0, 0, 0.14),
+			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+
 		/* Semantic Tokens - Text */
 		--text-primary: #1a1a1a;
 		--text-muted: #6b6b6b;
@@ -253,6 +270,16 @@
 		--surface-code: #2a2a2a;
 
 		--scrim: rgba(0, 0, 0, 0.55);
+
+		--menu-surface: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
+		--menu-border: color-mix(
+			in srgb,
+			var(--border-default) 84%,
+			transparent 16%
+		);
+		--menu-shadow:
+			0 16px 32px rgba(0, 0, 0, 0.4),
+			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
 
 		/* Semantic Tokens - Text */
 		--text-primary: #ececec;

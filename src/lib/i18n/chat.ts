@@ -571,6 +571,8 @@ const chatDict = {
 		"composerTools.removeAtlas": "Remove Atlas",
 		"composerTools.removeWebSearch": "Remove Web search",
 		"composerTools.style": "Style",
+		"composerTools.styleSubtitle": "How replies sound in this conversation.",
+		"composerTools.styleTitle": "Choose a style",
 		"composerTools.uploadsUnavailable": "File uploads are unavailable",
 		"composerTools.webSearch": "Web search",
 		"contextCompression.couldNotSummarize":
@@ -1721,6 +1723,9 @@ const chatDict = {
 		"composerTools.removeAtlas": "Atlas eltávolítása",
 		"composerTools.removeWebSearch": "Webes keresés eltávolítása",
 		"composerTools.style": "Stílus",
+		"composerTools.styleSubtitle":
+			"A válaszok hangneme ebben a beszélgetésben.",
+		"composerTools.styleTitle": "Válassz stílust",
 		"composerTools.uploadsUnavailable": "A fájlfeltöltés nem érhető el",
 		"composerTools.webSearch": "Webes keresés",
 		"contextCompression.couldNotSummarize":

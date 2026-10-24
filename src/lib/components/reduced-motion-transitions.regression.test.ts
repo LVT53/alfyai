@@ -118,12 +118,20 @@ const CASES: Case[] = [
 		bannedDirectives: [/transition:fly=/],
 	},
 	{
-		// Everyday redesign — the model picker's phone sheet and its scrim.
-		// Both were CSS `animation`s, which can only play on the way in; the
-		// element was removed outright on the way out.
+		// Everyday redesign — the model picker's scrim. It was a CSS
+		// `animation`, which can only play on the way in; the element was
+		// removed outright on the way out. The picker's sheet itself is
+		// ComposerSubmenu now (below).
 		file: "src/lib/components/chat/ModelSelector.svelte",
-		wrappedNames: ["sheetFly", "scrimFade"],
+		wrappedNames: ["scrimFade"],
 		bannedDirectives: [/transition:fly=/, /transition:fade=/],
+	},
+	{
+		// The one picker the "+" menu opens for Model, Style and Atlas: a
+		// flyout on a desktop, a sheet that flies 260px on a phone.
+		file: "src/lib/components/chat/ComposerSubmenu.svelte",
+		wrappedNames: ["panelFly"],
+		bannedDirectives: [/transition:fly=/],
 	},
 	{
 		// Everyday redesign — the Atlas report's download action sheet.

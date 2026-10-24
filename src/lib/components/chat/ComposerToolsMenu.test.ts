@@ -172,7 +172,7 @@ describe("ComposerToolsMenu phone sheet", () => {
 		render(ComposerToolsMenu, baseProps({ onClose }));
 
 		await fireEvent.click(screen.getByTestId("composer-menu-atlas"));
-		const picker = document.querySelector(".atlas-profile-picker");
+		const picker = document.querySelector(".composer-submenu");
 		expect(picker).not.toBeNull();
 
 		await fireEvent.mouseDown(picker as Element);
@@ -208,7 +208,7 @@ describe("ComposerToolsMenu phone sheet", () => {
 		);
 		await fireEvent.click(screen.getByTestId("model-selector-trigger"));
 		await waitFor(() =>
-			expect(screen.getByTestId("model-sheet-grabber")).toBeTruthy(),
+			expect(screen.getByTestId("composer-submenu-model-grabber")).toBeTruthy(),
 		);
 
 		expect(document.querySelectorAll(".model-selector__scrim")).toHaveLength(0);
@@ -428,6 +428,158 @@ describe("ComposerToolsMenu conversation rows", () => {
 		);
 		expect(menu.contains(screen.getByTestId("composer-menu-style"))).toBe(true);
 	});
+});
+
+// The three pickers the menu opens used to be three designs: Model drew its
+// own page-coloured panel with collapsible provider rows, Style a bare list
+// with no heading, Atlas a titled stack of radio cards. They are one shell
+// now (ComposerSubmenu) with one option row (ComposerSubmenuOption).
+describe("ComposerToolsMenu pickers", () => {
+	const PICKERS = [
+		{
+			trigger: "model-selector-trigger",
+			submenu: "composer-submenu-model",
+			title: "Choose a model",
+			selected: "Model 1",
+		},
+		{
+			trigger: "composer-menu-style",
+			submenu: "composer-submenu-style",
+			title: "Choose a style",
+			selected: "Lawyerly",
+		},
+		{
+			trigger: "composer-menu-atlas",
+			submenu: "composer-submenu-atlas",
+			title: "Choose an Atlas profile",
+			selected: "In-Depth",
+		},
+	] as const;
+
+	// A style of the user's own: a built-in name ("Concise") would be shown
+	// under its translated, renamed label.
+	const withEverything = (overrides: Record<string, unknown> = {}) =>
+		baseProps({
+			triggerElement: stubTrigger(),
+			personalityProfiles: [
+				{
+					id: "p1",
+					name: "Lawyerly",
+					description: "Every clause qualified",
+					isBuiltIn: false,
+				},
+			],
+			selectedPersonalityId: "p1",
+			onPersonalityChange: vi.fn(),
+			atlasProfile: "in-depth",
+			...overrides,
+		});
+
+	async function openPicker(trigger: string) {
+		await waitFor(() => expect(screen.getByTestId(trigger)).toBeEnabled());
+		await fireEvent.click(screen.getByTestId(trigger));
+	}
+
+	for (const picker of PICKERS) {
+		it(`opens ${picker.submenu} in the one shell, with the shared option rows`, async () => {
+			stubPhone(false);
+			render(ComposerToolsMenu, withEverything());
+			await openPicker(picker.trigger);
+
+			const shell = await screen.findByTestId(picker.submenu);
+			expect(shell.classList.contains("composer-submenu")).toBe(true);
+			expect(document.querySelectorAll(".composer-submenu")).toHaveLength(1);
+			// Portalled, like the menu: the menu's backdrop-filter would
+			// otherwise be the containing block of its fixed position.
+			expect(shell.parentElement).toBe(document.body);
+			expect(
+				shell.querySelector(".composer-submenu__title")?.textContent?.trim(),
+			).toBe(picker.title);
+			// A region named by its title, so a screen reader can find it.
+			expect(screen.getByRole("region", { name: picker.title })).toBe(shell);
+
+			const list = shell.querySelector('[role="listbox"]');
+			expect(list).not.toBeNull();
+			const options = Array.from(
+				shell.querySelectorAll<HTMLElement>('[role="option"]'),
+			);
+			expect(options.length).toBeGreaterThan(0);
+			for (const option of options) {
+				expect(option.classList.contains("submenu-option")).toBe(true);
+			}
+
+			// The chosen option is marked one way in all three: a check.
+			const chosen = options.filter(
+				(option) => option.getAttribute("aria-selected") === "true",
+			);
+			expect(chosen).toHaveLength(1);
+			expect(chosen[0].textContent).toContain(picker.selected);
+			expect(
+				chosen[0].querySelector(".submenu-option__check svg"),
+			).not.toBeNull();
+			for (const option of options) {
+				if (option === chosen[0]) continue;
+				expect(option.querySelector(".submenu-option__check svg")).toBeNull();
+			}
+		});
+
+		it(`takes focus into ${picker.submenu} and gives it back to its row on Escape`, async () => {
+			stubPhone(false);
+			const props = withEverything();
+			render(ComposerToolsMenu, props);
+			await openPicker(picker.trigger);
+
+			const shell = await screen.findByTestId(picker.submenu);
+			const options = Array.from(
+				shell.querySelectorAll<HTMLElement>('[role="option"]'),
+			);
+			const chosen = options.find(
+				(option) => option.getAttribute("aria-selected") === "true",
+			);
+			await waitFor(() => expect(document.activeElement).toBe(chosen));
+
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "Home",
+			});
+			expect(document.activeElement).toBe(options[0]);
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "End",
+			});
+			expect(document.activeElement).toBe(options[options.length - 1]);
+
+			// Closed is read off the opener rather than off the DOM: jsdom's
+			// `animate` stub never finishes, so an outro never ends here.
+			const trigger = screen.getByTestId(picker.trigger);
+			expect(trigger).toHaveAttribute("aria-expanded", "true");
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "Escape",
+			});
+			await waitFor(() =>
+				expect(trigger).toHaveAttribute("aria-expanded", "false"),
+			);
+			expect(props.onClose).not.toHaveBeenCalled();
+			expect(screen.getByTestId("composer-tools-menu")).toBeInTheDocument();
+			await waitFor(() => expect(document.activeElement).toBe(trigger));
+		});
+
+		it(`opens ${picker.submenu} as the same bottom sheet on a phone`, async () => {
+			stubPhone(true);
+			render(ComposerToolsMenu, withEverything());
+			await openPicker(picker.trigger);
+
+			const shell = await screen.findByTestId(picker.submenu);
+			expect(shell.classList.contains("composer-submenu--sheet")).toBe(true);
+			expect(shell.parentElement).toBe(document.body);
+			expect(screen.getByTestId(`${picker.submenu}-grabber`)).toBeTruthy();
+			// Still one scrim on the screen: the menu's.
+			expect(screen.getAllByTestId("composer-tools-menu-scrim")).toHaveLength(
+				1,
+			);
+			expect(document.querySelectorAll(".model-selector__scrim")).toHaveLength(
+				0,
+			);
+		});
+	}
 });
 
 // The model guide opens above the menu from the Model row's "?". Both listen

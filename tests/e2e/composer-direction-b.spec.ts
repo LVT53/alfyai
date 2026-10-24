@@ -2,7 +2,12 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages, users } from "../../src/lib/server/db/schema";
-import { login, openConversationComposer } from "./helpers";
+import {
+	clearAdminConfig,
+	login,
+	openConversationComposer,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 /**
  * Everyday redesign — the composer bar, the "+" menu and the phone sheets.
@@ -425,7 +430,7 @@ test.describe("Composer Direction B — a short window with the composer at the 
 		}
 		await style.click();
 
-		const flyout = page.locator(".model-selector__dropdown--flyout").first();
+		const flyout = page.getByTestId("composer-submenu-style");
 		await expect(flyout).toBeVisible();
 
 		const menuBox = await menu.boundingBox();
@@ -435,6 +440,180 @@ test.describe("Composer Direction B — a short window with the composer at the 
 			flyoutBox.x >= menuBox.x + menuBox.width ||
 				flyoutBox.x + flyoutBox.width <= menuBox.x,
 		).toBe(true);
+	});
+});
+
+// Model, Style and Atlas used to open three different pickers: Model its own
+// page-coloured panel with collapsible provider rows, Style a bare list with
+// no heading, Atlas a stack of bordered radio cards. And the Style and Atlas
+// flyouts were placed without their own height, so they sat against the top
+// edge of the window rather than beside the row that opened them. They are
+// one shell now (ComposerSubmenu), with one option row.
+test.describe("Composer Direction B — the pickers the menu opens", () => {
+	const CONVERSATION_ID = "conv-composer-pickers";
+	const ATLAS_KEYS = ["ATLAS_WORKER_ENABLED", "PARALLEL_API_KEY"];
+	const PICKERS = [
+		{ trigger: "model-selector-trigger", submenu: "composer-submenu-model" },
+		{ trigger: "composer-menu-style", submenu: "composer-submenu-style" },
+		{ trigger: "composer-menu-atlas", submenu: "composer-submenu-atlas" },
+	] as const;
+
+	test.beforeEach(async ({ page }) => {
+		await seedLongConversation(CONVERSATION_ID);
+		await login(page);
+		const response = await page.request.put("/api/admin/config", {
+			data: {
+				ATLAS_WORKER_ENABLED: "true",
+				PARALLEL_API_KEY: "fake-composer-pickers-key",
+			},
+		});
+		expect(response.ok(), `admin config -> ${response.status()}`).toBe(true);
+	});
+
+	test.afterEach(async ({ page }) => {
+		await clearAdminConfig(page, ATLAS_KEYS);
+	});
+
+	/** What a picker looks like, as values the three can be compared on. */
+	async function lookOf(submenu: Locator) {
+		return submenu.evaluate((panel) => {
+			const option = panel.querySelector<HTMLElement>('[role="option"]');
+			const label = option?.querySelector<HTMLElement>(
+				".submenu-option__label",
+			);
+			const title = panel.querySelector<HTMLElement>(
+				".composer-submenu__title",
+			);
+			if (!option || !label || !title) {
+				throw new Error("a picker without an option or a title");
+			}
+			const shell = getComputedStyle(panel);
+			const row = getComputedStyle(option);
+			return {
+				background: shell.backgroundColor,
+				border: shell.borderTopColor,
+				radius: shell.borderTopLeftRadius,
+				shadow: shell.boxShadow,
+				padding: shell.paddingLeft,
+				width: Math.round(panel.getBoundingClientRect().width),
+				titleSize: getComputedStyle(title).fontSize,
+				titleWeight: getComputedStyle(title).fontWeight,
+				optionMinHeight: row.minHeight,
+				optionRadius: row.borderTopLeftRadius,
+				optionPadding: row.paddingLeft,
+				labelSize: getComputedStyle(label).fontSize,
+			};
+		});
+	}
+
+	async function openPicker(page: Page, picker: (typeof PICKERS)[number]) {
+		const menu = page.getByTestId("composer-tools-menu");
+		if (!(await menu.isVisible())) {
+			await page.getByTestId("composer-tools-trigger").click();
+		}
+		await expect(menu).toBeVisible();
+		const trigger = page.getByTestId(picker.trigger);
+		await expect(trigger).toBeEnabled();
+		await trigger.click();
+		const submenu = page.getByTestId(picker.submenu);
+		await expect(submenu).toBeVisible();
+		await waitForStableBoundingBox(submenu);
+		return { trigger, submenu };
+	}
+
+	test("Model, Style and Atlas open one picker, beside the menu and level with their row", async ({
+		page,
+	}) => {
+		await page.setViewportSize(SHORT_DESKTOP);
+		await page.goto(`/chat/${CONVERSATION_ID}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		const menu = page.getByTestId("composer-tools-menu");
+
+		const looks = [];
+		for (const picker of PICKERS) {
+			const { trigger, submenu } = await openPicker(page, picker);
+			looks.push(await lookOf(submenu));
+
+			const menuBox = await menu.boundingBox();
+			const rowBox = await trigger.boundingBox();
+			const box = await submenu.boundingBox();
+			if (!menuBox || !rowBox || !box) throw new Error("boxes not measurable");
+
+			// Beside the menu, never over its rows.
+			expect(
+				box.x >= menuBox.x + menuBox.width || box.x + box.width <= menuBox.x,
+				`${picker.submenu} overlaps the menu`,
+			).toBe(true);
+			// Level with the row that opened it, or as near as the window's
+			// 12px margin allows — not pinned to the top edge.
+			const expectedTop = Math.max(
+				12,
+				Math.min(rowBox.y, SHORT_DESKTOP.height - 12 - box.height),
+			);
+			expect(
+				Math.abs(box.y - expectedTop),
+				`${picker.submenu} top ${box.y}, row ${rowBox.y}`,
+			).toBeLessThanOrEqual(1);
+			expect(box.y + box.height).toBeLessThanOrEqual(SHORT_DESKTOP.height);
+
+			// Escape leaves the picker, keeps the menu, and hands focus back
+			// to the row.
+			await page.keyboard.press("Escape");
+			await expect(submenu).toBeHidden();
+			await expect(menu).toBeVisible();
+			await expect(trigger).toBeFocused();
+		}
+
+		expect(looks[1]).toEqual(looks[0]);
+		expect(looks[2]).toEqual(looks[0]);
+		// And it is the menu's own surface.
+		const menuLook = await menu.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return {
+				background: style.backgroundColor,
+				border: style.borderTopColor,
+				shadow: style.boxShadow,
+			};
+		});
+		expect({
+			background: looks[0].background,
+			border: looks[0].border,
+			shadow: looks[0].shadow,
+		}).toEqual(menuLook);
+	});
+
+	test("on a phone each picker is the same sheet over the menu's", async ({
+		page,
+	}) => {
+		await page.setViewportSize(PHONE);
+		// Loaded after the Atlas settings above, so the menu knows Atlas is on
+		// (signing in already rendered "/" without them).
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await openConversationComposer(page);
+
+		const looks = [];
+		for (const picker of PICKERS) {
+			const { submenu } = await openPicker(page, picker);
+			await expectPinnedToViewportBottom(submenu);
+			await expect(page.getByTestId(`${picker.submenu}-grabber`)).toBeVisible();
+			looks.push(await lookOf(submenu));
+			// The menu's scrim is still the only one.
+			await expect(page.getByTestId("composer-tools-menu-scrim")).toHaveCount(
+				1,
+			);
+
+			await page.keyboard.press("Escape");
+			await expect(submenu).toBeHidden();
+			await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
+		}
+
+		expect(looks[1]).toEqual(looks[0]);
+		expect(looks[2]).toEqual(looks[0]);
+		expect(Number.parseFloat(looks[0].optionMinHeight)).toBeGreaterThanOrEqual(
+			44,
+		);
 	});
 });
 
@@ -496,14 +675,16 @@ test.describe("Composer Direction B — phone sheets", () => {
 		await page.getByTestId("composer-tools-trigger").click();
 		await page.getByTestId("model-selector-trigger").click();
 
-		const sheet = page.getByRole("listbox", { name: /model/i }).first();
-		await expect(sheet).toBeVisible();
+		await expect(
+			page.getByRole("listbox", { name: /model/i }).first(),
+		).toBeVisible();
+		const sheet = page.getByTestId("composer-submenu-model");
 
 		await expectPinnedToViewportBottom(sheet);
 
 		// A picker ends in Cancel and a positive button — negative left,
 		// positive right.
-		const footer = sheet.locator(".model-selector__sheet-footer");
+		const footer = sheet.locator(".composer-submenu__footer");
 		await expect(footer).toBeVisible();
 		const buttons = footer.locator("button");
 		await expect(buttons).toHaveCount(2);
@@ -532,7 +713,9 @@ test.describe("Composer Direction B — phone sheets", () => {
 		await expect(page.getByTestId("composer-tools-menu-scrim")).toBeVisible();
 
 		await page.getByTestId("model-selector-trigger").click();
-		await expect(page.getByTestId("model-sheet-grabber")).toBeVisible();
+		await expect(
+			page.getByTestId("composer-submenu-model-grabber"),
+		).toBeVisible();
 
 		// Exactly one element paints --scrim, and it is the menu's.
 		const scrims = await page.evaluate(

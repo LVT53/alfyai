@@ -1,13 +1,14 @@
 <script lang="ts">
-import { onMount, tick, untrack } from "svelte";
+import { onMount, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { Check, ChevronDown, CircleHelp } from "@lucide/svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import ComposerSubmenu from "./ComposerSubmenu.svelte";
+import ComposerSubmenuOption from "./ComposerSubmenuOption.svelte";
 import ModelSelectionGuideModal from "./ModelSelectionGuideModal.svelte";
 import {
 	fetchAvailableModels,
 	type ModelProvider,
-	type ProviderModel,
 } from "$lib/client/api/models";
 import {
 	regionCodeToFlag,
@@ -22,17 +23,13 @@ import {
 	initViewportTracking,
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
-import { fade, fly } from "svelte/transition";
+import { fade } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
-import { computeFlyoutPlacement, FLYOUT_MARGIN } from "./composer-placement";
 
-// The phone sheet slides up AND back down. A CSS `animation` can only play
-// on the way in — the element is removed outright on the way out, which is
-// the "appears softly, vanishes on a frame" glitch. Both go through
-// reducedMotionAware, which the app-wide CSS reduced-motion override cannot
-// reach for a Svelte transition.
-const sheetFly = reducedMotionAware(fly);
+// The scrim fades out as well as in, through reducedMotionAware, which the
+// app-wide CSS reduced-motion override cannot reach for a Svelte transition.
+// The picker itself is ComposerSubmenu, which moves on its own.
 const scrimFade = reducedMotionAware(fade);
 
 let {
@@ -58,16 +55,11 @@ let {
 	// stacks above that scrim instead of adding a second one. Default true so
 	// the component is still self-sufficient anywhere else.
 	ownsScrim = true,
-	// Desktop flyout mode: the list opens BESIDE the surface it was opened
-	// from rather than above its own trigger.
-	//
-	// Inside the composer's "+" menu, "above the trigger" meant on top of the
-	// menu's own rows — the Model row is near the bottom of the menu, so the
-	// list it opens covers Atlas, Incognito and half the accounts. Beside the
-	// menu nothing is covered. `flyoutAnchor` is that surface (the menu
-	// panel); without one there is nothing to hang off and this falls back to
-	// the ordinary dropdown.
-	flyout = false,
+	// The surface the desktop picker opens BESIDE: inside the composer's "+"
+	// menu, the menu panel. "Above the trigger" meant on top of the menu's
+	// own rows — the Model row is near the bottom of the menu, so the list it
+	// opened covered the rows above it. Beside the menu nothing is covered.
+	// Without one the picker hangs beside its own trigger.
 	flyoutAnchor = null,
 	// The trigger's leading text, when the caller wants the control to name
 	// itself rather than sit behind a separate label.
@@ -83,7 +75,6 @@ let {
 	onOpenChange?: ((open: boolean) => void) | undefined;
 	onTriggerRef?: ((element: HTMLButtonElement | null) => void) | undefined;
 	ownsScrim?: boolean;
-	flyout?: boolean;
 	flyoutAnchor?: HTMLElement | null;
 	leadingLabel?: string | null;
 } = $props();
@@ -94,9 +85,8 @@ let isLoading = $state(true);
 let error: string | null = $state(null);
 let dropdownRef: HTMLDivElement | null = $state(null);
 let triggerRef: HTMLButtonElement | null = $state(null);
-let menuRef: HTMLDivElement | null = $state(null);
+let menuRef: HTMLElement | null = $state(null);
 let expandedProviders: Set<string> = $state(new Set());
-let focusedModelId: string | null = $state(null);
 // NOTE(ADR 0043 slice 0): the legacy rule was `window.innerWidth <= 768`. We
 // now map this onto the shared viewport tier's "phone" bucket (< 640). This
 // is the closest single bucket; widths in the 640–768 range therefore shift
@@ -108,43 +98,12 @@ let isOpen = $derived(open ?? internalOpen);
 // The phone sheet's armed-but-not-applied choice. Null on a desktop, where
 // clicking a row applies it outright.
 let pendingModelId = $state<ModelId | null>(null);
-// Zero duration above the breakpoint, where the desktop dropdown keeps the
-// CSS animation it always had — one directive, so the panel element (and the
-// listbox bound to it) is the same node in both presentations.
-let dropdownTransitionParams = $derived(
-	isMobile ? { duration: 250, y: 340, opacity: 1 } : { duration: 0, y: 0 },
-);
 let sheetChoiceId = $derived(pendingModelId ?? $selectedModel);
 let sheetChoiceName = $derived(
 	providers
 		.flatMap((provider) => provider.models)
 		.find((model) => model.id === sheetChoiceId)?.displayName ?? null,
 );
-let dropdownPosition = $state({
-	top: 0,
-	left: 0,
-	width: 280,
-	maxHeight: 400,
-	placement: "top" as "top" | "bottom" | "right" | "left",
-	ready: false,
-});
-let dropdownStyle = $derived(
-	`top: ${dropdownPosition.top}px; left: ${dropdownPosition.left}px; width: ${dropdownPosition.width}px; max-height: ${dropdownPosition.maxHeight}px; visibility: ${dropdownPosition.ready ? "visible" : "hidden"};`,
-);
-
-// True while the list should hang off `flyoutAnchor` instead of its trigger.
-// It is portalled to <body> in this mode: the "+" menu has a backdrop-filter,
-// which makes it the containing block for anything `position: fixed` inside
-// it — the flyout would be measured against the viewport and then drawn
-// relative to the menu.
-let isFlyout = $derived(!isMobile && flyout && Boolean(flyoutAnchor));
-
-const DESKTOP_DROPDOWN_GAP = 6;
-const DESKTOP_DROPDOWN_MARGIN = 12;
-const DESKTOP_DROPDOWN_MIN_WIDTH = 280;
-const DESKTOP_DROPDOWN_MAX_WIDTH = 320;
-const DESKTOP_DROPDOWN_MAX_HEIGHT = 400;
-const DESKTOP_DROPDOWN_MIN_HEIGHT = 160;
 
 $effect(() => {
 	onTriggerRef?.(triggerRef);
@@ -155,9 +114,6 @@ function setOpen(nextOpen: boolean) {
 		internalOpen = nextOpen;
 	}
 	onOpenChange?.(nextOpen);
-	if (!nextOpen) {
-		focusedModelId = null;
-	}
 }
 
 function isModelGuideTarget(target: EventTarget | null): boolean {
@@ -172,7 +128,6 @@ function isModelGuideTarget(target: EventTarget | null): boolean {
 
 onMount(() => {
 	initViewportTracking();
-	window.addEventListener("scroll", updateDropdownPosition, true);
 
 	const handleClickOutside = (event: MouseEvent) => {
 		const target = event.target as Node;
@@ -215,35 +170,7 @@ onMount(() => {
 	})();
 	return () => {
 		document.removeEventListener("click", handleClickOutside);
-		window.removeEventListener("scroll", updateDropdownPosition, true);
 	};
-});
-
-$effect(() => {
-	if (!isOpen) {
-		dropdownPosition = {
-			top: 0,
-			left: 0,
-			width: DESKTOP_DROPDOWN_MIN_WIDTH,
-			maxHeight: DESKTOP_DROPDOWN_MAX_HEIGHT,
-			placement: "top",
-			ready: false,
-		};
-		return;
-	}
-
-	providers.length;
-	expandedProviders.size;
-	isMobile;
-	void tick().then(updateDropdownPosition);
-});
-
-// The sheet is portaled to <body>, so it is nowhere near the trigger in the
-// DOM: without moving focus into it, a keyboard has no way to reach its rows
-// and Escape lands on the window listener that closes the whole "+" menu.
-$effect(() => {
-	if (!isOpen || !isMobile) return;
-	void tick().then(() => menuRef?.focus());
 });
 
 const activeProvider = $derived.by(() => {
@@ -299,6 +226,13 @@ function cancelSheet() {
 	setOpen(false);
 }
 
+// Escape or the grabber: out of the picker and back to the row it was opened
+// from, with nothing applied.
+function dismissPicker() {
+	cancelSheet();
+	triggerRef?.focus();
+}
+
 function toggleDropdown() {
 	const opening = !isOpen;
 	setOpen(!isOpen);
@@ -317,185 +251,18 @@ function providerRegionTitle(provider: ModelProvider): string {
 	return region ? $t("modelSelector.processingRegion", { region }) : "";
 }
 
-async function updateDropdownPosition() {
-	if (!isOpen || isMobile || !triggerRef || typeof window === "undefined")
-		return;
-
-	await tick();
-	if (!isOpen || isMobile || !triggerRef) return;
-
-	const triggerRect = triggerRef.getBoundingClientRect();
-	const viewportWidth = window.innerWidth;
-	const viewportHeight = window.innerHeight;
-
-	if (flyout && flyoutAnchor) {
-		const flyoutWidth = Math.min(
-			DESKTOP_DROPDOWN_MAX_WIDTH,
-			Math.max(0, viewportWidth - FLYOUT_MARGIN * 2),
-		);
-		const placed = computeFlyoutPlacement(
-			triggerRect,
-			flyoutAnchor.getBoundingClientRect(),
-			{ width: viewportWidth, height: viewportHeight },
-			{ width: flyoutWidth, height: menuRef?.offsetHeight || undefined },
-		);
-		dropdownPosition = {
-			top: placed.top,
-			left: placed.left,
-			width: flyoutWidth,
-			maxHeight: placed.maxHeight,
-			placement: placed.placement,
-			ready: true,
-		};
-		return;
-	}
-
-	const availableWidth = Math.max(
-		0,
-		viewportWidth - DESKTOP_DROPDOWN_MARGIN * 2,
-	);
-	const width = Math.min(
-		DESKTOP_DROPDOWN_MAX_WIDTH,
-		Math.max(DESKTOP_DROPDOWN_MIN_WIDTH, triggerRect.width),
-		availableWidth,
-	);
-	const left = Math.min(
-		Math.max(DESKTOP_DROPDOWN_MARGIN, triggerRect.left),
-		Math.max(
-			DESKTOP_DROPDOWN_MARGIN,
-			viewportWidth - DESKTOP_DROPDOWN_MARGIN - width,
-		),
-	);
-	const spaceAbove = Math.max(
-		0,
-		triggerRect.top - DESKTOP_DROPDOWN_MARGIN - DESKTOP_DROPDOWN_GAP,
-	);
-	const spaceBelow = Math.max(
-		0,
-		viewportHeight -
-			triggerRect.bottom -
-			DESKTOP_DROPDOWN_MARGIN -
-			DESKTOP_DROPDOWN_GAP,
-	);
-	const placement =
-		spaceAbove >= DESKTOP_DROPDOWN_MIN_HEIGHT || spaceAbove >= spaceBelow
-			? "top"
-			: "bottom";
-	const availableHeight = placement === "top" ? spaceAbove : spaceBelow;
-	const maxHeight = Math.max(
-		Math.min(DESKTOP_DROPDOWN_MIN_HEIGHT, availableHeight),
-		Math.min(DESKTOP_DROPDOWN_MAX_HEIGHT, availableHeight),
-	);
-	const measuredHeight = Math.min(
-		menuRef?.offsetHeight || DESKTOP_DROPDOWN_MAX_HEIGHT,
-		maxHeight,
-	);
-	const top =
-		placement === "top"
-			? Math.max(
-					DESKTOP_DROPDOWN_MARGIN,
-					triggerRect.top - DESKTOP_DROPDOWN_GAP - measuredHeight,
-				)
-			: Math.min(
-					triggerRect.bottom + DESKTOP_DROPDOWN_GAP,
-					viewportHeight - DESKTOP_DROPDOWN_MARGIN - measuredHeight,
-				);
-	const fixedContainingBlockOffset = getFixedContainingBlockOffset();
-
-	dropdownPosition = {
-		top: top - fixedContainingBlockOffset.top,
-		left: left - fixedContainingBlockOffset.left,
-		width,
-		maxHeight,
-		placement,
-		ready: true,
-	};
-}
-
-function getFixedContainingBlockOffset(): { top: number; left: number } {
-	let element = menuRef?.parentElement ?? null;
-	while (element && element !== document.documentElement) {
-		const style = getComputedStyle(element);
-		const createsFixedContainingBlock =
-			style.transform !== "none" ||
-			style.perspective !== "none" ||
-			style.filter !== "none" ||
-			style.backdropFilter !== "none" ||
-			style.contain.includes("layout") ||
-			style.contain.includes("paint") ||
-			style.willChange.includes("transform");
-
-		if (createsFixedContainingBlock) {
-			const rect = element.getBoundingClientRect();
-			return { top: rect.top, left: rect.left };
-		}
-
-		element = element.parentElement;
-	}
-
-	return { top: 0, left: 0 };
-}
-
+// Escape with focus still on the trigger. Inside the open picker the shell
+// takes the key itself.
 function handleKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		// Only while there is a picker to back out of. Swallowed
-		// unconditionally — which is what this did — Escape on the trigger
-		// was eaten by a closed dropdown, so the "+" menu the trigger sits
-		// in could never be dismissed from its own Model row.
-		if (!isOpen) return;
-		// Stopped here on purpose. On a phone the panel is moved to <body>
-		// so its `position: fixed` means the viewport, which also means a
-		// keydown inside it no longer passes the "+" menu that opened it —
-		// it goes straight on to the window listener that closes that whole
-		// menu. Escape out of a picker should leave you in the menu you were
-		// picking from, so the event stops at the picker.
-		event.preventDefault();
-		event.stopPropagation();
-		setOpen(false);
-		return;
-	}
-
+	if (event.key !== "Escape") return;
+	// Only while there is a picker to back out of. Swallowed unconditionally
+	// — which is what this did — Escape on the trigger was eaten by a closed
+	// dropdown, so the "+" menu the trigger sits in could never be dismissed
+	// from its own Model row.
 	if (!isOpen) return;
-
-	const allVisibleModels: { providerId: string; model: ProviderModel }[] = [];
-	for (const provider of providers) {
-		if (expandedProviders.has(provider.id)) {
-			for (const model of provider.models) {
-				allVisibleModels.push({ providerId: provider.id, model });
-			}
-		}
-	}
-
-	if (allVisibleModels.length === 0) return;
-
-	const currentIndex = focusedModelId
-		? allVisibleModels.findIndex((item) => item.model.id === focusedModelId)
-		: -1;
-
-	if (event.key === "ArrowDown") {
-		event.preventDefault();
-		const nextIndex =
-			currentIndex + 1 < allVisibleModels.length ? currentIndex + 1 : 0;
-		focusedModelId = allVisibleModels[nextIndex].model.id;
-		scrollFocusedIntoView();
-	} else if (event.key === "ArrowUp") {
-		event.preventDefault();
-		const prevIndex =
-			currentIndex > 0 ? currentIndex - 1 : allVisibleModels.length - 1;
-		focusedModelId = allVisibleModels[prevIndex].model.id;
-		scrollFocusedIntoView();
-	} else if (event.key === "Enter" && focusedModelId) {
-		event.preventDefault();
-		handleSelect(focusedModelId as ModelId);
-	}
-}
-
-async function scrollFocusedIntoView() {
-	await tick();
-	const element = menuRef?.querySelector(`[data-model-id="${focusedModelId}"]`);
-	if (element) {
-		element.scrollIntoView({ block: "nearest" });
-	}
+	event.preventDefault();
+	event.stopPropagation();
+	cancelSheet();
 }
 
 function isProviderExpanded(providerId: string): boolean {
@@ -513,6 +280,46 @@ function autoExpandProviders() {
 	expandedProviders = next;
 }
 </script>
+
+{#snippet guideAction()}
+	<!-- The guide is a 44px button here, not a 14px icon: the cloud flag it
+	     explains is something you have to know how to read before you press
+	     send, not after. -->
+	<button
+		type="button"
+		class="model-selector__sheet-guide"
+		onclick={openGuide}
+		data-testid="model-sheet-guide"
+	>
+		<CircleHelp size={15} strokeWidth={2} aria-hidden="true" />
+		{$t('modelSelector.openGuide')}
+	</button>
+{/snippet}
+
+{#snippet sheetFooter()}
+	<!-- A picker ends in Cancel and a positive button that names what it is
+	     about to do, because you are choosing and then confirming. Negative
+	     left, positive right. -->
+	<button
+		type="button"
+		class="dialog-btn"
+		data-testid="model-sheet-cancel"
+		onclick={cancelSheet}
+	>
+		{$t('common.cancel')}
+	</button>
+	<button
+		type="button"
+		class="dialog-btn dialog-btn--positive"
+		data-testid="model-sheet-confirm"
+		onclick={confirmPendingModel}
+	>
+		<Check size={13} strokeWidth={2.2} aria-hidden="true" />
+		{sheetChoiceName
+			? $t('modelPicker.use', { model: sheetChoiceName })
+			: $t('modelPicker.useNone')}
+	</button>
+{/snippet}
 
 <div class="model-selector" bind:this={dropdownRef} onkeydown={handleKeydown} role="presentation">
 	<div class="model-selector__controls">
@@ -573,141 +380,69 @@ function autoExpandProviders() {
 	{/if}
 
 	{#if isOpen && providers.length > 0}
-		<div
-			bind:this={menuRef}
-			class="model-selector__dropdown"
-			class:model-selector__dropdown--mobile={isMobile}
-			class:model-selector__dropdown--below={!isMobile && dropdownPosition.placement === 'bottom'}
-			class:model-selector__dropdown--flyout={isFlyout}
-			style={isMobile ? undefined : dropdownStyle}
-			use:portalToBody={isMobile || isFlyout}
-			transition:sheetFly={dropdownTransitionParams}
-			role="listbox"
-			aria-label={$t('modelSelector.availableModels')}
-			tabindex="-1"
-			onkeydown={handleKeydown}
+		<ComposerSubmenu
+			bind:panel={menuRef}
+			title={$t('modelPicker.title')}
+			subtitle={$t('modelPicker.subtitle')}
+			listLabel={$t('modelSelector.availableModels')}
+			sheet={isMobile}
+			rowElement={triggerRef}
+			surfaceElement={flyoutAnchor}
+			onDismiss={dismissPicker}
+			testId="composer-submenu-model"
+			headerAction={isMobile ? guideAction : undefined}
+			footer={isMobile ? sheetFooter : undefined}
 		>
-			{#if isMobile}
-				<!-- The sheet's first dismissal, and the same grabber every other
-				     sheet in the system draws. -->
-				<button
-					type="button"
-					class="model-selector__grabber"
-					data-testid="model-sheet-grabber"
-					aria-label={$t('common.close')}
-					onclick={cancelSheet}
-				><span class="model-selector__grabber-bar"></span></button>
-				<div class="model-selector__sheet-head">
-					<span class="model-selector__sheet-copy">
-						<span class="model-selector__sheet-title">{$t('modelPicker.title')}</span>
-						<span class="model-selector__sheet-sub">{$t('modelPicker.subtitle')}</span>
-					</span>
-					<!-- The guide is a 44px button here, not a 14px icon: the cloud
-					     flag it explains is something you have to know how to read
-					     before you press send, not after. -->
+			{#each providers as provider (provider.id)}
+				{@const expanded = isProviderExpanded(provider.id)}
+				<div class="model-selector__group" role="group" aria-label={provider.displayName}>
 					<button
 						type="button"
-						class="model-selector__sheet-guide"
-						onclick={openGuide}
-						data-testid="model-sheet-guide"
+						class="composer-submenu__group"
+						aria-expanded={expanded}
+						onclick={() => toggleProvider(provider.id)}
 					>
-						<CircleHelp size={15} strokeWidth={2} aria-hidden="true" />
-						{$t('modelSelector.openGuide')}
-					</button>
-				</div>
-			{/if}
-			<div class="model-selector__list">
-				{#each providers as provider (provider.id)}
-					{@const expanded = isProviderExpanded(provider.id)}
-					<div class="model-selector__provider">
-						<button
-							type="button"
-							class="model-selector__provider-header"
-							aria-expanded={expanded}
-							onclick={() => toggleProvider(provider.id)}
-						>
-							<ModelIcon
-								iconUrl={provider.iconUrl ?? null}
-								displayName={provider.displayName}
-								size={20}
-							/>
-							<span class="model-selector__provider-name">{provider.displayName}</span>
-							{#if provider.processingRegionCode}
-								<span
-									class="model-selector__provider-region"
-									title={providerRegionTitle(provider)}
-									aria-label={providerRegionTitle(provider)}
-								>
-									{regionCodeToFlag(provider.processingRegionCode)}
-								</span>
-							{/if}
-							<span class="model-selector__provider-count">{provider.models.length}</span>
-							<span class={`model-selector__expand-icon${expanded ? ' model-selector__expand-icon--open' : ''}`}>
-							<ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
-						</span>
-						</button>
-
-						{#if expanded}
-							<ul class="model-selector__models">
-								{#each provider.models as model (model.id)}
-									<li>
-										<button
-											type="button"
-											role="option"
-											aria-selected={sheetChoiceId === model.id}
-											class="model-selector__option"
-											class:model-selector__option--selected={sheetChoiceId === model.id}
-											class:model-selector__option--focused={focusedModelId === model.id}
-											onclick={() => handleSelect(model.id as ModelId)}
-											data-model-id={model.id}
-											data-testid="model-option-{model.id}"
-										>
-											<ModelIcon
-												iconUrl={model.iconUrl ?? null}
-												displayName={model.displayName}
-												size={18}
-											/>
-											<span class="model-selector__option-text">{model.displayName}</span>
-											{#if sheetChoiceId === model.id}
-												<span class="model-selector__check">
-												<Check size={14} strokeWidth={3} aria-hidden="true" />
-											</span>
-											{/if}
-										</button>
-									</li>
-								{/each}
-							</ul>
+						<span class="model-selector__group-name">{provider.displayName}</span>
+						{#if provider.processingRegionCode}
+							<span
+								class="model-selector__group-region"
+								title={providerRegionTitle(provider)}
+								aria-label={providerRegionTitle(provider)}
+							>
+								{regionCodeToFlag(provider.processingRegionCode)}
+							</span>
 						{/if}
-					</div>
-				{/each}
-			</div>
-			{#if isMobile}
-				<!-- A picker ends in Cancel and a positive button that names what
-				     it is about to do, because you are choosing and then
-				     confirming. Negative left, positive right. -->
-				<div class="model-selector__sheet-footer">
-					<button
-						type="button"
-						class="dialog-btn"
-						data-testid="model-sheet-cancel"
-						onclick={cancelSheet}
-					>
-						{$t('common.cancel')}
+						<span class="model-selector__group-count">{provider.models.length}</span>
+						<span
+							class="model-selector__group-chevron"
+							class:model-selector__group-chevron--open={expanded}
+							aria-hidden="true"
+						>
+							<ChevronDown size={13} strokeWidth={2} />
+						</span>
 					</button>
-					<button
-						type="button"
-						class="dialog-btn dialog-btn--positive"
-						data-testid="model-sheet-confirm"
-						onclick={confirmPendingModel}
-					>
-						<Check size={13} strokeWidth={2.2} aria-hidden="true" />
-						{sheetChoiceName
-							? $t('modelPicker.use', { model: sheetChoiceName })
-							: $t('modelPicker.useNone')}
-					</button>
+					{#if expanded}
+						{#each provider.models as model (model.id)}
+							<ComposerSubmenuOption
+								label={model.displayName}
+								selected={sheetChoiceId === model.id}
+								onSelect={() => handleSelect(model.id as ModelId)}
+								testId={`model-option-${model.id}`}
+								optionId={model.id}
+							>
+								{#snippet leading()}
+									<ModelIcon
+										iconUrl={model.iconUrl ?? null}
+										displayName={model.displayName}
+										size={18}
+									/>
+								{/snippet}
+							</ComposerSubmenuOption>
+						{/each}
+					{/if}
 				</div>
-			{/if}
-		</div>
+			{/each}
+		</ComposerSubmenu>
 	{/if}
 
 	{#if guideOpen}
@@ -817,112 +552,15 @@ function autoExpandProviders() {
 		transform: rotate(180deg);
 	}
 
-	.model-selector__dropdown {
-		position: fixed;
-		margin: 0;
-		background: var(--surface-page);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md, 8px);
-		box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.08));
-		min-width: 280px;
-		max-width: 320px;
-		z-index: 100;
-		animation: dropdownFadeIn 150ms ease-out;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.model-selector__dropdown--below {
-		animation-name: dropdownFadeInBelow;
-	}
-
-	/* Beside the menu, so it arrives from the side rather than from below —
-	   and scrolls inside itself rather than growing past the viewport. */
-	.model-selector__dropdown--flyout {
-		animation-name: dropdownFadeInFlyout;
-		overflow-y: auto;
-		overscroll-behavior: contain;
-	}
-
-	.model-selector__dropdown--mobile {
-		position: fixed;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		margin-bottom: 0;
-		/* 16px on the top corners only — the one radius every sheet uses. */
-		border-radius: 16px 16px 0 0;
-		border-bottom: 0;
-		max-width: 100%;
-		max-height: 80dvh;
-		min-width: unset;
-		padding-bottom: env(safe-area-inset-bottom);
-	}
-
 	/* The dimmed page behind the sheet, and the second of its three
-	   dismissals. */
+	   dismissals. Under the sheet (ComposerSubmenu, z 70). */
 	.model-selector__scrim {
 		position: fixed;
 		inset: 0;
-		z-index: 99;
+		z-index: 69;
 		border: 0;
 		background: var(--scrim);
 		cursor: pointer;
-	}
-
-	.model-selector__grabber {
-		display: grid;
-		place-items: center;
-		flex: 0 0 auto;
-		width: 100%;
-		height: 44px;
-		border: 0;
-		border-radius: 16px 16px 0 0;
-		background: transparent;
-		cursor: pointer;
-	}
-
-	.model-selector__grabber-bar {
-		width: 36px;
-		height: 4px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--text-muted) 42%, transparent 58%);
-	}
-
-	.model-selector__grabber:focus-visible {
-		outline: none;
-		box-shadow: inset 0 0 0 2px var(--focus-ring);
-	}
-
-	.model-selector__sheet-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
-		flex: 0 0 auto;
-		padding: 0 var(--space-md, 0.75rem) var(--space-sm, 0.5rem);
-	}
-
-	.model-selector__sheet-copy {
-		display: flex;
-		min-width: 0;
-		flex-direction: column;
-		gap: 0.1rem;
-	}
-
-	.model-selector__sheet-title {
-		font-family: var(--font-sans);
-		font-size: 1rem;
-		font-weight: 700;
-		line-height: 1.2;
-		color: var(--text-primary);
-	}
-
-	.model-selector__sheet-sub {
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		color: var(--text-muted);
 	}
 
 	.model-selector__sheet-guide {
@@ -947,169 +585,41 @@ function autoExpandProviders() {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.model-selector__sheet-footer {
+	.model-selector__group {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-		flex: 0 0 auto;
-		border-top: 1px solid var(--border-subtle);
-		padding: var(--space-md, 0.75rem);
+		flex-direction: column;
+		gap: 0.12rem;
 	}
 
-	.model-selector__sheet-footer :global(.dialog-btn) {
-		flex: 1 1 0;
-		min-height: 44px;
-	}
-
-	.model-selector__list {
-		overflow-y: auto;
-		padding: var(--space-xs, 4px);
-		flex: 1;
-	}
-
-	.model-selector__provider {
-		margin-bottom: 2px;
-	}
-
-	.model-selector__provider-header {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm, 8px);
-		width: 100%;
-		padding: var(--space-sm, 8px) var(--space-md, 12px);
-		border-radius: var(--radius-sm, 4px);
-		cursor: pointer;
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		color: var(--text-primary);
-		transition: background-color 150ms ease-out;
-		background: transparent;
-		border: none;
-		text-align: left;
-	}
-
-	.model-selector__provider-header:hover,
-	.model-selector__provider-header:focus {
-		background: var(--surface-elevated);
-		outline: none;
-	}
-
-	.model-selector__provider-name {
-		font-weight: 500;
+	.model-selector__group-name {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		flex: 1;
+		white-space: nowrap;
 	}
 
-	.model-selector__provider-count {
-		font-size: var(--text-2xs);
-		color: var(--text-muted);
-		background: var(--surface-overlay);
-		padding: 2px 6px;
-		border-radius: var(--radius-sm, 4px);
+	.model-selector__group-region {
 		flex-shrink: 0;
-	}
-
-	.model-selector__provider-region {
-		flex-shrink: 0;
-		font-size: var(--text-base);
+		font-size: var(--text-xs);
+		letter-spacing: 0;
 		line-height: 1;
 	}
 
-	.model-selector__expand-icon {
+	.model-selector__group-count {
 		flex-shrink: 0;
-		transition: transform 200ms ease-out;
-		color: var(--text-muted);
+		margin-right: auto;
+		font-weight: 400;
+		letter-spacing: 0;
 	}
 
-	.model-selector__expand-icon--open {
+	.model-selector__group-chevron {
+		display: inline-flex;
+		flex-shrink: 0;
+		transition: transform var(--duration-standard) var(--ease-out);
+	}
+
+	.model-selector__group-chevron--open {
 		transform: rotate(180deg);
-	}
-
-	.model-selector__models {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		padding-left: var(--space-md, 12px);
-	}
-
-	.model-selector__option {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm, 8px);
-		width: 100%;
-		padding: var(--space-sm, 8px) var(--space-md, 12px);
-		border-radius: var(--radius-sm, 4px);
-		cursor: pointer;
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		color: var(--text-primary);
-		transition: background-color 150ms ease-out;
-		background: transparent;
-		border: none;
-		text-align: left;
-	}
-
-	.model-selector__option:hover,
-	.model-selector__option:focus {
-		background: var(--surface-elevated);
-		outline: none;
-	}
-
-	.model-selector__option--selected {
-		background: var(--surface-elevated);
-		font-weight: 500;
-	}
-
-	.model-selector__option--focused {
-		box-shadow: inset 0 0 0 2px var(--accent);
-	}
-
-	.model-selector__option-text {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		flex: 1;
-	}
-
-	.model-selector__check {
-		flex-shrink: 0;
-		color: var(--accent);
-	}
-
-	@keyframes dropdownFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes dropdownFadeInBelow {
-		from {
-			opacity: 0;
-			transform: translateY(-4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes dropdownFadeInFlyout {
-		from {
-			opacity: 0;
-			transform: translateX(-4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(0);
-		}
 	}
 
 	/* Dark mode support */
@@ -1130,38 +640,6 @@ function autoExpandProviders() {
 	:global(.dark) .model-selector__guide-trigger:hover:not(:disabled) {
 		background: var(--surface-elevated);
 		color: var(--text-primary);
-	}
-
-	:global(.dark) .model-selector__dropdown {
-		background: var(--surface-page);
-		border-color: var(--border-default);
-	}
-
-	:global(.dark) .model-selector__provider-header {
-		color: var(--text-primary);
-	}
-
-	:global(.dark) .model-selector__provider-header:hover,
-	:global(.dark) .model-selector__provider-header:focus {
-		background: var(--surface-elevated);
-	}
-
-	:global(.dark) .model-selector__provider-count {
-		background: var(--surface-elevated);
-		color: var(--text-muted);
-	}
-
-	:global(.dark) .model-selector__option {
-		color: var(--text-primary);
-	}
-
-	:global(.dark) .model-selector__option:hover,
-	:global(.dark) .model-selector__option:focus {
-		background: var(--surface-elevated);
-	}
-
-	:global(.dark) .model-selector__option--selected {
-		background: var(--surface-elevated);
 	}
 
 	/* Mobile adjustments */
