@@ -44,15 +44,19 @@ export function normalizeAssistantOutputWithSkillControl(
 		onThinking() {},
 	});
 
-	let result = visibleText;
-	result = stripLeakedToolDiagnostics(result);
-
 	if (options.skillControlEnabled === false) {
 		return {
-			visibleText: result.trim(),
+			visibleText: stripLeakedToolDiagnostics(visibleText).trim(),
 			operations: [],
 		};
 	}
 
-	return parseSkillControlEnvelopeFromAssistantText(result);
+	// The envelope is read from the text as the model wrote it and only what
+	// is left is cleaned, the order the stream runtime uses: the leaked-output
+	// cleanup would otherwise edit the skill's own words.
+	const parsed = parseSkillControlEnvelopeFromAssistantText(visibleText);
+	return {
+		...parsed,
+		visibleText: stripLeakedToolDiagnostics(parsed.visibleText).trim(),
+	};
 }

@@ -712,6 +712,184 @@ describe("createServerChunkRuntime", () => {
 		]);
 	});
 
+	// The real model writes the envelope's JSON on a line of its own. A streamed
+	// chunk that started that line with `{"vers…` looked like the start of a
+	// leaked produce_file payload (`{"version":1,"blocks"…`) to the leaked-output
+	// cleanup, which swallowed the whole object before the envelope was read:
+	// the card was lost on some turns and not others, by where a token boundary
+	// fell (24 of 32 real drafts lost over three chunkings, 2026-10-25).
+	describe("a Skill Control Envelope whose JSON line is split across chunks", () => {
+		const envelopeJson =
+			'{"version":1,"operations":[{"operationId":"skill-draft-1","kind":"skill_draft","draft":{"id":"weekly-status","displayName":"Weekly status","description":"Writes a short weekly status update.","instructions":"Ask for the period, then write what is done, next and blocked.","activationExamples":["Write my weekly status."],"sourceScope":"current_conversation"}}]}';
+		const reply = `Here is the draft.\n\n<skill_control_v1>\n${envelopeJson}\n</skill_control_v1>`;
+
+		function streamInPieces(pieces: string[]) {
+			const chunks: string[] = [];
+			const runtime = createServerChunkRuntime({
+				enqueueChunk(chunk) {
+					chunks.push(chunk);
+					return true;
+				},
+			});
+			for (const piece of pieces) runtime.emitChunkWithOutputHandling(piece);
+			runtime.flushPendingThinking();
+			runtime.flushInlineThinkingBuffer();
+			runtime.flushOutputBuffer();
+			return { runtime, visible: tokenTexts(chunks).join("") };
+		}
+
+		it("reads the envelope when a chunk ends inside its opening characters", () => {
+			const { runtime, visible } = streamInPieces([
+				"Here is the draft.\n\n<skill_control_v1>",
+				'\n{"vers',
+				envelopeJson.slice('{"vers'.length),
+				"\n</skill_control_v1>",
+			]);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([envelopeJson]);
+			expect(visible).toBe("Here is the draft.\n\n");
+			expect(runtime.fullResponse).toBe("Here is the draft.\n\n");
+		});
+
+		it("reads the same envelope wherever a two-chunk split falls", () => {
+			for (let at = 1; at < reply.length; at += 1) {
+				const { runtime, visible } = streamInPieces([
+					reply.slice(0, at),
+					reply.slice(at),
+				]);
+				expect(runtime.skillControlEnvelopePayloads, `split at ${at}`).toEqual([
+					envelopeJson,
+				]);
+				expect(visible, `split at ${at}`).toBe("Here is the draft.\n\n");
+			}
+		});
+
+		it("keeps the envelope's words as the model wrote them", () => {
+			// "search results:" is leaked-tool text to the cleanup; inside the
+			// envelope it is the skill's own instruction.
+			const json = envelopeJson.replace(
+				"Ask for the period, then write what is done, next and blocked.",
+				"Run the search, then summarize the search results: one line per source.",
+			);
+			const text = `Draft:\n<skill_control_v1>\n${json}\n</skill_control_v1>`;
+			const pieces: string[] = [];
+			for (let index = 0; index < text.length; index += 5) {
+				pieces.push(text.slice(index, index + 5));
+			}
+			const { runtime, visible } = streamInPieces(pieces);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([json]);
+			expect(visible).toBe("Draft:\n");
+		});
+
+		it("reads an envelope the model left unclosed at the end of its reply", () => {
+			const text = `Here is the draft.\n\n<skill_control_v1>\n${envelopeJson}`;
+			const pieces: string[] = [];
+			for (let index = 0; index < text.length; index += 7) {
+				pieces.push(text.slice(index, index + 7));
+			}
+			const { runtime, visible } = streamInPieces(pieces);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([envelopeJson]);
+			expect(visible).toBe("Here is the draft.\n\n");
+		});
+
+		it("keeps an open tag with no whole JSON object after it visible", () => {
+			const { runtime, visible } = streamInPieces([
+				"The block starts with <skill_control_v1> and",
+				" then the JSON.",
+			]);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([]);
+			expect(visible).toBe(
+				"The block starts with <skill_control_v1> and then the JSON.",
+			);
+		});
+
+		// The envelope is the last thing a drafting reply writes, so a reply cut
+		// off at its output limit is most often cut inside it: the half-written
+		// block is not the person's to read.
+		it("drops an envelope the reply was cut off inside, as a malformed one", () => {
+			const cut = '{"version":1,"operations":[{"operationId":"sk';
+			const { runtime, visible } = streamInPieces([
+				"Here is the draft.\n\n<skill_control_v1>\n",
+				cut,
+			]);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([cut]);
+			expect(visible).toBe("Here is the draft.\n\n");
+		});
+
+		it("drops an open tag the reply ended right after", () => {
+			const { runtime, visible } = streamInPieces([
+				"Here is the draft.\n\n<skill_control_v1>\n",
+			]);
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([""]);
+			expect(visible).toBe("Here is the draft.\n\n");
+		});
+
+		// A tool call flushes the visible text in the middle of a reply; only the
+		// end of the reply may settle an envelope that is still open.
+		it("keeps an envelope whole across a tool call in the middle of it", () => {
+			const chunks: string[] = [];
+			const runtime = createServerChunkRuntime({
+				enqueueChunk(chunk) {
+					chunks.push(chunk);
+					return true;
+				},
+			});
+			runtime.emitChunkWithOutputHandling(
+				`Draft:\n<skill_control_v1>\n${envelopeJson.slice(0, 40)}`,
+			);
+			runtime.emitToolCallEvent("research_web", { query: "q" }, "running");
+			runtime.emitChunkWithOutputHandling(
+				`${envelopeJson.slice(40)}\n</skill_control_v1>`,
+			);
+			runtime.flushPendingThinking();
+			runtime.flushInlineThinkingBuffer();
+			runtime.flushOutputBuffer();
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([envelopeJson]);
+			expect(tokenTexts(chunks).join("")).toBe("Draft:\n");
+		});
+
+		it("keeps a partial open tag across a tool call", () => {
+			const chunks: string[] = [];
+			const runtime = createServerChunkRuntime({
+				enqueueChunk(chunk) {
+					chunks.push(chunk);
+					return true;
+				},
+			});
+			runtime.emitChunkWithOutputHandling("Draft:\n<skill_con");
+			runtime.emitToolCallEvent("research_web", { query: "q" }, "running");
+			runtime.emitChunkWithOutputHandling(
+				`trol_v1>\n${envelopeJson}\n</skill_control_v1>`,
+			);
+			runtime.flushPendingThinking();
+			runtime.flushInlineThinkingBuffer();
+			runtime.flushOutputBuffer();
+
+			expect(runtime.skillControlEnvelopePayloads).toEqual([envelopeJson]);
+			expect(tokenTexts(chunks).join("")).toBe("Draft:\n");
+		});
+
+		it("reads the same envelope at every token-sized chunking", () => {
+			for (let size = 1; size <= 12; size += 1) {
+				const pieces: string[] = [];
+				for (let index = 0; index < reply.length; index += size) {
+					pieces.push(reply.slice(index, index + size));
+				}
+				const { runtime, visible } = streamInPieces(pieces);
+				expect(runtime.skillControlEnvelopePayloads, `size ${size}`).toEqual([
+					envelopeJson,
+				]);
+				expect(visible, `size ${size}`).toBe("Here is the draft.\n\n");
+			}
+		});
+	});
+
 	// This used to assert the opposite — that a produce_file call was kept OUT
 	// of `serverSegments`, because the chat renders its file card from the job
 	// read-model and the segment looked like duplicate UI. But `serverSegments`

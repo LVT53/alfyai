@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { parseSkillControlEnvelopeFromAssistantText } from "./skill-control-envelope";
 
 describe("skill control envelopes", () => {
-	it("keeps incomplete envelopes visible and does not guess operations", () => {
+	// A reply cut off inside its envelope (the output limit lands there, since
+	// the envelope comes last) shows none of the half-written block, guesses no
+	// operation from it and counts it as malformed. The stream runtime reads
+	// the end of a reply the same way.
+	it("drops an envelope the reply was cut off inside, guessing no operations", () => {
 		const result = parseSkillControlEnvelopeFromAssistantText(
 			[
 				"Visible answer",
@@ -11,9 +15,58 @@ describe("skill control envelopes", () => {
 			].join("\n"),
 		);
 
-		expect(result.visibleText).toContain("<skill_control_v1>");
-		expect(result.metadata).toBeUndefined();
+		expect(result.visibleText).toBe("Visible answer");
 		expect(result.operations).toEqual([]);
+		expect(result.metadata?.skillControl?.malformedEnvelopeCount).toBe(1);
+	});
+
+	it("keeps an open tag that prose, not JSON, follows visible", () => {
+		const result = parseSkillControlEnvelopeFromAssistantText(
+			"The block starts with <skill_control_v1> and then the JSON.",
+		);
+
+		expect(result.visibleText).toBe(
+			"The block starts with <skill_control_v1> and then the JSON.",
+		);
+		expect(result.metadata).toBeUndefined();
+	});
+
+	// The real model left the close tag off 1 of 32 drafts (2026-10-25): the
+	// open tag and one whole JSON object are the envelope it meant to write.
+	it("reads a whole envelope whose close tag the model left off", () => {
+		const envelope = {
+			version: 1,
+			operations: [
+				{
+					operationId: "skill-draft-1",
+					kind: "skill_draft",
+					draft: {
+						id: "weekly-status",
+						displayName: "Weekly status",
+						instructions: "Write what is done, next and blocked.",
+					},
+				},
+			],
+		};
+		const result = parseSkillControlEnvelopeFromAssistantText(
+			`Here is the draft.\n\n<skill_control_v1>\n${JSON.stringify(envelope)}`,
+		);
+
+		expect(result.visibleText).toBe("Here is the draft.");
+		expect(result.metadata?.skillDrafts?.map((draft) => draft.id)).toEqual([
+			"weekly-status",
+		]);
+	});
+
+	it("keeps the words after an unclosed envelope's JSON visible", () => {
+		const result = parseSkillControlEnvelopeFromAssistantText(
+			'Draft:\n<skill_control_v1>\n{"version":1,"operations":[{"operationId":"skill-draft-1","kind":"skill_draft","draft":{"id":"digest","displayName":"Digest","instructions":"Summarize the notes."}}]}\n\nTell me what to change.',
+		);
+
+		expect(result.visibleText).toBe("Draft:\n\n\nTell me what to change.");
+		expect(result.metadata?.skillDrafts?.map((draft) => draft.id)).toEqual([
+			"digest",
+		]);
 	});
 
 	it("strips complete malformed envelopes without operations", () => {

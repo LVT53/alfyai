@@ -61,6 +61,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - A sign-in now ends on the server when its time is up. Before, only the
   browser's cookie ended it: the expiry was stored in milliseconds in a column
   read as seconds, so a copied cookie outlived it.
+- A reply that drafts a skill now always keeps its draft. About one turn in
+  four lost it: the reply's cleanup took the draft for leaked tool output when
+  the stream happened to split it in one particular place.
+- A drafted skill is still read when the model leaves off the block's closing
+  tag.
 
 ### Removed
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAssistantOutput } from "./normalizer";
+import {
+	normalizeAssistantOutput,
+	normalizeAssistantOutputWithSkillControl,
+} from "./normalizer";
 import {
 	getReasoningContent,
 	normalizeVisibleAssistantText,
@@ -175,6 +178,38 @@ describe("normalizeAssistantOutput", () => {
 		);
 
 		expect(result).toBe("I need one detail before continuing.");
+	});
+
+	it("reads a Skill Control Envelope before the leaked-output cleanup touches it", () => {
+		// The cleanup removes "search results:" from visible text; inside the
+		// envelope it is the skill's own words and reaches the draft unchanged.
+		const instructions =
+			"Run the search, then summarize the search results: one line per source.";
+		const result = normalizeAssistantOutputWithSkillControl(
+			[
+				"Here is the draft.",
+				"",
+				"<skill_control_v1>",
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "skill-draft-1",
+							kind: "skill_draft",
+							draft: {
+								id: "source-digest",
+								displayName: "Source digest",
+								instructions,
+							},
+						},
+					],
+				}),
+				"</skill_control_v1>",
+			].join("\n"),
+		);
+
+		expect(result.visibleText).toBe("Here is the draft.");
+		expect(result.metadata?.skillDrafts?.[0]?.instructions).toBe(instructions);
 	});
 
 	it("handles whitespace-only input", () => {

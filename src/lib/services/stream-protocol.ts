@@ -72,6 +72,26 @@ export function getSkillControlEnvelopePrefixHoldLength(value: string): number {
 	return getPartialTagPrefixLength(value, SKILL_CONTROL_ENVELOPE_OPEN_TAG);
 }
 
+// What follows an open tag the reply never closed. The model sometimes leaves
+// the close tag off (1 of 32 real drafts, 2026-10-25), and a reply cut off at
+// its output limit is cut inside the envelope, which comes last. So an open tag
+// followed by nothing, or by a JSON object whole or cut, is the envelope (a cut
+// one parses as malformed), and what comes after a whole object is visible
+// text again. An open tag followed by anything else is prose that names the
+// tag: null, and the caller keeps it visible.
+export function splitUnclosedSkillControlEnvelope(
+	afterOpenTag: string,
+): { rawJson: string; rest: string } | null {
+	const start = afterOpenTag.search(/\S/);
+	if (start === -1) return { rawJson: "", rest: "" };
+	if (afterOpenTag[start] !== "{") return null;
+	const end = findJsonObjectEnd(afterOpenTag, start) ?? afterOpenTag.length;
+	return {
+		rawJson: afterOpenTag.slice(start, end).trim(),
+		rest: afterOpenTag.slice(end),
+	};
+}
+
 export function stripCompleteSkillControlEnvelopeBlocks(value: string): {
 	visibleText: string;
 	envelopes: SkillControlEnvelopeBlock[];
@@ -97,8 +117,21 @@ export function stripCompleteSkillControlEnvelopeBlocks(value: string): {
 		const payloadStart = openIndex + openTag.length;
 		const closeIndex = lowerValue.indexOf(closeTag, payloadStart);
 		if (closeIndex === -1) {
-			visibleText += value.slice(cursor);
-			break;
+			const unclosed = splitUnclosedSkillControlEnvelope(
+				value.slice(payloadStart),
+			);
+			if (!unclosed) {
+				visibleText += value.slice(cursor);
+				break;
+			}
+			visibleText += value.slice(cursor, openIndex);
+			const blockEnd = value.length - unclosed.rest.length;
+			envelopes.push({
+				rawJson: unclosed.rawJson,
+				rawBlock: value.slice(openIndex, blockEnd),
+			});
+			cursor = blockEnd;
+			continue;
 		}
 
 		visibleText += value.slice(cursor, openIndex);

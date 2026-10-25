@@ -28,6 +28,7 @@ import {
 	SKILL_CONTROL_ENVELOPE_OPEN_TAG,
 	type StreamErrorCode,
 	splitLeadingThinkingPreamble,
+	splitUnclosedSkillControlEnvelope,
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
 } from "$lib/services/stream-protocol";
@@ -543,28 +544,22 @@ export function createServerChunkRuntime({
 				},
 			},
 		);
-		const envelopeFilteredBuffer = filterSkillControlEnvelopeText(
-			sanitizedBuffer,
-			force,
-		);
 		if (
 			force &&
-			envelopeFilteredBuffer.trim() &&
-			getLeakedToolDiagnosticPrefixLength(envelopeFilteredBuffer.trim()) ===
-				envelopeFilteredBuffer.trim().length
+			sanitizedBuffer.trim() &&
+			getLeakedToolDiagnosticPrefixLength(sanitizedBuffer.trim()) ===
+				sanitizedBuffer.trim().length
 		) {
 			visibleTokenBuffer = "";
 			return true;
 		}
 		const holdLength = force
 			? 0
-			: getLeakedToolDiagnosticPrefixLength(envelopeFilteredBuffer);
+			: getLeakedToolDiagnosticPrefixLength(sanitizedBuffer);
 		const visibleChunk = holdLength
-			? envelopeFilteredBuffer.slice(0, -holdLength)
-			: envelopeFilteredBuffer;
-		visibleTokenBuffer = holdLength
-			? envelopeFilteredBuffer.slice(-holdLength)
-			: "";
+			? sanitizedBuffer.slice(0, -holdLength)
+			: sanitizedBuffer;
+		visibleTokenBuffer = holdLength ? sanitizedBuffer.slice(-holdLength) : "";
 
 		if (!visibleChunk) {
 			return true;
@@ -575,12 +570,21 @@ export function createServerChunkRuntime({
 		return emitUiTextDelta(visibleChunk);
 	};
 
+	// The Skill Control Envelope is a control channel, not output, so it is
+	// taken out of the raw text before the leaked-output cleanup reads any of
+	// it. Cleaned first, its JSON line read as the start of a leaked
+	// produce_file payload whenever a chunk began it with `{"vers…`, and was
+	// swallowed: the draft card was lost on some turns and kept on others.
 	const emitVisibleToken = (chunk: string) => {
 		if (!chunk) {
 			return true;
 		}
 
-		visibleTokenBuffer += chunk;
+		const visible = filterSkillControlEnvelopeText(chunk);
+		if (!visible) {
+			return true;
+		}
+		visibleTokenBuffer += visible;
 		return flushVisibleTokenBuffer(false);
 	};
 
@@ -615,6 +619,14 @@ export function createServerChunkRuntime({
 			const closeIndex = lowerValue.indexOf(closeTag, payloadStart);
 			if (closeIndex === -1) {
 				if (force) {
+					const unclosed = splitUnclosedSkillControlEnvelope(
+						value.slice(payloadStart),
+					);
+					if (unclosed) {
+						skillControlEnvelopePayloads.push(unclosed.rawJson);
+						value = unclosed.rest;
+						continue;
+					}
 					output += value.slice(openIndex);
 				} else {
 					skillControlEnvelopeBuffer = value.slice(openIndex);
@@ -731,7 +743,7 @@ export function createServerChunkRuntime({
 			return;
 		}
 
-		flushInlineThinkingBuffer();
+		flushHeldOutput(false);
 		flushPendingThinking();
 		if (onToolCall)
 			onToolCall(name, input, status, details?.outputSummary, details);
@@ -860,7 +872,7 @@ export function createServerChunkRuntime({
 		status: ResponseActivityEntry["status"];
 	}) => {
 		if (!segment.label.trim()) return;
-		flushInlineThinkingBuffer();
+		flushHeldOutput(false);
 		flushPendingThinking();
 		const streamStatus: "running" | "done" =
 			segment.status === "error" ? "done" : segment.status;
@@ -1061,7 +1073,13 @@ export function createServerChunkRuntime({
 		return split.visibleText ? emitInlineToken(split.visibleText) : true;
 	};
 
-	const flushInlineThinkingBuffer = () => {
+	// A tool call or a status line flushes what is held in the middle of the
+	// reply; the end of the reply (`endOfReply`) also settles what the envelope
+	// filter still holds, an envelope the model left open or a partial open
+	// tag, into that last flush. Settling mid-reply would cut an open envelope
+	// in two, and settling after the last flush would leave the held tail of
+	// the visible text to be judged on its own.
+	const flushHeldOutput = (endOfReply: boolean) => {
 		if (!flushLeadingOutputBuffer(false)) {
 			return false;
 		}
@@ -1072,11 +1090,17 @@ export function createServerChunkRuntime({
 		if (!flushedInline) {
 			return false;
 		}
+		if (endOfReply) {
+			visibleTokenBuffer += filterSkillControlEnvelopeText("", true);
+		}
 		if (!flushVisibleTokenBuffer(true)) {
 			return false;
 		}
 		return flushPendingThinking();
 	};
+
+	// The end of the reply: the orchestrator's and the fallback's last flush.
+	const flushInlineThinkingBuffer = () => flushHeldOutput(true);
 
 	const emitChunkWithOutputHandling = (chunk: string): boolean => {
 		if (!chunk) return true;
