@@ -64,6 +64,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - A reply that drafts a skill now always keeps its draft. About one turn in
   four lost it: the reply's cleanup took the draft for leaked tool output when
   the stream happened to split it in one particular place.
+- The skill draft card appears as soon as the reply ends, not only after the
+  chat is reloaded.
 - A drafted skill is still read when the model leaves off the block's closing
   tag.
 

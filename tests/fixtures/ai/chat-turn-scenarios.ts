@@ -52,3 +52,19 @@ export function decodeItemTurnMode(text: string): ItemTurnMode | null {
 	const match = /mode:(edit|retry|giveup)/.exec(text);
 	return (match?.[1] as ItemTurnMode | undefined) ?? null;
 }
+
+/**
+ * A reply that drafts a skill, written the way the real model writes one: the
+ * reply, then the `<skill_control_v1>` envelope with its JSON on a line of its
+ * own. The stream splits that line where a real stream did (a frame that ends
+ * in `{"vers`), the split that once lost the draft card on the server.
+ */
+export const AI_SMOKE_SKILL_DRAFT_MARKER =
+	"Fake model step: draft the scripted skill.";
+export const AI_SMOKE_SKILL_DRAFT_TEXT =
+	"Here is a draft of the skill. Save it below if you want to keep it.";
+export const AI_SMOKE_SKILL_DRAFT_NAME = "Weekly status digest";
+export const AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS =
+	"Take the notes the person gives and write a short weekly status: what is done, what is in progress, and what is blocked.";
+export const AI_SMOKE_SKILL_DRAFT_EXAMPLE =
+	"Write my weekly status from these notes.";

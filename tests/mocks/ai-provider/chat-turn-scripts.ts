@@ -14,6 +14,11 @@ import {
 	AI_SMOKE_PRODUCE_PDF_INTRO,
 	AI_SMOKE_PRODUCE_PDF_MARKER,
 	AI_SMOKE_PRODUCE_PDF_TITLE,
+	AI_SMOKE_SKILL_DRAFT_EXAMPLE,
+	AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS,
+	AI_SMOKE_SKILL_DRAFT_MARKER,
+	AI_SMOKE_SKILL_DRAFT_NAME,
+	AI_SMOKE_SKILL_DRAFT_TEXT,
 	decodeItemTurnMode,
 	type ItemTurnMode,
 } from "../../fixtures/ai/chat-turn-scenarios";
@@ -312,6 +317,45 @@ function itemTurnReply(
 	return { frames: textFrames("item_final", AI_SMOKE_ITEM_TURN_FINAL_TEXT) };
 }
 
+/** The skill-drafting reply, in the frames a real stream split it into. */
+function skillDraftReply(): ScriptedChatTurnReply {
+	const envelope = JSON.stringify({
+		version: 1,
+		operations: [
+			{
+				operationId: "skill-draft-1",
+				kind: "skill_draft",
+				draft: {
+					id: "weekly-status-digest",
+					displayName: AI_SMOKE_SKILL_DRAFT_NAME,
+					description: "Writes a short weekly status from your notes.",
+					instructions: AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS,
+					activationExamples: [AI_SMOKE_SKILL_DRAFT_EXAMPLE],
+					sourceScope: "current_conversation",
+				},
+			},
+		],
+	});
+	const split = '{"vers'.length;
+	const base = chunkBase("skill_draft");
+	const content = (text: string) => ({
+		...base,
+		choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+	});
+	return {
+		frames: [
+			content(`${AI_SMOKE_SKILL_DRAFT_TEXT}\n\n<skill_control_v1>`),
+			content(`\n${envelope.slice(0, split)}`),
+			content(`${envelope.slice(split)}\n</skill_control_v1>`),
+			{
+				...base,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+				usage: { prompt_tokens: 21, completion_tokens: 40, total_tokens: 61 },
+			},
+		],
+	};
+}
+
 /**
  * The reply this request is scripted to get, or null when it belongs to no scenario
  * here. Only the chat's own model call is scripted (it carries the tool catalogue);
@@ -330,6 +374,7 @@ export function scriptedChatTurnReply(
 	}
 	const asked = currentTurnText(body);
 	if (asked.includes(AI_SMOKE_PRODUCE_PDF_MARKER)) return producePdfReply(body);
+	if (asked.includes(AI_SMOKE_SKILL_DRAFT_MARKER)) return skillDraftReply();
 	const mode = decodeItemTurnMode(asked);
 	if (mode) return itemTurnReply(body, mode);
 	return null;

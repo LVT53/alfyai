@@ -198,6 +198,42 @@ describe("streamChat", () => {
 		);
 	});
 
+	it("carries the turn's skill drafts from the terminal metadata frame", async () => {
+		// The Save/Dismiss card is drawn from these: a turn that drafted a
+		// skill must hand them to the message in the session that made it.
+		const skillDrafts = [
+			{
+				id: "weekly-status",
+				status: "proposed",
+				displayName: "Weekly status",
+				description: "Writes a short weekly status update.",
+				instructions: "Write one short paragraph: done, next, blocked.",
+				activationExamples: ["Write my weekly status."],
+				durationPolicy: "next_message",
+				questionPolicy: "none",
+				notesPolicy: "none",
+				sourceScope: "current_conversation",
+			},
+		];
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Draft below." }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: { assistantMessageId: "assistant-1", skillDrafts },
+					transient: true,
+				}),
+				uiFrame({ type: "finish" }),
+			],
+		});
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"Draft below.",
+			expect.objectContaining({ skillDrafts }),
+		);
+	});
+
 	it("drops a malformed userIntent from the terminal metadata frame", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [

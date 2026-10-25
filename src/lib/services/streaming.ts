@@ -295,6 +295,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		instructionSuggestions: parsed.instructionSuggestions as
 			| StreamMetadata["instructionSuggestions"]
 			| undefined,
+		skillDrafts: parsed.skillDrafts as
+			| StreamMetadata["skillDrafts"]
+			| undefined,
 		finalContent: parsed.finalContent as
 			| StreamMetadata["finalContent"]
 			| undefined,
