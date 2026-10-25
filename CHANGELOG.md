@@ -48,6 +48,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   snapshot counts replies that read as Hungarian for people writing English.
 - Changing your password signs you out on every other device, and the Profile
   card says so. The device you changed it on stays signed in.
+- The skill draft card shows what the skill will do and a few ways to ask for
+  it, and once saved it links to the skill in Settings; the question and
+  source chips left over from skill sessions are gone.
 - Changing your email address asks for your current password, and a wrong one
   counts against the same limit as a wrong password at sign-in. Changing your
   name asks for nothing.

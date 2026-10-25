@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
+	AI_SMOKE_SKILL_DRAFT_EXAMPLE,
+	AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS,
 	AI_SMOKE_SKILL_DRAFT_MARKER,
 	AI_SMOKE_SKILL_DRAFT_NAME,
 	AI_SMOKE_SKILL_DRAFT_TEXT,
@@ -38,7 +40,7 @@ test.describe("a skill the model drafts", () => {
 		await fakeProvider.reset();
 	});
 
-	test("lands its card in the session that drafted it, and saves it", async ({
+	test("lands its card in the session that drafted it, and Save opens the saved skill", async ({
 		page,
 	}) => {
 		await login(page);
@@ -67,22 +69,27 @@ test.describe("a skill the model drafts", () => {
 				name: `Skill draft: ${AI_SMOKE_SKILL_DRAFT_NAME}`,
 			});
 			await expect(card).toBeVisible({ timeout: 15_000 });
+			await expect(card).toContainText(AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS);
+			await expect(card).toContainText(AI_SMOKE_SKILL_DRAFT_EXAMPLE);
 			await expect(page.getByText("skill_control_v1")).toHaveCount(0);
 
 			await card.getByRole("button", { name: "Save private skill" }).click();
-			await expect(card.getByText("Saved")).toBeVisible({ timeout: 15_000 });
-			savedSkillId = await page.evaluate(async (id) => {
-				const response = await fetch(`/api/conversations/${id}`);
-				const body = (await response.json()) as {
-					messages?: Array<{ skillDrafts?: Array<{ savedSkillId?: string }> }>;
-				};
-				return (
-					(body.messages ?? [])
-						.flatMap((message) => message.skillDrafts ?? [])
-						.find((draft) => draft.savedSkillId)?.savedSkillId ?? null
-				);
-			}, conversationId);
+			const openSaved = card.getByRole("link", { name: "Open in Skills" });
+			await expect(openSaved).toBeVisible({ timeout: 15_000 });
+			const href = (await openSaved.getAttribute("href")) ?? "";
+			savedSkillId = new URLSearchParams(href.split("?")[1] ?? "").get("skill");
 			expect(savedSkillId).toBeTruthy();
+
+			await openSaved.click();
+			await expect(page.getByTestId("skills-manager")).toBeVisible({
+				timeout: 15_000,
+			});
+			await expect(page.getByLabel("Display name")).toHaveValue(
+				AI_SMOKE_SKILL_DRAFT_NAME,
+			);
+			await expect(page.getByLabel("Instructions")).toHaveValue(
+				AI_SMOKE_SKILL_DRAFT_INSTRUCTIONS,
+			);
 		} finally {
 			if (savedSkillId) {
 				await page.evaluate(async (id) => {

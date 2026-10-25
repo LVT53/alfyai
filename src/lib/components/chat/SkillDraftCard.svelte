@@ -1,4 +1,5 @@
 <script lang="ts">
+import { ChevronRight } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 
@@ -16,7 +17,14 @@ let {
 	onDismiss?: ((draftId: string) => void | Promise<void>) | undefined;
 } = $props();
 
-let isFinal = $derived(draft.status !== "proposed");
+// Instructions longer than this fold to a preview of about two lines; the
+// drafts the real model writes run 600-900 characters.
+const PREVIEW_CHARS = 180;
+const MAX_EXAMPLES = 3;
+
+const uid = $props.id();
+let expanded = $state(false);
+
 let statusLabel = $derived(
 	draft.status === "saved"
 		? $t("skillDrafts.saved")
@@ -26,26 +34,28 @@ let statusLabel = $derived(
 				? $t("skillDrafts.published")
 				: "",
 );
-// `durationPolicy` and `notesPolicy` are still carried on the persisted
-// draft contract so old rows and model-produced drafts keep parsing, but
-// Skill Sessions and Skill Notes no longer exist (skills load on demand for
-// a single turn — drizzle/1777140000088_drop_skill_sessions_and_notes.sql),
-// so neither policy is surfaced to the user any more.
-let questionLabel = $derived(
-	draft.questionPolicy === "ask_when_needed"
-		? $t("skillDrafts.question.askWhenNeeded")
-		: $t("skillDrafts.question.none"),
+// The person decides on what the skill will do, so the card shows it: the
+// instructions and the messages that should load it. The draft's policy
+// fields (questions, sources, notes, duration) still parse for old rows but
+// date from Skill Sessions and are not shown.
+let instructions = $derived(draft.instructions.trim());
+let compactInstructions = $derived(instructions.replace(/\s+/g, " "));
+let isLong = $derived(compactInstructions.length > PREVIEW_CHARS);
+let instructionsPreview = $derived.by(() => {
+	const cut = compactInstructions.slice(0, PREVIEW_CHARS);
+	const lastSpace = cut.lastIndexOf(" ");
+	const base = lastSpace > PREVIEW_CHARS / 2 ? cut.slice(0, lastSpace) : cut;
+	return `${base.replace(/[\s,;:.!?-]+$/, "")}…`;
+});
+let examples = $derived(
+	(draft.activationExamples ?? []).slice(0, MAX_EXAMPLES),
 );
-let sourceLabel = $derived(
-	draft.sourceScope === "current_conversation"
-		? $t("skillDrafts.source.currentConversation")
-		: $t("skillDrafts.source.selectedSourcesOnly"),
+let showsContent = $derived(draft.status !== "dismissed");
+let savedSkillHref = $derived(
+	draft.status === "saved" && draft.savedSkillId
+		? `/settings?section=skills&skill=${encodeURIComponent(draft.savedSkillId)}`
+		: null,
 );
-let warnings = $derived([
-	draft.sourceScope === "current_conversation"
-		? $t("skillDrafts.warning.currentConversation")
-		: $t("skillDrafts.warning.selectedSources"),
-]);
 </script>
 
 <article
@@ -66,18 +76,36 @@ let warnings = $derived([
 		<p class="skill-draft-card__description">{draft.description}</p>
 	{/if}
 
-	<div class="skill-draft-card__policies" aria-label={$t('skillDrafts.policyTitle')}>
-		<span>{questionLabel}</span>
-		<span>{sourceLabel}</span>
-	</div>
+	{#if showsContent && instructions}
+		<div class="skill-draft-card__section">
+			<p class="skill-draft-card__label">{$t('skillDrafts.instructionsLabel')}</p>
+			<p class="skill-draft-card__instructions" id="{uid}-instructions">{isLong && !expanded ? instructionsPreview : instructions}</p>
+			{#if isLong}
+				<button
+					type="button"
+					class="skill-draft-card__toggle"
+					aria-expanded={expanded}
+					aria-controls="{uid}-instructions"
+					onclick={() => (expanded = !expanded)}
+				>
+					{expanded ? $t('skillDrafts.showLess') : $t('skillDrafts.showMore')}
+				</button>
+			{/if}
+		</div>
+	{/if}
 
-	<ul class="skill-draft-card__warnings">
-		{#each warnings as warning}
-			<li>{warning}</li>
-		{/each}
-	</ul>
+	{#if showsContent && examples.length > 0}
+		<div class="skill-draft-card__section">
+			<p class="skill-draft-card__label">{$t('skillDrafts.examplesLabel')}</p>
+			<ul class="skill-draft-card__examples">
+				{#each examples as example, index (index)}
+					<li>{example}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 
-	{#if !isFinal}
+	{#if draft.status === "proposed"}
 		{#if actionError}
 			<p class="skill-draft-card__error" role="alert">{actionError}</p>
 		{/if}
@@ -89,6 +117,11 @@ let warnings = $derived([
 				{$t('skillDrafts.dismiss')}
 			</button>
 		</div>
+	{:else if savedSkillHref}
+		<a class="skill-draft-card__link" href={savedSkillHref}>
+			{$t('skillDrafts.openSaved')}
+			<ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+		</a>
 	{/if}
 </article>
 
@@ -144,13 +177,6 @@ let warnings = $derived([
 		overflow-wrap: anywhere;
 	}
 
-	.skill-draft-card__policies {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-	}
-
-	.skill-draft-card__policies span,
 	.skill-draft-card__status {
 		border: 1px solid var(--border-default);
 		border-radius: 999px;
@@ -160,13 +186,70 @@ let warnings = $derived([
 		color: var(--text-secondary);
 	}
 
-	.skill-draft-card__warnings {
+	.skill-draft-card__section {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.3rem;
+	}
+
+	.skill-draft-card__label {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--text-muted);
+	}
+
+	.skill-draft-card__instructions {
+		font-size: var(--text-sm);
+		line-height: 1.5;
+		white-space: pre-line;
+		overflow-wrap: anywhere;
+	}
+
+	.skill-draft-card__examples {
 		display: grid;
-		gap: 0.35rem;
+		gap: 0.25rem;
 		padding-left: 1.1rem;
+		list-style: disc;
 		color: var(--text-secondary);
 		font-size: var(--text-sm);
 		line-height: 1.4;
+		overflow-wrap: anywhere;
+	}
+
+	.skill-draft-card__examples li::marker {
+		color: var(--text-muted);
+	}
+
+	.skill-draft-card__toggle,
+	.skill-draft-card__link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		border: none;
+		border-radius: 4px;
+		background: none;
+		padding: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--accent);
+		text-decoration: none;
+		cursor: pointer;
+	}
+
+	.skill-draft-card__link {
+		align-self: flex-start;
+	}
+
+	.skill-draft-card__toggle:hover,
+	.skill-draft-card__link:hover {
+		text-decoration: underline;
+	}
+
+	.skill-draft-card__toggle:focus-visible,
+	.skill-draft-card__link:focus-visible {
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent 64%);
+		outline: none;
 	}
 
 	.skill-draft-card__actions {
@@ -185,7 +268,7 @@ let warnings = $derived([
 		line-height: 1.4;
 	}
 
-	button {
+	.skill-draft-card__actions button {
 		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		background: var(--surface-page);
@@ -202,47 +285,47 @@ let warnings = $derived([
 			transform var(--duration-standard) var(--ease-out);
 	}
 
-	button:disabled {
+	.skill-draft-card__actions button:disabled {
 		cursor: not-allowed;
 		opacity: 0.6;
 	}
 
-	.skill-draft-card__primary {
+	.skill-draft-card__actions .skill-draft-card__primary {
 		border-color: var(--accent);
 		background: var(--accent);
 		color: var(--accent-contrast);
 	}
 
-	.skill-draft-card__secondary {
+	.skill-draft-card__actions .skill-draft-card__secondary {
 		border-color: color-mix(in srgb, var(--border-default) 82%, transparent 18%);
 		background: color-mix(in srgb, var(--surface-page) 78%, var(--surface-elevated) 22%);
 		color: var(--text-primary);
 	}
 
-	button:hover:not(:disabled),
-	button:focus-visible:not(:disabled) {
+	.skill-draft-card__actions button:hover:not(:disabled),
+	.skill-draft-card__actions button:focus-visible:not(:disabled) {
 		transform: translateY(-1px);
 	}
 
-	.skill-draft-card__primary:hover:not(:disabled),
-	.skill-draft-card__primary:focus-visible:not(:disabled) {
+	.skill-draft-card__actions .skill-draft-card__primary:hover:not(:disabled),
+	.skill-draft-card__actions .skill-draft-card__primary:focus-visible:not(:disabled) {
 		border-color: var(--accent-hover);
 		background: var(--accent-hover);
 	}
 
-	.skill-draft-card__secondary:hover:not(:disabled),
-	.skill-draft-card__secondary:focus-visible:not(:disabled) {
+	.skill-draft-card__actions .skill-draft-card__secondary:hover:not(:disabled),
+	.skill-draft-card__actions .skill-draft-card__secondary:focus-visible:not(:disabled) {
 		border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default) 58%);
 		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
 		color: var(--accent);
 	}
 
-	button:focus-visible {
+	.skill-draft-card__actions button:focus-visible {
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent 64%);
 		outline: none;
 	}
 
-	button:active:not(:disabled) {
+	.skill-draft-card__actions button:active:not(:disabled) {
 		transform: translateY(0);
 	}
 
@@ -267,14 +350,14 @@ let warnings = $derived([
 			grid-template-columns: 1fr;
 		}
 
-		button {
+		.skill-draft-card__actions button {
 			width: 100%;
 			min-height: 38px;
 		}
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		button {
+		.skill-draft-card__actions button {
 			transition: none;
 		}
 	}

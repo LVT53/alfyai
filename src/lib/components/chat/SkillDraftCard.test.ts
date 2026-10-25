@@ -28,7 +28,7 @@ describe("SkillDraftCard", () => {
 		uiLanguage.set("en");
 	});
 
-	it("renders review details, broader-capability warnings, and action callbacks", async () => {
+	it("shows what the skill does and how to ask for it, and calls back on Save and Dismiss", async () => {
 		const onSave = vi.fn();
 		const onDismiss = vi.fn();
 
@@ -44,11 +44,14 @@ describe("SkillDraftCard", () => {
 		expect(
 			screen.getByText("Review meeting notes for weak follow-ups."),
 		).toBeInTheDocument();
-		expect(screen.getByText("Ask when needed")).toBeInTheDocument();
-		expect(screen.getByText("Current conversation")).toBeInTheDocument();
+		expect(screen.getByText("What it does")).toBeInTheDocument();
 		expect(
-			screen.getByText("Can use broad current-conversation context."),
+			screen.getByText(
+				"Find missing owners, vague deadlines, and risky assumptions.",
+			),
 		).toBeInTheDocument();
+		expect(screen.getByText("Try asking")).toBeInTheDocument();
+		expect(screen.getByText("review these meeting notes")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Save private skill" }),
 		).toHaveClass("skill-draft-card__primary");
@@ -70,32 +73,94 @@ describe("SkillDraftCard", () => {
 		expect(onDismiss).toHaveBeenCalledWith("draft-1");
 	});
 
-	it("ignores legacy notes and duration policy values on stored drafts", () => {
+	it("shows none of the policy chips or warnings left from skill sessions", () => {
 		render(SkillDraftCard, {
 			draft: makeDraft({
 				durationPolicy: "session",
+				questionPolicy: "ask_when_needed",
 				notesPolicy: "create_private_notes",
+				sourceScope: "current_conversation",
 			}),
 			onSave: vi.fn(),
 			onDismiss: vi.fn(),
 		});
 
+		for (const leftover of [
+			"Ask when needed",
+			"No questions",
+			"Current conversation",
+			"Selected sources only",
+			"Can use broad current-conversation context.",
+			"Uses only selected linked sources when sources are needed.",
+			"Session",
+			"Private notes",
+		]) {
+			expect(screen.queryByText(leftover)).not.toBeInTheDocument();
+		}
+	});
+
+	it("folds long instructions behind Show more and opens them in full", async () => {
+		const instructions = `Take the notes the person gives. ${"Keep each part short and plain. ".repeat(12)}End with the blockers.`;
+		render(SkillDraftCard, {
+			draft: makeDraft({ instructions }),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		const toggle = screen.getByRole("button", { name: "Show more" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(screen.queryByText(instructions)).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("article", { name: "Skill draft: Meeting critic" }),
+			screen.getByText(/^Take the notes the person gives\..*…$/),
 		).toBeInTheDocument();
-		expect(screen.queryByText("Session")).not.toBeInTheDocument();
-		expect(screen.queryByText("Next message")).not.toBeInTheDocument();
-		expect(screen.queryByText("Private notes")).not.toBeInTheDocument();
-		expect(screen.queryByText("No notes")).not.toBeInTheDocument();
+
+		await fireEvent.click(toggle);
+
+		expect(screen.getByText(instructions)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+	});
+
+	it("shows short instructions whole, with nothing to unfold", () => {
+		render(SkillDraftCard, {
+			draft: makeDraft(),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
 		expect(
-			screen.queryByText("Can write private Skill Notes."),
+			screen.queryByRole("button", { name: "Show more" }),
 		).not.toBeInTheDocument();
+	});
+
+	it("links a saved draft to its skill in Settings instead of offering Save again", () => {
+		render(SkillDraftCard, {
+			draft: makeDraft({ status: "saved", savedSkillId: "skill 7" }),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		expect(screen.getByText("Saved")).toBeInTheDocument();
 		expect(
-			screen.getByText("Can use broad current-conversation context."),
-		).toBeInTheDocument();
+			screen.getByRole("link", { name: "Open in Skills" }),
+		).toHaveAttribute("href", "/settings?section=skills&skill=skill%207");
 		expect(
-			screen.getByRole("button", { name: "Save private skill" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "Save private skill" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("offers nothing to do on a dismissed draft", () => {
+		render(SkillDraftCard, {
+			draft: makeDraft({ status: "dismissed" }),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		expect(screen.getByText("Dismissed")).toBeInTheDocument();
+		expect(screen.queryByRole("link")).not.toBeInTheDocument();
+		expect(screen.queryByRole("button")).not.toBeInTheDocument();
 	});
 
 	it("uses Hungarian labels for card actions", () => {
@@ -115,6 +180,29 @@ describe("SkillDraftCard", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Vázlat elvetése" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("Mit csinál")).toBeInTheDocument();
+		expect(screen.getByText("Így kérheted")).toBeInTheDocument();
+	});
+
+	it("uses Hungarian labels for the saved draft link and the fold", () => {
+		uiLanguage.set("hu");
+
+		render(SkillDraftCard, {
+			draft: makeDraft({
+				status: "saved",
+				savedSkillId: "skill-7",
+				instructions: "Rövid, tömör jegyzetek. ".repeat(20),
+			}),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		expect(
+			screen.getByRole("link", { name: "Ugrás a skillhez" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Bővebben" }),
 		).toBeInTheDocument();
 	});
 
