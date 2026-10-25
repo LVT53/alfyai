@@ -283,6 +283,10 @@ async function loadSkillsSummary() {
 
 onMount(() => {
 	void loadSkillsSummary();
+	// /settings?section=skills — the composer's Manage skills and a saved chat
+	// draft's Open in Skills land on the manager, not on the Profile list.
+	const section = new URLSearchParams(window.location.search).get("section");
+	if (section === "skills" && skillsEnabled) skillsManagerOpen = true;
 });
 
 // ── Your Activity summary ────────────────────────────────────────────

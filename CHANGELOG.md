@@ -68,6 +68,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   chat is reloaded.
 - A drafted skill is still read when the model leaves off the block's closing
   tag.
+- Manage skills in the composer's skill picker opens the Skills manager, not
+  the Profile page.
 
 ### Removed
 

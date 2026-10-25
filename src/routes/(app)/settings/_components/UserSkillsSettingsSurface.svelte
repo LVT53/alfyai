@@ -329,7 +329,13 @@ async function removeVariant(variant: UserSkillVariant) {
 }
 
 onMount(() => {
-	void loadSkills();
+	void loadSkills().then(() => {
+		// &skill=<id>: a chat draft's Open in Skills opens the skill it was
+		// saved as, if it is one of this person's.
+		const skillId = new URLSearchParams(window.location.search).get("skill");
+		const named = skillId ? skills.find((skill) => skill.id === skillId) : null;
+		if (named) editSkill(named);
+	});
 });
 </script>
 

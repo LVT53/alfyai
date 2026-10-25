@@ -669,6 +669,20 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 		expect(screen.getByText("1 disabled")).toBeInTheDocument();
 	});
 
+	it("opens the Skills manager when the address asks for it", async () => {
+		// The composer's Manage skills and a saved draft's Open in Skills land
+		// here: /settings?section=skills.
+		mockFetchUserSkills.mockResolvedValue([]);
+		window.history.replaceState({}, "", "/settings?section=skills");
+		try {
+			renderTab();
+
+			expect(await screen.findByTestId("skills-manager")).toBeInTheDocument();
+		} finally {
+			window.history.replaceState({}, "", "/");
+		}
+	});
+
 	it("says skills are off and offers no manager when the workspace disabled them", () => {
 		renderTab({ skillsEnabled: false });
 

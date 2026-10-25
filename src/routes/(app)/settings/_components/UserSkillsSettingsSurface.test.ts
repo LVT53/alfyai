@@ -91,6 +91,48 @@ describe("UserSkillsSettingsSurface", () => {
 		expect(mockCreateUserSkill).not.toHaveBeenCalled();
 	});
 
+	it("opens the skill the address names, the one a chat draft was saved as", async () => {
+		mockFetchUserSkills.mockResolvedValue([existingSkill]);
+		window.history.replaceState(
+			{},
+			"",
+			"/settings?section=skills&skill=skill-1",
+		);
+		try {
+			render(UserSkillsSettingsSurface);
+
+			await waitFor(() =>
+				expect(screen.getByLabelText("Display name")).toHaveValue(
+					"Meeting critic",
+				),
+			);
+			expect(screen.getByLabelText("Instructions")).toHaveValue(
+				"Review notes.",
+			);
+		} finally {
+			window.history.replaceState({}, "", "/");
+		}
+	});
+
+	it("starts on a blank skill when the named skill is not one of the person's", async () => {
+		mockFetchUserSkills.mockResolvedValue([existingSkill]);
+		window.history.replaceState(
+			{},
+			"",
+			"/settings?section=skills&skill=someone-else",
+		);
+		try {
+			render(UserSkillsSettingsSurface);
+
+			await waitFor(() =>
+				expect(screen.getByText("Meeting critic")).toBeInTheDocument(),
+			);
+			expect(screen.getByLabelText("Display name")).toHaveValue("");
+		} finally {
+			window.history.replaceState({}, "", "/");
+		}
+	});
+
 	it("hides skill creation controls when skills are disabled", () => {
 		render(UserSkillsSettingsSurface, { skillsEnabled: false });
 
