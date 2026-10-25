@@ -18,7 +18,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "research_web",
-      "description": "Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {\"query\": \"the exact research question\"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.",
+      "description": "Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {\"query\": \"the exact research question\"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns sources and evidence, plus `pages` with `readPages`; cite what you use as [title](url) links with the exact returned URLs; prefer primary sources when they conflict.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -51,7 +51,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "fetch_url",
-      "description": "Read named web pages: {\"urls\": [\"https://example.com\"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.",
+      "description": "Read named web pages: {\"urls\": [\"https://example.com\"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns the pages and evidence; cite what you use as [title](url) links with their exact URLs.",
       "parameters": {
         "type": "object",
         "properties": {

@@ -4724,9 +4724,13 @@ describe("createNormalChatTools", () => {
 			// say so" sentences were removed as duplicates of the base
 			// prompt's `## Tools` policy and reliability rules; this tool's
 			// description now carries only its own parameter contract,
-			// example, and output-handling behaviour.
-			research_web: ["objective", "searchQueries", "answerBriefMarkdown"],
-			fetch_url: ["objective", "answerBriefMarkdown"],
+			// example, and output-handling behaviour. The same diet took the
+			// citation line out of the base prompt too, so from 2026-09-24
+			// nothing said how to cite and half the web replies cited nothing:
+			// how to cite is the web tools' output handling again (see the
+			// token ceiling note below).
+			research_web: ["objective", "searchQueries", "[title](url)"],
+			fetch_url: ["objective", "[title](url)"],
 			memory_context: ["`persona`", "`history`", "`project`", "conversationId"],
 			image_search: ["![alt text](url)", "invisible"],
 			produce_file: ["patches", "read_generated_file", "requestTitle"],
@@ -5712,6 +5716,20 @@ describe("tool description hygiene", () => {
 	// which left the largest English tool 295 tokens of slack and tripped for no
 	// tool; it is the English maximum again, edit_artifact at 564, plus the SAME
 	// margin of 2.
+	//
+	// 2026-10-25, citations: from 2026-09-24 nothing told the model how to cite
+	// a web result. The base prompt's "Cite web-backed claims with markdown
+	// links" left with the prompt diet and the payload's `instructions` with the
+	// tool-result hygiene, both on 2026-09-05; production kept the old prompt as
+	// an admin override until 2026-09-24. Since then 53% of its replies built on
+	// web research cited nothing (151 of 284 in 30 days, 63% in the last week).
+	// Real-model replays reproduced it once the conversation held an earlier
+	// reply without links (12 of 24 answers cited nothing) and showed the rule
+	// ends it (0 of 23). research_web's and fetch_url's last sentences now say
+	// how to cite (`[title](url)` links with the exact returned URLs) instead of
+	// naming the payload's fields, which the model reads in the payload itself.
+	// Re-measured: 5,222 en (8 spent). The ceiling stays: the clause was paid for
+	// by those field lists, and the catalogue now sits at its tripwire.
 	const PER_TOOL_TOKEN_CEILING = 566;
 	const CATALOGUE_TOKEN_CEILING = 5222;
 

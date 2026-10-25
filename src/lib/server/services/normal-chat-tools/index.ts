@@ -297,7 +297,7 @@ const TOOL_TEXT: ToolText = {
 	research_web: RESEARCH_WEB_TEXT,
 	fetch_url: {
 		description:
-			'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.',
+			'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns the pages and evidence; cite what you use as [title](url) links with their exact URLs.',
 		errorPrefix: "Fetch URL failed",
 	},
 	map_route: {

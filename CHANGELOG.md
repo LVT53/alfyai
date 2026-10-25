@@ -73,6 +73,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   tag.
 - Manage skills in the composer's skill picker opens the Skills manager, not
   the Profile page.
+- Answers based on a web search link their sources again. Since late September
+  about half of them linked none, because nothing told the model how to cite.
 
 ### Removed
 
