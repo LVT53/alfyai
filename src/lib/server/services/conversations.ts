@@ -14,6 +14,7 @@ import type {
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 import { recordConversationAnalytics } from "./analytics";
 import type { ConversationForkListSummary } from "./conversation-forks";
@@ -234,9 +235,9 @@ export async function messageBelongsToConversation(
 	return message !== undefined;
 }
 
-// Shared by every owned-conversation field update below (rename, touch) so
-// the auth-scoped update/where/returning shape lives once instead of being
-// copy-pasted per field.
+// Shared by every owned-conversation field update below (rename, touch,
+// project move) so the auth-scoped update/where/returning shape lives once
+// instead of being copy-pasted per field.
 async function updateOwnedConversationFields(
 	userId: string,
 	conversationId: string,
@@ -344,6 +345,44 @@ export async function setConversationSidebarPinned(
 	return conversation ? toConversation(conversation) : null;
 }
 
+// One id's answer in a batch: the updated chat, or `not_found` when the update
+// matched no row of this person's (someone else's chat reads as missing, and so
+// does one that is already gone).
+function toBatchResult(
+	id: string,
+	conversation: Conversation | null,
+): ConversationBatchResult<Conversation> {
+	return conversation
+		? { id, ok: true, conversation }
+		: { id, ok: false, error: "not_found" };
+}
+
+/**
+ * Pins or unpins several chats, each exactly as `setConversationSidebarPinned`
+ * does one, and answers per id in the order the ids came. Pinning puts a chat
+ * on top of the Pinned list, so the chat pinned last ends up first: the ids
+ * are walked backwards, and the first id ends on top with the rest below it in
+ * the order given.
+ */
+export async function setConversationsSidebarPinned(
+	userId: string,
+	conversationIds: string[],
+	sidebarPinned: boolean,
+): Promise<ConversationBatchResult<Conversation>[]> {
+	const order = conversationIds.map((id, index) => ({ id, index }));
+	if (sidebarPinned) {
+		order.reverse();
+	}
+	const results: ConversationBatchResult<Conversation>[] = [];
+	for (const { id, index } of order) {
+		results[index] = toBatchResult(
+			id,
+			await setConversationSidebarPinned(userId, id, sidebarPinned),
+		);
+	}
+	return results;
+}
+
 /**
  * Incognito, one-way: arms the flag, and only that. It takes no value,
  * because `false` is never a legal write — the PATCH route refuses it with a
@@ -432,6 +471,36 @@ export async function savePinnedConversationSidebarOrder(
 	});
 }
 
+async function userOwnsProject(
+	userId: string,
+	projectId: string,
+): Promise<boolean> {
+	const [project] = await db
+		.select({ id: projects.id })
+		.from(projects)
+		.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+		.limit(1);
+	return project !== undefined;
+}
+
+// The row update of every project move, single and bulk, so the rule below
+// exists once. The caller has already checked that `projectId` is the person's
+// own (or null); the update itself is scoped to the person's own chat.
+//
+// Moving a conversation into (or out of) a folder is an organizational
+// change, not conversation activity — it must not bump `updatedAt`.
+// `listConversations`'s sidebar sort and the home page's "recent" rail
+// (home-summary.ts readRecent) both order by this column, and
+// `touchConversation` (called at real turn completion in send/stream) is
+// the sole intentional activity bump; a move must not duplicate it.
+async function setOwnedConversationProject(
+	userId: string,
+	conversationId: string,
+	projectId: string | null,
+): Promise<Conversation | null> {
+	return updateOwnedConversationFields(userId, conversationId, { projectId });
+}
+
 export async function moveConversationToProject(
 	userId: string,
 	conversationId: string,
@@ -449,33 +518,38 @@ export async function moveConversationToProject(
 		.limit(1);
 	if (!existingConversation) return null;
 
-	if (projectId !== null) {
-		const [project] = await db
-			.select({ id: projects.id })
-			.from(projects)
-			.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
-			.limit(1);
-		if (!project) return null;
+	if (projectId !== null && !(await userOwnsProject(userId, projectId))) {
+		return null;
 	}
 
-	// Moving a conversation into (or out of) a folder is an organizational
-	// change, not conversation activity — it must not bump `updatedAt`.
-	// `listConversations`'s sidebar sort and the home page's "recent" rail
-	// (home-summary.ts readRecent) both order by this column, and
-	// `touchConversation` (called at real turn completion in send/stream) is
-	// the sole intentional activity bump; a move must not duplicate it.
-	const [conversation] = await db
-		.update(conversations)
-		.set({ projectId })
-		.where(
-			and(
-				eq(conversations.id, conversationId),
-				eq(conversations.userId, userId),
+	return setOwnedConversationProject(userId, conversationId, projectId);
+}
+
+/**
+ * Moves several chats into a project, or out of any (`projectId` null), each
+ * exactly as `moveConversationToProject` moves one, and answers per id in the
+ * order the ids came. The project is checked once: when it is not the
+ * person's own the answer is `null` and no chat has changed.
+ */
+export async function moveConversationsToProject(
+	userId: string,
+	conversationIds: string[],
+	projectId: string | null,
+): Promise<ConversationBatchResult<Conversation>[] | null> {
+	if (projectId !== null && !(await userOwnsProject(userId, projectId))) {
+		return null;
+	}
+
+	const results: ConversationBatchResult<Conversation>[] = [];
+	for (const id of conversationIds) {
+		results.push(
+			toBatchResult(
+				id,
+				await setOwnedConversationProject(userId, id, projectId),
 			),
-		)
-		.returning();
-	if (!conversation) return null;
-	return toConversation(conversation);
+		);
+	}
+	return results;
 }
 
 // Relocated out of the former src/lib/types.ts god-module

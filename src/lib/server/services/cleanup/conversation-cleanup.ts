@@ -1,11 +1,16 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { conversations } from "$lib/server/db/schema";
+import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import {
 	cancelActiveAtlasJobsForConversation,
 	deleteAtlasJobsForConversation,
 } from "../atlas";
 import { deleteAllChatFilesForConversation } from "../chat-files";
+import {
+	getOrphanedStream,
+	requestActiveChatStreamStop,
+} from "../chat-turn/active-streams";
 import {
 	artifactHasReferencesOutsideConversation,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -33,6 +38,18 @@ export async function deleteConversationWithCleanup(
 
 	if (!conversation) {
 		return null;
+	}
+
+	// A reply that is still streaming into this chat is stopped first, the way
+	// the Stop button stops it. Without this the server keeps generating into a
+	// chat that no longer exists. The stop is not awaited: the stream ends on
+	// its own, and an end-of-turn write that meets the deleted chat is logged
+	// and dropped (chat-turn/finalize.ts), never thrown at the person. The
+	// registry is keyed by owner and chat, so this only ever reaches a stream
+	// the person owns, and only after the ownership check above.
+	const streamId = getOrphanedStream({ userId, conversationId });
+	if (streamId) {
+		requestActiveChatStreamStop({ streamId, userId });
 	}
 
 	await cancelActiveAtlasJobsForConversation({ userId, conversationId });
@@ -115,4 +132,42 @@ export async function deleteConversationWithCleanup(
 		deletedArtifactIds,
 		preservedArtifactIds,
 	};
+}
+
+/**
+ * Deletes several chats, each exactly as `deleteConversationWithCleanup`
+ * deletes one, and says what happened to each in the order the ids came:
+ * `ok`, `not_found` (not the person's, or already gone: it is gone either way)
+ * or `failed` (the delete threw, and the chat is still there to try again).
+ * One chat's failure never stops the rest.
+ *
+ * The deletes run one after another on purpose. Each is a run of SQLite writes
+ * plus the artifact and file cleanup, and none of that wants a second one
+ * beside it.
+ */
+export async function deleteConversationsWithCleanup(
+	userId: string,
+	conversationIds: string[],
+): Promise<ConversationBatchResult[]> {
+	const results: ConversationBatchResult[] = [];
+	for (const conversationId of conversationIds) {
+		try {
+			const deleted = await deleteConversationWithCleanup(
+				userId,
+				conversationId,
+			);
+			results.push(
+				deleted
+					? { id: conversationId, ok: true }
+					: { id: conversationId, ok: false, error: "not_found" },
+			);
+		} catch (error) {
+			console.error(
+				"[CONVERSATION_BATCH_DELETE] Failed to fully delete conversation",
+				{ conversationId, error },
+			);
+			results.push({ id: conversationId, ok: false, error: "failed" });
+		}
+	}
+	return results;
 }

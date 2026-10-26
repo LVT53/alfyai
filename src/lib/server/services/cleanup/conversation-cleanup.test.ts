@@ -63,6 +63,48 @@ function seedConversation() {
 	sqlite.close();
 }
 
+// More chats on top of `seedConversation()`'s one: `extraUserIds` are made
+// first, then each row is inserted for the user it names.
+function seedMoreConversations(
+	rows: Array<{ id: string; userId: string }>,
+	extraUserIds: string[] = [],
+) {
+	const sqlite = new Database(dbPath);
+	sqlite.pragma("foreign_keys = ON");
+	const db = drizzle(sqlite, { schema });
+	const now = new Date("2026-05-06T10:00:00.000Z");
+	for (const userId of extraUserIds) {
+		db.insert(schema.users)
+			.values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+			})
+			.run();
+	}
+	for (const row of rows) {
+		db.insert(schema.conversations)
+			.values({
+				id: row.id,
+				userId: row.userId,
+				title: `Chat ${row.id}`,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+	}
+	sqlite.close();
+}
+
+async function listConversationIds(): Promise<string[]> {
+	const { db } = await import("$lib/server/db");
+	const rows = await db
+		.select({ id: schema.conversations.id })
+		.from(schema.conversations)
+		.orderBy(schema.conversations.id);
+	return rows.map((row) => row.id);
+}
+
 describe("deleteConversationWithCleanup", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-conversation-cleanup-${randomUUID()}.db`;
@@ -311,5 +353,203 @@ describe("deleteConversationWithCleanup", () => {
 			"user-1",
 			"conversation-2",
 		);
+	});
+
+	// A delete used to leave the server generating into a chat that no longer
+	// exists. The stop is the same explicit stop the Stop button sends, so the
+	// stream ends the way a person's own Stop ends it.
+	it("stops the conversation's streaming reply before deleting it", async () => {
+		seedConversation();
+		seedMoreConversations([{ id: "conversation-2", userId: "user-1" }]);
+
+		// This file resets modules before every test and imports the code under
+		// test dynamically, so the registry has to come from the same fresh
+		// module graph: a top-level import is another instance and nothing in it
+		// would ever be aborted.
+		const { registerActiveChatStream, unregisterActiveChatStream } =
+			await import("../chat-turn/active-streams");
+		const deletedChatStream = new AbortController();
+		const otherChatStream = new AbortController();
+		registerActiveChatStream({
+			streamId: "stream-1",
+			userId: "user-1",
+			conversationId: "conversation-1",
+			controller: deletedChatStream,
+		});
+		registerActiveChatStream({
+			streamId: "stream-2",
+			userId: "user-1",
+			conversationId: "conversation-2",
+			controller: otherChatStream,
+		});
+
+		try {
+			const { deleteConversationWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+
+			const result = await deleteConversationWithCleanup(
+				"user-1",
+				"conversation-1",
+			);
+
+			expect(result).not.toBeNull();
+			expect(deletedChatStream.signal.aborted).toBe(true);
+			expect(otherChatStream.signal.aborted).toBe(false);
+			expect(await listConversationIds()).toEqual(["conversation-2"]);
+		} finally {
+			unregisterActiveChatStream("stream-1", deletedChatStream);
+			unregisterActiveChatStream("stream-2", otherChatStream);
+		}
+	});
+
+	it("does not stop another user's stream when it deletes a chat that is not theirs", async () => {
+		seedConversation();
+		seedMoreConversations(
+			[{ id: "conversation-3", userId: "user-2" }],
+			["user-2"],
+		);
+		const { registerActiveChatStream, unregisterActiveChatStream } =
+			await import("../chat-turn/active-streams");
+		const foreignStream = new AbortController();
+		registerActiveChatStream({
+			streamId: "stream-3",
+			userId: "user-2",
+			conversationId: "conversation-3",
+			controller: foreignStream,
+		});
+
+		try {
+			const { deleteConversationWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+
+			const result = await deleteConversationWithCleanup(
+				"user-1",
+				"conversation-3",
+			);
+
+			expect(result).toBeNull();
+			expect(foreignStream.signal.aborted).toBe(false);
+			expect(await listConversationIds()).toContain("conversation-3");
+		} finally {
+			unregisterActiveChatStream("stream-3", foreignStream);
+		}
+	});
+
+	describe("deleting several conversations at once", () => {
+		it("deletes several conversations and reports each", async () => {
+			seedConversation();
+			seedMoreConversations(
+				[
+					{ id: "conversation-2", userId: "user-1" },
+					{ id: "conversation-3", userId: "user-2" },
+				],
+				["user-2"],
+			);
+			const { deleteConversationsWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+
+			const results = await deleteConversationsWithCleanup("user-1", [
+				"conversation-1",
+				"conversation-2",
+				"conversation-3",
+				"nope",
+			]);
+
+			expect(results).toEqual([
+				{ id: "conversation-1", ok: true },
+				{ id: "conversation-2", ok: true },
+				{ id: "conversation-3", ok: false, error: "not_found" },
+				{ id: "nope", ok: false, error: "not_found" },
+			]);
+			// Another person's chat is only ever reported missing, never touched.
+			expect(await listConversationIds()).toEqual(["conversation-3"]);
+			expect(mockDeleteAllChatFilesForConversation).not.toHaveBeenCalledWith(
+				"conversation-3",
+			);
+		});
+
+		it("deletes them one after another, in the order given", async () => {
+			seedConversation();
+			seedMoreConversations([
+				{ id: "conversation-2", userId: "user-1" },
+				{ id: "conversation-3", userId: "user-1" },
+			]);
+			let running = 0;
+			let mostRunningAtOnce = 0;
+			const deleteOrder: string[] = [];
+			mockDeleteAllChatFilesForConversation.mockImplementation(
+				async (conversationId: string) => {
+					running += 1;
+					mostRunningAtOnce = Math.max(mostRunningAtOnce, running);
+					deleteOrder.push(conversationId);
+					// Yield so a parallel implementation would overlap here.
+					await new Promise((resolve) => setTimeout(resolve, 5));
+					running -= 1;
+				},
+			);
+			const { deleteConversationsWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+
+			await deleteConversationsWithCleanup("user-1", [
+				"conversation-3",
+				"conversation-1",
+				"conversation-2",
+			]);
+
+			expect(deleteOrder).toEqual([
+				"conversation-3",
+				"conversation-1",
+				"conversation-2",
+			]);
+			expect(mostRunningAtOnce).toBe(1);
+		});
+
+		it("keeps going when one delete throws", async () => {
+			seedConversation();
+			seedMoreConversations([
+				{ id: "conversation-2", userId: "user-1" },
+				{ id: "conversation-3", userId: "user-1" },
+			]);
+			mockListConversationOwnedArtifacts.mockImplementation(
+				async (_userId: string, conversationId: string) => {
+					if (conversationId === "conversation-2") {
+						throw new Error("artifact cleanup failed");
+					}
+					return [];
+				},
+			);
+			const consoleError = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => undefined);
+			const { deleteConversationsWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+
+			try {
+				const results = await deleteConversationsWithCleanup("user-1", [
+					"conversation-1",
+					"conversation-2",
+					"conversation-3",
+				]);
+
+				expect(results).toEqual([
+					{ id: "conversation-1", ok: true },
+					{ id: "conversation-2", ok: false, error: "failed" },
+					{ id: "conversation-3", ok: true },
+				]);
+				// The one that threw is still there, so the person can try again.
+				expect(await listConversationIds()).toEqual(["conversation-2"]);
+				expect(consoleError).toHaveBeenCalledWith(
+					expect.stringContaining("[CONVERSATION_BATCH_DELETE]"),
+					expect.objectContaining({ conversationId: "conversation-2" }),
+				);
+			} finally {
+				consoleError.mockRestore();
+			}
+		});
 	});
 });
