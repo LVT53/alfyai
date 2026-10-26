@@ -24,7 +24,7 @@ import {
 	type ModelCapabilityKey,
 	type ModelCapabilitySet,
 } from "$lib/model-capabilities";
-import { parseCapabilitySupportMap } from "$lib/model-fallback-compatibility";
+import { readModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
@@ -40,6 +40,8 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "../providers";
+import { providerCanSeeImages } from "../vision/provider-vision";
+import { stripImageParts } from "../vision/turn-images";
 import {
 	isRetryableNormalChatFallbackError,
 	resolveNormalChatFallbackTargetModelId,
@@ -519,19 +521,23 @@ function parseProviderModelCapabilities(
 }
 
 // "Can see images" is the one capability two readers decide on: the admin form
-// and the model list read the stored entry with parseCapabilitySupportMap
+// and the model list read the stored entry with modelCanSeeImages
 // (model-image-input.ts), and a chat turn reads the provider built here. The
 // strict builder above only understands the status object a probe writes, so an
 // entry saved as "detected", as a bare true or as an object without a state
 // would read as unknown here and as ticked there (and the reverse for a state
 // that its own supported value contradicts). The image entry therefore takes the
-// admin's reading. Every other key keeps the strict one: a string or a bare
-// boolean there has always read as unknown, and the tools fallback depends on it.
+// admin's reading: readModelImageInput, which modelCanSeeImages takes its yes
+// from, with all three of its answers, a yes, an explicit no and nothing said.
+// (The boolean would turn the last two into one, and a whole capability set that
+// knows nothing about images must stay unknown.) Every other key keeps the
+// strict reading: a string or a bare boolean there has always read as unknown,
+// and the tools fallback depends on it.
 function withStoredImageInput(
 	capabilities: ModelCapabilitySet,
 	json: string,
 ): ModelCapabilitySet {
-	const stored = parseCapabilitySupportMap(json).imageMessageParts;
+	const stored = readModelImageInput(json);
 	if (capabilities.imageMessageParts.supported === stored) return capabilities;
 	return {
 		...capabilities,
@@ -1166,6 +1172,17 @@ function isUnsupportedToolsRequestError(error: unknown): boolean {
 	return referencesTools && rejectsRequestShape;
 }
 
+// A model that cannot see is never sent a picture, whichever attempt it is
+// (vision/AGENTS.md, Failover): the primary may be ticked "Can see images" and
+// the fallback it fails over to not, or be a cloud model nobody ticked. Both the
+// plain loop and the streaming failover build every attempt's messages here.
+function messagesForAttempt(
+	messages: ModelMessage[],
+	provider: NormalChatModelRunProvider,
+): ModelMessage[] {
+	return providerCanSeeImages(provider) ? messages : stripImageParts(messages);
+}
+
 export async function runPlainNormalChatModelRun(
 	params: PlainNormalChatModelRunParams,
 ): Promise<PlainNormalChatModelRunResult> {
@@ -1207,10 +1224,15 @@ export async function runPlainNormalChatModelRun(
 				}, attemptTimeoutMs)
 			: null;
 		attemptTimeoutId?.unref?.();
+		const attemptMessages = messagesForAttempt(
+			params.messages,
+			currentProvider,
+		);
 		const attemptParams = {
 			...params,
 			provider: currentProvider,
 			modelId: currentModelId as ModelId,
+			messages: attemptMessages,
 			abortSignal: combineAbortSignals(
 				params.abortSignal,
 				attemptTimeoutController?.signal,
@@ -1220,7 +1242,7 @@ export async function runPlainNormalChatModelRun(
 				currentProvider,
 				{
 					modelId: currentModelId,
-					messages: params.messages,
+					messages: attemptMessages,
 					system: params.system,
 					tools: params.tools,
 					toolChoice: params.toolChoice,
@@ -1445,10 +1467,15 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			if (!firstOutputTimeoutId) return;
 			clearTimeout(firstOutputTimeoutId);
 		};
+		const attemptMessages = messagesForAttempt(
+			params.messages,
+			currentProvider,
+		);
 		const attemptParams = {
 			...params,
 			provider: currentProvider,
 			modelId: currentModelId as ModelId,
+			messages: attemptMessages,
 			abortSignal: combineAbortSignals(
 				params.abortSignal,
 				attemptAbortController?.signal,
@@ -1458,7 +1485,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 				currentProvider,
 				{
 					modelId: currentModelId,
-					messages: params.messages,
+					messages: attemptMessages,
 					system: params.system,
 					tools: params.tools,
 					toolChoice: params.toolChoice,

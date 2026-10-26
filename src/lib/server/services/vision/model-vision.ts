@@ -1,23 +1,18 @@
-import { isModelCapabilitySupported } from "$lib/model-capabilities";
 import type { ModelId } from "$lib/model-types";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import { resolveModelSelection } from "$lib/server/services/chat-turn/request";
-import {
-	type NormalChatModelRunProvider,
-	resolveNormalChatModelRunProvider,
-} from "$lib/server/services/normal-chat-model";
+import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+import { providerCanSeeImages } from "./provider-vision";
 
 // Who may be sent pixels. The admin ticks "Can see images" on a provider model
 // (src/lib/model-image-input.ts) and that is the `imageMessageParts` capability
 // the run builds into its provider; a built-in model without a provider row has
 // nowhere to be ticked and cannot see.
 
-/** Only an explicit "supported" counts: unknown and missing do not. */
-export function providerCanSeeImages(
-	provider: NormalChatModelRunProvider,
-): boolean {
-	return isModelCapabilitySupported(provider.capabilities, "imageMessageParts");
-}
+// The question about a built provider is answered in provider-vision.ts, which
+// the model run can import without a cycle (this file imports the run); the
+// rest of the app reads it from here.
+export { providerCanSeeImages };
 
 /** "No model chosen" is the model the turn falls back to. */
 async function defaultModelId(runtimeConfig: RuntimeConfig): Promise<ModelId> {

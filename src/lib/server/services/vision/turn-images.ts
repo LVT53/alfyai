@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ModelMessage } from "ai";
+import type { ModelMessage, UserContent, UserModelMessage } from "ai";
 import type { PromptAttachmentResolutionItem } from "$lib/server/services/knowledge";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { getCategory, resolveEntry } from "$lib/shared/file-types";
@@ -210,6 +210,51 @@ export function buildCurrentUserMessage(
 			})),
 		],
 	};
+}
+
+/**
+ * Put in the place of a picture that a model which cannot see would have been
+ * sent: a failover attempt on a model the admin did not tick. English whatever
+ * the person writes: it is scaffolding the model reads (ruling 79).
+ */
+export const STRIPPED_IMAGE_NOTE =
+	"[An image was attached here, but this model cannot see images.]";
+
+/** A user message holding at least one picture (only a user message can). */
+function carriesPicture(
+	message: ModelMessage,
+): message is UserModelMessage & { content: Exclude<UserContent, string> } {
+	return (
+		message.role === "user" &&
+		Array.isArray(message.content) &&
+		message.content.some((part) => part.type === "image")
+	);
+}
+
+/**
+ * The messages without their pictures, for an attempt on a model that cannot
+ * see: each image part becomes `STRIPPED_IMAGE_NOTE` as a text part, so the
+ * model is told one was there. Nothing else changes. A message without a picture
+ * is the same object, and a list without any picture is returned as it is.
+ */
+export function stripImageParts(
+	messages: readonly ModelMessage[],
+): ModelMessage[] {
+	// Nothing to strip: the list comes back as it is. It is typed readonly only
+	// because this function never writes to it; callers hold a plain array.
+	if (!messages.some(carriesPicture)) return messages as ModelMessage[];
+	return messages.map((message) =>
+		carriesPicture(message)
+			? {
+					...message,
+					content: message.content.map((part) =>
+						part.type === "image"
+							? { type: "text" as const, text: STRIPPED_IMAGE_NOTE }
+							: part,
+					),
+				}
+			: message,
+	);
 }
 
 /** Prompt tokens the pictures cost, by each one's own size (not a flat amount). */

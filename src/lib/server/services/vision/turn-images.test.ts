@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import type { ModelMessage } from "ai";
 import sharp from "sharp";
 import {
 	afterAll,
@@ -38,6 +39,8 @@ import {
 	isSeeableImage,
 	MAX_TURN_IMAGES,
 	resolveTurnImages,
+	STRIPPED_IMAGE_NOTE,
+	stripImageParts,
 	sumTurnImageTokens,
 	type TurnImage,
 } from "./turn-images";
@@ -193,6 +196,133 @@ describe("buildCurrentUserMessage", () => {
 		const message = buildCurrentUserMessage("hi", [turnImage("room.jpg")]);
 
 		expect(JSON.parse(JSON.stringify(message))).toEqual(message);
+	});
+});
+
+describe("stripImageParts", () => {
+	const history: ModelMessage[] = [
+		{ role: "system", content: "Be brief." },
+		{ role: "user", content: "Earlier question" },
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Let me look." },
+				{
+					type: "tool-call",
+					toolCallId: "call-1",
+					toolName: "research_web",
+					input: { query: "room" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-1",
+					toolName: "research_web",
+					output: { type: "text", value: "A page about rooms." },
+				},
+			],
+		},
+	];
+
+	it("puts the note in the place of each picture and keeps the text", () => {
+		const message = buildCurrentUserMessage("What is in these?", [
+			turnImage("a.jpg"),
+			turnImage("b.jpg"),
+		]);
+
+		expect(stripImageParts([message])).toEqual([
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "What is in these?" },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			},
+		]);
+	});
+
+	it("returns a list with no picture in it as it is, by reference", () => {
+		const messages: ModelMessage[] = [
+			...history,
+			buildCurrentUserMessage("Hello"),
+		];
+
+		expect(stripImageParts(messages)).toBe(messages);
+		expect(stripImageParts([])).toEqual([]);
+	});
+
+	it("leaves every message without a picture untouched, by reference", () => {
+		const current = buildCurrentUserMessage("What is this?", [
+			turnImage("a.jpg"),
+		]);
+		const messages = [...history, current];
+
+		const stripped = stripImageParts(messages);
+
+		expect(stripped).toHaveLength(messages.length);
+		history.forEach((message, index) => {
+			expect(stripped[index]).toBe(message);
+		});
+		expect(stripped.at(-1)).not.toBe(current);
+	});
+
+	it("strips every message that carries a picture, not only the last", () => {
+		const stripped = stripImageParts([
+			buildCurrentUserMessage("first", [turnImage("a.jpg")]),
+			{ role: "assistant", content: "A room." },
+			buildCurrentUserMessage("second", [turnImage("b.jpg")]),
+		]);
+
+		expect(JSON.stringify(stripped)).not.toContain('"image"');
+		expect(
+			stripped.map((message) =>
+				Array.isArray(message.content)
+					? message.content.map((part) => part.type)
+					: message.role,
+			),
+		).toEqual([["text", "text"], "assistant", ["text", "text"]]);
+	});
+
+	it("keeps what else the message carries", () => {
+		const stripped = stripImageParts([
+			{
+				role: "user",
+				providerOptions: { local: { cache: true } },
+				content: [
+					{ type: "text", text: "Look", providerOptions: { local: { x: 1 } } },
+					{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+					{ type: "text", text: "and tell me." },
+				],
+			},
+		]);
+
+		expect(stripped).toEqual([
+			{
+				role: "user",
+				providerOptions: { local: { cache: true } },
+				content: [
+					{ type: "text", text: "Look", providerOptions: { local: { x: 1 } } },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+					{ type: "text", text: "and tell me." },
+				],
+			},
+		]);
+	});
+
+	it("does not change the messages it was given", () => {
+		const messages = [
+			buildCurrentUserMessage("What is this?", [turnImage("a.jpg")]),
+		];
+		const before = structuredClone(messages);
+
+		stripImageParts(messages);
+
+		expect(messages).toEqual(before);
 	});
 });
 
@@ -576,10 +706,17 @@ describe("the guidance the model reads about pictures", () => {
 		);
 	});
 
+	it("says in the place of a picture that one was attached and cannot be seen", () => {
+		expect(STRIPPED_IMAGE_NOTE).toBe(
+			"[An image was attached here, but this model cannot see images.]",
+		);
+	});
+
 	it("is ASCII, like everything else the app writes into a request", () => {
 		for (const text of [
 			CANNOT_SEE_IMAGES_GUIDANCE,
 			heldBackImagesGuidance(["a.png"]),
+			STRIPPED_IMAGE_NOTE,
 		]) {
 			expect(text).toMatch(/^[\x20-\x7e]+$/);
 		}
