@@ -364,9 +364,11 @@ describe("runConversationBatch", () => {
 		expect(mostInFlight).toBe(1);
 	});
 
+	// The sizes in the order the requests are sent: a pin sends its last chunk
+	// first, so the odd one out of 51 ids goes before the full chunk.
 	it.each([
 		[50, [50]],
-		[51, [50, 1]],
+		[51, [1, 50]],
 		[1, [1]],
 	])("splits %i ids into chunks of %j", async (count, chunkSizes) => {
 		const fetchMock = vi.fn(
@@ -387,6 +389,115 @@ describe("runConversationBatch", () => {
 		for (const [, init] of fetchMock.mock.calls) {
 			expect(sentBody(init)).toMatchObject({ action: "pin", pinned: true });
 		}
+	});
+
+	describe("a pin of more than one chunk", () => {
+		function answerEveryId() {
+			return vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+				jsonOk({
+					results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+				}),
+			);
+		}
+
+		it("sends the chunks last first and still answers in id order", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			const bodies = fetchMock.mock.calls.map(([, init]) => sentBody(init));
+			expect(bodies.map((body) => body.ids)).toEqual([
+				ids.slice(50),
+				ids.slice(0, 50),
+			]);
+			for (const body of bodies) {
+				expect(body).toMatchObject({ action: "pin", pinned: true });
+			}
+			expect(results.map((result) => result.id)).toEqual(ids);
+			expect(results.every((result) => result.ok)).toBe(true);
+		});
+
+		it("leaves the first chat on top of Pinned and the rest in the order given", async () => {
+			// The server puts each request's chats on top of what is already pinned,
+			// its first id highest (it pins them walking backwards). Replayed here,
+			// so the order the person sees is what is asserted, not the call order.
+			const pinned: string[] = [];
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
+					const { ids: sent } = sentBody(init);
+					pinned.unshift(...sent);
+					return jsonOk({ results: sent.map((id) => ({ id, ok: true })) });
+				},
+			);
+			const ids = conversationIds(60);
+
+			await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			expect(pinned).toEqual(ids);
+		});
+
+		it("keeps an unpin first to last", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: false },
+				fetchMock,
+			);
+
+			expect(
+				fetchMock.mock.calls.map(([, init]) => sentBody(init).ids),
+			).toEqual([ids.slice(0, 50), ids.slice(50)]);
+			expect(results.map((result) => result.id)).toEqual(ids);
+		});
+
+		it("keeps a delete first to last", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "delete", ids },
+				fetchMock,
+			);
+
+			expect(
+				fetchMock.mock.calls.map(([, init]) => sentBody(init).ids),
+			).toEqual([ids.slice(0, 50), ids.slice(50)]);
+			expect(results.map((result) => result.id)).toEqual(ids);
+		});
+
+		it("answers in id order when the last chunk fails and the first is answered", async () => {
+			// The chunks run last first, so the failed one is sent first: the answer
+			// still lines up with the ids, not with the order the requests ran in.
+			const ids = conversationIds(60);
+			let call = 0;
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
+					call += 1;
+					if (call === 1) throw new TypeError("Failed to fetch");
+					return jsonOk({
+						results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+					});
+				},
+			);
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			expect(results.map((result) => result.id)).toEqual(ids);
+			expect(
+				results.map((result) => (result.ok ? "ok" : result.error)),
+			).toEqual([...Array(50).fill("ok"), ...Array(10).fill("unknown")]);
+		});
 	});
 
 	it("marks a failed chunk unknown and still sends the rest", async () => {

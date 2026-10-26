@@ -79,7 +79,7 @@ Rules:
 
 - `client/api/` owns reusable request/response parsing and shared HTTP behavior.
 - `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
-- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls, and the sidebar's batch call (`runConversationBatch`: at most 50 chats per request, sent one request after another, one result per chat; a request that fails marks its chats `unknown` and never throws).
+- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls, and the sidebar's batch call (`runConversationBatch`: at most 50 chats per request, sent one request after another, one result per chat in id order; a pin sends its chunks last first, because the server stacks each request on top of Pinned, so the first chat ends on top; a request that fails marks its chats `unknown` and never throws).
 - `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.
 - `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, and memory browser calls.
 - `src/lib/client/api/workspace-search.ts` owns reusable browser calls for server-backed Workspace Search.

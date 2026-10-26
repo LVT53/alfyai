@@ -382,23 +382,38 @@ async function requestConversationBatchChunk(
  * result per id in the order the ids were given. A chunk that fails does not
  * stop the next one: its ids come back `unknown` and the caller decides them
  * from a fresh list.
+ *
+ * A pin goes last chunk first. The server puts each request's chats on top of
+ * Pinned, its first id highest, so the request sent last ends up above the
+ * rest: sent first to last, the second chunk would sit over the first and the
+ * list would reshuffle when the answer is applied. Sent last first, the first
+ * id of the whole selection ends on top with the others below it in the order
+ * given, which is the order the sidebar showed. Every other action goes first
+ * to last, and the answer is in id order either way.
  */
 export async function runConversationBatch(
 	request: ConversationBatchRequest,
 	fetchImpl: FetchLike = fetch,
 ): Promise<ConversationBatchResult<Conversation>[]> {
-	const results: ConversationBatchResult<Conversation>[] = [];
+	const chunks: string[][] = [];
 	for (
 		let start = 0;
 		start < request.ids.length;
 		start += CONVERSATION_BATCH_MAX_IDS
 	) {
-		const ids = request.ids.slice(start, start + CONVERSATION_BATCH_MAX_IDS);
-		results.push(
-			...(await requestConversationBatchChunk({ ...request, ids }, fetchImpl)),
+		chunks.push(request.ids.slice(start, start + CONVERSATION_BATCH_MAX_IDS));
+	}
+	const sendOrder = chunks.map((_, index) => index);
+	if (request.action === "pin" && request.pinned) sendOrder.reverse();
+
+	const resultsByChunk: ConversationBatchResult<Conversation>[][] = [];
+	for (const index of sendOrder) {
+		resultsByChunk[index] = await requestConversationBatchChunk(
+			{ ...request, ids: chunks[index] },
+			fetchImpl,
 		);
 	}
-	return results;
+	return resultsByChunk.flat();
 }
 
 export async function persistConversationDraft(
