@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	runConversationBatch,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
 } from "$lib/client/api/conversations";
@@ -9,18 +10,22 @@ import type {
 	Conversation,
 	ConversationListItem,
 } from "$lib/server/services/conversations";
+import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import {
 	clearConversationStore,
 	conversations,
 	createNewConversation,
 	deleteConversationById,
+	deleteConversationsByIds,
 	loadConversations,
 	markConversationAtlasBadgeSeen,
+	moveConversationsToProject,
 	moveConversationToProject,
 	reconcileConversationSnapshot,
 	removeConversationLocal,
 	renameConversation,
 	savePinnedConversationOrder,
+	setConversationsSidebarPinned,
 	toggleConversationSidebarPin,
 	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
@@ -35,6 +40,7 @@ vi.mock("$lib/client/api/conversations", async (importOriginal) => {
 		...actual,
 		setConversationSidebarPinned: vi.fn(),
 		savePinnedConversationSidebarOrder: vi.fn(),
+		runConversationBatch: vi.fn(),
 	};
 });
 
@@ -69,6 +75,7 @@ describe("conversations store", () => {
 		vi.restoreAllMocks();
 		vi.mocked(setConversationSidebarPinned).mockReset();
 		vi.mocked(savePinnedConversationSidebarOrder).mockReset();
+		vi.mocked(runConversationBatch).mockReset();
 		vi.stubGlobal("fetch", vi.fn());
 		vi.stubGlobal("window", {
 			localStorage: {
@@ -962,5 +969,655 @@ describe("conversations store", () => {
 
 		expect(get(conversations)).toEqual([]);
 		expect(vi.mocked(window.dispatchEvent)).toHaveBeenCalled();
+	});
+
+	describe("bulk actions", () => {
+		type BatchResult = ConversationBatchResult<Conversation>;
+
+		const ok = (id: string, conversation?: Conversation): BatchResult =>
+			conversation ? { id, ok: true, conversation } : { id, ok: true };
+		const notFound = (id: string): BatchResult => ({
+			id,
+			ok: false,
+			error: "not_found",
+		});
+		const failed = (id: string): BatchResult => ({
+			id,
+			ok: false,
+			error: "failed",
+		});
+		const unknown = (id: string): BatchResult => ({
+			id,
+			ok: false,
+			error: "unknown",
+		});
+
+		// What the server sends back for a chat it changed.
+		function serverConversation(
+			id: string,
+			overrides: Partial<Conversation> = {},
+		): Conversation {
+			return {
+				id,
+				title: id,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+				createdAt: 1,
+				updatedAt: 100,
+				...overrides,
+			};
+		}
+
+		// A batch request the test finishes by hand, so it can look at the list
+		// while the request is still out.
+		function pendingBatch() {
+			let resolve: (results: BatchResult[]) => void = () => {};
+			const promise = new Promise<BatchResult[]>((done) => {
+				resolve = done;
+			});
+			vi.mocked(runConversationBatch).mockReturnValueOnce(promise);
+			return { resolve };
+		}
+
+		function workspaceDeletedIds(): string[] {
+			return vi
+				.mocked(window.dispatchEvent)
+				.mock.calls.map(([event]) => event as CustomEvent)
+				.filter((event) => event.type === WORKSPACE_CONVERSATION_DELETED_EVENT)
+				.map((event) => event.detail.conversationId);
+		}
+
+		function projectsById(): Record<string, string | null | undefined> {
+			return Object.fromEntries(
+				get(conversations).map((item) => [item.id, item.projectId]),
+			);
+		}
+
+		describe("deleteConversationsByIds", () => {
+			beforeEach(() => {
+				conversations.set([
+					conversationItem("conv-a", "A", 300),
+					conversationItem("conv-b", "B", 200),
+					conversationItem("conv-c", "C", 100),
+				]);
+			});
+
+			it("not_found leaves the list and is not a failure", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a"),
+					notFound("conv-b"),
+					failed("conv-c"),
+				]);
+
+				const outcome = await deleteConversationsByIds([
+					"conv-a",
+					"conv-b",
+					"conv-c",
+				]);
+
+				expect(vi.mocked(runConversationBatch)).toHaveBeenCalledWith({
+					action: "delete",
+					ids: ["conv-a", "conv-b", "conv-c"],
+				});
+				expect(get(conversations).map((item) => item.id)).toEqual(["conv-c"]);
+				expect(workspaceDeletedIds()).toEqual(["conv-a", "conv-b"]);
+				expect(outcome).toEqual({ failedIds: ["conv-c"] });
+				// Nothing was unknown, so there was nothing to ask the server again.
+				expect(fetch).not.toHaveBeenCalled();
+			});
+
+			it("does not reintroduce a deleted conversation from a stale snapshot", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a"),
+					ok("conv-b"),
+					ok("conv-c"),
+				]);
+
+				await deleteConversationsByIds(["conv-a", "conv-b", "conv-c"]);
+				reconcileConversationSnapshot([conversationItem("conv-a", "A", 301)]);
+
+				expect(get(conversations)).toEqual([]);
+			});
+
+			it("a delete with an unknown result reloads the list", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a"),
+					unknown("conv-b"),
+					unknown("conv-c"),
+				]);
+				// The server did delete B; it still has C.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [conversationItem("conv-c", "C", 100)],
+					}),
+				);
+
+				const outcome = await deleteConversationsByIds([
+					"conv-a",
+					"conv-b",
+					"conv-c",
+				]);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(get(conversations).map((item) => item.id)).toEqual(["conv-c"]);
+				expect(workspaceDeletedIds()).toEqual(["conv-a", "conv-b"]);
+				expect(outcome).toEqual({ failedIds: ["conv-c"] });
+			});
+
+			it("reports an unknown chat failed when the reload cannot say it is gone", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a"),
+					unknown("conv-b"),
+					ok("conv-c"),
+				]);
+				vi.mocked(fetch).mockRejectedValueOnce(
+					new TypeError("Failed to fetch"),
+				);
+
+				const outcome = await deleteConversationsByIds([
+					"conv-a",
+					"conv-b",
+					"conv-c",
+				]);
+
+				expect(get(conversations).map((item) => item.id)).toEqual(["conv-b"]);
+				expect(workspaceDeletedIds()).toEqual(["conv-a", "conv-c"]);
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+			});
+
+			it("reports the failed ids in the order they were given", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					failed("conv-c"),
+					ok("conv-b"),
+					failed("conv-a"),
+				]);
+
+				const outcome = await deleteConversationsByIds([
+					"conv-c",
+					"conv-b",
+					"conv-a",
+				]);
+
+				expect(outcome).toEqual({ failedIds: ["conv-c", "conv-a"] });
+			});
+
+			it("removes the chats from the sidebar even when workspace cleanup throws", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a"),
+					ok("conv-b"),
+				]);
+				vi.mocked(window.sessionStorage.getItem).mockImplementation(() => {
+					throw new DOMException("denied", "SecurityError");
+				});
+				vi.spyOn(console, "warn").mockImplementation(() => {});
+
+				const outcome = await deleteConversationsByIds(["conv-a", "conv-b"]);
+
+				expect(get(conversations).map((item) => item.id)).toEqual(["conv-c"]);
+				expect(workspaceDeletedIds()).toEqual(["conv-a", "conv-b"]);
+				expect(outcome).toEqual({ failedIds: [] });
+			});
+
+			it("sends no request for no ids", async () => {
+				const outcome = await deleteConversationsByIds([]);
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(vi.mocked(runConversationBatch)).not.toHaveBeenCalled();
+				expect(fetch).not.toHaveBeenCalled();
+			});
+		});
+
+		describe("moveConversationsToProject", () => {
+			beforeEach(() => {
+				conversations.set([
+					conversationItem("conv-a", "A", 300),
+					conversationItem("conv-b", "B", 200, { projectId: "proj-0" }),
+					conversationItem("conv-c", "C", 100),
+				]);
+			});
+
+			it("moves every row before the response, and puts a failed chat back", async () => {
+				const batch = pendingBatch();
+
+				const move = moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+
+				expect(vi.mocked(runConversationBatch)).toHaveBeenCalledWith({
+					action: "move",
+					ids: ["conv-a", "conv-b", "conv-c"],
+					projectId: "proj-1",
+				});
+				expect(projectsById()).toEqual({
+					"conv-a": "proj-1",
+					"conv-b": "proj-1",
+					"conv-c": "proj-1",
+				});
+
+				batch.resolve([
+					ok("conv-a", serverConversation("conv-a", { projectId: "proj-1" })),
+					failed("conv-b"),
+					notFound("conv-c"),
+				]);
+				const outcome = await move;
+
+				// A stays moved, B goes back to where it was, C is gone.
+				expect(projectsById()).toEqual({
+					"conv-a": "proj-1",
+					"conv-b": "proj-0",
+				});
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+			});
+
+			it("a later snapshot does not undo the chats that were moved", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a", serverConversation("conv-a", { projectId: "proj-1" })),
+					failed("conv-b"),
+					ok("conv-c", serverConversation("conv-c", { projectId: "proj-1" })),
+				]);
+
+				await moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+				// A snapshot that was taken before the move landed.
+				reconcileConversationSnapshot([
+					conversationItem("conv-a", "A", 301),
+					conversationItem("conv-b", "B", 201, { projectId: "proj-0" }),
+					conversationItem("conv-c", "C", 101),
+				]);
+
+				expect(projectsById()).toEqual({
+					"conv-a": "proj-1",
+					"conv-b": "proj-0",
+					"conv-c": "proj-1",
+				});
+			});
+
+			it("a failed chat does not stay moved when a later snapshot arrives", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					failed("conv-a"),
+					failed("conv-b"),
+					failed("conv-c"),
+				]);
+
+				const outcome = await moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+				reconcileConversationSnapshot([
+					conversationItem("conv-a", "A", 301),
+					conversationItem("conv-b", "B", 201, { projectId: "proj-0" }),
+					conversationItem("conv-c", "C", 101),
+				]);
+
+				expect(outcome).toEqual({
+					failedIds: ["conv-a", "conv-b", "conv-c"],
+				});
+				expect(projectsById()).toEqual({
+					"conv-a": null,
+					"conv-b": "proj-0",
+					"conv-c": null,
+				});
+			});
+
+			it("an unknown chat is decided by the reload", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					unknown("conv-b"),
+					ok("conv-c", serverConversation("conv-c", { projectId: "proj-1" })),
+				]);
+				// The server moved A, and never got to B.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-a", "A", 300, { projectId: "proj-1" }),
+							conversationItem("conv-b", "B", 200, { projectId: "proj-0" }),
+							conversationItem("conv-c", "C", 100, { projectId: "proj-1" }),
+						],
+					}),
+				);
+
+				const outcome = await moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				expect(projectsById()).toEqual({
+					"conv-a": "proj-1",
+					"conv-b": "proj-0",
+					"conv-c": "proj-1",
+				});
+			});
+
+			it("an unknown chat whose reload fails is reported failed and shown where it was", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					unknown("conv-b"),
+					unknown("conv-c"),
+				]);
+				vi.mocked(fetch).mockRejectedValueOnce(
+					new TypeError("Failed to fetch"),
+				);
+
+				const outcome = await moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+
+				expect(outcome).toEqual({
+					failedIds: ["conv-a", "conv-b", "conv-c"],
+				});
+				expect(projectsById()).toEqual({
+					"conv-a": null,
+					"conv-b": "proj-0",
+					"conv-c": null,
+				});
+			});
+
+			it("takes chats out of their project with a null projectId", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-b", serverConversation("conv-b", { projectId: null })),
+				]);
+
+				const outcome = await moveConversationsToProject(["conv-b"], null);
+
+				expect(vi.mocked(runConversationBatch)).toHaveBeenCalledWith({
+					action: "move",
+					ids: ["conv-b"],
+					projectId: null,
+				});
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(projectsById()["conv-b"]).toBeNull();
+			});
+
+			it("sends no request for no ids", async () => {
+				const outcome = await moveConversationsToProject([], "proj-1");
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(vi.mocked(runConversationBatch)).not.toHaveBeenCalled();
+			});
+		});
+
+		describe("setConversationsSidebarPinned", () => {
+			// B was active after A, so putting the Pinned list in recency order
+			// would show B first; the person's order is A first.
+			beforeEach(() => {
+				conversations.set([
+					conversationItem("conv-b", "B", 300),
+					conversationItem("conv-a", "A", 100),
+					conversationItem("conv-p", "P", 200, {
+						sidebarPinned: true,
+						sidebarSortOrder: 0,
+					}),
+				]);
+			});
+
+			function pinState() {
+				return get(conversations).map((item) => ({
+					id: item.id,
+					sidebarPinned: item.sidebarPinned,
+					sidebarSortOrder: item.sidebarSortOrder,
+				}));
+			}
+
+			it("pins on top in the order given before the response", async () => {
+				const batch = pendingBatch();
+
+				const pin = setConversationsSidebarPinned(["conv-a", "conv-b"], true);
+
+				expect(vi.mocked(runConversationBatch)).toHaveBeenCalledWith({
+					action: "pin",
+					ids: ["conv-a", "conv-b"],
+					pinned: true,
+				});
+				expect(get(conversations).map((item) => item.id)).toEqual([
+					"conv-a",
+					"conv-b",
+					"conv-p",
+				]);
+				const [a, b, p] = get(conversations);
+				expect(a.sidebarPinned).toBe(true);
+				expect(b.sidebarPinned).toBe(true);
+				expect(a.sidebarSortOrder).not.toBeNull();
+				expect(b.sidebarSortOrder).not.toBeNull();
+				expect(a.sidebarSortOrder as number).toBeLessThan(
+					b.sidebarSortOrder as number,
+				);
+				expect(b.sidebarSortOrder as number).toBeLessThan(
+					p.sidebarSortOrder as number,
+				);
+
+				batch.resolve([
+					ok(
+						"conv-a",
+						serverConversation("conv-a", {
+							sidebarPinned: true,
+							sidebarSortOrder: -2,
+						}),
+					),
+					ok(
+						"conv-b",
+						serverConversation("conv-b", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+				]);
+				const outcome = await pin;
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(pinState()).toEqual([
+					{ id: "conv-a", sidebarPinned: true, sidebarSortOrder: -2 },
+					{ id: "conv-b", sidebarPinned: true, sidebarSortOrder: -1 },
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+				]);
+			});
+
+			it("a later snapshot does not undo the chats that were pinned", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok(
+						"conv-a",
+						serverConversation("conv-a", {
+							sidebarPinned: true,
+							sidebarSortOrder: -2,
+						}),
+					),
+					ok(
+						"conv-b",
+						serverConversation("conv-b", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+				]);
+
+				await setConversationsSidebarPinned(["conv-a", "conv-b"], true);
+				// A snapshot that was taken before the pins landed.
+				reconcileConversationSnapshot([
+					conversationItem("conv-b", "B", 301),
+					conversationItem("conv-a", "A", 101),
+					conversationItem("conv-p", "P", 200, {
+						sidebarPinned: true,
+						sidebarSortOrder: 0,
+					}),
+				]);
+
+				expect(get(conversations).map((item) => item.id)).toEqual([
+					"conv-a",
+					"conv-b",
+					"conv-p",
+				]);
+			});
+
+			it("puts a chat whose pin failed back where it was", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok(
+						"conv-a",
+						serverConversation("conv-a", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+					failed("conv-b"),
+				]);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				expect(pinState()).toEqual([
+					{ id: "conv-a", sidebarPinned: true, sidebarSortOrder: -1 },
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
+				]);
+			});
+
+			it("unpins several chats and clears their order", async () => {
+				conversations.set([
+					conversationItem("conv-a", "A", 100, {
+						sidebarPinned: true,
+						sidebarSortOrder: -2,
+					}),
+					conversationItem("conv-b", "B", 300, {
+						sidebarPinned: true,
+						sidebarSortOrder: -1,
+					}),
+					conversationItem("conv-p", "P", 200, {
+						sidebarPinned: true,
+						sidebarSortOrder: 0,
+					}),
+				]);
+				const batch = pendingBatch();
+
+				const unpin = setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					false,
+				);
+
+				expect(vi.mocked(runConversationBatch)).toHaveBeenCalledWith({
+					action: "pin",
+					ids: ["conv-a", "conv-b"],
+					pinned: false,
+				});
+				// Unpinned chats fall back to recency, below the pinned one.
+				expect(pinState()).toEqual([
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
+					{ id: "conv-a", sidebarPinned: false, sidebarSortOrder: null },
+				]);
+
+				batch.resolve([
+					ok("conv-a", serverConversation("conv-a", { updatedAt: 100 })),
+					ok("conv-b", serverConversation("conv-b", { updatedAt: 300 })),
+				]);
+				const outcome = await unpin;
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(pinState()).toEqual([
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
+					{ id: "conv-a", sidebarPinned: false, sidebarSortOrder: null },
+				]);
+			});
+
+			it("an unknown chat is decided by the reload", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					unknown("conv-b"),
+				]);
+				// The server pinned A, and never got to B.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-a", "A", 100, {
+								sidebarPinned: true,
+								sidebarSortOrder: -1,
+							}),
+							conversationItem("conv-b", "B", 300),
+							conversationItem("conv-p", "P", 200, {
+								sidebarPinned: true,
+								sidebarSortOrder: 0,
+							}),
+						],
+					}),
+				);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				expect(pinState()).toEqual([
+					{ id: "conv-a", sidebarPinned: true, sidebarSortOrder: -1 },
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
+				]);
+			});
+
+			it("an unknown chat whose reload fails is reported failed and shown where it was", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					unknown("conv-b"),
+				]);
+				vi.mocked(fetch).mockRejectedValueOnce(
+					new TypeError("Failed to fetch"),
+				);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(outcome).toEqual({ failedIds: ["conv-a", "conv-b"] });
+				expect(pinState()).toEqual([
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
+					{ id: "conv-a", sidebarPinned: false, sidebarSortOrder: null },
+				]);
+			});
+
+			it("not_found drops the chat and is not a failure", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					notFound("conv-a"),
+					ok(
+						"conv-b",
+						serverConversation("conv-b", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+				]);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(get(conversations).map((item) => item.id)).toEqual([
+					"conv-b",
+					"conv-p",
+				]);
+			});
+
+			it("sends no request for no ids", async () => {
+				const outcome = await setConversationsSidebarPinned([], true);
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(vi.mocked(runConversationBatch)).not.toHaveBeenCalled();
+			});
+		});
 	});
 });

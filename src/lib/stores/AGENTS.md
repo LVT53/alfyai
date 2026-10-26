@@ -6,7 +6,7 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 
 | File | Purpose |
 |------|---------|
-| `conversations.ts` | Conversation list with optimistic create/delete/rename/move. Reconciles server snapshots with local pending state. |
+| `conversations.ts` | Conversation list with optimistic create/delete/rename/move. Reconciles server snapshots with local pending state. The sidebar's bulk actions (`deleteConversationsByIds`, `moveConversationsToProject`, `setConversationsSidebarPinned`) run through the same per-chat helpers as the single ones: rows change before the response, a failed chat goes back, a chat the server no longer has (`not_found`) leaves the list, and a chat the server could not answer for (`unknown`) is decided from a forced reload. They resolve `{ failedIds }` and never throw for a per-chat failure. |
 | `projects.ts` | Project folders for conversation organization. Simple CRUD updates. |
 | `settings.ts` | Model selection, title language, and UI language. Syncs to localStorage and server preferences. |
 | `ui.ts` | Sidebar open/collapsed state, responsive breakpoint handling, current conversation tracking, and the per-device "hide the Document comment column" choice. |
