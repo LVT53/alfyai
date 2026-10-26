@@ -38,6 +38,8 @@ import {
 	SKILL_DRAFT_GUIDANCE,
 } from "$lib/server/services/skills/prompt-context";
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
+import { providerCanSeeImages } from "$lib/server/services/vision/model-vision";
+import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -110,8 +112,9 @@ export function countToolPackTools(tools: ToolPack["tools"]): number {
 
 /**
  * Full-prompt estimate for a turn (system prompt + final outbound packet +
- * tool schemas). Computed once the outbound context and tool pack are final,
- * so it reflects everything the provider actually receives that we can see.
+ * tool schemas + the pictures of the current message). Computed once the
+ * outbound context and tool pack are final, so it reflects everything the
+ * provider actually receives that we can see.
  */
 export function estimateTurnPromptTokens(params: {
 	prepared: PreparedModelContext;
@@ -127,7 +130,8 @@ export function estimateTurnPromptTokens(params: {
 		estimateHistoryMessagesTokens(
 			params.prepared.historyMessages ?? [],
 			estimateTokenCount,
-		)
+		) +
+		sumTurnImageTokens(params.prepared.currentImages)
 	);
 }
 
@@ -378,6 +382,8 @@ export async function prepareOutboundContext(
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
+		// Pixels are prepared only for a model the admin marked "Can see images".
+		collectImages: providerCanSeeImages(runtime.provider),
 		skillCatalogueBlock,
 		skillDraftGuidance,
 		pendingSkillInstructions: params.pendingSkillInstructions,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type {
 	DepthAppliedProfile,
@@ -69,6 +70,8 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 
 import {
 	type DepthEffort,
+	estimateTurnPromptTokens,
+	type PreparedModelContext,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolveProviderRuntime,
@@ -416,6 +419,137 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 			"payload",
 			"model1",
 			options,
+		);
+	});
+});
+
+describe("prepareOutboundContext pictures wiring", () => {
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+	});
+
+	const provider = (
+		capabilities: NormalChatModelRunProvider["capabilities"],
+	): NormalChatModelRunProvider => ({
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+		...(capabilities ? { capabilities } : {}),
+	});
+
+	async function collectImagesFor(
+		capabilities: NormalChatModelRunProvider["capabilities"],
+	) {
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in this photo?",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+			overrideProvider: provider(capabilities),
+		};
+		const runtime = await resolveProviderRuntime(params);
+		await prepareOutboundContext(params, runtime, null, new Set());
+		return mocks.prepareOutboundChatContext.mock.lastCall?.[0].collectImages;
+	}
+
+	it("asks for the pictures of a message when the model is marked as able to see", async () => {
+		await expect(
+			collectImagesFor(
+				createModelCapabilitySet({
+					imageMessageParts: {
+						state: "manual_override",
+						supported: true,
+						source: "manual_override",
+					},
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
+	it.each([
+		["no capability evidence", undefined],
+		[
+			"capability evidence that says nothing of images",
+			createModelCapabilitySet({}),
+		],
+		[
+			"an image capability that is not supported",
+			createModelCapabilitySet({
+				imageMessageParts: { state: "not_detected", source: "probe" },
+			}),
+		],
+	])("does not when the model has %s", async (_label, capabilities) => {
+		await expect(collectImagesFor(capabilities)).resolves.toBe(false);
+	});
+});
+
+describe("estimateTurnPromptTokens", () => {
+	const prepared = (images: PreparedModelContext["currentImages"]) =>
+		({
+			inputValue: "prepared",
+			turnGuidance: "",
+			historyMessages: [],
+			currentImages: images,
+			systemPrompt: "system",
+		}) as unknown as PreparedModelContext;
+	const picture = (estimatedTokens: number) => ({
+		artifactId: "a",
+		name: "a.jpg",
+		image: {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens,
+		},
+	});
+
+	it("adds what the pictures of the message cost, each by its own size", () => {
+		const without = estimateTurnPromptTokens({
+			prepared: prepared([]),
+			inputValue: "hello",
+			tools: undefined,
+		});
+		const withPictures = estimateTurnPromptTokens({
+			prepared: prepared([picture(1_900), picture(2_500)]),
+			inputValue: "hello",
+			tools: undefined,
+		});
+
+		expect(withPictures - without).toBe(4_400);
+	});
+
+	it("is unchanged for a prepared context that carries no pictures at all", () => {
+		const bare = {
+			inputValue: "prepared",
+			systemPrompt: "system",
+		} as unknown as PreparedModelContext;
+
+		expect(
+			estimateTurnPromptTokens({
+				prepared: bare,
+				inputValue: "hello",
+				tools: undefined,
+			}),
+		).toBe(
+			estimateTurnPromptTokens({
+				prepared: prepared([]),
+				inputValue: "hello",
+				tools: undefined,
+			}),
 		);
 	});
 });

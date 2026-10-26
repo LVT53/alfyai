@@ -100,6 +100,12 @@ import {
 } from "../task-state";
 import { embedTexts } from "../tei-embedder";
 import { canUseTeiReranker, rerankItems } from "../tei-reranker";
+import {
+	noTurnImages,
+	resolveTurnImages,
+	sumTurnImageTokens,
+	type TurnImages,
+} from "../vision/turn-images";
 import { resolveWorkingDocumentSelection } from "../working-document-selection";
 import {
 	type DocumentContextDepthBudget,
@@ -280,6 +286,9 @@ export type ConstructedContextReuseData = {
 	relevantArtifacts: Artifact[];
 	preparedContext: Awaited<ReturnType<typeof prepareTaskContext>>;
 	artifactSnippets: Map<string, string>;
+	// The turn's prepared pictures, so a rebuild after compression does not
+	// decode them again (a HEIC photo takes about a second).
+	turnImages: TurnImages;
 };
 
 // How much of the conversation history (after the latest valid compression
@@ -1421,6 +1430,7 @@ async function buildShallowConstructedContext(params: {
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
+	turnImages: TurnImages;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const projectIdPromise = getConversationProjectId(
@@ -1675,6 +1685,9 @@ async function buildShallowConstructedContext(params: {
 			forkProvenance,
 		}),
 		contextTraceSections: selectedPromptContext.contextTraceSections,
+		// This tier is for turns with no attachment at all (an attachment makes
+		// a turn deep), so there is no picture to send or to report.
+		turnImages: noTurnImages(),
 	};
 }
 
@@ -1694,6 +1707,10 @@ export async function buildConstructedContext(params: {
 	reuseFrom?: ConstructedContextReuseData;
 	// How prior-turn tool activity is replayed (provider capability).
 	historyToolMessages?: HistoryToolMessagesMode;
+	// The model of this turn can see images (vision/model-vision.ts): prepare
+	// the pixels of the message's image attachments. Without it they are only
+	// reported, so the turn can tell a model that cannot see.
+	collectImages?: boolean;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1702,6 +1719,7 @@ export async function buildConstructedContext(params: {
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
+	turnImages: TurnImages;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const historyToolMessages = params.historyToolMessages ?? "native";
@@ -1719,11 +1737,14 @@ export async function buildConstructedContext(params: {
 		targetConstructedContext: targetBudget,
 		compactionUiThreshold: compactionThreshold,
 	});
-	const sessionHistoryBudget = deriveSessionHistoryBudget({
-		contextBudget: modelContextBudget,
-		minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
-		minRecentTurnCount: RECENT_TURN_COUNT,
-	});
+	const deriveHistoryBudget = (pictureTokens: number) =>
+		deriveSessionHistoryBudget({
+			contextBudget: modelContextBudget,
+			minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
+			minRecentTurnCount: RECENT_TURN_COUNT,
+			pictureTokens,
+		});
+	const sessionHistoryBudget = deriveHistoryBudget(0);
 	const latencyTier = resolveContextLatencyTier({
 		message: params.message,
 		attachmentIds,
@@ -1908,6 +1929,17 @@ export async function buildConstructedContext(params: {
 			),
 		);
 	}
+	// The pictures are prepared while the rest of the context is selected, and
+	// awaited where their size first matters (the history budget below). They
+	// come from every attachment, not from `currentAttachments`: a picture
+	// needs no extracted text to be looked at. A rebuild after compression
+	// reuses the first build's.
+	const turnImagesPromise = params.reuseFrom
+		? Promise.resolve(params.reuseFrom.turnImages)
+		: resolveTurnImages({
+				items: resolvedAttachments.items,
+				collect: params.collectImages === true,
+			});
 	const retrievalSelection = resolveWorkingDocumentSelection({
 		artifacts: dedupeById([
 			...currentAttachments,
@@ -2088,9 +2120,15 @@ export async function buildConstructedContext(params: {
 		promptSessionMessages.length,
 	);
 
+	// The pictures ride in the newest turn, so the history gives up their
+	// tokens: each prepared picture by its own size, never a flat 1,600.
+	const turnImages = await turnImagesPromise;
+	const historyTokenBudget = deriveHistoryBudget(
+		sumTurnImageTokens(turnImages.images),
+	).totalBudget;
 	const nativeHistory = buildNativeHistory({
 		turns: allTurns,
-		maxTokens: sessionHistoryBudget.totalBudget,
+		maxTokens: historyTokenBudget,
 		toolMessages: historyToolMessages,
 	});
 	const sessionTurnContext = nativeHistory.enabled
@@ -2105,7 +2143,7 @@ export async function buildConstructedContext(params: {
 				turns: allTurns,
 				resolveRole: (message) => message.role,
 				resolveContent: serializePromptMessageContent,
-				maxTokens: sessionHistoryBudget.totalBudget,
+				maxTokens: historyTokenBudget,
 			});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;
 	const sections: PromptContextSection[] = [];
@@ -2485,8 +2523,9 @@ export async function buildConstructedContext(params: {
 					: null,
 			),
 		contextTraceSections: selectedPromptContext.contextTraceSections,
+		turnImages,
 		_reuseData: params.reuseFrom
 			? undefined
-			: { relevantArtifacts, preparedContext, artifactSnippets },
+			: { relevantArtifacts, preparedContext, artifactSnippets, turnImages },
 	};
 }

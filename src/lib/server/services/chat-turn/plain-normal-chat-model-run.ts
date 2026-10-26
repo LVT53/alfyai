@@ -35,6 +35,7 @@ import {
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
@@ -148,7 +149,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
-		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+		buildCurrentUserMessage(finalInputValue, prepared.currentImages),
 		...(prepared.prefetchedToolMessages ?? []),
 		...(modelRunParams.continuationMessages ?? []),
 	];

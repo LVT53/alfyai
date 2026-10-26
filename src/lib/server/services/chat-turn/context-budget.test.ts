@@ -146,6 +146,66 @@ describe("deriveModelContextBudget", () => {
 		});
 	});
 
+	describe("pictures of the current message", () => {
+		const contextBudget = deriveModelContextBudget({
+			maxModelContext: 100_000,
+		});
+		const withoutPictures = deriveSessionHistoryBudget({
+			contextBudget,
+			minTotalBudget: 2_000,
+			minRecentTurnCount: 3,
+		});
+
+		it("take their tokens out of the history budget", () => {
+			const withPictures = deriveSessionHistoryBudget({
+				contextBudget,
+				minTotalBudget: 2_000,
+				minRecentTurnCount: 3,
+				pictureTokens: 4_400,
+			});
+
+			expect(withoutPictures.totalBudget).toBe(58_500);
+			expect(withPictures.totalBudget).toBe(54_100);
+		});
+
+		it("change nothing when there are none", () => {
+			expect(
+				deriveSessionHistoryBudget({
+					contextBudget,
+					minTotalBudget: 2_000,
+					minRecentTurnCount: 3,
+					pictureTokens: 0,
+				}),
+			).toEqual(withoutPictures);
+		});
+
+		it("never take the history below its floor, nor above what it had", () => {
+			const crowded = deriveSessionHistoryBudget({
+				contextBudget,
+				minTotalBudget: 2_000,
+				minRecentTurnCount: 3,
+				pictureTokens: 500_000,
+			});
+			expect(crowded.totalBudget).toBe(2_000);
+
+			// A target below the floor already caps the history at the target.
+			const tiny = deriveModelContextBudget({ maxModelContext: 1_000 });
+			const small = deriveSessionHistoryBudget({
+				contextBudget: tiny,
+				minTotalBudget: 2_000,
+				minRecentTurnCount: 3,
+			});
+			expect(
+				deriveSessionHistoryBudget({
+					contextBudget: tiny,
+					minTotalBudget: 2_000,
+					minRecentTurnCount: 3,
+					pictureTokens: 1_900,
+				}).totalBudget,
+			).toBe(small.totalBudget);
+		});
+	});
+
 	it("derives baseline memory profile budget with a generous floor and ceiling", () => {
 		expect(
 			deriveBaselineMemoryProfileBudget({

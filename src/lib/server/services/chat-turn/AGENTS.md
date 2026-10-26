@@ -29,6 +29,7 @@ failures → retry-cleanup.ts
 | Parse body, model, attachments | `request.ts` |
 | Validate conversation, check attachment readiness | `preflight.ts` |
 | Build constructed prompt context for Normal Chat | `context-selection.ts` |
+| The pictures of the current message (which attachments go as pixels, the user message a model run sends, what the model is told about pictures it cannot see or was not sent) | `../vision/turn-images.ts`; `context-selection.ts` collects them when the provider can see (`collectImages`), both `*-normal-chat-model-run.ts` files send them; rules in `../vision/AGENTS.md` |
 | Assistant output normalization | `normalizer.ts` |
 | Stream lifecycle orchestration, neutral model-run event adaptation, active-stream registration | `stream-orchestrator.ts` |
 | AI SDK UI stream runtime helpers, thinking cleanup | `stream.ts`, `thinking-normalizer.ts` |

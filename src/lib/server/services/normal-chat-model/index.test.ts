@@ -1,13 +1,17 @@
 import { generateText, streamText, tool } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createModelCapabilitySet } from "$lib/model-capabilities";
+import {
+	createModelCapabilitySet,
+	isModelCapabilitySupported,
+} from "$lib/model-capabilities";
 import type { ModelId } from "$lib/model-types";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,
 	providerStreamFixtures,
 } from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
+import { buildCurrentUserMessage, type TurnImage } from "../vision/turn-images";
 
 const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
@@ -759,6 +763,109 @@ describe("Normal Chat Model Run provider resolution", () => {
 		).resolves.toMatchObject({
 			id: "provider-1",
 			capabilities,
+		});
+	});
+
+	describe("the stored Can see images entry", () => {
+		function arrangeProviderRow(capabilitiesJson: string) {
+			mocks.getProviderByName.mockResolvedValue({
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "https://vllm.example/v1",
+				enabled: true,
+			});
+			mocks.listEnabledProviderModels.mockResolvedValue([
+				{ name: "flash-next", maxTokens: null, capabilitiesJson },
+			]);
+			mocks.decryptApiKey.mockReturnValue("plain-secret");
+			mocks.getProviderWithSecrets.mockResolvedValue({
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "https://vllm.example/v1",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			});
+		}
+
+		// What the admin form shows as ticked is what the run builds as supported,
+		// for the shapes older rows and hand edits left behind, and the other way
+		// round for an entry its own supported value contradicts.
+		it.each([
+			['"detected"', '{"imageMessageParts":"detected"}', true],
+			["a bare true", '{"imageMessageParts":true}', true],
+			[
+				"an object that only says supported",
+				'{"imageMessageParts":{"supported":true}}',
+				true,
+			],
+			[
+				"a detected state that supported false contradicts",
+				'{"imageMessageParts":{"state":"detected","supported":false}}',
+				false,
+			],
+			[
+				"a manual override that says no",
+				'{"imageMessageParts":{"state":"manual_override","supported":false}}',
+				false,
+			],
+			["a bare false", '{"imageMessageParts":false}', false],
+		])("reads %s like the admin form", async (_label, json, supported) => {
+			arrangeProviderRow(json);
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			expect(provider.capabilities?.imageMessageParts.supported).toBe(
+				supported,
+			);
+			expect(
+				isModelCapabilitySupported(provider.capabilities, "imageMessageParts"),
+			).toBe(supported);
+		});
+
+		it("leaves every other capability on the strict reading it always had", async () => {
+			arrangeProviderRow(
+				'{"imageMessageParts":"detected","tools":"detected","chat":true,"streaming":false,"reasoningControls":{"state":"detected"}}',
+			);
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			// A string or a bare boolean is unknown there, so a model whose row says
+			// tools: "detected" still gets the retry without tools, and one that says
+			// streaming: false is still not refused for it.
+			expect(provider.capabilities?.tools.supported).toBeNull();
+			expect(provider.capabilities?.chat.supported).toBeNull();
+			expect(provider.capabilities?.streaming.supported).toBeNull();
+			expect(provider.capabilities?.reasoningControls.supported).toBe(true);
+			expect(provider.capabilities?.imageMessageParts).toMatchObject({
+				supported: true,
+			});
+		});
+
+		it("keeps a probe's whole status entry exactly as stored", async () => {
+			const stored = createModelCapabilitySet({
+				imageMessageParts: {
+					state: "detected",
+					source: "probe",
+					detail: "Accepted an image part",
+					checkedAt: "2026-10-26T10:00:00.000Z",
+				},
+			});
+			arrangeProviderRow(JSON.stringify(stored));
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			expect(provider.capabilities?.imageMessageParts).toEqual(
+				stored.imageMessageParts,
+			);
 		});
 	});
 });
@@ -4743,5 +4850,146 @@ describe("Streaming Normal Chat Model Run", () => {
 			function: { name: "research_web" },
 		});
 		expect(researchExecute).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("Normal Chat Model Run pictures in the user message", () => {
+	// The run logs every step it finishes; these tests read the request instead.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const photo: TurnImage = {
+		artifactId: "artifact-1",
+		name: "room.jpg",
+		image: {
+			base64: "/9j/4AAQSkZJRgABAQ==",
+			mediaType: "image/jpeg",
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		},
+	};
+	const seeingProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "https://vllm.example/v1",
+		modelName: "flash-next",
+		apiKey: "plain-secret",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+
+	function lastUserMessage(body: {
+		messages: Array<{ role: string; content: unknown }>;
+	}) {
+		return body.messages.filter((message) => message.role === "user").at(-1);
+	}
+
+	it("sends a picture of the current message to a plain run as an image_url data URL", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "A living room." },
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("What is in this photo?", [photo])],
+			fetch,
+		});
+
+		const user = lastUserMessage(parseRequestBody(fetch));
+		expect(JSON.stringify(user)).toContain(
+			'{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,',
+		);
+		expect(user?.content).toEqual([
+			{ type: "text", text: "What is in this photo?" },
+			{
+				type: "image_url",
+				image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
+			},
+		]);
+	});
+
+	it("sends every picture, in the order they were attached", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Two rooms." },
+			}),
+		);
+		const second: TurnImage = {
+			...photo,
+			artifactId: "artifact-2",
+			name: "kitchen.jpg",
+			image: { ...photo.image, base64: "/9j/AAAA" },
+		};
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Compare them", [photo, second])],
+			fetch,
+		});
+
+		const content = lastUserMessage(parseRequestBody(fetch))?.content as Array<{
+			type: string;
+			image_url?: { url: string };
+		}>;
+		expect(content.map((part) => part.type)).toEqual([
+			"text",
+			"image_url",
+			"image_url",
+		]);
+		expect(content[1]?.image_url?.url).toContain("/9j/4AAQ");
+		expect(content[2]?.image_url?.url).toContain("/9j/AAAA");
+	});
+
+	it("sends a picture to a streaming run the same way", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{ content: "A living room." },
+				{ finishReason: "stop" },
+			]),
+		);
+
+		await collectStreamingEvents({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("What is in this photo?", [photo])],
+			fetch,
+		});
+
+		expect(JSON.stringify(lastUserMessage(parseRequestBody(fetch)))).toContain(
+			'{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="}}',
+		);
+	});
+
+	it("leaves a message without pictures as the plain text it was", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Hi." },
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Hello", [])],
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(lastUserMessage(body)?.content).toBe("Hello");
+		expect(JSON.stringify(body)).not.toContain("image_url");
 	});
 });

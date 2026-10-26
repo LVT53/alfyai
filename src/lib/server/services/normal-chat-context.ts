@@ -58,6 +58,13 @@ import {
 } from "./normal-chat-tools/tool-result-cache";
 import type { GroundedWebResult } from "./parallel-search/types";
 import { noteWebPrefetch } from "./url-provenance";
+import {
+	buildTurnImageGuidance,
+	noTurnImages,
+	sumTurnImageTokens,
+	type TurnImage,
+	type TurnImages,
+} from "./vision/turn-images";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
@@ -105,6 +112,10 @@ export type PreparedOutboundChatContext = {
 	// Prior turns as native model messages (empty when NATIVE_HISTORY_ENABLED
 	// is off, in which case they are inside inputValue as "Session Context").
 	historyMessages: ModelMessage[];
+	// The pictures of the current message, prepared for the model: empty unless
+	// the turn's model can see (`collectImages`). They ride in the user message
+	// the run builds (vision/turn-images.ts's buildCurrentUserMessage).
+	currentImages: TurnImage[];
 	systemPrompt: string;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
@@ -210,6 +221,7 @@ type OutboundChatContextPreparationState = {
 	inputValue: string;
 	historyMessages?: ModelMessage[];
 	historyWindow?: ConstructedContextResult["historyWindow"];
+	turnImages?: TurnImages;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug?:
@@ -642,6 +654,11 @@ export function buildTurnGuidance(params: {
 	// the cached system prompt. The RULES for choosing a type live on
 	// create_artifact's own description (ADR-0055), never here.
 	artifactCatalogueBlock?: string | null;
+	// What the model is told about the pictures of this message: that it cannot
+	// see them, or which ones the per-turn limit left out
+	// (vision/turn-images.ts's buildTurnImageGuidance). A fact about this
+	// message, so it rides here and not in the cached system prompt.
+	imageGuidance?: readonly string[];
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const todayStr = new Date().toLocaleDateString("en-US", {
@@ -658,6 +675,7 @@ export function buildTurnGuidance(params: {
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
 			: []),
 		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
+		...(params.imageGuidance ?? []),
 		...(params.artifactCatalogueBlock?.trim()
 			? [params.artifactCatalogueBlock.trim()]
 			: []),
@@ -1038,11 +1056,13 @@ function resolveOutputTokenBudget(params: {
 	contextLimits: PromptContextLimits;
 	systemPrompt: string;
 	currentMessageSection: string;
+	// The pictures of the current message are part of what it costs.
+	imageTokens?: number;
 }): OutputTokenBudget {
 	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
-	const currentMessageTokens = estimateOutboundPromptTokens(
-		params.currentMessageSection,
-	);
+	const currentMessageTokens =
+		estimateOutboundPromptTokens(params.currentMessageSection) +
+		(params.imageTokens ?? 0);
 	const overheadReserveTokens = resolveNormalChatPromptOverheadReserve(
 		params.contextLimits.maxModelContext,
 	);
@@ -1074,7 +1094,11 @@ function applyOutboundPromptBudget(params: {
 	modelName: string;
 	providerId?: string | null;
 	automaticCompression?: AutomaticContextCompressionResult | null;
+	// What the pictures of the current message cost, sent beside this text: the
+	// text gives up that much of the prompt budget.
+	imageTokens?: number;
 }): { inputValue: string; outputTokenBudget: OutputTokenBudget } {
+	const imageTokens = params.imageTokens ?? 0;
 	const { contextPrefix, currentMessageSection } = extractCurrentMessageSection(
 		params.inputValue,
 		params.message,
@@ -1084,6 +1108,7 @@ function applyOutboundPromptBudget(params: {
 		contextLimits: params.contextLimits,
 		systemPrompt: params.systemPrompt,
 		currentMessageSection,
+		imageTokens,
 	});
 	const outputReserve = outputTokenBudget.outputReserve;
 	const promptOverheadReserve = resolveNormalChatPromptOverheadReserve(
@@ -1099,7 +1124,7 @@ function applyOutboundPromptBudget(params: {
 		),
 	);
 	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
-	const inputTokenBudget = configuredPromptBudget - systemTokens;
+	const inputTokenBudget = configuredPromptBudget - systemTokens - imageTokens;
 	const safeInputTokenBudget = Math.max(
 		1,
 		Math.floor(inputTokenBudget / NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR),
@@ -1161,6 +1186,7 @@ function applyOutboundPromptBudget(params: {
 				targetConstructedContext: params.contextLimits.targetConstructedContext,
 				configuredPromptBudget,
 				systemTokens,
+				imageTokens,
 				promptOverheadReserve,
 				tokenSafetyFactor: NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR,
 				outputReserve,
@@ -1197,9 +1223,11 @@ function estimateOutboundPromptFit(params: {
 	maxTokens?: number | null;
 	// Sent alongside the packet: prior turns as native messages before it and
 	// the per-turn guidance appended to it (appendTurnGuidance). Both count
-	// against the same prompt budget as the packet itself.
+	// against the same prompt budget as the packet itself, and so do the
+	// pictures of the current message.
 	historyMessages?: ModelMessage[];
 	turnGuidance?: string;
+	imageTokens?: number;
 }) {
 	const { currentMessageSection } = extractCurrentMessageSection(
 		params.inputValue,
@@ -1210,6 +1238,7 @@ function estimateOutboundPromptFit(params: {
 		contextLimits: params.contextLimits,
 		systemPrompt: params.systemPrompt,
 		currentMessageSection,
+		imageTokens: params.imageTokens,
 	});
 	const promptOverheadReserve = resolveNormalChatPromptOverheadReserve(
 		params.contextLimits.maxModelContext,
@@ -1234,7 +1263,8 @@ function estimateOutboundPromptFit(params: {
 	const safeInputTokens =
 		estimateOutboundPromptTokens(params.inputValue) +
 		estimateOutboundPromptTokens(params.turnGuidance ?? "") +
-		historyTokens;
+		historyTokens +
+		(params.imageTokens ?? 0);
 	return {
 		overBudget: inputTokenBudget <= 0 || safeInputTokens > inputTokenBudget,
 		inputTokenBudget,
@@ -1518,6 +1548,7 @@ async function maybeRunAutomaticContextCompression(params: {
 	historyMessages?: ModelMessage[];
 	historyWindow?: ConstructedContextResult["historyWindow"];
 	turnGuidance?: string;
+	imageTokens?: number;
 	systemPrompt: string;
 	constructedContextParams: ConstructedContextTurnParams | null;
 	controlMessageSender?: ContextCompressionControlSender;
@@ -1548,6 +1579,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		maxTokens: params.modelConfig.maxTokens,
 		historyMessages: params.historyMessages,
 		turnGuidance: params.turnGuidance,
+		imageTokens: params.imageTokens,
 	});
 	const omittedHistoryTurnCount = params.historyWindow?.omittedTurnCount ?? 0;
 	const trigger: AutomaticContextCompressionTrigger | null =
@@ -1903,6 +1935,12 @@ type PrepareOutboundChatContextParams = {
 	// resolved by the caller for the same reason skillCatalogueBlock is: it
 	// needs a DB read this boundary does not perform.
 	artifactCatalogueBlock?: string | null;
+	// The model of this turn can see images (vision/model-vision.ts's
+	// providerCanSeeImages, resolved by the caller): the pictures among the
+	// attachments are prepared and returned as `currentImages`, and the turn
+	// guidance names any the limit left out. Without it a message that attaches
+	// an image tells the model it cannot see.
+	collectImages?: boolean;
 	logLabel: string;
 };
 
@@ -1915,6 +1953,7 @@ function applyConstructedContextToPreparationState(
 		inputValue: constructed.inputValue,
 		historyMessages: constructed.historyMessages,
 		historyWindow: constructed.historyWindow,
+		turnImages: constructed.turnImages,
 		contextStatus: constructed.contextStatus,
 		taskState: constructed.taskState,
 		contextDebug: constructed.contextDebug,
@@ -1985,6 +2024,7 @@ async function runAutomaticContextCompressionStage(input: {
 	historyMessages?: ModelMessage[];
 	historyWindow?: ConstructedContextResult["historyWindow"];
 	turnGuidance: string;
+	imageTokens: number;
 	systemPrompt: string;
 	contextLimits: PromptContextLimits;
 	constructedContextParams: ConstructedContextTurnParams | null;
@@ -2001,6 +2041,7 @@ async function runAutomaticContextCompressionStage(input: {
 		historyMessages: input.historyMessages,
 		historyWindow: input.historyWindow,
 		turnGuidance: input.turnGuidance,
+		imageTokens: input.imageTokens,
 		systemPrompt: input.systemPrompt,
 		constructedContextParams: input.constructedContextParams,
 		controlMessageSender: input.params.compressionControlMessageSender,
@@ -2155,6 +2196,7 @@ function runPromptBudgetStage(input: {
 		modelName: input.params.modelConfig.modelName,
 		providerId: input.params.modelConfig.providerId ?? null,
 		automaticCompression: input.state.automaticCompression,
+		imageTokens: sumTurnImageTokens(input.state.turnImages?.images),
 	});
 	return {
 		inputValue: budgetedPrompt.inputValue,
@@ -2189,19 +2231,28 @@ export async function prepareOutboundChatContext(
 				modelId: params.modelId,
 				contextLimits,
 				historyToolMessages: params.historyToolMessages,
+				collectImages: params.collectImages,
 			}
 		: null;
-	// Built once: automatic compression measures it (it rides the user turn,
-	// see appendTurnGuidance) and the prepared context returns the same text.
-	const turnGuidance = buildTurnGuidance({
-		reasoningDepthEffort: params.reasoningDepthEffort,
-		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
-		forceWebSearch: params.forceWebSearch,
-		skillCatalogueBlock: params.skillCatalogueBlock,
-		skillDraftGuidance: params.skillDraftGuidance,
-		pendingSkillInstructions: params.pendingSkillInstructions,
-		artifactCatalogueBlock: params.artifactCatalogueBlock,
-	});
+	// The guidance rides the user turn (see appendTurnGuidance): automatic
+	// compression measures it and the prepared context returns the same text.
+	// Only its image lines depend on the constructed context (which pictures
+	// were sent and which the limit left out), and a rebuild after compression
+	// keeps those, so both calls build the same text.
+	const buildGuidanceFor = (turnImages: TurnImages) =>
+		buildTurnGuidance({
+			reasoningDepthEffort: params.reasoningDepthEffort,
+			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
+			forceWebSearch: params.forceWebSearch,
+			skillCatalogueBlock: params.skillCatalogueBlock,
+			skillDraftGuidance: params.skillDraftGuidance,
+			pendingSkillInstructions: params.pendingSkillInstructions,
+			artifactCatalogueBlock: params.artifactCatalogueBlock,
+			imageGuidance: buildTurnImageGuidance({
+				canSee: params.collectImages === true,
+				turnImages,
+			}),
+		});
 	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
 			{
@@ -2281,12 +2332,14 @@ export async function prepareOutboundChatContext(
 							currentState.systemPrompt,
 							"systemPrompt",
 						);
+						const turnImages = currentState.turnImages ?? noTurnImages();
 						const compressionStage = await runAutomaticContextCompressionStage({
 							params,
 							inputValue: currentState.inputValue,
 							historyMessages: currentState.historyMessages,
 							historyWindow: currentState.historyWindow,
-							turnGuidance,
+							turnGuidance: buildGuidanceFor(turnImages),
+							imageTokens: sumTurnImageTokens(turnImages.images),
 							systemPrompt,
 							contextLimits,
 							constructedContextParams,
@@ -2333,10 +2386,12 @@ export async function prepareOutboundChatContext(
 			},
 		);
 
+	const turnImages = state.turnImages ?? noTurnImages();
 	return {
 		inputValue: state.inputValue,
-		turnGuidance,
+		turnGuidance: buildGuidanceFor(turnImages),
 		historyMessages: state.historyMessages ?? [],
+		currentImages: turnImages.images,
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
 		contextStatus: state.contextStatus,
 		taskState: state.taskState,

@@ -71,7 +71,7 @@ type PromptArtifactDiagnostics = {
 	chunkCount: number;
 };
 
-type PromptAttachmentResolutionItem = {
+export type PromptAttachmentResolutionItem = {
 	requestedArtifactId: string;
 	displayArtifact: Artifact | null;
 	promptArtifact: Artifact | null;

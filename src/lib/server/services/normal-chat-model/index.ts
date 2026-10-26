@@ -24,6 +24,7 @@ import {
 	type ModelCapabilityKey,
 	type ModelCapabilitySet,
 } from "$lib/model-capabilities";
+import { parseCapabilitySupportMap } from "$lib/model-fallback-compatibility";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
@@ -504,14 +505,47 @@ function parseProviderModelCapabilities(
 		);
 		if (entries.length === 0) return undefined;
 
-		return createModelCapabilitySet(
-			Object.fromEntries(
-				entries.map((key) => [key, (parsed as Record<string, unknown>)[key]]),
+		return withStoredImageInput(
+			createModelCapabilitySet(
+				Object.fromEntries(
+					entries.map((key) => [key, (parsed as Record<string, unknown>)[key]]),
+				),
 			),
+			json,
 		);
 	} catch {
 		return undefined;
 	}
+}
+
+// "Can see images" is the one capability two readers decide on: the admin form
+// and the model list read the stored entry with parseCapabilitySupportMap
+// (model-image-input.ts), and a chat turn reads the provider built here. The
+// strict builder above only understands the status object a probe writes, so an
+// entry saved as "detected", as a bare true or as an object without a state
+// would read as unknown here and as ticked there (and the reverse for a state
+// that its own supported value contradicts). The image entry therefore takes the
+// admin's reading. Every other key keeps the strict one: a string or a bare
+// boolean there has always read as unknown, and the tools fallback depends on it.
+function withStoredImageInput(
+	capabilities: ModelCapabilitySet,
+	json: string,
+): ModelCapabilitySet {
+	const stored = parseCapabilitySupportMap(json).imageMessageParts;
+	if (capabilities.imageMessageParts.supported === stored) return capabilities;
+	return {
+		...capabilities,
+		imageMessageParts: createModelCapabilitySet({
+			imageMessageParts:
+				stored === null
+					? { state: "unknown", source: capabilities.imageMessageParts.source }
+					: {
+							state: "manual_override",
+							supported: stored,
+							source: "manual_override",
+						},
+		}).imageMessageParts,
+	};
 }
 
 function builtinModelRunProvider(

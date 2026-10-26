@@ -767,6 +767,8 @@ describe("English prompt text stays English (source layers)", () => {
 			"lib/server/services/artifacts/app/verify.ts",
 			"lib/server/services/memory-judge/prompt.ts",
 			"lib/server/services/normal-chat-context.ts",
+			// What a model is told about the pictures of a message.
+			"lib/server/services/vision/turn-images.ts",
 		];
 		const found = new Set(all.map(({ file }) => file));
 		for (const file of scaffold) expect(found.has(file), file).toBe(true);

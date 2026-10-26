@@ -274,6 +274,96 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	it("sends the prepared pictures as image parts after the text of the current user message", async () => {
+		const image = {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		};
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "What is in these?",
+			turnGuidance: "## Turn Guidance\nBe brief.",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: { status: "ready" },
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+			currentImages: [
+				{ artifactId: "a-1", name: "room.jpg", image },
+				{ artifactId: "a-2", name: "sofa.jpg", image },
+			],
+		});
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in these?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "What is in these?\n\n## Turn Guidance\nBe brief.",
+							},
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+						],
+					},
+				],
+			}),
+		);
+	});
+
+	it("counts the pictures in the full-prompt estimate it hands back", async () => {
+		const send = async (currentImages: unknown[]) => {
+			mocks.prepareOutboundChatContext.mockResolvedValue({
+				inputValue: "What is in these?",
+				systemPrompt: "Prepared system prompt",
+				contextStatus: { status: "ready" },
+				taskState: null,
+				contextDebug: null,
+				contextTraceSections: [],
+				currentImages,
+			});
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+			return runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "What is in these?",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+			});
+		};
+		const picture = {
+			artifactId: "a-1",
+			name: "room.jpg",
+			image: {
+				base64: "QUJD",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 1_900,
+			},
+		};
+
+		const without = await send([]);
+		const withPicture = await send([picture]);
+
+		expect(
+			(withPicture.prepared.estimatedPromptTokens ?? 0) -
+				(without.prepared.estimatedPromptTokens ?? 0),
+		).toBe(1_900);
+	});
+
 	it("does not force a named first-step tool choice for forced web search (guidance carries it instead)", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",

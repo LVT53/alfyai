@@ -61,6 +61,7 @@ export {
 export type {
 	KnowledgeBulkAction,
 	KnowledgeDocumentKindFilter,
+	PromptAttachmentResolutionItem,
 } from "./knowledge/store";
 export {
 	AttachmentReadinessError,

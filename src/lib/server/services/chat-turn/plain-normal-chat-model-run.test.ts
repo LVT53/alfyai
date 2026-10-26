@@ -412,6 +412,45 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("sends the prepared pictures as image parts after the text of the current user message", async () => {
+		const image = {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		};
+		mocks.prepareOutboundChatContext.mockResolvedValue(
+			createPlainNormalChatPreparedContext({
+				turnGuidance: "## Turn Guidance\nBe brief.",
+				currentImages: [
+					{ artifactId: "a-1", name: "room.jpg", image },
+					{ artifactId: "a-2", name: "sofa.jpg", image },
+				],
+			}),
+		);
+
+		await runSubject({ message: "What is in these?" });
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "Prepared user prompt\n\n## Turn Guidance\nBe brief.",
+							},
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+						],
+					},
+				],
+			}),
+		);
+	});
+
 	it("does not force a named first-step tool choice for forced web search (guidance carries it instead)", async () => {
 		await runSubject({
 			message: "What changed today?",
