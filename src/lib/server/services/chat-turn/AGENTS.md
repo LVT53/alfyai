@@ -88,7 +88,7 @@ failures → retry-cleanup.ts
   - [`src/routes/api/chat/stream/stop/+server.ts`](../../../../routes/api/chat/stream/stop/+server.ts)
 - Shared pipeline:
   - [`src/lib/server/services/chat-turn/index.ts`](index.ts)
-    - The single entrypoint into chat-turn (F1). The `send`, `stream`, and `retry` routes drive a Normal Chat turn through this facade and import chat-turn only from it, rather than reaching into individual submodules. It is a facade *inside* this module directory, not a new top-level `services/*.ts` boundary. Stream-lifecycle/capacity utilities used by auxiliary routes (`stream/stop|status|buffer`, `admin/drain`, `health`) still import `active-streams` directly.
+    - The single entrypoint into chat-turn (F1). The `send`, `stream`, and `retry` routes drive a Normal Chat turn through this facade and import chat-turn only from it, rather than reaching into individual submodules. It is a facade *inside* this module directory, not a new top-level `services/*.ts` boundary. Stream-lifecycle/capacity utilities used by auxiliary routes (`stream/stop|status|buffer`, `admin/drain`, `health`) still import `active-streams` directly. So does the conversation delete (`cleanup/conversation-cleanup.ts`, single and bulk): it sends the same explicit stop before it deletes a chat whose reply is still streaming.
   - [`src/lib/server/services/chat-turn/request.ts`](request.ts)
   - [`src/lib/server/services/chat-turn/preflight.ts`](preflight.ts)
   - [`src/lib/server/services/chat-turn/normalizer.ts`](normalizer.ts)
