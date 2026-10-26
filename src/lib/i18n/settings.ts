@@ -433,6 +433,9 @@ const settingsDict = {
 		"admin.modelGuideNoteEn": "English guide note",
 		"admin.modelGuideNoteHu": "Hungarian guide note",
 		"admin.modelGuideNotePlaceholder": "Best for long document work.",
+		"admin.modelCanSeeImages": "Can see images",
+		"admin.modelCanSeeImagesDescription":
+			"Alfy sends this model the images people attach. Tick it only if the model reads images, and for a cloud model only if images may leave the server.",
 		"admin.mostChats": "Most chats",
 		"admin.mostMessages": "Most messages",
 		"admin.mostRecent": "Most recent",
@@ -2494,6 +2497,9 @@ const settingsDict = {
 		"admin.modelGuideNoteEn": "Angol útmutató megjegyzés",
 		"admin.modelGuideNoteHu": "Magyar útmutató megjegyzés",
 		"admin.modelGuideNotePlaceholder": "Hosszú dokumentumos munkához ajánlott.",
+		"admin.modelCanSeeImages": "Lát képeket",
+		"admin.modelCanSeeImagesDescription":
+			"Alfy elküldi ennek a modellnek a csatolt képeket. Csak akkor jelöld be, ha a modell érti a képeket, felhős modellnél pedig csak akkor, ha a képek elhagyhatják a szervert.",
 		"admin.mostChats": "Legtöbb beszélgetés",
 		"admin.mostMessages": "Legtöbb üzenet",
 		"admin.mostRecent": "Legfrissebb",

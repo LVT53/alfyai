@@ -7,6 +7,7 @@ import {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { modelCanSeeImages, setModelImageInput } from "$lib/model-image-input";
 import { focusTrap } from "$lib/utils/focus-trap";
 import type {
 	Provider,
@@ -137,6 +138,13 @@ let formThinkingType = $state(untrack(() => model?.thinkingType ?? ""));
 let formCapabilitiesJson = $state(
 	untrack(() => model?.capabilitiesJson ?? "{}"),
 );
+$effect(() => {
+	formCapabilitiesJson = model?.capabilitiesJson ?? "{}";
+});
+// "Can see images" is not a field of its own: it is the image capability inside
+// the capabilities JSON the form already carries, read and written through
+// src/lib/model-image-input.ts.
+let formCanSeeImages = $derived(modelCanSeeImages(formCapabilitiesJson));
 let formInputUsdPer1m = $state(
 	untrack(() => microsToDollars(model?.inputUsdMicrosPer1m)),
 );
@@ -259,6 +267,10 @@ function guideBadgeValue(): "intelligent" | "simple" | null {
 	if (formGuideBadge === "intelligent") return "intelligent";
 	if (formGuideBadge === "simple") return "simple";
 	return null;
+}
+
+function setCanSeeImages(checked: boolean) {
+	formCapabilitiesJson = setModelImageInput(formCapabilitiesJson, checked);
 }
 
 function fallbackProviderModelIdValue(): string | null | undefined {
@@ -717,6 +729,21 @@ async function handleSavePriceWindows() {
 							></textarea>
 						</div>
 					</div>
+				</div>
+
+				<div class="mt-2 border-t border-border pt-3">
+					<label class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
+						<input
+							id="model-form-can-see-images"
+							type="checkbox"
+							checked={formCanSeeImages}
+							onchange={(event) => setCanSeeImages(event.currentTarget.checked)}
+						/>
+						<span>
+							<span class="block font-medium">{$t('admin.modelCanSeeImages')}</span>
+							<span class="block text-xs text-text-muted">{$t('admin.modelCanSeeImagesDescription')}</span>
+						</span>
+					</label>
 				</div>
 
 				<div class="mt-2 border-t border-border pt-3">

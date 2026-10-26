@@ -8,6 +8,7 @@ vi.mock("./provider-models", () => ({
 	listEnabledProviderModels: vi.fn(),
 }));
 
+import { setModelImageInput } from "$lib/model-image-input";
 import type { RuntimeConfig } from "../config-store";
 import {
 	getAvailableModelProviderGroups,
@@ -147,6 +148,7 @@ describe("available model projection", () => {
 						inputUsdMicrosPer1m: 0,
 						outputUsdMicrosPer1m: 0,
 						supportsReasoningControls: true,
+						supportsImages: false,
 					},
 					{
 						id: "model2",
@@ -161,6 +163,7 @@ describe("available model projection", () => {
 						inputUsdMicrosPer1m: 0,
 						outputUsdMicrosPer1m: 0,
 						supportsReasoningControls: true,
+						supportsImages: false,
 					},
 				],
 			},
@@ -186,6 +189,7 @@ describe("available model projection", () => {
 						inputUsdMicrosPer1m: 1000,
 						outputUsdMicrosPer1m: 2000,
 						supportsReasoningControls: true,
+						supportsImages: false,
 					},
 				],
 			},
@@ -214,5 +218,48 @@ describe("available model projection", () => {
 		const groups = await getAvailableModelProviderGroups(runtimeConfig());
 		const providerGroup = groups.find((group) => group.id === "provider-1");
 		expect(providerGroup?.models[0]?.supportsReasoningControls).toBe(false);
+	});
+
+	it("lists supportsImages only for a provider model the admin marked as able to see", async () => {
+		const providerModel = (id: string, capabilitiesJson: string) =>
+			({
+				id,
+				displayName: id,
+				iconAssetId: null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				guideNoCost: false,
+				estimatedTokensPerSecond: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+				capabilitiesJson,
+				enabled: true,
+			}) as Awaited<ReturnType<typeof listEnabledProviderModels>>[number];
+		mockListEnabledProviderModels.mockResolvedValue([
+			providerModel("sees", setModelImageInput("{}", true)),
+			providerModel("blind", "{}"),
+			providerModel("refused", '{"imageMessageParts":"not_detected"}'),
+			providerModel("broken", "not json"),
+		]);
+
+		const groups = await getAvailableModelProviderGroups(runtimeConfig());
+
+		const providerGroup = groups.find((group) => group.id === "provider-1");
+		expect(
+			providerGroup?.models.map((model) => [model.id, model.supportsImages]),
+		).toEqual([
+			["provider:provider-1:sees", true],
+			["provider:provider-1:blind", false],
+			["provider:provider-1:refused", false],
+			["provider:provider-1:broken", false],
+		]);
+
+		const builtIn = groups.find((group) => group.id === "built-in");
+		expect(builtIn?.models.map((model) => model.supportsImages)).toEqual([
+			false,
+			false,
+		]);
 	});
 });

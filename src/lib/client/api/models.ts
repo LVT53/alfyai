@@ -16,6 +16,9 @@ export interface ProviderModel {
 	 * controls unsupported — the composer's thinking toggle hides itself for
 	 * such models. See src/lib/model-capabilities.ts. */
 	supportsReasoningControls: boolean;
+	/** true only when the admin marked the model "Can see images" (the
+	 * `imageMessageParts` capability, see src/lib/model-image-input.ts). */
+	supportsImages: boolean;
 }
 
 export interface ModelProvider {

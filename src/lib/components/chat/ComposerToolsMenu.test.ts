@@ -33,6 +33,7 @@ const fetchAvailableModelsMock = vi.hoisted(() =>
 							inputUsdMicrosPer1m: 0,
 							outputUsdMicrosPer1m: 0,
 							supportsReasoningControls: true,
+							supportsImages: false,
 						},
 					],
 				},

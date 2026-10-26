@@ -1457,6 +1457,7 @@ describe("MessageInput", () => {
 							inputUsdMicrosPer1m: 0,
 							outputUsdMicrosPer1m: 0,
 							supportsReasoningControls: false,
+							supportsImages: false,
 						},
 					],
 				},
