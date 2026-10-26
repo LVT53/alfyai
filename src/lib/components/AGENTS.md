@@ -8,9 +8,10 @@ Parent: [AGENTS.md](../../../AGENTS.md) holds the rules that apply everywhere. T
 layout/
   Sidebar.svelte                    ← navigation shell, profile, new-chat button
     ├── search/SearchModal.svelte   ← global Workspace Search (Ctrl+K)
-    └── sidebar/ConversationList.svelte  ← list with drag/drop, project folders
+    └── sidebar/ConversationList.svelte  ← list with drag/drop, project folders, the multi-select state
           ├── sidebar/ProjectItem.svelte      ← folder row (event emitter only)
-          └── sidebar/ConversationItem.svelte  ← conversation row (event emitter only)
+          ├── sidebar/ConversationItem.svelte  ← conversation row (event emitter only)
+          └── sidebar/SidebarSelectionBar.svelte  ← bar of an open selection: count, Select all, Pin, Move, Delete (event emitter only)
   Header.svelte                     ← mobile header, sidebar toggle, user menu
 
 chat/
@@ -52,6 +53,7 @@ ui/
 | `ConversationList.svelte` | `conversations` | `conversations`, CRUD actions |
 | `ConversationList.svelte` | `projects` | `projects`, CRUD actions |
 | `ConversationList.svelte` | `ui` | `currentConversationId`, `sidebarOpen` |
+| `SidebarSelectionBar.svelte` | props | no store; the list passes the count, the pin action and the projects, and acts on the events |
 | `MessageInput.svelte` | `ui` | `currentConversationId` (draft clear on switch), `onUploadReady` callback |
 | `MessageBubble.svelte` | `theme` | `isDark` (markdown dark mode), attachment open handoff to the route-owned workspace |
 | `ModelSelector.svelte` | `settings` | `selectedModel`, `setSelectedModel` |
@@ -89,6 +91,8 @@ ui/
 ## Key Component Boundaries (not in parent)
 
 - `ConversationList.svelte` owns drag/drop state — `ConversationItem` and `ProjectItem` are **event emitters**, not persistence actors
+- `ConversationList.svelte` owns the multi-select state (the selected ids, the range anchor, the busy flag, the delete dialog) and makes the bulk calls through the conversations store; `ConversationItem` and `SidebarSelectionBar` are event emitters too. The selection rules (the order of the rows on screen, toggle, range, prune, whether the pin button pins or unpins) are the pure functions in `sidebar/sidebar-selection.ts`: a new rule goes there, with a test, not into a component.
+- While its Move menu is open, `SidebarSelectionBar` takes Escape itself (a capture listener that stops the press), so the list's own Escape, which ends the selection, never sees that press. The bar's Move menu and the row menu share one look, `sidebar/conversation-menu.css` (global classes `.conversation-menu` and `.conversation-option`): change it there, not in either component.
 - Sidebar drag reordering should stay sidebar-specific for now. Reuse a shared whole-row sidebar reorder primitive for sidebar-pinned conversations and project folders, but keep persistence and cross-group rules in `ConversationList.svelte`.
 - `MessageArea.svelte` is the **sole scroll owner** for conversation content — do not add `overflow-y: auto` elsewhere
 - `MessageArea.svelte` must also keep newly appended file-production cards visible when the user remained near the bottom of the chat
@@ -150,6 +154,9 @@ Important component boundaries:
   - top-level app shell interactions
 - [`src/lib/components/sidebar/ConversationList.svelte`](sidebar/ConversationList.svelte)
   - owns sidebar drag/drop state and project-drop move orchestration through the existing conversations store path
+  - owns the selection (`sidebar-selection.ts` holds its rules) and the bulk delete, move and pin calls
+- [`src/lib/components/sidebar/SidebarSelectionBar.svelte`](sidebar/SidebarSelectionBar.svelte)
+  - the bar of an open selection; emits events, owns no selection state
 
 
 Do not:
@@ -157,6 +164,7 @@ Do not:
 - bury durable business logic inside a presentational component because it is "already open"
 - duplicate chat state transitions in both page files and chat components
 - move project-folder drag/drop persistence into `ConversationItem.svelte` or `ProjectItem.svelte`; those components stay event emitters
+- move the selection state or a bulk call into `ConversationItem.svelte` or `SidebarSelectionBar.svelte`; `ConversationList.svelte` owns them
 - use unused legacy-looking components as templates without checking whether they are actually live
 
 
