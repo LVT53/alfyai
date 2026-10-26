@@ -138,8 +138,22 @@ let formThinkingType = $state(untrack(() => model?.thinkingType ?? ""));
 let formCapabilitiesJson = $state(
 	untrack(() => model?.capabilitiesJson ?? "{}"),
 );
+// Take the capabilities from `model` again only when the form is handed another
+// model, or the same one with other stored capabilities. A new `model` object
+// with the same id and the same stored string is not that: ModelList builds one
+// when an icon is saved while this form is open, and writing the stored string
+// back would drop an unsaved tick or untick (an unticked cloud model would go on
+// getting images). The two values last taken are plain variables, so the effect
+// depends on `model` alone.
+let seededModelId = untrack(() => model?.id ?? null);
+let seededCapabilitiesJson = untrack(() => model?.capabilitiesJson ?? "{}");
 $effect(() => {
-	formCapabilitiesJson = model?.capabilitiesJson ?? "{}";
+	const id = model?.id ?? null;
+	const stored = model?.capabilitiesJson ?? "{}";
+	if (id === seededModelId && stored === seededCapabilitiesJson) return;
+	seededModelId = id;
+	seededCapabilitiesJson = stored;
+	formCapabilitiesJson = stored;
 });
 // "Can see images" is not a field of its own: it is the image capability inside
 // the capabilities JSON the form already carries, read and written through
