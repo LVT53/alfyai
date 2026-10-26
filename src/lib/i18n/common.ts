@@ -207,6 +207,12 @@ const commonDict = {
 		settingsConnections: "Connections",
 		settingsProfile: "Profile",
 		"sidebar.activeConversationIndicator": "Active conversation open",
+		"sidebar.bulkDeleteFailed":
+			"Couldn't delete {count} {count, plural, one {chat} other {chats}}. Try again.",
+		"sidebar.bulkMoveFailed":
+			"Couldn't move {count} {count, plural, one {chat} other {chats}}. Try again.",
+		"sidebar.bulkPinFailed":
+			"Couldn't update the pin on {count} {count, plural, one {chat} other {chats}}. Try again.",
 		"sidebar.chats": "Chats",
 		"sidebar.chatCount": "{count} chats in this project",
 		"sidebar.collapseChatsSection": "Collapse Chats section",
@@ -224,6 +230,10 @@ const commonDict = {
 		"sidebar.deleteConversationMessage":
 			"Are you sure you want to delete this conversation? This action cannot be undone.",
 		"sidebar.deleteConversationTitle": "Delete this conversation?",
+		"sidebar.deleteConversationsMessage":
+			"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
+		"sidebar.deleteConversationsTitle":
+			"Delete {count} {count, plural, one {chat} other {chats}}?",
 		"sidebar.deleteProjectMessage":
 			"The project will be deleted. All chats inside will become unorganized.",
 		"sidebar.deleteProjectTitle": "Delete this project?",
@@ -272,6 +282,11 @@ const commonDict = {
 		"sidebar.rename": "Rename",
 		"sidebar.reorderItem": "Drag to reorder {label}",
 		"sidebar.resizeSidebar": "Resize sidebar",
+		"sidebar.select": "Select",
+		"sidebar.selectAll": "Select all",
+		"sidebar.selectionClose": "Cancel selection",
+		"sidebar.selectionCount": "{count} selected",
+		"sidebar.selectionToolbar": "Selected chats",
 		"searchModal.clear": "Clear search",
 		"searchModal.close": "Close search",
 		"searchModal.badgeCurrent": "Current",
@@ -526,6 +541,12 @@ const commonDict = {
 		settingsConnections: "Kapcsolatok",
 		settingsProfile: "Profil",
 		"sidebar.activeConversationIndicator": "Aktív beszélgetés nyitva",
+		"sidebar.bulkDeleteFailed":
+			"{count} beszélgetést nem sikerült törölni. Próbáld újra.",
+		"sidebar.bulkMoveFailed":
+			"{count} beszélgetést nem sikerült áthelyezni. Próbáld újra.",
+		"sidebar.bulkPinFailed":
+			"{count} beszélgetés rögzítését nem sikerült frissíteni. Próbáld újra.",
 		"sidebar.chats": "Beszélgetések",
 		"sidebar.chatCount": "{count} beszélgetés ebben a projektben",
 		"sidebar.collapseChatsSection": "Beszélgetések szekció összecsukása",
@@ -543,6 +564,9 @@ const commonDict = {
 		"sidebar.deleteConversationMessage":
 			"Biztosan törlöd ezt a beszélgetést? Ez a művelet nem vonható vissza.",
 		"sidebar.deleteConversationTitle": "Törlöd ezt a beszélgetést?",
+		"sidebar.deleteConversationsMessage":
+			"Az üzeneteik, fájljaik, jelentéseik és a bennük készült dokumentumok is törlődnek. Ez nem vonható vissza.",
+		"sidebar.deleteConversationsTitle": "Törölsz {count} beszélgetést?",
 		"sidebar.deleteProjectMessage":
 			"A projekt törlődik. A benne lévő beszélgetések rendezetlenek lesznek.",
 		"sidebar.deleteProjectTitle": "Törlöd ezt a projektet?",
@@ -593,6 +617,11 @@ const commonDict = {
 		"sidebar.rename": "Átnevezés",
 		"sidebar.reorderItem": "{label} átrendezése húzással",
 		"sidebar.resizeSidebar": "Oldalsáv átméretezése",
+		"sidebar.select": "Kijelölés",
+		"sidebar.selectAll": "Összes kijelölése",
+		"sidebar.selectionClose": "Kijelölés megszüntetése",
+		"sidebar.selectionCount": "{count} kijelölve",
+		"sidebar.selectionToolbar": "Kijelölt beszélgetések",
 		"searchModal.clear": "Keresés törlése",
 		"searchModal.close": "Keresés bezárása",
 		"searchModal.badgeCurrent": "Aktuális",
