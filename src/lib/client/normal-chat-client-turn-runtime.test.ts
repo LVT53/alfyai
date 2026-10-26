@@ -1358,6 +1358,55 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	// The server ends a turn this way when deleting its chat stopped it
+	// (chat-turn/stream-completion.ts): stopped, and no message id, because
+	// nothing was saved. It has to end like a turn the person stopped: no error
+	// surface, no retry, no reconnect or recovery for a chat that is gone, and a
+	// follow-up that was queued goes back to the draft instead of being sent.
+	it("ends a stopped turn that carries no message id without an error, a retry or a reconnect", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		streamInvocations[0].callbacks.onToken("Partial answer");
+		runtime.queue({
+			message: "Keep this",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		streamInvocations[0].callbacks.onEnd("Partial answer", {
+			wasStopped: true,
+		});
+		await Promise.resolve();
+
+		// The runtime clears the send error when a turn starts (a null); nothing
+		// put one up.
+		expect(adapters.setSendError).not.toHaveBeenCalledWith(expect.anything());
+		expect(adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+		expect(adapters.pollForCompletion).not.toHaveBeenCalled();
+		expect(adapters.pollMessageEvidence).not.toHaveBeenCalled();
+		// Nothing started a second stream: not a retry, not a reconnect, not the
+		// queued follow-up.
+		expect(streamInvocations).toHaveLength(1);
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "Keep this" }),
+		);
+		expect(runtime.snapshot()).toMatchObject({
+			active: false,
+			isSending: false,
+			phase: "idle",
+			canRetry: false,
+			queuedTurn: null,
+		});
+	});
+
 	it("ignores stop attempts after the finish part so queued follow-ups drain normally", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

@@ -41,6 +41,9 @@ vi.mock("$lib/server/config-store", () => ({
 
 vi.mock("$lib/server/services/conversations", () => ({
 	touchConversation: vi.fn(() => Promise.resolve()),
+	// A stopped turn asks whether its conversation is still there before it
+	// saves anything; resetCompletionMocks() says it is.
+	getConversation: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/normal-chat-failover", () => ({
@@ -426,7 +429,7 @@ function expectTerminalRequestErrorParts(
 }
 
 async function resetCompletionMocks() {
-	const { touchConversation } = await import(
+	const { getConversation, touchConversation } = await import(
 		"$lib/server/services/conversations"
 	);
 	const { createMessage, listConversationMessagesForExport } = await import(
@@ -458,6 +461,10 @@ async function resetCompletionMocks() {
 	);
 
 	(touchConversation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+	// The conversation is there, unless a test says it was deleted.
+	(getConversation as ReturnType<typeof vi.fn>).mockResolvedValue({
+		id: "test-conv",
+	});
 	(createMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
 		id: "msg-1",
 	});
@@ -2944,6 +2951,96 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(upstreamSignal?.aborted).toBe(true);
 		expect(remainingBody).toContain('"wasStopped":true');
 		expect(remainingBody).not.toContain("streamClosedWithoutFinish");
+	});
+
+	// Deleting a chat stops the reply streaming into it and does not wait for
+	// the turn to end (cleanup/conversation-cleanup.ts). The turn then ends
+	// against a chat that is gone, and the browser, still attached because an
+	// open chat stays mounted until the whole delete is answered, must be told
+	// the turn was stopped, not that the backend failed.
+	it("ends a turn that a delete stopped as a stop, not as a failure, when its conversation is gone", async () => {
+		const { createMessage } = await import("$lib/server/services/messages");
+		const { getConversation } = await import(
+			"$lib/server/services/conversations"
+		);
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		let markStreamListening!: () => void;
+		const streamListening = new Promise<void>((resolve) => {
+			markStreamListening = resolve;
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation(async (params: { signal?: AbortSignal }) =>
+			createNeutralStreamingResult([], {
+				stream: (async function* () {
+					yield { type: "text_delta", text: "Partial answer" };
+					await new Promise<void>((resolve) => {
+						markStreamListening();
+						params.signal?.addEventListener("abort", () => resolve(), {
+							once: true,
+						});
+					});
+				})(),
+			}),
+		);
+		// The delete got there first: the chat is gone, and a save would fail the
+		// way it does against a deleted row.
+		(getConversation as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+		(createMessage as ReturnType<typeof vi.fn>).mockRejectedValue(
+			new Error("FOREIGN KEY constraint failed"),
+		);
+		const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		try {
+			const response = runStream({
+				conversationId: "deleted-conv",
+				streamId: "deleted-stream",
+			});
+			const reader = response.body?.getReader();
+			if (!reader) throw new Error("Missing response body");
+
+			await expect(reader.read()).resolves.toMatchObject({ done: false });
+			await streamListening;
+			// What deleteConversationWithCleanup does to a streaming reply.
+			expect(
+				requestActiveChatStreamStop({
+					streamId: "deleted-stream",
+					userId: "u1",
+				}),
+			).toBe(true);
+			const chunks: string[] = [];
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (value) chunks.push(new TextDecoder().decode(value));
+			}
+			const parts = parseUiStreamParts([chunks.join("")]);
+
+			expect(
+				parts.filter(
+					(part) =>
+						part !== "[DONE]" &&
+						(part.type === "data-stream-error" || part.type === "error"),
+				),
+			).toEqual([]);
+			expect(
+				uiDataParts<Record<string, unknown>>(parts, "data-stream-metadata"),
+			).toEqual([{ wasStopped: true }]);
+			expect(parts.slice(-2)).toEqual([
+				{ type: "finish", finishReason: "stop" },
+				"[DONE]",
+			]);
+			expect(createMessage).not.toHaveBeenCalled();
+			expect(consoleError).not.toHaveBeenCalled();
+		} finally {
+			consoleInfo.mockRestore();
+			consoleError.mockRestore();
+		}
 	});
 
 	it("does not start a main stream when registry registration rejects the stream id", async () => {
