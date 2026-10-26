@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Image Generation Wireframes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital@0;1&display=swap">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<!-- Image generation (backlog item 2), first low-fidelity wireframes, 2026-10-26.
+     AlfyAI tokens from src/app.css via the earlier docs/plans/*-mockups.html; icons are Lucide.
+     The pictures are drawn by scene() at the bottom of this file. -->
+<style>
+/* Layout: the real chat page (rail, chat column, panel) redrawn per frame, each with numbered notes underneath. */
+/* App tokens from src/app.css. The overlay tokens sit on pictures, so they keep one value in both themes. */
+:root{--pg:#fafaf8;--rail:#f3f2ee;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--fa:#9a978f;--bd:rgba(0,0,0,.08);--bs:rgba(0,0,0,.05);--ac:#c15f3c;--body:#2b2f36;--ok:#3f7a4a;--okbg:#e7f0e6;--wa:#9a6a12;--wabg:#fbf1dc;--av:#8a8a5c;--ck1:#ffffff;--ck2:#e7e4dd;--onac:#ffffff;--ov:rgba(255,255,255,.93);--ovtx:#3a3a3a;--ink:#1a1a1a;--scrim:rgba(0,0,0,.55);--mk2:#2f6fd0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--pg:#1a1a1a;--rail:#1f1f1f;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--fa:#7d7a74;--bd:rgba(255,255,255,.08);--bs:rgba(255,255,255,.05);--body:#dcdcdc;--ok:#8cc49a;--okbg:#22321f;--wa:#e0b45e;--wabg:#3a2e17;--ck1:#2a2a2a;--ck2:#343434;color-scheme:dark}}
+:root[data-theme="dark"]{--pg:#1a1a1a;--rail:#1f1f1f;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--fa:#7d7a74;--bd:rgba(255,255,255,.08);--bs:rgba(255,255,255,.05);--body:#dcdcdc;--ok:#8cc49a;--okbg:#22321f;--wa:#e0b45e;--wabg:#3a2e17;--ck1:#2a2a2a;--ck2:#343434;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pg);color:var(--tx);font:14px/1.5 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;padding-block:28px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:1180px;margin:0 auto;display:grid;gap:44px;min-width:0}
+main>*{min-width:0}
+h1{font:400 25px 'Libre Baskerville',Georgia,serif;margin:0;text-wrap:balance}
+h3{font:400 15.5px 'Libre Baskerville',Georgia,serif;margin:0 0 4px;text-wrap:balance}
+.lead{color:var(--mu);margin:6px 0 0;font-size:13.5px;max-width:82ch}
+.meta{font-size:12px;color:var(--fa);margin:8px 0 0}
+.cap{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);font-weight:bold;margin:0 0 4px}
+.sub{color:var(--mu);font-size:13px;margin:0 0 12px;max-width:86ch}
+.note{color:var(--fa);font-size:12px;margin:10px 0 0;max-width:96ch}
+.n{display:inline-flex;vertical-align:middle;width:19px;height:19px;border-radius:50%;background:var(--ac);color:var(--onac);font:bold 11px "Helvetica Neue",Helvetica,Arial,sans-serif;align-items:center;justify-content:center;margin:0 5px;flex:none}
+svg.lucide{width:15px;height:15px;stroke-width:1.75;vertical-align:-3px;flex:none}
+.grow{flex:1;min-width:0}
+.frame{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--pg)}
+.scroll{overflow-x:auto}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:9px 24px;margin-top:12px}
+.legend div{display:flex;gap:9px;align-items:flex-start;font-size:13px}
+.legend .n{margin:1px 0 0}
+.legend .m{color:var(--mu)}
+/* capability table */
+table{width:100%;min-width:760px;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);padding:9px 11px;border-bottom:1px solid var(--bd);font-weight:bold;background:color-mix(in srgb,var(--el) 60%,var(--pg))}
+td{padding:9px 11px;border-bottom:1px solid var(--bs);vertical-align:top}
+td:first-child{font-weight:bold;width:17%}
+td:last-child{width:31%;color:var(--body)}
+tr.dim td{color:var(--fa)}
+.y{color:var(--ok)}.nn{color:var(--fa);font-weight:bold}
+/* direction cards */
+.dirs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.dir{border:1px solid var(--bd);border-radius:12px;padding:12px 14px 12px;background:var(--pg)}
+.dir.pick{border:1.5px solid var(--ac);background:color-mix(in srgb,var(--ac) 4%,var(--pg))}
+.dir p{margin:0 0 6px;color:var(--mu);font-size:13px}
+.dir ul{margin:0;padding:0;list-style:none;font-size:12.5px}
+.dir li{display:flex;gap:6px;align-items:flex-start;margin-top:3px}
+.dir li.p:before{content:"+";color:var(--ok);font-weight:bold;width:10px}
+.dir li.c:before{content:"–";color:var(--ac);font-weight:bold;width:10px}
+.pickt{font-size:10.5px;font-weight:bold;letter-spacing:.06em;color:var(--ac);margin-left:6px}
+.mini{height:168px;border:1px solid var(--bd);border-radius:9px;overflow:hidden;display:grid;gap:7px;padding:7px;background:var(--pg);margin-bottom:11px}
+.m-rail{background:var(--rail);border-radius:4px}
+.m-col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.m-ln{height:7px;border-radius:4px;background:var(--el);width:62%;flex:none}
+.m-ln.r{align-self:flex-end;width:46%}
+.m-big{width:60%;flex:none}
+.m-comp{margin-top:auto;height:15px;border:1px solid var(--bd);border-radius:6px;background:var(--el);flex:none}
+.m-card{border:1px solid var(--bd);border-radius:6px;padding:4px;width:62%;flex:none}
+.m-panel{border-left:1px solid var(--bd);padding-left:7px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.m-ph{height:8px;width:50%;background:var(--el);border-radius:4px;flex:none}
+.m-strip{display:flex;gap:4px}.m-strip .pic{width:23%;border-radius:3px}
+.m-prompt{height:15px;border:1px solid var(--bd);border-radius:6px;background:var(--el);flex:none}
+.m-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.m-grid .pic{border-radius:4px}
+.m-set{display:flex;flex-direction:column;gap:6px;border-left:1px solid var(--bd);padding-left:6px}.m-set span{height:8px;border-radius:3px;background:var(--el)}
+/* app scaffold (mirrors the chat page) */
+.app{min-width:1040px;display:grid;grid-template-columns:46px minmax(0,1fr);background:var(--pg);min-height:430px}
+.app.split{grid-template-columns:46px minmax(340px,.6fr) minmax(0,1fr)}
+.rail{background:var(--rail);border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;gap:16px;padding:12px 0;color:var(--mu)}
+.rail .sp{flex:1}.logo{font:14px 'Libre Baskerville',serif;color:var(--ac);opacity:.6}
+.av{width:21px;height:21px;border-radius:50%;background:var(--av);color:var(--onac);font-size:10.5px;font-weight:bold;display:flex;align-items:center;justify-content:center}
+.chat{display:flex;flex-direction:column;min-width:0}
+.split .chat{border-right:1px solid var(--bd)}
+.hd{height:40px;border-bottom:1px solid var(--bd);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:0 10px}
+.hd .t{font-size:12.5px;color:var(--tx)}
+.hd .r{display:flex;justify-content:flex-end}
+.abtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:3px 10px 3px 8px;background:var(--pg)}
+.abtn b{color:var(--tx)}
+.abtn.on{background:var(--el);color:var(--tx);box-shadow:0 0 0 1px var(--bs)}
+.thread{flex:1;padding:18px 22px 6px;display:flex;flex-direction:column;gap:12px;width:100%;max-width:740px;margin:0 auto}
+.ub{align-self:flex-end;max-width:84%;background:var(--el);border-radius:10px;padding:10px 13px;font:13.5px/1.6 'Libre Baskerville',Georgia,serif;color:var(--body)}
+.ub .att{display:flex;gap:6px;margin-bottom:8px;justify-content:flex-end}
+.ub .att .pic{width:84px;border-radius:6px}
+.ub .att .pic .num{position:absolute;left:4px;top:4px}
+.ab{font:13.5px/1.7 'Libre Baskerville',Georgia,serif;color:var(--body)}
+.composer{margin:8px auto 14px;width:calc(100% - 44px);max-width:740px;border:1px solid var(--bd);border-radius:16px;background:var(--el);position:relative}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px 0;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd);background:var(--pg);border-radius:999px;padding:3px 9px 3px 3px;font-size:12px;color:var(--mu);white-space:nowrap}
+.chip .th{width:18px;height:18px;border-radius:50%;overflow:hidden;flex:none;position:relative}
+.chip .th .pic{width:32px;position:absolute;left:-7px;top:-1px;border-radius:0}
+.chip.mk{padding-left:8px;color:var(--tx)}
+.chip.mk svg{color:var(--ac)}
+.chip.over{border-color:color-mix(in srgb,var(--ac) 50%,transparent);color:var(--ac)}
+.num{display:inline-flex;width:16px;height:16px;border-radius:50%;background:var(--tx);color:var(--pg);font-size:10px;font-weight:bold;align-items:center;justify-content:center;flex:none}
+.capnote{font-size:11.5px;color:var(--fa);padding:6px 14px 0}
+.capnote.warn{color:var(--ac)}
+.typed{padding:9px 15px 16px;font-size:13.5px;color:var(--tx)}
+.typed:after{content:"";display:inline-block;width:1px;height:15px;background:var(--tx);vertical-align:-3px;margin-left:1px}
+.ph{padding:12px 15px 18px;color:var(--mu);font-size:13px}
+.bar{border-top:1px solid var(--bd);margin:0 9px;display:flex;align-items:center;gap:14px;padding:8px 5px;color:var(--mu)}
+.send{margin-left:auto;border:1px solid var(--bd);border-radius:8px;padding:3px 6px;display:inline-flex}
+.send.on{background:var(--ac);border-color:var(--ac);color:var(--onac)}
+/* the image card */
+.icard{border:1px solid var(--bd);border-radius:12px;background:var(--pg);overflow:hidden;max-width:540px;width:100%}
+.ich{display:flex;align-items:center;gap:9px;padding:8px 11px}
+.ico{width:27px;height:27px;border-radius:7px;background:var(--el);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--ac);flex:none}
+.ich .tt{font-size:13px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ich .s{font-size:11.5px;color:var(--mu)}
+.ibody{padding:0 11px}
+.iact{display:flex;align-items:center;gap:12px;padding:9px 11px;color:var(--mu);font-size:12.5px}
+.isrc{display:flex;align-items:center;gap:6px;padding:8px 11px 0;font-size:11.5px;color:var(--mu)}
+.isrc .pic{width:30px;border-radius:3px}
+.btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--bd);border-radius:7px;padding:3px 9px;background:var(--pg);color:var(--tx);font-size:12.5px;white-space:nowrap}
+.btn.ac{border-color:color-mix(in srgb,var(--ac) 38%,transparent);background:color-mix(in srgb,var(--ac) 10%,transparent);color:var(--ac)}
+.btn.sm{font-size:11.5px;padding:2px 8px}
+.seg{display:inline-flex;border:1px solid rgba(0,0,0,.1);border-radius:7px;overflow:hidden;font-size:11.5px;background:var(--ov);color:var(--ovtx)}
+.seg span{padding:3px 9px}.seg .on{background:var(--ink);color:var(--onac);font-weight:bold}
+.float{position:absolute;right:8px;top:8px}
+.icard.compact .ich{padding:7px 9px}
+.icard.compact .thumb{width:62px;flex:none}.icard.compact .thumb .pic{border-radius:5px}
+/* pictures */
+.pic{position:relative;aspect-ratio:16/10;border-radius:8px;overflow:hidden;background:var(--el);flex:none}
+.pic svg.sc{display:block;width:100%;height:100%}
+.chk{background:conic-gradient(var(--ck2) 25%,var(--ck1) 0 50%,var(--ck2) 0 75%,var(--ck1) 0) 0 0/12px 12px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{position:relative;border-radius:9px}
+.tile .pic{border-radius:8px}
+.tile.cur .pic{box-shadow:0 0 0 2px var(--ac)}
+.tile:not(.cur) .pic{opacity:.82}
+.badge{position:absolute;left:7px;top:7px;background:var(--ac);color:var(--onac);font-size:11px;font-weight:bold;border-radius:999px;padding:2px 7px 2px 5px;display:inline-flex;gap:3px;align-items:center}
+.badge svg.lucide{width:13px;height:13px;stroke-width:2.4}
+.badge.ghost{background:var(--ov);color:var(--ink);border:1px solid rgba(0,0,0,.1);padding:2px 8px;font-weight:normal}
+/* marks */
+.mark{position:absolute;border:2px dashed var(--ac);border-radius:4px;background:color-mix(in srgb,var(--ac) 8%,transparent)}
+.mark b{position:absolute;left:-2px;top:-19px;background:var(--ac);color:var(--onac);font-size:11px;padding:1px 7px;border-radius:5px 5px 5px 0}
+.mv{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:var(--ac);color:var(--onac);display:flex;align-items:center;justify-content:center}
+.mv svg.lucide{width:14px;height:14px;stroke-width:2.4}
+/* panel */
+.panel{display:flex;flex-direction:column;min-width:0}
+.ph1{padding:8px 16px 9px;border-bottom:1px solid var(--bd)}
+.crumbl{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--mu)}
+.eyebrow{font-size:10.5px;font-weight:bold;letter-spacing:.08em;color:var(--mu);margin-top:5px}
+.ptitle{display:flex;align-items:center;gap:10px;margin-top:2px}
+.ptitle .tt{font:16px 'Libre Baskerville',Georgia,serif;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pacts{display:flex;gap:13px;color:var(--mu);align-items:center}
+.hbtn{font-size:11.5px;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:2px 9px 2px 7px;display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.stage{flex:1;padding:14px 16px 14px;display:flex;flex-direction:column;gap:12px;background:color-mix(in srgb,var(--el) 50%,var(--pg))}
+.tools{position:absolute;left:9px;top:9px;display:flex;gap:3px;background:var(--ov);border:1px solid rgba(0,0,0,.09);border-radius:9px;padding:3px;color:var(--ovtx);font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.tools span{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:6px;white-space:nowrap}
+.tools .on{background:var(--ac);color:var(--onac)}
+.strip{display:flex;gap:9px;align-items:flex-start;overflow:hidden}
+.fr{width:96px;flex:none}
+.fr .pic{border-radius:6px}
+.fr .l{font-size:11px;color:var(--mu);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:3px;align-items:center}
+.fr .l svg.lucide{width:12px;height:12px}
+.fr.cur .pic{box-shadow:0 0 0 2px var(--ac)}
+.fr.cur .l{color:var(--tx);font-weight:bold}
+.fr.wip .pic{background:repeating-linear-gradient(135deg,var(--el) 0 8px,var(--pg) 8px 16px);border:1px dashed var(--bd)}
+/* history */
+.hist{display:grid;grid-template-columns:250px minmax(0,1fr);flex:1;min-height:0}
+.mrail{border-right:1px solid var(--bd);padding:8px;display:flex;flex-direction:column;gap:2px;background:var(--pg)}
+.mday{font-size:10.5px;font-weight:bold;letter-spacing:.08em;color:var(--mu);padding:6px 7px 3px}
+.mrow{display:flex;gap:9px;align-items:center;padding:6px 7px;border-radius:8px;font-size:12.5px}
+.mrow .pic{width:52px;border-radius:4px}
+.mrow .w{color:var(--fa);font-size:11px}
+.mrow.sel{background:color-mix(in srgb,var(--ac) 7%,var(--pg));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ac) 30%,transparent)}
+.hprev{padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:color-mix(in srgb,var(--el) 50%,var(--pg))}
+.cmp{position:relative}
+.cmp .top{position:absolute;inset:0;clip-path:inset(0 0 0 52%)}
+.cmp .top .pic{border-radius:8px}
+.cmp .line{position:absolute;top:0;bottom:0;left:52%;width:2px;margin-left:-1px;background:var(--onac);box-shadow:0 0 0 1px rgba(0,0,0,.18)}
+.cmp .knob{position:absolute;top:50%;left:52%;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:var(--onac);border:1px solid rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;color:var(--ovtx)}
+.cmp .lab{position:absolute;bottom:8px;font-size:11px;background:var(--scrim);color:var(--onac);border-radius:5px;padding:2px 7px}
+.htool{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--mu);flex-wrap:wrap}
+.sw{display:inline-flex;align-items:center;gap:7px;color:var(--tx)}
+.sw i.k{display:inline-block;width:28px;height:16px;border-radius:999px;background:var(--ac);position:relative}
+.sw i.k:after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--onac)}
+.made{font-size:11.5px;color:var(--mu);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.made .pic{width:28px;border-radius:3px}
+/* phones */
+.phones{display:flex;gap:30px;flex-wrap:wrap;padding:24px 18px;justify-content:center;background:color-mix(in srgb,var(--el) 45%,var(--pg))}
+.phone{width:300px;height:630px;border-radius:34px;border:1px solid var(--bd);background:var(--pg);box-shadow:0 8px 28px rgba(0,0,0,.10);overflow:hidden;display:flex;flex-direction:column;position:relative;flex:none}
+.notch{height:22px;flex:none}
+.ptop{height:42px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--bd);font-size:13px;color:var(--mu)}
+.ptop .ttl{flex:1;text-align:center;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptop .back{display:inline-flex;align-items:center;gap:1px;color:var(--mu);font-size:12.5px}
+.pthread{flex:1;padding:12px 12px 4px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.pthread .ub{font-size:12.5px;max-width:90%}
+.pthread .ub .att .pic{width:70px}
+.pthread .ab{font-size:12.5px}
+.pcomp{margin:6px 10px 14px;border:1px solid var(--bd);border-radius:16px;background:var(--el);flex:none}
+.pcomp .ph{padding:10px 13px 14px;font-size:12.5px}
+.pcomp .typed{padding:8px 13px 12px;font-size:12.5px}
+.pcomp .chips{padding:8px 10px 0}
+.pstage{flex:1;display:flex;flex-direction:column;gap:10px;padding:10px 0 4px;background:color-mix(in srgb,var(--el) 50%,var(--pg))}
+.pstage .pic.full{border-radius:0}
+.ptools{display:flex;justify-content:center;gap:4px;padding:0 10px}
+.ptools span{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mu);border:1px solid var(--bd);background:var(--pg);border-radius:8px;padding:5px 9px;white-space:nowrap}
+.ptools .on{background:var(--ac);border-color:var(--ac);color:var(--onac)}
+.pstage .strip{padding:0 12px}
+.pstage .fr{width:74px}
+/* states */
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;padding:16px}
+.st{border:1px solid var(--bd);border-radius:12px;padding:10px;background:var(--pg);display:flex;flex-direction:column;gap:8px}
+.st .lbl{font-size:10.5px;font-weight:bold;letter-spacing:.07em;color:var(--mu)}
+.loading{background:linear-gradient(110deg,var(--el) 30%,color-mix(in srgb,var(--el) 40%,var(--pg)) 45%,var(--el) 60%);display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:12.5px;gap:7px;text-align:center;padding:10px}
+.emptyp{background:var(--el);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--mu);font-size:12.5px;gap:6px;text-align:center;padding:12px}
+.prog{height:4px;border-radius:2px;background:var(--bs);overflow:hidden}.prog i{display:block;height:100%;width:56%;background:var(--ac)}
+.strow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mu)}
+.banner{display:flex;align-items:center;gap:9px;margin:0 16px 16px;padding:9px 12px;border-radius:10px;background:var(--wabg);color:var(--wa);font-size:12.5px;border:1px solid color-mix(in srgb,var(--wa) 25%,transparent)}
+/* open questions */
+.qt td:first-child{width:4%;font-weight:bold;color:var(--ac)}
+.qt td:nth-child(2){width:28%;font-weight:bold}
+.qt td:nth-child(3){width:34%}
+.qt td:last-child{width:34%;color:var(--mu)}
+.dec td:first-child{width:12%;font-weight:normal;color:var(--mu)}
+.dec td:last-child{width:auto;font-weight:normal;color:var(--tx)}
+.calls td:nth-child(2){width:56%;font-weight:normal;color:var(--tx)}
+.calls td:last-child{width:40%}
+.c0 th:nth-child(3),.c0 td:nth-child(3),.c0 td:nth-child(3) .y{color:var(--fa)}
+/* vision (part one) */
+.vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.vcell{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.lbl2{font-size:10.5px;font-weight:bold;letter-spacing:.07em;color:var(--mu);margin:0;text-transform:uppercase}
+.act{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mu);flex-wrap:wrap}
+.act .sep{color:var(--fa)}
+.thumbs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+.thumbs .pic{border-radius:4px}
+.thumbs .pic.best{box-shadow:0 0 0 2px var(--ac)}
+.adm{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:7px;font-size:12.5px;background:var(--pg)}
+.admh{font-size:10.5px;font-weight:bold;letter-spacing:.07em;color:var(--mu);text-transform:uppercase}
+.admr{display:flex;align-items:center;gap:7px;color:var(--tx)}
+.cb{width:15px;height:15px;border:1.5px solid var(--mu);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.cb.on{background:var(--ac);border-color:var(--ac);color:var(--onac)}
+.cb svg.lucide{width:11px;height:11px;stroke-width:3}
+/* a second mark colour, the self-check chip */
+.mark.b{border-color:var(--mk2);background:color-mix(in srgb,var(--mk2) 9%,transparent)}
+.mark.b b{background:var(--mk2)}
+.chkchip{position:absolute;left:8px;bottom:8px;display:inline-flex;align-items:center;gap:5px;background:var(--scrim);color:var(--onac);font-size:11.5px;border-radius:6px;padding:3px 8px}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+ <h1>Image generation · first wireframes</h1>
+ <p class="lead">Low-fidelity screens for settling what the UI has to support. They are drawn in AlfyAI's tokens and reuse its panel, cards and History; every label is a first guess. The pictures follow your couch session: make a sofa, recolour it, put it into a real photo, move it.</p>
+ <p class="meta">26 Oct 2026 · v2, after your answers: Qwen-Image 2.1 and shape B chosen, vision added as part one · nothing built · the numbered dots match the notes under each frame · the written design is design.md beside this file</p>
+</header>
+
+<!-- 0 -->
+<section>
+ <p class="cap">0 · What Qwen-Image 2.1 can do, and what the UI needs from it</p>
+ <p class="sub">Both candidates make new pictures from words, change a picture, and take several pictures at once. You chose Qwen-Image 2.1 on 26 Oct; FLUX.3 [klein] stays greyed out for the record. The last column is the UI work each row asks for.</p>
+ <div class="frame scroll"><table class="c0">
+  <thead><tr><th>Capability</th><th>Qwen-Image 2.1 · chosen</th><th>FLUX.3 [klein] · not chosen</th><th>What the UI needs</th></tr></thead>
+  <tbody>
+   <tr><td>New picture from words</td><td><b class="y">Yes.</b> One model makes and changes pictures; no reference needed</td><td><b class="y">Yes</b></td><td>Nothing new: ask in the chat</td></tr>
+   <tr><td>Change one picture from words</td><td><b class="y">Yes</b></td><td><b class="y">Yes</b></td><td>A clear "which picture": the one attached, the one open in the panel, or the newest in the chat</td></tr>
+   <tr><td>Several pictures at once</td><td><b class="y">Up to 10</b></td><td><b class="y">Up to 10.</b> Each extra picture adds time</td><td>Numbered picture chips, and a cap per message: 4 by default, since each extra picture costs Qwen about 2 GiB on the card</td></tr>
+   <tr><td>Change it again and again</td><td>Each edit redraws the whole frame, so it drifts over turns</td><td>Same</td><td>Versions to step back through, the original kept, and the app guarding what should not change</td></tr>
+   <tr><td>Point at a part</td><td>Painted marks or circles on the picture, or a mask picture</td><td>Soft boxes: keep, move, add, remove, or bring in from another photo</td><td>One <b>Mark</b> tool that draws boxes; the app paints them, with their letters, onto a copy it sends beside the clean picture</td></tr>
+   <tr><td>Options to compare</td><td>Yes, by seed</td><td>Yes, by seed, with more variety</td><td>An <b>Another</b> button, and a way to pick the one to keep</td></tr>
+   <tr><td>Transparent background</td><td><b class="y">Yes</b> (RGBA)</td><td><span class="nn">No</span></td><td>A checkerboard behind such a picture, and a download that keeps the transparency (frame 7)</td></tr>
+   <tr><td>Text inside the picture</td><td>Good, and better with long text</td><td>Good with short text</td><td>Nothing; Hungarian accents are untested on both</td></tr>
+   <tr><td>Shape and size</td><td>7 shapes, up to about 4 MP</td><td>Up to about 4 MP</td><td>Read from words ("for my phone"); no control drawn</td></tr>
+   <tr class="dim"><td>Documented by neither</td><td colspan="2">Brush masks with a strength slider, growing the frame outwards, pose or depth guides</td><td>Don't build them</td></tr>
+  </tbody>
+ </table></div>
+ <p class="note">"Qwen always needs a reference image" probably comes from the 2025 Qwen-Image-Edit models, which were edit-only. Qwen-Image 2.1 shows a plain words-to-picture example on its model card. Sources: both model cards (read 2026-10-26) and the 2026-10-26 model comparison report.</p>
+</section>
+
+<!-- A -->
+<section>
+ <p class="cap">A · Where it lives: three shapes</p>
+ <p class="sub">Settled on 26 Oct: B. The picture becomes a sixth kind in the family (Image / Kép), so it gets the panel, History, Download and the library that Documents and Canvases already have.</p>
+ <div class="dirs">
+  <div class="dir">
+   <div class="mini" style="grid-template-columns:12px 1fr">
+    <div class="m-rail"></div>
+    <div class="m-col"><div class="m-ln r"></div><div class="pic m-big" data-s='{"evening":1}'></div><div class="m-ln r" style="width:30%"></div><div class="pic m-big" data-s='{"evening":1,"couch":"#2f5d3c"}'></div></div>
+   </div>
+   <h3>A · In the chat only</h3>
+   <p>Each picture sits full size in a reply, and each change is a new reply.</p>
+   <ul><li class="p">Nothing new to learn</li><li class="c">Comparing means scrolling</li><li class="c">No room to mark a spot or to step back</li></ul>
+  </div>
+  <div class="dir pick">
+   <div class="mini" style="grid-template-columns:12px 1fr 1.3fr">
+    <div class="m-rail"></div>
+    <div class="m-col"><div class="m-ln r"></div><div class="m-card"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'></div></div><div class="m-ln" style="width:70%"></div><div class="m-comp"></div></div>
+    <div class="m-panel"><div class="m-ph"></div><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'><span class="mark" style="left:8%;top:42%;width:41%;height:34%;border-width:1.5px"></span></div><div class="m-strip"><div class="pic" data-s='{"photo":1,"couch":null}'></div><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'></div><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a"}'></div></div></div>
+   </div>
+   <h3>B · A card in the chat, the picture in the panel <span class="pickt">CHOSEN</span></h3>
+   <p>The chat shows each result as a card; the panel shows the current picture large, with marks and versions.</p>
+   <ul><li class="p">Big picture, versions and marks beside the chat</li><li class="p">The same panel, History and library as the other kinds</li><li class="c">One more kind for the family to carry</li></ul>
+  </div>
+  <div class="dir">
+   <div class="mini" style="grid-template-columns:12px 1fr 40px">
+    <div class="m-rail"></div>
+    <div class="m-col"><div class="m-prompt"></div><div class="m-grid"><div class="pic" data-s='{"evening":1}'></div><div class="pic" data-s='{"couch":"#2f5d3c"}'></div><div class="pic" data-s='{"x":90,"rug":1,"rx":122}'></div><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div><div class="pic" data-s='{"couch":"#6b4430","tufted":1}'></div><div class="pic" data-s='{"evening":1,"x":60}'></div></div></div>
+    <div class="m-set"><span></span><span></span><span></span><span></span><span></span></div>
+   </div>
+   <h3>C · A separate Images page</h3>
+   <p>A gallery with its own prompt bar and settings, away from the chat.</p>
+   <ul><li class="p">Good for browsing everything made</li><li class="c">Leaves the chat, so Alfy loses the conversation</li><li class="c">Many settings, against "few choices"</li></ul>
+  </div>
+ </div>
+</section>
+
+<!-- V -->
+<section>
+ <p class="cap">V · Part one: Alfy can see</p>
+ <p class="sub">This ships first, for every chat. Alfy sees what you attach or paste, and can look at small thumbnails of your Immich photos when a question needs them. Almost nothing new is drawn: the activity row says when Alfy looked.</p>
+ <div class="vgrid">
+  <div class="frame vcell">
+   <p class="lbl2">A photo you attach</p>
+   <div class="ub" style="max-width:96%"><div class="att"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div></div>What colour would suit this wall?</div>
+   <div class="act"><i data-lucide="eye"></i>Looked at the photo<span class="n">1</span></div>
+   <div class="ab">The wall is a warm beige and the floor a mid oak. A muted sage green would sit well with both, and with the plant beside the sofa.</div>
+  </div>
+  <div class="frame vcell">
+   <p class="lbl2">Your Immich photos</p>
+   <div class="ub" style="max-width:96%">Which of our living room photos has the best light?</div>
+   <div class="act"><i data-lucide="images"></i>Found 6 photos<span class="sep">·</span><i data-lucide="eye"></i>Looked at 6 thumbnails<span class="n">2</span></div>
+   <div class="thumbs"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div><div class="pic" data-s='{"photo":1,"couch":"#c9b89b","x":30}'></div><div class="pic" data-s='{"photo":1,"couch":"#c9b89b","rug":1}'></div><div class="pic best" data-s='{"photo":1,"couch":"#c9b89b","evening":1}'></div><div class="pic" data-s='{"photo":1,"couch":"#c9b89b","x":60}'></div><div class="pic" data-s='{"photo":1,"couch":"#c9b89b","fx":20}'></div></div>
+   <div class="ab">The fourth one: the low evening sun from the window lights the whole room.</div>
+  </div>
+  <div class="frame vcell">
+   <p class="lbl2">A model that can't see</p>
+   <div class="ub" style="max-width:96%"><div class="att"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div></div>What's in this photo?</div>
+   <div class="ab">This model can't see images, so I can only read the text in them, and this one has none.<span class="n">3</span></div>
+   <div class="adm">
+    <div class="admh">Admin · Models</div>
+    <div class="admr"><span class="grow">Flash-Next</span><span class="cb on"><i data-lucide="check"></i></span>Can see images</div>
+    <div class="admr"><span class="grow">A cloud model</span><span class="cb"></span>Can see images</div>
+   </div>
+  </div>
+ </div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>Anything you attach or paste</b> <span class="m">— photos, screenshots, receipts, notes. Alfy sees the image itself, and MinerU still pulls out the text so the library can find it.</span></span></div>
+  <div><span class="n">2</span><span><b>Thumbnails of your photos, only when needed</b> <span class="m">— about 250 tokens each. Later turns keep Alfy's short description of an image, never its pixels.</span></span></div>
+  <div><span class="n">3</span><span><b>One switch per model, for the admin</b> <span class="m">— without it Alfy says it can only read the text. Pictures reach a cloud model only when it is ticked.</span></span></div>
+ </div>
+</section>
+
+<!-- 1 -->
+<section>
+ <p class="cap">1 · Something new from words</p>
+ <p class="sub">Nothing is attached, so Alfy makes a new picture. Here you pressed Another once, so the card holds two takes to compare.</p>
+ <div class="scroll"><div class="frame"><div class="app">
+  <div class="rail"><span class="logo">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span></div>
+  <div class="chat">
+   <div class="hd"><span></span><span class="t">Living room ideas</span><span class="r"><span class="abtn"><i data-lucide="layout-grid"></i><b>1</b></span></span></div>
+   <div class="thread">
+    <div class="ub">Draw a cosy living room with a grey linen sofa against the left wall, evening light.</div>
+    <div class="ab">Here's a first take: the sofa on the left wall, with warm light coming in from the window.</div>
+    <div class="icard">
+     <div class="ich"><span class="ico"><i data-lucide="image"></i></span><div class="grow"><div class="tt">Cosy living room</div><div class="s">Image · 2 takes</div></div><span class="n">3</span></div>
+     <div class="ibody"><div class="tiles">
+      <div class="tile cur"><div class="pic" data-s='{"evening":1}'></div><span class="badge"><i data-lucide="check"></i></span></div>
+      <div class="tile"><div class="pic" data-s='{"evening":1,"x":90,"rug":1,"rx":122,"fx":22}'></div><span class="badge ghost">Use this</span><span class="n" style="position:absolute;right:4px;top:6px">2</span></div>
+     </div></div>
+     <div class="iact"><span class="btn"><i data-lucide="plus"></i>Another</span><span class="n" style="margin:0">1</span><span class="grow"></span><i data-lucide="paperclip"></i><i data-lucide="download"></i><i data-lucide="ellipsis"></i></div>
+    </div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span class="send"><i data-lucide="arrow-up"></i></span></div></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>One picture by default, Another for more</b> <span class="m">— each take costs roughly 11–13 s of the shared graphics card (an estimate), so comparing costs a click instead of a new request. Asking for "four options" in words works too.</span></span></div>
+  <div><span class="n">2</span><span><b>The ticked take is the one in use</b> <span class="m">— the next change starts from it. The other takes stay in the card and can still be picked with Use this.</span></span></div>
+  <div><span class="n">3</span><span><b>Clicking the picture opens it large in the panel</b> <span class="m">(frame 4). No size, style or quality controls: Alfy reads those from your words ("for my phone", "as a watercolour").</span></span></div>
+ </div>
+</section>
+
+<!-- 2 -->
+<section>
+ <p class="cap">2 · Change your own photo</p>
+ <p class="sub">The photo comes in the way files do today. Alfy changes a copy; your photo stays as it was and becomes the first version.</p>
+ <div class="scroll"><div class="frame"><div class="app">
+  <div class="rail"><span class="logo">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span></div>
+  <div class="chat">
+   <div class="hd"><span></span><span class="t">Our living room</span><span class="r"><span class="abtn"><i data-lucide="layout-grid"></i><b>2</b></span></span></div>
+   <div class="thread">
+    <div class="ub"><div class="att"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div><span class="n" style="margin:0">1</span></div>Make our sofa dark green, keep everything else.</div>
+    <div class="ab">Done. Only the sofa changed; flip to Before to compare.</div>
+    <div class="icard">
+     <div class="ich"><span class="ico"><i data-lucide="image"></i></span><div class="grow"><div class="tt">Our living room</div><div class="s">Image · from your photo</div></div><span class="n">2</span></div>
+     <div class="ibody"><div class="pic" data-s='{"photo":1,"couch":"#2f5d3c"}'><span class="seg float"><span>Before</span><span class="on">After</span></span></div></div>
+     <div class="iact"><span class="btn"><i data-lucide="plus"></i>Another</span><span class="grow"></span><i data-lucide="paperclip"></i><i data-lucide="download"></i><i data-lucide="ellipsis"></i></div>
+    </div>
+   </div>
+   <div class="composer"><div class="typed">Now try it in brown leather</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span class="n" style="margin:0 0 0 auto">3</span><span class="send on" style="margin-left:0"><i data-lucide="arrow-up"></i></span></div></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>Attach, drag or paste a photo</b> <span class="m">— nothing new here. On a phone the attach sheet already offers Photos and Camera.</span></span></div>
+  <div><span class="n">2</span><span><b>The card says what it started from</b> <span class="m">and flips Before / After in place. Your photo is never changed; it is kept as the first version.</span></span></div>
+  <div><span class="n">3</span><span><b>No re-attaching to keep going</b> <span class="m">— "it" means the newest picture in the chat. Alfy knows which picture came from which, so you never handle ids or files.</span></span></div>
+ </div>
+</section>
+
+<!-- 3 -->
+<section>
+ <p class="cap">3 · Several pictures in, one out</p>
+ <p class="sub">An earlier result, a product photo and a photo of your room go into one request. Left: the moment before sending. Right: the reply's card.</p>
+ <div class="scroll"><div class="frame"><div class="app" style="grid-template-columns:46px minmax(0,1.15fr) minmax(0,.85fr)">
+  <div class="rail"><span class="logo">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span></div>
+  <div class="chat" style="border-right:1px solid var(--bd)">
+   <div class="hd"><span></span><span class="t">Living room ideas</span><span class="r"><span class="abtn"><i data-lucide="layout-grid"></i><b>2</b></span></span></div>
+   <div class="thread">
+    <div class="ab">Here it is in brown leather, with the buttons on the back.</div>
+    <div class="icard" style="max-width:420px">
+     <div class="ich"><span class="ico"><i data-lucide="image"></i></span><div class="grow"><div class="tt">Cosy living room</div><div class="s">Image · Alfy changed it 2 min ago</div></div></div>
+     <div class="ibody"><div class="pic" data-s='{"couch":"#6b4430","tufted":1,"evening":1}'></div></div>
+     <div class="iact"><span class="btn"><i data-lucide="plus"></i>Another</span><span class="grow"></span><span style="color:var(--ac);display:inline-flex;align-items:center;gap:4px;font-size:12px;border:1px solid color-mix(in srgb,var(--ac) 40%,transparent);border-radius:7px;padding:2px 7px"><i data-lucide="paperclip"></i>Attach</span><span class="n" style="margin:0">2</span><i data-lucide="download"></i><i data-lucide="ellipsis"></i></div>
+    </div>
+   </div>
+   <div class="composer">
+    <div class="chips">
+     <span class="chip"><span class="th"><span class="pic" data-s='{"couch":"#6b4430","tufted":1,"evening":1}'></span></span><span class="num">1</span>Cosy living room<i data-lucide="x"></i></span>
+     <span class="chip"><span class="th"><span class="pic" data-s='{"only":"rug"}'></span></span><span class="num">2</span>rug.jpg<i data-lucide="x"></i></span>
+     <span class="chip"><span class="th"><span class="pic" data-s='{"photo":1,"couch":null}'></span></span><span class="num">3</span>our-room.jpg<i data-lucide="x"></i></span>
+     <span class="n" style="margin:0">1</span>
+    </div>
+    <div class="capnote">Up to 4 pictures in one message<span class="n">3</span></div>
+    <div class="typed">Put the sofa from 1 and the rug from 2 into our room, 3</div>
+    <div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span class="send on"><i data-lucide="arrow-up"></i></span></div>
+   </div>
+  </div>
+  <div class="chat" style="background:color-mix(in srgb,var(--el) 35%,var(--pg))">
+   <div class="hd" style="grid-template-columns:1fr"><span class="t" style="color:var(--mu);text-align:center">After sending</span></div>
+   <div class="thread">
+    <div class="ab">Done. The rug sits under the sofa, and I kept your floor and the lamp.</div>
+    <div class="icard">
+     <div class="ich"><span class="ico"><i data-lucide="image"></i></span><div class="grow"><div class="tt">Sofa and rug in our room</div><div class="s">Image · from 3 pictures</div></div><span class="n">4</span></div>
+     <div class="ibody"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'></div></div>
+     <div class="isrc">Made from <span class="num">1</span><div class="pic" data-s='{"couch":"#6b4430","tufted":1,"evening":1}'></div><span class="num">2</span><div class="pic" data-s='{"only":"rug"}'></div><span class="num">3</span><div class="pic" data-s='{"photo":1,"couch":null}'></div></div>
+     <div class="iact"><span class="btn"><i data-lucide="plus"></i>Another</span><span class="grow"></span><i data-lucide="paperclip"></i><i data-lucide="download"></i><i data-lucide="ellipsis"></i></div>
+    </div>
+   </div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>Each picture gets a number in the order it was added</b> <span class="m">so you can write "the rug from 2". Alfy works out which picture is the scene and which are the pieces.</span></span></div>
+  <div><span class="n">2</span><span><b>Attach on any card</b> <span class="m">puts that picture into the message: an earlier result, or a take you did not pick. Nothing is saved or uploaded again.</span></span></div>
+  <div><span class="n">3</span><span><b>A cap per message</b> <span class="m">— both models take 10, but every picture costs time and graphics memory on a shared card. I'd start at 4, since each extra picture costs Qwen about 2 GiB, and make it an admin setting.</span></span></div>
+  <div><span class="n">4</span><span><b>A result keeps its sources</b> <span class="m">and shows them on the card and in History.</span></span></div>
+ </div>
+</section>
+
+<!-- 4 -->
+<section>
+ <p class="cap">4 · Keep changing it, in the panel</p>
+ <p class="sub">The picture is open beside the chat. You marked the sofa as A and a spot under the window as B, and you are about to send "move A to B".</p>
+ <div class="scroll"><div class="frame"><div class="app split" style="min-height:560px">
+  <div class="rail"><span class="logo">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span></div>
+  <div class="chat">
+   <div class="hd"><span></span><span class="t">Living room ideas</span><span class="r"><span class="abtn on"><i data-lucide="layout-grid"></i><b>2</b></span></span></div>
+   <div class="thread" style="padding:16px 16px 6px">
+    <div class="ub">Make the rug darker, and put a mustard cushion on the right.</div>
+    <div class="ab">Done: a darker rug, and the cushion is on the right seat.</div>
+    <div class="icard compact"><div class="ich"><span class="thumb"><span class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'></span></span><div class="grow"><div class="tt">Sofa and rug in our room</div><div class="s">Image · open in the panel</div></div></div></div>
+   </div>
+   <div class="composer" style="width:calc(100% - 32px)">
+    <div class="chips"><span class="chip mk"><i data-lucide="square-dashed"></i>Marks A, B<i data-lucide="x"></i></span><span class="n" style="margin:0">2</span></div>
+    <div class="typed">Move A to B, under the window</div>
+    <div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span class="send on"><i data-lucide="arrow-up"></i></span></div>
+   </div>
+   <div style="font-size:11.5px;color:var(--fa);padding:0 18px 12px;margin-top:-8px">Empty, the composer says "Ask Alfy to change Sofa and rug in our room…"<span class="n">4</span></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <span class="crumbl"><i data-lucide="chevron-left"></i>This chat</span>
+    <div class="eyebrow">IMAGE</div>
+    <div class="ptitle"><span class="tt">Sofa and rug in our room</span><span class="pacts"><span class="hbtn"><i data-lucide="history"></i>Alfy · 1 min ago</span><i data-lucide="download"></i><i data-lucide="maximize-2"></i><i data-lucide="x"></i></span></div>
+   </div>
+   <div class="stage">
+    <div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'>
+     <span class="mark" style="left:8%;top:42%;width:41.5%;height:34%"><b>A</b></span>
+     <span class="mark b" style="left:57%;top:42%;width:41%;height:34%"><b>B</b></span>
+     <span class="mv" style="left:53.2%;top:59%"><i data-lucide="arrow-right"></i></span>
+     <span class="tools"><span class="on"><i data-lucide="square-dashed"></i>Mark</span><span><i data-lucide="columns-2"></i>Before / After</span></span>
+     <span class="n" style="position:absolute;left:198px;top:12px">1</span>
+    </div>
+    <div class="strip">
+     <div class="fr"><div class="pic" data-s='{"photo":1,"couch":null}'></div><div class="l"><i data-lucide="pin"></i>Your photo</div></div>
+     <div class="fr"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'></div><div class="l">Sofa and rug</div></div>
+     <div class="fr"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a"}'></div><div class="l">Darker rug</div></div>
+     <div class="fr cur"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'></div><div class="l">Cushion</div></div>
+     <span class="n" style="align-self:center">3</span>
+    </div>
+   </div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>Mark: drag a box on the picture</b> <span class="m">— each box gets a letter you can use in words: "make A green", "move A to B", "put picture 2 in B". Each box gets its own colour. Qwen has no box control, so the app paints the boxes and their letters onto a copy and sends it beside the clean picture.</span></span></div>
+  <div><span class="n">2</span><span><b>Marks go with your next message as one chip</b> <span class="m">and sending clears them. The × on the chip drops them all; tapping a box drops one.</span></span></div>
+  <div><span class="n">3</span><span><b>The strip shows every version</b> <span class="m">of this picture, oldest first, with your photo pinned at the start. Clicking a frame opens it in History (frame 5).</span></span></div>
+  <div><span class="n">4</span><span><b>While the picture is open, the composer is about it</b> <span class="m">so "make the rug smaller" needs no pointing. It follows the App's wording.</span></span></div>
+  <div><span class="n">✱</span><span><b>Promised, not drawn</b> <span class="m">— each change starts from the version on screen, uses a fresh seed, and only the changed area is pasted back. Every few rounds the app redraws from your photo to stop drift (the comparison report's guards).</span></span></div>
+ </div>
+</section>
+
+<!-- 5 -->
+<section>
+ <p class="cap">5 · Go back and compare: History</p>
+ <p class="sub">History is the panel's own mode, as it is for Documents and Canvases, with a thumbnail on every version. Here the newest version is compared with the one before it.</p>
+ <div class="scroll"><div class="frame"><div class="app split" style="grid-template-columns:46px minmax(300px,.45fr) minmax(0,1fr);min-height:500px">
+  <div class="rail"><span class="logo">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span></div>
+  <div class="chat">
+   <div class="hd"><span></span><span class="t">Living room ideas</span><span class="r"><span class="abtn on"><i data-lucide="layout-grid"></i><b>2</b></span></span></div>
+   <div class="thread" style="padding:16px 14px 6px">
+    <div class="ub">Move A to B, under the window</div>
+    <div class="ab">Moved. The rug went with it, and the wall where the sofa stood is filled in.</div>
+    <div class="icard compact"><div class="ich"><span class="thumb"><span class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1,"x":92,"rx":124}'></span></span><div class="grow"><div class="tt">Sofa and rug in our room</div><div class="s">Image · open in the panel</div></div></div></div>
+   </div>
+   <div class="composer" style="width:calc(100% - 28px)"><div class="ph">Ask Alfy to change Sofa and rug in our room…</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span class="send"><i data-lucide="arrow-up"></i></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <span class="crumbl"><i data-lucide="chevron-left"></i>This chat</span>
+    <div class="eyebrow">IMAGE · HISTORY</div>
+    <div class="ptitle"><span class="tt">Sofa and rug in our room</span><span class="btn">Done</span></div>
+   </div>
+   <div class="hist">
+    <div class="mrail">
+     <div class="mday">TODAY</div>
+     <div class="mrow sel"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1,"x":92,"rx":124}'></div><div><div>Alfy moved the sofa</div><div class="w">just now</div></div></div>
+     <div class="mrow"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'></div><div><div>Alfy added a cushion</div><div class="w">3 min ago</div></div></div>
+     <div class="mrow"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a"}'></div><div><div>Alfy darkened the rug</div><div class="w">5 min ago</div></div></div>
+     <div class="mrow"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1}'></div><div><div>Alfy added the sofa and rug</div><div class="w">9 min ago · from 3 pictures</div></div></div>
+     <div class="mrow"><div class="pic" data-s='{"photo":1,"couch":null}'></div><div><div>Your photo</div><div class="w">12 min ago</div></div></div>
+     <span class="n" style="margin:8px 0 0 7px">1</span>
+    </div>
+    <div class="hprev">
+     <div class="cmp">
+      <div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'></div>
+      <div class="top"><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1,"x":92,"rx":124}'></div></div>
+      <span class="line"></span><span class="knob"><i data-lucide="chevrons-left-right"></i></span>
+      <span class="lab" style="left:8px">Before</span><span class="lab" style="right:8px">After</span>
+      <span class="n" style="position:absolute;right:6px;top:8px">2</span>
+     </div>
+     <div class="htool"><span class="sw"><i class="k"></i>Compare with the one before</span><span class="grow"></span><span class="btn"><i data-lucide="paperclip"></i>Attach</span><span class="btn"><i data-lucide="download"></i></span></div>
+     <div class="made"><span>Made from</span><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1}'></div><span>the version before, with marks A → B ·</span><span style="color:var(--tx);display:inline-flex;align-items:center;gap:3px"><i data-lucide="chevron-right"></i>Prompt Alfy sent</span><span class="n">4</span></div>
+     <div class="made" style="color:var(--fa)">On an older version, Restore sits here as for the other kinds.<span class="n">3</span></div>
+    </div>
+   </div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>One row per version, in the family's own words</b> <span class="m">("Alfy moved the sofa · just now"), with a thumbnail. No version numbers on show, as for the other kinds.</span></span></div>
+  <div><span class="n">2</span><span><b>Compare: drag the line</b> <span class="m">to wipe between this version and the one before it. After a move you see both places at once.</span></span></div>
+  <div><span class="n">3</span><span><b>Restore makes an older version the one in use</b> <span class="m">and the next change starts from it. Nothing is deleted. This is the existing History button, not a second one.</span></span></div>
+  <div><span class="n">4</span><span><b>Each version keeps what made it</b> <span class="m">— its pictures, its marks, and, folded away, the English prompt Alfy wrote for the image model.</span></span></div>
+ </div>
+</section>
+
+<!-- 6 -->
+<section>
+ <p class="cap">6 · On a phone, in Hungarian</p>
+ <p class="sub">The same thing at 300 px. Left: the chat after "make our sofa dark green". Right: the picture opened as a full-screen sheet, with two marks drawn by finger.</p>
+ <div class="frame"><div class="phones">
+  <div class="phone">
+   <div class="notch"></div>
+   <div class="ptop"><i data-lucide="menu"></i><span class="ttl">A nappalink</span><span class="abtn" style="padding:2px 8px 2px 6px"><i data-lucide="layout-grid"></i><b>1</b></span></div>
+   <div class="pthread">
+    <div class="ub"><div class="att"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div></div>Legyen sötétzöld a kanapé, a többi maradjon.</div>
+    <div class="ab">Kész, csak a kanapé változott.</div>
+    <div class="icard">
+     <div class="ich"><span class="ico"><i data-lucide="image"></i></span><div class="grow"><div class="tt">A nappalink</div><div class="s">Kép · a fotódból</div></div></div>
+     <div class="ibody"><div class="pic" data-s='{"photo":1,"couch":"#2f5d3c"}'><span class="seg float"><span>Előtte</span><span class="on">Utána</span></span></div></div>
+     <div class="iact"><span class="btn"><i data-lucide="plus"></i>Másik</span><span class="grow"></span><i data-lucide="paperclip"></i><i data-lucide="download"></i><i data-lucide="ellipsis"></i></div>
+    </div>
+   </div>
+   <div class="pcomp"><div class="ph">Írj üzenetet...</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span class="send"><i data-lucide="arrow-up"></i></span></div></div>
+  </div>
+  <div class="phone">
+   <div class="notch"></div>
+   <div class="ptop"><span class="back"><i data-lucide="chevron-left"></i>Vissza</span><span class="ttl">A nappalink</span><i data-lucide="ellipsis"></i></div>
+   <div class="pstage">
+    <div class="pic full" data-s='{"photo":1,"couch":"#2f5d3c"}'>
+     <span class="mark" style="left:8%;top:42%;width:41.5%;height:34%"><b>A</b></span>
+     <span class="mark b" style="left:57%;top:42%;width:41%;height:34%"><b>B</b></span>
+     <span class="mv" style="left:53.2%;top:59%"><i data-lucide="arrow-right"></i></span>
+    </div>
+    <div class="ptools"><span class="on"><i data-lucide="square-dashed"></i>Jelölés</span><span><i data-lucide="columns-2"></i>Előtte / utána</span><span><i data-lucide="history"></i></span></div>
+    <div class="strip">
+     <div class="fr"><div class="pic" data-s='{"photo":1,"couch":"#c9b89b"}'></div><div class="l"><i data-lucide="pin"></i>A fotód</div></div>
+     <div class="fr cur"><div class="pic" data-s='{"photo":1,"couch":"#2f5d3c"}'></div><div class="l">Zöld kanapé</div></div>
+    </div>
+   </div>
+   <div class="pcomp"><div class="chips"><span class="chip mk"><i data-lucide="square-dashed"></i>A, B jelölés<i data-lucide="x"></i></span></div><div class="typed">Vidd az A-t a B helyére</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><span class="send on"><i data-lucide="arrow-up"></i></span></div></div>
+  </div>
+ </div></div>
+ <div class="legend">
+  <div><span class="n">1</span><span><b>The panel is a full-screen sheet on a phone</b> <span class="m">as it is today. The picture fills the width; pinch to zoom.</span></span></div>
+  <div><span class="n">2</span><span><b>Marks by finger</b> <span class="m">— with Jelölés on, one finger draws a box, two fingers zoom, and a tap on a box removes it.</span></span></div>
+  <div><span class="n">3</span><span><b>Hungarian first guesses, short enough for 360 px</b> <span class="m">— Kép, Másik, Ez legyen, Előtte / utána, Jelölés, Előzmények and Visszaállítás (both already in the app), Csatolás; the composer would say "Mit változtasson Alfy?".</span></span></div>
+ </div>
+</section>
+
+<!-- 7 -->
+<section>
+ <p class="cap">7 · States the card needs</p>
+ <p class="sub">A picture takes roughly 11 to 13 seconds plus prompt writing, it waits its turn on a shared card, and Alfy checks each result before showing it, so the card has more states than a reply. There is no "held back" state: you decided against a content checker.</p>
+ <div class="frame">
+  <div class="states">
+   <div class="st"><span class="lbl">MAKING</span><div class="pic loading"><i data-lucide="loader-circle"></i>Making the picture…</div><div class="prog"><i></i></div><div class="strow"><span class="grow">About 8 s left</span><span class="btn sm">Stop</span></div></div>
+   <div class="st"><span class="lbl">WAITING ITS TURN</span><div class="pic loading"><i data-lucide="clock"></i>Another picture is being made</div><div class="strow"><span class="grow">1 ahead of this one</span><span class="btn sm">Stop</span></div></div>
+   <div class="st"><span class="lbl">STARTING UP</span><div class="pic loading"><i data-lucide="loader-circle"></i>Starting the picture maker…</div><div class="strow"><span class="grow">After a quiet spell the model loads first, so this one takes longer</span></div></div>
+   <div class="st"><span class="lbl">FAILED</span><div class="pic emptyp"><i data-lucide="triangle-alert"></i>Couldn't make this one.</div><div class="strow"><span class="grow">Nothing was saved</span><span class="btn sm">Try again</span></div></div>
+   <div class="st"><span class="lbl">CHECKING THE RESULT</span><div class="pic" data-s='{"photo":1,"couch":"#6b4430","tufted":1,"rug":1,"rugc":"#8f3f2a","cushion":1,"x":92,"rx":46}'><span class="chkchip"><i data-lucide="eye"></i>Alfy is checking it…</span></div><div class="strow"><i data-lucide="rotate-ccw"></i><span class="grow">The first take left the rug behind, so Alfy tried once more. You only see the better one.</span></div></div>
+   <div class="st"><span class="lbl">TRANSPARENT</span><div class="pic chk" data-s='{"only":"couch","couch":"#6b4430","tufted":1}'></div><div class="strow"><span class="grow">Qwen can cut a picture out. The checkerboard shows what is see-through, and Download keeps it.</span></div></div>
+   <div class="st"><span class="lbl">TOO MANY PICTURES</span><div class="chips" style="padding:0"><span class="chip"><span class="num">1</span>…</span><span class="chip"><span class="num">4</span>…</span><span class="chip over"><span class="num">5</span>beach.jpg<i data-lucide="x"></i></span></div><div class="capnote warn" style="padding:0">Up to 4 pictures in one message. Remove one to send.</div></div>
+  </div>
+  <div class="banner"><i data-lucide="triangle-alert"></i>Pictures can't be made right now. Everything else works. <span style="opacity:.75">(the existing degraded-tools banner)</span></div>
+ </div>
+</section>
+
+<!-- 8 -->
+<section>
+ <p class="cap">8 · Decided, and my calls</p>
+ <p class="sub">Your answers first, then the calls I made without asking. The written design, design.md beside this file, carries both.</p>
+ <div class="frame scroll"><table class="qt dec">
+  <thead><tr><th>Date</th><th>Decided by you</th></tr></thead>
+  <tbody>
+   <tr><td>25 Oct</td><td>Image generation is backlog priority 2, and the use case is the sofa session.</td></tr>
+   <tr><td>26 Oct</td><td>Qwen-Image 2.1, without the one-hour trial.</td></tr>
+   <tr><td>26 Oct</td><td>Shape B: a card in the chat, the picture in the panel, a sixth kind (Image / Kép).</td></tr>
+   <tr><td>26 Oct</td><td>Older cards keep their own turn's picture; pictures appear in the Knowledge Base; no "make a picture" switch.</td></tr>
+   <tr><td>26 Oct</td><td>Alfy must see images: part one, for every chat, shipped first.</td></tr>
+   <tr><td>26 Oct</td><td>Alfy checks every new picture and tries once more on its own when it clearly missed.</td></tr>
+   <tr><td>26 Oct</td><td>No content checker on our side.</td></tr>
+   <tr><td>26 Oct</td><td>Alfy may look at small thumbnails of your Immich photos when a question needs them.</td></tr>
+  </tbody>
+ </table></div>
+ <div class="frame scroll" style="margin-top:14px"><table class="qt calls">
+  <thead><tr><th>#</th><th>My call</th><th>Why</th></tr></thead>
+  <tbody>
+   <tr><td>1</td><td>Pixels go only into the turn that needs them; afterwards the history keeps Alfy's short description. No new tool.</td><td>About 1,000 tokens an image every time it is sent, and the tool list has no room</td></tr>
+   <tr><td>2</td><td>MinerU keeps extracting text from image uploads</td><td>Knowledge Base search, and the fallback for a model that can't see</td></tr>
+   <tr><td>3</td><td>A per-model "Can see images" setting; pictures reach a cloud model only when it is ticked</td><td>Family photos stay home unless you decide otherwise</td></tr>
+   <tr><td>4</td><td>One picture per request, plus Another</td><td>Each take is roughly 11–13 s on a shared card</td></tr>
+   <tr><td>5</td><td>Marks are boxes only, each with its own colour and letter</td><td>One tool to learn; Qwen reads painted marks</td></tr>
+   <tr><td>6</td><td>The English prompt is kept per version, folded away in History</td><td>Trust and learning, without crowding the card</td></tr>
+   <tr><td>7</td><td>No size or shape control</td><td>Few choices; your words carry it</td></tr>
+   <tr><td>8</td><td>Up to 4 pictures per message, admin-set, never above 10</td><td>Each extra picture costs Qwen about 2 GiB</td></tr>
+   <tr><td>9</td><td>A picture job runs on the job engine, with a card</td><td>Queue, progress, Stop and Try again come with it</td></tr>
+   <tr><td>10</td><td>After an automatic retry, only the better take is shown</td><td>The activity row still says a retry happened</td></tr>
+   <tr><td>11</td><td>No storage quota yet</td><td>A family server; revisit if the disk fills</td></tr>
+   <tr><td>12</td><td>Hungarian labels: Kép, Másik, Ez legyen, Előtte / utána, Jelölés, Csatolás, Lát képeket</td><td>First guesses, short enough for 360 px</td></tr>
+  </tbody>
+ </table></div>
+ <p class="note">Not drawn yet: pictures in the Knowledge Base and search, deleting, and Ask me first (backlog item 5) asking which photo you meant.</p>
+</section>
+
+</main>
+<script>
+// Stand-in pictures: a room drawn in a 160 x 100 box. Options: x (sofa's left edge), couch (colour, or null for none),
+// tufted, cushion, rug, rx (rug centre), rugc (rug colour), photo (looks like a real photo), evening, fx (wall frame), only:"rug".
+let uid = 0;
+function rgb(h){h=h.replace('#','');return [0,2,4].map(i=>parseInt(h.slice(i,i+2),16));}
+function mix(h,t){return 'rgb('+rgb(h).map(v=>Math.round(t<0?v*(1+t):v+(255-v)*t)).join(',')+')';}
+function couch(x,c,o){
+ const d=mix(c,-.28),l=mix(c,.13);
+ let s=`<rect x="${x}" y="44" width="64" height="21" rx="5" fill="${c}"/>`;
+ if(o.tufted)for(let i=0;i<5;i++)s+=`<circle cx="${x+10+i*11}" cy="51.5" r="1.2" fill="${d}"/>`;
+ s+=`<rect x="${x+6}" y="58" width="52" height="11" rx="3" fill="${l}"/><path d="M${x+23.5} 59v9M${x+40.5} 59v9" stroke="${d}" stroke-width=".8"/>`;
+ s+=`<rect x="${x}" y="52" width="9" height="19" rx="4" fill="${c}"/><rect x="${x+55}" y="52" width="9" height="19" rx="4" fill="${c}"/>`;
+ s+=`<rect x="${x+5}" y="70.5" width="3" height="4" fill="#5b4b3b"/><rect x="${x+56}" y="70.5" width="3" height="4" fill="#5b4b3b"/>`;
+ if(o.cushion)s+=`<rect x="${x+43}" y="49" width="12" height="10" rx="3" fill="#d9a62e"/>`;
+ return s;
+}
+function scene(o){
+ const id='s'+(++uid),p=o.photo;
+ let s='<svg class="sc" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">';
+ if(o.only==='couch')return s+couch(48,o.couch||'#9b9a96',o)+'</svg>';
+ if(o.only==='rug')return s+'<rect width="160" height="100" fill="#efebe4"/><ellipse cx="80" cy="56" rx="58" ry="21" fill="#c46f4e" opacity=".85"/><ellipse cx="80" cy="56" rx="46" ry="14" fill="none" stroke="#f3dcc9" stroke-width="1.6" stroke-dasharray="3 2"/></svg>';
+ s+=`<defs><radialGradient id="${id}v" cx="50%" cy="45%" r="75%"><stop offset="60%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".26"/></radialGradient><linearGradient id="${id}e" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffae57" stop-opacity=".34"/><stop offset="1" stop-color="#ff8a3d" stop-opacity="0"/></linearGradient></defs>`;
+ s+=`<rect width="160" height="72" fill="${p?'#e3d6c4':'#ebe6dc'}"/><rect y="72" width="160" height="28" fill="${p?'#b59c7c':'#d6cab6'}"/>`;
+ if(p)s+='<path d="M0 80H160M0 88H160M0 96H160M30 72V80M75 80V88M120 72V80M50 88V96M140 88V96" stroke="rgba(0,0,0,.09)" stroke-width=".7"/>';
+ s+='<path d="M0 72H160" stroke="rgba(0,0,0,.14)"/>';
+ s+='<rect x="104" y="12" width="40" height="38" fill="#d7e6ee" stroke="#b6a994" stroke-width="1.6"/><path d="M124 12v38M104 31h40" stroke="#b6a994" stroke-width="1.2"/>';
+ const fx=o.fx??36;
+ s+=`<rect x="${fx}" y="17" width="24" height="17" fill="#f5efe5" stroke="#a69882" stroke-width="1.2"/><path d="M${fx+4} 30l6-7 5 5 3-3 4 5" stroke="#b9a98f" fill="none" stroke-width=".9"/>`;
+ if(p){
+  s+='<path d="M84 72V40" stroke="#6b5b49" stroke-width="1.2"/><path d="M77 40h14l-3-9h-8z" fill="#efe2c8" stroke="#bda98a" stroke-width=".8"/>';
+  s+='<rect x="2" y="62" width="10" height="10" rx="1.5" fill="#a0694b"/><ellipse cx="4" cy="55" rx="4" ry="8" fill="#4f7a4c" transform="rotate(-20 4 55)"/><ellipse cx="10" cy="54" rx="4" ry="9" fill="#5d8a57" transform="rotate(18 10 54)"/><ellipse cx="7" cy="50" rx="3.4" ry="9" fill="#46703f"/>';
+ }
+ if(o.rug)s+=`<ellipse cx="${o.rx??46}" cy="88" rx="40" ry="7.5" fill="${o.rugc||'#c46f4e'}" opacity=".62"/>`;
+ if(o.couch!==null)s+=couch(o.x??14,o.couch||'#9b9a96',o);
+ if(o.evening)s+=`<rect width="160" height="100" fill="url(#${id}e)"/>`;
+ if(p)s+=`<rect width="160" height="100" fill="url(#${id}v)"/>`;
+ return s+'</svg>';
+}
+document.querySelectorAll('[data-s]').forEach(el=>{
+ const svg=scene(JSON.parse(el.getAttribute('data-s')));
+ el.insertAdjacentHTML('afterbegin',svg);
+});
+try{lucide.createIcons();}catch(e){}
+</script>
+</body>
+</html>
