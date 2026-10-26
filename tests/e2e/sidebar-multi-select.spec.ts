@@ -4,7 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
 import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
-import { login, waitForHydration } from "./helpers";
+import { login, waitForHydration, waitForMotionToSettle } from "./helpers";
 
 /**
  * Selecting several chats in the sidebar and acting on them at once, in a real
@@ -114,6 +114,14 @@ async function startWithChats(
 	await login(page, user.email, user.password);
 	if (hasDockedSidebar(page)) await expandDockedSidebar(page, language);
 	await expect(chatRow(page, titles[0])).toBeVisible();
+	// The first row is visible while the sidebar is still opening: it grows from its
+	// 48 px rail over 240 ms, and the row is in it at about 20 px wide, its centre on
+	// its own options button. The width transition spends two frames at its start (the
+	// page runs them back to back after the list mounts), and Playwright takes two
+	// frames with the same box for a target that has settled: a click that starts now
+	// can be accepted in that pair, land on the options button, open the row's menu
+	// and pick nothing. Wait until the motion has ended.
+	await waitForMotionToSettle(page);
 	return { user, ids };
 }
 
@@ -129,6 +137,8 @@ function selectionCount(page: Page): Locator {
 async function openPhoneSidebar(page: Page, toggleName = "Toggle sidebar") {
 	await page.getByRole("button", { name: toggleName }).click();
 	await expect(page.locator("aside.sidebar-panel")).toBeVisible();
+	// The drawer slides in: until it has, a row's box is where it starts, off screen.
+	await waitForMotionToSettle(page);
 }
 
 type Extent = { scroll: number; client: number };
@@ -304,6 +314,7 @@ test.describe("selecting chats in the sidebar", () => {
 			.getByTestId("project-drop-target")
 			.filter({ hasText: "Trips" });
 		await expect(folder).toBeVisible();
+		await waitForMotionToSettle(page);
 
 		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
 		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
@@ -322,6 +333,8 @@ test.describe("selecting chats in the sidebar", () => {
 		const inFolder = page.getByTestId(`project-conversations-${projectId}`);
 		await expect(inFolder.getByTestId("conversation-item")).toHaveCount(2);
 		await expect(chatRow(page, "Alpha plan")).toBeVisible();
+		// The folder slides open: a row in it is clipped until it has.
+		await waitForMotionToSettle(page);
 
 		// And out again.
 		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
@@ -374,6 +387,7 @@ test.describe("selecting chats in the sidebar", () => {
 		await page.goto(`/chat/${ids[0]}`);
 		await waitForHydration(page);
 		await expect(page).toHaveURL(new RegExp(`/chat/${ids[0]}$`));
+		await waitForMotionToSettle(page);
 
 		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
 		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
