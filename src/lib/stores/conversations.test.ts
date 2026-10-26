@@ -1143,6 +1143,31 @@ describe("conversations store", () => {
 				expect(outcome).toEqual({ failedIds: ["conv-c", "conv-a"] });
 			});
 
+			// The answer is meant to hold one result per id. An id it leaves out says
+			// nothing about what the server did, so it is decided by the reload like
+			// any other unknown id, never counted as deleted.
+			it("treats an id the answer leaves out as unknown, not as deleted", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([ok("conv-a")]);
+				// The server did delete B, and still has C.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [conversationItem("conv-c", "C", 100)],
+					}),
+				);
+
+				const outcome = await deleteConversationsByIds([
+					"conv-a",
+					"conv-b",
+					"conv-c",
+				]);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(outcome).toEqual({ failedIds: ["conv-c"] });
+				expect(get(conversations).map((item) => item.id)).toEqual(["conv-c"]);
+				expect(workspaceDeletedIds()).toEqual(["conv-a", "conv-b"]);
+			});
+
 			it("removes the chats from the sidebar even when workspace cleanup throws", async () => {
 				vi.mocked(runConversationBatch).mockResolvedValueOnce([
 					ok("conv-a"),
@@ -1210,6 +1235,10 @@ describe("conversations store", () => {
 					"conv-b": "proj-0",
 				});
 				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				// C is gone the way a deleted chat is: what the workspace remembers
+				// about it goes, and the workspace is told.
+				expect(workspaceDeletedIds()).toEqual(["conv-c"]);
+				expect(vi.mocked(window.sessionStorage.getItem)).toHaveBeenCalled();
 			});
 
 			it("a later snapshot does not undo the chats that were moved", async () => {
@@ -1318,6 +1347,67 @@ describe("conversations store", () => {
 					"conv-a": null,
 					"conv-b": "proj-0",
 					"conv-c": null,
+				});
+			});
+
+			it("an unknown chat the reloaded list no longer holds is gone, not failed", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					ok("conv-b", serverConversation("conv-b", { projectId: "proj-1" })),
+				]);
+				// A was deleted somewhere else while the request was out.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-b", "B", 200, { projectId: "proj-1" }),
+							conversationItem("conv-c", "C", 100),
+						],
+					}),
+				);
+
+				const outcome = await moveConversationsToProject(
+					["conv-a", "conv-b"],
+					"proj-1",
+				);
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(workspaceDeletedIds()).toEqual(["conv-a"]);
+				expect(projectsById()).toEqual({
+					"conv-b": "proj-1",
+					"conv-c": null,
+				});
+			});
+
+			// The answer is meant to hold one result per id. An id it leaves out says
+			// nothing about what the server did, so it is decided by the reload like
+			// any other unknown id, never counted as moved.
+			it("treats an id the answer leaves out as unknown, not as moved", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok("conv-a", serverConversation("conv-a", { projectId: "proj-1" })),
+				]);
+				// The server moved C, and never got to B.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-a", "A", 300, { projectId: "proj-1" }),
+							conversationItem("conv-b", "B", 200, { projectId: "proj-0" }),
+							conversationItem("conv-c", "C", 100, { projectId: "proj-1" }),
+						],
+					}),
+				);
+
+				const outcome = await moveConversationsToProject(
+					["conv-a", "conv-b", "conv-c"],
+					"proj-1",
+				);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				expect(projectsById()).toEqual({
+					"conv-a": "proj-1",
+					"conv-b": "proj-0",
+					"conv-c": "proj-1",
 				});
 			});
 
@@ -1609,6 +1699,95 @@ describe("conversations store", () => {
 				expect(get(conversations).map((item) => item.id)).toEqual([
 					"conv-b",
 					"conv-p",
+				]);
+				// A is gone the way a deleted chat is: what the workspace remembers
+				// about it goes, and the workspace is told.
+				expect(workspaceDeletedIds()).toEqual(["conv-a"]);
+				expect(vi.mocked(window.sessionStorage.getItem)).toHaveBeenCalled();
+			});
+
+			it("an unknown chat the reloaded list no longer holds is gone, not failed", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					unknown("conv-a"),
+					ok(
+						"conv-b",
+						serverConversation("conv-b", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+				]);
+				// A was deleted somewhere else while the request was out.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-b", "B", 300, {
+								sidebarPinned: true,
+								sidebarSortOrder: -1,
+							}),
+							conversationItem("conv-p", "P", 200, {
+								sidebarPinned: true,
+								sidebarSortOrder: 0,
+							}),
+						],
+					}),
+				);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(outcome).toEqual({ failedIds: [] });
+				expect(workspaceDeletedIds()).toEqual(["conv-a"]);
+				expect(pinState()).toEqual([
+					{ id: "conv-b", sidebarPinned: true, sidebarSortOrder: -1 },
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+				]);
+			});
+
+			// The answer is meant to hold one result per id. An id it leaves out says
+			// nothing about what the server did, so it is decided by the reload like
+			// any other unknown id, never counted as pinned.
+			it("treats an id the answer leaves out as unknown, not as pinned", async () => {
+				vi.mocked(runConversationBatch).mockResolvedValueOnce([
+					ok(
+						"conv-a",
+						serverConversation("conv-a", {
+							sidebarPinned: true,
+							sidebarSortOrder: -1,
+						}),
+					),
+				]);
+				// The server never got to B.
+				vi.mocked(fetch).mockResolvedValueOnce(
+					jsonResponse({
+						conversations: [
+							conversationItem("conv-a", "A", 100, {
+								sidebarPinned: true,
+								sidebarSortOrder: -1,
+							}),
+							conversationItem("conv-b", "B", 300),
+							conversationItem("conv-p", "P", 200, {
+								sidebarPinned: true,
+								sidebarSortOrder: 0,
+							}),
+						],
+					}),
+				);
+
+				const outcome = await setConversationsSidebarPinned(
+					["conv-a", "conv-b"],
+					true,
+				);
+
+				expect(fetch).toHaveBeenCalledTimes(1);
+				expect(fetch).toHaveBeenCalledWith("/api/conversations");
+				expect(outcome).toEqual({ failedIds: ["conv-b"] });
+				expect(pinState()).toEqual([
+					{ id: "conv-a", sidebarPinned: true, sidebarSortOrder: -1 },
+					{ id: "conv-p", sidebarPinned: true, sidebarSortOrder: 0 },
+					{ id: "conv-b", sidebarPinned: false, sidebarSortOrder: null },
 				]);
 			});
 

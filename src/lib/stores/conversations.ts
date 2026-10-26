@@ -19,6 +19,7 @@ import type {
 	Conversation,
 	ConversationListItem,
 } from "$lib/server/services/conversations";
+import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 
 export const conversations = writable<ConversationListItem[]>([]);
@@ -904,15 +905,72 @@ export async function moveConversationToProject(
 // either way.
 type BulkConversationOutcome = { failedIds: string[] };
 
-// A chunk that failed, or an id its answer left out, says nothing about what
-// the server did. So the server is asked: the list is loaded again and the
-// rows it holds are the truth. A reload that fails leaves the rows as they
-// were, which reads as "not done".
-async function reloadListedConversations(): Promise<
-	Map<string, ConversationListItem>
-> {
-	await loadConversations({ force: true });
-	return new Map(get(conversations).map((item) => [item.id, item]));
+type BatchResult = ConversationBatchResult<Conversation>;
+
+/**
+ * What the answer to a bulk action comes to in this browser, and which chats
+ * it could not do. Delete, move and pin all end here, so all three read an
+ * answer the same way.
+ *
+ * Each id, in the order given, has one of four verdicts:
+ * - `ok`: the server did it. `onOk` hears of it, with the result.
+ * - `not_found`: the server no longer has the chat. It is gone either way, so
+ *   it leaves the list as a deleted chat does (its row, what the workspace
+ *   remembers about it, the workspace's event) and is not a failure.
+ * - `failed`: the server could not do it. A failure.
+ * - `unknown`: nobody can say. A chunk whose request failed, and an id the
+ *   answer leaves out: an id with no result is unknown, never counted as done.
+ *
+ * `undo` is handed the chats that did not go through (failed and unknown) so
+ * the action can take back what it showed before the answer. It runs before
+ * the reload, so that a snapshot never meets state the server did not agree
+ * to. Then the server is asked about the unknown chats, through one forced
+ * reload of the list, and the rows it holds decide them: a chat no longer
+ * listed is gone, one `isDone` accepts went through, and the rest failed. A
+ * reload that fails leaves the rows as `undo` put them, which reads as not
+ * done.
+ */
+async function settleBulkResults(params: {
+	ids: string[];
+	results: BatchResult[];
+	/** Is this listed row where the action wanted it? */
+	isDone: (row: ConversationListItem) => boolean;
+	onOk?: (result: Extract<BatchResult, { ok: true }>) => void;
+	undo?: (ids: Set<string>) => void;
+}): Promise<BulkConversationOutcome> {
+	const resultById = new Map(
+		params.results.map((result) => [result.id, result]),
+	);
+	const failed = new Set<string>();
+	const unknown = new Set<string>();
+	for (const id of params.ids) {
+		const result = resultById.get(id);
+		if (result?.ok) {
+			params.onOk?.(result);
+		} else if (result?.error === "not_found") {
+			forgetDeletedConversationLocally(id);
+		} else if (result?.error === "failed") {
+			failed.add(id);
+		} else {
+			unknown.add(id);
+		}
+	}
+	params.undo?.(new Set([...failed, ...unknown]));
+
+	if (unknown.size > 0) {
+		await loadConversations({ force: true });
+		const listed = new Map(get(conversations).map((item) => [item.id, item]));
+		for (const id of unknown) {
+			const row = listed.get(id);
+			if (!row) {
+				forgetDeletedConversationLocally(id);
+			} else if (!params.isDone(row)) {
+				failed.add(id);
+			}
+		}
+	}
+
+	return { failedIds: params.ids.filter((id) => failed.has(id)) };
 }
 
 /**
@@ -927,30 +985,13 @@ export async function deleteConversationsByIds(
 	if (ids.length === 0) return { failedIds: [] };
 
 	const results = await runConversationBatch({ action: "delete", ids });
-	const failed = new Set<string>();
-	const unknown: string[] = [];
-	for (const result of results) {
-		if (result.ok || result.error === "not_found") {
-			forgetDeletedConversationLocally(result.id);
-		} else if (result.error === "failed") {
-			failed.add(result.id);
-		} else {
-			unknown.push(result.id);
-		}
-	}
-
-	if (unknown.length > 0) {
-		const listed = await reloadListedConversations();
-		for (const id of unknown) {
-			if (listed.has(id)) {
-				failed.add(id);
-			} else {
-				forgetDeletedConversationLocally(id);
-			}
-		}
-	}
-
-	return { failedIds: ids.filter((id) => failed.has(id)) };
+	return settleBulkResults({
+		ids,
+		results,
+		// A chat the reloaded list still holds was not deleted.
+		isDone: () => false,
+		onOk: (result) => forgetDeletedConversationLocally(result.id),
+	});
 }
 
 /**
@@ -971,36 +1012,13 @@ export async function moveConversationsToProject(
 		ids,
 		projectId,
 	});
-	const failed = new Set<string>();
-	const unknown: string[] = [];
-	const takenBack = new Set<string>();
-	for (const result of results) {
-		if (result.ok) continue;
-		if (result.error === "not_found") {
-			removeConversationLocal(result.id);
-			continue;
-		}
-		takenBack.add(result.id);
-		if (result.error === "failed") {
-			failed.add(result.id);
-		} else {
-			unknown.push(result.id);
-		}
-	}
-	// An unknown chat is taken back too: its optimistic state must not
-	// override the snapshot that is about to decide it.
-	undoLocalProjectMoves(moves.filter((move) => takenBack.has(move.id)));
-
-	if (unknown.length > 0) {
-		const listed = await reloadListedConversations();
-		for (const id of unknown) {
-			const row = listed.get(id);
-			// A chat the reloaded list no longer holds is gone, not failed.
-			if (row && (row.projectId ?? null) !== projectId) failed.add(id);
-		}
-	}
-
-	return { failedIds: ids.filter((id) => failed.has(id)) };
+	return settleBulkResults({
+		ids,
+		results,
+		isDone: (row) => (row.projectId ?? null) === projectId,
+		undo: (undone) =>
+			undoLocalProjectMoves(moves.filter((move) => undone.has(move.id))),
+	});
 }
 
 /**
@@ -1021,43 +1039,23 @@ export async function setConversationsSidebarPinned(
 		ids,
 		pinned: sidebarPinned,
 	});
-	const failed = new Set<string>();
-	const unknown: string[] = [];
-	const takenBack = new Set<string>();
 	const answers: Array<{ id: string; conversation: Conversation }> = [];
-	for (const result of results) {
-		if (result.ok) {
+	const outcome = await settleBulkResults({
+		ids,
+		results,
+		isDone: (row) => getSidebarPinned(row) === sidebarPinned,
+		onOk: (result) => {
 			if (result.conversation) {
 				answers.push({ id: result.id, conversation: result.conversation });
 			}
-			continue;
-		}
-		if (result.error === "not_found") {
-			removeConversationLocal(result.id);
-			continue;
-		}
-		takenBack.add(result.id);
-		if (result.error === "failed") {
-			failed.add(result.id);
-		} else {
-			unknown.push(result.id);
-		}
-	}
-	// An unknown chat is taken back too: its optimistic state must not
-	// override the snapshot that is about to decide it.
-	undoLocalSidebarPins(pins.filter((pin) => takenBack.has(pin.id)));
+		},
+		undo: (undone) =>
+			undoLocalSidebarPins(pins.filter((pin) => undone.has(pin.id))),
+	});
+	// The server's own order replaces the one shown, once, for every chat it
+	// pinned.
 	settleLocalSidebarPins(answers);
-
-	if (unknown.length > 0) {
-		const listed = await reloadListedConversations();
-		for (const id of unknown) {
-			const row = listed.get(id);
-			// A chat the reloaded list no longer holds is gone, not failed.
-			if (row && getSidebarPinned(row) !== sidebarPinned) failed.add(id);
-		}
-	}
-
-	return { failedIds: ids.filter((id) => failed.has(id)) };
+	return outcome;
 }
 
 export function clearProjectFromConversations(projectId: string): void {
