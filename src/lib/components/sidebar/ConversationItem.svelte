@@ -8,6 +8,7 @@ import {
 	GitBranch,
 	Pencil,
 	Pin,
+	SquareCheck,
 	Trash2,
 	VenetianMask,
 	X,
@@ -37,7 +38,10 @@ let {
 	projectLabel = null,
 	dragEnabled = false,
 	isDragging = false,
+	selecting = false,
+	selected = false,
 	onSelect,
+	onSelectionToggle,
 	onRename,
 	onDelete,
 	onTogglePin,
@@ -54,7 +58,12 @@ let {
 	projectLabel?: string | null;
 	dragEnabled?: boolean;
 	isDragging?: boolean;
+	/** A selection is open in the sidebar: the row shows its box and a click picks it instead of opening it. */
+	selecting?: boolean;
+	selected?: boolean;
 	onSelect?: (payload: { id: string }) => void;
+	/** The row was picked: `range` is a Shift-click, which extends from the anchor. */
+	onSelectionToggle?: (payload: { id: string; range: boolean }) => void;
 	onRename?: (payload: { id: string; title: string }) => void;
 	onDelete?: (payload: { id: string }) => void;
 	onTogglePin?: (payload: { id: string; pinned: boolean }) => void;
@@ -93,6 +102,51 @@ function handleSelect() {
 	if (!isEditing && !menuOpen) {
 		onSelect?.({ id: conversation.id });
 	}
+}
+
+// A click opens the chat, unless a selection is open or a modifier is held:
+// Cmd or Ctrl adds the chat to the selection or takes it out, Shift extends
+// from the anchor. (Ctrl-click on macOS is a right-click, so it arrives as a
+// `contextmenu` and never as a click.)
+function handleRowClick(event: MouseEvent) {
+	if (isEditing) return;
+	if (selecting) {
+		onSelectionToggle?.({ id: conversation.id, range: event.shiftKey });
+		return;
+	}
+	if (menuOpen) return;
+	if (event.metaKey || event.ctrlKey || event.shiftKey) {
+		onSelectionToggle?.({ id: conversation.id, range: event.shiftKey });
+		return;
+	}
+	onSelect?.({ id: conversation.id });
+}
+
+function handleRowKeydown(event: KeyboardEvent) {
+	if (selecting) {
+		if (event.target !== event.currentTarget) return;
+		if (event.key === " ") {
+			// The page would scroll on Space.
+			event.preventDefault();
+			onSelectionToggle?.({ id: conversation.id, range: false });
+		} else if (event.key === "Enter") {
+			onSelectionToggle?.({ id: conversation.id, range: false });
+		}
+		return;
+	}
+	if (event.key === "Enter") handleSelect();
+}
+
+// A Shift-click would also select the text between the two clicks.
+function handleRowMouseDown(event: MouseEvent) {
+	if (event.shiftKey) event.preventDefault();
+}
+
+function handleSelectOption(e: MouseEvent) {
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	onSelectionToggle?.({ id: conversation.id, range: false });
 }
 
 function startRename(e: MouseEvent) {
@@ -245,7 +299,7 @@ function toggleMenu(e: MouseEvent) {
 }
 
 function openContextMenu(e: MouseEvent) {
-	if (isEditing) return;
+	if (isEditing || selecting) return;
 	e.preventDefault();
 	e.stopPropagation();
 	showProjectSubmenu = false;
@@ -306,7 +360,7 @@ function handleMoveToProject(e: MouseEvent, projectId: string | null) {
 }
 
 function handleDragStart(event: DragEvent) {
-	if (!dragEnabled || isEditing) {
+	if (!dragEnabled || isEditing || selecting) {
 		event.preventDefault();
 		return;
 	}
@@ -369,12 +423,17 @@ onMount(() => {
   class:border-accent={active}
   class:shadow-sm={active}
 	class:conversation-item-dragging={isDragging}
-	draggable={dragEnabled && !isEditing}
-  onclick={handleSelect}
+	class:conversation-item-selecting={selecting}
+	class:conversation-item-selected={selecting && selected}
+	data-selected={selecting ? String(selected) : undefined}
+	aria-pressed={selecting ? selected : undefined}
+	draggable={dragEnabled && !isEditing && !selecting}
+  onclick={handleRowClick}
+	onmousedown={handleRowMouseDown}
 	oncontextmenu={openContextMenu}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
-  onkeydown={(event) => event.key === 'Enter' && handleSelect()}
+  onkeydown={handleRowKeydown}
   role="button"
   tabindex="0"
 >
@@ -391,6 +450,20 @@ onMount(() => {
 			/>
 		{:else}
 			<div class="flex min-w-0 items-center gap-1.5 px-1.5">
+				{#if selecting}
+					<!-- The box only draws the state: the row says it with aria-pressed. -->
+					<span
+						data-testid="conversation-select-checkbox"
+						aria-hidden="true"
+						class={selected
+							? "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-accent-fill bg-accent-fill text-on-accent transition-colors duration-150"
+							: "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-icon-muted text-on-accent transition-colors duration-150"}
+					>
+						{#if selected}
+							<Check size={12} strokeWidth={3} aria-hidden="true" />
+						{/if}
+					</span>
+				{/if}
 				{#if conversation.forkSummary}
 					{@const indicatorLabel = forkIndicatorLabel()}
 					<span
@@ -436,6 +509,9 @@ onMount(() => {
 		{/if}
 	</div>
 
+	<!-- While a selection is open the row has no options button and no menu: the
+	     box on the left is its only control. -->
+	{#if !selecting}
 	<div class="relative flex min-h-[32px] min-w-[28px] flex-shrink-0 items-center justify-center">
 		<button
 			bind:this={triggerRef}
@@ -496,6 +572,18 @@ onMount(() => {
 
 				<button
 					role="menuitem"
+					data-testid="select-option"
+					class="conversation-option flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					onclick={handleSelectOption}
+				>
+				<span class="conversation-option-icon">
+					<SquareCheck size={15} strokeWidth={2} aria-hidden="true" />
+				</span>
+					<span>{$t('sidebar.select')}</span>
+				</button>
+
+				<button
+					role="menuitem"
 					data-testid="delete-option"
 					class="conversation-option conversation-option-danger flex min-h-[32px] max-md:min-h-[44px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleDelete}
@@ -546,6 +634,7 @@ onMount(() => {
 			</div>
 		{/if}
 	</div>
+	{/if}
 </div>
 
 {#if showDeleteConfirm}
@@ -610,6 +699,23 @@ onMount(() => {
 
 	.conversation-item-dragging {
 		opacity: 0.58;
+	}
+
+	/* A selection is open: the rows that are picked say so, on top of the row's
+	   own hover and open-chat looks. */
+	.conversation-item-selected {
+		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+		background: var(--accent-tint);
+	}
+
+	.conversation-item-selected:hover {
+		background: var(--accent-tint-strong);
+	}
+
+	/* The tint above takes the row's focus background, so a focused row gets a
+	   mark of its own while a selection is open. */
+	.conversation-item-selecting:focus-visible {
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.fork-indicator {

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import { uiLanguage } from "$lib/stores/settings";
 import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
 
@@ -502,6 +503,475 @@ describe("ConversationItem Component", () => {
 				expect(
 					screen.queryByText("Delete this conversation?"),
 				).not.toBeInTheDocument();
+			});
+		});
+	});
+
+	describe("selecting several chats", () => {
+		const projects: Project[] = [
+			{
+				id: "p1",
+				name: "Alpha",
+				sortOrder: 0,
+				createdAt: 1,
+				updatedAt: 1,
+				hasInstructions: false,
+			},
+		];
+		const forkSummary = {
+			sourceTitle: "Source title",
+			forkSequence: 2,
+			sourceConversationId: "source-conv",
+			sourceConversationIdAvailable: true,
+		};
+
+		function menuLabels(): (string | undefined)[] {
+			return screen
+				.getAllByRole("menuitem")
+				.map((item) => item.textContent?.trim());
+		}
+
+		describe("before a selection is open", () => {
+			it("toggles the chat on a Cmd-click and does not open it", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				await fireEvent.click(screen.getByTestId("conversation-item"), {
+					metaKey: true,
+				});
+
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("toggles the chat on a Ctrl-click and does not open it", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				await fireEvent.click(screen.getByTestId("conversation-item"), {
+					ctrlKey: true,
+				});
+
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("extends from the anchor on a Shift-click and does not open the chat", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				await fireEvent.click(screen.getByTestId("conversation-item"), {
+					shiftKey: true,
+				});
+
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: true,
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("opens the chat on a plain click and selects nothing", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				await fireEvent.click(screen.getByTestId("conversation-item"));
+
+				expect(onSelect).toHaveBeenCalledTimes(1);
+				expect(onSelect).toHaveBeenCalledWith({ id: "conv-1" });
+				expect(onSelectionToggle).not.toHaveBeenCalled();
+			});
+
+			// Ctrl-click is a right-click on macOS: the browser sends a
+			// `contextmenu` and no `click`, so the row must not read it as a pick.
+			it("opens the row menu on the contextmenu of a Ctrl-click and selects nothing", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				const notCancelled = await fireEvent.contextMenu(
+					screen.getByTestId("conversation-item"),
+					{ ctrlKey: true, clientX: 48, clientY: 72 },
+				);
+
+				expect(screen.getByRole("menu")).toBeInTheDocument();
+				// The row's menu stands in for the browser's own.
+				expect(notCancelled).toBe(false);
+				expect(onSelectionToggle).not.toHaveBeenCalled();
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("keeps Shift from selecting the page's text", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				const item = screen.getByTestId("conversation-item");
+
+				// `fireEvent` answers false when the handler called preventDefault.
+				expect(await fireEvent.mouseDown(item, { shiftKey: true })).toBe(false);
+				expect(await fireEvent.mouseDown(item)).toBe(true);
+			});
+
+			it("offers Select in the row menu, after Move to project and before Delete", async () => {
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					projects,
+				});
+
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+
+				expect(menuLabels()).toEqual([
+					"Pin to sidebar",
+					"Rename",
+					"Move to project",
+					"Select",
+					"Delete",
+				]);
+				expect(screen.getByTestId("select-option")).toHaveTextContent("Select");
+			});
+
+			it("offers Select with no project to move to", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+
+				expect(menuLabels()).toEqual([
+					"Pin to sidebar",
+					"Rename",
+					"Select",
+					"Delete",
+				]);
+			});
+
+			it("starts a selection with this chat from the Select item, and closes the menu", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelect,
+					onSelectionToggle,
+				});
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+
+				await fireEvent.click(screen.getByTestId("select-option"));
+
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+				expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+			});
+
+			it("starts a selection from the right-click menu too", async () => {
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelectionToggle,
+				});
+				await fireEvent.contextMenu(screen.getByTestId("conversation-item"), {
+					clientX: 48,
+					clientY: 72,
+				});
+
+				await fireEvent.click(screen.getByTestId("select-option"));
+
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+			});
+
+			it("saves a rename on Enter and neither opens the chat nor selects it", async () => {
+				const onRename = vi.fn();
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onRename,
+					onSelect,
+					onSelectionToggle,
+				});
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				await fireEvent.click(screen.getByTestId("rename-option"));
+
+				const input = screen.getByTestId("title-input");
+				await fireEvent.input(input, { target: { value: "New Title" } });
+				await fireEvent.keyDown(input, { key: "Enter" });
+
+				expect(onRename).toHaveBeenCalledWith({
+					id: "conv-1",
+					title: "New Title",
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+				expect(onSelectionToggle).not.toHaveBeenCalled();
+			});
+
+			it("says Select in Hungarian", async () => {
+				uiLanguage.set("hu");
+				try {
+					render(ConversationItemWrapper, { conversation: mockConversation });
+					await fireEvent.click(
+						screen.getByLabelText("Beszélgetés beállításai"),
+					);
+
+					expect(screen.getByTestId("select-option")).toHaveTextContent(
+						"Kijelölés",
+					);
+				} finally {
+					uiLanguage.set("en");
+				}
+			});
+
+			it("draws no box and keeps its drag setting", () => {
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					dragEnabled: true,
+				});
+
+				const item = screen.getByTestId("conversation-item");
+				expect(
+					screen.queryByTestId("conversation-select-checkbox"),
+				).not.toBeInTheDocument();
+				expect(item).not.toHaveAttribute("data-selected");
+				expect(item).not.toHaveAttribute("aria-pressed");
+				expect(item).toHaveAttribute("draggable", "true");
+			});
+		});
+
+		describe("while a selection is open", () => {
+			it("stays a button and says whether it is ticked with aria-pressed", async () => {
+				const { rerender } = render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					selected: false,
+				});
+				const item = screen.getByTestId("conversation-item");
+
+				expect(item).toHaveAttribute("role", "button");
+				expect(item).toHaveAttribute("aria-pressed", "false");
+				expect(item).toHaveAttribute("data-selected", "false");
+
+				await rerender({ selected: true });
+				expect(item).toHaveAttribute("aria-pressed", "true");
+				expect(item).toHaveAttribute("data-selected", "true");
+
+				await rerender({ selecting: false });
+				expect(item).not.toHaveAttribute("aria-pressed");
+				expect(item).not.toHaveAttribute("data-selected");
+			});
+
+			it("toggles the chat on a plain click and never opens it", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					onSelect,
+					onSelectionToggle,
+				});
+
+				await fireEvent.click(screen.getByTestId("conversation-item"));
+
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("extends from the anchor on a Shift-click and toggles on a Cmd or Ctrl click", async () => {
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					onSelectionToggle,
+				});
+				const item = screen.getByTestId("conversation-item");
+
+				await fireEvent.click(item, { shiftKey: true });
+				await fireEvent.click(item, { metaKey: true });
+				await fireEvent.click(item, { ctrlKey: true });
+
+				expect(onSelectionToggle.mock.calls).toEqual([
+					[{ id: "conv-1", range: true }],
+					[{ id: "conv-1", range: false }],
+					[{ id: "conv-1", range: false }],
+				]);
+			});
+
+			it("toggles on Space, keeping the page from scrolling, and on Enter", async () => {
+				const onSelect = vi.fn();
+				const onSelectionToggle = vi.fn();
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					onSelect,
+					onSelectionToggle,
+				});
+				const item = screen.getByTestId("conversation-item");
+
+				expect(await fireEvent.keyDown(item, { key: " " })).toBe(false);
+				expect(onSelectionToggle).toHaveBeenCalledTimes(1);
+				expect(onSelectionToggle).toHaveBeenLastCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+
+				await fireEvent.keyDown(item, { key: "Enter" });
+				expect(onSelectionToggle).toHaveBeenCalledTimes(2);
+				expect(onSelectionToggle).toHaveBeenLastCalledWith({
+					id: "conv-1",
+					range: false,
+				});
+
+				// Any other key is left to the page.
+				await fireEvent.keyDown(item, { key: "a" });
+				expect(onSelectionToggle).toHaveBeenCalledTimes(2);
+				expect(onSelect).not.toHaveBeenCalled();
+			});
+
+			it("has no options button and no context menu", async () => {
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+				});
+
+				expect(
+					screen.queryByLabelText("Conversation options"),
+				).not.toBeInTheDocument();
+
+				const notCancelled = await fireEvent.contextMenu(
+					screen.getByTestId("conversation-item"),
+					{ clientX: 48, clientY: 72 },
+				);
+				expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+				// Nothing of the row's is in the way of the browser's own menu.
+				expect(notCancelled).toBe(true);
+			});
+
+			// A selection can start while a title is being edited (it starts from
+			// another row); the keys typed into that field are still the field's.
+			it("leaves the keys of a rename field to the field", async () => {
+				const onSelectionToggle = vi.fn();
+				const { rerender } = render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					onSelectionToggle,
+				});
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				await fireEvent.click(screen.getByTestId("rename-option"));
+				const input = screen.getByTestId("title-input");
+				await rerender({ selecting: true });
+
+				const notCancelled = await fireEvent.keyDown(input, { key: " " });
+
+				expect(notCancelled).toBe(true);
+				expect(onSelectionToggle).not.toHaveBeenCalled();
+			});
+
+			it("cannot be dragged, even where dragging is on", async () => {
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					dragEnabled: true,
+				});
+				const item = screen.getByTestId("conversation-item");
+
+				expect(item).toHaveAttribute("draggable", "false");
+				// A drag that starts anyway is cancelled.
+				expect(await fireEvent.dragStart(item)).toBe(false);
+			});
+
+			it("draws a box, hidden from assistive tech, before the title", () => {
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					selected: false,
+				});
+
+				const checkbox = screen.getByTestId("conversation-select-checkbox");
+				expect(checkbox).toHaveAttribute("aria-hidden", "true");
+				const title = screen.getByText("Test Conversation");
+				expect(
+					checkbox.compareDocumentPosition(title) &
+						Node.DOCUMENT_POSITION_FOLLOWING,
+				).toBeTruthy();
+			});
+
+			it("ticks the box when the chat is selected and not when it is not", async () => {
+				const { rerender } = render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					selected: false,
+				});
+				const checkbox = screen.getByTestId("conversation-select-checkbox");
+				expect(checkbox.querySelector("svg")).not.toBeInTheDocument();
+
+				await rerender({ selected: true });
+				expect(checkbox.querySelector("svg")).toBeInTheDocument();
+			});
+
+			it("keeps its fork, Atlas and incognito marks, after the box", () => {
+				render(ConversationItemWrapper, {
+					conversation: {
+						...mockConversation,
+						memoryIncognito: true,
+						forkSummary,
+						atlasBadge: {
+							status: "succeeded",
+							label: "Completed Atlas report",
+						},
+					},
+					selecting: true,
+				});
+
+				const checkbox = screen.getByTestId("conversation-select-checkbox");
+				const marks = [
+					screen.getByLabelText("Fork of Source title, fork 2"),
+					screen.getByLabelText("Completed Atlas report"),
+					screen.getByTestId("conversation-incognito-mark"),
+				];
+				for (const mark of marks) {
+					expect(mark).toBeInTheDocument();
+					expect(
+						checkbox.compareDocumentPosition(mark) &
+							Node.DOCUMENT_POSITION_FOLLOWING,
+					).toBeTruthy();
+				}
+				expect(checkbox.parentElement).toBe(marks[0].parentElement);
 			});
 		});
 	});
