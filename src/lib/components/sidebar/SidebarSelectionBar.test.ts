@@ -195,6 +195,45 @@ describe("SidebarSelectionBar", () => {
 			expect(screen.getByTestId("selection-select-all")).toBeEnabled();
 		});
 
+		// The list ends a selection when its last chat leaves, but for the moment
+		// that takes there is nothing for these three to act on.
+		it("disables Pin, Move and Delete while nothing is selected, and leaves Close and Select all", async () => {
+			const { onPin, onDelete, onMove } = renderBar({ count: 0 });
+
+			for (const id of [
+				"selection-pin",
+				"selection-move",
+				"selection-delete",
+			]) {
+				expect(screen.getByTestId(id), id).toBeDisabled();
+			}
+			expect(screen.getByTestId("selection-close")).toBeEnabled();
+			expect(screen.getByTestId("selection-select-all")).toBeEnabled();
+
+			const user = userEvent.setup();
+			await user.click(screen.getByTestId("selection-pin"));
+			await user.click(screen.getByTestId("selection-move"));
+			await user.click(screen.getByTestId("selection-delete"));
+			expect(onPin).not.toHaveBeenCalled();
+			expect(onDelete).not.toHaveBeenCalled();
+			expect(onMove).not.toHaveBeenCalled();
+			expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+		});
+
+		it("enables Pin, Move and Delete as soon as a chat is selected", async () => {
+			const { rerender } = renderBar({ count: 0 });
+
+			await rerender({ count: 1 });
+
+			for (const id of [
+				"selection-pin",
+				"selection-move",
+				"selection-delete",
+			]) {
+				expect(screen.getByTestId(id), id).toBeEnabled();
+			}
+		});
+
 		it("names the pin button for what it will do", async () => {
 			const { rerender } = renderBar({ pinAction: "pin" });
 			const pin = screen.getByTestId("selection-pin");
@@ -360,6 +399,33 @@ describe("SidebarSelectionBar", () => {
 			const { onMove } = renderBar();
 			await openMoveMenu();
 			expect(onMove).not.toHaveBeenCalled();
+		});
+
+		// The menu-button pattern: whatever closes the menu hands focus back to
+		// the button that opened it.
+		it("hands focus back to the Move button when a project is chosen", async () => {
+			renderBar();
+			await openMoveMenu();
+			const [alpha, beta] = screen.getAllByTestId("selection-move-option");
+			await waitFor(() => expect(alpha).toHaveFocus());
+
+			await fireEvent.click(beta);
+
+			expect(screen.getByTestId("selection-move")).toHaveFocus();
+		});
+
+		it("hands focus back to the Move button after Remove from project too", async () => {
+			renderBar({ canRemoveFromProject: true });
+			await openMoveMenu();
+			await waitFor(() =>
+				expect(screen.getAllByTestId("selection-move-option")[0]).toHaveFocus(),
+			);
+
+			await fireEvent.click(
+				screen.getByTestId("selection-remove-from-project"),
+			);
+
+			expect(screen.getByTestId("selection-move")).toHaveFocus();
 		});
 
 		it("speaks Hungarian in the menu", async () => {

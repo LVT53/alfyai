@@ -15,6 +15,7 @@ import {
 	portal,
 	setMenuBaseBackground,
 	setupMenuSync,
+	updateMenuPosition,
 } from "$lib/utils/popup-menu";
 import "./conversation-menu.css";
 
@@ -57,8 +58,6 @@ const buttonClass =
 // on one line.
 const MOVE_MENU_WIDTH = 200;
 const MOVE_MENU_GAP = 6;
-const MOVE_MENU_VIEWPORT_PADDING = 12;
-const MOVE_MENU_MIN_HEIGHT = 96;
 
 let moveOpen = $state(false);
 let moveButtonRef = $state<HTMLButtonElement | undefined>(undefined);
@@ -79,26 +78,19 @@ $effect(() => {
 });
 
 // Above the Move button, never below: the bar sits at the bottom of the
-// sidebar. Anchored by its bottom edge, so a short list hugs the button and a
-// long one grows upwards and scrolls inside the room that is there.
+// sidebar. A short list hugs the button; a long one grows upwards and scrolls
+// inside the room that is there.
 function updateMoveMenuPosition() {
-	if (!moveButtonRef) return;
 	moveMenuBackground = setMenuBaseBackground() || "var(--surface-elevated)";
-	const rect = moveButtonRef.getBoundingClientRect();
-	const width = Math.min(
+	updateMenuPosition(
+		moveButtonRef ?? null,
+		(style) => {
+			moveMenuStyle = style;
+		},
 		MOVE_MENU_WIDTH,
-		window.innerWidth - 2 * MOVE_MENU_VIEWPORT_PADDING,
+		MOVE_MENU_GAP,
+		"above",
 	);
-	const left = Math.min(
-		window.innerWidth - width - MOVE_MENU_VIEWPORT_PADDING,
-		Math.max(MOVE_MENU_VIEWPORT_PADDING, rect.right - width),
-	);
-	const bottom = window.innerHeight - rect.top + MOVE_MENU_GAP;
-	const maxHeight = Math.max(
-		MOVE_MENU_MIN_HEIGHT,
-		rect.top - MOVE_MENU_GAP - MOVE_MENU_VIEWPORT_PADDING,
-	);
-	moveMenuStyle = `position: fixed; bottom: ${bottom}px; left: ${left}px; width: ${width}px; max-height: ${maxHeight}px;`;
 }
 
 function moveMenuItems(): HTMLElement[] {
@@ -126,7 +118,7 @@ function closeMoveMenu({ restoreFocus = false } = {}) {
 }
 
 function chooseProject(projectId: string | null) {
-	moveOpen = false;
+	closeMoveMenu({ restoreFocus: true });
 	onMove?.({ projectId });
 }
 
@@ -222,7 +214,7 @@ onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
 		class={buttonClass}
 		title={pinLabel}
 		aria-label={pinLabel}
-		disabled={busy}
+		disabled={busy || count === 0}
 		onclick={() => onPin?.()}
 	>
 		{#if pinAction === 'unpin'}
@@ -242,7 +234,7 @@ onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
 			aria-label={$t('sidebar.moveToProject')}
 			aria-haspopup="menu"
 			aria-expanded={moveOpen}
-			disabled={busy}
+			disabled={busy || count === 0}
 			onclick={toggleMoveMenu}
 		>
 			<FolderInput size={16} strokeWidth={2} aria-hidden="true" />
@@ -255,7 +247,7 @@ onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
 		class={buttonClass}
 		title={$t('sidebar.delete')}
 		aria-label={$t('sidebar.delete')}
-		disabled={busy}
+		disabled={busy || count === 0}
 		onclick={() => onDelete?.()}
 	>
 		<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
