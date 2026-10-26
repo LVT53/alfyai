@@ -73,6 +73,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
 - `file-production/` — durable generated-file jobs, source validation, renderers, sandbox execution, retry/cancel, storage, and legacy generated-file backfill
 - `generated-file-serving.ts` — generated chat-file lookup, ownership fallback, assigned/succeeded-job eligibility, byte/type validation, and preview/download headers for chat routes and Working Document generated-output serving
 - `image-search.ts` — image search integration used by direct normal-chat tools
+- `vision/` — what the chat model sees of an image: preparation to a JPEG within a pixel budget, who may receive pixels; its rules are in `vision/AGENTS.md`
 - `projects.ts` (src/lib/server/services/projects.ts) — project CRUD using db + schema.ts directly (active service, not legacy)
 - `server/api/responses.ts` — shared JSON response helpers for API routes (consumed across route files)
 

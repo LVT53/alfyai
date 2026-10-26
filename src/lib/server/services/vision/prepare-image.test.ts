@@ -1,0 +1,433 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import sharp from "sharp";
+import { describe, expect, it } from "vitest";
+import {
+	ATTACHMENT_MAX_LONG_EDGE,
+	estimateImageTokens,
+	ImagePreparationError,
+	type PreparedImage,
+	prepareImageForModel,
+	THUMBNAIL_MAX_LONG_EDGE,
+} from "./prepare-image";
+
+// `__fixtures__/tiny.heic` is 64x42, made on a Mac with
+// `sips -s format heic -Z 64` from a 96x64 PNG of four flat quadrants: red top
+// left, green top right, blue bottom left, yellow bottom right. Its brand is
+// `ftypheic`, so it can be found by its bytes as well as by its MIME type.
+const here = path.dirname(fileURLToPath(import.meta.url));
+const tinyHeic = new Uint8Array(
+	readFileSync(path.join(here, "__fixtures__", "tiny.heic")),
+);
+
+function solidJpeg(width: number, height: number): Promise<Buffer> {
+	return sharp({
+		create: { width, height, channels: 3, background: "#888888" },
+	})
+		.jpeg()
+		.toBuffer();
+}
+
+/** What the model would be sent, decoded again. */
+function sentBytes(image: PreparedImage): Buffer {
+	return Buffer.from(image.base64, "base64");
+}
+
+async function pixelAt(
+	bytes: Uint8Array,
+	x: number,
+	y: number,
+): Promise<number[]> {
+	const { data, info } = await sharp(bytes)
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	const offset = (y * info.width + x) * info.channels;
+	return Array.from(data.subarray(offset, offset + info.channels));
+}
+
+/** A copy of `bytes` placed inside a larger buffer, as a view that starts mid-buffer. */
+function viewInsideLargerBuffer(bytes: Uint8Array): Uint8Array {
+	const padded = new Uint8Array(bytes.length + 32);
+	padded.set(bytes, 11);
+	return padded.subarray(11, 11 + bytes.length);
+}
+
+describe("prepareImageForModel", () => {
+	it("shrinks a large photo to the long-edge budget", async () => {
+		const big = await sharp({
+			create: { width: 4032, height: 3024, channels: 3, background: "#888" },
+		})
+			.jpeg()
+			.toBuffer();
+		const out = await prepareImageForModel(big, "image/jpeg", {
+			maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
+		});
+		expect(Math.max(out.width, out.height)).toBe(1600);
+		expect(out.mediaType).toBe("image/jpeg");
+	});
+
+	it("sends bytes that are a JPEG of the size and cost it reports", async () => {
+		const out = await prepareImageForModel(
+			await solidJpeg(4032, 3024),
+			"image/jpeg",
+			{ maxLongEdge: ATTACHMENT_MAX_LONG_EDGE },
+		);
+		const sent = await sharp(sentBytes(out)).metadata();
+		expect([sent.format, sent.width, sent.height]).toEqual([
+			"jpeg",
+			1600,
+			1200,
+		]);
+		expect([out.width, out.height]).toEqual([1600, 1200]);
+		expect(out.estimatedTokens).toBe(estimateImageTokens(1600, 1200));
+		expect(out.estimatedTokens).toBe(1900);
+	});
+
+	it.each([
+		{
+			name: "a landscape photo",
+			from: [4032, 3024],
+			edge: 1600,
+			to: [1600, 1200],
+		},
+		{
+			name: "a portrait photo",
+			from: [3024, 4032],
+			edge: 1600,
+			to: [1200, 1600],
+		},
+		{
+			name: "a photo for the thumbnail budget",
+			from: [4032, 3024],
+			edge: THUMBNAIL_MAX_LONG_EDGE,
+			to: [512, 384],
+		},
+		{
+			name: "an image exactly at the budget",
+			from: [1600, 1000],
+			edge: 1600,
+			to: [1600, 1000],
+		},
+		{
+			name: "an image under the budget",
+			from: [800, 600],
+			edge: 1600,
+			to: [800, 600],
+		},
+	])("keeps the shape of $name inside the budget", async ({
+		from,
+		edge,
+		to,
+	}) => {
+		const out = await prepareImageForModel(
+			await solidJpeg(from[0], from[1]),
+			"image/jpeg",
+			{ maxLongEdge: edge },
+		);
+		expect([out.width, out.height]).toEqual(to);
+	});
+
+	it("applies EXIF orientation", async () => {
+		const rotated = await sharp({
+			create: { width: 300, height: 200, channels: 3, background: "#888" },
+		})
+			.jpeg()
+			.withMetadata({ orientation: 6 })
+			.toBuffer();
+		const out = await prepareImageForModel(rotated, "image/jpeg", {
+			maxLongEdge: 1600,
+		});
+		expect([out.width, out.height]).toEqual([200, 300]);
+	});
+
+	it("does not leave the orientation tag on pixels it has already turned", async () => {
+		const rotated = await sharp({
+			create: { width: 300, height: 200, channels: 3, background: "#888" },
+		})
+			.jpeg()
+			.withMetadata({ orientation: 6 })
+			.toBuffer();
+		expect((await sharp(rotated).metadata()).orientation).toBe(6);
+		const out = await prepareImageForModel(rotated, "image/jpeg", {
+			maxLongEdge: 1600,
+		});
+		expect(
+			(await sharp(sentBytes(out)).metadata()).orientation,
+		).toBeUndefined();
+	});
+
+	it("flattens transparency", async () => {
+		const withAlpha = await sharp({
+			create: {
+				width: 40,
+				height: 30,
+				channels: 4,
+				background: { r: 255, g: 0, b: 0, alpha: 0 },
+			},
+		})
+			.png()
+			.toBuffer();
+		expect((await sharp(withAlpha).metadata()).channels).toBe(4);
+		const out = await prepareImageForModel(withAlpha, "image/png", {
+			maxLongEdge: 1600,
+		});
+		const sent = await sharp(sentBytes(out)).metadata();
+		expect(sent.format).toBe("jpeg");
+		expect(sent.channels).toBe(3);
+		expect(sent.hasAlpha).toBe(false);
+	});
+
+	it("flattens onto white, not black", async () => {
+		const clear = await sharp({
+			create: {
+				width: 40,
+				height: 30,
+				channels: 4,
+				background: { r: 0, g: 0, b: 0, alpha: 0 },
+			},
+		})
+			.png()
+			.toBuffer();
+		const out = await prepareImageForModel(clear, "image/png", {
+			maxLongEdge: 1600,
+		});
+		const [r, g, b] = await pixelAt(sentBytes(out), 20, 15);
+		expect(Math.min(r, g, b)).toBeGreaterThan(240);
+	});
+
+	it("keeps only the first frame of an animated GIF", async () => {
+		const frameWidth = 20;
+		const frameHeight = 10;
+		const red = Buffer.alloc(frameWidth * frameHeight * 3);
+		const blue = Buffer.alloc(frameWidth * frameHeight * 3);
+		for (let i = 0; i < red.length; i += 3) {
+			red[i] = 255;
+			blue[i + 2] = 255;
+		}
+		const gif = await sharp(Buffer.concat([red, blue]), {
+			raw: {
+				width: frameWidth,
+				height: frameHeight * 2,
+				channels: 3,
+				pageHeight: frameHeight,
+			},
+		})
+			.gif({ delay: [100, 100], loop: 0 })
+			.toBuffer();
+		expect((await sharp(gif).metadata()).pages).toBe(2);
+
+		const out = await prepareImageForModel(gif, "image/gif", {
+			maxLongEdge: 1600,
+		});
+
+		expect([out.width, out.height]).toEqual([frameWidth, frameHeight]);
+		const sent = await sharp(sentBytes(out)).metadata();
+		expect(sent.pages ?? 1).toBe(1);
+		const [r, , b] = await pixelAt(sentBytes(out), 5, 5);
+		expect(r).toBeGreaterThan(200);
+		expect(b).toBeLessThan(60);
+	});
+
+	it("never enlarges a small image", async () => {
+		const onePixel = await sharp({
+			create: {
+				width: 1,
+				height: 1,
+				channels: 4,
+				background: { r: 10, g: 20, b: 30, alpha: 1 },
+			},
+		})
+			.png()
+			.toBuffer();
+		const out = await prepareImageForModel(onePixel, "image/png", {
+			maxLongEdge: 1600,
+		});
+		expect([out.width, out.height]).toEqual([1, 1]);
+	});
+
+	it("decodes bytes handed over as a plain Uint8Array or as a view into a larger buffer", async () => {
+		const png = await sharp({
+			create: { width: 30, height: 20, channels: 3, background: "#123456" },
+		})
+			.png()
+			.toBuffer();
+		for (const input of [new Uint8Array(png), viewInsideLargerBuffer(png)]) {
+			const out = await prepareImageForModel(input, "image/png", {
+				maxLongEdge: 1600,
+			});
+			expect([out.width, out.height]).toEqual([30, 20]);
+		}
+	});
+
+	it.each([
+		"jpeg",
+		"png",
+		"gif",
+		"webp",
+		"tiff",
+	] as const)("reads a %s", async (format) => {
+		const bytes = await sharp({
+			create: { width: 48, height: 32, channels: 3, background: "#336699" },
+		})
+			.toFormat(format)
+			.toBuffer();
+		const out = await prepareImageForModel(bytes, null, { maxLongEdge: 1600 });
+		expect([out.width, out.height]).toEqual([48, 32]);
+	});
+
+	it("turns a CMYK JPEG into sRGB", async () => {
+		const cmyk = await sharp({
+			create: { width: 40, height: 40, channels: 3, background: "#33aa55" },
+		})
+			.toColourspace("cmyk")
+			.jpeg()
+			.toBuffer();
+		expect((await sharp(cmyk).metadata()).space).toBe("cmyk");
+		const out = await prepareImageForModel(cmyk, "image/jpeg", {
+			maxLongEdge: 1600,
+		});
+		const sent = await sharp(sentBytes(out)).metadata();
+		expect([sent.space, sent.channels]).toEqual(["srgb", 3]);
+	});
+
+	describe("HEIC", () => {
+		it("decodes HEIC", async () => {
+			const out = await prepareImageForModel(tinyHeic, "image/heic", {
+				maxLongEdge: 1600,
+			});
+			expect(out.width).toBeGreaterThan(0);
+			expect(out.mediaType).toBe("image/jpeg");
+			expect((await sharp(sentBytes(out)).metadata()).format).toBe("jpeg");
+		});
+
+		it("keeps the picture upright and its colours", async () => {
+			const out = await prepareImageForModel(tinyHeic, "image/heic", {
+				maxLongEdge: 1600,
+			});
+			expect([out.width, out.height]).toEqual([64, 42]);
+			const sent = sentBytes(out);
+			const [topLeft, topRight, bottomLeft, bottomRight] = await Promise.all([
+				pixelAt(sent, 8, 5),
+				pixelAt(sent, 56, 5),
+				pixelAt(sent, 8, 36),
+				pixelAt(sent, 56, 36),
+			]);
+			expect(topLeft[0]).toBeGreaterThan(200); // red
+			expect(topLeft[1]).toBeLessThan(60);
+			expect(topRight[1]).toBeGreaterThan(200); // green
+			expect(topRight[0]).toBeLessThan(60);
+			expect(bottomLeft[2]).toBeGreaterThan(200); // blue
+			expect(bottomLeft[0]).toBeLessThan(60);
+			expect(Math.min(bottomRight[0], bottomRight[1])).toBeGreaterThan(200); // yellow
+			expect(bottomRight[2]).toBeLessThan(60);
+		});
+
+		it.each([
+			{ declared: "image/heic" },
+			{ declared: "image/heif" },
+			{ declared: "image/heic; charset=binary" },
+			{ declared: null },
+			{ declared: "application/octet-stream" },
+			{ declared: "image/jpeg" },
+		])("finds HEIC by its type or by its bytes when the type is $declared", async ({
+			declared,
+		}) => {
+			const out = await prepareImageForModel(tinyHeic, declared, {
+				maxLongEdge: 1600,
+			});
+			expect([out.width, out.height]).toEqual([64, 42]);
+		});
+
+		it("trusts the declared type when the brand is not one it looks for", async () => {
+			// Same file with its major brand changed from `heic` to `hevc`, which
+			// libheif reads but the brand check does not list: only the type is left.
+			const otherBrand = Uint8Array.from(tinyHeic);
+			otherBrand.set(
+				[..."hevc"].map((letter) => letter.charCodeAt(0)),
+				8,
+			);
+			const out = await prepareImageForModel(otherBrand, "image/heic", {
+				maxLongEdge: 1600,
+			});
+			expect([out.width, out.height]).toEqual([64, 42]);
+		});
+
+		it("shrinks a HEIC to the budget like any other image", async () => {
+			const out = await prepareImageForModel(tinyHeic, "image/heic", {
+				maxLongEdge: 32,
+			});
+			expect([out.width, out.height]).toEqual([32, 21]);
+			expect(out.estimatedTokens).toBe(1);
+		});
+
+		it("decodes a HEIC handed over as a view into a larger buffer", async () => {
+			const out = await prepareImageForModel(
+				viewInsideLargerBuffer(tinyHeic),
+				"image/heic",
+				{ maxLongEdge: 1600 },
+			);
+			expect([out.width, out.height]).toEqual([64, 42]);
+		});
+	});
+
+	describe("bad input", () => {
+		it("rejects bytes that are not an image", async () => {
+			await expect(
+				prepareImageForModel(new Uint8Array([1, 2, 3]), "image/png", {
+					maxLongEdge: 1600,
+				}),
+			).rejects.toBeInstanceOf(ImagePreparationError);
+		});
+
+		it("rejects an empty input", async () => {
+			await expect(
+				prepareImageForModel(new Uint8Array(0), "image/jpeg", {
+					maxLongEdge: 1600,
+				}),
+			).rejects.toBeInstanceOf(ImagePreparationError);
+		});
+
+		it("rejects bytes that are labelled HEIC but are not", async () => {
+			await expect(
+				prepareImageForModel(new Uint8Array([1, 2, 3]), "image/heic", {
+					maxLongEdge: 1600,
+				}),
+			).rejects.toBeInstanceOf(ImagePreparationError);
+		});
+
+		it("names itself and keeps the library's error as the cause", async () => {
+			const error = await prepareImageForModel(
+				new Uint8Array([1, 2, 3]),
+				null,
+				{ maxLongEdge: 1600 },
+			).catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(ImagePreparationError);
+			expect((error as ImagePreparationError).name).toBe(
+				"ImagePreparationError",
+			);
+			expect((error as ImagePreparationError).cause).toBeInstanceOf(Error);
+		});
+	});
+});
+
+describe("estimateImageTokens", () => {
+	it("estimates tokens at 32 px per token", () => {
+		expect(estimateImageTokens(1600, 1000)).toBe(1600);
+		expect(estimateImageTokens(512, 384)).toBe(192);
+	});
+
+	it("rounds each side up to a whole 32 px tile", () => {
+		expect(estimateImageTokens(1, 1)).toBe(1);
+		expect(estimateImageTokens(32, 32)).toBe(1);
+		expect(estimateImageTokens(33, 33)).toBe(4);
+		expect(estimateImageTokens(1600, 1200)).toBe(1900);
+	});
+});
+
+describe("budgets", () => {
+	it("allows an attachment 1600 px and a thumbnail 512 px on the long side", () => {
+		expect(ATTACHMENT_MAX_LONG_EDGE).toBe(1600);
+		expect(THUMBNAIL_MAX_LONG_EDGE).toBe(512);
+	});
+});
