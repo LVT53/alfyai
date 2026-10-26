@@ -995,6 +995,16 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 <!-- min-h-full, not h-full: the selection bar is the last child and sticks to the
      bottom of the sidebar's scroll box, which needs a root as tall as its rows. -->
 <div bind:this={listRoot} class="flex min-h-full flex-col gap-0">
+	<!-- The count of the selection, said aloud. It stays in the page whether or not
+	     a selection is open, empty until one is: a live region that is created
+	     together with its text is missed by most screen readers, and the bar,
+	     which comes with the first pick, would be one. The bar only shows it. -->
+	<div
+		data-testid="selection-live-region"
+		class="sr-only"
+		aria-live="polite"
+		aria-atomic="true"
+	>{selecting ? $t('sidebar.selectionCount', { count: selectedIds.size }) : ''}</div>
 	{#if pinnedConversations.length > 0}
 		<div data-testid="pinned-conversations-section" class="mb-1">
 			<!-- Section header (collapsible, matches Projects/Chats headers) -->

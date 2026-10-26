@@ -473,6 +473,94 @@ test.describe("keyboard focus when a selection ends", () => {
 	});
 });
 
+// The bar is a toolbar: one stop in the Tab order, the arrow keys, Home and End
+// between its buttons. Its count is read aloud from a live region that the list
+// keeps in the page, so that it is there before the first pick.
+test.describe("the selection bar as a toolbar", () => {
+	test("is one Tab stop, with the arrow keys, Home and End moving between its buttons", async ({
+		page,
+	}) => {
+		// A project, so that the bar has all five buttons.
+		await startWithChats(
+			page,
+			["Alpha plan", "Bravo plan", "Charlie plan"],
+			"en",
+			{ project: "Trips" },
+		);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+		const bar = page.getByTestId("sidebar-selection-bar");
+		const close = page.getByTestId("selection-close");
+		const selectAll = page.getByTestId("selection-select-all");
+		const del = page.getByTestId("selection-delete");
+
+		// One of the five is in the Tab order, the first to begin with.
+		await expect(bar.getByRole("button")).toHaveCount(5);
+		await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
+		await expect(close).toHaveAttribute("tabindex", "0");
+
+		await close.focus();
+		await page.keyboard.press("ArrowRight");
+		await expect(selectAll).toBeFocused();
+		await page.keyboard.press("End");
+		await expect(del).toBeFocused();
+		await page.keyboard.press("ArrowRight");
+		await expect(close).toBeFocused();
+		await page.keyboard.press("ArrowLeft");
+		await expect(del).toBeFocused();
+		await page.keyboard.press("Home");
+		await expect(close).toBeFocused();
+
+		// One Tab leaves the bar, and Shift+Tab comes back to the button that held
+		// the focus, not to the first one.
+		await page.keyboard.press("End");
+		await expect(del).toBeFocused();
+		await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
+		await expect(del).toHaveAttribute("tabindex", "0");
+		await page.keyboard.press("Tab");
+		await expect(bar.locator(":focus")).toHaveCount(0);
+		await page.keyboard.press("Shift+Tab");
+		await expect(del).toBeFocused();
+	});
+
+	test("skips a button that is switched off", async ({ page }) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+		// Every shown chat is picked: Select all is off.
+		await expect(page.getByTestId("selection-select-all")).toBeDisabled();
+
+		await page.getByTestId("selection-close").focus();
+		await page.keyboard.press("ArrowRight");
+
+		await expect(page.getByTestId("selection-pin")).toBeFocused();
+	});
+
+	test("reads the count from a live region that is in the page before the first pick", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan"]);
+		const region = page.getByTestId("selection-live-region");
+
+		await expect(region).toBeAttached();
+		await expect(region).toHaveAttribute("aria-live", "polite");
+		await expect(region).toHaveText("");
+		// Visually hidden: it is there for a screen reader and draws nothing.
+		const box = await region.boundingBox();
+		expect(box?.width ?? 0).toBeLessThanOrEqual(1);
+		expect(box?.height ?? 0).toBeLessThanOrEqual(1);
+
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await expect(region).toHaveText("1 selected");
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+		await expect(region).toHaveText("2 selected");
+		await expect(selectionCount(page)).toHaveText("2 selected");
+
+		await page.getByTestId("selection-close").click();
+		await expect(region).toHaveText("");
+	});
+});
+
 test.describe("selecting chats on a phone", () => {
 	test.use({
 		viewport: { width: 390, height: 844 },

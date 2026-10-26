@@ -19,6 +19,7 @@ import {
 	deleteConversationsByIds,
 } from "$lib/stores/conversations";
 import { clearProjectStore, projects } from "$lib/stores/projects";
+import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import {
 	clearProjectFolderExpanded,
@@ -1413,6 +1414,90 @@ describe("ConversationList multi-select", () => {
 			expect(countText()).toBe("2 selected");
 			expect(screen.getByTestId("selection-close")).toBeEnabled();
 			expect(screen.getByTestId("selection-delete")).toBeEnabled();
+		});
+	});
+
+	// A live region that is created together with its text is missed by most
+	// screen readers, so the list keeps one in the page whether or not a selection
+	// is open and the count is written into it; the bar's own count is only seen.
+	describe("announcing the count", () => {
+		function liveRegion(): HTMLElement {
+			return screen.getByTestId("selection-live-region");
+		}
+
+		it("has a polite live region in the page before a selection starts, with nothing in it", () => {
+			seed([chat("a"), chat("b")]);
+
+			const region = liveRegion();
+			expect(region).toHaveAttribute("aria-live", "polite");
+			expect(region).toHaveAttribute("aria-atomic", "true");
+			expect(region.textContent).toBe("");
+			// Visually hidden: a screen reader reads it, nothing is drawn.
+			expect(region).toHaveClass("sr-only");
+			expect(bar()).not.toBeInTheDocument();
+		});
+
+		it("reads the count into the same region as the selection grows and shrinks", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			const region = liveRegion();
+
+			await pick("a");
+			expect(region).toHaveTextContent("1 selected");
+			await pick("b");
+			expect(region).toHaveTextContent("2 selected");
+			await pick("c");
+			await pick("a");
+			expect(region).toHaveTextContent("2 selected");
+
+			// The one node that was there from the start, not one made for the count.
+			expect(liveRegion()).toBe(region);
+		});
+
+		it("reads the count of Select all", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+
+			expect(liveRegion()).toHaveTextContent("3 selected");
+		});
+
+		it("empties when the selection ends, and stays in the page", async () => {
+			seed([chat("a"), chat("b")]);
+			const region = liveRegion();
+			await pick("a");
+			await pick("b");
+			expect(region).toHaveTextContent("2 selected");
+
+			await fireEvent.click(screen.getByTestId("selection-close"));
+
+			expect(bar()).not.toBeInTheDocument();
+			expect(liveRegion()).toBe(region);
+			expect(region.textContent).toBe("");
+		});
+
+		it("keeps the visible count in the bar, without a live region of its own", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+
+			expect(countText()).toBe("2 selected");
+			expect(
+				screen.getByTestId("selection-count").closest("[aria-live]"),
+			).toBeNull();
+		});
+
+		it("speaks Hungarian in Hungarian", async () => {
+			uiLanguage.set("hu");
+			try {
+				seed([chat("a"), chat("b")]);
+				await pick("a");
+				await pick("b");
+
+				expect(liveRegion()).toHaveTextContent("2 kijelölve");
+			} finally {
+				uiLanguage.set("en");
+			}
 		});
 	});
 

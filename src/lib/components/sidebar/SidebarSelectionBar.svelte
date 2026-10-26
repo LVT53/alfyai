@@ -73,6 +73,43 @@ const pinLabel = $derived(
 		: $t("sidebar.pinToSidebar"),
 );
 
+// The bar is one stop in the Tab order, as a toolbar is: the button that last
+// had the focus holds it, and the others are reached with the arrow keys. A
+// button that is switched off cannot hold it, so what is off is written down
+// once and both the `disabled` of each button and the stop read it.
+type ToolbarButton = "close" | "selectAll" | "pin" | "move" | "delete";
+const TOOLBAR_ORDER: ToolbarButton[] = [
+	"close",
+	"selectAll",
+	"pin",
+	"move",
+	"delete",
+];
+const switchedOff = $derived<Record<ToolbarButton, boolean>>({
+	close: busy,
+	selectAll: busy || !canSelectAll,
+	pin: busy || count === 0,
+	move: busy || count === 0,
+	delete: busy || count === 0,
+});
+const reachable = $derived(
+	TOOLBAR_ORDER.filter(
+		(button) => (button !== "move" || canMove) && !switchedOff[button],
+	),
+);
+let lastFocused = $state<ToolbarButton | null>(null);
+// The first button that is on while none has had the focus, or when the one
+// that had it is off or gone (Move goes with the last project).
+const tabStop = $derived(
+	lastFocused !== null && reachable.includes(lastFocused)
+		? lastFocused
+		: (reachable[0] ?? null),
+);
+
+function tabIndexOf(button: ToolbarButton): 0 | -1 {
+	return tabStop === button ? 0 : -1;
+}
+
 // The menu can be open only while the button is there and no bulk action runs.
 $effect(() => {
 	if (!canMove || busy) moveOpen = false;
@@ -133,11 +170,39 @@ function handleOutsideClick(event: MouseEvent) {
 	moveOpen = false;
 }
 
+// Left and Right move to the next button that is on, wrapping at the ends; Home
+// and End go to the first and the last. The buttons are read from the page: what
+// a person can reach is whatever is enabled right now. Not a handler on the
+// toolbar itself, which a `role="toolbar"` div is not allowed to carry.
+function moveBetweenButtons(event: KeyboardEvent) {
+	if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+	const target = event.target;
+	if (!(target instanceof HTMLElement) || !toolbarRef?.contains(target)) return;
+	const buttons = Array.from(
+		toolbarRef.querySelectorAll<HTMLElement>("button:not(:disabled)"),
+	);
+	const current = buttons.indexOf(target);
+	if (current === -1) return;
+	let next: number;
+	if (event.key === "ArrowRight") next = (current + 1) % buttons.length;
+	else if (event.key === "ArrowLeft")
+		next = (current - 1 + buttons.length) % buttons.length;
+	else if (event.key === "Home") next = 0;
+	else if (event.key === "End") next = buttons.length - 1;
+	else return;
+	// Home and End would scroll the list behind the bar.
+	event.preventDefault();
+	buttons[next].focus();
+}
+
 // Also in the capture phase, so that an Escape that closes the menu does not
 // go on to end the selection: the list ends it on Escape through a listener of
 // its own, and it must not see this press.
 function handleKeydown(event: KeyboardEvent) {
-	if (!moveOpen) return;
+	if (!moveOpen) {
+		moveBetweenButtons(event);
+		return;
+	}
 	if (event.key === "Escape") {
 		event.preventDefault();
 		event.stopPropagation();
@@ -195,16 +260,18 @@ export function holdsFocus(): boolean {
 		class={buttonClass}
 		title={$t('sidebar.selectionClose')}
 		aria-label={$t('sidebar.selectionClose')}
-		disabled={busy}
+		tabindex={tabIndexOf('close')}
+		disabled={switchedOff.close}
+		onfocus={() => (lastFocused = 'close')}
 		onclick={() => onClose?.()}
 	>
 		<X size={16} strokeWidth={2} aria-hidden="true" />
 	</button>
 
+	<!-- Only seen here: the list announces the count from a live region of its
+	     own, which is in the page before a selection starts. -->
 	<span
 		data-testid="selection-count"
-		aria-live="polite"
-		aria-atomic="true"
 		class="min-w-0 flex-1 truncate font-sans text-[12px] text-text-primary"
 	>{$t('sidebar.selectionCount', { count })}</span>
 
@@ -214,7 +281,9 @@ export function holdsFocus(): boolean {
 		class={buttonClass}
 		title={$t('sidebar.selectAll')}
 		aria-label={$t('sidebar.selectAll')}
-		disabled={busy || !canSelectAll}
+		tabindex={tabIndexOf('selectAll')}
+		disabled={switchedOff.selectAll}
+		onfocus={() => (lastFocused = 'selectAll')}
 		onclick={() => onSelectAll?.()}
 	>
 		<ListChecks size={16} strokeWidth={2} aria-hidden="true" />
@@ -226,7 +295,9 @@ export function holdsFocus(): boolean {
 		class={buttonClass}
 		title={pinLabel}
 		aria-label={pinLabel}
-		disabled={busy || count === 0}
+		tabindex={tabIndexOf('pin')}
+		disabled={switchedOff.pin}
+		onfocus={() => (lastFocused = 'pin')}
 		onclick={() => onPin?.()}
 	>
 		{#if pinAction === 'unpin'}
@@ -246,7 +317,9 @@ export function holdsFocus(): boolean {
 			aria-label={$t('sidebar.moveToProject')}
 			aria-haspopup="menu"
 			aria-expanded={moveOpen}
-			disabled={busy || count === 0}
+			tabindex={tabIndexOf('move')}
+			disabled={switchedOff.move}
+			onfocus={() => (lastFocused = 'move')}
 			onclick={toggleMoveMenu}
 		>
 			<FolderInput size={16} strokeWidth={2} aria-hidden="true" />
@@ -259,7 +332,9 @@ export function holdsFocus(): boolean {
 		class={buttonClass}
 		title={$t('sidebar.delete')}
 		aria-label={$t('sidebar.delete')}
-		disabled={busy || count === 0}
+		tabindex={tabIndexOf('delete')}
+		disabled={switchedOff.delete}
+		onfocus={() => (lastFocused = 'delete')}
 		onclick={() => onDelete?.()}
 	>
 		<Trash2 size={16} strokeWidth={2} aria-hidden="true" />

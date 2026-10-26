@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps } from "svelte";
+import { type ComponentProps, tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
@@ -58,15 +58,19 @@ afterEach(() => {
 
 describe("SidebarSelectionBar", () => {
 	describe("the bar", () => {
-		it("is a toolbar named for the selected chats, with the count in a polite live region", () => {
+		it("is a toolbar named for the selected chats, with the count in view and no live region of its own", () => {
 			renderBar({ count: 3 });
 
 			const bar = screen.getByTestId("sidebar-selection-bar");
 			expect(bar).toBe(screen.getByRole("toolbar", { name: "Selected chats" }));
 
+			// The count is announced by the list's own live region, which is in the
+			// page before a selection starts: one that is created together with its
+			// text is missed by most screen readers.
 			const count = screen.getByTestId("selection-count");
 			expect(count).toHaveTextContent("3 selected");
-			expect(count).toHaveAttribute("aria-live", "polite");
+			expect(count).not.toHaveAttribute("aria-live");
+			expect(bar.querySelector("[aria-live]")).toBeNull();
 		});
 
 		it("follows the count as the selection grows", async () => {
@@ -311,6 +315,272 @@ describe("SidebarSelectionBar", () => {
 			await rerender({ busy: false });
 			expect(screen.getByTestId("selection-close")).toBeEnabled();
 			expect(screen.getByTestId("selection-delete")).toBeEnabled();
+		});
+	});
+
+	// A toolbar is one stop in the Tab order: Left and Right move between its
+	// buttons, Home and End go to the first and the last, and the button that has
+	// the focus is the one Tab comes back to.
+	describe("roving focus", () => {
+		const ORDER = [
+			"selection-close",
+			"selection-select-all",
+			"selection-pin",
+			"selection-move",
+			"selection-delete",
+		];
+
+		function button(testId: string): HTMLElement {
+			return screen.getByTestId(testId);
+		}
+
+		function tabStops(): (string | undefined)[] {
+			return screen
+				.getAllByRole("button")
+				.filter((element) => element.getAttribute("tabindex") === "0")
+				.map((element) => element.dataset.testid);
+		}
+
+		// The tab stop moves in the update that follows the focus, so a test that
+		// moves the focus itself waits for that update before it reads it.
+		async function focusButton(testId: string) {
+			button(testId).focus();
+			await tick();
+		}
+
+		function pressOnFocused(key: string, init: KeyboardEventInit = {}) {
+			return fireEvent.keyDown(document.activeElement ?? document.body, {
+				key,
+				...init,
+			});
+		}
+
+		it("puts the first enabled button in the tab order and every other one out of it", () => {
+			renderBar();
+
+			expect(tabStops()).toEqual(["selection-close"]);
+			for (const id of ORDER.slice(1)) {
+				expect(button(id), id).toHaveAttribute("tabindex", "-1");
+			}
+		});
+
+		it("moves to the next enabled button on ArrowRight, and the tab stop goes with the focus", async () => {
+			renderBar();
+			button("selection-close").focus();
+
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-select-all")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-select-all"]);
+
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-pin")).toHaveFocus();
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-move")).toHaveFocus();
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-delete")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-delete"]);
+		});
+
+		it("moves back on ArrowLeft", async () => {
+			renderBar();
+			button("selection-pin").focus();
+
+			await pressOnFocused("ArrowLeft");
+
+			expect(button("selection-select-all")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-select-all"]);
+		});
+
+		it("wraps from the first button to the last on ArrowLeft, and from the last to the first on ArrowRight", async () => {
+			renderBar();
+			button("selection-close").focus();
+
+			await pressOnFocused("ArrowLeft");
+			expect(button("selection-delete")).toHaveFocus();
+
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-close")).toHaveFocus();
+		});
+
+		it("goes to the first button on Home and to the last on End", async () => {
+			renderBar();
+			button("selection-pin").focus();
+
+			await pressOnFocused("End");
+			expect(button("selection-delete")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-delete"]);
+
+			await pressOnFocused("Home");
+			expect(button("selection-close")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-close"]);
+		});
+
+		it("skips a disabled button on the way", async () => {
+			renderBar({ canSelectAll: false });
+			expect(button("selection-select-all")).toBeDisabled();
+			button("selection-close").focus();
+
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-pin")).toHaveFocus();
+
+			await pressOnFocused("ArrowLeft");
+			expect(button("selection-close")).toHaveFocus();
+		});
+
+		it("takes only the enabled buttons into the wrap, with nothing selected", async () => {
+			// Pin, Move and Delete are off: Close and Select all are the whole bar.
+			renderBar({ count: 0 });
+			button("selection-close").focus();
+
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-select-all")).toHaveFocus();
+			await pressOnFocused("ArrowRight");
+			expect(button("selection-close")).toHaveFocus();
+			await pressOnFocused("End");
+			expect(button("selection-select-all")).toHaveFocus();
+		});
+
+		it("walks a bar that has no Move button", async () => {
+			renderBar({ projects: [], canRemoveFromProject: false });
+			button("selection-pin").focus();
+
+			await pressOnFocused("ArrowRight");
+
+			expect(button("selection-delete")).toHaveFocus();
+		});
+
+		it("keeps the keys it handles from scrolling the list", async () => {
+			renderBar();
+			button("selection-close").focus();
+
+			for (const key of ["ArrowRight", "ArrowLeft", "Home", "End"]) {
+				expect(await pressOnFocused(key), key).toBe(false);
+			}
+		});
+
+		it("leaves other keys, and keys with a modifier, to the browser", async () => {
+			renderBar();
+			const close = button("selection-close");
+			close.focus();
+
+			for (const key of ["ArrowUp", "ArrowDown", "Enter", " ", "a"]) {
+				expect(await pressOnFocused(key), key).toBe(true);
+			}
+			// Alt+Left is the browser's Back, and Shift, Ctrl and Cmd with an arrow
+			// are not this bar's either.
+			for (const init of [
+				{ altKey: true },
+				{ ctrlKey: true },
+				{ metaKey: true },
+				{ shiftKey: true },
+			]) {
+				expect(
+					await pressOnFocused("ArrowRight", init),
+					JSON.stringify(init),
+				).toBe(true);
+			}
+			expect(close).toHaveFocus();
+		});
+
+		it("leaves the arrows alone when the focus is not on the bar", async () => {
+			renderBar();
+			const elsewhere = document.createElement("button");
+			document.body.append(elsewhere);
+			try {
+				elsewhere.focus();
+
+				expect(await pressOnFocused("ArrowRight")).toBe(true);
+				expect(await pressOnFocused("End")).toBe(true);
+
+				expect(elsewhere).toHaveFocus();
+			} finally {
+				elsewhere.remove();
+			}
+		});
+
+		it("makes the button that a click focused the tab stop", async () => {
+			renderBar();
+
+			await userEvent.setup().click(button("selection-pin"));
+
+			expect(button("selection-pin")).toHaveFocus();
+			expect(tabStops()).toEqual(["selection-pin"]);
+		});
+
+		it("hands the tab stop to the first enabled button when its own is switched off", async () => {
+			const { rerender } = renderBar();
+			await focusButton("selection-pin");
+			expect(tabStops()).toEqual(["selection-pin"]);
+
+			await rerender({ count: 0 });
+
+			expect(button("selection-pin")).toBeDisabled();
+			expect(tabStops()).toEqual(["selection-close"]);
+		});
+
+		it("hands the tab stop to the first button when Move goes away", async () => {
+			const { rerender } = renderBar({ canRemoveFromProject: true });
+			await focusButton("selection-move");
+			expect(tabStops()).toEqual(["selection-move"]);
+
+			await rerender({ projects: [], canRemoveFromProject: false });
+
+			expect(screen.queryByTestId("selection-move")).not.toBeInTheDocument();
+			expect(tabStops()).toEqual(["selection-close"]);
+		});
+
+		it("has no tab stop while a bulk action runs, and gives the same one back after it", async () => {
+			const { rerender } = renderBar();
+			await focusButton("selection-pin");
+
+			await rerender({ busy: true });
+			expect(tabStops()).toEqual([]);
+
+			await rerender({ busy: false });
+			expect(tabStops()).toEqual(["selection-pin"]);
+		});
+
+		it("is one stop in the Tab order, whichever button holds it", async () => {
+			// The bar first, so that the page's order is: before, the bar, after.
+			renderBar();
+			const before = document.createElement("button");
+			const after = document.createElement("button");
+			document.body.prepend(before);
+			document.body.append(after);
+			try {
+				const user = userEvent.setup();
+				before.focus();
+
+				await user.tab();
+				expect(button("selection-close")).toHaveFocus();
+				await user.tab();
+				expect(after).toHaveFocus();
+
+				// Back in, it is the button that had the focus that Tab comes to.
+				await user.tab({ shift: true });
+				expect(button("selection-close")).toHaveFocus();
+				await pressOnFocused("End");
+				await user.tab();
+				expect(after).toHaveFocus();
+				await user.tab({ shift: true });
+				expect(button("selection-delete")).toHaveFocus();
+			} finally {
+				before.remove();
+				after.remove();
+			}
+		});
+
+		it("leaves the arrows to the Move menu while it is open", async () => {
+			renderBar({ canRemoveFromProject: true });
+			await openMoveMenu();
+			const [alpha, beta] = screen.getAllByTestId("selection-move-option");
+			await waitFor(() => expect(alpha).toHaveFocus());
+
+			// Down is the menu's; Left and Right are nobody's while it is open.
+			await fireEvent.keyDown(alpha, { key: "ArrowDown" });
+			expect(beta).toHaveFocus();
+			expect(await fireEvent.keyDown(beta, { key: "ArrowRight" })).toBe(true);
+			expect(beta).toHaveFocus();
 		});
 	});
 
