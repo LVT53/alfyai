@@ -16,13 +16,15 @@ Select several chats in the sidebar, then in one action delete them, move them i
 
 ### D2. While a selection is open
 
-- Every chat row shows a checkbox at its start. A click or tap adds or removes the row instead of opening the chat; Shift-click extends from the anchor; Enter or Space toggles the focused row. Assistive tech meets the row as a `checkbox` with `aria-checked`.
+- Every chat row shows a checkbox at its start. A click or tap adds or removes the row instead of opening the chat; Shift-click extends from the anchor; Enter or Space toggles the focused row. Assistive tech meets the row as a toggle button: it stays a `button` and gets `aria-pressed` (a role that changes at runtime fails the build's accessibility check).
 - Row menus, rename and dragging (into a project, pinned reorder) are off. Project folders still open and close, so the chats inside can be reached.
 - The fork, Atlas and incognito marks stay where they are. None of them changes a bulk action: a selection may mix pinned, project, fork and incognito chats.
 
 ### D3. Ending a selection
 
-Esc (with focus in the sidebar list or its bar), the bar's close button, a bulk action that fully succeeds, or unticking the last chat. A selected chat that leaves the list (deleted in another tab) leaves the selection. Collapsing a section keeps its chats selected: the bar's count is always the size of the selection, and the delete dialog repeats it.
+Esc (anywhere except in a text field or while a dialog is open), the bar's close button, a bulk action that fully succeeds, unticking the last chat, or closing the sidebar (the phone drawer closing, or the sidebar being collapsed or hidden). While a bulk action runs, row clicks, Esc and close are ignored, so its result cannot revive a selection the person already ended.
+
+Everything selected is on screen. A selected chat that leaves the list (deleted in another tab) leaves the selection, and so do the chats of a section or folder that is collapsed: a bulk delete never takes a chat the person cannot see. The bar's count is always the size of the selection, and the delete dialog repeats it.
 
 ### D4. The bar
 
@@ -33,7 +35,7 @@ Sticky at the bottom of the chat list while a selection is open. In order: close
 - Move to project: a menu of the person's projects, then "Remove from project" when a selected chat is in one. Hidden when there are no projects and no selected chat is in one (the row menu's own rule).
 - Delete.
 
-The action buttons are disabled while a bulk action runs. The bar fits on one line at the sidebar's 240 px minimum width and on a 360 px phone, in Hungarian.
+The action buttons are disabled while a bulk action runs. The bar fits on one line at the sidebar's 240 px minimum width and on a 360 px phone, in Hungarian, with "30 kijelölve" unclipped; below 768 px its buttons have 44 px touch targets.
 
 ### D5. Bulk delete
 
@@ -47,7 +49,7 @@ The rest of the action stands. The chats that failed stay selected, and an error
 
 ### D7. One batch endpoint
 
-`POST /api/conversations/batch` takes `{ action: "delete" | "move" | "pin", ids, projectId?, pinned? }` with at most 50 ids, and answers with one result per id: ok, `not_found` or `failed`. Every id is checked against the signed-in user; another user's id reads as `not_found`. The browser sends a larger selection in chunks of 50, one after another. A chunk whose request fails marks its ids `unknown`, and after a delete the sidebar reloads its list to learn which went.
+`POST /api/conversations/batch` takes `{ action: "delete" | "move" | "pin", ids, projectId?, pinned? }` with at most 50 ids, and answers with one result per id: ok, `not_found` or `failed`. Every id is checked against the signed-in user; another user's id reads as `not_found`. The browser sends a larger selection in chunks of 50, one after another. A chunk whose request fails marks its ids `unknown`, and so does an id missing from a successful answer. When any id is `unknown`, the sidebar reloads its list and lets it decide: a deleted chat that is no longer listed went, and a moved or pinned chat whose listed state matches the action succeeded. Only the rest count as failed.
 
 ### Not in this build
 
