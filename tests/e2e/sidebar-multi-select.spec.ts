@@ -377,6 +377,78 @@ test.describe("selecting chats in the sidebar", () => {
 	});
 });
 
+// The bar is removed with the selection, and a button of it that holds the focus
+// takes the focus along to <body>: a keyboard user would start again from the top
+// of the page. A browser also drops the focus of a button that is switched off,
+// which the bar's buttons are while a bulk call runs, so the focus has to be read
+// when the person acts and put back on a row when the selection is over.
+test.describe("keyboard focus when a selection ends", () => {
+	test("puts the focus on the last chat picked when Cancel selection is pressed", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Charlie plan").click({ modifiers: [MOD] });
+
+		await page.getByTestId("selection-close").focus();
+		await page.keyboard.press("Enter");
+
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await expect(chatRow(page, "Charlie plan")).toBeFocused();
+	});
+
+	test("puts the focus on a row after a bulk pin pressed from the keyboard", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+
+		await page.getByTestId("selection-pin").focus();
+		await page.keyboard.press("Enter");
+
+		// Bravo, the last picked, is under Pinned now: the same chat in a new row.
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await expect(
+			page
+				.getByTestId("pinned-conversations-section")
+				.getByTestId("conversation-item"),
+		).toHaveCount(2);
+		await expect(chatRow(page, "Bravo plan")).toBeFocused();
+	});
+
+	test("puts the focus on the first chat left after a bulk delete confirmed from the keyboard", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+
+		await page.getByTestId("selection-delete").focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByRole("dialog")).toContainText("Delete 2 chats?");
+		await page.getByTestId("confirm-delete").focus();
+		await page.keyboard.press("Enter");
+
+		// Bravo, the last picked, is deleted with Alpha: Charlie is what is left.
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await expect(chatRow(page, "Alpha plan")).toHaveCount(0);
+		await expect(chatRow(page, "Charlie plan")).toBeFocused();
+	});
+
+	test("puts the focus on the row after Select in its menu", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+
+		await chatRow(page, "Bravo plan").click({ button: "right" });
+		await page.getByTestId("select-option").click();
+
+		await expect(selectionCount(page)).toHaveText("1 selected");
+		await expect(chatRow(page, "Bravo plan")).toBeFocused();
+	});
+});
+
 test.describe("selecting chats on a phone", () => {
 	test.use({
 		viewport: { width: 390, height: 844 },

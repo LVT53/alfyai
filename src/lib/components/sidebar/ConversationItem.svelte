@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import {
 	Check,
 	ChevronRight,
@@ -76,6 +76,7 @@ let {
 
 let isEditing = $state(false);
 let editTitle = $state("");
+let rowRef = $state<HTMLDivElement | undefined>(undefined);
 let inputRef = $state<HTMLInputElement | undefined>(undefined);
 let menuRef = $state<HTMLDivElement | undefined>(undefined);
 let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
@@ -142,11 +143,15 @@ function handleRowMouseDown(event: MouseEvent) {
 	if (event.shiftKey) event.preventDefault();
 }
 
-function handleSelectOption(e: MouseEvent) {
+async function handleSelectOption(e: MouseEvent) {
 	e.stopPropagation();
 	showProjectSubmenu = false;
 	onMenuClose?.({ id: conversation.id });
 	onSelectionToggle?.({ id: conversation.id, range: false });
+	// The menu and its button go with this click, and the focus they held goes to
+	// <body>: this row is the selection's first, and its box now its one control.
+	await tick();
+	rowRef?.focus();
 }
 
 function startRename(e: MouseEvent) {
@@ -415,6 +420,7 @@ onMount(() => {
 <svelte:window onclick={handleOutsideClick} />
 
 <div
+  bind:this={rowRef}
   data-testid="conversation-item"
 	data-conversation-id={conversation.id}
   class="group relative flex min-h-[32px] cursor-pointer items-center justify-between rounded-lg border border-transparent transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated focus-visible:bg-surface-elevated focus-visible:outline-none"

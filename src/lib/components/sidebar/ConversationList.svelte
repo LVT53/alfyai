@@ -1,7 +1,7 @@
 <script lang="ts">
 import { fade, slide } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
-import { onMount, untrack } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/stores";
 import {
@@ -256,10 +256,47 @@ const canRemoveFromProject = $derived(
 	selectedConversations.some((conversation) => conversation.projectId != null),
 );
 
-function endSelection() {
+// The bar goes away with the selection, and a button of it that holds the focus
+// takes the focus along to <body>: a keyboard user would start again from the
+// top of the page. So when the bar holds the focus as the selection ends, the
+// focus goes to a row, once the bar is gone: the one the selection was anchored
+// on while it is still shown, otherwise the first one shown. Focus that was
+// somewhere else (the composer, a row) stays where it is.
+let listRoot = $state<HTMLDivElement | undefined>(undefined);
+let selectionBar = $state<{ holdsFocus(): boolean } | undefined>(undefined);
+// Whether the bar held the focus when Delete was pressed: the dialog has the
+// focus from then on, and the bar's buttons are switched off while the delete
+// runs, so by the time the selection ends the answer can no longer be read.
+let deleteStartedFromBar = false;
+
+function barHoldsFocus(): boolean {
+	return selectionBar?.holdsFocus() ?? false;
+}
+
+function rowElement(id: string): HTMLElement | null {
+	const rows =
+		listRoot?.querySelectorAll<HTMLElement>("[data-conversation-id]") ?? [];
+	return (
+		Array.from(rows).find((row) => row.dataset.conversationId === id) ?? null
+	);
+}
+
+async function focusRowAfterSelection(anchorId: string | null) {
+	// After the DOM has caught up: the bar is gone and the rows are where they stay.
+	await tick();
+	const id =
+		anchorId !== null && shownIds.has(anchorId) ? anchorId : shownOrder[0];
+	if (id !== undefined) rowElement(id)?.focus();
+}
+
+// `refocus` is whether the bar held the focus, asked now unless the caller knows
+// better (a bulk call asked when the person acted, before its buttons went off).
+function endSelection({ refocus = barHoldsFocus() } = {}) {
+	const anchorId = selectionAnchorId;
 	if (selectedIds.size > 0) selectedIds = new Set();
 	selectionAnchorId = null;
 	bulkDeleteConfirmOpen = false;
+	if (refocus) void focusRowAfterSelection(anchorId);
 }
 
 // A selection holds only chats on screen: one deleted elsewhere, and the chats
@@ -277,9 +314,10 @@ $effect(() => {
 });
 
 // Closing the sidebar (the phone drawer) ends the selection. Collapsing it on
-// a desktop unmounts the list, which ends it anyway.
+// a desktop unmounts the list, which ends it anyway. No focus goes to a row: the
+// rows are leaving the screen with the drawer.
 $effect(() => {
-	if (!$sidebarOpen) untrack(endSelection);
+	if (!$sidebarOpen) untrack(() => endSelection({ refocus: false }));
 });
 
 function handleSelectionToggle(payload: { id: string; range: boolean }) {
@@ -338,6 +376,9 @@ async function runBulkAction(
 	ids: string[],
 	run: () => Promise<{ failedIds: string[] }>,
 	failureMessage: I18nKey,
+	// Asked before `bulkBusy` switches the bar's buttons off: a browser drops the
+	// focus of a button that is disabled, so it is gone by the time the call ends.
+	refocus = barHoldsFocus(),
 ) {
 	bulkBusy = true;
 	closeAllMenus();
@@ -353,7 +394,7 @@ async function runBulkAction(
 	}
 	bulkBusy = false;
 	selectedIds = pruneSelected(selectedIds, new Set(failedIds));
-	if (selectedIds.size === 0) endSelection();
+	if (selectedIds.size === 0) endSelection({ refocus });
 	if (failedIds.length > 0) {
 		showToast({
 			type: "error",
@@ -364,6 +405,7 @@ async function runBulkAction(
 
 function handleBulkDeleteRequest() {
 	if (bulkBusy || !selecting) return;
+	deleteStartedFromBar = barHoldsFocus();
 	bulkDeleteConfirmOpen = true;
 }
 
@@ -384,6 +426,7 @@ async function confirmBulkDelete() {
 		ids,
 		() => deleteConversationsByIds(ids),
 		"sidebar.bulkDeleteFailed",
+		deleteStartedFromBar,
 	);
 }
 
@@ -951,7 +994,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 
 <!-- min-h-full, not h-full: the selection bar is the last child and sticks to the
      bottom of the sidebar's scroll box, which needs a root as tall as its rows. -->
-<div class="flex min-h-full flex-col gap-0">
+<div bind:this={listRoot} class="flex min-h-full flex-col gap-0">
 	{#if pinnedConversations.length > 0}
 		<div data-testid="pinned-conversations-section" class="mb-1">
 			<!-- Section header (collapsible, matches Projects/Chats headers) -->
@@ -1346,6 +1389,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 	     the bottom of the sidebar's scroll box (the bar carries its own offsets). -->
 	{#if selecting}
 		<SidebarSelectionBar
+			bind:this={selectionBar}
 			count={selectedIds.size}
 			{canSelectAll}
 			{pinAction}

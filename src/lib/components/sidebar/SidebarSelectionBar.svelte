@@ -59,6 +59,7 @@ const buttonClass =
 const MOVE_MENU_WIDTH = 200;
 const MOVE_MENU_GAP = 6;
 
+let toolbarRef = $state<HTMLDivElement | undefined>(undefined);
 let moveOpen = $state(false);
 let moveButtonRef = $state<HTMLButtonElement | undefined>(undefined);
 let moveMenuRef = $state<HTMLDivElement | undefined>(undefined);
@@ -164,6 +165,16 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
+
+/**
+ * Whether keyboard focus is on one of the bar's own buttons. The list asks
+ * when a person acts on the bar, before it is taken away or its buttons are
+ * switched off for a bulk call: either one drops the focus it holds to
+ * <body>, and the list puts it back on a row once the selection is over.
+ */
+export function holdsFocus(): boolean {
+	return toolbarRef?.contains(document.activeElement) ?? false;
+}
 </script>
 
 <svelte:window
@@ -172,6 +183,7 @@ onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
 />
 
 <div
+	bind:this={toolbarRef}
 	data-testid="sidebar-selection-bar"
 	role="toolbar"
 	aria-label={$t('sidebar.selectionToolbar')}

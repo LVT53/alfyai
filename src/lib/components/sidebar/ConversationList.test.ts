@@ -1416,6 +1416,160 @@ describe("ConversationList multi-select", () => {
 		});
 	});
 
+	// The bar is removed with the selection, and a button of it that holds the
+	// focus takes the focus along to <body>: a keyboard user would start again from
+	// the top of the page. The focus goes to the row the selection was anchored on
+	// (the first row shown when that one is gone), and only when the bar held it:
+	// focus that was somewhere else, the composer for one, stays there.
+	describe("focus when the bar goes away", () => {
+		it("puts focus on the anchor row when Cancel selection, which held it, ends the selection", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("c");
+			const close = screen.getByTestId("selection-close");
+			close.focus();
+			expect(close).toHaveFocus();
+
+			await fireEvent.click(close);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			await waitFor(() => expect(row("c")).toHaveFocus());
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"conversation-item",
+			);
+		});
+
+		it("goes to the first row shown when the anchor row is no longer shown", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("c");
+			// The anchor, "c", is deleted in another tab; "a" stays selected.
+			conversations.update((items) => items.filter((item) => item.id !== "c"));
+			await waitFor(() => expect(countText()).toBe("1 selected"));
+			const close = screen.getByTestId("selection-close");
+			close.focus();
+
+			await fireEvent.click(close);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			await waitFor(() => expect(row("a")).toHaveFocus());
+		});
+
+		it("puts focus on a row when Escape ends the selection from a button of the bar", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("b");
+			const pin = screen.getByTestId("selection-pin");
+			pin.focus();
+
+			await fireEvent.keyDown(pin, { key: "Escape" });
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			await waitFor(() => expect(row("b")).toHaveFocus());
+		});
+
+		it("puts focus on a row after a bulk pin that started from the bar succeeds", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+			const pin = screen.getByTestId("selection-pin");
+			pin.focus();
+
+			await fireEvent.click(pin);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "pin", ids: ["a", "b"], pinned: true },
+			]);
+			// "b", the anchor, is in the Pinned section now: the same chat in a new row.
+			await waitFor(() => expect(row("b")).toHaveFocus());
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"conversation-item",
+			);
+		});
+
+		it("puts focus on the first row shown after a bulk move that took the anchor out of sight", async () => {
+			seed([chat("a"), chat("b"), chat("c")], [project("p1", "Alpha")]);
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+			await fireEvent.click(
+				(await screen.findAllByTestId("selection-move-option"))[0],
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["a"], projectId: "p1" },
+			]);
+			// "a" is in a folder that is closed: the first row on screen is "b".
+			expect(hasRow("a")).toBe(false);
+			await waitFor(() => expect(row("b")).toHaveFocus());
+		});
+
+		it("puts focus on the first row left after a bulk delete confirmed from the bar", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+			const del = screen.getByTestId("selection-delete");
+			del.focus();
+			await fireEvent.click(del);
+
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			// The anchor, "b", is deleted with "a": "c" is what is left.
+			await waitFor(() => expect(row("c")).toHaveFocus());
+		});
+
+		it("leaves the focus where it was when the selection ends from somewhere else", async () => {
+			seed([chat("a"), chat("b")]);
+			const elsewhere = document.createElement("button");
+			document.body.append(elsewhere);
+			try {
+				await pick("a");
+				elsewhere.focus();
+
+				await fireEvent.keyDown(elsewhere, { key: "Escape" });
+
+				await waitFor(() => expect(bar()).not.toBeInTheDocument());
+				expect(elsewhere).toHaveFocus();
+			} finally {
+				elsewhere.remove();
+			}
+		});
+
+		it("does not take the focus from the composer when a chat deleted elsewhere ends the selection", async () => {
+			seed([chat("a"), chat("b")]);
+			const composer = document.createElement("textarea");
+			document.body.append(composer);
+			try {
+				await pick("a");
+				composer.focus();
+
+				conversations.set([chat("b")]);
+
+				await waitFor(() => expect(bar()).not.toBeInTheDocument());
+				expect(composer).toHaveFocus();
+			} finally {
+				composer.remove();
+			}
+		});
+
+		it("puts focus on the row that started the selection from its menu", async () => {
+			seed([chat("a"), chat("b")]);
+			await fireEvent.click(
+				within(row("b")).getByLabelText("Conversation options"),
+			);
+			const select = screen.getByTestId("select-option");
+			select.focus();
+
+			await fireEvent.click(select);
+
+			await waitFor(() => expect(countText()).toBe("1 selected"));
+			await waitFor(() => expect(row("b")).toHaveFocus());
+		});
+	});
+
 	describe("bulk delete", () => {
 		it("asks first, naming the count, and sends nothing until the person confirms", async () => {
 			seed([chat("a"), chat("b"), chat("c")]);

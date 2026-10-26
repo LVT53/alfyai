@@ -695,6 +695,34 @@ describe("ConversationItem Component", () => {
 				expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 			});
 
+			it("puts focus on its own row after Select, which takes the menu and its button away", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				const select = screen.getByTestId("select-option");
+				select.focus();
+				expect(select).toHaveFocus();
+
+				await fireEvent.click(select);
+
+				await waitFor(() =>
+					expect(screen.getByTestId("conversation-item")).toHaveFocus(),
+				);
+			});
+
+			it("puts focus on its row after Select in the right-click menu too", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				await fireEvent.contextMenu(screen.getByTestId("conversation-item"), {
+					clientX: 48,
+					clientY: 72,
+				});
+
+				await fireEvent.click(screen.getByTestId("select-option"));
+
+				await waitFor(() =>
+					expect(screen.getByTestId("conversation-item")).toHaveFocus(),
+				);
+			});
+
 			it("starts a selection from the right-click menu too", async () => {
 				const onSelectionToggle = vi.fn();
 				render(ConversationItemWrapper, {
