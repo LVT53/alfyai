@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConversationCostSummary } from "$lib/server/services/analytics";
 import {
 	assignPendingWritesToAssistantMessage,
@@ -16,6 +16,11 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
+import {
+	registerActiveChatStream,
+	requestActiveChatStreamStop,
+	unregisterActiveChatStream,
+} from "./active-streams";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";
@@ -35,7 +40,9 @@ const {
 	mockGenerateFollowUpSuggestions,
 	mockResolveTurnReplyLanguage,
 	mockListMessageWindow,
+	mockGetConversation,
 } = vi.hoisted(() => ({
+	mockGetConversation: vi.fn(),
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
 	mockPersistAssistantTurnState: vi.fn(),
@@ -74,6 +81,12 @@ vi.mock("./reply-language", () => ({
 // the terminal metadata / finalize without a database.
 vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
 	recordCompletedTurnContextUsage: mockRecordCompletedTurnContextUsage,
+}));
+
+// A stopped turn asks whether its conversation is still there before it saves
+// anything (completeStreamTurn: deleting a chat stops its reply first).
+vi.mock("$lib/server/services/conversations", () => ({
+	getConversation: mockGetConversation,
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -249,6 +262,15 @@ describe("completeStreamTurn", () => {
 
 	beforeEach(() => {
 		vi.resetAllMocks();
+		// The conversation is there, unless a test says it was deleted.
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Chat",
+			sidebarPinned: false,
+			sidebarSortOrder: null,
+			createdAt: 1,
+			updatedAt: 1,
+		});
 		mockCreateMessage
 			.mockResolvedValueOnce(defaultUserMsg)
 			.mockResolvedValueOnce(defaultAssistantMsg);
@@ -610,6 +632,187 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn(defaultParams);
 
 		expectModelSafeTerminalError();
+	});
+
+	// Deleting a chat stops a reply that is still streaming into it
+	// (cleanup/conversation-cleanup.ts), and the stopped turn ends while the
+	// delete is still running. The turn then finds nothing to save its answer
+	// into, and what the browser is told must not be an error: an open chat stays
+	// mounted until the whole delete is answered, so the person would watch a
+	// "something went wrong" appear on the chat they just deleted.
+	describe("a stop that deleting the conversation asked for", () => {
+		let streamController: AbortController;
+		let consoleInfo: ReturnType<typeof vi.spyOn>;
+		let consoleError: ReturnType<typeof vi.spyOn>;
+
+		const askForTheStop = () => {
+			registerActiveChatStream({
+				streamId: "stream-1",
+				userId: "user-1",
+				conversationId: "conv-1",
+				controller: streamController,
+			});
+			requestActiveChatStreamStop({ streamId: "stream-1", userId: "user-1" });
+		};
+
+		beforeEach(() => {
+			streamController = new AbortController();
+			consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+			consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		});
+
+		afterEach(() => {
+			unregisterActiveChatStream("stream-1", streamController);
+			consoleInfo.mockRestore();
+			consoleError.mockRestore();
+		});
+
+		// The ending a stopped turn has, for a turn that saved nothing: it says it
+		// was stopped, carries no message id (there is none), then finish and
+		// [DONE], so the browser ends the turn the way it ends one the person
+		// stopped: no error, no recovery, no reconnect.
+		function expectQuietStoppedEnding() {
+			const parts = getStreamParts();
+			expect(
+				parts.some(
+					(part) =>
+						part !== "[DONE]" &&
+						(part.type === "data-stream-error" || part.type === "error"),
+				),
+			).toBe(false);
+			const metadata = parts.filter(isDataStreamMetadataEvent);
+			expect(metadata).toHaveLength(1);
+			expect(metadata[0].data).toEqual({ wasStopped: true });
+			expect(parts.slice(-2)).toEqual([
+				{ type: "finish", finishReason: "stop" },
+				"[DONE]",
+			]);
+			expect(mockCloseDownstream).toHaveBeenCalledOnce();
+			// A reader that reconnected to this run must be sent the ending before
+			// the buffer it listens on is cleared (stream-reconnect.ts).
+			expect(mockClearStreamBuffer).toHaveBeenCalledWith("stream-1");
+			const lastFrameOrder = Math.max(
+				...mockEnqueueChunk.mock.invocationCallOrder,
+			);
+			expect(mockClearStreamBuffer.mock.invocationCallOrder[0]).toBeGreaterThan(
+				lastFrameOrder,
+			);
+		}
+
+		function expectNothingWasSaved() {
+			expect(mockCreateMessage).not.toHaveBeenCalled();
+			expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
+			expect(mockPersistAssistantEvidence).not.toHaveBeenCalled();
+			expect(mockRunPostTurnTasks).not.toHaveBeenCalled();
+			expect(mockTouchConversation).not.toHaveBeenCalled();
+		}
+
+		it("ends the stream as a stop, with no error, when the conversation is already gone", async () => {
+			askForTheStop();
+			mockGetConversation.mockResolvedValue(null);
+
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expectQuietStoppedEnding();
+			expect(mockGetConversation).toHaveBeenCalledWith("user-1", "conv-1");
+			// Nothing is saved, no model is asked about the language of a reply no
+			// one will read, and no post-turn work starts for a deleted chat.
+			expectNothingWasSaved();
+			expect(mockResolveTurnReplyLanguage).not.toHaveBeenCalled();
+			expect(mockRecordCompletedTurnContextUsage).not.toHaveBeenCalled();
+			// One line, and not an error: a deleted chat is no failure.
+			expect(consoleInfo).toHaveBeenCalledOnce();
+			expect(consoleInfo).toHaveBeenCalledWith(
+				expect.stringContaining("[CHAT_STREAM]"),
+				expect.objectContaining({
+					conversationId: "conv-1",
+					streamId: "stream-1",
+				}),
+			);
+			expect(consoleError).not.toHaveBeenCalled();
+		});
+
+		it("ends the stream as a stop when the conversation goes while the stopped turn is being saved", async () => {
+			askForTheStop();
+			// There when the turn ends, gone by the time it saves: the saves fail.
+			mockGetConversation
+				.mockResolvedValueOnce({ id: "conv-1" })
+				.mockResolvedValue(null);
+			mockCreateMessage
+				.mockReset()
+				.mockRejectedValue(new Error("FOREIGN KEY constraint failed"));
+
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				fullResponse: "partial answer",
+			});
+
+			expectQuietStoppedEnding();
+			expect(consoleError).not.toHaveBeenCalled();
+			expect(mockRunPostTurnTasks).not.toHaveBeenCalled();
+		});
+
+		it("ends the stream as a stop when the stop came after the turn had already completed", async () => {
+			askForTheStop();
+			mockGetConversation.mockResolvedValue(null);
+
+			// The reply was complete when the stop was asked for, so the turn was not
+			// marked stopped; the chat is gone all the same.
+			await completeStreamTurn({ ...defaultParams, wasStopped: false });
+
+			expectQuietStoppedEnding();
+			expectNothingWasSaved();
+		});
+
+		it("still saves and reports a stopped turn whose conversation is there", async () => {
+			askForTheStop();
+
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expect(getLatestEndPayload()).toMatchObject({
+				wasStopped: true,
+				assistantMessageId: "asst-msg-1",
+			});
+			expect(mockCreateMessage).toHaveBeenCalledTimes(2);
+		});
+
+		it("still reports a failure when the conversation is there", async () => {
+			askForTheStop();
+			mockCreateMessage
+				.mockReset()
+				.mockResolvedValueOnce({ id: "user-msg-1" })
+				.mockRejectedValueOnce(new Error("assistant persistence offline"));
+
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expectModelSafeTerminalError();
+		});
+
+		it("still reports a failure when it cannot tell whether the conversation is there", async () => {
+			askForTheStop();
+			mockGetConversation.mockRejectedValue(new Error("database is locked"));
+			mockCreateMessage
+				.mockReset()
+				.mockRejectedValue(new Error("database is locked"));
+
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expectModelSafeTerminalError();
+		});
+
+		it("never reads the conversation, and still reports a failure, for a turn nobody stopped", async () => {
+			mockGetConversation.mockResolvedValue(null);
+			mockCreateMessage
+				.mockReset()
+				.mockResolvedValueOnce({ id: "user-msg-1" })
+				.mockRejectedValueOnce(new Error("assistant persistence offline"));
+
+			await completeStreamTurn({ ...defaultParams, wasStopped: false });
+
+			expectModelSafeTerminalError();
+			expect(mockGetConversation).not.toHaveBeenCalled();
+		});
 	});
 
 	// E1 — truncation/content-filter notices no longer become English

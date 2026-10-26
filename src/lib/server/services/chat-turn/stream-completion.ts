@@ -12,6 +12,7 @@ import {
 	collectInstructionSuggestions,
 	finalizeChatTurn,
 } from "$lib/server/services/chat-turn/finalize";
+import { getConversation } from "$lib/server/services/conversations";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugState,
@@ -36,6 +37,7 @@ import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,
 } from "$lib/utils/tool-calls";
+import { wasActiveChatStreamStopRequested } from "./active-streams";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import {
 	buildBaselineDepthMetadata,
@@ -499,7 +501,62 @@ export async function completeStreamTurn(
 		closeDownstream();
 	};
 
+	// The ending of a turn that saved nothing because its conversation was
+	// deleted: what a stopped turn ends with, minus the message ids it has none
+	// of. The browser ends its turn the way it ends one the person stopped (no
+	// error, no recovery, no reconnect, and a follow-up it had queued goes back
+	// to the draft instead of being sent into a chat that is going). The frames
+	// are sent before the buffer a reconnected reader listens on is cleared,
+	// like every other ending.
+	const sendStoppedAndClose = () => {
+		if (thinkingContent) {
+			enqueueChunk(streamReasoningEndEvent());
+		}
+		if (finalResponse) {
+			enqueueChunk(streamTextEndEvent());
+		}
+		enqueueChunk(
+			streamDataPartEvent("data-stream-metadata", { wasStopped: true }),
+		);
+		enqueueChunk(streamFinishEvent("stop"));
+		enqueueChunk(createUiMessageStreamDoneFrame());
+		if (streamId) clearStreamBuffer(streamId);
+		closeDownstream();
+	};
+
+	// Deleting a chat stops the reply streaming into it (cleanup/
+	// conversation-cleanup.ts) without waiting for the turn to end, so the turn
+	// ends while the delete is still running and goes to save its answer into a
+	// chat that is going or gone. That is no failure and there is nothing worth
+	// saving: the turn ends quietly (`sendStoppedAndClose`) and starts no
+	// post-turn work. A turn is only treated so when a stop was asked for it and
+	// the conversation itself reads as gone: a turn nobody stopped that cannot
+	// save its answer failed for real, and a read that fails proves nothing, so
+	// both are left to the error ending.
+	const endQuietlyWhenItsChatWasDeleted = async (): Promise<boolean> => {
+		if (
+			!wasStopped &&
+			!wasActiveChatStreamStopRequested({ streamId, userId })
+		) {
+			return false;
+		}
+		let conversation: Awaited<ReturnType<typeof getConversation>> | undefined;
+		try {
+			conversation = await getConversation(userId, conversationId);
+		} catch {
+			return false;
+		}
+		if (conversation !== null) return false;
+		console.info(
+			"[CHAT_STREAM] Stopped turn ended after its conversation was deleted; nothing was saved",
+			{ conversationId, streamId },
+		);
+		sendStoppedAndClose();
+		return true;
+	};
+
 	try {
+		if (await endQuietlyWhenItsChatWasDeleted()) return;
 		const persistedAssistantResponse =
 			wasStopped && finalResponse.trim().length === 0
 				? "Stopped"
@@ -781,6 +838,8 @@ export async function completeStreamTurn(
 		});
 		return;
 	} catch (error) {
+		// The chat can go between the first look and the save: the save then fails.
+		if (await endQuietlyWhenItsChatWasDeleted()) return;
 		console.error(
 			"[CHAT_STREAM] Stream finalization failed before terminal receipt",
 			{

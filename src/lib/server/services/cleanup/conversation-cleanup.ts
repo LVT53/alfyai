@@ -42,11 +42,13 @@ export async function deleteConversationWithCleanup(
 
 	// A reply that is still streaming into this chat is stopped first, the way
 	// the Stop button stops it. Without this the server keeps generating into a
-	// chat that no longer exists. The stop is not awaited: the stream ends on
-	// its own, and an end-of-turn write that meets the deleted chat is logged
-	// and dropped (chat-turn/finalize.ts), never thrown at the person. The
-	// registry is keyed by owner and chat, so this only ever reaches a stream
-	// the person owns, and only after the ownership check above.
+	// chat that no longer exists. The stop is not awaited: the stopped turn would
+	// then finalize, and start its post-turn work, for a chat that is being
+	// deleted. The turn ends on its own while the rest of this delete runs, and
+	// when it finds its chat gone it ends the browser's stream like a stop, with
+	// no error (chat-turn/stream-completion.ts). The registry is keyed by owner
+	// and chat, so this only ever reaches a stream the person owns, and only
+	// after the ownership check above.
 	const streamId = getOrphanedStream({ userId, conversationId });
 	if (streamId) {
 		requestActiveChatStreamStop({ streamId, userId });
