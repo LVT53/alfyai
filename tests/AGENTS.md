@@ -21,6 +21,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 | Auth/login | `tests/e2e/login.test.ts`, `tests/e2e/auth.spec.ts` |
 | Knowledge | `tests/e2e/knowledge.spec.ts` |
 | Search modal | `tests/e2e/search-modal.spec.ts` |
+| Sidebar selection (picking several chats, the bar, bulk delete, move and pin) | `tests/e2e/sidebar-multi-select.spec.ts` |
 | Mobile/responsive | `tests/e2e/mobile-*.spec.ts`, `tests/e2e/responsive*.spec.ts` |
 | Server routes | `src/routes/api/**/*.test.ts` |
 | Services/stores | `src/lib/**/*.test.ts` |
