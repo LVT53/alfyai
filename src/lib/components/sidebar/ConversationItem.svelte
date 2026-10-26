@@ -22,6 +22,7 @@ import {
 } from "$lib/utils/popup-menu";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
+import "./conversation-menu.css";
 
 type SidebarConversation = ConversationListItem & {
 	sidebarPinned?: boolean;
@@ -560,41 +561,14 @@ onMount(() => {
 {/if}
 
 <style>
-	.conversation-menu {
-		background: var(--conversation-menu-bg, var(--surface-elevated));
-		border-color: color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
-		isolation: isolate;
-		pointer-events: auto;
-		box-shadow:
-			0 14px 30px rgba(0, 0, 0, 0.14),
-			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-	}
-
-	:global(.dark) .conversation-menu {
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-		box-shadow:
-			0 16px 32px rgba(0, 0, 0, 0.4),
-			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-	}
-
-	.conversation-option {
-		border: 0;
-		border-radius: 0.5rem;
-		background: var(--conversation-menu-bg);
-		padding: 0.35rem 0.55rem;
-		gap: 0.45rem;
-		line-height: 1.15;
-	}
-
-	.conversation-option:hover,
-	.conversation-option:focus-visible {
-		background: color-mix(in srgb, var(--accent) 24%, transparent);
-	}
+	/* The menu and option look itself is shared with the selection bar's Move
+	   menu: conversation-menu.css. What follows is the row's own. */
 
 	/* !important: these persistent-state backgrounds must outrank the plain
-	   :hover rule above even though it has higher selector specificity
-	   (class + :hover vs. a single class) — without it, hovering an
-	   already-active/current menu item would flash the plain hover tint. */
+	   :hover rule in conversation-menu.css whatever the order of the two
+	   stylesheets and whatever their selector specificity (class + :hover vs.
+	   a single class) — without it, hovering an already-active/current menu
+	   item would flash the plain hover tint. */
 	.conversation-option-active {
 		background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
 	}
@@ -617,18 +591,8 @@ onMount(() => {
 		background: color-mix(in srgb, var(--danger) 14%, transparent);
 	}
 
-	.conversation-option-icon {
-		color: color-mix(in srgb, var(--surface-overlay) 45%, var(--text-primary) 55%);
-		flex-shrink: 0;
-	}
-
 	.conversation-option-icon-danger {
 		color: color-mix(in srgb, var(--surface-overlay) 45%, var(--text-primary) 55%);
-	}
-
-	:global(.dark) .conversation-option:hover,
-	:global(.dark) .conversation-option:focus-visible {
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .conversation-option-active {
@@ -640,7 +604,6 @@ onMount(() => {
 		background: color-mix(in srgb, var(--danger) 22%, transparent);
 	}
 
-	:global(.dark) .conversation-option-icon,
 	:global(.dark) .conversation-option-icon-danger {
 		color: color-mix(in srgb, var(--surface-overlay) 62%, var(--text-primary) 38%);
 	}
