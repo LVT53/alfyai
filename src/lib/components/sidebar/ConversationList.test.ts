@@ -6,17 +6,27 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { get, readable } from "svelte/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { goto } from "$app/navigation";
+import {
+	deregisterDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
-import { conversations } from "$lib/stores/conversations";
+import {
+	conversations,
+	deleteConversationsByIds,
+} from "$lib/stores/conversations";
 import { clearProjectStore, projects } from "$lib/stores/projects";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import {
 	clearProjectFolderExpanded,
 	currentConversationId,
 	projectFolderExpanded,
 	setProjectFolderExpanded,
 	sidebarChatsExpanded,
+	sidebarOpen,
 	sidebarPinnedExpanded,
 	sidebarProjectsExpanded,
 } from "$lib/stores/ui";
@@ -26,9 +36,47 @@ vi.mock("$app/navigation", () => ({
 	goto: vi.fn(),
 }));
 
+// The real store, except that `deleteConversationsByIds` can be made to fail
+// for one test: it calls through to the real one otherwise.
+vi.mock("$lib/stores/conversations", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/stores/conversations")>();
+	return {
+		...actual,
+		deleteConversationsByIds: vi.fn(actual.deleteConversationsByIds),
+	};
+});
+
 vi.mock("$app/stores", () => ({
 	page: readable({ url: new URL("http://localhost/") }),
 }));
+
+// The delete dialog (DialogShell) and the sections play Svelte transitions, and
+// jsdom would never finish their outros: a closed dialog would stay in the page.
+vi.mock("svelte/transition", () => ({
+	fade: () => ({}),
+	fly: () => ({}),
+	scale: () => ({}),
+	slide: () => ({}),
+}));
+
+if (typeof Element !== "undefined") {
+	Element.prototype.animate = vi.fn().mockImplementation(() => {
+		const animation = {
+			finished: Promise.resolve(),
+			cancel: vi.fn(),
+			play: vi.fn(),
+			onfinish: null as Animation["onfinish"],
+		} as unknown as Animation;
+		setTimeout(() => {
+			animation.onfinish?.call(
+				animation,
+				new Event("finish") as AnimationPlaybackEvent,
+			);
+		}, 0);
+		return animation;
+	});
+}
 
 describe("ConversationList sidebar pinning", () => {
 	beforeEach(() => {
@@ -702,5 +750,1095 @@ describe("ConversationList section headers (ADR-0043 Slice 16)", () => {
 		expect(
 			screen.getByTestId("project-chat-count-project-1"),
 		).toHaveTextContent("2");
+	});
+});
+
+// ── Multi-select ─────────────────────────────────────────────────────────────
+//
+// What a person does with a selection, through the rows and the bar as they
+// really are: `ConversationItem` emits the picks, `SidebarSelectionBar` the
+// actions, and the list owns the state and makes the bulk calls. The server is
+// a `fetch` that answers `POST /api/conversations/batch`.
+
+type BatchBody =
+	| { action: "delete"; ids: string[] }
+	| { action: "move"; ids: string[]; projectId: string | null }
+	| { action: "pin"; ids: string[]; pinned: boolean };
+
+type BatchAnswer =
+	| { id: string; ok: true }
+	| { id: string; ok: false; error: "failed" | "not_found" };
+
+describe("ConversationList multi-select", () => {
+	let batches: BatchBody[];
+	// What happened, in order: "goto" for a navigation, "batch" for a batch request.
+	let events: string[];
+	let answer: (body: BatchBody) => Promise<BatchAnswer[]> | BatchAnswer[];
+
+	function allOk(body: BatchBody): BatchAnswer[] {
+		return body.ids.map((id) => ({ id, ok: true }));
+	}
+
+	function failing(...failedIds: string[]) {
+		return (body: BatchBody): BatchAnswer[] =>
+			body.ids.map((id) =>
+				failedIds.includes(id)
+					? { id, ok: false, error: "failed" }
+					: { id, ok: true },
+			);
+	}
+
+	// A request that stays open until the test lets it go.
+	function hold() {
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		return { gate, release };
+	}
+
+	function chat(
+		id: string,
+		overrides: Partial<ConversationListItem> = {},
+	): ConversationListItem {
+		return {
+			id,
+			title: `Chat ${id}`,
+			projectId: null,
+			updatedAt: 1000,
+			sidebarPinned: false,
+			sidebarSortOrder: null,
+			...overrides,
+		};
+	}
+
+	function pinned(id: string, order: number): ConversationListItem {
+		return chat(id, { sidebarPinned: true, sidebarSortOrder: order });
+	}
+
+	function project(id: string, name: string, sortOrder = 0): Project {
+		return {
+			id,
+			name,
+			sortOrder,
+			hasInstructions: false,
+			createdAt: sortOrder + 1,
+			updatedAt: sortOrder + 1,
+		};
+	}
+
+	function seed(
+		chats: ConversationListItem[],
+		projectRows: Project[] = [],
+		expandedFolders: string[] = [],
+	) {
+		projects.set(projectRows);
+		conversations.set(chats);
+		for (const id of expandedFolders) setProjectFolderExpanded(id, true);
+		return render(ConversationList, { initialProjects: projectRows });
+	}
+
+	function row(id: string): HTMLElement {
+		const found = screen
+			.getAllByTestId("conversation-item")
+			.find((item) => item.dataset.conversationId === id);
+		if (!found) throw new Error(`no row for ${id}`);
+		return found;
+	}
+
+	function hasRow(id: string): boolean {
+		return screen
+			.queryAllByTestId("conversation-item")
+			.some((item) => item.dataset.conversationId === id);
+	}
+
+	// Cmd-click by default, which adds the chat to the selection or takes it out.
+	function pick(id: string, init: MouseEventInit = { metaKey: true }) {
+		return fireEvent.click(row(id), init);
+	}
+
+	function bar(): HTMLElement | null {
+		return screen.queryByTestId("sidebar-selection-bar");
+	}
+
+	function countText(): string | undefined {
+		return screen.getByTestId("selection-count").textContent?.trim();
+	}
+
+	function selectedIds(): (string | undefined)[] {
+		return screen
+			.getAllByTestId("conversation-item")
+			.filter((item) => item.dataset.selected === "true")
+			.map((item) => item.dataset.conversationId);
+	}
+
+	function toastMessages(): string[] {
+		return get(toasts).map((entry) => entry.message);
+	}
+
+	async function confirmDelete() {
+		await fireEvent.click(await screen.findByTestId("confirm-delete"));
+	}
+
+	beforeEach(() => {
+		clearToasts();
+		batches = [];
+		events = [];
+		answer = allOk;
+		vi.mocked(goto).mockReset();
+		vi.mocked(goto).mockImplementation(async () => {
+			events.push("goto");
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === "/api/conversations/batch") {
+					const body = JSON.parse(String(init?.body)) as BatchBody;
+					events.push("batch");
+					batches.push(body);
+					return new Response(JSON.stringify({ results: await answer(body) }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				return new Response(
+					JSON.stringify({ conversations: [], projects: [] }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}),
+		);
+		conversations.set([]);
+		currentConversationId.set(null);
+		clearProjectStore();
+		sidebarOpen.set(true);
+		sidebarProjectsExpanded.set(true);
+		sidebarChatsExpanded.set(true);
+		sidebarPinnedExpanded.set(true);
+		for (const id of ["p1", "p2"]) clearProjectFolderExpanded(id);
+	});
+
+	afterEach(() => {
+		clearToasts();
+		sidebarOpen.set(true);
+	});
+
+	describe("starting, extending and ending a selection", () => {
+		it("opens a selection on the first Cmd-click and counts every pick", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			expect(bar()).not.toBeInTheDocument();
+
+			await pick("a");
+			expect(countText()).toBe("1 selected");
+			await pick("b");
+
+			expect(
+				screen.getByRole("toolbar", { name: "Selected chats" }),
+			).toBeInTheDocument();
+			expect(countText()).toBe("2 selected");
+			expect(selectedIds()).toEqual(["a", "b"]);
+		});
+
+		it("starts from Select in a row's menu, and Escape ends it from the page body", async () => {
+			seed([chat("a"), chat("b")]);
+			await fireEvent.click(
+				within(row("a")).getByLabelText("Conversation options"),
+			);
+			await fireEvent.click(screen.getByTestId("select-option"));
+
+			expect(countText()).toBe("1 selected");
+			expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+			expect(row("a")).toHaveAttribute("aria-pressed", "true");
+
+			await fireEvent.keyDown(document.body, { key: "Escape" });
+
+			expect(bar()).not.toBeInTheDocument();
+			expect(row("a")).not.toHaveAttribute("aria-pressed");
+		});
+
+		it("takes a plain click as a pick while selecting, and does not open the chat", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+
+			await fireEvent.click(row("b"));
+
+			expect(countText()).toBe("2 selected");
+			expect(goto).not.toHaveBeenCalled();
+			expect(get(currentConversationId)).toBeNull();
+		});
+
+		it("takes the Cmd-click that starts a selection as a pick, not as opening the chat", async () => {
+			seed([chat("a")]);
+
+			await pick("a");
+
+			expect(countText()).toBe("1 selected");
+			expect(goto).not.toHaveBeenCalled();
+			expect(get(currentConversationId)).toBeNull();
+		});
+
+		it("selects from the open chat to the clicked row on a first Shift-click, in the order shown", async () => {
+			seed([chat("a"), chat("b"), chat("c"), chat("d"), chat("e")]);
+			currentConversationId.set("b");
+
+			await pick("d", { shiftKey: true });
+
+			expect(selectedIds()).toEqual(["b", "c", "d"]);
+			expect(countText()).toBe("3 selected");
+		});
+
+		it("selects only the clicked chat on a first Shift-click when the open chat is not shown", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			currentConversationId.set("a-chat-in-a-collapsed-folder");
+
+			await pick("c", { shiftKey: true });
+
+			expect(selectedIds()).toEqual(["c"]);
+		});
+
+		it("extends from the last chat clicked, up or down, and keeps the earlier picks", async () => {
+			seed([chat("a"), chat("b"), chat("c"), chat("d"), chat("e")]);
+
+			await pick("d");
+			await pick("b", { shiftKey: true });
+			expect(selectedIds()).toEqual(["b", "c", "d"]);
+
+			await pick("e", { metaKey: true });
+			await pick("a", { shiftKey: true });
+			expect(selectedIds()).toEqual(["a", "b", "c", "d", "e"]);
+		});
+
+		it("selects every shown row with Select all, and disables it once they all are selected", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			expect(screen.getByTestId("selection-select-all")).toBeEnabled();
+
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+
+			expect(countText()).toBe("3 selected");
+			expect(screen.getByTestId("selection-select-all")).toBeDisabled();
+
+			await pick("b");
+			expect(screen.getByTestId("selection-select-all")).toBeEnabled();
+		});
+
+		it("takes only the rows on screen with Select all: a collapsed section's chats stay out", async () => {
+			sidebarChatsExpanded.set(false);
+			seed([pinned("pin", 0), chat("a"), chat("b")]);
+			await pick("pin");
+
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+			expect(countText()).toBe("1 selected");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Expand Chats section" }),
+			);
+			expect(selectedIds()).toEqual(["pin"]);
+			expect(screen.getByTestId("selection-select-all")).toBeEnabled();
+
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+			expect(countText()).toBe("3 selected");
+		});
+
+		it("collapsing a section takes its chats out of the selection", async () => {
+			seed([pinned("pin", 0), chat("a"), chat("b")]);
+			await pick("pin");
+			await pick("a");
+			await pick("b");
+			expect(countText()).toBe("3 selected");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Collapse Chats section" }),
+			);
+			expect(countText()).toBe("1 selected");
+
+			// Opening it again does not bring them back.
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Expand Chats section" }),
+			);
+			expect(selectedIds()).toEqual(["pin"]);
+		});
+
+		it("collapsing a project folder takes its chats out of the selection, and so does collapsing Projects", async () => {
+			seed(
+				[
+					chat("f1", { projectId: "p1" }),
+					chat("g1", { projectId: "p2" }),
+					chat("a"),
+				],
+				[project("p1", "Alpha"), project("p2", "Beta", 1)],
+				["p1", "p2"],
+			);
+			await pick("f1");
+			await pick("g1");
+			await pick("a");
+			expect(countText()).toBe("3 selected");
+
+			await fireEvent.click(screen.getAllByTestId("project-drop-target")[0]);
+			expect(countText()).toBe("2 selected");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Collapse Projects section" }),
+			);
+			expect(countText()).toBe("1 selected");
+		});
+
+		it("ends the selection when the section that holds all of it collapses", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			expect(countText()).toBe("1 selected");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Collapse Chats section" }),
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+		});
+
+		it("lets project folders open and close while selecting, and keeps the selection", async () => {
+			seed(
+				[chat("f1", { projectId: "p1" }), chat("a")],
+				[project("p1", "Alpha")],
+			);
+			await pick("a");
+			const folder = screen.getByTestId("project-drop-target");
+
+			await fireEvent.click(folder);
+			expect(
+				screen.getByTestId("project-conversations-p1"),
+			).toBeInTheDocument();
+			expect(get(projectFolderExpanded).p1).toBe(true);
+			expect(countText()).toBe("1 selected");
+
+			await fireEvent.click(folder);
+			expect(get(projectFolderExpanded).p1).toBe(false);
+			expect(countText()).toBe("1 selected");
+			expect(goto).not.toHaveBeenCalled();
+		});
+
+		it("closing the drawer ends the selection", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+			expect(countText()).toBe("2 selected");
+
+			sidebarOpen.set(false);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(selectedIds()).toEqual([]);
+		});
+
+		it("ends the selection when its last chat is unticked", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+
+			await pick("a");
+			expect(countText()).toBe("1 selected");
+			await pick("b");
+
+			expect(bar()).not.toBeInTheDocument();
+			expect(selectedIds()).toEqual([]);
+		});
+
+		it("lets the close button end the selection", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+
+			await fireEvent.click(screen.getByTestId("selection-close"));
+
+			expect(bar()).not.toBeInTheDocument();
+			expect(selectedIds()).toEqual([]);
+		});
+
+		it("drops a selected chat that leaves the list, and ends the selection when the last one goes", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+
+			conversations.update((items) => items.filter((item) => item.id !== "a"));
+			await waitFor(() => expect(countText()).toBe("1 selected"));
+
+			conversations.update((items) => items.filter((item) => item.id !== "b"));
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+		});
+
+		it("clears a drag that was under way when a selection starts", async () => {
+			seed([chat("a"), chat("b")]);
+			await fireEvent.dragStart(row("b"));
+			expect(row("b")).toHaveClass("conversation-item-dragging");
+
+			await pick("a");
+
+			expect(row("b")).not.toHaveClass("conversation-item-dragging");
+		});
+
+		it("lets no row be dragged while selecting, the reorder rows included", async () => {
+			seed(
+				[pinned("pin", 0), chat("f1", { projectId: "p1" }), chat("a")],
+				[project("p1", "Alpha")],
+				["p1"],
+			);
+			expect(
+				document.querySelectorAll('[draggable="true"]').length,
+			).toBeGreaterThan(0);
+
+			await pick("a");
+
+			expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
+			for (const reorderRow of screen.getAllByTestId("sidebar-reorder-row")) {
+				expect(reorderRow).toHaveAttribute("draggable", "false");
+			}
+
+			await fireEvent.click(screen.getByTestId("selection-close"));
+			expect(
+				document.querySelectorAll('[draggable="true"]').length,
+			).toBeGreaterThan(0);
+		});
+
+		it("puts no options button on a row while selecting", async () => {
+			seed([chat("a"), chat("b")]);
+			expect(screen.getAllByLabelText("Conversation options")).toHaveLength(2);
+
+			await pick("a");
+
+			expect(
+				screen.queryByLabelText("Conversation options"),
+			).not.toBeInTheDocument();
+		});
+	});
+
+	describe("Escape", () => {
+		it("leaves the selection alone while a dialog is open", async () => {
+			seed([chat("a")]);
+			await pick("a");
+			const dialog = Symbol("a dialog that is open");
+			registerDialog(dialog);
+			try {
+				await fireEvent.keyDown(document.body, { key: "Escape" });
+				expect(bar()).toBeInTheDocument();
+			} finally {
+				deregisterDialog(dialog);
+			}
+
+			await fireEvent.keyDown(document.body, { key: "Escape" });
+			expect(bar()).not.toBeInTheDocument();
+		});
+
+		it("leaves the selection alone when it is typed into a text field", async () => {
+			seed([chat("a")]);
+			await pick("a");
+			const input = document.createElement("input");
+			const textarea = document.createElement("textarea");
+			const select = document.createElement("select");
+			const editable = document.createElement("div");
+			editable.setAttribute("contenteditable", "true");
+			const inside = document.createElement("span");
+			editable.appendChild(inside);
+			document.body.append(input, textarea, select, editable);
+			try {
+				for (const field of [input, textarea, select, editable, inside]) {
+					await fireEvent.keyDown(field, { key: "Escape" });
+					expect(bar(), field.tagName).toBeInTheDocument();
+				}
+			} finally {
+				input.remove();
+				textarea.remove();
+				select.remove();
+				editable.remove();
+			}
+		});
+
+		it("leaves a press that something else already handled", async () => {
+			seed([chat("a")]);
+			await pick("a");
+			const handled = (event: KeyboardEvent) => event.preventDefault();
+			window.addEventListener("keydown", handled, true);
+			try {
+				await fireEvent.keyDown(document.body, { key: "Escape" });
+				expect(bar()).toBeInTheDocument();
+			} finally {
+				window.removeEventListener("keydown", handled, true);
+			}
+		});
+
+		it("ignores every other key", async () => {
+			seed([chat("a")]);
+			await pick("a");
+
+			await fireEvent.keyDown(document.body, { key: "Enter" });
+			await fireEvent.keyDown(document.body, { key: "a" });
+
+			expect(bar()).toBeInTheDocument();
+		});
+
+		it("does nothing when no selection is open", async () => {
+			seed([chat("a")]);
+
+			expect(await fireEvent.keyDown(document.body, { key: "Escape" })).toBe(
+				true,
+			);
+		});
+
+		it("closes only the Move menu while it is open, and the next Escape ends the selection", async () => {
+			seed([chat("a"), chat("b")], [project("p1", "Alpha")]);
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+
+			await fireEvent.keyDown(document.activeElement ?? document.body, {
+				key: "Escape",
+			});
+
+			expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+			expect(bar()).toBeInTheDocument();
+
+			await fireEvent.keyDown(document.body, { key: "Escape" });
+			expect(bar()).not.toBeInTheDocument();
+		});
+
+		it("closes only the delete dialog while it is open, and keeps the selection", async () => {
+			seed([chat("a")]);
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			const confirm = await screen.findByTestId("confirm-delete");
+
+			await fireEvent.keyDown(confirm, { key: "Escape" });
+
+			await waitFor(() =>
+				expect(screen.queryByTestId("confirm-delete")).not.toBeInTheDocument(),
+			);
+			expect(bar()).toBeInTheDocument();
+			expect(batches).toEqual([]);
+		});
+	});
+
+	describe("while a bulk action runs", () => {
+		it("toggles, Esc and close are ignored while a bulk action runs", async () => {
+			// A project, so that the bar has its Move button too.
+			seed([chat("a"), chat("b"), chat("c")], [project("p1", "Alpha")]);
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return allOk(body);
+			};
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			await confirmDelete();
+			await waitFor(() => expect(batches).toHaveLength(1));
+
+			// Every button of the bar is disabled ...
+			for (const id of [
+				"selection-close",
+				"selection-select-all",
+				"selection-pin",
+				"selection-move",
+				"selection-delete",
+			]) {
+				expect(screen.getByTestId(id), id).toBeDisabled();
+			}
+			// ... and the list ignores what still reaches it: a row, Escape, and the
+			// bar's buttons (jsdom, unlike a browser, delivers a click to a disabled one).
+			await pick("c");
+			expect(selectedIds()).toEqual(["a", "b"]);
+			await fireEvent.click(row("a"));
+			expect(selectedIds()).toEqual(["a", "b"]);
+			await fireEvent.keyDown(document.body, { key: "Escape" });
+			expect(bar()).toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId("selection-close"));
+			expect(bar()).toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+			expect(countText()).toBe("2 selected");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			expect(screen.queryByTestId("confirm-delete")).not.toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId("selection-pin"));
+			expect(goto).not.toHaveBeenCalled();
+
+			// Then the answer applies to the selection as it was.
+			release();
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(hasRow("a")).toBe(false);
+			expect(hasRow("b")).toBe(false);
+			expect(hasRow("c")).toBe(true);
+			expect(batches).toHaveLength(1);
+		});
+
+		it("does not bring back a selection the person ended while it ran", async () => {
+			seed([chat("a"), chat("b")]);
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return failing("a", "b")(body);
+			};
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			await confirmDelete();
+			await waitFor(() => expect(batches).toHaveLength(1));
+
+			// Closing the drawer is the one way to end it now.
+			sidebarOpen.set(false);
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+
+			release();
+			await waitFor(() =>
+				expect(toastMessages()).toEqual([
+					"Couldn't delete 2 chats. Try again.",
+				]),
+			);
+			expect(bar()).not.toBeInTheDocument();
+			expect(selectedIds()).toEqual([]);
+		});
+
+		it("does not stay busy when the call itself throws, and says it failed", async () => {
+			vi.spyOn(console, "error").mockImplementation(() => {});
+			seed([chat("a"), chat("b")]);
+			vi.mocked(deleteConversationsByIds).mockRejectedValueOnce(
+				new Error("the store broke"),
+			);
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() =>
+				expect(toastMessages()).toEqual([
+					"Couldn't delete 2 chats. Try again.",
+				]),
+			);
+			expect(countText()).toBe("2 selected");
+			expect(screen.getByTestId("selection-close")).toBeEnabled();
+			expect(screen.getByTestId("selection-delete")).toBeEnabled();
+		});
+	});
+
+	describe("bulk delete", () => {
+		it("asks first, naming the count, and sends nothing until the person confirms", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			const dialog = await screen.findByRole("dialog");
+			expect(within(dialog).getByText("Delete 2 chats?")).toBeInTheDocument();
+			expect(
+				within(dialog).getByText(
+					"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
+				),
+			).toBeInTheDocument();
+			expect(batches).toEqual([]);
+			expect(hasRow("a")).toBe(true);
+		});
+
+		it("deletes the selection in one batch after the confirm, and ends the selection", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([{ action: "delete", ids: ["a", "b"] }]);
+			expect(hasRow("a")).toBe(false);
+			expect(hasRow("b")).toBe(false);
+			expect(hasRow("c")).toBe(true);
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+			expect(toastMessages()).toEqual([]);
+		});
+
+		it("keeps the selection and sends nothing when the dialog is cancelled", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await fireEvent.click(
+				within(await screen.findByRole("dialog")).getByRole("button", {
+					name: "Cancel",
+				}),
+			);
+
+			await waitFor(() =>
+				expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+			);
+			expect(countText()).toBe("2 selected");
+			expect(batches).toEqual([]);
+			expect(screen.getByTestId("selection-delete")).toBeEnabled();
+		});
+
+		it("names one chat in the singular", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			expect(await screen.findByText("Delete 1 chat?")).toBeInTheDocument();
+		});
+
+		it("keeps the count in the dialog true when a chat leaves the list meanwhile", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			expect(await screen.findByText("Delete 2 chats?")).toBeInTheDocument();
+
+			conversations.update((items) => items.filter((item) => item.id !== "a"));
+
+			expect(await screen.findByText("Delete 1 chat?")).toBeInTheDocument();
+		});
+
+		it("closes the dialog when the selection under it ends", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+			await screen.findByRole("dialog");
+
+			conversations.set([chat("b")]);
+
+			await waitFor(() =>
+				expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+			);
+			expect(bar()).not.toBeInTheDocument();
+		});
+
+		it("leaves a chat that failed selected, with the bar and a toast that counts", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			answer = failing("b");
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(hasRow("a")).toBe(false));
+			expect(hasRow("b")).toBe(true);
+			expect(selectedIds()).toEqual(["b"]);
+			expect(countText()).toBe("1 selected");
+			expect(screen.getByTestId("selection-delete")).toBeEnabled();
+			expect(get(toasts)).toMatchObject([
+				{ type: "error", message: "Couldn't delete 1 chat. Try again." },
+			]);
+		});
+
+		it("counts a chat the server no longer has as gone, not as a failure", async () => {
+			seed([chat("a"), chat("b")]);
+			answer = (body) =>
+				body.ids.map((id) =>
+					id === "b" ? { id, ok: false, error: "not_found" } : { id, ok: true },
+				);
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(hasRow("a")).toBe(false);
+			expect(hasRow("b")).toBe(false);
+			expect(toastMessages()).toEqual([]);
+		});
+
+		it("deleting the open chat goes home first, then sends the batch", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			currentConversationId.set("a");
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return allOk(body);
+			};
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			// The request is still open, and the page has already gone home.
+			await waitFor(() => expect(batches).toHaveLength(1));
+			expect(events).toEqual(["goto", "batch"]);
+			expect(goto).toHaveBeenCalledTimes(1);
+			expect(goto).toHaveBeenCalledWith("/");
+			expect(get(currentConversationId)).toBeNull();
+
+			release();
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(hasRow("a")).toBe(false);
+			expect(toastMessages()).toEqual([]);
+		});
+
+		it("stays on the page when the open chat is not among the deleted", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			currentConversationId.set("c");
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(goto).not.toHaveBeenCalled();
+			expect(get(currentConversationId)).toBe("c");
+		});
+
+		it("does not leave the page for a delete that was cancelled", async () => {
+			seed([chat("a"), chat("b")]);
+			currentConversationId.set("a");
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await fireEvent.click(
+				within(await screen.findByRole("dialog")).getByRole("button", {
+					name: "Cancel",
+				}),
+			);
+
+			expect(goto).not.toHaveBeenCalled();
+			expect(get(currentConversationId)).toBe("a");
+		});
+
+		it("keeps the open chat, selected, when its delete fails after the page went home", async () => {
+			seed([chat("a"), chat("b")]);
+			currentConversationId.set("a");
+			answer = failing("a");
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(hasRow("b")).toBe(false));
+			expect(hasRow("a")).toBe(true);
+			expect(selectedIds()).toEqual(["a"]);
+			expect(goto).toHaveBeenCalledWith("/");
+			expect(toastMessages()).toEqual(["Couldn't delete 1 chat. Try again."]);
+		});
+
+		it("hands the whole selection to the store in one call, which chunks it", async () => {
+			const many = Array.from({ length: 3 }, (_, index) => chat(`c${index}`));
+			seed(many);
+			await fireEvent.click(row("c0"), { metaKey: true });
+			await fireEvent.click(screen.getByTestId("selection-select-all"));
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([{ action: "delete", ids: ["c0", "c1", "c2"] }]);
+		});
+	});
+
+	describe("bulk pin", () => {
+		it("pins the unpinned chats of a mixed selection, in the order shown, and leaves the pinned one", async () => {
+			seed([pinned("pin", 0), chat("a"), chat("b"), chat("c")]);
+			// Clicked in the order b, pin, a; shown as pin, a, b.
+			await pick("b");
+			await pick("pin");
+			await pick("a");
+			expect(
+				screen.queryByRole("button", { name: "Unpin from sidebar" }),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Pin to sidebar" }),
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "pin", ids: ["a", "b"], pinned: true },
+			]);
+			const pinnedRows = within(
+				screen.getByTestId("pinned-conversations-section"),
+			).getAllByTestId("conversation-item");
+			expect(pinnedRows.map((item) => item.dataset.conversationId)).toEqual([
+				"a",
+				"b",
+				"pin",
+			]);
+		});
+
+		it("unpins when every selected chat is pinned, naming the button for it", async () => {
+			seed([pinned("p2", 1), pinned("p1", 0), chat("a")]);
+			await pick("p2");
+			await pick("p1");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Unpin from sidebar" }),
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			// In the order shown: Pinned lists p1 before p2.
+			expect(batches).toEqual([
+				{ action: "pin", ids: ["p1", "p2"], pinned: false },
+			]);
+		});
+
+		it("says how many chats it could not pin, and keeps them selected", async () => {
+			seed([chat("a"), chat("b")]);
+			answer = failing("b");
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Pin to sidebar" }),
+			);
+
+			await waitFor(() =>
+				expect(toastMessages()).toEqual([
+					"Couldn't update the pin on 1 chat. Try again.",
+				]),
+			);
+			expect(selectedIds()).toEqual(["b"]);
+			expect(countText()).toBe("1 selected");
+		});
+
+		// Pin shows its result before the server answers, and a Pinned section that
+		// is collapsed hides the chats it just took in: the selection must not lose
+		// them there, or the one that fails would come back unselected.
+		it("keeps a chat that failed selected when the pin moved it out of sight meanwhile", async () => {
+			sidebarPinnedExpanded.set(false);
+			seed([chat("a"), chat("b")]);
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return failing("b")(body);
+			};
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Pin to sidebar" }),
+			);
+			await waitFor(() => expect(batches).toHaveLength(1));
+			release();
+
+			await waitFor(() =>
+				expect(toastMessages()).toEqual([
+					"Couldn't update the pin on 1 chat. Try again.",
+				]),
+			);
+			await waitFor(() => expect(selectedIds()).toEqual(["b"]));
+			expect(countText()).toBe("1 selected");
+		});
+	});
+
+	describe("bulk move", () => {
+		const folders = [project("p1", "Alpha"), project("p2", "Beta", 1)];
+
+		it("moves the selection into the chosen project, skipping chats already there, in the order shown", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a"), chat("b")], folders, [
+				"p1",
+			]);
+			// Clicked in the order b, f1, a; shown as f1, a, b.
+			await pick("b");
+			await pick("f1");
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			await fireEvent.click(
+				screen
+					.getAllByTestId("selection-move-option")
+					.find((option) => option.dataset.projectId === "p1") as HTMLElement,
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["a", "b"], projectId: "p1" },
+			]);
+		});
+
+		it("lists the projects in the Move menu", async () => {
+			seed([chat("a")], folders);
+			await pick("a");
+
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			expect(
+				screen
+					.getAllByTestId("selection-move-option")
+					.map((option) => option.textContent?.trim()),
+			).toEqual(["Alpha", "Beta"]);
+		});
+
+		it("takes the chats that are in a project out of it with Remove from project, and no others", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a"), chat("b")], folders, [
+				"p1",
+			]);
+			await pick("a");
+			await pick("f1");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			await fireEvent.click(
+				screen.getByTestId("selection-remove-from-project"),
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["f1"], projectId: null },
+			]);
+		});
+
+		it("offers Remove from project only while a selected chat is in a project", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a")], folders, ["p1"]);
+			await pick("a");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+			expect(
+				screen.queryByTestId("selection-remove-from-project"),
+			).not.toBeInTheDocument();
+			await fireEvent.keyDown(document.activeElement ?? document.body, {
+				key: "Escape",
+			});
+
+			await pick("f1");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			expect(
+				screen.getByTestId("selection-remove-from-project"),
+			).toBeInTheDocument();
+		});
+
+		it("sends nothing, and ends the selection, when every selected chat is already in the project", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a")], folders, ["p1"]);
+			await pick("f1");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			await fireEvent.click(
+				screen
+					.getAllByTestId("selection-move-option")
+					.find((option) => option.dataset.projectId === "p1") as HTMLElement,
+			);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([]);
+			expect(toastMessages()).toEqual([]);
+		});
+
+		it("says how many chats it could not move, and keeps them selected", async () => {
+			seed([chat("a"), chat("b")], folders);
+			answer = failing("b");
+			await pick("a");
+			await pick("b");
+			await fireEvent.click(screen.getByTestId("selection-move"));
+
+			await fireEvent.click(screen.getAllByTestId("selection-move-option")[0]);
+
+			await waitFor(() =>
+				expect(toastMessages()).toEqual(["Couldn't move 1 chat. Try again."]),
+			);
+			expect(selectedIds()).toEqual(["b"]);
+			expect(countText()).toBe("1 selected");
+		});
+
+		it("puts no Move button on the bar when there is no project and no chat in one", async () => {
+			seed([chat("a")]);
+			await pick("a");
+
+			expect(bar()).toBeInTheDocument();
+			expect(screen.queryByTestId("selection-move")).not.toBeInTheDocument();
+		});
 	});
 });
