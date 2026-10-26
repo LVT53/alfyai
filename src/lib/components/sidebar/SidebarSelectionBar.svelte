@@ -17,6 +17,7 @@ import {
 	setupMenuSync,
 	updateMenuPosition,
 } from "$lib/utils/popup-menu";
+import { isKeyboardFocused } from "$lib/utils/focus-visible";
 import "./conversation-menu.css";
 
 // The bar of a sidebar selection: what is selected, and what to do with it.
@@ -232,13 +233,22 @@ function handleKeydown(event: KeyboardEvent) {
 onMount(() => setupMenuSync(() => moveOpen, updateMoveMenuPosition));
 
 /**
- * Whether keyboard focus is on one of the bar's own buttons. The list asks
- * when a person acts on the bar, before it is taken away or its buttons are
- * switched off for a bulk call: either one drops the focus it holds to
- * <body>, and the list puts it back on a row once the selection is over.
+ * Whether the keyboard has the focus, on one of the bar's own buttons: the
+ * button has it and the browser shows it as keyboard focus (`:focus-visible`;
+ * a mouse press leaves a button focused too, and in Safari does not focus it).
+ * The list asks when a person acts on the bar, before it is taken away or its
+ * buttons are switched off for a bulk call: either one drops the focus it holds
+ * to <body>, and for a person on the keyboard the list puts it back on a row
+ * once the selection is over. For a mouse it does not: that scrolls the list.
  */
-export function holdsFocus(): boolean {
-	return toolbarRef?.contains(document.activeElement) ?? false;
+export function holdsKeyboardFocus(): boolean {
+	const focused = document.activeElement;
+	return (
+		!!toolbarRef &&
+		focused !== null &&
+		toolbarRef.contains(focused) &&
+		isKeyboardFocused(focused)
+	);
 }
 </script>
 

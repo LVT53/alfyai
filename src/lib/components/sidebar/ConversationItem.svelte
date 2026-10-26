@@ -21,6 +21,7 @@ import {
 	setMenuBaseBackground,
 	setupMenuSync,
 } from "$lib/utils/popup-menu";
+import { isKeyboardFocused } from "$lib/utils/focus-visible";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import "./conversation-menu.css";
@@ -145,12 +146,19 @@ function handleRowMouseDown(event: MouseEvent) {
 }
 
 async function handleSelectOption(e: MouseEvent) {
+	// Asked first, while the item is still there: a person on the keyboard has it
+	// shown as keyboard focus (`:focus-visible`); a mouse press leaves it focused
+	// too, but not shown that way.
+	const byKeyboard = isKeyboardFocused(e.currentTarget as Element | null);
 	e.stopPropagation();
 	showProjectSubmenu = false;
 	onMenuClose?.({ id: conversation.id });
 	onSelectionToggle?.({ id: conversation.id, range: false });
 	// The menu and its button go with this click, and the focus they held goes to
-	// <body>: this row is the selection's first, and its box now its one control.
+	// <body>. A person on the keyboard needs it somewhere: on this row, the
+	// selection's first, whose box is now its one control. A mouse needs nothing,
+	// and moving the focus there would scroll the list to the row.
+	if (!byKeyboard) return;
 	await tick();
 	rowRef?.focus();
 }

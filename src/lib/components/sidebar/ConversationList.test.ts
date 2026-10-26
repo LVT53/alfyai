@@ -1504,9 +1504,33 @@ describe("ConversationList multi-select", () => {
 	// The bar is removed with the selection, and a button of it that holds the
 	// focus takes the focus along to <body>: a keyboard user would start again from
 	// the top of the page. The focus goes to the row the selection was anchored on
-	// (the first row shown when that one is gone), and only when the bar held it:
-	// focus that was somewhere else, the composer for one, stays there.
+	// (the first row shown when that one is gone), and only when the keyboard had
+	// it on the bar: a mouse press leaves a button focused too, and moving the
+	// focus scrolls the list. Focus that was somewhere else, the composer for one,
+	// stays there.
 	describe("focus when the bar goes away", () => {
+		// What the browser answers for `:focus-visible` on the focused element: yes
+		// after a key press, no after a mouse press. jsdom answers from its own idea of
+		// the last event and says no after any click, which every test here makes, so
+		// the answer is set; the real browser's is pinned in the e2e spec.
+		let focusVisible = true;
+		let restoreMatches: () => void = () => {};
+		beforeEach(() => {
+			focusVisible = true;
+			const matches = Element.prototype.matches;
+			const spy = vi
+				.spyOn(Element.prototype, "matches")
+				.mockImplementation(function (this: Element, selector: string) {
+					return selector === ":focus-visible"
+						? focusVisible
+						: matches.call(this, selector);
+				});
+			restoreMatches = () => spy.mockRestore();
+		});
+		afterEach(() => {
+			restoreMatches();
+		});
+
 		it("puts focus on the anchor row when Cancel selection, which held it, ends the selection", async () => {
 			seed([chat("a"), chat("b"), chat("c")]);
 			await pick("a");
@@ -1651,6 +1675,159 @@ describe("ConversationList multi-select", () => {
 			await fireEvent.click(select);
 
 			await waitFor(() => expect(countText()).toBe("1 selected"));
+			await waitFor(() => expect(row("b")).toHaveFocus());
+		});
+
+		// Moving the focus to a row scrolls the list to it. That is what a keyboard
+		// user needs (the ring is in view), and what a mouse user must not get: a
+		// press leaves the button it landed on focused, but not shown as keyboard
+		// focus (`:focus-visible`), and the list would jump to the first row, away
+		// from the bottom where the chats just deleted were.
+		describe("when the person used the mouse", () => {
+			beforeEach(() => {
+				focusVisible = false;
+			});
+
+			// Every row `focus()` was called on: what scrolls.
+			function rowsFocused(focusSpy: { mock: { contexts: unknown[] } }) {
+				return focusSpy.mock.contexts.filter(
+					(element) =>
+						element instanceof HTMLElement &&
+						element.dataset.testid === "conversation-item",
+				);
+			}
+
+			it("does not move the focus to a row when Cancel selection ends the selection", async () => {
+				seed([chat("a"), chat("b"), chat("c")]);
+				await pick("a");
+				await pick("c");
+				const close = screen.getByTestId("selection-close");
+				close.focus();
+				const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+				try {
+					await fireEvent.click(close);
+
+					await waitFor(() => expect(bar()).not.toBeInTheDocument());
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					expect(rowsFocused(focusSpy)).toEqual([]);
+					expect(document.activeElement).not.toHaveAttribute(
+						"data-testid",
+						"conversation-item",
+					);
+				} finally {
+					focusSpy.mockRestore();
+				}
+			});
+
+			it("does not move the focus to a row after a bulk pin", async () => {
+				seed([chat("a"), chat("b"), chat("c")]);
+				await pick("a");
+				await pick("b");
+				const pin = screen.getByTestId("selection-pin");
+				pin.focus();
+				const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+				try {
+					await fireEvent.click(pin);
+
+					await waitFor(() => expect(bar()).not.toBeInTheDocument());
+					expect(batches).toEqual([
+						{ action: "pin", ids: ["a", "b"], pinned: true },
+					]);
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					expect(rowsFocused(focusSpy)).toEqual([]);
+				} finally {
+					focusSpy.mockRestore();
+				}
+			});
+
+			it("does not move the focus to a row after a bulk delete confirmed with the mouse", async () => {
+				seed([chat("a"), chat("b"), chat("c")]);
+				await pick("a");
+				await pick("b");
+				const del = screen.getByTestId("selection-delete");
+				del.focus();
+				await fireEvent.click(del);
+				const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+				try {
+					await confirmDelete();
+
+					await waitFor(() => expect(bar()).not.toBeInTheDocument());
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					expect(rowsFocused(focusSpy)).toEqual([]);
+				} finally {
+					focusSpy.mockRestore();
+				}
+			});
+
+			it("does not move the focus to a row after Select in a row's menu", async () => {
+				seed([chat("a"), chat("b")]);
+				await fireEvent.click(
+					within(row("b")).getByLabelText("Conversation options"),
+				);
+				const select = screen.getByTestId("select-option");
+				select.focus();
+				const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+				try {
+					await fireEvent.click(select);
+
+					await waitFor(() => expect(countText()).toBe("1 selected"));
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					expect(rowsFocused(focusSpy)).toEqual([]);
+				} finally {
+					focusSpy.mockRestore();
+				}
+			});
+		});
+
+		it("leaves focus the person moved elsewhere during a slow bulk call where they put it", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return allOk(body);
+			};
+			await pick("a");
+			await pick("b");
+			const pin = screen.getByTestId("selection-pin");
+			pin.focus();
+			await fireEvent.click(pin);
+			await waitFor(() => expect(batches).toHaveLength(1));
+			// The call is slow, and the person goes to the composer meanwhile.
+			const composer = document.createElement("textarea");
+			document.body.append(composer);
+			try {
+				composer.focus();
+
+				release();
+				await waitFor(() => expect(bar()).not.toBeInTheDocument());
+				await new Promise((resolve) => setTimeout(resolve, 0));
+
+				expect(composer).toHaveFocus();
+			} finally {
+				composer.remove();
+			}
+		});
+
+		it("still puts focus on a row when the focus fell to <body> during a slow bulk call", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			const { gate, release } = hold();
+			answer = async (body) => {
+				await gate;
+				return allOk(body);
+			};
+			await pick("a");
+			await pick("b");
+			const pin = screen.getByTestId("selection-pin");
+			pin.focus();
+			await fireEvent.click(pin);
+			await waitFor(() => expect(batches).toHaveLength(1));
+			// A browser drops the focus of a button that is switched off.
+			(document.activeElement as HTMLElement | null)?.blur();
+			expect(document.body).toHaveFocus();
+
+			release();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
 			await waitFor(() => expect(row("b")).toHaveFocus());
 		});
 	});

@@ -257,20 +257,25 @@ const canRemoveFromProject = $derived(
 );
 
 // The bar goes away with the selection, and a button of it that holds the focus
-// takes the focus along to <body>: a keyboard user would start again from the
-// top of the page. So when the bar holds the focus as the selection ends, the
-// focus goes to a row, once the bar is gone: the one the selection was anchored
-// on while it is still shown, otherwise the first one shown. Focus that was
-// somewhere else (the composer, a row) stays where it is.
+// takes the focus along to <body>: a person on the keyboard would start again
+// from the top of the page. So when the keyboard had the focus on the bar as the
+// selection ends, the focus goes to a row, once the bar is gone: the one the
+// selection was anchored on while it is still shown, otherwise the first one
+// shown. That scrolls the list to the row, which the keyboard needs (its ring
+// in view) and a mouse must not get: a press leaves the button focused too, but
+// not shown as keyboard focus (`:focus-visible`), and then nothing moves. Focus
+// that was somewhere else (the composer, a row) stays where it is.
 let listRoot = $state<HTMLDivElement | undefined>(undefined);
-let selectionBar = $state<{ holdsFocus(): boolean } | undefined>(undefined);
-// Whether the bar held the focus when Delete was pressed: the dialog has the
+let selectionBar = $state<{ holdsKeyboardFocus(): boolean } | undefined>(
+	undefined,
+);
+// Whether the keyboard had the bar when Delete was pressed: the dialog has the
 // focus from then on, and the bar's buttons are switched off while the delete
 // runs, so by the time the selection ends the answer can no longer be read.
-let deleteStartedFromBar = false;
+let deleteStartedByKeyboard = false;
 
-function barHoldsFocus(): boolean {
-	return selectionBar?.holdsFocus() ?? false;
+function barHoldsKeyboardFocus(): boolean {
+	return selectionBar?.holdsKeyboardFocus() ?? false;
 }
 
 function rowElement(id: string): HTMLElement | null {
@@ -281,17 +286,32 @@ function rowElement(id: string): HTMLElement | null {
 	);
 }
 
+// The focus is nowhere: what the bar's focus falls to when it is taken away or its
+// button is switched off.
+function focusHasFallenToBody(): boolean {
+	const focused = document.activeElement;
+	return (
+		focused === null ||
+		focused === document.body ||
+		focused === document.documentElement ||
+		!focused.isConnected
+	);
+}
+
 async function focusRowAfterSelection(anchorId: string | null) {
 	// After the DOM has caught up: the bar is gone and the rows are where they stay.
 	await tick();
+	// Only the focus that fell to <body> is taken: a bulk call can be slow enough
+	// for the person to have gone to the composer, and what they moved it to is theirs.
+	if (!focusHasFallenToBody()) return;
 	const id =
 		anchorId !== null && shownIds.has(anchorId) ? anchorId : shownOrder[0];
 	if (id !== undefined) rowElement(id)?.focus();
 }
 
-// `refocus` is whether the bar held the focus, asked now unless the caller knows
+// `refocus` is whether the keyboard had the bar, asked now unless the caller knows
 // better (a bulk call asked when the person acted, before its buttons went off).
-function endSelection({ refocus = barHoldsFocus() } = {}) {
+function endSelection({ refocus = barHoldsKeyboardFocus() } = {}) {
 	const anchorId = selectionAnchorId;
 	if (selectedIds.size > 0) selectedIds = new Set();
 	selectionAnchorId = null;
@@ -380,7 +400,7 @@ async function runBulkAction(
 	failureMessage: I18nKey,
 	// Asked before `bulkBusy` switches the bar's buttons off: a browser drops the
 	// focus of a button that is disabled, so it is gone by the time the call ends.
-	refocus = barHoldsFocus(),
+	refocus = barHoldsKeyboardFocus(),
 ) {
 	bulkBusy = true;
 	closeAllMenus();
@@ -407,7 +427,7 @@ async function runBulkAction(
 
 function handleBulkDeleteRequest() {
 	if (bulkBusy || !selecting) return;
-	deleteStartedFromBar = barHoldsFocus();
+	deleteStartedByKeyboard = barHoldsKeyboardFocus();
 	bulkDeleteConfirmOpen = true;
 }
 
@@ -428,7 +448,7 @@ async function confirmBulkDelete() {
 		ids,
 		() => deleteConversationsByIds(ids),
 		"sidebar.bulkDeleteFailed",
-		deleteStartedFromBar,
+		deleteStartedByKeyboard,
 	);
 }
 

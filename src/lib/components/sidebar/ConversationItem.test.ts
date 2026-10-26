@@ -730,32 +730,85 @@ describe("ConversationItem Component", () => {
 				expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 			});
 
-			it("puts focus on its own row after Select, which takes the menu and its button away", async () => {
+			// What the browser answers for `:focus-visible` on the item that was pressed:
+			// yes after a key press, no after a mouse press. jsdom answers from its own idea
+			// of the last event (and says no after any click), so the answer is set; the real
+			// browser's is pinned in the e2e spec.
+			function answerFocusVisible(answer: boolean) {
+				const matches = Element.prototype.matches;
+				return vi
+					.spyOn(Element.prototype, "matches")
+					.mockImplementation(function (this: Element, selector: string) {
+						return selector === ":focus-visible"
+							? answer
+							: matches.call(this, selector);
+					});
+			}
+
+			it("puts focus on its own row after Select chosen with the keyboard, which takes the menu and its button away", async () => {
 				render(ConversationItemWrapper, { conversation: mockConversation });
 				await fireEvent.click(screen.getByLabelText("Conversation options"));
 				const select = screen.getByTestId("select-option");
 				select.focus();
 				expect(select).toHaveFocus();
+				const keyboard = answerFocusVisible(true);
+				try {
+					await fireEvent.click(select);
 
-				await fireEvent.click(select);
-
-				await waitFor(() =>
-					expect(screen.getByTestId("conversation-item")).toHaveFocus(),
-				);
+					await waitFor(() =>
+						expect(screen.getByTestId("conversation-item")).toHaveFocus(),
+					);
+				} finally {
+					keyboard.mockRestore();
+				}
 			});
 
-			it("puts focus on its row after Select in the right-click menu too", async () => {
+			it("puts focus on its row after Select chosen with the keyboard in the right-click menu too", async () => {
 				render(ConversationItemWrapper, { conversation: mockConversation });
 				await fireEvent.contextMenu(screen.getByTestId("conversation-item"), {
 					clientX: 48,
 					clientY: 72,
 				});
+				const select = screen.getByTestId("select-option");
+				select.focus();
+				const keyboard = answerFocusVisible(true);
+				try {
+					await fireEvent.click(select);
 
-				await fireEvent.click(screen.getByTestId("select-option"));
+					await waitFor(() =>
+						expect(screen.getByTestId("conversation-item")).toHaveFocus(),
+					);
+				} finally {
+					keyboard.mockRestore();
+				}
+			});
 
-				await waitFor(() =>
-					expect(screen.getByTestId("conversation-item")).toHaveFocus(),
-				);
+			// Focusing the row scrolls the list to it, which is for a person on the
+			// keyboard, whose ring has to be in view. A mouse press leaves the item
+			// focused but not shown as keyboard focus (`:focus-visible`): nothing moves.
+			it("does not move the focus to its row after Select pressed with the mouse", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				const select = screen.getByTestId("select-option");
+				select.focus();
+				const mouse = answerFocusVisible(false);
+				const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+				try {
+					await fireEvent.click(select);
+
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+					expect(
+						focusSpy.mock.contexts.filter(
+							(element) =>
+								element instanceof HTMLElement &&
+								element.dataset.testid === "conversation-item",
+						),
+					).toEqual([]);
+				} finally {
+					focusSpy.mockRestore();
+					mouse.mockRestore();
+				}
 			});
 
 			it("starts a selection from the right-click menu too", async () => {

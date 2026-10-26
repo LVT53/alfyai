@@ -584,6 +584,70 @@ describe("SidebarSelectionBar", () => {
 		});
 	});
 
+	// The list asks, when a person acts on the bar, whether the keyboard is what
+	// has the focus (it is put on a row afterwards, which scrolls: not for a mouse).
+	// jsdom answers `:focus-visible` from its own idea of the last event, so the
+	// answer is set; the real browser's is pinned in the e2e spec.
+	describe("holdsKeyboardFocus", () => {
+		function answerFocusVisible(answer: boolean) {
+			const matches = Element.prototype.matches;
+			return vi
+				.spyOn(Element.prototype, "matches")
+				.mockImplementation(function (this: Element, selector: string) {
+					return selector === ":focus-visible"
+						? answer
+						: matches.call(this, selector);
+				});
+		}
+
+		it("is false while nothing is focused", () => {
+			const { component } = renderBar();
+			const keyboard = answerFocusVisible(true);
+			try {
+				expect(component.holdsKeyboardFocus()).toBe(false);
+			} finally {
+				keyboard.mockRestore();
+			}
+		});
+
+		it("is true while a button of the bar has the focus the way the keyboard gives it", () => {
+			const { component } = renderBar();
+			screen.getByTestId("selection-pin").focus();
+			const keyboard = answerFocusVisible(true);
+			try {
+				expect(component.holdsKeyboardFocus()).toBe(true);
+			} finally {
+				keyboard.mockRestore();
+			}
+		});
+
+		it("is false while a button of the bar has the focus but the browser does not show it as keyboard focus, as after a mouse press", () => {
+			const { component } = renderBar();
+			screen.getByTestId("selection-pin").focus();
+			const mouse = answerFocusVisible(false);
+			try {
+				expect(component.holdsKeyboardFocus()).toBe(false);
+			} finally {
+				mouse.mockRestore();
+			}
+		});
+
+		it("is false while the keyboard has the focus somewhere else", () => {
+			const { component } = renderBar();
+			const elsewhere = document.createElement("button");
+			document.body.append(elsewhere);
+			const keyboard = answerFocusVisible(true);
+			try {
+				elsewhere.focus();
+
+				expect(component.holdsKeyboardFocus()).toBe(false);
+			} finally {
+				keyboard.mockRestore();
+				elsewhere.remove();
+			}
+		});
+	});
+
 	describe("Move to project", () => {
 		it("is absent with no projects and no selected chat in a project", () => {
 			renderBar({ projects: [], canRemoveFromProject: false });

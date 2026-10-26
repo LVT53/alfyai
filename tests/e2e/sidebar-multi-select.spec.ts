@@ -451,7 +451,9 @@ test.describe("selecting chats in the sidebar", () => {
 // takes the focus along to <body>: a keyboard user would start again from the top
 // of the page. A browser also drops the focus of a button that is switched off,
 // which the bar's buttons are while a bulk call runs, so the focus has to be read
-// when the person acts and put back on a row when the selection is over.
+// when the person acts and put back on a row when the selection is over. Only for
+// the keyboard: a mouse press leaves a button focused too, but not shown as
+// keyboard focus (`:focus-visible`), and the row it would go to scrolls the list.
 test.describe("keyboard focus when a selection ends", () => {
 	test("puts the focus on the last chat picked when Cancel selection is pressed", async ({
 		page,
@@ -506,7 +508,22 @@ test.describe("keyboard focus when a selection ends", () => {
 		await expect(chatRow(page, "Charlie plan")).toBeFocused();
 	});
 
-	test("puts the focus on the row after Select in its menu", async ({
+	test("puts the focus on the row after Select chosen with the keyboard in its menu", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+
+		// The row's menu is open; the keyboard reaches Select and presses Enter on it
+		// (a key press makes the item that holds the focus focus-visible).
+		await chatRow(page, "Bravo plan").click({ button: "right" });
+		await page.getByTestId("select-option").focus();
+		await page.keyboard.press("Enter");
+
+		await expect(selectionCount(page)).toHaveText("1 selected");
+		await expect(chatRow(page, "Bravo plan")).toBeFocused();
+	});
+
+	test("leaves the focus alone after Select is clicked in a row's menu", async ({
 		page,
 	}) => {
 		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
@@ -515,7 +532,105 @@ test.describe("keyboard focus when a selection ends", () => {
 		await page.getByTestId("select-option").click();
 
 		await expect(selectionCount(page)).toHaveText("1 selected");
-		await expect(chatRow(page, "Bravo plan")).toBeFocused();
+		// The page has had its frames: a focus that was going to move has moved.
+		await waitForMotionToSettle(page);
+		await expect(
+			page.locator('[data-testid="conversation-item"]:focus'),
+		).toHaveCount(0);
+	});
+
+	test("leaves the focus alone when Cancel selection is clicked", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Charlie plan").click({ modifiers: [MOD] });
+
+		await page.getByTestId("selection-close").click();
+
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await waitForMotionToSettle(page);
+		await expect(
+			page.locator('[data-testid="conversation-item"]:focus'),
+		).toHaveCount(0);
+	});
+});
+
+// Putting the focus on a row scrolls the list to it. In a long list scrolled to
+// its bottom that is the whole list: a person who deleted the last two chats with
+// the mouse must stay where they were, and one on the keyboard needs the row the
+// focus went to in view.
+test.describe("scrolling when a selection ends", () => {
+	const LONG_LIST = Array.from(
+		{ length: 40 },
+		(_, index) => `Plan ${String(index + 1).padStart(2, "0")}`,
+	);
+
+	/** How far the list's scroll is from its bottom, in px. */
+	async function distanceFromBottom(page: Page): Promise<number> {
+		return page
+			.getByTestId("sidebar-scroll")
+			.evaluate(
+				(element) =>
+					element.scrollHeight - element.clientHeight - element.scrollTop,
+			);
+	}
+
+	async function pickTheLastTwo(page: Page) {
+		await scrollListTo(page, "bottom");
+		await chatRow(page, "Plan 40").click({ modifiers: [MOD] });
+		await chatRow(page, "Plan 39").click({ modifiers: [MOD] });
+		await expect(selectionCount(page)).toHaveText("2 selected");
+	}
+
+	test("leaves the list at its bottom when the last two chats are deleted with the mouse", async ({
+		page,
+	}) => {
+		await startWithChats(page, LONG_LIST);
+		await pickTheLastTwo(page);
+		const scrolledTo = await page
+			.getByTestId("sidebar-scroll")
+			.evaluate((element) => element.scrollTop);
+		expect(scrolledTo, "the list starts scrolled down").toBeGreaterThan(200);
+
+		await page.getByTestId("selection-delete").click();
+		await page.getByTestId("confirm-delete").click();
+
+		await expect(chatRow(page, "Plan 40")).toHaveCount(0);
+		await expect(chatRow(page, "Plan 39")).toHaveCount(0);
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		// The list has had its frames, so a scroll that was going to happen has.
+		await waitForMotionToSettle(page);
+		await expect
+			.poll(() => distanceFromBottom(page), {
+				message: "the list is still at its bottom, not thrown to the first row",
+			})
+			.toBeLessThanOrEqual(1);
+		expect(
+			await page
+				.getByTestId("sidebar-scroll")
+				.evaluate((element) => element.scrollTop),
+		).toBeGreaterThan(200);
+	});
+
+	test("scrolls the first chat left into view when the last two are deleted with the keyboard", async ({
+		page,
+	}) => {
+		await startWithChats(page, LONG_LIST);
+		await pickTheLastTwo(page);
+
+		await page.getByTestId("selection-delete").focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByRole("dialog")).toContainText("Delete 2 chats?");
+		await page.getByTestId("confirm-delete").focus();
+		await page.keyboard.press("Enter");
+
+		// Plan 39 and 40 are gone, so the focus goes to the first row, which the
+		// keyboard's ring has to show: the list scrolls up to it.
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await expect(chatRow(page, "Plan 40")).toHaveCount(0);
+		await expect(chatRow(page, "Plan 01")).toBeFocused();
+		await expect(chatRow(page, "Plan 01")).toBeInViewport();
 	});
 });
 
