@@ -413,7 +413,7 @@ onMount(() => {
 	</div>
 
 	<!-- Conversation list -->
-	<div class="flex-1 overflow-y-auto py-sm" class:px-sm={!isCollapsed} class:px-1={isCollapsed} style="pointer-events: auto;">
+	<div data-testid="sidebar-scroll" class="flex-1 overflow-y-auto py-sm" class:px-sm={!isCollapsed} class:px-1={isCollapsed} style="pointer-events: auto;">
 		{#if !isCollapsed}
 			<ConversationList
 				initialConversations={conversationsData}

@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 // with `color-mix(in srgb, var(--accent|danger) <pct>, transparent)`.
 //
 // This asserts the gold/hardcoded-danger rgba() literals never creep back
-// into the four touched components, and that each now sources its hover
+// into the four touched components (and the stylesheet the row menu and the
+// selection bar's Move menu now share), and that each now sources its hover
 // tint from the accent/danger tokens via color-mix.
 
 const componentsDir = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,7 @@ const TOUCHED_FILES = [
 	"layout/Header.svelte",
 	"sidebar/ProjectItem.svelte",
 	"sidebar/ConversationItem.svelte",
+	"sidebar/conversation-menu.css",
 	"ui/TypewriterText.svelte",
 ] as const;
 
@@ -87,12 +89,24 @@ describe("menu-hover backgrounds source their color from the accent/danger token
 		);
 	});
 
-	it("ConversationItem.svelte: hover/active/current/danger backgrounds use color-mix(var(--accent|danger) …), state rules keep !important", () => {
-		const source = readComponent("sidebar/ConversationItem.svelte");
+	// The row menu's plain option hover (light and dark) moved out of
+	// ConversationItem into the stylesheet it shares with the selection bar's
+	// Move menu; the rules only the row has (the open "Move to project" row, the
+	// current project, the danger option) stayed in the component.
+	it("conversation-menu.css: the option hover uses color-mix(var(--accent) …) in light and dark", () => {
+		const source = readComponent("sidebar/conversation-menu.css");
 
 		expect(source).toContain(
 			"background: color-mix(in srgb, var(--accent) 24%, transparent);",
 		);
+		expect(source).toContain(
+			"background: color-mix(in srgb, var(--accent) 30%, transparent);",
+		);
+	});
+
+	it("ConversationItem.svelte: active/current/danger backgrounds use color-mix(var(--accent|danger) …), state rules keep !important", () => {
+		const source = readComponent("sidebar/ConversationItem.svelte");
+
 		expect(source).toContain(
 			"background: color-mix(in srgb, var(--accent) 18%, transparent) !important;",
 		);
@@ -101,9 +115,6 @@ describe("menu-hover backgrounds source their color from the accent/danger token
 		);
 		expect(source).toContain(
 			"background: color-mix(in srgb, var(--danger) 14%, transparent);",
-		);
-		expect(source).toContain(
-			"background: color-mix(in srgb, var(--accent) 30%, transparent);",
 		);
 		expect(source).toContain(
 			"background: color-mix(in srgb, var(--accent) 25%, transparent) !important;",

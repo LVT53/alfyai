@@ -8,9 +8,10 @@ Parent: [AGENTS.md](../../../AGENTS.md) holds the rules that apply everywhere. T
 layout/
   Sidebar.svelte                    ← navigation shell, profile, new-chat button
     ├── search/SearchModal.svelte   ← global Workspace Search (Ctrl+K)
-    └── sidebar/ConversationList.svelte  ← list with drag/drop, project folders
+    └── sidebar/ConversationList.svelte  ← list with drag/drop, project folders, the multi-select state
           ├── sidebar/ProjectItem.svelte      ← folder row (event emitter only)
-          └── sidebar/ConversationItem.svelte  ← conversation row (event emitter only)
+          ├── sidebar/ConversationItem.svelte  ← conversation row (event emitter only)
+          └── sidebar/SidebarSelectionBar.svelte  ← bar of an open selection: count, Select all, Pin, Move, Delete (event emitter only)
   Header.svelte                     ← mobile header, sidebar toggle, user menu
 
 chat/
@@ -35,7 +36,7 @@ chat/
 ui/
   AvatarCircle.svelte               ← user avatar display
   ProfilePictureEditor.svelte       ← avatar upload/crop
-  ConfirmDialog.svelte              ← confirmation modal
+  ConfirmDialog.svelte              ← confirmation modal; focuses its confirm button on open, or Cancel for `initialFocus="cancel"` (the sidebar's bulk delete: one more Enter must not delete N chats)
   DialogShell.svelte                ← reusable dialog shell wrapper
   FileTypeIcon.svelte               ← file type icon display
   TypewriterText.svelte             ← animated text display
@@ -52,6 +53,7 @@ ui/
 | `ConversationList.svelte` | `conversations` | `conversations`, CRUD actions |
 | `ConversationList.svelte` | `projects` | `projects`, CRUD actions |
 | `ConversationList.svelte` | `ui` | `currentConversationId`, `sidebarOpen` |
+| `SidebarSelectionBar.svelte` | props | no store; the list passes the count, the pin action and the projects, and acts on the events |
 | `MessageInput.svelte` | `ui` | `currentConversationId` (draft clear on switch), `onUploadReady` callback |
 | `MessageBubble.svelte` | `theme` | `isDark` (markdown dark mode), attachment open handoff to the route-owned workspace |
 | `ModelSelector.svelte` | `settings` | `selectedModel`, `setSelectedModel` |
@@ -89,6 +91,8 @@ ui/
 ## Key Component Boundaries (not in parent)
 
 - `ConversationList.svelte` owns drag/drop state — `ConversationItem` and `ProjectItem` are **event emitters**, not persistence actors
+- `ConversationList.svelte` owns the multi-select state (the selected ids, the range anchor, the busy flag, the delete dialog) and makes the bulk calls through the conversations store; `ConversationItem` and `SidebarSelectionBar` are event emitters too. The selection rules (the order of the rows on screen, toggle, range, prune, whether the pin button pins or unpins) are the pure functions in `sidebar/sidebar-selection.ts`: a new rule goes there, with a test, not into a component. While a bulk call runs the list ignores row picks, Esc and the bar's buttons itself (a disabled button's handler still fires in jsdom) and does not prune the selection: Move and Pin show their result before the server answers, so a chat they hide in a collapsed folder or section must still be selected if its answer is a failure. When a selection ends while the keyboard has the bar, the list moves the focus to a row (the anchor row while it is shown, else the first row shown), because the bar takes the focus with it. The bar says so through `holdsKeyboardFocus()`: one of its buttons is focused and `:focus-visible` matches (`src/lib/utils/focus-visible.ts`), asked when the person acts and not when the call ends, since a browser drops the focus of a button that is disabled and the bar's buttons are disabled while a bulk call runs. After a mouse press nothing moves: a mouse leaves the button focused without `:focus-visible`, and focusing a row scrolls the list to it (a 40-chat list scrolled to its bottom jumped to the top when the last two were deleted). Only a focus that fell to `<body>` is taken: one the person moved elsewhere meanwhile (the composer, during a slow call) is left alone. The row menu's "Select" follows the same rule. jsdom decides `:focus-visible` from its own idea of the last event, so unit tests set the answer and `tests/e2e/sidebar-multi-select.spec.ts` pins the real one.
+- While its Move menu is open, `SidebarSelectionBar` takes Escape itself (a capture listener that stops the press), so the list's own Escape, which ends the selection, never sees that press. The bar's Move menu and the row menu share one look, `sidebar/conversation-menu.css` (global classes `.conversation-menu` and `.conversation-option`): change it there, not in either component. The bar is one Tab stop, as a toolbar is: its buttons carry a roving `tabindex` (the one that last had the focus, or the first that is on, holds it) and Left, Right, Home and End move between the enabled ones. That key handling is in the bar's window capture handler, because a `keydown` on the `role="toolbar"` div fails the build's accessibility check. The bar does not announce its count: `ConversationList` keeps a polite live region (`selection-live-region`, visually hidden, empty without a selection) in the page whether or not a selection is open, since a live region created together with its text is missed by most screen readers.
 - Sidebar drag reordering should stay sidebar-specific for now. Reuse a shared whole-row sidebar reorder primitive for sidebar-pinned conversations and project folders, but keep persistence and cross-group rules in `ConversationList.svelte`.
 - `MessageArea.svelte` is the **sole scroll owner** for conversation content — do not add `overflow-y: auto` elsewhere
 - `MessageArea.svelte` must also keep newly appended file-production cards visible when the user remained near the bottom of the chat
@@ -150,6 +154,9 @@ Important component boundaries:
   - top-level app shell interactions
 - [`src/lib/components/sidebar/ConversationList.svelte`](sidebar/ConversationList.svelte)
   - owns sidebar drag/drop state and project-drop move orchestration through the existing conversations store path
+  - owns the selection (`sidebar-selection.ts` holds its rules) and the bulk delete, move and pin calls
+- [`src/lib/components/sidebar/SidebarSelectionBar.svelte`](sidebar/SidebarSelectionBar.svelte)
+  - the bar of an open selection; emits events, owns no selection state
 
 
 Do not:
@@ -157,6 +164,7 @@ Do not:
 - bury durable business logic inside a presentational component because it is "already open"
 - duplicate chat state transitions in both page files and chat components
 - move project-folder drag/drop persistence into `ConversationItem.svelte` or `ProjectItem.svelte`; those components stay event emitters
+- move the selection state or a bulk call into `ConversationItem.svelte` or `SidebarSelectionBar.svelte`; `ConversationList.svelte` owns them
 - use unused legacy-looking components as templates without checking whether they are actually live
 
 

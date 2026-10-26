@@ -7,6 +7,7 @@ import {
 	fetchConversationMarkdownExport,
 	keepMessageAsDocument,
 	persistConversationLinkedSources,
+	runConversationBatch,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
 	updateInstructionSuggestionStatus,
@@ -292,6 +293,360 @@ describe("conversation sidebar API", () => {
 		});
 		expect(result).toHaveLength(1);
 		expect(result[0]?.id).toBe("conv-2");
+	});
+});
+
+describe("runConversationBatch", () => {
+	function conversationIds(count: number): string[] {
+		return Array.from({ length: count }, (_, index) => `conv-${index + 1}`);
+	}
+
+	function jsonOk(body: unknown): Response {
+		return new Response(JSON.stringify(body), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
+	}
+
+	function sentBody(init: RequestInit | undefined): {
+		action: string;
+		ids: string[];
+		projectId?: string | null;
+		pinned?: boolean;
+	} {
+		return JSON.parse(String(init?.body));
+	}
+
+	it("sends a large batch in chunks of 50, in order", async () => {
+		const ids = conversationIds(120);
+		let inFlight = 0;
+		let mostInFlight = 0;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				inFlight += 1;
+				mostInFlight = Math.max(mostInFlight, inFlight);
+				// Give a request sent beside this one the time to show itself.
+				await new Promise((resolve) => setTimeout(resolve, 1));
+				inFlight -= 1;
+				return jsonOk({
+					results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+				});
+			},
+		);
+
+		const results = await runConversationBatch(
+			{ action: "move", ids, projectId: "proj-1" },
+			fetchMock,
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		for (const call of fetchMock.mock.calls) {
+			expect(call[0]).toBe("/api/conversations/batch");
+			expect(call[1]).toMatchObject({
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+		const bodies = fetchMock.mock.calls.map(([, init]) => sentBody(init));
+		expect(bodies.map((body) => body.ids.length)).toEqual([50, 50, 20]);
+		expect(bodies.map((body) => body.ids)).toEqual([
+			ids.slice(0, 50),
+			ids.slice(50, 100),
+			ids.slice(100),
+		]);
+		// Every chunk carries the same action and the same project.
+		for (const body of bodies) {
+			expect(body).toMatchObject({ action: "move", projectId: "proj-1" });
+		}
+		expect(results.map((result) => result.id)).toEqual(ids);
+		expect(results.every((result) => result.ok)).toBe(true);
+		// One after another, never beside each other.
+		expect(mostInFlight).toBe(1);
+	});
+
+	// The sizes in the order the requests are sent: a pin sends its last chunk
+	// first, so the odd one out of 51 ids goes before the full chunk.
+	it.each([
+		[50, [50]],
+		[51, [1, 50]],
+		[1, [1]],
+	])("splits %i ids into chunks of %j", async (count, chunkSizes) => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) =>
+				jsonOk({
+					results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+				}),
+		);
+
+		await runConversationBatch(
+			{ action: "pin", ids: conversationIds(count), pinned: true },
+			fetchMock,
+		);
+
+		expect(
+			fetchMock.mock.calls.map(([, init]) => sentBody(init).ids.length),
+		).toEqual(chunkSizes);
+		for (const [, init] of fetchMock.mock.calls) {
+			expect(sentBody(init)).toMatchObject({ action: "pin", pinned: true });
+		}
+	});
+
+	describe("a pin of more than one chunk", () => {
+		function answerEveryId() {
+			return vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+				jsonOk({
+					results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+				}),
+			);
+		}
+
+		it("sends the chunks last first and still answers in id order", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			const bodies = fetchMock.mock.calls.map(([, init]) => sentBody(init));
+			expect(bodies.map((body) => body.ids)).toEqual([
+				ids.slice(50),
+				ids.slice(0, 50),
+			]);
+			for (const body of bodies) {
+				expect(body).toMatchObject({ action: "pin", pinned: true });
+			}
+			expect(results.map((result) => result.id)).toEqual(ids);
+			expect(results.every((result) => result.ok)).toBe(true);
+		});
+
+		it("leaves the first chat on top of Pinned and the rest in the order given", async () => {
+			// The server puts each request's chats on top of what is already pinned,
+			// its first id highest (it pins them walking backwards). Replayed here,
+			// so the order the person sees is what is asserted, not the call order.
+			const pinned: string[] = [];
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
+					const { ids: sent } = sentBody(init);
+					pinned.unshift(...sent);
+					return jsonOk({ results: sent.map((id) => ({ id, ok: true })) });
+				},
+			);
+			const ids = conversationIds(60);
+
+			await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			expect(pinned).toEqual(ids);
+		});
+
+		it("keeps an unpin first to last", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: false },
+				fetchMock,
+			);
+
+			expect(
+				fetchMock.mock.calls.map(([, init]) => sentBody(init).ids),
+			).toEqual([ids.slice(0, 50), ids.slice(50)]);
+			expect(results.map((result) => result.id)).toEqual(ids);
+		});
+
+		it("keeps a delete first to last", async () => {
+			const ids = conversationIds(60);
+			const fetchMock = answerEveryId();
+
+			const results = await runConversationBatch(
+				{ action: "delete", ids },
+				fetchMock,
+			);
+
+			expect(
+				fetchMock.mock.calls.map(([, init]) => sentBody(init).ids),
+			).toEqual([ids.slice(0, 50), ids.slice(50)]);
+			expect(results.map((result) => result.id)).toEqual(ids);
+		});
+
+		it("answers in id order when the last chunk fails and the first is answered", async () => {
+			// The chunks run last first, so the failed one is sent first: the answer
+			// still lines up with the ids, not with the order the requests ran in.
+			const ids = conversationIds(60);
+			let call = 0;
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
+					call += 1;
+					if (call === 1) throw new TypeError("Failed to fetch");
+					return jsonOk({
+						results: sentBody(init).ids.map((id) => ({ id, ok: true })),
+					});
+				},
+			);
+
+			const results = await runConversationBatch(
+				{ action: "pin", ids, pinned: true },
+				fetchMock,
+			);
+
+			expect(results.map((result) => result.id)).toEqual(ids);
+			expect(
+				results.map((result) => (result.ok ? "ok" : result.error)),
+			).toEqual([...Array(50).fill("ok"), ...Array(10).fill("unknown")]);
+		});
+	});
+
+	it("marks a failed chunk unknown and still sends the rest", async () => {
+		const ids = conversationIds(120);
+		let call = 0;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				call += 1;
+				if (call === 2) throw new TypeError("Failed to fetch");
+				return jsonOk({
+					results: sentBody(init).ids.map((id) => ({
+						id,
+						ok: false,
+						error: "not_found",
+					})),
+				});
+			},
+		);
+
+		const results = await runConversationBatch(
+			{ action: "delete", ids },
+			fetchMock,
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(results.map((result) => result.id)).toEqual(ids);
+		const outcome = (index: number) => {
+			const result = results[index];
+			return result.ok ? "ok" : result.error;
+		};
+		// 1 to 50 and 101 to 120 are what the server said; 51 to 100 are not known.
+		expect(ids.map((_, index) => outcome(index))).toEqual([
+			...Array(50).fill("not_found"),
+			...Array(50).fill("unknown"),
+			...Array(20).fill("not_found"),
+		]);
+	});
+
+	it("marks every id of a chunk unknown when the server refuses the request", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ error: "Failed to apply batch action" }),
+					{
+						status: 500,
+						headers: { "content-type": "application/json" },
+					},
+				),
+		);
+
+		const results = await runConversationBatch(
+			{ action: "delete", ids: ["conv-1", "conv-2"] },
+			fetchMock,
+		);
+
+		expect(results).toEqual([
+			{ id: "conv-1", ok: false, error: "unknown" },
+			{ id: "conv-2", ok: false, error: "unknown" },
+		]);
+	});
+
+	it("marks an id that a successful answer leaves out unknown", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Pinned",
+			projectId: null,
+			sidebarPinned: true,
+			sidebarSortOrder: -1,
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		const fetchMock = vi.fn(async () =>
+			jsonOk({
+				results: [
+					{ id: "conv-1", ok: true, conversation },
+					{ id: "conv-3", ok: false, error: "failed" },
+					{ id: "conv-4", ok: false, error: "not_found" },
+				],
+			}),
+		);
+
+		const results = await runConversationBatch(
+			{
+				action: "pin",
+				ids: ["conv-1", "conv-2", "conv-3", "conv-4"],
+				pinned: true,
+			},
+			fetchMock,
+		);
+
+		// In the order the ids were sent, whatever order the server answered in.
+		expect(results).toEqual([
+			{ id: "conv-1", ok: true, conversation },
+			{ id: "conv-2", ok: false, error: "unknown" },
+			{ id: "conv-3", ok: false, error: "failed" },
+			{ id: "conv-4", ok: false, error: "not_found" },
+		]);
+	});
+
+	it("does not trust an answer row it cannot read", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonOk({
+				results: [
+					{ id: "conv-1", ok: "yes" },
+					{ ok: true },
+					null,
+					{ id: "conv-3", ok: false, error: "exploded" },
+					{ id: "conv-4", ok: true },
+				],
+			}),
+		);
+
+		const results = await runConversationBatch(
+			{
+				action: "delete",
+				ids: ["conv-1", "conv-2", "conv-3", "conv-4"],
+			},
+			fetchMock,
+		);
+
+		expect(results).toEqual([
+			{ id: "conv-1", ok: false, error: "unknown" },
+			{ id: "conv-2", ok: false, error: "unknown" },
+			{ id: "conv-3", ok: false, error: "unknown" },
+			{ id: "conv-4", ok: true },
+		]);
+	});
+
+	it("marks every id unknown when the answer has no results", async () => {
+		const fetchMock = vi.fn(async () => jsonOk({ results: "nope" }));
+
+		const results = await runConversationBatch(
+			{ action: "delete", ids: ["conv-1"] },
+			fetchMock,
+		);
+
+		expect(results).toEqual([{ id: "conv-1", ok: false, error: "unknown" }]);
+	});
+
+	it("sends nothing for no ids", async () => {
+		const fetchMock = vi.fn();
+
+		const results = await runConversationBatch(
+			{ action: "delete", ids: [] },
+			fetchMock,
+		);
+
+		expect(results).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 

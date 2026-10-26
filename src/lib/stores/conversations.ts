@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import {
 	conversationExists,
 	createConversation,
@@ -6,6 +6,7 @@ import {
 	fetchConversations,
 	moveConversationToProject as moveConversationRequest,
 	renameConversation as renameConversationRequest,
+	runConversationBatch,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
 } from "$lib/client/api/conversations";
@@ -14,7 +15,11 @@ import {
 	dispatchWorkspaceConversationDeleted,
 	removeConversationFromPersistedWorkspaceDocumentState,
 } from "$lib/client/document-workspace-state";
-import type { ConversationListItem } from "$lib/server/services/conversations";
+import type {
+	Conversation,
+	ConversationListItem,
+} from "$lib/server/services/conversations";
+import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
 import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 
 export const conversations = writable<ConversationListItem[]>([]);
@@ -494,18 +499,10 @@ export function removeConversationLocal(id: string): void {
 	);
 }
 
-export async function deleteConversationById(id: string): Promise<void> {
-	try {
-		await deleteConversation(id);
-	} catch (error) {
-		// A failed request does not prove the conversation survived: the
-		// connection can drop after the server finished the delete, and a
-		// repeated tap answers 404 for a row the first one already removed.
-		// Ask the server before reporting failure, so the sidebar never keeps
-		// a conversation that is gone until the next full page load.
-		if (!(await wasConversationDeleted(id, error))) throw error;
-	}
-
+// What a deleted conversation leaves behind in this browser: its row, and what
+// the document workspace remembers about it. Shared by the single and the bulk
+// delete, so both clean up the same way.
+function forgetDeletedConversationLocally(id: string): void {
 	// The server row is gone; the sidebar must follow before anything else
 	// can throw. Workspace cleanup below is best effort.
 	removeConversationLocal(id);
@@ -521,6 +518,21 @@ export async function deleteConversationById(id: string): Promise<void> {
 		}
 		dispatchWorkspaceConversationDeleted(id);
 	}
+}
+
+export async function deleteConversationById(id: string): Promise<void> {
+	try {
+		await deleteConversation(id);
+	} catch (error) {
+		// A failed request does not prove the conversation survived: the
+		// connection can drop after the server finished the delete, and a
+		// repeated tap answers 404 for a row the first one already removed.
+		// Ask the server before reporting failure, so the sidebar never keeps
+		// a conversation that is gone until the next full page load.
+		if (!(await wasConversationDeleted(id, error))) throw error;
+	}
+
+	forgetDeletedConversationLocally(id);
 }
 
 async function wasConversationDeleted(
@@ -573,26 +585,146 @@ export function updateConversationMemoryIncognitoLocal(
 	);
 }
 
+type SidebarState = {
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
+};
+
+// One chat's optimistic pin or unpin, with what it takes to undo it. The
+// single pin and the bulk pin both build, settle and undo these, so the
+// optimistic machinery (the local sidebar-state map, the row state, the
+// sidebar sort) exists once.
+type LocalSidebarPin = {
+	id: string;
+	/** The row as it was before the change; the undo puts it back whole. */
+	previousConversation: ConversationListItem;
+	hadPreviousSidebarState: boolean;
+	previousSidebarState: SidebarState | undefined;
+	/**
+	 * The state the change put in the local map. The undo only touches the map
+	 * while it still holds exactly this: anything else is a newer decision.
+	 */
+	optimisticSidebarState: SidebarState;
+};
+
+// The optimistic half of a pin or unpin for one listed chat: remembers what
+// to put back, keeps the new state in the local map (so a snapshot taken
+// before the server answers cannot undo it) and returns the row as it shows
+// from now on. Runs inside a `conversations.update`.
+function startLocalSidebarPin(
+	conversation: ConversationListItem,
+	nextSidebarState: SidebarState,
+	pins: LocalSidebarPin[],
+): ConversationListItem {
+	pins.push({
+		id: conversation.id,
+		previousConversation: conversation,
+		hadPreviousSidebarState: localConversationSidebarStates.has(
+			conversation.id,
+		),
+		previousSidebarState: localConversationSidebarStates.get(conversation.id),
+		optimisticSidebarState: nextSidebarState,
+	});
+	localConversationSidebarStates.set(conversation.id, nextSidebarState);
+	return applyConversationSidebarState(conversation, nextSidebarState);
+}
+
+// The server answered: its state is final, so it replaces the optimistic one
+// in the local map and on the row.
+function settleLocalSidebarPins(
+	answers: Array<{ id: string; conversation: Conversation }>,
+): void {
+	if (answers.length === 0) return;
+	for (const { id, conversation } of answers) {
+		localConversationSidebarStates.set(
+			id,
+			getConversationSidebarState(conversation),
+		);
+	}
+	const answerById = new Map(
+		answers.map(({ id, conversation }) => [id, conversation]),
+	);
+	conversations.update((items) =>
+		sortConversationsForSidebar(
+			items.map((conversation) => {
+				const answer = answerById.get(conversation.id);
+				return answer ? { ...conversation, ...answer } : conversation;
+			}),
+		),
+	);
+}
+
+// The pins did not happen: the rows and the local map go back to what they
+// were before `startLocalSidebarPin`.
+function undoLocalSidebarPins(pins: LocalSidebarPin[]): void {
+	if (pins.length === 0) return;
+	for (const pin of pins) {
+		if (
+			localConversationSidebarStates.get(pin.id) !== pin.optimisticSidebarState
+		)
+			continue;
+		if (pin.hadPreviousSidebarState && pin.previousSidebarState) {
+			localConversationSidebarStates.set(pin.id, pin.previousSidebarState);
+		} else {
+			localConversationSidebarStates.delete(pin.id);
+		}
+	}
+	const previousById = new Map(
+		pins.map((pin) => [pin.id, pin.previousConversation]),
+	);
+	conversations.update((items) =>
+		sortConversationsForSidebar(
+			items.map(
+				(conversation) => previousById.get(conversation.id) ?? conversation,
+			),
+		),
+	);
+}
+
+// The optimistic half of pinning or unpinning several chats at once.
+// `nextTopPinnedConversationOrder` reads one snapshot, so asking it per chat
+// would hand every chat the same order: it is read once, and the k-th of n
+// chats takes `base - (n - 1 - k)`. The first chat of the selection ends on
+// top of Pinned and the rest follow in the order given, which is the order the
+// server gives them too.
+function startLocalSidebarPins(
+	ids: string[],
+	sidebarPinned: boolean,
+): LocalSidebarPin[] {
+	const pins: LocalSidebarPin[] = [];
+	const positions = new Map(ids.map((id, index) => [id, index]));
+	conversations.update((items) => {
+		const base = nextTopPinnedConversationOrder(items);
+		return sortConversationsForSidebar(
+			items.map((conversation) => {
+				const position = positions.get(conversation.id);
+				if (position === undefined) return conversation;
+				return startLocalSidebarPin(
+					conversation,
+					{
+						sidebarPinned,
+						sidebarSortOrder: sidebarPinned
+							? base - (ids.length - 1 - position)
+							: null,
+					},
+					pins,
+				);
+			}),
+		);
+	});
+	return pins;
+}
+
 export async function toggleConversationSidebarPin(
 	id: string,
 	sidebarPinned?: boolean,
 ): Promise<void> {
-	let previousConversation: ConversationListItem | null = null;
-	let previousSidebarState:
-		| { sidebarPinned: boolean; sidebarSortOrder: number | null }
-		| undefined;
-	let hadPreviousSidebarState = false;
+	const pins: LocalSidebarPin[] = [];
 	let nextPinned = Boolean(sidebarPinned);
-	let optimisticSidebarState:
-		| { sidebarPinned: boolean; sidebarSortOrder: number | null }
-		| undefined;
 
 	conversations.update((items) => {
 		const current = items.find((conversation) => conversation.id === id);
 		if (!current) return items;
-		previousConversation = current;
-		hadPreviousSidebarState = localConversationSidebarStates.has(id);
-		previousSidebarState = localConversationSidebarStates.get(id);
 		nextPinned = sidebarPinned ?? !getSidebarPinned(current);
 		const nextSidebarState = {
 			sidebarPinned: nextPinned,
@@ -600,12 +732,10 @@ export async function toggleConversationSidebarPin(
 				? nextTopPinnedConversationOrder(items)
 				: null,
 		};
-		optimisticSidebarState = nextSidebarState;
-		localConversationSidebarStates.set(id, optimisticSidebarState);
 		return sortConversationsForSidebar(
 			items.map((conversation) =>
 				conversation.id === id
-					? applyConversationSidebarState(conversation, nextSidebarState)
+					? startLocalSidebarPin(conversation, nextSidebarState, pins)
 					: conversation,
 			),
 		);
@@ -616,40 +746,9 @@ export async function toggleConversationSidebarPin(
 			id,
 			nextPinned,
 		);
-		localConversationSidebarStates.set(
-			id,
-			getConversationSidebarState(updatedConversation),
-		);
-		conversations.update((items) =>
-			sortConversationsForSidebar(
-				items.map((conversation) =>
-					conversation.id === id
-						? { ...conversation, ...updatedConversation }
-						: conversation,
-				),
-			),
-		);
+		settleLocalSidebarPins([{ id, conversation: updatedConversation }]);
 	} catch (error) {
-		if (
-			optimisticSidebarState &&
-			localConversationSidebarStates.get(id) === optimisticSidebarState
-		) {
-			if (hadPreviousSidebarState && previousSidebarState) {
-				localConversationSidebarStates.set(id, previousSidebarState);
-			} else {
-				localConversationSidebarStates.delete(id);
-			}
-		}
-		const restoredConversation = previousConversation;
-		if (restoredConversation) {
-			conversations.update((items) =>
-				sortConversationsForSidebar(
-					items.map((conversation) =>
-						conversation.id === id ? restoredConversation : conversation,
-					),
-				),
-			);
-		}
+		undoLocalSidebarPins(pins);
 		throw error;
 	}
 }
@@ -715,48 +814,248 @@ export async function savePinnedConversationOrder(
 	}
 }
 
+// One chat's optimistic move into (or out of) a project, with what it takes to
+// undo it. The single move and the bulk move both start and undo these.
+type LocalProjectMove = {
+	id: string;
+	/** The project the move targets; null is out of any project. */
+	projectId: string | null;
+	hadPreviousLocalProjectId: boolean;
+	previousLocalProjectId: string | null;
+	/** The listed row's project before the move; only read when `found`. */
+	previousProjectId: string | null;
+	/** Whether the chat was listed, so there is a row to put back. */
+	found: boolean;
+};
+
+// The optimistic half of a project move for each of `ids`: every listed row
+// shows the new project at once, and the local map keeps the move so a
+// snapshot taken before the server answers cannot undo it.
+function startLocalProjectMoves(
+	ids: string[],
+	projectId: string | null,
+): LocalProjectMove[] {
+	const moves = new Map<string, LocalProjectMove>();
+	for (const id of ids) {
+		if (moves.has(id)) continue;
+		moves.set(id, {
+			id,
+			projectId,
+			hadPreviousLocalProjectId: localConversationProjectIds.has(id),
+			previousLocalProjectId: localConversationProjectIds.get(id) ?? null,
+			previousProjectId: null,
+			found: false,
+		});
+		localConversationProjectIds.set(id, projectId);
+	}
+	conversations.update((items) =>
+		items.map((conversation) => {
+			const move = moves.get(conversation.id);
+			if (!move) return conversation;
+			move.previousProjectId = conversation.projectId ?? null;
+			move.found = true;
+			return { ...conversation, projectId };
+		}),
+	);
+	return [...moves.values()];
+}
+
+// The moves did not happen: the local map and the rows go back to what they
+// were before `startLocalProjectMoves`. A row is only put back while it still
+// shows the move's own project, so a newer change to it is left alone.
+function undoLocalProjectMoves(moves: LocalProjectMove[]): void {
+	const listed = new Map<string, LocalProjectMove>();
+	for (const move of moves) {
+		if (localConversationProjectIds.get(move.id) === move.projectId) {
+			if (move.hadPreviousLocalProjectId) {
+				localConversationProjectIds.set(move.id, move.previousLocalProjectId);
+			} else {
+				localConversationProjectIds.delete(move.id);
+			}
+		}
+		if (move.found) listed.set(move.id, move);
+	}
+	if (listed.size === 0) return;
+	conversations.update((items) =>
+		items.map((conversation) => {
+			const move = listed.get(conversation.id);
+			if (!move || (conversation.projectId ?? null) !== move.projectId) {
+				return conversation;
+			}
+			return { ...conversation, projectId: move.previousProjectId };
+		}),
+	);
+}
+
 export async function moveConversationToProject(
 	id: string,
 	projectId: string | null,
 ): Promise<void> {
-	let previousProjectId: string | null = null;
-	let foundConversation = false;
-	const hadPreviousLocalProjectId = localConversationProjectIds.has(id);
-	const previousLocalProjectId = localConversationProjectIds.get(id) ?? null;
-	localConversationProjectIds.set(id, projectId);
-	conversations.update((items) =>
-		items.map((conversation) => {
-			if (conversation.id !== id) return conversation;
-			previousProjectId = conversation.projectId ?? null;
-			foundConversation = true;
-			return { ...conversation, projectId };
-		}),
-	);
+	const moves = startLocalProjectMoves([id], projectId);
 	try {
 		await moveConversationRequest(id, projectId);
 	} catch (error) {
-		if (localConversationProjectIds.get(id) === projectId) {
-			if (hadPreviousLocalProjectId) {
-				localConversationProjectIds.set(id, previousLocalProjectId);
-			} else {
-				localConversationProjectIds.delete(id);
-			}
-		}
-		if (foundConversation) {
-			conversations.update((items) =>
-				items.map((conversation) => {
-					if (
-						conversation.id !== id ||
-						(conversation.projectId ?? null) !== projectId
-					) {
-						return conversation;
-					}
-					return { ...conversation, projectId: previousProjectId };
-				}),
-			);
-		}
+		undoLocalProjectMoves(moves);
 		throw error;
 	}
+}
+
+// What a bulk action reports: the chats it could not do, in the order they
+// were given. A chat the server no longer has is not one of them: it is gone
+// either way.
+type BulkConversationOutcome = { failedIds: string[] };
+
+type BatchResult = ConversationBatchResult<Conversation>;
+
+/**
+ * What the answer to a bulk action comes to in this browser, and which chats
+ * it could not do. Delete, move and pin all end here, so all three read an
+ * answer the same way.
+ *
+ * Each id, in the order given, has one of four verdicts:
+ * - `ok`: the server did it. `onOk` hears of it, with the result.
+ * - `not_found`: the server no longer has the chat. It is gone either way, so
+ *   it leaves the list as a deleted chat does (its row, what the workspace
+ *   remembers about it, the workspace's event) and is not a failure.
+ * - `failed`: the server could not do it. A failure.
+ * - `unknown`: nobody can say. A chunk whose request failed, and an id the
+ *   answer leaves out: an id with no result is unknown, never counted as done.
+ *
+ * `undo` is handed the chats that did not go through (failed and unknown) so
+ * the action can take back what it showed before the answer. It runs before
+ * the reload, so that a snapshot never meets state the server did not agree
+ * to. Then the server is asked about the unknown chats, through one forced
+ * reload of the list, and the rows it holds decide them: a chat no longer
+ * listed is gone, one `isDone` accepts went through, and the rest failed. A
+ * reload that fails leaves the rows as `undo` put them, which reads as not
+ * done.
+ */
+async function settleBulkResults(params: {
+	ids: string[];
+	results: BatchResult[];
+	/** Is this listed row where the action wanted it? */
+	isDone: (row: ConversationListItem) => boolean;
+	onOk?: (result: Extract<BatchResult, { ok: true }>) => void;
+	undo?: (ids: Set<string>) => void;
+}): Promise<BulkConversationOutcome> {
+	const resultById = new Map(
+		params.results.map((result) => [result.id, result]),
+	);
+	const failed = new Set<string>();
+	const unknown = new Set<string>();
+	for (const id of params.ids) {
+		const result = resultById.get(id);
+		if (result?.ok) {
+			params.onOk?.(result);
+		} else if (result?.error === "not_found") {
+			forgetDeletedConversationLocally(id);
+		} else if (result?.error === "failed") {
+			failed.add(id);
+		} else {
+			unknown.add(id);
+		}
+	}
+	params.undo?.(new Set([...failed, ...unknown]));
+
+	if (unknown.size > 0) {
+		await loadConversations({ force: true });
+		const listed = new Map(get(conversations).map((item) => [item.id, item]));
+		for (const id of unknown) {
+			const row = listed.get(id);
+			if (!row) {
+				forgetDeletedConversationLocally(id);
+			} else if (!params.isDone(row)) {
+				failed.add(id);
+			}
+		}
+	}
+
+	return { failedIds: params.ids.filter((id) => failed.has(id)) };
+}
+
+/**
+ * Deletes several conversations in one action. Nothing is removed from the
+ * list before the server answers; then every chat the server deleted, and
+ * every one it no longer had, leaves the list the way `deleteConversationById`
+ * removes one. `failedIds` holds the chats the server could not delete.
+ */
+export async function deleteConversationsByIds(
+	ids: string[],
+): Promise<BulkConversationOutcome> {
+	if (ids.length === 0) return { failedIds: [] };
+
+	const results = await runConversationBatch({ action: "delete", ids });
+	return settleBulkResults({
+		ids,
+		results,
+		// A chat the reloaded list still holds was not deleted.
+		isDone: () => false,
+		onOk: (result) => forgetDeletedConversationLocally(result.id),
+	});
+}
+
+/**
+ * Moves several conversations into a project (or out of any, with a null
+ * `projectId`) in one action. Every listed row shows the move before the
+ * server answers; a chat that failed goes back to its previous project, one
+ * the server no longer has leaves the list, and the rest stay moved.
+ */
+export async function moveConversationsToProject(
+	ids: string[],
+	projectId: string | null,
+): Promise<BulkConversationOutcome> {
+	if (ids.length === 0) return { failedIds: [] };
+
+	const moves = startLocalProjectMoves(ids, projectId);
+	const results = await runConversationBatch({
+		action: "move",
+		ids,
+		projectId,
+	});
+	return settleBulkResults({
+		ids,
+		results,
+		isDone: (row) => (row.projectId ?? null) === projectId,
+		undo: (undone) =>
+			undoLocalProjectMoves(moves.filter((move) => undone.has(move.id))),
+	});
+}
+
+/**
+ * Pins or unpins several conversations in one action. Pinned chats go on top
+ * of Pinned in the order given, and unpinned ones lose their manual order,
+ * both before the server answers. A chat that failed goes back to its previous
+ * pin state, and one the server no longer has leaves the list.
+ */
+export async function setConversationsSidebarPinned(
+	ids: string[],
+	sidebarPinned: boolean,
+): Promise<BulkConversationOutcome> {
+	if (ids.length === 0) return { failedIds: [] };
+
+	const pins = startLocalSidebarPins(ids, sidebarPinned);
+	const results = await runConversationBatch({
+		action: "pin",
+		ids,
+		pinned: sidebarPinned,
+	});
+	const answers: Array<{ id: string; conversation: Conversation }> = [];
+	const outcome = await settleBulkResults({
+		ids,
+		results,
+		isDone: (row) => getSidebarPinned(row) === sidebarPinned,
+		onOk: (result) => {
+			if (result.conversation) {
+				answers.push({ id: result.id, conversation: result.conversation });
+			}
+		},
+		undo: (undone) =>
+			undoLocalSidebarPins(pins.filter((pin) => undone.has(pin.id))),
+	});
+	// The server's own order replaces the one shown, once, for every chat it
+	// pinned.
+	settleLocalSidebarPins(answers);
+	return outcome;
 }
 
 export function clearProjectFromConversations(projectId: string): void {

@@ -92,6 +92,28 @@ function seedOtherUserFolder() {
 	sqlite.close();
 }
 
+// More chats beside `seedUserFolderConversation()`'s one, all made at the same
+// instant so a test can tell whether a move touched `updatedAt`.
+function seedExtraConversations(
+	rows: Array<{ id: string; userId: string; projectId?: string | null }>,
+) {
+	const { sqlite, db } = openSeedDatabase();
+	const now = new Date("2026-05-14T09:00:00.000Z");
+	for (const row of rows) {
+		db.insert(schema.conversations)
+			.values({
+				id: row.id,
+				userId: row.userId,
+				title: `Chat ${row.id}`,
+				projectId: row.projectId ?? null,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+	}
+	sqlite.close();
+}
+
 function readProjectFolder(id = "folder-1") {
 	const sqlite = new Database(dbPath);
 	const db = drizzle(sqlite, { schema });
@@ -206,6 +228,96 @@ describe("conversation project folder moves", () => {
 
 		expect(moved).toBeNull();
 		expect(conversation?.projectId).toBe("folder-1");
+	});
+
+	it("moves several conversations into a project without touching updatedAt", async () => {
+		seedUserFolderConversation();
+		seedOtherUserFolder();
+		seedExtraConversations([
+			{ id: "conv-2", userId: "user-1" },
+			{ id: "conv-3", userId: "user-2" },
+		]);
+		const { getConversation, moveConversationsToProject } = await import(
+			"./conversations"
+		);
+		const createdAt = new Date("2026-05-14T09:00:00.000Z").getTime() / 1000;
+
+		const moved = await moveConversationsToProject(
+			"user-1",
+			["conv-1", "conv-2", "conv-3"],
+			"folder-1",
+		);
+
+		expect(moved).toEqual([
+			{
+				id: "conv-1",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "conv-1",
+					projectId: "folder-1",
+					updatedAt: createdAt,
+				}),
+			},
+			{
+				id: "conv-2",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "conv-2",
+					projectId: "folder-1",
+					updatedAt: createdAt,
+				}),
+			},
+			{ id: "conv-3", ok: false, error: "not_found" },
+		]);
+		for (const id of ["conv-1", "conv-2"]) {
+			expect(await getConversation("user-1", id)).toMatchObject({
+				projectId: "folder-1",
+				updatedAt: createdAt,
+			});
+		}
+		// Another person's chat is only ever reported missing, never moved.
+		expect((await getConversation("user-2", "conv-3"))?.projectId).toBeNull();
+
+		const removed = await moveConversationsToProject(
+			"user-1",
+			["conv-1", "conv-2"],
+			null,
+		);
+
+		expect(removed?.map((result) => result.ok)).toEqual([true, true]);
+		for (const id of ["conv-1", "conv-2"]) {
+			expect(await getConversation("user-1", id)).toMatchObject({
+				projectId: null,
+				updatedAt: createdAt,
+			});
+		}
+	});
+
+	it("moves nothing when the project is not the person's own", async () => {
+		seedUserFolderConversation({ projectId: "folder-1" });
+		seedOtherUserFolder();
+		seedExtraConversations([{ id: "conv-2", userId: "user-1" }]);
+		const { getConversation, moveConversationsToProject } = await import(
+			"./conversations"
+		);
+
+		const intoAnotherUsersFolder = await moveConversationsToProject(
+			"user-1",
+			["conv-1", "conv-2"],
+			"folder-2",
+		);
+		const intoAFolderThatDoesNotExist = await moveConversationsToProject(
+			"user-1",
+			["conv-1", "conv-2"],
+			"no-such-folder",
+		);
+
+		expect(intoAnotherUsersFolder).toBeNull();
+		expect(intoAFolderThatDoesNotExist).toBeNull();
+		expect((await getConversation("user-1", "conv-1"))?.projectId).toBe(
+			"folder-1",
+		);
+		expect((await getConversation("user-1", "conv-2"))?.projectId).toBeNull();
 	});
 });
 
@@ -388,6 +500,140 @@ describe("conversation sidebar pinning", () => {
 			"recent-conv",
 			"older-conv",
 		]);
+	});
+
+	it("pins several conversations on top in the order given", async () => {
+		seedSidebarConversationScenario();
+		// A third owned chat, pinned before the batch: it must end up below the
+		// two pinned now. "older-conv" is the older of the two, so a fallback to
+		// recency (or pinning forwards, which leaves the last id on top) would
+		// show "recent-conv" above it.
+		{
+			const { sqlite, db } = openSeedDatabase();
+			const base = new Date("2026-05-14T10:00:00.000Z");
+			db.insert(schema.conversations)
+				.values({
+					id: "pinned-conv",
+					userId: "sidebar-user",
+					title: "Already pinned",
+					createdAt: base,
+					updatedAt: new Date(base.getTime() + 2_000),
+				})
+				.run();
+			db.insert(schema.messages)
+				.values({
+					id: "pinned-message",
+					conversationId: "pinned-conv",
+					role: "user",
+					content: "visible",
+					createdAt: base,
+				})
+				.run();
+			sqlite.close();
+		}
+		const {
+			listConversations,
+			setConversationSidebarPinned,
+			setConversationsSidebarPinned,
+		} = await import("./conversations");
+		await setConversationSidebarPinned("sidebar-user", "pinned-conv", true);
+
+		const results = await setConversationsSidebarPinned(
+			"sidebar-user",
+			["older-conv", "recent-conv", "other-user-conv"],
+			true,
+		);
+		const listed = await listConversations("sidebar-user");
+
+		expect(results).toEqual([
+			{
+				id: "older-conv",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "older-conv",
+					sidebarPinned: true,
+				}),
+			},
+			{
+				id: "recent-conv",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "recent-conv",
+					sidebarPinned: true,
+				}),
+			},
+			{ id: "other-user-conv", ok: false, error: "not_found" },
+		]);
+		expect(listed.map((conversation) => conversation.id)).toEqual([
+			"older-conv",
+			"recent-conv",
+			"pinned-conv",
+		]);
+		const [first, second, third] = listed.map(
+			(conversation) => conversation.sidebarSortOrder,
+		);
+		expect(first).toBeLessThan(second as number);
+		expect(second).toBeLessThan(third as number);
+		// The results carry the order each chat ended on, the way the single
+		// call's answer does.
+		expect(
+			results.flatMap((result) =>
+				result.ok ? [result.conversation?.sidebarSortOrder] : [],
+			),
+		).toEqual([first, second]);
+		// Another person's chat is only ever reported missing, never pinned.
+		expect(await listConversations("other-sidebar-user")).toEqual([
+			expect.objectContaining({
+				id: "other-user-conv",
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			}),
+		]);
+	});
+
+	it("unpins several conversations and clears their manual order", async () => {
+		seedSidebarConversationScenario();
+		const {
+			getConversation,
+			setConversationSidebarPinned,
+			setConversationsSidebarPinned,
+		} = await import("./conversations");
+		await setConversationSidebarPinned("sidebar-user", "older-conv", true);
+		await setConversationSidebarPinned("sidebar-user", "recent-conv", true);
+
+		const results = await setConversationsSidebarPinned(
+			"sidebar-user",
+			["older-conv", "recent-conv", "other-user-conv"],
+			false,
+		);
+
+		expect(results).toEqual([
+			{
+				id: "older-conv",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "older-conv",
+					sidebarPinned: false,
+					sidebarSortOrder: null,
+				}),
+			},
+			{
+				id: "recent-conv",
+				ok: true,
+				conversation: expect.objectContaining({
+					id: "recent-conv",
+					sidebarPinned: false,
+					sidebarSortOrder: null,
+				}),
+			},
+			{ id: "other-user-conv", ok: false, error: "not_found" },
+		]);
+		for (const id of ["older-conv", "recent-conv"]) {
+			expect(await getConversation("sidebar-user", id)).toMatchObject({
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			});
+		}
 	});
 
 	it("projects the latest completed Atlas badge identity for visible conversations", async () => {

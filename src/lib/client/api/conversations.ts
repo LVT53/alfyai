@@ -9,6 +9,11 @@ import type {
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import {
+	CONVERSATION_BATCH_MAX_IDS,
+	type ConversationBatchRequest,
+	type ConversationBatchResult,
+} from "$lib/shared/conversation-batch";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { _unwrapList } from "./_utils";
 import {
@@ -304,6 +309,111 @@ export async function deleteConversation(id: string): Promise<void> {
 		},
 		"Failed to delete conversation",
 	);
+}
+
+// One id's row of a batch answer. The server only ever sends `ok`, `not_found`
+// and `failed`, so anything else is a row this client cannot read: it is left
+// out, and its id is reported `unknown` like an id the answer never named.
+function readConversationBatchResult(
+	value: unknown,
+): ConversationBatchResult<Conversation> | null {
+	if (typeof value !== "object" || value === null) return null;
+	const row = value as Record<string, unknown>;
+	if (typeof row.id !== "string") return null;
+	if (row.ok === true) {
+		return typeof row.conversation === "object" && row.conversation !== null
+			? { id: row.id, ok: true, conversation: row.conversation as Conversation }
+			: { id: row.id, ok: true };
+	}
+	if (
+		row.ok === false &&
+		(row.error === "not_found" || row.error === "failed")
+	) {
+		return { id: row.id, ok: false, error: row.error };
+	}
+	return null;
+}
+
+function unknownConversationBatchResult(
+	id: string,
+): ConversationBatchResult<Conversation> {
+	return { id, ok: false, error: "unknown" };
+}
+
+// One request of at most `CONVERSATION_BATCH_MAX_IDS` ids. It never throws: a
+// request that fails (the network, a refusal, an answer that is not JSON) says
+// nothing about what the server did, so every id of the chunk is `unknown`,
+// and so is an id that an answer which did arrive leaves out.
+async function requestConversationBatchChunk(
+	chunk: ConversationBatchRequest,
+	fetchImpl: FetchLike,
+): Promise<ConversationBatchResult<Conversation>[]> {
+	try {
+		const payload = await requestJson<{ results?: unknown } | null>(
+			"/api/conversations/batch",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(chunk),
+			},
+			"Failed to update the selected conversations",
+			fetchImpl,
+		);
+		const answered = new Map<string, ConversationBatchResult<Conversation>>();
+		const rows = Array.isArray(payload?.results) ? payload.results : [];
+		for (const row of rows) {
+			const result = readConversationBatchResult(row);
+			if (result && !answered.has(result.id)) answered.set(result.id, result);
+		}
+		return chunk.ids.map(
+			(id) => answered.get(id) ?? unknownConversationBatchResult(id),
+		);
+	} catch {
+		return chunk.ids.map(unknownConversationBatchResult);
+	}
+}
+
+/**
+ * Runs one sidebar action (delete, move or pin) on any number of chats. The
+ * server takes at most `CONVERSATION_BATCH_MAX_IDS` per request, so the ids go
+ * in chunks of that size, one request after another, and the answer is one
+ * result per id in the order the ids were given. A chunk that fails does not
+ * stop the next one: its ids come back `unknown` and the caller decides them
+ * from a fresh list.
+ *
+ * A pin goes last chunk first. The server puts each request's chats on top of
+ * Pinned, its first id highest, so the request sent last ends up above the
+ * rest: sent first to last, the second chunk would sit over the first and the
+ * list would reshuffle when the answer is applied. Sent last first, the first
+ * id of the whole selection ends on top with the others below it in the order
+ * given, which is the order the sidebar showed. Every other action goes first
+ * to last, and the answer is in id order either way.
+ */
+export async function runConversationBatch(
+	request: ConversationBatchRequest,
+	fetchImpl: FetchLike = fetch,
+): Promise<ConversationBatchResult<Conversation>[]> {
+	const chunks: string[][] = [];
+	for (
+		let start = 0;
+		start < request.ids.length;
+		start += CONVERSATION_BATCH_MAX_IDS
+	) {
+		chunks.push(request.ids.slice(start, start + CONVERSATION_BATCH_MAX_IDS));
+	}
+	const sendOrder = chunks.map((_, index) => index);
+	if (request.action === "pin" && request.pinned) sendOrder.reverse();
+
+	const resultsByChunk: ConversationBatchResult<Conversation>[][] = [];
+	for (const index of sendOrder) {
+		resultsByChunk[index] = await requestConversationBatchChunk(
+			{ ...request, ids: chunks[index] },
+			fetchImpl,
+		);
+	}
+	return resultsByChunk.flat();
 }
 
 export async function persistConversationDraft(

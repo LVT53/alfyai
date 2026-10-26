@@ -1,19 +1,23 @@
 <script lang="ts">
 import { fade, slide } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
-import { onMount } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/stores";
 import {
 	conversations,
 	deleteConversationById,
+	deleteConversationsByIds,
 	renameConversation,
 	moveConversationToProject,
+	moveConversationsToProject,
 	clearProjectFromConversations,
 	markConversationAtlasBadgeSeen,
+	setConversationsSidebarPinned,
 	toggleConversationSidebarPin,
 	savePinnedConversationOrder,
 } from "$lib/stores/conversations";
+import { showToast } from "$lib/stores/toast";
 import {
 	projects as projectsStore,
 	createProject,
@@ -36,7 +40,8 @@ import {
 	sidebarProjectsExpanded,
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
+import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import { conversationDisplayTitle } from "$lib/shared/conversation-title";
 import {
 	ChevronRight,
@@ -50,9 +55,18 @@ import { countProjectConversations } from "./project-count";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
 import { markProjectComposerFocus } from "$lib/client/conversation-session";
+import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 import ConversationItem from "./ConversationItem.svelte";
 import ProjectItem from "./ProjectItem.svelte";
 import SidebarReorderRow from "./SidebarReorderRow.svelte";
+import SidebarSelectionBar from "./SidebarSelectionBar.svelte";
+import {
+	bulkPinAction,
+	pruneSelected,
+	selectRange,
+	shownConversationOrder,
+	toggleSelected,
+} from "./sidebar-selection";
 
 type SidebarConversationListItem = ConversationListItem & {
 	sidebarPinned?: boolean;
@@ -181,6 +195,291 @@ const conversationsByProject = $derived.by(() => {
 	}
 	return { byProject: map, unorganized };
 });
+
+// ── Selection ──────────────────────────────────────────────────────────────
+//
+// The list owns the selection: `ConversationItem` and `SidebarSelectionBar`
+// only say what the person did. The rules (what a click adds, what a range
+// covers, what is pruned) are the pure functions in `./sidebar-selection`, and
+// every change replaces the set, so state sees it.
+
+let selectedIds = $state<ReadonlySet<string>>(new Set());
+// The chat last clicked into or out of the selection: where a Shift-click starts.
+let selectionAnchorId = $state<string | null>(null);
+// A bulk call is running: nothing changes the selection until it has answered.
+let bulkBusy = $state(false);
+let bulkDeleteConfirmOpen = $state(false);
+
+const selecting = $derived(selectedIds.size > 0);
+
+// The chats on screen, top to bottom: what a range runs over, what Select all
+// takes, and the only chats a selection may hold.
+const shownOrder = $derived(
+	shownConversationOrder({
+		pinned: {
+			expanded: pinnedSectionExpanded,
+			ids: pinnedConversations.map((conversation) => conversation.id),
+		},
+		projects: {
+			expanded: projectsSectionExpanded,
+			folders: sortedProjects.map((project) => ({
+				expanded: expandedProjects[project.id] ?? false,
+				ids: (conversationsByProject.byProject[project.id] ?? []).map(
+					(conversation) => conversation.id,
+				),
+			})),
+		},
+		chats: {
+			expanded: chatsSectionExpanded,
+			ids: conversationsByProject.unorganized.map(
+				(conversation) => conversation.id,
+			),
+		},
+	}),
+);
+const shownIds = $derived(new Set(shownOrder));
+const conversationsById = $derived(
+	new Map(
+		visibleConversations.map((conversation) => [conversation.id, conversation]),
+	),
+);
+// The selected chats in the order shown: what Pin and Move send.
+const selectedConversations = $derived(
+	shownOrder.flatMap((id) => {
+		const conversation = conversationsById.get(id);
+		return conversation && selectedIds.has(id) ? [conversation] : [];
+	}),
+);
+const pinAction = $derived(bulkPinAction(selectedConversations));
+const canSelectAll = $derived(shownOrder.some((id) => !selectedIds.has(id)));
+const canRemoveFromProject = $derived(
+	selectedConversations.some((conversation) => conversation.projectId != null),
+);
+
+// The bar goes away with the selection, and a button of it that holds the focus
+// takes the focus along to <body>: a person on the keyboard would start again
+// from the top of the page. So when the keyboard had the focus on the bar as the
+// selection ends, the focus goes to a row, once the bar is gone: the one the
+// selection was anchored on while it is still shown, otherwise the first one
+// shown. That scrolls the list to the row, which the keyboard needs (its ring
+// in view) and a mouse must not get: a press leaves the button focused too, but
+// not shown as keyboard focus (`:focus-visible`), and then nothing moves. Focus
+// that was somewhere else (the composer, a row) stays where it is.
+let listRoot = $state<HTMLDivElement | undefined>(undefined);
+let selectionBar = $state<{ holdsKeyboardFocus(): boolean } | undefined>(
+	undefined,
+);
+// Whether the keyboard had the bar when Delete was pressed: the dialog has the
+// focus from then on, and the bar's buttons are switched off while the delete
+// runs, so by the time the selection ends the answer can no longer be read.
+let deleteStartedByKeyboard = false;
+
+function barHoldsKeyboardFocus(): boolean {
+	return selectionBar?.holdsKeyboardFocus() ?? false;
+}
+
+function rowElement(id: string): HTMLElement | null {
+	const rows =
+		listRoot?.querySelectorAll<HTMLElement>("[data-conversation-id]") ?? [];
+	return (
+		Array.from(rows).find((row) => row.dataset.conversationId === id) ?? null
+	);
+}
+
+// The focus is nowhere: what the bar's focus falls to when it is taken away or its
+// button is switched off.
+function focusHasFallenToBody(): boolean {
+	const focused = document.activeElement;
+	return (
+		focused === null ||
+		focused === document.body ||
+		focused === document.documentElement ||
+		!focused.isConnected
+	);
+}
+
+async function focusRowAfterSelection(anchorId: string | null) {
+	// After the DOM has caught up: the bar is gone and the rows are where they stay.
+	await tick();
+	// Only the focus that fell to <body> is taken: a bulk call can be slow enough
+	// for the person to have gone to the composer, and what they moved it to is theirs.
+	if (!focusHasFallenToBody()) return;
+	const id =
+		anchorId !== null && shownIds.has(anchorId) ? anchorId : shownOrder[0];
+	if (id !== undefined) rowElement(id)?.focus();
+}
+
+// `refocus` is whether the keyboard had the bar, asked now unless the caller knows
+// better (a bulk call asked when the person acted, before its buttons went off).
+function endSelection({ refocus = barHoldsKeyboardFocus() } = {}) {
+	const anchorId = selectionAnchorId;
+	if (selectedIds.size > 0) selectedIds = new Set();
+	selectionAnchorId = null;
+	bulkDeleteConfirmOpen = false;
+	if (refocus) void focusRowAfterSelection(anchorId);
+}
+
+// A selection holds only chats on screen: one deleted elsewhere, and the chats
+// of a section or folder that was collapsed, leave it. Writes only when
+// something was pruned, so the effect settles after one more run. Not while a
+// bulk call runs: Move and Pin show their result before the server answers, and
+// a chat that is moved or pinned out of sight (into a collapsed folder or
+// section) must still be in the selection if the answer is that it failed.
+$effect(() => {
+	if (bulkBusy || selectedIds.size === 0) return;
+	const kept = pruneSelected(selectedIds, shownIds);
+	if (kept.size === selectedIds.size) return;
+	selectedIds = kept;
+	// Untracked: ending a selection reads the anchor and the bar, which this
+	// effect has no reason to run again for.
+	if (kept.size === 0) untrack(() => endSelection());
+});
+
+// Closing the sidebar (the phone drawer) ends the selection. Collapsing it on
+// a desktop unmounts the list, which ends it anyway. No focus goes to a row: the
+// rows are leaving the screen with the drawer.
+$effect(() => {
+	if (!$sidebarOpen) untrack(() => endSelection({ refocus: false }));
+});
+
+function handleSelectionToggle(payload: { id: string; range: boolean }) {
+	if (bulkBusy) return;
+	const { id, range } = payload;
+	if (!selecting) {
+		closeAllMenus();
+		clearDragState();
+		activeSidebarReorder = null;
+		projectReorderDropTarget = null;
+	}
+	if (range) {
+		// The anchor is null only while nothing is selected, and then it is the open
+		// chat; when that is not on screen the range is only the clicked chat.
+		const anchor = selectionAnchorId ?? $currentConversationId;
+		selectedIds = selectRange(selectedIds, shownOrder, anchor, id);
+	} else {
+		selectedIds = toggleSelected(selectedIds, id);
+	}
+	selectionAnchorId = id;
+	if (selectedIds.size === 0) endSelection();
+}
+
+function handleSelectionClose() {
+	if (bulkBusy) return;
+	endSelection();
+}
+
+function handleSelectAll() {
+	if (bulkBusy) return;
+	selectedIds = new Set(shownOrder);
+}
+
+function handleWindowKeydown(event: KeyboardEvent) {
+	if (event.key !== "Escape" || !selecting || bulkBusy) return;
+	// A press that something else handled, a dialog that owns it (whichever
+	// listener runs first, the dialog stack knows), or a text field it is typed
+	// into is not for the selection.
+	if (event.defaultPrevented || hasOpenDialog()) return;
+	if (
+		event.target instanceof Element &&
+		event.target.closest(
+			"input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+		)
+	) {
+		return;
+	}
+	endSelection();
+}
+
+// One bulk call: the selection stays as it is while it runs, and afterwards
+// keeps only the chats that failed and are still selected, so that the answer
+// of a call never brings back a selection the person ended meanwhile. A chat
+// the call could not do stays selected, and the person is told how many.
+async function runBulkAction(
+	ids: string[],
+	run: () => Promise<{ failedIds: string[] }>,
+	failureMessage: I18nKey,
+	// Asked before `bulkBusy` switches the bar's buttons off: a browser drops the
+	// focus of a button that is disabled, so it is gone by the time the call ends.
+	refocus = barHoldsKeyboardFocus(),
+) {
+	bulkBusy = true;
+	closeAllMenus();
+	clearDragState();
+	let failedIds: string[];
+	try {
+		({ failedIds } = await run());
+	} catch (error) {
+		// The store reports a chat it could not do in `failedIds`; a throw is
+		// something else, and the person is told that nothing is known to be done.
+		console.error("Bulk conversation action failed", error);
+		failedIds = ids;
+	}
+	bulkBusy = false;
+	selectedIds = pruneSelected(selectedIds, new Set(failedIds));
+	if (selectedIds.size === 0) endSelection({ refocus });
+	if (failedIds.length > 0) {
+		showToast({
+			type: "error",
+			message: $t(failureMessage, { count: failedIds.length }),
+		});
+	}
+}
+
+function handleBulkDeleteRequest() {
+	if (bulkBusy || !selecting) return;
+	deleteStartedByKeyboard = barHoldsKeyboardFocus();
+	bulkDeleteConfirmOpen = true;
+}
+
+async function confirmBulkDelete() {
+	bulkDeleteConfirmOpen = false;
+	if (bulkBusy) return;
+	const ids = selectedConversations.map((conversation) => conversation.id);
+	if (ids.length === 0) return;
+	const openChatId = $currentConversationId;
+	if (openChatId !== null && ids.includes(openChatId)) {
+		// Home first, then the batch: the server ends a deleted chat's streaming
+		// reply as a stop, so the chat on screen would show that for as long as
+		// the batch, which deletes one chat after another, runs.
+		currentConversationId.set(null);
+		void goto("/");
+	}
+	await runBulkAction(
+		ids,
+		() => deleteConversationsByIds(ids),
+		"sidebar.bulkDeleteFailed",
+		deleteStartedByKeyboard,
+	);
+}
+
+async function handleBulkPin() {
+	if (bulkBusy || !selecting) return;
+	const pin = pinAction === "pin";
+	// Pin sends the unpinned ones only (a pinned chat stays where it is); Unpin
+	// is offered only when every selected chat is pinned.
+	const ids = selectedConversations
+		.filter((conversation) => !pin || !conversation.sidebarPinned)
+		.map((conversation) => conversation.id);
+	await runBulkAction(
+		ids,
+		() => setConversationsSidebarPinned(ids, pin),
+		"sidebar.bulkPinFailed",
+	);
+}
+
+async function handleBulkMove(payload: { projectId: string | null }) {
+	if (bulkBusy || !selecting) return;
+	const { projectId } = payload;
+	// A chat already in the project (or already out of any) has nothing to move.
+	const ids = selectedConversations
+		.filter((conversation) => (conversation.projectId ?? null) !== projectId)
+		.map((conversation) => conversation.id);
+	await runBulkAction(
+		ids,
+		() => moveConversationsToProject(ids, projectId),
+		"sidebar.bulkMoveFailed",
+	);
+}
 
 // ── Conversation handlers ──────────────────────────────────────────────────
 
@@ -713,7 +1012,21 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 }
 </script>
 
-<div class="flex h-full flex-col gap-0">
+<svelte:window onkeydown={handleWindowKeydown} />
+
+<!-- min-h-full, not h-full: the selection bar is the last child and sticks to the
+     bottom of the sidebar's scroll box, which needs a root as tall as its rows. -->
+<div bind:this={listRoot} class="flex min-h-full flex-col gap-0">
+	<!-- The count of the selection, said aloud. It stays in the page whether or not
+	     a selection is open, empty until one is: a live region that is created
+	     together with its text is missed by most screen readers, and the bar,
+	     which comes with the first pick, would be one. The bar only shows it. -->
+	<div
+		data-testid="selection-live-region"
+		class="sr-only"
+		aria-live="polite"
+		aria-atomic="true"
+	>{selecting ? $t('sidebar.selectionCount', { count: selectedIds.size }) : ''}</div>
 	{#if pinnedConversations.length > 0}
 		<div data-testid="pinned-conversations-section" class="mb-1">
 			<!-- Section header (collapsible, matches Projects/Chats headers) -->
@@ -737,6 +1050,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							id={conversation.id}
 							label={conversationDisplayTitle(conversation.title, $t('chat.untitledConversation'))}
 							active={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
+							disabled={selecting}
 							onDragStart={handlePinnedConversationReorderStart}
 							onDragEnd={handleSidebarReorderEnd}
 							onDragOver={handlePinnedConversationReorderDragOver}
@@ -754,7 +1068,10 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 								projectLabel={conversation.projectId ? projectsById.get(conversation.projectId)?.name ?? null : null}
 								dragEnabled={false}
 								isDragging={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
+								{selecting}
+								selected={selectedIds.has(conversation.id)}
 								onSelect={handleSelect}
+								onSelectionToggle={handleSelectionToggle}
 								onRename={handleRename}
 								onDelete={handleDelete}
 								onTogglePin={handleConversationTogglePin}
@@ -879,6 +1196,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							id={project.id}
 							label={project.name}
 							active={activeSidebarReorder?.kind === 'project' && activeSidebarReorder.id === project.id}
+							disabled={selecting}
 							onDragStart={handleProjectReorderStart}
 							onDragEnd={handleSidebarReorderEnd}
 							onDragOver={(event) => {
@@ -922,7 +1240,10 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 											projects={allProjects}
 											dragEnabled={supportsDragAndDrop}
 											isDragging={draggedConversationId === conversation.id}
+											{selecting}
+											selected={selectedIds.has(conversation.id)}
 											onSelect={handleSelect}
+											onSelectionToggle={handleSelectionToggle}
 											onRename={handleRename}
 											onDelete={handleDelete}
 											onTogglePin={handleConversationTogglePin}
@@ -1077,7 +1398,10 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							projects={allProjects}
 							dragEnabled={supportsDragAndDrop}
 							isDragging={draggedConversationId === conversation.id}
+							{selecting}
+							selected={selectedIds.has(conversation.id)}
 							onSelect={handleSelect}
+							onSelectionToggle={handleSelectionToggle}
 							onRename={handleRename}
 							onDelete={handleDelete}
 							onTogglePin={handleConversationTogglePin}
@@ -1092,7 +1416,39 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 			</div>
 		{/if}
 	</div>
+
+	<!-- The bar of an open selection: the last child of the root, which sticks to
+	     the bottom of the sidebar's scroll box (the bar carries its own offsets). -->
+	{#if selecting}
+		<SidebarSelectionBar
+			bind:this={selectionBar}
+			count={selectedIds.size}
+			{canSelectAll}
+			{pinAction}
+			projects={sortedProjects}
+			{canRemoveFromProject}
+			busy={bulkBusy}
+			onClose={handleSelectionClose}
+			onSelectAll={handleSelectAll}
+			onPin={handleBulkPin}
+			onMove={handleBulkMove}
+			onDelete={handleBulkDeleteRequest}
+		/>
+	{/if}
 </div>
+
+{#if bulkDeleteConfirmOpen}
+	<ConfirmDialog
+		title={$t('sidebar.deleteConversationsTitle', { count: selectedIds.size })}
+		message={$t('sidebar.deleteConversationsMessage')}
+		confirmText={$t('common.delete')}
+		cancelText={$t('common.cancel')}
+		confirmVariant="danger"
+		initialFocus="cancel"
+		onConfirm={confirmBulkDelete}
+		onCancel={() => (bulkDeleteConfirmOpen = false)}
+	/>
+{/if}
 
 <style>
 	.project-drop-zone-active,

@@ -267,6 +267,37 @@ describe("streamChat", () => {
 		expect(cb.onError).not.toHaveBeenCalled();
 	});
 
+	// The server ends a turn this way when deleting its chat stopped it
+	// (chat-turn/stream-completion.ts): the stopped metadata with no message id,
+	// then finish and [DONE]. The transport has to read it as a stop. An error, a
+	// wait for the original stream or a close without a terminal event would each
+	// send the runtime into recovery (a reconnect, a retry bubble) for a chat
+	// that is gone.
+	it("ends a turn the server stopped because its chat was deleted, with no error, wait or recovery", async () => {
+		const events: string[] = [];
+		const callbacks = makeEventLogCallbacks(events);
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				tokenEvent("Partial answer"),
+				endEvent({ wasStopped: true }),
+			],
+			callbacks,
+		});
+		await done;
+
+		expect(callbacks.onEnd).toHaveBeenCalledOnce();
+		expect(callbacks.onEnd).toHaveBeenCalledWith(
+			"Partial answer",
+			expect.objectContaining({ wasStopped: true }),
+		);
+		const metadata = callbacks.onEnd.mock.calls[0]?.[1];
+		expect(metadata?.assistantMessageId).toBeUndefined();
+		expect(metadata?.userMessageId).toBeUndefined();
+		expect(callbacks.onError).not.toHaveBeenCalled();
+		expect(callbacks.onWaiting).not.toHaveBeenCalled();
+		expect(events).toEqual(["token:Partial answer", "end:Partial answer"]);
+	});
+
 	it("reports the decoded finish part once before DONE while preserving single onEnd completion", async () => {
 		const events: string[] = [];
 		const callbacks = {
