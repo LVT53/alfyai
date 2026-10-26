@@ -55,6 +55,7 @@ import { listConversationFileProductionJobStates } from "../file-production";
 import { redactHostPathsFromFileProductionMessage } from "../file-production/error-message";
 import {
 	AttachmentReadinessError,
+	blockingAttachmentItems,
 	findRelevantKnowledgeArtifacts,
 	getArtifactsForUser,
 	getCompactionUiThreshold,
@@ -1921,12 +1922,19 @@ export async function buildConstructedContext(params: {
 			),
 		});
 	}
-	if (resolvedAttachments.unresolvedItems.length > 0) {
+	// The second half of the send gate (preflight is the first). When the turn's
+	// model can see, a picture it can be shown needs no prepared text, so it does
+	// not stop the turn here either: the same question preflight asked, answered
+	// by the same function. Its pixels are collected below; what could not be
+	// shown is named to the model there.
+	const blockingAttachments = blockingAttachmentItems(
+		resolvedAttachments.unresolvedItems,
+		{ exemptImages: params.collectImages === true },
+	);
+	if (blockingAttachments.length > 0) {
 		throw new AttachmentReadinessError(
 			"One or more attached files could not be prepared for chat. Remove the file or upload a supported text-readable document.",
-			resolvedAttachments.unresolvedItems.map(
-				(item) => item.requestedArtifactId,
-			),
+			blockingAttachments.map((item) => item.requestedArtifactId),
 		);
 	}
 	// The pictures are prepared while the rest of the context is selected, and

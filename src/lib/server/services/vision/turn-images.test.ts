@@ -36,8 +36,8 @@ import {
 	CANNOT_SEE_IMAGES_GUIDANCE,
 	collectTurnImages,
 	heldBackImagesGuidance,
-	isSeeableImage,
 	MAX_TURN_IMAGES,
+	noTurnImages,
 	resolveTurnImages,
 	STRIPPED_IMAGE_NOTE,
 	stripImageParts,
@@ -326,42 +326,6 @@ describe("stripImageParts", () => {
 	});
 });
 
-describe("isSeeableImage", () => {
-	it.each([
-		["photo.png", "image/png"],
-		["photo.jpg", "image/jpeg"],
-		["PHOTO.JPEG", "image/jpeg"],
-		["IMG_0001.HEIC", "image/heic"],
-		["portrait.heif", "image/heif"],
-		["animation.gif", "image/gif"],
-		["web.webp", "image/webp"],
-		["scan.tiff", "image/tiff"],
-	])("is true for %s", (name, mimeType) => {
-		expect(isSeeableImage(name, mimeType)).toBe(true);
-	});
-
-	it("is true for an image whose name has no extension, by its type", () => {
-		expect(isSeeableImage("photo", "image/png")).toBe(true);
-		expect(isSeeableImage("photo", "image/heic")).toBe(true);
-		expect(isSeeableImage("photo", null)).toBe(false);
-	});
-
-	it("is false for a BMP: the prebuilt image library has no BMP decoder", () => {
-		expect(isSeeableImage("scan.bmp", "image/bmp")).toBe(false);
-		expect(isSeeableImage("scan.bmp", null)).toBe(false);
-		expect(isSeeableImage("scan", "image/bmp")).toBe(false);
-	});
-
-	it.each([
-		["report.pdf", "application/pdf"],
-		["notes.txt", "text/plain"],
-		["data.csv", "text/csv"],
-		["archive.zip", "application/zip"],
-	])("is false for %s, which is not an image", (name, mimeType) => {
-		expect(isSeeableImage(name, mimeType)).toBe(false);
-	});
-});
-
 describe("collectTurnImages", () => {
 	let warn: ReturnType<typeof vi.spyOn>;
 
@@ -554,6 +518,110 @@ describe("collectTurnImages", () => {
 		expect(mocks.prepareImageForModel).toHaveBeenCalledTimes(1);
 	});
 
+	// What the model is told afterwards: a picture it was not sent for any reason
+	// other than the limit is named, in the order the pictures were attached.
+	describe("the pictures that were attached and not sent, apart from the limit", () => {
+		it("names a BMP, an unknown image type and a file that cannot be prepared, in attachment order", async () => {
+			const result = await collectTurnImages({
+				items: [
+					await imageItem(0, { name: "scan.bmp", mimeType: "image/bmp" }),
+					await imageItem(1),
+					await imageItem(
+						2,
+						{ name: "broken.png" },
+						Buffer.from("not a picture"),
+					),
+					await imageItem(3, {
+						name: "favicon.ico",
+						mimeType: "image/x-icon",
+					}),
+					await imageItem(4),
+				],
+				maxImages: 8,
+			});
+
+			expect(result.images.map((entry) => entry.name)).toEqual([
+				"photo-1.png",
+				"photo-4.png",
+			]);
+			expect(result.heldBack).toEqual([]);
+			expect(result.notShown).toEqual([
+				"scan.bmp",
+				"broken.png",
+				"favicon.ico",
+			]);
+		});
+
+		it("names a file that is gone and an attachment with no stored file", async () => {
+			const gone = item(
+				artifact({
+					id: "artifact-gone",
+					name: "gone.png",
+					storagePath: relative(
+						process.cwd(),
+						join(directory, "no-such-file.png"),
+					),
+				}),
+			);
+			const unstored = item(
+				artifact({ id: "artifact-unstored", name: "unstored.png" }),
+			);
+
+			const result = await collectTurnImages({
+				items: [gone, unstored, await imageItem(1)],
+				maxImages: 8,
+			});
+
+			expect(result.notShown).toEqual(["gone.png", "unstored.png"]);
+		});
+
+		it("does not name a picture the limit left out: that is the held-back line's", async () => {
+			const result = await collectTurnImages({
+				items: [
+					await imageItem(0),
+					await imageItem(1),
+					await imageItem(2, { name: "scan.bmp", mimeType: "image/bmp" }),
+				],
+				maxImages: 1,
+			});
+
+			expect(result.heldBack).toEqual(["photo-1.png"]);
+			expect(result.notShown).toEqual(["scan.bmp"]);
+		});
+
+		it("names a picture attached twice once", async () => {
+			const bmp = await imageItem(0, {
+				name: "scan.bmp",
+				mimeType: "image/bmp",
+			});
+
+			const result = await collectTurnImages({
+				items: [bmp, bmp],
+				maxImages: 8,
+			});
+
+			expect(result.notShown).toEqual(["scan.bmp"]);
+		});
+
+		it("is empty when every picture was sent, and for a document or a missing attachment", async () => {
+			const pdf = item(
+				artifact({
+					id: "artifact-pdf",
+					name: "a.pdf",
+					mimeType: "application/pdf",
+				}),
+			);
+
+			const result = await collectTurnImages({
+				items: [pdf, item(null), await imageItem(1)],
+				maxImages: 8,
+			});
+
+			expect(result.images).toHaveLength(1);
+			expect(result.notShown).toEqual([]);
+		});
+	});
+
 	it("still sends a picture whose text has not been extracted", async () => {
 		const noText = await imageItem(0, { name: "no-text.png" });
 
@@ -643,9 +711,12 @@ describe("resolveTurnImages", () => {
 			collect: false,
 		});
 
+		// A model that cannot see is told one line about images, so nothing is
+		// listed as "not shown" for it: that list is for a model that can see.
 		expect(result).toEqual({
 			images: [],
 			heldBack: [],
+			notShown: [],
 			hasImageAttachments: true,
 		});
 		expect(mocks.prepareImageForModel).not.toHaveBeenCalled();
@@ -664,6 +735,7 @@ describe("resolveTurnImages", () => {
 			expect(await resolveTurnImages({ items: [pdf], collect })).toEqual({
 				images: [],
 				heldBack: [],
+				notShown: [],
 				hasImageAttachments: false,
 			});
 		}
@@ -678,8 +750,29 @@ describe("resolveTurnImages", () => {
 		expect(result).toEqual({
 			images: [],
 			heldBack: [],
+			notShown: ["scan.bmp"],
 			hasImageAttachments: true,
 		});
+	});
+
+	it("names the pictures it could not show, for a model that can see", async () => {
+		const result = await resolveTurnImages({
+			items: [
+				await imageItem(0, { name: "scan.bmp", mimeType: "image/bmp" }),
+				await imageItem(
+					1,
+					{ name: "broken.png" },
+					Buffer.from("not a picture"),
+				),
+				await imageItem(2),
+			],
+			collect: true,
+		});
+
+		expect(result.images.map((entry) => entry.name)).toEqual(["photo-2.png"]);
+		expect(result.heldBack).toEqual([]);
+		expect(result.notShown).toEqual(["scan.bmp", "broken.png"]);
+		expect(result.hasImageAttachments).toBe(true);
 	});
 
 	it("ignores an attachment that is no longer available", async () => {
@@ -688,6 +781,18 @@ describe("resolveTurnImages", () => {
 		).toEqual({
 			images: [],
 			heldBack: [],
+			notShown: [],
+			hasImageAttachments: false,
+		});
+	});
+});
+
+describe("noTurnImages", () => {
+	it("is a turn with no images attached, sent, held back or left unshown", () => {
+		expect(noTurnImages()).toEqual({
+			images: [],
+			heldBack: [],
+			notShown: [],
 			hasImageAttachments: false,
 		});
 	});
@@ -717,12 +822,26 @@ describe("the guidance the model reads about pictures", () => {
 			CANNOT_SEE_IMAGES_GUIDANCE,
 			heldBackImagesGuidance(["a.png"]),
 			STRIPPED_IMAGE_NOTE,
+			...buildTurnImageGuidance({
+				canSee: true,
+				turnImages: {
+					images: [],
+					heldBack: [],
+					notShown: ["scan.bmp"],
+					hasImageAttachments: true,
+				},
+			}),
 		]) {
 			expect(text).toMatch(/^[\x20-\x7e]+$/);
 		}
 	});
 
-	const base = { images: [], heldBack: [], hasImageAttachments: false };
+	const base = {
+		images: [],
+		heldBack: [],
+		notShown: [],
+		hasImageAttachments: false,
+	};
 
 	it("adds the limit line for a model that can see and had pictures held back", () => {
 		expect(
@@ -742,6 +861,55 @@ describe("the guidance the model reads about pictures", () => {
 			buildTurnImageGuidance({
 				canSee: false,
 				turnImages: { ...base, hasImageAttachments: true },
+			}),
+		).toEqual([CANNOT_SEE_IMAGES_GUIDANCE]);
+	});
+
+	// A picture that was attached and could not be shown (a BMP, a type the
+	// decoder does not read, a file that would not prepare) is named, one line
+	// each, so the model does not answer as if it had looked at it.
+	it("names each picture it could not be shown, one line each, for a model that can see", () => {
+		expect(
+			buildTurnImageGuidance({
+				canSee: true,
+				turnImages: {
+					...base,
+					notShown: ["scan.bmp", "broken.png"],
+					hasImageAttachments: true,
+				},
+			}),
+		).toEqual([
+			"The user attached scan.bmp, but it could not be shown to you.",
+			"The user attached broken.png, but it could not be shown to you.",
+		]);
+	});
+
+	it("puts the limit line before the lines for pictures it could not show", () => {
+		expect(
+			buildTurnImageGuidance({
+				canSee: true,
+				turnImages: {
+					...base,
+					heldBack: ["c.png"],
+					notShown: ["scan.bmp"],
+					hasImageAttachments: true,
+				},
+			}),
+		).toEqual([
+			heldBackImagesGuidance(["c.png"]),
+			"The user attached scan.bmp, but it could not be shown to you.",
+		]);
+	});
+
+	it("tells a model that cannot see the cannot-see line and none of the per-picture lines", () => {
+		expect(
+			buildTurnImageGuidance({
+				canSee: false,
+				turnImages: {
+					...base,
+					notShown: ["scan.bmp"],
+					hasImageAttachments: true,
+				},
 			}),
 		).toEqual([CANNOT_SEE_IMAGES_GUIDANCE]);
 	});

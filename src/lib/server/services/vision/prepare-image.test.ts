@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import {
 	ATTACHMENT_MAX_LONG_EDGE,
 	estimateImageTokens,
@@ -408,6 +410,132 @@ describe("prepareImageForModel", () => {
 			);
 			expect((error as ImagePreparationError).cause).toBeInstanceOf(Error);
 		});
+	});
+});
+
+// `isSeeableImage` (the registry ids this module decodes) is a list somebody
+// keeps by hand. This is what keeps it honest: every registry image is
+// accounted for, a seeable one is really prepared from real bytes, and the two
+// images that are not seeable say why.
+describe("the formats an attachment can be sent as", () => {
+	/** A valid 2x2, 24-bit BMP: a header, then four bottom-up pixels. */
+	function tinyBmp(): Uint8Array {
+		const row = [0xff, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00]; // 2 px + 2 pad
+		const pixels = [...row, ...row];
+		const header = Buffer.alloc(54);
+		header.write("BM", 0, "ascii");
+		header.writeUInt32LE(54 + pixels.length, 2); // file size
+		header.writeUInt32LE(54, 10); // pixel data offset
+		header.writeUInt32LE(40, 14); // DIB header size
+		header.writeInt32LE(2, 18); // width
+		header.writeInt32LE(2, 22); // height
+		header.writeUInt16LE(1, 26); // planes
+		header.writeUInt16LE(24, 28); // bits per pixel
+		header.writeUInt32LE(pixels.length, 34); // image size
+		return new Uint8Array(Buffer.concat([header, Buffer.from(pixels)]));
+	}
+
+	/** Real bytes for each image the app calls seeable, with the type they arrive under. */
+	const SAMPLES: Record<
+		string,
+		() => Promise<{ bytes: Uint8Array; mimeType: string }>
+	> = {
+		jpg: async () => ({
+			bytes: await solidJpeg(40, 30),
+			mimeType: "image/jpeg",
+		}),
+		png: async () => ({
+			bytes: await sharp({
+				create: { width: 40, height: 30, channels: 3, background: "#3366cc" },
+			})
+				.png()
+				.toBuffer(),
+			mimeType: "image/png",
+		}),
+		gif: async () => ({
+			bytes: await sharp({
+				create: { width: 40, height: 30, channels: 3, background: "#3366cc" },
+			})
+				.gif()
+				.toBuffer(),
+			mimeType: "image/gif",
+		}),
+		webp: async () => ({
+			bytes: await sharp({
+				create: { width: 40, height: 30, channels: 3, background: "#3366cc" },
+			})
+				.webp()
+				.toBuffer(),
+			mimeType: "image/webp",
+		}),
+		tif: async () => ({
+			bytes: await sharp({
+				create: { width: 40, height: 30, channels: 3, background: "#3366cc" },
+			})
+				.tiff()
+				.toBuffer(),
+			mimeType: "image/tiff",
+		}),
+		heic: async () => ({ bytes: tinyHeic, mimeType: "image/heic" }),
+		heif: async () => ({ bytes: tinyHeic, mimeType: "image/heif" }),
+		svg: async () => ({
+			// A Buffer, as the stored file is read: under jsdom a TextEncoder's
+			// Uint8Array comes from another realm and the image library refuses it.
+			bytes: Buffer.from(
+				'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="#3366cc"/></svg>',
+			),
+			mimeType: "image/svg+xml",
+		}),
+	};
+
+	const imageEntries = FILE_TYPE_ENTRIES.filter(
+		(entry) => entry.category === "image",
+	);
+	const seeable = imageEntries.filter((entry) =>
+		isSeeableImage(`file.${entry.extensions[0]}`, entry.mimeTypes[0]),
+	);
+
+	it("has a real sample for every registry image it calls seeable, and none besides", () => {
+		expect(seeable.map((entry) => entry.id).sort()).toEqual(
+			Object.keys(SAMPLES).sort(),
+		);
+	});
+
+	it.each(
+		Object.keys(SAMPLES),
+	)("prepares %s from real bytes, upright and flat, as a JPEG", async (id) => {
+		const entry = imageEntries.find((candidate) => candidate.id === id);
+		const sample = await SAMPLES[id]();
+
+		const out = await prepareImageForModel(sample.bytes, sample.mimeType, {
+			maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
+		});
+
+		expect(entry).toBeDefined();
+		expect(out.mediaType).toBe("image/jpeg");
+		expect(out.width).toBeGreaterThan(0);
+		expect((await sharp(sentBytes(out)).metadata()).format).toBe("jpeg");
+	});
+
+	it("says why each registry image that is not seeable is not", async () => {
+		const notSeeable = imageEntries
+			.filter((entry) => !seeable.includes(entry))
+			.map((entry) => entry.id)
+			.sort();
+
+		// A new registry image shows up here until it is made seeable (with a
+		// sample above) or given its reason below.
+		expect(notSeeable).toEqual(["avif", "bmp"]);
+
+		// BMP: the prebuilt libvips has no loader for it, so nothing can be sent.
+		await expect(
+			prepareImageForModel(tinyBmp(), "image/bmp", { maxLongEdge: 1600 }),
+		).rejects.toBeInstanceOf(ImagePreparationError);
+
+		// AVIF: the upload refuses it, so it is never an attachment at all.
+		const avif = imageEntries.find((entry) => entry.id === "avif");
+		expect(avif?.intake.route).toBe("reject");
+		expect(avif?.surfaces).toEqual([]);
 	});
 });
 

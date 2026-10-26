@@ -3,7 +3,8 @@ import { join } from "node:path";
 import type { ModelMessage, UserContent, UserModelMessage } from "ai";
 import type { PromptAttachmentResolutionItem } from "$lib/server/services/knowledge";
 import type { Artifact } from "$lib/server/services/knowledge/types";
-import { getCategory, resolveEntry } from "$lib/shared/file-types";
+import { getCategory } from "$lib/shared/file-types";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 // A type only: sharp and the HEIC decoder load when a picture is prepared, not
 // when the chat turn's modules do (see prepareTurnImage).
 import type { PreparedImage } from "./prepare-image";
@@ -23,13 +24,6 @@ export const MAX_TURN_IMAGES = 8;
  */
 const PREPARE_CONCURRENCY = 2;
 
-/**
- * Image formats the registry knows that `prepareImageForModel` cannot decode:
- * sharp's prebuilt libvips has no BMP loader. A BMP is attached and read as
- * text like before; it is never sent as pixels.
- */
-const UNDECODABLE_IMAGE_IDS: ReadonlySet<string> = new Set(["bmp"]);
-
 /** A picture of the current message, prepared for the model. */
 export type TurnImage = {
 	artifactId: string;
@@ -43,12 +37,20 @@ export type TurnImages = {
 	images: TurnImage[];
 	/** Names of the pictures the per-turn limit left out. */
 	heldBack: string[];
+	/**
+	 * Names of the image attachments that were not sent as pictures for any
+	 * reason other than the limit: a format that cannot be decoded (a BMP, a
+	 * type the app does not know), or a file that could not be read or prepared.
+	 * Empty unless the model can see: a model that cannot is told one line about
+	 * images, whatever they are.
+	 */
+	notShown: string[];
 	/** The message attaches at least one image, whether or not it is sent. */
 	hasImageAttachments: boolean;
 };
 
 export function noTurnImages(): TurnImages {
-	return { images: [], heldBack: [], hasImageAttachments: false };
+	return { images: [], heldBack: [], notShown: [], hasImageAttachments: false };
 }
 
 /**
@@ -64,9 +66,18 @@ export function heldBackImagesGuidance(names: readonly string[]): string {
 }
 
 /**
+ * Said to a model that can see, once per attached picture it was not sent for
+ * a reason other than the limit, so it does not answer as if it had looked.
+ */
+function notShownImageGuidance(name: string): string {
+	return `The user attached ${name}, but it could not be shown to you.`;
+}
+
+/**
  * The image lines of a turn's guidance: a model that cannot see is told so, one
- * that can is told which pictures the limit left out. Nothing is added when
- * every picture was sent or none was attached.
+ * that can is told which pictures the limit left out and, one line each, which
+ * it could not be shown. Nothing is added when every picture was sent or none
+ * was attached.
  */
 export function buildTurnImageGuidance(params: {
 	canSee: boolean;
@@ -77,9 +88,12 @@ export function buildTurnImageGuidance(params: {
 			? [CANNOT_SEE_IMAGES_GUIDANCE]
 			: [];
 	}
-	return params.turnImages.heldBack.length > 0
-		? [heldBackImagesGuidance(params.turnImages.heldBack)]
-		: [];
+	return [
+		...(params.turnImages.heldBack.length > 0
+			? [heldBackImagesGuidance(params.turnImages.heldBack)]
+			: []),
+		...params.turnImages.notShown.map(notShownImageGuidance),
+	];
 }
 
 /** An attachment in the image category, whether or not it can be decoded. */
@@ -91,26 +105,15 @@ function attachedImage(item: PromptAttachmentResolutionItem): Artifact | null {
 }
 
 /**
- * Whether an attachment can be sent as pixels: an image, in a format
- * `prepareImageForModel` decodes. A BMP is an image the model can never be
- * shown, so whatever treats a picture as needing no extracted text must ask
- * this first: for a BMP the text is all there is.
+ * The image attachments, in the order they were attached, once each. Not
+ * `promptReady`: a picture needs no extracted text to be looked at.
  */
-export function isSeeableImage(name: string, mimeType: string | null): boolean {
-	if (getCategory(name, mimeType) !== "image") return false;
-	const entry = resolveEntry(name, mimeType);
-	return entry === null || !UNDECODABLE_IMAGE_IDS.has(entry.id);
-}
-
-/** The attachments to send as pixels, in the order they were attached, once each. */
-function seeableImagesOf(items: PromptAttachmentResolutionItem[]): Artifact[] {
+function attachedImagesOf(items: PromptAttachmentResolutionItem[]): Artifact[] {
 	const seen = new Set<string>();
 	const found: Artifact[] = [];
 	for (const item of items) {
-		// Not `promptReady`: a picture needs no extracted text to be looked at.
 		const artifact = attachedImage(item);
 		if (!artifact || seen.has(artifact.id)) continue;
-		if (!isSeeableImage(artifact.name, artifact.mimeType)) continue;
 		seen.add(artifact.id);
 		found.push(artifact);
 	}
@@ -143,14 +146,21 @@ async function prepareTurnImage(artifact: Artifact): Promise<TurnImage | null> {
 /**
  * Prepares the pictures among a message's attachments, at most `maxImages` of
  * them and two at a time; the ones after the limit are named in `heldBack`. A
- * picture that cannot be read leaves its slot to the next one.
+ * picture that cannot be read leaves its slot to the next one. The image
+ * attachments that were not sent for any other reason (a format that cannot be
+ * decoded, a file that would not read or prepare) are named in `notShown`, in
+ * the order they were attached.
  */
 export async function collectTurnImages(params: {
 	items: PromptAttachmentResolutionItem[];
 	maxImages: number;
-}): Promise<{ images: TurnImage[]; heldBack: string[] }> {
-	const candidates = seeableImagesOf(params.items);
+}): Promise<{ images: TurnImage[]; heldBack: string[]; notShown: string[] }> {
+	const attached = attachedImagesOf(params.items);
+	const candidates = attached.filter((artifact) =>
+		isSeeableImage(artifact.name, artifact.mimeType),
+	);
 	const images: TurnImage[] = [];
+	const unprepared = new Set<string>();
 	let next = 0;
 	while (next < candidates.length && images.length < params.maxImages) {
 		const room = params.maxImages - images.length;
@@ -159,13 +169,22 @@ export async function collectTurnImages(params: {
 			next + Math.min(PREPARE_CONCURRENCY, room),
 		);
 		next += wave.length;
-		for (const image of await Promise.all(wave.map(prepareTurnImage))) {
+		const prepared = await Promise.all(wave.map(prepareTurnImage));
+		prepared.forEach((image, index) => {
 			if (image) images.push(image);
-		}
+			else unprepared.add(wave[index].id);
+		});
 	}
+	const candidateIds = new Set(candidates.map((artifact) => artifact.id));
 	return {
 		images,
 		heldBack: candidates.slice(next).map((artifact) => artifact.name),
+		notShown: attached
+			.filter(
+				(artifact) =>
+					!candidateIds.has(artifact.id) || unprepared.has(artifact.id),
+			)
+			.map((artifact) => artifact.name),
 	};
 }
 
@@ -181,13 +200,13 @@ export async function resolveTurnImages(params: {
 		(item) => attachedImage(item) !== null,
 	);
 	if (!params.collect || !hasImageAttachments) {
-		return { images: [], heldBack: [], hasImageAttachments };
+		return { images: [], heldBack: [], notShown: [], hasImageAttachments };
 	}
-	const { images, heldBack } = await collectTurnImages({
+	const { images, heldBack, notShown } = await collectTurnImages({
 		items: params.items,
 		maxImages: MAX_TURN_IMAGES,
 	});
-	return { images, heldBack, hasImageAttachments };
+	return { images, heldBack, notShown, hasImageAttachments };
 }
 
 /**

@@ -68,6 +68,7 @@ export {
 	artifactHasReferencesOutsideConversation,
 	assertPromptReadyAttachments,
 	attachArtifactsToMessage,
+	blockingAttachmentItems,
 	buildArtifactVisibilityCondition,
 	createArtifactLink,
 	deleteArtifactForUser,

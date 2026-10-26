@@ -137,6 +137,7 @@ import {
 	attachmentThumbnailUrl,
 	extractionChipState,
 	extractionReasonKey,
+	isPictureForModel,
 	quoteChipLabel,
 	type AttachmentChipFailure,
 } from "./composer-chip-presentation";
@@ -508,6 +509,19 @@ let currentModelSupportsReasoningControls = $derived.by(() => {
 	// than hiding it on every cold load.
 	return true;
 });
+// A model the admin marked "Can see images" needs no extracted text to be shown
+// a picture, so with one selected a photo the reader found no text in does not
+// hold Send (the server's send gate lets it through the same way). Read from
+// the same list, for the same selected model. The cautious default is the
+// opposite of the toggle's: until the list says the model can see, it cannot.
+let selectedModelSupportsImages = $derived.by(() => {
+	const currentModelId = $selectedModel;
+	for (const provider of modelProviders) {
+		const found = provider.models.find((model) => model.id === currentModelId);
+		if (found) return found.supportsImages === true;
+	}
+	return false;
+});
 // ADR 0044 Decision 1 — the composer's Connections master toggle.
 // `availableCapabilities` (served) and `defaultOnCapabilities` come from a
 // single fetch on mount. `connectionsEnabled` is the per-conversation
@@ -572,6 +586,13 @@ let effectiveLinkedSources = $derived(
 		),
 	),
 );
+// What the chips ask to know whether a picture will be shown to the model. With
+// an Atlas profile selected the server reads the sources as text (its send gate
+// is the old one), so no picture is excused there whatever the model can see.
+let pictureOptions = $derived({
+	selectedModelSupportsImages:
+		selectedModelSupportsImages && !selectedAtlasProfile,
+});
 // The ledger decides, when it has an opinion. One pure state per pending
 // attachment drives BOTH the chip and the send gate, so a chip that shows a
 // spinner and a Send button that is open cannot disagree: `busy` is "not yet"
@@ -579,7 +600,11 @@ let effectiveLinkedSources = $derived(
 // readiness problem at all is the only state that lets Send through.
 let pendingAttachmentStates = $derived(
 	pendingAttachments.map((attachment) =>
-		attachmentChipFailure(extractionJobs[attachment.artifact.id], attachment),
+		attachmentChipFailure(
+			extractionJobs[attachment.artifact.id],
+			attachment,
+			pictureOptions,
+		),
 	),
 );
 // Some work is genuinely in flight — the only case a queued send will ever
@@ -2038,18 +2063,29 @@ $effect(() => {
 	);
 	if (changed.length === 0) return;
 	extractionAnnouncement = changed
-		.map(
-			(entry) =>
-				`${entry.name}: ${$t(
-					asI18nKey(
-						extractionReasonKey({
+		.map((entry) => {
+			const attachment = pendingAttachments.find(
+				(pending) => pending.artifact.id === entry.artifactId,
+			);
+			return `${entry.name}: ${$t(
+				asI18nKey(
+					extractionReasonKey(
+						{
 							status: entry.job.status,
 							errorCode: entry.job.error?.code ?? null,
 							retryable: entry.job.retryable,
-						}),
+						},
+						{
+							// The same rule the chip reads, so what a screen reader is
+							// told is what the chip says.
+							picture:
+								attachment !== undefined &&
+								isPictureForModel(attachment.artifact, pictureOptions),
+						},
 					),
-				)}`,
-		)
+				),
+			)}`;
+		})
 		.join(". ");
 });
 
@@ -3664,8 +3700,10 @@ async function emitDraftChange(force = false) {
 				     explanation on hover/focus. -->
 				{#each pendingAttachments as attachment (attachment.artifact.id)}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
-					{@const chip = extractionChipState(extraction)}
-					{@const failure = attachmentChipFailure(extraction, attachment)}
+					{@const chip = extractionChipState(extraction, {
+						picture: isPictureForModel(attachment.artifact, pictureOptions),
+					})}
+					{@const failure = attachmentChipFailure(extraction, attachment, pictureOptions)}
 					{@const attachmentBusy = failure.kind === 'busy'}
 					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
 					{@const failureDetail = attachmentFailureDetail(attachment, failure, $t)}

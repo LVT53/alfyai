@@ -3,6 +3,7 @@ export {
 	AttachmentReadinessError,
 	assertPromptReadyAttachments,
 	attachArtifactsToMessage,
+	blockingAttachmentItems,
 	isAttachmentReadinessError,
 	listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames,

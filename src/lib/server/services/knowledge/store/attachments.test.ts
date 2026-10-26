@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import {
 	makeArtifactRow,
 	makeFileFixture,
@@ -98,6 +99,7 @@ vi.mock("../../../db", () => ({
 }));
 
 const {
+	blockingAttachmentItems,
 	buildArtifactNamePrefixPattern,
 	NOT_PREPARED_READINESS_ERROR,
 	saveUploadedArtifact,
@@ -717,5 +719,61 @@ describe("prompt-attachment readiness error", () => {
 		// punctuation (slice A outcome, spec section 10).
 		expect(NOT_PREPARED_READINESS_ERROR.endsWith(".")).toBe(true);
 		expect(NOT_PREPARED_READINESS_ERROR).not.toContain("..");
+	});
+});
+
+// The attachments that stop a send, once a model that can see has been
+// excused from needing text for the pictures it can be shown. The send gate
+// (`assertPromptReadyAttachments`) and the context build both ask this, so the
+// two can never disagree about which attachment is a blocker.
+describe("blockingAttachmentItems", () => {
+	function unready(name: string, mimeType: string | null, missing = false) {
+		return {
+			requestedArtifactId: name,
+			displayArtifact: missing
+				? null
+				: ({ id: name, name, mimeType } as Artifact),
+			promptArtifact: null,
+			promptReady: false,
+			readinessError: "not ready",
+			readinessErrorCode: "not_prepared" as const,
+			contentLength: 0,
+			contentPreview: null,
+			contentHash: null,
+			chunkCount: 0,
+			extraction: null,
+		};
+	}
+
+	it("is every item as it came when the pictures are not exempt", () => {
+		const items = [
+			unready("photo.jpg", "image/jpeg"),
+			unready("a.pdf", "application/pdf"),
+		];
+
+		expect(blockingAttachmentItems(items, { exemptImages: false })).toBe(items);
+	});
+
+	it("leaves out the pictures a model can be shown, and nothing else, when they are exempt", () => {
+		const photo = unready("photo.jpg", "image/jpeg");
+		const heic = unready("IMG_1.HEIC", "image/heic");
+		const bmp = unready("scan.bmp", "image/bmp");
+		const icon = unready("icon.ico", "image/x-icon");
+		const pdf = unready("a.pdf", "application/pdf");
+		const missing = unready("gone", null, true);
+
+		expect(
+			blockingAttachmentItems([photo, heic, bmp, icon, pdf, missing], {
+				exemptImages: true,
+			}),
+		).toEqual([bmp, icon, pdf, missing]);
+	});
+
+	it("is empty when every blocker is a picture and they are exempt", () => {
+		expect(
+			blockingAttachmentItems([unready("photo.png", "image/png")], {
+				exemptImages: true,
+			}),
+		).toEqual([]);
 	});
 });

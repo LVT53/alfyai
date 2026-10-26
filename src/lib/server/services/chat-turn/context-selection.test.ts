@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	getConversationSummary: vi.fn(),
 	getConfig: vi.fn(),
 	resolvePromptAttachmentArtifacts: vi.fn(),
+	blockingAttachmentItems: vi.fn(),
 	listConversationSourceArtifactIds: vi.fn(),
 	listConversationSourceArtifactNames: vi.fn(async () => []),
 	listConversationLinkedContextSources: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock("../knowledge", () => ({
 			this.artifactIds = artifactIds;
 		}
 	},
+	blockingAttachmentItems: mocks.blockingAttachmentItems,
 	findRelevantKnowledgeArtifacts: mocks.findRelevantKnowledgeArtifacts,
 	getArtifactsForUser: mocks.getArtifactsForUser,
 	getCompactionUiThreshold: mocks.getCompactionUiThreshold,
@@ -285,6 +287,8 @@ function resetConstructedContextMocks() {
 		items: [],
 		unresolvedItems: [],
 	});
+	// Every unready attachment blocks, unless a test says a picture is excused.
+	mocks.blockingAttachmentItems.mockImplementation((items: unknown[]) => items);
 	mocks.listConversationSourceArtifactIds.mockResolvedValue([]);
 	mocks.listConversationLinkedContextSources.mockResolvedValue([]);
 	mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([
@@ -2217,6 +2221,119 @@ describe("buildConstructedContext", () => {
 				name: "LinkedContextSourceError",
 				status: 409,
 			});
+		});
+	});
+});
+
+// The second half of the send gate. An attachment with no prepared text stops
+// a turn here, as it does at preflight, unless the turn's model can see and
+// the attachment is a picture it can be shown (the knowledge store decides
+// which attachments those are: `blockingAttachmentItems`). Preflight and this
+// build are asked the same question, or a send that passed one would fail at
+// the other.
+describe("buildConstructedContext attachments that stop a send", () => {
+	const limits = {
+		maxModelContext: 16_000,
+		compactionUiThreshold: 12_000,
+		targetConstructedContext: 8_000,
+	};
+	const photo = {
+		...artifact({ id: "photo-1", name: "photo.jpg" }),
+		mimeType: "image/jpeg",
+	};
+	const unreadyPhoto = {
+		requestedArtifactId: "photo-1",
+		displayArtifact: photo,
+		promptArtifact: null,
+		promptReady: false,
+		readinessError: "no text",
+		readinessErrorCode: "no_usable_text",
+		contentLength: 0,
+		contentPreview: null,
+		contentHash: null,
+		chunkCount: 0,
+		extraction: null,
+	};
+
+	function resolveOnlyAnUnreadyPhoto() {
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [photo],
+			promptArtifacts: [],
+			items: [unreadyPhoto],
+			unresolvedItems: [unreadyPhoto],
+		});
+	}
+
+	function turn(collectImages: boolean) {
+		return buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "What is in this picture?",
+			attachmentIds: ["photo-1"],
+			modelId: "local-model",
+			contextLimits: limits,
+			collectImages,
+		});
+	}
+
+	beforeEach(() => {
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+	});
+
+	it("refuses the turn for a model that cannot see, naming the attachment", async () => {
+		resetConstructedContextMocks();
+		resolveOnlyAnUnreadyPhoto();
+
+		await expect(turn(false)).rejects.toMatchObject({
+			message: expect.stringContaining("could not be prepared for chat"),
+			artifactIds: ["photo-1"],
+		});
+		expect(mocks.blockingAttachmentItems).toHaveBeenCalledWith([unreadyPhoto], {
+			exemptImages: false,
+		});
+	});
+
+	it("builds the turn for a model that can see when the picture is all that is unready", async () => {
+		resetConstructedContextMocks();
+		resolveOnlyAnUnreadyPhoto();
+		// The store says nothing blocks once the picture is excused.
+		mocks.blockingAttachmentItems.mockReturnValue([]);
+
+		const constructed = await turn(true);
+
+		expect(mocks.blockingAttachmentItems).toHaveBeenCalledWith([unreadyPhoto], {
+			exemptImages: true,
+		});
+		// No text was prepared, so there is no attachment section to write.
+		expect(constructed.inputValue).not.toContain("## Current Attachments");
+		expect(constructed.turnImages.hasImageAttachments).toBe(true);
+		// The picture itself could not be read here (it has no stored file), and
+		// the model is told so rather than left to assume it looked.
+		expect(constructed.turnImages.images).toEqual([]);
+		expect(constructed.turnImages.notShown).toEqual(["photo.jpg"]);
+	});
+
+	it("still refuses when something other than a picture is unready, whatever the model", async () => {
+		resetConstructedContextMocks();
+		const pdf = {
+			...unreadyPhoto,
+			requestedArtifactId: "pdf-1",
+			displayArtifact: {
+				...artifact({ id: "pdf-1", name: "report.pdf" }),
+				mimeType: "application/pdf",
+			},
+		};
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [photo, pdf.displayArtifact],
+			promptArtifacts: [],
+			items: [unreadyPhoto, pdf],
+			unresolvedItems: [unreadyPhoto, pdf],
+		});
+		mocks.blockingAttachmentItems.mockReturnValue([pdf]);
+
+		await expect(turn(true)).rejects.toMatchObject({
+			message: expect.stringContaining("could not be prepared for chat"),
+			artifactIds: ["pdf-1"],
 		});
 	});
 });

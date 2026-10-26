@@ -23,10 +23,12 @@ import {
 	documentVersionRank,
 	extractionDetailKey,
 	extractionErrorKey,
+	extractionRowStatusKey,
 	extractionStatusKey,
 	getDocumentKind,
 	hasNormalisedVersion,
 	isExtractionInProgress,
+	isImageWithNoText,
 	nextSortDirection,
 	sortDocuments,
 } from "./documents-table";
@@ -384,6 +386,101 @@ describe("extraction i18n keys", () => {
 		);
 		expect(extractionDetailKey(job({ status: "canceled" }))).toBe(
 			"knowledge.extraction.error.canceled",
+		);
+	});
+});
+
+// A picture the reader found no text in is not a file that failed to read: it
+// is a picture with no words in it (and a chat model that can see reads it
+// directly). The row says that as a plain fact. A document with the same
+// verdict really did fail to give any text, and keeps saying so.
+describe("an image the reader found no text in", () => {
+	const noText = job({
+		status: "failed",
+		error: { code: "empty_result", message: "nothing readable" },
+	});
+	const photo = doc({ id: "1", name: "photo.jpg", mimeType: "image/jpeg" });
+	const pdf = doc({ id: "2", name: "scan.pdf", mimeType: "application/pdf" });
+
+	it("reads No text, not Failed, and says the image has no text in it", () => {
+		expect(extractionRowStatusKey(photo, noText)).toBe(
+			"knowledge.extraction.status.noText",
+		);
+		expect(extractionDetailKey(noText, photo)).toBe(
+			"knowledge.extraction.error.imageNoText",
+		);
+		expect(isImageWithNoText(photo, noText)).toBe(true);
+	});
+
+	it("keeps Failed and the code's own sentence for a PDF", () => {
+		expect(extractionRowStatusKey(pdf, noText)).toBe(
+			"knowledge.extraction.status.failed",
+		);
+		expect(extractionDetailKey(noText, pdf)).toBe(
+			"knowledge.extraction.error.empty_result",
+		);
+		expect(isImageWithNoText(pdf, noText)).toBe(false);
+	});
+
+	it("is a fact about the picture, whatever format it is", () => {
+		for (const file of [
+			{ name: "IMG_0001.HEIC", mimeType: "image/heic" },
+			{ name: "scan.bmp", mimeType: "image/bmp" },
+			{ name: "favicon.ico", mimeType: "image/x-icon" },
+			{ name: "photo", mimeType: "image/png" },
+		]) {
+			expect(
+				isImageWithNoText(doc({ id: "3", ...file }), noText),
+				file.name,
+			).toBe(true);
+		}
+	});
+
+	it("is only the empty_result verdict: an image that failed another way is Failed", () => {
+		for (const code of EXTRACTION_ERROR_CODES) {
+			if (code === "empty_result") continue;
+			const failed = job({
+				status: "failed",
+				error: { code, message: "x" },
+			});
+			expect(isImageWithNoText(photo, failed), code).toBe(false);
+			expect(extractionRowStatusKey(photo, failed), code).toBe(
+				"knowledge.extraction.status.failed",
+			);
+			expect(extractionDetailKey(failed, photo), code).toBe(
+				`knowledge.extraction.error.${code}`,
+			);
+		}
+	});
+
+	it("is only a finished verdict: a picture still being read says what every document says", () => {
+		for (const status of DOCUMENT_EXTRACTION_STATUSES) {
+			if (status === "failed") continue;
+			const other = job({
+				status,
+				error: { code: "empty_result", message: "x" },
+			});
+			expect(isImageWithNoText(photo, other), status).toBe(false);
+			expect(extractionRowStatusKey(photo, other), status).toBe(
+				`knowledge.extraction.status.${status}`,
+			);
+		}
+	});
+
+	it("still names a failure with no code generically, picture or not", () => {
+		const unexplained = job({ status: "failed" });
+
+		expect(extractionDetailKey(unexplained, photo)).toBe(
+			"knowledge.extraction.error.internal",
+		);
+		expect(extractionRowStatusKey(photo, unexplained)).toBe(
+			"knowledge.extraction.status.failed",
+		);
+	});
+
+	it("leaves the detail line as it was when no file is passed", () => {
+		expect(extractionDetailKey(noText)).toBe(
+			"knowledge.extraction.error.empty_result",
 		);
 	});
 });

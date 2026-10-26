@@ -138,6 +138,9 @@ const chatDict = {
 			"This file could not be read. Remove it, or upload a version that can be read.",
 		"chat.extraction.failureDetailRetryable":
 			"This file could not be read: {reason}. Use Retry beside the chip to try again, or remove it.",
+		// A photo with no words in it, for a model that can see: a plain fact
+		// about the picture, not a failed read (the picture is sent as it is).
+		"chat.extraction.imageNoText": "No text in this image",
 		"chat.extraction.indexing": "Filing…",
 		"chat.extraction.parsing": "Reading…",
 		"chat.extraction.queued": "Waiting to be read",
@@ -1321,6 +1324,7 @@ const chatDict = {
 			"Ezt a fájlt nem sikerült beolvasni. Távolítsd el, vagy tölts fel egy beolvasható változatot.",
 		"chat.extraction.failureDetailRetryable":
 			"Ezt a fájlt nem sikerült beolvasni: {reason}. Használd az Újra gombot a chip mellett, vagy távolítsd el.",
+		"chat.extraction.imageNoText": "Nincs szöveg a képen",
 		"chat.extraction.indexing": "Feldolgozás…",
 		"chat.extraction.parsing": "Olvasás…",
 		"chat.extraction.queued": "Sorban áll",

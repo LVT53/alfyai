@@ -2318,6 +2318,7 @@ describe("prepareOutboundChatContext", () => {
 					pictureOf("square.jpg", 12_000),
 				],
 				heldBack: [],
+				notShown: [],
 				hasImageAttachments: true,
 			};
 			mocks.buildConstructedContext.mockResolvedValueOnce(
@@ -2363,6 +2364,7 @@ describe("prepareOutboundChatContext", () => {
 					turnImages: {
 						images: [pictureOf("wide.jpg", 1_900)],
 						heldBack: [],
+						notShown: [],
 						hasImageAttachments: true,
 					},
 				}),
@@ -2922,6 +2924,44 @@ describe("prepareOutboundChatContext", () => {
 					"2 more attached images were not sent as pictures because of the limit: b.jpg, c.jpg.",
 				);
 				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+			});
+
+			it("which pictures it could not be shown, one line each, when it can see", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({
+						images: [pictureOf("a.jpg", 100)],
+						notShown: ["scan.bmp", "broken.png"],
+						hasImageAttachments: true,
+					}),
+				);
+
+				const prepared = await prepareOutboundChatContext(
+					turn({ collectImages: true }),
+				);
+
+				expect(prepared.turnGuidance).toContain(
+					"The user attached scan.bmp, but it could not be shown to you.",
+				);
+				expect(prepared.turnGuidance).toContain(
+					"The user attached broken.png, but it could not be shown to you.",
+				);
+				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.systemPrompt).not.toContain(
+					"could not be shown to you",
+				);
+			});
+
+			it("only the cannot-see line, when it cannot see", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({ notShown: ["scan.bmp"], hasImageAttachments: true }),
+				);
+
+				const prepared = await prepareOutboundChatContext(turn());
+
+				expect(prepared.turnGuidance).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.turnGuidance).not.toContain(
+					"could not be shown to you",
+				);
 			});
 
 			it("nothing about pictures when none is attached", async () => {

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	getExtractionJobsForArtifacts: vi.fn(),
 	waitForExtractionJobVerdict: vi.fn(),
 	getExtractionConfig: vi.fn(),
+	modelIdCanSeeImages: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/extraction", () => ({
@@ -33,6 +34,10 @@ vi.mock("$lib/server/services/conversations", () => ({
 vi.mock("$lib/server/services/knowledge", () => ({
 	assertPromptReadyAttachments: mocks.assertPromptReadyAttachments,
 	isAttachmentReadinessError: mocks.isAttachmentReadinessError,
+}));
+
+vi.mock("$lib/server/services/vision/model-vision", () => ({
+	modelIdCanSeeImages: mocks.modelIdCanSeeImages,
 }));
 
 vi.mock("$lib/server/services/linked-context-sources", () => ({
@@ -111,6 +116,9 @@ function resetPreflightMocks() {
 		job: null,
 	});
 	mocks.getExtractionConfig.mockReturnValue({ preflightWaitMs: 2500 });
+	// A model that cannot see, unless a test says otherwise: the gate is as it
+	// always was.
+	mocks.modelIdCanSeeImages.mockResolvedValue(false);
 	mocks.addConversationLinkedContextSources.mockResolvedValue([]);
 	mocks.isLinkedContextSourceError.mockReturnValue(false);
 	mocks.resolvePendingSkillApplication.mockResolvedValue({ ok: false });
@@ -708,5 +716,303 @@ describe("preflightChatTurn attachment send gate", () => {
 
 		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
 		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
+	});
+});
+
+// A model that can see needs no extracted text to be shown a picture, so the
+// send gate stops waiting for a picture's reading and stops refusing the
+// picture when the reading found nothing. The readiness check itself decides
+// which attachments those are (knowledge/store/attachments.ts: the pictures
+// among them it can be shown); preflight's part is to ask the turn's model
+// once, hand the answer to the check on every pass, and wait only for what is
+// left. The fake check below refuses unless it was told the pictures are
+// exempt, and then names no picture, which is the contract it keeps.
+describe("preflightChatTurn attachment send gate for a model that can see", () => {
+	function readinessError(options: {
+		code: string;
+		message: string;
+		attachmentIds?: string[];
+		items?: Array<Record<string, unknown>>;
+		readiness?: Array<Record<string, unknown>>;
+	}) {
+		return {
+			status: 422,
+			message: options.message,
+			code: options.code,
+			attachmentIds: options.attachmentIds ?? ["attachment-1"],
+			items: options.items ?? [],
+			readiness: options.readiness ?? [],
+		};
+	}
+
+	function job(overrides: Record<string, unknown> = {}) {
+		return {
+			id: "job-1",
+			sourceArtifactId: "attachment-1",
+			normalizedArtifactId: null,
+			status: "queued",
+			intakeRoute: "mineru",
+			fileName: "photo.jpg",
+			attemptCount: 0,
+			maxAttempts: 3,
+			retryable: false,
+			cancelable: true,
+			error: null,
+			createdAt: 0,
+			updatedAt: 0,
+			startedAt: null,
+			legacy: false,
+			...overrides,
+		};
+	}
+
+	/** The three states a text-free photo is in, each as the check reports it today. */
+	const PICTURE_STATES = {
+		"a job that failed with empty_result": readinessError({
+			code: "attachment_extraction_failed",
+			message: "photo.jpg: No readable text was found in this file.",
+			items: [
+				{
+					artifactId: "attachment-1",
+					name: "photo.jpg",
+					status: "failed",
+					errorCode: "empty_result",
+					retryable: false,
+				},
+			],
+		}),
+		"text too thin to use (no_usable_text)": readinessError({
+			code: "attachment_not_ready",
+			message:
+				"photo.jpg: This file was uploaded, but no usable readable text could be prepared for chat from it.",
+			readiness: [
+				{
+					artifactId: "attachment-1",
+					name: "photo.jpg",
+					reason: "no_usable_text",
+				},
+			],
+		}),
+		"a MinerU job still queued": readinessError({
+			code: "attachment_extraction_pending",
+			message: "photo.jpg is still being prepared for chat.",
+			items: [
+				{
+					artifactId: "attachment-1",
+					name: "photo.jpg",
+					status: "queued",
+					errorCode: null,
+					retryable: false,
+				},
+			],
+		}),
+	} as const;
+
+	/** Refuses unless the pictures are excused, like the real check for a text-free photo. */
+	function refuseUnlessPicturesAreExempt(failure: unknown) {
+		mocks.assertPromptReadyAttachments.mockImplementation(
+			async (params: { exemptImages?: boolean }) => {
+				if (params.exemptImages) {
+					return { displayArtifacts: [], promptArtifacts: [] };
+				}
+				throw failure;
+			},
+		);
+	}
+
+	function requestWithAttachments(ids = ["attachment-1"]) {
+		return makeRequest({ attachmentIds: ids });
+	}
+
+	beforeEach(() => {
+		resetPreflightMocks();
+		mocks.isAttachmentReadinessError.mockReturnValue(true);
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
+	});
+
+	it.each(
+		Object.entries(PICTURE_STATES),
+	)("sends a text-free picture without waiting, for %s", async (_state, failure) => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		refuseUnlessPicturesAreExempt(failure);
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: requestWithAttachments(),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				attachmentIds: ["attachment-1"],
+				exemptImages: true,
+			}),
+		);
+		// Nothing was read from the ledger and nobody waited.
+		expect(mocks.getExtractionJobsForArtifacts).not.toHaveBeenCalled();
+		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
+	});
+
+	it.each(
+		Object.entries(PICTURE_STATES),
+	)("refuses the same photo exactly as before for a model that cannot see, for %s", async (_state, failure) => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.modelIdCanSeeImages.mockResolvedValue(false);
+		refuseUnlessPicturesAreExempt(failure);
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: requestWithAttachments(),
+		});
+
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+			expect.objectContaining({ exemptImages: false }),
+		);
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				status: 422,
+				code: failure.code,
+				error: failure.message,
+				attachmentIds: ["attachment-1"],
+			},
+		});
+		// A queued MinerU job is still not waited for, a failure never is.
+		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
+	});
+
+	it("keeps the wait for a document that is still being read, and not for the picture beside it", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		// The check names only what blocks: the picture is excused, the PDF is not.
+		mocks.assertPromptReadyAttachments
+			.mockRejectedValueOnce(
+				readinessError({
+					code: "attachment_extraction_pending",
+					message: "report.pdf is still being prepared for chat.",
+					attachmentIds: ["attachment-2"],
+					items: [
+						{
+							artifactId: "attachment-2",
+							name: "report.pdf",
+							status: "parsing",
+							errorCode: null,
+							retryable: false,
+						},
+					],
+				}),
+			)
+			.mockResolvedValue({ displayArtifacts: [], promptArtifacts: [] });
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
+			job({
+				id: "job-2",
+				sourceArtifactId: "attachment-2",
+				status: "parsing",
+				fileName: "report.pdf",
+			}),
+		]);
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: requestWithAttachments(["attachment-1", "attachment-2"]),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mocks.getExtractionJobsForArtifacts).toHaveBeenCalledWith({
+			userId: "user-1",
+			artifactIds: ["attachment-2"],
+		});
+		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledTimes(1);
+		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ jobId: "job-2" }),
+		);
+		// The settled pass is asked the same question, and the model is asked once.
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(2);
+		for (const call of mocks.assertPromptReadyAttachments.mock.calls) {
+			expect(call[0]).toMatchObject({ exemptImages: true });
+		}
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks the turn's own model, once, and only when something is attached", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({ attachmentIds: [] }),
+		});
+		expect(mocks.modelIdCanSeeImages).not.toHaveBeenCalled();
+		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				modelId: "provider:p1:seer",
+				attachmentIds: ["attachment-1", "attachment-2", "attachment-3"],
+			}),
+		});
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledTimes(1);
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledWith("provider:p1:seer");
+	});
+
+	it("asks for the default model when the turn names none", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({ modelId: undefined, attachmentIds: ["a"] }),
+		});
+
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledWith(undefined);
+	});
+
+	it("also reaches a turn prepared after admission, which is how a stream runs", async () => {
+		const { admitChatTurnStream, prepareAdmittedChatTurn } = await import(
+			"./preflight"
+		);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		refuseUnlessPicturesAreExempt(PICTURE_STATES["a MinerU job still queued"]);
+		const admitted = await admitChatTurnStream({
+			userId: "user-1",
+			request: requestWithAttachments(),
+		});
+		expect(admitted.ok).toBe(true);
+		if (!admitted.ok) return;
+
+		const result = await prepareAdmittedChatTurn({
+			userId: "user-1",
+			admittedTurn: admitted.value,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+			expect.objectContaining({ exemptImages: true }),
+		);
+	});
+
+	it("leaves Atlas as it was: its sources are read as text, whatever the model", async () => {
+		const { preflightAtlasTurnSources } = await import("./preflight");
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		refuseUnlessPicturesAreExempt(PICTURE_STATES["a MinerU job still queued"]);
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([]);
+
+		const result = await preflightAtlasTurnSources({
+			userId: "user-1",
+			request: requestWithAttachments(),
+		});
+
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledWith(
+			expect.objectContaining({ exemptImages: false }),
+		);
+		expect(mocks.modelIdCanSeeImages).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			ok: false,
+			error: { code: "attachment_extraction_pending" },
+		});
 	});
 });

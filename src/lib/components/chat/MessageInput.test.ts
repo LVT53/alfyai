@@ -4746,6 +4746,323 @@ describe("MessageInput extraction chips", () => {
 		expect(queryByTestId("composer-chip-failure-details")).toBeNull();
 	});
 
+	// A model that can see needs no extracted text to be shown a picture, so
+	// with such a model selected, a photo the reader found no text in is not a
+	// failure: its chip says so as a plain fact and Send stays open. The model
+	// list is the one the composer already loads for the thinking toggle, and the
+	// photo is judged by the send gate's own rule (a picture the server decodes).
+	describe("a picture, with a model that can see selected", () => {
+		function modelList(supportsImages: boolean): AvailableModelsResponse {
+			return {
+				providers: [
+					{
+						id: "p1",
+						name: "p1",
+						displayName: "Provider 1",
+						iconAssetId: null,
+						iconUrl: null,
+						processingRegionCode: null,
+						privacyPolicyUrl: null,
+						models: [
+							{
+								id: "provider:p1:seer",
+								displayName: "Seer",
+								iconUrl: null,
+								guideNoteEn: null,
+								guideNoteHu: null,
+								guideBadge: null,
+								guideNoCost: false,
+								estimatedTokensPerSecond: null,
+								maxModelContext: null,
+								inputUsdMicrosPer1m: 0,
+								outputUsdMicrosPer1m: 0,
+								supportsReasoningControls: true,
+								supportsImages,
+							},
+						],
+					},
+				],
+			};
+		}
+
+		const noTextJob = (fileName: string) =>
+			extractionJob({
+				sourceArtifactId: "file-1",
+				fileName,
+				status: "failed",
+				retryable: false,
+				cancelable: false,
+				error: { code: "empty_result", message: "nothing readable" },
+			});
+
+		beforeEach(() => {
+			selectedModel.set("provider:p1:seer");
+		});
+
+		afterEach(() => {
+			selectedModel.set("model1");
+		});
+
+		async function attach(
+			name: string,
+			mimeType: string,
+			job: DocumentExtractionJobDTO,
+		) {
+			const rendered = renderComposer();
+			// By element, not by placeholder: the placeholder is in the UI language.
+			await fireEvent.input(
+				rendered.container.querySelector("textarea") as HTMLTextAreaElement,
+				{ target: { value: "What is in this?" } },
+			);
+			await pickFile(rendered.container, name);
+			rendered.done({
+				success: true,
+				attachment: {
+					artifact: artifact({ id: "file-1", name, mimeType }),
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError: null,
+					extraction: job,
+				},
+			});
+			return rendered;
+		}
+
+		it("says there is no text in the image, and leaves Send open", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			const { getByLabelText, getByTestId, queryByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				noTextJob("photo.jpg"),
+			);
+
+			const chip = await waitFor(() => {
+				const found = getByTestId("composer-chip-attachment");
+				expect(found).toHaveTextContent("No text in this image");
+				return found;
+			});
+			expect(chip).not.toHaveTextContent("No readable text found");
+			expect(chip).not.toHaveAttribute("aria-busy", "true");
+			expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
+			expect(getByLabelText("Send message")).not.toBeDisabled();
+			expect(queryByTestId("composer-chip-failure-details")).toBeNull();
+		});
+
+		it("says it in Hungarian too", async () => {
+			uiLanguage.set("hu");
+			try {
+				fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+				const { getByTestId } = await attach(
+					"photo.jpg",
+					"image/jpeg",
+					noTextJob("photo.jpg"),
+				);
+
+				await waitFor(() => {
+					expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+						"Nincs szöveg a képen",
+					);
+				});
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+
+		it("keeps the failure and the closed Send when the selected model cannot see", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(false));
+			const { getByLabelText, getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				noTextJob("photo.jpg"),
+			);
+
+			const chip = await waitFor(() => {
+				const found = getByTestId("composer-chip-attachment");
+				expect(found).toHaveTextContent("No readable text found");
+				return found;
+			});
+			expect(chip).not.toHaveTextContent("No text in this image");
+			expect(getByLabelText("Send message")).toBeDisabled();
+		});
+
+		it("keeps the old gate when an Atlas report is selected: its sources are read as text", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			let finishUpload: ((result: UploadDoneResult) => void) | null = null;
+			const rendered = render(MessageInput, {
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				atlasAvailability: { enabled: true, configured: true },
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					finishUpload = payload.done;
+				},
+			});
+			const { getByLabelText, getByRole, getByTestId } = rendered;
+			await fireEvent.input(
+				rendered.container.querySelector("textarea") as HTMLTextAreaElement,
+				{ target: { value: "Research this" } },
+			);
+			await pickFile(rendered.container, "photo.jpg");
+			completeUpload(finishUpload, {
+				success: true,
+				attachment: {
+					artifact: artifact({
+						id: "file-1",
+						name: "photo.jpg",
+						mimeType: "image/jpeg",
+					}),
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError: null,
+					extraction: noTextJob("photo.jpg"),
+				},
+			});
+			// An ordinary turn excuses the picture, once the model list has loaded.
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No text in this image",
+				);
+			});
+			expect(getByLabelText("Send message")).not.toBeDisabled();
+
+			await fireEvent.click(
+				getByRole("button", { name: "Open composer tools" }),
+			);
+			await fireEvent.click(getByRole("menuitem", { name: "Atlas report" }));
+			await fireEvent.click(
+				within(
+					within(
+						getByRole("region", { name: "Choose an Atlas profile" }),
+					).getByRole("listbox", { name: "Atlas profile" }),
+				).getByRole("option", { name: "In-Depth" }),
+			);
+
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No readable text found",
+				);
+			});
+			expect(getByLabelText("Send message")).toBeDisabled();
+		});
+
+		it("keeps the failure and the closed Send for a PDF with the same verdict", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			const { getByLabelText, getByTestId } = await attach(
+				"scan.pdf",
+				"application/pdf",
+				noTextJob("scan.pdf"),
+			);
+
+			const chip = await waitFor(() => {
+				const found = getByTestId("composer-chip-attachment");
+				expect(found).toHaveTextContent("No readable text found");
+				return found;
+			});
+			expect(chip).not.toHaveTextContent("No text in this image");
+			expect(getByLabelText("Send message")).toBeDisabled();
+		});
+
+		it("keeps the failure and the closed Send for a BMP, which the server cannot show a model", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			const { getByLabelText, getByTestId } = await attach(
+				"scan.bmp",
+				"image/bmp",
+				noTextJob("scan.bmp"),
+			);
+
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No readable text found",
+				);
+			});
+			expect(getByLabelText("Send message")).toBeDisabled();
+		});
+
+		it("does not hold Send for a picture the reader is still at", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			const { getByLabelText, getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				extractionJob({
+					sourceArtifactId: "file-1",
+					fileName: "photo.jpg",
+					status: "parsing",
+				}),
+			);
+
+			await waitFor(() => {
+				expect(getByLabelText("Send message")).not.toBeDisabled();
+			});
+			const chip = getByTestId("composer-chip-attachment");
+			// The reading goes on in the background and says so, quietly; the
+			// picture itself can be removed, since nothing is waiting on it.
+			expect(chip).toHaveTextContent("Reading…");
+			expect(chip).not.toHaveAttribute("aria-busy", "true");
+			expect(chip.querySelector(".composer-chip__remove")).not.toBeNull();
+		});
+
+		it("announces the fact to a screen reader, as the chip says it", async () => {
+			fetchAvailableModelsMock.mockResolvedValueOnce(modelList(true));
+			const { getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				extractionJob({
+					sourceArtifactId: "file-1",
+					fileName: "photo.jpg",
+					status: "parsing",
+				}),
+			);
+			const announcer = await waitFor(() =>
+				getByTestId("composer-extraction-announcer"),
+			);
+			expect(announcer).toHaveTextContent("");
+
+			fetchExtractionStatusMock.mockResolvedValue({
+				jobs: [noTextJob("photo.jpg")],
+				readiness: [],
+			});
+
+			await waitFor(
+				() => {
+					expect(announcer).toHaveTextContent(
+						"photo.jpg: No text in this image",
+					);
+				},
+				{ timeout: 4000 },
+			);
+		});
+
+		it("holds Send for the same picture before the model list has said the model can see", async () => {
+			// The list is still loading: until it says so, the composer assumes the
+			// model cannot see, which is the cautious answer.
+			let release: (value: AvailableModelsResponse) => void = () => {};
+			fetchAvailableModelsMock.mockReturnValueOnce(
+				new Promise<AvailableModelsResponse>((resolve) => {
+					release = resolve;
+				}),
+			);
+			const { getByLabelText, getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				noTextJob("photo.jpg"),
+			);
+
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No readable text found",
+				);
+			});
+			expect(getByLabelText("Send message")).toBeDisabled();
+
+			release(modelList(true));
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No text in this image",
+				);
+			});
+			expect(getByLabelText("Send message")).not.toBeDisabled();
+		});
+	});
+
 	// A late terminal success can still be unusable: extraction finished, but
 	// the normalized text is too thin to send. The status endpoint now carries
 	// the verdict beside the job, and the chip must take it — a green success

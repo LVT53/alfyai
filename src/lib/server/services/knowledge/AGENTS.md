@@ -29,6 +29,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 | Complete Knowledge upload intake | `upload-intake.ts` |
 | Create artifact + chunks | `store/core.ts` `createArtifact()` |
 | Upload + prompt readiness | `store/attachments.ts` `saveUploadedArtifact()`, `resolvePromptAttachmentArtifacts()` |
+| Which unready attachments stop a send (a picture a model that can see is shown needs no text) | `store/attachments.ts` `blockingAttachmentItems()`, `assertPromptReadyAttachments({ exemptImages })`; rules in `../vision/AGENTS.md` |
 | Semantic document retrieval/search composition | `store/documents.ts` |
 | Delete with ref checks | `store/cleanup.ts` `deleteArtifactForUser()` |
 | Working-set ranking | `context.ts` `selectWorkingSetArtifactsForPrompt()` |

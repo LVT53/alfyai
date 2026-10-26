@@ -84,6 +84,18 @@ describe("chat i18n dictionary", () => {
 		}
 	});
 
+	// A photo with no words in it is not a file that failed to read, for a model
+	// that can see. The composer's chip says so as a plain fact, and a missing
+	// or untranslated key would print itself (or English) in exactly that chip.
+	it("says there is no text in an image, in both languages", () => {
+		expect(chatDict.en["chat.extraction.imageNoText"]).toBe(
+			"No text in this image",
+		);
+		expect(chatDict.hu["chat.extraction.imageNoText"]).toBe(
+			"Nincs szöveg a képen",
+		);
+	});
+
 	it("has no empty translations", () => {
 		for (const [key, value] of Object.entries(chatDict.en)) {
 			expect(value.trim(), `en.${key}`).not.toBe("");

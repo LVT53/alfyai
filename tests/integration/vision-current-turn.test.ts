@@ -141,6 +141,29 @@ async function readyImage(
 	});
 }
 
+/**
+ * An uploaded image whose text has NOT been prepared: a source file with no
+ * normalized document behind it, which is what a photo the reader found
+ * nothing in (or has not reached yet) looks like to the send gate.
+ */
+async function textFreeImage(
+	conversationId: string,
+	name: string,
+	options: { bytes?: Uint8Array; mimeType?: string; stored?: boolean } = {},
+): Promise<Artifact> {
+	const bytes = options.bytes ?? (await photoBytes());
+	return createArtifact({
+		userId,
+		conversationId,
+		type: "source_document",
+		name,
+		mimeType: options.mimeType ?? "image/png",
+		extension: name.split(".").pop() ?? null,
+		sizeBytes: bytes.byteLength,
+		storagePath: options.stored === false ? null : await storeFile(name, bytes),
+	});
+}
+
 function provider(canSee: boolean) {
 	return {
 		id: "fake",
@@ -316,6 +339,11 @@ describe("a model that can see", () => {
 			"[ATTACHMENTS] Image not sent as a picture",
 			expect.objectContaining({ reason: expect.any(String) }),
 		);
+		// The model is told which one it was not shown, and only that one.
+		expect(userText(body)).toContain(
+			"The user attached broken.png, but it could not be shown to you.",
+		);
+		expect(userText(body)).not.toContain("fine.png, but it could not");
 	});
 
 	it("is sent no picture for a BMP, which cannot be decoded, and is not told it cannot see", async () => {
@@ -336,6 +364,110 @@ describe("a model that can see", () => {
 		expect(imageUrls(body)).toEqual([]);
 		expect(userText(body)).toContain("Text read from scan.bmp");
 		expect(userText(body)).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+		// It was attached and it could not be shown: the model is told so, once.
+		expect(userText(body)).toContain(
+			"The user attached scan.bmp, but it could not be shown to you.",
+		);
+	});
+
+	// A model that can see needs no text to be shown a picture, so an image the
+	// reader found nothing in (or has not read yet) no longer stops the turn.
+	describe("a picture with no text prepared", () => {
+		it("is sent the picture, with no attachment section, and is not told it cannot see", async () => {
+			const conversationId = await newConversation();
+
+			const body = await ask({
+				conversationId,
+				message: "What is in this photo?",
+				attachments: [await textFreeImage(conversationId, "holiday.png")],
+				canSee: true,
+			});
+
+			expect(imageUrls(body)).toHaveLength(1);
+			const text = userText(body);
+			expect(text).toContain("What is in this photo?");
+			expect(text).not.toContain("## Current Attachments");
+			expect(text).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+			expect(text).not.toContain("could not be shown to you");
+		});
+
+		it("is sent the pictures beside the text of the document attached with them", async () => {
+			const conversationId = await newConversation();
+			const document = await createArtifact({
+				userId,
+				conversationId,
+				type: "normalized_document",
+				name: "notes.txt",
+				mimeType: "text/plain",
+				extension: "txt",
+				sizeBytes: 40,
+				contentText: "Meeting notes: ship the report on Friday morning.",
+			});
+
+			const body = await ask({
+				conversationId,
+				message: "How do these fit together?",
+				attachments: [
+					await textFreeImage(conversationId, "whiteboard.png"),
+					document,
+				],
+				canSee: true,
+			});
+
+			expect(imageUrls(body)).toHaveLength(1);
+			expect(userText(body)).toContain("Meeting notes: ship the report");
+		});
+
+		it("is told which picture could not be shown when the file is gone", async () => {
+			const conversationId = await newConversation();
+
+			const body = await ask({
+				conversationId,
+				message: "And this one?",
+				attachments: [
+					await textFreeImage(conversationId, "lost.png", { stored: false }),
+					await textFreeImage(conversationId, "kept.png"),
+				],
+				canSee: true,
+			});
+
+			expect(imageUrls(body)).toHaveLength(1);
+			expect(userText(body)).toContain(
+				"The user attached lost.png, but it could not be shown to you.",
+			);
+			expect(userText(body)).not.toContain("kept.png, but it could not");
+		});
+
+		it("still stops the turn for a BMP with no text: the model can never be shown one", async () => {
+			const conversationId = await newConversation();
+
+			await expect(
+				ask({
+					conversationId,
+					message: "What does this say?",
+					attachments: [
+						await textFreeImage(conversationId, "scan.bmp", {
+							bytes: Buffer.from("BM"),
+							mimeType: "image/bmp",
+						}),
+					],
+					canSee: true,
+				}),
+			).rejects.toMatchObject({ code: "attachment_not_ready" });
+		});
+
+		it("still stops the turn for a model that cannot see, exactly as before", async () => {
+			const conversationId = await newConversation();
+
+			await expect(
+				ask({
+					conversationId,
+					message: "What is in this photo?",
+					attachments: [await textFreeImage(conversationId, "holiday.png")],
+					canSee: false,
+				}),
+			).rejects.toMatchObject({ code: "attachment_not_ready" });
+		});
 	});
 
 	it("gets a plain text message when nothing is attached", async () => {
@@ -395,6 +527,8 @@ describe("a model that cannot see", () => {
 		expect(JSON.stringify(body)).not.toContain("image_url");
 		const text = userText(body);
 		expect(text).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+		// Its one line is the whole story: no per-picture "could not be shown".
+		expect(text).not.toContain("could not be shown to you");
 		expect(text).toContain("Text read from receipt.png");
 		// The line rides the turn guidance, after the message, like the rest.
 		expect(text.indexOf(CANNOT_SEE_IMAGES_GUIDANCE)).toBeGreaterThan(
