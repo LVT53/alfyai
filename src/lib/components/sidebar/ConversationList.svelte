@@ -310,7 +310,9 @@ $effect(() => {
 	const kept = pruneSelected(selectedIds, shownIds);
 	if (kept.size === selectedIds.size) return;
 	selectedIds = kept;
-	if (kept.size === 0) endSelection();
+	// Untracked: ending a selection reads the anchor and the bar, which this
+	// effect has no reason to run again for.
+	if (kept.size === 0) untrack(() => endSelection());
 });
 
 // Closing the sidebar (the phone drawer) ends the selection. Collapsing it on
