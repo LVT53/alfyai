@@ -1589,6 +1589,24 @@ describe("ConversationList multi-select", () => {
 			expect(hasRow("a")).toBe(true);
 		});
 
+		it("opens with the focus on Cancel, so that one more Enter does not delete the chats", async () => {
+			seed([chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.click(screen.getByTestId("selection-delete"));
+
+			const dialog = await screen.findByRole("dialog");
+			const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+			await waitFor(() => expect(cancel).toHaveFocus());
+			// The dialog's own move of the focus runs a tick after it opens: the
+			// settled dialog is the one to look at.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(cancel).toHaveFocus();
+			expect(within(dialog).getByTestId("confirm-delete")).not.toHaveFocus();
+			expect(batches).toEqual([]);
+		});
+
 		it("deletes the selection in one batch after the confirm, and ends the selection", async () => {
 			seed([chat("a"), chat("b"), chat("c")]);
 			await pick("a");

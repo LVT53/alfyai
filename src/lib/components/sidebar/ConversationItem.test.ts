@@ -461,6 +461,17 @@ describe("ConversationItem Component", () => {
 			).toBeInTheDocument();
 		});
 
+		it("opens the single delete dialog with the focus on Delete, as it always has", async () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			await fireEvent.click(screen.getByLabelText("Conversation options"));
+			await fireEvent.click(screen.getByText("Delete"));
+
+			await waitFor(() =>
+				expect(screen.getByTestId("confirm-delete")).toHaveFocus(),
+			);
+		});
+
 		it("dispatches delete event when confirmation is accepted", async () => {
 			const mockDelete = vi.fn();
 			render(ConversationItemWrapper, {

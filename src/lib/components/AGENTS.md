@@ -36,7 +36,7 @@ chat/
 ui/
   AvatarCircle.svelte               ← user avatar display
   ProfilePictureEditor.svelte       ← avatar upload/crop
-  ConfirmDialog.svelte              ← confirmation modal
+  ConfirmDialog.svelte              ← confirmation modal; focuses its confirm button on open, or Cancel for `initialFocus="cancel"` (the sidebar's bulk delete: one more Enter must not delete N chats)
   DialogShell.svelte                ← reusable dialog shell wrapper
   FileTypeIcon.svelte               ← file type icon display
   TypewriterText.svelte             ← animated text display

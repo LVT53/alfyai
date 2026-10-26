@@ -1412,6 +1412,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		confirmText={$t('common.delete')}
 		cancelText={$t('common.cancel')}
 		confirmVariant="danger"
+		initialFocus="cancel"
 		onConfirm={confirmBulkDelete}
 		onCancel={() => (bulkDeleteConfirmOpen = false)}
 	/>

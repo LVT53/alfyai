@@ -209,6 +209,30 @@ test.describe("selecting chats in the sidebar", () => {
 		await expect(chatRow(page, "Bravo plan")).toHaveCount(0);
 	});
 
+	test("opens the delete dialog on Cancel, so a second Enter deletes nothing", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
+		await chatRow(page, "Alpha plan").click({ modifiers: [MOD] });
+		await chatRow(page, "Bravo plan").click({ modifiers: [MOD] });
+
+		// Enter on the bar's Delete, then the Enter a held key goes on sending.
+		await page.getByTestId("selection-delete").focus();
+		await page.keyboard.press("Enter");
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toContainText("Delete 2 chats?");
+		await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+		await page.keyboard.press("Enter");
+
+		// It was Cancel that took it: the dialog is gone, the chats and the
+		// selection are as they were, and the focus is back on Delete.
+		await expect(dialog).toHaveCount(0);
+		await expect(selectionCount(page)).toHaveText("2 selected");
+		await expect(page.getByTestId("selection-delete")).toBeFocused();
+		await expect(chatRow(page, "Alpha plan")).toBeVisible();
+		await expect(chatRow(page, "Bravo plan")).toBeVisible();
+	});
+
 	test("selects a range with Shift-click in sidebar order", async ({
 		page,
 	}) => {
