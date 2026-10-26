@@ -654,6 +654,30 @@ describe("ConversationItem Component", () => {
 				expect(await fireEvent.mouseDown(item)).toBe(true);
 			});
 
+			it("lets Shift-click extend the text selection inside the rename field", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				await fireEvent.click(screen.getByTestId("rename-option"));
+				const input = screen.getByTestId("title-input");
+
+				// `fireEvent` answers true when nothing called preventDefault: the
+				// press reaches the row's handler, which must leave a field alone.
+				expect(await fireEvent.mouseDown(input, { shiftKey: true })).toBe(true);
+				expect(await fireEvent.mouseDown(input)).toBe(true);
+			});
+
+			it("keeps Shift from selecting the page's text again once the rename is over", async () => {
+				render(ConversationItemWrapper, { conversation: mockConversation });
+				await fireEvent.click(screen.getByLabelText("Conversation options"));
+				await fireEvent.click(screen.getByTestId("rename-option"));
+				await fireEvent.keyDown(screen.getByTestId("title-input"), {
+					key: "Escape",
+				});
+				const item = screen.getByTestId("conversation-item");
+
+				expect(await fireEvent.mouseDown(item, { shiftKey: true })).toBe(false);
+			});
+
 			it("offers Select in the row menu, after Move to project and before Delete", async () => {
 				render(ConversationItemWrapper, {
 					conversation: mockConversation,

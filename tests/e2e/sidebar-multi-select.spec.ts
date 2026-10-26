@@ -259,6 +259,38 @@ test.describe("selecting chats in the sidebar", () => {
 		);
 	});
 
+	test("lets Shift-click extend the text selection inside the rename field", async ({
+		page,
+	}) => {
+		await startWithChats(page, ["Alpha plan", "Bravo plan"]);
+
+		await chatRow(page, "Alpha plan").click({ button: "right" });
+		await page.getByTestId("rename-option").click();
+		const input = page.getByTestId("title-input");
+		await expect(input).toBeFocused();
+		// The caret at the start, nothing selected (the field opens with it all selected).
+		await input.press("Home");
+		expect(
+			await input.evaluate(
+				(field: HTMLInputElement) => field.selectionEnd - field.selectionStart,
+			),
+		).toBe(0);
+
+		// Shift-click at the far end of the field: the selection runs to it.
+		const box = await input.boundingBox();
+		if (!box) throw new Error("no box for the rename field");
+		await input.click({
+			modifiers: ["Shift"],
+			position: { x: box.width - 4, y: box.height / 2 },
+		});
+
+		expect(
+			await input.evaluate(
+				(field: HTMLInputElement) => field.selectionEnd - field.selectionStart,
+			),
+		).toBe("Alpha plan".length);
+	});
+
 	test("moves a selection into a project and back", async ({ page }) => {
 		await startWithChats(page, ["Alpha plan", "Bravo plan", "Charlie plan"]);
 		const created = await page.request.post("/api/projects", {

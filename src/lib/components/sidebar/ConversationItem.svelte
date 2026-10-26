@@ -138,9 +138,10 @@ function handleRowKeydown(event: KeyboardEvent) {
 	if (event.key === "Enter") handleSelect();
 }
 
-// A Shift-click would also select the text between the two clicks.
+// A Shift-click would also select the text between the two clicks. Not while the
+// title is being renamed: in the field it is how a person extends the selection.
 function handleRowMouseDown(event: MouseEvent) {
-	if (event.shiftKey) event.preventDefault();
+	if (event.shiftKey && !isEditing) event.preventDefault();
 }
 
 async function handleSelectOption(e: MouseEvent) {
