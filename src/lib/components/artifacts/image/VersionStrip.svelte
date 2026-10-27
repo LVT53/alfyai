@@ -143,9 +143,11 @@ let frames = $derived(
 		height: 100%;
 	}
 
-	/* Attach rides the frame's corner: a small scrimmed dot, with a 44 px touch
-	   target painted by a pseudo-element so the drawn size stays small. Only
-	   opacity moves. */
+	/* Attach rides the frame's corner: a small scrimmed dot for a mouse. A finger
+	   cannot hit a dot this size without hitting the frame under it, and a frame
+	   is 56 px, so on touch the dot is not drawn: a frame opens History on its
+	   version, where Attach is a 44 px button (ImageVersionPreview). Only opacity
+	   moves. */
 	.attach {
 		position: absolute;
 		right: 0.125rem;
@@ -165,20 +167,9 @@ let frames = $derived(
 		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	.attach::after {
-		content: "";
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		width: 2.75rem;
-		height: 2.75rem;
-		transform: translate(-50%, -50%);
-	}
-
-	@media (pointer: fine) {
-		.attach::after {
-			width: 1.25rem;
-			height: 1.25rem;
+	@media (pointer: coarse) {
+		.attach {
+			display: none;
 		}
 	}
 

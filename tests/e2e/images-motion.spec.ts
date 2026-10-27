@@ -19,6 +19,7 @@ import {
 	AI_SMOKE_CHANGE_PICTURE_MARKER,
 	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
 	AI_SMOKE_LATE_PICTURE_MARKER,
+	AI_SMOKE_LATE_PICTURE_TITLE,
 } from "../fixtures/ai/late-picture-scenario";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
@@ -3408,6 +3409,620 @@ test.describe("a see-through picture in the wipe (T4 fix round 1)", () => {
 			expect(clips.underTransition).toBe("0s");
 			expect(metrics.cls).toBe(0);
 			expect(metrics.longFrames).toEqual([]);
+		});
+	}
+});
+
+// ---- Plan 2b T5: pictures in the composer ---------------------------------------
+
+/**
+ * Pictures in the composer (plan 2b T5, MOTION-PARITY "By measurement", F19): a
+ * picture attached from a card, a strip frame or History becomes a numbered chip;
+ * removing one renumbers the rest in the same frame; the send carries the chips and
+ * the sent bubble draws its numbered thumbnails from its first paint (F13), so
+ * nothing appears above a streaming reply later. What is held:
+ *
+ * - a chip's box is its final size from its first frame (28 px tall), its numeral
+ *   is there with it, and its thumbnail loads into a reserved 18 px square;
+ * - a sent bubble's thumbnails exist in the very DOM insertion of the bubble, with
+ *   their numbers, and the server's record (after a reload) says the same;
+ * - no layout shift the card or the chips did not ask for, no frame over 50 ms
+ *   around an attach or a send;
+ * - only transform and opacity move in what this task added (the chip's own hover
+ *   tint is the existing chip's, reported not held);
+ * - on a phone the panel gives way (the full-screen sheet closes) so the chip is
+ *   seen; at 360 px in Hungarian the chips do not make the page scroll sideways.
+ */
+
+const CHIP = '[data-testid="composer-chip-picture"]';
+const CHIP_NUMBER = `${CHIP} [data-testid="composer-chip-number"]`;
+const T5_PARTS =
+	/^(composer-chip-number|message-picture-chip|image-version-attach|image-version-preview-attach)/;
+
+const T5_TRACK = {
+	composer: ".composer-shell",
+	chip: CHIP,
+	chipNumber: CHIP_NUMBER,
+	secondChip: `.composer-chip-item:nth-child(2) ${CHIP}`,
+	userChip: '[data-testid="user-message"] [data-testid="message-picture-chip"]',
+};
+
+function t5Transitions(run: MotionRun) {
+	const seen = run.transitions.filter(
+		(entry) => T5_PARTS.test(entry.target) && entry.duration >= 1,
+	);
+	return {
+		properties: [...new Set(seen.map((entry) => entry.property))],
+		other: seen.filter(
+			(entry) => entry.property !== "opacity" && entry.property !== "transform",
+		),
+		// The chip's own hover tint: the existing chip's, as on any attachment.
+		chipHover: [
+			...new Set(
+				run.transitions
+					.filter(
+						(entry) =>
+							entry.target === "composer-chip-picture" && entry.duration >= 1,
+					)
+					.map((entry) => entry.property),
+			),
+		],
+	};
+}
+
+/** The chips on screen, in order, as the reader reads them. */
+async function composerChips(page: Page) {
+	return page.evaluate(() =>
+		[...document.querySelectorAll('[data-testid="composer-chip-picture"]')].map(
+			(chip) => {
+				const box = chip.getBoundingClientRect();
+				return {
+					number:
+						chip.querySelector('[data-testid="composer-chip-number"]')
+							?.textContent ?? null,
+					name: chip.getAttribute("aria-label"),
+					w: box.width,
+					h: box.height,
+					x: box.x,
+					thumbLoaded:
+						(chip.querySelector("img") as HTMLImageElement | null)?.complete ===
+							true &&
+						((chip.querySelector("img") as HTMLImageElement | null)
+							?.naturalWidth ?? 0) > 0,
+				};
+			},
+		),
+	);
+}
+
+function holdChipRun(
+	label: string,
+	run: MotionRun,
+	moments: number[],
+	reduced: boolean,
+) {
+	const cls = shiftsBetween(run, 0, Number.POSITIVE_INFINITY);
+	expect(cls, `${label}: layout shift`).toBeLessThanOrEqual(0.01);
+	expect(
+		longFramesAround(run, moments),
+		`${label}: a frame over 50 ms`,
+	).toEqual([]);
+	expect(
+		t5Transitions(run).other,
+		`${label}: a transition other than transform/opacity`,
+	).toEqual([]);
+	const chip = sizeDrift(run.frames, "chip");
+	expect(chip.h, `${label}: the chip changed height`).toBeLessThanOrEqual(0.5);
+	if (reduced) {
+		expect(
+			run.transitions.filter(
+				(entry) => T5_PARTS.test(entry.target) && entry.duration >= 1,
+			),
+			`${label}: motion under reduced motion`,
+		).toEqual([]);
+	}
+}
+
+test.describe("pictures in the composer: a card's picture, numbered, sent (T5)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	const VARIANTS = [
+		{
+			name: "card-send-desktop-light",
+			viewport: DESKTOP,
+			colorScheme: "light",
+		},
+		{ name: "card-send-desktop-dark", viewport: DESKTOP, colorScheme: "dark" },
+		{ name: "card-send-phone-light", viewport: PHONE, colorScheme: "light" },
+		{ name: "card-send-phone-dark", viewport: PHONE, colorScheme: "dark" },
+		{
+			name: "card-send-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+		},
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: Attach from a card adds a numbered chip, and the send shows its thumbnail from the bubble's first paint`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const reduced = "reducedMotion" in variant;
+			const flow = await openFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{
+					viewport: variant.viewport,
+					colorScheme: variant.colorScheme,
+					reducedMotion: reduced ? "reduce" : undefined,
+				},
+			);
+			const { page, comfy } = flow;
+			const phone = variant.viewport.width < 500;
+			let metrics: Record<string, unknown> = {};
+			let attachRun: MotionRun | null = null;
+			let sendRun: MotionRun | null = null;
+			let sentBubbles: Array<{
+				chips: number;
+				number: string | null;
+				thumb: boolean;
+			}> = [];
+			let afterReload: { number: string | null; name: string | null } | null =
+				null;
+			try {
+				comfy.setOptions({ steps: 4, stepDelayMs: 200 });
+				const conversationId = await newChat(flow);
+				await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+				await expect(
+					page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+				).toBeVisible({ timeout: 45_000 });
+				await expect(page.locator(TRACK.loaded)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect
+					.poll(
+						async () => (await readCards(page, conversationId))[0]?.artifactId,
+						{ timeout: 20_000 },
+					)
+					.toBeTruthy();
+				const [made] = await readCards(page, conversationId);
+				await waitForMotionToSettle(page);
+
+				// The sent bubble, the moment it is put in the page.
+				await page.evaluate(() => {
+					const seen: unknown[] = [];
+					(window as unknown as { __sentBubbles: unknown[] }).__sentBubbles =
+						seen;
+					new MutationObserver((records) => {
+						for (const record of records) {
+							for (const node of record.addedNodes) {
+								if (!(node instanceof Element)) continue;
+								const bubbles = node.matches('[data-testid="user-message"]')
+									? [node]
+									: [...node.querySelectorAll('[data-testid="user-message"]')];
+								for (const bubble of bubbles) {
+									seen.push({
+										chips: bubble.querySelectorAll(
+											'[data-testid="message-picture-chip"]',
+										).length,
+										number:
+											bubble.querySelector(
+												'[data-testid="composer-chip-number"]',
+											)?.textContent ?? null,
+										thumb: Boolean(
+											bubble.querySelector(
+												'[data-testid="message-picture-chip"] img',
+											),
+										),
+									});
+								}
+							}
+						}
+					}).observe(document.body, { childList: true, subtree: true });
+				});
+
+				const card = page.locator(CARD).last();
+				await startRecording(page, T5_TRACK);
+				mark(flow, "attach");
+				await card.getByRole("button", { name: "More" }).click();
+				await page.getByTestId("image-card-attach").click();
+				const chip = page.locator(CHIP);
+				await expect(chip).toHaveCount(1);
+				await expect(chip.getByTestId("composer-chip-number")).toHaveText("1");
+				await expect(chip).toHaveAttribute(
+					"aria-label",
+					`Picture 1: ${AI_SMOKE_LATE_PICTURE_TITLE}`,
+				);
+				await expect
+					.poll(async () => (await composerChips(page))[0]?.thumbLoaded)
+					.toBe(true);
+				if (!phone) {
+					await expect(page.getByTestId("message-input")).toBeFocused();
+				}
+				await settle(page);
+				attachRun = await stopRecording(page);
+				const chipsAfterAttach = await composerChips(page);
+
+				await startRecording(page, T5_TRACK);
+				mark(flow, "send");
+				await sendMessage(
+					page,
+					`${AI_SMOKE_CHANGE_PICTURE_MARKER} ${made.artifactId}`,
+				);
+				await expect(
+					page.locator('[data-testid="user-message"]').last(),
+				).toContainText(AI_SMOKE_CHANGE_PICTURE_MARKER);
+				await expect(page.locator(CHIP)).toHaveCount(0);
+				await expect(
+					page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+				).toBeVisible({ timeout: 45_000 });
+				await settle(page);
+				sendRun = await stopRecording(page);
+				sentBubbles = await page.evaluate(
+					() => (window as unknown as { __sentBubbles: never[] }).__sentBubbles,
+				);
+
+				// The server's own record says the same.
+				await page.reload({ waitUntil: "domcontentloaded" });
+				const sent = page
+					.locator('[data-testid="user-message"]')
+					.filter({ hasText: AI_SMOKE_CHANGE_PICTURE_MARKER })
+					.getByTestId("message-picture-chip");
+				await expect(sent).toHaveCount(1, { timeout: 20_000 });
+				afterReload = {
+					number: await sent.getByTestId("composer-chip-number").textContent(),
+					name: await sent.getAttribute("aria-label"),
+				};
+
+				metrics = {
+					chipsAfterAttach,
+					attach: {
+						cls: shiftsBetween(attachRun, 0, Number.POSITIVE_INFINITY),
+						shifts: attachRun.shifts,
+						chipDrift: sizeDrift(attachRun.frames, "chip"),
+						longFrames: attachRun.longFrames,
+						transitions: t5Transitions(attachRun),
+					},
+					send: {
+						cls: shiftsBetween(sendRun, 0, Number.POSITIVE_INFINITY),
+						shifts: sendRun.shifts,
+						userChipDrift: sizeDrift(sendRun.frames, "userChip"),
+						longFrames: sendRun.longFrames,
+						transitions: t5Transitions(sendRun),
+					},
+					sentBubbles,
+					afterReload,
+				};
+			} finally {
+				await closeFlow(flow, variant.name, metrics, {
+					prefix: "t5",
+					segments: ["attach", "send"],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			if (!attachRun || !sendRun) throw new Error("not measured");
+
+			const chips = metrics.chipsAfterAttach as Awaited<
+				ReturnType<typeof composerChips>
+			>;
+			expect(chips).toHaveLength(1);
+			expect(chips[0].number).toBe("1");
+			expect(Math.round(chips[0].h), "the chip is 28 px tall").toBe(28);
+			holdChipRun("attach", attachRun, [flow.marks.attach], reduced);
+			holdChipRun("send", sendRun, [flow.marks.send], reduced);
+			// First paint (F13): every bubble put in the page for the sent message already
+			// held its numbered thumbnail, the optimistic one and the server's after it.
+			expect(sentBubbles.length, "no sent bubble was seen").toBeGreaterThan(0);
+			for (const bubble of sentBubbles) {
+				expect(bubble.chips).toBe(1);
+				expect(bubble.number).toBe("1");
+				expect(bubble.thumb).toBe(true);
+			}
+			expect(sizeDrift(sendRun.frames, "userChip").h).toBeLessThanOrEqual(0.5);
+			expect(afterReload).toEqual({
+				number: "1",
+				name: `Picture 1: ${AI_SMOKE_LATE_PICTURE_TITLE}`,
+			});
+		});
+	}
+});
+
+test.describe("pictures in the composer: a strip frame's and a History version's picture, renumbered (T5)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	const VARIANTS = [
+		{
+			name: "strip-history-desktop-light",
+			viewport: DESKTOP,
+			colorScheme: "light",
+		},
+		{
+			name: "strip-history-desktop-dark",
+			viewport: DESKTOP,
+			colorScheme: "dark",
+		},
+		{
+			name: "strip-history-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+		},
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: Attach on a strip frame and in History add chips 1 and 2, and removing the first makes the other 1`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const reduced = "reducedMotion" in variant;
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{
+					viewport: variant.viewport,
+					colorScheme: variant.colorScheme,
+					reducedMotion: reduced ? "reduce" : undefined,
+				},
+				(user, chatId) => seedPictureHistory(user, chatId),
+			);
+			const { page } = flow;
+			const runs: Record<string, MotionRun> = {};
+			const metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				const frames = page.locator(
+					'[data-testid="image-version-frame"]:visible',
+				);
+				await expect(frames).toHaveCount(3);
+
+				await startRecording(page, T5_TRACK);
+				mark(flow, "strip-attach");
+				await frames.first().hover();
+				await page.getByTestId("image-version-attach").first().click();
+				await expect(page.locator(CHIP)).toHaveCount(1);
+				await expect(page.locator(CHIP_NUMBER)).toHaveText("1");
+				await expect(page.getByTestId("message-input")).toBeFocused();
+				await expect
+					.poll(async () => (await composerChips(page))[0]?.thumbLoaded)
+					.toBe(true);
+				await settle(page);
+				runs.stripAttach = await stopRecording(page);
+
+				await historyButton(page).click();
+				await expectHistoryShown(page, "image");
+				await settle(page);
+				await startRecording(page, T5_TRACK);
+				mark(flow, "history-attach");
+				await page.getByTestId("image-version-preview-attach").click();
+				await expect(page.locator(CHIP)).toHaveCount(2);
+				await expect(page.locator(CHIP_NUMBER)).toHaveText(["1", "2"]);
+				await expect
+					.poll(async () =>
+						(await composerChips(page)).every((entry) => entry.thumbLoaded),
+					)
+					.toBe(true);
+				await settle(page);
+				runs.historyAttach = await stopRecording(page);
+				metrics.twoChips = await composerChips(page);
+
+				await startRecording(page, T5_TRACK);
+				mark(flow, "remove");
+				await page.locator(`${CHIP} .composer-chip__remove`).first().click();
+				await expect(page.locator(CHIP)).toHaveCount(1);
+				await expect(page.locator(CHIP_NUMBER)).toHaveText("1");
+				await settle(page);
+				runs.remove = await stopRecording(page);
+				metrics.oneChip = await composerChips(page);
+				// Both were the same item: the chips are told apart by number, not by name.
+				expect((metrics.twoChips as Array<{ name: string }>)[0].name).toBe(
+					`Picture 1: ${IMAGE_ITEM_TITLE}`,
+				);
+				expect((metrics.twoChips as Array<{ name: string }>)[1].name).toBe(
+					`Picture 2: ${IMAGE_ITEM_TITLE}`,
+				);
+				metrics.runs = Object.fromEntries(
+					Object.entries(runs).map(([name, run]) => [
+						name,
+						{
+							cls: shiftsBetween(run, 0, Number.POSITIVE_INFINITY),
+							shifts: run.shifts,
+							longFrames: run.longFrames,
+							chipDrift: sizeDrift(run.frames, "chip"),
+							transitions: t5Transitions(run),
+						},
+					]),
+				);
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t5",
+					segments: ["strip-attach", "history-attach", "remove"],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			holdChipRun(
+				"strip attach",
+				runs.stripAttach,
+				[flow.marks["strip-attach"]],
+				reduced,
+			);
+			holdChipRun(
+				"History attach",
+				runs.historyAttach,
+				[flow.marks["history-attach"]],
+				reduced,
+			);
+			holdChipRun("remove", runs.remove, [flow.marks.remove], reduced);
+			// The remaining chip is the same size it was, and the numeral changed in place.
+			const [one] = metrics.oneChip as Array<{ w: number; h: number }>;
+			const [, second] = metrics.twoChips as Array<{ w: number; h: number }>;
+			expect(Math.abs(one.w - second.w)).toBeLessThanOrEqual(0.5);
+			expect(Math.round(one.h)).toBe(28);
+		});
+	}
+});
+
+test.describe("pictures in the composer on a phone (T5)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const variant of [
+		{ name: "phone-history-attach-390", viewport: PHONE, language: "en" },
+		{
+			name: "phone-history-attach-360-hu",
+			viewport: { width: 360, height: 780 },
+			language: "hu",
+		},
+	] as const) {
+		test(`${variant.name}: a strip frame opens History, Attach there gives the sheet way and the chip shows; two chips do not make the page scroll sideways`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const context = await browser.newContext({
+				baseURL: testInfo.project.use.baseURL as string,
+				viewport: variant.viewport,
+				hasTouch: true,
+				isMobile: true,
+				recordVideo: { dir: join(OUT_DIR, ".raw"), size: variant.viewport },
+			});
+			const page = await context.newPage();
+			const startedAt = Date.now();
+			const errors: string[] = [];
+			page.on("pageerror", (error) => errors.push(error.message));
+			page.on("console", (message) => {
+				if (message.type() === "error") errors.push(message.text());
+			});
+			await installMotionRecorder(page);
+			const flow = {
+				context,
+				page,
+				startedAt,
+				marks: {} as Record<string, number>,
+				errors,
+			};
+			const hu = variant.language === "hu";
+			const metrics: Record<string, unknown> = {};
+			const runs: Record<string, MotionRun> = {};
+			try {
+				const user = await createTourUser(variant.language);
+				await markToursSeen(user);
+				const chatId = await startChatAs(page, user);
+				await seedPictureHistory(user, chatId);
+				await reopenChat(page, chatId);
+				const attachFromHistory = async (label: string, frame: number) => {
+					if (label === "first") {
+						await openItem(page, IMAGE_ITEM_TITLE);
+					} else {
+						// The panel gave way and remembers its item: the count button brings it back.
+						await page.getByTestId("artifact-count-button-compact").click();
+					}
+					await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
+						timeout: 20_000,
+					});
+					await settle(page);
+					const frames = page.locator(
+						'[data-testid="image-version-frame"]:visible',
+					);
+					await expect(frames).toHaveCount(3);
+					// A finger cannot hit a dot on a 56 px frame: none is drawn on touch.
+					await expect(
+						page.locator('[data-testid="image-version-attach"]:visible'),
+					).toHaveCount(0);
+					await frames.nth(frame).tap();
+					await expectHistoryShown(page, "image");
+					await settle(page);
+					await startRecording(page, T5_TRACK);
+					mark(flow, label);
+					const attach = page.getByTestId("image-version-preview-attach");
+					await expect(attach).toBeEnabled();
+					const box = await attach.boundingBox();
+					metrics[`${label}Target`] = box && { w: box.width, h: box.height };
+					await attach.tap();
+					await expect(page.locator(".workspace-stage:visible")).toHaveCount(0);
+					await expect(page.locator(CHIP)).toHaveCount(
+						label === "first" ? 1 : 2,
+					);
+					await expect
+						.poll(async () =>
+							(await composerChips(page)).every((entry) => entry.thumbLoaded),
+						)
+						.toBe(true);
+					await settle(page);
+					runs[label] = await stopRecording(page);
+				};
+				await attachFromHistory("first", 0);
+				await attachFromHistory("second", 1);
+				const names = (await composerChips(page)).map((entry) => entry.name);
+				metrics.chips = await composerChips(page);
+				metrics.layout = await page.evaluate(() => {
+					const send = document.querySelector('[data-testid="send-button"]');
+					const box = send?.getBoundingClientRect();
+					const row = document.querySelector(
+						".composer-chip-item",
+					)?.parentElement;
+					return {
+						pageOverflows:
+							document.documentElement.scrollWidth > window.innerWidth + 0.5,
+						sendInViewport: Boolean(
+							box && box.right <= window.innerWidth + 0.5 && box.left >= 0,
+						),
+						rowScrollsInside: row
+							? row.scrollWidth > row.clientWidth + 0.5
+							: false,
+					};
+				});
+				expect(names).toEqual(
+					hu
+						? [`1. kép: ${IMAGE_ITEM_TITLE}`, `2. kép: ${IMAGE_ITEM_TITLE}`]
+						: [
+								`Picture 1: ${IMAGE_ITEM_TITLE}`,
+								`Picture 2: ${IMAGE_ITEM_TITLE}`,
+							],
+				);
+				metrics.runs = Object.fromEntries(
+					Object.entries(runs).map(([name, run]) => [
+						name,
+						{
+							cls: shiftsBetween(run, 0, Number.POSITIVE_INFINITY),
+							shifts: run.shifts,
+							longFrames: run.longFrames,
+							transitions: t5Transitions(run),
+						},
+					]),
+				);
+				await page.waitForTimeout(500);
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t5",
+					segments: ["first", "second"],
+				});
+			}
+			expect(errors, "the page logged an error").toEqual([]);
+			const layout = metrics.layout as {
+				pageOverflows: boolean;
+				sendInViewport: boolean;
+			};
+			expect(layout.pageOverflows, "the page scrolls sideways").toBe(false);
+			expect(layout.sendInViewport, "Send is pushed off the screen").toBe(true);
+			for (const key of ["firstTarget", "secondTarget"]) {
+				const target = metrics[key] as { w: number; h: number };
+				expect(target.h, `${key}: under 44 px tall`).toBeGreaterThanOrEqual(44);
+			}
+			for (const chip of metrics.chips as Array<{ h: number }>) {
+				expect(Math.round(chip.h)).toBe(28);
+			}
+			for (const label of ["first", "second"]) {
+				holdChipRun(label, runs[label], [flow.marks[label]], false);
+			}
 		});
 	}
 });
