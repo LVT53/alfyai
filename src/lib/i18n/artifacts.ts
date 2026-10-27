@@ -157,6 +157,7 @@ const artifactsDict = {
 		"artifacts.deleted.canvas": "This canvas was deleted",
 		"artifacts.deleted.slides": "These slides were deleted",
 		"artifacts.deleted.file": "The file has been deleted",
+		"artifacts.deleted.image": "This picture was deleted",
 		"artifacts.deleted.regenerate": "Regenerate",
 		"artifacts.deleted.regenerateA11y": "Regenerate {title}",
 		"artifacts.deleted.regenerating": "Regenerating…",
@@ -1125,6 +1126,10 @@ const artifactsDict = {
 		"artifacts.image.card.takeAlt": "{title}, take {number}",
 		"artifacts.image.card.actionFailed":
 			"That didn't work. Try again in a moment.",
+		"artifacts.image.card.checkingAgain": "Alfy is trying once more…",
+		"artifacts.image.card.goneDetail": "The picture is no longer kept.",
+		"artifacts.image.card.elsewhereDetail":
+			"Open it from the chat it was made in.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1212,6 +1217,7 @@ const artifactsDict = {
 		"artifacts.deleted.canvas": "Ez a tábla törölve lett",
 		"artifacts.deleted.slides": "Ez a diasor törölve lett",
 		"artifacts.deleted.file": "A fájl törölve lett",
+		"artifacts.deleted.image": "Ez a kép törölve lett",
 		"artifacts.deleted.regenerate": "Újragenerálás",
 		"artifacts.deleted.regenerateA11y": "{title} újragenerálása",
 		"artifacts.deleted.regenerating": "Újragenerálás…",
@@ -2057,6 +2063,10 @@ const artifactsDict = {
 		"artifacts.image.card.takeAlt": "{title}, {number}. változat",
 		"artifacts.image.card.actionFailed":
 			"Ez most nem sikerült. Próbáld újra egy kicsit később.",
+		"artifacts.image.card.checkingAgain": "Alfy még egyszer próbálja…",
+		"artifacts.image.card.goneDetail": "A kép már nincs meg.",
+		"artifacts.image.card.elsewhereDetail":
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
 	},
 } as const;
 

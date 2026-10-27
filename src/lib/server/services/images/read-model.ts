@@ -5,6 +5,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { imageCards, imageFiles, imageJobs } from "$lib/server/db/schema";
+import { MAX_VISIBLE_TAKES_PER_CARD } from "$lib/shared/artifacts/image-body";
 import { NEW_PICTURE_CANVAS } from "./canvas";
 import { type MadeFrom, parseTakeRequest } from "./take-request";
 
@@ -71,8 +72,8 @@ export type ImageCardView = {
 	takes: ImageTakeView[];
 };
 
-/** Most takes a card shows at once; Another is refused beyond it. */
-export const MAX_VISIBLE_TAKES_PER_CARD = 8;
+/** Most takes a card shows at once; Another is refused beyond it (one number, shared with the card). */
+export { MAX_VISIBLE_TAKES_PER_CARD };
 
 function viewStatus(status: string): ImageTakeView["status"] {
 	return status === "queued" ||

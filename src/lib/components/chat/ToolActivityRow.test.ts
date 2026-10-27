@@ -10,6 +10,11 @@ import {
 	type ToolActivityItem,
 } from "$lib/utils/tool-activity";
 import type { ToolCallSegment } from "$lib/utils/tool-evidence-presentation";
+import type { DeletedArtifacts } from "../artifacts/deleted-artifacts";
+import {
+	card as pictureCard,
+	take as pictureTake,
+} from "../artifacts/image/image-card-fixtures.test-helpers";
 import ToolActivityRow from "./ToolActivityRow.svelte";
 
 function toolCall(overrides: Partial<ToolCallSegment>): ToolCallSegment {
@@ -860,5 +865,94 @@ describe("ToolActivityRow", () => {
 				"Weekend plan",
 			);
 		});
+	});
+});
+
+describe("ToolActivityRow, a picture card whose Image is gone (plan 2b T2)", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	function pictureRow(): ToolActivityItem {
+		const built = item({
+			name: "make_image",
+			callId: "call-pic",
+			input: { prompt: "a lighthouse", title: "Lighthouse" },
+			metadata: {
+				ok: true,
+				imageStatus: "succeeded",
+				imageCardId: "card-1",
+				imageTakeId: "take-x",
+			},
+		});
+		const body = built.body as Extract<
+			NonNullable<ToolActivityItem["body"]>,
+			{ kind: "image-card" }
+		>;
+		return {
+			...built,
+			body: {
+				...body,
+				card: pictureCard([pictureTake({ fileId: "file-x" })], {
+					artifactId: "image-1",
+				}),
+			},
+		};
+	}
+
+	const gone = (over: Partial<DeletedArtifacts>): DeletedArtifacts => ({
+		deletedIds: [],
+		unreachableIds: [],
+		regeneratingIds: [],
+		unavailableIds: [],
+		onRegenerate: vi.fn(),
+		...over,
+	});
+
+	it("says a deleted picture was deleted, keeps its box, and offers no Open, picture, Another or History", async () => {
+		const onImageAction = vi.fn(async () => undefined);
+		const onOpenDocument = vi.fn();
+		const { getByTestId, findByTestId, queryByText } = render(ToolActivityRow, {
+			item: pictureRow(),
+			deletedArtifacts: gone({ deletedIds: ["image-1"] }),
+			onImageAction,
+			onOpenDocument,
+		});
+
+		await findByTestId("image-card-gone");
+		const head = getByTestId("artifact-card-head");
+		expect(head).toHaveTextContent("This picture was deleted");
+		expect(head).toBeDisabled();
+		expect(getByTestId("artifact-card")).toHaveClass("artifact-card-deleted");
+		expect(queryByText("Regenerate")).toBeNull();
+		expect(getByTestId("image-card-another")).toBeDisabled();
+		expect(
+			within(getByTestId("artifact-card")).getByRole("button", {
+				name: "More",
+				hidden: true,
+			}),
+		).toBeDisabled();
+		expect(getByTestId("image-card-stage").querySelector("img")).toBeNull();
+		await fireEvent.click(head);
+		expect(onOpenDocument).not.toHaveBeenCalled();
+		expect(onImageAction).not.toHaveBeenCalled();
+	});
+
+	it("says a picture out of this chat's reach was made in the original chat", async () => {
+		uiLanguage.set("hu");
+		const { getByTestId, findByTestId } = render(ToolActivityRow, {
+			item: pictureRow(),
+			deletedArtifacts: gone({
+				unreachableIds: ["image-1"],
+				deletedIds: ["image-1"],
+			}),
+		});
+		await findByTestId("image-card-gone");
+		expect(getByTestId("artifact-card-head")).toHaveTextContent(
+			"Az eredeti beszélgetésben készült",
+		);
+		expect(getByTestId("image-card-gone")).toHaveTextContent(
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
+		);
 	});
 });

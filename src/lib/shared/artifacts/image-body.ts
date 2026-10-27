@@ -14,6 +14,9 @@
  */
 export const IMAGE_THUMB_LONG_EDGE = 320;
 
+/** Most takes a picture card shows at once; the server refuses Another beyond it, and the card's Another is off there. */
+export const MAX_VISIBLE_TAKES_PER_CARD = 8;
+
 /** The width of a picture's thumbnail: never wider than the picture itself. */
 export function thumbWidth(width: number, height: number): number {
 	const longEdge = Math.max(width, height);

@@ -49,6 +49,26 @@ export function visibleTakes(card: ImageCardView): ImageTakeView[] {
 	);
 }
 
+/**
+ * The server is making its one automatic retry of `take` (a clear miss) and has
+ * not yet chosen between the two: the card keeps showing `take` with a quiet
+ * "checking again" note over it, and swaps in place if the retry wins.
+ */
+export function isCheckingAgain(
+	card: ImageCardView,
+	take: ImageTakeView | null,
+): boolean {
+	if (!take) return false;
+	return card.takes.some(
+		(other) =>
+			other.origin === "auto_retry" &&
+			other.held &&
+			other.retryOf === take.id &&
+			other.status !== "failed" &&
+			other.status !== "cancelled",
+	);
+}
+
 const isBeingMade = (take: ImageTakeView) =>
 	take.status === "queued" || take.status === "running";
 

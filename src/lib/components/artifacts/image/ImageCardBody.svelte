@@ -17,12 +17,14 @@ import {
 	Ellipsis,
 	History,
 	Download,
+	ImageOff,
 	LoaderCircle,
 	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
 import { fade } from "svelte/transition";
 import { t } from "$lib/i18n";
+import { MAX_VISIBLE_TAKES_PER_CARD } from "$lib/shared/artifacts/image-body";
 import type {
 	ImageCardView,
 	ImageTakeView,
@@ -34,6 +36,7 @@ import {
 	type ImageCardAction,
 	type ImageCardActionHandler,
 	type ImageCardState,
+	isCheckingAgain,
 	STARTING_SHOWN_AFTER_MS,
 	shownTake,
 	takeState,
@@ -45,14 +48,18 @@ let {
 	card,
 	conversationId = null,
 	onAction = undefined,
+	gone = null,
 }: {
 	card: ImageCardView;
 	conversationId?: string | null;
 	onAction?: ImageCardActionHandler | undefined;
+	/**
+	 * The Image this card is about was deleted, or is out of this chat's reach
+	 * (made in the chat this one was forked from). The card keeps its box and
+	 * rows, says so in the box, and offers nothing to press.
+	 */
+	gone?: "deleted" | "unreachable" | null;
 } = $props();
-
-/** The most takes a card holds; the server refuses Another beyond it. */
-const MAX_TAKES = 8;
 /** A new picture's size, for a card that has no take to read one from. */
 const FALLBACK_BOX = { width: 1248, height: 832 };
 const PLACEHOLDER = "placeholder";
@@ -65,14 +72,25 @@ let showing = $state<"after" | "before">("after");
 let menuOpen = $state(false);
 /** Anothers pressed whose take the card does not hold yet. */
 let pendingAnothers = $state(0);
-/** How many takes the card held when the first of them was pressed. */
-let takesBeforeAnother = $state(0);
+/** The takes the card held when the first of them was pressed. */
+let takesBeforeAnother = $state.raw<ReadonlySet<string>>(new Set());
 /** The clock the "starting up" line reads; ticks only while it can change. */
 let now = $state(Date.now());
 
 let takes = $derived(visibleTakes(card));
+/**
+ * Another's tiles still on their way: one per press, until a take of origin
+ * "another" the card did not hold at the press arrives. Only those count, so a
+ * held automatic retry joining the card does not take a tile away.
+ */
 let placeholders = $derived(
-	Math.max(0, takesBeforeAnother + pendingAnothers - card.takes.length),
+	Math.max(
+		0,
+		pendingAnothers -
+			card.takes.filter(
+				(take) => take.origin === "another" && !takesBeforeAnother.has(take.id),
+			).length,
+	),
 );
 $effect(() => {
 	if (pendingAnothers > 0 && placeholders === 0) pendingAnothers = 0;
@@ -104,13 +122,17 @@ let cardState: ImageCardState = $derived(
 let box = $derived(
 	shown?.box ?? takes.at(-1)?.box ?? card.takes.at(-1)?.box ?? FALLBACK_BOX,
 );
-let ready = $derived(cardState.kind === "ready" && Boolean(shown?.fileId));
+let ready = $derived(
+	!gone && cardState.kind === "ready" && Boolean(shown?.fileId),
+);
+let checkingAgain = $derived(ready && isCheckingAgain(card, shown));
 let canFlip = $derived(Boolean(ready && shown?.baseFileId));
 let stripCount = $derived(takes.length + placeholders);
 let canUse = $derived(
 	Boolean(
 		shown &&
 			ready &&
+			!gone &&
 			!shown.held &&
 			shown.id !== card.pickedTakeId &&
 			shown.status === "succeeded",
@@ -121,7 +143,9 @@ let madeFromIds = $derived(
 		? (shown?.sourceFileIds ?? card.takes[0]?.sourceFileIds ?? [])
 		: [],
 );
-let anotherDisabled = $derived(stripCount >= MAX_TAKES);
+let anotherDisabled = $derived(
+	Boolean(gone) || stripCount >= MAX_VISIBLE_TAKES_PER_CARD,
+);
 
 // Before / After is about the shown take: a new take starts on After.
 $effect(() => {
@@ -151,14 +175,17 @@ $effect(() => {
 	return () => clearInterval(timer);
 });
 
-/** Progress never goes backwards for one take, whatever a poll reports. */
-const progressSeen = new Map<string, number>();
+/** Progress never goes backwards for one take, whatever a poll reports: the best seen per take. */
+let progressSeen = $state.raw<Record<string, number>>({});
 let progress = $derived.by(() => {
 	if (cardState.kind !== "making" || !shown) return 0;
 	const reported = Math.max(0, Math.min(100, cardState.progressPercent ?? 0));
-	const best = Math.max(progressSeen.get(shown.id) ?? 0, reported);
-	progressSeen.set(shown.id, best);
-	return best;
+	return Math.max(progressSeen[shown.id] ?? 0, reported);
+});
+$effect.pre(() => {
+	const id = shown?.id;
+	if (!id || progress <= (progressSeen[id] ?? 0)) return;
+	progressSeen = { ...progressSeen, [id]: progress };
 });
 
 function send(action: ImageCardAction) {
@@ -180,7 +207,9 @@ function chooseTake(id: string): void {
 
 async function pressAnother(): Promise<void> {
 	if (anotherDisabled) return;
-	if (pendingAnothers === 0) takesBeforeAnother = card.takes.length;
+	if (pendingAnothers === 0) {
+		takesBeforeAnother = new Set(card.takes.map((take) => take.id));
+	}
 	pendingAnothers += 1;
 	selectedTakeId = PLACEHOLDER;
 	try {
@@ -276,12 +305,27 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		style:aspect-ratio="{box.width} / {box.height}"
 		data-testid="image-card-stage"
 	>
-		{#if ready && shown?.fileId}
+		{#if gone}
+			<!-- The Image is gone, or lives in another chat: the box keeps its
+			     shape and says so; nothing in the card can be pressed. -->
+			<div
+				class="image-card-layer image-card-state image-card-gone"
+				data-testid="image-card-gone"
+				transition:crossfade={{ duration: MOTION_DURATION.standard }}
+			>
+				<ImageOff size={20} strokeWidth={1.75} aria-hidden="true" />
+				<span class="image-card-state-detail">
+					{gone === 'unreachable'
+						? $t('artifacts.image.card.elsewhereDetail')
+						: $t('artifacts.image.card.goneDetail')}
+				</span>
+			</div>
+		{:else if ready && shown?.fileId}
 			<div class="image-card-layer" transition:crossfade={{ duration: MOTION_DURATION.standard }}>
 				<button
 					type="button"
 					class="image-card-picture"
-					disabled={!card.artifactId}
+					disabled={!card.artifactId || Boolean(gone)}
 					aria-label={card.title}
 					data-testid="image-card-picture"
 					onclick={pressOpen}
@@ -297,6 +341,20 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{showing}
 					/>
 				</button>
+				{#if checkingAgain}
+					<!-- The server's one automatic retry of this take is under way: the
+					     take stays, a quiet note says so, and the better one takes its
+					     place when the server decides (opacity only). -->
+					<span
+						class="image-card-checking"
+						data-testid="image-card-checking"
+						role="status"
+						transition:crossfade={{ duration: MOTION_DURATION.standard }}
+					>
+						<LoaderCircle class="image-card-spin" size={13} strokeWidth={2} aria-hidden="true" />
+						{$t('artifacts.image.card.checkingAgain')}
+					</span>
+				{/if}
 				{#if canFlip}
 					<div class="image-card-flip" role="group" aria-label={card.title}>
 						<span class="image-card-flip-thumb" class:is-after={showing === 'after'} aria-hidden="true"></span>
@@ -377,9 +435,12 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					aria-label={$t('artifacts.image.card.takeAlt', { title: card.title, number: takeNumber(take) })}
 					data-testid="image-card-tile"
 					data-take-id={take.id}
+					disabled={Boolean(gone)}
 					onclick={() => chooseTake(take.id)}
 				>
-					{#if tileState.kind === 'ready' && take.fileId}
+					{#if gone}
+						<span class="image-card-tile-state"><ImageOff size={14} strokeWidth={2} aria-hidden="true" /></span>
+					{:else if tileState.kind === 'ready' && take.fileId}
 						<ImagePicture
 							fileId={take.fileId}
 							width={take.width ?? take.box.width}
@@ -462,6 +523,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			class="image-card-icon-button"
 			aria-label={$t('artifacts.image.card.more')}
 			aria-haspopup="dialog"
+			disabled={Boolean(gone)}
 			data-testid={menuAnchorId}
 			onclick={() => (menuOpen = !menuOpen)}
 		>
@@ -607,6 +669,30 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		box-shadow: 0 0 0 2px var(--focus-ring) inset;
 	}
 
+	/* "Alfy is trying once more…": a quiet chip over the picture, never a row. */
+	.image-card-checking {
+		position: absolute;
+		left: 0.5rem;
+		bottom: 0.5rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		max-width: calc(100% - 1rem);
+		padding: 0.25rem 0.625rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		pointer-events: none;
+	}
+
+	.image-card-gone {
+		color: var(--icon-muted);
+	}
+
 	.image-card-state {
 		display: flex;
 		flex-direction: column;
@@ -720,6 +806,15 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		opacity: 1;
 	}
 
+	.image-card-tile:disabled {
+		cursor: default;
+	}
+
+	.image-card-icon-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
 	.image-card-tile:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
@@ -764,7 +859,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		width: 30px;
 		height: 30px;
 		overflow: hidden;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 	}
 
 	.image-card-source-pic :global(.image-picture) {

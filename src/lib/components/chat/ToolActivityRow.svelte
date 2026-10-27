@@ -141,10 +141,27 @@ type ArtifactFailedBody = Extract<
  * their slices add previews" means for Slides today (a Canvas gets its block
  * count, `canvasPreview`).
  */
+/**
+ * What happened to the item a card is about, if anything: still there but out
+ * of this chat's reach (the security review's M1: made in another chat; wins
+ * over deleted), or deleted (polish G2-A). One answer for every kind's card.
+ */
+function goneState(
+	artifactId: string | null,
+): "unreachable" | "deleted" | null {
+	if (!artifactId) return null;
+	if (deletedArtifacts?.unreachableIds.includes(artifactId)) {
+		return "unreachable";
+	}
+	if (deletedArtifacts?.deletedIds.includes(artifactId)) return "deleted";
+	return null;
+}
+
 function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
+	const gone = goneState(body.artifactId);
 	// The security review's M1: the item exists but this chat cannot reach it
 	// (made in another chat). Not deleted — and not regenerable, not openable.
-	if (deletedArtifacts?.unreachableIds.includes(body.artifactId)) {
+	if (gone === "unreachable") {
 		return {
 			id: body.artifactId,
 			kind: body.artifactKind,
@@ -154,7 +171,7 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	}
 	// Polish G2-A: the item is gone — nothing else about it (preview, pending
 	// review, version) is true any more, and there is nothing to open.
-	if (deletedArtifacts?.deletedIds.includes(body.artifactId)) {
+	if (gone === "deleted" && deletedArtifacts) {
 		return {
 			id: body.artifactId,
 			kind: body.artifactKind,
@@ -276,28 +293,26 @@ function imageCardView(
 	},
 ): ArtifactCardView {
 	const card = body.card;
+	// The same answer the other kinds' cards read. A picture is never made
+	// again (no Regenerate); its card keeps its box and says so (ImageCardBody).
+	const gone = goneState(card.artifactId);
 	return {
 		id: card.artifactId ?? `image-card:${card.id}`,
 		kind: "image",
 		title: card.title || body.title,
-		subtitle: cardSubtitle(card, $t),
-		openTargetId: card.artifactId,
-		current: activeArtifactId != null && activeArtifactId === card.artifactId,
+		subtitle:
+			gone === "unreachable"
+				? $t("artifacts.madeInOriginalChat")
+				: gone === "deleted"
+					? $t("artifacts.deleted.image")
+					: cardSubtitle(card, $t),
+		openTargetId: gone ? null : card.artifactId,
+		current:
+			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,
+		deleted: gone === "deleted",
+		unreachable: gone === "unreachable",
 		editedLabel: null,
 	};
-}
-
-function handleOpenImage(artifactId: string, title: string): void {
-	onOpenDocument?.({
-		id: `artifact:${artifactId}`,
-		source: "knowledge_artifact",
-		filename: title,
-		title,
-		mimeType: null,
-		artifactId,
-		conversationId,
-		kind: "image",
-	});
 }
 
 /** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
@@ -586,8 +601,9 @@ function handleToggle() {
 				view={imageCardView({ ...body, card })}
 				chrome="full"
 				imageCard={card}
-				onImageAction={onImageAction}
-				onOpen={(artifactId) => handleOpenImage(artifactId, card.title || body.title)}
+				{onImageAction}
+				onOpen={(artifactId) =>
+					void onImageAction?.({ type: "open", artifactId })?.catch(() => undefined)}
 			/>
 		</div>
 	{/if}

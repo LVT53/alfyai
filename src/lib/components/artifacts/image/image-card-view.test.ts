@@ -11,6 +11,7 @@ import {
 	cardSubtitle,
 	etaLabel,
 	hasActiveImageTakes,
+	isCheckingAgain,
 	shownTake,
 	takeState,
 	visibleTakes,
@@ -284,5 +285,33 @@ describe("canCompareBeforeAfter and hasActiveImageTakes", () => {
 			true,
 		);
 		expect(hasActiveImageTakes([])).toBe(false);
+	});
+});
+
+describe("isCheckingAgain", () => {
+	it("is true while the server's held automatic retry of the shown take runs", () => {
+		const first = take();
+		const retry = take({
+			origin: "auto_retry",
+			held: true,
+			retryOf: first.id,
+			status: "running",
+			fileId: null,
+		});
+		expect(isCheckingAgain(card([first, retry]), first)).toBe(true);
+		expect(
+			isCheckingAgain(card([first, { ...retry, status: "succeeded" }]), first),
+		).toBe(true);
+		expect(
+			isCheckingAgain(card([first, { ...retry, held: false }]), first),
+		).toBe(false);
+		expect(
+			isCheckingAgain(card([first, { ...retry, origin: "retry" }]), first),
+		).toBe(false);
+		expect(
+			isCheckingAgain(card([first, { ...retry, status: "failed" }]), first),
+		).toBe(false);
+		expect(isCheckingAgain(card([first]), first)).toBe(false);
+		expect(isCheckingAgain(card([first]), null)).toBe(false);
 	});
 });

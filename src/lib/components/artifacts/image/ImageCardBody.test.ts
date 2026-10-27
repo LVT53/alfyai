@@ -5,6 +5,14 @@ import { uiLanguage } from "$lib/stores/settings";
 import ImageCardBody from "./ImageCardBody.svelte";
 import { card, take } from "./image-card-fixtures.test-helpers";
 
+/** Svelte makes a leaving element inert (a property, which jsdom does not reflect). */
+function isInert(element: Element | null): boolean {
+	for (let node = element; node; node = node.parentElement) {
+		if ((node as HTMLElement).inert) return true;
+	}
+	return false;
+}
+
 describe("ImageCardBody", () => {
 	beforeEach(() => {
 		uiLanguage.set("en");
@@ -372,6 +380,118 @@ describe("ImageCardBody", () => {
 		expect(row).toHaveTextContent("1");
 		expect(row).toHaveTextContent("2");
 		expect(row.querySelectorAll("img")).toHaveLength(2);
+	});
+
+	it("keeps the shown take with a quiet note while the server checks it once more, in the same box", async () => {
+		const first = take({ fileId: "first-file" });
+		const retry = take({
+			origin: "auto_retry",
+			held: true,
+			retryOf: first.id,
+			status: "running",
+			phase: "rendering",
+			fileId: null,
+		});
+		const { rerender } = render(ImageCardBody, {
+			card: card([first, retry], { pickedTakeId: null }),
+		});
+		const stage = screen.getByTestId("image-card-stage");
+		expect(screen.getByTestId("image-card-checking")).toHaveTextContent(
+			"Alfy is trying once more…",
+		);
+		expect(
+			stage
+				.querySelector('[data-testid="image-picture-after"]')
+				?.getAttribute("src"),
+		).toContain("first-file");
+		expect(screen.queryByTestId("image-card-strip")).toBeNull();
+
+		// The retry won: the server hides the first take and releases the retry.
+		await rerender({
+			card: card(
+				[
+					{
+						...retry,
+						held: false,
+						status: "succeeded",
+						phase: null,
+						fileId: "retry-file",
+					},
+				],
+				{ pickedTakeId: retry.id },
+			),
+		});
+		// Gone, or fading out (Svelte makes a leaving element inert).
+		const leaving = screen.queryByTestId("image-card-checking");
+		expect(leaving === null || isInert(leaving)).toBe(true);
+		expect(screen.getByTestId("image-card-stage")).toBe(stage);
+		expect(stage.style.aspectRatio).toBe("1248 / 832");
+	});
+
+	it("keeps Another's tile while only a held automatic retry joins the card", async () => {
+		const first = take();
+		const onAction = vi.fn(() => new Promise<{ takeId?: string }>(() => {}));
+		const { rerender } = render(ImageCardBody, {
+			card: card([first]),
+			onAction,
+		});
+		await fireEvent.click(screen.getByRole("button", { name: /Another/ }));
+		await rerender({
+			card: card([
+				first,
+				take({
+					origin: "auto_retry",
+					held: true,
+					retryOf: first.id,
+					status: "queued",
+					fileId: null,
+				}),
+			]),
+		});
+		expect(
+			screen.getByTestId("image-card-tile-placeholder"),
+		).toBeInTheDocument();
+	});
+
+	it("says a deleted picture is gone, in its box, and offers nothing to press", async () => {
+		const ready = take({ fileId: "file-d" });
+		const onAction = vi.fn();
+		const { rerender } = render(ImageCardBody, {
+			card: card([ready, take()]),
+			onAction,
+		});
+		const stage = screen.getByTestId("image-card-stage");
+		await rerender({ gone: "deleted" });
+
+		expect(screen.getByTestId("image-card-gone")).toHaveTextContent(
+			"The picture is no longer kept.",
+		);
+		// The picture fades out under the words (Svelte makes a leaving layer
+		// inert), and cannot be pressed meanwhile.
+		for (const picture of screen.queryAllByTestId("image-card-picture")) {
+			expect((picture as HTMLButtonElement).disabled || isInert(picture)).toBe(
+				true,
+			);
+		}
+		expect(screen.getByTestId("image-card-stage")).toBe(stage);
+		expect(stage.style.aspectRatio).toBe("1248 / 832");
+		expect(screen.getByRole("button", { name: /Another/ })).toBeDisabled();
+		expect(screen.getByRole("button", { name: "More" })).toBeDisabled();
+		for (const tile of screen.getAllByTestId("image-card-tile")) {
+			expect(tile).toBeDisabled();
+			expect(tile.querySelector("img")).toBeNull();
+		}
+		expect(screen.queryByRole("button", { name: /Use this/ })).toBeNull();
+		expect(onAction).not.toHaveBeenCalled();
+	});
+
+	it("says a picture made in another chat opens there, in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(ImageCardBody, { card: card([take()]), gone: "unreachable" });
+		expect(screen.getByTestId("image-card-gone")).toHaveTextContent(
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
+		);
+		expect(screen.getByRole("button", { name: /Másik/ })).toBeDisabled();
 	});
 
 	it("speaks Hungarian", async () => {

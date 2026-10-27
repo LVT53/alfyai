@@ -479,7 +479,7 @@ function handleOpen(): void {
 				? 'deleted'
 				: undefined}
 	>
-		{#if chrome === 'full' && (view.deleted || view.unreachable)}
+		{#if chrome === 'full' && (view.deleted || view.unreachable) && !(view.kind === 'image' && imageCard)}
 			<!-- Polish G2-A: the item is gone. Not a button — there is nothing to
 			     open — but a plain head: the kind tile, the title, what happened
 			     and, where it can be made again, Regenerate. The security review's
@@ -622,10 +622,13 @@ function handleOpen(): void {
 					<p class="artifact-card-failed-reason">{view.failedReason}</p>
 				</div>
 			{:else if view.kind === 'image' && imageCard && ImageCardBody}
+				<!-- A picture card whose Image is gone keeps its head and box (no
+				     height change, F9): the head says so, the body says so in the box. -->
 				<ImageCardBody
 					card={imageCard}
 					conversationId={imageCard.conversationId}
 					onAction={onImageAction}
+					gone={view.unreachable ? 'unreachable' : view.deleted ? 'deleted' : null}
 				/>
 			{:else}
 				{#if view.factCheckLine}
