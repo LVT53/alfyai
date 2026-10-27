@@ -134,6 +134,7 @@ let {
 	onFlushReady = undefined,
 	artifactVersionMessages = undefined,
 	onShowChatMessage = undefined,
+	onAttachPicture = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -228,6 +229,10 @@ let {
 		| undefined;
 	/** Scrolls the chat to a message and flashes it ("From the chat"); the page closes this panel first where it covers the chat (a phone). */
 	onShowChatMessage?: ((messageId: string) => void) | undefined;
+	/** Puts a picture of the open Image (a strip frame, a History version) in the chat's composer (plan 2b T5, F12). Absent for a host with no chat (the Knowledge page). */
+	onAttachPicture?:
+		| ((picture: { imageFileId: string; name: string }) => void)
+		| undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -2544,6 +2549,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{conversationId}
 					{currentUser}
 					initialVersionId={historyInitialVersionId}
+					{onAttachPicture}
 					onDone={() => closeHistory()}
 					onReview={handleHistoryReview}
 					onRestored={handleHistoryRestored}
@@ -2859,6 +2865,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onOpenHistory={(versionId) => void openHistory(versionId)}
+								{onAttachPicture}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
@@ -3210,6 +3217,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onOpenHistory={(versionId) => void openHistory(versionId)}
+						{onAttachPicture}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}

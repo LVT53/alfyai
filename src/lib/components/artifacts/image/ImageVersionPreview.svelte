@@ -11,6 +11,9 @@
 // no changes, so the shell shows no stepper. Bodies come from History's one
 // shared memory (`version-bodies.ts`); the preview loads full pictures (the rail
 // has the thumbnails).
+// The icon file itself, not the barrel: History's preview registry test loads this
+// module cold, and the barrel alone costs it several seconds to transform.
+import Paperclip from "@lucide/svelte/icons/paperclip";
 import { imageFileUrl } from "$lib/client/api/images";
 import { t } from "$lib/i18n";
 import {
@@ -32,6 +35,8 @@ let {
 	nowVersionId,
 	nowHash,
 	label,
+	title = "",
+	onAttachPicture,
 	onState,
 }: HistoryPreviewProps = $props();
 
@@ -165,6 +170,22 @@ const tags = $derived(
 			</div>
 		{/if}
 	</div>
+	{#if onAttachPicture}
+		<!-- One row, there whether the version has loaded or not, so the picture
+		     above is the same size before and after it loads. -->
+		<div class="ivp-actions">
+			<button
+				type="button"
+				class="ivp-attach"
+				data-testid="image-version-preview-attach"
+				disabled={!shown}
+				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: title || label })}
+			>
+				<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.image.card.attach')}
+			</button>
+		</div>
+	{/if}
 	{#if status !== 'error' && shown && (marksLine || shown.prompt)}
 		<div class="ivp-foot">
 			{#if marksLine}
@@ -237,6 +258,45 @@ const tags = $derived(
 		font-size: var(--text-2xs);
 		font-weight: 800;
 		line-height: calc(var(--space-md) + var(--space-xs));
+	}
+
+	.ivp-actions {
+		display: flex;
+		flex: none;
+		justify-content: flex-start;
+	}
+
+	.ivp-attach {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-xs);
+		min-height: 2.75rem;
+		padding: 0 var(--space-md);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	@media (pointer: fine) {
+		.ivp-attach {
+			min-height: 2rem;
+		}
+	}
+
+	.ivp-attach:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.ivp-attach:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.ivp-error {

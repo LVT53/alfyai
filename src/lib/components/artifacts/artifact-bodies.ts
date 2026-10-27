@@ -110,6 +110,13 @@ export interface ArtifactBodyProps {
 	 */
 	onOpenHistory?: (versionId?: string) => void;
 	/**
+	 * Puts a picture of this item in the chat's composer (plan 2b T5, F12): the
+	 * Image's strip of versions offers it on every frame. The panel supplies it
+	 * where there is a composer to put it in; absent otherwise (the Knowledge
+	 * page), and the strip then draws no Attach.
+	 */
+	onAttachPicture?: (picture: { imageFileId: string; name: string }) => void;
+	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and
 	 * nowhere else). The panel supplies it only where a tour can show: absent

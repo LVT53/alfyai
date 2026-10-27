@@ -156,7 +156,8 @@ export type ImageCardAction =
 	| { type: "retry"; takeId: string }
 	| { type: "download"; fileId: string; title: string }
 	| { type: "history"; artifactId: string }
-	| { type: "open"; artifactId: string };
+	| { type: "open"; artifactId: string }
+	| { type: "attach"; fileId: string; name: string };
 
 /**
  * The page's answer to an action: Another names the take it queued, so the

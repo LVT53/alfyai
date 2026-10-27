@@ -19,6 +19,7 @@ import {
 	Download,
 	ImageOff,
 	LoaderCircle,
+	Paperclip,
 	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
@@ -245,6 +246,14 @@ function pressDownload(): void {
 	menuOpen = false;
 	if (shown?.fileId) {
 		fire({ type: "download", fileId: shown.fileId, title: card.title });
+	}
+}
+
+/** Puts the shown picture in the composer, named after the card (plan 2b T5). */
+function pressAttach(): void {
+	menuOpen = false;
+	if (shown?.fileId) {
+		fire({ type: "attach", fileId: shown.fileId, name: card.title });
 	}
 }
 
@@ -534,6 +543,17 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		onClose={() => (menuOpen = false)}
 	>
 		<div class="image-card-menu" role="menu" aria-label={$t('artifacts.image.card.more')}>
+			<button
+				type="button"
+				role="menuitem"
+				class="image-card-menu-row"
+				data-testid="image-card-attach"
+				disabled={!ready || !shown?.fileId}
+				onclick={pressAttach}
+			>
+				<Paperclip size={16} strokeWidth={1.75} aria-hidden="true" />
+				<span>{$t('artifacts.image.card.attach')}</span>
+			</button>
 			<button
 				type="button"
 				role="menuitem"

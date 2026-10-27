@@ -9,6 +9,7 @@
 // The row is always there, with or without frames, so a second version landing
 // while the panel is open (F23) fills it instead of pushing the picture up. The
 // thumbnails sit in reserved square tiles and fade in on load (`ImagePicture`).
+import { Paperclip } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactMoment } from "$lib/shared/artifacts/history";
 import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
@@ -22,14 +23,22 @@ let {
 	moments,
 	currentVersionId = null,
 	conversationId = null,
+	title = "",
 	onOpenHistory = undefined,
+	onAttachPicture = undefined,
 }: {
 	/** History's moments, newest first, as the route answers them. */
 	moments: readonly ArtifactMoment[];
 	/** The version the panel shows; by default the moment that holds the newest. */
 	currentVersionId?: string | null;
 	conversationId?: string | null;
+	/** The item's name: an attached frame is named after it. */
+	title?: string;
 	onOpenHistory?: ((versionId: string) => void) | undefined;
+	/** Puts a frame's own picture in the composer (plan 2b T5). Absent where the host has none. */
+	onAttachPicture?:
+		| ((picture: { imageFileId: string; name: string }) => void)
+		| undefined;
 } = $props();
 
 function capitalize(text: string): string {
@@ -66,26 +75,40 @@ let frames = $derived(
 <div class="strip" role="group" aria-label={$t('artifacts.image.panel.versions')} data-testid="image-version-strip">
 	{#if frames.length > 1}
 		{#each frames as frame (frame.versionId)}
-			<button
-				type="button"
-				class="frame picture-tile"
-				class:is-chosen={frame.current}
-				aria-current={frame.current ? 'true' : undefined}
-				aria-label={frame.label}
-				title={frame.label}
-				data-testid="image-version-frame"
-				data-version-id={frame.versionId}
-				onclick={() => onOpenHistory?.(frame.versionId)}
-			>
-				<ImagePicture
-					fileId={frame.fileId}
-					width={IMAGE_THUMB_LONG_EDGE}
-					height={IMAGE_THUMB_LONG_EDGE}
-					alt=""
-					{conversationId}
-					variant="thumb"
-				/>
-			</button>
+			<div class="cell">
+				<button
+					type="button"
+					class="frame picture-tile"
+					class:is-chosen={frame.current}
+					aria-current={frame.current ? 'true' : undefined}
+					aria-label={frame.label}
+					title={frame.label}
+					data-testid="image-version-frame"
+					data-version-id={frame.versionId}
+					onclick={() => onOpenHistory?.(frame.versionId)}
+				>
+					<ImagePicture
+						fileId={frame.fileId}
+						width={IMAGE_THUMB_LONG_EDGE}
+						height={IMAGE_THUMB_LONG_EDGE}
+						alt=""
+						{conversationId}
+						variant="thumb"
+					/>
+				</button>
+				{#if onAttachPicture}
+					<button
+						type="button"
+						class="attach"
+						aria-label={$t('artifacts.image.attachNamed', { name: frame.label })}
+						title={$t('artifacts.image.card.attach')}
+						data-testid="image-version-attach"
+						onclick={() => onAttachPicture?.({ imageFileId: frame.fileId, name: title })}
+					>
+						<Paperclip size={12} strokeWidth={2} aria-hidden="true" />
+					</button>
+				{/if}
+			</div>
 		{/each}
 	{/if}
 </div>
@@ -108,10 +131,65 @@ let frames = $derived(
 	}
 
 	/* The tile's look is the shared picture tile (picture-tile.css); a frame is square. */
-	.frame {
+	.cell {
+		position: relative;
 		flex: none;
 		width: 3.5rem;
 		height: 3.5rem;
+	}
+
+	.frame {
+		width: 100%;
+		height: 100%;
+	}
+
+	/* Attach rides the frame's corner: a small scrimmed dot, with a 44 px touch
+	   target painted by a pseudo-element so the drawn size stays small. Only
+	   opacity moves. */
+	.attach {
+		position: absolute;
+		right: 0.125rem;
+		bottom: 0.125rem;
+		display: grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-full);
+		background: color-mix(in srgb, var(--surface-page) 82%, transparent);
+		box-shadow: 0 0 0 1px var(--border-default);
+		color: var(--text-primary);
+		cursor: pointer;
+		opacity: 0.9;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.attach::after {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 2.75rem;
+		height: 2.75rem;
+		transform: translate(-50%, -50%);
+	}
+
+	@media (pointer: fine) {
+		.attach::after {
+			width: 1.25rem;
+			height: 1.25rem;
+		}
+	}
+
+	.attach:hover {
+		opacity: 1;
+	}
+
+	.attach:focus-visible {
+		outline: none;
+		opacity: 1;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.frame:hover {

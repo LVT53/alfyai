@@ -84,6 +84,7 @@ let {
 	chatVersionIds = null,
 	onFromChat = undefined,
 	initialVersionId = undefined,
+	onAttachPicture = undefined,
 }: {
 	artifactId: string;
 	kind: ArtifactKind;
@@ -110,6 +111,10 @@ let {
 	 * phone shows its preview at once. A version the rail does not hold is ignored.
 	 */
 	initialVersionId?: string | undefined;
+	/** Puts a version's picture in the chat's composer (the Image's Attach, plan 2b T5). */
+	onAttachPicture?:
+		| ((picture: { imageFileId: string; name: string }) => void)
+		| undefined;
 } = $props();
 
 const WIDE_MIN_PX = 720;
@@ -980,6 +985,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 				<Preview
 					{artifactId}
 					{conversationId}
+					{title}
+					{onAttachPicture}
 					versionId={selected.versionId}
 					baseVersionId={compareEffective === 'step' ? selected.parentVersionId : nowRow.versionId}
 					compare={compareEffective}

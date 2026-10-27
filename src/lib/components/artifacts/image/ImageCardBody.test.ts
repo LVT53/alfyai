@@ -279,6 +279,31 @@ describe("ImageCardBody", () => {
 		});
 	});
 
+	it("attaches the shown picture, named after the card, from the More menu", async () => {
+		const ready = take({ fileId: "file-z" });
+		const onAction = vi.fn();
+		render(ImageCardBody, { card: card([ready]), onAction });
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		await fireEvent.click(await screen.findByTestId("image-card-attach"));
+		expect(onAction).toHaveBeenCalledWith({
+			type: "attach",
+			fileId: "file-z",
+			name: "Cosy room",
+		});
+	});
+
+	it("offers no Attach while the take has no picture yet", async () => {
+		const making = take({
+			status: "running",
+			fileId: null,
+			width: null,
+			height: null,
+		});
+		render(ImageCardBody, { card: card([making]), onAction: vi.fn() });
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		expect(await screen.findByTestId("image-card-attach")).toBeDisabled();
+	});
+
 	it("opens the picture in the panel when it is pressed", async () => {
 		const onAction = vi.fn();
 		render(ImageCardBody, { card: card([take()]), onAction });

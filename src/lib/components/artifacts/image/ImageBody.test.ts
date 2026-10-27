@@ -230,6 +230,20 @@ describe("ImageBody", () => {
 		expect(onOpenHistory).toHaveBeenCalledWith("v1");
 	});
 
+	it("hands the panel's Attach to the strip, named after the item", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		const onAttachPicture = vi.fn();
+		renderBody({ onAttachPicture });
+		await waitFor(() =>
+			expect(screen.getAllByTestId("image-version-attach")).toHaveLength(2),
+		);
+		await fireEvent.click(screen.getAllByTestId("image-version-attach")[1]);
+		expect(onAttachPicture).toHaveBeenCalledWith({
+			imageFileId: "file-2",
+			name: "Cosy room",
+		});
+	});
+
 	it("says so when the item cannot be read", async () => {
 		api.fetchArtifact.mockRejectedValue(new Error("offline"));
 		renderBody();

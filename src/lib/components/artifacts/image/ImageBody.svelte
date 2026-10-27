@@ -42,6 +42,7 @@ let {
 	versionNumber = null,
 	registerPanelActions,
 	onOpenHistory,
+	onAttachPicture,
 }: ArtifactBodyProps = $props();
 
 /** History's first page is enough for the strip: a picture is rarely changed fifty times. */
@@ -181,7 +182,7 @@ let canFlip = $derived(picture?.baseFileId != null);
 	     the only row, so the picture has the rest of the height in every shape. -->
 	<div class="image-body-foot" data-testid="image-body-foot">
 		<div class="image-body-strip">
-			<VersionStrip {moments} {conversationId} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} />
+			<VersionStrip {moments} {conversationId} {title} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} {onAttachPicture} />
 		</div>
 		<div class="image-body-toolbar">
 			{#if canFlip}

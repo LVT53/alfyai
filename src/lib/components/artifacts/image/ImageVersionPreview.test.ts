@@ -56,6 +56,8 @@ function renderPreview(
 		versionId: string;
 		baseVersionId: string | null;
 		compare: "step" | "now";
+		title: string;
+		onAttachPicture: (picture: { imageFileId: string; name: string }) => void;
 	}> = {},
 ) {
 	const onState = vi.fn();
@@ -91,6 +93,32 @@ beforeEach(() => {
 afterEach(() => {
 	bodies.versionBody.mockReset();
 	uiLanguage.set("en");
+});
+
+describe("ImageVersionPreview Attach", () => {
+	it("attaches the version's own picture, named after the item", async () => {
+		const onAttachPicture = vi.fn();
+		renderPreview({ onAttachPicture, title: "Cosy room" });
+		const button = await screen.findByTestId("image-version-preview-attach");
+		await waitFor(() => expect(button).not.toBeDisabled());
+		await fireEvent.click(button);
+		expect(onAttachPicture).toHaveBeenCalledWith({
+			imageFileId: "file-2",
+			name: "Cosy room",
+		});
+	});
+
+	it("keeps the Attach row while the version loads, disabled, so the picture never moves", async () => {
+		renderPreview({ onAttachPicture: vi.fn(), versionId: "vMissing" });
+		const button = await screen.findByTestId("image-version-preview-attach");
+		expect(button).toBeDisabled();
+	});
+
+	it("draws no Attach row where the host cannot take a picture", async () => {
+		renderPreview();
+		await screen.findByTestId("compare-wipe-before");
+		expect(screen.queryByTestId("image-version-preview-attach")).toBeNull();
+	});
 });
 
 describe("ImageVersionPreview", () => {

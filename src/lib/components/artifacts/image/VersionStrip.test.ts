@@ -68,6 +68,34 @@ describe("VersionStrip", () => {
 		expect(frames[2]).toHaveAttribute("aria-current", "true");
 	});
 
+	it("attaches a frame's own picture, named after the item, without opening History", async () => {
+		const onAttachPicture = vi.fn();
+		const onOpenHistory = vi.fn();
+		render(VersionStrip, {
+			moments: photoItemMoments(),
+			currentVersionId: "v3",
+			title: "Cosy room",
+			onOpenHistory,
+			onAttachPicture,
+		});
+		const attach = screen.getAllByTestId("image-version-attach");
+		expect(attach).toHaveLength(3);
+		await fireEvent.click(attach[0]);
+		expect(onAttachPicture).toHaveBeenCalledWith({
+			imageFileId: "file-1",
+			name: "Cosy room",
+		});
+		expect(onOpenHistory).not.toHaveBeenCalled();
+	});
+
+	it("draws no Attach where the host cannot take a picture", () => {
+		render(VersionStrip, {
+			moments: photoItemMoments(),
+			currentVersionId: "v3",
+		});
+		expect(screen.queryByTestId("image-version-attach")).toBeNull();
+	});
+
 	it("names a photo item's first frame as the photo, in words and never a version number", () => {
 		render(VersionStrip, {
 			moments: photoItemMoments(),
