@@ -510,14 +510,26 @@ describe("MessageBubble", () => {
 			).not.toBeInTheDocument();
 		});
 
-		it("says it in Hungarian for a reader of Hungarian, the number before the noun", () => {
+		it("says it in Hungarian for a reader of Hungarian: one picture without a number, several with the number first and no article", () => {
 			uiLanguage.set("hu");
-			const { unmount } = render(MessageBubble, { message: lookingMessage(2) });
-			expect(screen.getByText("Megnézem a 2 képet…")).toBeInTheDocument();
+			const { unmount } = render(MessageBubble, { message: lookingMessage(1) });
+			expect(screen.getByText("Megnézem a képet…")).toBeInTheDocument();
 			unmount();
 
-			render(MessageBubble, { message: lookingMessage(1) });
-			expect(screen.getByText("Megnézem a képet…")).toBeInTheDocument();
+			// An article before a numeral follows how the number is spoken ("a 2",
+			// "az 5"), so no single article is right for every count: the line has
+			// none. Every count the model can be sent (at most 8) reads the same way.
+			for (const count of [2, 3, 4, 5, 6, 7, 8]) {
+				const { unmount: unmountCount } = render(MessageBubble, {
+					message: lookingMessage(count),
+				});
+				expect(
+					screen.getByText(`${count} képet nézek meg…`),
+					String(count),
+				).toBeInTheDocument();
+				expect(screen.queryByText(/^Megnézem/), String(count)).toBeNull();
+				unmountCount();
+			}
 		});
 
 		it("follows a change of the interface language while it is on screen", async () => {
@@ -527,9 +539,7 @@ describe("MessageBubble", () => {
 
 			uiLanguage.set("hu");
 
-			expect(
-				await screen.findByText("Megnézem a 2 képet…"),
-			).toBeInTheDocument();
+			expect(await screen.findByText("2 képet nézek meg…")).toBeInTheDocument();
 			expect(
 				screen.queryByText("Looking at 2 images…"),
 			).not.toBeInTheDocument();

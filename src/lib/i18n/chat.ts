@@ -1437,9 +1437,12 @@ const chatDict = {
 			"Logika végiggondolása...",
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		// Hungarian keeps the noun singular after a numeral, so "N képet" needs no
-		// plural form; one picture drops the number.
+		// plural form; one picture drops the number. The counted line has no
+		// article: before a numeral it follows how the number is spoken ("a 2" but
+		// "az 5"), so no single "a" is right for every count, and "a(z)" reads
+		// clunky on a short status line.
 		"chat.responseActivity.viewingImage": "Megnézem a képet…",
-		"chat.responseActivity.viewingImages": "Megnézem a {count} képet…",
+		"chat.responseActivity.viewingImages": "{count} képet nézek meg…",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		// Hungarian doesn't inflect the noun for plural after a numeral (e.g.
