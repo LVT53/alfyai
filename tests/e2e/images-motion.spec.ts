@@ -9,6 +9,7 @@ import {
 	test,
 } from "@playwright/test";
 import sharp from "sharp";
+import { updateArtifactBody } from "../../src/lib/server/services/artifacts";
 import {
 	AI_SMOKE_LATE_CARD_FINAL_TEXT,
 	AI_SMOKE_LATE_CARD_MARKER,
@@ -33,7 +34,9 @@ import {
 	openItem,
 	reopenChat,
 	seedImageItem,
+	seedItem,
 	startChatAs,
+	type TourUser,
 } from "./artifact-tours-helpers";
 import {
 	createEmptyConversation,
@@ -164,11 +167,22 @@ async function closeFlow(
 		segments?: string[];
 	} = {},
 ): Promise<void> {
-	const prefix = options.prefix ?? "t2";
-	const { page, context } = flow;
+	const { page } = flow;
 	await updateUserModelPreference(page, flow.previousModel);
 	await deleteTemporaryProvider(page, flow.providerId);
 	await stopFakeComfyUiForSpec(page, flow.comfy);
+	await saveRecording(flow, name, metrics, options);
+}
+
+/** Closes a recorded context and saves its video, its numbers and its contact sheets. */
+async function saveRecording(
+	flow: Pick<Flow, "context" | "page" | "marks" | "errors">,
+	name: string,
+	metrics: Record<string, unknown>,
+	options: { prefix?: string; segments?: string[] } = {},
+): Promise<void> {
+	const prefix = options.prefix ?? "t2";
+	const { page, context } = flow;
 	const video = page.video();
 	await context.close();
 	mkdirSync(OUT_DIR, { recursive: true });
@@ -226,7 +240,10 @@ async function closeFlow(
 	);
 }
 
-function mark(flow: Flow, label: string): void {
+function mark(
+	flow: { marks: Record<string, number>; startedAt: number },
+	label: string,
+): void {
 	flow.marks[label] = Date.now() - flow.startedAt;
 }
 
@@ -1829,7 +1846,9 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 			await startRecording(page, PANEL_TRACK);
 			mark(flow, "strip");
 			await page.getByTestId("image-version-frame").first().click();
-			await page.waitForTimeout(600);
+			// T4: the frame opens History on its version; the body stays where it is under it.
+			await expectHistoryShown(page, "image");
+			await settle(page);
 			const strip = await stopRecording(page);
 			metrics = {
 				flip: {
@@ -1846,9 +1865,7 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 					stripTopDrift: topDrift(strip.frames, "strip"),
 					longFrames: strip.longFrames,
 					transitions: pictureTransitions(strip),
-					// History for an Image is T4 (HISTORY_PREVIEWS.image): until then the
-					// frame's press asks for History and the panel, with no History for
-					// the kind, stays as it is.
+					// T4: the frame's press opens History (HISTORY_PREVIEWS.image).
 					historyOpened: await page.getByTestId("artifact-history").count(),
 				},
 			};
@@ -1872,7 +1889,11 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 		expect(flip.frameTopDrift).toBeLessThanOrEqual(0.5);
 		expect(flip.longFrames).toEqual([]);
 		expect(flip.transitions.other).toEqual([]);
-		const strip = metrics.strip as typeof flip & { stripTopDrift: number };
+		const strip = metrics.strip as typeof flip & {
+			stripTopDrift: number;
+			historyOpened: number;
+		};
+		expect(strip.historyOpened, "the frame did not open History").toBe(1);
 		expect(strip.cls).toBe(0);
 		expect(strip.frameDrift.h).toBeLessThanOrEqual(0.5);
 		expect(strip.stripTopDrift).toBeLessThanOrEqual(0.5);
@@ -2181,5 +2202,1082 @@ test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
 			frames.length,
 			"fewer than two whole frames show",
 		).toBeGreaterThanOrEqual(2);
+	});
+});
+
+// ---- Plan 2b T4: History for pictures ------------------------------------------
+
+/**
+ * History for pictures (plan 2b T4, MOTION-PARITY "By measurement", F19): History
+ * opening and closing, the rail's thumbnails loading and scrolling, the compare
+ * wipe dragged by a pointer, by the keyboard and by a finger, Restore, and the
+ * phone's flow from a strip frame. The Document's History open and Restore are
+ * recorded the same way beside it.
+ *
+ * Items are seeded straight into the reader's chat (gradients made with sharp,
+ * the fake ComfyUI's kind, never a photo), so every flow starts from the same
+ * history and nothing waits on a model.
+ */
+
+type SeededFlow = {
+	context: BrowserContext;
+	page: Page;
+	startedAt: number;
+	marks: Record<string, number>;
+	errors: string[];
+	user: TourUser;
+	chatId: string;
+};
+
+const DOCUMENT_TITLE = "Trip notes";
+
+async function openSeededFlow(
+	browser: Browser,
+	baseURL: string,
+	options: {
+		viewport: { width: number; height: number };
+		colorScheme?: "light" | "dark";
+		reducedMotion?: "reduce" | "no-preference";
+	},
+	seed: (user: TourUser, chatId: string) => Promise<unknown>,
+): Promise<SeededFlow> {
+	const phone = options.viewport.width < 500;
+	const context = await browser.newContext({
+		baseURL,
+		viewport: options.viewport,
+		colorScheme: options.colorScheme ?? "light",
+		reducedMotion: options.reducedMotion ?? "no-preference",
+		hasTouch: phone,
+		isMobile: phone,
+		recordVideo: { dir: join(OUT_DIR, ".raw"), size: options.viewport },
+	});
+	const page = await context.newPage();
+	const startedAt = Date.now();
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	page.on("console", (message) => {
+		if (message.type() === "error") errors.push(message.text());
+	});
+	await installMotionRecorder(page);
+	const user = await createTourUser("en");
+	await markToursSeen(user);
+	const chatId = await startChatAs(page, user);
+	await seed(user, chatId);
+	await reopenChat(page, chatId);
+	return { context, page, startedAt, marks: {}, errors, user, chatId };
+}
+
+/** An Image of three versions: Alfy's picture, a marked change of Alfy's with its prompt, a picked take. */
+async function seedPictureHistory(
+	user: TourUser,
+	chatId: string,
+	versions = 3,
+	size: { width: number; height: number } = { width: 1248, height: 832 },
+) {
+	return seedImageItem(user, chatId, {
+		versions,
+		...size,
+		// Each later version a take the reader picked: one History moment each.
+		authorOf: (index) => (index === 1 ? "alfy" : "picked"),
+		decorate: (index) =>
+			index === 1
+				? {
+						prompt: "Make the sky warmer and the hills softer",
+						marks: [{ letter: "A", x: 0.1, y: 0.2, w: 0.3, h: 0.3 }],
+					}
+				: {},
+	});
+}
+
+/** A Document of two versions, the second Alfy's change: the side-by-side's other kind. */
+async function seedDocumentHistory(user: TourUser, chatId: string) {
+	const documentId = await seedItem(user, chatId, "document");
+	const written = await updateArtifactBody({
+		userId: user.id,
+		artifactId: documentId,
+		conversationId: chatId,
+		body: "## Plan\n\nFriday: Naschmarkt, Secession.\n\nSaturday: Belvedere.\n",
+		author: "alfy",
+		summary: "Added Saturday",
+	});
+	if (!written.ok) throw new Error(`seedDocumentHistory: ${written.reason}`);
+	return documentId;
+}
+
+const HISTORY_SHEET = '[role="dialog"]:has([data-testid="artifact-history"])';
+const HISTORY_TRACK = {
+	/** The desktop's History slot over the body; the phone's is a sheet of its own. */
+	slot: ".workspace-history-slot",
+	sheet: HISTORY_SHEET,
+	rail: '[data-testid="artifact-history-rail"]',
+	preview: '[data-testid="image-version-preview"]',
+	thumb: '[data-testid="history-thumb"]',
+	thumbImg: '[data-testid="history-thumb"] [data-testid="image-picture-after"]',
+	wipe: '[data-testid="compare-wipe"]',
+	wipeTop: '[data-testid="compare-wipe-after"]',
+	line: '[data-testid="compare-wipe-line"]',
+	toast: '[data-testid="history-toast"]',
+	content: "aside.workspace-shell-desktop > .workspace-content",
+};
+
+/** History's own pieces and the picture's, by the recorder's target names. */
+const HISTORY_PICTURE_PART =
+	/^(image-version|image-picture|compare-wipe|history-thumb)/;
+
+async function nextFrame(page: Page) {
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+}
+
+/** Opens the seeded item and waits for its body to be drawn. */
+async function openSeededItem(flow: SeededFlow, kind: "image" | "document") {
+	await openItem(
+		flow.page,
+		kind === "image" ? IMAGE_ITEM_TITLE : DOCUMENT_TITLE,
+	);
+	await expect(
+		flow.page
+			.locator(kind === "image" ? PANEL_LOADED : `${DOC_BODY}:visible`)
+			.first(),
+	).toBeVisible({ timeout: 20_000 });
+	await settle(flow.page);
+}
+
+function historyButton(page: Page) {
+	return page
+		.locator('[data-testid="artifact-history-button"]:visible')
+		.first();
+}
+
+/** History's preview has drawn what it shows: the wipe's pictures (or the one picture) loaded, or the Document's text. */
+async function expectHistoryShown(page: Page, kind: "image" | "document") {
+	const history = page.getByTestId("artifact-history");
+	await expect(history).toBeVisible({ timeout: 20_000 });
+	await expect(history.getByTestId("history-loading")).toHaveCount(0);
+	const listOnly =
+		(await history.getAttribute("data-layout")) === "phone" &&
+		(await history.getByTestId("history-option").count()) > 0;
+	if (listOnly) {
+		// A phone's History opened from the header shows its list: the rail's
+		// thumbnails are what it draws.
+		if (kind === "image") {
+			await expect(
+				history.locator('[data-testid="history-thumb"] img:not(.is-loaded)'),
+			).toHaveCount(0, { timeout: 15_000 });
+		}
+		return;
+	}
+	if (kind === "image") {
+		await expect(history.getByTestId("image-version-preview")).toHaveAttribute(
+			"data-status",
+			"ready",
+		);
+		await expect(
+			history.locator(
+				'[data-testid="compare-wipe-after"].is-loaded, [data-testid="image-version-picture"] img.is-loaded',
+			),
+		).toHaveCount(1, { timeout: 15_000 });
+	} else {
+		await expect(
+			history.locator('[data-testid="history-option"]').first(),
+		).toBeVisible();
+	}
+	await expect(history.getByTestId("history-loading")).toHaveCount(0);
+}
+
+/** What History's motion is made of: the shell's own animations, what moved, what shifted, what ran long. */
+function measureHistory(run: MotionRun) {
+	const real = run.transitions.filter((entry) => entry.duration >= 1);
+	const start = run.inputAt ?? 0;
+	const opacityOf = (name: string) =>
+		run.frames
+			.filter((frame) => frame.tracked[name] != null)
+			.map((frame) => ({
+				t: frame.t - start,
+				opacity: frame.tracked[name]?.opacity ?? 0,
+			}));
+	/** ms after the press when what shows History reached full opacity. */
+	const shownAt = (name: string) =>
+		opacityOf(name).find((frame) => frame.opacity >= 0.999)?.t ?? null;
+	return {
+		cls: shiftSum(run),
+		clsNoInput: shiftSum(run, { ignoreRecentInput: true }),
+		shifts: run.shifts,
+		longFrames: run.longFrames,
+		slotShownMs: shownAt("slot"),
+		sheetShownMs: shownAt("sheet"),
+		slotOpacity: opacityOf("slot").map((frame) =>
+			Number(frame.opacity.toFixed(3)),
+		),
+		contentDrift: sizeDrift(run.frames, "content"),
+		transitions: [
+			...new Map(
+				real.map((entry) => [
+					`${entry.property}|${entry.target}`,
+					{
+						property: entry.property,
+						target: entry.target,
+						duration: entry.duration,
+						easing: entry.easing,
+					},
+				]),
+			).values(),
+		],
+		animations: run.animations.map((entry) => ({
+			target: entry.target,
+			properties: entry.properties,
+			duration: Math.round(entry.duration),
+			easing: entry.easing,
+		})),
+	};
+}
+type HistoryMetrics = ReturnType<typeof measureHistory>;
+
+/** The picture's own pieces animate only transform and opacity (MOTION-PARITY 3). */
+function unsafeHistoryTransitions(metrics: HistoryMetrics) {
+	return metrics.transitions.filter(
+		(entry) =>
+			HISTORY_PICTURE_PART.test(entry.target) &&
+			entry.property !== "opacity" &&
+			entry.property !== "transform",
+	);
+}
+
+/** The shell's motion when History opens or closes: what animated, how long, on which curve; the same list for both kinds. */
+function historyCurves(metrics: HistoryMetrics) {
+	return [
+		...new Set(
+			metrics.animations
+				.filter((entry) => !HISTORY_PICTURE_PART.test(entry.target))
+				.map(
+					(entry) =>
+						`${entry.target} ${entry.properties.join("+")} ${entry.duration}ms ${entry.easing}`,
+				),
+		),
+	].sort();
+}
+
+function holdHistoryMotion(metrics: HistoryMetrics, reduced: boolean) {
+	expect(
+		metrics.clsNoInput,
+		"History moved something the reader did not",
+	).toBeLessThanOrEqual(0.01);
+	if (!reduced) {
+		expect(
+			metrics.longFrames,
+			"a frame over 50 ms in History's motion",
+		).toEqual([]);
+	}
+	expect(
+		unsafeHistoryTransitions(metrics),
+		"a picture piece animated something other than transform/opacity",
+	).toEqual([]);
+	// History is a slot over the body: the panel's own content is never re-laid out.
+	expect(metrics.contentDrift.w).toBeLessThanOrEqual(0.5);
+	expect(metrics.contentDrift.h).toBeLessThanOrEqual(0.5);
+	if (reduced) {
+		expect(
+			metrics.transitions.filter((entry) => entry.duration >= 1),
+			"a transition ran under reduced motion",
+		).toEqual([]);
+		expect(
+			metrics.animations.filter((entry) => entry.duration >= 1),
+			"an animation ran under reduced motion",
+		).toEqual([]);
+	}
+}
+
+/** Opens History from the header (recorded), and leaves it the reader's way (recorded). */
+async function historyOpenClose(flow: SeededFlow, kind: "image" | "document") {
+	const { page } = flow;
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `history-open-${kind}`);
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	await settle(page);
+	const open = measureHistory(await stopRecording(page));
+
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `history-close-${kind}`);
+	if (phone) await page.keyboard.press("Escape");
+	else await historyButton(page).click();
+	await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+	await settle(page);
+	const close = measureHistory(await stopRecording(page));
+	return { open, close };
+}
+
+test.describe("History for pictures moves like the Document's (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	const VARIANTS = [
+		{
+			name: "history-desktop-light",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "history-desktop-dark",
+			viewport: DESKTOP,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "history-phone-light",
+			viewport: PHONE,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "history-phone-dark",
+			viewport: PHONE,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "history-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+			document: true,
+		},
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: History opens and closes over the picture on the Document's curve`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const reduced = "reducedMotion" in variant;
+			const options = {
+				viewport: variant.viewport,
+				colorScheme: variant.colorScheme,
+				reducedMotion: reduced ? ("reduce" as const) : undefined,
+			};
+			const baseURL = testInfo.project.use.baseURL as string;
+			const results: Record<string, HistoryMetrics> = {};
+
+			if (variant.document) {
+				const docFlow = await openSeededFlow(
+					browser,
+					baseURL,
+					options,
+					(user, chatId) => seedDocumentHistory(user, chatId),
+				);
+				try {
+					await openSeededItem(docFlow, "document");
+					const doc = await historyOpenClose(docFlow, "document");
+					results.documentOpen = doc.open;
+					results.documentClose = doc.close;
+				} finally {
+					await saveRecording(docFlow, `document-${variant.name}`, results, {
+						prefix: "t4",
+						segments: ["history-open-document", "history-close-document"],
+					});
+				}
+				expect(docFlow.errors, "the page logged an error").toEqual([]);
+			}
+
+			const flow = await openSeededFlow(
+				browser,
+				baseURL,
+				options,
+				(user, chatId) => seedPictureHistory(user, chatId),
+			);
+			let metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				const image = await historyOpenClose(flow, "image");
+				results.imageOpen = image.open;
+				results.imageClose = image.close;
+				metrics = {
+					imageOpen: image.open,
+					imageClose: image.close,
+					...(results.documentOpen
+						? {
+								sideBySide: {
+									open: {
+										image: historyCurves(image.open),
+										document: historyCurves(results.documentOpen),
+										imageShownMs:
+											image.open.slotShownMs ?? image.open.sheetShownMs,
+										documentShownMs:
+											results.documentOpen.slotShownMs ??
+											results.documentOpen.sheetShownMs,
+									},
+									close: {
+										image: historyCurves(image.close),
+										document: historyCurves(results.documentClose),
+									},
+								},
+							}
+						: {}),
+				};
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t4",
+					segments: ["history-open-image", "history-close-image"],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+
+			holdHistoryMotion(results.imageOpen, reduced);
+			holdHistoryMotion(results.imageClose, reduced);
+			if (results.documentOpen) {
+				holdHistoryMotion(results.documentOpen, reduced);
+				holdHistoryMotion(results.documentClose, reduced);
+				for (const step of ["Open", "Close"] as const) {
+					expect(
+						historyCurves(results[`image${step}`]),
+						`${step}: History ran on another curve for the picture`,
+					).toEqual(historyCurves(results[`document${step}`]));
+				}
+				const imageShown =
+					results.imageOpen.slotShownMs ?? results.imageOpen.sheetShownMs;
+				const documentShown =
+					results.documentOpen.slotShownMs ?? results.documentOpen.sheetShownMs;
+				if (imageShown !== null && documentShown !== null && !reduced) {
+					expect(
+						Math.abs(imageShown - documentShown),
+						"History took another time to show for the picture",
+					).toBeLessThanOrEqual(50);
+				}
+			}
+		});
+	}
+
+	test("history-rail-thumbs: the rail's thumbnails are reserved at 40 px, fade in and scroll with nothing moving", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(240_000);
+		const flow = await openSeededFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+			// Sixteen versions, each a moment of its own: more than the rail shows.
+			(user, chatId) =>
+				seedPictureHistory(user, chatId, 16, { width: 624, height: 416 }),
+		);
+		const { page } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			await openSeededItem(flow, "image");
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "rail-open");
+			await historyButton(page).click();
+			await expectHistoryShown(page, "image");
+			await expect(
+				page.locator('[data-testid="history-thumb"] img.is-loaded'),
+			).toHaveCount(16, { timeout: 20_000 });
+			await settle(page);
+			const open = await stopRecording(page);
+			const thumbSizes = boxes(open.frames, "thumb").map(
+				(box) => `${Math.round(box.w)}x${Math.round(box.h)}`,
+			);
+			const thumbOpacity = boxes(open.frames, "thumbImg").map((box) =>
+				Number(box.opacity.toFixed(2)),
+			);
+
+			const rail = page.getByTestId("artifact-history-rail");
+			const railBox = await rail.boundingBox();
+			if (!railBox) throw new Error("no rail on screen");
+			const scrollable = await rail.evaluate(
+				(element) => element.scrollHeight - element.clientHeight,
+			);
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "rail-scroll");
+			await page.mouse.move(
+				railBox.x + railBox.width / 2,
+				railBox.y + railBox.height / 2,
+			);
+			for (let step = 0; step < 12; step++) {
+				await page.mouse.wheel(0, 80);
+				await nextFrame(page);
+			}
+			await settle(page);
+			const scroll = await stopRecording(page);
+			const scrolled = await rail.evaluate((element) => element.scrollTop);
+			const allThumbs = await page
+				.getByTestId("history-thumb")
+				.evaluateAll((elements) =>
+					elements.map((element) => {
+						const box = element.getBoundingClientRect();
+						return `${Math.round(box.width)}x${Math.round(box.height)}`;
+					}),
+				);
+			const imgTransition = await page
+				.locator('[data-testid="history-thumb"] img')
+				.first()
+				.evaluate((element) => getComputedStyle(element).transitionProperty);
+			metrics = {
+				open: measureHistory(open),
+				thumbSizes: [...new Set(thumbSizes)],
+				thumbOpacity,
+				scroll: {
+					scrollable,
+					scrolled,
+					cls: shiftSum(scroll),
+					longFrames: scroll.longFrames,
+					transitions: scroll.transitions.filter((entry) =>
+						HISTORY_PICTURE_PART.test(entry.target),
+					),
+				},
+				allThumbs: [...new Set(allThumbs)],
+				imgTransition,
+			};
+		} finally {
+			await saveRecording(flow, "history-rail-thumbs", metrics, {
+				prefix: "t4",
+				segments: ["rail-open", "rail-scroll"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		const open = metrics.open as HistoryMetrics;
+		holdHistoryMotion(open, false);
+		// Reserved: every frame a thumbnail was on screen it was 40 x 40.
+		expect(metrics.thumbSizes).toEqual(["40x40"]);
+		expect(metrics.allThumbs).toEqual(["40x40"]);
+		// It fades in: seen part-way, and ends shown.
+		const opacity = metrics.thumbOpacity as number[];
+		expect(opacity.at(-1)).toBe(1);
+		expect(metrics.imgTransition).toBe("opacity");
+		const scroll = metrics.scroll as {
+			scrollable: number;
+			scrolled: number;
+			cls: number;
+			longFrames: unknown[];
+			transitions: unknown[];
+		};
+		expect(scroll.scrollable, "the rail did not overflow").toBeGreaterThan(200);
+		expect(scroll.scrolled).toBeGreaterThan(200);
+		expect(scroll.cls).toBe(0);
+		expect(scroll.longFrames).toEqual([]);
+	});
+});
+
+/**
+ * A probe of the wipe's own writes: every `input` the range fires and every
+ * write to the top picture's `clip-path`, each stamped with the animation frame
+ * it happened in. "Applied in the same rAF" is: the write for an input lands
+ * before the next paint (the probe's frame count moves by at most one between
+ * them), never later, and carries the input's position.
+ */
+async function installWipeProbe(page: Page) {
+	await page.evaluate(() => {
+		const w = window as unknown as Record<string, unknown>;
+		let frame = 0;
+		const tick = () => {
+			frame += 1;
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+		const inputs: Array<{ frame: number; value: number; t: number }> = [];
+		const writes: Array<{ frame: number; at: number; t: number }> = [];
+		const range = document.querySelector<HTMLInputElement>(
+			'[data-testid="compare-wipe-range"]',
+		);
+		const top = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-after"]',
+		);
+		range?.addEventListener("input", () =>
+			inputs.push({ frame, value: Number(range.value), t: performance.now() }),
+		);
+		range?.addEventListener("keydown", () =>
+			queueMicrotask(() =>
+				inputs.push({
+					frame,
+					value: Number(range.value),
+					t: performance.now(),
+				}),
+			),
+		);
+		const observer = new MutationObserver(() => {
+			const match = /inset\(0(?:px)? 0(?:px)? 0(?:px)? ([\d.]+)%\)/.exec(
+				top?.style.clipPath ?? "",
+			);
+			if (match)
+				writes.push({ frame, at: Number(match[1]), t: performance.now() });
+		});
+		if (top)
+			observer.observe(top, { attributes: true, attributeFilter: ["style"] });
+		w.__wipeProbe = {
+			read: () => ({ inputs: inputs.slice(), writes: writes.slice() }),
+			reset: () => {
+				inputs.length = 0;
+				writes.length = 0;
+			},
+		};
+	});
+}
+
+type WipeProbe = {
+	inputs: Array<{ frame: number; value: number; t: number }>;
+	writes: Array<{ frame: number; at: number; t: number }>;
+};
+
+async function readWipeProbe(page: Page): Promise<WipeProbe> {
+	return page.evaluate(() =>
+		(
+			window as unknown as { __wipeProbe: { read(): unknown } }
+		).__wipeProbe.read(),
+	) as Promise<WipeProbe>;
+}
+
+async function resetWipeProbe(page: Page) {
+	await page.evaluate(() =>
+		(
+			window as unknown as { __wipeProbe: { reset(): void } }
+		).__wipeProbe.reset(),
+	);
+}
+
+/** For each input, how many frames passed before the cut showed its position (or a later one). */
+function wipeLag(probe: WipeProbe) {
+	return probe.inputs.map((input) => {
+		const write = probe.writes.find(
+			(candidate) =>
+				candidate.t >= input.t && Math.abs(candidate.at - input.value) < 0.01,
+		);
+		const later = probe.writes.find((candidate) => candidate.t >= input.t);
+		const landed = write ?? later;
+		return landed ? landed.frame - input.frame : Number.POSITIVE_INFINITY;
+	});
+}
+
+/** Where the wipe's line stands, in px from the page's left, and the cut's position in %. */
+async function wipeLine(page: Page) {
+	return page.evaluate(() => {
+		const line = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-line"]',
+		);
+		const top = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-after"]',
+		);
+		const box = line?.getBoundingClientRect();
+		const match = /([\d.]+)%\)/.exec(top?.style.clipPath ?? "");
+		return {
+			x: box ? box.x + box.width / 2 : null,
+			at: match ? Number(match[1]) : null,
+			transition: top ? getComputedStyle(top).transitionProperty : null,
+		};
+	});
+}
+
+test.describe("the compare wipe follows the hand (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const variant of [
+		{ name: "history-wipe-desktop", viewport: DESKTOP },
+		{ name: "history-wipe-phone", viewport: PHONE },
+	] as const) {
+		test(`${variant.name}: the wipe is dragged by ${variant.viewport === PHONE ? "a finger" : "a pointer and the keyboard"}, its cut written in the frame after each move`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const phone = variant.viewport === PHONE;
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: variant.viewport },
+				(user, chatId) => seedPictureHistory(user, chatId, 2),
+			);
+			const { page } = flow;
+			const metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				// The newest version is selected: it is wiped against the one before it.
+				await historyButton(page).click();
+				if (phone) {
+					// The phone's History opens on its list: the newest row pushes its preview.
+					await page.getByTestId("history-option").first().tap();
+				}
+				await expectHistoryShown(page, "image");
+				await settle(page);
+				await installWipeProbe(page);
+				const wipe = await page.getByTestId("compare-wipe").boundingBox();
+				if (!wipe) throw new Error("no wipe on screen");
+				const y = wipe.y + wipe.height / 2;
+				const xAt = (percent: number) => wipe.x + (wipe.width * percent) / 100;
+
+				if (!phone) {
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-pointer");
+					await page.mouse.move(xAt(50), y);
+					await page.mouse.down();
+					for (let step = 1; step <= 30; step++) {
+						await page.mouse.move(xAt(50 - step), y);
+						await nextFrame(page);
+					}
+					const held = await wipeLine(page);
+					await page.mouse.up();
+					await settle(page);
+					const run = await stopRecording(page);
+					const probe = await readWipeProbe(page);
+					metrics.pointer = {
+						inputs: probe.inputs.length,
+						lagFrames: [...new Set(wipeLag(probe))],
+						lineVsPointerPx:
+							held.x === null ? null : Math.abs(held.x - xAt(20)),
+						cutAt: held.at,
+						topTransitionProperty: held.transition,
+						cls: shiftSum(run),
+						longFrames: run.longFrames,
+						transitions: run.transitions.filter((entry) =>
+							HISTORY_PICTURE_PART.test(entry.target),
+						),
+					};
+
+					await resetWipeProbe(page);
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-keyboard");
+					await page.getByTestId("compare-wipe-range").focus();
+					const keys: Array<{ key: string; at: number | null }> = [];
+					for (const key of [
+						"ArrowRight",
+						"ArrowRight",
+						"ArrowRight",
+						"Shift+ArrowRight",
+						"End",
+						"Home",
+						"PageUp",
+					]) {
+						await page.keyboard.press(key);
+						await nextFrame(page);
+						await nextFrame(page);
+						keys.push({ key, at: (await wipeLine(page)).at });
+					}
+					await settle(page);
+					const keyRun = await stopRecording(page);
+					const keyProbe = await readWipeProbe(page);
+					metrics.keyboard = {
+						keys,
+						lagFrames: [...new Set(wipeLag(keyProbe))],
+						cls: shiftSum(keyRun),
+						longFrames: keyRun.longFrames,
+					};
+				} else {
+					const client = await page.context().newCDPSession(page);
+					const touch = (
+						type: string,
+						points: Array<{ x: number; y: number }>,
+					) =>
+						client.send("Input.dispatchTouchEvent", {
+							type,
+							touchPoints: points.map((point, id) => ({ ...point, id })),
+						});
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-touch");
+					await touch("touchStart", [{ x: xAt(50), y }]);
+					for (let step = 1; step <= 30; step++) {
+						await touch("touchMove", [{ x: xAt(50 + step), y }]);
+						await nextFrame(page);
+					}
+					const held = await wipeLine(page);
+					await touch("touchEnd", []);
+					await settle(page);
+					const run = await stopRecording(page);
+					const probe = await readWipeProbe(page);
+					metrics.touch = {
+						inputs: probe.inputs.length,
+						lagFrames: [...new Set(wipeLag(probe))],
+						lineVsFingerPx: held.x === null ? null : Math.abs(held.x - xAt(80)),
+						cutAt: held.at,
+						topTransitionProperty: held.transition,
+						sheetStillOpen: await page.locator(HISTORY_SHEET).isVisible(),
+						cls: shiftSum(run),
+						longFrames: run.longFrames,
+						transitions: run.transitions.filter((entry) =>
+							HISTORY_PICTURE_PART.test(entry.target),
+						),
+					};
+				}
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t4",
+					segments: phone ? ["wipe-touch"] : ["wipe-pointer", "wipe-keyboard"],
+				});
+			}
+			expect(flow.errors).toEqual([]);
+			type Drag = {
+				inputs: number;
+				lagFrames: number[];
+				cutAt: number | null;
+				topTransitionProperty: string | null;
+				cls: number;
+				longFrames: unknown[];
+				transitions: SeenTransitionLike[];
+			};
+			type SeenTransitionLike = { property: string };
+			const holdDrag = (drag: Drag, endsAt: number, offPx: number | null) => {
+				expect(drag.inputs, "the range never moved").toBeGreaterThan(10);
+				// Every move's cut is written before the next paint: in the frame the
+				// input landed in (0, the input was dispatched with the frame) or the
+				// one after it (1), never later.
+				expect(Math.max(...drag.lagFrames)).toBeLessThanOrEqual(1);
+				expect(drag.cutAt ?? -1).toBeCloseTo(endsAt, 0);
+				// The line stands under the hand.
+				expect(offPx ?? 99).toBeLessThanOrEqual(2);
+				// Nothing eases the cut: the picture's only transition is its fade-in.
+				expect(drag.topTransitionProperty).toBe("opacity");
+				expect(
+					drag.transitions.filter((entry) => entry.property !== "opacity"),
+				).toEqual([]);
+				expect(drag.cls).toBe(0);
+				expect(drag.longFrames).toEqual([]);
+			};
+			if (phone) {
+				const drag = metrics.touch as Drag & {
+					lineVsFingerPx: number | null;
+					sheetStillOpen: boolean;
+				};
+				holdDrag(drag, 80, drag.lineVsFingerPx);
+				expect(drag.sheetStillOpen).toBe(true);
+			} else {
+				const drag = metrics.pointer as Drag & {
+					lineVsPointerPx: number | null;
+				};
+				holdDrag(drag, 20, drag.lineVsPointerPx);
+				const keyboard = metrics.keyboard as {
+					keys: Array<{ key: string; at: number | null }>;
+					lagFrames: number[];
+					cls: number;
+					longFrames: unknown[];
+				};
+				// From where the drag left it (20 %): +2, +2, +2, +10, the ends, +10.
+				expect(
+					keyboard.keys.map((entry) => Math.round(entry.at ?? -1)),
+				).toEqual([22, 24, 26, 36, 100, 0, 10]);
+				expect(Math.max(...keyboard.lagFrames)).toBeLessThanOrEqual(1);
+				expect(keyboard.cls).toBe(0);
+				expect(keyboard.longFrames).toEqual([]);
+			}
+		});
+	}
+});
+
+/** Restores the oldest version from History (recorded from the confirming press). */
+async function restoreOldest(flow: SeededFlow, kind: "image" | "document") {
+	const { page } = flow;
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	const options = page.getByTestId("history-option");
+	if (phone) await options.last().tap();
+	else await options.last().click();
+	await expect(
+		page.locator('[data-testid="history-restore"]:visible').first(),
+	).toBeEnabled();
+	await settle(page);
+	await page.locator('[data-testid="history-restore"]:visible').first().click();
+	await settle(page);
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `restore-${kind}`);
+	await page
+		.locator('[data-testid="history-restore-confirm"]:visible')
+		.first()
+		.click();
+	await expect(page.getByTestId("history-toast")).toContainText("Restored");
+	await expect(
+		page.locator('[data-testid="history-option"][aria-selected="true"]'),
+	).toHaveCount(phone ? 0 : 1);
+	await settle(page);
+	const run = await stopRecording(page);
+	const toastAt = (() => {
+		const start = run.inputAt ?? 0;
+		const frames = run.frames.filter((frame) => frame.tracked.toast != null);
+		const first = frames[0];
+		const shown = frames.find(
+			(frame) => (frame.tracked.toast?.opacity ?? 0) >= 0.999,
+		);
+		return {
+			firstSeenMs: first ? first.t - start : null,
+			shownMs: shown ? shown.t - start : null,
+			transforms: [
+				...new Set(frames.map((frame) => frame.tracked.toast?.transform)),
+			],
+		};
+	})();
+	return { ...measureHistory(run), toast: toastAt };
+}
+
+test.describe("Restore of a picture moves like the Document's (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const variant of [
+		{ name: "history-restore-desktop", viewport: DESKTOP, document: true },
+		{ name: "history-restore-phone", viewport: PHONE, document: false },
+	] as const) {
+		test(`${variant.name}: Restore lands the older picture with the Document's toast and no shift`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const baseURL = testInfo.project.use.baseURL as string;
+			const results: Record<string, unknown> = {};
+			if (variant.document) {
+				const docFlow = await openSeededFlow(
+					browser,
+					baseURL,
+					{ viewport: variant.viewport },
+					(user, chatId) => seedDocumentHistory(user, chatId),
+				);
+				try {
+					await openSeededItem(docFlow, "document");
+					results.document = await restoreOldest(docFlow, "document");
+				} finally {
+					await saveRecording(docFlow, `document-${variant.name}`, results, {
+						prefix: "t4",
+						segments: ["restore-document"],
+					});
+				}
+				expect(docFlow.errors).toEqual([]);
+			}
+			let fileIds: string[] = [];
+			const flow = await openSeededFlow(
+				browser,
+				baseURL,
+				{ viewport: variant.viewport },
+				async (user, chatId) => {
+					fileIds = (await seedPictureHistory(user, chatId)).fileIds;
+				},
+			);
+			try {
+				await openSeededItem(flow, "image");
+				results.image = await restoreOldest(flow, "image");
+				// Leaving History shows the restored picture in the panel.
+				if (variant.viewport === PHONE) {
+					await flow.page.keyboard.press("Escape");
+					await flow.page.keyboard.press("Escape");
+				} else {
+					await historyButton(flow.page).click();
+				}
+				await expect(flow.page.getByTestId("artifact-history")).toHaveCount(0);
+				await expect(
+					flow.page
+						.locator(
+							'[data-testid="image-body-picture"] [data-testid="image-picture-after"]',
+						)
+						.last(),
+				).toHaveAttribute("src", new RegExp(fileIds[0]));
+				results.panelShowsRestored = true;
+			} finally {
+				await saveRecording(flow, variant.name, results, {
+					prefix: "t4",
+					segments: ["restore-image"],
+				});
+			}
+			expect(flow.errors).toEqual([]);
+			type Restore = HistoryMetrics & {
+				toast: { firstSeenMs: number | null; shownMs: number | null };
+			};
+			const image = results.image as Restore;
+			holdHistoryMotion(image, false);
+			expect(image.toast.shownMs).not.toBeNull();
+			if (results.document) {
+				const document = results.document as Restore;
+				holdHistoryMotion(document, false);
+				expect(historyCurves(image)).toEqual(historyCurves(document));
+				expect(
+					Math.abs((image.toast.shownMs ?? 0) - (document.toast.shownMs ?? 0)),
+					"the restore's toast took another time for the picture",
+				).toBeLessThanOrEqual(80);
+			}
+		});
+	}
+});
+
+test.describe("History for pictures on a phone (T4)", () => {
+	test("history-phone-flow: a strip frame opens the sheet on its version, the wipe moves under a finger, Back and the sheet peel", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(180_000);
+		const flow = await openSeededFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: PHONE },
+			(user, chatId) => seedPictureHistory(user, chatId),
+		);
+		const { page } = flow;
+		const metrics: Record<string, unknown> = {};
+		try {
+			await openSeededItem(flow, "image");
+			const frames = page.locator(
+				'[data-testid="image-version-frame"]:visible',
+			);
+			await expect(frames).toHaveCount(3);
+			const versionId = await frames.nth(1).getAttribute("data-version-id");
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-frame");
+			await frames.nth(1).tap();
+			await expectHistoryShown(page, "image");
+			await settle(page);
+			metrics.open = measureHistory(await stopRecording(page));
+
+			const wipe = await page.getByTestId("compare-wipe").boundingBox();
+			if (!wipe) throw new Error("no wipe on screen");
+			const client = await page.context().newCDPSession(page);
+			const touch = (type: string, points: Array<{ x: number; y: number }>) =>
+				client.send("Input.dispatchTouchEvent", {
+					type,
+					touchPoints: points.map((point, id) => ({ ...point, id })),
+				});
+			const y = wipe.y + wipe.height / 2;
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-wipe");
+			await touch("touchStart", [{ x: wipe.x + wipe.width / 2, y }]);
+			for (let step = 1; step <= 20; step++) {
+				await touch("touchMove", [
+					{ x: wipe.x + wipe.width / 2 - (step * wipe.width) / 50, y },
+				]);
+				await nextFrame(page);
+			}
+			await touch("touchEnd", []);
+			await settle(page);
+			const wipeRun = await stopRecording(page);
+			metrics.wipe = {
+				cutAt: (await wipeLine(page)).at,
+				cls: shiftSum(wipeRun),
+				longFrames: wipeRun.longFrames,
+			};
+
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-back");
+			await page
+				.getByTestId("artifact-history")
+				.getByRole("button", { name: "History" })
+				.tap();
+			const selected = page.locator(
+				'[data-testid="history-option"][aria-selected="true"]',
+			);
+			await expect(selected).toHaveAttribute(
+				"data-version-id",
+				versionId ?? "",
+			);
+			await settle(page);
+			mark(flow, "phone-close");
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+			await settle(page);
+			metrics.backAndClose = measureHistory(await stopRecording(page));
+		} finally {
+			await saveRecording(flow, "history-phone-flow", metrics, {
+				prefix: "t4",
+				segments: ["phone-frame", "phone-wipe", "phone-back"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		holdHistoryMotion(metrics.open as HistoryMetrics, false);
+		holdHistoryMotion(metrics.backAndClose as HistoryMetrics, false);
+		const wipe = metrics.wipe as {
+			cutAt: number;
+			cls: number;
+			longFrames: unknown[];
+		};
+		expect(wipe.cutAt).toBeCloseTo(10, 0);
+		expect(wipe.cls).toBe(0);
+		expect(wipe.longFrames).toEqual([]);
 	});
 });
