@@ -82,10 +82,11 @@ describe("resolveDeletablePath", () => {
 		expect(await resolveDeletablePath("   ", roots)).toBeNull();
 	});
 
-	it("names both of the app's data directories by default", () => {
+	it("names the app's data directories by default", () => {
 		expect(storageRoots()).toEqual([
 			resolve(process.cwd(), "data", "knowledge"),
 			resolve(process.cwd(), "data", "chat-files"),
+			resolve(process.cwd(), "data", "image-files"),
 		]);
 	});
 });

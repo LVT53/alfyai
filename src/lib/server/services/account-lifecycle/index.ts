@@ -16,6 +16,7 @@ import { deleteAllChatFilesForUser } from "../chat-files";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { cancelActiveDocumentExtractionForUser } from "../extraction";
 import { cancelActiveFileProductionForUser } from "../file-production";
+import { deleteImageFilesForUser } from "../images/files";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -99,6 +100,7 @@ export async function clearMemoryAndKnowledgeForUser(
 export async function purgeUserData(userId: string): Promise<void> {
 	await cancelActiveAtlasJobsForUser(userId);
 	await deleteAllChatFilesForUser(userId);
+	await deleteImageFilesForUser(userId);
 	await deleteAtlasJobsForUser(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId, {

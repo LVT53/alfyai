@@ -159,6 +159,45 @@ describe("deleteConversationWithCleanup", () => {
 		);
 	});
 
+	it("removes the chat's picture files from disk and table", async () => {
+		seedConversation();
+		const { mkdtemp, rm, readdir } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const sharp = (await import("sharp")).default;
+		const workdir = await mkdtemp(join(tmpdir(), "cleanup-images-"));
+		vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		try {
+			const png = await sharp({
+				create: { width: 16, height: 16, channels: 3, background: "#fff" },
+			})
+				.png()
+				.toBuffer();
+			const { storeImageFile } = await import("../images/files");
+			await storeImageFile({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				role: "take",
+				png: new Uint8Array(png),
+			});
+			expect(await readdir(join(workdir, "data", "image-files"))).toEqual([
+				"conversation-1",
+			]);
+
+			const { deleteConversationWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+			await deleteConversationWithCleanup("user-1", "conversation-1");
+
+			expect(await readdir(join(workdir, "data", "image-files"))).toEqual([]);
+			const { db } = await import("$lib/server/db");
+			expect(await db.select().from(schema.imageFiles)).toEqual([]);
+		} finally {
+			vi.restoreAllMocks();
+			await rm(workdir, { recursive: true, force: true });
+		}
+	});
+
 	it("deletes conversation-scoped Atlas jobs, checkpoints, and generated outputs", async () => {
 		seedConversation();
 		{

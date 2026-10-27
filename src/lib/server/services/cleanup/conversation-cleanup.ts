@@ -11,6 +11,7 @@ import {
 	getOrphanedStream,
 	requestActiveChatStreamStop,
 } from "../chat-turn/active-streams";
+import { deleteImageFilesForConversation } from "../images/files";
 import {
 	artifactHasReferencesOutsideConversation,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -129,6 +130,7 @@ export async function deleteConversationWithCleanup(
 
 	await hardDeleteArtifactsForUser(userId, deletedArtifactIds);
 	await deleteAllChatFilesForConversation(conversationId);
+	await deleteImageFilesForConversation(conversationId);
 	await deleteAtlasJobsForConversation({ userId, conversationId });
 
 	await db

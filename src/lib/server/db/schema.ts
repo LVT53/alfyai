@@ -574,6 +574,50 @@ export const imageDescriptions = sqliteTable(
 );
 
 /**
+ * A picture file Alfy keeps for a chat (docs/plans/image-generation, part 2):
+ * the uploaded picture a change started from, a take a render produced, or a
+ * marked copy the person drew on. One PNG per row on disk under
+ * `data/image-files/<conversation_id>/`, with a thumbnail beside it.
+ * `created_at` is unix seconds, like every table. `artifact_id` is the Image
+ * item the file belongs to once a take is kept, and clears (not deletes) when
+ * that item goes; the file then goes with its chat. The rows leave with the
+ * chat and with the person; the files on disk are removed by
+ * `services/images/files.ts`.
+ */
+export const imageFiles = sqliteTable(
+	"image_files",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		artifactId: text("artifact_id").references(() => artifacts.id, {
+			onDelete: "set null",
+		}),
+		role: text("role").notNull(),
+		width: integer("width").notNull(),
+		height: integer("height").notNull(),
+		hasAlpha: integer("has_alpha").notNull().default(0),
+		sizeBytes: integer("size_bytes").notNull(),
+		storagePath: text("storage_path").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("image_files_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+		index("image_files_artifact_idx").on(table.artifactId),
+		index("image_files_user_idx").on(table.userId),
+	],
+);
+
+/**
  * One saved state of an artifact-family row (Feature 2, ADR-0066): the whole
  * serialised artifact at that point, who made it, and a one-line summary.
  * `versionNumber` is the ordering authority — `createdAt` is second-resolution,

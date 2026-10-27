@@ -586,6 +586,19 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.imageFiles)
+		.values({
+			id: p("picture"),
+			userId,
+			conversationId: p("conv"),
+			role: "take",
+			width: 16,
+			height: 16,
+			sizeBytes: 100,
+			storagePath: `data/image-files/${p("conv")}/${p("picture")}.png`,
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.fileProductionJobs)
 		.values({
 			id: p("file-job"),
@@ -821,6 +834,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"document_extraction_jobs",
 				"file_production_jobs",
 				"image_descriptions",
+				"image_files",
 				"import_jobs",
 				"memory_consolidation_reports",
 				"memory_dirty_ledger",
@@ -1876,5 +1890,93 @@ describe("a picture's description follows its picture", () => {
 			"keep-me-garden",
 			"keep-me-kitchen",
 		]);
+	});
+
+	describe("picture files", () => {
+		let workdir: string;
+
+		beforeEach(async () => {
+			const { mkdtemp } = await import("node:fs/promises");
+			const { tmpdir } = await import("node:os");
+			const { join } = await import("node:path");
+			workdir = await mkdtemp(join(tmpdir(), "lifecycle-images-"));
+			vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		});
+
+		afterEach(async () => {
+			const { rm } = await import("node:fs/promises");
+			await rm(workdir, { recursive: true, force: true });
+		});
+
+		async function seedPictureFile(userId: string): Promise<string> {
+			const sharp = (await import("sharp")).default;
+			const { sqlite, db } = openMigratedDb();
+			const now = new Date("2026-10-26T10:00:00.000Z");
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: `${userId}@example.com`,
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(schema.conversations)
+				.values({
+					id: `${userId}-chat`,
+					userId,
+					title: "Chat",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			sqlite.close();
+			const png = await sharp({
+				create: { width: 16, height: 16, channels: 3, background: "#fff" },
+			})
+				.png()
+				.toBuffer();
+			const { storeImageFile } = await import("../images/files");
+			const file = await storeImageFile({
+				userId,
+				conversationId: `${userId}-chat`,
+				role: "take",
+				png: new Uint8Array(png),
+			});
+			return file.id;
+		}
+
+		async function pictureDirs(): Promise<string[]> {
+			const { readdir } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			try {
+				return (await readdir(join(workdir, "data", "image-files"))).sort();
+			} catch {
+				return [];
+			}
+		}
+
+		it("Clear Workspace removes the person's picture files and spares another's", async () => {
+			await seedPictureFile("purge-me");
+			await seedPictureFile("keep-me");
+			const { purgeUserData } = await import("./index");
+			await purgeUserData("purge-me");
+			expect(await pictureDirs()).toEqual(["keep-me-chat"]);
+		});
+
+		it("erasure removes the person's picture files and spares another's", async () => {
+			await seedPictureFile("erase-me");
+			await seedPictureFile("keep-me");
+			const { eraseUserAccountData } = await import("./index");
+			await eraseUserAccountData("erase-me");
+			expect(await pictureDirs()).toEqual(["keep-me-chat"]);
+		});
+
+		it("Clear Memory keeps the pictures of chats that stay", async () => {
+			await seedPictureFile("clear-me");
+			const { clearMemoryAndKnowledgeForUser } = await import("./index");
+			await clearMemoryAndKnowledgeForUser("clear-me");
+			expect(await pictureDirs()).toEqual(["clear-me-chat"]);
+		});
 	});
 });

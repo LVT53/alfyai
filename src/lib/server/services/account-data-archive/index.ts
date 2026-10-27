@@ -86,6 +86,7 @@ const EXCLUSION_NOTES = [
 	"Two-step sign-in factors, their secrets, the one-time backup codes and pending sign-in attempts are account security state, not your data, and are not included.",
 	"Private server settings, provider secrets, storage paths, server logs, local process logs, hidden prompt context, assistant thinking traces, raw tool JSON, provider payloads, retry/debug fields, diagnostics, embeddings, and embedding hashes are not included.",
 	"Outside AI provider logs that are outside AlfyAI control are not included.",
+	"Pictures Alfy made or changed are not included; download them from their cards or panel.",
 	"Raw ChatGPT import ZIP files, parser internals, summarizer state, and raw database dumps are not included.",
 ];
 

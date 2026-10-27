@@ -20,6 +20,10 @@ import {
 import { deleteChatFile } from "$lib/server/services/chat-files";
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
 import {
+	deleteImageFilesById,
+	listImageFileIdsForArtifact,
+} from "$lib/server/services/images/files";
+import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge/store/core";
@@ -721,6 +725,29 @@ export async function deleteFilesOfDeletedBoard(
 	}
 }
 
+/**
+ * The pictures of a deleted Image item leave the disk with it; the other
+ * pictures of its chat stay. Like the poster files, never allowed to undo the
+ * delete: a failure leaves files that go with the chat.
+ */
+export async function deletePicturesOfDeletedImage(
+	row: ArtifactRow,
+	pictureIds: readonly string[],
+): Promise<void> {
+	if (pictureIds.length === 0) return;
+	try {
+		await deleteImageFilesById(pictureIds);
+	} catch (error) {
+		console.warn(
+			"[ARTIFACTS] Deleted an image item but not its picture files",
+			{
+				artifactId: row.id,
+				error,
+			},
+		);
+	}
+}
+
 type DeleteArtifactResult =
 	| { ok: true }
 	| {
@@ -767,12 +794,19 @@ export async function deleteArtifact(
 	} else if (!isEditableArtifactRow(row)) {
 		return { ok: false, reason: "not_found" };
 	}
+	// An Image item's pictures: named now, because the row's delete clears
+	// their `artifact_id`. They go once the row is really gone.
+	const pictureIds =
+		kindForArtifactRow(row) === "image"
+			? await listImageFileIdsForArtifact(row.id)
+			: [];
 	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
 	if (!removed) return { ok: false, reason: "not_found" };
 	await deleteFilesOfDeletedBoard(row);
+	await deletePicturesOfDeletedImage(row, pictureIds);
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,

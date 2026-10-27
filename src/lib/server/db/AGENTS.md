@@ -23,6 +23,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 - `artifacts` - Files, generated outputs, work capsules with retrieval class
 - `artifact_chunks` - Text chunks for semantic search
 - `image_descriptions` - What a picture shows, in a few words, written once for the turns after the one that sent its pixels (`services/vision/`); keyed by artifact, removed with it
+- `image_files` - Picture PNGs Alfy keeps per chat (input, take, marked), files under `data/image-files/<conversationId>/` (`services/images/files.ts`); rows cascade with the chat and the person
 - `semantic_embeddings` - TEI embeddings for artifacts, task states, and legacy persona-cluster rows during migration cleanup
 
 **Memory Tables:**
