@@ -27,9 +27,13 @@ import {
 	decidePhotoLook,
 	describePhotoThumbnails,
 	type LookPhoto,
+	MAX_LOOK_THUMBNAILS,
 	queuePhotoThumbnails,
 } from "$lib/server/services/vision/photo-look";
-import type { StepImageQueue } from "$lib/server/services/vision/step-images";
+import {
+	STEP_IMAGE_TURN_BUDGET,
+	type StepImageQueue,
+} from "$lib/server/services/vision/step-images";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -521,25 +525,42 @@ function distillPhotosReadOutcome(params: {
 // can see:
 //   - the model answering gets small thumbnails of up to 8 results, queued for
 //     the step after this call (the SDK turns a tool result into text, so the
-//     pixels cannot ride in it);
+//     pixels cannot ride in it), as many as the turn has left of its eight;
 //   - a cloud model for a person who keeps summarising local gets none: a local
 //     model that can see describes them, and the descriptions go into the
 //     summary the gate above makes;
 //   - otherwise nothing is looked at, and the result says so.
+// A look has its own deadline (see photo-look.ts) and keeps what it has by then;
+// one that times out or breaks never replaces the search it came with.
 // `viewedCount` counts only the thumbnails actually queued.
 // ---------------------------------------------------------------------------
 
 const NOT_LOOKED_AT =
 	"These photos could not be looked at, so answer from their details only.";
 
-function thumbnailsNote(viewed: number, found: number): string {
+// Said when the turn has no thumbnails left to show: the model must not take
+// the silence of an empty look for a failure it could try again.
+const BUDGET_SPENT = `No thumbnails are left for this reply (at most ${STEP_IMAGE_TURN_BUDGET} are shown in one reply), so these photos could not be looked at; answer from their details only.`;
+
+function thumbnailsNote(look: {
+	viewed: number;
+	found: number;
+	granted: number;
+}): string {
+	const { viewed, found, granted } = look;
 	const follow =
 		viewed === 1 ? "1 thumbnail follows" : `${viewed} thumbnails follow`;
 	const partial =
 		viewed < found
 			? ` That is ${viewed} of the ${found} results; the rest were not looked at.`
 			: "";
-	return `${follow} in the next message, named in result order.${partial}`;
+	// The turn gave the look less than it asked for: that is the end of the
+	// thumbnails of this reply, and the model should know before it tries again.
+	const limited =
+		granted < Math.min(found, MAX_LOOK_THUMBNAILS)
+			? ` Only ${granted} of the ${STEP_IMAGE_TURN_BUDGET} thumbnails allowed in one reply were left, so no more can be shown in this reply.`
+			: "";
+	return `${follow} in the next message, numbered by place in the results.${partial}${limited}`;
 }
 
 function withLook(
@@ -588,20 +609,25 @@ async function lookAtFoundPhotos(params: {
 			modelCanSee: await modelIdCanSeeImages(modelId as ModelId),
 		});
 		if (decision === "pixels" && look?.queue) {
-			const { viewed } = await queuePhotoThumbnails({
+			const queued = await queuePhotoThumbnails({
 				userId,
 				connectionId: conn.id,
 				photos: found,
 				queue: look.queue,
 				signal: look.signal,
 			});
-			if (viewed.length > 0) {
+			if (queued.viewed.length > 0) {
 				return withLook(
 					outcome,
-					thumbnailsNote(viewed.length, found.length),
-					viewed.length,
+					thumbnailsNote({
+						viewed: queued.viewed.length,
+						found: found.length,
+						granted: queued.granted,
+					}),
+					queued.viewed.length,
 				);
 			}
+			if (queued.granted === 0) return withLook(outcome, BUDGET_SPENT, 0);
 		} else if (decision === "describe_locally") {
 			const described = await describePhotoThumbnails({
 				userId,
@@ -610,9 +636,11 @@ async function lookAtFoundPhotos(params: {
 				signal: look?.signal,
 			});
 			if (described.size > 0) {
+				const rest =
+					described.size < found.length ? " The rest were not looked at." : "";
 				return withLook(
 					outcome,
-					`A local model looked at ${described.size} of these photos and described them.`,
+					`A local model looked at ${described.size} of the ${found.length} photos and described them.${rest}`,
 					0,
 					described,
 				);

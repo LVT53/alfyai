@@ -5235,6 +5235,8 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 
 	const LABEL =
 		"Thumbnails from the photos tool, in result order: 1 = beach.jpg, 2 = dunes.jpg";
+	const LABEL_WITHOUT_NAMES =
+		"Thumbnails from the photos tool, in result order: 1, 2";
 	const question = "Which of my beach photos is the sharpest?";
 	const thumbnails: TurnImage[] = [
 		{
@@ -5279,17 +5281,30 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 
 	const photosSchema = z.object({ query: z.string() });
 
-	/** A photos tool that, like the real one, queues thumbnails and returns text. */
+	/**
+	 * A photos tool that, like the real one, queues thumbnails and returns text.
+	 * With `localOnly` the entry is cleared for a model on the person's own box
+	 * only, as the real tool queues it for a person who keeps summarising local.
+	 */
 	function createPhotosTool(
 		queue: StepImageQueue,
-		options: { queueNothing?: boolean } = {},
+		options: { queueNothing?: boolean; localOnly?: boolean } = {},
 	) {
 		return tool({
 			description: "Find photos.",
 			inputSchema: photosSchema,
 			execute: async () => {
 				if (!options.queueNothing) {
-					queue.push({ label: LABEL, images: thumbnails });
+					queue.push({
+						label: LABEL,
+						images: thumbnails,
+						...(options.localOnly
+							? {
+									localOnly: true as const,
+									labelWithoutNames: LABEL_WITHOUT_NAMES,
+								}
+							: {}),
+					});
 				}
 				return { success: true, message: "2 thumbnails follow" };
 			},
@@ -5627,6 +5642,324 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 					{ type: "text", text: LABEL },
 					{ type: "text", text: STRIPPED_IMAGE_NOTE },
 				],
+			});
+		});
+	});
+
+	// The person keeps summarising local, so the tool cleared the pictures for a
+	// model on their own box (`localOnly`). The tool decided for the model the turn
+	// started on; the attempt that is sent them can be somewhere else, and then it
+	// is sent neither the pictures nor the names of the photos, whatever it can see.
+	describe.each([
+		["a plain run", "plain"],
+		["a streaming run", "streaming"],
+	] as const)("%s, with pictures cleared for the box only", (_label, path) => {
+		// A model on the person's own box, and one that is not.
+		const onTheBox = {
+			...seeingProvider,
+			baseUrl: "http://192.168.1.96:30000/v1",
+		};
+
+		async function run(args: StreamRunArgs) {
+			if (path === "plain") {
+				await runPlainNormalChatModelRun(args);
+			} else {
+				await collectStreamingEvents(args);
+			}
+		}
+
+		async function afterTheTool(provider: StreamRunArgs["provider"]) {
+			const queue = createStepImageQueue();
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(
+					path === "plain" ? plainToolCall() : streamedToolCall(),
+				)
+				.mockResolvedValueOnce(
+					path === "plain" ? plainAnswer() : streamedAnswer(),
+				);
+
+			await run({
+				provider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+				stepImages: queue,
+				fetch,
+			});
+
+			return parseRequestBody(fetch, 1) as Body;
+		}
+
+		it("sends an attempt on another host that can see no picture and no name", async () => {
+			const second = await afterTheTool(seeingProvider);
+
+			const wire = JSON.stringify(second);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain("base64,");
+			expect(wire).not.toContain("QUFBQQ==");
+			expect(wire).not.toContain("beach.jpg");
+			expect(wire).not.toContain("dunes.jpg");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("sends an attempt on another host that cannot see the same", async () => {
+			const second = await afterTheTool(blindProvider);
+
+			const wire = JSON.stringify(second);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain("beach.jpg");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("shows an attempt on the person's box that can see the pictures, with the names", async () => {
+			const second = await afterTheTool(onTheBox);
+
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+		});
+
+		it("names the photos to an attempt on the box that cannot see: the names stay on the box", async () => {
+			const second = await afterTheTool({
+				...onTheBox,
+				capabilities: undefined,
+			});
+
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+	});
+
+	// The path of the review, through the real loops: a local primary, a person who
+	// keeps summarising local, and a failover to a cloud model that is ticked "Can
+	// see images". In the plain loop the primary asks for the photos and then fails;
+	// in a stream, which may not fail over once it has said a tool was called, the
+	// primary fails before its first output. Either way the cloud model asks for
+	// the photos, and the tool (which decided for the model the turn started on)
+	// clears the pictures for the box again.
+	describe("a run that fails over from a local primary to a cloud model that can see", () => {
+		const localPrimary = {
+			...seeingProvider,
+			baseUrl: "http://192.168.1.96:30000/v1",
+		};
+
+		function failoverConfig(target: string) {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: target,
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "http://192.168.1.96:30000/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** A cloud provider's model the admin ticked "Can see images". */
+		function arrangeCloudModelThatSees() {
+			const row = createProviderModelRow({
+				id: "model-b",
+				name: "flash-next-b",
+				displayName: "Flash B",
+				capabilitiesJson: setModelImageInput("{}", true),
+			});
+			mocks.getProviderWithSecrets.mockResolvedValue({
+				id: "provider-1",
+				name: "cloud",
+				displayName: "Cloud",
+				baseUrl: "https://cloud.example/v1",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			});
+			mocks.getProviderModel.mockImplementation(async (id: string) =>
+				id === "model-b" ? row : null,
+			);
+			mocks.listEnabledProviderModels.mockResolvedValue([row]);
+		}
+
+		async function failOverToTheCloud() {
+			arrangeCloudModelThatSees();
+			const queue = createStepImageQueue();
+			const timeout = Object.assign(new Error("Provider request timed out"), {
+				name: "TimeoutError",
+			});
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				// The local primary asks for the photos, and its next request fails ...
+				.mockResolvedValueOnce(plainToolCall())
+				.mockRejectedValueOnce(timeout)
+				// ... the cloud model asks for them too, and then answers.
+				.mockResolvedValueOnce(plainToolCall())
+				.mockResolvedValueOnce(plainAnswer());
+
+			await runPlainNormalChatModelRun({
+				provider: localPrimary,
+				modelId: "model1",
+				runtimeConfig: failoverConfig("provider:provider-1:model-b"),
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+				stepImages: queue,
+				fetch,
+				maxRetries: 0,
+			});
+			return fetch;
+		}
+
+		it("sends the cloud model no picture, no bytes and no file name", async () => {
+			const fetch = await failOverToTheCloud();
+
+			expect(fetch).toHaveBeenCalledTimes(4);
+			const cloudRequests = [2, 3].map((call) => {
+				expect(fetch.mock.calls[call]?.[0]).toBe(
+					"https://cloud.example/v1/chat/completions",
+				);
+				return JSON.stringify(parseRequestBody(fetch, call));
+			});
+			for (const wire of cloudRequests) {
+				expect(wire).not.toContain("image_url");
+				expect(wire).not.toContain("base64,");
+				expect(wire).not.toContain("QUFBQQ==");
+				expect(wire).not.toContain("QkJCQg==");
+				expect(wire).not.toContain("beach.jpg");
+				expect(wire).not.toContain("dunes.jpg");
+			}
+			const cloudSecond = parseRequestBody(fetch, 3) as Body;
+			expect(cloudSecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("still shows the local primary the pictures and the names, before it fails", async () => {
+			const fetch = await failOverToTheCloud();
+
+			expect(fetch.mock.calls[1]?.[0]).toBe(
+				"http://192.168.1.96:30000/v1/chat/completions",
+			);
+			const primarySecond = parseRequestBody(fetch, 1) as Body;
+			expect(primarySecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+		});
+
+		// What a stream hands its fallback is a turn that has run nothing yet: the
+		// primary fails before its first output, and the cloud model is the first to
+		// ask for the photos.
+		describe("in a stream, before its first output", () => {
+			async function streamAndFailOverToTheCloud() {
+				arrangeCloudModelThatSees();
+				const queue = createStepImageQueue();
+				const timeout = Object.assign(new Error("Provider request timed out"), {
+					name: "TimeoutError",
+				});
+				const fetch = vi
+					.fn<typeof globalThis.fetch>()
+					.mockRejectedValueOnce(timeout)
+					.mockResolvedValueOnce(streamedToolCall())
+					.mockResolvedValueOnce(streamedAnswer());
+
+				await collectStreamingEvents({
+					provider: localPrimary,
+					modelId: "model1",
+					runtimeConfig: failoverConfig("provider:provider-1:model-b"),
+					messages: [buildCurrentUserMessage(question, [])],
+					tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+					stepImages: queue,
+					fetch,
+					maxRetries: 0,
+				});
+				return fetch;
+			}
+
+			it("sends the cloud model no picture, no bytes and no file name", async () => {
+				const fetch = await streamAndFailOverToTheCloud();
+
+				expect(fetch).toHaveBeenCalledTimes(3);
+				expect(fetch.mock.calls[0]?.[0]).toBe(
+					"http://192.168.1.96:30000/v1/chat/completions",
+				);
+				for (const call of [1, 2]) {
+					expect(fetch.mock.calls[call]?.[0]).toBe(
+						"https://cloud.example/v1/chat/completions",
+					);
+					const wire = JSON.stringify(parseRequestBody(fetch, call));
+					expect(wire).not.toContain("image_url");
+					expect(wire).not.toContain("base64,");
+					expect(wire).not.toContain("QUFBQQ==");
+					expect(wire).not.toContain("QkJCQg==");
+					expect(wire).not.toContain("beach.jpg");
+					expect(wire).not.toContain("dunes.jpg");
+				}
+				const cloudSecond = parseRequestBody(fetch, 2) as Body;
+				expect(cloudSecond.messages.at(-1)).toEqual({
+					role: "user",
+					content: [
+						{ type: "text", text: LABEL_WITHOUT_NAMES },
+						{ type: "text", text: STRIPPED_IMAGE_NOTE },
+					],
+				});
 			});
 		});
 	});

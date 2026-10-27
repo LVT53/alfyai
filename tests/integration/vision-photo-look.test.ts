@@ -126,7 +126,12 @@ import { createConversation } from "../../src/lib/server/services/conversations"
 import { IMAGE_DESCRIPTION_PROMPT } from "../../src/lib/server/services/vision/describe";
 import { STRIPPED_IMAGE_NOTE } from "../../src/lib/server/services/vision/turn-images";
 
-type Message = { role: string; content: unknown; tool_call_id?: string };
+type Message = {
+	role: string;
+	content: unknown;
+	tool_call_id?: string;
+	tool_calls?: unknown[];
+};
 type Part = { type: string; text?: string; image_url?: { url: string } };
 type Recorded = {
 	url: string;
@@ -149,6 +154,10 @@ let userId: string;
 let email: string;
 /** Every request the fake provider has had since the test began. */
 let requests: Recorded[] = [];
+/** How many times the fake model asks for the photos before it answers. */
+let rounds = 1;
+/** How many calls to the photos tool it makes at once in each of those steps. */
+let callsPerRound = 1;
 
 function jsonResponse(message: Record<string, unknown>, finish: string) {
 	return new Response(
@@ -187,28 +196,26 @@ async function fakeFetch(
 		);
 	}
 	const hasPhotosTool = JSON.stringify(body.tools ?? []).includes('"photos"');
-	const hasToolResult = body.messages.some(
-		(message) => message.role === "tool",
-	);
-	if (hasPhotosTool && !hasToolResult) {
+	const askedBefore = body.messages.filter(
+		(message) => message.role === "assistant" && message.tool_calls,
+	).length;
+	if (hasPhotosTool && askedBefore < rounds) {
 		return jsonResponse(
 			{
 				role: "assistant",
 				content: null,
-				tool_calls: [
-					{
-						id: "call-look-1",
-						type: "function",
-						function: {
-							name: "photos",
-							arguments: JSON.stringify({
-								action: "search",
-								query: "beach",
-								look: true,
-							}),
-						},
+				tool_calls: Array.from({ length: callsPerRound }, (_, index) => ({
+					id: `call-look-${askedBefore + 1}-${index + 1}`,
+					type: "function",
+					function: {
+						name: "photos",
+						arguments: JSON.stringify({
+							action: "search",
+							query: "beach",
+							look: true,
+						}),
 					},
-				],
+				})),
 			},
 			"tool_calls",
 		);
@@ -254,6 +261,8 @@ let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
 	warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 	requests = [];
+	rounds = 1;
+	callsPerRound = 1;
 	for (const mock of [
 		mocks.immichSmartSearch,
 		mocks.immichThumbnail,
@@ -264,23 +273,14 @@ beforeEach(async () => {
 	]) {
 		mock.mockReset();
 	}
-	mocks.immichSmartSearch.mockResolvedValue(
-		["one", "two", "three"].map((name, index) => ({
-			id: `asset-${index + 1}`,
-			fileName: `${name}-beach.jpg`,
-			takenAt: "2026-06-01T09:55:00.000Z",
-			type: "IMAGE",
-			thumbnailPath: `/api/assets/asset-${index + 1}/thumbnail`,
-		})),
-	);
-	const colours = ["#336699", "#996633", "#339966"];
+	foundPhotos(3);
 	mocks.immichThumbnail.mockImplementation(
 		async (
 			_user: string,
 			_connection: string,
 			params: { assetId: string },
 		) => ({
-			bytes: await webp(colours[Number(params.assetId.split("-")[1]) - 1]),
+			bytes: await webp(colourOf(Number(params.assetId.split("-")[1]))),
 			contentType: "image/webp",
 		}),
 	);
@@ -291,13 +291,45 @@ afterEach(() => {
 	warn.mockRestore();
 });
 
-function provider(canSee: boolean) {
+/** The photos the fake Immich finds: one-beach.jpg, two-beach.jpg, ... */
+function foundPhotos(count: number) {
+	const names = [
+		"one",
+		"two",
+		"three",
+		"four",
+		"five",
+		"six",
+		"seven",
+		"eight",
+	];
+	mocks.immichSmartSearch.mockResolvedValue(
+		Array.from({ length: count }, (_, index) => ({
+			id: `asset-${index + 1}`,
+			fileName: `${names[index]}-beach.jpg`,
+			takenAt: "2026-06-01T09:55:00.000Z",
+			type: "IMAGE",
+			thumbnailPath: `/api/assets/asset-${index + 1}/thumbnail`,
+		})),
+	);
+}
+
+/** A colour for each photo, so that no two thumbnails have the same bytes. */
+function colourOf(number: number): string {
+	const channel = (n: number) => ((n * 53) % 200) + 28;
+	return `#${[channel(number), channel(number + 3), channel(number + 6)]
+		.map((value) => value.toString(16).padStart(2, "0"))
+		.join("")}`;
+}
+
+/** The provider of the attempt: by default a model of the fake provider's. */
+function provider(canSee: boolean, baseUrl = "http://model1.fake/v1") {
 	return {
 		id: "fake",
 		modelId: "model1" as const,
 		name: "fake",
 		displayName: "Fake Model",
-		baseUrl: "http://model1.fake/v1",
+		baseUrl,
 		modelName: "fake-model-1",
 		apiKey: "k1",
 		...(canSee ? { capabilities: SEEING } : {}),
@@ -305,7 +337,10 @@ function provider(canSee: boolean) {
 }
 
 /** One plain chat turn in which the model looks at the photos it finds. */
-async function askToLook(params: { chatModelCanSee: boolean }) {
+async function askToLook(params: {
+	chatModelCanSee: boolean;
+	baseUrl?: string;
+}) {
 	const conversationId = (await createConversation(userId, "Beach photos")).id;
 	const result = await runPlainNormalChatSendModel({
 		userId,
@@ -316,12 +351,12 @@ async function askToLook(params: { chatModelCanSee: boolean }) {
 		user: { id: userId, displayName: "Alex Morgan", email },
 		depthMetadata: buildBaselineDepthMetadata({ reasoningDepth: "thorough" }),
 		enabledConnectionCapabilities: ["photos"],
-		overrideProvider: provider(params.chatModelCanSee),
+		overrideProvider: provider(params.chatModelCanSee, params.baseUrl),
 	});
 	// The requests the chat model had: before the tool ran, and after.
 	const chat = requests.filter(
 		(request) =>
-			request.url.startsWith("http://model1.fake") &&
+			!request.url.startsWith("http://model2.fake") &&
 			JSON.stringify(request.body.tools ?? []).includes('"photos"'),
 	);
 	return { result, chat };
@@ -493,5 +528,138 @@ describe("the model asks to look at the photos it found", () => {
 		const cloudSaw = JSON.stringify(chat.map((request) => request.body));
 		expect(cloudSaw).not.toContain("image_url");
 		expect(cloudSaw).toContain("could not be looked at");
+	});
+});
+
+// A person who keeps summarising local has the pictures cleared for a model on
+// their own box. The tool decides for the model the turn started on; the attempt
+// that is sent them can be on another host (a failover to a cloud model that is
+// ticked "Can see images"), and then it gets neither pictures nor names.
+describe("the attempt that is sent the pictures of a person who keeps summarising local", () => {
+	const cloud = "https://api.cloud.example/v1";
+	const onTheBox = "http://127.0.0.1:18081/v1";
+
+	function keepLocalWithALocalModel() {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		// The model the tool decides for is local: pixels are the answer.
+		mocks.isCloudModel.mockResolvedValue(false);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+	}
+
+	it("shows a model on the box that can see the thumbnails, with the names", async () => {
+		keepLocalWithALocalModel();
+
+		const { chat } = await askToLook({
+			chatModelCanSee: true,
+			baseUrl: onTheBox,
+		});
+
+		const parts = partsOf(chat.at(-1)?.body.messages.at(-1));
+		expect(parts.map((part) => part.type)).toEqual([
+			"text",
+			"image_url",
+			"image_url",
+			"image_url",
+		]);
+		expect(parts[0]?.text).toContain("1 = one-beach.jpg");
+	});
+
+	it("sends a cloud model that can see no picture and no name in the step that follows the tool", async () => {
+		keepLocalWithALocalModel();
+
+		const { chat } = await askToLook({ chatModelCanSee: true, baseUrl: cloud });
+
+		const wire = JSON.stringify(chat.map((request) => request.body));
+		expect(wire).not.toContain("image_url");
+		expect(wire).not.toContain("base64,");
+		// What the step added says that pictures were here, and names no photo.
+		// (The tool's own result text is gated for the model the turn started on,
+		// as every connector's is.)
+		const added = chat.at(-1)?.body.messages.at(-1);
+		expect(partsOf(added)).toEqual([
+			{
+				type: "text",
+				text: "Thumbnails from the photos tool, in result order: 1, 2, 3",
+			},
+			{ type: "text", text: STRIPPED_IMAGE_NOTE },
+		]);
+	});
+});
+
+// A turn may show the model eight thumbnails, however many looks it asks for and
+// however many it asks for in one step.
+describe("the turn's eight thumbnails", () => {
+	beforeEach(() => {
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		mocks.hasLocalDistillEnabled.mockResolvedValue(false);
+		mocks.isCloudModel.mockResolvedValue(false);
+	});
+
+	function pictureCount(message: Message | undefined): number {
+		return partsOf(message).filter((part) => part.type === "image_url").length;
+	}
+
+	function toolResults(request: Recorded | undefined): string[] {
+		return (request?.body.messages ?? [])
+			.filter((message) => message.role === "tool")
+			.map((message) => String(message.content));
+	}
+
+	it("tells a second look in the same reply that the limit is used up, and still hands it its search", async () => {
+		foundPhotos(8);
+		rounds = 2;
+
+		const { result, chat } = await askToLook({ chatModelCanSee: true });
+
+		// Three steps: the first look, the second, the answer.
+		expect(chat).toHaveLength(3);
+		expect(pictureCount(chat[1]?.body.messages.at(-1))).toBe(8);
+		// The second look's step carries no new picture: its result is the last
+		// message, and it says the limit is used up.
+		const lastOfThird = chat[2]?.body.messages.at(-1);
+		expect(lastOfThird?.role).toBe("tool");
+		const [, secondResult] = toolResults(chat[2]).map(
+			(text) => JSON.parse(text) as { message: string; results: unknown[] },
+		);
+		expect(secondResult?.message).toContain(
+			"No thumbnails are left for this reply (at most 8 are shown in one reply)",
+		);
+		expect(secondResult?.results).toHaveLength(8);
+		expect(JSON.stringify(chat[2]?.body)).not.toContain("image_url");
+		expect(
+			result.normalChatToolCalls?.map((call) => call.metadata?.viewedCount),
+		).toEqual([8, 0]);
+		// And only eight were ever downloaded.
+		expect(mocks.immichThumbnail).toHaveBeenCalledTimes(8);
+	});
+
+	it("shares the eight between two looks asked for in one step: eight pictures in the step, not ten", async () => {
+		foundPhotos(5);
+		callsPerRound = 2;
+
+		const { result, chat } = await askToLook({ chatModelCanSee: true });
+
+		expect(chat).toHaveLength(2);
+		const messages = chat[1]?.body.messages ?? [];
+		// The two calls' results, then the pictures of each look as a user message.
+		const lastResult = messages.map((m) => m.role).lastIndexOf("tool");
+		const added = messages.slice(lastResult + 1);
+		expect(added.map((message) => message.role)).toEqual(["user", "user"]);
+		const pictures = added.map(pictureCount);
+		expect(pictures.reduce((sum, count) => sum + count, 0)).toBe(8);
+		expect([...pictures].sort()).toEqual([3, 5]);
+		const messagesOfResults = toolResults(chat[1]).map(
+			(text) => JSON.parse(text) as { message: string },
+		);
+		expect(
+			messagesOfResults.filter((r) =>
+				r.message.includes("allowed in one reply"),
+			),
+		).toHaveLength(1);
+		expect(
+			result.normalChatToolCalls
+				?.map((call) => call.metadata?.viewedCount)
+				.sort(),
+		).toEqual([3, 5]);
 	});
 });

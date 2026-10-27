@@ -23,6 +23,18 @@ import type { TurnImage } from "./turn-images";
 export const MAX_LOOK_THUMBNAILS = 8;
 
 /**
+ * How long a look may take, from its first download. The photos tool answers
+ * inside 20 s (`TOOL_TIMEOUTS_MS.photos`), and a tool that times out answers with
+ * a failure in place of the whole search, so a look gives up well before: it
+ * keeps what it has by then and the search it came with goes back whole. Showing
+ * the thumbnails (a LAN download and a resize each) has a short one. Describing
+ * them is a model call each on the person's own box, and the summary the result
+ * goes through (a model call without a deadline of its own) comes after it.
+ */
+export const PIXELS_LOOK_DEADLINE_MS = 8_000;
+export const DESCRIBE_LOOK_DEADLINE_MS = 12_000;
+
+/**
  * Thumbnails fetched and prepared at once. A HEIC original would decode on the
  * calling thread, and a describing call is a model call on the person's own
  * box; two at a time keep both polite and still overlap one with another.
@@ -107,75 +119,178 @@ function labelNameOf(photo: LookPhoto): string {
 		: oneLine;
 }
 
-function labelOf(names: readonly string[]): string {
-	return `Thumbnails from the photos tool, in result order: ${names
-		.map((name, index) => `${index + 1} = ${name}`)
+const LABEL_HEAD = "Thumbnails from the photos tool, in result order:";
+
+/** A picture is numbered by the result it comes from: result 3 is "3" whatever came before it. */
+function labelOf(
+	items: ReadonlyArray<{ position: number; name: string }>,
+): string {
+	return `${LABEL_HEAD} ${items
+		.map(({ position, name }) => `${position} = ${name}`)
 		.join(", ")}`;
+}
+
+/** The same label with no name in it, for an attempt that may not have the names. */
+function labelWithoutNamesOf(positions: readonly number[]): string {
+	return `${LABEL_HEAD} ${positions.join(", ")}`;
+}
+
+// Loaded when a look happens, not when the chat turn's modules do: sharp and the
+// HEIC decoder are native code (see turn-images.ts). Looks asked for in the same
+// moment share the one import, and one that failed is not remembered.
+let preparer: Promise<typeof import("./prepare-image")> | undefined;
+
+function loadPreparer(): Promise<typeof import("./prepare-image")> {
+	if (!preparer) {
+		preparer = import("./prepare-image").catch((error: unknown) => {
+			preparer = undefined;
+			throw error;
+		});
+	}
+	return preparer;
+}
+
+/** Stands in for the result of work that was stopped. */
+const STOPPED = Symbol("stopped");
+
+/**
+ * `work`'s result, or `STOPPED` as soon as `stop` is aborted, whether or not
+ * `work` has finished: the caller does not wait for what it can not cancel. What
+ * `work` does after that, it does for nobody (a rejection is taken here, too).
+ */
+function untilStopped<T>(
+	work: Promise<T>,
+	stop: AbortSignal,
+): Promise<T | typeof STOPPED> {
+	if (stop.aborted) return Promise.resolve(STOPPED);
+	return new Promise((resolve, reject) => {
+		const onStop = () => resolve(STOPPED);
+		stop.addEventListener("abort", onStop, { once: true });
+		work.then(
+			(value) => {
+				stop.removeEventListener("abort", onStop);
+				resolve(value);
+			},
+			(error: unknown) => {
+				stop.removeEventListener("abort", onStop);
+				reject(error);
+			},
+		);
+	});
 }
 
 /**
  * Downloads the thumbnail of each photo from the person's Immich and prepares
  * it as a thumbnail (`THUMBNAIL_MAX_LONG_EDGE`), two at a time, then hands it to
  * `use`. The results keep the photos' order; a photo whose thumbnail would not
- * download, would not prepare, or whose `use` failed is `undefined` in its place,
- * and a call that was given up starts no more.
+ * download, would not prepare, or whose `use` failed is `undefined` in its place.
+ *
+ * It stops when the call is given up (`signal`) and when the look's own
+ * deadline passes, and in both cases starts no more and does not wait for what
+ * is under way: whatever was finished by then is returned, and `use` is handed
+ * the signal that says to stop. A look is not allowed to be the reason the photos
+ * tool times out (see `PIXELS_LOOK_DEADLINE_MS`).
  */
 async function eachThumbnail<T>(params: {
 	userId: string;
 	connectionId: string;
 	photos: readonly LookPhoto[];
 	signal?: AbortSignal;
-	use: (photo: LookPhoto, image: PreparedImage) => Promise<T>;
+	deadlineMs: number;
+	use: (
+		photo: LookPhoto,
+		image: PreparedImage,
+		stop: AbortSignal,
+	) => Promise<T>;
 }): Promise<Array<T | undefined>> {
 	const { userId, connectionId, signal } = params;
 	const photos = params.photos.slice(0, MAX_LOOK_THUMBNAILS);
 	const results: Array<T | undefined> = new Array(photos.length).fill(
 		undefined,
 	);
-	if (signal?.aborted) return results;
-	// Loaded when a look happens, not when the chat turn's modules do: sharp and
-	// the HEIC decoder are native code (see turn-images.ts).
-	const { prepareImageForModel, THUMBNAIL_MAX_LONG_EDGE } = await import(
-		"./prepare-image"
-	);
-	let next = 0;
-	const worker = async () => {
-		while (next < photos.length && !signal?.aborted) {
-			const index = next;
-			next += 1;
-			try {
-				const { bytes, contentType } = await immichThumbnail(
-					userId,
-					connectionId,
-					{ assetId: photos[index].id },
-				);
-				const image = await prepareImageForModel(
-					new Uint8Array(bytes),
-					contentType,
-					{ maxLongEdge: THUMBNAIL_MAX_LONG_EDGE },
-				);
-				results[index] = await params.use(photos[index], image);
-			} catch (error) {
-				// Content-free on purpose: why, never which photo or what was in it.
-				console.warn("[PHOTOS] Thumbnail not looked at", {
-					reason: reasonOf(error),
-				});
+	if (signal?.aborted || photos.length === 0) return results;
+
+	const deadline = new AbortController();
+	const timer = setTimeout(() => deadline.abort(), params.deadlineMs);
+	const stop = signal
+		? AbortSignal.any([signal, deadline.signal])
+		: deadline.signal;
+	try {
+		const { prepareImageForModel, THUMBNAIL_MAX_LONG_EDGE } =
+			await loadPreparer();
+		let next = 0;
+		const worker = async () => {
+			while (next < photos.length && !stop.aborted) {
+				const index = next;
+				next += 1;
+				try {
+					const used = await untilStopped(
+						(async () => {
+							const { bytes, contentType } = await immichThumbnail(
+								userId,
+								connectionId,
+								{ assetId: photos[index].id },
+							);
+							const image = await prepareImageForModel(
+								new Uint8Array(bytes),
+								contentType,
+								{ maxLongEdge: THUMBNAIL_MAX_LONG_EDGE },
+							);
+							return params.use(photos[index], image, stop);
+						})(),
+						stop,
+					);
+					if (used !== STOPPED) results[index] = used;
+				} catch (error) {
+					// Content-free on purpose: why, never which photo or what was in it.
+					console.warn("[PHOTOS] Thumbnail not looked at", {
+						reason: reasonOf(error),
+					});
+				}
 			}
+		};
+		await Promise.all(
+			Array.from({ length: Math.min(LOOK_CONCURRENCY, photos.length) }, worker),
+		);
+		if (deadline.signal.aborted && !signal?.aborted) {
+			console.warn("[PHOTOS] Look stopped at its deadline", {
+				finished: results.filter((result) => result !== undefined).length,
+				of: photos.length,
+			});
 		}
-	};
-	await Promise.all(
-		Array.from({ length: Math.min(LOOK_CONCURRENCY, photos.length) }, worker),
-	);
-	return results;
+		// A copy: what is still under way writes into `results` later, for nobody.
+		return [...results];
+	} finally {
+		clearTimeout(timer);
+	}
 }
+
+/** What a look at the photos for the model answering came to. */
+export type QueuedLook = {
+	/** The photos whose thumbnail was queued, in result order: what the model was shown. */
+	viewed: LookPhoto[];
+	/** How many pictures the turn gave this look (0: it had none left to give). */
+	granted: number;
+	/** How many the turn has left after this look. */
+	left: number;
+};
 
 /**
  * Queues the thumbnails of the first results for the model that is answering,
  * as one entry the model run hands over in the step after the tool result
- * (step-images.ts). Returns the photos whose thumbnail was queued, in result
- * order: that is what the model was shown, and nothing is queued when no
- * thumbnail could be had or when the call was given up in the meantime (a
- * late push would give the next step pictures nobody asked for).
+ * (step-images.ts).
+ *
+ * A turn may show the model so many pictures, however many looks it asks for
+ * (`queue.room()`): the look takes what is left, at most 8, before it downloads
+ * anything, so two looks in one step share the budget, and gives back what it
+ * did not queue. With none left nothing is downloaded.
+ *
+ * For a person who keeps summarising local the entry is marked `localOnly`: the
+ * pictures are cleared for a model on the person's own box, and the step that
+ * hands them over holds them (and the file names in the label) back from an
+ * attempt anywhere else. Pictures are numbered by the result they come from.
+ * Nothing is queued when no thumbnail could be had, or when the call was given
+ * up (a late push would give the next step pictures nobody asked for).
  *
  * The thumbnails are not attachments: they never ride `currentImages` and
  * `scheduleImageDescriptions` never sees them, so no description is made or
@@ -187,34 +302,60 @@ export async function queuePhotoThumbnails(params: {
 	photos: readonly LookPhoto[];
 	queue: StepImageQueue;
 	signal?: AbortSignal;
-}): Promise<{ viewed: LookPhoto[] }> {
-	const looked = await eachThumbnail({
-		userId: params.userId,
-		connectionId: params.connectionId,
-		photos: params.photos,
-		signal: params.signal,
-		use: async (photo, image): Promise<TurnImage> => ({
-			// Not an artifact id: a thumbnail is not stored anywhere.
-			artifactId: `immich:${photo.id}`,
-			name: labelNameOf(photo),
-			image,
-		}),
-	});
-	if (params.signal?.aborted) return { viewed: [] };
+}): Promise<QueuedLook> {
+	const { queue } = params;
+	// Asked before anything is taken from the turn, so that a setting that cannot
+	// be read (and so no look) leaves the turn's pictures as they were.
+	const localOnly = await hasLocalDistillEnabled(params.userId);
+	const granted = queue.reserve(
+		Math.min(params.photos.length, MAX_LOOK_THUMBNAILS),
+	);
+	if (granted === 0) return { viewed: [], granted: 0, left: queue.room() };
 
+	let queued = 0;
 	const viewed: LookPhoto[] = [];
-	const images: TurnImage[] = [];
-	looked.forEach((image, index) => {
-		if (!image) return;
-		viewed.push(params.photos[index]);
-		images.push(image);
-	});
-	if (images.length === 0) return { viewed: [] };
-	params.queue.push({
-		label: labelOf(images.map((image) => image.name)),
-		images,
-	});
-	return { viewed };
+	try {
+		const looked = await eachThumbnail({
+			userId: params.userId,
+			connectionId: params.connectionId,
+			photos: params.photos.slice(0, granted),
+			signal: params.signal,
+			deadlineMs: PIXELS_LOOK_DEADLINE_MS,
+			use: async (photo, image): Promise<TurnImage> => ({
+				// Not an artifact id: a thumbnail is not stored anywhere.
+				artifactId: `immich:${photo.id}`,
+				name: labelNameOf(photo),
+				image,
+			}),
+		});
+		if (!params.signal?.aborted) {
+			const items: Array<{ position: number; image: TurnImage }> = [];
+			looked.forEach((image, index) => {
+				if (!image) return;
+				items.push({ position: index + 1, image });
+				viewed.push(params.photos[index]);
+			});
+			if (items.length > 0) {
+				queue.push({
+					label: labelOf(
+						items.map(({ position, image }) => ({
+							position,
+							name: image.name,
+						})),
+					),
+					labelWithoutNames: labelWithoutNamesOf(
+						items.map(({ position }) => position),
+					),
+					images: items.map(({ image }) => image),
+					...(localOnly ? { localOnly: true as const } : {}),
+				});
+				queued = items.length;
+			}
+		}
+	} finally {
+		queue.release(granted - queued);
+	}
+	return { viewed, granted, left: queue.room() };
 }
 
 /**
@@ -222,8 +363,10 @@ export async function queuePhotoThumbnails(params: {
  * model that must not have the pixels. The thumbnails go to that model and
  * nowhere else, and what it says is returned keyed by asset id for the caller
  * to hand to the connector summary, never to the cloud model directly. A photo
- * whose thumbnail or description failed is absent; with no such local model the
- * result is empty and nothing was downloaded.
+ * whose thumbnail or description failed, or did not come within the deadline
+ * (`DESCRIBE_LOOK_DEADLINE_MS`), is absent; with no such local model the result
+ * is empty and nothing was downloaded. Nothing here uses the turn's pictures:
+ * what is described is text.
  */
 export async function describePhotoThumbnails(params: {
 	userId: string;
@@ -248,12 +391,11 @@ export async function describePhotoThumbnails(params: {
 		connectionId: params.connectionId,
 		photos: params.photos,
 		signal: params.signal,
-		use: (photo, image) =>
-			describeImage({
-				provider: localProvider,
-				image,
-				signal: params.signal,
-			}).then((description) => ({ id: photo.id, description })),
+		deadlineMs: DESCRIBE_LOOK_DEADLINE_MS,
+		use: (photo, image, stop) =>
+			describeImage({ provider: localProvider, image, signal: stop }).then(
+				(description) => ({ id: photo.id, description }),
+			),
 	});
 	return new Map(
 		described

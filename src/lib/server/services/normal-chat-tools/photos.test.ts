@@ -25,12 +25,17 @@ import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-c
 import { describeImage } from "$lib/server/services/vision/describe";
 import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import {
+	DESCRIBE_LOOK_DEADLINE_MS,
+	PIXELS_LOOK_DEADLINE_MS,
+} from "$lib/server/services/vision/photo-look";
+import {
 	type PreparedImage,
 	prepareImageForModel,
 } from "$lib/server/services/vision/prepare-image";
 import { createStepImageQueue } from "$lib/server/services/vision/step-images";
 
 import { runPhotosTool, sanitizePhotosToolInput } from "./photos";
+import { TOOL_TIMEOUTS_MS } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -1246,7 +1251,14 @@ describe("runPhotosTool — look (thumbnails when a question needs them)", () =>
 		const { outcome, queue } = await lookFor(3);
 
 		expect(outcome.viewedCount).toBe(3);
-		expect(queue.drain()[0]?.images).toHaveLength(3);
+		const [entry] = queue.drain();
+		expect(entry?.images).toHaveLength(3);
+		// Cleared for a model on the box only: an attempt anywhere else (a failover
+		// to a cloud model) is held back from them when the step is built.
+		expect(entry?.localOnly).toBe(true);
+		expect(entry?.labelWithoutNames).toBe(
+			"Thumbnails from the photos tool, in result order: 1, 2, 3",
+		);
 		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
 	});
 
@@ -1262,7 +1274,352 @@ describe("runPhotosTool — look (thumbnails when a question needs them)", () =>
 		);
 
 		expect(outcome.viewedCount).toBe(3);
-		expect(queue.drain()[0]?.images).toHaveLength(3);
+		const [entry] = queue.drain();
+		expect(entry?.images).toHaveLength(3);
+		// The person asked for nothing to stay on the box.
+		expect(entry).not.toHaveProperty("localOnly");
+	});
+
+	it("numbers the pictures by the result they come from when a thumbnail is skipped", async () => {
+		arrangeSeeingModel();
+		immichThumbnailMock.mockImplementation(
+			async (_user, _conn, { assetId }) => {
+				if (assetId === "asset-2") {
+					throw new ImmichError(
+						"Failed to fetch the photo thumbnail",
+						"request_failed",
+					);
+				}
+				return thumbnailBytesOf(assetId);
+			},
+		);
+
+		const { outcome, queue } = await lookFor(3);
+
+		expect(queue.drain()[0]?.label).toBe(
+			"Thumbnails from the photos tool, in result order: 1 = IMG_0001.jpg, 3 = IMG_0003.jpg",
+		);
+		expect(outcome.modelPayload.message).toContain(
+			"numbered by place in the results",
+		);
+	});
+
+	// A turn may show the model eight thumbnails, however many looks it asks for:
+	// the queue of the turn holds the count, and a look takes what is left.
+	describe("the turn's eight thumbnails", () => {
+		/** A look in the turn the queue belongs to. */
+		async function lookIn(
+			queue: ReturnType<typeof createStepImageQueue>,
+			count: number,
+		) {
+			seedPhotos(count);
+			return runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				LOCAL_MODEL_ID,
+				undefined,
+				{ queue },
+			);
+		}
+
+		it("tells a second look that the limit is used up, and still returns its search", async () => {
+			arrangeSeeingModel();
+			const queue = createStepImageQueue();
+			const first = await lookIn(queue, 8);
+			immichThumbnailMock.mockClear();
+
+			const second = await lookIn(queue, 6);
+
+			expect(first.viewedCount).toBe(8);
+			expect(second.viewedCount).toBe(0);
+			expect(second.modelPayload.message).toContain(
+				"No thumbnails are left for this reply (at most 8 are shown in one reply)",
+			);
+			expect(second.modelPayload.message).toContain("could not be looked at");
+			// The search itself came back whole, and nothing was downloaded for it.
+			expect(second.modelPayload.success).toBe(true);
+			expect(second.modelPayload.results).toHaveLength(6);
+			expect(immichThumbnailMock).not.toHaveBeenCalled();
+			// The model got one set of pictures in the turn.
+			expect(queue.drain()).toHaveLength(1);
+		});
+
+		it("gives a look what is left and says that no more can follow", async () => {
+			arrangeSeeingModel();
+			const queue = createStepImageQueue();
+			await lookIn(queue, 5);
+
+			const second = await lookIn(queue, 8);
+
+			expect(second.viewedCount).toBe(3);
+			expect(second.modelPayload.message).toContain("3 thumbnails follow");
+			expect(second.modelPayload.message).toContain(
+				"Only 3 of the 8 thumbnails allowed in one reply were left, so no more can be shown in this reply",
+			);
+			const entries = queue.drain();
+			expect(entries).toHaveLength(2);
+			expect(entries[1]?.images).toHaveLength(3);
+		});
+
+		it("does not say the limit is used up when the look had all it wanted", async () => {
+			arrangeSeeingModel();
+			const queue = createStepImageQueue();
+
+			const look = await lookIn(queue, 8);
+
+			expect(look.viewedCount).toBe(8);
+			expect(look.modelPayload.message).not.toContain("allowed in one reply");
+			expect(look.modelPayload.message).not.toContain("No thumbnails are left");
+		});
+
+		it("shares the eight between two looks asked for in the same step", async () => {
+			arrangeSeeingModel();
+			seedPhotos(8);
+			const queue = createStepImageQueue();
+			const ask = () =>
+				runPhotosTool(
+					"user-1",
+					{ action: "search", query: "beach", look: true },
+					LOCAL_MODEL_ID,
+					undefined,
+					{ queue },
+				);
+
+			const [one, two] = await Promise.all([ask(), ask()]);
+
+			expect((one.viewedCount ?? 0) + (two.viewedCount ?? 0)).toBe(8);
+			expect([one.viewedCount, two.viewedCount].sort()).toEqual([0, 8]);
+			const denied = one.viewedCount === 0 ? one : two;
+			expect(denied.modelPayload.message).toContain("No thumbnails are left");
+			// Eight pictures in the step, not sixteen.
+			expect(queue.drain().flatMap((entry) => entry.images)).toHaveLength(8);
+			expect(immichThumbnailMock).toHaveBeenCalledTimes(8);
+		});
+
+		it("gives back what a look could not get, so that the next one can", async () => {
+			arrangeSeeingModel();
+			const queue = createStepImageQueue();
+			immichThumbnailMock.mockRejectedValue(
+				new ImmichError(
+					"Failed to fetch the photo thumbnail",
+					"request_failed",
+				),
+			);
+			const failed = await lookIn(queue, 8);
+			expect(failed.viewedCount).toBe(0);
+			expect(failed.modelPayload.message).toContain("could not be looked at");
+			expect(failed.modelPayload.message).not.toContain(
+				"No thumbnails are left",
+			);
+
+			immichThumbnailMock.mockImplementation(async (_u, _c, { assetId }) =>
+				thumbnailBytesOf(assetId),
+			);
+			const again = await lookIn(queue, 8);
+
+			expect(again.viewedCount).toBe(8);
+		});
+
+		it("gives a look in a new turn its own eight", async () => {
+			arrangeSeeingModel();
+			await lookIn(createStepImageQueue(), 8);
+
+			const other = await lookIn(createStepImageQueue(), 8);
+
+			expect(other.viewedCount).toBe(8);
+		});
+
+		it("does not spend them on a look that is described instead of shown", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockImplementation(async (id) => id === CLOUD_MODEL_ID);
+			modelIdCanSeeImagesMock.mockImplementation(
+				async (id) => id === LOCAL_SEEING_MODEL_ID,
+			);
+			distillConnectorPayloadMock.mockResolvedValue({ distilled: "Beach." });
+			const queue = createStepImageQueue();
+			seedPhotos(8);
+
+			await runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				CLOUD_MODEL_ID,
+				undefined,
+				{ queue },
+			);
+
+			expect(queue.room()).toBe(8);
+		});
+	});
+
+	// A look has its own deadline inside the photos call, and the tool's timeout
+	// (20 s) must not be what ends it: the envelope would answer with a failure in
+	// place of the whole search.
+	describe("the look's deadline", () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("keeps the search and the descriptions made in time when a slow description finishes past the deadline", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockImplementation(async (id) => id === CLOUD_MODEL_ID);
+			modelIdCanSeeImagesMock.mockImplementation(
+				async (id) => id === LOCAL_SEEING_MODEL_ID,
+			);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "Beach photos; two were looked at.",
+			});
+			describeImageMock.mockImplementation(({ image }) => {
+				const id = assetIdOf(image);
+				// Photos 3 and 4 take longer than any deadline would allow.
+				if (id === "asset-3" || id === "asset-4") {
+					return new Promise<string>((resolve) =>
+						setTimeout(() => resolve(`seen ${id}`), 60_000),
+					);
+				}
+				return Promise.resolve(`seen ${id}`);
+			});
+			seedPhotos(4);
+			const queue = createStepImageQueue();
+
+			const calling = runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				CLOUD_MODEL_ID,
+				undefined,
+				{ queue },
+			);
+			await vi.advanceTimersByTimeAsync(DESCRIBE_LOOK_DEADLINE_MS);
+			const outcome = await calling;
+
+			// The search came back whole ...
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.results).toHaveLength(4);
+			expect(outcome.candidates).toHaveLength(4);
+			expect(outcome.modelPayload.message).toContain(
+				"Beach photos; two were looked at.",
+			);
+			expect(outcome.modelPayload.message).toContain(
+				"A local model looked at 2 of the 4 photos and described them",
+			);
+			// ... with the two descriptions that were made in time, and not the others.
+			const rawText = distillConnectorPayloadMock.mock.calls[0]?.[0].rawText;
+			expect(rawText).toContain("seen asset-1");
+			expect(rawText).toContain("seen asset-2");
+			expect(rawText).not.toContain("seen asset-3");
+			expect(rawText).not.toContain("seen asset-4");
+		});
+
+		it("keeps the search when no description came in time", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockImplementation(async (id) => id === CLOUD_MODEL_ID);
+			modelIdCanSeeImagesMock.mockImplementation(
+				async (id) => id === LOCAL_SEEING_MODEL_ID,
+			);
+			distillConnectorPayloadMock.mockResolvedValue({ distilled: "Beach." });
+			describeImageMock.mockImplementation(() => new Promise(() => {}));
+			seedPhotos(3);
+
+			const calling = runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				CLOUD_MODEL_ID,
+				undefined,
+				{ queue: createStepImageQueue() },
+			);
+			await vi.advanceTimersByTimeAsync(DESCRIBE_LOOK_DEADLINE_MS);
+			const outcome = await calling;
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.results).toHaveLength(3);
+			expect(outcome.modelPayload.message).toContain("could not be looked at");
+			expect(outcome.viewedCount).toBe(0);
+		});
+
+		it("queues the thumbnails that came in time and returns the whole search", async () => {
+			arrangeSeeingModel();
+			immichThumbnailMock.mockImplementation(
+				async (_user, _conn, { assetId }) => {
+					if (assetId === "asset-3" || assetId === "asset-4") {
+						return new Promise(() => {});
+					}
+					return thumbnailBytesOf(assetId);
+				},
+			);
+			seedPhotos(4);
+			const queue = createStepImageQueue();
+
+			const calling = runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				LOCAL_MODEL_ID,
+				undefined,
+				{ queue },
+			);
+			await vi.advanceTimersByTimeAsync(PIXELS_LOOK_DEADLINE_MS);
+			const outcome = await calling;
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.results).toHaveLength(4);
+			expect(outcome.viewedCount).toBe(2);
+			expect(outcome.modelPayload.message).toContain("2 thumbnails follow");
+			expect(outcome.modelPayload.message).toContain(
+				"That is 2 of the 4 results",
+			);
+			expect(queue.drain()[0]?.images).toHaveLength(2);
+		});
+
+		it("answers within the deadline though the thumbnails never come", async () => {
+			arrangeSeeingModel();
+			immichThumbnailMock.mockImplementation(() => new Promise(() => {}));
+			seedPhotos(8);
+			let answered = false;
+
+			const calling = runPhotosTool(
+				"user-1",
+				{ action: "search", query: "beach", look: true },
+				LOCAL_MODEL_ID,
+				undefined,
+				{ queue: createStepImageQueue() },
+			).then((outcome) => {
+				answered = true;
+				return outcome;
+			});
+			await vi.advanceTimersByTimeAsync(PIXELS_LOOK_DEADLINE_MS - 1);
+			expect(answered).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			const outcome = await calling;
+
+			expect(answered).toBe(true);
+			expect(outcome.modelPayload.results).toHaveLength(8);
+			expect(outcome.modelPayload.message).toContain("could not be looked at");
+			// Well inside the tool's 20 s, with the search and the summary to spare.
+			expect(PIXELS_LOOK_DEADLINE_MS).toBeLessThan(TOOL_TIMEOUTS_MS.photos);
+			expect(DESCRIBE_LOOK_DEADLINE_MS).toBeLessThan(TOOL_TIMEOUTS_MS.photos);
+		});
+	});
+
+	it("keeps the search when every description breaks", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockImplementation(async (id) => id === CLOUD_MODEL_ID);
+		modelIdCanSeeImagesMock.mockImplementation(
+			async (id) => id === LOCAL_SEEING_MODEL_ID,
+		);
+		distillConnectorPayloadMock.mockResolvedValue({ distilled: "Beach." });
+		describeImageMock.mockRejectedValue(new Error("the model is gone"));
+
+		const { outcome } = await lookFor(
+			3,
+			{ action: "search", query: "beach", look: true },
+			CLOUD_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.results).toHaveLength(3);
+		expect(outcome.modelPayload.message).toContain("could not be looked at");
 	});
 
 	describe("a cloud model for a person who keeps summarising local", () => {

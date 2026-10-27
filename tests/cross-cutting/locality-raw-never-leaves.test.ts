@@ -28,7 +28,10 @@
 //     connector context creates NO memory fact and never threads that
 //     content into the memory-judge/summary pipeline (`runPostTurnTasks`,
 //     now in chat-turn/finalize-steps.ts).
+import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 // ---------------------------------------------------------------------------
@@ -779,6 +782,172 @@ describe("locality — photos look (pixels)", () => {
 
 		expect(outcome.viewedCount).toBe(3);
 		expect(sentToModel).toContain(thumbnailBase64());
+	});
+
+	// The tool decides for the model the turn started on (the tool pack fixes its
+	// model id once), and the attempt that is sent the pictures can be a different
+	// one: a failover to a cloud model that is ticked "Can see images". So the
+	// pictures are followed to the attempt itself: the real photos tool fills the
+	// queue for a person who keeps summarising local and a local model, and the
+	// real model run hands them to the provider of the attempt it is on.
+	describe("the attempt that is sent the pictures", () => {
+		const CLOUD_BASE_URL = "https://api.cloud.example/v1";
+		const BOX_BASE_URL = "http://192.168.1.96:30000/v1";
+
+		function attemptProvider(baseUrl: string, canSee: boolean) {
+			return {
+				id: "attempt",
+				name: "attempt",
+				displayName: "Attempt",
+				baseUrl,
+				modelName: "attempt-model",
+				apiKey: "key",
+				...(canSee
+					? {
+							capabilities: createModelCapabilitySet({
+								imageMessageParts: {
+									state: "manual_override",
+									supported: true,
+									source: "manual_override",
+								},
+							}),
+						}
+					: {}),
+			};
+		}
+
+		function completion(message: Record<string, unknown>, finish: string) {
+			return new Response(
+				JSON.stringify({
+					id: "chatcmpl-1",
+					object: "chat.completion",
+					created: 0,
+					model: "attempt-model",
+					choices: [{ index: 0, message, finish_reason: finish }],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}
+
+		/**
+		 * One plain run on `provider`: the model asks for the photos with a look,
+		 * the real photos tool runs for a local model and a person who keeps
+		 * summarising local, and the model answers. Returns the requests it made.
+		 */
+		async function runOn(provider: ReturnType<typeof attemptProvider>) {
+			mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+			mocks.isCloudModel.mockResolvedValue(false);
+			mocks.modelIdCanSeeImages.mockResolvedValue(true);
+			const [
+				{ runPhotosTool },
+				{ createStepImageQueue },
+				{ runPlainNormalChatModelRun },
+			] = await Promise.all([
+				import("$lib/server/services/normal-chat-tools/photos"),
+				import("$lib/server/services/vision/step-images"),
+				import("$lib/server/services/normal-chat-model"),
+			]);
+			const queue = createStepImageQueue();
+			const requests: Array<{ messages: Array<Record<string, unknown>> }> = [];
+			const fetchMock = vi.fn(
+				async (_input: unknown, init?: { body?: unknown }) => {
+					const body = JSON.parse(String(init?.body ?? "{}"));
+					requests.push(body);
+					return requests.length === 1
+						? completion(
+								{
+									role: "assistant",
+									content: null,
+									tool_calls: [
+										{
+											id: "call-look-1",
+											type: "function",
+											function: {
+												name: "photos",
+												arguments: JSON.stringify({ query: "x" }),
+											},
+										},
+									],
+								},
+								"tool_calls",
+							)
+						: completion({ role: "assistant", content: "The second." }, "stop");
+				},
+			);
+
+			await runPlainNormalChatModelRun({
+				provider,
+				messages: [
+					{ role: "user", content: "Which of these is the sharpest?" },
+				],
+				tools: {
+					photos: tool({
+						description: "Find photos.",
+						inputSchema: z.object({ query: z.string() }),
+						execute: async () =>
+							(
+								await runPhotosTool(
+									"user-1",
+									{ action: "search", query: "x", look: true },
+									"model1",
+									undefined,
+									{ queue },
+								)
+							).modelPayload,
+					}),
+				},
+				stepImages: queue,
+				fetch: fetchMock as unknown as typeof fetch,
+				maxRetries: 0,
+			});
+			return requests;
+		}
+
+		function lastUserMessage(request: {
+			messages: Array<Record<string, unknown>>;
+		}) {
+			return JSON.stringify(
+				[...request.messages].reverse().find((m) => m.role === "user"),
+			);
+		}
+
+		it("sends a cloud model that can see no thumbnail, whatever the tool decided for the model the turn started on", async () => {
+			const requests = await runOn(attemptProvider(CLOUD_BASE_URL, true));
+
+			expect(requests).toHaveLength(2);
+			const wire = JSON.stringify(requests);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain("base64,");
+			expect(wire).not.toContain(thumbnailToken);
+			expect(wire).not.toContain(thumbnailBase64());
+			// The user message the step adds says that pictures were here and names
+			// none of the photos. (The tool's own result text above it is gated for the
+			// turn's first model, like every connector's: this is about the pictures.)
+			const added = lastUserMessage(requests[1] as never);
+			expect(added).not.toContain(fileNameToken);
+			expect(added).toContain("cannot see images");
+		});
+
+		it("sends a cloud model that cannot see the same", async () => {
+			const requests = await runOn(attemptProvider(CLOUD_BASE_URL, false));
+
+			const wire = JSON.stringify(requests);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain(thumbnailBase64());
+			expect(lastUserMessage(requests[1] as never)).not.toContain(
+				fileNameToken,
+			);
+		});
+
+		it("sends the model on the person's own box the pictures, with the names: the control", async () => {
+			const requests = await runOn(attemptProvider(BOX_BASE_URL, true));
+
+			const added = lastUserMessage(requests[1] as never);
+			expect(added).toContain("image_url");
+			expect(added).toContain(thumbnailBase64());
+			expect(added).toContain(fileNameToken);
+		});
 	});
 });
 

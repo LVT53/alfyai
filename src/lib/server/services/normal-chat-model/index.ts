@@ -40,7 +40,10 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "../providers";
-import { providerCanSeeImages } from "../vision/provider-vision";
+import {
+	providerCanSeeImages,
+	providerRunsLocally,
+} from "../vision/provider-vision";
 import {
 	buildVisionPrepareStep,
 	type StepImageQueue,
@@ -199,9 +202,12 @@ function composePrepareSteps(
 // Every step function one attempt needs, built for the provider that attempt
 // runs on: the forced first-step tool choice, and the one that hands the model
 // the pictures a tool queued (the photos tool's Immich thumbnails). The latter
-// asks THIS attempt's provider whether it can see, so a fallback that cannot
-// gets the label and a note in place of the pixels (vision/AGENTS.md, Failover),
-// whatever the model before it could do.
+// asks THIS attempt's provider whether it can see and whether it runs on the
+// person's own box, whatever the model before it could do: a fallback that
+// cannot see gets the label and a note in place of the pixels, and pictures
+// cleared for the box only (the person keeps connector data local) are sent to a
+// fallback on another host neither as pixels nor with the photos' names
+// (vision/AGENTS.md, Failover).
 function buildAttemptPrepareStep(params: {
 	provider: NormalChatModelRunProvider;
 	firstStepToolChoice?: ToolChoice<ToolSet>;
@@ -213,6 +219,7 @@ function buildAttemptPrepareStep(params: {
 			? buildVisionPrepareStep({
 					queue: params.stepImages,
 					providerCanSee: providerCanSeeImages(params.provider),
+					providerIsLocal: providerRunsLocally(params.provider),
 				})
 			: undefined,
 	);
