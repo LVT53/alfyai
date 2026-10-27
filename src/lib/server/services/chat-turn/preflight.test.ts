@@ -1084,6 +1084,34 @@ describe("preflightChatTurn pictures", () => {
 		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
 	});
 
+	it("refuses marks on a picture that is neither attached nor open, instead of dropping them", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		const refusal = {
+			status: 400,
+			error: "Marks must be on the open picture or an attached one",
+			code: "invalid_image_marks",
+		};
+		mocks.validatePictureRequest.mockResolvedValue(refusal);
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				imageMarks: {
+					imageFileId: "closed-picture",
+					marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+				},
+			}),
+		});
+
+		expect(result).toEqual({ ok: false, error: refusal });
+		expect(mocks.validatePictureRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pictureRefs: [],
+				imageMarks: expect.objectContaining({ imageFileId: "closed-picture" }),
+			}),
+		);
+	});
+
 	it("asks nothing when the turn carries no card picture and no marks", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		await preflightChatTurn({ userId: "user-1", request: makeRequest() });
