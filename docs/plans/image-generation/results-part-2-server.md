@@ -236,7 +236,55 @@ Tested: the t2i template's wrap ("This is an RGBA format image with transparency
 
 ## Measurements
 
-(Task 4.)
+Task 4, run 2026-10-27 ~13:35 CET by agent claude-sonnet-5-5 with `scripts/images/measure.ts` (case table + nvidia-smi parser, tested in `measure.test.ts`) through the tunnel. GPU1 sampled every 500 ms over ssh; TEI :7997/:7998, MinerU `/v1/health` and the MinerU VLM :30001 polled about once a second during every run; `free -m` swap read before and after each case. Settings then: `--reserve-vram 4 --disable-pinned-memory`, INT8-ConvRot, 40 steps, cfg 1. Generated scenes only; kept samples in `/home/lvt53/alfyai-handoff/composites/measure/`.
+
+"Peak" is the whole GPU1 `memory.used`, neighbours included (about 15.0-15.3 GiB of TEI + MinerU baseline, so ComfyUI's own share is the peak minus about 15 000 MiB). GPU1 total 48935 MiB. "Seconds" is submit to picture downloaded.
+
+| case | canvas | pictures in | cold/warm | seconds per run | peak MiB on GPU1 | TEI + MinerU (+VLM) at peak | swap MB before/after |
+|---|---|---|---|---|---|---|---|
+| generate-cold (after `POST /free`) | 1248x832 | 0 | cold (models from page cache; disk-cold was 26.2 s at install) | 11.5 | 30365 | all 200 (8 polls) | 21238 / 21237 |
+| generate-warm | 1248x832 | 0 | warm | 9.8, 9.9, 9.8 | 30933 | all 200 (21) | 21237 / 21237 |
+| edit-1 | 1184x896 | 1 | warm | 14.6, 13.0, 13.0 | 34549 | all 200 (28) | 21237 / 21237 |
+| edit-2 | 1184x896 | 2 | warm | 19.3 | 37013 | all 200 (13) | 21237 / 21237 |
+| edit-4 | 1184x896 | 4 | warm | 27.2 | 42125 | all 200 (18) | 21237 / 21237 |
+| edit-print | 2368x1792 (`canvasForEdit` print; the brief's 1760 was an estimate) | 1 | warm | 70.1 | 35661 | all 200 (45) | 21237 / 21236 |
+| trap-1024 | 1024x1024 | 1 | warm | 13.0 | 34485 | all 200 (9) | 21236 / 21236 |
+| trap-same-seed | 1184x896 | 1 | warm | 13.0 | 34517 | all 200 (9) | 21236 / 21236 |
+| generate-transparent | 1056x1056 | 0 | warm | 11.4 | 33053 | all 200 (8) | 21236 / 21236 |
+| crash (service restarted at +4 s) | 1184x896 | 1 | cold after restart | 25.7 (the next submit, incl. model reload) | 34549 | all 200 (23) | 21236 / 21236 |
+
+Raw rows: `/home/lvt53/alfyai-handoff/composites/measure/results.json`.
+
+Notes:
+- Ratio: the four-picture edit is 2.8x a plain generate in time and uses 11.2 GiB more than a generate; the print canvas costs 5x the time but only 1.1 GiB more (offloading absorbs it).
+- No out-of-memory on GPU1 in any case; lowest free VRAM was 6810 MiB (edit-4). Swap did not move (21238 -> 21236 MB). `vllm`, `mineru4` and TEI stayed active.
+- **Crash case (Review Focus 2):** restarting `comfyui.service` mid-edit made the in-flight call fail ("ComfyUI did not answer /queue"); after the restart the client's next upload + submit worked and returned a picture (25.7 s including reloading the models). Nothing needed manual clean-up.
+- **Same-seed trap confirmed (Review Focus 4):** editing a picture with the seed that made it returned an over-sharpened, over-saturated picture with marbled purple/green blotches on the wall. The normal edit (new seed) is clean. The seed rule stands.
+- **1024x1024 trap, only partly confirmed:** the exact 1024x1024 edit was not noise on this install (INT8-ConvRot, v0.43.0). It returned a clean picture but recomposed: a tighter, zoomed crop of the 4:3 input (the table and sofa fill the frame). So the rule "stay off 1024x1024" still holds for keeping the composition, but the failure is a recomposition, not static.
+- Alpha: the transparent generate gave 58% fully transparent pixels (real alpha), a second sample for the Graphs finding.
+- Review Focus 3: no run returned its input unchanged (every edit picture differed from its input), so `--disable-pinned-memory` stays on as installed.
+
+### Decisions (Step 4)
+
+| Setting | Decision | Number behind it |
+|---|---|---|
+| `--reserve-vram` | **4.5** (was 4), applied to `/etc/systemd/system/comfyui.service`, `daemon-reload` + restart, ComfyUI active, neighbours 200, a render after the restart worked (18.1 s cold) | 48935 total - ~15 300 neighbours - ~26 800 ComfyUI at the four-picture peak = ~6.8 GiB spare; minus the 2 GiB margin = 4.5 |
+| `IMAGE_REFERENCE_CAP` | stays **4** (`env.ts` untouched) | the four-picture edit peaks at 42125 MiB, leaving 6.6 GiB, above the 2 GiB margin |
+| `IMAGE_TOOL_WAIT_MS` | stays **100000** | warm one-picture edit 13.0-14.6 s, with one retry about 30 s, under 60 s |
+| `IMAGE_IDLE_FREE_MS` | stays **15 minutes** (900000) | cold start 11.5 s with the files in page cache (26 s from disk), not under 10 s; resident models hold ~15 GiB and GPU1 still had 17 GiB free with them loaded, so the neighbours do not need it sooner |
+| `--disable-pinned-memory` | stays on | no unchanged-input result |
+| NVFP4 / Turbo trials | not run | only if the owner asks |
+
+### Defaults for plan 2a
+
+- `IMAGE_TOOL_WAIT_MS` default in `normal-chat-tools/make-image.ts`: **100000**.
+- `IMAGE_IDLE_FREE_MS` default in `images/idle-free.ts`: **900000** (15 minutes).
+- `IMAGE_REFERENCE_CAP`: 4 (already the default in `env.ts`).
+- Expect up to about 27 s for a four-picture edit and about 70 s for a print-size edit; size plan 2a's per-step timeouts accordingly.
+
+### GATE verdict: PASS
+
+TEI (:7997, :7998), MinerU (`/v1/health`) and the MinerU VLM (:30001) answered 200 at every poll in every case, including the four-picture and print peaks and the restart case; no out-of-memory on GPU1; swap did not grow in any case (21238 -> 21236 MB). The owner was away: this verdict stands in for the Step 5 stop and the owner should still read this section before Task 5.
 
 ## Tuning
 
