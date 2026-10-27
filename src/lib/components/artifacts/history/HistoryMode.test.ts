@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
+import { fakePreviewStatus } from "./__fixtures__/fake-preview-status";
 import { at, makeMoment, makeStep } from "./__fixtures__/moments";
 
 // History opened on one version (plan 2b T3, F11): a picture strip's frame asks
@@ -165,5 +166,30 @@ describe("HistoryMode for an Image (plan 2b T4)", () => {
 		expect(thumbs[0].querySelector("img")?.getAttribute("src")).toBe(
 			"/api/images/files/file-2?variant=thumb&conversationId=conv-incognito",
 		);
+	});
+});
+
+describe("HistoryMode when a version's preview fails (plan 2b T4 fix round 1)", () => {
+	afterEach(() => {
+		fakePreviewStatus.value = "ready";
+	});
+
+	it("offers no Restore on a version it could not show, and says why", async () => {
+		fakePreviewStatus.value = "error";
+		renderHistory("v1");
+		await waitFor(() => expect(selectedOption()?.dataset.key).toBe("m:v1"));
+		await screen.findAllByTestId("fake-version-preview");
+		await waitFor(() =>
+			expect(screen.queryByTestId("history-restore")).toBeNull(),
+		);
+		expect(screen.getByTestId("history-restore-note").textContent).toBe(
+			"This version didn't open.",
+		);
+	});
+
+	it("offers Restore on the same version once its preview shows it", async () => {
+		renderHistory("v1");
+		await waitFor(() => expect(selectedOption()?.dataset.key).toBe("m:v1"));
+		expect(await screen.findByTestId("history-restore")).toBeTruthy();
 	});
 });

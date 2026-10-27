@@ -5,11 +5,12 @@
 -->
 <script lang="ts">
 import type { HistoryPreviewProps } from "../history-previews";
+import { fakePreviewStatus } from "./fake-preview-status";
 
 let { versionId, onState }: HistoryPreviewProps = $props();
 
 $effect(() => {
-	onState({ status: "ready", changeCount: 0 });
+	onState({ status: fakePreviewStatus.value, changeCount: 0 });
 });
 </script>
 

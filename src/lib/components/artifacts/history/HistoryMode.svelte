@@ -291,13 +291,23 @@ const checkingRunnable = $derived(
 		(previewVersionId !== selected.versionId ||
 			previewState.checking !== false),
 );
+/**
+ * The selected version's preview could not show it (a body or a picture that
+ * did not load): nothing is offered to bring back that the reader has not seen.
+ */
+const previewFailed = $derived(
+	selected !== null &&
+		previewVersionId === selected.versionId &&
+		previewState.status === "error",
+);
 const canRestore = $derived(
 	selected !== null &&
 		!selected.isNewest &&
 		!selected.sameAsNow &&
 		online &&
 		!codeOnly &&
-		!checkingRunnable,
+		!checkingRunnable &&
+		!previewFailed,
 );
 const restoreDisabledReason = $derived(
 	selected === null || selected.isNewest || selected.sameAsNow
@@ -308,7 +318,9 @@ const restoreDisabledReason = $derived(
 				? $t("artifacts.history.restoreNotRunnable")
 				: checkingRunnable
 					? $t("artifacts.history.restoreChecking")
-					: null,
+					: previewFailed
+						? $t("artifacts.history.restoreNotShown")
+						: null,
 );
 // A question that stood open when Restore stopped being offered (the connection
 // went, or the version turned out not to run) is closed: its button would press

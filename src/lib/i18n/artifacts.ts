@@ -1069,6 +1069,7 @@ const artifactsDict = {
 		"artifacts.history.restoreNotRunnable":
 			"It can't run any more, so it can't be restored.",
 		"artifacts.history.restoreChecking": "Checking that it can still run…",
+		"artifacts.history.restoreNotShown": "This version didn't open.",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -2018,6 +2019,7 @@ const artifactsDict = {
 		"artifacts.history.restoreNotRunnable":
 			"Már nem futtatható, ezért nem állítható vissza.",
 		"artifacts.history.restoreChecking": "Ellenőrzöm, hogy még futtatható-e…",
+		"artifacts.history.restoreNotShown": "Ez a változat nem nyílt meg.",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",
