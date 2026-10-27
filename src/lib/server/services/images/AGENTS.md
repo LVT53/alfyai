@@ -15,4 +15,4 @@ Making and changing pictures: the ComfyUI client and its fake, graphs, pixel gua
 
 ## The fake (`comfyui/testing/fake-comfyui.ts`)
 
-A real loopback HTTP and WebSocket server for unit and Playwright tests. It imports Node built-ins and sharp only, so specs may import it by relative path. Options: `steps`, `stepDelayMs`, `startDelayMs`, `fail` (`reject` | `execution`), `render` (override per call or through `setOptions`); controls: `holdQueue`, `restart` (forgets prompts and history, keeps uploads). Tests in jsdom borrow Node's `Event` for the WebSocket (see `client.test.ts`).
+A real loopback HTTP and WebSocket server for unit and Playwright tests. It imports Node built-ins and sharp only, so specs may import it by relative path. Options: `steps`, `stepDelayMs`, `startDelayMs`, `fail` (`reject` | `execution`), `render` (override per call or through `setOptions`); controls: `holdQueue`, `restart` (forgets prompts and history, keeps uploads). Tests that run the real client over the fake start with `// @vitest-environment node` (jsdom's `Event` and `FormData` do not mix with Node's WebSocket and fetch).

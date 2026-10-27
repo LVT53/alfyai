@@ -1,14 +1,6 @@
-import { MessageChannel } from "node:worker_threads";
+// @vitest-environment node
 import sharp from "sharp";
-import {
-	afterEach,
-	beforeAll,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type ComfyEvent,
 	type ComfyGraph,
@@ -25,26 +17,6 @@ const graph: ComfyGraph = {
 		inputs: { width: 64, height: 48, batch_size: 1 },
 	},
 };
-
-/**
- * The suite runs under jsdom, whose global Event is not Node's, and Node's
- * WebSocket dispatches Node Events. Borrow Node's Event for this file.
- */
-beforeAll(async () => {
-	const { port1, port2 } = new MessageChannel();
-	const event = await new Promise<Event>((resolve) => {
-		port1.addEventListener("message", (e) => resolve(e as Event), {
-			once: true,
-		});
-		port1.start();
-		port2.postMessage(1);
-	});
-	port1.close();
-	const NodeEvent = Object.getPrototypeOf(
-		Object.getPrototypeOf(event),
-	).constructor;
-	vi.stubGlobal("Event", NodeEvent);
-});
 
 let fake: FakeComfyUi;
 const clients: ComfyUiClient[] = [];

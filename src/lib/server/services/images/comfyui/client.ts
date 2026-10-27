@@ -258,27 +258,13 @@ export function createComfyUiClient(options: {
 
 	return {
 		async uploadImage(bytes, name) {
-			const boundary = `----alfyai${randomUUID().replaceAll("-", "")}`;
-			const safeName = name.replace(/["\r\n]/g, "_");
-			const text = (fieldName: string, value: string) =>
-				Buffer.from(
-					`--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"\r\n\r\n${value}\r\n`,
-				);
-			const payload = Buffer.concat([
-				text("type", "input"),
-				text("overwrite", "true"),
-				Buffer.from(
-					`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${safeName}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
-				),
-				Buffer.from(bytes),
-				Buffer.from(`\r\n--${boundary}--\r\n`),
-			]);
+			const form = new FormData();
+			form.set("image", new Blob([new Uint8Array(bytes)]), name);
+			form.set("type", "input");
+			form.set("overwrite", "true");
 			const response = await request("/upload/image", {
 				method: "POST",
-				headers: {
-					"content-type": `multipart/form-data; boundary=${boundary}`,
-				},
-				body: payload,
+				body: form,
 			});
 			if (!response.ok) {
 				throw new ComfyUiError(
