@@ -11,6 +11,7 @@
 // from", History's rail); `"full"` lets the browser choose between the
 // thumbnail and the full picture by the box's width (`srcset`, F20), which is
 // what the chat card's main picture and the panel use.
+import { untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
 import { thumbWidth } from "$lib/shared/artifacts/image-body";
 
@@ -88,10 +89,15 @@ function fadeInOnLoad(id: string) {
 		const shown = (event: TransitionEvent) => {
 			if (event.propertyName === "opacity" && loaded[id]) settle(id);
 		};
-		if (img.complete && img.naturalWidth > 0) {
-			done();
-			settle(id);
-		}
+		// Untracked: an attachment is an effect, and reading `loaded` or `layers`
+		// here would make it re-run on its own write (a picture already in the
+		// cache is complete at once).
+		untrack(() => {
+			if (img.complete && img.naturalWidth > 0) {
+				done();
+				settle(id);
+			}
+		});
 		img.addEventListener("load", done);
 		img.addEventListener("transitionend", shown);
 		return () => {

@@ -114,3 +114,49 @@ describe("ImagePicture", () => {
 		).toContain("after-file");
 	});
 });
+
+describe("ImagePicture with a picture already in the cache", () => {
+	it("shows it at once, without its attachment re-running on its own write", async () => {
+		const complete = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"complete",
+		);
+		const natural = Object.getOwnPropertyDescriptor(
+			HTMLImageElement.prototype,
+			"naturalWidth",
+		);
+		Object.defineProperty(HTMLImageElement.prototype, "complete", {
+			configurable: true,
+			get: () => true,
+		});
+		Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+			configurable: true,
+			get: () => 10,
+		});
+		try {
+			const { rerender } = render(ImagePicture, {
+				fileId: "after-file",
+				width: 10,
+				height: 10,
+				alt: "Cached",
+				beforeFileId: "before-file",
+			});
+			expect(screen.getByRole("img", { name: "Cached" })).toHaveClass(
+				"is-loaded",
+			);
+			await rerender({ showing: "before" });
+			expect(screen.getByRole("img", { name: "Cached" })).toHaveClass(
+				"is-loaded",
+			);
+		} finally {
+			if (complete)
+				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
+			if (natural)
+				Object.defineProperty(
+					HTMLImageElement.prototype,
+					"naturalWidth",
+					natural,
+				);
+		}
+	});
+});
