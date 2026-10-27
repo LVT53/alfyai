@@ -746,18 +746,22 @@ async function handleSavePriceWindows() {
 				</div>
 
 				<div class="mt-2 border-t border-border pt-3">
-					<label class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
+					<!-- The label holds the name alone and the explanation sits beside it, not
+					inside it: a label that wraps both makes the whole explanation the box's
+					accessible name. The box reads it as its description instead. -->
+					<div class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
 						<input
 							id="model-form-can-see-images"
 							type="checkbox"
+							aria-describedby="model-form-can-see-images-description"
 							checked={formCanSeeImages}
 							onchange={(event) => setCanSeeImages(event.currentTarget.checked)}
 						/>
-						<span>
-							<span class="block font-medium">{$t('admin.modelCanSeeImages')}</span>
-							<span class="block text-xs text-text-muted">{$t('admin.modelCanSeeImagesDescription')}</span>
-						</span>
-					</label>
+						<div>
+							<label class="block font-medium" for="model-form-can-see-images">{$t('admin.modelCanSeeImages')}</label>
+							<p id="model-form-can-see-images-description" class="text-xs text-text-muted">{$t('admin.modelCanSeeImagesDescription')}</p>
+						</div>
+					</div>
 				</div>
 
 				<div class="mt-2 border-t border-border pt-3">

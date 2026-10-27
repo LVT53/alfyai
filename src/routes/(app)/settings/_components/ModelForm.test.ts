@@ -1,5 +1,6 @@
 import { fireEvent, render } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import ModelForm from "./ModelForm.svelte";
 
 function modelFixture(overrides: Record<string, unknown> = {}) {
@@ -203,6 +204,48 @@ describe("ModelForm can see images", () => {
 		expect(
 			getByText(/Alfy sends this model the images people attach/),
 		).toBeInTheDocument();
+	});
+
+	// A screen reader says the name on landing on the box and the description
+	// after it. A label that wraps the explanation as well makes the whole
+	// explanation the name. A string `name` is matched against the whole
+	// accessible name, so these fail when the explanation is part of it.
+	describe("what a screen reader is told about the box", () => {
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		it("names it by its label alone and gives the explanation as its description", () => {
+			const { getByRole } = renderForm(modelFixture());
+
+			const box = getByRole("checkbox", { name: "Can see images" });
+			expect(box).toHaveAccessibleName("Can see images");
+			expect(box).toHaveAccessibleDescription(
+				/^Alfy sends this model the images people attach\./,
+			);
+		});
+
+		it("does the same in Hungarian", () => {
+			uiLanguage.set("hu");
+			const { getByRole } = renderForm(modelFixture());
+
+			const box = getByRole("checkbox", { name: "Lát képeket" });
+			expect(box).toHaveAccessibleName("Lát képeket");
+			expect(box).toHaveAccessibleDescription(
+				/^Alfy elküldi ennek a modellnek a csatolt képeket\./,
+			);
+		});
+
+		it("is ticked by clicking its name", async () => {
+			const { getByRole, getByText } = renderForm(modelFixture());
+			expect(
+				getByRole("checkbox", { name: "Can see images" }),
+			).not.toBeChecked();
+
+			await fireEvent.click(getByText("Can see images"));
+
+			expect(getByRole("checkbox", { name: "Can see images" })).toBeChecked();
+		});
 	});
 
 	it("saves a manual override and keeps the other capabilities when ticked", async () => {
