@@ -411,6 +411,7 @@ function makeCallHelpers(input: {
 		request: TakeRequest,
 		retryOf: string | null,
 		toolCallId: string | null,
+		automatic = false,
 	): Promise<string> => {
 		const seed = freshSeed(request.avoidSeeds);
 		const { takeId } = await enqueueTake({
@@ -418,7 +419,7 @@ function makeCallHelpers(input: {
 			conversationId,
 			cardId,
 			toolCallId,
-			origin: retryOf ? "retry" : "turn",
+			origin: automatic ? "auto_retry" : retryOf ? "retry" : "turn",
 			retryOf,
 			request,
 			seed,
@@ -493,7 +494,7 @@ async function runClearMissRetry(
 			...call.plan.request,
 			avoidSeeds: [...new Set([...call.plan.request.avoidSeeds, record.seed])],
 		};
-		const retryId = await call.queue(request, firstId, null);
+		const retryId = await call.queue(request, firstId, null, true);
 		held.add(retryId);
 		keep.autoRetried = true;
 		const second = await call.waitOn(retryId);

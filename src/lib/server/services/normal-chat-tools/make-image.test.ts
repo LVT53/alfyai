@@ -955,7 +955,7 @@ describe("the automatic retry of a clear miss", () => {
 		expect(takes[0]).toMatchObject({ hidden: 1 });
 		expect(takes[1]).toMatchObject({
 			hidden: 0,
-			origin: "retry",
+			origin: "auto_retry",
 			retryOf: takes[0]?.id,
 			retried: 1,
 			heldUntil: null,

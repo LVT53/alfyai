@@ -126,10 +126,10 @@ describe("takeState", () => {
 });
 
 describe("visibleTakes and shownTake", () => {
-	it("folds a held retry into its first take's slot", () => {
+	it("folds a held automatic retry into its first take's slot", () => {
 		const first = take();
 		const retry = take({
-			origin: "retry",
+			origin: "auto_retry",
 			retryOf: first.id,
 			held: true,
 			status: "running",
@@ -138,9 +138,70 @@ describe("visibleTakes and shownTake", () => {
 		expect(visibleTakes(c)).toEqual([first]);
 		expect(shownTake(c, null)).toBe(first);
 	});
-	it("shows a retry whose first take was hidden", () => {
-		const retry = take({ origin: "retry", retryOf: "gone" });
-		expect(visibleTakes(card([retry]))).toEqual([retry]);
+	it("shows one take once an automatic retry is released (winner or loser)", () => {
+		const first = take();
+		const winner = take({ origin: "auto_retry", retryOf: first.id });
+		// Loser hidden by the server: the first stays alone.
+		expect(visibleTakes(card([first]))).toEqual([first]);
+		// Winner: the first is hidden by the server, the retry shows.
+		expect(visibleTakes(card([winner]))).toEqual([winner]);
+	});
+	it("shows a model retry that is running as being made", () => {
+		const first = take();
+		const retry = take({
+			origin: "retry",
+			retryOf: first.id,
+			status: "running",
+			phase: "rendering",
+		});
+		const c = card([first, retry]);
+		expect(visibleTakes(c)).toEqual([first, retry]);
+		expect(shownTake(c, null)).toBe(retry);
+	});
+	it("shows a model retry that failed, with its failure", () => {
+		const first = take();
+		const retry = take({
+			origin: "retry",
+			retryOf: first.id,
+			status: "failed",
+			errorCode: "image_render_failed",
+			retryable: true,
+		});
+		const c = card([first, retry]);
+		expect(visibleTakes(c)).toContain(retry);
+		expect(takeState(retry, 0)).toEqual({
+			kind: "failed",
+			unavailable: false,
+			retryable: true,
+		});
+	});
+	it("offers a model retry that landed late as a take", () => {
+		const first = take();
+		const late = take({ origin: "retry", retryOf: first.id });
+		const c = card([first, late], { pickedTakeId: first.id });
+		expect(visibleTakes(c)).toEqual([first, late]);
+		expect(shownTake(c, late.id)).toBe(late);
+	});
+	it("shows the new take when a model retry of the pick replaced it", () => {
+		const replacement = take({ origin: "retry", retryOf: "hidden-old" });
+		const c = card([replacement], { pickedTakeId: replacement.id });
+		expect(shownTake(c, null)).toBe(replacement);
+	});
+	it("treats starting with no phase time as making", () => {
+		expect(
+			takeState(
+				take({ status: "running", phase: "starting", phaseAt: null }),
+				99_000,
+			).kind,
+		).toBe("making");
+	});
+	it("does not count zero ahead", () => {
+		expect(
+			takeState(
+				take({ status: "running", phase: "submitted", queueAhead: 0 }),
+				0,
+			),
+		).toEqual({ kind: "waiting", ahead: null });
 	});
 	it("prefers selected, then the pick, then the newest being made, then the newest", () => {
 		const a = take();
@@ -187,7 +248,10 @@ describe("cardSubtitle", () => {
 	});
 	it("counts a folded retry once", () => {
 		const first = take();
-		const c = card([first, take({ retryOf: first.id, held: true })]);
+		const c = card([
+			first,
+			take({ origin: "auto_retry", retryOf: first.id, held: true }),
+		]);
 		expect(cardSubtitle(c, get(t))).toBe("Image");
 	});
 });

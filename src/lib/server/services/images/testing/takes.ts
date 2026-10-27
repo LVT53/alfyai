@@ -39,7 +39,7 @@ export async function insertTake(input: {
 	progressPercent?: number | null;
 	errorCode?: string | null;
 	retryable?: boolean;
-	origin?: "turn" | "retry" | "another";
+	origin?: "turn" | "retry" | "auto_retry" | "another";
 	retryOf?: string | null;
 	heldUntil?: number | null;
 }): Promise<string> {

@@ -39,7 +39,7 @@ export type ImageTakeView = {
 	 */
 	box: { width: number; height: number };
 	/** Where the take came from: the tool call (`turn`), the model's automatic second try (`retry`) or the person's Another (`another`). */
-	origin: "turn" | "retry" | "another";
+	origin: "turn" | "retry" | "auto_retry" | "another";
 	/** The take this one retries (an automatic retry shows in its first take's slot). */
 	retryOf: string | null;
 	/** The tool call has not yet decided about this take: it cannot be used until released. */
@@ -171,7 +171,9 @@ export async function listConversationImageCards(
 				? { width: baseFile.width, height: baseFile.height }
 				: canvas,
 			origin:
-				take.origin === "retry" || take.origin === "another"
+				take.origin === "retry" ||
+				take.origin === "auto_retry" ||
+				take.origin === "another"
 					? take.origin
 					: "turn",
 			retryOf: take.retryOf,

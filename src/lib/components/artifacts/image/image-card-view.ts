@@ -29,14 +29,24 @@ const UNAVAILABLE_CODES: readonly string[] = [
 ];
 
 /**
- * The takes the card shows, oldest first. An automatic retry (retryOf a take
- * that is shown) lives in its first take's slot, so a card never shows two
- * takes for one retry and a held retry is never offered; the server hides one
- * of the pair when the retry settles.
+ * The takes the card shows, oldest first. Only the server's automatic retry
+ * (origin "auto_retry") that is still held lives in its first take's slot, so
+ * the card never shows two takes for one retry and a held take is never
+ * offered; once released the server hides one of the pair. The model's own
+ * retry (origin "retry") is an ordinary take with its own progress, failure
+ * and "Use this".
  */
 export function visibleTakes(card: ImageCardView): ImageTakeView[] {
 	const ids = new Set(card.takes.map((take) => take.id));
-	return card.takes.filter((take) => !(take.retryOf && ids.has(take.retryOf)));
+	return card.takes.filter(
+		(take) =>
+			!(
+				take.origin === "auto_retry" &&
+				take.held &&
+				take.retryOf &&
+				ids.has(take.retryOf)
+			),
+	);
 }
 
 const isBeingMade = (take: ImageTakeView) =>
@@ -64,7 +74,7 @@ export function takeState(take: ImageTakeView, now: number): ImageCardState {
 			return { kind: "waiting", ahead: null };
 		case "running": {
 			if (take.phase === "submitted") {
-				return { kind: "waiting", ahead: take.queueAhead };
+				return { kind: "waiting", ahead: take.queueAhead || null };
 			}
 			if (
 				take.phase === "starting" &&

@@ -67,7 +67,7 @@ export async function enqueueTake(input: {
 	conversationId: string;
 	cardId: string;
 	toolCallId: string | null;
-	origin: "turn" | "retry" | "another";
+	origin: "turn" | "retry" | "auto_retry" | "another";
 	retryOf: string | null;
 	request: TakeRequest;
 	seed: number;
