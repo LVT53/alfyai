@@ -196,4 +196,44 @@ describe("DocumentWorkspace: History as the host's layer", () => {
 			expect(screen.queryByTestId("fake-history")).toBeNull(),
 		);
 	});
+
+	it("opens History on the version a body asks for, and on the newest from the header", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeHistoryVersionBody.svelte");
+		for (const surface of ["desktop", "phone"] as const) {
+			if (surface === "phone") {
+				// A phone: the desktop pane's media query no longer matches, reduced motion still does.
+				cleanup();
+				vi.stubGlobal(
+					"matchMedia",
+					vi.fn((query: string) => ({
+						matches: query.includes("reduce"),
+						media: query,
+						onchange: null,
+						addListener: () => undefined,
+						removeListener: () => undefined,
+						addEventListener: () => undefined,
+						removeEventListener: () => undefined,
+						dispatchEvent: () => false,
+					})),
+				);
+			}
+			openDocument();
+			const body = await screen.findByTestId("fake-history-version-body");
+			// The body is told the item's version, so it can follow a newer one (F23).
+			expect(body).toHaveAttribute("data-version", "3");
+			await fireEvent.click(within(body).getByTestId("fake-open-version"));
+			const history = await screen.findByTestId("fake-history");
+			expect(history).toHaveAttribute("data-initial-version", "v2");
+			await fireEvent.click(screen.getByTestId("fake-history-done"));
+			await waitFor(() =>
+				expect(screen.queryByTestId("fake-history")).toBeNull(),
+			);
+			await fireEvent.click(await historyButton());
+			expect(await screen.findByTestId("fake-history")).toHaveAttribute(
+				"data-initial-version",
+				"",
+			);
+		}
+	});
 });

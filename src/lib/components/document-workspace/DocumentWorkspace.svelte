@@ -469,9 +469,17 @@ async function ensureHistoryMode(): Promise<void> {
 	HistoryModeComponent = module.HistoryMode;
 }
 
-async function openHistory(): Promise<void> {
+/**
+ * The version History opens on (a picture strip's frame names one, plan 2b T3);
+ * `undefined` opens on the newest. Set by each open, so the header's button never
+ * reopens on a version a body asked for earlier.
+ */
+let historyInitialVersionId = $state<string | undefined>(undefined);
+
+async function openHistory(versionId?: string): Promise<void> {
 	if (historyOpening || historyOpen) return;
 	if (!activeDocument || !kindHasHistory(activeArtifactKind)) return;
+	historyInitialVersionId = versionId;
 	historyOpening = true;
 	try {
 		const loading = ensureHistoryMode();
@@ -2475,6 +2483,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					{conversationId}
 					{currentUser}
+					initialVersionId={historyInitialVersionId}
 					onDone={() => closeHistory()}
 					onReview={handleHistoryReview}
 					onRestored={handleHistoryRestored}
@@ -2783,12 +2792,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								title={getDocumentTitle(activeDocument)}
 								body={null}
 								{conversationId}
+								versionNumber={activeDocument.versionNumber ?? null}
 								alfyActivity={bodyAlfyActivity}
 								registerPanelActions={(actions) => reportFromBody({ actions })}
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
-								onOpenHistory={() => void openHistory()}
+								onOpenHistory={(versionId) => void openHistory(versionId)}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
@@ -3125,12 +3135,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						title={getDocumentTitle(activeDocument)}
 						body={null}
 						{conversationId}
+						versionNumber={activeDocument.versionNumber ?? null}
 						alfyActivity={bodyAlfyActivity}
 						registerPanelActions={(actions) => reportFromBody({ actions })}
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
-						onOpenHistory={() => void openHistory()}
+						onOpenHistory={(versionId) => void openHistory(versionId)}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}

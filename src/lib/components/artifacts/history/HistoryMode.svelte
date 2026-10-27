@@ -62,6 +62,7 @@ import {
 } from "./moment-text";
 import {
 	buildRailGroups,
+	entryKeyForVersion,
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
@@ -83,6 +84,7 @@ let {
 	onRestored = undefined,
 	chatVersionIds = null,
 	onFromChat = undefined,
+	initialVersionId = undefined,
 }: {
 	artifactId: string;
 	kind: ArtifactKind;
@@ -103,6 +105,12 @@ let {
 	/** The versions whose chat message this chat holds ("From the chat"). */
 	chatVersionIds?: ReadonlySet<string> | null;
 	onFromChat?: ((entry: RailEntry) => void) | undefined;
+	/**
+	 * Opens on this version instead of the newest (a picture strip's frame, plan 2b
+	 * T3): the rail selects the entry that holds it (F11), and a narrow panel or a
+	 * phone shows its preview at once. A version the rail does not hold is ignored.
+	 */
+	initialVersionId?: string | undefined;
 } = $props();
 
 const WIDE_MIN_PX = 720;
@@ -455,10 +463,10 @@ async function load(): Promise<void> {
 		nextBefore = result.nextBefore;
 		newestVersion = result.newestVersion;
 		newestHash = result.newestHash ?? null;
-		selectedKey = reconcileSelection(
-			buildRailGroups(result.moments, filter),
-			null,
-		);
+		const loadedGroups = buildRailGroups(result.moments, filter);
+		const asked = entryKeyForVersion(loadedGroups, initialVersionId);
+		selectedKey = asked ?? reconcileSelection(loadedGroups, null);
+		if (asked) view = "preview";
 		status = "ready";
 		await tick();
 		focusSelected();

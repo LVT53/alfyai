@@ -4,6 +4,7 @@ import {
 	buildRailGroups,
 	dayKeyOf,
 	entryIsNow,
+	entryKeyForVersion,
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
@@ -313,5 +314,26 @@ describe("the entry that holds the newest row", () => {
 				.filter(entryIsNow)
 				.map((entry) => entry.key),
 		).toEqual([]);
+	});
+});
+
+describe("entryKeyForVersion (History opened on a version)", () => {
+	it("selects the entry that shows the version: a moment, or a step folded under one", () => {
+		const groups = buildRailGroups(twoDays());
+		expect(entryKeyForVersion(groups, "v4")).toBe("m:v4");
+		expect(entryKeyForVersion(groups, "v5")).toBe("s:v5");
+		expect(entryKeyForVersion(groups, "v3")).toBe("m:v3");
+	});
+
+	it("falls back to the moment whose steps hold the version when the step is not drawn", () => {
+		const moments = twoDays();
+		moments[1] = { ...moments[1], label: "Named fold" };
+		const named = buildRailGroups(moments, "named");
+		expect(entryKeyForVersion(named, "v5")).toBe("m:v4");
+	});
+
+	it("is null for a version the rail does not hold", () => {
+		expect(entryKeyForVersion(buildRailGroups(twoDays()), "v99")).toBeNull();
+		expect(entryKeyForVersion(buildRailGroups(twoDays()), null)).toBeNull();
 	});
 });

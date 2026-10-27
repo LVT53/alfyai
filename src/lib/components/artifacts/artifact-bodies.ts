@@ -26,6 +26,14 @@ export interface ArtifactBodyProps {
 	/** The conversation the panel is showing; bodies pass it to `fetchArtifact` and any other artifact route so an incognito conversation's artifacts resolve, and it is null outside a conversation. */
 	conversationId?: string | null;
 	/**
+	 * The open item's newest version as the page knows it (`artifact-versions.ts`:
+	 * every version any response reported, the conversation poll's rows included).
+	 * A body that shows what is stored and has no live call of its own to follow
+	 * loads the item again when this rises (the Image: a late take, Use this or a
+	 * restore lands outside the stream, F23). `null`/absent when unknown.
+	 */
+	versionNumber?: number | null;
+	/**
 	 * The latest Alfy tool-call activity (`create_artifact`/`edit_artifact`)
 	 * the chat page knows about, derived from the stream's own tool-call
 	 * parts — regardless of which artifact it targets. The Document body
@@ -96,9 +104,11 @@ export interface ArtifactBodyProps {
 	 * Opens History on this item (ruling 76): where a body that tells the reader to
 	 * go back to an earlier version points ("Alfy's change can't be undone here
 	 * because the board has changed since. Open History."). The panel supplies it;
-	 * absent where there is no panel History to open.
+	 * absent where there is no panel History to open. A body may name the version
+	 * History opens on (the Image's strip of versions, plan 2b T3); without one it
+	 * opens on the newest.
 	 */
-	onOpenHistory?: () => void;
+	onOpenHistory?: (versionId?: string) => void;
 	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and
