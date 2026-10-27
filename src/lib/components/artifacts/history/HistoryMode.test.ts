@@ -127,3 +127,43 @@ describe("HistoryMode opened on a version", () => {
 		await waitFor(() => expect(selectedOption()?.dataset.key).toBe("m:v4"));
 	});
 });
+
+describe("HistoryMode for an Image (plan 2b T4)", () => {
+	it("hands the chat's scope to the rail, so an incognito chat's thumbnails load (F25)", async () => {
+		api.fetchArtifactHistory.mockResolvedValue({
+			ok: true,
+			artifactKind: "image",
+			moments: [
+				makeMoment({
+					versionNumber: 2,
+					kind: "alfy_edit",
+					author: "alfy",
+					isNewest: true,
+					containsNewest: true,
+					detail: { type: "image", fileId: "file-2", sourceCount: 1 },
+				}),
+				makeMoment({
+					versionNumber: 1,
+					kind: "first_draft",
+					author: "alfy",
+					detail: { type: "image", fileId: "file-1", sourceCount: 0 },
+				}),
+			],
+			older: false,
+			nextBefore: null,
+			newestVersion: 2,
+			newestHash: "hash-2",
+		});
+		render(HistoryMode, {
+			artifactId: "img-1",
+			kind: "image",
+			title: "Cosy room",
+			conversationId: "conv-incognito",
+			onDone: vi.fn(),
+		});
+		const thumbs = await screen.findAllByTestId("history-thumb");
+		expect(thumbs[0].querySelector("img")?.getAttribute("src")).toBe(
+			"/api/images/files/file-2?variant=thumb&conversationId=conv-incognito",
+		);
+	});
+});

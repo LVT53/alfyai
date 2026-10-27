@@ -13,7 +13,9 @@
 import { Bookmark, CornerDownRight, Info, Sparkles } from "@lucide/svelte";
 import { tick } from "svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
+import ImagePicture from "$lib/components/artifacts/image/ImagePicture.svelte";
 import { t } from "$lib/i18n";
+import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	dayLabel,
@@ -41,6 +43,7 @@ let {
 	selectedKey,
 	ctx,
 	artifactKind,
+	conversationId = null,
 	listLabel,
 	currentUser = null,
 	filter,
@@ -61,6 +64,8 @@ let {
 	selectedKey: string | null;
 	ctx: TextContext;
 	artifactKind: ArtifactKind;
+	/** The chat the panel shows: a picture's thumbnail is read in its scope, so an incognito chat's load (F25). */
+	conversationId?: string | null;
 	listLabel: string;
 	currentUser?: {
 		id: string;
@@ -154,6 +159,13 @@ function momentCanReview(entry: RailEntry): boolean {
 	return entry.type === "moment" && entry.moment.status === "waiting";
 }
 
+/** An Image moment's picture: its rail row carries the thumbnail (plan 2b T4). A folded step has none of its own. */
+function thumbOf(entry: RailEntry): string | null {
+	return entry.type === "moment" && entry.moment.detail.type === "image"
+		? entry.moment.detail.fileId
+		: null;
+}
+
 function fromChat(entry: RailEntry): boolean {
 	return (
 		entry.type === "moment" &&
@@ -206,6 +218,7 @@ function fromChat(entry: RailEntry): boolean {
 					{@const headline = entryHeadline(entry, ctx, artifactKind)}
 					{@const detail = entryDetail(entry, ctx, artifactKind)}
 					{@const span = entry.type === 'moment' ? entrySpanLabel(entry.startedAt, entry.at, ctx) : null}
+					{@const thumb = thumbOf(entry)}
 					<div
 						class="entry"
 						class:entry-step={entry.type === 'step'}
@@ -216,6 +229,7 @@ function fromChat(entry: RailEntry): boolean {
 							id={optionId(entry.key)}
 							class="option"
 							class:selected
+							class:with-thumb={thumb !== null}
 							role="option"
 							aria-selected={selected}
 							aria-label={entryA11yName(entry, ctx, artifactKind)}
@@ -230,6 +244,19 @@ function fromChat(entry: RailEntry): boolean {
 								onActivate(entry.key);
 							}}
 						>
+							{#if thumb}
+								<!-- 40 px, reserved before the picture loads; it fades in (ImagePicture). -->
+								<span class="rail-thumb" aria-hidden="true" data-testid="history-thumb">
+									<ImagePicture
+										fileId={thumb}
+										width={IMAGE_THUMB_LONG_EDGE}
+										height={IMAGE_THUMB_LONG_EDGE}
+										alt=""
+										{conversationId}
+										variant="thumb"
+									/>
+								</span>
+							{/if}
 							{#if entry.label}
 								<span class="named">
 									<Bookmark size={12} strokeWidth={2.2} aria-hidden="true" />
@@ -410,6 +437,32 @@ function fromChat(entry: RailEntry): boolean {
 		cursor: pointer;
 		outline: none;
 		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	/* An Image moment's row keeps a 40 px square at its right for the picture. */
+	.option.with-thumb {
+		min-height: calc(40px + 1rem);
+		padding-right: calc(0.625rem + 40px + 0.625rem);
+	}
+
+	.rail-thumb {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.625rem;
+		width: 40px;
+		height: 40px;
+		overflow: hidden;
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		box-shadow: 0 0 0 1px var(--border-default);
+	}
+
+	.rail-thumb :global(.image-picture) {
+		height: 100%;
+	}
+
+	.rail-thumb :global(.image-picture-img) {
+		object-fit: cover;
 	}
 
 	.option:hover {

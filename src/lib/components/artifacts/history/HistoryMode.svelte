@@ -990,6 +990,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		{selectedKey}
 		{ctx}
 		artifactKind={kind}
+		{conversationId}
 		{listLabel}
 		{currentUser}
 		{filter}

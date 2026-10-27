@@ -6,7 +6,8 @@
  * here and a component that takes `HistoryPreviewProps`: the Document's is
  * `DocumentVersionPreview.svelte`; the Canvas's is the lazy entry
  * `canvas/history-parts.ts`, reached through the editor module (it draws a board
- * with the editor's own board); the App's is `AppVersionPreview.svelte`.
+ * with the editor's own board); the App's is `AppVersionPreview.svelte`; the
+ * Image's is `image/ImageVersionPreview.svelte` (the picture, and a wipe to compare).
  *
  * Loaders, never static imports: a preview carries what only History needs (a
  * Markdown renderer, a board, a sandbox frame), and must never enter the chat
@@ -74,6 +75,7 @@ export const HISTORY_PREVIEWS: Partial<
 		import("../canvas/CanvasEditor.svelte").then((editor) =>
 			editor.loadHistoryPreview(),
 		),
+	image: () => import("../image/ImageVersionPreview.svelte"),
 };
 
 /**
