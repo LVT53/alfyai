@@ -14,6 +14,22 @@ import { freshSeed } from "./seeds";
 import { parseTakeRequest } from "./take-request";
 
 /**
+ * The one scope rule: the chat is the request's named chat (when one is named)
+ * and is in the person's ownership scope (an incognito chat only when named).
+ */
+async function inOwnScope(
+	userId: string,
+	rowConversationId: string,
+	named?: string | null,
+): Promise<boolean> {
+	if (named && rowConversationId !== named) return false;
+	const scope = await getArtifactOwnershipScope(userId, {
+		conversationId: named ?? null,
+	});
+	return scope.conversationIds.has(rowConversationId);
+}
+
+/**
  * The take when the signed-in person may act on it: it is theirs, and the chat
  * it belongs to is in their scope (an incognito chat only when the request
  * names it). Anything else is absent, so another person's take id is a 404.
@@ -28,19 +44,22 @@ export async function findOwnTake(params: {
 			id: imageJobs.id,
 			status: imageJobs.status,
 			userId: imageJobs.userId,
+			hidden: imageJobs.hidden,
 			conversationId: imageJobs.conversationId,
 		})
 		.from(imageJobs)
 		.where(eq(imageJobs.id, params.takeId))
 		.limit(1);
-	if (!row || row.userId !== params.userId) return null;
-	if (params.conversationId && row.conversationId !== params.conversationId) {
+	if (!row || row.userId !== params.userId || row.hidden === 1) return null;
+	if (
+		!(await inOwnScope(
+			params.userId,
+			row.conversationId,
+			params.conversationId,
+		))
+	) {
 		return null;
 	}
-	const scope = await getArtifactOwnershipScope(params.userId, {
-		conversationId: params.conversationId ?? null,
-	});
-	if (!scope.conversationIds.has(row.conversationId)) return null;
 	return { id: row.id, status: row.status };
 }
 
@@ -69,13 +88,13 @@ export async function anotherTake(params: {
 		)
 		.limit(1);
 	if (!card) return { ok: false, reason: "not_found" };
-	if (params.conversationId && card.conversationId !== params.conversationId) {
-		return { ok: false, reason: "not_found" };
-	}
-	const scope = await getArtifactOwnershipScope(params.userId, {
-		conversationId: params.conversationId ?? null,
-	});
-	if (!scope.conversationIds.has(card.conversationId)) {
+	if (
+		!(await inOwnScope(
+			params.userId,
+			card.conversationId,
+			params.conversationId,
+		))
+	) {
 		return { ok: false, reason: "not_found" };
 	}
 

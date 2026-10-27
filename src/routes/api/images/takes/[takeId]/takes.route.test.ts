@@ -113,6 +113,72 @@ async function landedFile() {
 	});
 }
 
+async function makeIncognito() {
+	const { db } = await import("$lib/server/db");
+	db.update(schema.conversations)
+		.set({ memoryIncognito: true })
+		.where(eq(schema.conversations.id, "c1"))
+		.run();
+}
+
+describe("incognito chats on every take action", () => {
+	it("answers 404 and changes nothing unless the chat is named", async () => {
+		const use = (await import("./use/+server")).POST;
+		const stop = (await import("./stop/+server")).POST;
+		const retry = (await import("./retry/+server")).POST;
+		const file = await landedFile();
+		const done = await insertTake({ ...base, resultFileId: file.id });
+		const queued = await insertTake({ ...base, status: "queued" });
+		const failed = await insertTake({ ...base, status: "failed" });
+		await makeIncognito();
+
+		expect((await call(() => use(event(done, "u1")) as never)).status).toBe(
+			404,
+		);
+		expect((await call(() => stop(event(queued, "u1")) as never)).status).toBe(
+			404,
+		);
+		expect((await call(() => retry(event(failed, "u1")) as never)).status).toBe(
+			404,
+		);
+		expect((await readTake(queued))?.status).toBe("queued");
+		expect((await readTake(failed))?.status).toBe("failed");
+		expect((await readTake(done))?.versionNumber).toBeNull();
+
+		const named = "?conversationId=c1";
+		expect(
+			(await call(() => use(event(done, "u1", named)) as never)).status,
+		).toBe(200);
+		expect(
+			(await call(() => stop(event(queued, "u1", named)) as never)).status,
+		).toBe(200);
+		expect(
+			(await call(() => retry(event(failed, "u1", named)) as never)).status,
+		).toBe(200);
+	});
+
+	it("treats a hidden take as not found for Stop and Try again", async () => {
+		const stop = (await import("./stop/+server")).POST;
+		const retry = (await import("./retry/+server")).POST;
+		const queued = await insertTake({
+			...base,
+			status: "queued",
+			hidden: true,
+		});
+		const failed = await insertTake({
+			...base,
+			status: "failed",
+			hidden: true,
+		});
+		expect((await call(() => stop(event(queued, "u1")) as never)).status).toBe(
+			404,
+		);
+		expect((await call(() => retry(event(failed, "u1")) as never)).status).toBe(
+			404,
+		);
+	});
+});
+
 describe("POST /api/images/takes/[takeId]/use", () => {
 	it("answers the version number for a finished take", async () => {
 		const { POST } = await import("./use/+server");
@@ -199,10 +265,12 @@ describe("POST /api/images/takes/[takeId]/stop", () => {
 			heldUntil: null,
 		});
 		const draining = drainImageTakes();
-		for (;;) {
-			if ((await readTake(takeId))?.phase === "rendering") break;
-			await new Promise((resolve) => setTimeout(resolve, 15));
+		let rendering = false;
+		for (let polls = 0; polls < 600 && !rendering; polls += 1) {
+			rendering = (await readTake(takeId))?.phase === "rendering";
+			if (!rendering) await new Promise((resolve) => setTimeout(resolve, 15));
 		}
+		if (!rendering) throw new Error("The take never reached rendering.");
 		const promptId = [...fake.prompts.keys()][0];
 
 		const res = await call(() => POST(event(takeId, "u1")) as never);

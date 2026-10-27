@@ -119,6 +119,9 @@ export async function listConversationImageCards(
 	const byCard = new Map<string, ImageTakeView[]>();
 	for (const take of takes) {
 		const request = parseTakeRequest(take.requestJson);
+		if (!request) {
+			console.error("[IMAGES] A take's request could not be read:", take.id);
+		}
 		const file = take.resultFileId ? fileById.get(take.resultFileId) : null;
 		const view: ImageTakeView = {
 			id: take.id,
