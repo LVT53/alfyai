@@ -284,6 +284,29 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		expect(result.metadata.ok).toBe(false);
 	});
 
+	it("points an instruction edit of a picture at make_image, not at patches", async () => {
+		getArtifactMock.mockResolvedValue(
+			detail({ id: "img-1", kind: "image", title: "Cosy room" }),
+		);
+
+		const result = await runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "img-1",
+			instruction: "make it warmer",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toContain(
+				'make_image (pictures: ["img-1"])',
+			);
+			expect(result.modelPayload.error).not.toContain("Apps only");
+		}
+	});
+
 	it("refuses a File edit — files are produced, not edited", async () => {
 		getArtifactMock.mockResolvedValue(
 			detail({ kind: "file", title: "Trip.pdf" }),

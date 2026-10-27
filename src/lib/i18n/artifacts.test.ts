@@ -315,9 +315,7 @@ describe("the Image kind's strings", () => {
 		);
 		uiLanguage.set("hu");
 		expect(get(t)("sidebar.deleteConversationsMessage")).toBe(
-			"Az üzenetek, fájljaik".length
-				? get(t)("sidebar.deleteConversationsMessage")
-				: "",
+			"Az üzeneteik, fájljaik, jelentéseik, valamint a bennük készült dokumentumok és képek is törlődnek. Ez nem vonható vissza.",
 		);
 		expect(get(t)("sidebar.deleteConversationsMessage")).toContain(
 			"dokumentumok és képek",
