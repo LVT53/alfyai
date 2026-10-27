@@ -42,6 +42,7 @@ import {
 	takeState,
 	visibleTakes,
 } from "./image-card-view";
+import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
 
 let {
@@ -356,24 +357,13 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					</span>
 				{/if}
 				{#if canFlip}
-					<div class="image-card-flip" role="group" aria-label={card.title}>
-						<span class="image-card-flip-thumb" class:is-after={showing === 'after'} aria-hidden="true"></span>
-						<button
-							type="button"
-							aria-pressed={showing === 'before'}
-							data-testid="image-card-before"
-							onclick={() => (showing = 'before')}
-						>
-							{$t('artifacts.image.card.before')}
-						</button>
-						<button
-							type="button"
-							aria-pressed={showing === 'after'}
-							data-testid="image-card-after"
-							onclick={() => (showing = 'after')}
-						>
-							{$t('artifacts.image.card.after')}
-						</button>
+					<div class="image-card-flip">
+						<BeforeAfterSwitch
+							{showing}
+							onChange={(next) => (showing = next)}
+							label={card.title}
+							testIdPrefix="image-card"
+						/>
 					</div>
 				{/if}
 			</div>
@@ -618,55 +608,11 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		box-shadow: 0 0 0 2px var(--focus-ring) inset;
 	}
 
-	/* Before / After: two equal halves and one thumb that slides under the
-	   chosen half (transform only); the words swap colour at once. */
+	/* Before / After floats over the picture's corner (BeforeAfterSwitch). */
 	.image-card-flip {
 		position: absolute;
 		top: 0.5rem;
 		right: 0.5rem;
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		overflow: hidden;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-sm);
-	}
-
-	.image-card-flip-thumb {
-		position: absolute;
-		inset: 0 auto 0 0;
-		width: 50%;
-		background: var(--text-primary);
-		transform: translateX(0);
-		transition: transform var(--duration-standard) var(--ease-out);
-		pointer-events: none;
-	}
-
-	.image-card-flip-thumb.is-after {
-		transform: translateX(100%);
-	}
-
-	.image-card-flip button {
-		position: relative;
-		min-height: 1.75rem;
-		padding: 0 0.625rem;
-		border: 0;
-		background: transparent;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.75rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.image-card-flip button[aria-pressed='true'] {
-		color: var(--surface-page);
-	}
-
-	.image-card-flip button:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring) inset;
 	}
 
 	/* "Alfy is trying once more…": a quiet chip over the picture, never a row. */
@@ -990,7 +936,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	@media (hover: none) and (pointer: coarse) {
 		.image-card-button,
 		.image-card-icon-button,
-		.image-card-flip button,
 		.image-card-menu-row {
 			min-height: 44px;
 		}

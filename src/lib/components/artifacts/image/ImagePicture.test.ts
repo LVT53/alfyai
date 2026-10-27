@@ -27,6 +27,23 @@ describe("ImagePicture", () => {
 		expect(box.style.aspectRatio).toBe("1248 / 832");
 	});
 
+	it("loads only the full picture for the panel's main view", () => {
+		render(ImagePicture, {
+			fileId: "file-9",
+			width: 1248,
+			height: 832,
+			alt: "Panel",
+			conversationId: "conv-1",
+			variant: "original",
+		});
+		const img = screen.getByRole("img", { name: "Panel" });
+		expect(img.getAttribute("src")).toBe(
+			"/api/images/files/file-9?conversationId=conv-1",
+		);
+		expect(img.getAttribute("srcset")).toBeNull();
+		expect(img.getAttribute("sizes")).toBeNull();
+	});
+
 	it("offers the thumbnail and the full picture by width, and only the thumbnail for a thumb", () => {
 		render(ImagePicture, {
 			fileId: "file-7",

@@ -10,7 +10,8 @@
 // `variant: "thumb"` loads only the 320 px thumbnail (strips, chips, "Made
 // from", History's rail); `"full"` lets the browser choose between the
 // thumbnail and the full picture by the box's width (`srcset`, F20), which is
-// what the chat card's main picture and the panel use.
+// what the chat card's main picture uses; `"original"` loads only the full
+// picture (the panel's main view, MOTION-PARITY 4: only the panel loads full).
 import { untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
 import { thumbWidth } from "$lib/shared/artifacts/image-body";
@@ -36,7 +37,7 @@ let {
 	/** The picture this one was made from, for Before / After. */
 	beforeFileId?: string | null;
 	showing?: "after" | "before";
-	variant?: "full" | "thumb";
+	variant?: "full" | "thumb" | "original";
 	/** `variant: "full"` only: how wide the box is drawn, for `srcset`. */
 	sizes?: string;
 } = $props();
@@ -47,6 +48,7 @@ const thumbUrl = (id: string) =>
 function sourceOf(id: string) {
 	if (variant === "thumb") return { src: thumbUrl(id), srcset: undefined };
 	const full = imageFileUrl(id, { conversationId });
+	if (variant === "original") return { src: full, srcset: undefined };
 	return {
 		src: full,
 		srcset: `${thumbUrl(id)} ${thumbWidth(width, height)}w, ${full} ${width}w`,
