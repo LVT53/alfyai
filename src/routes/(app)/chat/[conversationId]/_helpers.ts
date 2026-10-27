@@ -456,9 +456,14 @@ export function shouldHydrateArtifactsOnToolCall(
 	name: string,
 	status: "running" | "done" | "failed",
 ): boolean {
+	// make_image (plan 2b T2): the picture's card would otherwise wait for the
+	// next 2.5 s poll and still say "Making the picture…" under a reply that
+	// already says it is made.
 	return (
 		status !== "running" &&
-		(name === "create_artifact" || name === "edit_artifact")
+		(name === "create_artifact" ||
+			name === "edit_artifact" ||
+			name === "make_image")
 	);
 }
 

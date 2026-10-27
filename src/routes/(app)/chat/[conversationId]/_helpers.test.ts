@@ -667,6 +667,13 @@ describe("file production chat helpers", () => {
 	// went stale after a live edit because nothing hydrated `artifacts` on a
 	// create_artifact/edit_artifact call — see shouldHydrateArtifactsOnToolCall's
 	// own doc comment.
+	it("hydrates on a concluded make_image call, so its card shows the landed picture as the reply says so", () => {
+		expect(shouldHydrateArtifactsOnToolCall("make_image", "done")).toBe(true);
+		expect(shouldHydrateArtifactsOnToolCall("make_image", "running")).toBe(
+			false,
+		);
+	});
+
 	it("hydrates on a concluded create_artifact/edit_artifact call, and no other tool", () => {
 		expect(shouldHydrateArtifactsOnToolCall("create_artifact", "done")).toBe(
 			true,
