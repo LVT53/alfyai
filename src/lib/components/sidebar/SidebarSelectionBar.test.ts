@@ -1016,8 +1016,8 @@ describe("sidebar selection copy", () => {
 			"Törölsz {count} beszélgetést?",
 		],
 		"sidebar.deleteConversationsMessage": [
-			"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
-			"Az üzeneteik, fájljaik, jelentéseik és a bennük készült dokumentumok is törlődnek. Ez nem vonható vissza.",
+			"Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone.",
+			"Az üzeneteik, fájljaik, jelentéseik, valamint a bennük készült dokumentumok és képek is törlődnek. Ez nem vonható vissza.",
 		],
 		"sidebar.bulkDeleteFailed": [
 			"Couldn't delete {count} {count, plural, one {chat} other {chats}}. Try again.",

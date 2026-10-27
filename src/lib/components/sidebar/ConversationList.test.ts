@@ -1844,7 +1844,7 @@ describe("ConversationList multi-select", () => {
 			expect(within(dialog).getByText("Delete 2 chats?")).toBeInTheDocument();
 			expect(
 				within(dialog).getByText(
-					"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
+					"Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone.",
 				),
 			).toBeInTheDocument();
 			expect(batches).toEqual([]);
