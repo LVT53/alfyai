@@ -143,23 +143,19 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	};
 
 	if (against.changedShare > GUARD.globalChangeShare) {
-		if (clamp) {
-			// Even a whole repaint changes only what was marked; the rest stays as it was.
+		if (!clamp) {
 			return {
-				picture: compositeOnto(base, aligned, clamp),
-				mask: clamp,
+				picture: aligned,
+				mask: new Float32Array(aligned.width * aligned.height).fill(1),
 				measures: { ...measures, global: true },
-				chainSinceAnchor: params.chainSinceAnchor + 1,
-				anchorIsResult: false,
+				chainSinceAnchor: 0,
+				anchorIsResult: true,
 			};
 		}
-		return {
-			picture: aligned,
-			mask: new Float32Array(aligned.width * aligned.height).fill(1),
-			measures: { ...measures, global: true },
-			chainSinceAnchor: 0,
-			anchorIsResult: true,
-		};
+		// A marked repaint is not kept whole: it goes the normal marked way below
+		// (miss measured, paste limited to the marks, transparency kept), with
+		// `global` still reported.
+		measures.global = true;
 	}
 	measures.miss = missOf(against.changedShare, measures.insideMarksShare);
 

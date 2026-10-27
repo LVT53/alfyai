@@ -241,6 +241,51 @@ describe("guardEdit", () => {
 			).toEqual([250, 20, 200]);
 		});
 
+		it("treats a marked repaint over most of the frame as a miss and still changes nothing outside the marks", async () => {
+			const result = copyOf(base);
+			fillBox(
+				result,
+				{ x: 4, y: 4, w: SCENE_W - 8, h: SCENE_H - 8 },
+				[20, 90, 200],
+			);
+			const out = await run(result);
+			expect(out.measures.global).toBe(true);
+			expect(out.measures.miss).toBe("outside_marks");
+			const x1 = MARKED.x + MARKED.w + grow;
+			const y1 = MARKED.y + MARKED.h + grow;
+			for (let y = 0; y < SCENE_H; y++) {
+				for (let x = 0; x < SCENE_W; x++) {
+					if (x < x1 && x >= MARKED.x - grow && y < y1 && y >= MARKED.y - grow)
+						continue;
+					const o = (y * SCENE_W + x) * 4;
+					for (let c = 0; c < 4; c++) {
+						if (out.picture.data[o + c] !== base.data[o + c]) {
+							throw new Error(`differs at ${x},${y}`);
+						}
+					}
+				}
+			}
+			// Not kept whole: the chain goes on and the result is not the new anchor.
+			expect(out.anchorIsResult).toBe(false);
+			expect(out.chainSinceAnchor).toBe(1);
+		});
+
+		it("keeps the picture opaque where an alignment-exposed edge lies inside the marks", async () => {
+			const edited = copyOf(base);
+			fillBox(edited, RECTS[1].box, [250, 20, 200]);
+			const out = await guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: warp(edited, 1, 2, -1),
+				marks: [{ x: 0, y: 0, w: 1, h: 1 }],
+			});
+			let notOpaque = 0;
+			for (let i = 3; i < out.picture.data.length; i += 4)
+				if (out.picture.data[i] !== 255) notOpaque++;
+			expect(notOpaque).toBe(0);
+		});
+
 		it("leaves an edit without marks unclamped", async () => {
 			const out = await guardEdit({
 				base,

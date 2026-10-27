@@ -14,6 +14,8 @@ export const MAX_TAKES_PER_CARD_PER_TURN = 4;
 
 export type TurnTakeRecord = {
 	takeId: string;
+	/** The tool call that queued it, when there was one. */
+	toolCallId?: string | null;
 	cardId: string;
 	cardKey: string;
 	/** What the call asked for, so an identical call can be told from a different one. */
@@ -45,6 +47,8 @@ export type TurnTakes = {
 	/** Takes of the card this turn that count against its four: a retry takes the place of the take it repeats. */
 	takesInCard(cardId: string): number;
 	take(takeId: string): TurnTakeRecord | undefined;
+	/** A take of this turn was queued by this tool call (so a timeout of the call still lands a picture on a card). */
+	hasTakeForCall(toolCallId: string): boolean;
 	/** The card's first non-retry take made for this very request, if any. */
 	firstTakeOfCall(cardId: string, callKey: string): TurnTakeRecord | undefined;
 	markRetried(takeId: string): void;
@@ -77,6 +81,8 @@ export function createTurnTakes(): TurnTakes {
 				(record) => record.cardId === cardId && !record.isRetry,
 			).length,
 		take: (takeId) => takes.get(takeId),
+		hasTakeForCall: (toolCallId) =>
+			[...takes.values()].some((record) => record.toolCallId === toolCallId),
 		firstTakeOfCall: (cardId, callKey) =>
 			[...takes.values()].find(
 				(record) =>
