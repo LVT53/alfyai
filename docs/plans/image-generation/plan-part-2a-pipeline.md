@@ -1,6 +1,6 @@
 # Images Part 2a: The Picture Pipeline Implementation Plan
 
-> **Draft, 2026-10-27.** Waits on the owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md). They are folded in before anyone builds from this plan.
+> **Draft, 2026-10-27.** The owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md) are folded in, except call 5 (pictures and chat deletion), which waits on one more answer.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -52,7 +52,7 @@ Created (under `src/lib/server/services/images/` unless a path says otherwise):
 - `tests/e2e/images-pipeline.spec.ts`.
 - A test file beside every new module.
 
-Modified, by task: `vision/turn-images.ts`, `vision/step-images.ts`, `vision/photo-look.ts`, `normal-chat-context.ts` (Task 1); `env.ts`, `config-store.ts`, `admin-config-registry.ts`, settings pages map, `tool-health/`, `client/degraded-capabilities.ts`, `app-shell.ts`, i18n (Task 2); root `AGENTS.md`, `services/AGENTS.md` (Task 3); `shared/artifacts/{kinds,tours,history,version-summaries}.ts`, `artifacts/{types,record,catalogue,read-model}.ts`, `artifacts/moments/detail.ts`, `artifacts/serialize/index.ts`, `knowledge/store/documents.ts`, `workspace-search.ts`, `cleanup/conversation-cleanup.ts`, `components/artifacts/kind-icons.ts`, `history/moment-text.ts`, `DocumentsList.svelte`, `utils/tool-activity.ts`, i18n (Task 6); `schema.ts`, `storage-containment.ts`, `account-lifecycle/`, `account-data-archive/index.ts`, `artifacts/record.ts`, `artifacts/library-delete.ts` (Task 7); `schema.ts`, `hooks.server.ts`, `account-lifecycle/` (Task 8); `conversation-detail/` (Task 10); `chat-turn/{request,types,preflight,context-selection,conversation-history,finalize,finalize-steps,retry,shared-normal-chat-model-run-helpers,plain-normal-chat-model-run,streaming-normal-chat-model-run}.ts`, `messages.ts`, `client/normal-chat-client-turn-runtime.ts`, `services/streaming.ts` (Task 11); `normal-chat-tools/{index,shared}.ts` and the catalogue snapshot, `vision/prepare-image.ts`, `utils/tool-calls.ts`, `utils/tool-activity.ts` (Task 12); `chat-turn/stream-idle-timeout.ts`, `chat-turn/stream-orchestrator.ts` (Task 13); the mock provider, `README.md`, `.env.example`, `tests/AGENTS.md` (Task 14).
+Modified, by task: `vision/turn-images.ts`, `vision/step-images.ts`, `vision/photo-look.ts`, `normal-chat-context.ts` (Task 1); `env.ts`, `config-store.ts`, `admin-config-registry.ts`, settings pages map, `tool-health/`, `client/degraded-capabilities.ts`, i18n (Task 2); root `AGENTS.md`, `services/AGENTS.md` (Task 3); `shared/artifacts/{kinds,tours,history,version-summaries}.ts`, `artifacts/{types,record,catalogue,read-model}.ts`, `artifacts/moments/detail.ts`, `artifacts/serialize/index.ts`, `knowledge/store/documents.ts`, `workspace-search.ts`, `cleanup/conversation-cleanup.ts`, `components/artifacts/kind-icons.ts`, `history/moment-text.ts`, `DocumentsList.svelte`, `utils/tool-activity.ts`, i18n (Task 6); `schema.ts`, `storage-containment.ts`, `account-lifecycle/`, `account-data-archive/index.ts`, `artifacts/record.ts`, `artifacts/library-delete.ts` (Task 7); `schema.ts`, `hooks.server.ts`, `account-lifecycle/` (Task 8); `conversation-detail/` (Task 10); `chat-turn/{request,types,preflight,context-selection,conversation-history,finalize,finalize-steps,retry,shared-normal-chat-model-run-helpers,plain-normal-chat-model-run,streaming-normal-chat-model-run}.ts`, `messages.ts`, `client/normal-chat-client-turn-runtime.ts`, `services/streaming.ts` (Task 11); `normal-chat-tools/{index,shared}.ts` and the catalogue snapshot, `vision/prepare-image.ts`, `utils/tool-calls.ts`, `utils/tool-activity.ts` (Task 12); `chat-turn/stream-idle-timeout.ts`, `chat-turn/stream-orchestrator.ts` (Task 13); the mock provider, `README.md`, `.env.example`, `tests/AGENTS.md` (Task 14).
 
 ---
 
@@ -136,11 +136,11 @@ git commit -m "Number the pictures of a message, so 'picture 2' means the same t
 ### Task 2: Settings, Tool Health and the banner's label
 
 **Files:**
-- Modify: `src/lib/server/env.ts`, `src/lib/server/config-store.ts` (`ADMIN_CONFIG_KEYS`, `RuntimeConfig`, the appliers, the export map), `src/lib/config/admin-config-registry.ts`, `src/routes/(app)/settings/_components/system/pages.ts` (`COMFYUI_URL` on `integrations`, `IMAGE_REFERENCE_CAP` on `limits`), `src/lib/server/services/tool-health/types.ts` and `registry.ts`, `src/lib/client/degraded-capabilities.ts` (`TOOL_LABEL_KEYS`), `src/lib/server/services/app-shell.ts` (`AppShellData.imageReferenceCap`), `src/lib/i18n/settings.ts`, `src/lib/i18n/chat.ts`, `README.md`, `.env.example`
-- Test: `src/lib/server/env.test.ts`, the config-store tests, `tool-health/tool-health.test.ts`, `client/degraded-capabilities` test, `app-shell` test
+- Modify: `src/lib/server/env.ts`, `src/lib/server/config-store.ts` (`ADMIN_CONFIG_KEYS`, `RuntimeConfig`, the appliers, the export map), `src/lib/config/admin-config-registry.ts`, `src/routes/(app)/settings/_components/system/pages.ts` (`COMFYUI_URL` on `integrations`, `IMAGE_REFERENCE_CAP` on `limits`), `src/lib/server/services/tool-health/types.ts` and `registry.ts`, `src/lib/client/degraded-capabilities.ts` (`TOOL_LABEL_KEYS`), `src/lib/i18n/settings.ts`, `src/lib/i18n/chat.ts`, `README.md`, `.env.example`
+- Test: `src/lib/server/env.test.ts`, the config-store tests, `tool-health/tool-health.test.ts`, `client/degraded-capabilities` test
 
 **Interfaces:**
-- Produces: `RuntimeConfig.comfyuiUrl: string` ("" means picture making is off), `RuntimeConfig.imageReferenceCap: number`; `getImageReferenceCap(): number` and `isImageMakingConfigured(config: Pick<RuntimeConfig, "comfyuiUrl">): boolean` in `config-store.ts`; `ToolHealthConfig` gains `"comfyuiUrl"`; a registry entry `{ id: "make_image", name: "make_image", backend: "ComfyUI" }`; `AppShellData.imageReferenceCap: number`.
+- Produces: `RuntimeConfig.comfyuiUrl: string` ("" means picture making is off), `RuntimeConfig.imageReferenceCap: number`; `getImageReferenceCap(): number` and `isImageMakingConfigured(config: Pick<RuntimeConfig, "comfyuiUrl">): boolean` in `config-store.ts`; `ToolHealthConfig` gains `"comfyuiUrl"`; a registry entry `{ id: "make_image", name: "make_image", backend: "ComfyUI" }`. The cap is the server's alone: the browser never reads it (the composer has no picture cap, Global Constraints).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -148,18 +148,17 @@ git commit -m "Number the pictures of a message, so 'picture 2' means the same t
 - config-store: an admin override `IMAGE_REFERENCE_CAP: "7"` makes `getImageReferenceCap()` return 7; `validateAdminConfigValue` refuses `"11"` and `"0"` for it and accepts `http://127.0.0.1:8188` for `COMFYUI_URL`.
 - tool health: with `comfyuiUrl: ""` the `make_image` report is `unconfigured`; a probe answered 200 on `/system_stats` is `healthy`; a refused connection is `degraded` with a detail.
 - `degradedToolLabels([{ tool: "make_image" }], t)` returns "Making pictures" (en) and "Képkészítés" (hu).
-- the app shell data carries `imageReferenceCap: 4` by default.
 
 - [ ] **Step 2: Run the tests and check they fail**
 
-Run: `npx vitest run src/lib/server/env.test.ts src/lib/server/config-store src/lib/server/services/tool-health src/lib/client src/lib/server/services/app-shell`
+Run: `npx vitest run src/lib/server/env.test.ts src/lib/server/config-store src/lib/server/services/tool-health src/lib/client`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
 Follow `MINERU_API_URL` through env, config store, registry (`{ kind: "url" }`, `effect: "live"`, group `integrations`) and pages map. `IMAGE_REFERENCE_CAP`: `int(1, 10, "count")`, `effect: "live"`, group `limits`; the parser clamps into 1..10 and falls back to 4. The probe is `GET <comfyuiUrl>/system_stats` through `httpProbe` with `expectOk`. Strings:
 - `admin.system.keys.COMFYUI_URL.label`: "Picture server" / "Képszerver"; `.meaning`: "The ComfyUI server that makes pictures. Leave empty to turn picture making off." / "A képeket készítő ComfyUI-szerver. Üresen hagyva nincs képkészítés."
-- `admin.system.keys.IMAGE_REFERENCE_CAP.label`: "Pictures per message" / "Képek üzenetenként"; `.meaning`: "How many pictures one message may carry, from 1 to 10. Each extra picture costs the picture server about 2 GiB." / "Egy üzenetben legfeljebb ennyi kép lehet (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől."
+- `admin.system.keys.IMAGE_REFERENCE_CAP.label`: "Source pictures per image" / "Forrásképek egy képhez"; `.meaning`: "How many pictures Alfy may use to make or change one image, from 1 to 10. Each extra picture costs the picture server about 2 GiB. A message itself may hold more." / "Egy kép elkészítéséhez vagy módosításához legfeljebb ennyi képet használhat Alfy (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől. Egy üzenetben ennél több kép is lehet."
 - `chat.degradedBanner.tool.make_image`: "Making pictures" / "Képkészítés"
 
 README: a "Picture server" paragraph (what `COMFYUI_URL` is, that empty turns the tool off, the cap). `.env.example`: both keys, commented, with defaults.
@@ -173,7 +172,7 @@ Expected: PASS; 0 errors, 0 warnings.
 
 ```bash
 git add src/lib/server/env.ts src/lib/server/config-store.ts src/lib/config src/routes/\(app\)/settings/_components/system/pages.ts src/lib/server/services/tool-health src/lib/client/degraded-capabilities.ts src/lib/server/services/app-shell.ts src/lib/i18n README.md .env.example
-git commit -m "Add the picture server address and the pictures-per-message cap, and watch ComfyUI in Tool Health"
+git commit -m "Add the picture server address and the cap on source pictures per image, and watch ComfyUI in Tool Health"
 ```
 
 ### Task 3: The fake ComfyUI and the ComfyUI client
@@ -399,7 +398,7 @@ Adding `"image"` to `ArtifactKind` makes every exhaustive map fail to compile; t
 
 **Files:**
 - Create: `src/lib/shared/artifacts/image-body.ts`, `image-body.test.ts`, `src/lib/server/services/artifacts/serialize/image.ts`
-- Modify: `shared/artifacts/kinds.ts` (`ArtifactKind`, `SHIPPED_ARTIFACT_KINDS`), `shared/artifacts/tours.ts` (`ArtifactTourType = Exclude<ArtifactKind, "file" | "image">`, with the reason: design 5.3 lists what pictures get and a tour is not among them), `shared/artifacts/history.ts` (`MomentDetail` image; `MomentKind` `"user_photo"`, `"picked_take"`), `shared/artifacts/version-summaries.ts`, `artifacts/types.ts` (`RowArtifactKind`, `CreatableArtifactKind`, `ImageCardPreview`, `ArtifactCardSummary.imagePreview`), `artifacts/record.ts` (`KNOWN_KINDS`, the row-kind check `createArtifact` uses), `artifacts/serialize/index.ts`, `artifacts/catalogue.ts` (`Image`), `artifacts/read-model.ts`, `artifacts/moments/detail.ts`, `knowledge/store/documents.ts` (`parseArtifactFamilyKind`), `workspace-search.ts` (an image's content is JSON: `<> 'app'` becomes `not in ('app', 'image')`), `cleanup/conversation-cleanup.ts` (an image item always goes with its chat), `components/artifacts/kind-icons.ts` (`Image`), `routes/(app)/knowledge/_components/DocumentsList.svelte` (`Image` icon), `components/artifacts/history/moment-text.ts`, `utils/tool-activity.ts` (`ARTIFACT_KINDS`), `src/lib/i18n/artifacts.ts`
+- Modify: `shared/artifacts/kinds.ts` (`ArtifactKind`, `SHIPPED_ARTIFACT_KINDS`), `shared/artifacts/tours.ts` (`ArtifactTourType = Exclude<ArtifactKind, "file" | "image">`, with the reason: design 5.3 lists what pictures get and a tour is not among them), `shared/artifacts/history.ts` (`MomentDetail` image; `MomentKind` `"user_photo"`, `"picked_take"`), `shared/artifacts/version-summaries.ts`, `artifacts/types.ts` (`RowArtifactKind`, `CreatableArtifactKind`, `ImageCardPreview`, `ArtifactCardSummary.imagePreview`), `artifacts/record.ts` (`KNOWN_KINDS`, the row-kind check `createArtifact` uses), `artifacts/serialize/index.ts`, `artifacts/catalogue.ts` (`Image`), `artifacts/read-model.ts`, `artifacts/moments/detail.ts`, `knowledge/store/documents.ts` (`parseArtifactFamilyKind`), `workspace-search.ts` (an image's content is JSON: `<> 'app'` becomes `not in ('app', 'image')`), `cleanup/conversation-cleanup.ts` (an image item always goes with its chat), `components/artifacts/kind-icons.ts` (`Image`), `routes/(app)/knowledge/_components/DocumentsList.svelte` (`Image` icon), `components/artifacts/history/moment-text.ts`, `utils/tool-activity.ts` (`ARTIFACT_KINDS`), `src/lib/i18n/artifacts.ts`, `src/lib/i18n/common.ts` (`sidebar.deleteConversationsMessage`: the sidebar's bulk delete dialog names pictures among what goes)
 - Test: `image-body.test.ts`, `artifacts/record.test.ts`, `artifacts/catalogue.test.ts`, `artifacts/moments/detail.test.ts`, `shared/artifacts/version-summaries.test.ts`, `knowledge/store/documents` tests, `workspace-search` tests, `cleanup/conversation-cleanup` test, `moment-text.test.ts`, `artifact-tools` tests
 
 **Interfaces:**
@@ -439,6 +438,7 @@ export function parseImageMarks(value: unknown): ImageMark[] | null;
 - the Documents tab lists an image item with kind `"image"`, and `kindFilter: "image"` returns only it.
 - Workspace Search finds an image by its title and not by `"fileid"`.
 - deleting a chat deletes its image item even when another chat links to it.
+- the bulk delete dialog's message names pictures, in English and Hungarian (the strings in Step 3).
 - `moment-text`: `user_photo` reads "Your photo" / "A fotód"; `picked_take` "You picked another take" / "Másik változatot választottál"; an image detail with `sourceCount` 3 reads "from 3 pictures" / "3 képből", and with 1 says nothing.
 
 - [ ] **Step 2: Run the tests and check they fail**
@@ -448,7 +448,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-The serializer in `serialize/image.ts` wraps the shared parser, so the browser and the server read one shape. `read-model.ts` sets `imagePreview` from the newest body. New i18n keys: `artifacts.type.image` "Image" / "Kép"; `artifacts.history.moment.userPhoto` "Your photo" / "A fotód"; `artifacts.history.moment.pickedTake` "You picked another take" / "Másik változatot választottál"; `artifacts.history.detail.fromPictures` "from {count} pictures" / "{count} képből". Alfy's own picture summaries go through the existing Alfy-edit and first-draft headlines.
+The serializer in `serialize/image.ts` wraps the shared parser, so the browser and the server read one shape. `read-model.ts` sets `imagePreview` from the newest body. New i18n keys: `artifacts.type.image` "Image" / "Kép"; `artifacts.history.moment.userPhoto` "Your photo" / "A fotód"; `artifacts.history.moment.pickedTake` "You picked another take" / "Másik változatot választottál"; `artifacts.history.detail.fromPictures` "from {count} pictures" / "{count} képből". The bulk delete dialog (sidebar multi-select, merged after this plan was first written) lists what goes with the chats; `sidebar.deleteConversationsMessage` becomes "Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone." / "Az üzeneteik, fájljaik, jelentéseik, valamint a bennük készült dokumentumok és képek is törlődnek. Ez nem vonható vissza." (the single delete dialog lists nothing, so it stays). Bulk delete runs `deleteConversationWithCleanup` for each chat, so the cleanup rule here covers it too. Alfy's own picture summaries go through the existing Alfy-edit and first-draft headlines.
 
 - [ ] **Step 4: Run the tests and check**
 
@@ -689,11 +689,11 @@ The open picture, the pictures attached from cards and the person's marks become
 
 **Files:**
 - Create: `images/marks.ts`, `images/marks.test.ts`, `images/turn-pictures.ts`, `images/turn-pictures.test.ts`
-- Modify: `chat-turn/request.ts` and `types.ts` (`pictureRefs`, `imageMarks`), `chat-turn/preflight.ts` (ownership and the cap), `chat-turn/context-selection.ts` (number and prepare every picture; `MAX_TURN_IMAGES` across all of them), `normal-chat-context.ts` (`PreparedModelContext.turnPictures`; the guidance lines), `vision/turn-images.ts` (the `viewing_images` count counts every picture sent), `chat-turn/shared-normal-chat-model-run-helpers.ts` (`createToolPack` takes `turnPictures`), both model-run files, `chat-turn/finalize.ts` and `finalize-steps.ts` (the user message's `pictures` metadata), `messages.ts` (`PersistedMessageMetadata.pictures`, projected as `ChatMessage.pictures`), `chat-turn/conversation-history.ts` (history lines), `chat-turn/retry.ts` (accepts both fields), `src/lib/client/normal-chat-client-turn-runtime.ts` and `src/lib/services/streaming.ts` (send both fields)
+- Modify: `chat-turn/request.ts` and `types.ts` (`pictureRefs`, `imageMarks`), `chat-turn/preflight.ts` (ownership; no picture count check), `chat-turn/context-selection.ts` (number and prepare every picture; `MAX_TURN_IMAGES` across all of them), `normal-chat-context.ts` (`PreparedModelContext.turnPictures`; the guidance lines, the cap's among them), `vision/turn-images.ts` (the `viewing_images` count counts every picture sent), `chat-turn/shared-normal-chat-model-run-helpers.ts` (`createToolPack` takes `turnPictures`), both model-run files, `chat-turn/finalize.ts` and `finalize-steps.ts` (the user message's `pictures` metadata), `messages.ts` (`PersistedMessageMetadata.pictures`, projected as `ChatMessage.pictures`), `chat-turn/conversation-history.ts` (history lines), `chat-turn/retry.ts` (accepts both fields), `src/lib/client/normal-chat-client-turn-runtime.ts` and `src/lib/services/streaming.ts` (send both fields)
 - Test: `marks.test.ts`, `turn-pictures.test.ts`, `chat-turn/request` and `preflight` tests, `conversation-history.test.ts`, `normal-chat-model/index.test.ts`, `src/lib/services/streaming.test.ts`, `tests/integration/vision-current-turn.test.ts`
 
 **Interfaces:**
-- Consumes: `PictureRef`, `ImageMarksRequest`, `parseImageMarks`, `MARK_COLOURS`, `MARK_COLOUR_NAMES` (Task 6), `getImageFile`, `readImageFileBytes`, `storeImageFile` (Task 7), `pictureLabel`, `LabelledPicture` (Task 1), `getImageReferenceCap` (Task 2).
+- Consumes: `PictureRef`, `ImageMarksRequest`, `parseImageMarks`, `MARK_COLOURS`, `MARK_COLOUR_NAMES` (Task 6), `getImageFile`, `readImageFileBytes`, `storeImageFile` (Task 7), `pictureLabel`, `LabelledPicture` (Task 1), `getImageReferenceCap`, `isImageMakingConfigured` (Task 2).
 - Produces:
 
 ```ts
@@ -717,8 +717,9 @@ export async function resolveTurnPictures(params: { userId: string; conversation
 - "one picture, one number" (Review Focus 2): a ref whose file is the open item's version in use is numbered once; the same upload twice is numbered once.
 - refs with duplicate or out-of-range numbers are renumbered after the uploads, in the order given, and the turn goes on.
 - `paintMarks`: the pixel at the middle of box A's top edge is within 8 of `#E53935` on each channel; pixels well outside every box are byte-equal to the input; it works with no font installed (the letters are strokes).
-- preflight: four uploaded pictures and one ref with the cap at 4 answer 400 with `errorKey: "composerChips.tooManyPictures"` and `{ count: 4 }`; a ref to another user's file answers 404; marks on a file that is neither the open picture nor a ref answer 400.
+- preflight: eight uploaded pictures and one ref with the cap at 4 are accepted (the cap limits a picture request, not a message; Global Constraints); a ref to another user's file answers 404; marks on a file that is neither the open picture nor a ref answer 400.
 - the outbound body for a model that can see holds each picture as a `Picture N: …` text part then its `image_url` part, the open picture and the marked copy included; for a model that cannot see, no picture part, and its turn guidance lists them by number so it can still hand them to `make_image`: `Pictures in this message: Picture 1: rug.jpg; Picture 2: Cosy living room (open in the panel).`
+- with the cap at 4, a message of five pictures adds the turn guidance line `make_image takes at most 4 pictures per call: pass the ones the picture needs.`, for a model that can see and one that cannot; a message of four or fewer adds no such line.
 - image-file pictures never reach `scheduleImageDescriptions` (R15); `viewing_images` counts them.
 - the user message's metadata keeps `pictures`; a later turn's history shows `[picture: Cosy living room]` for a ref, `[open picture: Cosy living room]` for the open one and `[marks: A, B on Cosy living room]`, never pixels.
 - the browser runtime and `streaming.ts` send `pictureRefs` and `imageMarks` in the stream body; the retry route accepts them.
@@ -730,7 +731,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-`resolveTurnPictures`: refs keep their numbers; image-category uploads fill the free numbers in attachment order; the open picture comes next when `activeDocumentArtifactId` is an image item (its body's `fileId`); the marked copy last: `paintMarks` on the marked file's full picture, stored with `role: "marked"`. A model that can see gets each picture prepared with `prepareImageForModel` at `ATTACHMENT_MAX_LONG_EDGE`, in number order, up to `MAX_TURN_IMAGES`; the rest are named by `heldBackImagesGuidance`. A model that cannot see gets `CANNOT_SEE_IMAGES_GUIDANCE` and the one `Pictures in this message: …` line (an English scaffold around the names). The marks painter draws each box as a stroke of width `max(4, 0.006 × long side)` in its colour, with a filled tag of side `max(28, 0.035 × long side)` at the box's top-left holding the letter as white strokes on a 5x7 grid (`LETTER_STROKES` in `marks.ts`), composited with sharp from one SVG.
+`resolveTurnPictures`: refs keep their numbers; image-category uploads fill the free numbers in attachment order; the open picture comes next when `activeDocumentArtifactId` is an image item (its body's `fileId`); the marked copy last: `paintMarks` on the marked file's full picture, stored with `role: "marked"`. A model that can see gets each picture prepared with `prepareImageForModel` at `ATTACHMENT_MAX_LONG_EDGE`, in number order, up to `MAX_TURN_IMAGES`; the rest are named by `heldBackImagesGuidance`. A model that cannot see gets `CANNOT_SEE_IMAGES_GUIDANCE` and the one `Pictures in this message: …` line (an English scaffold around the names). When the message holds more pictures than `getImageReferenceCap()`, either model also gets the cap's line, only while `isImageMakingConfigured` (with no picture server there is no `make_image` to limit). The marks painter draws each box as a stroke of width `max(4, 0.006 × long side)` in its colour, with a filled tag of side `max(28, 0.035 × long side)` at the box's top-left holding the letter as white strokes on a 5x7 grid (`LETTER_STROKES` in `marks.ts`), composited with sharp from one SVG.
 
 - [ ] **Step 4: Run the tests and check**
 
@@ -809,12 +810,13 @@ export async function decodeImageToPng(input: Uint8Array, mimeType: string | nul
 - `startNew` (boolean): "True to start a separate picture even though the first picture is an existing Image."
 - `retryOf` (≤ 64): "A takeId from this turn whose result clearly missed: makes it again once; the better one is kept."
 
-**Resolution (Plan's call 7).** A picture number resolves through `turnPictures`; an id resolves only to an Image item reachable from this chat (its body's `fileId`). More pictures than `getImageReferenceCap()` is `too_many_pictures`. The card key: `retryOf`'s card; else, when the first picture is an Image item's picture and `startNew` is not set, `item:<artifactId>`; else `new:<sha256 of prompt, pictures, size, print, transparent>`. The base of an item is this turn's newest unhidden finished take on that item's card, else the item's version in use; `avoidSeeds` holds the base version's seed; the anchor is the base body's anchor (or its own file) with its chain. `baseFromUpload` is true when the first picture is an upload. `madeFrom`: no pictures `words`; an upload with nothing else but its marked copy `photo`; an item's picture with nothing else but its marked copy `change`; else `pictures` (`sourceCount` counts the pictures other than the marked copy). The title falls back to the first eight words of the person's message (`requestText`), which are in their language.
+**Resolution (Plan's call 7).** A picture number resolves through `turnPictures`; an id resolves only to an Image item reachable from this chat (its body's `fileId`). More pictures than `getImageReferenceCap()` is `too_many_pictures`, with the message `make_image takes at most <cap> pictures per call. Pass the ones the picture needs, or ask the user which.` This is the only place the cap applies (Plan's call 10). The card key: `retryOf`'s card; else, when the first picture is an Image item's picture and `startNew` is not set, `item:<artifactId>`; else `new:<sha256 of prompt, pictures, size, print, transparent>`. The base of an item is this turn's newest unhidden finished take on that item's card, else the item's version in use; `avoidSeeds` holds the base version's seed; the anchor is the base body's anchor (or its own file) with its chain. `baseFromUpload` is true when the first picture is an upload. `madeFrom`: no pictures `words`; an upload with nothing else but its marked copy `photo`; an item's picture with nothing else but its marked copy `change`; else `pictures` (`sourceCount` counts the pictures other than the marked copy). The title falls back to the first eight words of the person's message (`requestText`), which are in their language.
 
 - [ ] **Step 1: Write the failing tests** (`make-image.test.ts` with a real fake ComfyUI and the image kind started on the engine)
 
 - "makes a new picture from words": one card, one take; the payload is `{ ok: true, status: "succeeded", takeId, imageId, title, inUse: true, note }` and the metadata carries `imageCardId`, `imageTakeId`, `imageArtifactId`.
 - `"3"` resolves to the message's picture 3; `"9"` is refused `unknown_picture`; a Document's id is refused `unknown_picture`.
+- with the cap at 4, a call naming five of the message's six pictures is refused `too_many_pictures` and its message names 4; the same call naming four goes through.
 - four identical calls in one turn share one card; the fifth is refused `too_many_takes`; the ninth call of a turn `too_many_calls`.
 - an edit of the open item uses its version's file as `<image1>`, the edit canvas, and a seed unlike the version's.
 - a photo starts an item whose version 1 is the photo.

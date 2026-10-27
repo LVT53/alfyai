@@ -152,7 +152,7 @@ The pixel guards from the comparison report run inside the job and are not drawn
 
 - Each attached picture gets a number in the order it was added, shown on its composer chip and matching `<imageN>`. Alfy works out which picture is the scene and which are the pieces.
 - Attach on any card or version puts that picture into the next message without uploading it again.
-- A cap per message: default 4, admin-set, never above 10 (my call; the wireframes say 6, but each extra 1 MP reference costs Qwen about 2 GiB more on a shared card).
+- A cap on the pictures one picture request uses: default 4, admin-set, never above 10 (my call; the wireframes say 6, but each extra 1 MP reference costs Qwen about 2 GiB more on a shared card). A message itself has no picture cap: Alfy is shown up to 8 of its pictures, as part 1 does in every chat, and says so when a picture would need more than the cap (owner, 2026-10-27).
 
 ### 5.7 Marks
 
@@ -167,7 +167,7 @@ Qwen can make pictures with a transparent background. Show them on a checkerboar
 
 ### 5.9 Card states
 
-Making (progress and Stop); waiting for its turn (how many are ahead, and Stop); starting up (the model loads after a quiet spell, so this one takes longer); checking and retrying (in the activity row); failed (Try again); too many pictures (the cap, with "remove one to send"); unavailable (the existing degraded-tools banner, fed by a Tool Health check on the ComfyUI service).
+Making (progress and Stop); waiting for its turn (how many are ahead, and Stop); starting up (the model loads after a quiet spell, so this one takes longer); checking and retrying (in the activity row); failed (Try again); unavailable (the existing degraded-tools banner, fed by a Tool Health check on the ComfyUI service).
 
 ### 5.10 Size and shape
 
@@ -196,6 +196,7 @@ Every version and every take is a PNG the chat owns. Deleting the chat deletes t
 | 2026-10-26 | No content checker on the app's side. |
 | 2026-10-26 | Alfy may look at Immich thumbnails when a question needs it. |
 | 2026-10-26 | Server setup: an agent installs and runs ComfyUI on GPU1 over ssh, and the owner approves each command. |
+| 2026-10-27 | The picture cap limits one picture request, not a message: every chat keeps part 1's 8 pictures a message. `make_image` is paid for by a measured raise of the tool catalogue's ceiling. The part 2 plans' other calls stand as written, except call 5 (pictures and chat deletion), still open. |
 
 ## 7. My calls, for the owner to check
 
@@ -206,7 +207,7 @@ Every version and every take is a PNG the chat owns. Deleting the chat deletes t
 5. Marks are boxes only, each with its own colour and letter.
 6. The English prompt is kept per version, folded away in History, not on the card.
 7. No size or shape control.
-8. A cap of 4 pictures per message, admin-set, up to 10.
+8. A cap of 4 pictures per picture request, admin-set, up to 10. (It said "per message" until the owner narrowed it on 2026-10-27, so a message keeps part 1's 8.)
 9. A picture job runs on the job engine with a card.
 10. After an automatic retry, only the better take is shown.
 11. No storage quota yet.

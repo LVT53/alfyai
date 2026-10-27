@@ -1,6 +1,6 @@
 # Images Part 2c: The Picture Server and Acceptance Implementation Plan
 
-> **Draft, 2026-10-27.** Waits on the owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md). They are folded in before anyone builds from this plan.
+> **Draft, 2026-10-27.** The owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md) are folded in, except call 5 (pictures and chat deletion), which waits on one more answer.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

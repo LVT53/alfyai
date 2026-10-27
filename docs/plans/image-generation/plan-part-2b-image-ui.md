@@ -1,10 +1,10 @@
 # Images Part 2b: The Image Kind's UI Implementation Plan
 
-> **Draft, 2026-10-27.** Waits on the owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md). They are folded in before anyone builds from this plan.
+> **Draft, 2026-10-27.** The owner's answers to the plan's own calls in [`plan-part-2-images.md`](./plan-part-2-images.md) are folded in, except call 5 (pictures and chat deletion), which waits on one more answer.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The person sees and steers pictures in the chat and the panel: an image card under the reply with its states, takes, Another and Use this; the picture large in the panel with Before / After and its versions; History with thumbnails, a compare wipe and Restore; numbered picture chips, Attach and the cap; the Mark tool; Images in the Knowledge Base and Workspace Search; all on a phone, in English and Hungarian.
+**Goal:** The person sees and steers pictures in the chat and the panel: an image card under the reply with its states, takes, Another and Use this; the picture large in the panel with Before / After and its versions; History with thumbnails, a compare wipe and Restore; numbered picture chips and Attach; the Mark tool; Images in the Knowledge Base and Workspace Search; all on a phone, in English and Hungarian.
 
 **Architecture:** A new `src/lib/components/artifacts/image/` folder holds the kind's components and their pure view models. The card is `ArtifactCard`'s full chrome with a lazily loaded `ImageCardBody`; the panel body and the History preview join the family's two registries (`artifact-bodies.ts`, `history/history-previews.ts`). The chat page holds the conversation's `imageCards` from the detail (plan 2a Task 10), polls while a take is live, and owns the composer's attached pictures and marks, because they start outside the composer (a card, the panel, History).
 
@@ -31,7 +31,7 @@ The shared list in `plan-part-2-images.md` applies to every task. This plan adds
 2. **A transparent picture in dark mode.** The checkerboard shows in both themes and Download keeps the alpha channel. Tests in Tasks 2 and 8.
 3. **A 360 px phone in Hungarian.** The card's actions, the takes strip and the composer's chips fit without sideways scrolling. Test in Task 8.
 4. **Marks left from an older picture.** When a new version lands, or another item opens, the marks and their chip go. Test in Task 6.
-5. **The admin lowers the cap while the composer holds more pictures.** Send is blocked with the cap's words; the server refuses too (plan 2a Task 11). Test in Task 5.
+5. **More pictures in one message than the cap.** The message sends as part 1's would (Alfy is shown up to 8); the cap limits only what one picture request uses, so nothing in the composer counts pictures against it (plan 2a Tasks 11 and 12). Tests in Tasks 5 and 8.
 
 ---
 
@@ -45,7 +45,7 @@ Created (under `src/lib/components/artifacts/image/` unless a path says otherwis
 - `ImageBody.svelte`, `VersionStrip.svelte`, `pinch-zoom.ts`: the panel.
 - `ImageVersionPreview.svelte`, `CompareWipe.svelte`: History.
 - `MarkLayer.svelte`, `mark-geometry.ts`: the Mark tool.
-- `src/lib/components/chat/composer-pictures.ts`: picture numbering and the cap.
+- `src/lib/components/chat/composer-pictures.ts`: picture numbering.
 - `tests/e2e/images.spec.ts`, `tests/e2e/images-composer.spec.ts`.
 - A test file beside every new module and component.
 
@@ -253,11 +253,11 @@ git add src/lib/components/artifacts src/lib/i18n/artifacts.ts
 git commit -m "Give pictures their History: a thumbnail per version and a wipe to compare with the one before"
 ```
 
-### Task 5: Pictures in the composer: numbers, Attach and the cap
+### Task 5: Pictures in the composer: numbers and Attach
 
 **Files:**
 - Create: `src/lib/components/chat/composer-pictures.ts`, `composer-pictures.test.ts`
-- Modify: `chat/ComposerChip.svelte` (`number?: number | null`), `chat/MessageInput.svelte` (props `pictureRefs`, `onRemovePictureRef`, `imageReferenceCap`; numbering; the cap; the send carries `pictureRefs`), the chat page (holds `pictureRefs`; Attach from a card, the strip and History adds one and focuses the composer; cleared after a send), the landing page (the cap for uploads, from `AppShellData.imageReferenceCap`), `image/ImageCardBody.svelte`, `image/VersionStrip.svelte`, `image/ImageVersionPreview.svelte` (Attach), `history/history-previews.ts` (`HistoryPreviewProps.onAttachPicture?`), `history/HistoryMode.svelte` and `DocumentWorkspace.svelte` (thread it), `chat/MessageBubble.svelte` (a sent message's pictures), `src/lib/i18n/chat.ts`
+- Modify: `chat/ComposerChip.svelte` (`number?: number | null`), `chat/MessageInput.svelte` (props `pictureRefs`, `onRemovePictureRef`; numbering; the send carries `pictureRefs`), the chat page (holds `pictureRefs`; Attach from a card, the strip and History adds one and focuses the composer; cleared after a send), `image/ImageCardBody.svelte`, `image/VersionStrip.svelte`, `image/ImageVersionPreview.svelte` (Attach), `history/history-previews.ts` (`HistoryPreviewProps.onAttachPicture?`), `history/HistoryMode.svelte` and `DocumentWorkspace.svelte` (thread it), `chat/MessageBubble.svelte` (a sent message's pictures), `src/lib/i18n/chat.ts`
 - Test: `composer-pictures.test.ts`, `ComposerChip.test.ts`, `MessageInput` tests, `MessageBubble.test.ts`, the chat page tests
 
 **Interfaces:**
@@ -268,7 +268,6 @@ git commit -m "Give pictures their History: a thumbnail per version and a wipe t
 export type ComposerPictureRef = { imageFileId: string; name: string };
 export function pictureKey(source: { kind: "upload"; artifactId: string } | { kind: "ref"; imageFileId: string }): string; // "upload:<id>" | "ref:<id>"
 export function numberPictures(order: readonly string[], isPicture: (key: string) => boolean): Map<string, number>;
-export function picturesOverCap(count: number, cap: number): boolean;
 ```
 
 - `ImageCardAction` gains `{ type: "attach"; fileId: string; name: string }`.
@@ -277,8 +276,7 @@ export function picturesOverCap(count: number, cap: number): boolean;
 
 - numbering in the order things were added: a photo upload, a PDF, then a ref give the photo 1 and the ref 2, and the PDF no number; removing the photo makes the ref 1.
 - a numbered chip shows its numeral and is named "Picture 2: rug.jpg" / "2. kép: rug.jpg".
-- five pictures with the cap at 4 show "Up to 4 pictures in one message. Remove one to send." / "Egy üzenetben legfeljebb 4 kép lehet. Vegyél ki egyet a küldéshez.", and Send is disabled.
-- "the admin lowers the cap" (Review Focus 5): holding four pictures, a rerender with `imageReferenceCap: 3` blocks Send with the same words.
+- "more pictures than the cap" (Review Focus 5): nine pictures (eight photos and a ref) are numbered 1 to 9 and leave Send enabled, with no words about a limit.
 - the send payload carries `pictureRefs: [{ imageFileId: "f1", number: 2 }]`, and the refs are gone after the send.
 - Attach on a card adds a ref chip named after the card's title; Attach in History adds that version's picture.
 - a sent user message with `pictures.refs` shows each as a numbered thumbnail.
@@ -290,7 +288,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement, and add the strings**
 
-The composer keeps one list of picture keys in the order they were added (`pictureKey`), so uploads and refs share one numbering, and the numbers match the server's (plan 2a Tasks 1 and 11). An upload counts as a picture when its file-type category is `image`. The server's refusal (`composerChips.tooManyPictures`) shows the same words. Keys: `composerChips.pictureNumberA11y` "Picture {number}: {name}" / "{number}. kép: {name}"; `composerChips.tooManyPictures` "Up to {count} pictures in one message. Remove one to send." / "Egy üzenetben legfeljebb {count} kép lehet. Vegyél ki egyet a küldéshez."; `composerChips.removePicture` "Remove {name}" / "{name} eltávolítása".
+The composer keeps one list of picture keys in the order they were added (`pictureKey`), so uploads and refs share one numbering, and the numbers match the server's (plan 2a Tasks 1 and 11). An upload counts as a picture when its file-type category is `image`. The composer has no picture cap: the cap limits one picture request on the server, and Alfy says so in its reply (plan 2a Task 12). Keys: `composerChips.pictureNumberA11y` "Picture {number}: {name}" / "{number}. kép: {name}"; `composerChips.removePicture` "Remove {name}" / "{name} eltávolítása".
 
 - [ ] **Step 4: Run the tests and check**
 
@@ -301,7 +299,7 @@ Expected: PASS; 0 errors, 0 warnings.
 
 ```bash
 git add src/lib/components src/routes/\(app\) src/lib/i18n/chat.ts
-git commit -m "Number the pictures in the composer, let any card's picture be attached, and hold the cap"
+git commit -m "Number the pictures in the composer and let any card's picture be attached"
 ```
 
 ### Task 6: Marks
@@ -406,7 +404,7 @@ git commit -m "List pictures under Images in the Knowledge Base and show them in
 `images-composer.spec.ts`:
 - "Attach puts a picture into the next message": Attach on a card gives the chip "1 Cosy living room"; after the send, the fake model's request holds the text `Picture 1: Cosy living room` before an `image_url` part.
 - "marks travel as one chip": open the item, turn on Mark, draw two boxes; the chip reads "Marks A, B"; after the send, the request holds `with the user's marks: A = red box, B = blue box` and the chip is gone.
-- "the cap blocks the send": the cap set to 2 through the admin route; three pictures show the cap's words and a disabled Send; cleanup with `clearAdminConfig`.
+- "the cap never blocks a message" (Review Focus 5): the cap set to 2 through the admin route; three pictures send, and the fake model's request holds three `image_url` parts; cleanup with `clearAdminConfig`.
 - "Images in the Knowledge Base": the item is listed under Images and opens with its picture.
 
 - [ ] **Step 2: Run the specs on their own**
@@ -423,5 +421,5 @@ Expected: every step exits 0; zero build warnings; the chunk check passes; Fallo
 
 ```bash
 git add tests/e2e tests/mocks tests/AGENTS.md AGENTS.md
-git commit -m "Cover the image card, the panel, History, Attach, marks and the cap end to end"
+git commit -m "Cover the image card, the panel, History, Attach and marks end to end, and check the cap never blocks a message"
 ```
