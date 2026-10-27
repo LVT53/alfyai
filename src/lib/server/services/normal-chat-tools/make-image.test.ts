@@ -39,6 +39,39 @@ import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import type { MakeImageInput } from "./make-image";
 
+type GuardReport = {
+	miss: "nothing_changed" | "outside_marks" | null;
+	changedShare: number;
+	insideMarksShare: number | null;
+};
+const guardState = vi.hoisted(() => ({
+	reports: [] as GuardReport[],
+	call: 0,
+}));
+vi.mock("$lib/server/services/images/guards/guard-edit", () => ({
+	guardEdit: async (params: { result: unknown }) => {
+		const report =
+			guardState.reports[
+				Math.min(guardState.call, guardState.reports.length - 1)
+			];
+		guardState.call += 1;
+		return {
+			picture: params.result,
+			mask: new Float32Array(0),
+			measures: {
+				dx: 0,
+				dy: 0,
+				scale: 1,
+				global: false,
+				reanchored: false,
+				...report,
+			},
+			chainSinceAnchor: 1,
+			anchorIsResult: false,
+		};
+	},
+}));
+
 const userId = "user-1";
 const conversationId = "conv-1";
 
@@ -63,6 +96,10 @@ beforeEach(async () => {
 	vi.spyOn(process, "cwd").mockReturnValue(workdir);
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
+	// A real guard over the fake's random-colour patch can read "nothing changed"
+	// by chance and start an automatic retry, which would make takes-counting
+	// tests flaky. The guard is tested on its own; here it reports a change.
+	guardReporting([{ miss: null, changedShare: 0.1, insideMarksShare: null }]);
 });
 
 afterEach(async () => {
@@ -86,7 +123,6 @@ afterEach(async () => {
 	}
 	fixture.cleanup();
 	vi.restoreAllMocks();
-	vi.doUnmock("$lib/server/services/images/guards/guard-edit");
 	await rm(workdir, { recursive: true, force: true });
 });
 
@@ -116,6 +152,7 @@ async function run(
 		turnTakes?: import("$lib/server/services/images/turn-takes").TurnTakes;
 		signal?: AbortSignal;
 		waitBudgetMs?: number;
+		retryMinLeftMs?: number;
 	} = {},
 ) {
 	const { runMakeImageTool } = await import("./make-image");
@@ -133,6 +170,7 @@ async function run(
 		requestText: "draw a red door please",
 		signal: options.signal ?? new AbortController().signal,
 		waitBudgetMs: options.waitBudgetMs,
+		retryMinLeftMs: options.retryMinLeftMs,
 	});
 }
 
@@ -716,6 +754,40 @@ describe("a retry the model asks for", () => {
 		).toMatchObject({ ok: false, errorCode: "retry_unknown" });
 	});
 
+	it("hides the take it repeats when that one was not the pick", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const one = await run({ title: "Door" }, { turnTakes });
+		const two = await run({ title: "Door" }, { turnTakes });
+		if (
+			!two.modelPayload.ok ||
+			two.modelPayload.status !== "succeeded" ||
+			two.modelPayload.inUse
+		) {
+			throw new Error(
+				`second take should be on the tray: ${JSON.stringify(two)}`,
+			);
+		}
+		expect(one.modelPayload).toMatchObject({ inUse: true });
+
+		const retry = await run(
+			{ retryOf: two.modelPayload.takeId },
+			{ turnTakes },
+		);
+
+		expect(retry.modelPayload).toMatchObject({ ok: true, retried: true });
+		const { takes } = await rows();
+		expect(
+			takes.find(
+				(t) => t.id === (two.modelPayload as { takeId: string }).takeId,
+			)?.hidden,
+		).toBe(1);
+	});
+
 	it("moves the pick of a take that is already in use: the item keeps both versions in History", async () => {
 		await startPictureServer({ steps: 2 });
 		await startEngine();
@@ -765,37 +837,10 @@ describe("a retry the model asks for", () => {
  * does with a miss, and a real guard over a 1 MP picture would make them slow
  * enough to fail under load.
  */
-function guardReporting(
-	reports: Array<{
-		miss: "nothing_changed" | "outside_marks" | null;
-		changedShare: number;
-		insideMarksShare: number | null;
-	}>,
-) {
-	let call = 0;
-	vi.doMock("$lib/server/services/images/guards/guard-edit", () => ({
-		guardEdit: async (params: {
-			result: { data: Uint8Array; width: number; height: number };
-		}) => {
-			const report = reports[Math.min(call, reports.length - 1)];
-			call += 1;
-			return {
-				picture: params.result,
-				mask: new Float32Array(0),
-				measures: {
-					dx: 0,
-					dy: 0,
-					scale: 1,
-					global: false,
-					reanchored: false,
-					...report,
-				},
-				chainSinceAnchor: 1,
-				anchorIsResult: false,
-			};
-		},
-	}));
-	return { calls: () => call };
+function guardReporting(reports: GuardReport[]) {
+	guardState.reports = reports;
+	guardState.call = 0;
+	return { calls: () => guardState.call };
 }
 
 describe("the automatic retry of a clear miss", () => {
@@ -920,6 +965,94 @@ describe("the automatic retry of a clear miss", () => {
 		expect(guard.calls()).toBe(1);
 		expect(modelPayload).toMatchObject({ ok: true, retried: false });
 		expect((await rows()).takes).toHaveLength(1);
+	});
+
+	/** A render that answers the base picture at once the first time and after `delayMs` the second time. */
+	function slowSecondRender(delayMs: number) {
+		let calls = 0;
+		return async (input: { images: Uint8Array[] }) => {
+			calls += 1;
+			if (calls > 1) await new Promise((r) => setTimeout(r, delayMs));
+			const base = input.images[0];
+			if (!base) throw new Error("no input picture");
+			return base;
+		};
+	}
+
+	const MISS_THEN_FINE = [
+		{
+			miss: "nothing_changed" as const,
+			changedShare: 0,
+			insideMarksShare: null,
+		},
+		{ miss: null, changedShare: 0.1, insideMarksShare: null },
+	];
+
+	it("shows only the first take when the retry has not landed by the end of the wait: the retry lands hidden", async () => {
+		guardReporting(MISS_THEN_FINE);
+		await startPictureServer({ steps: 2, render: slowSecondRender(2500) });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload } = await run(
+			{ pictures: [artifactId] },
+			{ waitBudgetMs: 1800, retryMinLeftMs: 0 },
+		);
+
+		const early = (await rows()).takes;
+		expect(early).toHaveLength(2);
+		expect(early[1]?.hidden).toBe(1);
+		expect(modelPayload).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			takeId: early[0]?.id,
+		});
+		const landed = await until(
+			async () => (await rows()).takes[1],
+			(take) => take?.status === "succeeded",
+		);
+		const { cards, takes } = await rows();
+		expect(landed?.hidden).toBe(1);
+		expect(takes[0]?.hidden).toBe(0);
+		expect(cards[0]?.pickedTakeId).toBe(takes[0]?.id);
+	});
+
+	it("the composer's Stop during a retry that has started leaves it to land hidden, the first take stays shown", async () => {
+		guardReporting(MISS_THEN_FINE);
+		await startPictureServer({ steps: 2, render: slowSecondRender(1500) });
+		await startEngine();
+		const picture = fake;
+		if (!picture) throw new Error("no picture server");
+		const { UserStopReason } = await import(
+			"$lib/server/services/chat-turn/active-streams"
+		);
+		const { artifactId } = await makeItem();
+		const controller = new AbortController();
+		const call = run(
+			{ pictures: [artifactId] },
+			{
+				signal: controller.signal,
+				waitBudgetMs: 60_000,
+				retryMinLeftMs: 0,
+			},
+		);
+		await until(
+			async () => [...picture.prompts.values()],
+			(statuses) => statuses.length === 2 && statuses.includes("running"),
+		);
+		// Two prompts and one running: the first is done, the running one is the retry's.
+		controller.abort(new UserStopReason());
+		const { modelPayload } = await call;
+
+		const { takes } = await rows();
+		expect(modelPayload).toMatchObject({ ok: true, takeId: takes[0]?.id });
+		expect(takes[1]?.hidden).toBe(1);
+		const landed = await until(
+			async () => (await rows()).takes[1],
+			(take) => take?.status === "succeeded" || take?.status === "cancelled",
+		);
+		expect(landed?.status).toBe("succeeded");
+		expect((await rows()).cards[0]?.pickedTakeId).toBe(takes[0]?.id);
 	});
 
 	it("does not retry again a take the model itself asked to be made again", async () => {
@@ -1095,6 +1228,29 @@ describe("the look at the result", () => {
 		expect(queue.room()).toBe(6);
 	});
 
+	it("does not tell the model to retry a take that was already made again", async () => {
+		guardReporting([
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+			{ miss: null, changedShare: 0.1, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload, queue } = await lookRun(
+			{ pictures: [artifactId] },
+			{},
+		);
+
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error("not succeeded");
+		}
+		expect(modelPayload.retried).toBe(true);
+		expect(modelPayload.note).toContain("already made again once");
+		expect(modelPayload.note).not.toContain("retryOf");
+		expect(queue.drain().length).toBeGreaterThan(0);
+	});
+
 	it("labels a new picture with no number", async () => {
 		await startPictureServer({ steps: 2 });
 		await startEngine();
@@ -1166,7 +1322,7 @@ describe("the look at the result", () => {
 
 describe("the wait keeps the stream alive", () => {
 	it("ticks once a second while the take is being made", async () => {
-		await startPictureServer({ steps: 4, stepDelayMs: 400 });
+		await startPictureServer({ steps: 4, stepDelayMs: 600 });
 		await startEngine();
 		const { runMakeImageTool } = await import("./make-image");
 		const { createTurnTakes } = await import(
@@ -1187,7 +1343,8 @@ describe("the wait keeps the stream alive", () => {
 			onTick,
 		});
 
-		expect(onTick.mock.calls.length).toBeGreaterThanOrEqual(1);
+		// A take of about 2.4 s: at least two ticks, whatever the load.
+		expect(onTick.mock.calls.length).toBeGreaterThanOrEqual(2);
 	});
 });
 
@@ -1264,6 +1421,11 @@ describe("the composer's Stop and the picture server's queue", () => {
 		});
 		expect([...picture.prompts.values()]).toEqual([]);
 		expect((await rows()).takes[0]?.status).toBe("cancelled");
+		// The cancel wakes the worker; let its drain pass end before the database closes.
+		const { drainImageTakes } = await import(
+			"$lib/server/services/images/testing/run-takes"
+		);
+		await drainImageTakes();
 	});
 
 	it("never interrupts a render that ComfyUI has started, even before the take's phase shows it", async () => {

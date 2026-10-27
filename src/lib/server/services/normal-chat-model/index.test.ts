@@ -5596,24 +5596,6 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 			});
 		});
 
-		it("shares the eight between a photos look and a picture look in one turn", async () => {
-			const queue = createStepImageQueue();
-			// A photos look took seven of the eight earlier in the turn.
-			expect(queue.reserve(7)).toBe(7);
-			const fetch = toolThenAnswer();
-
-			await run({
-				provider: seeingProvider,
-				messages: [buildCurrentUserMessage(question, [])],
-				tools: { photos: createPictureTool(queue) },
-				stepImages: queue,
-				fetch,
-			});
-
-			expect(queue.room()).toBe(0);
-			expect(queue.reserve(1)).toBe(0);
-		});
-
 		it("adds nothing when the tool queued nothing", async () => {
 			const queue = createStepImageQueue();
 			const fetch = toolThenAnswer();

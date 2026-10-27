@@ -23,6 +23,7 @@ import { PictureUnreadableError } from "$lib/server/services/images/inputs";
 import {
 	type MakeImageRefusal,
 	resolveMakeImageRequest,
+	type TakePlan,
 } from "$lib/server/services/images/requests";
 import { queueResultLook } from "$lib/server/services/images/result-look";
 import { freshSeed } from "$lib/server/services/images/seeds";
@@ -144,8 +145,10 @@ const SUCCEEDED_NOTE =
 	"The picture is now on its card in the chat for the user. You cannot see it: say in one sentence what you made or changed, do not describe how it looks, and do not write a link.";
 const SET_ASIDE_NOTE =
 	"The picture is on its card in the chat as another take; the user can choose it there. You cannot see it: do not describe how it looks, and do not write a link.";
-const LOOK_NOTE = (takeId: string) =>
-	`The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
+const lookNote = (takeId: string, retried: boolean) =>
+	retried
+		? "The result follows as a picture: say in one or two sentences what changed. It was already made again once; do not call make_image again for it."
+		: `The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
 
@@ -164,11 +167,12 @@ const STOPPED_MESSAGE =
 	"The user stopped the turn before this picture started, so it was not made.";
 
 type Metadata = Record<string, string | number | boolean | null>;
+type Outcome = { modelPayload: MakeImagePayload; metadata: Metadata };
 
 function refusal(
 	errorCode: MakeImageRefusal | "not_configured" | "image_error",
 	message: string,
-): { modelPayload: MakeImagePayload; metadata: Metadata } {
+): Outcome {
 	return {
 		modelPayload: { ok: false, errorCode, message },
 		metadata: { ok: false, error: message, imageRefusal: errorCode },
@@ -184,7 +188,7 @@ function isUserStop(signal: AbortSignal): boolean {
 	return signal.aborted && signal.reason instanceof UserStopReason;
 }
 
-export async function runMakeImageTool(params: {
+type MakeImageParams = {
 	userId: string;
 	conversationId: string;
 	turnId: string;
@@ -199,19 +203,33 @@ export async function runMakeImageTool(params: {
 	stepImages?: StepImageQueue;
 	/** How long to wait for the take; tests shorten it. */
 	waitBudgetMs?: number;
-}): Promise<{ modelPayload: MakeImagePayload; metadata: Metadata }> {
-	const { userId, conversationId, turnTakes, input } = params;
-	const call = turnTakes.countCall();
-	if (!isImageMakingConfigured(getConfig())) {
-		return refusal("not_configured", "No picture server is set up.");
-	}
-	if (call > MAX_IMAGE_CALLS_PER_TURN) {
-		return refusal(
-			"too_many_calls",
-			`make_image has already been called ${MAX_IMAGE_CALLS_PER_TURN} times in this turn, the limit. Do not call it again now; tell the user what you made.`,
-		);
-	}
+	/** Least wait to leave for the automatic retry; tests lower it. */
+	retryMinLeftMs?: number;
+};
 
+/** The call's gates, the request it names and the card it lands on; a refusal is what the model is told. */
+async function planTake(
+	params: MakeImageParams,
+): Promise<
+	{ ok: true; plan: TakePlan; cardId: string } | { ok: false; refused: Outcome }
+> {
+	const { userId, conversationId, turnTakes, input } = params;
+	const callNumber = turnTakes.countCall();
+	if (!isImageMakingConfigured(getConfig())) {
+		return {
+			ok: false,
+			refused: refusal("not_configured", "No picture server is set up."),
+		};
+	}
+	if (callNumber > MAX_IMAGE_CALLS_PER_TURN) {
+		return {
+			ok: false,
+			refused: refusal(
+				"too_many_calls",
+				`make_image has already been called ${MAX_IMAGE_CALLS_PER_TURN} times in this turn, the limit. Do not call it again now; tell the user what you made.`,
+			),
+		};
+	}
 	let resolved: Awaited<ReturnType<typeof resolveMakeImageRequest>>;
 	try {
 		resolved = await resolveMakeImageRequest({
@@ -225,13 +243,20 @@ export async function runMakeImageTool(params: {
 	} catch (error) {
 		// A picture that is gone or cannot be decoded is the model's to hear about.
 		if (error instanceof PictureUnreadableError) {
-			return refusal("unknown_picture", error.message);
+			return {
+				ok: false,
+				refused: refusal("unknown_picture", error.message),
+			};
 		}
 		throw error;
 	}
-	if (!resolved.ok) return refusal(resolved.refusal, resolved.message);
+	if (!resolved.ok) {
+		return {
+			ok: false,
+			refused: refusal(resolved.refusal, resolved.message),
+		};
+	}
 	const { plan } = resolved;
-
 	let cardId = plan.cardId ?? turnTakes.cardFor(plan.cardKey) ?? null;
 	if (!cardId) {
 		cardId = (
@@ -247,14 +272,122 @@ export async function runMakeImageTool(params: {
 		).cardId;
 		turnTakes.rememberCard(plan.cardKey, cardId);
 	}
+	return { ok: true, plan, cardId };
+}
 
-	const cardIdNow: string = cardId;
-	const baseNumber = plan.baseNumber;
+export async function runMakeImageTool(
+	params: MakeImageParams,
+): Promise<Outcome> {
+	const planned = await planTake(params);
+	if (!planned.ok) return planned.refused;
+	const { plan, cardId } = planned;
+
+	const call = makeCallHelpers({
+		params,
+		plan,
+		cardId,
+		budgetMs: params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS,
+	});
 	const retriedByModel = plan.retryOf !== null;
-	const edit = plan.request.mode === "edit";
+
+	const firstId = await call.queue(
+		plan.request,
+		plan.retryOf,
+		params.toolCallId,
+	);
+	const held = new Set<string>([firstId]);
+	const released = new Set<string>();
+
+	let winnerId = firstId;
+	let winner: TakeSnapshot;
+	let autoRetried = false;
+	let stopped = false;
+	let settled: Awaited<ReturnType<typeof releaseHold>> | null = null;
+	try {
+		const first = await call.waitOn(firstId);
+		winner = first.snapshot;
+		stopped = first.stopped;
+
+		// A clear miss the guards measured is made again once, inside this call.
+		if (
+			!stopped &&
+			!retriedByModel &&
+			winner.status === "succeeded" &&
+			winner.measures?.miss &&
+			!params.signal.aborted
+		) {
+			const outcome = await runClearMissRetry(call, {
+				firstId,
+				first: winner,
+				held,
+			});
+			winnerId = outcome.winnerId;
+			winner = outcome.winner;
+			autoRetried = outcome.autoRetried;
+		}
+
+		if (!stopped && winner.status === "succeeded") {
+			released.add(winnerId);
+			settled = await releaseHold(winnerId);
+			if (plan.retryOf) {
+				settled = await placeModelRetry({
+					cardId,
+					oldId: plan.retryOf,
+					winnerId,
+					settled,
+				});
+			}
+		}
+	} finally {
+		for (const id of held) {
+			if (released.has(id)) continue;
+			released.add(id);
+			await releaseHold(id).catch(
+				warnAbout("A hold could not be released", id),
+			);
+		}
+	}
+
+	const retried = retriedByModel || autoRetried;
+	if (retried && winner.status === "succeeded") {
+		await markTakeRetried(winnerId).catch(
+			warnAbout("A retried take could not be marked", winnerId),
+		);
+	}
+	return presentOutcome({
+		call,
+		cardId,
+		winnerId,
+		snapshot: winner,
+		stopped,
+		retried,
+		settled,
+	});
+}
+
+function warnAbout(what: string, takeId: string) {
+	return (error: unknown): void => {
+		console.warn(`[IMAGES] ${what}`, {
+			takeId,
+			reason: error instanceof Error ? error.message : String(error),
+		});
+	};
+}
+
+type CallHelpers = ReturnType<typeof makeCallHelpers>;
+
+/** What the pieces of one call share: its plan, its clock, and how it queues and waits for a take. */
+function makeCallHelpers(input: {
+	params: MakeImageParams;
+	plan: TakePlan;
+	cardId: string;
+	budgetMs: number;
+}) {
+	const { params, plan, cardId, budgetMs } = input;
+	const { userId, conversationId, turnTakes } = params;
 	const startedAt = Date.now();
-	const budgetMs = params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS;
-	const leftMs = () => budgetMs - (Date.now() - startedAt);
+	const elapsedMs = () => Date.now() - startedAt;
+	const leftMs = () => budgetMs - elapsedMs();
 
 	/** Queues one take of this call; it is held until the call has decided about it. */
 	const queue = async (
@@ -266,7 +399,7 @@ export async function runMakeImageTool(params: {
 		const { takeId } = await enqueueTake({
 			userId,
 			conversationId,
-			cardId: cardIdNow,
+			cardId,
 			toolCallId,
 			origin: retryOf ? "retry" : "turn",
 			retryOf,
@@ -276,13 +409,13 @@ export async function runMakeImageTool(params: {
 		});
 		turnTakes.noteTake({
 			takeId,
-			cardId: cardIdNow,
+			cardId,
 			cardKey: plan.cardKey,
 			callKey: plan.callKey,
 			seed,
 			request,
 			isRetry: retryOf !== null,
-			baseNumber,
+			baseNumber: plan.baseNumber,
 		});
 		if (retryOf) turnTakes.markRetried(retryOf);
 		return takeId;
@@ -301,10 +434,7 @@ export async function runMakeImageTool(params: {
 		if (isUserStop(params.signal)) {
 			stopped = await cancelTake(userId, takeId, { interrupt: false }).catch(
 				(error: unknown) => {
-					console.warn("[IMAGES] A stopped take could not be cancelled", {
-						takeId,
-						reason: error instanceof Error ? error.message : String(error),
-					});
+					warnAbout("A stopped take could not be cancelled", takeId)(error);
 					return false;
 				},
 			);
@@ -312,166 +442,116 @@ export async function runMakeImageTool(params: {
 		return { snapshot, stopped };
 	};
 
-	const firstId = await queue(plan.request, plan.retryOf, params.toolCallId);
-	const held = new Set<string>([firstId]);
-	const released = new Set<string>();
+	return { params, plan, cardId, queue, waitOn, leftMs, elapsedMs };
+}
 
-	let winnerId = firstId;
-	let winner: TakeSnapshot;
-	let autoRetried = false;
-	let stopped = false;
-	let settled: Awaited<ReturnType<typeof releaseHold>> | null = null;
-	let versionAdded: number | null = null;
-	try {
-		const first = await waitOn(firstId);
-		winner = first.snapshot;
-		stopped = first.stopped;
-
-		// A clear miss the guards measured is made again once, inside this call.
-		if (
-			!stopped &&
-			!retriedByModel &&
-			winner.status === "succeeded" &&
-			winner.measures?.miss &&
-			leftMs() >= RETRY_MIN_LEFT_MS &&
-			!params.signal.aborted
-		) {
-			try {
-				const record = turnTakes.take(firstId);
-				const request: TakeRequest = {
-					...plan.request,
-					avoidSeeds: [
-						...new Set([...plan.request.avoidSeeds, record?.seed ?? 0]),
-					],
-				};
-				const retryId = await queue(request, firstId, null);
-				held.add(retryId);
-				autoRetried = true;
-				const second = await waitOn(retryId);
-				if (
-					second.snapshot.status === "queued" ||
-					second.snapshot.status === "running"
-				) {
-					// Not landed in time: the first is shown, the retry lands on the tray.
-				} else if (pickBetterTake(winner, second.snapshot) === "retry") {
-					await hideTake(firstId).catch(() => undefined);
-					winnerId = retryId;
-					winner = second.snapshot;
-				} else {
-					await hideTake(retryId).catch(() => undefined);
-				}
-			} catch (error) {
-				console.warn("[IMAGES] The automatic retry could not be made", {
-					reason: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}
-
-		if (!stopped && winner.status === "succeeded") {
-			released.add(winnerId);
-			settled = await releaseHold(winnerId);
-			if (retriedByModel && plan.retryOf) {
-				// The model's retry takes the place of the take it repeats.
-				if (settled.pickedTakeId === plan.retryOf) {
-					versionAdded = (await replacePick({ cardId, takeId: winnerId }))
-						.versionNumber;
-					if (versionAdded !== null) {
-						settled = { ...settled, pickedTakeId: winnerId };
-					}
-				} else if (settled.pickedTakeId === winnerId) {
-					await hideTake(plan.retryOf).catch(() => undefined);
-				}
-			}
-		}
-	} finally {
-		for (const id of held) {
-			if (released.has(id)) continue;
-			released.add(id);
-			await releaseHold(id).catch(() => undefined);
-		}
+/**
+ * The one automatic retry of a take that landed with a clear miss. Made only
+ * when the wait has room for a second take as long as the first took (and at
+ * least RETRY_MIN_LEFT_MS). The take not shown is hidden at once, also a retry
+ * that has not landed when the call ends (it then lands hidden): only the better
+ * take is ever shown.
+ */
+async function runClearMissRetry(
+	call: CallHelpers,
+	input: { firstId: string; first: TakeSnapshot; held: Set<string> },
+): Promise<{
+	winnerId: string;
+	winner: TakeSnapshot;
+	autoRetried: boolean;
+}> {
+	const { firstId, first, held } = input;
+	const keep = { winnerId: firstId, winner: first, autoRetried: false };
+	const record = call.params.turnTakes.take(firstId);
+	if (!record) return keep;
+	if (
+		call.leftMs() <
+		Math.max(call.params.retryMinLeftMs ?? RETRY_MIN_LEFT_MS, call.elapsedMs())
+	) {
+		return keep;
 	}
+	try {
+		const request: TakeRequest = {
+			...call.plan.request,
+			avoidSeeds: [...new Set([...call.plan.request.avoidSeeds, record.seed])],
+		};
+		const retryId = await call.queue(request, firstId, null);
+		held.add(retryId);
+		keep.autoRetried = true;
+		const second = await call.waitOn(retryId);
+		if (pickBetterTake(first, second.snapshot) === "retry") {
+			await hideTake(firstId).catch(
+				warnAbout("A missed take could not be hidden", firstId),
+			);
+			return {
+				winnerId: retryId,
+				winner: second.snapshot,
+				autoRetried: true,
+			};
+		}
+		// Failed, missed worse, not landed by the end of the call, or stopped.
+		await hideTake(retryId).catch(
+			warnAbout("A retry take could not be hidden", retryId),
+		);
+	} catch (error) {
+		console.warn("[IMAGES] The automatic retry could not be made", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+	}
+	return keep;
+}
 
+/** The model's retry takes the place of the take it repeats: a version when that one is in use, else it only leaves the tray. */
+async function placeModelRetry(input: {
+	cardId: string;
+	oldId: string;
+	winnerId: string;
+	settled: Awaited<ReturnType<typeof releaseHold>>;
+}): Promise<Awaited<ReturnType<typeof releaseHold>>> {
+	const { cardId, oldId, winnerId, settled } = input;
+	if (settled.pickedTakeId === oldId) {
+		const { versionNumber } = await replacePick({ cardId, takeId: winnerId });
+		return versionNumber === null
+			? settled
+			: { ...settled, pickedTakeId: winnerId, versionNumber };
+	}
+	await hideTake(oldId).catch(
+		warnAbout("A replaced take could not be hidden", oldId),
+	);
+	return settled;
+}
+
+/** What the model is told, and the metadata the row keeps, for the take the call ends with. */
+async function presentOutcome(input: {
+	call: CallHelpers;
+	cardId: string;
+	winnerId: string;
+	snapshot: TakeSnapshot;
+	stopped: boolean;
+	retried: boolean;
+	settled: Awaited<ReturnType<typeof releaseHold>> | null;
+}): Promise<Outcome> {
+	const { call, cardId, winnerId, snapshot, stopped, retried, settled } = input;
+	const { plan } = call;
 	const base: Metadata = {
 		imageCardId: cardId,
 		imageTakeId: winnerId,
 		imageArtifactId: plan.artifactId,
-		imageEdit: edit,
+		imageEdit: plan.request.mode === "edit",
 		imageTitle: plan.title,
-		imageRetried: retriedByModel || autoRetried,
+		imageRetried: retried,
 	};
-	const retried = retriedByModel || autoRetried;
-	if (retried && winner.status === "succeeded") {
-		await markTakeRetried(winnerId).catch(() => undefined);
-	}
-	const snapshot = winner;
-
-	if (stopped) {
-		return {
-			modelPayload: {
-				ok: false,
-				status: "failed",
-				takeId: winnerId,
-				errorCode: "image_stopped",
-				message: STOPPED_MESSAGE,
-				retryable: false,
-			},
-			metadata: { ...base, ok: false, imageStatus: "failed" },
-		};
-	}
-
+	if (stopped) return failedOutcome(base, winnerId, "image_stopped", false);
 	if (snapshot.status === "succeeded") {
-		const inUse = settled?.pickedTakeId === winnerId;
-		const imageId = settled?.artifactId ?? plan.artifactId;
-		// The look: only for a picture that landed inside the wait, and only when
-		// the turn has room left in its picture budget.
-		let looked = false;
-		if (params.stepImages && snapshot.resultFileId && !params.signal.aborted) {
-			const record = turnTakes.take(winnerId);
-			looked = await queueResultLook({
-				userId,
-				conversationId,
-				queue: params.stepImages,
-				signal: params.signal,
-				takeId: winnerId,
-				resultFileId: snapshot.resultFileId,
-				baseFileId:
-					(record?.request ?? plan.request).inputs.find(
-						(input) => input.role === "base",
-					)?.fileId ?? null,
-				baseNumber,
-			}).catch((error: unknown) => {
-				console.warn("[IMAGES] The look at a made picture failed", {
-					reason: error instanceof Error ? error.message : String(error),
-				});
-				return false;
-			});
-		}
-		return {
-			modelPayload: {
-				ok: true,
-				status: "succeeded",
-				takeId: winnerId,
-				imageId,
-				title: plan.title,
-				inUse,
-				retried,
-				note: looked
-					? LOOK_NOTE(winnerId)
-					: inUse
-						? SUCCEEDED_NOTE
-						: SET_ASIDE_NOTE,
-			},
-			metadata: {
-				...base,
-				ok: true,
-				imageStatus: "succeeded",
-				imageArtifactId: imageId,
-				imageInUse: inUse,
-				imageLooked: looked,
-			},
-		};
+		return succeededOutcome({
+			call,
+			base,
+			winnerId,
+			snapshot,
+			retried,
+			settled,
+		});
 	}
-
 	if (snapshot.status === "queued" || snapshot.status === "running") {
 		return {
 			modelPayload: {
@@ -484,28 +564,105 @@ export async function runMakeImageTool(params: {
 			metadata: { ...base, ok: true, imageStatus: "running" },
 		};
 	}
+	if (snapshot.status === "cancelled") {
+		return failedOutcome(base, winnerId, "image_stopped", false);
+	}
+	return failedOutcome(
+		base,
+		winnerId,
+		snapshot.errorCode ?? "image_render_failed",
+		snapshot.retryable,
+	);
+}
 
-	const errorCode =
-		snapshot.status === "cancelled"
-			? "image_stopped"
-			: (snapshot.errorCode ?? "image_render_failed");
+function failedOutcome(
+	base: Metadata,
+	takeId: string,
+	errorCode: string,
+	retryable: boolean,
+): Outcome {
 	return {
 		modelPayload: {
 			ok: false,
 			status: "failed",
-			takeId: winnerId,
+			takeId,
 			errorCode,
 			message:
-				snapshot.status === "cancelled"
+				errorCode === "image_stopped"
 					? STOPPED_MESSAGE
 					: (FAILURE_MESSAGES[errorCode] ?? FAILURE_FALLBACK),
-			retryable: snapshot.status === "cancelled" ? false : snapshot.retryable,
+			retryable,
 		},
 		metadata: {
 			...base,
 			ok: false,
 			imageStatus: "failed",
-			imageError: errorCode,
+			...(errorCode === "image_stopped" ? {} : { imageError: errorCode }),
+		},
+	};
+}
+
+/** The look: only for a picture that landed inside the wait, and only when the turn has room left in its picture budget. */
+async function lookAtResult(
+	call: CallHelpers,
+	winnerId: string,
+	snapshot: TakeSnapshot,
+): Promise<boolean> {
+	const { params, plan } = call;
+	if (!params.stepImages || !snapshot.resultFileId || params.signal.aborted) {
+		return false;
+	}
+	const request = params.turnTakes.take(winnerId)?.request ?? plan.request;
+	try {
+		return await queueResultLook({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			queue: params.stepImages,
+			signal: params.signal,
+			takeId: winnerId,
+			resultFileId: snapshot.resultFileId,
+			baseFileId:
+				request.inputs.find((item) => item.role === "base")?.fileId ?? null,
+			baseNumber: plan.baseNumber,
+		});
+	} catch (error) {
+		warnAbout("The look at a made picture failed", winnerId)(error);
+		return false;
+	}
+}
+
+async function succeededOutcome(input: {
+	call: CallHelpers;
+	base: Metadata;
+	winnerId: string;
+	snapshot: TakeSnapshot;
+	retried: boolean;
+	settled: Awaited<ReturnType<typeof releaseHold>> | null;
+}): Promise<Outcome> {
+	const { call, base, winnerId, snapshot, retried, settled } = input;
+	const { plan } = call;
+	const inUse = settled?.pickedTakeId === winnerId;
+	const imageId = settled?.artifactId ?? plan.artifactId;
+	const looked = await lookAtResult(call, winnerId, snapshot);
+	const plainNote = inUse ? SUCCEEDED_NOTE : SET_ASIDE_NOTE;
+	return {
+		modelPayload: {
+			ok: true,
+			status: "succeeded",
+			takeId: winnerId,
+			imageId,
+			title: plan.title,
+			inUse,
+			retried,
+			note: looked ? lookNote(winnerId, retried) : plainNote,
+		},
+		metadata: {
+			...base,
+			ok: true,
+			imageStatus: "succeeded",
+			imageArtifactId: imageId,
+			imageInUse: inUse,
+			imageLooked: looked,
 		},
 	};
 }
