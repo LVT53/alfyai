@@ -6,6 +6,7 @@ import {
 	parseImageVersionBody,
 	parseUserPictures,
 	serializeImageVersionBody,
+	thumbWidth,
 } from "./image-body";
 
 const body: ImageVersionBody = {
@@ -121,5 +122,13 @@ describe("parseUserPictures uploads", () => {
 				uploads: [{ artifactId: "a", number: "2" }],
 			}),
 		).toEqual({ refs, open: null, marks: null });
+	});
+});
+
+describe("thumbWidth", () => {
+	it("is the width of the 320 px thumbnail, never wider than the picture", () => {
+		expect(thumbWidth(1248, 832)).toBe(320);
+		expect(thumbWidth(832, 1248)).toBe(213);
+		expect(thumbWidth(200, 100)).toBe(200);
 	});
 });

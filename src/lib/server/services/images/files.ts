@@ -14,6 +14,7 @@ import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/owners
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
+	IMAGE_THUMB_LONG_EDGE,
 	type ImageVersionBody,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
@@ -34,7 +35,7 @@ export type ImageFile = {
 	createdAt: number;
 };
 
-export const IMAGE_THUMB_LONG_EDGE = 320;
+export { IMAGE_THUMB_LONG_EDGE };
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const IMAGE_FILES_DIR = join("data", "image-files");

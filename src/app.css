@@ -249,6 +249,14 @@
 		--incognito-surface-elevated: #f3f4f2;
 		--incognito-surface-message-user: #e2e3e0;
 		--incognito-border: #c3c4c1;
+		/* What is see-through in a picture (plan 2b F8): a checkerboard of two
+		   tones a transparent PNG is drawn over. Its own pair per theme (and per
+		   incognito stage), so it is visible in both: the border tokens are 4%
+		   alpha and draw no pattern. */
+		--checker-a: #ffffff;
+		--checker-b: #e7e4dd;
+		--incognito-checker-a: #f3f4f2;
+		--incognito-checker-b: #dcddda;
 	}
 
 	.dark {
@@ -361,6 +369,10 @@
 		--incognito-surface-elevated: #1a1c1f;
 		--incognito-surface-message-user: #24272b;
 		--incognito-border: #3a3d41;
+		--checker-a: #2a2a2a;
+		--checker-b: #343434;
+		--incognito-checker-a: #1a1c1f;
+		--incognito-checker-b: #24272b;
 	}
 }
 
@@ -375,6 +387,8 @@
 	--surface-elevated: var(--incognito-surface-elevated);
 	--surface-message-user: var(--incognito-surface-message-user);
 	--border-default: var(--incognito-border);
+	--checker-a: var(--incognito-checker-a);
+	--checker-b: var(--incognito-checker-b);
 	background-color: var(--surface-page);
 	transition: background-color var(--duration-standard) var(--ease-out);
 }

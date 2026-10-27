@@ -8,6 +8,19 @@
  * panel's overlay and the server's painter use the same numbers.
  */
 
+/**
+ * The long edge of a picture's thumbnail (`?variant=thumb`), in pixels. The
+ * server makes it; the card's `srcset` names its width from it.
+ */
+export const IMAGE_THUMB_LONG_EDGE = 320;
+
+/** The width of a picture's thumbnail: never wider than the picture itself. */
+export function thumbWidth(width: number, height: number): number {
+	const longEdge = Math.max(width, height);
+	if (longEdge <= IMAGE_THUMB_LONG_EDGE) return width;
+	return Math.max(1, Math.round((width * IMAGE_THUMB_LONG_EDGE) / longEdge));
+}
+
 const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export type MarkLetter = (typeof MARK_LETTERS)[number];
 const MAX_MARKS = 8;
