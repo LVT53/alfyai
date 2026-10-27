@@ -305,6 +305,7 @@ describe("when a take becomes the version in use", () => {
 
 		const changeCard = await card("change", artifactId);
 		const late = await landedTake(changeCard);
+		const other = await landedTake(changeCard);
 		await deleteLibraryArtifact(userId, artifactId);
 		expect((await cardRow(changeCard))?.artifactId).toBeNull();
 
@@ -326,7 +327,39 @@ describe("when a take becomes the version in use", () => {
 				.where(eq(schema.artifacts.conversationId, conversationId))
 				.all(),
 		).toHaveLength(0);
-		expect(first.id).toBeTruthy();
+		// No picture of the card stays: not on disk, not as a row.
+		for (const take of [late, other]) {
+			expect(
+				existsSync(
+					join(
+						workdir,
+						"data",
+						"image-files",
+						conversationId,
+						`${take.file.id}.png`,
+					),
+				),
+			).toBe(false);
+			expect(
+				db
+					.select()
+					.from(schema.imageFiles)
+					.where(eq(schema.imageFiles.id, take.file.id))
+					.all(),
+			).toHaveLength(0);
+		}
+		// The first card's picture went with its deleted item.
+		expect(
+			existsSync(
+				join(
+					workdir,
+					"data",
+					"image-files",
+					conversationId,
+					`${first.file.id}.png`,
+				),
+			),
+		).toBe(false);
 	});
 
 	it("brings nothing back and leaves no file when the whole chat went", async () => {
@@ -434,6 +467,14 @@ describe("picking and replacing", () => {
 });
 
 describe("the boot sweep", () => {
+	it("settles a landed take that was never held", async () => {
+		const { settleHeldCards } = await import("./cards");
+		const cardId = await card();
+		await landedTake(cardId, { heldUntil: null });
+		expect(await settleHeldCards()).toBe(1);
+		expect((await cardRow(cardId))?.pickedTakeId).toBeTruthy();
+	});
+
 	it("promotes a take whose hold ran out and leaves one still held", async () => {
 		const { settleHeldCards } = await import("./cards");
 		const expired = await card();

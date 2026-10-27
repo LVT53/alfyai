@@ -16,7 +16,6 @@ import sharp from "sharp";
 import { db } from "$lib/server/db";
 import { imageJobs } from "$lib/server/db/schema";
 import type { JobFailure, JobRunContext } from "$lib/server/services/jobs";
-import { settleCard } from "./cards";
 import { createConfiguredComfyClient } from "./comfy-client";
 import {
 	type ComfyEvent,
@@ -502,6 +501,9 @@ async function renderTake(
 	// version in use when the card has none. The picture is already stored, so a
 	// failure here must not fail the take: the boot sweep settles the card.
 	try {
+		// Loaded here, not at the top: cards.ts pulls the artifacts service, which
+		// a render that never lands has no use for.
+		const { settleCard } = await import("./cards");
 		await settleCard(row.cardId, { preferTakeId: row.id });
 	} catch (error) {
 		console.error("[IMAGES] Could not settle the card:", error);

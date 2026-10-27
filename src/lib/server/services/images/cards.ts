@@ -246,6 +246,27 @@ const NOTHING = {
 	versionNumber: null,
 } as const;
 
+/** The card has no item to show them on: every landed picture of it goes, file and row. */
+async function discardLandedTakes(card: CardRow): Promise<void> {
+	const rows = await db
+		.select({ fileId: imageJobs.resultFileId })
+		.from(imageJobs)
+		.where(
+			and(
+				eq(imageJobs.cardId, card.id),
+				eq(imageJobs.status, "succeeded"),
+				isNotNull(imageJobs.resultFileId),
+			),
+		);
+	for (const { fileId } of rows) {
+		if (!fileId) continue;
+		await discardStoredImageFile({
+			id: fileId,
+			conversationId: card.conversationId,
+		}).catch(() => undefined);
+	}
+}
+
 /** The item is gone: the card keeps no item and no pick, and the take's picture, which nothing will show, goes. */
 async function itemGone(card: CardRow, ready: ReadyTake): Promise<void> {
 	await touchCard(card.id, { artifactId: null, pickedTakeId: null });
@@ -277,7 +298,10 @@ export async function settleCard(
 	}
 	// A change of an existing item whose item is gone has nothing to land on:
 	// it must not make a new item out of a deleted one.
-	if (card.madeFrom === "change" && !card.artifactId) return NOTHING;
+	if (card.madeFrom === "change" && !card.artifactId) {
+		await discardLandedTakes(card);
+		return NOTHING;
+	}
 
 	const takes = await eligibleTakes(cardId);
 	const ordered = options.preferTakeId
@@ -304,6 +328,7 @@ export async function settleCard(
 	const summary = ready.request.summary;
 	let artifactId = card.artifactId;
 	let versionNumber: number;
+	let madeHere: string | null = null;
 	try {
 		if (artifactId) {
 			const written = await updateArtifactBody({
@@ -349,6 +374,7 @@ export async function settleCard(
 				return NOTHING;
 			}
 			artifactId = created.artifact.id;
+			madeHere = artifactId;
 			const written = await updateArtifactBody({
 				userId: card.userId,
 				artifactId,
@@ -384,6 +410,9 @@ export async function settleCard(
 			versionNumber = created.artifact.versionNumber;
 		}
 	} catch (error) {
+		if (madeHere) {
+			await deleteLibraryArtifact(card.userId, madeHere).catch(() => undefined);
+		}
 		await undo();
 		throw error;
 	}

@@ -206,8 +206,7 @@ describe("a new picture", () => {
 		expect(seen).toEqual(["submitted", "starting", "rendering", "finishing"]);
 		const meta = await sharp(await resultBytes(takeId)).metadata();
 		expect(meta).toMatchObject({ format: "png", width: 1248, height: 832 });
-		// The first take of the file also loads the artifacts service when it lands.
-	}, 20_000);
+	});
 });
 
 describe("landing on a card", () => {
