@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "../../src/lib/server/artifact-tour-defaults";
 import { db } from "../../src/lib/server/db";
 import {
@@ -17,9 +18,18 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createArtifact,
+	createDocumentArtifact,
+	updateArtifactBody,
+} from "../../src/lib/server/services/artifacts";
+import {
+	attachImageFilesToArtifact,
+	storeImageFile,
+} from "../../src/lib/server/services/images/files";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
+import { serializeImageVersionBody } from "../../src/lib/shared/artifacts/image-body";
 import {
 	SHIPPED_ARTIFACT_TOUR_TYPES,
 	type ShippedArtifactTourType,
@@ -458,4 +468,110 @@ async function rewordSummary(
 export async function archiveTour(api: APIRequestContext, campaignId: string) {
 	const archived = await api.post(`/api/admin/campaigns/${campaignId}/archive`);
 	expect(archived.ok(), "archiving the tour").toBe(true);
+}
+
+/** The title a seeded Image carries. */
+export const IMAGE_ITEM_TITLE = "Sunset gradient";
+
+/**
+ * A gradient PNG made here, never a photo of anyone: `shade` moves the hues, so
+ * each version of a seeded Image is a picture of its own.
+ */
+export async function gradientPng(
+	width: number,
+	height: number,
+	shade = 0,
+): Promise<Uint8Array> {
+	const pixels = Buffer.alloc(width * height * 3);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const i = (y * width + x) * 3;
+			pixels[i] = Math.round((255 * x) / width + shade * 60) % 256;
+			pixels[i + 1] = Math.round((200 * y) / height + shade * 25) % 256;
+			pixels[i + 2] = (150 + shade * 40) % 256;
+		}
+	}
+	return sharp(pixels, { raw: { width, height, channels: 3 } })
+		.png()
+		.toBuffer();
+}
+
+/**
+ * An Image item in the user's chat (plan 2b T3), with `versions` pictures: the
+ * first made by Alfy, each later one a change of the one before it (its Before).
+ * Its pictures are gradients stored the way the picture pipeline stores them.
+ */
+export async function seedImageItem(
+	user: TourUser,
+	conversationId: string,
+	options: {
+		title?: string;
+		versions?: number;
+		width?: number;
+		height?: number;
+	} = {},
+): Promise<{ artifactId: string; fileIds: string[] }> {
+	const width = options.width ?? 1248;
+	const height = options.height ?? 832;
+	const count = options.versions ?? 1;
+	const fileIds: string[] = [];
+	for (let index = 0; index < count; index++) {
+		const file = await storeImageFile({
+			userId: user.id,
+			conversationId,
+			role: "take",
+			png: await gradientPng(width, height, index),
+		});
+		fileIds.push(file.id);
+	}
+	const bodyOf = (index: number) =>
+		serializeImageVersionBody({
+			v: 1,
+			fileId: fileIds[index],
+			width,
+			height,
+			hasAlpha: false,
+			baseFileId: index > 0 ? fileIds[index - 1] : null,
+			sources: [],
+			marks: null,
+			prompt: null,
+			takeId: null,
+			seed: null,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		});
+	const created = await createArtifact({
+		userId: user.id,
+		conversationId,
+		kind: "image",
+		title: options.title ?? IMAGE_ITEM_TITLE,
+		body: bodyOf(0),
+		author: "alfy",
+		versionSummary: "Alfy made the picture",
+	});
+	if (!created.ok) throw new Error(`seedImageItem: ${created.reason}`);
+	const artifactId = created.artifact.id;
+	for (let index = 1; index < count; index++) {
+		await addImageVersion(user, artifactId, bodyOf(index), conversationId);
+	}
+	await attachImageFilesToArtifact(fileIds, artifactId);
+	return { artifactId, fileIds };
+}
+
+/** A new version of a seeded Image, written the way a picked take is (outside any stream). */
+export async function addImageVersion(
+	user: TourUser,
+	artifactId: string,
+	body: string,
+	conversationId: string,
+): Promise<void> {
+	const written = await updateArtifactBody({
+		userId: user.id,
+		artifactId,
+		body,
+		author: "alfy",
+		summary: "Alfy changed the picture",
+		conversationId,
+	});
+	if (!written.ok) throw new Error(`addImageVersion: ${written.reason}`);
 }
