@@ -1769,9 +1769,33 @@ function insetsOf(rect: DOMRect): Keyframe {
 }
 
 /**
+ * What the panel holds, held at the size it will have when the shape change
+ * ends (plan 2b T3b), as the docked column already holds it while the panel
+ * opens (`dockContentWidth`): the shell's edges move, and the editor, the board,
+ * the App and the picture are laid out once, at the end size, and shown through
+ * the moving shell from its right edge. `null` while no shape change runs.
+ */
+let heldContentSize = $state.raw<{ width: number; height: number } | null>(
+	null,
+);
+
+/** Holds the content at `size` until `release` is called (only if no later hold replaced it). */
+async function holdContent(size: {
+	width: number;
+	height: number;
+}): Promise<() => void> {
+	heldContentSize = size;
+	await tick();
+	return () => {
+		if (heldContentSize === size) heldContentSize = null;
+	};
+}
+
+/**
  * Expand grows the panel from where its column stands to the whole window, in
  * the same motion every layout change here has (FB-3, F26): the old rect is the
- * first keyframe, and the overlay's own insets are the last.
+ * first keyframe, and the overlay's own insets are the last. The content is laid
+ * out at the overlay's size from the first frame.
  */
 async function requestExpandedPresentation(): Promise<void> {
 	const shell = desktopShellElement;
@@ -1780,10 +1804,22 @@ async function requestExpandedPresentation(): Promise<void> {
 	if (!shell || !from || prefersReducedMotion()) return;
 	await tick();
 	if (desktopShellElement !== shell) return;
-	shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
-		duration: MOTION_DURATION.emphasis,
-		easing: MOTION_EASING.emphasis,
-	});
+	// The overlay stands at its own insets now (no keyframe applied yet): what the
+	// content will measure there is the size to hold it at.
+	const end = desktopContentElement?.getBoundingClientRect();
+	const animate = () =>
+		shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+		});
+	if (!end || end.width <= 0 || end.height <= 0) {
+		animate();
+		return;
+	}
+	const release = await holdContent({ width: end.width, height: end.height });
+	await animate()
+		.finished.catch(() => undefined)
+		.then(release);
 }
 
 /**
@@ -1797,23 +1833,36 @@ async function requestDockedPresentation(): Promise<void> {
 		onPresentationChange?.("docked");
 		return;
 	}
-	const animation = shell.animate(
-		[
+	const target = slot.getBoundingClientRect();
+	const animate = () =>
+		shell.animate(
+			[
+				{
+					offset: 1,
+					...insetsOf(target),
+					borderRadius: "0px",
+				},
+			],
 			{
-				offset: 1,
-				...insetsOf(slot.getBoundingClientRect()),
-				borderRadius: "0px",
+				duration: MOTION_DURATION.emphasis,
+				easing: MOTION_EASING.emphasis,
+				fill: "forwards",
 			},
-		],
-		{
-			duration: MOTION_DURATION.emphasis,
-			easing: MOTION_EASING.emphasis,
-			fill: "forwards",
-		},
-	);
+		);
+	// The docked column's content is `dockContentWidth` wide and as tall as the
+	// column (it has no top or bottom border): held at that from the first frame,
+	// it is already what the dock shows when the shape flips back.
+	const width = dockContentWidth ?? target.width;
+	const release =
+		width > 0 && target.height > 0
+			? await holdContent({ width, height: target.height })
+			: () => undefined;
+	const animation = animate();
 	await animation.finished.catch(() => undefined);
 	onPresentationChange?.("docked");
 	await tick();
+	// Docked now: the column's own rule holds the same size, so letting go moves nothing.
+	release();
 	animation.cancel();
 }
 
@@ -2944,8 +2993,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		></div>
 		<div
 			class="workspace-content"
+			class:workspace-content-held={heldContentSize !== null}
 			bind:this={desktopContentElement}
-			style:width={shellPresentation === 'docked' && dockContentWidth !== null ? `${dockContentWidth}px` : undefined}
+			style:width={heldContentSize
+				? `${heldContentSize.width}px`
+				: shellPresentation === 'docked' && dockContentWidth !== null
+					? `${dockContentWidth}px`
+					: undefined}
+			style:height={heldContentSize ? `${heldContentSize.height}px` : undefined}
 		>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
@@ -4032,6 +4087,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		.workspace-dock-spacer.workspace-fade-in {
 			width: var(--workspace-dock-width);
 			transition: width var(--duration-emphasis) var(--ease-emphasis);
+		}
+
+		/* While the panel changes shape (expand, dock) its content is held at the
+		   size it ends at and shown through the moving shell from its right edge,
+		   the docked column's own way (heldContentSize). */
+		.workspace-shell-desktop > .workspace-content-held {
+			position: absolute;
+			top: 0;
+			right: 0;
+			flex: none;
 		}
 
 		/* The content of a docked column stays at the width the column is
