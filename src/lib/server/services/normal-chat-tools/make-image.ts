@@ -246,9 +246,14 @@ async function planTake(
 	} catch (error) {
 		// A picture that is gone or cannot be decoded is the model's to hear about.
 		if (error instanceof PictureUnreadableError) {
+			const refused = refusal("unknown_picture", error.message);
 			return {
 				ok: false,
-				refused: refusal("unknown_picture", error.message),
+				// The person's own picture cannot be read: that one is theirs to hear about.
+				refused: {
+					...refused,
+					metadata: { ...refused.metadata, imageUnreadable: true },
+				},
 			};
 		}
 		throw error;
@@ -421,6 +426,7 @@ function makeCallHelpers(input: {
 		});
 		turnTakes.noteTake({
 			takeId,
+			toolCallId,
 			cardId,
 			cardKey: plan.cardKey,
 			callKey: plan.callKey,

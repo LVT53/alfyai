@@ -2287,9 +2287,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												// a timeout may still land its picture on the card.
 												metadata: {
 													ok: false,
-													imageError: isToolTimeoutError(error)
-														? "image_tool_timeout"
-														: "image_error",
+													// Only a call that already queued a take can say the
+													// picture is still coming; a timeout while the inputs were
+													// prepared made nothing.
+													imageError:
+														isToolTimeoutError(error) &&
+														turnTakes.hasTakeForCall(options.toolCallId)
+															? "image_tool_timeout"
+															: "image_error",
 												},
 											},
 										};

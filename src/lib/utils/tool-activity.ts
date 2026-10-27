@@ -189,6 +189,7 @@ const VERB_KEYS = {
 	pictureFailed: "toolActivity.pictureFailed",
 	pictureStopped: "toolActivity.pictureStopped",
 	pictureStillMaking: "toolActivity.pictureStillMaking",
+	pictureRequestAdjusted: "toolActivity.pictureRequestAdjusted",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -420,8 +421,11 @@ function imageReasonKey(
 	}
 	const refusal = metadata?.imageRefusal;
 	if (typeof refusal === "string") {
-		return refusal === "not_configured"
-			? "toolActivity.pictureReason.notConfigured"
+		if (refusal === "not_configured") {
+			return "toolActivity.pictureReason.notConfigured";
+		}
+		return metadata?.imageUnreadable === true
+			? "toolActivity.pictureReason.unreadable"
 			: null;
 	}
 	return "toolActivity.pictureReason.generic";
@@ -843,6 +847,26 @@ function buildSettledToolActivityItem(
 				meta: "",
 				summaryLabel: stillVerb,
 				title: title ? `${stillVerb}: ${title}` : stillVerb,
+				body: null,
+			};
+		}
+		// A refusal meant only for the model (too many takes, a repeated retry, an
+		// unknown picture name): the model corrects itself, so the person sees a
+		// neutral row, not a failure.
+		if (
+			typeof metadata?.imageRefusal === "string" &&
+			metadata.imageRefusal !== "not_configured" &&
+			metadata.imageUnreadable !== true
+		) {
+			const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
+			return {
+				...base,
+				status: "done",
+				verb: adjustedVerb,
+				object: title,
+				meta: "",
+				summaryLabel: adjustedVerb,
+				title: title ? `${adjustedVerb}: ${title}` : adjustedVerb,
 				body: null,
 			};
 		}

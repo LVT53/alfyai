@@ -1001,6 +1001,8 @@ const chatDict = {
 		"toolActivity.pictureStopped": "Picture stopped",
 		"toolActivity.pictureStillMaking":
 			"Still being made, it will appear on its card",
+		"toolActivity.pictureRequestAdjusted": "Adjusting the picture request",
+		"toolActivity.pictureReason.unreadable": "This picture could not be read.",
 		"toolActivity.pictureReason.unreachable":
 			"The picture server could not be reached.",
 		"toolActivity.pictureReason.rejected":
@@ -2183,6 +2185,8 @@ const chatDict = {
 		"toolActivity.pictureFailed": "Nem sikerült a kép",
 		"toolActivity.pictureStopped": "Kép leállítva",
 		"toolActivity.pictureStillMaking": "Még készül, a kártyán jelenik meg",
+		"toolActivity.pictureRequestAdjusted": "Képkérés pontosítása",
+		"toolActivity.pictureReason.unreadable": "A kép nem olvasható.",
 		"toolActivity.pictureReason.unreachable": "A képkészítő nem érhető el.",
 		"toolActivity.pictureReason.rejected":
 			"A képkészítő elutasította a kérést.",

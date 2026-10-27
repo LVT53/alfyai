@@ -1998,6 +1998,52 @@ describe("make_image rows", () => {
 		});
 	});
 
+	it("shows a model-only refusal as a neutral row, and an unreadable upload of the person as a failure", () => {
+		const neutral = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "too_many_takes" },
+			}),
+			"neutral",
+			translate,
+		);
+		expect(neutral).toMatchObject({
+			status: "done",
+			verb: "Adjusting the picture request",
+			body: null,
+		});
+		const unreadable = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageRefusal: "unknown_picture",
+					imageUnreadable: true,
+				},
+			}),
+			"unreadable",
+			translate,
+		);
+		expect(unreadable).toMatchObject({
+			status: "failed",
+			body: { kind: "error", reason: "This picture could not be read." },
+		});
+	});
+
+	it("says a timeout that made no take failed plainly", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				metadata: { ok: false, imageError: "image_error" },
+			}),
+			"prep-timeout",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "failed",
+			body: { kind: "error", reason: "The picture could not be made." },
+		});
+		expect(JSON.stringify(item)).not.toContain("appear on its card");
+	});
+
 	it("reads a Stop as stopped, not as a failure", () => {
 		const item = buildToolActivityItem(
 			makeImageCall({
