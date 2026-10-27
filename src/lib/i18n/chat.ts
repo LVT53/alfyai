@@ -1021,6 +1021,10 @@ const chatDict = {
 		"toolActivity.expandActivity": "Show what was done",
 		"toolActivity.journey": "Journey",
 		"toolActivity.planningJourney": "Planning journey",
+		// The photos row when the model was shown thumbnails of what it found
+		// (the whole row: there is no object after it).
+		"toolActivity.photosViewed":
+			"Looked at {count} photo{count, plural, one {} other {s}}",
 		// The step-by-step body of a route card (RouteItinerary.svelte).
 		"routeItinerary.directions": "Directions",
 		"routeItinerary.showAllSteps": "Show all {count} steps",
@@ -2170,6 +2174,8 @@ const chatDict = {
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
+		// A number takes the singular after it, so there is no plural to split.
+		"toolActivity.photosViewed": "{count} fotót megnézett",
 		// A térképkártya lépésről lépésre törzse (RouteItinerary.svelte).
 		"routeItinerary.directions": "Útbaigazítás",
 		"routeItinerary.showAllSteps": "Mind a(z) {count} lépés",

@@ -606,6 +606,11 @@ describe("runStreamingNormalChatSendModel", () => {
 			// writes, and nothing guesses one from the message.
 			enabledConnectionCapabilities: new Set(),
 			modelId: "model1",
+			// The turn's queue of pictures a tool wants the model to see.
+			stepImages: expect.objectContaining({
+				push: expect.any(Function),
+				drain: expect.any(Function),
+			}),
 		});
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1022,5 +1027,47 @@ describe("runStreamingNormalChatSendModel", () => {
 				enabledConnectionCapabilities: new Set(["calendar"]),
 			}),
 		);
+	});
+
+	// A tool that wants the model to see a picture (the photos tool, for Immich
+	// thumbnails) queues it, and the model run hands it over in the next step:
+	// they have to be the same queue, and a turn's own.
+	it("gives the tools and the model run the one queue of the turn's pictures", async () => {
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Which of my beach photos is the sharpest?",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		const toolsQueue =
+			mocks.createNormalChatTools.mock.calls[0]?.[0].stepImages;
+		const runQueue =
+			mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0].stepImages;
+		expect(toolsQueue).toBeDefined();
+		expect(typeof toolsQueue.push).toBe("function");
+		expect(typeof toolsQueue.drain).toBe("function");
+		expect(runQueue).toBe(toolsQueue);
+	});
+
+	it("does not share a queue between two turns", async () => {
+		for (let turn = 0; turn < 2; turn += 1) {
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+			await runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "Which photo is sharpest?",
+				conversationId: "conv-1",
+				modelId: "model1",
+			});
+		}
+
+		const [first, second] = mocks.createNormalChatTools.mock.calls.map(
+			(call) => call[0].stepImages,
+		);
+		expect(first).toBeDefined();
+		expect(second).toBeDefined();
+		expect(first).not.toBe(second);
 	});
 });

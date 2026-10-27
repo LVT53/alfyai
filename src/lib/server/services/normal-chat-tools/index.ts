@@ -37,6 +37,7 @@ import {
 	logRefusedAddresses,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
+import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -263,6 +264,12 @@ export interface CreateNormalChatToolsContext {
 	// hasLocalDistillEnabled(userId)). Falls back to "model1" (local) when
 	// omitted, which matches today's behavior for callers not yet updated.
 	modelId?: string;
+	// The turn's queue of pictures a tool wants the model to see (the photos tool
+	// queues Immich thumbnails when the model asks to look). The model run drains
+	// it in the step after the tool result, so it has to be the very queue the run
+	// is given (createToolPack makes one and returns it). Without one a look can
+	// still be described by a local model, but nothing is shown to the model.
+	stepImages?: StepImageQueue;
 	// Names of the routing regions currently ready (on-demand coverage), used
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.
@@ -2191,13 +2198,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									timeoutMs: TOOL_TIMEOUTS_MS.photos,
 									options,
 									recorder,
-									run: async () => {
-										const { modelPayload, candidates } = await runPhotosTool(
-											ctx.userId,
-											safeInput,
-											ctx.modelId ?? "model1",
-											ctx.conversationId,
-										);
+									run: async (signal) => {
+										const { modelPayload, candidates, viewedCount } =
+											await runPhotosTool(
+												ctx.userId,
+												safeInput,
+												ctx.modelId ?? "model1",
+												ctx.conversationId,
+												// The call's own signal: a call the envelope gave up on
+												// (timed out, or the turn was stopped) queues nothing.
+												{ queue: ctx.stepImages, signal },
+											);
 										return {
 											modelPayload,
 											entry: {
@@ -2214,6 +2225,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													// How many photos the model was shown (the activity row
+													// reads "Looked at 6 photos"). Only when it asked to look.
+													...(viewedCount !== undefined ? { viewedCount } : {}),
 												},
 											},
 										};

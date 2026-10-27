@@ -371,6 +371,162 @@ describe("tool activity row grammar", () => {
 		});
 	});
 
+	describe("a photos run that looked at photos", () => {
+		function photosCall(
+			viewedCount: number | undefined,
+			overrides: Partial<ToolCallSegment> = {},
+		) {
+			return toolCall({
+				name: "photos",
+				input: { action: "search", query: "beach", look: true },
+				...(viewedCount === undefined
+					? {}
+					: { metadata: { ok: true, resultCount: 10, viewedCount } }),
+				...overrides,
+			} as Partial<ToolCallSegment>);
+		}
+
+		it("reads 'Looked at 6 photos' when the model was shown six", () => {
+			const item = buildConnectorActivityItem(
+				[photosCall(6)],
+				"group-photos",
+				translate,
+			);
+
+			expect(item.verb).toBe("Looked at 6 photos");
+			expect(item.object).toBe("");
+			expect(item.summaryLabel).toBe("Looked at 6 photos");
+			expect(item.iconType).toBe("photos");
+			expect(item.status).toBe("done");
+		});
+
+		it("reads 'Looked at 1 photo' for one", () => {
+			const item = buildConnectorActivityItem(
+				[photosCall(1)],
+				"group-photos",
+				translate,
+			);
+
+			expect(item.verb).toBe("Looked at 1 photo");
+		});
+
+		it("adds up what the calls of one run looked at", () => {
+			const item = buildConnectorActivityItem(
+				[photosCall(5), photosCall(undefined), photosCall(3)],
+				"group-photos",
+				translate,
+			);
+
+			expect(item.verb).toBe("Looked at 8 photos");
+			// Every action is still in the opened panel.
+			expect(item.body).toMatchObject({
+				kind: "actions",
+				actions: [
+					{ label: "search" },
+					{ label: "search" },
+					{ label: "search" },
+				],
+			});
+		});
+
+		it("keeps the plain connector row when nothing was looked at", () => {
+			for (const viewedCount of [undefined, 0]) {
+				const item = buildConnectorActivityItem(
+					[photosCall(viewedCount), photosCall(viewedCount)],
+					"group-photos",
+					translate,
+				);
+
+				expect(item.verb).toBe("Photos");
+				expect(item.object).toBe("2 actions");
+			}
+		});
+
+		it("does not read a count that is not a number of photos", () => {
+			for (const viewedCount of [
+				"6",
+				Number.NaN,
+				Number.POSITIVE_INFINITY,
+				2.5,
+				-3,
+				null,
+				true,
+			]) {
+				const item = buildConnectorActivityItem(
+					[
+						toolCall({
+							name: "photos",
+							input: { action: "search", query: "beach" },
+							metadata: { ok: true, viewedCount },
+						} as unknown as Partial<ToolCallSegment>),
+					],
+					"group-photos",
+					translate,
+				);
+
+				expect(item.verb).toBe("Photos");
+			}
+		});
+
+		it("belongs to the photos tool: another connector's metadata does not say it looked", () => {
+			const item = buildConnectorActivityItem(
+				[
+					toolCall({
+						name: "calendar",
+						input: { action: "list_events" },
+						metadata: { ok: true, viewedCount: 6 },
+					} as Partial<ToolCallSegment>),
+				],
+				"group-calendar",
+				translate,
+			);
+
+			expect(item.verb).toBe("Calendar");
+		});
+
+		it("still says Failed on the right when a call in the run failed", () => {
+			const item = buildConnectorActivityItem(
+				[photosCall(6), photosCall(undefined, { status: "failed" })],
+				"group-photos",
+				translate,
+			);
+
+			expect(item.status).toBe("failed");
+			expect(item.meta).toBe("Failed");
+			expect(item.verb).toBe("Looked at 6 photos");
+		});
+
+		it("is Hungarian in a Hungarian turn: '6 fotót megnézett'", async () => {
+			const { uiLanguage } = await import("$lib/stores/settings");
+			uiLanguage.set("hu");
+			try {
+				const item = buildConnectorActivityItem(
+					[photosCall(6)],
+					"group-photos",
+					get(t),
+				);
+
+				expect(item.verb).toBe("6 fotót megnézett");
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+
+		it("folds two looks into the strip as the same words, repeated", () => {
+			const looked = (key: string) =>
+				buildConnectorActivityItem([photosCall(6)], key, translate);
+
+			expect(
+				buildToolActivitySummary([looked("g1"), looked("g2")], translate),
+			).toEqual([
+				{ key: "g1", iconType: "photos", label: "Looked at 6 photos ×2" },
+			]);
+			expect(buildToolActivitySummary([looked("g1")], translate)).toEqual([
+				{ key: "g1", iconType: "photos", label: "Looked at 6 photos" },
+			]);
+		});
+	});
+
 	it("marks a connector group failed when any call in it failed", () => {
 		const item = buildConnectorActivityItem(
 			[

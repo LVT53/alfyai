@@ -180,6 +180,8 @@ export async function runStreamingNormalChatSendModel(
 		),
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools: toolPack.tools,
+		// The thumbnails a tool queues; the run hands them over, per attempt.
+		stepImages: toolPack.stepImages,
 		toolChoice: undefined,
 		// Forced web search is expressed in the turn guidance, not as a named
 		// tool_choice: vLLM honours a named tool_choice through guided JSON

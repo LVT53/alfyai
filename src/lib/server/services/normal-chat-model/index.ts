@@ -41,6 +41,10 @@ import {
 	getProviderWithSecrets,
 } from "../providers";
 import { providerCanSeeImages } from "../vision/provider-vision";
+import {
+	buildVisionPrepareStep,
+	type StepImageQueue,
+} from "../vision/step-images";
 import { stripImageParts } from "../vision/turn-images";
 import {
 	isRetryableNormalChatFallbackError,
@@ -167,6 +171,53 @@ function buildFirstStepOnlyPrepareStep(
 	return ({ stepNumber }) => (stepNumber === 0 ? { toolChoice } : {});
 }
 
+// Runs the given step functions in order for one step and merges what they
+// return, each seeing the messages the ones before it left. A step that returns
+// nothing leaves the step as it is. With one function it is that function, with
+// none `undefined`, so a run without extra steps is the run it always was.
+function composePrepareSteps(
+	...steps: Array<PrepareStepFunction<ToolSet> | undefined>
+): PrepareStepFunction<ToolSet> | undefined {
+	const active = steps.filter(
+		(step): step is PrepareStepFunction<ToolSet> => step !== undefined,
+	);
+	if (active.length <= 1) return active[0];
+	return async (options) => {
+		let merged: NonNullable<Awaited<ReturnType<PrepareStepFunction<ToolSet>>>> =
+			{};
+		let messages = options.messages;
+		for (const step of active) {
+			const result = await step({ ...options, messages });
+			if (!result) continue;
+			merged = { ...merged, ...result };
+			if (result.messages) messages = result.messages;
+		}
+		return merged;
+	};
+}
+
+// Every step function one attempt needs, built for the provider that attempt
+// runs on: the forced first-step tool choice, and the one that hands the model
+// the pictures a tool queued (the photos tool's Immich thumbnails). The latter
+// asks THIS attempt's provider whether it can see, so a fallback that cannot
+// gets the label and a note in place of the pixels (vision/AGENTS.md, Failover),
+// whatever the model before it could do.
+function buildAttemptPrepareStep(params: {
+	provider: NormalChatModelRunProvider;
+	firstStepToolChoice?: ToolChoice<ToolSet>;
+	stepImages?: StepImageQueue;
+}): PrepareStepFunction<ToolSet> | undefined {
+	return composePrepareSteps(
+		buildFirstStepOnlyPrepareStep(params.firstStepToolChoice),
+		params.stepImages
+			? buildVisionPrepareStep({
+					queue: params.stepImages,
+					providerCanSee: providerCanSeeImages(params.provider),
+				})
+			: undefined,
+	);
+}
+
 function readDoneToolSummary(input: unknown): string | null {
 	if (!input || typeof input !== "object" || Array.isArray(input)) return null;
 	const summary = (input as Record<string, unknown>).summary;
@@ -272,6 +323,12 @@ export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	// automatic. Distinct from `toolChoice`, which (when set) applies to
 	// every step for the run's whole lifetime.
 	firstStepToolChoice?: ToolChoice<ToolSet>;
+	// The turn's pictures a tool queued for the model to see (the photos tool's
+	// Immich thumbnails). A tool result reaches the model as text, so each
+	// attempt hands them over in a user message that follows the result, in the
+	// next step, built for the model that attempt runs on (see
+	// buildAttemptPrepareStep). Only used with `tools`.
+	stepImages?: StepImageQueue;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 };
@@ -281,6 +338,8 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	toolChoice?: ToolChoice<ToolSet>;
 	// See PlainNormalChatModelRunParams.firstStepToolChoice.
 	firstStepToolChoice?: ToolChoice<ToolSet>;
+	// See PlainNormalChatModelRunParams.stepImages.
+	stepImages?: StepImageQueue;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 	firstOutputTimeoutMs?: number | null;
@@ -1325,7 +1384,7 @@ async function runPlainNormalChatModelRunAttempt(
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
 	const prepareStep = params.tools
-		? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
+		? buildAttemptPrepareStep(params)
 		: undefined;
 	const sampling = resolveModelCallSampling(params.provider);
 
@@ -1655,9 +1714,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		tools,
 		toolChoice: params.toolChoice,
 		stopWhen: toolStopWhen,
-		prepareStep: tools
-			? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
-			: undefined,
+		prepareStep: tools ? buildAttemptPrepareStep(params) : undefined,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		temperature: sampling.temperature,
 		topP: sampling.topP,

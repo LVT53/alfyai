@@ -192,6 +192,8 @@ const VERB_KEYS = {
 	usingSkill: "toolActivity.usingSkill",
 	recalled: "toolActivity.recalled",
 	recalling: "toolActivity.recalling",
+	// Not a verb to put an object after: the whole photos row, with its count.
+	photosViewed: "toolActivity.photosViewed",
 } as const satisfies Record<string, I18nKey>;
 
 type VerbName = keyof typeof VERB_KEYS;
@@ -1017,6 +1019,22 @@ function describeToolIdentity(
 	return { verb: label, object, title: full };
 }
 
+/**
+ * How many photos the model was shown across a run of photos calls: the sum of
+ * what each call says it queued (`metadata.viewedCount`, written by the photos
+ * tool only when the model asked to look). Anything that is not a whole number
+ * of photos counts as none, and so does any other tool.
+ */
+function photosViewedIn(tools: ToolCallSegment[]): number {
+	return tools.reduce((total, tool) => {
+		if (tool.name !== "photos") return total;
+		const count = tool.metadata?.viewedCount;
+		return typeof count === "number" && Number.isInteger(count) && count > 0
+			? total + count
+			: total;
+	}, 0);
+}
+
 /** Builds the view-model for a collapsed run of connector calls. */
 export function buildConnectorActivityItem(
 	tools: ToolCallSegment[],
@@ -1035,19 +1053,28 @@ export function buildConnectorActivityItem(
 		getConnectionToolLabelKey(tools[0].name) ?? "toolCalls.generic";
 	const label = translate(labelKey);
 	const object = translate("toolCalls.actionsCount", { count: tools.length });
+	const viewed = photosViewedIn(tools);
+	// The model was shown photos, and the row says so instead of counting
+	// actions: "Looked at 6 photos". Those words are the whole row (no object
+	// after them), so repeats fold into "Looked at 6 photos x2" like any other
+	// row with nothing countable behind it. The opened panel still lists every
+	// action.
+	const looked =
+		viewed > 0 ? translate(VERB_KEYS.photosViewed, { count: viewed }) : null;
 	return {
 		key,
 		status,
 		iconType: getToolCallIconType(tools[0].name),
-		verb: label,
-		object,
+		verb: looked ?? label,
+		object: looked === null ? object : "",
 		meta: anyFailed ? translate("toolCalls.failed") : "",
-		summaryLabel: `${label} ${object}`,
-		summaryUnit: "actions",
-		summaryCount: tools.length,
+		summaryLabel: looked ?? `${label} ${object}`,
+		...(looked === null
+			? { summaryUnit: "actions" as const, summaryCount: tools.length }
+			: {}),
 		pinned: false,
 		alwaysOpen: false,
-		title: `${label} · ${object}`,
+		title: `${label} · ${looked ?? object}`,
 		body: {
 			kind: "actions",
 			actions: tools.map((tool, index) => ({

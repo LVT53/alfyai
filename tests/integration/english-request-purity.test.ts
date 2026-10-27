@@ -771,6 +771,10 @@ describe("English prompt text stays English (source layers)", () => {
 			"lib/server/services/normal-chat-context.ts",
 			// What a model is told about the pictures of a message.
 			"lib/server/services/vision/turn-images.ts",
+			// What it is told about the thumbnails a tool shows it (the label of
+			// each look, in the step after the call).
+			"lib/server/services/vision/step-images.ts",
+			"lib/server/services/vision/photo-look.ts",
 		];
 		const found = new Set(all.map(({ file }) => file));
 		for (const file of scaffold) expect(found.has(file), file).toBe(true);

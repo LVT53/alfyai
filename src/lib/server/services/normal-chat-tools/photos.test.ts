@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getConfig } from "$lib/server/config-store";
 import {
 	distillConnectorPayload,
 	hasLocalDistillEnabled,
@@ -13,12 +14,21 @@ import {
 	immichListPeople,
 	immichMetadataSearch,
 	immichSmartSearch,
+	immichThumbnail,
 } from "$lib/server/services/connections/providers/immich";
 import {
 	needsDisambiguation,
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+import { describeImage } from "$lib/server/services/vision/describe";
+import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
+import {
+	type PreparedImage,
+	prepareImageForModel,
+} from "$lib/server/services/vision/prepare-image";
+import { createStepImageQueue } from "$lib/server/services/vision/step-images";
 
 import { runPhotosTool, sanitizePhotosToolInput } from "./photos";
 
@@ -54,8 +64,33 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 		immichListAlbums: vi.fn(),
 		immichAlbumAssets: vi.fn(),
 		immichListPeople: vi.fn(),
+		immichThumbnail: vi.fn(),
 	};
 });
+// What a look reaches for beyond the Immich download: where the summarising
+// model is, whether a model can see, preparing the image and describing it.
+vi.mock("$lib/server/config-store", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/config-store")>()),
+	getConfig: vi.fn(),
+}));
+vi.mock("$lib/server/services/normal-chat-model", () => ({
+	resolveNormalChatModelRunProvider: vi.fn(),
+}));
+vi.mock("$lib/server/services/vision/model-vision", () => ({
+	modelIdCanSeeImages: vi.fn(),
+}));
+vi.mock("$lib/server/services/vision/describe", () => ({
+	describeImage: vi.fn(),
+}));
+vi.mock(
+	"$lib/server/services/vision/prepare-image",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("$lib/server/services/vision/prepare-image")
+		>()),
+		prepareImageForModel: vi.fn(),
+	}),
+);
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	isCloudModel: vi.fn(),
@@ -74,6 +109,12 @@ const immichMetadataSearchMock = vi.mocked(immichMetadataSearch);
 const immichListAlbumsMock = vi.mocked(immichListAlbums);
 const immichAlbumAssetsMock = vi.mocked(immichAlbumAssets);
 const immichListPeopleMock = vi.mocked(immichListPeople);
+const immichThumbnailMock = vi.mocked(immichThumbnail);
+const getConfigMock = vi.mocked(getConfig);
+const resolveRunProviderMock = vi.mocked(resolveNormalChatModelRunProvider);
+const modelIdCanSeeImagesMock = vi.mocked(modelIdCanSeeImages);
+const describeImageMock = vi.mocked(describeImage);
+const prepareImageForModelMock = vi.mocked(prepareImageForModel);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -113,6 +154,12 @@ function resetAllMocks() {
 	immichListAlbumsMock.mockReset();
 	immichAlbumAssetsMock.mockReset();
 	immichListPeopleMock.mockReset();
+	immichThumbnailMock.mockReset();
+	getConfigMock.mockReset();
+	resolveRunProviderMock.mockReset();
+	modelIdCanSeeImagesMock.mockReset();
+	describeImageMock.mockReset();
+	prepareImageForModelMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -137,6 +184,15 @@ describe("sanitizePhotosToolInput", () => {
 		expect(
 			sanitizePhotosToolInput({ action: "search", query: "cats", limit: 5 }),
 		).toEqual({ action: "search", query: "cats", limit: 5 });
+	});
+
+	it("keeps the model's request to look, whichever way it went", () => {
+		expect(
+			sanitizePhotosToolInput({ action: "search", query: "cats", look: true }),
+		).toEqual({ action: "search", query: "cats", look: true });
+		expect(
+			sanitizePhotosToolInput({ action: "search", query: "cats", look: false }),
+		).toEqual({ action: "search", query: "cats", look: false });
 	});
 });
 
@@ -841,5 +897,505 @@ describe("runPhotosTool — list_albums / album / list_people (B1/B6 browse)", (
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// look: the model asks to see the photos it found
+// ---------------------------------------------------------------------------
+
+const CLOUD_MODEL_ID = "provider:cloud:chat";
+const LOCAL_SEEING_MODEL_ID = "model2";
+
+const localSeeingProvider = {
+	id: "local",
+	name: "local",
+	displayName: "Local",
+	baseUrl: "http://192.168.1.96:30000/v1",
+	modelName: "flash-next",
+	apiKey: "key",
+};
+
+function preparedFor(assetId: string): PreparedImage {
+	return {
+		base64: Buffer.from(assetId).toString("base64"),
+		mediaType: "image/jpeg",
+		width: 64,
+		height: 48,
+		estimatedTokens: 6,
+	};
+}
+
+function assetIdOf(image: PreparedImage): string {
+	return Buffer.from(image.base64, "base64").toString();
+}
+
+function thumbnailBytesOf(assetId: string) {
+	return {
+		bytes: new TextEncoder().encode(assetId).buffer as ArrayBuffer,
+		contentType: "image/webp",
+	};
+}
+
+describe("runPhotosTool — look (thumbnails when a question needs them)", () => {
+	// A thumbnail that is skipped says so in the log; these tests read the
+	// outcome instead.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	beforeEach(() => {
+		resetAllMocks();
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		getConfigMock.mockReturnValue({
+			memoryConsolidationModel: LOCAL_SEEING_MODEL_ID,
+		} as unknown as ReturnType<typeof getConfig>);
+		resolveRunProviderMock.mockResolvedValue(localSeeingProvider);
+		// A download hands back the asset's own id as its bytes, so a test can tell
+		// which thumbnail became which picture.
+		immichThumbnailMock.mockImplementation(async (_user, _conn, { assetId }) =>
+			thumbnailBytesOf(assetId),
+		);
+		prepareImageForModelMock.mockImplementation(async (input) =>
+			preparedFor(new TextDecoder().decode(input)),
+		);
+		describeImageMock.mockImplementation(
+			async ({ image }) => `seen ${assetIdOf(image)}`,
+		);
+	});
+
+	function seedPhotos(count: number) {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		const found = Array.from({ length: count }, (_, index) => ({
+			id: `asset-${index + 1}`,
+			fileName: `IMG_${String(index + 1).padStart(4, "0")}.jpg`,
+			takenAt: "2026-06-01T09:55:00.000Z",
+			type: "IMAGE" as const,
+			thumbnailPath: `/api/assets/asset-${index + 1}/thumbnail`,
+		}));
+		immichSmartSearchMock.mockResolvedValue(found);
+		immichMetadataSearchMock.mockResolvedValue(found);
+		immichAlbumAssetsMock.mockResolvedValue(found);
+	}
+
+	/** The model can see and is local (or the person has not asked for privacy). */
+	function arrangeSeeingModel() {
+		modelIdCanSeeImagesMock.mockResolvedValue(true);
+	}
+
+	async function lookFor(
+		count = 10,
+		input: Parameters<typeof runPhotosTool>[1] = {
+			action: "search",
+			query: "beach",
+			look: true,
+		},
+		modelId = LOCAL_MODEL_ID,
+	) {
+		seedPhotos(count);
+		const queue = createStepImageQueue();
+		const outcome = await runPhotosTool("user-1", input, modelId, undefined, {
+			queue,
+		});
+		return { outcome, queue };
+	}
+
+	it("queues the thumbnails of the first eight of ten results and says that eight follow", async () => {
+		arrangeSeeingModel();
+
+		const { outcome, queue } = await lookFor(10);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.message).toContain("8 thumbnails follow");
+		expect(outcome.viewedCount).toBe(8);
+		const entries = queue.drain();
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.images).toHaveLength(8);
+		expect(entries[0]?.images.map((entry) => assetIdOf(entry.image))).toEqual(
+			Array.from({ length: 8 }, (_, index) => `asset-${index + 1}`),
+		);
+		expect(entries[0]?.label).toBe(
+			`Thumbnails from the photos tool, in result order: ${Array.from(
+				{ length: 8 },
+				(_, index) =>
+					`${index + 1} = IMG_${String(index + 1).padStart(4, "0")}.jpg`,
+			).join(", ")}`,
+		);
+		// The results themselves are what they always were.
+		expect(outcome.modelPayload.results).toHaveLength(10);
+		expect(outcome.modelPayload.results[0]?.fileName).toBe("IMG_0001.jpg");
+		expect(immichThumbnailMock).toHaveBeenCalledTimes(8);
+	});
+
+	it("tells the model it saw fewer than the results it was given", async () => {
+		arrangeSeeingModel();
+
+		const { outcome } = await lookFor(10);
+
+		expect(outcome.modelPayload.message).toContain("8 of the 10 results");
+	});
+
+	it("does not call the one thumbnail of a single result 'thumbnails'", async () => {
+		arrangeSeeingModel();
+
+		const { outcome } = await lookFor(1);
+
+		expect(outcome.modelPayload.message).toContain("1 thumbnail follows");
+		expect(outcome.viewedCount).toBe(1);
+	});
+
+	it("counts only the thumbnails it got when some of the eight will not download", async () => {
+		arrangeSeeingModel();
+		const failing = ["asset-2", "asset-5", "asset-7"];
+		immichThumbnailMock.mockImplementation(
+			async (_user, _conn, { assetId }) => {
+				if (failing.includes(assetId)) {
+					throw new ImmichError(
+						"Failed to fetch the photo thumbnail",
+						"request_failed",
+					);
+				}
+				return thumbnailBytesOf(assetId);
+			},
+		);
+
+		const { outcome, queue } = await lookFor(8);
+
+		expect(outcome.viewedCount).toBe(5);
+		expect(outcome.modelPayload.message).toContain("5 thumbnails follow");
+		expect(queue.drain()[0]?.images).toHaveLength(5);
+		expect(outcome.modelPayload.success).toBe(true);
+	});
+
+	it("says the photos could not be looked at when no thumbnail could be had, and queues nothing", async () => {
+		arrangeSeeingModel();
+		immichThumbnailMock.mockRejectedValue(
+			new ImmichError("Failed to fetch the photo thumbnail", "request_failed"),
+		);
+
+		const { outcome, queue } = await lookFor(3);
+
+		expect(outcome.viewedCount).toBe(0);
+		expect(outcome.modelPayload.message).toContain("could not be looked at");
+		expect(queue.drain()).toEqual([]);
+		expect(outcome.modelPayload.results).toHaveLength(3);
+	});
+
+	it.each([
+		["search", { action: "search", query: "beach", look: true }],
+		[
+			"search_by_date",
+			{ action: "search_by_date", from: "2026-06-01", look: true },
+		],
+		["album", { action: "album", albumId: "album-1", look: true }],
+	] as const)("looks at the results of %s too", async (_name, input) => {
+		arrangeSeeingModel();
+
+		const { outcome, queue } = await lookFor(3, input);
+
+		expect(outcome.viewedCount).toBe(3);
+		expect(queue.drain()[0]?.images).toHaveLength(3);
+	});
+
+	it.each([
+		["when the model did not ask", { action: "search", query: "beach" }],
+		[
+			"when the model asked not to",
+			{ action: "search", query: "beach", look: false },
+		],
+	] as const)("looks at nothing %s", async (_name, input) => {
+		arrangeSeeingModel();
+
+		const { outcome, queue } = await lookFor(5, input);
+
+		expect(immichThumbnailMock).not.toHaveBeenCalled();
+		expect(queue.drain()).toEqual([]);
+		expect(outcome.viewedCount).toBeUndefined();
+		expect(outcome.modelPayload.message).not.toContain("thumbnail");
+		// Nothing was asked of the models either.
+		expect(modelIdCanSeeImagesMock).not.toHaveBeenCalled();
+		expect(describeImageMock).not.toHaveBeenCalled();
+	});
+
+	it("has nothing to look at in an empty result", async () => {
+		arrangeSeeingModel();
+
+		const { outcome, queue } = await lookFor(0);
+
+		expect(outcome.modelPayload.message).toBe(
+			"No photos found for that search.",
+		);
+		expect(immichThumbnailMock).not.toHaveBeenCalled();
+		expect(queue.drain()).toEqual([]);
+	});
+
+	it("looks at nothing for the actions that return no photos", async () => {
+		arrangeSeeingModel();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ allowWrites: true, hasWriteSecret: true }),
+		]);
+		immichListAlbumsMock.mockResolvedValue([
+			{ id: "album-1", albumName: "Vacation", assetCount: 3 },
+		]);
+		immichListPeopleMock.mockResolvedValue([{ id: "p1", name: "Alice" }]);
+		const queue = createStepImageQueue();
+
+		const inputs: Array<Parameters<typeof runPhotosTool>[1]> = [
+			{ action: "list_albums", look: true },
+			{ action: "list_people", look: true },
+			{ action: "add_to_album", assetIds: ["asset-1"], look: true },
+		];
+		for (const input of inputs) {
+			const outcome = await runPhotosTool(
+				"user-1",
+				input,
+				LOCAL_MODEL_ID,
+				undefined,
+				{ queue },
+			);
+			expect(outcome.viewedCount).toBeUndefined();
+		}
+
+		expect(immichThumbnailMock).not.toHaveBeenCalled();
+		expect(queue.drain()).toEqual([]);
+	});
+
+	it("looks at nothing for a model that cannot see, and says so", async () => {
+		modelIdCanSeeImagesMock.mockResolvedValue(false);
+
+		const { outcome, queue } = await lookFor(10);
+
+		expect(outcome.viewedCount).toBe(0);
+		expect(outcome.modelPayload.message).toContain("could not be looked at");
+		expect(immichThumbnailMock).not.toHaveBeenCalled();
+		expect(queue.drain()).toEqual([]);
+		// The details are still there to answer from.
+		expect(outcome.modelPayload.results).toHaveLength(10);
+		expect(outcome.modelPayload.success).toBe(true);
+	});
+
+	it("looks at nothing when the caller gave it nowhere to queue pictures", async () => {
+		arrangeSeeingModel();
+		seedPhotos(3);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach", look: true },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.viewedCount).toBe(0);
+		expect(outcome.modelPayload.message).toContain("could not be looked at");
+		expect(immichThumbnailMock).not.toHaveBeenCalled();
+	});
+
+	it("does not let a look that breaks take the search with it", async () => {
+		arrangeSeeingModel();
+		seedPhotos(3);
+		const queue = createStepImageQueue();
+		vi.spyOn(queue, "push").mockImplementation(() => {
+			throw new Error("the queue is broken");
+		});
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach", look: true },
+			LOCAL_MODEL_ID,
+			undefined,
+			{ queue },
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.results).toHaveLength(3);
+		expect(outcome.modelPayload.message).toContain("could not be looked at");
+		expect(outcome.viewedCount).toBe(0);
+	});
+
+	it("queues nothing for a call that was already given up", async () => {
+		arrangeSeeingModel();
+		seedPhotos(3);
+		const queue = createStepImageQueue();
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach", look: true },
+			LOCAL_MODEL_ID,
+			undefined,
+			{ queue, signal: AbortSignal.abort() },
+		);
+
+		expect(queue.drain()).toEqual([]);
+		expect(outcome.viewedCount).toBe(0);
+	});
+
+	it("never describes what it queues: a thumbnail is not an artifact", async () => {
+		arrangeSeeingModel();
+
+		await lookFor(3);
+
+		expect(describeImageMock).not.toHaveBeenCalled();
+	});
+
+	it("still shows the pixels to a local model when the person keeps summarising local", async () => {
+		arrangeSeeingModel();
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(false);
+
+		const { outcome, queue } = await lookFor(3);
+
+		expect(outcome.viewedCount).toBe(3);
+		expect(queue.drain()[0]?.images).toHaveLength(3);
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("shows the pixels to a cloud model that can see when the person does not keep summarising local", async () => {
+		arrangeSeeingModel();
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const { outcome, queue } = await lookFor(
+			3,
+			{ action: "search", query: "beach", look: true },
+			CLOUD_MODEL_ID,
+		);
+
+		expect(outcome.viewedCount).toBe(3);
+		expect(queue.drain()[0]?.images).toHaveLength(3);
+	});
+
+	describe("a cloud model for a person who keeps summarising local", () => {
+		beforeEach(() => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockImplementation(async (id) => id === CLOUD_MODEL_ID);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "Three beach photos; the second is the sharpest.",
+			});
+		});
+
+		function arrangeLocalModelThatSees() {
+			modelIdCanSeeImagesMock.mockImplementation(
+				async (id) => id === LOCAL_SEEING_MODEL_ID,
+			);
+		}
+
+		const lookAsCloud = (count = 3) =>
+			lookFor(
+				count,
+				{ action: "search", query: "beach", look: true },
+				CLOUD_MODEL_ID,
+			);
+
+		it("has the local model that can see describe them: no pixel is queued", async () => {
+			arrangeLocalModelThatSees();
+
+			const { outcome, queue } = await lookAsCloud(10);
+
+			expect(queue.drain()).toEqual([]);
+			expect(outcome.viewedCount).toBe(0);
+			expect(describeImageMock).toHaveBeenCalledTimes(8);
+			for (const [call] of describeImageMock.mock.calls) {
+				expect(call.provider).toBe(localSeeingProvider);
+			}
+			expect(resolveRunProviderMock).toHaveBeenCalledWith(
+				LOCAL_SEEING_MODEL_ID,
+				expect.anything(),
+			);
+		});
+
+		it("hands one description per photo to the summary, with the photo it belongs to", async () => {
+			arrangeLocalModelThatSees();
+
+			await lookAsCloud(3);
+
+			const rawText = distillConnectorPayloadMock.mock.calls[0]?.[0].rawText;
+			const lines = (rawText ?? "").split("\n");
+			expect(lines).toHaveLength(3);
+			expect(lines[0]).toMatch(/IMG_0001\.jpg.*looks like: seen asset-1/);
+			expect(lines[1]).toMatch(/IMG_0002\.jpg.*looks like: seen asset-2/);
+			expect(lines[2]).toMatch(/IMG_0003\.jpg.*looks like: seen asset-3/);
+		});
+
+		it("lets the cloud model see only the summary: no description, no file name, no thumbnail", async () => {
+			arrangeLocalModelThatSees();
+
+			const { outcome } = await lookAsCloud(3);
+
+			expect(outcome.modelPayload.message).toContain(
+				"Three beach photos; the second is the sharpest.",
+			);
+			const wire = JSON.stringify(outcome.modelPayload);
+			expect(wire).not.toContain("seen asset-");
+			expect(wire).not.toContain("lookDescription");
+			expect(wire).not.toContain("IMG_0001.jpg");
+			expect(wire).not.toContain(preparedFor("asset-1").base64);
+			// The person's own Sources tab keeps the real names.
+			expect(outcome.candidates[0]?.title).toBe("IMG_0001.jpg");
+		});
+
+		it("leaves out a description it could not make, and the summary still goes ahead", async () => {
+			arrangeLocalModelThatSees();
+			describeImageMock.mockImplementation(async ({ image }) => {
+				if (assetIdOf(image) === "asset-2") throw new Error("no description");
+				return `seen ${assetIdOf(image)}`;
+			});
+
+			const { outcome } = await lookAsCloud(3);
+
+			const rawText = distillConnectorPayloadMock.mock.calls[0]?.[0].rawText;
+			expect(rawText).toContain("seen asset-1");
+			expect(rawText).not.toContain("seen asset-2");
+			expect(rawText).toContain("seen asset-3");
+			expect(outcome.modelPayload.message).toContain("Three beach photos");
+		});
+
+		it("withholds the details, as it always did, when the summary cannot be made", async () => {
+			arrangeLocalModelThatSees();
+			distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+			const { outcome } = await lookAsCloud(3);
+
+			expect(outcome.modelPayload.message).toContain("withheld");
+			const wire = JSON.stringify(outcome.modelPayload);
+			expect(wire).not.toContain("seen asset-");
+			expect(wire).not.toContain("IMG_0001.jpg");
+		});
+
+		it("looks at nothing when no local model can see: not a download, not a description", async () => {
+			modelIdCanSeeImagesMock.mockResolvedValue(false);
+
+			const { outcome, queue } = await lookAsCloud(3);
+
+			expect(immichThumbnailMock).not.toHaveBeenCalled();
+			expect(describeImageMock).not.toHaveBeenCalled();
+			expect(queue.drain()).toEqual([]);
+			expect(outcome.viewedCount).toBe(0);
+			expect(outcome.modelPayload.message).toContain("could not be looked at");
+			// The photos' details still go through the summary, as before.
+			expect(distillConnectorPayloadMock).toHaveBeenCalledTimes(1);
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+				"IMG_0001.jpg",
+			);
+		});
+
+		it("looks at nothing when the model that could see is not local", async () => {
+			isCloudModelMock.mockResolvedValue(true);
+			modelIdCanSeeImagesMock.mockResolvedValue(true);
+
+			const { queue } = await lookAsCloud(3);
+
+			expect(immichThumbnailMock).not.toHaveBeenCalled();
+			expect(describeImageMock).not.toHaveBeenCalled();
+			expect(queue.drain()).toEqual([]);
+		});
+
+		it("queues no pixel even if the cloud model itself can see", async () => {
+			modelIdCanSeeImagesMock.mockResolvedValue(true);
+
+			const { queue } = await lookAsCloud(3);
+
+			expect(queue.drain()).toEqual([]);
+		});
 	});
 });

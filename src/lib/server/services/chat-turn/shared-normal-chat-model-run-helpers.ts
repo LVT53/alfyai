@@ -40,6 +40,10 @@ import {
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
 import { scheduleImageDescriptions } from "$lib/server/services/vision/describe";
 import { providerCanSeeImages } from "$lib/server/services/vision/model-vision";
+import {
+	createStepImageQueue,
+	type StepImageQueue,
+} from "$lib/server/services/vision/step-images";
 import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
@@ -219,6 +223,13 @@ export type ToolPack = {
 	tools: NormalChatModelTools | undefined;
 	recorder: ReturnType<typeof createToolCallRecorder>;
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
+	/**
+	 * This turn's queue of pictures a tool wants the model to see (the photos
+	 * tool queues Immich thumbnails when the model asks to look). The tools are
+	 * built with it and the model run is given the same one, which hands the
+	 * pictures over in the step after the tool result (vision/AGENTS.md).
+	 */
+	stepImages: StepImageQueue;
 };
 
 export async function resolveProviderRuntime(
@@ -457,6 +468,9 @@ export async function createToolPack(
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
+	// One queue for the turn, shared by the tools that fill it and the model run
+	// that empties it (every attempt of the run, failover included).
+	const stepImages = createStepImageQueue();
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -464,6 +478,7 @@ export async function createToolPack(
 		requestText: params.message,
 		enabledConnectionCapabilities,
 		modelId,
+		stepImages,
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }
@@ -504,5 +519,6 @@ export async function createToolPack(
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
+		stepImages,
 	};
 }

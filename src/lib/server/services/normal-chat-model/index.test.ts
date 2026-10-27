@@ -13,6 +13,10 @@ import {
 	providerStreamFixtures,
 } from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
 import {
+	createStepImageQueue,
+	type StepImageQueue,
+} from "../vision/step-images";
+import {
 	buildCurrentUserMessage,
 	STRIPPED_IMAGE_NOTE,
 	type TurnImage,
@@ -5201,6 +5205,429 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 					image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
 				},
 			]);
+		});
+	});
+});
+
+describe("Normal Chat Model Run thumbnails a tool asked the model to see", () => {
+	// A tool result reaches the model as text, so the pictures a tool wants it to
+	// see ride in a user message that follows the result (vision/AGENTS.md). The
+	// step that adds it is built for each attempt, on the model that attempt runs.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		mocks.getProviderByName.mockReset();
+		mocks.getProviderWithSecrets.mockReset();
+		mocks.getProviderModel.mockReset();
+		mocks.listEnabledProviderModels.mockReset();
+		mocks.decryptApiKey.mockReset();
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue(null);
+		mocks.getProviderModel.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
+		mocks.decryptApiKey.mockReturnValue("plain-secret");
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const LABEL =
+		"Thumbnails from the photos tool, in result order: 1 = beach.jpg, 2 = dunes.jpg";
+	const question = "Which of my beach photos is the sharpest?";
+	const thumbnails: TurnImage[] = [
+		{
+			artifactId: "immich:asset-1",
+			name: "beach.jpg",
+			image: {
+				base64: "QUFBQQ==",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 6,
+			},
+		},
+		{
+			artifactId: "immich:asset-2",
+			name: "dunes.jpg",
+			image: {
+				base64: "QkJCQg==",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 6,
+			},
+		},
+	];
+	const seeingProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "https://vllm.example/v1",
+		modelName: "flash-next",
+		apiKey: "plain-secret",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+	const blindProvider = { ...seeingProvider, capabilities: undefined };
+
+	const photosSchema = z.object({ query: z.string() });
+
+	/** A photos tool that, like the real one, queues thumbnails and returns text. */
+	function createPhotosTool(
+		queue: StepImageQueue,
+		options: { queueNothing?: boolean } = {},
+	) {
+		return tool({
+			description: "Find photos.",
+			inputSchema: photosSchema,
+			execute: async () => {
+				if (!options.queueNothing) {
+					queue.push({ label: LABEL, images: thumbnails });
+				}
+				return { success: true, message: "2 thumbnails follow" };
+			},
+		});
+	}
+
+	function plainToolCall() {
+		return createMockChatCompletionResponse({
+			message: {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-1",
+						type: "function",
+						function: {
+							name: "photos",
+							arguments: JSON.stringify({ query: "beach" }),
+						},
+					},
+				],
+			},
+			finishReason: "tool_calls",
+		});
+	}
+
+	function plainAnswer() {
+		return createMockChatCompletionResponse({
+			message: { role: "assistant", content: "The first one." },
+		});
+	}
+
+	function streamedToolCall() {
+		return createStreamResponse([
+			{
+				toolCalls: [
+					{
+						id: "call-1",
+						name: "photos",
+						arguments: JSON.stringify({ query: "beach" }),
+					},
+				],
+			},
+			{ finishReason: "tool_calls" },
+		]);
+	}
+
+	function streamedAnswer() {
+		return createStreamResponse([
+			{ content: "The first one." },
+			{ finishReason: "stop" },
+		]);
+	}
+
+	type Body = {
+		messages: Array<{ role: string; content: unknown }>;
+		tool_choice?: unknown;
+	};
+
+	describe.each([
+		["a plain run", "plain"],
+		["a streaming run", "streaming"],
+	] as const)("%s", (_label, path) => {
+		function toolCallResponse() {
+			return path === "plain" ? plainToolCall() : streamedToolCall();
+		}
+
+		function answerResponse() {
+			return path === "plain" ? plainAnswer() : streamedAnswer();
+		}
+
+		async function run(args: StreamRunArgs) {
+			if (path === "plain") {
+				await runPlainNormalChatModelRun(args);
+			} else {
+				await collectStreamingEvents(args);
+			}
+		}
+
+		/** A model that calls the photos tool, then answers. */
+		function toolThenAnswer() {
+			return vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(toolCallResponse())
+				.mockResolvedValueOnce(answerResponse());
+		}
+
+		it("hands the model the thumbnails in the step after the tool result", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(JSON.stringify(first)).not.toContain("image_url");
+			const second = parseRequestBody(fetch, 1) as Body;
+			// ... assistant's call, the tool result, then the pictures as the user.
+			expect(second.messages.at(-2)?.role).toBe("tool");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+			// The question is where it was.
+			expect(second.messages.find((m) => m.role === "user")?.content).toEqual(
+				question,
+			);
+		});
+
+		it("takes the pictures out of the queue: the model has them once", async () => {
+			const queue = createStepImageQueue();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch: toolThenAnswer(),
+			});
+
+			expect(queue.drain()).toEqual([]);
+		});
+
+		it("gives a model that cannot see the label and the note, and no picture", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: blindProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(JSON.stringify(second)).not.toContain("QUFBQQ==");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("adds nothing when the tool queued nothing", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { queueNothing: true }) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-1)?.role).toBe("tool");
+			expect(JSON.stringify(second)).not.toContain("image_url");
+		});
+
+		it("is the same run as before when no queue is given", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-1)?.role).toBe("tool");
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			// Nothing took the pictures.
+			expect(queue.drain()).toHaveLength(1);
+		});
+
+		it("keeps forcing the first step's tool and adds the pictures to the next", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				firstStepToolChoice: { type: "tool", toolName: "photos" },
+				stepImages: queue,
+				fetch,
+			});
+
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(first.tool_choice).toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.tool_choice).not.toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			expect(JSON.stringify(second.messages.at(-1))).toContain("image_url");
+		});
+
+		it("applies both steps when they land on the same one: the forced tool and the pictures", async () => {
+			const queue = createStepImageQueue();
+			// Pictures already waiting when the run starts, so the first step has both
+			// a tool to force and pictures to add.
+			queue.push({ label: LABEL, images: thumbnails });
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(answerResponse());
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				firstStepToolChoice: { type: "tool", toolName: "photos" },
+				stepImages: queue,
+				fetch,
+			});
+
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(first.tool_choice).toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			expect(JSON.stringify(first.messages.at(-1))).toContain("image_url");
+		});
+	});
+
+	// A failover starts the attempt over, and the step is built for the model it
+	// runs on: the primary may see and the fallback not. Only the plain loop can
+	// fail over after a tool has run (a stream may not, once it has said a tool
+	// was called), so only it is driven here.
+	describe("a plain run that fails over after the pictures were handed over", () => {
+		function failoverConfig(target: string) {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: target,
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** The seeing primary calls the tool, then its next request times out. */
+		async function failOverAfterTheToolRan(
+			fallbackIsAnswered: () => Response[],
+		) {
+			const queue = createStepImageQueue();
+			const timeout = Object.assign(new Error("Provider request timed out"), {
+				name: "TimeoutError",
+			});
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(plainToolCall())
+				.mockRejectedValueOnce(timeout);
+			for (const response of fallbackIsAnswered()) {
+				fetch.mockResolvedValueOnce(response);
+			}
+
+			await runPlainNormalChatModelRun({
+				provider: seeingProvider,
+				modelId: "model1",
+				runtimeConfig: failoverConfig("model2"),
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+				maxRetries: 0,
+			});
+			return { fetch, queue };
+		}
+
+		it("gives the fallback that cannot see the label and the note, though the primary was handed the pictures", async () => {
+			const { fetch } = await failOverAfterTheToolRan(() => [
+				plainToolCall(),
+				plainAnswer(),
+			]);
+
+			expect(fetch).toHaveBeenCalledTimes(4);
+			// The primary's second step carried the pictures ...
+			expect(JSON.stringify(parseRequestBody(fetch, 1))).toContain("image_url");
+			expect(fetch.mock.calls[2]?.[0]).toBe(
+				"https://model-two.example/v1/chat/completions",
+			);
+			// ... the fallback's, which cannot see, did not.
+			const fallbackSecond = parseRequestBody(fetch, 3) as Body;
+			expect(JSON.stringify(fallbackSecond)).not.toContain("image_url");
+			expect(JSON.stringify(fallbackSecond)).not.toContain("QUFBQQ==");
+			expect(fallbackSecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
 		});
 	});
 });

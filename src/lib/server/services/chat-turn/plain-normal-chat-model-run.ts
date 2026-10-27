@@ -75,6 +75,7 @@ type ModelRunParams = {
 	prepared: PreparedModelContext;
 	activeDepthEffort: ActiveDepthEffort | null;
 	tools: ToolPack["tools"];
+	stepImages: ToolPack["stepImages"];
 };
 
 type BuildResultInput = {
@@ -122,6 +123,7 @@ export async function runPlainNormalChatSendModel(
 		prepared,
 		activeDepthEffort,
 		tools: toolPack.tools,
+		stepImages: toolPack.stepImages,
 	});
 
 	return buildRunResult({
@@ -141,6 +143,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 		prepared,
 		activeDepthEffort,
 		tools,
+		stepImages,
 	} = params;
 
 	const finalInputValue = appendTurnGuidance(
@@ -186,6 +189,8 @@ async function runPlainModelRun(params: ModelRunParams) {
 		),
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools,
+		// The thumbnails a tool queues; the run hands them over, per attempt.
+		stepImages,
 		toolChoice: tools ? toolChoice : undefined,
 		firstStepToolChoice: tools ? firstStepToolChoice : undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,

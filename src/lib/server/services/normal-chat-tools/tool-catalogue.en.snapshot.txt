@@ -1262,6 +1262,10 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           "limit": {
             "type": "number"
           },
+          "look": {
+            "description": "Set true only when you must see the photos to answer, such as choosing the sharpest or best lit; you then get small thumbnails of up to 8 results.",
+            "type": "boolean"
+          },
           "from": {
             "type": "string"
           },

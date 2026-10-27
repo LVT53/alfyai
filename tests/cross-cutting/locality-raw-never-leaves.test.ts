@@ -74,6 +74,11 @@ const mocks = vi.hoisted(() => ({
 	nextcloudStat: vi.fn(),
 	executeNextcloudWrite: vi.fn(),
 	immichSmartSearch: vi.fn(),
+	immichThumbnail: vi.fn(),
+	modelIdCanSeeImages: vi.fn(),
+	describeImage: vi.fn(),
+	prepareImageForModel: vi.fn(),
+	resolveNormalChatModelRunProvider: vi.fn(),
 	plexWatchHistory: vi.fn(),
 	plexLibrarySections: vi.fn(),
 	owntracksLastLocation: vi.fn(),
@@ -192,8 +197,43 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/immich")
 	>("$lib/server/services/connections/providers/immich");
-	return { ...actual, immichSmartSearch: mocks.immichSmartSearch };
+	return {
+		...actual,
+		immichSmartSearch: mocks.immichSmartSearch,
+		immichThumbnail: mocks.immichThumbnail,
+	};
 });
+// What a look at Immich photos reaches for beyond the download: whether a model
+// can see, the describing call, the image preparation, and where the summarising
+// model runs. The decision about who gets pixels is the code under test, so
+// connections/locality (above) and these are the only edges that are faked.
+vi.mock("$lib/server/services/vision/model-vision", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/vision/model-vision")
+	>()),
+	modelIdCanSeeImages: mocks.modelIdCanSeeImages,
+}));
+vi.mock("$lib/server/services/vision/describe", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/vision/describe")
+	>()),
+	describeImage: mocks.describeImage,
+}));
+vi.mock(
+	"$lib/server/services/vision/prepare-image",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("$lib/server/services/vision/prepare-image")
+		>()),
+		prepareImageForModel: mocks.prepareImageForModel,
+	}),
+);
+vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/normal-chat-model")
+	>()),
+	resolveNormalChatModelRunProvider: mocks.resolveNormalChatModelRunProvider,
+}));
 vi.mock("$lib/server/services/connections/providers/plex", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/plex")
@@ -545,6 +585,200 @@ describe("locality — photos (Option A)", () => {
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(JSON.stringify(outcome.modelPayload)).not.toContain(token);
 		expect(JSON.stringify(outcome.candidates)).toContain(token);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The pixels of a photo are raw connector data too. The photos tool can show
+// the model thumbnails of what it found (look: true), and for a person who keeps
+// summarising local with a cloud model that must never happen: the cloud model
+// is sent no thumbnail, and nothing a local model read off one except through
+// the summary. The cloud model's whole input from the tool is two things: the
+// tool result (modelPayload) and the pictures queued for the step after it (the
+// queue), so both are searched, for the bytes and for what a local model said.
+// ---------------------------------------------------------------------------
+describe("locality — photos look (pixels)", () => {
+	const CLOUD_CHAT_MODEL = "provider:cloud:chat";
+	const LOCAL_SEEING_MODEL = "model2";
+	const localProvider = {
+		id: "local",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://192.168.1.96:30000/v1",
+		modelName: "flash-next",
+		apiKey: "key",
+	};
+
+	let thumbnailToken: string;
+	let descriptionToken: string;
+	let fileNameToken: string;
+
+	beforeEach(() => {
+		resetSharedMocks();
+		for (const mock of [
+			mocks.immichSmartSearch,
+			mocks.immichThumbnail,
+			mocks.modelIdCanSeeImages,
+			mocks.describeImage,
+			mocks.prepareImageForModel,
+			mocks.resolveNormalChatModelRunProvider,
+			mocks.getConfig,
+		]) {
+			mock.mockReset();
+		}
+		thumbnailToken = distinctiveToken("thumbnail-bytes");
+		descriptionToken = distinctiveToken("local-description");
+		fileNameToken = distinctiveToken("photo-filename");
+		mocks.resolveConnectionsForCapability.mockResolvedValue([
+			makeConn({ provider: "immich", capabilities: ["photos"] }),
+		]);
+		mocks.immichSmartSearch.mockResolvedValue(
+			[1, 2, 3].map((n) => ({
+				id: `asset-${n}`,
+				fileName: `${fileNameToken}-${n}.jpg`,
+				takenAt: "2026-06-01T09:55:00.000Z",
+				type: "IMAGE",
+				thumbnailPath: `/api/assets/asset-${n}/thumbnail`,
+			})),
+		);
+		mocks.immichThumbnail.mockResolvedValue({
+			bytes: new TextEncoder().encode(thumbnailToken).buffer,
+			contentType: "image/webp",
+		});
+		mocks.prepareImageForModel.mockImplementation(
+			async (bytes: Uint8Array) => ({
+				base64: Buffer.from(bytes).toString("base64"),
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 6,
+			}),
+		);
+		mocks.describeImage.mockResolvedValue(`a beach ${descriptionToken}`);
+		mocks.getConfig.mockReturnValue({
+			memoryConsolidationModel: LOCAL_SEEING_MODEL,
+		});
+		mocks.resolveNormalChatModelRunProvider.mockResolvedValue(localProvider);
+		mocks.distillConnectorPayload.mockResolvedValue({
+			distilled: "Three beach photos.",
+		});
+	});
+
+	async function lookAs(modelId: string) {
+		const { runPhotosTool } = await import(
+			"$lib/server/services/normal-chat-tools/photos"
+		);
+		const { createStepImageQueue } = await import(
+			"$lib/server/services/vision/step-images"
+		);
+		const queue = createStepImageQueue();
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "x", look: true },
+			modelId,
+			undefined,
+			{ queue },
+		);
+		// Everything the chat model is sent because of this call.
+		const sentToModel = JSON.stringify([outcome.modelPayload, queue.drain()]);
+		return { outcome, sentToModel };
+	}
+
+	const thumbnailBase64 = () => Buffer.from(thumbnailToken).toString("base64");
+
+	it("Option A on + cloud model + no local model that can see: no thumbnail is downloaded, none reaches the cloud model", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		mocks.isCloudModel.mockImplementation(
+			async (id: string) => id === CLOUD_CHAT_MODEL,
+		);
+		mocks.modelIdCanSeeImages.mockResolvedValue(false);
+
+		const { sentToModel } = await lookAs(CLOUD_CHAT_MODEL);
+
+		expect(mocks.immichThumbnail).not.toHaveBeenCalled();
+		expect(mocks.describeImage).not.toHaveBeenCalled();
+		expect(sentToModel).not.toContain(thumbnailToken);
+		expect(sentToModel).not.toContain(thumbnailBase64());
+		expect(sentToModel).not.toContain(fileNameToken);
+	});
+
+	it("Option A on + cloud model + a local model that can see: the thumbnails go to the local model alone, and the cloud model gets the summary", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		mocks.isCloudModel.mockImplementation(
+			async (id: string) => id === CLOUD_CHAT_MODEL,
+		);
+		mocks.modelIdCanSeeImages.mockImplementation(
+			async (id: string) => id === LOCAL_SEEING_MODEL,
+		);
+
+		const { outcome, sentToModel } = await lookAs(CLOUD_CHAT_MODEL);
+
+		// The bytes were read, by the local model and nobody else ...
+		expect(mocks.describeImage).toHaveBeenCalledTimes(3);
+		for (const [call] of mocks.describeImage.mock.calls) {
+			expect(call.provider).toBe(localProvider);
+			expect(call.image.base64).toBe(thumbnailBase64());
+		}
+		// ... what it said went to the summary, as the gate always does ...
+		expect(mocks.distillConnectorPayload).toHaveBeenCalledWith(
+			expect.objectContaining({
+				rawText: expect.stringContaining(descriptionToken),
+			}),
+		);
+		// ... and the cloud model was sent neither, nor the names.
+		expect(outcome.modelPayload.message).toContain("Three beach photos.");
+		expect(sentToModel).not.toContain(thumbnailToken);
+		expect(sentToModel).not.toContain(thumbnailBase64());
+		expect(sentToModel).not.toContain(descriptionToken);
+		expect(sentToModel).not.toContain(fileNameToken);
+	});
+
+	it("Option A on + cloud model that can see itself: still no thumbnail", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		mocks.isCloudModel.mockImplementation(
+			async (id: string) => id === CLOUD_CHAT_MODEL,
+		);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		const { sentToModel } = await lookAs(CLOUD_CHAT_MODEL);
+
+		expect(sentToModel).not.toContain(thumbnailToken);
+		expect(sentToModel).not.toContain(thumbnailBase64());
+	});
+
+	it("Option A on + cloud model + the summarising model is in the cloud too: nothing is downloaded or described", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		mocks.isCloudModel.mockResolvedValue(true);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		const { sentToModel } = await lookAs(CLOUD_CHAT_MODEL);
+
+		expect(mocks.immichThumbnail).not.toHaveBeenCalled();
+		expect(mocks.describeImage).not.toHaveBeenCalled();
+		expect(sentToModel).not.toContain(thumbnailBase64());
+	});
+
+	it("Option A on + local model that can see: the thumbnails are queued, and stay on the box", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(true);
+		mocks.isCloudModel.mockResolvedValue(false);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		const { outcome, sentToModel } = await lookAs("model1");
+
+		expect(outcome.viewedCount).toBe(3);
+		expect(sentToModel).toContain(thumbnailBase64());
+		expect(mocks.describeImage).not.toHaveBeenCalled();
+	});
+
+	it("Option A off + cloud model that can see: the person chose the cloud, so the thumbnails are queued for it", async () => {
+		mocks.hasLocalDistillEnabled.mockResolvedValue(false);
+		mocks.isCloudModel.mockResolvedValue(true);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		const { outcome, sentToModel } = await lookAs(CLOUD_CHAT_MODEL);
+
+		expect(outcome.viewedCount).toBe(3);
+		expect(sentToModel).toContain(thumbnailBase64());
 	});
 });
 
