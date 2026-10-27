@@ -3908,3 +3908,87 @@ describe("MessageBubble: what the reply may show of the web is what its own tool
 		]);
 	});
 });
+
+// Plan 2b T5 — a sent message's pictures: each card picture a numbered
+// thumbnail, the uploaded photos under their numbers too.
+describe("MessageBubble pictures the message carried", () => {
+	function userMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+		return {
+			id: "user-pics",
+			renderKey: "user-pics",
+			role: "user",
+			content: "Blend them",
+			timestamp: Date.now(),
+			...overrides,
+		};
+	}
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("shows each card picture as a numbered thumbnail from the picture route", () => {
+		render(MessageBubble, {
+			conversationId: "conv-1",
+			message: userMessage({
+				pictures: {
+					refs: [
+						{ imageFileId: "f2", number: 2, name: "Blue mug" },
+						{ imageFileId: "f1", number: 1, name: "Red rug" },
+					],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const chips = screen.getAllByTestId("message-picture-chip");
+		expect(chips).toHaveLength(2);
+		expect(
+			within(chips[0]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("1");
+		expect(
+			within(chips[1]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("2");
+		expect(screen.getByLabelText("Picture 1: Red rug")).toBeTruthy();
+		const thumb = chips[0].querySelector("img") as HTMLImageElement;
+		expect(thumb.getAttribute("src")).toBe(
+			"/api/images/files/f1?variant=thumb&conversationId=conv-1",
+		);
+		expect(chips[0].dataset.chipSize).toBe("message");
+	});
+
+	it("numbers an uploaded photo under the number the server gave it", () => {
+		render(MessageBubble, {
+			message: userMessage({
+				attachments: [
+					{
+						id: "att-1",
+						artifactId: "photo-1",
+						name: "rug.jpg",
+						type: "source_document",
+						mimeType: "image/jpeg",
+						sizeBytes: 100,
+						conversationId: "conv-1",
+						createdAt: Date.now(),
+					},
+				] as ChatMessage["attachments"],
+				pictures: {
+					refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+					uploads: [{ artifactId: "photo-1", number: 1 }],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const photo = screen.getByTestId("message-attachment-chip");
+		expect(within(photo).getByTestId("composer-chip-number")).toHaveTextContent(
+			"1",
+		);
+		expect(screen.getByLabelText("Picture 2: Red rug")).toBeTruthy();
+	});
+
+	it("draws no picture chips for a message that carried none", () => {
+		render(MessageBubble, { message: userMessage() });
+		expect(screen.queryByTestId("message-picture-chip")).toBeNull();
+	});
+});

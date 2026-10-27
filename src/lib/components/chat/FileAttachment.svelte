@@ -37,6 +37,7 @@ let {
 	viewable = false,
 	onRemove,
 	onView,
+	number = null,
 }: {
 	attachment: T & FileAttachmentData;
 	removable?: boolean;
@@ -52,6 +53,8 @@ let {
 	viewable?: boolean;
 	onRemove?: (payload: { id: string }) => void;
 	onView?: (attachment: T & FileAttachmentData) => void;
+	/** The picture's number in the message it was sent with ("Picture 1"); chip variant only. */
+	number?: number | null;
 } = $props();
 
 let chipMeta = $derived.by(() => {
@@ -116,6 +119,7 @@ function handleKeydown(event: KeyboardEvent) {
 		meta={chipMeta}
 		thumbnailUrl={attachmentThumbnailUrl(attachment)}
 		size="message"
+		{number}
 		removable={removable}
 		removeLabel={$t('composerChips.removeAttachment', { name: attachment.name })}
 		onRemove={removable && onRemove ? handleRemove : undefined}

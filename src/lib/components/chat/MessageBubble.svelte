@@ -66,6 +66,7 @@ import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
+import { imageFileUrl } from "$lib/client/api/images";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerChip from "./ComposerChip.svelte";
@@ -283,6 +284,20 @@ let atlasJobCostUsdMicros = $derived(
 );
 let isUser = $derived(message.role === "user");
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
+// The card pictures a user message carried, in their numbers, and the number
+// each uploaded photo went by (plan 2b T5). Both come with the message from its
+// first paint (the composer's numbers, then the server's, the same).
+let sentPictureRefs = $derived(
+	[...(message.pictures?.refs ?? [])].sort((a, b) => a.number - b.number),
+);
+let sentUploadNumbers = $derived(
+	new Map(
+		(message.pictures?.uploads ?? []).map((upload) => [
+			upload.artifactId,
+			upload.number,
+		]),
+	),
+);
 let hasThinking = $derived(Boolean(message.thinking?.trim()));
 let isFinalizing = $derived(message.runtimePhase === "finalizing");
 const isStreaming = $derived(
@@ -1178,13 +1193,14 @@ function sendFollowUp(question: string) {
 				     order, 22px instead of 28px, and no × (a sent turn is a
 				     record, not a promise). An attachment chip stays clickable
 				     and opens the document workspace, as the compact chip did. -->
-				{#if hasAttachments || userQuoteSplit.quoteLabels.length > 0}
+				{#if hasAttachments || sentPictureRefs.length > 0 || userQuoteSplit.quoteLabels.length > 0}
 					<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
 						{#each message.attachments ?? [] as attachment (attachment.id)}
 							<span class="user-bubble-chip">
 								<FileAttachment
 									attachment={toArtifactSummary(attachment)}
 									variant="chip"
+									number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
 									viewable={Boolean(onOpenDocument)}
 									onView={handleViewAttachment}
 								/>
@@ -1197,6 +1213,16 @@ function sendFollowUp(question: string) {
 									/>
 								{/if}
 							</span>
+						{/each}
+						{#each sentPictureRefs as pictureRef (pictureRef.imageFileId)}
+							<ComposerChip
+								kind="image"
+								label={pictureRef.name}
+								thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId })}
+								number={pictureRef.number}
+								size="message"
+								testId="message-picture-chip"
+							/>
 						{/each}
 						{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
 							<ComposerChip
