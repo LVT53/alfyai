@@ -421,6 +421,45 @@ describe("prepareRetryChatTurn", () => {
 		expect(cleanupFailedTurn).toHaveBeenCalled();
 	});
 
+	it("judges recorded marks against the refs the browser resent, not the recorded ones", async () => {
+		const user3 = mockConversationMessages.find((m) => m.id === "user-3");
+		if (!user3) throw new Error("fixture");
+		user3.metadataJson = JSON.stringify({
+			pictures: {
+				refs: [
+					{ imageFileId: "file-1", number: 1, name: "Rug" },
+					{ imageFileId: "file-2", number: 2, name: "Sofa" },
+				],
+				open: null,
+				marks: {
+					imageFileId: "file-1",
+					markedFileId: "file-9",
+					letters: ["A"],
+					boxes: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+				},
+			},
+		});
+		const resent = [{ imageFileId: "file-2", number: 2 }];
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+				pictureRefs: resent,
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mockKeepReadable).toHaveBeenCalledWith(
+			expect.objectContaining({ refs: resent }),
+		);
+		expect(capturedSyntheticBodies[0].pictureRefs).toEqual(resent);
+	});
+
 	it("carries the card pictures and the marks of the retried turn into the synthetic body the request parser reads", async () => {
 		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
 		const imageMarks = {

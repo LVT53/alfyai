@@ -238,11 +238,16 @@ export async function prepareRetryChatTurn(params: {
 			? await keepReadableRecordedPictures({
 					userId,
 					conversationId,
+					// Recorded marks must be judged against the refs this regenerate will
+					// really carry: the browser's when it resent them (maybe only some of
+					// the recorded ones), else the recorded ones.
 					refs:
+						explicitPictureRefs(pictureRefs) ??
 						recordedPictures?.refs.map(({ imageFileId, number }) => ({
 							imageFileId,
 							number,
-						})) ?? [],
+						})) ??
+						[],
 					marks: recordedPictures?.marks?.boxes
 						? {
 								imageFileId: recordedPictures.marks.imageFileId,
@@ -548,4 +553,18 @@ function streamError(error: ChatTurnRequestError): {
 			responseShape: "stream-json",
 		},
 	};
+}
+
+/** The refs a browser resent, in the shape the picture helpers read; null when it sent none at all. Invalid entries are left for the request parser to refuse. */
+function explicitPictureRefs(
+	value: unknown,
+): Array<{ imageFileId: string; number: number }> | null {
+	if (!Array.isArray(value)) return null;
+	return value.flatMap((entry) => {
+		if (typeof entry !== "object" || entry === null) return [];
+		const { imageFileId, number } = entry as Record<string, unknown>;
+		return typeof imageFileId === "string" && typeof number === "number"
+			? [{ imageFileId, number }]
+			: [];
+	});
 }
