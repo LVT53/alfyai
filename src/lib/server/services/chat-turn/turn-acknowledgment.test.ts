@@ -3,8 +3,17 @@ import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { warmModules } from "$lib/server/services/images/testing/fixture";
 
 // Every turn-acknowledgment call funnels through this one control-model
 // entrypoint, exactly like the memory-control-model adapter's own test
@@ -46,6 +55,17 @@ function controlModelResult(overrides: {
 		},
 	};
 }
+
+// The first test is the one that reaches the lazily imported analytics and
+// model-run helpers, so it paid for their whole module graph: seconds under a
+// loaded full run. Load them once here instead.
+beforeAll(async () => {
+	await warmModules([
+		() => import("./turn-acknowledgment"),
+		() => import("./shared-normal-chat-model-run-helpers"),
+		() => import("../analytics"),
+	]);
+}, 30_000);
 
 describe("resolveTurnAcknowledgment", () => {
 	beforeEach(() => {

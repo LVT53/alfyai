@@ -10,7 +10,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { createComfyUiClient } from "./comfyui/client";
 import { buildPromptGraph, graphFor } from "./comfyui/templates";
@@ -20,7 +28,11 @@ import {
 } from "./comfyui/testing/fake-comfyui";
 import { decodeRaw } from "./guards/raw-image";
 import type { StoredTakeMeasures, TakeRequest } from "./take-request";
-import { createImageFixture, type ImageFixture } from "./testing/fixture";
+import {
+	createImageFixture,
+	type ImageFixture,
+	warmModules,
+} from "./testing/fixture";
 import { drainImageTakes, useFakeComfyUi } from "./testing/run-takes";
 
 const userId = "user-1";
@@ -38,6 +50,17 @@ async function startFake(
 	useFakeComfyUi(fake.baseUrl);
 	return fake;
 }
+
+beforeAll(async () => {
+	await warmModules([
+		() => import("./image-job"),
+		() => import("./image-runner"),
+		() => import("./files"),
+		() => import("./idle-free"),
+		() => import("./cards"),
+		() => import("$lib/server/services/jobs"),
+	]);
+}, 30_000);
 
 beforeEach(async () => {
 	fixture = createImageFixture("image-runner");
@@ -183,8 +206,13 @@ async function resultBytes(takeId: string): Promise<Uint8Array> {
 
 describe("a new picture", () => {
 	it("renders to a stored PNG and passes every phase", async () => {
-		await startFake({ steps: 4, stepDelayMs: 120 });
-		const takeId = await queueTake(request());
+		// A small canvas: the fake paints, and the runner decodes, guards and
+		// stores, every pixel in JS, which at the full size is seconds of CPU
+		// under a loaded run. The phases do not depend on the size.
+		await startFake({ steps: 4, stepDelayMs: 40 });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
 
 		const seen: string[] = [];
 		const watching = (async () => {
@@ -205,7 +233,7 @@ describe("a new picture", () => {
 		expect(take.resultFileId).not.toBeNull();
 		expect(seen).toEqual(["submitted", "starting", "rendering", "finishing"]);
 		const meta = await sharp(await resultBytes(takeId)).metadata();
-		expect(meta).toMatchObject({ format: "png", width: 1248, height: 832 });
+		expect(meta).toMatchObject({ format: "png", width: 256, height: 192 });
 	});
 });
 

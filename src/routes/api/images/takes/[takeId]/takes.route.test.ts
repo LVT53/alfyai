@@ -9,7 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
 	createFakeComfyUi,
@@ -18,6 +26,7 @@ import {
 import {
 	createImageFixture,
 	type ImageFixture,
+	warmModules,
 } from "$lib/server/services/images/testing/fixture";
 import {
 	drainImageTakes,
@@ -31,6 +40,17 @@ import {
 let fixture: ImageFixture;
 let workdir: string;
 let fake: FakeComfyUi | null = null;
+
+beforeAll(async () => {
+	await warmModules([
+		() => import("./use/+server"),
+		() => import("./stop/+server"),
+		() => import("./retry/+server"),
+		() => import("$lib/server/services/images/image-job"),
+		() => import("$lib/server/services/images/files"),
+		() => import("$lib/server/services/jobs"),
+	]);
+}, 30_000);
 
 beforeEach(async () => {
 	fixture = createImageFixture("image-take-routes");

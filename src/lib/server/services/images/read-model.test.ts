@@ -7,12 +7,32 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createImageFixture, type ImageFixture } from "./testing/fixture";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
+import {
+	createImageFixture,
+	type ImageFixture,
+	warmModules,
+} from "./testing/fixture";
 import { insertTake, takeRequest } from "./testing/takes";
 
 let fixture: ImageFixture;
 let workdir: string;
+
+beforeAll(async () => {
+	await warmModules([
+		() => import("./cards"),
+		() => import("./files"),
+		() => import("./read-model"),
+	]);
+}, 30_000);
 
 beforeEach(async () => {
 	fixture = createImageFixture("image-read-model");

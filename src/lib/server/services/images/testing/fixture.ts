@@ -11,6 +11,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 export interface ImageFixture {
@@ -74,4 +75,33 @@ export function createImageFixture(prefix = "images"): ImageFixture {
 			}
 		},
 	};
+}
+
+/**
+ * Loads the heavy module graph once, before any test runs. Each test resets the
+ * module registry so the app sees its own database file, which makes the first
+ * import of a file's graph (the artifacts facade, sharp, the job engine) the
+ * cost the first test pays: seconds when many workers transform at once. Run
+ * this from `beforeAll` and the tests only re-evaluate cached modules.
+ *
+ * It points `DATABASE_PATH` at a throwaway migrated file for the import (the
+ * database module opens its file when loaded), then closes it and resets the
+ * registry again so no test sees this copy.
+ */
+export async function warmModules(
+	loaders: Array<() => Promise<unknown>>,
+): Promise<void> {
+	const fixture = createImageFixture("image-warm");
+	const previous = process.env.DATABASE_PATH;
+	process.env.DATABASE_PATH = fixture.dbPath;
+	try {
+		await Promise.all(loaders.map((load) => load()));
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} finally {
+		if (previous === undefined) delete process.env.DATABASE_PATH;
+		else process.env.DATABASE_PATH = previous;
+		fixture.cleanup();
+		vi.resetModules();
+	}
 }

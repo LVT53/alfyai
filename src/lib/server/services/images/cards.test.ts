@@ -12,18 +12,38 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import type { StoredTakeMeasures, TakeRequest } from "./take-request";
-import { createImageFixture, type ImageFixture } from "./testing/fixture";
+import {
+	createImageFixture,
+	type ImageFixture,
+	warmModules,
+} from "./testing/fixture";
 
 const userId = "user-1";
 const conversationId = "conv-1";
 
 let fixture: ImageFixture;
 let workdir: string;
+
+beforeAll(async () => {
+	await warmModules([
+		() => import("./cards"),
+		() => import("./files"),
+		() => import("$lib/server/services/artifacts"),
+	]);
+}, 30_000);
 
 beforeEach(async () => {
 	fixture = createImageFixture("image-cards");

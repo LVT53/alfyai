@@ -316,6 +316,10 @@ export function createComfyUiClient(options: {
 			let queuedAhead: number | null = null;
 			let started = false;
 			let socketFailure: ComfyUiError | null = null;
+			// Ends the poll pause early. A finished or failed render says so on the
+			// socket, so the follower looks at the history at once instead of
+			// sitting out the rest of its poll interval.
+			let wakePoll: (() => void) | null = null;
 
 			const emitQueued = (ahead: number) => {
 				if (queuedAhead === ahead) return;
@@ -330,6 +334,14 @@ export function createComfyUiClient(options: {
 				onEvent({ type: "started" });
 			};
 			const handle = (message: SocketMessage) => {
+				if (
+					message.type === "execution_success" ||
+					message.type === "execution_error" ||
+					message.type === "execution_interrupted" ||
+					(message.type === "executing" && message.data.node === null)
+				) {
+					wakePoll?.();
+				}
 				if (message.type === "execution_start") emitStarted();
 				else if (message.type === "progress") {
 					const { value, max } = message.data;
@@ -352,14 +364,19 @@ export function createComfyUiClient(options: {
 			// The first poll goes before any socket message so "queued" leads.
 			const wait = (ms: number) =>
 				new Promise<void>((resolve, reject) => {
-					const onAbort = () => {
+					const finish = () => {
 						clearTimeout(timer);
-						reject(signal.reason);
-					};
-					const timer = setTimeout(() => {
+						wakePoll = null;
 						signal.removeEventListener("abort", onAbort);
 						resolve();
-					}, ms);
+					};
+					const onAbort = () => {
+						clearTimeout(timer);
+						wakePoll = null;
+						reject(signal.reason);
+					};
+					const timer = setTimeout(finish, ms);
+					wakePoll = finish;
 					signal.addEventListener("abort", onAbort, { once: true });
 				});
 
