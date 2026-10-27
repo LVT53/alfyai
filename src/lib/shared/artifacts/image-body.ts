@@ -8,9 +8,9 @@
  * panel's overlay and the server's painter use the same numbers.
  */
 
-export const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
+const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export type MarkLetter = (typeof MARK_LETTERS)[number];
-export const MAX_MARKS = 8;
+const MAX_MARKS = 8;
 
 /** A boxed area of the picture, in fractions of its width and height. */
 export type ImageMark = {
