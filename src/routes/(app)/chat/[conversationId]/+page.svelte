@@ -16,6 +16,7 @@ import type {
 	ImageCardActionResult,
 } from "$lib/components/artifacts/image/image-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
+import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
@@ -209,9 +210,11 @@ import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
+	addComposerPicture,
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
+	composerPicturesFromSend,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
@@ -426,6 +429,12 @@ let normalChatRuntimeCanStop = $derived(
 			normalChatRuntimePhase === "generating"),
 );
 let queuedTurn = $state<SendPayload | null>(null);
+// Pictures waiting in the composer (plan 2b T5): a card's, a strip frame's or a
+// History version's Attach puts one here; the composer numbers them with the
+// uploaded photos and the send carries them. Cleared by a send, a queue and a
+// switch to another chat; not kept in the draft.
+let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
+let composerFocusRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
 
@@ -1716,6 +1725,39 @@ function handleArtifactUnreachable(artifactId: string) {
 }
 
 /**
+ * Attach, from a card, a strip frame or History (plan 2b T5): the picture
+ * becomes a numbered chip in the composer and the box takes focus. The panel
+ * can be in the way: on a phone it is the whole screen and an expanded panel
+ * covers the chat, so it gives way (a docked panel stays, composer beside it).
+ */
+function attachPicture(picture: ComposerPictureRef) {
+	composerPictures = addComposerPicture(composerPictures, picture);
+	composerFocusRequest += 1;
+	if (window.matchMedia("(max-width: 767.98px)").matches) {
+		closeWorkspace();
+	} else if (workspaceOpen && workspacePresentation === "expanded") {
+		workspacePresentation = "docked";
+	}
+}
+
+function removeComposerPicture(imageFileId: string) {
+	composerPictures = composerPictures.filter(
+		(picture) => picture.imageFileId !== imageFileId,
+	);
+}
+
+// The pictures leave the composer with the message, sent or queued.
+function handleComposerSend(payload: SendPayload) {
+	composerPictures = [];
+	return handleSend(payload);
+}
+
+function handleComposerQueue(payload: SendPayload) {
+	composerPictures = [];
+	handleQueue(payload);
+}
+
+/**
  * What a picture card's buttons ask for (plan 2b T2). Each goes through
  * `client/api/images.ts` and reads the detail back, so the card shows what
  * the server did; a failure says so in a toast and rejects, so the card can
@@ -1771,6 +1813,9 @@ async function handleImageAction(
 				return undefined;
 			case "open":
 				openImage(action.artifactId, false);
+				return undefined;
+			case "attach":
+				attachPicture({ imageFileId: action.fileId, name: action.name });
 				return undefined;
 		}
 		// Read back whatever the poll is doing: Use this on a settled card has no poll.
@@ -2175,6 +2220,7 @@ function resetState() {
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
 	sendError = null;
 	isSending = false;
+	composerPictures = [];
 	titleGenerationTriggered = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,
@@ -2978,6 +3024,9 @@ $effect(() => {
 });
 
 function restorePayloadToDraft(payload: SendPayload) {
+	// The queued turn's card pictures come back as chips (its marks come back
+	// with T6's Mark chip).
+	composerPictures = composerPicturesFromSend(payload.pictures);
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
 	conversationDraft = createConversationDraftRecord({
 		conversationId: nextConversationId,
@@ -4194,8 +4243,11 @@ function handleDrop(event: DragEvent) {
 				canRetry={normalChatRuntimeCanRetry}
 				onRetry={handleRetry}
 				onErrorClose={handleErrorClose}
-				onSend={handleSend}
-				onQueue={handleQueue}
+				onSend={handleComposerSend}
+				onQueue={handleComposerQueue}
+				pictureRefs={composerPictures}
+				onRemovePictureRef={removeComposerPicture}
+				focusRequest={composerFocusRequest}
 				onStop={handleStop}
 				onCompact={handleCompact}
 				onDraftChange={handleDraftChange}
@@ -4287,6 +4339,7 @@ function handleDrop(event: DragEvent) {
 			onFlushReady={handleFlushReady}
 			{artifactVersionMessages}
 			onShowChatMessage={handleShowChatMessage}
+			onAttachPicture={attachPicture}
 			currentUser={data.user}
 		/>
 	</div>

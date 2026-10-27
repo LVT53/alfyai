@@ -7,6 +7,7 @@ import {
 } from "$lib/components/artifacts/document/alfy-activity";
 import { hasActiveImageTakes } from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
+import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
@@ -39,6 +40,10 @@ import type {
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
+import type {
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import {
 	attachmentReadinessReasonKey,
 	isAttachmentReadinessReason,
@@ -59,6 +64,10 @@ export type SendPayload = {
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
 	linkedSources?: LinkedContextSource[];
+	// Card pictures attached under their numbers, and the same with their names
+	// (plan 2b T5). See normal-chat-client-turn-runtime.ts's NormalChatSendPayload.
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -1102,6 +1111,26 @@ export function removeMessageById(
 	return list.filter((message) => message.id !== messageId);
 }
 
+/** A card, strip or History picture put in the composer: each file once, in the order added. */
+export function addComposerPicture(
+	list: readonly ComposerPictureRef[],
+	picture: ComposerPictureRef,
+): readonly ComposerPictureRef[] {
+	if (list.some((entry) => entry.imageFileId === picture.imageFileId)) {
+		return list;
+	}
+	return [...list, { imageFileId: picture.imageFileId, name: picture.name }];
+}
+
+/** The chips of a queued turn put back in the composer (in their number order). */
+export function composerPicturesFromSend(
+	pictures: UserPicturesMetadata | undefined,
+): ComposerPictureRef[] {
+	return [...(pictures?.refs ?? [])]
+		.sort((a, b) => a.number - b.number)
+		.map((ref) => ({ imageFileId: ref.imageFileId, name: ref.name }));
+}
+
 export function cloneSendPayload(payload: SendPayload): SendPayload {
 	return {
 		message: payload.message,
@@ -1128,6 +1157,13 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 					unavailable: payload.pendingSkill.unavailable === true,
 				}
 			: null,
+		pictureRefs: payload.pictureRefs?.map((ref) => ({ ...ref })),
+		pictures: payload.pictures
+			? {
+					...payload.pictures,
+					refs: payload.pictures.refs.map((ref) => ({ ...ref })),
+				}
+			: undefined,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		reasoningDepth: payload.reasoningDepth,

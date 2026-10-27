@@ -35,6 +35,7 @@ import {
 import type {
 	ImageMarksRequest,
 	PictureRef,
+	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import {
 	isFileProductionToolName,
@@ -55,6 +56,12 @@ export type NormalChatSendPayload = {
 	// person saw, and the marks drawn on one picture. Sent in the stream body;
 	// the server numbers them with the uploads and the open picture.
 	pictureRefs?: PictureRef[];
+	// The same pictures with their names, and the numbers the uploads went by
+	// (the composer's numbering): the optimistic user message draws its numbered
+	// thumbnails from it from the first paint (F13), and a queued turn put back
+	// in the composer gets its chips and their names from it. The server's
+	// record replaces it with the same numbers.
+	pictures?: UserPicturesMetadata;
 	imageMarks?: ImageMarksRequest | null;
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
@@ -506,12 +513,14 @@ export function createNormalChatClientTurnRuntime(
 		text: string;
 		attachmentIds: string[];
 		attachedArtifacts: ArtifactSummary[];
+		pictures?: UserPicturesMetadata;
 	}): ChatMessage {
 		return {
 			id: params.id,
 			renderKey: params.id,
 			role: "user",
 			content: params.text,
+			...(params.pictures ? { pictures: params.pictures } : {}),
 			attachments: params.attachedArtifacts
 				.filter((artifact) => params.attachmentIds.includes(artifact.id))
 				.map((artifact) => ({
@@ -1280,6 +1289,7 @@ export function createNormalChatClientTurnRuntime(
 					text,
 					attachmentIds: payload.attachmentIds ?? [],
 					attachedArtifacts: sentAttachments,
+					pictures: payload.pictures,
 				}),
 			});
 		}
@@ -1628,6 +1638,19 @@ function cloneSendPayload(
 			: null,
 		pictureRefs: payload.pictureRefs
 			? payload.pictureRefs.map((ref) => ({ ...ref }))
+			: undefined,
+		pictures: payload.pictures
+			? {
+					...payload.pictures,
+					refs: payload.pictures.refs.map((ref) => ({ ...ref })),
+					...(payload.pictures.uploads
+						? {
+								uploads: payload.pictures.uploads.map((upload) => ({
+									...upload,
+								})),
+							}
+						: {}),
+				}
 			: undefined,
 		imageMarks: payload.imageMarks
 			? {

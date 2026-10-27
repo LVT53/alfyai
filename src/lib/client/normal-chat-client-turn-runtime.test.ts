@@ -817,6 +817,61 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	it("puts the pictures of a send on the optimistic user message, from its first paint", async () => {
+		const { adapters, messageListEvents } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		const pictures = {
+			refs: [{ imageFileId: "file-1", number: 2, name: "Red rug" }],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: null,
+		};
+
+		await runtime.send({
+			message: "Blend them",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 2 }],
+			pictures,
+		});
+
+		expect(messageListEvents.appendUserMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ role: "user", pictures }),
+		);
+	});
+
+	it("keeps the pictures' names through a queued turn's copy and its restore", async () => {
+		const pictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Red rug" }],
+			open: null,
+			marks: null,
+		};
+		const { adapters } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			pictures,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.pictures).toEqual(pictures);
+		expect(queued?.pictures).not.toBe(pictures);
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ pictures }),
+		);
+	});
+
 	it("hands the card pictures and the marks of a send to the stream", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

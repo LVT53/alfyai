@@ -1,6 +1,7 @@
 <script lang='ts'>
 import type { Snippet } from "svelte";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
+import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -27,6 +28,9 @@ let {
 	onErrorClose,
 	onSend,
 	onQueue,
+	pictureRefs = [],
+	onRemovePictureRef = undefined,
+	focusRequest = 0,
 	onStop,
 	onDraftChange,
 	onEditQueuedMessage,
@@ -83,6 +87,11 @@ let {
 	onErrorClose: () => void;
 	onSend: (payload: SendPayload) => void;
 	onQueue: (payload: SendPayload) => void;
+	/** Card, strip and History pictures waiting in the message (Attach), numbered by the composer. */
+	pictureRefs?: readonly ComposerPictureRef[];
+	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
+	/** Rises when a picture was just attached: the composer takes focus. */
+	focusRequest?: number;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
 	onEditQueuedMessage: () => void;
@@ -208,6 +217,9 @@ $effect(() => {
 		<MessageInput
 			{onSend}
 			{onQueue}
+			{pictureRefs}
+			{onRemovePictureRef}
+			{focusRequest}
 			{onStop}
 			{onDraftChange}
 			{onEditQueuedMessage}

@@ -10,6 +10,7 @@ import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
+	addComposerPicture,
 	appendTokenChunkToMessageList,
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
@@ -18,6 +19,7 @@ import {
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
+	composerPicturesFromSend,
 	composerPlaceholderKey,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
@@ -2183,5 +2185,58 @@ describe("composerPlaceholderKey", () => {
 		expect(composerPlaceholderKey(null)).toBe(
 			"artifacts.chat.composerPlaceholder",
 		);
+	});
+});
+
+describe("composer pictures (plan 2b T5)", () => {
+	it("adds a picture once: attaching the same file again changes nothing", () => {
+		const first = addComposerPicture([], {
+			imageFileId: "f1",
+			name: "Red rug",
+		});
+		expect(first).toEqual([{ imageFileId: "f1", name: "Red rug" }]);
+		expect(
+			addComposerPicture(first, { imageFileId: "f1", name: "Red rug" }),
+		).toBe(first);
+		expect(
+			addComposerPicture(first, { imageFileId: "f2", name: "Mug" }),
+		).toEqual([
+			{ imageFileId: "f1", name: "Red rug" },
+			{ imageFileId: "f2", name: "Mug" },
+		]);
+	});
+
+	it("takes a queued turn's pictures back into the composer in their number order", () => {
+		expect(
+			composerPicturesFromSend({
+				refs: [
+					{ imageFileId: "f2", number: 2, name: "Mug" },
+					{ imageFileId: "f1", number: 1, name: "Red rug" },
+				],
+				open: null,
+				marks: null,
+			}),
+		).toEqual([
+			{ imageFileId: "f1", name: "Red rug" },
+			{ imageFileId: "f2", name: "Mug" },
+		]);
+		expect(composerPicturesFromSend(undefined)).toEqual([]);
+	});
+
+	it("keeps the pictures when a send payload is copied", () => {
+		const cloned = cloneSendPayload({
+			message: "Blend",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "f1", number: 1 }],
+			pictures: {
+				refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+				open: null,
+				marks: null,
+			},
+		});
+		expect(cloned.pictureRefs).toEqual([{ imageFileId: "f1", number: 1 }]);
+		expect(cloned.pictures?.refs[0].name).toBe("Red rug");
 	});
 });
