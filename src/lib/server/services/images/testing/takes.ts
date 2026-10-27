@@ -39,6 +39,9 @@ export async function insertTake(input: {
 	progressPercent?: number | null;
 	errorCode?: string | null;
 	retryable?: boolean;
+	origin?: "turn" | "retry" | "another";
+	retryOf?: string | null;
+	heldUntil?: number | null;
 }): Promise<string> {
 	const { db } = await import("$lib/server/db");
 	const schema = await import("$lib/server/db/schema");
@@ -51,7 +54,9 @@ export async function insertTake(input: {
 			status: input.status ?? "succeeded",
 			cardId: input.cardId,
 			conversationId: input.conversationId,
-			origin: "turn",
+			origin: input.origin ?? "turn",
+			retryOf: input.retryOf ?? null,
+			heldUntil: input.heldUntil ?? null,
 			requestJson: JSON.stringify(input.request ?? takeRequest()),
 			seed: input.seed ?? 7,
 			hidden: input.hidden ? 1 : 0,

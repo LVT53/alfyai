@@ -30,8 +30,20 @@ export type ImageTakeView = {
 	queueAhead: number | null;
 	progressPercent: number | null;
 	etaSeconds: number | null;
-	/** The request's canvas: the card reserves this box while the take renders. */
+	/** The request's canvas. */
 	canvas: { width: number; height: number };
+	/**
+	 * The exact pixel size the landed picture will have, known before it lands so
+	 * the card reserves the right aspect ratio: for an edit, the size of the base
+	 * file the guard composites onto; for a new picture, the canvas.
+	 */
+	box: { width: number; height: number };
+	/** Where the take came from: the tool call (`turn`), the model's automatic second try (`retry`) or the person's Another (`another`). */
+	origin: "turn" | "retry" | "another";
+	/** The take this one retries (an automatic retry shows in its first take's slot). */
+	retryOf: string | null;
+	/** The tool call has not yet decided about this take: it cannot be used until released. */
+	held: boolean;
 	fileId: string | null;
 	width: number | null;
 	height: number | null;
@@ -99,9 +111,22 @@ export async function listConversationImageCards(
 		)
 		.orderBy(asc(imageJobs.createdAt), sql`${imageJobs}.rowid`);
 
-	const fileIds = takes.flatMap((take) =>
-		take.resultFileId ? [take.resultFileId] : [],
+	const requests = new Map(
+		takes.map((take) => [take.id, parseTakeRequest(take.requestJson)]),
 	);
+	const fileIds = [
+		...new Set(
+			takes.flatMap((take) => {
+				const baseId = requests
+					.get(take.id)
+					?.inputs.find((input) => input.role === "base")?.fileId;
+				return [
+					...(take.resultFileId ? [take.resultFileId] : []),
+					...(baseId ? [baseId] : []),
+				];
+			}),
+		),
+	];
 	const files =
 		fileIds.length === 0
 			? []
@@ -118,11 +143,18 @@ export async function listConversationImageCards(
 
 	const byCard = new Map<string, ImageTakeView[]>();
 	for (const take of takes) {
-		const request = parseTakeRequest(take.requestJson);
+		const request = requests.get(take.id) ?? null;
 		if (!request) {
 			console.error("[IMAGES] A take's request could not be read:", take.id);
 		}
 		const file = take.resultFileId ? fileById.get(take.resultFileId) : null;
+		const canvas = request?.canvas ?? NEW_PICTURE_CANVAS.landscape;
+		const baseId =
+			request?.mode === "edit"
+				? request.inputs.find((input) => input.role === "base")?.fileId
+				: undefined;
+		const baseFile = baseId ? fileById.get(baseId) : null;
+		const now = Date.now();
 		const view: ImageTakeView = {
 			id: take.id,
 			status: viewStatus(take.status),
@@ -134,7 +166,16 @@ export async function listConversationImageCards(
 			queueAhead: take.queueAhead,
 			progressPercent: take.progressPercent,
 			etaSeconds: take.etaSeconds,
-			canvas: request?.canvas ?? NEW_PICTURE_CANVAS.landscape,
+			canvas,
+			box: baseFile
+				? { width: baseFile.width, height: baseFile.height }
+				: canvas,
+			origin:
+				take.origin === "retry" || take.origin === "another"
+					? take.origin
+					: "turn",
+			retryOf: take.retryOf,
+			held: take.heldUntil !== null && take.heldUntil > now,
 			fileId: file?.id ?? null,
 			width: file?.width ?? null,
 			height: file?.height ?? null,

@@ -159,6 +159,99 @@ describe("listConversationImageCards", () => {
 		});
 	});
 
+	it("says where a take came from, whether it is held, and what it retries", async () => {
+		const { listConversationImageCards } = await import("./read-model");
+		const card = await makeCard("t1");
+		const first = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+		});
+		const retry = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			origin: "retry",
+			retryOf: first,
+			heldUntil: Date.now() + 100_000,
+		});
+		const expired = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			origin: "another",
+			heldUntil: Date.now() - 1_000,
+		});
+		const [view] = await listConversationImageCards("u1", "c1");
+		const byId = new Map(view.takes.map((take) => [take.id, take]));
+		expect(byId.get(first)).toMatchObject({
+			origin: "turn",
+			retryOf: null,
+			held: false,
+		});
+		expect(byId.get(retry)).toMatchObject({
+			origin: "retry",
+			retryOf: first,
+			held: true,
+		});
+		expect(byId.get(expired)).toMatchObject({ origin: "another", held: false });
+	});
+
+	it("reserves the exact size the picture will have: the canvas for a new picture, the base file's size for an edit", async () => {
+		const { storeImageFile } = await import("./files");
+		const { listConversationImageCards } = await import("./read-model");
+		const card = await makeCard("t1");
+		const base = await storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "input",
+			png: new Uint8Array(
+				await sharp({
+					create: {
+						width: 1184,
+						height: 888,
+						channels: 3,
+						background: "#336699",
+					},
+				})
+					.png()
+					.toBuffer(),
+			),
+		});
+		const made = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({ canvas: { width: 1248, height: 832 } }),
+		});
+		const edit = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({
+				mode: "edit",
+				canvas: { width: 1184, height: 896 },
+				inputs: [{ fileId: base.id, role: "base", name: "room.png" }],
+			}),
+		});
+		const gone = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			request: takeRequest({
+				mode: "edit",
+				canvas: { width: 1184, height: 896 },
+				inputs: [{ fileId: "missing", role: "base", name: "room.png" }],
+			}),
+		});
+		const [view] = await listConversationImageCards("u1", "c1");
+		const byId = new Map(view.takes.map((take) => [take.id, take]));
+		expect(byId.get(made)?.box).toEqual({ width: 1248, height: 832 });
+		expect(byId.get(edit)?.box).toEqual({ width: 1184, height: 888 });
+		// A base file that cannot be found falls back to the canvas.
+		expect(byId.get(gone)?.box).toEqual({ width: 1184, height: 896 });
+	});
+
 	it("answers nothing for another person's chat", async () => {
 		const { listConversationImageCards } = await import("./read-model");
 		const card = await makeCard("t1", "u2", "c2");
