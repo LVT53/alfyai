@@ -258,12 +258,16 @@ export const init: ServerInit = async () => {
 	// the process starting and it answering a health check. Extraction's status
 	// words were rewritten to the engine's by `ensureRuntimeConfigReady`
 	// (db/compat.ts), which is awaited above, before any kind starts.
-	startJobs([
-		atlasResearchJob,
-		extractionJob,
-		fileProductionJob,
-		imageJob,
-	]).catch((error) => console.error("Failed to start the job engine:", error));
+	startJobs([atlasResearchJob, extractionJob, fileProductionJob, imageJob])
+		.then(async () => {
+			// A take that landed (or whose hold ran out) while the process was down
+			// still becomes its card's version in use.
+			const { settleHeldCards } = await import(
+				"$lib/server/services/images/cards"
+			);
+			await settleHeldCards();
+		})
+		.catch((error) => console.error("Failed to start the job engine:", error));
 
 	// The account tables' one sweep (R14): expired sessions and dead two-step
 	// rows, every five minutes, from a single unref'd timer. It lives here

@@ -16,6 +16,7 @@ import sharp from "sharp";
 import { db } from "$lib/server/db";
 import { imageJobs } from "$lib/server/db/schema";
 import type { JobFailure, JobRunContext } from "$lib/server/services/jobs";
+import { settleCard } from "./cards";
 import { createConfiguredComfyClient } from "./comfy-client";
 import {
 	type ComfyEvent,
@@ -494,5 +495,15 @@ async function renderTake(
 		// stored: nothing points at the file, and its chat's cleanup may already
 		// have run, so it is removed by path, row or no row.
 		await discardStoredImageFile(file).catch(() => undefined);
+		return;
+	}
+	// The take has landed. A held take stays a take to pick (settleCard skips it
+	// until its hold is released or has run out); otherwise it becomes the
+	// version in use when the card has none. The picture is already stored, so a
+	// failure here must not fail the take: the boot sweep settles the card.
+	try {
+		await settleCard(row.cardId, { preferTakeId: row.id });
+	} catch (error) {
+		console.error("[IMAGES] Could not settle the card:", error);
 	}
 }

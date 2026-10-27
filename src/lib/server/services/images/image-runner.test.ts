@@ -206,6 +206,25 @@ describe("a new picture", () => {
 		expect(seen).toEqual(["submitted", "starting", "rendering", "finishing"]);
 		const meta = await sharp(await resultBytes(takeId)).metadata();
 		expect(meta).toMatchObject({ format: "png", width: 1248, height: 832 });
+		// The first take of the file also loads the artifacts service when it lands.
+	}, 20_000);
+});
+
+describe("landing on a card", () => {
+	it("makes a take that lands unheld the card's version in use", async () => {
+		await startFake({ steps: 2 });
+		const takeId = await queueTake(request());
+		await drainImageTakes();
+
+		const { db } = await import("$lib/server/db");
+		const card = db
+			.select()
+			.from(schema.imageCards)
+			.where(eq(schema.imageCards.id, cardId))
+			.get();
+		expect(card?.pickedTakeId).toBe(takeId);
+		expect(card?.artifactId).toBeTruthy();
+		expect((await readTake(takeId)).versionNumber).toBe(1);
 	});
 });
 
