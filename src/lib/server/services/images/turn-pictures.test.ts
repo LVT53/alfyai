@@ -217,6 +217,11 @@ describe("resolveTurnPictures", () => {
 		expect([meta.width, meta.height]).toEqual([200, 100]);
 		expect(index.metadata).toEqual({
 			refs: [{ imageFileId: x.id, number: 1, name: "Attached picture" }],
+			// The uploads' numbers, so a sent message can number them as the model saw.
+			uploads: [
+				{ artifactId: "a", number: 2 },
+				{ artifactId: "b", number: 3 },
+			],
 			open: { imageFileId: open.file.id, name: "Cosy living room" },
 			marks: {
 				imageFileId: open.file.id,

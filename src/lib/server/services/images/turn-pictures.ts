@@ -358,9 +358,12 @@ export async function resolveTurnPictures(params: {
 	};
 
 	for (const entry of kept) await addRef(entry, entry.ref.number);
+	const metadataUploads: NonNullable<UserPicturesMetadata["uploads"]> = [];
 	for (const upload of uploads) {
+		const number = nextFree(taken);
+		metadataUploads.push({ artifactId: upload.artifactId, number });
 		pictures.push({
-			number: nextFree(taken),
+			number,
 			source: {
 				type: "upload",
 				artifactId: upload.artifactId,
@@ -428,6 +431,7 @@ export async function resolveTurnPictures(params: {
 		metadataRefs.length > 0 || open || markedMeta
 			? {
 					refs: metadataRefs.sort((a, b) => a.number - b.number),
+					...(metadataUploads.length > 0 ? { uploads: metadataUploads } : {}),
 					// An open picture that was also attached is recorded once, on its ref.
 					open:
 						open && !openIsRef

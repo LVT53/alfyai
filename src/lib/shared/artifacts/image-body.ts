@@ -87,6 +87,12 @@ export type UserPicturesMetadata = {
 		name: string;
 		open?: true;
 	}>;
+	/**
+	 * The uploads of the message under the numbers the model saw (they fill the
+	 * numbers the refs left free, so only the server knows them). Absent in
+	 * records from before this existed.
+	 */
+	uploads?: Array<{ artifactId: string; number: number }>;
 	/** The open picture when it was not also attached. */
 	open: { imageFileId: string; name: string } | null;
 	marks: {
@@ -188,6 +194,24 @@ export function parseUserPictures(
 			...(ref.open === true ? { open: true as const } : {}),
 		});
 	}
+	// Optional and best-effort: an older record has none, a malformed list is dropped.
+	let uploads: NonNullable<UserPicturesMetadata["uploads"]> | undefined;
+	if (Array.isArray(value.uploads)) {
+		const parsed: NonNullable<UserPicturesMetadata["uploads"]> = [];
+		for (const upload of value.uploads) {
+			if (
+				!isRecord(upload) ||
+				!isNonEmptyString(upload.artifactId) ||
+				typeof upload.number !== "number" ||
+				!Number.isInteger(upload.number)
+			) {
+				parsed.length = 0;
+				break;
+			}
+			parsed.push({ artifactId: upload.artifactId, number: upload.number });
+		}
+		if (parsed.length > 0) uploads = parsed;
+	}
 	let open: UserPicturesMetadata["open"] = null;
 	if (value.open != null) {
 		if (
@@ -221,7 +245,7 @@ export function parseUserPictures(
 		};
 	}
 	if (refs.length === 0 && !open && !marks) return undefined;
-	return { refs, open, marks };
+	return { refs, ...(uploads ? { uploads } : {}), open, marks };
 }
 
 /** The body a stored string holds, or `null` when it is not a version-1 image body. Never throws. */

@@ -4,6 +4,7 @@ import {
 	MARK_COLOURS,
 	parseImageMarks,
 	parseImageVersionBody,
+	parseUserPictures,
 	serializeImageVersionBody,
 } from "./image-body";
 
@@ -75,5 +76,50 @@ describe("parseImageMarks", () => {
 	it("refuses nine marks", () => {
 		const nine = "ABCDEFGHA".split("").map((l, i) => mark(l, i / 20));
 		expect(parseImageMarks(nine)).toBeNull();
+	});
+});
+
+describe("parseUserPictures uploads", () => {
+	const refs = [{ imageFileId: "f1", number: 1, name: "Sofa" }];
+
+	it("keeps the numbers of the uploads a message carried", () => {
+		expect(
+			parseUserPictures({
+				refs,
+				open: null,
+				marks: null,
+				uploads: [
+					{ artifactId: "a", number: 2 },
+					{ artifactId: "b", number: 3 },
+				],
+			}),
+		).toEqual({
+			refs,
+			uploads: [
+				{ artifactId: "a", number: 2 },
+				{ artifactId: "b", number: 3 },
+			],
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("still reads an older record without them", () => {
+		expect(parseUserPictures({ refs, open: null, marks: null })).toEqual({
+			refs,
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("drops a malformed uploads list without refusing the record", () => {
+		expect(
+			parseUserPictures({
+				refs,
+				open: null,
+				marks: null,
+				uploads: [{ artifactId: "a", number: "2" }],
+			}),
+		).toEqual({ refs, open: null, marks: null });
 	});
 });
