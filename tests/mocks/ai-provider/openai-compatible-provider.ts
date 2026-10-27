@@ -30,6 +30,9 @@ import {
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+	AI_SMOKE_MAKE_IMAGE_FINAL_TEXT,
+	AI_SMOKE_MAKE_IMAGE_MARKER,
+	AI_SMOKE_MAKE_IMAGE_PROMPT,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
@@ -1285,6 +1288,40 @@ function buildReadProjectFileStreamResponse(
 	]);
 }
 
+const MAKE_IMAGE_CALL_ID = "call_fake_make_image";
+
+function buildMakeImageStreamResponse(body: Record<string, unknown>): Response {
+	if (hasToolResultMessage(body)) {
+		const chunkBase = {
+			id: "chatcmpl_fake_make_image_final",
+			object: "chat.completion.chunk",
+			created: 1_700_000_015,
+			model: AI_SMOKE_MODEL_ID,
+		};
+		return streamResponse([
+			{
+				...chunkBase,
+				choices: [
+					{
+						index: 0,
+						delta: { content: AI_SMOKE_MAKE_IMAGE_FINAL_TEXT },
+						finish_reason: null,
+					},
+				],
+			},
+			{
+				...chunkBase,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+				usage: { prompt_tokens: 21, completion_tokens: 6, total_tokens: 27 },
+			},
+		]);
+	}
+	return buildSingleToolCallStreamResponse(MAKE_IMAGE_CALL_ID, "make_image", {
+		prompt: AI_SMOKE_MAKE_IMAGE_PROMPT,
+		title: "Lighthouse",
+	});
+}
+
 function buildToolFinalStreamResponse(): Response {
 	const chunkBase = {
 		id: "chatcmpl_fake_tool_final_stream",
@@ -1487,6 +1524,16 @@ export function createOpenAICompatibleProviderHarness(
 				if (scripted) {
 					if (scripted.delayMs) await delay(scripted.delayMs);
 					return streamResponse(scripted.frames);
+				}
+				if (
+					// The request that carries the tool result may end in the app's own
+					// look at the picture, so the marker is read from the whole body then.
+					hasToolResultMessage(body)
+						? JSON.stringify(body).includes(AI_SMOKE_MAKE_IMAGE_MARKER)
+						: currentTurnText(body)?.includes(AI_SMOKE_MAKE_IMAGE_MARKER) ===
+							true
+				) {
+					return buildMakeImageStreamResponse(body);
 				}
 				if (bodyAsksToReadProjectFile(body)) {
 					return buildReadProjectFileStreamResponse(body);

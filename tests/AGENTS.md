@@ -23,6 +23,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 | Search modal | `tests/e2e/search-modal.spec.ts` |
 | Sidebar selection (picking several chats, the bar, bulk delete, move and pin) | `tests/e2e/sidebar-multi-select.spec.ts` |
 | Seeing images (image attachments, the "Can see images" tick) | `tests/e2e/vision.spec.ts` |
+| Making pictures (the `make_image` tool against the fake ComfyUI: card, take, Image item, PNG file) | `tests/e2e/images-pipeline.spec.ts` (helpers: `images-helpers.ts`; marker: `AI_SMOKE_MAKE_IMAGE_MARKER` in `tests/fixtures/ai/openai-compatible-scenarios.ts`) |
 | Mobile/responsive | `tests/e2e/mobile-*.spec.ts`, `tests/e2e/responsive*.spec.ts` |
 | Server routes | `src/routes/api/**/*.test.ts` |
 | Services/stores | `src/lib/**/*.test.ts` |

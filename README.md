@@ -37,7 +37,10 @@ SQLite persistence — all in a single Node deployment.
   pictures. Leave it empty and picture making is off; Tool Health reports it as unconfigured when
   empty and degraded when the server stops answering `/system_stats`. `IMAGE_REFERENCE_CAP`
   (default 4, 1 to 10) is how many source pictures Alfy may hand the server for one image; each
-  extra one costs the server about 2 GiB. Both are live settings on the admin System page.
+  extra one costs the server about 2 GiB. Both are live settings on the admin System page. A
+  picture's wait inside a chat turn is up to 100 s, and the turn's stream-wide cap is
+  `max(60 s, REQUEST_TIMEOUT_MS)` (default 300 s), so an admin `REQUEST_TIMEOUT_MS` under about
+  130 s can end a picture's wait early.
 - **Maps and routing** — inline map cards and self-hosted OpenRouteService routing with optional
   on-demand regions and GTFS transit. See [docs/routing.md](docs/routing.md).
 

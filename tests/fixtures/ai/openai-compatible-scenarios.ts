@@ -27,6 +27,18 @@ export const AI_SMOKE_SUGGEST_INSTRUCTION_FINAL_TEXT =
 	"Noted — I will start summaries with Next Steps.";
 
 /**
+ * Picture making (images part 2a, `images-pipeline.spec.ts`): the fake model calls
+ * the app's real `make_image` tool with a fixed prompt, and the request that
+ * carries the tool result answers in text. The marker is read from the current
+ * turn's own message only.
+ */
+export const AI_SMOKE_MAKE_IMAGE_MARKER =
+	"Fake model step: make the picture below.";
+export const AI_SMOKE_MAKE_IMAGE_PROMPT =
+	"A small red lighthouse on a green hill under a clear sky.";
+export const AI_SMOKE_MAKE_IMAGE_FINAL_TEXT = "Made the picture you asked for.";
+
+/**
  * A turn that reads a project file with the real `read_generated_file` tool
  * although the user never named it: the fake model finds the file in the
  * prompt's project file list by this name prefix, and reads it by the name it
