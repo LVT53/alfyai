@@ -82,6 +82,8 @@ vi.mock("$lib/server/config-store", () => ({
 		model1MaxModelContext: 64_000,
 		model2MaxModelContext: 200_000,
 	})),
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		Boolean(config.comfyuiUrl?.trim()),
 }));
 // The connector tools run for real down to their providers: the user's
 // connections, the providers' answers, the pending-write row and the local

@@ -13,7 +13,10 @@ import { artifacts, imageFiles } from "$lib/server/db/schema";
 import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/ownership";
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
+import {
+	type ImageVersionBody,
+	parseImageVersionBody,
+} from "$lib/shared/artifacts/image-body";
 
 export type ImageFileRole = "input" | "take" | "marked";
 
@@ -308,6 +311,8 @@ export async function getImageItem(params: {
 	artifactId: string;
 	title: string;
 	fileId: string;
+	/** The newest version's body: its seed, anchor and chain are what a change builds on. */
+	body: ImageVersionBody;
 } | null> {
 	const [row] = await db
 		.select({
@@ -334,7 +339,7 @@ export async function getImageItem(params: {
 		typeof metadata.title === "string" && metadata.title.trim()
 			? metadata.title
 			: row.name;
-	return { artifactId: row.id, title, fileId: body.fileId };
+	return { artifactId: row.id, title, fileId: body.fileId, body };
 }
 
 /** The name a download carries: the item's title when the file belongs to one, else `picture.png`. */

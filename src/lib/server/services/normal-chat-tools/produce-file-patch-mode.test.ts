@@ -52,6 +52,8 @@ vi.mock("$lib/server/services/analytics", () => ({
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({})),
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		Boolean(config.comfyuiUrl?.trim()),
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({

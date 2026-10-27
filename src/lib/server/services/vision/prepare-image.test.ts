@@ -7,6 +7,7 @@ import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import {
 	ATTACHMENT_MAX_LONG_EDGE,
+	decodeImageToPng,
 	estimateImageTokens,
 	ImagePreparationError,
 	type PreparedImage,
@@ -557,5 +558,49 @@ describe("budgets", () => {
 	it("allows an attachment 1600 px and a thumbnail 512 px on the long side", () => {
 		expect(ATTACHMENT_MAX_LONG_EDGE).toBe(1600);
 		expect(THUMBNAIL_MAX_LONG_EDGE).toBe(512);
+	});
+});
+
+describe("decodeImageToPng", () => {
+	it("gives an upright PNG with its size", async () => {
+		// 40x20 stored sideways: EXIF orientation 6 means it is shown 20x40.
+		const sideways = await sharp({
+			create: { width: 40, height: 20, channels: 3, background: "#336699" },
+		})
+			.withMetadata({ orientation: 6 })
+			.jpeg()
+			.toBuffer();
+		const out = await decodeImageToPng(sideways, "image/jpeg");
+		expect(out.width).toBe(20);
+		expect(out.height).toBe(40);
+		expect(out.hasAlpha).toBe(false);
+		const meta = await sharp(out.png).metadata();
+		expect(meta.format).toBe("png");
+		expect([meta.width, meta.height]).toEqual([20, 40]);
+	});
+
+	it("keeps transparency", async () => {
+		const png = await sharp({
+			create: {
+				width: 8,
+				height: 8,
+				channels: 4,
+				background: { r: 255, g: 0, b: 0, alpha: 0.5 },
+			},
+		})
+			.png()
+			.toBuffer();
+		expect((await decodeImageToPng(png, "image/png")).hasAlpha).toBe(true);
+	});
+
+	it("decodes a HEIC", async () => {
+		const out = await decodeImageToPng(tinyHeic, "image/heic");
+		expect([out.width, out.height]).toEqual([64, 42]);
+	});
+
+	it("refuses bytes that are not a picture", async () => {
+		await expect(
+			decodeImageToPng(new Uint8Array([1, 2, 3]), "image/jpeg"),
+		).rejects.toBeInstanceOf(ImagePreparationError);
 	});
 });

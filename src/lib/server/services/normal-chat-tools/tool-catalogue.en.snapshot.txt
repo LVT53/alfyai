@@ -1240,6 +1240,72 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
+      "name": "make_image",
+      "description": "Make a new picture from words, or change one: a picture in this message (its number) or an Image from \"In this chat\" (its id). One picture per call; for options, repeat the call (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "The instruction for the picture model, in English: what to make or change, and what must stay as it is. Refer to `pictures` as <image1>, <image2> in their order."
+          },
+          "pictures": {
+            "description": "Pictures to start from: a picture number from this message (\"3\") or an Image id from \"In this chat\". Put the picture being changed first. When the user says \"it\", it is the picture open in the panel, else the newest Image in \"In this chat\".",
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "description": "For a new picture: a short title in the conversation's language.",
+            "type": "string",
+            "maxLength": 80
+          },
+          "summary": {
+            "description": "What you changed, in the conversation's language: one short past-tense line with no subject and never in the first person; shown in History.",
+            "type": "string",
+            "maxLength": 200
+          },
+          "size": {
+            "description": "Only for a new picture, when the user's words ask for a shape (\"for my phone\" is tall). A change keeps its picture's shape.",
+            "type": "string",
+            "enum": [
+              "landscape",
+              "portrait",
+              "square",
+              "wide",
+              "tall"
+            ]
+          },
+          "print": {
+            "description": "True only when the user wants print or wallpaper quality (about 4 MP, slower).",
+            "type": "boolean"
+          },
+          "transparent": {
+            "description": "True when the user wants a cut-out on a transparent background.",
+            "type": "boolean"
+          },
+          "startNew": {
+            "description": "True to start a separate picture even though the first picture is an existing Image.",
+            "type": "boolean"
+          },
+          "retryOf": {
+            "description": "A takeId from this turn whose result clearly missed: makes it again once; the better one is kept.",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "photos",
       "description": "Find the user's own photos/videos in their connected library (Immich). `search` is a natural-language SMART search matching visual/semantic CONTENT (what a photo depicts) — use it for 'a beach at sunset' or 'my dog in the snow'. For PRECISE filtering use `search_by_date`: a capture-date range (`from`/`to`, YYYY-MM-DD), place (`city`/`country`), media `type` (IMAGE/VIDEO), `favorites`, and/or a `personName` — this answers 'photos from June 2019', 'my favourites', or 'photos of a named person'. `list_albums` and `album` (by `albumId`) browse albums; `list_people` finds a recognized person's exact name. Do not use it for pictures from the web (image_search), for non-media documents (files), or for where the user was at a time (location). Each result includes an `imageUrl` — to SHOW a photo rather than list its filename, embed it as a markdown image `![short caption](imageUrl)`; prefer a few relevant photos over a filename table. Can also add photos to an 'AlfyAI' album (requires the user to have enabled writes) — this only PROPOSES a pending, confirm-required change and never deletes or modifies the originals. With several accounts connected, pass `account` (provider, label, or email).",
       "parameters": {

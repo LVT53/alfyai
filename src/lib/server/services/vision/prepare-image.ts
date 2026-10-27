@@ -39,6 +39,47 @@ export class ImagePreparationError extends Error {
 	}
 }
 
+/**
+ * An uploaded picture as a PNG for the picture server: upright (EXIF
+ * orientation applied), first frame only, transparency kept. HEIC and HEIF take
+ * the same hop through heic-convert as `prepareImageForModel`. Bytes it cannot
+ * read throw `ImagePreparationError`.
+ */
+export async function decodeImageToPng(
+	input: Uint8Array,
+	mimeType: string | null,
+): Promise<{
+	png: Buffer;
+	width: number;
+	height: number;
+	hasAlpha: boolean;
+}> {
+	try {
+		const source = isHeif(input, mimeType)
+			? await convertHeic({
+					buffer: input,
+					format: "JPEG",
+					quality: HEIF_HOP_QUALITY,
+				})
+			: input;
+		const { data, info } = await sharp(source, { animated: false })
+			.rotate()
+			.png()
+			.toBuffer({ resolveWithObject: true });
+		return {
+			png: data,
+			width: info.width,
+			height: info.height,
+			hasAlpha: info.channels === 4,
+		};
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new ImagePreparationError(`image preparation failed: ${reason}`, {
+			cause: error,
+		});
+	}
+}
+
 /** Tokens the model server charges for an image of this size. */
 export function estimateImageTokens(width: number, height: number): number {
 	return Math.ceil(width / TOKEN_TILE_PX) * Math.ceil(height / TOKEN_TILE_PX);

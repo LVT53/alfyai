@@ -183,6 +183,10 @@ const VERB_KEYS = {
 	journey: "toolActivity.journey",
 	planningJourney: "toolActivity.planningJourney",
 	created: "toolActivity.created",
+	makingPicture: "toolActivity.makingPicture",
+	madePicture: "toolActivity.madePicture",
+	changedPicture: "toolActivity.changedPicture",
+	pictureFailed: "toolActivity.pictureFailed",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -285,6 +289,7 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.output",
 	"toolActivity.expandActivity",
 	"toolActivity.failureDetails",
+	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
 	// they ride the same resolution test rather than a second one of their own.
 	"routeItinerary.directions",
@@ -747,6 +752,63 @@ function buildSettledToolActivityItem(
 			summaryLabel: `${skillVerb} ${displayName}`.trim(),
 			title: displayName,
 			body: description ? { kind: "text", text: description } : null,
+		};
+	}
+
+	// make_image: the picture itself is drawn by its own card in the chat; the
+	// row says what the call did, and for how many tries.
+	if (segment.name === "make_image") {
+		const metadata = segment.metadata;
+		const inputTitle =
+			typeof segment.input?.title === "string" ? segment.input.title : "";
+		const title =
+			typeof metadata?.imageTitle === "string" && metadata.imageTitle
+				? metadata.imageTitle
+				: inputTitle;
+		const picturesAreStillComing =
+			status === "running" || metadata?.imageStatus === "running";
+		if (picturesAreStillComing) {
+			const makingVerb = translate(VERB_KEYS.makingPicture);
+			return {
+				...base,
+				verb: makingVerb,
+				object: title,
+				meta: "",
+				summaryLabel: makingVerb,
+				title: title || makingVerb,
+				body: null,
+			};
+		}
+		if (status === "failed" || metadata?.ok === false) {
+			const failedVerb = translate(VERB_KEYS.pictureFailed);
+			const reason = toolFailureReason(segment);
+			return {
+				...base,
+				status: "failed",
+				verb: failedVerb,
+				object: title,
+				meta: reason ? translate("toolActivity.failureDetails") : "",
+				summaryLabel: failedVerb,
+				title: title ? `${failedVerb}: ${title}` : failedVerb,
+				body: reason ? { kind: "error", reason } : null,
+			};
+		}
+		const doneVerb = translate(
+			VERB_KEYS[
+				metadata?.imageEdit === true ? "changedPicture" : "madePicture"
+			],
+		);
+		return {
+			...base,
+			verb: doneVerb,
+			object: title,
+			meta:
+				metadata?.imageRetried === true
+					? translate("toolActivity.retriedOnce")
+					: "",
+			summaryLabel: `${doneVerb} ${title}`.trim(),
+			title,
+			body: null,
 		};
 	}
 

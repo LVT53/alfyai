@@ -8,6 +8,7 @@ import * as schema from "$lib/server/db/schema";
 
 const mocks = vi.hoisted(() => {
 	const config = {
+		comfyuiUrl: "",
 		contextDiagnosticsDebug: false,
 		teiEmbedderUrl: "",
 		teiEmbedderApiKey: "",

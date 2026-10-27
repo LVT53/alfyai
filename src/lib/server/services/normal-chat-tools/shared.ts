@@ -261,6 +261,10 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	// otherwise a job that is about to settle is aborted as a tool timeout
 	// instead of being reported as still running.
 	produce_file: 40_000,
+	// make_image holds its take for 130 s (so a late result is never promoted
+	// before the call has decided about it) and waits IMAGE_TOOL_WAIT_MS (100 s)
+	// for it; the envelope clears the wait with room for the card and the read.
+	make_image: 120_000,
 	// run_python executes synchronously in-turn (unlike produce_file, which
 	// submits a job and waits only a bounded time for it): the envelope timeout
 	// must clear the sandbox's own
@@ -348,8 +352,21 @@ function toolAbortError(toolName: string, reason: unknown): Error {
 	return new Error(`${toolName} aborted`);
 }
 
+/**
+ * The reason on the run signal when the envelope's own clock ran out. A tool
+ * that must tell it from the turn's abort (the composer's Stop) reads the
+ * signal's reason: `make_image` cancels what has not started on a Stop and only
+ * lets go of its takes on a timeout.
+ */
+export class ToolTimeoutError extends Error {
+	constructor(toolName: string, timeoutMs: number) {
+		super(`${toolName} timed out after ${timeoutMs}ms`);
+		this.name = "ToolTimeoutError";
+	}
+}
+
 function toolTimeoutError(toolName: string, timeoutMs: number): Error {
-	return new Error(`${toolName} timed out after ${timeoutMs}ms`);
+	return new ToolTimeoutError(toolName, timeoutMs);
 }
 
 // Stamps the envelope's own start→settle wall-clock time onto an entry's

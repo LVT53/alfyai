@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
+import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	type AtlasActivityJob,
@@ -1802,5 +1803,126 @@ describe("a source that came from a call's input, not from its result", () => {
 				toolCall({ name: "research_web", input: { query: REFUSED } }),
 			),
 		).toEqual([]);
+	});
+});
+
+describe("make_image rows", () => {
+	function makeImageCall(overrides: Partial<ToolCallSegment>) {
+		return toolCall({
+			name: "make_image",
+			input: { prompt: "a red door", title: "Red door" },
+			...overrides,
+		});
+	}
+
+	it("reads a finished new picture as 'Made' and its title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: false,
+					imageTitle: "Red door",
+					imageRetried: false,
+				},
+			}),
+			"k1",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			verb: "Made",
+			object: "Red door",
+			meta: "",
+			iconType: "artifact",
+			status: "done",
+		});
+	});
+
+	it("reads a finished change as 'Changed' and its title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				input: { prompt: "make the door blue", pictures: ["1"] },
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: true,
+					imageTitle: "Cosy room",
+				},
+			}),
+			"k2",
+			translate,
+		);
+
+		expect(item).toMatchObject({ verb: "Changed", object: "Cosy room" });
+	});
+
+	it("reads a running call, and a take still being made, as 'Making a picture'", () => {
+		const running = buildToolActivityItem(
+			makeImageCall({ status: "running" }),
+			"k3",
+			translate,
+		);
+		const late = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: true, imageStatus: "running", imageTitle: "Red door" },
+			}),
+			"k4",
+			translate,
+		);
+
+		expect(running).toMatchObject({
+			verb: "Making a picture",
+			status: "running",
+		});
+		expect(late).toMatchObject({ verb: "Making a picture", status: "done" });
+	});
+
+	it("says a retried take was retried once", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: false,
+					imageTitle: "Red door",
+					imageRetried: true,
+				},
+			}),
+			"k5",
+			translate,
+		);
+
+		expect(item.meta).toBe("retried once");
+	});
+
+	it("says in Hungarian that a retried take was retried once, and names the verbs", () => {
+		expect(chatDict.hu["toolActivity.retriedOnce"]).toBe(
+			"egyszer újrapróbálva",
+		);
+		expect(chatDict.hu["toolActivity.madePicture"]).toBe("Elkészült:");
+		expect(chatDict.hu["toolActivity.changedPicture"]).toBe("Módosult:");
+		expect(chatDict.hu["toolActivity.makingPicture"]).toBe("Kép készül");
+		expect(chatDict.hu["toolCalls.makeImage"]).toBe("Képkészítés");
+	});
+
+	it("marks a failed call as failed and keeps the title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageTitle: "Red door",
+				},
+			}),
+			"k6",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "failed",
+			verb: "Could not make the picture",
+			object: "Red door",
+		});
 	});
 });

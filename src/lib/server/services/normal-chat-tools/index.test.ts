@@ -125,6 +125,8 @@ vi.mock("$lib/server/config-store", () => ({
 		model1MaxModelContext: 64_000,
 		model2MaxModelContext: 200_000,
 	})),
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		Boolean(config.comfyuiUrl?.trim()),
 }));
 vi.mock("$lib/server/services/connections/resolve", async () => {
 	const actual = await vi.importActual<
@@ -5731,7 +5733,10 @@ describe("tool description hygiene", () => {
 	// Re-measured: 5,222 en (8 spent). The ceiling stays: the clause was paid for
 	// by those field lists, and the catalogue now sits at its tripwire.
 	const PER_TOOL_TOKEN_CEILING = 566;
-	const CATALOGUE_TOKEN_CEILING = 5222;
+	// 2026-10-27: make_image (design section 5, images part 2) adds 76 estimated
+	// tokens, paid by a measured raise (plan-part-2-images.md, Plan's call 1,
+	// approved by the owner). No margin added.
+	const CATALOGUE_TOKEN_CEILING = 5298;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -5746,6 +5751,7 @@ describe("tool description hygiene", () => {
 			parallelBaseUrl: "https://api.parallel.ai",
 			orsBaseUrl: "http://127.0.0.1:8080/ors",
 			geocoderBaseUrl: "http://127.0.0.1:2322",
+			comfyuiUrl: "http://127.0.0.1:8188",
 			model1MaxModelContext: 64_000,
 			model2MaxModelContext: 200_000,
 		} as unknown as ReturnType<typeof getConfig>);
@@ -5852,6 +5858,7 @@ describe("tool description hygiene", () => {
 				"files",
 				"image_search",
 				"location",
+				"make_image",
 				"map_route",
 				"media",
 				"memory_context",
@@ -5880,6 +5887,23 @@ describe("tool description hygiene", () => {
 			if (ENVELOPE_EXEMPT_TOOLS.has(name)) continue;
 			expect(TOOL_TIMEOUTS_MS[name], name).toBeGreaterThan(0);
 		}
+	});
+
+	it("make_image says what it is for and what it is not for, within the per-tool ceiling", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "make_image",
+		);
+		expect(entry?.description).toContain(NEGATIVE_CASE_MARKER);
+		expect(entry?.description).toContain(
+			'an Image from "In this chat" (its id)',
+		);
+		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(
+			PER_TOOL_TOKEN_CEILING,
+		);
+	});
+
+	it("make_image waits inside a 120 s envelope", () => {
+		expect(TOOL_TIMEOUTS_MS.make_image).toBe(120_000);
 	});
 
 	it("every tool description states the case where it must NOT be called", () => {

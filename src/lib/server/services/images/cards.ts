@@ -15,7 +15,17 @@
 // `held_until`), never the job engine's lifecycle columns.
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	isNotNull,
+	isNull,
+	lte,
+	or,
+	sql,
+} from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { imageCards, imageJobs } from "$lib/server/db/schema";
 import {
@@ -446,14 +456,46 @@ async function settleCardAfterLostClaim(cardId: string) {
 }
 
 /** The tool call is done with the take: it may now become the version in use. */
-export async function releaseHold(takeId: string): Promise<void> {
+export async function releaseHold(takeId: string): Promise<{
+	pickedTakeId: string | null;
+	artifactId: string | null;
+	versionNumber: number | null;
+}> {
 	const take = await readTake(takeId);
-	if (!take) return;
+	if (!take) return NOTHING;
 	await db
 		.update(imageJobs)
 		.set({ heldUntil: null })
 		.where(eq(imageJobs.id, takeId));
-	await settleCard(take.cardId, { preferTakeId: takeId });
+	return settleCard(take.cardId, { preferTakeId: takeId });
+}
+
+/**
+ * The card's newest take that finished and is still on the tray, held or not,
+ * as the version it would be: what the next change in the same turn builds on.
+ */
+export async function newestFinishedTake(cardId: string): Promise<{
+	file: ImageFile;
+	seed: number;
+	body: ImageVersionBody;
+} | null> {
+	const rows = await db
+		.select()
+		.from(imageJobs)
+		.where(
+			and(
+				eq(imageJobs.cardId, cardId),
+				eq(imageJobs.status, "succeeded"),
+				eq(imageJobs.hidden, 0),
+				isNotNull(imageJobs.resultFileId),
+			),
+		)
+		.orderBy(desc(imageJobs.createdAt), sql`${imageJobs}.rowid desc`);
+	for (const row of rows) {
+		const ready = await readyTake(row);
+		if (ready) return { file: ready.file, seed: row.seed, body: ready.body };
+	}
+	return null;
 }
 
 /** Takes a take off the card's tray. The take in use cannot be hidden. */

@@ -18,6 +18,8 @@ vi.mock("$lib/server/config-store", () => ({
 		model1MaxModelContext: 64_000,
 		model2MaxModelContext: 200_000,
 	})),
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		Boolean(config.comfyuiUrl?.trim()),
 }));
 
 import { createNormalChatTools } from "./index";

@@ -172,6 +172,7 @@ export function getHumanReadableToolNameKey(name: string): I18nKey {
 		return "toolCalls.fetchPage";
 	}
 	if (isFileProductionToolName(name)) return "toolCalls.createFile";
+	if (normalized === "make_image") return "toolCalls.makeImage";
 	const connectionKey = CONNECTION_TOOL_LABEL_KEYS[normalized];
 	if (connectionKey) return connectionKey;
 	return "toolCalls.generic";
@@ -239,7 +240,11 @@ export function getToolCallIconType(name: string): ToolCallIconType {
 	if (normalized === "run_python") return "run-python";
 	if (normalized === "map_route") return "map-route";
 	if (normalized === "use_skill") return "use-skill";
-	if (normalized === "create_artifact" || normalized === "edit_artifact") {
+	if (
+		normalized === "create_artifact" ||
+		normalized === "edit_artifact" ||
+		normalized === "make_image"
+	) {
 		return "artifact";
 	}
 	if (isFetchOrBrowseToolName(normalized)) return "fetch-url";
