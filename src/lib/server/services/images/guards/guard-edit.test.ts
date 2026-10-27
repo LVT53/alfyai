@@ -227,6 +227,34 @@ describe("guardEdit", () => {
 		}
 	}, 60_000);
 
+	it("does not paste a translucent top onto an opaque cut-out base (pasteMinAlpha)", async () => {
+		const cutout = copyOf(base);
+		// A transparent-subject picture: the left third is cut away (alpha 0).
+		for (let y = 0; y < SCENE_H; y++)
+			for (let x = 0; x < 300; x++) cutout.data[(y * SCENE_W + x) * 4 + 3] = 0;
+		const result = copyOf(cutout);
+		const box = RECTS[1].box;
+		fillBox(result, box, [250, 20, 200]);
+		// Translucent top (alpha 100) over part of the opaque change: not pasted there.
+		for (let y = box.y; y < box.y + 40; y++)
+			for (let x = box.x; x < box.x + box.w; x++)
+				result.data[(y * SCENE_W + x) * 4 + 3] = 100;
+		const out = await guardEdit({
+			base: cutout,
+			anchor: null,
+			chainSinceAnchor: 0,
+			result,
+			marks: null,
+		});
+		const at = (x: number, y: number) => (y * SCENE_W + x) * 4;
+		const mid = box.x + box.w / 2;
+		expect(out.picture.data[at(mid, box.y + 20) + 3]).toBe(255);
+		expect(out.picture.data[at(mid, box.y + 20)]).toBe(
+			cutout.data[at(mid, box.y + 20)],
+		);
+		expect(out.picture.data[at(mid, box.y + 100)]).toBe(250);
+	}, 60_000);
+
 	it("refuses an empty base", async () => {
 		const empty = { data: new Uint8Array(0), width: 0, height: 0 };
 		await expect(

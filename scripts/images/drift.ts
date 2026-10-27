@@ -10,7 +10,8 @@
 // Scenes: <scenes dir>/room-*.png plus sofa-0.png. Renders are cached in <out dir>
 // by a hash of their inputs, so a threshold change re-runs only the guards.
 // --mask-only: write masks and guard measures, no composites and no LPIPS.
-// Env: COMFYUI_URL (default http://127.0.0.1:8188), LPIPS_PYTHON (venv python).
+// Env: COMFYUI_URL (default http://127.0.0.1:8188), LPIPS_PYTHON (the throwaway venv's python;
+// MUST be set unless the venv is at /tmp/claude-1000/lpips-venv), DRIFT_GUARD (JSON GUARD overrides).
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -114,12 +115,6 @@ export function driftLine(f: DriftFields): string {
 	});
 }
 
-// Tuning only: DRIFT_GUARD='{"diffThreshold":16}' overrides GUARD for this run.
-if (process.env.DRIFT_GUARD) {
-	Object.assign(GUARD, JSON.parse(process.env.DRIFT_GUARD));
-	console.log(`GUARD override ${process.env.DRIFT_GUARD}`);
-}
-
 const BASE_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 const PY = process.env.LPIPS_PYTHON ?? "/tmp/claude-1000/lpips-venv/bin/python";
 const LPIPS = join(dirname(fileURLToPath(import.meta.url)), "lpips.py");
@@ -210,6 +205,11 @@ async function makeScenes(dir: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+	// Tuning only: DRIFT_GUARD='{"diffThreshold":16}' overrides GUARD for this run.
+	if (process.env.DRIFT_GUARD) {
+		Object.assign(GUARD, JSON.parse(process.env.DRIFT_GUARD));
+		console.log(`GUARD override ${process.env.DRIFT_GUARD}`);
+	}
 	const args = process.argv.slice(2);
 	if (args[0] === "--make-scenes" && args[1]) return makeScenes(args[1]);
 	const maskOnly = args.includes("--mask-only");

@@ -290,6 +290,8 @@ TEI (:7997, :7998), MinerU (`/v1/health`) and the MinerU VLM (:30001) answered 2
 
 Task 5, run 2026-10-27 by agent claude-sonnet-5-5. Scenes: three living rooms and one sofa picture generated through the app's graphs (`drift.ts --make-scenes`), never personal photos; copies in `/home/lvt53/alfyai-handoff/composites/t5-scene-*.png`. LPIPS (alex, spatial, mean over pixels outside the paste mask; `scripts/images/lpips.py`, throwaway venv `/tmp/claude-1000/lpips-venv`, torch CPU + lpips 0.1.4) and offset (phase correlation outside the mask). Sequence per scene: recolour sofa, reupholster, add cushion, move sofa, put the sofa picture in (two pictures), then five chained changes (lamp, rug blue, framed picture, plant, red curtains), raw chain vs paste-back chain. "Outside" means outside the guard's own paste mask (dilated, feathered change). The brief's "cushion / move inside a box" ran as prompt words only (no drawn boxes), so `marks` was null.
 
+Reading the tables: the "worst" raw and paste-back rows exclude edits classed `global` (kept whole, nothing to measure outside). The chain LPIPS is measured outside the union of the guard's per-step paste masks, not over the whole image; the 0.20 / 0.05 chain targets are read that way.
+
 ### Starting numbers (provisional GUARD, 3 scenes)
 
 | | worst raw LPIPS outside | worst raw offset | worst paste-back LPIPS outside | chain of 5 vs original, raw | chain of 5, paste-back |
@@ -303,7 +305,7 @@ Every target already held with margin except the raw chain on room-0 (0.2047, ju
 
 | move | raw / paste-back / chain paste-back | verdict |
 |---|---|---|
-| diffThreshold 24 to 16 | 0.072 / 0.0054 / 0.013 | no gain; mask grows a little |
+| diffThreshold 24 to 16 | 0.072 / 0.0054 / 0.013 | not taken: marginally better numbers (0.072 vs 0.076 worst raw) but the pasted area grows 5-10% (changed share 0.33 to 0.38 on a recolour, room-0 move 0.67 to 0.73), pasting more of the model's drift for little gain |
 | diffThreshold 24 to 36 | 0.136 / 0.0235 / 0.023 | worse: misses real changes, raw outside LPIPS breaks 0.10 |
 | dilateShare 0.02 to 0.01 | 0.080 / 0.0091 / 0.029 | worse |
 | dilateShare 0.02 to 0.04 | 0.070 / 0.0021 / 0.004 | best paste-back, but the mask grows about 20% (more of the model's drift gets pasted); not taken |

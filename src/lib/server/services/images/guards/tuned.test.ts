@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { guardEdit } from "./guard-edit";
 import { decodeRaw, type RawImage } from "./raw-image";
+import { GUARD } from "./thresholds";
 
 // Small pictures of generated rooms (Qwen renders, 320 px wide); never a photo.
 const DIR = join(__dirname, "__fixtures__");
@@ -37,6 +38,30 @@ describe("the tuned guards on real renders", () => {
 				expect(out.picture.data[i * 4 + c]).toBe(base.data[i * 4 + c]);
 		}
 		expect(inside).toBeGreaterThan(0);
+		// Independent of the paste: where the render really changed, the mask is on
+		// and the output carries the render's pixels (a loop that skipped them fails).
+		let changed = 0;
+		let carried = 0;
+		for (let i = 0; i < out.mask.length; i++) {
+			const o = i * 4;
+			const diff = Math.max(
+				Math.abs(base.data[o] - result.data[o]),
+				Math.abs(base.data[o + 1] - result.data[o + 1]),
+				Math.abs(base.data[o + 2] - result.data[o + 2]),
+			);
+			if (diff <= GUARD.diffThreshold * 2) continue;
+			changed++;
+			expect(out.mask[i]).toBeGreaterThan(0);
+			if (
+				out.mask[i] >= 1 &&
+				out.picture.data[o] === result.data[o] &&
+				out.picture.data[o + 1] === result.data[o + 1] &&
+				out.picture.data[o + 2] === result.data[o + 2]
+			)
+				carried++;
+		}
+		expect(changed).toBeGreaterThan(500);
+		expect(carried / changed).toBeGreaterThan(0.9);
 		expect(inside / out.mask.length).toBeLessThan(0.5);
 	}, 60_000);
 
