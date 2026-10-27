@@ -62,12 +62,8 @@ let isPhone = $state(isPhoneViewport());
 
 $effect(() => watchPhoneViewport((phone) => (isPhone = phone)));
 
-async function load(): Promise<void> {
-	if (loading) {
-		loadAgain = true;
-		return;
-	}
-	loading = true;
+/** Reads the stored item once and shows it; never throws. */
+async function readOnce(): Promise<void> {
 	try {
 		const detail = await fetchArtifact(artifactId, conversationId);
 		const parsed = parseImageVersionBody(detail.artifact.body ?? null);
@@ -82,13 +78,21 @@ async function load(): Promise<void> {
 		status = "ready";
 	} catch {
 		if (!untrack(() => picture)) status = "error";
-	} finally {
-		loading = false;
-		if (loadAgain) {
-			loadAgain = false;
-			void load();
-		}
 	}
+}
+
+/** One read at a time; a read asked for while one is out runs once that one answers. */
+async function load(): Promise<void> {
+	if (loading) {
+		loadAgain = true;
+		return;
+	}
+	loading = true;
+	do {
+		loadAgain = false;
+		await readOnce();
+	} while (loadAgain);
+	loading = false;
 }
 
 async function loadStrip(): Promise<void> {
