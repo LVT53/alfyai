@@ -1481,23 +1481,35 @@ test.describe("the picture in the panel moves like the Document's (T3)", () => {
 	}
 });
 
-/** A tracked box's width, frame by frame: smooth, or a cut. */
-function boxProfile(frames: MotionFrame[], name: string) {
-	const seen = boxes(frames, name).map((box) => box.w);
-	// (`widths` below: every frame's, for the report.)
-	const first = seen[0] ?? 0;
-	const last = seen.at(-1) ?? 0;
-	let maxStep = 0;
-	for (let index = 1; index < seen.length; index++) {
-		maxStep = Math.max(maxStep, Math.abs(seen[index] - seen[index - 1]));
-	}
-	const total = Math.abs(last - first);
+/**
+ * How a tracked box's size moves over the frames, per side: every distinct
+ * value, how many frames changed it (by more than half a pixel), and whether
+ * every change went the same way.
+ */
+function contentChanges(frames: MotionFrame[], name: string) {
+	const seen = boxes(frames, name);
+	const side = (pick: (box: TrackedBox) => number) => {
+		const values = seen.map((box) => Math.round(pick(box) * 10) / 10);
+		const steps = values
+			.slice(1)
+			.map((value, index) => value - values[index])
+			.filter((step) => Math.abs(step) > 0.5);
+		return {
+			changes: steps.length,
+			monotonic:
+				steps.every((step) => step > 0) || steps.every((step) => step < 0),
+			first: values[0] ?? 0,
+			last: values.at(-1) ?? 0,
+			values: values.filter(
+				(value, index) => index === 0 || value !== values[index - 1],
+			),
+		};
+	};
 	return {
-		first,
-		last,
-		maxStep,
-		maxStepFraction: total > 0 ? maxStep / total : 0,
-		widths: seen.map((width) => Math.round(width * 10) / 10),
+		frames: seen.length,
+		width: side((box) => box.w),
+		height: side((box) => box.h),
+		x: side((box) => box.x),
 	};
 }
 
@@ -1580,14 +1592,16 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
 			await settle(page);
 			const dock = await stopRecording(page);
+			// What the panel holds: the picture's own box, or the Document's text block.
+			const content = kind === "image" ? "frame" : "docBody";
 			return {
 				expand: {
 					...measurePanel(expand),
-					frameWidth: boxProfile(expand.frames, "frame"),
+					content: contentChanges(expand.frames, content),
 				},
 				dock: {
 					...measurePanel(dock),
-					frameWidth: boxProfile(dock.frames, "frame"),
+					content: contentChanges(dock.frames, content),
 				},
 			};
 		};
@@ -1638,14 +1652,38 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 		}
 		expect(docFlow.errors).toEqual([]);
 		expect(flow.errors).toEqual([]);
-		const image = runs.image as unknown as Record<
+		type DockRun = Record<
 			"expand" | "dock",
-			PanelMetrics & { frameWidth: ReturnType<typeof boxProfile> }
+			PanelMetrics & { content: ReturnType<typeof contentChanges> }
 		>;
-		const document = runs.document as unknown as Record<
-			"expand" | "dock",
-			PanelMetrics
-		>;
+		const image = runs.image as unknown as DockRun;
+		const document = runs.document as unknown as DockRun;
+		// The shell holds what the panel shows at its final size while its edges move:
+		// for both kinds the content box changes size at most once (when the hold
+		// starts), or moves one way only; never a re-flow through every frame.
+		for (const [kind, run] of [
+			["image", image],
+			["document", document],
+		] as const) {
+			for (const step of ["expand", "dock"] as const) {
+				const box = run[step].content;
+				expect(box.frames, `${kind} ${step}: no content box`).toBeGreaterThan(
+					0,
+				);
+				for (const side of ["width", "height"] as const) {
+					expect(
+						box[side].changes <= 1 || box[side].monotonic,
+						`${kind} ${step}: the content's ${side} re-flowed (${box[side].values.join(", ")})`,
+					).toBe(true);
+				}
+			}
+		}
+		// Expanding gives the picture more room, never less (the panel is wider and
+		// nothing of the body's sits above the picture).
+		expect(
+			image.expand.content.width.last,
+			"the expanded picture is smaller than the docked one",
+		).toBeGreaterThan(image.expand.content.width.first);
 		for (const step of ["expand", "dock"] as const) {
 			const side = compareKinds(image[step], document[step]);
 			expect(
@@ -1670,15 +1708,6 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 				),
 				`${step}: the picture's panel took another time`,
 			).toBeLessThanOrEqual(34);
-			// The picture follows its box as the panel's insets move (the shell re-lays
-			// the content each frame, as it re-wraps the Document's text), never by a
-			// bigger step than the panel's own.
-			expect(
-				image[step].frameWidth.maxStep,
-				`${step}: the picture moved more in one frame than the panel did`,
-			).toBeLessThanOrEqual(
-				image[step].panel.maxStepFraction * image[step].panel.travel + 1,
-			);
 			expect(image[step].clsNoInput).toBeLessThanOrEqual(
 				Math.max(0.01, document[step].clsNoInput + 0.005),
 			);

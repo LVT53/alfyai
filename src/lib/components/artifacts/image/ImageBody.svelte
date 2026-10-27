@@ -1,7 +1,7 @@
 <script lang="ts">
 // The Image kind's body in the family's panel (plan 2b T3, design 5.6): the
-// picture large, a toolbar (Before / After; T6 adds Mark) and the strip of its
-// versions below. It is a body like the Document's, inside `DocumentWorkspace`:
+// picture large and, in one row below it, the strip of its versions and the
+// tools (Before / After; T6 adds Mark). It is a body like the Document's, inside `DocumentWorkspace`:
 // the panel's open, dock, expand and phone sheet are the shell's, never this
 // file's.
 //
@@ -142,18 +142,6 @@ let canFlip = $derived(picture?.baseFileId != null);
 </script>
 
 <div class="image-body" data-testid="image-body">
-	<div class="image-body-toolbar">
-		{#if canFlip}
-			<BeforeAfterSwitch
-				{showing}
-				onChange={(next) => (showing = next)}
-				label={$t('artifacts.image.panel.compare')}
-				size="md"
-				testIdPrefix="image-body"
-			/>
-		{/if}
-	</div>
-
 	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone, resetKey: picture?.fileId ?? null }} data-testid="image-body-stage">
 		{#if picture}
 			<div
@@ -184,8 +172,24 @@ let canFlip = $derived(picture?.baseFileId != null);
 		{/if}
 	</div>
 
-	<div class="image-body-strip">
-		<VersionStrip {moments} {conversationId} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} />
+	<!-- One row under the picture: the strip, then the tools (Before / After; T6's
+	     Mark). Reserved whatever it holds, so a version landing moves nothing, and
+	     the only row, so the picture has the rest of the height in every shape. -->
+	<div class="image-body-foot" data-testid="image-body-foot">
+		<div class="image-body-strip">
+			<VersionStrip {moments} {conversationId} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} />
+		</div>
+		<div class="image-body-toolbar">
+			{#if canFlip}
+				<BeforeAfterSwitch
+					{showing}
+					onChange={(next) => (showing = next)}
+					label={$t('artifacts.image.panel.compare')}
+					size="md"
+					testIdPrefix="image-body"
+				/>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -198,16 +202,6 @@ let canFlip = $derived(picture?.baseFileId != null);
 		min-height: 0;
 		padding: 0.75rem 1rem 1rem;
 		box-sizing: border-box;
-	}
-
-	/* The toolbar's row is reserved whether or not the version has a Before, so a
-	   version landing with one never moves the picture. */
-	.image-body-toolbar {
-		display: flex;
-		justify-content: flex-end;
-		align-items: center;
-		gap: 0.5rem;
-		min-height: 2.75rem;
 	}
 
 	/* The stage is the space the picture may take; its size is the container the
@@ -247,7 +241,23 @@ let canFlip = $derived(picture?.baseFileId != null);
 		font-size: 0.875rem;
 	}
 
+	.image-body-foot {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex: none;
+		min-height: 3.5rem;
+	}
+
 	.image-body-strip {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.image-body-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		flex: none;
 	}
 </style>

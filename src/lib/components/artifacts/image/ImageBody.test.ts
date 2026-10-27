@@ -286,4 +286,18 @@ describe("ImageBody", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(screen.getAllByTestId("image-version-frame")).toHaveLength(3);
 	});
+
+	it("keeps Before / After in the strip's row under the picture, so the picture has the rest of the height", async () => {
+		api.fetchArtifact.mockResolvedValue(
+			detail(body({ baseFileId: "file-1" }), 2),
+		);
+		renderBody();
+		const before = await screen.findByRole("button", { name: "Before" });
+		const foot = screen.getByTestId("image-body-foot");
+		expect(foot).toContainElement(before);
+		expect(foot).toContainElement(screen.getByTestId("image-version-strip"));
+		// Nothing of the panel's own sits above the picture.
+		const stage = screen.getByTestId("image-body-stage");
+		expect(stage.previousElementSibling).toBeNull();
+	});
 });
