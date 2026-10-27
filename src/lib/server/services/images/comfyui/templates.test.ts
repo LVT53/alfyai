@@ -47,7 +47,7 @@ describe("buildPromptGraph", () => {
 
 	it("keeps 2 LoadImage nodes for 2 pictures and drops the third with its encoder key", () => {
 		const t = edit();
-		expect(imageSlotCount(t)).toBe(3);
+		expect(imageSlotCount(t)).toBe(10);
 		const g = buildPromptGraph(t, {
 			prompt: "x",
 			seed: 5,
@@ -74,7 +74,7 @@ describe("buildPromptGraph", () => {
 			buildPromptGraph(t, {
 				prompt: "x",
 				seed: 1,
-				images: ["1", "2", "3", "4"],
+				images: Array.from({ length: 11 }, (_, i) => String(i)),
 			});
 		expect(many).toThrow(GraphBuildError);
 		try {
@@ -102,6 +102,16 @@ describe("buildPromptGraph", () => {
 });
 
 describe("graphFor", () => {
+	it("uses the transparent generate template, which wraps the prompt", () => {
+		const r = graphFor("generate", true);
+		expect(r?.template.name).toBe("generate-transparent");
+		expect(r?.transparentApplied).toBe(true);
+		const t = r?.template as GraphTemplate;
+		const g = buildPromptGraph(t, { prompt: "a mug.", seed: 1, images: [] });
+		expect(read(g, t.slots.prompt)).toBe(
+			"This is an RGBA format image with transparency. a mug. The image has an alpha channel and a transparent background.",
+		);
+	});
 	it("falls back to the plain edit template when no transparent one exists", () => {
 		const r = graphFor("edit", true);
 		expect(r?.template.name).toBe("edit");
@@ -112,28 +122,5 @@ describe("graphFor", () => {
 			template: GRAPH_TEMPLATES.generate,
 			transparentApplied: false,
 		});
-	});
-});
-
-describe("reference templates", () => {
-	it.each([
-		"generate",
-		"edit",
-	] as const)("%s: every slot names a node and input that exist", (name) => {
-		const t = GRAPH_TEMPLATES[name] as GraphTemplate;
-		const slots: GraphSlot[] = [
-			t.slots.prompt,
-			t.slots.seed,
-			t.slots.steps,
-			t.slots.cfg,
-		];
-		if (t.slots.width) slots.push(t.slots.width);
-		if (t.slots.height) slots.push(t.slots.height);
-		for (const img of t.slots.images) slots.push(img.encoderInput);
-		for (const s of slots)
-			expect(s.input in (t.graph[s.node]?.inputs ?? {})).toBe(true);
-		for (const img of t.slots.images)
-			expect(t.graph[img.load].class_type).toBe("LoadImage");
-		expect(t.graph[t.slots.output].class_type).toBe("PreviewImage");
 	});
 });

@@ -182,6 +182,70 @@ Neighbours after install and after the render: TEI embed 200, TEI rerank 200, Mi
 - Nothing else changed: no package manager, no change to vLLM, TEI, MinerU, driver, Apache, Tailscale, users or firewall.
 - Rollback: `systemctl disable --now comfyui.service comfyui-clean.timer`, remove the three unit files, `systemctl daemon-reload`, then delete `/home/alfyws/opt/comfyui` and `/home/alfyws/venvs/comfyui`.
 
+## Graphs
+
+### Templates found
+
+The workflow templates live in the venv's package `comfyui_workflow_templates_json` 0.1.123 (meta-package `comfyui-workflow-templates` 0.11.97), folder `/home/alfyws/venvs/comfyui/lib/python3.12/site-packages/comfyui_workflow_templates_json/templates/`. Qwen-Image 2.1 templates (UI format, with subgraphs; not API format):
+
+| Template | Full path | Notes |
+|---|---|---|
+| Text to image | `.../comfyui_workflow_templates_json/templates/image_qwen_image_2_1_t2i.json` | UNETLoader `qwen_image_2.1_int8_convrot`, CLIPLoader `qwen3vl_8b_int8_convrot` type `qwen_image`, VAE bf16, QwenImage21Cache (auto, default), TextEncodeQwenImage21 (resolution 1024), EmptyLatentImage, KSampler (25 steps, cfg 1, euler, simple), SaveImageAdvanced (png); optional prompt enhancer (TextGenerate + `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot` behind a ComfySwitchNode, off) |
+| Image edit | `.../templates/image_qwen_image_2_1_image_edit.json` | 2 LoadImage -> BatchImagesNode -> TextEncodeQwenImage21 `images`; same loaders; optional `pe_i2i` enhancer; ImageCompare preview |
+| Turbo text to image | `.../templates/image_qwen_image_2_1_turbo_t2i.json` | turbo DiT (not installed), SamplerCustomAdvanced + ManualSigmas, 8 steps |
+| Turbo image edit | `.../templates/image_qwen_image_2_1_turbo_image_edit.json` | turbo DiT (not installed), 1 LoadImage |
+| Remove background | `.../templates/image_qwen_image_2_1_background_removal.json` | 1 LoadImage -> edit path, SaveImageAdvanced png 8-bit; transparent output from an input picture |
+
+Thumbnails are in `.../comfyui_workflow_templates_media_assets_02/templates/image_qwen_image_2_1_*.webp`.
+
+**RGBA/transparent:** there is no separate transparent text-to-image template. The t2i template's note says a transparent image comes from the same graph by wrapping the prompt: "This is an RGBA format image with transparency. `[your description]`. The image has an alpha channel and a transparent background." and saving as PNG. The `background_removal` template is the image-to-transparent path. (Other non-2.1 transparent/layer templates: `image_qwen_image_layered.json`, `image_qwen_image_layered_control.json`, API-node ones.) Checked by Task 3, see "Transparent route" below.
+
+### Export method and why
+
+Method: **script conversion by hand of the UI-format templates, not Playwright "Export (API)"**. The owner's browser was not available and a headless export would have given the same graph only after the same subgraph flattening; the two templates are small (t2i: 9 live nodes, edit: 9 plus ten `LoadImage`). I read each template's subgraph (`definitions.subgraphs[0]`: nodes, links, exposed inputs), took widget order from the server's `GET /object_info`, resolved the two `ComfySwitchNode`s at their template defaults (`false`: the prompt enhancer stays off, the sampler's latent is the `EmptyLatentImage`), dropped the enhancer branch (`TextGenerate`, `PreviewAny`, the `pe_*` `CLIPLoader`, the system-prompt node, `BatchImagesNode`, which only fed the enhancer) and the `SaveImageAdvanced`/`ImageCompare` nodes, and wrote the API JSON. The result was verified by submitting it to the real server (below). Files: `src/lib/server/services/images/comfyui/graphs/qwen-image-2.1-{generate,edit}.api.json`.
+
+Graph (both): `UNETLoader` (1) -> `QwenImage21Cache` auto/default (2) -> `KSampler` (7, euler/simple, 40 steps, cfg 1, denoise 1); `CLIPLoader` type `qwen_image` (3) -> `TextEncodeQwenImage21` (5, resolution 1024, empty negative prompt) -> positive/negative; `EmptyLatentImage` (6) -> latent; `VAELoader` (4) -> `VAEDecode` (8) -> `PreviewImage` (9). The edit graph adds `vae` to the encoder and ten `LoadImage` nodes (11-20), each linked into the encoder's `images.image_1` ... `images.image_10`.
+
+Installed file names used: diffusion `qwen_image_2.1_int8_convrot.safetensors`, text encoder `qwen3vl_8b_int8_convrot.safetensors`, VAE `qwen_image_2.1_vae_bf16.safetensors`.
+
+### Corrections to what the brief assumed
+
+- **The real edit template does not use one `BatchImagesNode` into the encoder.** In the template, `BatchImagesNode` only feeds the optional prompt enhancer (`TextGenerate`). The encoder itself takes each picture on its own autogrow input `images.image_N` (the subgraph exposes `image_1` ... `image_10`; the node accepts 16). So plan 2a's slot-map shape (one `LoadImage` -> one encoder input) fits unchanged; no shape change was needed. The template ships with 10 slots, so the 4-picture default cap is met without extending anything.
+- The sampler starts from the `EmptyLatentImage` at the width and height we write (switch off), not from the reference picture's latent; the encoder's `resolution` (1024) only sizes the references it reads. That is why edit output keeps the canvas from `canvasForEdit` (here 1248x832 for a 1248x832 input).
+- Default steps in the templates are 25; the app writes 40 (`QWEN_STEPS`) and CFG 1 through the slots.
+
+### Real renders (through the tunnel, GPU1, models warm from earlier use)
+
+Both via `scripts/images/try-render.ts`, built by the app's `graphFor` / `buildPromptGraph`, `canvasForNewPicture` / `canvasForEdit`, `freshSeed`. Pictures kept outside the repo in `/home/lvt53/alfyai-handoff/composites/`.
+
+| Run | Prompt | Size | Wall time (upload to download) |
+|---|---|---|---|
+| generate | "a cosy living room with a grey linen sofa against the left wall, evening light" | 1248x832 | 11.7 s |
+| edit of that result | "make the sofa dark green, keep everything else exactly as it is" | 1248x832 | 14.1 s |
+
+- `try-render-generate.png`: a bright, plausible photographic living room; a large grey woven-fabric corner sofa along the left, a low marble-top coffee table on a faded rug, a wooden armchair with a striped cushion by a big window with beige curtains and a street view. Sofa is on the left as asked; the light is more daylight than evening (the model's reading of "evening light").
+- `try-render-edit.png`: the same room; only the sofa changed, now a deep green textured fabric; wall, curtains, window, table, rug, armchair, cushions and floor look unchanged to the eye. Texture of the sofa kept.
+
+### PreviewImage and alpha
+
+PNGs from `PreviewImage` (`type: "temp"`) arrive as 4-channel PNGs. For ordinary pictures the alpha channel is present but near-opaque (min 252, max 255 on the generate picture), so callers that need an opaque RGB picture should flatten. The VAE decodes RGBA natively, which is why the next point works.
+
+### Transparent route
+
+Tested: the t2i template's wrap ("This is an RGBA format image with transparency. [description] The image has an alpha channel and a transparent background.") on the generate graph, saved through `PreviewImage`, gave a **real alpha channel**: for "A red ceramic mug with a white heart" 853,093 of 1,038,336 pixels were fully transparent (alpha < 8), 180,436 opaque (> 247) and 4,807 in between (soft edge); the mug cut out cleanly (the RGB under the transparent pixels is purple fill, as expected). So PreviewImage does not lose alpha. Registered `generate-transparent` (same graph, prompt wrapped by `wrapTransparentPrompt` inside `buildPromptGraph`). No `edit-transparent`: the only transparent edit-style template is `background_removal`, a different graph (image-to-cutout, not an edit of a described change); `graphFor("edit", true)` still falls back to the plain edit with `transparentApplied: false`. One sample only; the model may ignore the wrap on some prompts, so the guards (plan 2a) should still check alpha on the result.
+
+## Measurements
+
+(Task 4.)
+
+## Tuning
+
+(Task 5.)
+
+## Acceptance
+
+(Task 6.)
+
 ## Appendix: pip freeze of /home/alfyws/venvs/comfyui (2026-10-27)
 
 ```

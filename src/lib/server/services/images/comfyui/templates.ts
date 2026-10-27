@@ -1,14 +1,16 @@
 /**
- * ComfyUI graph templates for Qwen-Image 2.1.
- *
- * The two reference graphs are a starting point in the node set ComfyUI used
- * for Qwen-Image-Edit in 2025. The encoder and VAE file names are
- * PLACEHOLDERS until plan 2c Task 3 replaces them with the installed server's
- * own exported graphs and records the real names and image-slot count. Keep
- * the slot map general: it names nodes and inputs, never relies on their ids.
+ * ComfyUI graph templates for Qwen-Image 2.1, API format, flattened from the
+ * installed server's own templates (ComfyUI v0.43.0, workflow templates 0.11.97:
+ * image_qwen_image_2_1_t2i / image_qwen_image_2_1_image_edit). Installed files:
+ * diffusion `qwen_image_2.1_int8_convrot.safetensors`, text encoder
+ * `qwen3vl_8b_int8_convrot.safetensors` (type qwen_image), VAE
+ * `qwen_image_2.1_vae_bf16.safetensors`. The edit graph has 10 picture slots (the
+ * template's own `images.image_1`..`image_10` encoder inputs). Both end in
+ * PreviewImage. The slot map names nodes and inputs and is held by
+ * templates.contract.test.ts.
  */
-import referenceEdit from "./graphs/reference-edit.api.json";
-import referenceGenerate from "./graphs/reference-generate.api.json";
+import editGraph from "./graphs/qwen-image-2.1-edit.api.json";
+import generateGraph from "./graphs/qwen-image-2.1-generate.api.json";
 import type { ComfyGraph } from "./types";
 
 export type GraphName =
@@ -30,7 +32,18 @@ export type GraphTemplate = {
 		images: Array<{ load: string; encoderInput: GraphSlot }>;
 		output: string;
 	};
+	/** Rewrites the prompt before it is written (the transparent route's RGBA wrap). */
+	wrapPrompt?: (prompt: string) => string;
 };
+
+/**
+ * The installed t2i template's own note: a transparent picture comes from the
+ * same graph with this wrap, and PreviewImage keeps the real alpha channel
+ * (measured in results-part-2-server.md).
+ */
+export function wrapTransparentPrompt(prompt: string): string {
+	return `This is an RGBA format image with transparency. ${prompt} The image has an alpha channel and a transparent background.`;
+}
 
 export const QWEN_STEPS = 40;
 export const QWEN_CFG = 1;
@@ -38,34 +51,48 @@ export const QWEN_CFG = 1;
 export const GRAPH_TEMPLATES: Partial<Record<GraphName, GraphTemplate>> = {
 	generate: {
 		name: "generate",
-		graph: referenceGenerate as ComfyGraph,
+		graph: generateGraph as ComfyGraph,
 		slots: {
-			prompt: { node: "5", input: "text" },
-			seed: { node: "8", input: "seed" },
-			steps: { node: "8", input: "steps" },
-			cfg: { node: "8", input: "cfg" },
-			width: { node: "7", input: "width" },
-			height: { node: "7", input: "height" },
+			prompt: { node: "5", input: "prompt" },
+			seed: { node: "7", input: "seed" },
+			steps: { node: "7", input: "steps" },
+			cfg: { node: "7", input: "cfg" },
+			width: { node: "6", input: "width" },
+			height: { node: "6", input: "height" },
 			images: [],
-			output: "10",
+			output: "9",
 		},
+	},
+	"generate-transparent": {
+		name: "generate-transparent",
+		graph: generateGraph as ComfyGraph,
+		slots: {
+			prompt: { node: "5", input: "prompt" },
+			seed: { node: "7", input: "seed" },
+			steps: { node: "7", input: "steps" },
+			cfg: { node: "7", input: "cfg" },
+			width: { node: "6", input: "width" },
+			height: { node: "6", input: "height" },
+			images: [],
+			output: "9",
+		},
+		wrapPrompt: wrapTransparentPrompt,
 	},
 	edit: {
 		name: "edit",
-		graph: referenceEdit as ComfyGraph,
+		graph: editGraph as ComfyGraph,
 		slots: {
 			prompt: { node: "5", input: "prompt" },
-			seed: { node: "8", input: "seed" },
-			steps: { node: "8", input: "steps" },
-			cfg: { node: "8", input: "cfg" },
-			width: { node: "14", input: "width" },
-			height: { node: "14", input: "height" },
-			images: [
-				{ load: "11", encoderInput: { node: "5", input: "image1" } },
-				{ load: "12", encoderInput: { node: "5", input: "image2" } },
-				{ load: "13", encoderInput: { node: "5", input: "image3" } },
-			],
-			output: "10",
+			seed: { node: "7", input: "seed" },
+			steps: { node: "7", input: "steps" },
+			cfg: { node: "7", input: "cfg" },
+			width: { node: "6", input: "width" },
+			height: { node: "6", input: "height" },
+			images: Array.from({ length: 10 }, (_, index) => ({
+				load: String(11 + index),
+				encoderInput: { node: "5", input: `images.image_${index + 1}` },
+			})),
+			output: "9",
 		},
 	},
 };
@@ -132,7 +159,11 @@ export function buildPromptGraph(
 		throw new GraphBuildError(`Graph ${template.name} takes no pictures`);
 	}
 	const graph = structuredClone(template.graph);
-	put(graph, slots.prompt, values.prompt);
+	put(
+		graph,
+		slots.prompt,
+		template.wrapPrompt ? template.wrapPrompt(values.prompt) : values.prompt,
+	);
 	put(graph, slots.seed, values.seed);
 	put(graph, slots.steps, QWEN_STEPS);
 	put(graph, slots.cfg, QWEN_CFG);
