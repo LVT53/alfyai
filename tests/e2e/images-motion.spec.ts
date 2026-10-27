@@ -27,6 +27,15 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
+	createTourUser,
+	IMAGE_ITEM_TITLE,
+	markToursSeen,
+	openItem,
+	reopenChat,
+	seedImageItem,
+	startChatAs,
+} from "./artifact-tours-helpers";
+import {
 	createEmptyConversation,
 	login,
 	sendMessage,
@@ -1061,7 +1070,15 @@ const PANEL_TRACK = {
 	mobileShell: MOBILE_SHELL,
 	strip: '[data-testid="image-version-strip"]',
 	toolbar: ".image-body-toolbar",
+	/** The shell's own content box, whatever kind it holds: what a re-flow would move. */
+	content: "aside.workspace-shell-desktop > .workspace-content",
 };
+
+/** The shell's content box at rest, after a step has settled. */
+async function settledContent(page: Page) {
+	const box = await page.locator(PANEL_TRACK.content).first().boundingBox();
+	return box ? { width: box.width, height: box.height } : null;
+}
 
 /** What the panel's motion is made of, one kind's run: the chat, the panel, the curve, what else moved. */
 function measurePanel(run: MotionRun) {
@@ -1268,10 +1285,15 @@ async function closePanel(flow: Flow, kind: "image" | "document") {
 
 /** The bars the Document's own panel spec holds, held for whichever kind opened. */
 function holdOpen(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
-	expect(
-		metrics.longFramesInMotion,
-		"a frame over 50 ms while the panel moved",
-	).toEqual([]);
+	// MOTION-PARITY holds long frames during transitions; under reduced motion none
+	// runs (asserted on its own), and the Document's editor mounting there once took
+	// 50.3 ms with nothing moving.
+	if (!reduced) {
+		expect(
+			metrics.longFramesInMotion,
+			"a frame over 50 ms while the panel moved",
+		).toEqual([]);
+	}
 	expect(
 		unsafePictureTransitions(metrics),
 		"the picture animated something other than transform/opacity",
@@ -1291,10 +1313,15 @@ function holdOpen(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
 }
 
 function holdClose(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
-	expect(
-		metrics.longFramesInMotion,
-		"a frame over 50 ms while the panel moved",
-	).toEqual([]);
+	// MOTION-PARITY holds long frames during transitions; under reduced motion none
+	// runs (asserted on its own), and the Document's editor mounting there once took
+	// 50.3 ms with nothing moving.
+	if (!reduced) {
+		expect(
+			metrics.longFramesInMotion,
+			"a frame over 50 ms while the panel moved",
+		).toEqual([]);
+	}
 	expect(unsafePictureTransitions(metrics)).toEqual([]);
 	if (phone || reduced) return;
 	expect(metrics.chat.travel).toBeGreaterThan(300);
@@ -1510,6 +1537,7 @@ function contentChanges(frames: MotionFrame[], name: string) {
 		width: side((box) => box.w),
 		height: side((box) => box.h),
 		x: side((box) => box.x),
+		y: side((box) => box.y),
 	};
 }
 
@@ -1583,6 +1611,7 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 			).toHaveCount(1);
 			await settle(page);
 			const expand = await stopRecording(page);
+			const expandSettled = await settledContent(page);
 			await startRecording(page, PANEL_TRACK);
 			mark(flow, `dock-${kind}`);
 			await page
@@ -1592,16 +1621,21 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
 			await settle(page);
 			const dock = await stopRecording(page);
+			const dockSettled = await settledContent(page);
 			// What the panel holds: the picture's own box, or the Document's text block.
 			const content = kind === "image" ? "frame" : "docBody";
 			return {
 				expand: {
 					...measurePanel(expand),
 					content: contentChanges(expand.frames, content),
+					shellContent: contentChanges(expand.frames, "content"),
+					settled: expandSettled,
 				},
 				dock: {
 					...measurePanel(dock),
 					content: contentChanges(dock.frames, content),
+					shellContent: contentChanges(dock.frames, "content"),
+					settled: dockSettled,
 				},
 			};
 		};
@@ -1654,7 +1688,11 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 		expect(flow.errors).toEqual([]);
 		type DockRun = Record<
 			"expand" | "dock",
-			PanelMetrics & { content: ReturnType<typeof contentChanges> }
+			PanelMetrics & {
+				content: ReturnType<typeof contentChanges>;
+				shellContent: ReturnType<typeof contentChanges>;
+				settled: { width: number; height: number } | null;
+			}
 		>;
 		const image = runs.image as unknown as DockRun;
 		const document = runs.document as unknown as DockRun;
@@ -1666,6 +1704,38 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 			["document", document],
 		] as const) {
 			for (const step of ["expand", "dock"] as const) {
+				// The shell's content box itself, for every kind: its size changes once
+				// per step at most (when the hold starts), its place moves one way, and
+				// where it ends is where it rests (no hold left behind).
+				const shell = run[step].shellContent;
+				expect(
+					shell.frames,
+					`${kind} ${step}: no shell content box`,
+				).toBeGreaterThan(0);
+				for (const side of ["width", "height"] as const) {
+					expect(
+						shell[side].changes,
+						`${kind} ${step}: the panel's content ${side} re-flowed (${shell[side].values.join(", ")})`,
+					).toBeLessThanOrEqual(1);
+				}
+				for (const axis of ["x", "y"] as const) {
+					expect(
+						shell[axis].monotonic,
+						`${kind} ${step}: the panel's content went back and forth in ${axis} (${shell[axis].values.join(", ")})`,
+					).toBe(true);
+				}
+				expect(
+					run[step].settled,
+					`${kind} ${step}: no content at rest`,
+				).not.toBeNull();
+				expect(
+					Math.abs(shell.width.last - (run[step].settled?.width ?? 0)),
+					`${kind} ${step}: the last width is not the resting width`,
+				).toBeLessThanOrEqual(0.5);
+				expect(
+					Math.abs(shell.height.last - (run[step].settled?.height ?? 0)),
+					`${kind} ${step}: the last height is not the resting height`,
+				).toBeLessThanOrEqual(0.5);
 				const box = run[step].content;
 				expect(box.frames, `${kind} ${step}: no content box`).toBeGreaterThan(
 					0,
@@ -1969,5 +2039,147 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 		expect(metrics.cls).toBe(0);
 		expect(metrics.longFrames).toEqual([]);
 		expect((metrics.transitions as { other: unknown[] }).other).toEqual([]);
+	});
+});
+
+test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
+	test("phone-foot-360-hu: the versions strip and Before / After share one row at 360 px in Hungarian, with 44 px targets", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const viewport = { width: 360, height: 780 };
+		const context = await browser.newContext({
+			baseURL: testInfo.project.use.baseURL as string,
+			viewport,
+			hasTouch: true,
+			isMobile: true,
+			recordVideo: { dir: join(OUT_DIR, ".raw"), size: viewport },
+		});
+		const page = await context.newPage();
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		let metrics: Record<string, unknown> = {};
+		try {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			// Two versions, the newest made from the first: a Before, and a strip.
+			await seedImageItem(user, chatId, { versions: 2 });
+			await reopenChat(page, chatId);
+			await openItem(page, IMAGE_ITEM_TITLE);
+			await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
+			await expect(page.getByTestId("image-version-frame")).toHaveCount(2);
+			const foot = page.getByTestId("image-body-foot").last();
+			await expect(foot.getByRole("button", { name: "Előtte" })).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(400);
+			metrics = await foot.evaluate((row) => {
+				const rect = (element: Element | null) =>
+					element ? element.getBoundingClientRect() : null;
+				const strip = row.querySelector(".image-body-strip");
+				const tools = row.querySelector(".image-body-toolbar");
+				const buttons = [...row.querySelectorAll("button")].map((button) => {
+					const box = button.getBoundingClientRect();
+					return {
+						label:
+							button.getAttribute("aria-label") ?? button.textContent?.trim(),
+						width: box.width,
+						height: box.height,
+						left: box.left,
+						right: box.right,
+						clipped: button.scrollWidth > button.clientWidth + 0.5,
+					};
+				});
+				const rowBox = row.getBoundingClientRect();
+				const stripBox = rect(strip);
+				const toolsBox = rect(tools);
+				return {
+					row: { left: rowBox.left, right: rowBox.right, width: rowBox.width },
+					rowOverflows: row.scrollWidth > row.clientWidth + 0.5,
+					pageOverflows:
+						document.documentElement.scrollWidth > window.innerWidth + 0.5,
+					stripBox: stripBox && { left: stripBox.left, right: stripBox.right },
+					toolsBox: toolsBox && { left: toolsBox.left, right: toolsBox.right },
+					gap: stripBox && toolsBox ? toolsBox.left - stripBox.right : null,
+					buttons,
+				};
+			});
+			await page.waitForTimeout(600);
+		} finally {
+			const video = page.video();
+			await context.close();
+			mkdirSync(OUT_DIR, { recursive: true });
+			const videoPath = join(OUT_DIR, "t3-phone-foot-360-hu.webm");
+			if (video) await video.saveAs(videoPath);
+			writeFileSync(
+				join(OUT_DIR, "t3-phone-foot-360-hu.json"),
+				`${JSON.stringify({ name: "phone-foot-360-hu", pageErrors: errors, ...metrics }, null, 2)}\n`,
+			);
+			// The panel at rest: the last second of the video, one sheet.
+			execFileSync(
+				"ffmpeg",
+				[
+					"-y",
+					"-loglevel",
+					"error",
+					"-sseof",
+					"-2",
+					"-i",
+					videoPath,
+					"-vf",
+					"fps=12,scale=480:-1,tile=6x4",
+					join(OUT_DIR, "t3-phone-foot-360-hu-sheet-%02d.png"),
+				],
+				{ stdio: "inherit" },
+			);
+		}
+		expect(errors).toEqual([]);
+		type Box = { left: number; right: number };
+		const m = metrics as {
+			row: Box & { width: number };
+			rowOverflows: boolean;
+			pageOverflows: boolean;
+			stripBox: Box;
+			toolsBox: Box;
+			gap: number;
+			buttons: Array<{
+				label: string;
+				width: number;
+				height: number;
+				left: number;
+				right: number;
+				clipped: boolean;
+			}>;
+		};
+		expect(m.rowOverflows, "the foot row scrolls sideways").toBe(false);
+		expect(m.pageOverflows, "the page scrolls sideways").toBe(false);
+		// The strip and the tools do not run into each other.
+		expect(m.gap, "the strip runs into Before / After").toBeGreaterThanOrEqual(
+			8,
+		);
+		expect(m.toolsBox.right).toBeLessThanOrEqual(m.row.right + 0.5);
+		for (const button of m.buttons) {
+			expect(button.clipped, `${button.label} is cut off`).toBe(false);
+			expect(
+				button.height,
+				`${button.label} is under 44 px tall`,
+			).toBeGreaterThanOrEqual(44);
+			expect(
+				button.width,
+				`${button.label} is under 44 px wide`,
+			).toBeGreaterThanOrEqual(44);
+		}
+		// The two words and at least two whole frames fit; the strip scrolls inside itself for more.
+		const frames = m.buttons.filter(
+			(button) =>
+				button.right <= m.stripBox.right + 0.5 &&
+				button.left >= m.stripBox.left - 0.5,
+		);
+		expect(
+			frames.length,
+			"fewer than two whole frames show",
+		).toBeGreaterThanOrEqual(2);
 	});
 });

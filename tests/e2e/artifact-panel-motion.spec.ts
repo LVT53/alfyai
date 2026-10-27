@@ -532,6 +532,173 @@ test.describe("deleting, expanding and closing the open item", () => {
 });
 
 /**
+ * Plan 2b T3b: the shell holds its content at the size a shape change ends at.
+ * Shape changes that overlap, and a window that changes under a hold, must still
+ * end with the content at the shape's own size and the hold let go; a hold that
+ * an older animation lets go of too early would re-flow the content mid-motion.
+ */
+const SHELL_CONTENT = "aside.workspace-shell-desktop > .workspace-content";
+
+/** How many frames changed the shell content's width or height. */
+function contentSizeChanges(frames: MotionFrame[]) {
+	const seen = frames
+		.map((frame) => frame.tracked.content)
+		.filter((box) => box !== null);
+	let width = 0;
+	let height = 0;
+	for (let index = 1; index < seen.length; index++) {
+		if (Math.abs(seen[index].w - seen[index - 1].w) > 0.5) width += 1;
+		if (Math.abs(seen[index].h - seen[index - 1].h) > 0.5) height += 1;
+	}
+	return { width, height, frames: seen.length };
+}
+
+/** The content at rest fills the shell's shape: the dock's column, or the overlay inside its border. */
+async function contentFitsShell(page: Page) {
+	return page.evaluate((selector) => {
+		const content = document.querySelector<HTMLElement>(selector);
+		const shell = content?.parentElement;
+		if (!content || !shell) return null;
+		const box = content.getBoundingClientRect();
+		const style = getComputedStyle(shell);
+		const inner = {
+			right:
+				shell.getBoundingClientRect().right -
+				Number.parseFloat(style.borderRightWidth),
+			height:
+				shell.getBoundingClientRect().height -
+				Number.parseFloat(style.borderTopWidth) -
+				Number.parseFloat(style.borderBottomWidth),
+		};
+		return {
+			held: content.classList.contains("workspace-content-held"),
+			inlineHeight: content.style.height,
+			rightGap: Math.abs(box.right - inner.right),
+			heightGap: Math.abs(box.height - inner.height),
+		};
+	}, SHELL_CONTENT);
+}
+
+/** Presses the expanded panel's button named `name` now, wherever it is in its motion. */
+async function pressMidMotion(page: Page, name: RegExp) {
+	await page.evaluate((source) => {
+		const pattern = new RegExp(source);
+		const button = [
+			...document.querySelectorAll<HTMLButtonElement>(
+				".workspace-shell-expanded button",
+			),
+		].find((candidate) =>
+			pattern.test(
+				candidate.getAttribute("aria-label") ?? candidate.textContent ?? "",
+			),
+		);
+		if (!button) throw new Error(`no button ${source}`);
+		button.click();
+	}, name.source);
+}
+
+function expectAtRest(fit: Awaited<ReturnType<typeof contentFitsShell>>) {
+	expect(fit, "no content").not.toBeNull();
+	expect(fit?.held, "the hold was never let go").toBe(false);
+	expect(fit?.inlineHeight, "a held height was left behind").toBe("");
+	expect(
+		fit?.rightGap ?? 99,
+		"the content does not reach the shell's edge",
+	).toBeLessThanOrEqual(1);
+	expect(
+		fit?.heightGap ?? 99,
+		"the content is not the shell's height",
+	).toBeLessThanOrEqual(1);
+}
+
+test.describe("shape changes that overlap, and a window that changes under them", () => {
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: dock pressed while it expands docks it, the content held throughout`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await startRecording(page, { content: SHELL_CONTENT });
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await page.waitForTimeout(90);
+			// Pressed while the overlay still grows. Playwright's click waits for a
+			// button that stops moving, which would be after the expand: this press
+			// lands mid-motion, as a reader's does.
+			await pressMidMotion(page, /to the docked workspace/);
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			const run = await settleAndStop(page);
+			const changes = contentSizeChanges(run.frames);
+			noteNumbers(`dock-mid-expand-${item.kind}`, changes);
+			// Once when the expand's hold starts, once when the dock's does: the
+			// expand's own end, mid-dock, must not let go of the dock's hold.
+			expect(
+				changes.width,
+				"the content re-flowed while it docked",
+			).toBeLessThanOrEqual(2);
+			expect(changes.height).toBeLessThanOrEqual(2);
+			expectAtRest(await contentFitsShell(page));
+		});
+
+		test(`${item.kind}: Escape pressed while it docks still docks it once, the content held throughout`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await startRecording(page, { content: SHELL_CONTENT });
+			await page
+				.locator(".workspace-shell-expanded:visible")
+				.getByRole("button", { name: /to the docked workspace/ })
+				.click();
+			await page.waitForTimeout(80);
+			await page.keyboard.press("Escape");
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			const run = await settleAndStop(page);
+			const changes = contentSizeChanges(run.frames);
+			noteNumbers(`escape-mid-dock-${item.kind}`, changes);
+			await expect(visibleTitle(page)).toHaveText(item.title);
+			expect(
+				changes.width,
+				"the content re-flowed while it docked",
+			).toBeLessThanOrEqual(1);
+			expect(changes.height).toBeLessThanOrEqual(1);
+			expectAtRest(await contentFitsShell(page));
+		});
+
+		test(`${item.kind}: a window resized right after expand leaves the content at the overlay's new size`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await page.waitForTimeout(60);
+			await page.setViewportSize({ width: 1280, height: 860 });
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+			expectAtRest(await contentFitsShell(page));
+		});
+	}
+});
+
+/**
  * F3: the sidebar open next to a docked panel squeezed the chat to a composer of
  * 319 / 268 / 134 px at 1440 / 1280 / 1100 and ran the header's project crumb
  * into the count chip. Now the chat column keeps a floor: the sidebar folds to

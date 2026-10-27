@@ -1775,15 +1775,17 @@ function insetsOf(rect: DOMRect): Keyframe {
  * the App and the picture are laid out once, at the end size, and shown through
  * the moving shell from its right edge. `null` while no shape change runs.
  */
-let heldContentSize = $state.raw<{ width: number; height: number } | null>(
-	null,
-);
-
-/** Holds the content at `size` until `release` is called (only if no later hold replaced it). */
-async function holdContent(size: {
+type HeldContent = {
 	width: number;
 	height: number;
-}): Promise<() => void> {
+	/** Where the held box stands against the shell's padding edge (top, right): the dock's is past the overlay's border. */
+	top?: number;
+	right?: number;
+};
+let heldContentSize = $state.raw<HeldContent | null>(null);
+
+/** Holds the content at `size` until `release` is called (only if no later hold replaced it). */
+async function holdContent(size: HeldContent): Promise<() => void> {
 	heldContentSize = size;
 	await tick();
 	return () => {
@@ -1823,6 +1825,29 @@ async function requestExpandedPresentation(): Promise<void> {
 }
 
 /**
+ * What the content is held at while the overlay docks: the docked column's own
+ * content, `dockContentWidth` wide and as tall as the column (it has no top or
+ * bottom border), so it is already what the dock shows when the shape flips back.
+ * The column has no top or right border and the overlay has both: the held box
+ * stands over the overlay's border, where the column's content will stand, so
+ * nothing moves by a pixel at the flip. `null` when there is nothing to measure.
+ */
+function dockedContentHold(
+	shell: HTMLElement,
+	target: DOMRect,
+): HeldContent | null {
+	const width = dockContentWidth ?? target.width;
+	if (width <= 0 || target.height <= 0) return null;
+	const border = getComputedStyle(shell);
+	return {
+		width,
+		height: target.height,
+		top: -Number.parseFloat(border.borderTopWidth || "0"),
+		right: -Number.parseFloat(border.borderRightWidth || "0"),
+	};
+}
+
+/**
  * Docking is the mirror: the overlay shrinks onto the column that was held for
  * it, and only then is it a column again, so it never changes shape in a frame.
  */
@@ -1834,30 +1859,16 @@ async function requestDockedPresentation(): Promise<void> {
 		return;
 	}
 	const target = slot.getBoundingClientRect();
-	const animate = () =>
-		shell.animate(
-			[
-				{
-					offset: 1,
-					...insetsOf(target),
-					borderRadius: "0px",
-				},
-			],
-			{
-				duration: MOTION_DURATION.emphasis,
-				easing: MOTION_EASING.emphasis,
-				fill: "forwards",
-			},
-		);
-	// The docked column's content is `dockContentWidth` wide and as tall as the
-	// column (it has no top or bottom border): held at that from the first frame,
-	// it is already what the dock shows when the shape flips back.
-	const width = dockContentWidth ?? target.width;
-	const release =
-		width > 0 && target.height > 0
-			? await holdContent({ width, height: target.height })
-			: () => undefined;
-	const animation = animate();
+	const hold = dockedContentHold(shell, target);
+	const release = hold ? await holdContent(hold) : () => undefined;
+	const animation = shell.animate(
+		[{ offset: 1, ...insetsOf(target), borderRadius: "0px" }],
+		{
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+			fill: "forwards",
+		},
+	);
 	await animation.finished.catch(() => undefined);
 	onPresentationChange?.("docked");
 	await tick();
@@ -3001,6 +3012,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					? `${dockContentWidth}px`
 					: undefined}
 			style:height={heldContentSize ? `${heldContentSize.height}px` : undefined}
+			style:top={heldContentSize?.top ? `${heldContentSize.top}px` : undefined}
+			style:right={heldContentSize?.right ? `${heldContentSize.right}px` : undefined}
 		>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
