@@ -436,9 +436,9 @@ test.describe("Alfy can see images", () => {
 		expect(await listedAsSeeing(page, model)).toBe(false);
 	});
 
-	test("a model that can see is sent the picture while its text is unread, and later turns carry the words", async ({
-		page,
-	}) => {
+	test("a model that can see is sent the picture while its text is unread, and later turns carry the words", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const model = await createTemporaryModel(page);
 		await setCanSeeImages(page, model, true);
 		await writeModelPreference(page, model.selectedModel);
