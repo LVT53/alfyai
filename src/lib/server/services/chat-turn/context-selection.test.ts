@@ -2463,7 +2463,9 @@ describe("buildConstructedContext attachments that stop a send", () => {
 		// The picture itself could not be read here (it has no stored file), and
 		// the model is told so rather than left to assume it looked.
 		expect(constructed.turnImages.images).toEqual([]);
-		expect(constructed.turnImages.notShown).toEqual(["photo.jpg"]);
+		expect(constructed.turnImages.notShown).toEqual([
+			{ number: 1, name: "photo.jpg" },
+		]);
 	});
 
 	it("still refuses when something other than a picture is unready, whatever the model", async () => {

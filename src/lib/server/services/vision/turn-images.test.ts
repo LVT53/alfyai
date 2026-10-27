@@ -37,12 +37,14 @@ import {
 	collectTurnImages,
 	heldBackImagesGuidance,
 	MAX_TURN_IMAGES,
+	type NumberedTurnImage,
 	noTurnImages,
+	notShownImageGuidance,
+	oneLineName,
 	resolveTurnImages,
 	STRIPPED_IMAGE_NOTE,
 	stripImageParts,
 	sumTurnImageTokens,
-	type TurnImage,
 } from "./turn-images";
 
 const actualPrepare = (
@@ -75,12 +77,17 @@ function preparedImage(overrides: Partial<PreparedImage> = {}): PreparedImage {
 	};
 }
 
-function turnImage(name: string, overrides: Partial<PreparedImage> = {}) {
+function turnImage(
+	name: string,
+	overrides: Partial<PreparedImage> = {},
+	number = 1,
+) {
 	return {
+		number,
 		artifactId: `artifact-${name}`,
 		name,
 		image: preparedImage(overrides),
-	} satisfies TurnImage;
+	} satisfies NumberedTurnImage;
 }
 
 async function pngBytes(width = 40, height = 30): Promise<Buffer> {
@@ -164,9 +171,27 @@ describe("buildCurrentUserMessage", () => {
 			role: "user",
 			content: [
 				{ type: "text", text: "hi" },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
 			],
 		});
+	});
+
+	it("puts each picture's label right before it", () => {
+		const image = preparedImage({ width: 10, height: 10, estimatedTokens: 1 });
+
+		expect(
+			buildCurrentUserMessage("hi", [
+				{ number: 1, name: "a.jpg", image },
+				{ number: 2, name: "b.png", image },
+			]).content,
+		).toEqual([
+			{ type: "text", text: "hi" },
+			{ type: "text", text: "Picture 1: a.jpg" },
+			{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+			{ type: "text", text: "Picture 2: b.png" },
+			{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+		]);
 	});
 
 	it("is a plain text message when there are no pictures", () => {
@@ -181,13 +206,15 @@ describe("buildCurrentUserMessage", () => {
 
 	it("keeps the pictures in the order they were attached", () => {
 		const message = buildCurrentUserMessage("compare", [
-			turnImage("first.jpg", { base64: "Rklyc3Q=" }),
-			turnImage("second.jpg", { base64: "U2Vjb25k" }),
+			turnImage("first.jpg", { base64: "Rklyc3Q=" }, 1),
+			turnImage("second.jpg", { base64: "U2Vjb25k" }, 2),
 		]);
 
 		expect(message.content).toEqual([
 			{ type: "text", text: "compare" },
+			{ type: "text", text: "Picture 1: first.jpg" },
 			{ type: "image", image: "Rklyc3Q=", mediaType: "image/jpeg" },
+			{ type: "text", text: "Picture 2: second.jpg" },
 			{ type: "image", image: "U2Vjb25k", mediaType: "image/jpeg" },
 		]);
 	});
@@ -230,8 +257,8 @@ describe("stripImageParts", () => {
 
 	it("puts the note in the place of each picture and keeps the text", () => {
 		const message = buildCurrentUserMessage("What is in these?", [
-			turnImage("a.jpg"),
-			turnImage("b.jpg"),
+			turnImage("a.jpg", {}, 1),
+			turnImage("b.jpg", {}, 2),
 		]);
 
 		expect(stripImageParts([message])).toEqual([
@@ -239,7 +266,9 @@ describe("stripImageParts", () => {
 				role: "user",
 				content: [
 					{ type: "text", text: "What is in these?" },
+					{ type: "text", text: "Picture 1: a.jpg" },
 					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+					{ type: "text", text: "Picture 2: b.jpg" },
 					{ type: "text", text: STRIPPED_IMAGE_NOTE },
 				],
 			},
@@ -285,7 +314,11 @@ describe("stripImageParts", () => {
 					? message.content.map((part) => part.type)
 					: message.role,
 			),
-		).toEqual([["text", "text"], "assistant", ["text", "text"]]);
+		).toEqual([
+			["text", "text", "text"],
+			"assistant",
+			["text", "text", "text"],
+		]);
 	});
 
 	it("keeps what else the message carries", () => {
@@ -351,10 +384,37 @@ describe("collectTurnImages", () => {
 		expect(images.map((entry) => entry.name)).toEqual(
 			Array.from({ length: 8 }, (_, index) => `photo-${index}.png`),
 		);
-		expect(heldBack).toEqual(["photo-8.png", "photo-9.png"]);
+		expect(heldBack).toEqual([
+			{ number: 9, name: "photo-8.png" },
+			{ number: 10, name: "photo-9.png" },
+		]);
 		expect(images[0]?.artifactId).toBe("artifact-0");
 		expect(images[0]?.image.mediaType).toBe("image/jpeg");
 		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("numbers every image attachment in attachment order, one that cannot be shown included", async () => {
+		const pdf = item(
+			artifact({
+				id: "artifact-pdf",
+				name: "notes.pdf",
+				mimeType: "application/pdf",
+			}),
+		);
+		const items = [
+			await imageItem(0, { name: "a.jpg", mimeType: "image/jpeg" }),
+			pdf,
+			await imageItem(2, { name: "old.bmp", mimeType: "image/bmp" }),
+			await imageItem(3, { name: "c.png" }),
+		];
+
+		const turn = await collectTurnImages({ items, maxImages: 8 });
+
+		expect(turn.images.map(({ number, name }) => [number, name])).toEqual([
+			[1, "a.jpg"],
+			[3, "c.png"],
+		]);
+		expect(turn.notShown).toEqual([{ number: 2, name: "old.bmp" }]);
 	});
 
 	it("does not decode a picture it will not send", async () => {
@@ -468,7 +528,7 @@ describe("collectTurnImages", () => {
 		expect(images.map((entry) => entry.name)).toEqual(
 			Array.from({ length: 8 }, (_, index) => `photo-${index + 1}.png`),
 		);
-		expect(heldBack).toEqual(["photo-9.png"]);
+		expect(heldBack).toEqual([{ number: 10, name: "photo-9.png" }]);
 	});
 
 	it("skips a file that is gone and an attachment with no stored file", async () => {
@@ -546,10 +606,11 @@ describe("collectTurnImages", () => {
 			]);
 			expect(result.heldBack).toEqual([]);
 			expect(result.notShown).toEqual([
-				"scan.bmp",
-				"broken.png",
-				"favicon.ico",
+				{ number: 1, name: "scan.bmp" },
+				{ number: 3, name: "broken.png" },
+				{ number: 4, name: "favicon.ico" },
 			]);
+			expect(result.images.map(({ number }) => number)).toEqual([2, 5]);
 		});
 
 		it("names a file that is gone and an attachment with no stored file", async () => {
@@ -572,7 +633,10 @@ describe("collectTurnImages", () => {
 				maxImages: 8,
 			});
 
-			expect(result.notShown).toEqual(["gone.png", "unstored.png"]);
+			expect(result.notShown).toEqual([
+				{ number: 1, name: "gone.png" },
+				{ number: 2, name: "unstored.png" },
+			]);
 		});
 
 		it("does not name a picture the limit left out: that is the held-back line's", async () => {
@@ -585,8 +649,8 @@ describe("collectTurnImages", () => {
 				maxImages: 1,
 			});
 
-			expect(result.heldBack).toEqual(["photo-1.png"]);
-			expect(result.notShown).toEqual(["scan.bmp"]);
+			expect(result.heldBack).toEqual([{ number: 2, name: "photo-1.png" }]);
+			expect(result.notShown).toEqual([{ number: 3, name: "scan.bmp" }]);
 		});
 
 		it("names a picture attached twice once", async () => {
@@ -600,7 +664,7 @@ describe("collectTurnImages", () => {
 				maxImages: 8,
 			});
 
-			expect(result.notShown).toEqual(["scan.bmp"]);
+			expect(result.notShown).toEqual([{ number: 1, name: "scan.bmp" }]);
 		});
 
 		it("is empty when every picture was sent, and for a document or a missing attachment", async () => {
@@ -650,7 +714,10 @@ describe("collectTurnImages", () => {
 		});
 
 		expect(result.images).toEqual([]);
-		expect(result.heldBack).toEqual(["photo-0.png", "photo-1.png"]);
+		expect(result.heldBack).toEqual([
+			{ number: 1, name: "photo-0.png" },
+			{ number: 2, name: "photo-1.png" },
+		]);
 		expect(mocks.prepareImageForModel).not.toHaveBeenCalled();
 	});
 
@@ -750,7 +817,7 @@ describe("resolveTurnImages", () => {
 		expect(result).toEqual({
 			images: [],
 			heldBack: [],
-			notShown: ["scan.bmp"],
+			notShown: [{ number: 1, name: "scan.bmp" }],
 			hasImageAttachments: true,
 		});
 	});
@@ -771,7 +838,10 @@ describe("resolveTurnImages", () => {
 
 		expect(result.images.map((entry) => entry.name)).toEqual(["photo-2.png"]);
 		expect(result.heldBack).toEqual([]);
-		expect(result.notShown).toEqual(["scan.bmp", "broken.png"]);
+		expect(result.notShown).toEqual([
+			{ number: 1, name: "scan.bmp" },
+			{ number: 2, name: "broken.png" },
+		]);
 		expect(result.hasImageAttachments).toBe(true);
 	});
 
@@ -806,9 +876,28 @@ describe("the guidance the model reads about pictures", () => {
 	});
 
 	it("names the pictures held back by the limit", () => {
-		expect(heldBackImagesGuidance(["a.png", "b.png"])).toBe(
-			"2 more attached images were not sent as pictures because of the limit: a.png, b.png.",
+		expect(
+			heldBackImagesGuidance([
+				{ number: 9, name: "a.jpg" },
+				{ number: 10, name: "b.jpg" },
+			]),
+		).toBe(
+			"Not sent as pictures because of the limit: Picture 9: a.jpg; Picture 10: b.jpg.",
 		);
+	});
+
+	it("says which numbered picture could not be shown", () => {
+		expect(notShownImageGuidance({ number: 2, name: "old.bmp" })).toBe(
+			"Picture 2: old.bmp was attached, but it could not be shown to you.",
+		);
+	});
+
+	it("one-lines a name and cuts it by code points", () => {
+		expect(oneLineName("kitchen\n photo.jpg")).toBe("kitchen photo.jpg");
+		expect(oneLineName("\u{1F600}".repeat(100))).toBe(
+			`${"\u{1F600}".repeat(77)}...`,
+		);
+		expect(oneLineName("\n ")).toBe("");
 	});
 
 	it("says in the place of a picture that one was attached and cannot be seen", () => {
@@ -820,14 +909,14 @@ describe("the guidance the model reads about pictures", () => {
 	it("is ASCII, like everything else the app writes into a request", () => {
 		for (const text of [
 			CANNOT_SEE_IMAGES_GUIDANCE,
-			heldBackImagesGuidance(["a.png"]),
+			heldBackImagesGuidance([{ number: 1, name: "a.png" }]),
 			STRIPPED_IMAGE_NOTE,
 			...buildTurnImageGuidance({
 				canSee: true,
 				turnImages: {
 					images: [],
 					heldBack: [],
-					notShown: ["scan.bmp"],
+					notShown: [{ number: 1, name: "scan.bmp" }],
 					hasImageAttachments: true,
 				},
 			}),
@@ -849,11 +938,11 @@ describe("the guidance the model reads about pictures", () => {
 				canSee: true,
 				turnImages: {
 					...base,
-					heldBack: ["c.png"],
+					heldBack: [{ number: 3, name: "c.png" }],
 					hasImageAttachments: true,
 				},
 			}),
-		).toEqual([heldBackImagesGuidance(["c.png"])]);
+		).toEqual([heldBackImagesGuidance([{ number: 3, name: "c.png" }])]);
 	});
 
 	it("adds the cannot-see line when images are attached and the model cannot see", () => {
@@ -874,13 +963,16 @@ describe("the guidance the model reads about pictures", () => {
 				canSee: true,
 				turnImages: {
 					...base,
-					notShown: ["scan.bmp", "broken.png"],
+					notShown: [
+						{ number: 1, name: "scan.bmp" },
+						{ number: 2, name: "broken.png" },
+					],
 					hasImageAttachments: true,
 				},
 			}),
 		).toEqual([
-			"The user attached scan.bmp, but it could not be shown to you.",
-			"The user attached broken.png, but it could not be shown to you.",
+			"Picture 1: scan.bmp was attached, but it could not be shown to you.",
+			"Picture 2: broken.png was attached, but it could not be shown to you.",
 		]);
 	});
 
@@ -890,14 +982,14 @@ describe("the guidance the model reads about pictures", () => {
 				canSee: true,
 				turnImages: {
 					...base,
-					heldBack: ["c.png"],
-					notShown: ["scan.bmp"],
+					heldBack: [{ number: 3, name: "c.png" }],
+					notShown: [{ number: 1, name: "scan.bmp" }],
 					hasImageAttachments: true,
 				},
 			}),
 		).toEqual([
-			heldBackImagesGuidance(["c.png"]),
-			"The user attached scan.bmp, but it could not be shown to you.",
+			heldBackImagesGuidance([{ number: 3, name: "c.png" }]),
+			"Picture 1: scan.bmp was attached, but it could not be shown to you.",
 		]);
 	});
 
@@ -907,7 +999,7 @@ describe("the guidance the model reads about pictures", () => {
 				canSee: false,
 				turnImages: {
 					...base,
-					notShown: ["scan.bmp"],
+					notShown: [{ number: 1, name: "scan.bmp" }],
 					hasImageAttachments: true,
 				},
 			}),

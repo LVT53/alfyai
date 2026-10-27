@@ -611,6 +611,7 @@ describe("estimateTurnPromptTokens", () => {
 			systemPrompt: "system",
 		}) as unknown as PreparedModelContext;
 	const picture = (estimatedTokens: number) => ({
+		number: 1,
 		artifactId: "a",
 		name: "a.jpg",
 		image: {

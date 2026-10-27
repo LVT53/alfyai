@@ -31,20 +31,37 @@ export type TurnImage = {
 	image: PreparedImage;
 };
 
+/**
+ * A picture of the message with its number: its place among the message's
+ * image attachments (see `attachedImagesOf`), whether or not it can be seen or
+ * is sent, so "picture 2" means the same thing to the person and the model.
+ */
+export type NumberedTurnImage = TurnImage & { number: number };
+
+/** A picture named by its number only, for the ones that are not sent. */
+export type NumberedName = { number: number; name: string };
+
+/** A picture ready to ride in the user message under its label. */
+export type LabelledPicture = {
+	number: number;
+	name: string;
+	image: PreparedImage;
+};
+
 /** What the current message's image attachments came to for this turn. */
 export type TurnImages = {
 	/** The prepared pictures to send: empty unless the model can see. */
-	images: TurnImage[];
-	/** Names of the pictures the per-turn limit left out. */
-	heldBack: string[];
+	images: NumberedTurnImage[];
+	/** The pictures the per-turn limit left out. */
+	heldBack: NumberedName[];
 	/**
-	 * Names of the image attachments that were not sent as pictures for any
+	 * The image attachments that were not sent as pictures for any
 	 * reason other than the limit: a format that cannot be decoded (a BMP, a
 	 * type the app does not know), or a file that could not be read or prepared.
 	 * Empty unless the model can see: a model that cannot is told one line about
 	 * images, whatever they are.
 	 */
-	notShown: string[];
+	notShown: NumberedName[];
 	/** The message attaches at least one image, whether or not it is sent. */
 	hasImageAttachments: boolean;
 };
@@ -60,17 +77,51 @@ export function noTurnImages(): TurnImages {
 export const CANNOT_SEE_IMAGES_GUIDANCE =
 	"The user attached an image, but you cannot see images; you only get any text extracted from it. Say so in one short sentence, then answer from that text.";
 
+/**
+ * One line, short: a file name is user data that lands in a user message. Control
+ * characters and runs of whitespace become one space, and it is cut by code
+ * points (never in the middle of a character). May return "": a caller that
+ * needs a name falls back to an id.
+ */
+export function oneLineName(name: string, maxChars = 80): string {
+	const oneLine = name.replace(/[\p{Cc}\s]+/gu, " ").trim();
+	const points = Array.from(oneLine);
+	return points.length > maxChars
+		? `${points.slice(0, maxChars - 3).join("")}...`
+		: oneLine;
+}
+
+/** What stands right before a picture, and in the sentences about the ones not sent. */
+export function pictureLabel(number: number, name: string): string {
+	return `Picture ${number}: ${name}`;
+}
+
+/** The pictures as labelled pictures, for `buildCurrentUserMessage`. */
+export function labelledPicturesOf(
+	images: readonly NumberedTurnImage[],
+): LabelledPicture[] {
+	return images.map(({ number, name, artifactId, image }) => ({
+		number,
+		name: oneLineName(name) || artifactId,
+		image,
+	}));
+}
+
 /** Said to a model that can see when the limit left some attached pictures out. */
-export function heldBackImagesGuidance(names: readonly string[]): string {
-	return `${names.length} more attached images were not sent as pictures because of the limit: ${names.join(", ")}.`;
+export function heldBackImagesGuidance(
+	pictures: readonly NumberedName[],
+): string {
+	return `Not sent as pictures because of the limit: ${pictures
+		.map(({ number, name }) => pictureLabel(number, oneLineName(name)))
+		.join("; ")}.`;
 }
 
 /**
  * Said to a model that can see, once per attached picture it was not sent for
  * a reason other than the limit, so it does not answer as if it had looked.
  */
-function notShownImageGuidance(name: string): string {
-	return `The user attached ${name}, but it could not be shown to you.`;
+export function notShownImageGuidance(picture: NumberedName): string {
+	return `${pictureLabel(picture.number, oneLineName(picture.name))} was attached, but it could not be shown to you.`;
 }
 
 /**
@@ -154,12 +205,24 @@ async function prepareTurnImage(artifact: Artifact): Promise<TurnImage | null> {
 export async function collectTurnImages(params: {
 	items: PromptAttachmentResolutionItem[];
 	maxImages: number;
-}): Promise<{ images: TurnImage[]; heldBack: string[]; notShown: string[] }> {
+}): Promise<{
+	images: NumberedTurnImage[];
+	heldBack: NumberedName[];
+	notShown: NumberedName[];
+}> {
 	const attached = attachedImagesOf(params.items);
+	// Numbered by place among the image attachments, seeable or not.
+	const numberOf = new Map(
+		attached.map((artifact, index) => [artifact.id, index + 1]),
+	);
+	const numbered = (artifact: Artifact): NumberedName => ({
+		number: numberOf.get(artifact.id) ?? 0,
+		name: artifact.name,
+	});
 	const candidates = attached.filter((artifact) =>
 		isSeeableImage(artifact.name, artifact.mimeType),
 	);
-	const images: TurnImage[] = [];
+	const images: NumberedTurnImage[] = [];
 	const unprepared = new Set<string>();
 	let next = 0;
 	while (next < candidates.length && images.length < params.maxImages) {
@@ -171,20 +234,21 @@ export async function collectTurnImages(params: {
 		next += wave.length;
 		const prepared = await Promise.all(wave.map(prepareTurnImage));
 		prepared.forEach((image, index) => {
-			if (image) images.push(image);
-			else unprepared.add(wave[index].id);
+			if (image) {
+				images.push({ ...image, number: numberOf.get(image.artifactId) ?? 0 });
+			} else unprepared.add(wave[index].id);
 		});
 	}
 	const candidateIds = new Set(candidates.map((artifact) => artifact.id));
 	return {
 		images,
-		heldBack: candidates.slice(next).map((artifact) => artifact.name),
+		heldBack: candidates.slice(next).map(numbered),
 		notShown: attached
 			.filter(
 				(artifact) =>
 					!candidateIds.has(artifact.id) || unprepared.has(artifact.id),
 			)
-			.map((artifact) => artifact.name),
+			.map(numbered),
 	};
 }
 
@@ -209,24 +273,46 @@ export async function resolveTurnImages(params: {
 	return { images, heldBack, notShown, hasImageAttachments };
 }
 
+function imagePart({ base64, mediaType }: PreparedImage) {
+	return { type: "image" as const, image: base64, mediaType };
+}
+
 /**
- * The current user message: the text, then each picture as an image part. The
- * parts carry base64 strings, never buffers, so the message hashes and logs
- * like any other.
+ * The current user message: the text, then each picture as an image part with
+ * its label ("Picture 2: name") in the text part right before it. The parts
+ * carry base64 strings, never buffers, so the message hashes and logs like any
+ * other.
  */
 export function buildCurrentUserMessage(
 	text: string,
-	images: readonly TurnImage[] = [],
+	pictures: readonly LabelledPicture[] = [],
 ): ModelMessage {
 	return {
 		role: "user",
 		content: [
 			{ type: "text", text },
-			...images.map(({ image }) => ({
-				type: "image" as const,
-				image: image.base64,
-				mediaType: image.mediaType,
-			})),
+			...pictures.flatMap(({ number, name, image }) => [
+				{ type: "text" as const, text: pictureLabel(number, name) },
+				imagePart(image),
+			]),
+		],
+	};
+}
+
+/**
+ * The message that shows a tool's thumbnails mid-turn: the entry's own label,
+ * then the pictures. They get no picture numbers; those belong to the message's
+ * attachments.
+ */
+export function buildStepImagesMessage(
+	label: string,
+	images: readonly TurnImage[],
+): UserModelMessage {
+	return {
+		role: "user",
+		content: [
+			{ type: "text", text: label },
+			...images.map(({ image }) => imagePart(image)),
 		],
 	};
 }

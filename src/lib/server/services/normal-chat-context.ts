@@ -60,9 +60,9 @@ import type { GroundedWebResult } from "./parallel-search/types";
 import { noteWebPrefetch } from "./url-provenance";
 import {
 	buildTurnImageGuidance,
+	type NumberedTurnImage,
 	noTurnImages,
 	sumTurnImageTokens,
-	type TurnImage,
 	type TurnImages,
 } from "./vision/turn-images";
 
@@ -115,7 +115,7 @@ export type PreparedOutboundChatContext = {
 	// The pictures of the current message, prepared for the model: empty unless
 	// the turn's model can see (`collectImages`). They ride in the user message
 	// the run builds (vision/turn-images.ts's buildCurrentUserMessage).
-	currentImages: TurnImage[];
+	currentImages: NumberedTurnImage[];
 	systemPrompt: string;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;

@@ -297,8 +297,8 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextDebug: null,
 			contextTraceSections: [],
 			currentImages: [
-				{ artifactId: "a-1", name: "room.jpg", image },
-				{ artifactId: "a-2", name: "sofa.jpg", image },
+				{ number: 1, artifactId: "a-1", name: "room.jpg", image },
+				{ number: 2, artifactId: "a-2", name: "sofa.jpg", image },
 			],
 		});
 
@@ -320,7 +320,9 @@ describe("runStreamingNormalChatSendModel", () => {
 								type: "text",
 								text: "What is in these?\n\n## Turn Guidance\nBe brief.",
 							},
+							{ type: "text", text: "Picture 1: room.jpg" },
 							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{ type: "text", text: "Picture 2: sofa.jpg" },
 							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
 						],
 					},

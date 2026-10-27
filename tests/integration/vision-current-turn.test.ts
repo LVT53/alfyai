@@ -267,7 +267,9 @@ describe("a model that can see", () => {
 		const content = lastUser(body).content as Part[];
 		expect(content.map((part) => part.type)).toEqual([
 			"text",
+			"text",
 			"image_url",
+			"text",
 			"image_url",
 		]);
 		const text = userText(body);
@@ -287,6 +289,32 @@ describe("a model that can see", () => {
 				600,
 			]);
 		}
+	});
+
+	it("labels each picture with its number, right before it, in the order they were attached", async () => {
+		const conversationId = await newConversation();
+		const attachments = [
+			await readyImage(conversationId, "b.png"),
+			await readyImage(conversationId, "a.jpg", { mimeType: "image/jpeg" }),
+		];
+
+		const body = await ask({
+			conversationId,
+			message: "Compare them",
+			attachments,
+			canSee: true,
+		});
+
+		const content = lastUser(body).content as Part[];
+		const labels = content.flatMap((part, index) =>
+			part.type === "text" && part.text?.startsWith("Picture ")
+				? [[part.text, content[index + 1]?.type]]
+				: [],
+		);
+		expect(labels).toEqual([
+			["Picture 1: b.png", "image_url"],
+			["Picture 2: a.jpg", "image_url"],
+		]);
 	});
 
 	it("is sent a photo shrunk to the budget, not the stored original", async () => {
@@ -333,7 +361,7 @@ describe("a model that can see", () => {
 
 		expect(imageUrls(body)).toHaveLength(8);
 		expect(userText(body)).toContain(
-			"2 more attached images were not sent as pictures because of the limit: photo-8.png, photo-9.png.",
+			"Not sent as pictures because of the limit: Picture 9: photo-8.png; Picture 10: photo-9.png.",
 		);
 	});
 
@@ -360,9 +388,9 @@ describe("a model that can see", () => {
 		);
 		// The model is told which one it was not shown, and only that one.
 		expect(userText(body)).toContain(
-			"The user attached broken.png, but it could not be shown to you.",
+			"Picture 1: broken.png was attached, but it could not be shown to you.",
 		);
-		expect(userText(body)).not.toContain("fine.png, but it could not");
+		expect(userText(body)).not.toContain("fine.png was attached");
 	});
 
 	it("is sent no picture for a BMP, which cannot be decoded, and is not told it cannot see", async () => {
@@ -385,7 +413,7 @@ describe("a model that can see", () => {
 		expect(userText(body)).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
 		// It was attached and it could not be shown: the model is told so, once.
 		expect(userText(body)).toContain(
-			"The user attached scan.bmp, but it could not be shown to you.",
+			"Picture 1: scan.bmp was attached, but it could not be shown to you.",
 		);
 	});
 
@@ -452,9 +480,9 @@ describe("a model that can see", () => {
 
 			expect(imageUrls(body)).toHaveLength(1);
 			expect(userText(body)).toContain(
-				"The user attached lost.png, but it could not be shown to you.",
+				"Picture 1: lost.png was attached, but it could not be shown to you.",
 			);
-			expect(userText(body)).not.toContain("kept.png, but it could not");
+			expect(userText(body)).not.toContain("kept.png was attached");
 		});
 
 		it("still stops the turn for a BMP with no text: the model can never be shown one", async () => {

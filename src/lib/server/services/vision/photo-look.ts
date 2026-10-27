@@ -12,7 +12,7 @@ import { describeImage } from "./describe";
 import { modelIdCanSeeImages } from "./model-vision";
 import type { PreparedImage } from "./prepare-image";
 import type { StepImageQueue } from "./step-images";
-import type { TurnImage } from "./turn-images";
+import { oneLineName, type TurnImage } from "./turn-images";
 
 // What the photos tool may do with the pixels of the photos it found, when the
 // model asks to look (`look: true`). The pixels of a person's photos are raw
@@ -112,11 +112,7 @@ export async function decidePhotoLook(params: {
 
 /** One line, short, never empty: it is user data that lands in a user message. */
 function labelNameOf(photo: LookPhoto): string {
-	const oneLine = photo.name.replace(/[\p{Cc}\s]+/gu, " ").trim();
-	if (oneLine === "") return photo.id;
-	return oneLine.length > LABEL_NAME_MAX_CHARS
-		? `${oneLine.slice(0, LABEL_NAME_MAX_CHARS - 3)}...`
-		: oneLine;
+	return oneLineName(photo.name, LABEL_NAME_MAX_CHARS) || photo.id;
 }
 
 const LABEL_HEAD = "Thumbnails from the photos tool, in result order:";

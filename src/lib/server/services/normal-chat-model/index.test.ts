@@ -18,6 +18,7 @@ import {
 } from "../vision/step-images";
 import {
 	buildCurrentUserMessage,
+	type LabelledPicture,
 	STRIPPED_IMAGE_NOTE,
 	type TurnImage,
 } from "../vision/turn-images";
@@ -4874,8 +4875,8 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		warn.mockRestore();
 	});
 
-	const photo: TurnImage = {
-		artifactId: "artifact-1",
+	const photo: LabelledPicture = {
+		number: 1,
 		name: "room.jpg",
 		image: {
 			base64: "/9j/4AAQSkZJRgABAQ==",
@@ -4926,6 +4927,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		);
 		expect(user?.content).toEqual([
 			{ type: "text", text: "What is in this photo?" },
+			{ type: "text", text: "Picture 1: room.jpg" },
 			{
 				type: "image_url",
 				image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
@@ -4939,9 +4941,9 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 				message: { role: "assistant", content: "Two rooms." },
 			}),
 		);
-		const second: TurnImage = {
+		const second: LabelledPicture = {
 			...photo,
-			artifactId: "artifact-2",
+			number: 2,
 			name: "kitchen.jpg",
 			image: { ...photo.image, base64: "/9j/AAAA" },
 		};
@@ -4958,11 +4960,20 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		}>;
 		expect(content.map((part) => part.type)).toEqual([
 			"text",
+			"text",
 			"image_url",
+			"text",
 			"image_url",
 		]);
-		expect(content[1]?.image_url?.url).toContain("/9j/4AAQ");
-		expect(content[2]?.image_url?.url).toContain("/9j/AAAA");
+		expect(content.map((part) => (part as { text?: string }).text)).toEqual([
+			"Compare them",
+			"Picture 1: room.jpg",
+			undefined,
+			"Picture 2: kitchen.jpg",
+			undefined,
+		]);
+		expect(content[2]?.image_url?.url).toContain("/9j/4AAQ");
+		expect(content[4]?.image_url?.url).toContain("/9j/AAAA");
 	});
 
 	it("sends a picture to a streaming run the same way", async () => {
@@ -5135,6 +5146,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 			expect(JSON.stringify(secondBody)).not.toContain("image_url");
 			expect(second?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{ type: "text", text: STRIPPED_IMAGE_NOTE },
 			]);
 		});
@@ -5183,6 +5195,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 			expect(JSON.stringify(body)).not.toContain("image_url");
 			expect(lastUserMessage(body)?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{ type: "text", text: STRIPPED_IMAGE_NOTE },
 			]);
 		});
@@ -5200,6 +5213,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 
 			expect(lastUserMessage(parseRequestBody(fetch))?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{
 					type: "image_url",
 					image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
