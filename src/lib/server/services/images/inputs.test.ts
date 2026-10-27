@@ -156,6 +156,44 @@ describe("the base", () => {
 		]);
 	});
 
+	it("copies a picture that belongs to another item, and reuses the one of the item being changed", async () => {
+		const { db } = await import("$lib/server/db");
+		const schema = await import("$lib/server/db/schema");
+		const { eq } = await import("drizzle-orm");
+		const file = await storeFile(1248, 832);
+		db.insert(schema.artifacts)
+			.values({
+				id: "item-a",
+				userId,
+				conversationId,
+				type: "artifact",
+				name: "Sofa",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})
+			.run();
+		db.update(schema.imageFiles)
+			.set({ artifactId: "item-a" })
+			.where(eq(schema.imageFiles.id, file.id))
+			.run();
+		const { prepareTakeInputs } = await import("./inputs");
+		const params = {
+			userId,
+			conversationId,
+			base: { ...fileSource(file.id), artifactId: "item-a" },
+			references: [fileSource(file.id)],
+			marked: null,
+			canvas: { width: 1248, height: 832 },
+		};
+		// Another item's picture: both the base and the reference are copies.
+		const copies = await prepareTakeInputs({ ...params, changing: null });
+		expect(copies.map((input) => input.fileId)).not.toContain(file.id);
+		expect(new Set(copies.map((i) => i.fileId)).size).toBe(2);
+		// The item being changed keeps using its own file.
+		const inPlace = await prepareTakeInputs({ ...params, changing: "item-a" });
+		expect(inPlace.map((input) => input.fileId)).toEqual([file.id, file.id]);
+	});
+
 	it("says in one sentence that an upload it cannot find is unreadable", async () => {
 		const { prepareTakeInputs, PictureUnreadableError } = await import(
 			"./inputs"

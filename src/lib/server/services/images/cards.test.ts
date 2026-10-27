@@ -141,6 +141,7 @@ async function landedTake(
 async function card(
 	madeFrom: "words" | "photo" | "change" = "words",
 	artifactId: string | null = null,
+	title = "Cosy living room",
 ) {
 	const { createCard } = await import("./cards");
 	return (
@@ -149,7 +150,7 @@ async function card(
 			conversationId,
 			turnId: "turn-1",
 			artifactId,
-			title: "Cosy living room",
+			title,
 			madeFrom,
 			sourceCount: 0,
 		})
@@ -377,6 +378,85 @@ describe("when a take becomes the version in use", () => {
 				),
 			),
 		).toBe(false);
+	});
+
+	it("keeps another item's picture when an item made from it is deleted", async () => {
+		const { settleCard } = await import("./cards");
+		const { deleteLibraryArtifact } = await import(
+			"$lib/server/services/artifacts"
+		);
+		const { db } = await import("$lib/server/db");
+		const diskPath = (fileId: string) =>
+			join(workdir, "data", "image-files", conversationId, `${fileId}.png`);
+
+		// Item A: the sofa. Item B is made from A's picture (reference and anchor).
+		const sofaCard = await card();
+		const sofa = await landedTake(sofaCard);
+		const sofaItem = (await settleCard(sofaCard)).artifactId ?? "";
+		const roomCard = await card("words", null, "Room");
+		const roomPhoto = await storeFile("input", "#aa5533");
+		const room = await landedTake(roomCard, {
+			request: request({
+				mode: "edit",
+				inputs: [
+					{ fileId: roomPhoto.id, role: "base", name: "Room" },
+					{ fileId: sofa.file.id, role: "reference", name: "Sofa" },
+				],
+				anchor: { fileId: sofa.file.id, chainSinceAnchor: 0 },
+			}),
+		});
+		const roomItem = (await settleCard(roomCard)).artifactId ?? "";
+		expect(roomItem).not.toBe(sofaItem);
+
+		// B owns only its own picture; A's file is still A's.
+		const ownerOf = (fileId: string) =>
+			db
+				.select()
+				.from(schema.imageFiles)
+				.where(eq(schema.imageFiles.id, fileId))
+				.get()?.artifactId;
+		expect(ownerOf(sofa.file.id)).toBe(sofaItem);
+		expect(ownerOf(room.file.id)).toBe(roomItem);
+
+		await deleteLibraryArtifact(userId, roomItem);
+		expect(existsSync(diskPath(room.file.id))).toBe(false);
+		expect(existsSync(diskPath(sofa.file.id))).toBe(true);
+		expect(ownerOf(sofa.file.id)).toBe(sofaItem);
+		expect((await versions(sofaItem)).length).toBe(1);
+	});
+
+	it("keeps another item's picture when the item is picked through useTake and then deleted", async () => {
+		const { settleCard, useTake } = await import("./cards");
+		const { deleteLibraryArtifact } = await import(
+			"$lib/server/services/artifacts"
+		);
+		const { db } = await import("$lib/server/db");
+		const sofaCard = await card();
+		const sofa = await landedTake(sofaCard);
+		const sofaItem = (await settleCard(sofaCard)).artifactId ?? "";
+		const roomCard = await card("words", null, "Room");
+		const first = await landedTake(roomCard);
+		const roomItem = (await settleCard(roomCard)).artifactId ?? "";
+		const roomPhoto = await storeFile("input", "#aa5533");
+		const other = await landedTake(roomCard, {
+			request: request({
+				mode: "edit",
+				inputs: [
+					{ fileId: roomPhoto.id, role: "base", name: "Room" },
+					{ fileId: sofa.file.id, role: "reference", name: "Sofa" },
+				],
+			}),
+		});
+		expect(first.id).not.toBe(other.id);
+		expect((await useTake({ userId, takeId: other.id })).ok).toBe(true);
+		await deleteLibraryArtifact(userId, roomItem);
+		expect(
+			db
+				.select()
+				.from(schema.imageFiles)
+				.where(eq(schema.imageFiles.id, sofa.file.id))
+				.get()?.artifactId,
+		).toBe(sofaItem);
 	});
 
 	it("brings nothing back and leaves no file when the whole chat went", async () => {

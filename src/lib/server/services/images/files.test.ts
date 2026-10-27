@@ -290,6 +290,52 @@ describe("deleting", () => {
 		).toEqual([rest.id]);
 	});
 
+	it("claims only unowned files of the item's own person and chat", async () => {
+		seedConversation(memory, { id: "c9", userId: "u1" });
+		const mk = (id: string) =>
+			memory.db
+				.insert(schema.artifacts)
+				.values({
+					id,
+					userId: "u1",
+					conversationId: "c1",
+					type: "artifact",
+					name: id,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.run();
+		mk("a1");
+		mk("a2");
+		const store = async (conversationId: string) =>
+			files.storeImageFile({
+				userId: "u1",
+				conversationId,
+				role: "take",
+				png: await png(32, 32),
+			});
+		const free = await store("c1");
+		const other = await store("c1");
+		const elsewhere = await store("c9");
+		await files.attachImageFilesToArtifact([other.id], "a1");
+		await files.attachImageFilesToArtifact(
+			[free.id, other.id, elsewhere.id],
+			"a2",
+		);
+		const owner = (id: string) =>
+			memory.db
+				.select()
+				.from(schema.imageFiles)
+				.all()
+				.find((row) => row.id === id)?.artifactId;
+		expect(owner(free.id)).toBe("a2");
+		expect(owner(other.id)).toBe("a1");
+		expect(owner(elsewhere.id)).toBeNull();
+		// Claiming again for its own item is fine.
+		await files.attachImageFilesToArtifact([free.id], "a2");
+		expect(owner(free.id)).toBe("a2");
+	});
+
 	it("deleting a person's files removes theirs only", async () => {
 		seedConversation(memory, { id: "c3", userId: "u2" });
 		await files.storeImageFile({

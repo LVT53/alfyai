@@ -399,6 +399,7 @@ export async function resolveMakeImageRequest(params: {
 		marked: marked && marks ? { source: marked, marks } : null,
 		canvas,
 		loadedBase,
+		changing: inPlace && itemHere ? itemHere.artifactId : null,
 	});
 	// A copy of another chat's picture starts its item the way a photo does: version 1 is the copy.
 	const baseFromUpload = first.type === "upload" || fromOtherChat;

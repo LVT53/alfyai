@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "$lib/server/db";
 import { artifacts, imageFiles } from "$lib/server/db/schema";
@@ -201,15 +201,40 @@ export async function readImageFileBytes(
 	return new Uint8Array(await readFile(absolute));
 }
 
+/**
+ * Makes pictures an Image item's own, so its delete takes them along. It claims
+ * only files of the item's own person and chat that no item owns yet (or that
+ * are already this item's): a picture another item made, even one this item was
+ * made from, stays that item's, so deleting this one cannot remove it.
+ */
 export async function attachImageFilesToArtifact(
 	fileIds: readonly string[],
 	artifactId: string,
 ): Promise<void> {
 	if (fileIds.length === 0) return;
+	const [item] = await db
+		.select({
+			userId: artifacts.userId,
+			conversationId: artifacts.conversationId,
+		})
+		.from(artifacts)
+		.where(eq(artifacts.id, artifactId))
+		.limit(1);
+	if (!item?.conversationId) return;
 	await db
 		.update(imageFiles)
 		.set({ artifactId })
-		.where(inArray(imageFiles.id, [...fileIds]));
+		.where(
+			and(
+				inArray(imageFiles.id, [...fileIds]),
+				eq(imageFiles.userId, item.userId),
+				eq(imageFiles.conversationId, item.conversationId),
+				or(
+					isNull(imageFiles.artifactId),
+					eq(imageFiles.artifactId, artifactId),
+				),
+			),
+		);
 }
 
 async function takeRows(rows: Row[]): Promise<number> {

@@ -1251,6 +1251,90 @@ describe("deleteArtifact", () => {
 		}
 	});
 
+	it("deleting an Image item made from another item's picture leaves that picture", async () => {
+		const { mkdtemp, rm, readdir } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const sharp = (await import("sharp")).default;
+		const { storeImageFile, attachImageFilesToArtifact } = await import(
+			"$lib/server/services/images/files"
+		);
+		const workdir = await mkdtemp(join(tmpdir(), "record-images-"));
+		vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		try {
+			const bytes = new Uint8Array(
+				await sharp({
+					create: { width: 16, height: 16, channels: 3, background: "#fff" },
+				})
+					.png()
+					.toBuffer(),
+			);
+			const make = async (fileId: string, title: string) => {
+				const created = await createArtifact({
+					userId: OWNER,
+					conversationId: CONVERSATION,
+					kind: "image",
+					title,
+					body: serializeImageVersionBody({
+						v: 1,
+						fileId,
+						width: 16,
+						height: 16,
+						hasAlpha: false,
+						baseFileId: null,
+						sources: [],
+						marks: null,
+						prompt: "p",
+						takeId: null,
+						seed: 7,
+						anchorFileId: null,
+						chainSinceAnchor: 0,
+					}),
+					author: "alfy",
+					versionSummary: "Alfy made the picture",
+				});
+				if (!created.ok) throw new Error("create failed");
+				return created.artifact.id;
+			};
+			const sofaFile = await storeImageFile({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				role: "take",
+				png: bytes,
+			});
+			const roomFile = await storeImageFile({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				role: "take",
+				png: bytes,
+			});
+			const sofa = await make(sofaFile.id, "Sofa");
+			await attachImageFilesToArtifact([sofaFile.id], sofa);
+			const room = await make(roomFile.id, "Room");
+			// The room was made from the sofa's picture: it must not take it over.
+			await attachImageFilesToArtifact([roomFile.id, sofaFile.id], room);
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: room }),
+			).resolves.toEqual({ ok: true });
+			expect(
+				memory.db
+					.select()
+					.from(schema.imageFiles)
+					.all()
+					.map((row) => row.id),
+			).toEqual([sofaFile.id]);
+			expect(
+				(
+					await readdir(join(workdir, "data", "image-files", CONVERSATION))
+				).sort(),
+			).toEqual([`${sofaFile.id}.png`, `${sofaFile.id}.thumb.png`].sort());
+		} finally {
+			vi.restoreAllMocks();
+			await rm(workdir, { recursive: true, force: true });
+		}
+	});
+
 	it("removes the artifact and its versions, comments and key-value rows; a second call answers false", async () => {
 		const artifact = await createDocument();
 		memory.db

@@ -27,6 +27,8 @@ export type LoadedPicture = {
 	height: number;
 	/** The stored picture file when the source is one OF THIS CHAT, so an input of the right size can reuse it; a file of another chat is always copied. */
 	fileId: string | null;
+	/** The Image item that owns that file, if one does: a file another item owns is never reused as an input. */
+	fileArtifactId?: string | null;
 };
 
 /** One English sentence for a picture that cannot be read; the tool shows it to the model. */
@@ -73,6 +75,7 @@ export async function loadPicture(params: {
 			width: file.width,
 			height: file.height,
 			fileId: file.conversationId === params.conversationId ? file.id : null,
+			fileArtifactId: file.artifactId,
 		};
 	} catch (error) {
 		console.warn("[IMAGES] A picture could not be read for a take", {
@@ -102,8 +105,18 @@ export async function prepareTakeInputs(params: {
 	canvas: CanvasSize;
 	/** The base when the caller already decoded it (to find the canvas), so an upload is read once. */
 	loadedBase?: LoadedPicture;
+	/** The Image item this take changes in place; its own files may be reused as they are. */
+	changing?: string | null;
 }): Promise<TakeInput[]> {
 	const { userId, conversationId, canvas } = params;
+	// A stored file is reused by id only when no item owns it or it is the item
+	// being changed. Another item's file is copied: it must not be claimed by this
+	// take's item, and deleting the other item must not break this one.
+	const reusable = (loaded: LoadedPicture): string | null =>
+		loaded.fileId &&
+		(!loaded.fileArtifactId || loaded.fileArtifactId === params.changing)
+			? loaded.fileId
+			: null;
 	const store = async (
 		png: Uint8Array,
 		role: "input" | "marked",
@@ -117,7 +130,7 @@ export async function prepareTakeInputs(params: {
 
 	if (params.base) {
 		const loaded = params.loadedBase ?? (await load(params.base));
-		let fileId = loaded.fileId;
+		let fileId = reusable(loaded);
 		if (
 			fileId &&
 			loaded.width === canvas.width &&
@@ -134,7 +147,7 @@ export async function prepareTakeInputs(params: {
 	for (const source of params.references) {
 		const loaded = await load(source);
 		const scale = Math.sqrt(REFERENCE_AREA / (loaded.width * loaded.height));
-		let fileId = loaded.fileId;
+		let fileId = reusable(loaded);
 		if (scale < 1 || !fileId) {
 			const png =
 				scale < 1
