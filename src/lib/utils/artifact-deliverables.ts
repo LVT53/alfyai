@@ -24,13 +24,26 @@ export type FoldedDeliverables<Segment> = {
 	retried: Segment[];
 };
 
-/** Whether the row is a card of an item (a call that made or changed one). */
+/** Whether the row is a card of an item (a call that made or changed one, or a picture card). */
 function isCard(item: ToolActivityItem): boolean {
+	if (item.body?.kind === "image-card") return item.body.cardId !== null;
 	return (
 		item.body?.kind === "artifact" &&
 		item.artifact !== undefined &&
 		!item.artifact.failed
 	);
+}
+
+/**
+ * What a row is a card OF: the item's id, or for a picture card its card id
+ * (`image-card:<cardId>`): every make_image call of one card (Another in words,
+ * a retry the model asks for) is one card in the reply (plan 2b preflight F5).
+ */
+function cardKey(item: ToolActivityItem): string | undefined {
+	if (item.body?.kind === "image-card") {
+		return item.body.cardId ? `image-card:${item.body.cardId}` : undefined;
+	}
+	return item.artifact?.id ?? undefined;
 }
 
 /**
@@ -48,7 +61,7 @@ export function foldArtifactDeliverables<Segment>(
 	const lastCard = new Map<string, number>();
 	const lastFailure = new Map<string, number>();
 	entries.forEach(({ item }, index) => {
-		const id = item.artifact?.id;
+		const id = cardKey(item);
 		if (!id) return;
 		if (isCard(item)) {
 			if (!firstCard.has(id)) firstCard.set(id, index);
@@ -61,7 +74,7 @@ export function foldArtifactDeliverables<Segment>(
 	const shown: ToolActivityItem[] = [];
 	const retried: Segment[] = [];
 	entries.forEach(({ segment, item }, index) => {
-		const id = item.artifact?.id;
+		const id = cardKey(item);
 		if (id && isCard(item)) {
 			// Its slot is the first card's; what it shows is the last one's.
 			if (firstCard.get(id) === index) {

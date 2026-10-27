@@ -1815,6 +1815,76 @@ describe("make_image rows", () => {
 		});
 	}
 
+	it("carries the picture's card, by the ids in its metadata, as an open deliverable", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageCardId: "card-9",
+					imageTakeId: "take-3",
+					imageTitle: "Red door",
+				},
+			}),
+			"card-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "image-card",
+			cardId: "card-9",
+			takeId: "take-3",
+			title: "Red door",
+		});
+		expect(item).toMatchObject({ pinned: true, alwaysOpen: true });
+	});
+
+	it("carries a card body while the call runs, before it names its card", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({ status: "running" }),
+			"running-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "image-card",
+			cardId: null,
+			takeId: null,
+			title: "Red door",
+		});
+	});
+
+	it("keeps a failed take's card, and a refusal with no card its own body", () => {
+		const failedTake = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_server_unreachable",
+					imageCardId: "card-1",
+					imageTakeId: "take-1",
+				},
+			}),
+			"failed-take",
+			translate,
+		);
+		expect(failedTake.body).toMatchObject({
+			kind: "image-card",
+			cardId: "card-1",
+		});
+		const refusal = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "not_configured" },
+			}),
+			"refused",
+			translate,
+		);
+		expect(refusal.body).toEqual({
+			kind: "error",
+			reason: "No picture server is set up.",
+		});
+	});
+
 	it("reads a finished new picture as 'Made' and its title", () => {
 		const item = buildToolActivityItem(
 			makeImageCall({
