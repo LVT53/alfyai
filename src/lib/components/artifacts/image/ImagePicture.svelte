@@ -94,6 +94,15 @@ function settle(id: string): void {
  * attachment never ran, left invisible under the one it replaced.
  */
 function markLoaded(id: string): void {
+	// A picture laid over another (a new take, a new version) is shown a frame
+	// after it loads: one already in the cache loads in the very frame it is made,
+	// and marking it then would skip its fade and cut to it.
+	if (layers.length > 1 && layers.at(-1) === id) {
+		requestAnimationFrame(() => {
+			loaded = { ...loaded, [id]: true };
+		});
+		return;
+	}
 	loaded = { ...loaded, [id]: true };
 }
 

@@ -196,6 +196,11 @@ describe("ImagePicture swapping its picture", () => {
 			"is-loaded",
 		);
 		await fireEvent.load(next);
+		// A picture already in the cache loads in the frame it is made: it is shown
+		// a frame later, so its fade over the old one runs (the panel's new version,
+		// F23, found by the T3 motion check).
+		expect(next).not.toHaveClass("is-loaded");
+		await new Promise((resolve) => requestAnimationFrame(resolve));
 		expect(next).toHaveClass("is-loaded");
 	});
 });
