@@ -13,6 +13,8 @@ const mockStopJobs = vi.fn();
 const mockSettleInterruptedImports = vi.fn(() => 0);
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
+const imageJobStub = { name: "image", logPrefix: "[IMAGES]" };
+const mockSettleHeldCards = vi.fn(async () => undefined);
 const fileProductionJobStub = {
 	name: "file-production",
 	logPrefix: "[FILE_PRODUCTION]",
@@ -89,6 +91,14 @@ vi.mock("$lib/server/services/atlas/research-job", () => ({
 
 vi.mock("$lib/server/services/extraction/extraction-job", () => ({
 	extractionJob: extractionJobStub,
+}));
+
+vi.mock("$lib/server/services/images/image-job", () => ({
+	imageJob: imageJobStub,
+}));
+
+vi.mock("$lib/server/services/images/cards", () => ({
+	settleHeldCards: mockSettleHeldCards,
 }));
 
 vi.mock("$lib/server/services/jobs", () => ({
@@ -232,7 +242,11 @@ describe("hooks.server.ts", () => {
 			atlasResearchJobStub,
 			extractionJobStub,
 			fileProductionJobStub,
+			imageJobStub,
 		]);
+		// Once the engine is up, a take that landed while the process was down
+		// becomes its card's version in use.
+		await vi.waitFor(() => expect(mockSettleHeldCards).toHaveBeenCalledOnce());
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);

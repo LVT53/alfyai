@@ -88,6 +88,14 @@ vi.mock("$lib/server/services/extraction/extraction-job", () => ({
 	extractionJob: { name: "extraction" },
 }));
 
+vi.mock("$lib/server/services/images/image-job", () => ({
+	imageJob: { name: "image" },
+}));
+
+vi.mock("$lib/server/services/images/cards", () => ({
+	settleHeldCards: vi.fn(async () => undefined),
+}));
+
 vi.mock("$lib/server/services/jobs", () => ({
 	startJobs: vi.fn(async () => undefined),
 	stopJobs: vi.fn(),
