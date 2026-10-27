@@ -76,6 +76,7 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
 		"PARALLEL_FREE_MONTHLY_USD",
 		"BRAVE_SEARCH_API_KEY",
 		"MINERU_API_URL",
+		"COMFYUI_URL",
 		"MINERU_API_KEY",
 		"MINERU_DEFAULT_TIER",
 		"MINERU_OCR_MODE",
@@ -92,7 +93,12 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
 		"WEB_PUSH_VAPID_PRIVATE_KEY",
 		"WEB_PUSH_VAPID_SUBJECT",
 	],
-	limits: ["MAX_MESSAGE_LENGTH", "MAX_FILE_UPLOAD_SIZE", "REQUEST_TIMEOUT_MS"],
+	limits: [
+		"MAX_MESSAGE_LENGTH",
+		"MAX_FILE_UPLOAD_SIZE",
+		"REQUEST_TIMEOUT_MS",
+		"IMAGE_REFERENCE_CAP",
+	],
 };
 
 /**

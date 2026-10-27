@@ -1765,6 +1765,12 @@ const settingsDict = {
 		"admin.system.keys.MINERU_API_URL.label": "MinerU endpoint",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Where uploaded documents are parsed. Must be reachable from this server.",
+		"admin.system.keys.COMFYUI_URL.label": "Picture server",
+		"admin.system.keys.COMFYUI_URL.meaning":
+			"The ComfyUI server that makes pictures. Leave empty to turn picture making off.",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Source pictures per image",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
+			"How many pictures Alfy may use to make or change one image, from 1 to 10. Each extra picture costs the picture server about 2 GiB. A message itself may hold more.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API key",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Empty means anonymous access, which a local MinerU allows.",
@@ -3872,6 +3878,12 @@ const settingsDict = {
 		"admin.system.keys.MINERU_API_URL.label": "MinerU végpont",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Itt elemződnek a feltöltött dokumentumok. Elérhetőnek kell lennie erről a szerverről.",
+		"admin.system.keys.COMFYUI_URL.label": "Képszerver",
+		"admin.system.keys.COMFYUI_URL.meaning":
+			"A képeket készítő ComfyUI-szerver. Üresen hagyva nincs képkészítés.",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Forrásképek egy képhez",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
+			"Egy kép elkészítéséhez vagy módosításához legfeljebb ennyi képet használhat Alfy (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől. Egy üzenetben ennél több kép is lehet.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API-kulcs",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Üresen névtelen hozzáférést jelent, amit a helyi MinerU megenged.",

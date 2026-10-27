@@ -21,6 +21,7 @@ export type ToolHealthConfig = Pick<
 	| "owntracksRecorderPass"
 	| "mineruApiUrl"
 	| "mineruApiKey"
+	| "comfyuiUrl"
 >;
 
 // Per-region public-transport readiness, as the map_route health entry reports

@@ -400,4 +400,24 @@ describe("Environment Configuration", () => {
 			warn.mockRestore();
 		}
 	});
+
+	it("reads the picture server address and the source-picture cap", async () => {
+		delete process.env.COMFYUI_URL;
+		delete process.env.IMAGE_REFERENCE_CAP;
+		let { config } = await import("./env");
+		expect(config.comfyuiUrl).toBe("");
+		expect(config.imageReferenceCap).toBe(4);
+
+		for (const [raw, expected] of [
+			["12", 10],
+			["0", 1],
+			["abc", 4],
+			["7", 7],
+		] as const) {
+			vi.resetModules();
+			process.env.IMAGE_REFERENCE_CAP = raw;
+			({ config } = await import("./env"));
+			expect(config.imageReferenceCap, raw).toBe(expected);
+		}
+	});
 });

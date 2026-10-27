@@ -388,6 +388,20 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 				expectOk,
 			),
 	},
+	// Picture making. ComfyUI answers /system_stats without a credential.
+	{
+		id: "make_image",
+		name: "make_image",
+		backend: "ComfyUI",
+		configured: (config) => hasValue(config.comfyuiUrl),
+		probe: (ctx) =>
+			httpProbe(
+				ctx,
+				`${trimBase(ctx.config.comfyuiUrl)}/system_stats`,
+				{},
+				expectOk,
+			),
+	},
 	{
 		id: "location",
 		name: "location",

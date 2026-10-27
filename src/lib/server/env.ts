@@ -121,6 +121,9 @@ interface Config {
 	model2Enabled: boolean;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
+	// Empty means picture making is off.
+	comfyuiUrl: string;
+	imageReferenceCap: number;
 	mineruApiKey: string;
 	mineruDefaultTier: string;
 	mineruOcrMode: string;
@@ -804,6 +807,13 @@ function readConfig(): Config {
 			parseInt(process.env.MEMORY_MAINTENANCE_INTERVAL_MINUTES || "0", 10) || 0,
 		),
 		mineruApiUrl: process.env.MINERU_API_URL || "http://127.0.0.1:8001",
+		comfyuiUrl: (process.env.COMFYUI_URL || "").trim(),
+		imageReferenceCap: clampParsedInt(
+			process.env.IMAGE_REFERENCE_CAP,
+			4,
+			1,
+			10,
+		),
 		mineruApiKey: process.env.MINERU_API_KEY || "",
 		mineruDefaultTier: normalizeMineruDefaultTier(
 			process.env.MINERU_DEFAULT_TIER,

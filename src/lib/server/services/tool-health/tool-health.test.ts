@@ -29,6 +29,7 @@ function fullConfig(
 		owntracksRecorderPass: "secret",
 		mineruApiUrl: "http://mineru:8001",
 		mineruApiKey: "",
+		comfyuiUrl: "http://comfy:8188",
 		...overrides,
 	};
 }
@@ -45,6 +46,7 @@ function emptyConfig(): ToolHealthConfig {
 		routingOnDemandEnabled: false,
 		owntracksRecorderUrl: "",
 		mineruApiUrl: "",
+		comfyuiUrl: "",
 	});
 }
 
@@ -97,6 +99,29 @@ function byId(snapshot: Awaited<ReturnType<typeof checkToolHealth>>) {
 afterEach(() => {
 	resetToolHealthCacheForTests();
 	vi.useRealTimers();
+});
+
+describe("make_image health", () => {
+	it("is healthy when /system_stats answers 200", async () => {
+		const deps = makeDeps((url) =>
+			url === "http://comfy:8188/system_stats"
+				? jsonResponse({ system: {} })
+				: healthyHandler(url),
+		);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image.status).toBe("healthy");
+		expect(tools.make_image.backend).toBe("ComfyUI");
+	});
+
+	it("is degraded with a detail when the connection is refused", async () => {
+		const deps = makeDeps((url) => {
+			if (url.includes("comfy:8188")) throw new Error("connect ECONNREFUSED");
+			return healthyHandler(url);
+		});
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image.status).toBe("degraded");
+		expect(tools.make_image.detail).toBeTruthy();
+	});
 });
 
 describe("tool health registry", () => {
@@ -419,6 +444,7 @@ describe("tool health registry", () => {
 			"map_route",
 			"map_route:geocoder",
 			"location",
+			"make_image",
 		]) {
 			expect(tools[id].status).toBe("unconfigured");
 			expect(tools[id].probed).toBe(false);

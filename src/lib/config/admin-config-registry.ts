@@ -625,6 +625,18 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		key: "COMFYUI_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
+		key: "IMAGE_REFERENCE_CAP",
+		group: "limits",
+		control: int(1, 10, "count"),
+		effect: "live",
+	},
+	{
 		key: "MINERU_API_KEY",
 		group: "integrations",
 		control: { kind: "secret" },

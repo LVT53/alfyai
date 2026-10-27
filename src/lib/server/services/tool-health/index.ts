@@ -135,6 +135,7 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			owntracksRecorderPass: "",
 			mineruApiUrl: "",
 			mineruApiKey: "",
+			comfyuiUrl: "",
 		};
 	}
 }

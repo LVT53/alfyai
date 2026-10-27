@@ -33,6 +33,11 @@ SQLite persistence — all in a single Node deployment.
   and expose their data to chat tools. See [docs/architecture.md](docs/architecture.md#connections).
 - **Knowledge base and working documents** — file-backed uploads, a shared rich previewer, and
   version history. Uploads are extracted through MinerU; see [docs/uploads.md](docs/uploads.md).
+- **Picture server** — `COMFYUI_URL` points Alfy at a ComfyUI server that makes and changes
+  pictures. Leave it empty and picture making is off; Tool Health reports it as unconfigured when
+  empty and degraded when the server stops answering `/system_stats`. `IMAGE_REFERENCE_CAP`
+  (default 4, 1 to 10) is how many source pictures Alfy may hand the server for one image; each
+  extra one costs the server about 2 GiB. Both are live settings on the admin System page.
 - **Maps and routing** — inline map cards and self-hosted OpenRouteService routing with optional
   on-demand regions and GTFS transit. See [docs/routing.md](docs/routing.md).
 
