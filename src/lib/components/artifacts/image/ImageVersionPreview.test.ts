@@ -45,7 +45,11 @@ const stored: Record<string, string> = {
 		marks: [{ letter: "A", x: 0.1, y: 0.2, w: 0.2, h: 0.3 }],
 	}),
 	v3: body({ fileId: "file-3", baseFileId: "file-2" }),
+	vAlpha: body({ fileId: "file-a", baseFileId: "file-1", hasAlpha: true }),
 };
+
+let rerenderPreview: (props: Record<string, unknown>) => Promise<void> =
+	async () => {};
 
 function renderPreview(
 	overrides: Partial<{
@@ -55,7 +59,7 @@ function renderPreview(
 	}> = {},
 ) {
 	const onState = vi.fn();
-	render(ImageVersionPreview, {
+	const view = render(ImageVersionPreview, {
 		artifactId: "img-1",
 		conversationId: "conv-1",
 		versionId: "v2",
@@ -69,12 +73,18 @@ function renderPreview(
 		onState,
 		...overrides,
 	});
+	rerenderPreview = async (props) => {
+		await view.rerender(props);
+	};
 	return { onState };
 }
 
 beforeEach(() => {
 	bodies.versionBody.mockImplementation(
-		async ({ versionId }: { versionId: string }) => stored[versionId],
+		async ({ versionId }: { versionId: string }) => {
+			if (!(versionId in stored)) throw new Error("not found");
+			return stored[versionId];
+		},
 	);
 });
 
@@ -170,5 +180,27 @@ describe("ImageVersionPreview", () => {
 				changeCount: 0,
 			}),
 		);
+	});
+
+	it("shows its error, never the picture before, when a body it switches to cannot be read", async () => {
+		const { onState } = renderPreview();
+		await screen.findByTestId("compare-wipe-after");
+		await rerenderPreview({ compare: "now", baseVersionId: "v-missing" });
+		expect(await screen.findByText("Could not open the picture.")).toBeTruthy();
+		expect(screen.queryByTestId("compare-wipe")).toBeNull();
+		expect(
+			document.querySelector('img[src*="file-2"]'),
+			"the picture before is still on screen",
+		).toBeNull();
+		expect(onState).toHaveBeenLastCalledWith({
+			status: "error",
+			changeCount: 0,
+		});
+	});
+
+	it("puts the wipe on the checkerboard when a picture is see-through", async () => {
+		renderPreview({ versionId: "vAlpha", baseVersionId: "v1" });
+		const wipe = await screen.findByTestId("compare-wipe");
+		expect(wipe.classList.contains("image-checkerboard")).toBe(true);
 	});
 });

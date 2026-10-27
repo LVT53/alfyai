@@ -71,6 +71,9 @@ async function load(id: string, baseId: string | null): Promise<void> {
 		onState({ status: "ready", changeCount: 0 });
 	} catch {
 		if (mine !== token) return;
+		// Never the picture of the version before under this one's row.
+		shown = null;
+		base = null;
 		status = "error";
 		onState({ status: "error", changeCount: 0 });
 	}
@@ -124,7 +127,9 @@ const tags = $derived(
 
 <div class="ivp" role="region" aria-label={label} data-testid="image-version-preview" data-status={status}>
 	<div class="ivp-stage">
-		{#if shown}
+		{#if status === 'error'}
+			<p class="ivp-error" role="alert">{$t('artifacts.image.panel.loadFailed')}</p>
+		{:else if shown}
 			<div
 				class="ivp-frame"
 				style:--ratio={shown.width / shown.height}
@@ -142,6 +147,7 @@ const tags = $derived(
 						beforeTag={tags.before}
 						afterTag={tags.after}
 						marks={marks.length > 0 ? markLayer : undefined}
+						hasAlpha={shown.hasAlpha || base.hasAlpha}
 					/>
 				{:else}
 					<div class="ivp-single" data-testid="image-version-picture">
@@ -157,11 +163,9 @@ const tags = $derived(
 					</div>
 				{/if}
 			</div>
-		{:else if status === 'error'}
-			<p class="ivp-error" role="alert">{$t('artifacts.image.panel.loadFailed')}</p>
 		{/if}
 	</div>
-	{#if shown && (marksLine || shown.prompt)}
+	{#if status !== 'error' && shown && (marksLine || shown.prompt)}
 		<div class="ivp-foot">
 			{#if marksLine}
 				<p class="ivp-marks-line">{marksLine}</p>
@@ -181,9 +185,9 @@ const tags = $derived(
 		display: flex;
 		flex: 1 1 auto;
 		flex-direction: column;
-		gap: 0.625rem;
+		gap: var(--space-sm);
 		min-height: 0;
-		padding: 0.75rem 1rem 1rem;
+		padding: calc(var(--space-sm) + var(--space-xs)) var(--space-md) var(--space-md);
 		box-sizing: border-box;
 	}
 
@@ -225,30 +229,30 @@ const tags = $derived(
 		position: absolute;
 		top: -1px;
 		left: -1px;
-		padding: 0 0.3rem;
+		padding: 0 var(--space-xs);
 		border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
 		/* The mark colours are data, the same in both themes, and so is the letter on them. */
 		color: #fff;
 		font-family: var(--font-sans);
-		font-size: 0.7rem;
+		font-size: var(--text-2xs);
 		font-weight: 800;
-		line-height: 1.25rem;
+		line-height: calc(var(--space-md) + var(--space-xs));
 	}
 
 	.ivp-error {
 		margin: 0;
 		color: var(--text-muted);
 		font-family: var(--font-sans);
-		font-size: 0.875rem;
+		font-size: var(--text-sm);
 	}
 
 	.ivp-foot {
 		display: flex;
 		flex: none;
 		flex-direction: column;
-		gap: 0.375rem;
+		gap: calc(var(--space-xs) * 1.5);
 		font-family: var(--font-sans);
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 	}
 
 	.ivp-marks-line {
@@ -270,7 +274,7 @@ const tags = $derived(
 	}
 
 	.ivp-prompt-text {
-		margin: 0.375rem 0 0;
+		margin: calc(var(--space-xs) * 1.5) 0 0;
 		color: var(--text-primary);
 		line-height: 1.45;
 		white-space: pre-wrap;
