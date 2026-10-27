@@ -127,3 +127,25 @@ export function canCompareBeforeAfter(take: ImageTakeView | null): boolean {
 export function hasActiveImageTakes(cards: readonly ImageCardView[]): boolean {
 	return cards.some((card) => card.takes.some(isBeingMade));
 }
+
+/** What a picture card asks the chat page to do (plan 2b T2; T5 adds `attach`). */
+export type ImageCardAction =
+	| { type: "another"; cardId: string }
+	| { type: "use"; takeId: string }
+	| { type: "stop"; takeId: string }
+	| { type: "retry"; takeId: string }
+	| { type: "download"; fileId: string; title: string }
+	| { type: "history"; artifactId: string }
+	| { type: "open"; artifactId: string };
+
+/**
+ * The page's answer to an action: Another names the take it queued, so the
+ * card can show it at once. A rejected promise means nothing happened (the
+ * page has already said so).
+ */
+export type ImageCardActionResult = { takeId?: string } | undefined;
+
+/** The chat page's answer to a picture card's buttons, threaded down to the card. */
+export type ImageCardActionHandler = (
+	action: ImageCardAction,
+) => Promise<ImageCardActionResult>;

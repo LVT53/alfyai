@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { uiLanguage } from "$lib/stores/settings";
 import ArtifactCard, { type ArtifactCardView } from "./ArtifactCard.svelte";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "./image/image-card-fixtures.test-helpers";
 
 function makeJob(
 	overrides: Partial<FileProductionJob> = {},
@@ -924,5 +928,50 @@ describe("ArtifactCard — a Canvas", () => {
 			"utf8",
 		);
 		expect(source).not.toMatch(/@xyflow|\/canvas\//);
+	});
+});
+
+describe("ArtifactCard, the picture card (plan 2b T2)", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("draws the full head and the picture body together once the body has loaded", async () => {
+		const ready = imageTake({ fileId: "file-1" });
+		const onImageAction = vi.fn();
+		render(ArtifactCard, {
+			view: view({
+				id: "artifact-9",
+				kind: "image",
+				title: "Cosy room",
+				subtitle: "Image · 2 takes",
+				openTargetId: "artifact-9",
+			}),
+			imageCard: imageCard([ready]),
+			onImageAction,
+		});
+
+		const body = await screen.findByTestId("image-card-body");
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).toHaveTextContent("Cosy room");
+		expect(head).toHaveTextContent("Image · 2 takes");
+		expect(head).toHaveTextContent("Open");
+		expect(screen.getByTestId("artifact-card")).toContainElement(body);
+		await fireEvent.click(screen.getByRole("button", { name: /Another/ }));
+		expect(onImageAction).toHaveBeenCalledWith({
+			type: "another",
+			cardId: "card-1",
+		});
+	});
+
+	it("never says Artifact on the picture card", async () => {
+		render(ArtifactCard, {
+			view: view({ kind: "image", title: "Cosy room" }),
+			imageCard: imageCard([imageTake()]),
+		});
+		await screen.findByTestId("image-card-body");
+		expect(screen.getByTestId("artifact-card").textContent).not.toMatch(
+			/artifact/i,
+		);
 	});
 });

@@ -38,7 +38,9 @@ import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ImageCardActionHandler } from "./image/image-card-view";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
 
 export interface ArtifactCardTickableItem {
@@ -200,6 +202,8 @@ let {
 	onDismiss = undefined,
 	onRegenerate = undefined,
 	rowMenu = undefined,
+	imageCard = null,
+	onImageAction = undefined,
 }: {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
@@ -232,6 +236,15 @@ let {
 	 * touch; the host owns what it opens.
 	 */
 	rowMenu?: Snippet | undefined;
+	/**
+	 * `kind: "image"`, `chrome="full"` (plan 2b T2): the picture card the head
+	 * is for, drawn under it by the lazily loaded `ImageCardBody`. The card is
+	 * drawn once its body has loaded, head and body together, so nothing under
+	 * it is pushed twice.
+	 */
+	imageCard?: ImageCardView | null;
+	/** What the picture card's buttons ask for; the chat page answers. */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 const TICKABLE_VISIBLE_LIMIT = 5;
@@ -325,6 +338,29 @@ $effect(() => {
 	};
 });
 
+// The picture card's body is lazy for the same reason: a chat with no picture
+// never loads it, and none of it is in the chat route's first load
+// (`npm run check:image-chunks`).
+let ImageCardBody = $state<
+	typeof import("./image/ImageCardBody.svelte").default | null
+>(null);
+$effect(() => {
+	if (view.kind !== "image" || !imageCard || ImageCardBody) return;
+	let cancelled = false;
+	void import("./image/ImageCardBody.svelte").then((module) => {
+		if (!cancelled) ImageCardBody = module.default;
+	});
+	return () => {
+		cancelled = true;
+	};
+});
+let waitingForImageBody = $derived(
+	chrome === "full" &&
+		view.kind === "image" &&
+		imageCard != null &&
+		!ImageCardBody,
+);
+
 function handleOpen(): void {
 	if (view.openTargetId) onOpen?.(view.openTargetId);
 }
@@ -334,6 +370,8 @@ function handleOpen(): void {
 	{#if job && FileProductionBody}
 		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 	{/if}
+{:else if waitingForImageBody}
+	<!-- The picture card's body is on its way: the card is drawn whole once it is here. -->
 {:else if chrome === 'row'}
 	<div class="artifact-row-wrap" class:artifact-row-has-menu={Boolean(rowMenu)}>
 	<button
@@ -575,6 +613,12 @@ function handleOpen(): void {
 					<p class="artifact-card-failed-title">{$t('artifacts.card.failedTitle')}</p>
 					<p class="artifact-card-failed-reason">{view.failedReason}</p>
 				</div>
+			{:else if view.kind === 'image' && imageCard && ImageCardBody}
+				<ImageCardBody
+					card={imageCard}
+					conversationId={imageCard.conversationId}
+					onAction={onImageAction}
+				/>
 			{:else}
 				{#if view.factCheckLine}
 					<div class="artifact-card-body artifact-card-factcheck">
