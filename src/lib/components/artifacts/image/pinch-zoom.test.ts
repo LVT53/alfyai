@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { zoomFrom } from "./pinch-zoom";
+import { describe, expect, it, vi } from "vitest";
+import { pinchZoom, zoomFrom } from "./pinch-zoom";
 
 describe("zoomFrom", () => {
 	it("scales with the distance between the two fingers", () => {
@@ -17,5 +17,113 @@ describe("zoomFrom", () => {
 
 	it("keeps the scale when the start distance is nothing", () => {
 		expect(zoomFrom({ distance: 0, scale: 2 }, { distance: 150 })).toBe(2);
+	});
+});
+
+describe("pinchZoom", () => {
+	function pointer(
+		type: string,
+		id: number,
+		x: number,
+		y = 0,
+		options: { pointerType?: string; timeStamp?: number } = {},
+	): Event {
+		const event = new MouseEvent(type, {
+			bubbles: true,
+			clientX: x,
+			clientY: y,
+		});
+		Object.defineProperty(event, "pointerId", { value: id });
+		Object.defineProperty(event, "pointerType", {
+			value: options.pointerType ?? "touch",
+		});
+		if (options.timeStamp !== undefined) {
+			Object.defineProperty(event, "timeStamp", { value: options.timeStamp });
+		}
+		return event;
+	}
+
+	const frame = () =>
+		new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+	function stage() {
+		const node = document.createElement("div");
+		const target = document.createElement("div");
+		target.dataset.pinchTarget = "";
+		node.append(target);
+		document.body.append(node);
+		return { node, target };
+	}
+
+	it("zooms with two fingers, touch-action off on the stage alone, and the pinch stops at the stage", async () => {
+		const { node, target } = stage();
+		const action = pinchZoom(node, { enabled: true });
+		expect(node.style.touchAction).toBe("none");
+		const above = vi.fn();
+		document.body.addEventListener("pointermove", above);
+
+		node.dispatchEvent(pointer("pointerdown", 1, -40));
+		node.dispatchEvent(pointer("pointerdown", 2, 40));
+		node.dispatchEvent(pointer("pointermove", 1, -80));
+		node.dispatchEvent(pointer("pointermove", 2, 80));
+		await frame();
+		expect(target.style.transform).toContain("scale(2)");
+		expect(above).not.toHaveBeenCalled();
+
+		node.dispatchEvent(pointer("pointerup", 2, 80));
+		node.dispatchEvent(pointer("pointerup", 1, -80));
+		await frame();
+		expect(target.style.transform).toContain("scale(2)");
+
+		document.body.removeEventListener("pointermove", above);
+		action.destroy?.();
+		expect(node.style.touchAction).toBe("");
+		await frame();
+		expect(target.style.transform).toBe("");
+		node.remove();
+	});
+
+	it("goes back to 1x on a double tap, and leaves one finger and a mouse alone", async () => {
+		const { node, target } = stage();
+		const action = pinchZoom(node, { enabled: true });
+		node.dispatchEvent(pointer("pointerdown", 1, -40));
+		node.dispatchEvent(pointer("pointerdown", 2, 40));
+		node.dispatchEvent(pointer("pointermove", 2, 120));
+		node.dispatchEvent(pointer("pointerup", 2, 120));
+		node.dispatchEvent(pointer("pointerup", 1, -40));
+		await frame();
+		const zoomed = target.style.transform;
+		expect(zoomed).toContain("scale(");
+
+		// One finger dragging, and a mouse: nothing moves (the Mark tool's).
+		node.dispatchEvent(pointer("pointerdown", 3, 0, 0, { timeStamp: 1000 }));
+		node.dispatchEvent(pointer("pointermove", 3, 60));
+		node.dispatchEvent(pointer("pointerup", 3, 60, 0, { timeStamp: 1100 }));
+		node.dispatchEvent(
+			pointer("pointerdown", 4, 0, 0, { pointerType: "mouse" }),
+		);
+		await frame();
+		expect(target.style.transform).toBe(zoomed);
+
+		node.dispatchEvent(pointer("pointerdown", 5, 10, 10, { timeStamp: 2000 }));
+		node.dispatchEvent(pointer("pointerup", 5, 10, 10, { timeStamp: 2050 }));
+		node.dispatchEvent(pointer("pointerdown", 6, 12, 10, { timeStamp: 2200 }));
+		node.dispatchEvent(pointer("pointerup", 6, 12, 10, { timeStamp: 2250 }));
+		await frame();
+		expect(target.style.transform).toBe("");
+		expect(target.style.transition).toContain("transform");
+		action.destroy?.();
+		node.remove();
+	});
+
+	it("turns on and off with its option", () => {
+		const { node } = stage();
+		const action = pinchZoom(node, { enabled: false });
+		expect(node.style.touchAction).toBe("");
+		action.update?.({ enabled: true });
+		expect(node.style.touchAction).toBe("none");
+		action.update?.({ enabled: false });
+		expect(node.style.touchAction).toBe("");
+		node.remove();
 	});
 });

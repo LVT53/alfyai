@@ -1,5 +1,4 @@
 <script lang="ts">
-// fallow-ignore-file unrendered-component -- rendered as <HistoryView> in DocumentWorkspace.svelte, after import("./history-parts")
 /**
  * History, a MODE of the artifact panel (ruling 76, versioning.md §5.2): the
  * body gives way to a read-only preview of the selected version, and the

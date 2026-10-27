@@ -1302,6 +1302,38 @@ function holdClose(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
 	expect(metrics.chat.between).toBeGreaterThanOrEqual(3);
 }
 
+/**
+ * The Image against the Document, the same open and close: the Document holds its
+ * own bars, the Image adds no shift it does not have, takes the same time (one
+ * sampler frame either way, where the column moves) and runs the shell on the
+ * same curves, on every surface.
+ */
+function holdSideBySide(
+	image: { open: PanelMetrics; close: PanelMetrics },
+	document: { open: PanelMetrics; close: PanelMetrics },
+	noColumn: boolean,
+) {
+	holdOpen(document.open, noColumn, noColumn);
+	holdClose(document.close, noColumn, noColumn);
+	expect(image.open.clsNoInput).toBeLessThanOrEqual(
+		Math.max(0.01, document.open.clsNoInput + 0.005),
+	);
+	for (const step of ["open", "close"] as const) {
+		if (!noColumn) {
+			expect(
+				Math.abs(image[step].chat.durationMs - document[step].chat.durationMs),
+				`${step}: the picture's panel took another time`,
+			).toBeLessThanOrEqual(34);
+		}
+		// The shell's own curves (the column's width, the content's fade).
+		const side = compareKinds(image[step], document[step]);
+		expect(
+			side.imageCurves,
+			`${step}: the panel ran on another curve for the picture`,
+		).toEqual(side.documentCurves);
+	}
+}
+
 test.describe("the picture in the panel moves like the Document's (T3)", () => {
 	test.describe.configure({ mode: "serial" });
 
@@ -1438,36 +1470,12 @@ test.describe("the picture in the panel moves like the Document's (T3)", () => {
 					"a transition ran under reduced motion",
 				).toEqual([]);
 			}
-			const document = results.documentOpen;
-			if (document) {
-				holdOpen(document, phone, reduced);
-				holdClose(results.documentClose, phone, reduced);
-				// The same motion: the image adds no layout shift the Document does not have.
-				expect(imageOpen.clsNoInput).toBeLessThanOrEqual(
-					Math.max(0.01, document.clsNoInput + 0.005),
+			if (results.documentOpen) {
+				holdSideBySide(
+					{ open: imageOpen, close: imageClose },
+					{ open: results.documentOpen, close: results.documentClose },
+					phone || reduced,
 				);
-				if (!phone && !reduced) {
-					// One frame of the 60 Hz sampler either way.
-					expect(
-						Math.abs(imageOpen.chat.durationMs - document.chat.durationMs),
-					).toBeLessThanOrEqual(34);
-					expect(
-						Math.abs(
-							imageClose.chat.durationMs -
-								results.documentClose.chat.durationMs,
-						),
-					).toBeLessThanOrEqual(34);
-				}
-				// The shell's own curves (the column's width, the content's fade), on every surface.
-				for (const side of [
-					compareKinds(imageOpen, document),
-					compareKinds(imageClose, results.documentClose),
-				]) {
-					expect(
-						side.imageCurves,
-						"the panel ran on another curve for the picture",
-					).toEqual(side.documentCurves);
-				}
 			}
 		});
 	}

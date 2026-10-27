@@ -1,5 +1,4 @@
 <script lang="ts">
-// fallow-ignore-file unrendered-component -- rendered by DocumentWorkspace.svelte through ARTIFACT_BODIES.image, a dynamic import
 // The Image kind's body in the family's panel (plan 2b T3, design 5.6): the
 // picture large, a toolbar (Before / After; T6 adds Mark) and the strip of its
 // versions below. It is a body like the Document's, inside `DocumentWorkspace`:

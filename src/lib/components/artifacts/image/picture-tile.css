@@ -1,0 +1,47 @@
+/*
+ * A picture tile, as the card's takes strip and the panel's version strip both
+ * draw it (plan 2b T2, T3): a reserved box with a hairline edge, quiet until it
+ * is the one shown, whose ring then fades in. Only opacity moves (MOTION-PARITY 3).
+ * Global on purpose, under a name of its own: two components share one look.
+ */
+.picture-tile {
+	position: relative;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--surface-elevated);
+	box-shadow: 0 0 0 1px var(--border-default);
+	cursor: pointer;
+	opacity: 0.82;
+	transition: opacity var(--duration-standard) var(--ease-out);
+}
+
+.picture-tile::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 2px var(--accent);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--duration-standard) var(--ease-out);
+}
+
+.picture-tile .image-picture {
+	height: 100%;
+}
+
+.picture-tile .image-picture-img {
+	object-fit: cover;
+}
+
+.picture-tile.is-chosen,
+.picture-tile.is-chosen::after {
+	opacity: 1;
+}
+
+.picture-tile:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--focus-ring);
+}

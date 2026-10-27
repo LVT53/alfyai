@@ -14,8 +14,8 @@
  */
 import type { ActionReturn } from "svelte/action";
 
-export const MIN_ZOOM = 1;
-export const MAX_ZOOM = 4;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
 
 /** The zoom a pinch has reached: the start's scale times how far the fingers spread, clamped to 1..4. */
 export function zoomFrom(
@@ -95,7 +95,14 @@ export function pinchZoom(
 		y = 0;
 		gesture = null;
 		const element = target();
-		if (element && animate) {
+		if (!animate) {
+			// Turned off or gone: the picture is put back at once, not on a frame that may never come.
+			if (frame) cancelAnimationFrame(frame);
+			frame = 0;
+			if (element) element.style.transform = "";
+			return;
+		}
+		if (element) {
 			element.style.transition =
 				"transform var(--duration-standard) var(--ease-out)";
 			const done = () => {
@@ -172,30 +179,34 @@ export function pinchZoom(
 		paint();
 	}
 
-	function onPointerEnd(event: PointerEvent): void {
-		if (!pointers.has(event.pointerId)) return;
-		const wasPinch = pointers.size >= 2;
-		pointers.delete(event.pointerId);
-		if (wasPinch) event.stopPropagation();
-		if (pointers.size < 2) {
-			gesture = null;
-			if (scale <= 1.01 && (x !== 0 || y !== 0 || scale !== 1)) reset(true);
-		}
-		if (pointers.size > 0 || event.type === "pointercancel") return;
+	/** A finger came off: the pinch ends below two, and a zoom that ended at 1x settles back to the centre. */
+	function endPinch(): void {
+		gesture = null;
+		if (scale <= 1.01 && (x !== 0 || y !== 0 || scale !== 1)) reset(true);
+	}
+
+	/** The last finger came off a tap no pinch joined: the second such tap in a row resets the zoom. */
+	function endTap(event: PointerEvent): void {
 		const ended = tap;
 		tap = null;
 		if (!ended || ended.pinched) return;
 		const point = { x: event.clientX, y: event.clientY };
-		if (
-			lastTap &&
+		const double =
+			lastTap !== null &&
 			event.timeStamp - lastTap.at <= DOUBLE_TAP_MS &&
-			distanceOf(lastTap.point, point) <= DOUBLE_TAP_PX
-		) {
-			lastTap = null;
-			if (scale !== 1 || x !== 0 || y !== 0) reset(true);
-			return;
-		}
-		lastTap = { at: event.timeStamp, point };
+			distanceOf(lastTap.point, point) <= DOUBLE_TAP_PX;
+		lastTap = double ? null : { at: event.timeStamp, point };
+		if (double && (scale !== 1 || x !== 0 || y !== 0)) reset(true);
+	}
+
+	function onPointerEnd(event: PointerEvent): void {
+		if (!pointers.has(event.pointerId)) return;
+		if (pointers.size >= 2) event.stopPropagation();
+		pointers.delete(event.pointerId);
+		if (pointers.size < 2) endPinch();
+		if (pointers.size > 0) return;
+		if (event.type === "pointercancel") tap = null;
+		else endTap(event);
 	}
 
 	function enable(): void {
@@ -231,7 +242,6 @@ export function pinchZoom(
 		},
 		destroy() {
 			disable();
-			if (frame) cancelAnimationFrame(frame);
 		},
 	};
 }

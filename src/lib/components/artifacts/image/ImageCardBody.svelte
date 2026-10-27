@@ -44,6 +44,7 @@ import {
 } from "./image-card-view";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
+import "./picture-tile.css";
 
 let {
 	card,
@@ -418,8 +419,8 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 				{@const tileState = takeState(take, now)}
 				<button
 					type="button"
-					class="image-card-tile"
-					class:is-shown={isShown}
+					class="image-card-tile picture-tile"
+					class:is-chosen={isShown}
 					style:--tile-ratio={take.box.width / take.box.height}
 					aria-pressed={isShown}
 					aria-label={$t('artifacts.image.card.takeAlt', { title: card.title, number: takeNumber(take) })}
@@ -456,8 +457,8 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			{#each Array.from({ length: placeholders }, (_, index) => index) as index (index)}
 				<button
 					type="button"
-					class="image-card-tile"
-					class:is-shown={waitingForAnother && index === placeholders - 1}
+					class="image-card-tile picture-tile"
+					class:is-chosen={waitingForAnother && index === placeholders - 1}
 					style:--tile-ratio={box.width / box.height}
 					aria-pressed={waitingForAnother && index === placeholders - 1}
 					aria-label={$t('artifacts.image.card.waiting')}
@@ -706,50 +707,13 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		gap: 0.375rem;
 	}
 
+	/* The tile's look is the shared picture tile (picture-tile.css); its size is the take's shape. */
 	.image-card-tile {
-		position: relative;
 		display: grid;
 		place-items: center;
 		width: calc(56px * var(--tile-ratio));
 		max-width: 96px;
 		height: 56px;
-		padding: 0;
-		overflow: hidden;
-		border: 0;
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px var(--border-default);
-		cursor: pointer;
-		opacity: 0.82;
-		transition: opacity var(--duration-standard) var(--ease-out);
-	}
-
-	/* The shown take's ring fades in and out (opacity only). */
-	.image-card-tile::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		box-shadow: inset 0 0 0 2px var(--accent);
-		opacity: 0;
-		pointer-events: none;
-		transition: opacity var(--duration-standard) var(--ease-out);
-	}
-
-	.image-card-tile :global(.image-picture) {
-		height: 100%;
-	}
-
-	.image-card-tile :global(.image-picture-img) {
-		object-fit: cover;
-	}
-
-	.image-card-tile.is-shown {
-		opacity: 1;
-	}
-
-	.image-card-tile.is-shown::after {
-		opacity: 1;
 	}
 
 	.image-card-tile:disabled {
@@ -759,11 +723,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	.image-card-icon-button:disabled {
 		cursor: not-allowed;
 		opacity: 0.55;
-	}
-
-	.image-card-tile:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.image-card-tile-state {

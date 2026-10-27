@@ -16,6 +16,7 @@ import { uiLanguage } from "$lib/stores/settings";
 import { entryHeadline, whenLabel } from "../history/moment-text";
 import { momentEntry } from "../history/rail-model";
 import ImagePicture from "./ImagePicture.svelte";
+import "./picture-tile.css";
 
 let {
 	moments,
@@ -67,8 +68,8 @@ let frames = $derived(
 		{#each frames as frame (frame.versionId)}
 			<button
 				type="button"
-				class="frame"
-				class:is-current={frame.current}
+				class="frame picture-tile"
+				class:is-chosen={frame.current}
 				aria-current={frame.current ? 'true' : undefined}
 				aria-label={frame.label}
 				title={frame.label}
@@ -106,53 +107,14 @@ let frames = $derived(
 		display: none;
 	}
 
+	/* The tile's look is the shared picture tile (picture-tile.css); a frame is square. */
 	.frame {
-		position: relative;
 		flex: none;
 		width: 3.5rem;
 		height: 3.5rem;
-		padding: 0;
-		overflow: hidden;
-		border: 0;
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px var(--border-default);
-		cursor: pointer;
-		opacity: 0.82;
-		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	.frame:hover,
-	.frame.is-current {
+	.frame:hover {
 		opacity: 1;
-	}
-
-	/* The shown version's ring fades in and out (opacity only). */
-	.frame::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		box-shadow: inset 0 0 0 2px var(--accent);
-		opacity: 0;
-		pointer-events: none;
-		transition: opacity var(--duration-standard) var(--ease-out);
-	}
-
-	.frame.is-current::after {
-		opacity: 1;
-	}
-
-	.frame:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.frame :global(.image-picture) {
-		height: 100%;
-	}
-
-	.frame :global(.image-picture-img) {
-		object-fit: cover;
 	}
 </style>
