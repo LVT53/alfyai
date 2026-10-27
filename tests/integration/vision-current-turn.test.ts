@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import {
 	afterAll,
@@ -35,7 +36,7 @@ vi.hoisted(() => {
 import { createModelCapabilitySet } from "../../src/lib/model-capabilities";
 import { getConfig } from "../../src/lib/server/config-store";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { imageDescriptions, users } from "../../src/lib/server/db/schema";
 import { buildConstructedContext } from "../../src/lib/server/services/chat-turn/context-selection";
 import { buildBaselineDepthMetadata } from "../../src/lib/server/services/chat-turn/depth-metadata";
 import { runPlainNormalChatSendModel } from "../../src/lib/server/services/chat-turn/plain-normal-chat-model-run";
@@ -44,9 +45,12 @@ import { attachArtifactsToMessage } from "../../src/lib/server/services/knowledg
 import { createArtifact } from "../../src/lib/server/services/knowledge/store/core";
 import type { Artifact } from "../../src/lib/server/services/knowledge/types";
 import { createMessage } from "../../src/lib/server/services/messages";
+import { IMAGE_DESCRIPTION_PROMPT } from "../../src/lib/server/services/vision/describe";
+import { getImageDescriptions } from "../../src/lib/server/services/vision/descriptions-store";
 import { CANNOT_SEE_IMAGES_GUIDANCE } from "../../src/lib/server/services/vision/turn-images";
 import {
 	capture,
+	captures,
 	installFakeProvider,
 	lastMessageText,
 	removeFakeProvider,
@@ -224,6 +228,21 @@ function imageUrls(body: ChatBody): string[] {
 	return (content as Part[]).flatMap((part) =>
 		part.type === "image_url" && part.image_url ? [part.image_url.url] : [],
 	);
+}
+
+/**
+ * Requests the fake provider has had that ask for this picture to be described,
+ * told apart by the prepared picture itself (the same bytes ride the turn that
+ * sent it and the request that describes it). Other tests' pictures are
+ * described in the background too, so a count of all of them would not do.
+ */
+function descriptionRequestsFor(pictureUrl: string): number {
+	return captures.filter(
+		(request) =>
+			lastMessageText(request.body, "user").includes(
+				IMAGE_DESCRIPTION_PROMPT,
+			) && JSON.stringify(request.body).includes(pictureUrl),
+	).length;
 }
 
 async function decode(url: string) {
@@ -509,6 +528,110 @@ describe("a model that can see", () => {
 
 		expect(JSON.stringify(body)).toContain("kitchen.png");
 		expect(JSON.stringify(body)).not.toContain("image_url");
+	});
+});
+
+// The pixels go in the turn that attached the picture; afterwards the history
+// says what the picture showed. The model that was shown it describes it once,
+// in the background (vision/describe.ts), and the description is stored against
+// the artifact. Here the fake provider answers that request like any other.
+describe("a picture a model was shown", () => {
+	it("is described in the background, and a later turn carries the words instead of the pixels", async () => {
+		const conversationId = await newConversation();
+		// A size no other test uses, so this picture's bytes are its own.
+		const photo = await readyImage(conversationId, "kitchen.png", {
+			bytes: await photoBytes(321, 123),
+		});
+
+		const sent = await ask({
+			conversationId,
+			message: "What is this?",
+			attachments: [photo],
+			canSee: true,
+		});
+		const pictureUrl = imageUrls(sent)[0] ?? "";
+		expect(pictureUrl).toMatch(/^data:image\/jpeg;base64,/);
+		await vi.waitFor(
+			async () => {
+				expect(
+					(await getImageDescriptions(userId, [photo.id])).get(photo.id),
+				).toBeTypeOf("string");
+			},
+			{ timeout: 4000 },
+		);
+		const description =
+			(await getImageDescriptions(userId, [photo.id])).get(photo.id) ?? "";
+		expect(description.length).toBeGreaterThan(0);
+
+		expect(descriptionRequestsFor(pictureUrl)).toBe(1);
+		const earlier = await createMessage(
+			conversationId,
+			"user",
+			"What is this?",
+		);
+		await attachArtifactsToMessage({
+			userId,
+			conversationId,
+			messageId: earlier.id,
+			artifactIds: [photo.id],
+		});
+		await createMessage(conversationId, "assistant", "A kitchen.");
+
+		const body = await ask({
+			conversationId,
+			message: "And what colour are the walls?",
+			canSee: true,
+		});
+
+		const history = JSON.stringify(body);
+		expect(history).toContain(`[image: kitchen.png: ${description}]`);
+		expect(history).not.toContain("[attachment: kitchen.png]");
+		expect(history).not.toContain("image_url");
+
+		// The same photo attached again is the same artifact (uploads are
+		// deduplicated per person): it goes as pixels in the new turn all the
+		// same, and its description is reused, not written twice (Review Focus 1).
+		const again = await ask({
+			conversationId,
+			message: "Here it is once more.",
+			attachments: [photo],
+			canSee: true,
+		});
+		expect(imageUrls(again)).toHaveLength(1);
+		expect(JSON.stringify(again)).toContain(
+			`[image: kitchen.png: ${description}]`,
+		);
+		// A second description would be asked for in the background; give it the
+		// time it would need, then count the requests and the rows.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(descriptionRequestsFor(pictureUrl)).toBe(1);
+		const rows = await db
+			.select()
+			.from(imageDescriptions)
+			.where(eq(imageDescriptions.artifactId, photo.id));
+		expect(rows).toHaveLength(1);
+		expect(rows[0].description).toBe(description);
+	});
+
+	it("keeps its name in the history when it was never described", async () => {
+		const conversationId = await newConversation();
+		const photo = await readyImage(conversationId, "garden.png");
+		const earlier = await createMessage(conversationId, "user", "And this?");
+		await attachArtifactsToMessage({
+			userId,
+			conversationId,
+			messageId: earlier.id,
+			artifactIds: [photo.id],
+		});
+		await createMessage(conversationId, "assistant", "A garden.");
+
+		const body = await ask({
+			conversationId,
+			message: "What grows there?",
+			canSee: true,
+		});
+
+		expect(JSON.stringify(body)).toContain("[attachment: garden.png]");
 	});
 });
 

@@ -22,6 +22,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 **Knowledge Tables:**
 - `artifacts` - Files, generated outputs, work capsules with retrieval class
 - `artifact_chunks` - Text chunks for semantic search
+- `image_descriptions` - What a picture shows, in a few words, written once for the turns after the one that sent its pixels (`services/vision/`); keyed by artifact, removed with it
 - `semantic_embeddings` - TEI embeddings for artifacts, task states, and legacy persona-cluster rows during migration cleanup
 
 **Memory Tables:**

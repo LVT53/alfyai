@@ -23,7 +23,13 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 		>();
 	return {
 		...actual,
-		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+		// Each test hands back only the fields it reads. The real function always
+		// returns the pictures of the message (none when there are none), and the
+		// run reads them to describe the ones it sends.
+		prepareOutboundChatContext: async (...args: unknown[]) => ({
+			currentImages: [],
+			...(await mocks.prepareOutboundChatContext(...args)),
+		}),
 	};
 });
 

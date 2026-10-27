@@ -547,6 +547,33 @@ export const artifactLinks = sqliteTable("artifact_links", {
 });
 
 /**
+ * What a picture shows, in a few words, written once by the model that was
+ * shown it (`vision/describe.ts`), so a later turn carries the words in its
+ * history instead of the pixels. Keyed by the artifact and by nothing else:
+ * uploads are deduplicated per person by hash, so one artifact can appear in
+ * several chats (an incognito one among them), and the description is of the
+ * image alone, never of a chat. `modelName` records which model wrote it.
+ * It leaves with its artifact and with its person.
+ */
+export const imageDescriptions = sqliteTable(
+	"image_descriptions",
+	{
+		artifactId: text("artifact_id")
+			.primaryKey()
+			.references(() => artifacts.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		description: text("description").notNull(),
+		modelName: text("model_name").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [index("image_descriptions_user_idx").on(table.userId)],
+);
+
+/**
  * One saved state of an artifact-family row (Feature 2, ADR-0066): the whole
  * serialised artifact at that point, who made it, and a one-line summary.
  * `versionNumber` is the ordering authority — `createdAt` is second-resolution,

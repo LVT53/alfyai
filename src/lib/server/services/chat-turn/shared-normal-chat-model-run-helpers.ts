@@ -38,6 +38,7 @@ import {
 	SKILL_DRAFT_GUIDANCE,
 } from "$lib/server/services/skills/prompt-context";
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
+import { scheduleImageDescriptions } from "$lib/server/services/vision/describe";
 import { providerCanSeeImages } from "$lib/server/services/vision/model-vision";
 import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -361,7 +362,7 @@ export async function prepareOutboundContext(
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
 	// reaches context prep via `reasoningDepthEffort` (guidance + tool budget).
-	return prepareOutboundChatContext({
+	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
 		modelConfig: runtime.modelConfig,
@@ -392,6 +393,18 @@ export async function prepareOutboundContext(
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
 	});
+	// The pictures this turn sends are described once, in the background, so the
+	// turns after it carry a few words instead of the pixels (vision/AGENTS.md).
+	// `currentImages` is empty unless the model can see; nothing here waits for
+	// the descriptions or can fail the turn.
+	if (prepared.currentImages.length > 0) {
+		scheduleImageDescriptions({
+			userId: params.userId,
+			provider: runtime.provider,
+			images: prepared.currentImages,
+		});
+	}
+	return prepared;
 }
 
 // Ready on-demand routing regions (and, separately, the ones whose public

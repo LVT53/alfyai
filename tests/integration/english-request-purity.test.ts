@@ -622,6 +622,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: the board @Alfy reply prompt is English-only, held by layer 4",
 	"lib/server/services/connections/locality.ts":
 		"exempt: the connector distill prompt is English-only, held by layer 4",
+	"lib/server/services/vision/describe.ts":
+		"exempt: the one image-description prompt is English-only, held by layer 4",
 	"lib/server/services/chatgpt-import/summarizer.ts":
 		"exempt: a one-off import summary, English-only, held by layer 4",
 	"lib/server/services/memory-recuration.ts":

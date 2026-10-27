@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 		) => Promise<Array<{ id: string; messageSequence: number }>>
 	>(async () => []),
 	getConversationSummary: vi.fn(),
+	getImageDescriptions: vi.fn(),
 	getConfig: vi.fn(),
 	resolvePromptAttachmentArtifacts: vi.fn(),
 	blockingAttachmentItems: vi.fn(),
@@ -103,6 +104,10 @@ vi.mock("../messages", () => ({
 
 vi.mock("../conversation-summaries", () => ({
 	getConversationSummary: mocks.getConversationSummary,
+}));
+
+vi.mock("../vision/descriptions-store", () => ({
+	getImageDescriptions: mocks.getImageDescriptions,
 }));
 
 vi.mock("../projects", () => ({
@@ -269,6 +274,8 @@ function resetConstructedContextMocks() {
 	mocks.getConversationSummary.mockResolvedValue({
 		summary: "The session is about launch readiness.",
 	});
+	// Default: no picture of the history has a stored description yet.
+	mocks.getImageDescriptions.mockResolvedValue(new Map());
 	mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
 		displayArtifacts: [
 			artifact({
@@ -987,6 +994,152 @@ describe("buildConstructedContext", () => {
 			sourceConversationIds: ["source-conv"],
 			sourceMessageIds: ["source-user-1", "source-assistant-1"],
 			copiedForkPointMessageId: "fork-assistant-1",
+		});
+	});
+
+	describe("pictures in the history", () => {
+		const attachment = (
+			artifactId: string,
+			name: string,
+			mimeType: string | null,
+		) => ({
+			id: `attachment-${artifactId}`,
+			artifactId,
+			name,
+			type: "source_document",
+			mimeType,
+			sizeBytes: 1,
+			conversationId: "conversation-1",
+			createdAt: 1,
+		});
+
+		async function historyOf(): Promise<string> {
+			// The native history is what carries an attachment line.
+			mocks.getConfig.mockReturnValue({
+				contextDiagnosticsDebug: false,
+				nativeHistoryEnabled: true,
+			});
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "And now?",
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16_000,
+					compactionUiThreshold: 12_000,
+					targetConstructedContext: 8_000,
+				},
+			});
+			return JSON.stringify(constructed.historyMessages);
+		}
+
+		it("shows an earlier picture by its stored description, and every other file by its name", async () => {
+			resetConstructedContextMocks();
+			mocks.listMessages.mockResolvedValue([
+				{
+					id: "user-with-files",
+					role: "user",
+					content: "What do you think of this kitchen?",
+					timestamp: 1,
+					attachments: [
+						attachment("image-1", "kitchen.jpg", "image/jpeg"),
+						attachment("image-2", "garden.png", "image/png"),
+						attachment("pdf-1", "brief.pdf", "application/pdf"),
+					],
+				},
+				{
+					id: "assistant-answer",
+					role: "assistant",
+					content: "It looks bright.",
+					timestamp: 2,
+				},
+			]);
+			mocks.getImageDescriptions.mockResolvedValue(
+				new Map([["image-1", "A small white kitchen with a window."]]),
+			);
+
+			const history = await historyOf();
+
+			expect(history).toContain(
+				"[image: kitchen.jpg: A small white kitchen with a window.]",
+			);
+			// A picture with no description yet, and a file that is no picture.
+			expect(history).toContain("[attachment: garden.png]");
+			expect(history).toContain("[attachment: brief.pdf]");
+		});
+
+		it("asks for the descriptions of the pictures only, once", async () => {
+			resetConstructedContextMocks();
+			mocks.listMessages.mockResolvedValue([
+				{
+					id: "user-a",
+					role: "user",
+					content: "First",
+					timestamp: 1,
+					attachments: [
+						attachment("image-1", "kitchen.jpg", "image/jpeg"),
+						attachment("pdf-1", "brief.pdf", "application/pdf"),
+					],
+				},
+				{ id: "assistant-a", role: "assistant", content: "Ok", timestamp: 2 },
+				{
+					id: "user-b",
+					role: "user",
+					content: "Second",
+					timestamp: 3,
+					// The same photo again is the same artifact.
+					attachments: [
+						attachment("image-1", "kitchen.jpg", "image/jpeg"),
+						attachment("bmp-1", "scan.bmp", "image/bmp"),
+					],
+				},
+				{ id: "assistant-b", role: "assistant", content: "Ok", timestamp: 4 },
+			]);
+
+			await historyOf();
+
+			expect(mocks.getImageDescriptions).toHaveBeenCalledTimes(1);
+			expect(mocks.getImageDescriptions).toHaveBeenCalledWith("user-1", [
+				"image-1",
+			]);
+		});
+
+		it("does not look anything up when the history holds no picture", async () => {
+			resetConstructedContextMocks();
+			mocks.listMessages.mockResolvedValue([
+				{
+					id: "user-a",
+					role: "user",
+					content: "A document",
+					timestamp: 1,
+					attachments: [attachment("pdf-1", "brief.pdf", "application/pdf")],
+				},
+				{ id: "assistant-a", role: "assistant", content: "Ok", timestamp: 2 },
+			]);
+
+			const history = await historyOf();
+
+			expect(mocks.getImageDescriptions).not.toHaveBeenCalled();
+			expect(history).toContain("[attachment: brief.pdf]");
+		});
+
+		it("keeps the name when the descriptions cannot be read, and the turn goes on", async () => {
+			resetConstructedContextMocks();
+			mocks.listMessages.mockResolvedValue([
+				{
+					id: "user-a",
+					role: "user",
+					content: "A photo",
+					timestamp: 1,
+					attachments: [attachment("image-1", "kitchen.jpg", "image/jpeg")],
+				},
+				{ id: "assistant-a", role: "assistant", content: "Ok", timestamp: 2 },
+			]);
+			mocks.getImageDescriptions.mockRejectedValue(new Error("database busy"));
+
+			const history = await historyOf();
+
+			expect(history).toContain("[attachment: kitchen.jpg]");
 		});
 	});
 

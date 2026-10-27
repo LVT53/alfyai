@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	listSkillCatalogueEntries: vi.fn(),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 	sendJsonControlMessage: vi.fn(),
+	scheduleImageDescriptions: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
 	skillDraftGuidance:
 		"## Drafting a skill\n<skill_control_v1></skill_control_v1>",
@@ -57,6 +58,10 @@ vi.mock("$lib/server/services/normal-chat-control-model", () => ({
 	sendJsonControlMessage: mocks.sendJsonControlMessage,
 }));
 
+vi.mock("$lib/server/services/vision/describe", () => ({
+	scheduleImageDescriptions: mocks.scheduleImageDescriptions,
+}));
+
 vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 	const actual =
 		await importOriginal<
@@ -64,7 +69,13 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 		>();
 	return {
 		...actual,
-		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+		// Each test hands back only the fields it reads. The real function always
+		// returns the pictures of the message (none when there are none), and the
+		// helper reads them to describe the ones it sends.
+		prepareOutboundChatContext: async (...args: unknown[]) => ({
+			currentImages: [],
+			...(await mocks.prepareOutboundChatContext(...args)),
+		}),
 	};
 });
 
@@ -493,6 +504,100 @@ describe("prepareOutboundContext pictures wiring", () => {
 		],
 	])("does not when the model has %s", async (_label, capabilities) => {
 		await expect(collectImagesFor(capabilities)).resolves.toBe(false);
+	});
+});
+
+describe("prepareOutboundContext picture descriptions", () => {
+	const seeingProvider: NormalChatModelRunProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+	const picture = (name: string) => ({
+		artifactId: `artifact-${name}`,
+		name,
+		image: {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		},
+	});
+
+	async function prepareTurnWith(
+		images: ReturnType<typeof picture>[],
+		schedule: () => unknown = () => undefined,
+	) {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.scheduleImageDescriptions.mockReset();
+		mocks.scheduleImageDescriptions.mockImplementation(schedule);
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			currentImages: images,
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in this photo?",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+			overrideProvider: seeingProvider,
+		};
+		const runtime = await resolveProviderRuntime(params);
+		const prepared = await prepareOutboundContext(
+			params,
+			runtime,
+			null,
+			new Set(),
+		);
+		return { prepared, runtime };
+	}
+
+	it("hands the pictures the model was sent to the describer, once the context is prepared", async () => {
+		const images = [picture("kitchen.jpg"), picture("garden.png")];
+
+		const { prepared, runtime } = await prepareTurnWith(images);
+
+		expect(prepared.currentImages).toBe(images);
+		expect(mocks.scheduleImageDescriptions).toHaveBeenCalledTimes(1);
+		expect(mocks.scheduleImageDescriptions).toHaveBeenCalledWith({
+			userId: "user-1",
+			provider: runtime.provider,
+			images,
+		});
+		expect(
+			mocks.prepareOutboundChatContext.mock.invocationCallOrder[0],
+		).toBeLessThan(mocks.scheduleImageDescriptions.mock.invocationCallOrder[0]);
+	});
+
+	it("asks for no description when the turn carries no picture", async () => {
+		await prepareTurnWith([]);
+
+		expect(mocks.scheduleImageDescriptions).not.toHaveBeenCalled();
+	});
+
+	it("does not wait for the descriptions", async () => {
+		// A describer that never finishes must not hold the turn.
+		await expect(
+			prepareTurnWith([picture("kitchen.jpg")], () => new Promise(() => {})),
+		).resolves.toBeDefined();
 	});
 });
 

@@ -252,6 +252,84 @@ describe("renderHistoryTurn", () => {
 			},
 		]);
 	});
+
+	it("shows a picture's stored description instead of only its name", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "What do you think of this kitchen?",
+						attachments: [
+							{
+								name: "kitchen.jpg",
+								description: "A small white kitchen with a window.",
+							},
+						],
+					},
+				],
+			},
+			"native",
+		);
+		expect(out).toEqual([
+			{
+				role: "user",
+				content:
+					"What do you think of this kitchen?\n[image: kitchen.jpg: A small white kitchen with a window.]",
+			},
+		]);
+	});
+
+	it("falls back to the name for a picture with no description yet, and for any other file", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Compare these",
+						attachments: [
+							{ name: "kitchen.jpg" },
+							{ name: "garden.png", description: "   " },
+							{ name: "brief.pdf" },
+							{
+								name: "hall.jpg",
+								description: "A narrow hall with a coat rack.",
+							},
+						],
+					},
+				],
+			},
+			"native",
+		);
+		expect(out).toEqual([
+			{
+				role: "user",
+				content: [
+					"Compare these",
+					"[attachment: kitchen.jpg]",
+					"[attachment: garden.png]",
+					"[attachment: brief.pdf]",
+					"[image: hall.jpg: A narrow hall with a coat rack.]",
+				].join("\n"),
+			},
+		]);
+	});
+
+	it("drops an attachment with no name, described or not", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Look",
+						attachments: [{ name: " ", description: "A picture of nothing." }],
+					},
+				],
+			},
+			"native",
+		);
+		expect(out).toEqual([{ role: "user", content: "Look" }]);
+	});
 });
 
 describe("buildHistoryModelMessages", () => {

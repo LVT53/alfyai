@@ -287,6 +287,17 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	// What a picture shows, written once for later turns (vision): keyed to the
+	// artifact it describes, so it leaves with it.
+	db.insert(schema.imageDescriptions)
+		.values({
+			artifactId: p("art"),
+			userId,
+			description: "A small white kitchen with a window.",
+			modelName: "qwen3-8-flash-next",
+			createdAt: now,
+		})
+		.run();
 	// The artifact family's three child tables (Feature 2): a version, a
 	// root comment with one reply, and an App key-value row. The key-value row
 	// has no person column of its own — it is removed only through the
@@ -809,6 +820,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"conversations",
 				"document_extraction_jobs",
 				"file_production_jobs",
+				"image_descriptions",
 				"import_jobs",
 				"memory_consolidation_reports",
 				"memory_dirty_ledger",
@@ -1746,5 +1758,123 @@ describe("the artifact family across erasure and the resets", () => {
 			comments: ["keep-me-board-comment"],
 			kv: [],
 		});
+	});
+});
+
+// What a picture shows is stored once, against the picture (vision). It has no
+// reset scope of its own: both resets hard-delete the artifact rows, and the
+// `artifact_id` cascade takes the description with them; full erasure takes it
+// through the person. Written down here so a reset that kept the picture's
+// description after the picture was gone cannot slip in unnoticed.
+describe("a picture's description follows its picture", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-account-lifecycle-described-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+		vi.clearAllMocks();
+		mockQuiesceUserMemoryMaintenance.mockResolvedValue(undefined);
+		mockRequestActiveChatStreamsStopForUser.mockReturnValue({ stopped: 0 });
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// noop
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// noop
+		}
+	});
+
+	function seedDescribedPictures(userId: string) {
+		const { sqlite, db } = openMigratedDb();
+		const now = new Date("2026-10-26T10:00:00.000Z");
+		const p = (suffix: string) => `${userId}-${suffix}`;
+		db.insert(schema.users)
+			.values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		for (const name of ["kitchen", "garden"]) {
+			db.insert(schema.artifacts)
+				.values({
+					id: p(name),
+					userId,
+					type: "source_document",
+					name: `${name}.jpg`,
+					mimeType: "image/jpeg",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(schema.imageDescriptions)
+				.values({
+					artifactId: p(name),
+					userId,
+					description: `A picture of a ${name}.`,
+					modelName: "qwen3-8-flash-next",
+					createdAt: now,
+				})
+				.run();
+		}
+		sqlite.close();
+	}
+
+	async function describedArtifactIds(): Promise<string[]> {
+		const { db } = await import("$lib/server/db");
+		return (
+			await db
+				.select({ id: schema.imageDescriptions.artifactId })
+				.from(schema.imageDescriptions)
+		)
+			.map((row) => row.id)
+			.sort();
+	}
+
+	it("leaves no description behind after erasure, and spares another user's", async () => {
+		seedDescribedPictures("erase-me");
+		seedDescribedPictures("keep-me");
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		expect(await describedArtifactIds()).toEqual([
+			"keep-me-garden",
+			"keep-me-kitchen",
+		]);
+	});
+
+	it("Clear Memory deletes the pictures and their descriptions", async () => {
+		seedDescribedPictures("clear-me");
+		seedDescribedPictures("keep-me");
+
+		const { clearMemoryAndKnowledgeForUser } = await import("./index");
+		await clearMemoryAndKnowledgeForUser("clear-me");
+
+		expect(await describedArtifactIds()).toEqual([
+			"keep-me-garden",
+			"keep-me-kitchen",
+		]);
+	});
+
+	it("Clear Workspace deletes the pictures and their descriptions", async () => {
+		seedDescribedPictures("purge-me");
+		seedDescribedPictures("keep-me");
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		expect(await describedArtifactIds()).toEqual([
+			"keep-me-garden",
+			"keep-me-kitchen",
+		]);
 	});
 });
