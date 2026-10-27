@@ -195,6 +195,52 @@ export async function validatePictureRequest(params: {
 	return null;
 }
 
+/**
+ * The pictures a regenerated turn takes back from its user message's record,
+ * kept only when the person can still read them: a ref whose file is gone is
+ * dropped without being read, and marks stay only when their picture is a
+ * surviving ref or the one open now. Never an error: a regenerate without the
+ * pictures is what it was before they existed.
+ */
+export async function keepReadableRecordedPictures(params: {
+	userId: string;
+	conversationId: string;
+	refs: PictureRef[];
+	marks: ImageMarksRequest | null;
+	openImageArtifactId: string | null;
+}): Promise<{
+	pictureRefs: PictureRef[];
+	imageMarks: ImageMarksRequest | null;
+}> {
+	const pictureRefs: PictureRef[] = [];
+	for (const ref of params.refs) {
+		const file = await getImageFile({
+			userId: params.userId,
+			fileId: ref.imageFileId,
+			conversationId: params.conversationId,
+		});
+		if (file) pictureRefs.push(ref);
+	}
+	let imageMarks: ImageMarksRequest | null = null;
+	if (params.marks) {
+		const markedId = params.marks.imageFileId;
+		const open = pictureRefs.some((ref) => ref.imageFileId === markedId)
+			? null
+			: await resolveOpenPicture({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					openImageArtifactId: params.openImageArtifactId,
+				});
+		if (
+			pictureRefs.some((ref) => ref.imageFileId === markedId) ||
+			open?.fileId === markedId
+		) {
+			imageMarks = params.marks;
+		}
+	}
+	return { pictureRefs, imageMarks };
+}
+
 /** The smallest number from 1 that is not taken. */
 function nextFree(taken: Set<number>): number {
 	let candidate = 1;

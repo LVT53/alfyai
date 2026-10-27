@@ -356,6 +356,78 @@ describe("extraPicturesOf", () => {
 	});
 });
 
+describe("keepReadableRecordedPictures", () => {
+	async function keep(params: {
+		refs: Array<{ imageFileId: string; number: number }>;
+		marks: { imageFileId: string; marks: ImageMark[] } | null;
+		openImageArtifactId: string | null;
+	}) {
+		const { keepReadableRecordedPictures } = await import("./turn-pictures");
+		return keepReadableRecordedPictures({ userId, conversationId, ...params });
+	}
+
+	it("drops a recorded picture that is gone, never reading it, and keeps the rest", async () => {
+		const kept = await storeFile();
+		const out = await keep({
+			refs: [
+				{ imageFileId: "file-deleted", number: 1 },
+				{ imageFileId: kept.id, number: 2 },
+			],
+			marks: null,
+			openImageArtifactId: null,
+		});
+		expect(out).toEqual({
+			pictureRefs: [{ imageFileId: kept.id, number: 2 }],
+			imageMarks: null,
+		});
+	});
+
+	it("keeps marks on a surviving ref or on the picture open now, and drops them otherwise", async () => {
+		const ref = await storeFile();
+		const open = await imageItem("Cosy living room");
+		const marks = (imageFileId: string) => ({ imageFileId, marks: [MARK_A] });
+
+		expect(
+			(
+				await keep({
+					refs: [{ imageFileId: ref.id, number: 1 }],
+					marks: marks(ref.id),
+					openImageArtifactId: null,
+				})
+			).imageMarks,
+		).toEqual(marks(ref.id));
+		expect(
+			(
+				await keep({
+					refs: [],
+					marks: marks(open.file.id),
+					openImageArtifactId: open.artifactId,
+				})
+			).imageMarks,
+		).toEqual(marks(open.file.id));
+		// The marked picture is no longer open (the panel shows nothing / another).
+		expect(
+			(
+				await keep({
+					refs: [],
+					marks: marks(open.file.id),
+					openImageArtifactId: null,
+				})
+			).imageMarks,
+		).toBeNull();
+		// The marked ref was deleted.
+		expect(
+			(
+				await keep({
+					refs: [{ imageFileId: "gone", number: 1 }],
+					marks: marks("gone"),
+					openImageArtifactId: null,
+				})
+			).imageMarks,
+		).toBeNull();
+	});
+});
+
 describe("validatePictureRequest", () => {
 	async function validate(
 		overrides: Partial<{

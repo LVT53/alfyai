@@ -69,6 +69,13 @@ vi.mock("$lib/server/services/message-sequences", () => ({
 	repairConversationMessageSequences: vi.fn(),
 }));
 
+// What the person can still read of the recorded pictures is images/turn-pictures'
+// own matter (tested there against a database); here it is a seam the retry asks.
+const { mockKeepReadable } = vi.hoisted(() => ({ mockKeepReadable: vi.fn() }));
+vi.mock("$lib/server/services/images/turn-pictures", () => ({
+	keepReadableRecordedPictures: mockKeepReadable,
+}));
+
 vi.mock("$lib/server/services/chat-turn/retry-cleanup", () => ({
 	cleanupFailedTurn: vi.fn(async () => ({ steps: [], warnings: [] })),
 }));
@@ -170,6 +177,13 @@ describe("prepareRetryChatTurn", () => {
 		vi.clearAllMocks();
 		capturedSyntheticBodies.length = 0;
 		capturedMessageSelections.length = 0;
+		mockKeepReadable.mockReset();
+		mockKeepReadable.mockImplementation(
+			async (params: { refs: unknown[]; marks: unknown }) => ({
+				pictureRefs: params.refs,
+				imageMarks: params.marks,
+			}),
+		);
 		mockMessageAttachments.clear();
 		mockConversationMessages.splice(
 			0,
@@ -361,6 +375,50 @@ describe("prepareRetryChatTurn", () => {
 				imageMarks: { imageFileId: "file-1", marks: boxes },
 			}),
 		);
+	});
+
+	it("regenerates without a recorded picture that is gone or marks on a picture no longer open, and still regenerates the reply", async () => {
+		const user3 = mockConversationMessages.find((m) => m.id === "user-3");
+		if (!user3) throw new Error("fixture");
+		user3.metadataJson = JSON.stringify({
+			pictures: {
+				refs: [{ imageFileId: "file-gone", number: 1, name: "Rug" }],
+				open: { imageFileId: "file-old-open", name: "Old" },
+				marks: {
+					imageFileId: "file-old-open",
+					markedFileId: "file-9",
+					letters: ["A"],
+					boxes: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+				},
+			},
+		});
+		mockKeepReadable.mockResolvedValue({ pictureRefs: [], imageMarks: null });
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+				activeDocumentArtifactId: "item-now-open",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mockKeepReadable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				refs: [{ imageFileId: "file-gone", number: 1 }],
+				openImageArtifactId: "item-now-open",
+			}),
+		);
+		expect(capturedSyntheticBodies[0].pictureRefs).toBeUndefined();
+		expect(capturedSyntheticBodies[0].imageMarks).toBeUndefined();
+		// The reply is regenerated, not lost: the failed turn was cleaned up.
+		expect(cleanupFailedTurn).toHaveBeenCalled();
 	});
 
 	it("carries the card pictures and the marks of the retried turn into the synthetic body the request parser reads", async () => {

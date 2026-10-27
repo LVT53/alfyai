@@ -9,6 +9,7 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
+import { keepReadableRecordedPictures } from "$lib/server/services/images/turn-pictures";
 import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
@@ -225,6 +226,40 @@ export async function prepareRetryChatTurn(params: {
 		requestedAttachmentIds: attachmentIds,
 	});
 
+	// A regenerated turn keeps the pictures the person sent: when the browser
+	// does not resend them, they come back from the user message's record, under
+	// the numbers the person saw. Decided before anything is deleted, and only
+	// with what the person can still read: a picture deleted since, or marks on
+	// a picture that is no longer open, are left out and the reply is still
+	// regenerated.
+	const recordedPictures = readRecordedPictures(precedingUserMsg.metadataJson);
+	const rebuilt =
+		pictureRefs === undefined || imageMarks === undefined
+			? await keepReadableRecordedPictures({
+					userId,
+					conversationId,
+					refs:
+						recordedPictures?.refs.map(({ imageFileId, number }) => ({
+							imageFileId,
+							number,
+						})) ?? [],
+					marks: recordedPictures?.marks?.boxes
+						? {
+								imageFileId: recordedPictures.marks.imageFileId,
+								marks: recordedPictures.marks.boxes,
+							}
+						: null,
+					openImageArtifactId:
+						typeof activeDocumentArtifactId === "string"
+							? activeDocumentArtifactId.trim()
+							: null,
+				})
+			: null;
+	const retryPictureRefs =
+		pictureRefs ??
+		(rebuilt?.pictureRefs.length ? rebuilt.pictureRefs : undefined);
+	const retryImageMarks = imageMarks ?? rebuilt?.imageMarks ?? undefined;
+
 	try {
 		const cleanupResult = await cleanupFailedTurn({
 			userId,
@@ -255,25 +290,6 @@ export async function prepareRetryChatTurn(params: {
 	if (!precedingUserMsg.content.trim()) {
 		return jsonError("No user message found to retry", 400);
 	}
-
-	// A regenerated turn keeps the pictures the person sent: when the browser
-	// does not resend them, they come back from the user message's record, under
-	// the numbers the person saw.
-	const recordedPictures = readRecordedPictures(precedingUserMsg.metadataJson);
-	const retryPictureRefs =
-		pictureRefs ??
-		recordedPictures?.refs.map(({ imageFileId, number }) => ({
-			imageFileId,
-			number,
-		}));
-	const retryImageMarks =
-		imageMarks ??
-		(recordedPictures?.marks?.boxes
-			? {
-					imageFileId: recordedPictures.marks.imageFileId,
-					marks: recordedPictures.marks.boxes,
-				}
-			: undefined);
 
 	const syntheticBody = buildSyntheticRetryBody({
 		conversationId,
