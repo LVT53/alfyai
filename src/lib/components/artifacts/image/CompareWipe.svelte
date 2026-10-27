@@ -88,35 +88,23 @@ function handleInput(event: Event): void {
 	position = clamp(Number((event.currentTarget as HTMLInputElement).value));
 }
 
-/** The arrows step by a little, Shift or Page by more, Home and End go to the ends. */
+/** Where each key takes the cut from `at`: the arrows step a little (Shift more), Page more, Home and End to the ends. */
+const KEY_MOVES: Record<string, (at: number, step: number) => number> = {
+	ArrowLeft: (at, step) => at - step,
+	ArrowDown: (at, step) => at - step,
+	ArrowRight: (at, step) => at + step,
+	ArrowUp: (at, step) => at + step,
+	PageDown: (at) => at - PAGE_STEP,
+	PageUp: (at) => at + PAGE_STEP,
+	Home: () => 0,
+	End: () => 100,
+};
+
 function handleKeydown(event: KeyboardEvent): void {
-	const big = event.shiftKey ? PAGE_STEP : KEY_STEP;
-	let next: number | null = null;
-	switch (event.key) {
-		case "ArrowLeft":
-		case "ArrowDown":
-			next = position - big;
-			break;
-		case "ArrowRight":
-		case "ArrowUp":
-			next = position + big;
-			break;
-		case "PageDown":
-			next = position - PAGE_STEP;
-			break;
-		case "PageUp":
-			next = position + PAGE_STEP;
-			break;
-		case "Home":
-			next = 0;
-			break;
-		case "End":
-			next = 100;
-			break;
-	}
-	if (next === null) return;
+	if (!Object.hasOwn(KEY_MOVES, event.key)) return;
+	const move = KEY_MOVES[event.key];
 	event.preventDefault();
-	position = clamp(next);
+	position = clamp(move(position, event.shiftKey ? PAGE_STEP : KEY_STEP));
 }
 
 const valueText = $derived(`${Math.round(clamp(position))}%`);
