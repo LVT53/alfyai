@@ -290,6 +290,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 				</button>
 				{#if canFlip}
 					<div class="image-card-flip" role="group" aria-label={card.title}>
+						<span class="image-card-flip-thumb" class:is-after={showing === 'after'} aria-hidden="true"></span>
 						<button
 							type="button"
 							aria-pressed={showing === 'before'}
@@ -506,11 +507,11 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	}
 
 	/* The reserved box: the shown take's shape from its first paint, never
-	   taller than about a window's half, centred when that narrows it. */
+	   taller than 22rem or 45% of the window, centred when that narrows it. */
 	.image-card-stage {
 		position: relative;
 		display: grid;
-		width: min(100%, calc(min(28rem, 55vh) * var(--box-ratio)));
+		width: min(100%, calc(min(22rem, 45vh) * var(--box-ratio)));
 		margin-inline: auto;
 		overflow: hidden;
 		border-radius: var(--radius-md);
@@ -546,11 +547,14 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		box-shadow: 0 0 0 2px var(--focus-ring) inset;
 	}
 
+	/* Before / After: two equal halves and one thumb that slides under the
+	   chosen half (transform only); the words swap colour at once. */
 	.image-card-flip {
 		position: absolute;
 		top: 0.5rem;
 		right: 0.5rem;
-		display: inline-flex;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
 		overflow: hidden;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
@@ -558,7 +562,22 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		box-shadow: var(--shadow-sm);
 	}
 
+	.image-card-flip-thumb {
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 50%;
+		background: var(--text-primary);
+		transform: translateX(0);
+		transition: transform var(--duration-standard) var(--ease-out);
+		pointer-events: none;
+	}
+
+	.image-card-flip-thumb.is-after {
+		transform: translateX(100%);
+	}
+
 	.image-card-flip button {
+		position: relative;
 		min-height: 1.75rem;
 		padding: 0 0.625rem;
 		border: 0;
@@ -566,16 +585,12 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		color: var(--text-muted);
 		font-family: var(--font-sans);
 		font-size: 0.75rem;
+		font-weight: 600;
 		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
 	}
 
 	.image-card-flip button[aria-pressed='true'] {
-		background: var(--text-primary);
 		color: var(--surface-page);
-		font-weight: 700;
 	}
 
 	.image-card-flip button:focus-visible {
@@ -793,7 +808,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		font-weight: 600;
 		white-space: nowrap;
 		cursor: pointer;
-		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.image-card-button:hover:not(:disabled) {
@@ -831,7 +845,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		background: transparent;
 		color: var(--icon-muted);
 		cursor: pointer;
-		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.image-card-icon-button:hover {
@@ -859,7 +872,6 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		font-size: 0.84rem;
 		text-align: left;
 		cursor: pointer;
-		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.image-card-menu-row:hover:not(:disabled) {

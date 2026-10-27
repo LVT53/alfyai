@@ -584,8 +584,16 @@ function handleOpen(): void {
 						{/if}
 					</span>
 				</span>
-				{#if view.openTargetId}
-					<span class="artifact-card-cta">
+				{#if view.openTargetId || (view.kind === 'image' && imageCard)}
+					<!-- A picture card holds the place of its Open › while the picture is
+					     still being made (it becomes an item when it lands): on a narrow
+					     card the action is a row of its own, and drawing it late would
+					     push the picture down. It fades in, nothing moves. -->
+					<span
+						class="artifact-card-cta"
+						class:artifact-card-cta-pending={!view.openTargetId}
+						aria-hidden={view.openTargetId ? undefined : 'true'}
+					>
 						{#if view.pendingReviewCount || view.refusedCount}
 							{$t('artifacts.card.review')}
 						{:else if view.current}
@@ -789,7 +797,9 @@ function handleOpen(): void {
 		text-align: left;
 		font-family: var(--font-sans);
 		cursor: pointer;
-		transition: background-color var(--duration-standard) var(--ease-out);
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			opacity var(--duration-standard) var(--ease-out);
 	}
 
 	.artifact-card-head:hover:not(:disabled) {
@@ -943,6 +953,14 @@ function handleOpen(): void {
 
 	.artifact-card-head:hover:not(:disabled) .artifact-card-cta {
 		background: var(--accent-tint);
+	}
+
+	.artifact-card-cta {
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-card-cta-pending {
+		opacity: 0;
 	}
 
 	/* A narrow card puts its action on a row of its own, under the text. The
