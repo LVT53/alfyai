@@ -998,6 +998,27 @@ const chatDict = {
 		"toolActivity.madePicture": "Made",
 		"toolActivity.changedPicture": "Changed",
 		"toolActivity.pictureFailed": "Could not make the picture",
+		"toolActivity.pictureStopped": "Picture stopped",
+		"toolActivity.pictureReason.unreachable":
+			"The picture server could not be reached.",
+		"toolActivity.pictureReason.rejected":
+			"The picture server refused this request.",
+		"toolActivity.pictureReason.renderFailed":
+			"The picture server could not render the picture.",
+		"toolActivity.pictureReason.renderTimeout":
+			"The picture took too long to render.",
+		"toolActivity.pictureReason.resultMissing":
+			"The picture server lost the result.",
+		"toolActivity.pictureReason.inputMissing":
+			"A picture this one is made from is gone.",
+		"toolActivity.pictureReason.notConfigured": "No picture server is set up.",
+		"toolActivity.pictureReason.requestInvalid":
+			"The picture request could not be read.",
+		"toolActivity.pictureReason.slow":
+			"This is taking longer than expected. If it finishes, the picture appears on its card.",
+		"toolActivity.pictureReason.refused":
+			"This picture could not be started. Try asking again.",
+		"toolActivity.pictureReason.generic": "The picture could not be made.",
 		"toolActivity.retriedOnce": "retried once",
 		"toolActivity.creating": "Creating",
 		"toolActivity.edited": "Edited",
@@ -2162,6 +2183,22 @@ const chatDict = {
 		"toolActivity.madePicture": "Elkészült:",
 		"toolActivity.changedPicture": "Módosult:",
 		"toolActivity.pictureFailed": "Nem sikerült a kép",
+		"toolActivity.pictureStopped": "Kép leállítva",
+		"toolActivity.pictureReason.unreachable": "A képkészítő nem érhető el.",
+		"toolActivity.pictureReason.rejected":
+			"A képkészítő elutasította a kérést.",
+		"toolActivity.pictureReason.renderFailed": "A kép nem készült el.",
+		"toolActivity.pictureReason.renderTimeout": "A kép túl sokáig készült.",
+		"toolActivity.pictureReason.resultMissing": "Az eredmény elveszett.",
+		"toolActivity.pictureReason.inputMissing":
+			"Egy kiinduló kép már nincs meg.",
+		"toolActivity.pictureReason.notConfigured": "Nincs beállítva képkészítő.",
+		"toolActivity.pictureReason.requestInvalid": "A kérés nem olvasható.",
+		"toolActivity.pictureReason.slow":
+			"Tovább tart a vártnál. Ha elkészül, a kép megjelenik a kártyán.",
+		"toolActivity.pictureReason.refused":
+			"A képet nem lehetett elindítani. Kérd újra.",
+		"toolActivity.pictureReason.generic": "A kép nem készíthető el.",
 		"toolActivity.retriedOnce": "egyszer újrapróbálva",
 		"toolActivity.creating": "Létrehozás",
 		"toolActivity.edited": "Szerkesztve",

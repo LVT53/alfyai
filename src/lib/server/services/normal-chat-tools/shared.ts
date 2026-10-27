@@ -356,6 +356,11 @@ function toolTimeoutError(toolName: string, timeoutMs: number): Error {
 	return new Error(`${toolName} timed out after ${timeoutMs}ms`);
 }
 
+/** Whether an error is the envelope's own timeout (a tool whose work may still finish later tells the person differently). */
+export function isToolTimeoutError(error: unknown): boolean {
+	return error instanceof Error && /timed out after \d+ms$/.test(error.message);
+}
+
 // Stamps the envelope's own start→settle wall-clock time onto an entry's
 // metadata, feeding activity-events.ts's toolCallDurationMs (which already
 // reads metadata.durationMs defensively) without a second timer anywhere

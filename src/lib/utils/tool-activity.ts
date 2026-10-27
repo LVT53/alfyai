@@ -187,6 +187,7 @@ const VERB_KEYS = {
 	madePicture: "toolActivity.madePicture",
 	changedPicture: "toolActivity.changedPicture",
 	pictureFailed: "toolActivity.pictureFailed",
+	pictureStopped: "toolActivity.pictureStopped",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -391,6 +392,36 @@ function firstStringInput(input: Record<string, unknown>): string {
 	return String(Object.values(input ?? {})[0] ?? "").trim();
 }
 
+const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
+	image_server_unreachable: "toolActivity.pictureReason.unreachable",
+	image_graph_rejected: "toolActivity.pictureReason.rejected",
+	image_render_failed: "toolActivity.pictureReason.renderFailed",
+	image_render_timeout: "toolActivity.pictureReason.renderTimeout",
+	image_result_missing: "toolActivity.pictureReason.resultMissing",
+	image_input_missing: "toolActivity.pictureReason.inputMissing",
+	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
+	not_configured: "toolActivity.pictureReason.notConfigured",
+	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
+	image_tool_timeout: "toolActivity.pictureReason.slow",
+};
+
+/** The localized reason for a make_image row that did not make its picture. */
+function imageReasonKey(
+	metadata: Record<string, string | number | boolean | null> | undefined,
+): I18nKey {
+	const code = metadata?.imageError;
+	if (typeof code === "string" && IMAGE_REASON_KEYS[code]) {
+		return IMAGE_REASON_KEYS[code];
+	}
+	const refusal = metadata?.imageRefusal;
+	if (typeof refusal === "string") {
+		return refusal === "not_configured"
+			? "toolActivity.pictureReason.notConfigured"
+			: "toolActivity.pictureReason.refused";
+	}
+	return "toolActivity.pictureReason.generic";
+}
+
 /** The failure reason a failed row's body carries — never invented. */
 export function toolFailureReason(segment: {
 	outputSummary?: string | null;
@@ -555,6 +586,8 @@ export function buildToolActivityItem(
 	// A failed create/edit names what it tried and keeps the model's words behind
 	// "Details" (its own item below); nothing else is added to it.
 	if (segment.status !== "failed" || item.artifact?.failed) return item;
+	// make_image words its own failure from a code, in the person's language.
+	if (segment.name === "make_image") return item;
 	const failedMeta = translate("toolCalls.failed");
 	const reason = toolFailureReason(segment);
 	return {
@@ -779,9 +812,24 @@ function buildSettledToolActivityItem(
 				body: null,
 			};
 		}
+		// A Stop is not a failure: the person asked for it.
+		if (metadata?.imageStopped === true) {
+			const stoppedVerb = translate(VERB_KEYS.pictureStopped);
+			return {
+				...base,
+				status: "done",
+				verb: stoppedVerb,
+				object: title,
+				meta: "",
+				summaryLabel: stoppedVerb,
+				title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
+				body: null,
+			};
+		}
 		if (status === "failed" || metadata?.ok === false) {
 			const failedVerb = translate(VERB_KEYS.pictureFailed);
-			const reason = toolFailureReason(segment);
+			// Words for the person come from the code, never from what the model was told.
+			const reason = translate(imageReasonKey(metadata));
 			return {
 				...base,
 				status: "failed",

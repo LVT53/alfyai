@@ -420,6 +420,11 @@ describe("repeating a call for options", () => {
 			ok: false,
 			errorCode: "too_many_calls",
 		});
+		// A refusal keeps the model's sentence for the model only: the row the
+		// person reads is made from the code.
+		const refused = await run({}, { turnTakes, waitBudgetMs: 0 });
+		expect(refused.metadata).toMatchObject({ imageRefusal: "too_many_calls" });
+		expect(refused.metadata).not.toHaveProperty("error");
 		const { cards, takes } = await rows();
 		expect(cards).toHaveLength(1);
 		expect(takes).toHaveLength(4);
@@ -1527,13 +1532,16 @@ describe("the composer's Stop and the picture server's queue", () => {
 		);
 
 		controller.abort(new UserStopReason());
-		const { modelPayload } = await call;
+		const { modelPayload, metadata } = await call;
 
 		expect(modelPayload).toMatchObject({
 			ok: false,
 			status: "failed",
 			errorCode: "image_stopped",
 		});
+		// The row the person reads says stopped, from a flag, not from the model's text.
+		expect(metadata).toMatchObject({ imageStopped: true });
+		expect(metadata).not.toHaveProperty("error");
 		expect([...picture.prompts.values()]).toEqual([]);
 		expect((await rows()).takes[0]?.status).toBe("cancelled");
 		// The cancel wakes the worker; let its drain pass end before the database closes.

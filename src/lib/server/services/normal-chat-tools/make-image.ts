@@ -175,7 +175,8 @@ function refusal(
 ): Outcome {
 	return {
 		modelPayload: { ok: false, errorCode, message },
-		metadata: { ok: false, error: message, imageRefusal: errorCode },
+		// No `error` text: the row the person reads is made from the code, in their language.
+		metadata: { ok: false, imageRefusal: errorCode },
 	};
 }
 
@@ -608,7 +609,9 @@ function failedOutcome(
 			...base,
 			ok: false,
 			imageStatus: "failed",
-			...(errorCode === "image_stopped" ? {} : { imageError: errorCode }),
+			...(errorCode === "image_stopped"
+				? { imageStopped: true }
+				: { imageError: errorCode }),
 		},
 	};
 }

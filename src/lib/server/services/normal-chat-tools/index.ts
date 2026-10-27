@@ -200,6 +200,7 @@ import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	isToolTimeoutError,
 	modelSafeToolError,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
@@ -2282,7 +2283,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												status: "done",
 												outputSummary: message,
 												sourceType: "tool",
-												metadata: { ok: false, error: message },
+												// The row is made from the code, never from the model's words;
+												// a timeout may still land its picture on the card.
+												metadata: {
+													ok: false,
+													imageError: isToolTimeoutError(error)
+														? "image_tool_timeout"
+														: "image_error",
+												},
 											},
 										};
 									},

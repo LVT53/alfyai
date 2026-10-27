@@ -1925,4 +1925,85 @@ describe("make_image rows", () => {
 			object: "Red door",
 		});
 	});
+
+	it("words a failure for the person from its code, never from the model's English", () => {
+		const modelText = "Do not call it again now; tell the user what you made.";
+		const refused = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: { ok: false, imageRefusal: "too_many_takes" },
+			}),
+			"k7",
+			translate,
+		);
+		expect(refused.body).toEqual({
+			kind: "error",
+			reason: "This picture could not be started. Try asking again.",
+		});
+		const unreachable = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_server_unreachable",
+				},
+			}),
+			"k8",
+			translate,
+		);
+		expect(unreachable.body).toEqual({
+			kind: "error",
+			reason: "The picture server could not be reached.",
+		});
+		// Even when the call itself is marked failed, the model's text stays out.
+		const failedStatus = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				outputSummary: modelText,
+				metadata: { ok: false, imageError: "image_tool_timeout" },
+			}),
+			"k9",
+			translate,
+		);
+		expect(JSON.stringify(failedStatus)).not.toContain(modelText);
+		expect(failedStatus.body).toMatchObject({
+			kind: "error",
+			reason: expect.stringContaining("taking longer than expected"),
+		});
+	});
+
+	it("reads a Stop as stopped, not as a failure", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				outputSummary:
+					"The user stopped the turn before this picture started, so it was not made.",
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageStopped: true,
+					imageTitle: "Red door",
+				},
+			}),
+			"k10",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "done",
+			verb: "Picture stopped",
+			object: "Red door",
+			body: null,
+		});
+	});
+
+	it("has every reason in Hungarian too", () => {
+		const keys = Object.keys(chatDict.en).filter((key) =>
+			key.startsWith("toolActivity.pictureReason."),
+		);
+		expect(keys.length).toBeGreaterThanOrEqual(11);
+		for (const key of keys) {
+			expect(chatDict.hu[key as keyof typeof chatDict.hu]).toBeTruthy();
+		}
+		expect(chatDict.hu["toolActivity.pictureStopped"]).toBe("Kép leállítva");
+	});
 });
