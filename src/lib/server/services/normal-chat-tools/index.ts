@@ -282,6 +282,9 @@ export interface CreateNormalChatToolsContext {
 	// authority a picture-making tool resolves "Picture 2" against. Server-owned,
 	// never a model input.
 	turnPictures?: TurnPictureIndex;
+	// Called about once a second while a tool waits on slow work (make_image),
+	// so the stream's idle watchdog counts the wait as activity.
+	onToolActivity?: () => void;
 	// Names of the routing regions currently ready (on-demand coverage), used
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.
@@ -2230,6 +2233,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											turnTakes,
 											requestText: ctx.requestText ?? "",
 											signal: abortSignal,
+											onTick: ctx.onToolActivity,
+											stepImages: ctx.stepImages,
 										});
 										const ok = result.modelPayload.ok;
 										return {
@@ -2243,7 +2248,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													? result.modelPayload.message
 													: result.modelPayload.status === "running"
 														? "Picture still being made"
-														: "Picture made",
+														: result.modelPayload.retried
+															? "Picture made (retried once)"
+															: "Picture made",
 												sourceType: "tool",
 												metadata: result.metadata,
 											},

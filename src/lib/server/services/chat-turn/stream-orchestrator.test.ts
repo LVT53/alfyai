@@ -585,6 +585,60 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	it("a tool that reports activity every second keeps a 90 s wait from tripping the 60 s idle watchdog", async () => {
+		vi.useFakeTimers();
+		// A 120 s request timeout: the idle watchdog is 60 s and the whole-stream
+		// cap is 120 s, so only the watchdog is in play for a 90 s wait.
+		const { getConfig } = await import("$lib/server/config-store");
+		vi.mocked(getConfig).mockReturnValue({
+			requestTimeoutMs: 120_000,
+			composerCommandRegistryEnabled: true,
+			modelTimeoutFailoverEnabled: false,
+			modelTimeoutFailoverTargetModel: null,
+			modelTimeoutFailoverTimeoutMs: 1000,
+		} as unknown as ReturnType<typeof getConfig>);
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let toolActivity: (() => void) | undefined;
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation(async (params: { onToolActivity?: () => void }) => {
+			toolActivity = params.onToolActivity;
+			return createNeutralStreamingResult([], {
+				stream: (async function* () {
+					await gate;
+					yield { type: "text_delta", text: "Done" };
+					yield finishEvent;
+				})(),
+			});
+		});
+
+		const reading = readSseResponse(runStream());
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.waitFor(() => expect(toolActivity).toBeTypeOf("function"));
+		for (let second = 0; second < 90; second++) {
+			await vi.advanceTimersByTimeAsync(1000);
+			toolActivity?.();
+		}
+		release();
+		const parts = parseUiStreamParts(await reading);
+
+		expect(parts).toEqual(
+			expect.arrayContaining([
+				{ type: "text-delta", id: "answer", delta: "Done" },
+				{ type: "finish", finishReason: "stop" },
+			]),
+		);
+		expect(
+			parts.some((part) => part !== "[DONE]" && part.type === "error"),
+		).toBe(false);
+	});
+
 	it("hands the card pictures and the marks of the turn to the model run", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"

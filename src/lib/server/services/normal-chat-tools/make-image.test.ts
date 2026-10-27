@@ -86,6 +86,7 @@ afterEach(async () => {
 	}
 	fixture.cleanup();
 	vi.restoreAllMocks();
+	vi.doUnmock("$lib/server/services/images/guards/guard-edit");
 	await rm(workdir, { recursive: true, force: true });
 });
 
@@ -668,8 +669,8 @@ describe("a render that fails", () => {
 	});
 });
 
-describe("a retry", () => {
-	it("makes the take again once, with another seed, and refuses a second", async () => {
+describe("a retry the model asks for", () => {
+	it("replaces a generated take, once: the original leaves the tray, a second retry and an unknown take are refused", async () => {
 		await startPictureServer({ steps: 2 });
 		await startEngine();
 		const { createTurnTakes } = await import(
@@ -697,15 +698,496 @@ describe("a retry", () => {
 			retryOf: first.modelPayload.takeId,
 		});
 		expect(takes[1]?.seed).not.toBe(takes[0]?.seed);
+		// The new take replaced the old one on the card; the old one is off the tray.
+		expect(takes[0]?.hidden).toBe(1);
+		expect((await rows()).cards[0]?.pickedTakeId).toBe(takes[1]?.id);
 
-		const again = await run(
+		// The retry itself may not be retried, and the hidden original is unknown.
+		const retryId = (retry.modelPayload as { takeId: string }).takeId;
+		expect(
+			(await run({ retryOf: retryId }, { turnTakes })).modelPayload,
+		).toMatchObject({ ok: false, errorCode: "retry_twice" });
+		expect(
+			(await run({ retryOf: first.modelPayload.takeId }, { turnTakes }))
+				.modelPayload,
+		).toMatchObject({ ok: false, errorCode: "retry_unknown" });
+		expect(
+			(await run({ retryOf: "no-such-take" }, { turnTakes })).modelPayload,
+		).toMatchObject({ ok: false, errorCode: "retry_unknown" });
+	});
+
+	it("moves the pick of a take that is already in use: the item keeps both versions in History", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+
+		const first = await run({ summary: "Made a red door" }, { turnTakes });
+		if (!first.modelPayload.ok || first.modelPayload.status !== "succeeded") {
+			throw new Error(`first did not succeed: ${JSON.stringify(first)}`);
+		}
+		const firstTakeId = first.modelPayload.takeId;
+		const retry = await run({ retryOf: firstTakeId }, { turnTakes });
+		if (!retry.modelPayload.ok || retry.modelPayload.status !== "succeeded") {
+			throw new Error(`retry did not succeed: ${JSON.stringify(retry)}`);
+		}
+
+		expect(retry.modelPayload).toMatchObject({ inUse: true, retried: true });
+		const { cards, takes } = await rows();
+		expect(cards[0]?.pickedTakeId).toBe(retry.modelPayload.takeId);
+		expect(takes.find((t) => t.id === firstTakeId)?.hidden).toBe(1);
+		const { db } = await import("$lib/server/db");
+		const versions = db
+			.select()
+			.from(schema.artifactVersions)
+			.where(
+				eq(
+					schema.artifactVersions.artifactId,
+					retry.modelPayload.imageId ?? "",
+				),
+			)
+			.orderBy(asc(schema.artifactVersions.versionNumber))
+			.all();
+		// The missed take stays in History; the retry is the version in use.
+		expect(versions).toHaveLength(2);
+		expect(parseImageVersionBody(versions[1]?.body ?? null)?.takeId).toBe(
+			retry.modelPayload.takeId,
+		);
+	});
+});
+
+/**
+ * Replaces the pixel guard with one that keeps the render as it is and reports
+ * the measures given for each take in turn (the last one repeats). The guard's
+ * own measuring is tested with the guard; these tests are about what the tool
+ * does with a miss, and a real guard over a 1 MP picture would make them slow
+ * enough to fail under load.
+ */
+function guardReporting(
+	reports: Array<{
+		miss: "nothing_changed" | "outside_marks" | null;
+		changedShare: number;
+		insideMarksShare: number | null;
+	}>,
+) {
+	let call = 0;
+	vi.doMock("$lib/server/services/images/guards/guard-edit", () => ({
+		guardEdit: async (params: {
+			result: { data: Uint8Array; width: number; height: number };
+		}) => {
+			const report = reports[Math.min(call, reports.length - 1)];
+			call += 1;
+			return {
+				picture: params.result,
+				mask: new Float32Array(0),
+				measures: {
+					dx: 0,
+					dy: 0,
+					scale: 1,
+					global: false,
+					reanchored: false,
+					...report,
+				},
+				chainSinceAnchor: 1,
+				anchorIsResult: false,
+			};
+		},
+	}));
+	return { calls: () => call };
+}
+
+describe("the automatic retry of a clear miss", () => {
+	it("makes the take again once when nothing changed: one visible take, the first hidden, retried true", async () => {
+		const guard = guardReporting([
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+			{ miss: null, changedShare: 0.1, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload, metadata } = await run({
+			pictures: [artifactId],
+			summary: "Made the door red",
+		});
+
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error(`not succeeded: ${JSON.stringify(modelPayload)}`);
+		}
+		expect(guard.calls()).toBe(2);
+		const { cards, takes } = await rows();
+		expect(takes).toHaveLength(2);
+		expect(takes[0]).toMatchObject({ hidden: 1 });
+		expect(takes[1]).toMatchObject({
+			hidden: 0,
+			origin: "retry",
+			retryOf: takes[0]?.id,
+			retried: 1,
+			heldUntil: null,
+		});
+		expect(takes[1]?.seed).not.toBe(takes[0]?.seed);
+		expect(modelPayload).toMatchObject({
+			takeId: takes[1]?.id,
+			inUse: true,
+			retried: true,
+		});
+		expect(metadata).toMatchObject({
+			imageRetried: true,
+			imageTakeId: takes[1]?.id,
+		});
+		expect(cards[0]?.pickedTakeId).toBe(takes[1]?.id);
+		const { db } = await import("$lib/server/db");
+		const versions = db
+			.select()
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, artifactId))
+			.all();
+		// The item's own version and the one change: the missed take never became one.
+		expect(versions).toHaveLength(2);
+	});
+
+	it("retries a change outside the marks and shows the retry that landed inside them", async () => {
+		guardReporting([
+			{ miss: "outside_marks", changedShare: 0.2, insideMarksShare: 0 },
+			{ miss: null, changedShare: 0.1, insideMarksShare: 0.9 },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload } = await run({ pictures: [artifactId] });
+
+		const { takes } = await rows();
+		expect(takes.map((t) => t.hidden)).toEqual([1, 0]);
+		expect(modelPayload).toMatchObject({
+			ok: true,
+			retried: true,
+			takeId: takes[1]?.id,
+		});
+	});
+
+	it("when both missed, keeps the one with more change inside the marks and hides the other", async () => {
+		guardReporting([
+			{ miss: "outside_marks", changedShare: 0.3, insideMarksShare: 0.4 },
+			{ miss: "outside_marks", changedShare: 0.2, insideMarksShare: 0 },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload } = await run({ pictures: [artifactId] });
+
+		const { takes, cards } = await rows();
+		expect(takes.map((t) => t.hidden)).toEqual([0, 1]);
+		expect(cards[0]?.pickedTakeId).toBe(takes[0]?.id);
+		expect(modelPayload).toMatchObject({
+			ok: true,
+			retried: true,
+			takeId: takes[0]?.id,
+		});
+	});
+
+	it("does not retry a change that landed", async () => {
+		const guard = guardReporting([
+			{ miss: null, changedShare: 0.1, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload } = await run({ pictures: [artifactId] });
+
+		expect(guard.calls()).toBe(1);
+		expect(modelPayload).toMatchObject({ retried: false });
+		expect((await rows()).takes).toHaveLength(1);
+	});
+
+	it("does not retry with less than 25 s of the wait left", async () => {
+		const guard = guardReporting([
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload } = await run(
+			{ pictures: [artifactId] },
+			{ waitBudgetMs: 20_000 },
+		);
+
+		expect(guard.calls()).toBe(1);
+		expect(modelPayload).toMatchObject({ ok: true, retried: false });
+		expect((await rows()).takes).toHaveLength(1);
+	});
+
+	it("does not retry again a take the model itself asked to be made again", async () => {
+		// The first take fails (cheap); the model's retry then lands without a change.
+		const guard = guardReporting([
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2, fail: "execution" });
+		await startEngine();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const { artifactId } = await makeItem();
+		const first = await run({ pictures: [artifactId] }, { turnTakes });
+		if (first.modelPayload.ok || !("status" in first.modelPayload)) {
+			throw new Error("first did not fail");
+		}
+		fake?.setOptions({ steps: 2, fail: undefined });
+
+		const retry = await run(
 			{ retryOf: first.modelPayload.takeId },
 			{ turnTakes },
 		);
-		expect(again.modelPayload).toMatchObject({
-			ok: false,
-			errorCode: "retry_twice",
+
+		// It missed (nothing changed), and no third take was made on its own.
+		expect(guard.calls()).toBe(1);
+		expect((await rows()).takes).toHaveLength(2);
+		expect(retry.modelPayload).toMatchObject({ ok: true, retried: true });
+	});
+});
+
+describe("pickBetterTake", () => {
+	const landed = (
+		measures: Partial<{
+			miss: "nothing_changed" | "outside_marks" | null;
+			changedShare: number;
+			insideMarksShare: number | null;
+		}> = {},
+	) =>
+		({
+			takeId: "t",
+			status: "succeeded",
+			phase: null,
+			resultFileId: "f",
+			errorCode: null,
+			retryable: false,
+			measures: {
+				dx: 0,
+				dy: 0,
+				scale: 1,
+				changedShare: 0.1,
+				insideMarksShare: null,
+				global: false,
+				reanchored: false,
+				miss: null,
+				chainSinceAnchor: 1,
+				anchorIsResult: false,
+				...measures,
+			},
+		}) as import("$lib/server/services/images/wait").TakeSnapshot;
+
+	it("takes the retry, unless it did not land or only it missed", async () => {
+		const { pickBetterTake } = await import("./make-image");
+		const missed = landed({ miss: "nothing_changed", changedShare: 0 });
+		const failed = {
+			...landed(),
+			status: "failed",
+		} as import("$lib/server/services/images/wait").TakeSnapshot;
+
+		expect(pickBetterTake(missed, landed())).toBe("retry");
+		expect(pickBetterTake(missed, failed)).toBe("first");
+		expect(pickBetterTake(landed(), missed)).toBe("first");
+		expect(pickBetterTake(landed(), landed())).toBe("retry");
+	});
+
+	it("when both missed, keeps the one with more change inside the marks, else more change overall", async () => {
+		const { pickBetterTake } = await import("./make-image");
+		const outside = (changedShare: number, inside: number) =>
+			landed({
+				miss: "outside_marks",
+				changedShare,
+				insideMarksShare: inside,
+			});
+
+		// The first has more change inside the marks.
+		expect(pickBetterTake(outside(0.3, 0.4), outside(0.2, 0.0))).toBe("first");
+		// The retry has more.
+		expect(pickBetterTake(outside(0.2, 0.0), outside(0.3, 0.4))).toBe("retry");
+		// No marks: more change overall.
+		const barely = (changedShare: number) =>
+			landed({ miss: "nothing_changed", changedShare });
+		expect(pickBetterTake(barely(0.001), barely(0.0))).toBe("first");
+		expect(pickBetterTake(barely(0.0), barely(0.001))).toBe("retry");
+	});
+});
+
+describe("the look at the result", () => {
+	async function lookRun(
+		input: Partial<MakeImageInput>,
+		options: Parameters<typeof run>[1] & {
+			queue?: import("$lib/server/services/vision/step-images").StepImageQueue;
+		},
+	) {
+		const { createStepImageQueue } = await import(
+			"$lib/server/services/vision/step-images"
+		);
+		const queue = options.queue ?? createStepImageQueue();
+		const { runMakeImageTool } = await import("./make-image");
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const result = await runMakeImageTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			toolCallId: "call-1",
+			input: { prompt: "make the door red", ...input },
+			turnPictures: options.turnPictures ?? null,
+			turnTakes: options.turnTakes ?? createTurnTakes(),
+			requestText: "make the door red",
+			signal: options.signal ?? new AbortController().signal,
+			waitBudgetMs: options.waitBudgetMs,
+			stepImages: queue,
 		});
+		return { ...result, queue };
+	}
+
+	it("queues the result under its label with the number of the picture it was changed from", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const base = await storeFile();
+
+		const { modelPayload, queue } = await lookRun(
+			{ pictures: ["1"] },
+			{ turnPictures: index([fileSource(base.id)]) },
+		);
+
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error(`not succeeded: ${JSON.stringify(modelPayload)}`);
+		}
+		const entries = queue.drain();
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.label).toBe(
+			`Result of make_image (takeId ${modelPayload.takeId}), changed from picture 1:`,
+		);
+		expect(entries[0]?.images).toHaveLength(1);
+		expect(entries[0]?.images[0]?.artifactId).toMatch(/^image-file:/);
+		expect(modelPayload.note).toBe(
+			`The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${modelPayload.takeId}".`,
+		);
+		expect(queue.room()).toBe(7);
+	});
+
+	it("shows the base first under Before: when the message did not carry it (two of the eight)", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+
+		const { modelPayload, queue } = await lookRun(
+			{ pictures: [artifactId] },
+			{},
+		);
+
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error(`not succeeded: ${JSON.stringify(modelPayload)}`);
+		}
+		const entries = queue.drain();
+		expect(entries.map((e) => e.label)).toEqual([
+			"Before:",
+			`Result of make_image (takeId ${modelPayload.takeId}):`,
+		]);
+		expect(queue.room()).toBe(6);
+	});
+
+	it("labels a new picture with no number", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+
+		const { modelPayload, queue } = await lookRun({}, {});
+
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error("not succeeded");
+		}
+		expect(queue.drain().map((e) => e.label)).toEqual([
+			`Result of make_image (takeId ${modelPayload.takeId}):`,
+		]);
+	});
+
+	it("shares the eight with the photos look: with one place left only the result is shown", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createStepImageQueue } = await import(
+			"$lib/server/services/vision/step-images"
+		);
+		const queue = createStepImageQueue();
+		queue.reserve(7);
+		const { artifactId } = await makeItem();
+
+		const { queue: used } = await lookRun(
+			{ pictures: [artifactId] },
+			{ queue },
+		);
+
+		expect(used.drain().map((e) => e.label)).toHaveLength(1);
+		expect(used.room()).toBe(0);
+	});
+
+	it("with no room left there is no look, and the note says the picture is on its card", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createStepImageQueue } = await import(
+			"$lib/server/services/vision/step-images"
+		);
+
+		const { modelPayload, queue } = await lookRun(
+			{},
+			{ queue: createStepImageQueue({ budget: 0 }) },
+		);
+
+		expect(queue.drain()).toEqual([]);
+		expect(modelPayload).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			note: expect.stringContaining("on its card in the chat"),
+		});
+	});
+
+	it("gives a picture that lands after the wait no look", async () => {
+		await startPictureServer({ steps: 4, stepDelayMs: 200 });
+		await startEngine();
+
+		const { modelPayload, queue } = await lookRun({}, { waitBudgetMs: 300 });
+
+		expect(modelPayload).toMatchObject({ ok: true, status: "running" });
+		await until(
+			async () => (await rows()).takes[0]?.status,
+			(status) => status === "succeeded",
+		);
+		expect(queue.drain()).toEqual([]);
+		expect(queue.room()).toBe(8);
+	});
+});
+
+describe("the wait keeps the stream alive", () => {
+	it("ticks once a second while the take is being made", async () => {
+		await startPictureServer({ steps: 4, stepDelayMs: 400 });
+		await startEngine();
+		const { runMakeImageTool } = await import("./make-image");
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const onTick = vi.fn();
+
+		await runMakeImageTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			toolCallId: "call-1",
+			input: { prompt: "a red door" },
+			turnPictures: null,
+			turnTakes: createTurnTakes(),
+			requestText: "a red door",
+			signal: new AbortController().signal,
+			onTick,
+		});
+
+		expect(onTick.mock.calls.length).toBeGreaterThanOrEqual(1);
 	});
 });
 
@@ -752,6 +1234,68 @@ describe("when the call is cut short", () => {
 		const { takes } = await rows();
 		expect(takes[0]?.status).toBe("cancelled");
 		expect(takes[0]?.heldUntil).toBeNull();
+	});
+});
+
+describe("the composer's Stop and the picture server's queue", () => {
+	it("deletes a prompt that is still waiting in the picture server's queue", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const picture = fake;
+		if (!picture) throw new Error("no picture server");
+		picture.holdQueue(true);
+		const { UserStopReason } = await import(
+			"$lib/server/services/chat-turn/active-streams"
+		);
+		const controller = new AbortController();
+		const call = run({}, { signal: controller.signal, waitBudgetMs: 60_000 });
+		await until(
+			async () => [...picture.prompts.values()],
+			(statuses) => statuses.includes("pending"),
+		);
+
+		controller.abort(new UserStopReason());
+		const { modelPayload } = await call;
+
+		expect(modelPayload).toMatchObject({
+			ok: false,
+			status: "failed",
+			errorCode: "image_stopped",
+		});
+		expect([...picture.prompts.values()]).toEqual([]);
+		expect((await rows()).takes[0]?.status).toBe("cancelled");
+	});
+
+	it("never interrupts a render that ComfyUI has started, even before the take's phase shows it", async () => {
+		// ComfyUI starts the prompt at once and takes a while to begin work, so the
+		// take's phase lags behind: the race the rule is about.
+		await startPictureServer({ steps: 2, startDelayMs: 700 });
+		await startEngine();
+		const picture = fake;
+		if (!picture) throw new Error("no picture server");
+		const { UserStopReason } = await import(
+			"$lib/server/services/chat-turn/active-streams"
+		);
+		const controller = new AbortController();
+		const call = run({}, { signal: controller.signal, waitBudgetMs: 60_000 });
+		await until(
+			async () => [...picture.prompts.values()],
+			(statuses) => statuses.includes("running"),
+		);
+
+		controller.abort(new UserStopReason());
+		const { modelPayload } = await call;
+
+		expect(modelPayload).toMatchObject({ ok: true, status: "running" });
+		const landed = await until(
+			async () => (await rows()).takes[0],
+			(take) => take?.status === "succeeded" || take?.status === "cancelled",
+		);
+		expect(landed?.status).toBe("succeeded");
+		expect(
+			picture.requests.some((request) => request.path === "/interrupt"),
+		).toBe(false);
+		expect(landed?.heldUntil).toBeNull();
 	});
 });
 

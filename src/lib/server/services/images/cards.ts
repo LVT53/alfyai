@@ -498,6 +498,14 @@ export async function newestFinishedTake(cardId: string): Promise<{
 	return null;
 }
 
+/** The take shown is one the tool made again after a miss; the card says "retried once". */
+export async function markTakeRetried(takeId: string): Promise<void> {
+	await db
+		.update(imageJobs)
+		.set({ retried: 1 })
+		.where(eq(imageJobs.id, takeId));
+}
+
 /** Takes a take off the card's tray. The take in use cannot be hidden. */
 export async function hideTake(takeId: string): Promise<void> {
 	const take = await readTake(takeId);

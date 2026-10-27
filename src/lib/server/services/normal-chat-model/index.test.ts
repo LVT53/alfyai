@@ -7,6 +7,7 @@ import {
 } from "$lib/model-capabilities";
 import { setModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
+import { resultLookLabel } from "$lib/server/services/images/result-look";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,
@@ -5516,6 +5517,101 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 					{ type: "text", text: STRIPPED_IMAGE_NOTE },
 				],
 			});
+		});
+
+		/** A tool that, like make_image, queues the look at a picture it made. */
+		function createPictureTool(queue: StepImageQueue) {
+			return tool({
+				description: "Make a picture.",
+				inputSchema: photosSchema,
+				execute: async () => {
+					queue.reserve(1);
+					queue.push({
+						label: resultLookLabel("take-1", 2),
+						images: [
+							{
+								artifactId: "image-file:file-1",
+								name: "make_image result",
+								image: thumbnails[0].image,
+							},
+						],
+					});
+					return { ok: true, status: "succeeded" };
+				},
+			});
+		}
+
+		it("hands the model a made picture under its label, as one picture, in the step after the tool result", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPictureTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-2)?.role).toBe("tool");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "Result of make_image (takeId take-1), changed from picture 2:",
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+				],
+			});
+		});
+
+		it("gives an attempt on a model that cannot see a made picture the label and the note, no pixels", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: blindProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPictureTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "Result of make_image (takeId take-1), changed from picture 2:",
+					},
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("shares the eight between a photos look and a picture look in one turn", async () => {
+			const queue = createStepImageQueue();
+			// A photos look took seven of the eight earlier in the turn.
+			expect(queue.reserve(7)).toBe(7);
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPictureTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			expect(queue.room()).toBe(0);
+			expect(queue.reserve(1)).toBe(0);
 		});
 
 		it("adds nothing when the tool queued nothing", async () => {

@@ -22,6 +22,8 @@ export type TurnTakeRecord = {
 	request: TakeRequest;
 	/** This take was made again from an earlier one that missed. */
 	isRetry: boolean;
+	/** The message picture this change is made from, for the look's label; null for a new picture or a base the message did not carry. */
+	baseNumber?: number | null;
 	/** A retry of this take has been made (one per take). */
 	retried: boolean;
 };

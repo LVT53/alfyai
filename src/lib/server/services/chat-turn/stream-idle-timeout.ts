@@ -46,6 +46,12 @@ export interface UpstreamIdleTimeoutDeps {
 export interface UpstreamIdleTimeout {
 	schedule(attempt: number): void;
 	markActivity(attempt: number): void;
+	/**
+	 * Activity from outside the model stream (a tool that waits on a job and
+	 * reports progress). Moves the firing out only while a timer is pending: a
+	 * stream that has ended, or whose timer already fired, is never revived.
+	 */
+	touch(attempt: number): void;
 	clear(): void;
 	readonly timedOutBeforeOutput: boolean;
 	readonly lastActivityAt: number;
@@ -67,6 +73,8 @@ export function createUpstreamIdleTimeout(
 	const schedule = (attempt: number) => {
 		clear();
 		timeoutId = setTimeout(() => {
+			// Fired: nothing is pending any more, so a later touch revives nothing.
+			timeoutId = null;
 			const now = Date.now();
 			console.warn("[STREAM] Upstream stream idle timeout", {
 				conversationId: deps.log.conversationId,
@@ -93,9 +101,16 @@ export function createUpstreamIdleTimeout(
 		schedule(attempt);
 	};
 
+	const touch = (attempt: number) => {
+		if (!timeoutId) return;
+		lastActivityAt = Date.now();
+		schedule(attempt);
+	};
+
 	return {
 		schedule,
 		markActivity,
+		touch,
 		clear,
 		get timedOutBeforeOutput() {
 			return timedOutBeforeOutput;

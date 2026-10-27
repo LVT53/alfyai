@@ -73,6 +73,7 @@ export type StreamingNormalChatSendModelParams = {
 		typeof prepareOutboundContext
 	>[0]["onContextPreparationActivity"];
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
+	onToolActivity?: () => void;
 };
 
 export type StreamingNormalChatPreparedContext = {

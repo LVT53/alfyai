@@ -1199,6 +1199,10 @@ export function runChatStreamOrchestrator(
 					enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
 					signal: upstreamAbortController.signal,
 					onResponseActivity: emitResponseActivity,
+					// A tool waiting on a job (a picture) is activity, so a long wait
+					// never reads as a silent stream. `touch` never revives a stream
+					// that has ended.
+					onToolActivity: () => idleTimeout.touch(latestUpstreamAttempt),
 				};
 				let modelRun: Awaited<
 					ReturnType<typeof runStreamingNormalChatSendModel>

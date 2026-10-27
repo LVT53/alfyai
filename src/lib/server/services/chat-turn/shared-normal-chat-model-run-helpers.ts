@@ -202,6 +202,11 @@ export type NormalChatSendModelBaseParams = {
 	onResponseActivity?: (
 		entry: import("$lib/response-activity-types").ResponseActivityEntry,
 	) => void;
+	/**
+	 * A tool that waits on slow work (a picture being made) calls this about once
+	 * a second so the stream's idle watchdog counts the wait as activity.
+	 */
+	onToolActivity?: () => void;
 };
 
 export type DepthEffort = Awaited<
@@ -493,6 +498,7 @@ export async function createToolPack(
 		modelId,
 		stepImages,
 		turnPictures,
+		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }

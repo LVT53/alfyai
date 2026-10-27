@@ -11,20 +11,32 @@
 import { z } from "zod";
 import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
-import { createCard, releaseHold } from "$lib/server/services/images/cards";
+import {
+	createCard,
+	hideTake,
+	markTakeRetried,
+	releaseHold,
+	replacePick,
+} from "$lib/server/services/images/cards";
 import { cancelTake, enqueueTake } from "$lib/server/services/images/image-job";
 import { PictureUnreadableError } from "$lib/server/services/images/inputs";
 import {
 	type MakeImageRefusal,
 	resolveMakeImageRequest,
 } from "$lib/server/services/images/requests";
+import { queueResultLook } from "$lib/server/services/images/result-look";
 import { freshSeed } from "$lib/server/services/images/seeds";
+import type { TakeRequest } from "$lib/server/services/images/take-request";
 import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import {
 	MAX_IMAGE_CALLS_PER_TURN,
 	type TurnTakes,
 } from "$lib/server/services/images/turn-takes";
-import { waitForTake } from "$lib/server/services/images/wait";
+import {
+	type TakeSnapshot,
+	waitForTake,
+} from "$lib/server/services/images/wait";
+import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 
 export const makeImageInputSchema = z.object({
 	prompt: z
@@ -125,11 +137,15 @@ export type MakeImagePayload =
 export const IMAGE_TOOL_WAIT_MS = 100_000;
 /** The take is held this long, longer than the wait and the envelope, so it is never promoted before the call has decided about it. */
 const HOLD_MS = 130_000;
+/** A clear miss is made again only when this much of the wait is left; a retry takes about as long as the take did. */
+export const RETRY_MIN_LEFT_MS = 25_000;
 
 const SUCCEEDED_NOTE =
 	"The picture is now on its card in the chat for the user. You cannot see it: say in one sentence what you made or changed, do not describe how it looks, and do not write a link.";
 const SET_ASIDE_NOTE =
 	"The picture is on its card in the chat as another take; the user can choose it there. You cannot see it: do not describe how it looks, and do not write a link.";
+const LOOK_NOTE = (takeId: string) =>
+	`The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
 
@@ -179,6 +195,8 @@ export async function runMakeImageTool(params: {
 	requestText: string;
 	signal: AbortSignal;
 	onTick?: () => void;
+	/** The turn's queue of pictures the model is shown in the step after this result (the look). */
+	stepImages?: StepImageQueue;
 	/** How long to wait for the take; tests shorten it. */
 	waitBudgetMs?: number;
 }): Promise<{ modelPayload: MakeImagePayload; metadata: Metadata }> {
@@ -230,51 +248,56 @@ export async function runMakeImageTool(params: {
 		turnTakes.rememberCard(plan.cardKey, cardId);
 	}
 
-	const seed = freshSeed(plan.request.avoidSeeds);
-	const { takeId } = await enqueueTake({
-		userId,
-		conversationId,
-		cardId,
-		toolCallId: params.toolCallId,
-		origin: plan.retryOf ? "retry" : "turn",
-		retryOf: plan.retryOf,
-		request: plan.request,
-		seed,
-		heldUntil: Date.now() + HOLD_MS,
-	});
-	turnTakes.noteTake({
-		takeId,
-		cardId,
-		cardKey: plan.cardKey,
-		callKey: plan.callKey,
-		seed,
-		request: plan.request,
-		isRetry: plan.retryOf !== null,
-	});
-	if (plan.retryOf) turnTakes.markRetried(plan.retryOf);
-
+	const cardIdNow: string = cardId;
+	const baseNumber = plan.baseNumber;
+	const retriedByModel = plan.retryOf !== null;
 	const edit = plan.request.mode === "edit";
-	const base: Metadata = {
-		imageCardId: cardId,
-		imageTakeId: takeId,
-		imageArtifactId: plan.artifactId,
-		imageEdit: edit,
-		imageTitle: plan.title,
-		imageRetried: plan.retryOf !== null,
+	const startedAt = Date.now();
+	const budgetMs = params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS;
+	const leftMs = () => budgetMs - (Date.now() - startedAt);
+
+	/** Queues one take of this call; it is held until the call has decided about it. */
+	const queue = async (
+		request: TakeRequest,
+		retryOf: string | null,
+		toolCallId: string | null,
+	): Promise<string> => {
+		const seed = freshSeed(request.avoidSeeds);
+		const { takeId } = await enqueueTake({
+			userId,
+			conversationId,
+			cardId: cardIdNow,
+			toolCallId,
+			origin: retryOf ? "retry" : "turn",
+			retryOf,
+			request,
+			seed,
+			heldUntil: Date.now() + HOLD_MS,
+		});
+		turnTakes.noteTake({
+			takeId,
+			cardId: cardIdNow,
+			cardKey: plan.cardKey,
+			callKey: plan.callKey,
+			seed,
+			request,
+			isRetry: retryOf !== null,
+			baseNumber,
+		});
+		if (retryOf) turnTakes.markRetried(retryOf);
+		return takeId;
 	};
 
-	let stopped = false;
-	let snapshot: Awaited<ReturnType<typeof waitForTake>>;
-	let settled: Awaited<ReturnType<typeof releaseHold>>;
-	try {
-		snapshot = await waitForTake(takeId, {
-			budgetMs: params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS,
+	/** Waits for a take. Only the composer's Stop cancels, and only a take not yet rendering (the card's own Stop is for one that is); an envelope timeout lets go and the take lands later onto its card. */
+	const waitOn = async (
+		takeId: string,
+	): Promise<{ snapshot: TakeSnapshot; stopped: boolean }> => {
+		const snapshot = await waitForTake(takeId, {
+			budgetMs: Math.max(0, leftMs()),
 			signal: params.signal,
 			onTick: params.onTick,
 		});
-		// Only the composer's Stop cancels, and only a take not yet rendering
-		// (the card's own Stop is for one that is). An envelope timeout lets go:
-		// the take lands later onto its card.
+		let stopped = false;
 		if (isUserStop(params.signal)) {
 			stopped = await cancelTake(userId, takeId, { interrupt: false }).catch(
 				(error: unknown) => {
@@ -286,16 +309,108 @@ export async function runMakeImageTool(params: {
 				},
 			);
 		}
+		return { snapshot, stopped };
+	};
+
+	const firstId = await queue(plan.request, plan.retryOf, params.toolCallId);
+	const held = new Set<string>([firstId]);
+	const released = new Set<string>();
+
+	let winnerId = firstId;
+	let winner: TakeSnapshot;
+	let autoRetried = false;
+	let stopped = false;
+	let settled: Awaited<ReturnType<typeof releaseHold>> | null = null;
+	let versionAdded: number | null = null;
+	try {
+		const first = await waitOn(firstId);
+		winner = first.snapshot;
+		stopped = first.stopped;
+
+		// A clear miss the guards measured is made again once, inside this call.
+		if (
+			!stopped &&
+			!retriedByModel &&
+			winner.status === "succeeded" &&
+			winner.measures?.miss &&
+			leftMs() >= RETRY_MIN_LEFT_MS &&
+			!params.signal.aborted
+		) {
+			try {
+				const record = turnTakes.take(firstId);
+				const request: TakeRequest = {
+					...plan.request,
+					avoidSeeds: [
+						...new Set([...plan.request.avoidSeeds, record?.seed ?? 0]),
+					],
+				};
+				const retryId = await queue(request, firstId, null);
+				held.add(retryId);
+				autoRetried = true;
+				const second = await waitOn(retryId);
+				if (
+					second.snapshot.status === "queued" ||
+					second.snapshot.status === "running"
+				) {
+					// Not landed in time: the first is shown, the retry lands on the tray.
+				} else if (pickBetterTake(winner, second.snapshot) === "retry") {
+					await hideTake(firstId).catch(() => undefined);
+					winnerId = retryId;
+					winner = second.snapshot;
+				} else {
+					await hideTake(retryId).catch(() => undefined);
+				}
+			} catch (error) {
+				console.warn("[IMAGES] The automatic retry could not be made", {
+					reason: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		if (!stopped && winner.status === "succeeded") {
+			released.add(winnerId);
+			settled = await releaseHold(winnerId);
+			if (retriedByModel && plan.retryOf) {
+				// The model's retry takes the place of the take it repeats.
+				if (settled.pickedTakeId === plan.retryOf) {
+					versionAdded = (await replacePick({ cardId, takeId: winnerId }))
+						.versionNumber;
+					if (versionAdded !== null) {
+						settled = { ...settled, pickedTakeId: winnerId };
+					}
+				} else if (settled.pickedTakeId === winnerId) {
+					await hideTake(plan.retryOf).catch(() => undefined);
+				}
+			}
+		}
 	} finally {
-		settled = await releaseHold(takeId);
+		for (const id of held) {
+			if (released.has(id)) continue;
+			released.add(id);
+			await releaseHold(id).catch(() => undefined);
+		}
 	}
+
+	const base: Metadata = {
+		imageCardId: cardId,
+		imageTakeId: winnerId,
+		imageArtifactId: plan.artifactId,
+		imageEdit: edit,
+		imageTitle: plan.title,
+		imageRetried: retriedByModel || autoRetried,
+	};
+	const retried = retriedByModel || autoRetried;
+	if (retried && winner.status === "succeeded") {
+		await markTakeRetried(winnerId).catch(() => undefined);
+	}
+	const snapshot = winner;
 
 	if (stopped) {
 		return {
 			modelPayload: {
 				ok: false,
 				status: "failed",
-				takeId,
+				takeId: winnerId,
 				errorCode: "image_stopped",
 				message: STOPPED_MESSAGE,
 				retryable: false,
@@ -305,18 +420,46 @@ export async function runMakeImageTool(params: {
 	}
 
 	if (snapshot.status === "succeeded") {
-		const inUse = settled.pickedTakeId === takeId;
-		const imageId = settled.artifactId ?? plan.artifactId;
+		const inUse = settled?.pickedTakeId === winnerId;
+		const imageId = settled?.artifactId ?? plan.artifactId;
+		// The look: only for a picture that landed inside the wait, and only when
+		// the turn has room left in its picture budget.
+		let looked = false;
+		if (params.stepImages && snapshot.resultFileId && !params.signal.aborted) {
+			const record = turnTakes.take(winnerId);
+			looked = await queueResultLook({
+				userId,
+				conversationId,
+				queue: params.stepImages,
+				signal: params.signal,
+				takeId: winnerId,
+				resultFileId: snapshot.resultFileId,
+				baseFileId:
+					(record?.request ?? plan.request).inputs.find(
+						(input) => input.role === "base",
+					)?.fileId ?? null,
+				baseNumber,
+			}).catch((error: unknown) => {
+				console.warn("[IMAGES] The look at a made picture failed", {
+					reason: error instanceof Error ? error.message : String(error),
+				});
+				return false;
+			});
+		}
 		return {
 			modelPayload: {
 				ok: true,
 				status: "succeeded",
-				takeId,
+				takeId: winnerId,
 				imageId,
 				title: plan.title,
 				inUse,
-				retried: plan.retryOf !== null,
-				note: inUse ? SUCCEEDED_NOTE : SET_ASIDE_NOTE,
+				retried,
+				note: looked
+					? LOOK_NOTE(winnerId)
+					: inUse
+						? SUCCEEDED_NOTE
+						: SET_ASIDE_NOTE,
 			},
 			metadata: {
 				...base,
@@ -324,6 +467,7 @@ export async function runMakeImageTool(params: {
 				imageStatus: "succeeded",
 				imageArtifactId: imageId,
 				imageInUse: inUse,
+				imageLooked: looked,
 			},
 		};
 	}
@@ -333,7 +477,7 @@ export async function runMakeImageTool(params: {
 			modelPayload: {
 				ok: true,
 				status: "running",
-				takeId,
+				takeId: winnerId,
 				title: plan.title,
 				note: RUNNING_NOTE,
 			},
@@ -349,7 +493,7 @@ export async function runMakeImageTool(params: {
 		modelPayload: {
 			ok: false,
 			status: "failed",
-			takeId,
+			takeId: winnerId,
 			errorCode,
 			message:
 				snapshot.status === "cancelled"
@@ -364,4 +508,28 @@ export async function runMakeImageTool(params: {
 			imageError: errorCode,
 		},
 	};
+}
+
+/**
+ * Which of two takes of one request to show. The retry, unless it did not
+ * land, or it also missed while the first did not. When both missed, the one
+ * with more change inside the marks (or more change overall, without marks).
+ */
+export function pickBetterTake(
+	first: TakeSnapshot,
+	retry: TakeSnapshot,
+): "first" | "retry" {
+	if (retry.status !== "succeeded") return "first";
+	const firstMiss = Boolean(first.measures?.miss);
+	const retryMiss = Boolean(retry.measures?.miss);
+	if (retryMiss && !firstMiss) return "first";
+	if (!(retryMiss && firstMiss)) return "retry";
+	const score = (snapshot: TakeSnapshot): number => {
+		const measures = snapshot.measures;
+		if (!measures) return 0;
+		return measures.insideMarksShare === null
+			? measures.changedShare
+			: measures.changedShare * measures.insideMarksShare;
+	};
+	return score(retry) >= score(first) ? "retry" : "first";
 }

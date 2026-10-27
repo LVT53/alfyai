@@ -67,6 +67,8 @@ export type TakePlan = {
 	retryOf: string | null;
 	/** What this call asked for (see `TurnTakeRecord.callKey`). */
 	callKey: string;
+	/** The message picture being changed, else null. */
+	baseNumber: number | null;
 };
 
 type Resolution =
@@ -204,6 +206,7 @@ async function planRetry(
 			request,
 			retryOf: record.takeId,
 			callKey: record.callKey,
+			baseNumber: record.baseNumber ?? null,
 		},
 	};
 }
@@ -325,6 +328,7 @@ export async function resolveMakeImageRequest(params: {
 				request,
 				retryOf: null,
 				callKey,
+				baseNumber: null,
 			},
 		};
 	}
@@ -434,6 +438,10 @@ export async function resolveMakeImageRequest(params: {
 			request,
 			retryOf: null,
 			callKey,
+			baseNumber:
+				params.turnPictures?.pictures.find(
+					(p) => identityOf(p.source) === identityOf(first),
+				)?.number ?? null,
 		},
 	};
 }
