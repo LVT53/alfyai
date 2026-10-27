@@ -1016,15 +1016,42 @@ describe("pictures beside the uploads (the turn's picture index is the one numbe
 		]);
 	});
 
-	it("a message with only the open picture is a message with a picture", async () => {
+	it("a message with only the open picture holds a picture to send but attached none", async () => {
 		const turnImages = await resolveTurnImages({
 			items: [],
 			collect: true,
 			extras: [extra(1, "Cosy living room (open in the panel)")],
 		});
-		expect(turnImages.hasImageAttachments).toBe(true);
+		expect(turnImages.hasImageAttachments).toBe(false);
 		expect(turnImages.images).toEqual([]);
 		expect(turnImages.pictureImages).toHaveLength(1);
+	});
+
+	it("tells a model that cannot see an open picture only the listing and a plain line, never that something was attached", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [],
+			collect: false,
+			extras: [extra(1, "Cosy living room (open in the panel)")],
+		});
+		const lines = buildTurnImageGuidance({ canSee: false, turnImages });
+		expect(lines).toEqual([
+			"Pictures in this message: Picture 1: Cosy living room (open in the panel).",
+			"You cannot see these pictures; they can still be passed to make_image by number.",
+		]);
+		expect(lines.join(" ")).not.toContain("attached");
+		expect(lines).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+		expect(lines.join(" ")).toMatch(/^[\x20-\x7e]+$/);
+	});
+
+	it("keeps the cannot-see line for an attached card picture", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [],
+			collect: false,
+			extras: [{ ...extra(1, "Rug"), attached: true }],
+		});
+		expect(buildTurnImageGuidance({ canSee: false, turnImages })[0]).toBe(
+			CANNOT_SEE_IMAGES_GUIDANCE,
+		);
 	});
 
 	it("adds the make_image line for five pictures at a cap of 4, for a model that sees and one that does not, and none for four", () => {

@@ -313,6 +313,33 @@ describe("renderHistoryTurn", () => {
 		expect(JSON.stringify(out)).not.toContain("f3");
 	});
 
+	it("says a picture that was attached and also open once, as the open picture", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Use this",
+						pictures: {
+							refs: [
+								{
+									imageFileId: "f1",
+									number: 1,
+									name: "Cosy living room",
+									open: true,
+								},
+							],
+							open: null,
+							marks: null,
+						},
+					},
+				],
+			},
+			"native",
+		);
+		expect(out[0].content).toBe("Use this\n[open picture: Cosy living room]");
+	});
+
 	it("names marks on the open picture, and a marked picture it cannot find as a picture", () => {
 		const base = {
 			role: "user" as const,

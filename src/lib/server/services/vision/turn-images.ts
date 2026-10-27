@@ -98,6 +98,13 @@ export const CANNOT_SEE_IMAGES_GUIDANCE =
 	"The user attached an image, but you cannot see images; you only get any text extracted from it. Say so in one short sentence, then answer from that text.";
 
 /**
+ * Said to a model that cannot see when the message holds only pictures nobody
+ * attached (the one open in the panel, a marked copy). English (ruling 79).
+ */
+const PICTURES_NOT_VISIBLE_GUIDANCE =
+	"You cannot see these pictures; they can still be passed to make_image by number.";
+
+/**
  * One line, short: a file name is user data that lands in a user message. Control
  * characters and runs of whitespace become one space, and it is cut by code
  * points (never in the middle of a character). May return "": a caller that
@@ -160,7 +167,17 @@ export function buildTurnImageGuidance(params: {
 			? [makeImageCapGuidance(referenceCap)]
 			: [];
 	if (!params.canSee) {
-		if (!turnImages.hasImageAttachments) return [];
+		if (!turnImages.hasImageAttachments) {
+			// Only the open picture / a marked copy: list them, say plainly they
+			// cannot be seen, and do not tell the model anything was attached.
+			return turnImages.pictures.length > 0
+				? [
+						picturesInMessageGuidance(turnImages.pictures),
+						PICTURES_NOT_VISIBLE_GUIDANCE,
+						...capLine,
+					]
+				: [];
+		}
 		return [
 			CANNOT_SEE_IMAGES_GUIDANCE,
 			...(turnImages.pictures.length > 0
@@ -228,6 +245,12 @@ export type ExtraPicture = {
 	id: string;
 	/** The name the label carries; cleaned here. */
 	name: string;
+	/**
+	 * The person attached it (an upload-like act): the message "attached an
+	 * image". False for the open picture and the marked copy, which ride along
+	 * without the person attaching anything.
+	 */
+	attached?: boolean;
 	load: () => Promise<PreparedImage>;
 };
 
@@ -409,10 +432,12 @@ export async function resolveTurnImages(params: {
 	extras?: readonly ExtraPicture[];
 }): Promise<TurnImages> {
 	const extras = params.extras ?? [];
+	// Only uploads and attached card pictures make the message one that
+	// "attached an image"; the open picture and the marked copy do not.
 	const hasImageAttachments =
 		params.items.some((item) => attachedImage(item) !== null) ||
-		extras.length > 0;
-	if (!hasImageAttachments) return noTurnImages();
+		extras.some((extra) => extra.attached === true);
+	if (!hasImageAttachments && extras.length === 0) return noTurnImages();
 	if (!params.collect) {
 		// Nothing is read for a model that cannot see; the pictures are only named.
 		const uploads = attachedImagesOf(params.items);

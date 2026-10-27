@@ -19,7 +19,7 @@ import {
 	readImageFileBytes,
 	storeImageFile,
 } from "./files";
-import { marksLabel } from "./marks";
+import { marksLabel, paintMarks } from "./marks";
 
 export type TurnPictureSource =
 	| {
@@ -307,6 +307,7 @@ export async function resolveTurnPictures(params: {
 			imageFileId: entry.ref.imageFileId,
 			number,
 			name: title,
+			...(isOpen ? { open: true as const } : {}),
 		});
 	};
 
@@ -371,6 +372,7 @@ export async function resolveTurnPictures(params: {
 					imageFileId: baseFileId,
 					markedFileId: marked.id,
 					letters: params.marks.marks.map((mark) => mark.letter),
+					boxes: params.marks.marks,
 				};
 			}
 		}
@@ -380,7 +382,11 @@ export async function resolveTurnPictures(params: {
 		metadataRefs.length > 0 || open || markedMeta
 			? {
 					refs: metadataRefs.sort((a, b) => a.number - b.number),
-					open: open ? { imageFileId: open.fileId, name: open.title } : null,
+					// An open picture that was also attached is recorded once, on its ref.
+					open:
+						open && !openIsRef
+							? { imageFileId: open.fileId, name: open.title }
+							: null,
 					marks: markedMeta,
 				}
 			: null;
@@ -401,7 +407,6 @@ async function storeMarkedCopy(params: {
 		});
 		if (!file) return null;
 		const bytes = await readImageFileBytes(file, "full");
-		const { paintMarks } = await import("./marks");
 		const png = await paintMarks(bytes, params.marks);
 		return await storeImageFile({
 			userId: params.userId,
@@ -437,6 +442,7 @@ export function extraPicturesOf(
 				number: picture.number,
 				id: `image-file:${source.fileId}`,
 				name: source.name,
+				attached: source.role === "attached",
 				load: async () => {
 					const file = await getImageFile({
 						userId: scope.userId,

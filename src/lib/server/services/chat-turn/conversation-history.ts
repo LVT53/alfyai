@@ -217,7 +217,11 @@ function pictureLines(pictures: UserPicturesMetadata | undefined): string[] {
 		return found ? historyName(found.name) : "a picture";
 	};
 	return [
-		...pictures.refs.map((ref) => `[picture: ${historyName(ref.name)}]`),
+		...pictures.refs.map((ref) =>
+			ref.open
+				? `[open picture: ${historyName(ref.name)}]`
+				: `[picture: ${historyName(ref.name)}]`,
+		),
 		...(pictures.open
 			? [`[open picture: ${historyName(pictures.open.name)}]`]
 			: []),

@@ -14,6 +14,7 @@ import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import { parseUserPictures } from "$lib/shared/artifacts/image-body";
 import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
@@ -255,13 +256,32 @@ export async function prepareRetryChatTurn(params: {
 		return jsonError("No user message found to retry", 400);
 	}
 
+	// A regenerated turn keeps the pictures the person sent: when the browser
+	// does not resend them, they come back from the user message's record, under
+	// the numbers the person saw.
+	const recordedPictures = readRecordedPictures(precedingUserMsg.metadataJson);
+	const retryPictureRefs =
+		pictureRefs ??
+		recordedPictures?.refs.map(({ imageFileId, number }) => ({
+			imageFileId,
+			number,
+		}));
+	const retryImageMarks =
+		imageMarks ??
+		(recordedPictures?.marks?.boxes
+			? {
+					imageFileId: recordedPictures.marks.imageFileId,
+					marks: recordedPictures.marks.boxes,
+				}
+			: undefined);
+
 	const syntheticBody = buildSyntheticRetryBody({
 		conversationId,
 		message: precedingUserMsg.content,
 		activeDocumentArtifactId,
 		attachmentIds: retryAttachmentIds,
-		pictureRefs,
-		imageMarks,
+		pictureRefs: retryPictureRefs,
+		imageMarks: retryImageMarks,
 		streamId,
 		model,
 		reasoningDepth,
@@ -419,6 +439,17 @@ async function resolveRetryPendingSkill(params: {
 	}
 
 	return null;
+}
+
+function readRecordedPictures(metadataJson: string | null) {
+	if (!metadataJson) return undefined;
+	try {
+		return parseUserPictures(
+			(JSON.parse(metadataJson) as { pictures?: unknown }).pictures,
+		);
+	} catch {
+		return undefined;
+	}
 }
 
 function buildSyntheticRetryBody(params: {

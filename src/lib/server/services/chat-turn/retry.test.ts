@@ -326,6 +326,43 @@ describe("prepareRetryChatTurn", () => {
 		]);
 	});
 
+	it("rebuilds the card pictures and marks from the user message's record when the browser does not resend them", async () => {
+		const boxes = [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }];
+		const user3 = mockConversationMessages.find((m) => m.id === "user-3");
+		if (!user3) throw new Error("fixture");
+		user3.metadataJson = JSON.stringify({
+			pictures: {
+				refs: [{ imageFileId: "file-1", number: 2, name: "Rug" }],
+				open: null,
+				marks: {
+					imageFileId: "file-1",
+					markedFileId: "file-9",
+					letters: ["A"],
+					boxes,
+				},
+			},
+		});
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		expect(capturedSyntheticBodies[0]).toEqual(
+			expect.objectContaining({
+				pictureRefs: [{ imageFileId: "file-1", number: 2 }],
+				imageMarks: { imageFileId: "file-1", marks: boxes },
+			}),
+		);
+	});
+
 	it("carries the card pictures and the marks of the retried turn into the synthetic body the request parser reads", async () => {
 		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
 		const imageMarks = {

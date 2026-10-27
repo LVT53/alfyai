@@ -222,6 +222,7 @@ describe("resolveTurnPictures", () => {
 				imageFileId: open.file.id,
 				markedFileId: markedId,
 				letters: ["A"],
+				boxes: [MARK_A],
 			},
 		});
 	});
@@ -243,11 +244,16 @@ describe("resolveTurnPictures", () => {
 			name: "Cosy living room (open in the panel)",
 		});
 		// The panel's picture is still recorded as open for the history.
-		expect(index.metadata?.open).toEqual({
-			imageFileId: open.file.id,
-			name: "Cosy living room",
-		});
-		expect(index.metadata?.refs).toHaveLength(1);
+		// Recorded once: on its ref, flagged open, and not again as `open`.
+		expect(index.metadata?.open).toBeNull();
+		expect(index.metadata?.refs).toEqual([
+			{
+				imageFileId: open.file.id,
+				number: 1,
+				name: "Cosy living room",
+				open: true,
+			},
+		]);
 	});
 
 	it("numbers a ref whose number is repeated or out of range after the uploads, in the order given, and goes on", async () => {

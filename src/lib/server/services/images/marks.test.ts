@@ -77,8 +77,7 @@ describe("paintMarks", () => {
 		}
 	});
 
-	it("works with no font installed: the letters are strokes", async () => {
-		// The tag holds white strokes; no <text> element is drawn.
+	it("draws the letter as white strokes inside the tag", async () => {
 		const input = await grey(400, 400);
 		const out = await paintMarks(input, [
 			{ letter: "H", x: 0.1, y: 0.1, w: 0.6, h: 0.6 },

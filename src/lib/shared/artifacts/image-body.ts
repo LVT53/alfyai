@@ -80,12 +80,21 @@ export type ImageMarksRequest = { imageFileId: string; marks: ImageMark[] };
  * only, never pixels: a later turn's history reads it as short lines.
  */
 export type UserPicturesMetadata = {
-	refs: Array<{ imageFileId: string; number: number; name: string }>;
+	/** `open: true` marks an attached picture that is also the one open in the panel (recorded once). */
+	refs: Array<{
+		imageFileId: string;
+		number: number;
+		name: string;
+		open?: true;
+	}>;
+	/** The open picture when it was not also attached. */
 	open: { imageFileId: string; name: string } | null;
 	marks: {
 		imageFileId: string;
 		markedFileId: string;
 		letters: MarkLetter[];
+		/** The boxes, so a regenerated turn can paint the marked copy again. */
+		boxes?: ImageMark[];
 	} | null;
 };
 
@@ -176,6 +185,7 @@ export function parseUserPictures(
 			imageFileId: ref.imageFileId,
 			number: ref.number,
 			name: ref.name,
+			...(ref.open === true ? { open: true as const } : {}),
 		});
 	}
 	let open: UserPicturesMetadata["open"] = null;
@@ -201,10 +211,13 @@ export function parseUserPictures(
 		) {
 			return undefined;
 		}
+		const boxes =
+			raw.boxes === undefined ? undefined : parseImageMarks(raw.boxes);
 		marks = {
 			imageFileId: raw.imageFileId,
 			markedFileId: raw.markedFileId,
 			letters: raw.letters,
+			...(boxes ? { boxes } : {}),
 		};
 	}
 	if (refs.length === 0 && !open && !marks) return undefined;
