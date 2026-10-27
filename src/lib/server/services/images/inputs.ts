@@ -25,7 +25,7 @@ export type LoadedPicture = {
 	png: Uint8Array;
 	width: number;
 	height: number;
-	/** The stored picture file when the source is one, so an input of the right size can reuse it. */
+	/** The stored picture file when the source is one OF THIS CHAT, so an input of the right size can reuse it; a file of another chat is always copied. */
 	fileId: string | null;
 };
 
@@ -72,7 +72,7 @@ export async function loadPicture(params: {
 			png: await readImageFileBytes(file, "full"),
 			width: file.width,
 			height: file.height,
-			fileId: file.id,
+			fileId: file.conversationId === params.conversationId ? file.id : null,
 		};
 	} catch (error) {
 		console.warn("[IMAGES] A picture could not be read for a take", {

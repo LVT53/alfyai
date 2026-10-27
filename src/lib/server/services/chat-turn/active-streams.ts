@@ -464,7 +464,7 @@ export function registerActiveChatStream(params: {
 	);
 
 	if (pendingStops.has(pendingStopKey(params.userId, params.streamId))) {
-		params.controller.abort();
+		params.controller.abort(new UserStopReason());
 	}
 
 	const currentCount = userStreamCounts.get(params.userId) ?? 0;
@@ -541,6 +541,20 @@ export function isStreamActive(params: {
 	return true;
 }
 
+/**
+ * The reason on the abort signal when the PERSON stopped the turn (the
+ * composer's Stop). Every other abort (stream timeout, idle watchdog,
+ * fallback) carries no such reason, so a tool that must tell a Stop from the
+ * app giving up (`make_image` cancels a take not yet rendering only on a Stop)
+ * checks for it.
+ */
+export class UserStopReason extends Error {
+	constructor() {
+		super("The user stopped the turn");
+		this.name = "UserStopReason";
+	}
+}
+
 export function requestActiveChatStreamStop(params: {
 	streamId: string;
 	userId: string;
@@ -557,7 +571,7 @@ export function requestActiveChatStreamStop(params: {
 	}
 
 	markPendingStop(params);
-	activeStream.controller.abort();
+	activeStream.controller.abort(new UserStopReason());
 	return true;
 }
 
@@ -568,7 +582,7 @@ export function requestActiveChatStreamsStopForUser(userId: string): {
 	for (const [streamId, activeStream] of activeStreams) {
 		if (activeStream.userId !== userId) continue;
 		markPendingStop({ streamId, userId });
-		activeStream.controller.abort();
+		activeStream.controller.abort(new UserStopReason());
 		stopped += 1;
 	}
 	return { stopped };

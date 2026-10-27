@@ -2239,9 +2239,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												name: "make_image",
 												input,
 												status: "done",
-												outputSummary: ok
-													? "Picture made"
-													: result.modelPayload.message,
+												outputSummary: !ok
+													? result.modelPayload.message
+													: result.modelPayload.status === "running"
+														? "Picture still being made"
+														: "Picture made",
 												sourceType: "tool",
 												metadata: result.metadata,
 											},

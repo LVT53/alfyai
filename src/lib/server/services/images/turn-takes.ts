@@ -16,6 +16,8 @@ export type TurnTakeRecord = {
 	takeId: string;
 	cardId: string;
 	cardKey: string;
+	/** What the call asked for, so an identical call can be told from a different one. */
+	callKey: string;
 	seed: number;
 	request: TakeRequest;
 	/** This take was made again from an earlier one that missed. */
@@ -33,6 +35,8 @@ export type TurnTakes = {
 	/** Takes of the card this turn that count against its four: a retry takes the place of the take it repeats. */
 	takesInCard(cardId: string): number;
 	take(takeId: string): TurnTakeRecord | undefined;
+	/** The card's first non-retry take made for this very request, if any. */
+	firstTakeOfCall(cardId: string, callKey: string): TurnTakeRecord | undefined;
 	markRetried(takeId: string): void;
 };
 
@@ -57,6 +61,13 @@ export function createTurnTakes(): TurnTakes {
 				(record) => record.cardId === cardId && !record.isRetry,
 			).length,
 		take: (takeId) => takes.get(takeId),
+		firstTakeOfCall: (cardId, callKey) =>
+			[...takes.values()].find(
+				(record) =>
+					record.cardId === cardId &&
+					record.callKey === callKey &&
+					!record.isRetry,
+			),
 		markRetried: (takeId) => {
 			const record = takes.get(takeId);
 			if (record) record.retried = true;

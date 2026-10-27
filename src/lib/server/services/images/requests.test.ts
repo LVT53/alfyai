@@ -20,15 +20,12 @@ import {
 	vi,
 } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { warmModules } from "$lib/server/testing/warm-modules";
 import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import type { GraphTemplate } from "./comfyui/templates";
 import type { TakeRequest } from "./take-request";
-import {
-	createImageFixture,
-	type ImageFixture,
-	warmModules,
-} from "./testing/fixture";
+import { createImageFixture, type ImageFixture } from "./testing/fixture";
 import type {
 	TurnPicture,
 	TurnPictureIndex,
@@ -357,6 +354,7 @@ describe("which card a call belongs to", () => {
 				takeId: `take-${i}`,
 				cardId: "card-1",
 				cardKey: first.plan.cardKey,
+				callKey: first.plan.callKey,
 				seed: i + 1,
 				request: first.plan.request,
 				isRetry: false,
@@ -574,6 +572,7 @@ describe("a retry", () => {
 			takeId: "take-1",
 			cardId,
 			cardKey: "new:abc",
+			callKey: "new:abc",
 			seed: 41,
 			request: request(),
 			isRetry: false,

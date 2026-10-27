@@ -50,11 +50,17 @@ vi.mock("$lib/server/services/analytics", () => ({
 	recordParallelUsage: vi.fn(),
 }));
 
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({})),
-	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
-		Boolean(config.comfyuiUrl?.trim()),
-}));
+vi.mock("$lib/server/config-store", async () => {
+	// The real predicate, so the mock cannot drift from the gate it stands in for.
+	const actual = await vi.importActual<
+		typeof import("$lib/server/config-store")
+	>("$lib/server/config-store");
+	return {
+		getConfig: vi.fn(() => ({})),
+		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+	};
+});
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
 	resolveSkillInstructionsForUse: vi.fn(),

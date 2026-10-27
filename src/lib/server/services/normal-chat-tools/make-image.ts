@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import { createCard, releaseHold } from "$lib/server/services/images/cards";
 import { cancelTake, enqueueTake } from "$lib/server/services/images/image-job";
 import { PictureUnreadableError } from "$lib/server/services/images/inputs";
@@ -24,7 +25,6 @@ import {
 	type TurnTakes,
 } from "$lib/server/services/images/turn-takes";
 import { waitForTake } from "$lib/server/services/images/wait";
-import { ToolTimeoutError } from "./shared";
 
 export const makeImageInputSchema = z.object({
 	prompt: z
@@ -159,9 +159,13 @@ function refusal(
 	};
 }
 
-/** The turn's own abort (the composer's Stop), not the envelope running out of time. */
+/**
+ * The composer's Stop, and nothing else: it aborts with `UserStopReason`. The
+ * envelope's clock, the stream watchdog and a fallback abort with other
+ * reasons (or none) and only let go of the holds; the take lands later.
+ */
 function isUserStop(signal: AbortSignal): boolean {
-	return signal.aborted && !(signal.reason instanceof ToolTimeoutError);
+	return signal.aborted && signal.reason instanceof UserStopReason;
 }
 
 export async function runMakeImageTool(params: {
@@ -242,6 +246,7 @@ export async function runMakeImageTool(params: {
 		takeId,
 		cardId,
 		cardKey: plan.cardKey,
+		callKey: plan.callKey,
 		seed,
 		request: plan.request,
 		isRetry: plan.retryOf !== null,
@@ -272,7 +277,13 @@ export async function runMakeImageTool(params: {
 		// the take lands later onto its card.
 		if (isUserStop(params.signal)) {
 			stopped = await cancelTake(userId, takeId, { interrupt: false }).catch(
-				() => false,
+				(error: unknown) => {
+					console.warn("[IMAGES] A stopped take could not be cancelled", {
+						takeId,
+						reason: error instanceof Error ? error.message : String(error),
+					});
+					return false;
+				},
 			);
 		}
 	} finally {

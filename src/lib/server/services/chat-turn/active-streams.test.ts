@@ -16,6 +16,7 @@ import {
 	requestActiveChatStreamsStopForUser,
 	setDraining,
 	subscribeToStream,
+	UserStopReason,
 	unregisterActiveChatStream,
 	userHasActiveChatStream,
 	wasActiveChatStreamStopRequested,
@@ -42,6 +43,8 @@ describe("active chat streams registry", () => {
 
 		expect(stopped).toBe(true);
 		expect(controller.signal.aborted).toBe(true);
+		// The person's Stop is told from every other abort by its reason.
+		expect(controller.signal.reason).toBeInstanceOf(UserStopReason);
 
 		unregisterActiveChatStream("stream-1", controller);
 	});

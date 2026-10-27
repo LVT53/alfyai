@@ -27,7 +27,6 @@ import {
 import {
 	createImageFixture,
 	type ImageFixture,
-	warmModules,
 } from "$lib/server/services/images/testing/fixture";
 import { useFakeComfyUi } from "$lib/server/services/images/testing/run-takes";
 import type {
@@ -35,6 +34,7 @@ import type {
 	TurnPictureIndex,
 	TurnPictureSource,
 } from "$lib/server/services/images/turn-pictures";
+import { warmModules } from "$lib/server/testing/warm-modules";
 import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import type { MakeImageInput } from "./make-image";
@@ -418,6 +418,141 @@ describe("changing a picture", () => {
 		expect(takes[0]?.seed).not.toBe(123);
 	});
 
+	it("two identical startNew calls are both based on the item's version, not on each other", async () => {
+		await configureOnly();
+		const item = await makeItem(123);
+		const turnPictures = index([
+			fileSource(item.file.id, { artifactId: item.artifactId, role: "open" }),
+		]);
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		for (let i = 0; i < 2; i++) {
+			await run(
+				{ pictures: ["1"], startNew: true },
+				{ turnPictures, turnTakes, waitBudgetMs: 0 },
+			);
+		}
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(1);
+		expect(cards[0]?.artifactId).toBeNull();
+		for (const take of takes) {
+			const request = JSON.parse(take.requestJson);
+			expect(request.inputs[0].fileId).toBe(item.file.id);
+			expect(request.anchor.fileId).toBe(item.file.id);
+		}
+	});
+
+	it("an identical call again is another option on the same base; a different prompt builds on the newest finished take", async () => {
+		await configureOnly();
+		const item = await makeItem(123);
+		const turnPictures = index([
+			fileSource(item.file.id, { artifactId: item.artifactId, role: "open" }),
+		]);
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const opts = { turnPictures, turnTakes, waitBudgetMs: 0 };
+		await run({ pictures: ["1"], prompt: "make the door blue" }, opts);
+		// The first take lands.
+		const landed = await storeFile();
+		const { db } = await import("$lib/server/db");
+		const first = (await rows()).takes[0];
+		db.update(schema.imageJobs)
+			.set({ status: "succeeded", resultFileId: landed.id, seed: 777 })
+			.where(eq(schema.imageJobs.id, first?.id ?? ""))
+			.run();
+
+		await run({ pictures: ["1"], prompt: "make the door blue" }, opts);
+		await run({ pictures: ["1"], prompt: "now make it green" }, opts);
+
+		const requests = (await rows()).takes.map((take) =>
+			JSON.parse(take.requestJson),
+		);
+		expect(requests[1].inputs[0].fileId).toBe(item.file.id);
+		expect(requests[1].avoidSeeds).toEqual([123]);
+		expect(requests[2].inputs[0].fileId).toBe(landed.id);
+		expect(requests[2].avoidSeeds).toEqual([777]);
+	});
+
+	it("never changes an item of another chat in place: it starts a new item from a copy stored in this chat", async () => {
+		await configureOnly();
+		fixture.seedConversation("conv-2", userId);
+		const other = await (async () => {
+			const { storeImageFile } = await import(
+				"$lib/server/services/images/files"
+			);
+			const { createArtifact } = await import("$lib/server/services/artifacts");
+			const { serializeImageVersionBody } = await import(
+				"$lib/shared/artifacts/image-body"
+			);
+			const file = await storeImageFile({
+				userId,
+				conversationId: "conv-2",
+				role: "take",
+				png: new Uint8Array(
+					await sharp({
+						create: {
+							width: 1248,
+							height: 832,
+							channels: 3,
+							background: "#123456",
+						},
+					})
+						.png()
+						.toBuffer(),
+				),
+			});
+			const created = await createArtifact({
+				userId,
+				conversationId: "conv-2",
+				kind: "image",
+				title: "Elsewhere",
+				body: serializeImageVersionBody({
+					v: 1,
+					fileId: file.id,
+					width: 1248,
+					height: 832,
+					hasAlpha: false,
+					baseFileId: null,
+					sources: [],
+					marks: null,
+					prompt: "p",
+					takeId: null,
+					seed: 5,
+					anchorFileId: file.id,
+					chainSinceAnchor: 0,
+				}),
+				author: "alfy",
+				versionSummary: VERSION_SUMMARY.alfyPicture,
+			});
+			if (!created.ok) throw new Error("item not made");
+			return { artifactId: created.artifact.id, file };
+		})();
+
+		const { modelPayload } = await run(
+			{ pictures: [other.artifactId], title: "Copy" },
+			{ waitBudgetMs: 0 },
+		);
+
+		expect(modelPayload).toMatchObject({ ok: true, status: "running" });
+		const { cards, takes } = await rows();
+		expect(cards[0]?.artifactId).toBeNull();
+		const request = JSON.parse(takes[0]?.requestJson ?? "{}");
+		expect(request.baseFromUpload).toBe(true);
+		expect(request.inputs[0].fileId).not.toBe(other.file.id);
+		const { db } = await import("$lib/server/db");
+		const copy = db
+			.select()
+			.from(schema.imageFiles)
+			.where(eq(schema.imageFiles.id, request.inputs[0].fileId))
+			.get();
+		expect(copy?.conversationId).toBe(conversationId);
+		expect(request.avoidSeeds).toEqual([5]);
+	});
+
 	it("names an item by its id as well as by its number", async () => {
 		await configureOnly();
 		const item = await makeItem();
@@ -587,19 +722,26 @@ describe("when the call is cut short", () => {
 		return call;
 	}
 
-	it("the envelope's clock only lets go: the take stays and lands later onto its card", async () => {
-		const { ToolTimeoutError } = await import("./shared");
-		const { modelPayload } = await callThenAbort(
-			new ToolTimeoutError("make_image", 120_000),
-		);
-
-		expect(modelPayload).toMatchObject({ ok: true, status: "running" });
-		const { takes } = await rows();
-		expect(takes[0]).toMatchObject({ status: "queued", heldUntil: null });
+	it("a watchdog, a timeout or an abort with no reason only lets go: the take stays and lands later onto its card", async () => {
+		for (const reason of [
+			undefined,
+			new Error("Timed out waiting for upstream stream activity"),
+			new Error("make_image timed out after 120000ms"),
+		]) {
+			const { modelPayload } = await callThenAbort(reason);
+			expect(modelPayload).toMatchObject({ ok: true, status: "running" });
+			const { takes } = await rows();
+			expect(takes.at(-1)).toMatchObject({ status: "queued", heldUntil: null });
+		}
 	});
 
 	it("the composer's Stop cancels a take that has not started", async () => {
-		const { modelPayload } = await callThenAbort(new Error("stopped"));
+		// The picture server's address is read when the config first loads.
+		await configureOnly();
+		const { UserStopReason } = await import(
+			"$lib/server/services/chat-turn/active-streams"
+		);
+		const { modelPayload } = await callThenAbort(new UserStopReason());
 
 		expect(modelPayload).toMatchObject({
 			ok: false,

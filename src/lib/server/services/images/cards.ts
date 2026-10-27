@@ -471,7 +471,7 @@ export async function releaseHold(takeId: string): Promise<{
 }
 
 /**
- * The card's newest take that finished and is still on the tray, held or not,
+ * The card's newest take (by creation) that finished and is still on the tray, held or not,
  * as the version it would be: what the next change in the same turn builds on.
  */
 export async function newestFinishedTake(cardId: string): Promise<{

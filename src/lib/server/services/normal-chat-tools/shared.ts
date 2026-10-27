@@ -352,21 +352,8 @@ function toolAbortError(toolName: string, reason: unknown): Error {
 	return new Error(`${toolName} aborted`);
 }
 
-/**
- * The reason on the run signal when the envelope's own clock ran out. A tool
- * that must tell it from the turn's abort (the composer's Stop) reads the
- * signal's reason: `make_image` cancels what has not started on a Stop and only
- * lets go of its takes on a timeout.
- */
-export class ToolTimeoutError extends Error {
-	constructor(toolName: string, timeoutMs: number) {
-		super(`${toolName} timed out after ${timeoutMs}ms`);
-		this.name = "ToolTimeoutError";
-	}
-}
-
 function toolTimeoutError(toolName: string, timeoutMs: number): Error {
-	return new ToolTimeoutError(toolName, timeoutMs);
+	return new Error(`${toolName} timed out after ${timeoutMs}ms`);
 }
 
 // Stamps the envelope's own start→settle wall-clock time onto an entry's

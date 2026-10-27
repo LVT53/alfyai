@@ -117,17 +117,23 @@ vi.mock("./read-generated-file", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./read-generated-file")>()),
 	readGeneratedFileForTool: vi.fn(),
 }));
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({
-		parallelApiKey: "parallel-key",
-		parallelBaseUrl: "https://api.parallel.ai",
-		// Builtin model context windows used to size fetch_url content.
-		model1MaxModelContext: 64_000,
-		model2MaxModelContext: 200_000,
-	})),
-	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
-		Boolean(config.comfyuiUrl?.trim()),
-}));
+vi.mock("$lib/server/config-store", async () => {
+	// The real predicate, so the mock cannot drift from the gate it stands in for.
+	const actual = await vi.importActual<
+		typeof import("$lib/server/config-store")
+	>("$lib/server/config-store");
+	return {
+		getConfig: vi.fn(() => ({
+			parallelApiKey: "parallel-key",
+			parallelBaseUrl: "https://api.parallel.ai",
+			// Builtin model context windows used to size fetch_url content.
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		})),
+		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+	};
+});
 vi.mock("$lib/server/services/connections/resolve", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/resolve")

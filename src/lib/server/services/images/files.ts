@@ -309,6 +309,8 @@ export async function getImageItem(params: {
 	conversationId: string;
 }): Promise<{
 	artifactId: string;
+	/** The chat the item lives in: a change lands in place only inside it. */
+	conversationId: string;
 	title: string;
 	fileId: string;
 	/** The newest version's body: its seed, anchor and chain are what a change builds on. */
@@ -339,7 +341,13 @@ export async function getImageItem(params: {
 		typeof metadata.title === "string" && metadata.title.trim()
 			? metadata.title
 			: row.name;
-	return { artifactId: row.id, title, fileId: body.fileId, body };
+	return {
+		artifactId: row.id,
+		conversationId: row.conversationId,
+		title,
+		fileId: body.fileId,
+		body,
+	};
 }
 
 /** The name a download carries: the item's title when the file belongs to one, else `picture.png`. */

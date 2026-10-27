@@ -65,6 +65,8 @@ export type TakePlan = {
 	request: TakeRequest;
 	/** The take this one repeats (a retry), else null. */
 	retryOf: string | null;
+	/** What this call asked for (see `TurnTakeRecord.callKey`). */
+	callKey: string;
 };
 
 type Resolution =
@@ -201,6 +203,7 @@ async function planRetry(
 			sourceCount: request.inputs.filter((i) => i.role !== "marked").length,
 			request,
 			retryOf: record.takeId,
+			callKey: record.callKey,
 		},
 	};
 }
@@ -267,9 +270,14 @@ export async function resolveMakeImageRequest(params: {
 					conversationId,
 				})
 			: null;
-	const inPlace = Boolean(item) && !input.startNew;
-	const cardKey =
-		inPlace && item ? `item:${item.artifactId}` : newCardKey(input);
+	// An item of ANOTHER chat is never changed in place: its versions would
+	// point at files of this chat's folder and break when this chat goes. It
+	// starts a new item here, from a copy of the picture stored in this chat.
+	const itemHere = item && item.conversationId === conversationId ? item : null;
+	const fromOtherChat = Boolean(item) && !itemHere;
+	const callKey = newCardKey(input);
+	const inPlace = Boolean(itemHere) && !input.startNew;
+	const cardKey = inPlace && itemHere ? `item:${itemHere.artifactId}` : callKey;
 
 	const existingCard = turnTakes.cardFor(cardKey) ?? null;
 	if (
@@ -283,7 +291,9 @@ export async function resolveMakeImageRequest(params: {
 	}
 
 	const title =
-		inPlace && item ? item.title : titleFor(input.title, params.requestText);
+		inPlace && itemHere
+			? itemHere.title
+			: titleFor(input.title, params.requestText);
 	const summary = input.summary?.trim() ? input.summary.trim() : null;
 	const transparent = Boolean(input.transparent);
 	const print = Boolean(input.print);
@@ -314,6 +324,7 @@ export async function resolveMakeImageRequest(params: {
 				sourceCount: 0,
 				request,
 				retryOf: null,
+				callKey,
 			},
 		};
 	}
@@ -322,27 +333,44 @@ export async function resolveMakeImageRequest(params: {
 	let base: TurnPictureSource = first;
 	let avoidSeeds: number[] = [];
 	let anchor: TakeRequest["anchor"] = null;
-	if (item) {
-		// An item is changed from this turn's newest finished take on its card,
-		// else from the version in use; the first picture only names the item.
-		const earlier = existingCard
-			? await newestFinishedTake(existingCard)
-			: null;
-		const body = earlier?.body ?? item.body;
-		const fileId = earlier?.file.id ?? item.fileId;
-		const seed = earlier?.seed ?? item.body.seed;
+	if (inPlace && itemHere) {
+		// The same request again in this turn is another option on the SAME base;
+		// a different request builds on this turn's newest finished take of the
+		// card, else on the version in use. The first picture only names the item.
+		const sameCall = existingCard
+			? turnTakes.firstTakeOfCall(existingCard, callKey)
+			: undefined;
+		const earlier =
+			!sameCall && existingCard ? await newestFinishedTake(existingCard) : null;
+		let fileId = itemHere.fileId;
+		if (sameCall) {
+			fileId = sameCall.request.inputs[0]?.fileId ?? fileId;
+			avoidSeeds = sameCall.request.avoidSeeds;
+			anchor = sameCall.request.anchor;
+		} else {
+			const body = earlier?.body ?? itemHere.body;
+			fileId = earlier?.file.id ?? itemHere.fileId;
+			const seed = earlier?.seed ?? itemHere.body.seed;
+			avoidSeeds = seed === null ? [] : [seed];
+			anchor = {
+				fileId: body.anchorFileId ?? fileId,
+				chainSinceAnchor: body.chainSinceAnchor,
+			};
+		}
 		base = {
 			type: "image_file",
 			fileId,
-			name: item.title,
-			artifactId: item.artifactId,
+			name: itemHere.title,
+			artifactId: itemHere.artifactId,
 			role: "attached",
 		};
-		avoidSeeds = seed === null ? [] : [seed];
-		anchor = {
-			fileId: body.anchorFileId ?? fileId,
-			chainSinceAnchor: body.chainSinceAnchor,
-		};
+	} else if (
+		item &&
+		first.type === "image_file" &&
+		item.fileId === first.fileId
+	) {
+		// Not in place, but still never the seed that made the input.
+		if (item.body.seed !== null) avoidSeeds = [item.body.seed];
 	}
 	const loadedBase = await loadPicture({
 		userId,
@@ -368,12 +396,13 @@ export async function resolveMakeImageRequest(params: {
 		canvas,
 		loadedBase,
 	});
-	const baseFromUpload = first.type === "upload";
+	// A copy of another chat's picture starts its item the way a photo does: version 1 is the copy.
+	const baseFromUpload = first.type === "upload" || fromOtherChat;
 	const others = plain.length - 1;
 	const madeFrom: MadeFrom =
 		others > 0
 			? "pictures"
-			: baseFromUpload
+			: first.type === "upload"
 				? "photo"
 				: inPlace
 					? "change"
@@ -398,12 +427,13 @@ export async function resolveMakeImageRequest(params: {
 		plan: {
 			cardKey,
 			cardId: existingCard,
-			artifactId: inPlace && item ? item.artifactId : null,
+			artifactId: inPlace && itemHere ? itemHere.artifactId : null,
 			madeFrom,
 			title,
 			sourceCount: plain.length,
 			request,
 			retryOf: null,
+			callKey,
 		},
 	};
 }

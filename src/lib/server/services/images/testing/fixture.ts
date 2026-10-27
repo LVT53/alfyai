@@ -75,6 +75,3 @@ export function createImageFixture(prefix = "images"): ImageFixture {
 		},
 	};
 }
-
-// Kept for existing callers; new code imports it from the shared test util.
-export { warmModules } from "$lib/server/testing/warm-modules";

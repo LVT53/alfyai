@@ -12,15 +12,21 @@ vi.mock("./photos", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./photos")>()),
 	runPhotosTool: mocks.runPhotosTool,
 }));
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({
-		parallelApiKey: "",
-		model1MaxModelContext: 64_000,
-		model2MaxModelContext: 200_000,
-	})),
-	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
-		Boolean(config.comfyuiUrl?.trim()),
-}));
+vi.mock("$lib/server/config-store", async () => {
+	// The real predicate, so the mock cannot drift from the gate it stands in for.
+	const actual = await vi.importActual<
+		typeof import("$lib/server/config-store")
+	>("$lib/server/config-store");
+	return {
+		getConfig: vi.fn(() => ({
+			parallelApiKey: "",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		})),
+		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+	};
+});
 
 import { createNormalChatTools } from "./index";
 

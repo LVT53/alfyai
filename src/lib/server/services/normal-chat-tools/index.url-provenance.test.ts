@@ -75,16 +75,22 @@ vi.mock("$lib/server/services/sandbox-execution", () => ({
 vi.mock("$lib/server/services/image-search", () => ({
 	searchImages: vi.fn(),
 }));
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({
-		parallelApiKey: "parallel-key",
-		parallelBaseUrl: "https://api.parallel.ai",
-		model1MaxModelContext: 64_000,
-		model2MaxModelContext: 200_000,
-	})),
-	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
-		Boolean(config.comfyuiUrl?.trim()),
-}));
+vi.mock("$lib/server/config-store", async () => {
+	// The real predicate, so the mock cannot drift from the gate it stands in for.
+	const actual = await vi.importActual<
+		typeof import("$lib/server/config-store")
+	>("$lib/server/config-store");
+	return {
+		getConfig: vi.fn(() => ({
+			parallelApiKey: "parallel-key",
+			parallelBaseUrl: "https://api.parallel.ai",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		})),
+		isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+			actual.isImageMakingConfigured({ comfyuiUrl: config.comfyuiUrl ?? "" }),
+	};
+});
 // The connector tools run for real down to their providers: the user's
 // connections, the providers' answers, the pending-write row and the local
 // summariser are what these mocks stand in for.
