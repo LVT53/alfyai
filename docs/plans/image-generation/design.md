@@ -219,6 +219,15 @@ Every version and every take is a PNG the chat owns. Deleting the chat deletes t
 18. Every account may make pictures; no per-person switch.
 19. Part 2 is accepted on the sofa session with the owner's own photos, against the report's drift thresholds.
 
+## Decided during the build
+
+- BMP is not shown to the model, while TIF and SVG are (section 4.2 listed bmp, but the prebuilt image library cannot decode it).
+- Thumbnails are decided for each attempt, by the attempt model's locality as well as its sight. Someone with local summarising on never has thumbnails, or the file names in their label, sent to a cloud model, failover included. The photos tool's text result on a failover attempt is still gated for the turn's first model, like every connector's; the release checklist's last follow-up covers it.
+- At most 8 thumbnails a turn, shared by every look.
+- A look has its own deadline (8 s showing, 12 s describing) and never costs the search results.
+- Hungarian for several pictures reads "{count} képet nézek meg…", with no article, because the right article depends on the number.
+- The release checklist is [`part-1-release-checklist.md`](./part-1-release-checklist.md).
+
 ## 8. Left to the builder
 
 - How pixels attach to a turn. Check whether vLLM accepts image parts in tool messages for Flash-Next; if not, a picture the model must see mid-turn (an Immich thumbnail, a fresh result) needs another carrier, such as an image part in a following message.

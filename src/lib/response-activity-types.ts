@@ -29,7 +29,16 @@ export type ResponseActivityKind =
 	// carries the closed `ThoughtStepClassifierActivityClass`; this kind can
 	// NEVER assert an external action — see THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES
 	// below, whose members are all internal/cognitive by construction.
-	| "thought_step";
+	| "thought_step"
+	// Vision (src/lib/server/services/vision/AGENTS.md) — the model is about to
+	// read the pictures attached to this message. One entry per turn, from the
+	// streaming run just before the model call; `count` is how many pictures it
+	// was sent. It carries nothing else (no name, no description of any picture),
+	// and the browser says it as a status line only while the reply streams. Like
+	// "acknowledgment" and "thought_step", a kind the browser parser does not list
+	// (`isResponseActivityKind` in src/lib/services/streaming.ts) is dropped
+	// before it reaches the message, so a new kind is added there too.
+	| "viewing_images";
 export type ResponseActivityStatus = "running" | "done" | "error";
 // The values of `EvidenceSourceType` (a tool call's source type, which an
 // activity row mirrors). "artifact" is only ever the evidence panel's group for

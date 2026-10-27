@@ -117,6 +117,9 @@ const knowledgeDict = {
 			"This file appears to be damaged or password-protected, so it could not be read. Re-export or re-save it (removing any password) and upload that copy.",
 		"knowledge.extraction.error.empty_result":
 			"No readable text was found in this file.",
+		// An image the reader found no text in: a fact about the picture, not a
+		// failed read (see documents-table.ts's isImageWithNoText).
+		"knowledge.extraction.error.imageNoText": "This image has no text in it.",
 		"knowledge.extraction.error.internal":
 			"Something went wrong while reading this document.",
 		"knowledge.extraction.error.job_failed":
@@ -171,6 +174,7 @@ const knowledgeDict = {
 		"knowledge.extraction.status.downloading": "Retrieving text",
 		"knowledge.extraction.status.failed": "Failed",
 		"knowledge.extraction.status.indexing": "Indexing",
+		"knowledge.extraction.status.noText": "No text",
 		"knowledge.extraction.status.parsing": "Extracting text",
 		"knowledge.extraction.status.queued": "Queued",
 		"knowledge.extraction.status.succeeded": "Ready",
@@ -621,6 +625,7 @@ const knowledgeDict = {
 			"Ez a fájl sérültnek vagy jelszóval védettnek tűnik, ezért nem sikerült beolvasni. Mentsd vagy exportáld újra (jelszó nélkül), és azt a példányt töltsd fel.",
 		"knowledge.extraction.error.empty_result":
 			"Ebben a fájlban nem található olvasható szöveg.",
+		"knowledge.extraction.error.imageNoText": "Ezen a képen nincs szöveg.",
 		"knowledge.extraction.error.internal":
 			"Hiba történt a dokumentum feldolgozása közben.",
 		"knowledge.extraction.error.job_failed":
@@ -675,6 +680,7 @@ const knowledgeDict = {
 		"knowledge.extraction.status.downloading": "Szöveg letöltése",
 		"knowledge.extraction.status.failed": "Sikertelen",
 		"knowledge.extraction.status.indexing": "Indexelés",
+		"knowledge.extraction.status.noText": "Nincs szöveg",
 		"knowledge.extraction.status.parsing": "Szövegkinyerés",
 		"knowledge.extraction.status.queued": "Sorban áll",
 		"knowledge.extraction.status.succeeded": "Kész",

@@ -35,6 +35,7 @@ import {
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
@@ -74,6 +75,7 @@ type ModelRunParams = {
 	prepared: PreparedModelContext;
 	activeDepthEffort: ActiveDepthEffort | null;
 	tools: ToolPack["tools"];
+	stepImages: ToolPack["stepImages"];
 };
 
 type BuildResultInput = {
@@ -121,6 +123,7 @@ export async function runPlainNormalChatSendModel(
 		prepared,
 		activeDepthEffort,
 		tools: toolPack.tools,
+		stepImages: toolPack.stepImages,
 	});
 
 	return buildRunResult({
@@ -140,6 +143,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 		prepared,
 		activeDepthEffort,
 		tools,
+		stepImages,
 	} = params;
 
 	const finalInputValue = appendTurnGuidance(
@@ -148,7 +152,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
-		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+		buildCurrentUserMessage(finalInputValue, prepared.currentImages),
 		...(prepared.prefetchedToolMessages ?? []),
 		...(modelRunParams.continuationMessages ?? []),
 	];
@@ -185,6 +189,8 @@ async function runPlainModelRun(params: ModelRunParams) {
 		),
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools,
+		// The thumbnails a tool queues; the run hands them over, per attempt.
+		stepImages,
 		toolChoice: tools ? toolChoice : undefined,
 		firstStepToolChoice: tools ? firstStepToolChoice : undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,

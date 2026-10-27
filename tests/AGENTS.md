@@ -22,6 +22,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 | Knowledge | `tests/e2e/knowledge.spec.ts` |
 | Search modal | `tests/e2e/search-modal.spec.ts` |
 | Sidebar selection (picking several chats, the bar, bulk delete, move and pin) | `tests/e2e/sidebar-multi-select.spec.ts` |
+| Seeing images (image attachments, the "Can see images" tick) | `tests/e2e/vision.spec.ts` |
 | Mobile/responsive | `tests/e2e/mobile-*.spec.ts`, `tests/e2e/responsive*.spec.ts` |
 | Server routes | `src/routes/api/**/*.test.ts` |
 | Services/stores | `src/lib/**/*.test.ts` |
@@ -53,7 +54,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 - **Iterating on UI code** (a rebuild per change would be slower): `E2E_SERVER=dev E2E_PORT=<port> npx playwright test <spec>`: `vite dev`, one worker by default, one optimizer cache per server.
 - **One or two specs on the build:** `E2E_PORT=<port> E2E_WORKERS=2 npx playwright test <spec> [<spec>]`. Beside one or two other agents use `E2E_WORKERS=4` at most; a run takes `E2E_WORKERS` ports from `E2E_PORT`.
-- **The smoke tier** (25 tests tagged `@smoke` across sign in, chat and streaming, each artifact kind in the panel, a Document edit and its version, a Canvas block, a tour, knowledge, settings and projects; about 30 s): `E2E_PORT=<port> npm run test:e2e:smoke`.
+- **The smoke tier** (27 tests tagged `@smoke` across sign in, chat and streaming, seeing images, each artifact kind in the panel, a Document edit and its version, a Canvas block, a tour, knowledge, settings and projects; about 30 s): `E2E_PORT=<port> npm run test:e2e:smoke`.
 - A spec that makes a conversation only to put things in it uses `createEmptyConversation` (no first message, so no first turn to a model the server cannot reach racing everything after it), not `createConversation`. A block that gets a poster (map, App, photos, live web) has a hidden copy of itself in `<body>` meanwhile: address it as `liveBlock(page, testId)`, not `page.getByTestId(testId)`. Both are held by `tests/integration/e2e-conventions.test.ts`, which names the file and the fix.
 
 Playwright note:

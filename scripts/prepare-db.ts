@@ -39,6 +39,7 @@ const requiredExistingTables = [
 	"artifacts",
 	"artifact_links",
 	"artifact_chunks",
+	"image_descriptions",
 	"artifact_versions",
 	"artifact_comments",
 	"artifact_kv",

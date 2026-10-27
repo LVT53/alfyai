@@ -138,6 +138,9 @@ const chatDict = {
 			"This file could not be read. Remove it, or upload a version that can be read.",
 		"chat.extraction.failureDetailRetryable":
 			"This file could not be read: {reason}. Use Retry beside the chip to try again, or remove it.",
+		// A photo with no words in it, for a model that can see: a plain fact
+		// about the picture, not a failed read (the picture is sent as it is).
+		"chat.extraction.imageNoText": "No text in this image",
 		"chat.extraction.indexing": "Filing…",
 		"chat.extraction.parsing": "Reading…",
 		"chat.extraction.queued": "Waiting to be read",
@@ -261,6 +264,13 @@ const chatDict = {
 		// any of this text; {label} is one of the six keys above, {entity}
 		// is a substring already verified server-side.
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
+		// The vision line: shown while the model reads the pictures attached to
+		// the message (kind "viewing_images", MessageBubble's status line, only
+		// while the reply streams). One picture reads without a number, several
+		// with it. `$t` has no `#` and no braces inside a plural branch, so the two
+		// readings are two keys, and the caller picks by the count.
+		"chat.responseActivity.viewingImage": "Looking at the image…",
+		"chat.responseActivity.viewingImages": "Looking at {count} images…",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
 		// laterTurnCount counts individual MESSAGES (a Q&A exchange is 2), so the
@@ -1018,6 +1028,10 @@ const chatDict = {
 		"toolActivity.expandActivity": "Show what was done",
 		"toolActivity.journey": "Journey",
 		"toolActivity.planningJourney": "Planning journey",
+		// The photos row when the model was shown thumbnails of what it found
+		// (the whole row: there is no object after it).
+		"toolActivity.photosViewed":
+			"Looked at {count} photo{count, plural, one {} other {s}}",
 		// The step-by-step body of a route card (RouteItinerary.svelte).
 		"routeItinerary.directions": "Directions",
 		"routeItinerary.showAllSteps": "Show all {count} steps",
@@ -1321,6 +1335,7 @@ const chatDict = {
 			"Ezt a fájlt nem sikerült beolvasni. Távolítsd el, vagy tölts fel egy beolvasható változatot.",
 		"chat.extraction.failureDetailRetryable":
 			"Ezt a fájlt nem sikerült beolvasni: {reason}. Használd az Újra gombot a chip mellett, vagy távolítsd el.",
+		"chat.extraction.imageNoText": "Nincs szöveg a képen",
 		"chat.extraction.indexing": "Feldolgozás…",
 		"chat.extraction.parsing": "Olvasás…",
 		"chat.extraction.queued": "Sorban áll",
@@ -1421,6 +1436,13 @@ const chatDict = {
 		"chat.responseActivity.thoughtStep.workingThroughLogic":
 			"Logika végiggondolása...",
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
+		// Hungarian keeps the noun singular after a numeral, so "N képet" needs no
+		// plural form; one picture drops the number. The counted line has no
+		// article: before a numeral it follows how the number is spoken ("a 2" but
+		// "az 5"), so no single "a" is right for every count, and "a(z)" reads
+		// clunky on a short status line.
+		"chat.responseActivity.viewingImage": "Megnézem a képet…",
+		"chat.responseActivity.viewingImages": "{count} képet nézek meg…",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		// Hungarian doesn't inflect the noun for plural after a numeral (e.g.
@@ -2166,6 +2188,8 @@ const chatDict = {
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
+		// A number takes the singular after it, so there is no plural to split.
+		"toolActivity.photosViewed": "{count} fotót megnézett",
 		// A térképkártya lépésről lépésre törzse (RouteItinerary.svelte).
 		"routeItinerary.directions": "Útbaigazítás",
 		"routeItinerary.showAllSteps": "Mind a(z) {count} lépés",

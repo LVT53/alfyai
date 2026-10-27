@@ -199,6 +199,35 @@ describe("AI SDK UI stream contract fixture", () => {
 			},
 		]);
 	});
+
+	// Vision: the line that says the model is reading the message's pictures
+	// rides the same part as every other activity (no new part name), with its
+	// count and nothing besides the entry's fixed fields.
+	it("encodes the viewing_images activity, with its count, on the same transient part", () => {
+		expect(
+			decodeUiMessageStreamParts(
+				streamResponseActivityEvent({
+					id: "viewing-images",
+					kind: "viewing_images",
+					status: "running",
+					count: 2,
+					occurredAt: 123,
+				}),
+			),
+		).toEqual([
+			{
+				type: "data-response-activity",
+				data: {
+					id: "viewing-images",
+					kind: "viewing_images",
+					status: "running",
+					count: 2,
+					occurredAt: 123,
+				},
+				transient: true,
+			},
+		]);
+	});
 });
 
 function eventData(chunks: string[], eventName: string): unknown[] {

@@ -27,8 +27,10 @@ failures → retry-cleanup.ts
 | Task | File |
 |------|------|
 | Parse body, model, attachments | `request.ts` |
-| Validate conversation, check attachment readiness | `preflight.ts` |
+| Validate conversation, check attachment readiness (a picture the turn's model can see is not held to needing text: `../vision/AGENTS.md`) | `preflight.ts` |
 | Build constructed prompt context for Normal Chat | `context-selection.ts` |
+| The pictures of the current message (which attachments go as pixels, the user message a model run sends, what the model is told about pictures it cannot see or was not sent) | `../vision/turn-images.ts`; `context-selection.ts` collects them when the provider can see (`collectImages`), both `*-normal-chat-model-run.ts` files send them; an earlier turn's picture is its stored description in the history (`../vision/describe.ts`, `conversation-history.ts`); the streaming run says it is looking at them (one `viewing_images` response-activity entry with the count, `streaming-normal-chat-model-run.ts`); rules in `../vision/AGENTS.md` |
+| The pictures a tool asks the model to see in the middle of a turn (Immich thumbnails from the `photos` tool, `look: true`) | `createToolPack` (`shared-normal-chat-model-run-helpers.ts`) makes the turn's `StepImageQueue` and returns it with the tools; both `*-normal-chat-model-run.ts` files pass it to the model run, which hands it over per attempt (`../normal-chat-model/index.ts`, `../vision/step-images.ts`); who may receive pixels: `../vision/photo-look.ts`; rules in `../vision/AGENTS.md` |
 | Assistant output normalization | `normalizer.ts` |
 | Stream lifecycle orchestration, neutral model-run event adaptation, active-stream registration | `stream-orchestrator.ts` |
 | AI SDK UI stream runtime helpers, thinking cleanup | `stream.ts`, `thinking-normalizer.ts` |

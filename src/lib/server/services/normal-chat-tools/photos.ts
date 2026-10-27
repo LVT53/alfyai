@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ModelId } from "$lib/model-types";
 import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
@@ -21,6 +22,18 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
+import {
+	decidePhotoLook,
+	describePhotoThumbnails,
+	type LookPhoto,
+	MAX_LOOK_THUMBNAILS,
+	queuePhotoThumbnails,
+} from "$lib/server/services/vision/photo-look";
+import {
+	STEP_IMAGE_TURN_BUDGET,
+	type StepImageQueue,
+} from "$lib/server/services/vision/step-images";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
@@ -36,6 +49,15 @@ export const photosToolInputSchema = z.object({
 	]),
 	query: z.string().optional(),
 	limit: z.number().optional(),
+	// The model asks to SEE the photos it finds, not only to read their details.
+	// Who then gets the pixels (the model itself, a local model that describes
+	// them for a cloud one, or nobody) is decided in vision/photo-look.ts.
+	look: z
+		.boolean()
+		.optional()
+		.describe(
+			"Set true only when you must see the photos to answer, such as choosing the sharpest or best lit; you then get small thumbnails of up to 8 results.",
+		),
 	// B1 metadata-search filters. `from`/`to` bound the capture date and accept
 	// either a full ISO datetime or a bare "YYYY-MM-DD" (normalized adapter-side).
 	from: z.string().optional(),
@@ -70,6 +92,7 @@ export function sanitizePhotosToolInput(
 		action: input.action,
 		...(input.query !== undefined ? { query: input.query.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
+		...(input.look !== undefined ? { look: input.look } : {}),
 		...(input.from !== undefined ? { from: input.from.trim() } : {}),
 		...(input.to !== undefined ? { to: input.to.trim() } : {}),
 		...(input.city !== undefined ? { city: input.city.trim() } : {}),
@@ -115,6 +138,11 @@ export type PhotoToolResultItem = {
 	// stripped by the locality Option-A distill gate below — see that gate's
 	// comment for the full reasoning.
 	imageUrl: string;
+	// What a LOCAL model that can see said about this photo, when the model asked
+	// to look and a cloud model is answering for a person who keeps summarising
+	// local. It is raw photo detail like `description`: the locality gate takes it
+	// into the summary and strips it from what the cloud model is sent.
+	lookDescription?: string;
 };
 
 // Album/person discovery items (B1 list_albums / B6 list_people). Like
@@ -146,6 +174,20 @@ export type PhotosToolModelPayload = {
 export type PhotosToolOutcome = {
 	modelPayload: PhotosToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
+	// How many photos the model was shown as thumbnails: only the ones actually
+	// queued for it. Set when the model asked to look (0 when nothing could be
+	// shown), absent otherwise. The tool-call record carries it for the activity
+	// row ("Looked at 6 photos").
+	viewedCount?: number;
+};
+
+// What the registered tool hands a look: the turn's queue of pictures for the
+// model run to send in the step after this call, and the call's own signal, so a
+// call that was given up queues nothing. A caller with no queue can still have a
+// local model describe the photos, but cannot show the model any.
+export type PhotosLookContext = {
+	queue?: StepImageQueue;
+	signal?: AbortSignal;
 };
 
 // The AUTHED per-user app proxy path (Task 11a) — NOT the raw Immich path
@@ -384,8 +426,9 @@ function redactCitationsForModel(
 // sensitive personal data — when the user has opted in to local distillation
 // and the selected chat model is cloud, replace it with a summary produced
 // by a local model before it reaches the (cloud) model. This strips
-// `fileName`/`place`/`description` from every result, and redacts
-// `citations[].label` (see redactCitationsForModel) — i.e. the WHOLE
+// `fileName`/`place`/`description` (and `lookDescription`, what a local model
+// saw in the photo when the model asked to look) from every result, and
+// redacts `citations[].label` (see redactCitationsForModel) — i.e. the WHOLE
 // model-facing payload, not just one field. `outcome.candidates` (the
 // Sources-tab list) is untouched: it feeds the user's own screen, a
 // different channel from what the model sees, and keeps the real data so
@@ -400,9 +443,14 @@ function distillPhotosReadOutcome(params: {
 
 	const rawText = outcome.modelPayload.results
 		.map((item) => {
-			const descriptors = [item.fileName, item.place, item.description].filter(
-				(value): value is string => Boolean(value),
-			);
+			const descriptors = [
+				item.fileName,
+				item.place,
+				item.description,
+				// What a local model saw in the photo goes in with the rest of the
+				// raw details: the summary is the only way it reaches a cloud model.
+				item.lookDescription ? `looks like: ${item.lookDescription}` : null,
+			].filter((value): value is string => Boolean(value));
 			if (descriptors.length === 0) return null;
 			return `${descriptors.join(" — ")} (${item.takenAt})`;
 		})
@@ -426,6 +474,7 @@ function distillPhotosReadOutcome(params: {
 				fileName: _fileName,
 				place: _place,
 				description: _description,
+				lookDescription: _lookDescription,
 				...rest
 			} = item;
 			return rest;
@@ -466,6 +515,163 @@ function distillPhotosReadOutcome(params: {
 			},
 		}),
 	});
+}
+
+// ---------------------------------------------------------------------------
+// look — the model asked to SEE the photos it found, not only to read their
+// details. Which of the three things happens is vision/photo-look.ts's
+// decision, from the same two facts the gate above runs on (does this person
+// keep summarising local, is the chat model a cloud model) plus whether a model
+// can see:
+//   - the model answering gets small thumbnails of up to 8 results, queued for
+//     the step after this call (the SDK turns a tool result into text, so the
+//     pixels cannot ride in it), as many as the turn has left of its eight;
+//   - a cloud model for a person who keeps summarising local gets none: a local
+//     model that can see describes them, and the descriptions go into the
+//     summary the gate above makes;
+//   - otherwise nothing is looked at, and the result says so.
+// A look has its own deadline (see photo-look.ts) and keeps what it has by then;
+// one that times out or breaks never replaces the search it came with.
+// `viewedCount` counts only the thumbnails actually queued.
+// ---------------------------------------------------------------------------
+
+const NOT_LOOKED_AT =
+	"These photos could not be looked at, so answer from their details only.";
+
+// Said when the turn has no thumbnails left to show: the model must not take
+// the silence of an empty look for a failure it could try again.
+const BUDGET_SPENT = `No thumbnails are left for this reply (at most ${STEP_IMAGE_TURN_BUDGET} are shown in one reply), so these photos could not be looked at; answer from their details only.`;
+
+function thumbnailsNote(look: {
+	viewed: number;
+	found: number;
+	granted: number;
+}): string {
+	const { viewed, found, granted } = look;
+	const follow =
+		viewed === 1 ? "1 thumbnail follows" : `${viewed} thumbnails follow`;
+	const partial =
+		viewed < found
+			? ` That is ${viewed} of the ${found} results; the rest were not looked at.`
+			: "";
+	// The turn gave the look less than it asked for: that is the end of the
+	// thumbnails of this reply, and the model should know before it tries again.
+	const limited =
+		granted < Math.min(found, MAX_LOOK_THUMBNAILS)
+			? ` Only ${granted} of the ${STEP_IMAGE_TURN_BUDGET} thumbnails allowed in one reply were left, so no more can be shown in this reply.`
+			: "";
+	return `${follow} in the next message, numbered by place in the results.${partial}${limited}`;
+}
+
+function withLook(
+	outcome: PhotosToolOutcome,
+	note: string,
+	viewedCount: number,
+	described?: ReadonlyMap<string, string>,
+): PhotosToolOutcome {
+	return {
+		...outcome,
+		modelPayload: {
+			...outcome.modelPayload,
+			message: `${outcome.modelPayload.message} ${note}`,
+			...(described
+				? {
+						results: outcome.modelPayload.results.map((item) => {
+							const lookDescription = described.get(item.id);
+							return lookDescription ? { ...item, lookDescription } : item;
+						}),
+					}
+				: {}),
+		},
+		viewedCount,
+	};
+}
+
+// Never throws: a look that breaks must not take the search it came with, and
+// anything unexpected is the same as a look that could not be made.
+async function lookAtFoundPhotos(params: {
+	userId: string;
+	modelId: string;
+	conn: ConnectionPublic;
+	photos: PhotoResult[];
+	outcome: PhotosToolOutcome;
+	look?: PhotosLookContext;
+}): Promise<PhotosToolOutcome> {
+	const { userId, modelId, conn, outcome, look } = params;
+	const found: LookPhoto[] = params.photos.map((photo) => ({
+		id: photo.id,
+		name: photo.fileName || photo.id,
+	}));
+	try {
+		const decision = await decidePhotoLook({
+			userId,
+			modelId,
+			modelCanSee: await modelIdCanSeeImages(modelId as ModelId),
+		});
+		if (decision === "pixels" && look?.queue) {
+			const queued = await queuePhotoThumbnails({
+				userId,
+				connectionId: conn.id,
+				photos: found,
+				queue: look.queue,
+				signal: look.signal,
+			});
+			if (queued.viewed.length > 0) {
+				return withLook(
+					outcome,
+					thumbnailsNote({
+						viewed: queued.viewed.length,
+						found: found.length,
+						granted: queued.granted,
+					}),
+					queued.viewed.length,
+				);
+			}
+			if (queued.granted === 0) return withLook(outcome, BUDGET_SPENT, 0);
+		} else if (decision === "describe_locally") {
+			const described = await describePhotoThumbnails({
+				userId,
+				connectionId: conn.id,
+				photos: found,
+				signal: look?.signal,
+			});
+			if (described.size > 0) {
+				const rest =
+					described.size < found.length ? " The rest were not looked at." : "";
+				return withLook(
+					outcome,
+					`A local model looked at ${described.size} of the ${found.length} photos and described them.${rest}`,
+					0,
+					described,
+				);
+			}
+		}
+	} catch (error) {
+		console.warn("[PHOTOS] Look failed, so nothing is looked at", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+	}
+	return withLook(outcome, NOT_LOOKED_AT, 0);
+}
+
+// How a photo-content read ends, whichever action found the photos: the look
+// the model asked for (if it did), then the Option-A gate. In that order, so the
+// descriptions a local model made are in the raw text the gate summarises.
+async function finishPhotosRead(params: {
+	userId: string;
+	modelId: string;
+	input: PhotosToolInput;
+	conn: ConnectionPublic;
+	photos: PhotoResult[];
+	outcome: PhotosToolOutcome;
+	look?: PhotosLookContext;
+}): Promise<PhotosToolOutcome> {
+	const { userId, modelId, input } = params;
+	const outcome =
+		input.look === true && params.photos.length > 0
+			? await lookAtFoundPhotos(params)
+			: params.outcome;
+	return distillPhotosReadOutcome({ userId, modelId, input, outcome });
 }
 
 // ---------------------------------------------------------------------------
@@ -580,13 +786,16 @@ async function proposeAddToAlbum(
 // add_to_album is the only write action, and — like every connection write
 // in this codebase — is proposal-only (see proposeAddToAlbum above). Raw
 // photo bytes are never part of this payload: only textual metadata reaches
-// the model, and thumbnails are a Sources-UI concern surfaced via
-// `candidates[].metadata`.
+// the model. When the model asks to look (`look: true`), small thumbnails are
+// queued on `look.queue` for the model run to send in the step after this call
+// (see the look block above), never put in the payload; thumbnails are
+// otherwise a Sources-UI concern surfaced via `candidates[].metadata`.
 export async function runPhotosTool(
 	userId: string,
 	input: PhotosToolInput,
 	modelId: string,
 	conversationId?: string,
+	look?: PhotosLookContext,
 ): Promise<PhotosToolOutcome> {
 	const notConnectedMessage =
 		"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.";
@@ -664,7 +873,15 @@ export async function runPhotosTool(
 						ambiguous,
 						connections,
 					);
-					return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+					return finishPhotosRead({
+						userId,
+						modelId,
+						input,
+						conn,
+						photos,
+						outcome,
+						look,
+					});
 				} catch (err) {
 					return buildPayload({
 						success: false,
@@ -721,7 +938,15 @@ export async function runPhotosTool(
 						ambiguous,
 						connections,
 					);
-					return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+					return finishPhotosRead({
+						userId,
+						modelId,
+						input,
+						conn,
+						photos,
+						outcome,
+						look,
+					});
 				} catch (err) {
 					return buildPayload({
 						success: false,
@@ -751,7 +976,15 @@ export async function runPhotosTool(
 					ambiguous,
 					connections,
 				);
-				return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+				return finishPhotosRead({
+					userId,
+					modelId,
+					input,
+					conn,
+					photos,
+					outcome,
+					look,
+				});
 			} catch (err) {
 				return buildPayload({
 					success: false,

@@ -35,6 +35,7 @@ import {
 	detectTopicShift,
 	shouldSuppressCarryover,
 } from "$lib/server/utils/topic-shift-detector";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { getConfig } from "../../config-store";
 import {
@@ -55,6 +56,7 @@ import { listConversationFileProductionJobStates } from "../file-production";
 import { redactHostPathsFromFileProductionMessage } from "../file-production/error-message";
 import {
 	AttachmentReadinessError,
+	blockingAttachmentItems,
 	findRelevantKnowledgeArtifacts,
 	getArtifactsForUser,
 	getCompactionUiThreshold,
@@ -100,6 +102,13 @@ import {
 } from "../task-state";
 import { embedTexts } from "../tei-embedder";
 import { canUseTeiReranker, rerankItems } from "../tei-reranker";
+import { getImageDescriptions } from "../vision/descriptions-store";
+import {
+	noTurnImages,
+	resolveTurnImages,
+	sumTurnImageTokens,
+	type TurnImages,
+} from "../vision/turn-images";
 import { resolveWorkingDocumentSelection } from "../working-document-selection";
 import {
 	type DocumentContextDepthBudget,
@@ -133,8 +142,16 @@ type PromptContextMessage = {
 	// Native history replays prior tool use from these (see
 	// conversation-history.ts); text segments are reasoning and never replayed.
 	thinkingSegments?: ThinkingSegment[];
-	attachments?: Pick<ChatAttachment, "name">[];
+	// What the history says of an attached file: its name, and for a picture the
+	// short description kept from the turn that sent its pixels, when there is one
+	// (`artifactId` and `mimeType` are how that is looked up).
+	attachments?: PromptContextAttachment[];
 };
+
+type PromptContextAttachment = Pick<
+	ChatAttachment,
+	"name" | "artifactId" | "mimeType"
+> & { description?: string };
 
 // Build the prior turns as native model messages (user / assistant / tool)
 // within the session history budget. Returns no messages when the feature
@@ -168,7 +185,10 @@ function buildNativeHistory(params: {
 					id: message.id,
 					role: message.role,
 					content: message.content,
-					attachments: message.attachments,
+					attachments: message.attachments?.map(({ name, description }) => ({
+						name,
+						description,
+					})),
 					thinkingSegments: message.thinkingSegments,
 					...(forkCopy
 						? {
@@ -280,6 +300,9 @@ export type ConstructedContextReuseData = {
 	relevantArtifacts: Artifact[];
 	preparedContext: Awaited<ReturnType<typeof prepareTaskContext>>;
 	artifactSnippets: Map<string, string>;
+	// The turn's prepared pictures, so a rebuild after compression does not
+	// decode them again (a HEIC photo takes about a second).
+	turnImages: TurnImages;
 };
 
 // How much of the conversation history (after the latest valid compression
@@ -1283,15 +1306,54 @@ async function loadSessionPromptContext(params: {
 			thinkingSegments: message.thinkingSegments,
 			attachments: message.attachments?.map((attachment) => ({
 				name: attachment.name,
+				artifactId: attachment.artifactId,
+				mimeType: attachment.mimeType,
 			})),
 		}))
 		.sort((a, b) => a.createdAt - b.createdAt);
+	const describedMessages = await withPictureDescriptions({
+		userId: params.userId,
+		messages: promptMessages,
+	});
 
 	return {
-		sessionMessages: promptMessages,
-		storedMessages: promptMessages,
+		sessionMessages: describedMessages,
+		storedMessages: describedMessages,
 		summary: summary?.summary ?? null,
 	};
+}
+
+/**
+ * Gives each earlier picture the short description kept from the turn that sent
+ * its pixels, so the history says what it showed and not only its file name.
+ * Pictures are the attachments a model could have been shown; a picture with no
+ * description (not described yet, or the describing failed) and a lookup that
+ * fails both leave the name alone, and the turn goes on.
+ */
+async function withPictureDescriptions(params: {
+	userId: string;
+	messages: PromptContextMessage[];
+}): Promise<PromptContextMessage[]> {
+	const pictureIds = new Set<string>();
+	for (const message of params.messages) {
+		for (const attachment of message.attachments ?? []) {
+			if (isSeeableImage(attachment.name, attachment.mimeType)) {
+				pictureIds.add(attachment.artifactId);
+			}
+		}
+	}
+	if (pictureIds.size === 0) return params.messages;
+	const descriptions = await getImageDescriptions(params.userId, [
+		...pictureIds,
+	]).catch(() => null);
+	if (!descriptions || descriptions.size === 0) return params.messages;
+	return params.messages.map((message) => ({
+		...message,
+		attachments: message.attachments?.map((attachment) => {
+			const description = descriptions.get(attachment.artifactId);
+			return description ? { ...attachment, description } : attachment;
+		}),
+	}));
 }
 
 function summarizeForkContextProvenance(params: {
@@ -1421,6 +1483,7 @@ async function buildShallowConstructedContext(params: {
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
+	turnImages: TurnImages;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const projectIdPromise = getConversationProjectId(
@@ -1675,6 +1738,9 @@ async function buildShallowConstructedContext(params: {
 			forkProvenance,
 		}),
 		contextTraceSections: selectedPromptContext.contextTraceSections,
+		// This tier is for turns with no attachment at all (an attachment makes
+		// a turn deep), so there is no picture to send or to report.
+		turnImages: noTurnImages(),
 	};
 }
 
@@ -1694,6 +1760,10 @@ export async function buildConstructedContext(params: {
 	reuseFrom?: ConstructedContextReuseData;
 	// How prior-turn tool activity is replayed (provider capability).
 	historyToolMessages?: HistoryToolMessagesMode;
+	// The model of this turn can see images (vision/model-vision.ts): prepare
+	// the pixels of the message's image attachments. Without it they are only
+	// reported, so the turn can tell a model that cannot see.
+	collectImages?: boolean;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1702,6 +1772,7 @@ export async function buildConstructedContext(params: {
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
+	turnImages: TurnImages;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const historyToolMessages = params.historyToolMessages ?? "native";
@@ -1719,11 +1790,14 @@ export async function buildConstructedContext(params: {
 		targetConstructedContext: targetBudget,
 		compactionUiThreshold: compactionThreshold,
 	});
-	const sessionHistoryBudget = deriveSessionHistoryBudget({
-		contextBudget: modelContextBudget,
-		minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
-		minRecentTurnCount: RECENT_TURN_COUNT,
-	});
+	const deriveHistoryBudget = (pictureTokens: number) =>
+		deriveSessionHistoryBudget({
+			contextBudget: modelContextBudget,
+			minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
+			minRecentTurnCount: RECENT_TURN_COUNT,
+			pictureTokens,
+		});
+	const sessionHistoryBudget = deriveHistoryBudget(0);
 	const latencyTier = resolveContextLatencyTier({
 		message: params.message,
 		attachmentIds,
@@ -1900,14 +1974,32 @@ export async function buildConstructedContext(params: {
 			),
 		});
 	}
-	if (resolvedAttachments.unresolvedItems.length > 0) {
+	// The second half of the send gate (preflight is the first). When the turn's
+	// model can see, a picture it can be shown needs no prepared text, so it does
+	// not stop the turn here either: the same question preflight asked, answered
+	// by the same function. Its pixels are collected below; what could not be
+	// shown is named to the model there.
+	const blockingAttachments = blockingAttachmentItems(
+		resolvedAttachments.unresolvedItems,
+		{ exemptImages: params.collectImages === true },
+	);
+	if (blockingAttachments.length > 0) {
 		throw new AttachmentReadinessError(
 			"One or more attached files could not be prepared for chat. Remove the file or upload a supported text-readable document.",
-			resolvedAttachments.unresolvedItems.map(
-				(item) => item.requestedArtifactId,
-			),
+			blockingAttachments.map((item) => item.requestedArtifactId),
 		);
 	}
+	// The pictures are prepared while the rest of the context is selected, and
+	// awaited where their size first matters (the history budget below). They
+	// come from every attachment, not from `currentAttachments`: a picture
+	// needs no extracted text to be looked at. A rebuild after compression
+	// reuses the first build's.
+	const turnImagesPromise = params.reuseFrom
+		? Promise.resolve(params.reuseFrom.turnImages)
+		: resolveTurnImages({
+				items: resolvedAttachments.items,
+				collect: params.collectImages === true,
+			});
 	const retrievalSelection = resolveWorkingDocumentSelection({
 		artifacts: dedupeById([
 			...currentAttachments,
@@ -2088,9 +2180,15 @@ export async function buildConstructedContext(params: {
 		promptSessionMessages.length,
 	);
 
+	// The pictures ride in the newest turn, so the history gives up their
+	// tokens: each prepared picture by its own size, never a flat 1,600.
+	const turnImages = await turnImagesPromise;
+	const historyTokenBudget = deriveHistoryBudget(
+		sumTurnImageTokens(turnImages.images),
+	).totalBudget;
 	const nativeHistory = buildNativeHistory({
 		turns: allTurns,
-		maxTokens: sessionHistoryBudget.totalBudget,
+		maxTokens: historyTokenBudget,
 		toolMessages: historyToolMessages,
 	});
 	const sessionTurnContext = nativeHistory.enabled
@@ -2105,7 +2203,7 @@ export async function buildConstructedContext(params: {
 				turns: allTurns,
 				resolveRole: (message) => message.role,
 				resolveContent: serializePromptMessageContent,
-				maxTokens: sessionHistoryBudget.totalBudget,
+				maxTokens: historyTokenBudget,
 			});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;
 	const sections: PromptContextSection[] = [];
@@ -2485,8 +2583,9 @@ export async function buildConstructedContext(params: {
 					: null,
 			),
 		contextTraceSections: selectedPromptContext.contextTraceSections,
+		turnImages,
 		_reuseData: params.reuseFrom
 			? undefined
-			: { relevantArtifacts, preparedContext, artifactSnippets },
+			: { relevantArtifacts, preparedContext, artifactSnippets, turnImages },
 	};
 }

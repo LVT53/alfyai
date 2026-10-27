@@ -622,6 +622,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: the board @Alfy reply prompt is English-only, held by layer 4",
 	"lib/server/services/connections/locality.ts":
 		"exempt: the connector distill prompt is English-only, held by layer 4",
+	"lib/server/services/vision/describe.ts":
+		"exempt: the one image-description prompt is English-only, held by layer 4",
 	"lib/server/services/chatgpt-import/summarizer.ts":
 		"exempt: a one-off import summary, English-only, held by layer 4",
 	"lib/server/services/memory-recuration.ts":
@@ -767,6 +769,12 @@ describe("English prompt text stays English (source layers)", () => {
 			"lib/server/services/artifacts/app/verify.ts",
 			"lib/server/services/memory-judge/prompt.ts",
 			"lib/server/services/normal-chat-context.ts",
+			// What a model is told about the pictures of a message.
+			"lib/server/services/vision/turn-images.ts",
+			// What it is told about the thumbnails a tool shows it (the label of
+			// each look, in the step after the call).
+			"lib/server/services/vision/step-images.ts",
+			"lib/server/services/vision/photo-look.ts",
 		];
 		const found = new Set(all.map(({ file }) => file));
 		for (const file of scaffold) expect(found.has(file), file).toBe(true);

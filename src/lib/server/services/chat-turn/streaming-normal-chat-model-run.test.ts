@@ -23,7 +23,13 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 		>();
 	return {
 		...actual,
-		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+		// Each test hands back only the fields it reads. The real function always
+		// returns the pictures of the message (none when there are none), and the
+		// run reads them to describe the ones it sends.
+		prepareOutboundChatContext: async (...args: unknown[]) => ({
+			currentImages: [],
+			...(await mocks.prepareOutboundChatContext(...args)),
+		}),
 	};
 });
 
@@ -274,6 +280,229 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	it("sends the prepared pictures as image parts after the text of the current user message", async () => {
+		const image = {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		};
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "What is in these?",
+			turnGuidance: "## Turn Guidance\nBe brief.",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: { status: "ready" },
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+			currentImages: [
+				{ artifactId: "a-1", name: "room.jpg", image },
+				{ artifactId: "a-2", name: "sofa.jpg", image },
+			],
+		});
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in these?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "What is in these?\n\n## Turn Guidance\nBe brief.",
+							},
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+						],
+					},
+				],
+			}),
+		);
+	});
+
+	it("counts the pictures in the full-prompt estimate it hands back", async () => {
+		const send = async (currentImages: unknown[]) => {
+			mocks.prepareOutboundChatContext.mockResolvedValue({
+				inputValue: "What is in these?",
+				systemPrompt: "Prepared system prompt",
+				contextStatus: { status: "ready" },
+				taskState: null,
+				contextDebug: null,
+				contextTraceSections: [],
+				currentImages,
+			});
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+			return runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "What is in these?",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+			});
+		};
+		const picture = {
+			artifactId: "a-1",
+			name: "room.jpg",
+			image: {
+				base64: "QUJD",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 1_900,
+			},
+		};
+
+		const without = await send([]);
+		const withPicture = await send([picture]);
+
+		expect(
+			(withPicture.prepared.estimatedPromptTokens ?? 0) -
+				(without.prepared.estimatedPromptTokens ?? 0),
+		).toBe(1_900);
+	});
+
+	// The line that says Alfy is looking at the pictures (vision/AGENTS.md): one
+	// response-activity entry with how many pictures the model is sent, said once
+	// the context is prepared and before the model is called, so the person sees
+	// it while the model reads the message. A turn with no pictures says nothing.
+	describe("saying that it is looking at the pictures", () => {
+		const image = {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		};
+		const pictures = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				artifactId: `a-${index}`,
+				name: `private-name-${index}.jpg`,
+				image,
+			}));
+
+		async function send(
+			currentImages: unknown[],
+			onResponseActivity?: (entry: unknown) => void,
+		) {
+			mocks.prepareOutboundChatContext.mockImplementation(async (params) => {
+				// The context preparation reports its stages through the same
+				// callback, so the order of the two kinds of entry is visible.
+				params.onContextPreparationActivity?.({
+					stageId: "prompt_budget",
+					status: "done",
+				});
+				return {
+					inputValue: "What is in these?",
+					systemPrompt: "Prepared system prompt",
+					contextStatus: { status: "ready" },
+					taskState: null,
+					contextDebug: null,
+					contextTraceSections: [],
+					currentImages,
+				};
+			});
+			return runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "What is in these?",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+				onResponseActivity,
+			});
+		}
+
+		it("emits one viewing_images entry with the number of pictures, before it calls the model", async () => {
+			const order: string[] = [];
+			const activity: unknown[] = [];
+			mocks.runStreamingNormalChatModelRun.mockImplementation(() => {
+				order.push("model call");
+				return streamEvents();
+			});
+
+			await send(pictures(2), (entry) => {
+				activity.push(entry);
+				order.push("activity");
+			});
+
+			expect(
+				activity.filter(
+					(entry) => (entry as { kind: string }).kind === "viewing_images",
+				),
+			).toEqual([
+				{
+					id: "viewing-images",
+					kind: "viewing_images",
+					status: "running",
+					count: 2,
+				},
+			]);
+			// After the preparation's own entry, before the call to the model.
+			expect(order).toEqual(["activity", "activity", "model call"]);
+			expect((activity[0] as { kind: string }).kind).toBe("context");
+			expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledTimes(1);
+		});
+
+		it("counts the pictures the model is sent, one for one picture", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send(pictures(1), onResponseActivity);
+
+			const viewing = onResponseActivity.mock.calls
+				.map(([entry]) => entry)
+				.filter((entry) => entry.kind === "viewing_images");
+			expect(viewing).toHaveLength(1);
+			expect(viewing[0].count).toBe(1);
+		});
+
+		it("says nothing for a turn with no pictures", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send([], onResponseActivity);
+
+			expect(
+				onResponseActivity.mock.calls.map(([entry]) => entry.kind),
+			).not.toContain("viewing_images");
+		});
+
+		it("carries only the count: no name, no description, no diagnostics", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send(pictures(3), onResponseActivity);
+
+			const viewing = onResponseActivity.mock.calls
+				.map(([entry]) => entry)
+				.find((entry) => entry.kind === "viewing_images");
+			expect(Object.keys(viewing).sort()).toEqual([
+				"count",
+				"id",
+				"kind",
+				"status",
+			]);
+			expect(JSON.stringify(viewing)).not.toContain("private-name");
+		});
+
+		it("sends the same pictures to the model whether or not anyone listens", async () => {
+			await send(pictures(2));
+
+			const [{ messages }] = mocks.runStreamingNormalChatModelRun.mock
+				.calls[0] as [{ messages: Array<{ content: unknown[] }> }];
+			expect(
+				messages[0].content.filter(
+					(part) => (part as { type: string }).type === "image",
+				),
+			).toHaveLength(2);
+		});
+	});
+
 	it("does not force a named first-step tool choice for forced web search (guidance carries it instead)", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",
@@ -510,6 +739,11 @@ describe("runStreamingNormalChatSendModel", () => {
 			// writes, and nothing guesses one from the message.
 			enabledConnectionCapabilities: new Set(),
 			modelId: "model1",
+			// The turn's queue of pictures a tool wants the model to see.
+			stepImages: expect.objectContaining({
+				push: expect.any(Function),
+				drain: expect.any(Function),
+			}),
 		});
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -926,5 +1160,47 @@ describe("runStreamingNormalChatSendModel", () => {
 				enabledConnectionCapabilities: new Set(["calendar"]),
 			}),
 		);
+	});
+
+	// A tool that wants the model to see a picture (the photos tool, for Immich
+	// thumbnails) queues it, and the model run hands it over in the next step:
+	// they have to be the same queue, and a turn's own.
+	it("gives the tools and the model run the one queue of the turn's pictures", async () => {
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Which of my beach photos is the sharpest?",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		const toolsQueue =
+			mocks.createNormalChatTools.mock.calls[0]?.[0].stepImages;
+		const runQueue =
+			mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0].stepImages;
+		expect(toolsQueue).toBeDefined();
+		expect(typeof toolsQueue.push).toBe("function");
+		expect(typeof toolsQueue.drain).toBe("function");
+		expect(runQueue).toBe(toolsQueue);
+	});
+
+	it("does not share a queue between two turns", async () => {
+		for (let turn = 0; turn < 2; turn += 1) {
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+			await runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "Which photo is sharpest?",
+				conversationId: "conv-1",
+				modelId: "model1",
+			});
+		}
+
+		const [first, second] = mocks.createNormalChatTools.mock.calls.map(
+			(call) => call[0].stepImages,
+		);
+		expect(first).toBeDefined();
+		expect(second).toBeDefined();
+		expect(first).not.toBe(second);
 	});
 });

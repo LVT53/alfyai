@@ -925,6 +925,13 @@
       "when": 1777140000118,
       "tag": "1777140000118_two_step_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1777140000119,
+      "tag": "1777140000119_image_descriptions",
+      "breakpoints": true
     }
   ]
 }

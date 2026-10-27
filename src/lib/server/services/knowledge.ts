@@ -61,12 +61,14 @@ export {
 export type {
 	KnowledgeBulkAction,
 	KnowledgeDocumentKindFilter,
+	PromptAttachmentResolutionItem,
 } from "./knowledge/store";
 export {
 	AttachmentReadinessError,
 	artifactHasReferencesOutsideConversation,
 	assertPromptReadyAttachments,
 	attachArtifactsToMessage,
+	blockingAttachmentItems,
 	buildArtifactVisibilityCondition,
 	createArtifactLink,
 	deleteArtifactForUser,

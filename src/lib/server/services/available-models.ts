@@ -1,4 +1,5 @@
 import { parseCapabilitySupportMap } from "$lib/model-fallback-compatibility";
+import { modelCanSeeImages } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "../config-store";
 import {
@@ -48,6 +49,11 @@ export interface AvailableModelProviderGroup {
 		inputUsdMicrosPer1m: number;
 		outputUsdMicrosPer1m: number;
 		supportsReasoningControls: boolean;
+		// True only when the admin marked the model "Can see images"
+		// (src/lib/model-image-input.ts). The built-in group lists models that
+		// have no provider row, so there is nowhere for the mark to live: they
+		// cannot see.
+		supportsImages: boolean;
 	}>;
 }
 
@@ -183,6 +189,7 @@ export async function getAvailableModelProviderGroups(
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
 				supportsReasoningControls: true,
+				supportsImages: false,
 			})),
 		});
 	}
@@ -214,6 +221,7 @@ export async function getAvailableModelProviderGroups(
 				supportsReasoningControls: resolveSupportsReasoningControls(
 					model.capabilitiesJson,
 				),
+				supportsImages: modelCanSeeImages(model.capabilitiesJson),
 			})),
 		});
 	}

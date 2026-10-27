@@ -509,6 +509,35 @@ describe("deleting an incognito conversation", () => {
 			.all();
 		expect(files).toEqual([]);
 	});
+
+	// Vision (docs/plans/image-generation/design.md: "vision must not leave
+	// anything behind that outlives an incognito chat"): what a model said a
+	// picture shows is stored against the picture, so it goes when the picture
+	// goes. A description is of the image alone, never of the chat.
+	it("takes the description of a picture uploaded in it, with the picture", async () => {
+		const { sourceId } = seedUpload(
+			INCOGNITO,
+			"kitchen.jpg",
+			"A small white kitchen.",
+		);
+		memory.db
+			.insert(schema.imageDescriptions)
+			.values({
+				artifactId: sourceId,
+				userId: USER,
+				description: "A small white kitchen with a window.",
+				modelName: "qwen3-8-flash-next",
+				createdAt: NOW,
+			})
+			.run();
+		expect(
+			memory.db.select().from(schema.imageDescriptions).all(),
+		).toHaveLength(1);
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		expect(memory.db.select().from(schema.imageDescriptions).all()).toEqual([]);
+	});
 });
 
 // ── PART A, continued: the artifact family (Feature 2, slice 0) ──────────

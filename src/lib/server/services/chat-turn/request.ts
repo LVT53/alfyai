@@ -230,7 +230,9 @@ function normalizeStreamId(value: unknown): string | undefined {
 		: undefined;
 }
 
-async function resolveModelSelection(
+// Exported for the vision gate (vision/model-vision.ts), which asks the same
+// question about "no model chosen" that this answers for the turn.
+export async function resolveModelSelection(
 	model: unknown,
 	runtimeConfig: RuntimeConfig,
 ): Promise<ModelSelectionOutcome> {

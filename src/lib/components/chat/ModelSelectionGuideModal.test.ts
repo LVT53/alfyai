@@ -24,6 +24,7 @@ function model(index: number): ModelProvider["models"][number] {
 		inputUsdMicrosPer1m: index * 500_000,
 		outputUsdMicrosPer1m: index * 1_000_000,
 		supportsReasoningControls: true,
+		supportsImages: false,
 	};
 }
 

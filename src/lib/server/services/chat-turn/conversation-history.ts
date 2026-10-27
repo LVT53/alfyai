@@ -14,7 +14,6 @@
 
 import type { ModelMessage } from "ai";
 import type {
-	ChatAttachment,
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
@@ -24,7 +23,10 @@ export type HistoryMessage = {
 	id?: string;
 	role: "user" | "assistant";
 	content: string;
-	attachments?: Pick<ChatAttachment, "name">[];
+	// An attached file by name; a picture also carries the short description
+	// kept from the turn that sent its pixels (vision/AGENTS.md), once there is
+	// one. Pixels never ride the history.
+	attachments?: Array<{ name: string; description?: string }>;
 	thinkingSegments?: ThinkingSegment[];
 	// Rendered provenance prefix (fork copies), already computed by the caller.
 	contentPrefix?: string;
@@ -181,11 +183,24 @@ export function storedToolCallDigests(
 	return digests.length > 0 ? digests : null;
 }
 
+// A picture with a description reads `[image: kitchen.jpg: A small white
+// kitchen with a window.]`; every other file, and a picture still without one
+// (not described yet, or the describing failed), reads `[attachment: name]`.
+function attachmentLine(
+	attachment: NonNullable<HistoryMessage["attachments"]>[number],
+): string | null {
+	const name = attachment.name?.trim();
+	if (!name) return null;
+	const description = attachment.description?.trim();
+	return description
+		? `[image: ${name}: ${description}]`
+		: `[attachment: ${name}]`;
+}
+
 function userText(message: HistoryMessage): string {
 	const attachmentLines = (message.attachments ?? [])
-		.map((attachment) => attachment.name?.trim())
-		.filter((name): name is string => Boolean(name))
-		.map((name) => `[attachment: ${name}]`);
+		.map(attachmentLine)
+		.filter((line): line is string => line !== null);
 	return [
 		message.contentPrefix?.trim(),
 		message.content.trim(),

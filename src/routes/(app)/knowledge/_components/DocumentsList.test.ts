@@ -10,6 +10,7 @@ import type {
 	DocumentExtractionJobDTO,
 	DocumentExtractionStatus,
 } from "$lib/shared/extraction-status";
+import { uiLanguage } from "$lib/stores/settings";
 import DocumentsList from "./DocumentsList.svelte";
 import type { KnowledgeDocumentItem } from "./documents-table";
 
@@ -2439,6 +2440,118 @@ describe("DocumentsList", () => {
 			expect(
 				document.querySelector(".col-status .extraction-detail")?.textContent,
 			).toMatch(/too large/i);
+		});
+
+		// A picture with no words in it is not a file that failed to read. The row
+		// says so as a plain fact (a quiet badge, not the red one) and a chat
+		// model that can see reads the picture directly. A document the reader
+		// got nothing from keeps its Failed badge and its sentence.
+		describe("a picture the reader found no text in", () => {
+			const noTextJob = () =>
+				makeExtractionJob({
+					status: "failed",
+					retryable: false,
+					fileName: "photo.jpg",
+					error: { code: "empty_result", message: "nothing readable" },
+				});
+
+			function renderPicture(name = "photo.jpg", mimeType = "image/jpeg") {
+				return render(DocumentsList, {
+					props: {
+						documents: [
+							makeDocument({
+								id: "doc-1",
+								name,
+								mimeType,
+								extraction: noTextJob(),
+							}),
+						],
+					},
+				});
+			}
+
+			it("reads No text, with the sentence that says the image has none, in the quiet badge", () => {
+				renderPicture();
+
+				const badge = within(statusCell()).getByTestId("extraction-status");
+				expect(badge.textContent?.trim()).toBe("No text");
+				expect(badge).not.toHaveClass("is-failed");
+				// The ledger's own word is still on the element for anything that reads it.
+				expect(badge.getAttribute("data-extraction-status")).toBe("failed");
+				expect(
+					document.querySelector(".col-status .extraction-detail")?.textContent,
+				).toBe("This image has no text in it.");
+				expect(badge.getAttribute("title")).toBe(
+					"This image has no text in it.",
+				);
+				// Nothing a retry could change, so no button promises one.
+				expect(
+					within(statusCell()).queryByTestId("extraction-retry-status"),
+				).toBeNull();
+			});
+
+			it("says it in Hungarian too", () => {
+				uiLanguage.set("hu");
+				try {
+					renderPicture();
+
+					expect(
+						within(statusCell())
+							.getByTestId("extraction-status")
+							.textContent?.trim(),
+					).toBe("Nincs szöveg");
+					expect(
+						document.querySelector(".col-status .extraction-detail")
+							?.textContent,
+					).toBe("Ezen a képen nincs szöveg.");
+				} finally {
+					uiLanguage.set("en");
+				}
+			});
+
+			it("keeps Failed for a PDF with the same verdict", () => {
+				renderWithJob(noTextJob());
+
+				const badge = within(statusCell()).getByTestId("extraction-status");
+				expect(badge.textContent?.trim()).toBe("Failed");
+				expect(badge).toHaveClass("is-failed");
+				expect(
+					document.querySelector(".col-status .extraction-detail")?.textContent,
+				).toBe("No readable text was found in this file.");
+			});
+
+			it("announces it as the fact it is, not as a failure", async () => {
+				const reading = makeExtractionJob({
+					status: "parsing",
+					fileName: "photo.jpg",
+				});
+				const { rerender } = render(DocumentsList, {
+					props: {
+						documents: [
+							makeDocument({
+								id: "doc-1",
+								name: "photo.jpg",
+								mimeType: "image/jpeg",
+								extraction: reading,
+							}),
+						],
+					},
+				});
+				const announcer = screen.getByTestId("documents-extraction-announcer");
+
+				await rerender({
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "photo.jpg",
+							mimeType: "image/jpeg",
+							extraction: noTextJob(),
+						}),
+					],
+				});
+
+				expect(announcer.textContent?.trim()).toBe("photo.jpg: No text");
+			});
 		});
 
 		it("renders a canceled document without offering Cancel again", () => {

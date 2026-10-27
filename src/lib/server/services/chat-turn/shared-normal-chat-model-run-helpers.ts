@@ -38,6 +38,13 @@ import {
 	SKILL_DRAFT_GUIDANCE,
 } from "$lib/server/services/skills/prompt-context";
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
+import { scheduleImageDescriptions } from "$lib/server/services/vision/describe";
+import { providerCanSeeImages } from "$lib/server/services/vision/model-vision";
+import {
+	createStepImageQueue,
+	type StepImageQueue,
+} from "$lib/server/services/vision/step-images";
+import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -110,8 +117,9 @@ export function countToolPackTools(tools: ToolPack["tools"]): number {
 
 /**
  * Full-prompt estimate for a turn (system prompt + final outbound packet +
- * tool schemas). Computed once the outbound context and tool pack are final,
- * so it reflects everything the provider actually receives that we can see.
+ * tool schemas + the pictures of the current message). Computed once the
+ * outbound context and tool pack are final, so it reflects everything the
+ * provider actually receives that we can see.
  */
 export function estimateTurnPromptTokens(params: {
 	prepared: PreparedModelContext;
@@ -127,7 +135,8 @@ export function estimateTurnPromptTokens(params: {
 		estimateHistoryMessagesTokens(
 			params.prepared.historyMessages ?? [],
 			estimateTokenCount,
-		)
+		) +
+		sumTurnImageTokens(params.prepared.currentImages)
 	);
 }
 
@@ -214,6 +223,13 @@ export type ToolPack = {
 	tools: NormalChatModelTools | undefined;
 	recorder: ReturnType<typeof createToolCallRecorder>;
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
+	/**
+	 * This turn's queue of pictures a tool wants the model to see (the photos
+	 * tool queues Immich thumbnails when the model asks to look). The tools are
+	 * built with it and the model run is given the same one, which hands the
+	 * pictures over in the step after the tool result (vision/AGENTS.md).
+	 */
+	stepImages: StepImageQueue;
 };
 
 export async function resolveProviderRuntime(
@@ -357,7 +373,7 @@ export async function prepareOutboundContext(
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
 	// reaches context prep via `reasoningDepthEffort` (guidance + tool budget).
-	return prepareOutboundChatContext({
+	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
 		modelConfig: runtime.modelConfig,
@@ -378,6 +394,8 @@ export async function prepareOutboundContext(
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
+		// Pixels are prepared only for a model the admin marked "Can see images".
+		collectImages: providerCanSeeImages(runtime.provider),
 		skillCatalogueBlock,
 		skillDraftGuidance,
 		pendingSkillInstructions: params.pendingSkillInstructions,
@@ -386,6 +404,18 @@ export async function prepareOutboundContext(
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
 	});
+	// The pictures this turn sends are described once, in the background, so the
+	// turns after it carry a few words instead of the pixels (vision/AGENTS.md).
+	// `currentImages` is empty unless the model can see; nothing here waits for
+	// the descriptions or can fail the turn.
+	if (prepared.currentImages.length > 0) {
+		scheduleImageDescriptions({
+			userId: params.userId,
+			provider: runtime.provider,
+			images: prepared.currentImages,
+		});
+	}
+	return prepared;
 }
 
 // Ready on-demand routing regions (and, separately, the ones whose public
@@ -438,6 +468,9 @@ export async function createToolPack(
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
+	// One queue for the turn, shared by the tools that fill it and the model run
+	// that empties it (every attempt of the run, failover included).
+	const stepImages = createStepImageQueue();
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -445,6 +478,7 @@ export async function createToolPack(
 		requestText: params.message,
 		enabledConnectionCapabilities,
 		modelId,
+		stepImages,
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }
@@ -485,5 +519,6 @@ export async function createToolPack(
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
+		stepImages,
 	};
 }

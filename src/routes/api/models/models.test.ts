@@ -81,6 +81,7 @@ describe("GET /api/models", () => {
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
 				supportsReasoningControls: true,
+				supportsImages: false,
 			},
 			{
 				id: "model2",
@@ -95,6 +96,7 @@ describe("GET /api/models", () => {
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
 				supportsReasoningControls: true,
+				supportsImages: false,
 			},
 		]);
 	});
@@ -133,6 +135,7 @@ describe("GET /api/models", () => {
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
 				supportsReasoningControls: true,
+				supportsImages: false,
 			},
 		]);
 	});
@@ -198,6 +201,7 @@ describe("GET /api/models", () => {
 				inputUsdMicrosPer1m: 1000,
 				outputUsdMicrosPer1m: 2000,
 				supportsReasoningControls: true,
+				supportsImages: false,
 			},
 		]);
 	});

@@ -24,6 +24,7 @@ import type {
 	DocumentExtractionJobDTO,
 } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import {
 	logAttachmentTrace,
 	summarizeAttachmentTraceText,
@@ -71,7 +72,7 @@ type PromptArtifactDiagnostics = {
 	chunkCount: number;
 };
 
-type PromptAttachmentResolutionItem = {
+export type PromptAttachmentResolutionItem = {
 	requestedArtifactId: string;
 	displayArtifact: Artifact | null;
 	promptArtifact: Artifact | null;
@@ -483,11 +484,41 @@ export async function resolvePromptAttachmentArtifacts(
 	};
 }
 
+/**
+ * The attachments that stop a send. A model that can see needs no extracted
+ * text to be shown a picture, so with `exemptImages` an image it can be shown
+ * (`isSeeableImage`: one the server decodes) never does, whatever became of the
+ * reading of its text: no text found, text too thin to use, a failed read, a
+ * read that has not finished. Everything else blocks as it always did, and so
+ * does every attachment when the pictures are not exempt. An attachment that is
+ * gone from the library blocks either way: there is nothing left to show.
+ *
+ * One definition for both halves of the send gate: preflight's
+ * `assertPromptReadyAttachments` and the context build's own refusal
+ * (`buildConstructedContext`) ask it, so a send that passed the first cannot
+ * fail the second.
+ */
+export function blockingAttachmentItems(
+	items: PromptAttachmentResolutionItem[],
+	options: { exemptImages: boolean },
+): PromptAttachmentResolutionItem[] {
+	if (!options.exemptImages) return items;
+	return items.filter((item) => {
+		const artifact = item.displayArtifact;
+		return !(artifact && isSeeableImage(artifact.name, artifact.mimeType));
+	});
+}
+
 export async function assertPromptReadyAttachments(params: {
 	userId: string;
 	conversationId: string;
 	attachmentIds: string[];
 	traceId?: string;
+	/**
+	 * The turn's model can see pictures (`vision/model-vision.ts`): an image it
+	 * can be shown never blocks the send. See `blockingAttachmentItems`.
+	 */
+	exemptImages?: boolean;
 }): Promise<{
 	displayArtifacts: Artifact[];
 	promptArtifacts: Artifact[];
@@ -496,6 +527,9 @@ export async function assertPromptReadyAttachments(params: {
 		params.userId,
 		params.attachmentIds,
 	);
+	const blocking = blockingAttachmentItems(resolved.unresolvedItems, {
+		exemptImages: params.exemptImages === true,
+	});
 
 	if (params.attachmentIds.length > 0) {
 		console.info("[ATTACHMENTS] Prompt readiness preflight", {
@@ -506,6 +540,9 @@ export async function assertPromptReadyAttachments(params: {
 			unresolvedAttachmentIds: resolved.unresolvedItems.map(
 				(item) => item.requestedArtifactId,
 			),
+			exemptedImageAttachmentIds: resolved.unresolvedItems
+				.filter((item) => !blocking.includes(item))
+				.map((item) => item.requestedArtifactId),
 		});
 		logAttachmentTrace("preflight", {
 			traceId: params.traceId ?? null,
@@ -529,15 +566,15 @@ export async function assertPromptReadyAttachments(params: {
 		});
 	}
 
-	if (resolved.unresolvedItems.length > 0) {
-		const code = classifyAttachmentReadinessErrorCode(resolved.unresolvedItems);
+	if (blocking.length > 0) {
+		const code = classifyAttachmentReadinessErrorCode(blocking);
 		throw new AttachmentReadinessError(
-			buildAttachmentReadinessErrorMessage(resolved.unresolvedItems, code),
-			resolved.unresolvedItems.map((item) => item.requestedArtifactId),
+			buildAttachmentReadinessErrorMessage(blocking, code),
+			blocking.map((item) => item.requestedArtifactId),
 			{
 				code,
-				items: toAttachmentExtractionStatusItems(resolved.unresolvedItems),
-				readiness: toAttachmentReadinessItems(resolved.unresolvedItems),
+				items: toAttachmentExtractionStatusItems(blocking),
+				readiness: toAttachmentReadinessItems(blocking),
 			},
 		);
 	}

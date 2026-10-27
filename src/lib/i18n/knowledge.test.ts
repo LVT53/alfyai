@@ -44,6 +44,24 @@ describe("knowledge.extraction dictionary", () => {
 		}
 	});
 
+	// The Library row for a picture the reader found no text in: a plain fact,
+	// not a failed read. A string that landed in one language only would print
+	// the raw key in that language's Status column.
+	it("says an image has no text in it, as a fact, in both languages", () => {
+		expect(knowledgeDict.en["knowledge.extraction.status.noText"]).toBe(
+			"No text",
+		);
+		expect(knowledgeDict.hu["knowledge.extraction.status.noText"]).toBe(
+			"Nincs szöveg",
+		);
+		expect(knowledgeDict.en["knowledge.extraction.error.imageNoText"]).toBe(
+			"This image has no text in it.",
+		);
+		expect(knowledgeDict.hu["knowledge.extraction.error.imageNoText"]).toBe(
+			"Ezen a képen nincs szöveg.",
+		);
+	});
+
 	it("audits the extraction prefixes for EN/HU parity", () => {
 		const keys = collectDictionaryKeys();
 		const auditedExtractionKeys = keys.en.filter((key) =>

@@ -1,13 +1,26 @@
 import { generateText, streamText, tool } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createModelCapabilitySet } from "$lib/model-capabilities";
+import {
+	createModelCapabilitySet,
+	isModelCapabilitySupported,
+} from "$lib/model-capabilities";
+import { setModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,
 	providerStreamFixtures,
 } from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
+import {
+	createStepImageQueue,
+	type StepImageQueue,
+} from "../vision/step-images";
+import {
+	buildCurrentUserMessage,
+	STRIPPED_IMAGE_NOTE,
+	type TurnImage,
+} from "../vision/turn-images";
 
 const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
@@ -759,6 +772,109 @@ describe("Normal Chat Model Run provider resolution", () => {
 		).resolves.toMatchObject({
 			id: "provider-1",
 			capabilities,
+		});
+	});
+
+	describe("the stored Can see images entry", () => {
+		function arrangeProviderRow(capabilitiesJson: string) {
+			mocks.getProviderByName.mockResolvedValue({
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "https://vllm.example/v1",
+				enabled: true,
+			});
+			mocks.listEnabledProviderModels.mockResolvedValue([
+				{ name: "flash-next", maxTokens: null, capabilitiesJson },
+			]);
+			mocks.decryptApiKey.mockReturnValue("plain-secret");
+			mocks.getProviderWithSecrets.mockResolvedValue({
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "https://vllm.example/v1",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			});
+		}
+
+		// What the admin form shows as ticked is what the run builds as supported,
+		// for the shapes older rows and hand edits left behind, and the other way
+		// round for an entry its own supported value contradicts.
+		it.each([
+			['"detected"', '{"imageMessageParts":"detected"}', true],
+			["a bare true", '{"imageMessageParts":true}', true],
+			[
+				"an object that only says supported",
+				'{"imageMessageParts":{"supported":true}}',
+				true,
+			],
+			[
+				"a detected state that supported false contradicts",
+				'{"imageMessageParts":{"state":"detected","supported":false}}',
+				false,
+			],
+			[
+				"a manual override that says no",
+				'{"imageMessageParts":{"state":"manual_override","supported":false}}',
+				false,
+			],
+			["a bare false", '{"imageMessageParts":false}', false],
+		])("reads %s like the admin form", async (_label, json, supported) => {
+			arrangeProviderRow(json);
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			expect(provider.capabilities?.imageMessageParts.supported).toBe(
+				supported,
+			);
+			expect(
+				isModelCapabilitySupported(provider.capabilities, "imageMessageParts"),
+			).toBe(supported);
+		});
+
+		it("leaves every other capability on the strict reading it always had", async () => {
+			arrangeProviderRow(
+				'{"imageMessageParts":"detected","tools":"detected","chat":true,"streaming":false,"reasoningControls":{"state":"detected"}}',
+			);
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			// A string or a bare boolean is unknown there, so a model whose row says
+			// tools: "detected" still gets the retry without tools, and one that says
+			// streaming: false is still not refused for it.
+			expect(provider.capabilities?.tools.supported).toBeNull();
+			expect(provider.capabilities?.chat.supported).toBeNull();
+			expect(provider.capabilities?.streaming.supported).toBeNull();
+			expect(provider.capabilities?.reasoningControls.supported).toBe(true);
+			expect(provider.capabilities?.imageMessageParts).toMatchObject({
+				supported: true,
+			});
+		});
+
+		it("keeps a probe's whole status entry exactly as stored", async () => {
+			const stored = createModelCapabilitySet({
+				imageMessageParts: {
+					state: "detected",
+					source: "probe",
+					detail: "Accepted an image part",
+					checkedAt: "2026-10-26T10:00:00.000Z",
+				},
+			});
+			arrangeProviderRow(JSON.stringify(stored));
+
+			const provider = await resolveNormalChatModelRunProvider(
+				"provider:provider-1",
+			);
+
+			expect(provider.capabilities?.imageMessageParts).toEqual(
+				stored.imageMessageParts,
+			);
 		});
 	});
 });
@@ -4743,5 +4859,1108 @@ describe("Streaming Normal Chat Model Run", () => {
 			function: { name: "research_web" },
 		});
 		expect(researchExecute).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("Normal Chat Model Run pictures in the user message", () => {
+	// The run logs every step it finishes; these tests read the request instead.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const photo: TurnImage = {
+		artifactId: "artifact-1",
+		name: "room.jpg",
+		image: {
+			base64: "/9j/4AAQSkZJRgABAQ==",
+			mediaType: "image/jpeg",
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		},
+	};
+	const seeingProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "https://vllm.example/v1",
+		modelName: "flash-next",
+		apiKey: "plain-secret",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+
+	function lastUserMessage(body: {
+		messages: Array<{ role: string; content: unknown }>;
+	}) {
+		return body.messages.filter((message) => message.role === "user").at(-1);
+	}
+
+	it("sends a picture of the current message to a plain run as an image_url data URL", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "A living room." },
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("What is in this photo?", [photo])],
+			fetch,
+		});
+
+		const user = lastUserMessage(parseRequestBody(fetch));
+		expect(JSON.stringify(user)).toContain(
+			'{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,',
+		);
+		expect(user?.content).toEqual([
+			{ type: "text", text: "What is in this photo?" },
+			{
+				type: "image_url",
+				image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
+			},
+		]);
+	});
+
+	it("sends every picture, in the order they were attached", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Two rooms." },
+			}),
+		);
+		const second: TurnImage = {
+			...photo,
+			artifactId: "artifact-2",
+			name: "kitchen.jpg",
+			image: { ...photo.image, base64: "/9j/AAAA" },
+		};
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Compare them", [photo, second])],
+			fetch,
+		});
+
+		const content = lastUserMessage(parseRequestBody(fetch))?.content as Array<{
+			type: string;
+			image_url?: { url: string };
+		}>;
+		expect(content.map((part) => part.type)).toEqual([
+			"text",
+			"image_url",
+			"image_url",
+		]);
+		expect(content[1]?.image_url?.url).toContain("/9j/4AAQ");
+		expect(content[2]?.image_url?.url).toContain("/9j/AAAA");
+	});
+
+	it("sends a picture to a streaming run the same way", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{ content: "A living room." },
+				{ finishReason: "stop" },
+			]),
+		);
+
+		await collectStreamingEvents({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("What is in this photo?", [photo])],
+			fetch,
+		});
+
+		expect(JSON.stringify(lastUserMessage(parseRequestBody(fetch)))).toContain(
+			'{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="}}',
+		);
+	});
+
+	it("leaves a message without pictures as the plain text it was", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Hi." },
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Hello", [])],
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(lastUserMessage(body)?.content).toBe("Hello");
+		expect(JSON.stringify(body)).not.toContain("image_url");
+	});
+
+	// A model that cannot see is never sent a picture, on the first attempt or on
+	// the one a failover makes: the primary may be ticked and its fallback not.
+	// Each case runs on both paths, the plain loop and the streaming failover.
+	describe.each([
+		["a plain run", "plain"],
+		["a streaming run", "streaming"],
+	] as const)("%s", (_label, path) => {
+		const question = "What is in this photo?";
+
+		beforeEach(() => {
+			mocks.getProviderByName.mockReset();
+			mocks.getProviderWithSecrets.mockReset();
+			mocks.getProviderModel.mockReset();
+			mocks.listEnabledProviderModels.mockReset();
+			mocks.decryptApiKey.mockReset();
+			mocks.getProviderByName.mockResolvedValue(null);
+			mocks.getProviderWithSecrets.mockResolvedValue(null);
+			mocks.getProviderModel.mockResolvedValue(null);
+			mocks.listEnabledProviderModels.mockResolvedValue([]);
+			mocks.decryptApiKey.mockReturnValue("plain-secret");
+		});
+
+		function failoverConfig(target: string) {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: target,
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** A provider model row of the admin's, as the failover target of a run. */
+		function arrangeProviderModelRow(capabilitiesJson: string) {
+			const row = createProviderModelRow({
+				id: "model-b",
+				name: "flash-next-b",
+				displayName: "Flash B",
+				capabilitiesJson,
+			});
+			mocks.getProviderWithSecrets.mockResolvedValue({
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "https://vllm.example/v1",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			});
+			mocks.getProviderModel.mockImplementation(async (id: string) =>
+				id === "model-b" ? row : null,
+			);
+			mocks.listEnabledProviderModels.mockResolvedValue([row]);
+		}
+
+		function answer() {
+			return path === "plain"
+				? createMockChatCompletionResponse({
+						message: { role: "assistant", content: "An answer." },
+					})
+				: createStreamResponse([
+						{ content: "An answer." },
+						{ finishReason: "stop" },
+					]);
+		}
+
+		async function run(args: StreamRunArgs) {
+			if (path === "plain") {
+				await runPlainNormalChatModelRun(args);
+			} else {
+				await collectStreamingEvents(args);
+			}
+		}
+
+		/** The seeing primary's request times out, so the run retries on `target`. */
+		async function failOver(target: string) {
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockRejectedValueOnce(
+					Object.assign(new Error("Provider request timed out"), {
+						name: "TimeoutError",
+					}),
+				)
+				.mockResolvedValueOnce(answer());
+
+			await run({
+				provider: seeingProvider,
+				modelId: "model1",
+				runtimeConfig: failoverConfig(target),
+				messages: [buildCurrentUserMessage(question, [photo])],
+				fetch,
+				maxRetries: 0,
+			});
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			return {
+				fetch,
+				first: lastUserMessage(parseRequestBody(fetch, 0)),
+				second: lastUserMessage(parseRequestBody(fetch, 1)),
+				secondBody: parseRequestBody(fetch, 1),
+			};
+		}
+
+		it("sends the picture to the model it chose and none to a fallback that cannot see", async () => {
+			const { fetch, first, second, secondBody } = await failOver("model2");
+
+			expect(fetch.mock.calls[1]?.[0]).toBe(
+				"https://model-two.example/v1/chat/completions",
+			);
+			expect(JSON.stringify(first)).toContain('"type":"image_url"');
+			expect(JSON.stringify(secondBody)).not.toContain("image_url");
+			expect(second?.content).toEqual([
+				{ type: "text", text: question },
+				{ type: "text", text: STRIPPED_IMAGE_NOTE },
+			]);
+		});
+
+		it("strips the picture for a provider model nobody ticked as well", async () => {
+			arrangeProviderModelRow(JSON.stringify({ tools: "detected" }));
+
+			const { fetch, secondBody, second } = await failOver(
+				"provider:provider-1:model-b",
+			);
+
+			expect(fetch.mock.calls[1]?.[0]).toBe(
+				"https://vllm.example/v1/chat/completions",
+			);
+			expect(JSON.stringify(secondBody)).not.toContain("image_url");
+			expect(JSON.stringify(second)).toContain(STRIPPED_IMAGE_NOTE);
+		});
+
+		it("keeps the picture for a fallback that can see", async () => {
+			arrangeProviderModelRow(setModelImageInput("{}", true));
+
+			const { fetch, first, second } = await failOver(
+				"provider:provider-1:model-b",
+			);
+
+			expect(fetch.mock.calls[1]?.[0]).toBe(
+				"https://vllm.example/v1/chat/completions",
+			);
+			expect(JSON.stringify(second)).toContain('"type":"image_url"');
+			expect(JSON.stringify(second)).not.toContain(STRIPPED_IMAGE_NOTE);
+			expect(second?.content).toEqual(first?.content);
+		});
+
+		it("sends no picture to the first model either when it cannot see", async () => {
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(answer());
+
+			await run({
+				provider: { ...seeingProvider, capabilities: undefined },
+				messages: [buildCurrentUserMessage(question, [photo])],
+				fetch,
+			});
+
+			const body = parseRequestBody(fetch);
+			expect(JSON.stringify(body)).not.toContain("image_url");
+			expect(lastUserMessage(body)?.content).toEqual([
+				{ type: "text", text: question },
+				{ type: "text", text: STRIPPED_IMAGE_NOTE },
+			]);
+		});
+
+		it("leaves the first model's request alone when it can see", async () => {
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(answer());
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [photo])],
+				fetch,
+			});
+
+			expect(lastUserMessage(parseRequestBody(fetch))?.content).toEqual([
+				{ type: "text", text: question },
+				{
+					type: "image_url",
+					image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
+				},
+			]);
+		});
+	});
+});
+
+describe("Normal Chat Model Run thumbnails a tool asked the model to see", () => {
+	// A tool result reaches the model as text, so the pictures a tool wants it to
+	// see ride in a user message that follows the result (vision/AGENTS.md). The
+	// step that adds it is built for each attempt, on the model that attempt runs.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		mocks.getProviderByName.mockReset();
+		mocks.getProviderWithSecrets.mockReset();
+		mocks.getProviderModel.mockReset();
+		mocks.listEnabledProviderModels.mockReset();
+		mocks.decryptApiKey.mockReset();
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue(null);
+		mocks.getProviderModel.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
+		mocks.decryptApiKey.mockReturnValue("plain-secret");
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const LABEL =
+		"Thumbnails from the photos tool, in result order: 1 = beach.jpg, 2 = dunes.jpg";
+	const LABEL_WITHOUT_NAMES =
+		"Thumbnails from the photos tool, in result order: 1, 2";
+	const question = "Which of my beach photos is the sharpest?";
+	const thumbnails: TurnImage[] = [
+		{
+			artifactId: "immich:asset-1",
+			name: "beach.jpg",
+			image: {
+				base64: "QUFBQQ==",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 6,
+			},
+		},
+		{
+			artifactId: "immich:asset-2",
+			name: "dunes.jpg",
+			image: {
+				base64: "QkJCQg==",
+				mediaType: "image/jpeg",
+				width: 64,
+				height: 48,
+				estimatedTokens: 6,
+			},
+		},
+	];
+	const seeingProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "https://vllm.example/v1",
+		modelName: "flash-next",
+		apiKey: "plain-secret",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+	const blindProvider = { ...seeingProvider, capabilities: undefined };
+
+	const photosSchema = z.object({ query: z.string() });
+
+	/**
+	 * A photos tool that, like the real one, queues thumbnails and returns text.
+	 * With `localOnly` the entry is cleared for a model on the person's own box
+	 * only, as the real tool queues it for a person who keeps summarising local.
+	 */
+	function createPhotosTool(
+		queue: StepImageQueue,
+		options: { queueNothing?: boolean; localOnly?: boolean } = {},
+	) {
+		return tool({
+			description: "Find photos.",
+			inputSchema: photosSchema,
+			execute: async () => {
+				if (!options.queueNothing) {
+					queue.push({
+						label: LABEL,
+						images: thumbnails,
+						...(options.localOnly
+							? {
+									localOnly: true as const,
+									labelWithoutNames: LABEL_WITHOUT_NAMES,
+								}
+							: {}),
+					});
+				}
+				return { success: true, message: "2 thumbnails follow" };
+			},
+		});
+	}
+
+	function plainToolCall() {
+		return createMockChatCompletionResponse({
+			message: {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-1",
+						type: "function",
+						function: {
+							name: "photos",
+							arguments: JSON.stringify({ query: "beach" }),
+						},
+					},
+				],
+			},
+			finishReason: "tool_calls",
+		});
+	}
+
+	function plainAnswer() {
+		return createMockChatCompletionResponse({
+			message: { role: "assistant", content: "The first one." },
+		});
+	}
+
+	function streamedToolCall() {
+		return createStreamResponse([
+			{
+				toolCalls: [
+					{
+						id: "call-1",
+						name: "photos",
+						arguments: JSON.stringify({ query: "beach" }),
+					},
+				],
+			},
+			{ finishReason: "tool_calls" },
+		]);
+	}
+
+	function streamedAnswer() {
+		return createStreamResponse([
+			{ content: "The first one." },
+			{ finishReason: "stop" },
+		]);
+	}
+
+	type Body = {
+		messages: Array<{ role: string; content: unknown }>;
+		tool_choice?: unknown;
+	};
+
+	describe.each([
+		["a plain run", "plain"],
+		["a streaming run", "streaming"],
+	] as const)("%s", (_label, path) => {
+		function toolCallResponse() {
+			return path === "plain" ? plainToolCall() : streamedToolCall();
+		}
+
+		function answerResponse() {
+			return path === "plain" ? plainAnswer() : streamedAnswer();
+		}
+
+		async function run(args: StreamRunArgs) {
+			if (path === "plain") {
+				await runPlainNormalChatModelRun(args);
+			} else {
+				await collectStreamingEvents(args);
+			}
+		}
+
+		/** A model that calls the photos tool, then answers. */
+		function toolThenAnswer() {
+			return vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(toolCallResponse())
+				.mockResolvedValueOnce(answerResponse());
+		}
+
+		it("hands the model the thumbnails in the step after the tool result", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(JSON.stringify(first)).not.toContain("image_url");
+			const second = parseRequestBody(fetch, 1) as Body;
+			// ... assistant's call, the tool result, then the pictures as the user.
+			expect(second.messages.at(-2)?.role).toBe("tool");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+			// The question is where it was.
+			expect(second.messages.find((m) => m.role === "user")?.content).toEqual(
+				question,
+			);
+		});
+
+		it("takes the pictures out of the queue: the model has them once", async () => {
+			const queue = createStepImageQueue();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch: toolThenAnswer(),
+			});
+
+			expect(queue.drain()).toEqual([]);
+		});
+
+		it("gives a model that cannot see the label and the note, and no picture", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: blindProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(JSON.stringify(second)).not.toContain("QUFBQQ==");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("adds nothing when the tool queued nothing", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { queueNothing: true }) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-1)?.role).toBe("tool");
+			expect(JSON.stringify(second)).not.toContain("image_url");
+		});
+
+		it("is the same run as before when no queue is given", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-1)?.role).toBe("tool");
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			// Nothing took the pictures.
+			expect(queue.drain()).toHaveLength(1);
+		});
+
+		it("keeps forcing the first step's tool and adds the pictures to the next", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				firstStepToolChoice: { type: "tool", toolName: "photos" },
+				stepImages: queue,
+				fetch,
+			});
+
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(first.tool_choice).toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.tool_choice).not.toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			expect(JSON.stringify(second.messages.at(-1))).toContain("image_url");
+		});
+
+		it("applies both steps when they land on the same one: the forced tool and the pictures", async () => {
+			const queue = createStepImageQueue();
+			// Pictures already waiting when the run starts, so the first step has both
+			// a tool to force and pictures to add.
+			queue.push({ label: LABEL, images: thumbnails });
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(answerResponse());
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				firstStepToolChoice: { type: "tool", toolName: "photos" },
+				stepImages: queue,
+				fetch,
+			});
+
+			const first = parseRequestBody(fetch, 0) as Body;
+			expect(first.tool_choice).toEqual({
+				type: "function",
+				function: { name: "photos" },
+			});
+			expect(JSON.stringify(first.messages.at(-1))).toContain("image_url");
+		});
+	});
+
+	// A failover starts the attempt over, and the step is built for the model it
+	// runs on: the primary may see and the fallback not. Only the plain loop can
+	// fail over after a tool has run (a stream may not, once it has said a tool
+	// was called), so only it is driven here.
+	describe("a plain run that fails over after the pictures were handed over", () => {
+		function failoverConfig(target: string) {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: target,
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** The seeing primary calls the tool, then its next request times out. */
+		async function failOverAfterTheToolRan(
+			fallbackIsAnswered: () => Response[],
+		) {
+			const queue = createStepImageQueue();
+			const timeout = Object.assign(new Error("Provider request timed out"), {
+				name: "TimeoutError",
+			});
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(plainToolCall())
+				.mockRejectedValueOnce(timeout);
+			for (const response of fallbackIsAnswered()) {
+				fetch.mockResolvedValueOnce(response);
+			}
+
+			await runPlainNormalChatModelRun({
+				provider: seeingProvider,
+				modelId: "model1",
+				runtimeConfig: failoverConfig("model2"),
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue) },
+				stepImages: queue,
+				fetch,
+				maxRetries: 0,
+			});
+			return { fetch, queue };
+		}
+
+		it("gives the fallback that cannot see the label and the note, though the primary was handed the pictures", async () => {
+			const { fetch } = await failOverAfterTheToolRan(() => [
+				plainToolCall(),
+				plainAnswer(),
+			]);
+
+			expect(fetch).toHaveBeenCalledTimes(4);
+			// The primary's second step carried the pictures ...
+			expect(JSON.stringify(parseRequestBody(fetch, 1))).toContain("image_url");
+			expect(fetch.mock.calls[2]?.[0]).toBe(
+				"https://model-two.example/v1/chat/completions",
+			);
+			// ... the fallback's, which cannot see, did not.
+			const fallbackSecond = parseRequestBody(fetch, 3) as Body;
+			expect(JSON.stringify(fallbackSecond)).not.toContain("image_url");
+			expect(JSON.stringify(fallbackSecond)).not.toContain("QUFBQQ==");
+			expect(fallbackSecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+	});
+
+	// The person keeps summarising local, so the tool cleared the pictures for a
+	// model on their own box (`localOnly`). The tool decided for the model the turn
+	// started on; the attempt that is sent them can be somewhere else, and then it
+	// is sent neither the pictures nor the names of the photos, whatever it can see.
+	describe.each([
+		["a plain run", "plain"],
+		["a streaming run", "streaming"],
+	] as const)("%s, with pictures cleared for the box only", (_label, path) => {
+		// A model on the person's own box, and one that is not.
+		const onTheBox = {
+			...seeingProvider,
+			baseUrl: "http://192.168.1.96:30000/v1",
+		};
+
+		async function run(args: StreamRunArgs) {
+			if (path === "plain") {
+				await runPlainNormalChatModelRun(args);
+			} else {
+				await collectStreamingEvents(args);
+			}
+		}
+
+		async function afterTheTool(provider: StreamRunArgs["provider"]) {
+			const queue = createStepImageQueue();
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockResolvedValueOnce(
+					path === "plain" ? plainToolCall() : streamedToolCall(),
+				)
+				.mockResolvedValueOnce(
+					path === "plain" ? plainAnswer() : streamedAnswer(),
+				);
+
+			await run({
+				provider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+				stepImages: queue,
+				fetch,
+			});
+
+			return parseRequestBody(fetch, 1) as Body;
+		}
+
+		it("sends an attempt on another host that can see no picture and no name", async () => {
+			const second = await afterTheTool(seeingProvider);
+
+			const wire = JSON.stringify(second);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain("base64,");
+			expect(wire).not.toContain("QUFBQQ==");
+			expect(wire).not.toContain("beach.jpg");
+			expect(wire).not.toContain("dunes.jpg");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("sends an attempt on another host that cannot see the same", async () => {
+			const second = await afterTheTool(blindProvider);
+
+			const wire = JSON.stringify(second);
+			expect(wire).not.toContain("image_url");
+			expect(wire).not.toContain("beach.jpg");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("shows an attempt on the person's box that can see the pictures, with the names", async () => {
+			const second = await afterTheTool(onTheBox);
+
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+		});
+
+		it("names the photos to an attempt on the box that cannot see: the names stay on the box", async () => {
+			const second = await afterTheTool({
+				...onTheBox,
+				capabilities: undefined,
+			});
+
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+	});
+
+	// The path of the review, through the real loops: a local primary, a person who
+	// keeps summarising local, and a failover to a cloud model that is ticked "Can
+	// see images". In the plain loop the primary asks for the photos and then fails;
+	// in a stream, which may not fail over once it has said a tool was called, the
+	// primary fails before its first output. Either way the cloud model asks for
+	// the photos, and the tool (which decided for the model the turn started on)
+	// clears the pictures for the box again.
+	describe("a run that fails over from a local primary to a cloud model that can see", () => {
+		const localPrimary = {
+			...seeingProvider,
+			baseUrl: "http://192.168.1.96:30000/v1",
+		};
+
+		function failoverConfig(target: string) {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: target,
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "http://192.168.1.96:30000/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** A cloud provider's model the admin ticked "Can see images". */
+		function arrangeCloudModelThatSees() {
+			const row = createProviderModelRow({
+				id: "model-b",
+				name: "flash-next-b",
+				displayName: "Flash B",
+				capabilitiesJson: setModelImageInput("{}", true),
+			});
+			mocks.getProviderWithSecrets.mockResolvedValue({
+				id: "provider-1",
+				name: "cloud",
+				displayName: "Cloud",
+				baseUrl: "https://cloud.example/v1",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			});
+			mocks.getProviderModel.mockImplementation(async (id: string) =>
+				id === "model-b" ? row : null,
+			);
+			mocks.listEnabledProviderModels.mockResolvedValue([row]);
+		}
+
+		async function failOverToTheCloud() {
+			arrangeCloudModelThatSees();
+			const queue = createStepImageQueue();
+			const timeout = Object.assign(new Error("Provider request timed out"), {
+				name: "TimeoutError",
+			});
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				// The local primary asks for the photos, and its next request fails ...
+				.mockResolvedValueOnce(plainToolCall())
+				.mockRejectedValueOnce(timeout)
+				// ... the cloud model asks for them too, and then answers.
+				.mockResolvedValueOnce(plainToolCall())
+				.mockResolvedValueOnce(plainAnswer());
+
+			await runPlainNormalChatModelRun({
+				provider: localPrimary,
+				modelId: "model1",
+				runtimeConfig: failoverConfig("provider:provider-1:model-b"),
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+				stepImages: queue,
+				fetch,
+				maxRetries: 0,
+			});
+			return fetch;
+		}
+
+		it("sends the cloud model no picture, no bytes and no file name", async () => {
+			const fetch = await failOverToTheCloud();
+
+			expect(fetch).toHaveBeenCalledTimes(4);
+			const cloudRequests = [2, 3].map((call) => {
+				expect(fetch.mock.calls[call]?.[0]).toBe(
+					"https://cloud.example/v1/chat/completions",
+				);
+				return JSON.stringify(parseRequestBody(fetch, call));
+			});
+			for (const wire of cloudRequests) {
+				expect(wire).not.toContain("image_url");
+				expect(wire).not.toContain("base64,");
+				expect(wire).not.toContain("QUFBQQ==");
+				expect(wire).not.toContain("QkJCQg==");
+				expect(wire).not.toContain("beach.jpg");
+				expect(wire).not.toContain("dunes.jpg");
+			}
+			const cloudSecond = parseRequestBody(fetch, 3) as Body;
+			expect(cloudSecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL_WITHOUT_NAMES },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		it("still shows the local primary the pictures and the names, before it fails", async () => {
+			const fetch = await failOverToTheCloud();
+
+			expect(fetch.mock.calls[1]?.[0]).toBe(
+				"http://192.168.1.96:30000/v1/chat/completions",
+			);
+			const primarySecond = parseRequestBody(fetch, 1) as Body;
+			expect(primarySecond.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{ type: "text", text: LABEL },
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QkJCQg==" },
+					},
+				],
+			});
+		});
+
+		// What a stream hands its fallback is a turn that has run nothing yet: the
+		// primary fails before its first output, and the cloud model is the first to
+		// ask for the photos.
+		describe("in a stream, before its first output", () => {
+			async function streamAndFailOverToTheCloud() {
+				arrangeCloudModelThatSees();
+				const queue = createStepImageQueue();
+				const timeout = Object.assign(new Error("Provider request timed out"), {
+					name: "TimeoutError",
+				});
+				const fetch = vi
+					.fn<typeof globalThis.fetch>()
+					.mockRejectedValueOnce(timeout)
+					.mockResolvedValueOnce(streamedToolCall())
+					.mockResolvedValueOnce(streamedAnswer());
+
+				await collectStreamingEvents({
+					provider: localPrimary,
+					modelId: "model1",
+					runtimeConfig: failoverConfig("provider:provider-1:model-b"),
+					messages: [buildCurrentUserMessage(question, [])],
+					tools: { photos: createPhotosTool(queue, { localOnly: true }) },
+					stepImages: queue,
+					fetch,
+					maxRetries: 0,
+				});
+				return fetch;
+			}
+
+			it("sends the cloud model no picture, no bytes and no file name", async () => {
+				const fetch = await streamAndFailOverToTheCloud();
+
+				expect(fetch).toHaveBeenCalledTimes(3);
+				expect(fetch.mock.calls[0]?.[0]).toBe(
+					"http://192.168.1.96:30000/v1/chat/completions",
+				);
+				for (const call of [1, 2]) {
+					expect(fetch.mock.calls[call]?.[0]).toBe(
+						"https://cloud.example/v1/chat/completions",
+					);
+					const wire = JSON.stringify(parseRequestBody(fetch, call));
+					expect(wire).not.toContain("image_url");
+					expect(wire).not.toContain("base64,");
+					expect(wire).not.toContain("QUFBQQ==");
+					expect(wire).not.toContain("QkJCQg==");
+					expect(wire).not.toContain("beach.jpg");
+					expect(wire).not.toContain("dunes.jpg");
+				}
+				const cloudSecond = parseRequestBody(fetch, 2) as Body;
+				expect(cloudSecond.messages.at(-1)).toEqual({
+					role: "user",
+					content: [
+						{ type: "text", text: LABEL_WITHOUT_NAMES },
+						{ type: "text", text: STRIPPED_IMAGE_NOTE },
+					],
+				});
+			});
+		});
 	});
 });

@@ -81,10 +81,11 @@ import {
 	deriveDocumentVersion,
 	type DocumentTypeFilter,
 	extractionDetailKey,
-	extractionStatusKey,
+	extractionRowStatusKey,
 	getDocumentKind,
 	hasNormalisedVersion,
 	isExtractionInProgress,
+	isImageWithNoText,
 	nextSortDirection,
 } from "./documents-table";
 
@@ -369,11 +370,20 @@ $effect(() => {
 	);
 	if (changed.length === 0) return;
 	// One string for the whole batch, so five documents settling together is
-	// one announcement rather than five.
+	// one announcement rather than five. The words are the Status cell's own
+	// (an image with no text in it is announced as that, not as a failure).
 	extractionAnnouncement = changed
-		.map(
-			(entry) => `${entry.name}: ${$t(extractionStatusKey(entry.job.status))}`,
-		)
+		.map((entry) => {
+			const file = documents.find(
+				(candidate) => candidate.displayArtifactId === entry.artifactId,
+			);
+			return `${entry.name}: ${$t(
+				extractionRowStatusKey(
+					file ?? { name: entry.name, mimeType: null },
+					entry.job,
+				),
+			)}`;
+		})
 		.join(". ");
 });
 
@@ -1296,11 +1306,11 @@ async function handleBulkDelete(): Promise<boolean> {
 {#snippet statusContent(document: KnowledgeDocumentItem, badge: ReturnType<typeof deriveDocumentStatus>, busy: boolean, place: 'status' | 'meta')}
 	{#if badge?.kind === 'extraction'}
 		{@const job = badge.job}
-		{@const detailKey = extractionDetailKey(job)}
+		{@const detailKey = extractionDetailKey(job, document)}
 		<span
 			class="extraction-badge"
 			class:is-working={job.status !== 'failed' && job.status !== 'canceled'}
-			class:is-failed={job.status === 'failed'}
+			class:is-failed={job.status === 'failed' && !isImageWithNoText(document, job)}
 			class:is-canceled={job.status === 'canceled'}
 			data-testid="extraction-status"
 			data-extraction-status={job.status}
@@ -1309,7 +1319,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			{#if job.status !== 'failed' && job.status !== 'canceled'}
 				<Spinner size={12} />
 			{/if}
-			{$t(extractionStatusKey(job.status))}
+			{$t(extractionRowStatusKey(document, job))}
 		</span>
 		{#if detailKey}
 			<span class="extraction-detail">{$t(detailKey)}</span>

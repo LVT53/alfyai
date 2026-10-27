@@ -20,6 +20,7 @@ import {
 	isExtractionWaitingForBackend,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
+import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import { displayablePageCountUnit } from "$lib/shared/page-count";
 import { getFileType } from "./attachment-file-type";
 import type { ComposerChipKind } from "./composer-chip-kinds";
@@ -171,6 +172,30 @@ export type ExtractionChipState = {
 	canCancel: boolean;
 };
 
+/**
+ * What a chip says about a picture the reader found no text in, for a model
+ * that can see: a plain fact about the picture, not a failed read.
+ */
+const IMAGE_NO_TEXT_KEY = "chat.extraction.imageNoText";
+
+/**
+ * Whether the selected model will be shown this attachment as a picture, so the
+ * reading of its text is beside the point: the model can see, and the file is
+ * a picture the server can decode. The second half is the send gate's own rule
+ * (`isSeeableImage`, shared with the server), not "looks like an image": a
+ * chip that opened Send for a BMP or an icon file would send the person into a
+ * refusal.
+ */
+export function isPictureForModel(
+	artifact: { name: string; mimeType?: string | null },
+	options: { selectedModelSupportsImages: boolean },
+): boolean {
+	return (
+		options.selectedModelSupportsImages &&
+		isSeeableImage(artifact.name, artifact.mimeType ?? null)
+	);
+}
+
 const EXTRACTION_PROGRESS_KEYS: Record<string, string> = {
 	queued: "chat.extraction.queued",
 	uploading: "chat.extraction.parsing",
@@ -188,11 +213,21 @@ const EXTRACTION_PROGRESS_KEYS: Record<string, string> = {
  * already showing. Same tables, deliberately: two mappings of one vocabulary
  * would drift, and the user would be told two different things about one file.
  */
-export function extractionReasonKey(item: {
-	status: DocumentExtractionStatus;
-	errorCode: ExtractionErrorCode | null;
-	retryable: boolean;
-}): string {
+export function extractionReasonKey(
+	item: {
+		status: DocumentExtractionStatus;
+		errorCode: ExtractionErrorCode | null;
+		retryable: boolean;
+	},
+	options: { picture?: boolean } = {},
+): string {
+	if (
+		options.picture &&
+		item.status === "failed" &&
+		item.errorCode === "empty_result"
+	) {
+		return IMAGE_NO_TEXT_KEY;
+	}
 	if (item.status === "succeeded") return "chat.extraction.queued";
 	if (item.status === "canceled") {
 		return item.retryable
@@ -217,6 +252,32 @@ export function extractionReasonKey(item: {
 }
 
 export function extractionChipState(
+	job: DocumentExtractionJobDTO | null | undefined,
+	options: {
+		/**
+		 * The attachment is a picture the selected model will be shown
+		 * (`isPictureForModel`). Nothing about reading its text is then an error
+		 * for the send: a read that found nothing says so as a fact, and any
+		 * other way a read ended keeps its clause but says it quietly.
+		 */
+		picture?: boolean;
+	} = {},
+): ExtractionChipState {
+	const state = chipStateFromJob(job);
+	if (!options.picture || !state.errorKey) return state;
+	if (job?.status === "failed" && job.error?.code === "empty_result") {
+		return {
+			progressKey: IMAGE_NO_TEXT_KEY,
+			errorKey: null,
+			dashed: false,
+			canRetry: false,
+			canCancel: false,
+		};
+	}
+	return { ...state, progressKey: state.errorKey, errorKey: null };
+}
+
+function chipStateFromJob(
 	job: DocumentExtractionJobDTO | null | undefined,
 ): ExtractionChipState {
 	const idle: ExtractionChipState = {
@@ -339,11 +400,26 @@ export function attachmentChipFailure(
 		promptReady: boolean;
 		readinessError?: string | null;
 		readinessErrorCode?: string | null;
+		/** The file, for the one question of whether it is a picture. */
+		artifact: { name: string; mimeType?: string | null };
 	},
+	options: { selectedModelSupportsImages: boolean },
 ): AttachmentChipFailure {
 	const code = isAttachmentReadinessReason(attachment.readinessErrorCode)
 		? attachment.readinessErrorCode
 		: null;
+
+	// A model that can see needs no extracted text to be shown a picture, so
+	// nothing about the reading of its text holds the send or fails the chip
+	// (the server's send gate lets such a picture through the same way): not a
+	// read that found no text, one that failed, or one that has not finished.
+	// A picture that is gone from the library is still gone.
+	if (
+		isPictureForModel(attachment.artifact, options) &&
+		code !== "not_available"
+	) {
+		return { kind: "none" };
+	}
 
 	if (job) {
 		if (isExtractionPending(job)) return { kind: "busy" };

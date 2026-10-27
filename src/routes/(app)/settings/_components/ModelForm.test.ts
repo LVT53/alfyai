@@ -1,5 +1,6 @@
 import { fireEvent, render } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import ModelForm from "./ModelForm.svelte";
 
 function modelFixture(overrides: Record<string, unknown> = {}) {
@@ -153,6 +154,258 @@ describe("ModelForm pricing fields", () => {
 				estimatedTokensPerSecond: 150,
 			}),
 		);
+	});
+});
+
+describe("ModelForm can see images", () => {
+	const IMAGE_OVERRIDE = {
+		state: "manual_override",
+		supported: true,
+		source: "manual_override",
+	};
+	const seeingJson = JSON.stringify({
+		tools: "detected",
+		imageMessageParts: IMAGE_OVERRIDE,
+	});
+
+	function renderForm(
+		model: ReturnType<typeof modelFixture> | null,
+		onSave = vi.fn(),
+	) {
+		return {
+			onSave,
+			...render(ModelForm, {
+				providerId: "provider-1",
+				model,
+				onSave,
+				onClose: vi.fn(),
+			}),
+		};
+	}
+
+	it("is ticked only for a model that carries an explicit seeing capability", () => {
+		const blind = renderForm(
+			modelFixture({ capabilitiesJson: '{"tools":"detected"}' }),
+		);
+		expect(
+			blind.getByRole("checkbox", { name: /Can see images/ }),
+		).not.toBeChecked();
+		blind.unmount();
+
+		const seeing = renderForm(modelFixture({ capabilitiesJson: seeingJson }));
+		expect(
+			seeing.getByRole("checkbox", { name: /Can see images/ }),
+		).toBeChecked();
+	});
+
+	it("explains what ticking it does", () => {
+		const { getByText } = renderForm(modelFixture());
+
+		expect(
+			getByText(/Alfy sends this model the images people attach/),
+		).toBeInTheDocument();
+	});
+
+	// A screen reader says the name on landing on the box and the description
+	// after it. A label that wraps the explanation as well makes the whole
+	// explanation the name. A string `name` is matched against the whole
+	// accessible name, so these fail when the explanation is part of it.
+	describe("what a screen reader is told about the box", () => {
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		it("names it by its label alone and gives the explanation as its description", () => {
+			const { getByRole } = renderForm(modelFixture());
+
+			const box = getByRole("checkbox", { name: "Can see images" });
+			expect(box).toHaveAccessibleName("Can see images");
+			expect(box).toHaveAccessibleDescription(
+				/^Alfy sends this model the images people attach\./,
+			);
+		});
+
+		it("does the same in Hungarian", () => {
+			uiLanguage.set("hu");
+			const { getByRole } = renderForm(modelFixture());
+
+			const box = getByRole("checkbox", { name: "Lát képeket" });
+			expect(box).toHaveAccessibleName("Lát képeket");
+			expect(box).toHaveAccessibleDescription(
+				/^Alfy elküldi ennek a modellnek a csatolt képeket\./,
+			);
+		});
+
+		it("is ticked by clicking its name", async () => {
+			const { getByRole, getByText } = renderForm(modelFixture());
+			expect(
+				getByRole("checkbox", { name: "Can see images" }),
+			).not.toBeChecked();
+
+			await fireEvent.click(getByText("Can see images"));
+
+			expect(getByRole("checkbox", { name: "Can see images" })).toBeChecked();
+		});
+	});
+
+	it("saves a manual override and keeps the other capabilities when ticked", async () => {
+		const { getByRole, onSave } = renderForm(
+			modelFixture({ capabilitiesJson: '{"tools":"detected"}' }),
+		);
+
+		await fireEvent.click(getByRole("checkbox", { name: /Can see images/ }));
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(onSave.mock.calls[0][0].capabilitiesJson)).toEqual({
+			tools: "detected",
+			imageMessageParts: IMAGE_OVERRIDE,
+		});
+	});
+
+	it("takes the capability out, never writing false, when unticked", async () => {
+		const { getByRole, onSave } = renderForm(
+			modelFixture({ capabilitiesJson: seeingJson }),
+		);
+
+		await fireEvent.click(getByRole("checkbox", { name: /Can see images/ }));
+		expect(getByRole("checkbox", { name: /Can see images/ })).not.toBeChecked();
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(onSave.mock.calls[0][0].capabilitiesJson)).toEqual({
+			tools: "detected",
+		});
+	});
+
+	it("sends the stored capabilities as they were when the box is left alone", async () => {
+		const stored = '{"chat": "detected",  "tools":"detected"}';
+		const { getByRole, onSave } = renderForm(
+			modelFixture({ capabilitiesJson: stored }),
+		);
+
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave.mock.calls[0][0].capabilitiesJson).toBe(stored);
+	});
+
+	it("sends the override with a new model", async () => {
+		const { getByLabelText, getByRole, onSave } = renderForm(null);
+
+		await fireEvent.input(getByLabelText("Model Name"), {
+			target: { value: "vision-model" },
+		});
+		await fireEvent.input(getByLabelText("Display Name"), {
+			target: { value: "Vision Model" },
+		});
+		await fireEvent.click(getByRole("checkbox", { name: /Can see images/ }));
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave).toHaveBeenCalledTimes(1);
+		const saved = onSave.mock.calls[0][0];
+		expect(saved.name).toBe("vision-model");
+		expect(JSON.parse(saved.capabilitiesJson)).toEqual({
+			imageMessageParts: IMAGE_OVERRIDE,
+		});
+	});
+
+	// Saving a model icon while the form is open makes ModelList hand the form a
+	// new model object: the same id, the same stored capabilities, a new
+	// iconAssetId. That is no reason to forget what the admin has ticked, and
+	// forgetting an untick would leave images going to a model that was meant to
+	// stop getting them.
+	it.each([
+		{
+			edit: "tick",
+			stored: '{"tools":"detected"}',
+			ticked: true,
+			saved: { tools: "detected", imageMessageParts: IMAGE_OVERRIDE },
+		},
+		{
+			edit: "untick",
+			stored: seeingJson,
+			ticked: false,
+			saved: { tools: "detected" },
+		},
+	])("keeps an unsaved $edit when an icon is saved while the form is open", async ({
+		stored,
+		ticked,
+		saved,
+	}) => {
+		const model = modelFixture({ capabilitiesJson: stored });
+		const { getByRole, onSave, rerender } = renderForm(model);
+		const box = () => getByRole("checkbox", { name: /Can see images/ });
+
+		await fireEvent.click(box());
+		await rerender({ model: { ...model, iconAssetId: "x" } });
+
+		if (ticked) expect(box()).toBeChecked();
+		else expect(box()).not.toBeChecked();
+
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(onSave.mock.calls[0][0].capabilitiesJson)).toEqual(saved);
+	});
+
+	// A different model, or the same model with other stored capabilities, is a
+	// real change of subject: the box follows the stored value and drops what was
+	// pending. Each row changes one of the two things the form compares.
+	it.each([
+		{
+			change: "another model with capabilities of its own",
+			tickFirst: false,
+			next: { id: "model-2", capabilitiesJson: seeingJson },
+			ticked: true,
+		},
+		{
+			change: "another model with the same stored capabilities",
+			tickFirst: true,
+			next: { id: "model-2", capabilitiesJson: '{"tools":"detected"}' },
+			ticked: false,
+		},
+		{
+			change: "the same model with other stored capabilities",
+			tickFirst: true,
+			next: {
+				id: "model-1",
+				capabilitiesJson: '{"tools":"detected","chat":"detected"}',
+			},
+			ticked: false,
+		},
+	])("follows the stored capabilities of $change", async ({
+		tickFirst,
+		next,
+		ticked,
+	}) => {
+		const { getByRole, rerender } = renderForm(
+			modelFixture({ id: "model-1", capabilitiesJson: '{"tools":"detected"}' }),
+		);
+		const box = () => getByRole("checkbox", { name: /Can see images/ });
+		if (tickFirst) await fireEvent.click(box());
+
+		await rerender({ model: modelFixture(next) });
+
+		if (ticked) expect(box()).toBeChecked();
+		else expect(box()).not.toBeChecked();
+	});
+
+	it("compares against the model it last followed, not the one it opened with", async () => {
+		const { getByRole, rerender } = renderForm(
+			modelFixture({ id: "model-1", capabilitiesJson: '{"tools":"detected"}' }),
+		);
+		const box = () => getByRole("checkbox", { name: /Can see images/ });
+		const second = modelFixture({
+			id: "model-2",
+			capabilitiesJson: seeingJson,
+		});
+
+		await rerender({ model: second });
+		expect(box()).toBeChecked();
+		await fireEvent.click(box());
+		await rerender({ model: { ...second, iconAssetId: "x" } });
+
+		expect(box()).not.toBeChecked();
 	});
 });
 

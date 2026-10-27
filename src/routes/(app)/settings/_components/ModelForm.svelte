@@ -7,6 +7,7 @@ import {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { modelCanSeeImages, setModelImageInput } from "$lib/model-image-input";
 import { focusTrap } from "$lib/utils/focus-trap";
 import type {
 	Provider,
@@ -137,6 +138,27 @@ let formThinkingType = $state(untrack(() => model?.thinkingType ?? ""));
 let formCapabilitiesJson = $state(
 	untrack(() => model?.capabilitiesJson ?? "{}"),
 );
+// Take the capabilities from `model` again only when the form is handed another
+// model, or the same one with other stored capabilities. A new `model` object
+// with the same id and the same stored string is not that: ModelList builds one
+// when an icon is saved while this form is open, and writing the stored string
+// back would drop an unsaved tick or untick (an unticked cloud model would go on
+// getting images). The two values last taken are plain variables, so the effect
+// depends on `model` alone.
+let seededModelId = untrack(() => model?.id ?? null);
+let seededCapabilitiesJson = untrack(() => model?.capabilitiesJson ?? "{}");
+$effect(() => {
+	const id = model?.id ?? null;
+	const stored = model?.capabilitiesJson ?? "{}";
+	if (id === seededModelId && stored === seededCapabilitiesJson) return;
+	seededModelId = id;
+	seededCapabilitiesJson = stored;
+	formCapabilitiesJson = stored;
+});
+// "Can see images" is not a field of its own: it is the image capability inside
+// the capabilities JSON the form already carries, read and written through
+// src/lib/model-image-input.ts.
+let formCanSeeImages = $derived(modelCanSeeImages(formCapabilitiesJson));
 let formInputUsdPer1m = $state(
 	untrack(() => microsToDollars(model?.inputUsdMicrosPer1m)),
 );
@@ -259,6 +281,10 @@ function guideBadgeValue(): "intelligent" | "simple" | null {
 	if (formGuideBadge === "intelligent") return "intelligent";
 	if (formGuideBadge === "simple") return "simple";
 	return null;
+}
+
+function setCanSeeImages(checked: boolean) {
+	formCapabilitiesJson = setModelImageInput(formCapabilitiesJson, checked);
 }
 
 function fallbackProviderModelIdValue(): string | null | undefined {
@@ -715,6 +741,25 @@ async function handleSavePriceWindows() {
 								maxlength="180"
 								placeholder={$t('admin.modelGuideNotePlaceholder')}
 							></textarea>
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-2 border-t border-border pt-3">
+					<!-- The label holds the name alone and the explanation sits beside it, not
+					inside it: a label that wraps both makes the whole explanation the box's
+					accessible name. The box reads it as its description instead. -->
+					<div class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
+						<input
+							id="model-form-can-see-images"
+							type="checkbox"
+							aria-describedby="model-form-can-see-images-description"
+							checked={formCanSeeImages}
+							onchange={(event) => setCanSeeImages(event.currentTarget.checked)}
+						/>
+						<div>
+							<label class="block font-medium" for="model-form-can-see-images">{$t('admin.modelCanSeeImages')}</label>
+							<p id="model-form-can-see-images-description" class="text-xs text-text-muted">{$t('admin.modelCanSeeImagesDescription')}</p>
 						</div>
 					</div>
 				</div>

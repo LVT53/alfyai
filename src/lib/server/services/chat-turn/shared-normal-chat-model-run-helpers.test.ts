@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type {
 	DepthAppliedProfile,
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	listSkillCatalogueEntries: vi.fn(),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 	sendJsonControlMessage: vi.fn(),
+	scheduleImageDescriptions: vi.fn(),
 	resolveTurnInstructions: vi.fn(),
 	skillDraftGuidance:
 		"## Drafting a skill\n<skill_control_v1></skill_control_v1>",
@@ -56,6 +58,10 @@ vi.mock("$lib/server/services/normal-chat-control-model", () => ({
 	sendJsonControlMessage: mocks.sendJsonControlMessage,
 }));
 
+vi.mock("$lib/server/services/vision/describe", () => ({
+	scheduleImageDescriptions: mocks.scheduleImageDescriptions,
+}));
+
 vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 	const actual =
 		await importOriginal<
@@ -63,12 +69,20 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 		>();
 	return {
 		...actual,
-		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+		// Each test hands back only the fields it reads. The real function always
+		// returns the pictures of the message (none when there are none), and the
+		// helper reads them to describe the ones it sends.
+		prepareOutboundChatContext: async (...args: unknown[]) => ({
+			currentImages: [],
+			...(await mocks.prepareOutboundChatContext(...args)),
+		}),
 	};
 });
 
 import {
 	type DepthEffort,
+	estimateTurnPromptTokens,
+	type PreparedModelContext,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolveProviderRuntime,
@@ -416,6 +430,231 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 			"payload",
 			"model1",
 			options,
+		);
+	});
+});
+
+describe("prepareOutboundContext pictures wiring", () => {
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+	});
+
+	const provider = (
+		capabilities: NormalChatModelRunProvider["capabilities"],
+	): NormalChatModelRunProvider => ({
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+		...(capabilities ? { capabilities } : {}),
+	});
+
+	async function collectImagesFor(
+		capabilities: NormalChatModelRunProvider["capabilities"],
+	) {
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in this photo?",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+			overrideProvider: provider(capabilities),
+		};
+		const runtime = await resolveProviderRuntime(params);
+		await prepareOutboundContext(params, runtime, null, new Set());
+		return mocks.prepareOutboundChatContext.mock.lastCall?.[0].collectImages;
+	}
+
+	it("asks for the pictures of a message when the model is marked as able to see", async () => {
+		await expect(
+			collectImagesFor(
+				createModelCapabilitySet({
+					imageMessageParts: {
+						state: "manual_override",
+						supported: true,
+						source: "manual_override",
+					},
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
+	it.each([
+		["no capability evidence", undefined],
+		[
+			"capability evidence that says nothing of images",
+			createModelCapabilitySet({}),
+		],
+		[
+			"an image capability that is not supported",
+			createModelCapabilitySet({
+				imageMessageParts: { state: "not_detected", source: "probe" },
+			}),
+		],
+	])("does not when the model has %s", async (_label, capabilities) => {
+		await expect(collectImagesFor(capabilities)).resolves.toBe(false);
+	});
+});
+
+describe("prepareOutboundContext picture descriptions", () => {
+	const seeingProvider: NormalChatModelRunProvider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+		capabilities: createModelCapabilitySet({
+			imageMessageParts: {
+				state: "manual_override",
+				supported: true,
+				source: "manual_override",
+			},
+		}),
+	};
+	const picture = (name: string) => ({
+		artifactId: `artifact-${name}`,
+		name,
+		image: {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		},
+	});
+
+	async function prepareTurnWith(
+		images: ReturnType<typeof picture>[],
+		schedule: () => unknown = () => undefined,
+	) {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.scheduleImageDescriptions.mockReset();
+		mocks.scheduleImageDescriptions.mockImplementation(schedule);
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			currentImages: images,
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "What is in this photo?",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+			overrideProvider: seeingProvider,
+		};
+		const runtime = await resolveProviderRuntime(params);
+		const prepared = await prepareOutboundContext(
+			params,
+			runtime,
+			null,
+			new Set(),
+		);
+		return { prepared, runtime };
+	}
+
+	it("hands the pictures the model was sent to the describer, once the context is prepared", async () => {
+		const images = [picture("kitchen.jpg"), picture("garden.png")];
+
+		const { prepared, runtime } = await prepareTurnWith(images);
+
+		expect(prepared.currentImages).toBe(images);
+		expect(mocks.scheduleImageDescriptions).toHaveBeenCalledTimes(1);
+		expect(mocks.scheduleImageDescriptions).toHaveBeenCalledWith({
+			userId: "user-1",
+			provider: runtime.provider,
+			images,
+		});
+		expect(
+			mocks.prepareOutboundChatContext.mock.invocationCallOrder[0],
+		).toBeLessThan(mocks.scheduleImageDescriptions.mock.invocationCallOrder[0]);
+	});
+
+	it("asks for no description when the turn carries no picture", async () => {
+		await prepareTurnWith([]);
+
+		expect(mocks.scheduleImageDescriptions).not.toHaveBeenCalled();
+	});
+
+	it("does not wait for the descriptions", async () => {
+		// A describer that never finishes must not hold the turn.
+		await expect(
+			prepareTurnWith([picture("kitchen.jpg")], () => new Promise(() => {})),
+		).resolves.toBeDefined();
+	});
+});
+
+describe("estimateTurnPromptTokens", () => {
+	const prepared = (images: PreparedModelContext["currentImages"]) =>
+		({
+			inputValue: "prepared",
+			turnGuidance: "",
+			historyMessages: [],
+			currentImages: images,
+			systemPrompt: "system",
+		}) as unknown as PreparedModelContext;
+	const picture = (estimatedTokens: number) => ({
+		artifactId: "a",
+		name: "a.jpg",
+		image: {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens,
+		},
+	});
+
+	it("adds what the pictures of the message cost, each by its own size", () => {
+		const without = estimateTurnPromptTokens({
+			prepared: prepared([]),
+			inputValue: "hello",
+			tools: undefined,
+		});
+		const withPictures = estimateTurnPromptTokens({
+			prepared: prepared([picture(1_900), picture(2_500)]),
+			inputValue: "hello",
+			tools: undefined,
+		});
+
+		expect(withPictures - without).toBe(4_400);
+	});
+
+	it("is unchanged for a prepared context that carries no pictures at all", () => {
+		const bare = {
+			inputValue: "prepared",
+			systemPrompt: "system",
+		} as unknown as PreparedModelContext;
+
+		expect(
+			estimateTurnPromptTokens({
+				prepared: bare,
+				inputValue: "hello",
+				tools: undefined,
+			}),
+		).toBe(
+			estimateTurnPromptTokens({
+				prepared: prepared([]),
+				inputValue: "hello",
+				tools: undefined,
+			}),
 		);
 	});
 });

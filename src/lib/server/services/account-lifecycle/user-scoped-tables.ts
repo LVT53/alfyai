@@ -26,6 +26,7 @@ import {
 	conversationWorkingSetItems,
 	documentExtractionJobs,
 	fileProductionJobs,
+	imageDescriptions,
 	importJobs,
 	memoryConsolidationReports,
 	memoryDirtyLedger,
@@ -319,6 +320,18 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "artifact_links",
 		table: artifactLinks,
 		userColumn: artifactLinks.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// What a picture shows, written once for later turns (vision). It has no
+	// reset scope because it belongs to its picture, not to a chat: Clear Memory
+	// and Clear Workspace both hard-delete the artifact rows, and the
+	// `artifact_id` cascade takes the description with them. Full erasure takes it
+	// through the real `ON DELETE CASCADE` to `users.id`.
+	{
+		name: "image_descriptions",
+		table: imageDescriptions,
+		userColumn: imageDescriptions.userId,
 		erasure: "cascade",
 		resets: [],
 	},

@@ -27,6 +27,7 @@ import {
 	isExtractionWaitingForBackend,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
+import { getCategory } from "$lib/shared/file-types";
 
 /**
  * Every row of this table is a library row, so the extraction verdict the
@@ -114,19 +115,58 @@ export function extractionErrorKey(code: ExtractionErrorCode): I18nKey {
 }
 
 /**
+ * An image the reader found no text in. That is a fact about the picture, not
+ * a file that failed to read: it has no words in it, and a chat model that can
+ * see reads it directly. A document with the same verdict really did give no
+ * text, and stays a failure. It is a fact about any image, whatever its
+ * format, so this asks the registry's category and not whether the server can
+ * decode it (which only matters to the chat's send gate).
+ */
+export function isImageWithNoText(
+	file: Pick<KnowledgeDocumentItem, "name" | "mimeType">,
+	job: DocumentExtractionJobDTO,
+): boolean {
+	return (
+		job.status === "failed" &&
+		job.error?.code === "empty_result" &&
+		getCategory(file.name, file.mimeType) === "image"
+	);
+}
+
+/**
+ * The label of the Status cell for this file's job: "No text" for an image the
+ * reader found none in, otherwise the job's own status.
+ */
+export function extractionRowStatusKey(
+	file: Pick<KnowledgeDocumentItem, "name" | "mimeType">,
+	job: DocumentExtractionJobDTO,
+): I18nKey {
+	return isImageWithNoText(file, job)
+		? "knowledge.extraction.status.noText"
+		: extractionStatusKey(job.status);
+}
+
+/**
  * The sentence under a failed row — or under a queued one that is waiting for
  * a backend that is down, which is the one non-terminal state that owes the
  * user an explanation. "Queued" alone, for half an hour, looks like a stuck
  * app; "the document service is not reachable right now, we'll keep trying" is
  * the truth and needs no action from them.
+ *
+ * Given the file, an image the reader found no text in gets the plain fact
+ * that it has none (`isImageWithNoText`).
  */
 export function extractionDetailKey(
 	job: DocumentExtractionJobDTO,
+	file?: Pick<KnowledgeDocumentItem, "name" | "mimeType">,
 ): I18nKey | null {
 	if (isExtractionWaitingForBackend(job)) {
 		return "knowledge.extraction.status.waitingForBackend";
 	}
 	if (job.status !== "failed" && job.status !== "canceled") return null;
+	if (file && isImageWithNoText(file, job)) {
+		return "knowledge.extraction.error.imageNoText";
+	}
 	if (!job.error) {
 		return job.status === "canceled"
 			? EXTRACTION_ERROR_KEYS.canceled

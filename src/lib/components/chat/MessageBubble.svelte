@@ -33,6 +33,7 @@ import {
 import {
 	isThoughtStepActivityEntry,
 	isToolProgressActivity,
+	viewingImagesCount,
 } from "$lib/utils/activity-presentation";
 import type {
 	AtlasAction,
@@ -496,9 +497,20 @@ let resolvedDepthProfile = $derived(
 // scan means the LATEST recognized entry always wins: once real progress
 // (drafting-answer) is emitted, it naturally supersedes a stale
 // acknowledgment without any extra bookkeeping — identical to how
-// context-preparing already gets superseded by drafting-answer today.
+// context-preparing already gets superseded by drafting-answer today. The one
+// exception is the vision line, which is looked for first (below).
 let liveEarlyResponseActivityLabel = $derived.by((): string | null => {
-	for (const entry of [...liveResponseActivityEntries].reverse()) {
+	const latestFirst = [...liveResponseActivityEntries].reverse();
+	// Alfy reading the message's pictures is the most specific thing the line can
+	// say while the model works, so it is looked for first. The server sends it
+	// just before the model call and the drafting entry right after, and by order
+	// alone "drafting" would win at once and the line would never be seen. It
+	// goes with the whole status line when the first words or thoughts arrive.
+	for (const entry of latestFirst) {
+		const label = getViewingImagesLabel(entry);
+		if (label) return label;
+	}
+	for (const entry of latestFirst) {
 		const label = getKnownEarlyResponseActivityLabel(entry);
 		if (label) return label;
 	}
@@ -595,6 +607,18 @@ function getKnownEarlyResponseActivityLabel(
 		return $t("chat.responseActivity.drafting");
 	}
 	return getTurnAcknowledgmentLabel(entry);
+}
+
+// The vision line: "Looking at the image…" for one picture, "Looking at 2
+// images…" for several. The entry carries only a count (the server sends nothing
+// else about the pictures), and a count that is not a whole number of at least
+// one is not said (viewingImagesCount), so the line falls back to the generic one.
+function getViewingImagesLabel(entry: ResponseActivityEntry): string | null {
+	const count = viewingImagesCount(entry);
+	if (count === null) return null;
+	return count === 1
+		? $t("chat.responseActivity.viewingImage")
+		: $t("chat.responseActivity.viewingImages", { count });
 }
 
 // P2 (ADR-0056) — one localized template per closed intent class, each with

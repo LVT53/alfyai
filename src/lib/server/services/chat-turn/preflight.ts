@@ -16,6 +16,7 @@ import {
 } from "$lib/server/services/linked-context-sources";
 import { resolvePendingSkillApplication } from "$lib/server/services/skills/prompt-context";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { resolveReasoningDepthSelection } from "./depth-selection";
@@ -93,10 +94,18 @@ async function prepareChatTurn(params: {
 	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
 	const { userId, request } = params;
+	// A model that can see needs no extracted text to be shown a picture, so the
+	// send gate lets the pictures it can be shown through (knowledge/store/
+	// attachments.ts decides which). Asked once, for the turn's own model, and
+	// only when something is attached: a turn with nothing to check pays nothing.
+	const exemptImages =
+		request.attachmentIds.length > 0 &&
+		(await modelIdCanSeeImages(request.modelId));
 	const attachmentValidation = await validateAttachmentReadiness(
 		userId,
 		request,
 		params.signal,
+		{ exemptImages },
 	);
 	if (attachmentValidation) return attachmentValidation;
 
@@ -293,15 +302,28 @@ async function waitForPendingExtractions(params: {
  * seconds. The readiness check says which of the three refusals it is; this
  * adds the one thing it cannot do from inside a resolution pass, which is to
  * wait a moment and ask again.
+ *
+ * For a model that can see (`exemptImages`) a picture it can be shown needs no
+ * text, so it is neither refused nor waited for: the check does not name it, and
+ * only the attachments it does name are looked up and waited on.
  */
 async function validateAttachmentReadiness(
 	userId: string,
 	request: ParsedChatTurnRequest,
 	signal?: AbortSignal,
+	options: {
+		/**
+		 * The turn's model can see pictures, so one it can be shown never blocks
+		 * the send and is never waited for. Atlas reads its sources as text and
+		 * does not pass it.
+		 */
+		exemptImages?: boolean;
+	} = {},
 ): Promise<PreflightError | null> {
 	if (request.attachmentIds.length === 0) return null;
+	const exemptImages = options.exemptImages === true;
 
-	const failure = await assertReadiness(userId, request);
+	const failure = await assertReadiness(userId, request, exemptImages);
 	if (!failure) return null;
 
 	if (failure.code !== "attachment_extraction_pending") {
@@ -322,7 +344,7 @@ async function validateAttachmentReadiness(
 
 	await waitForPendingExtractions({ userId, jobs: waitable, budgetMs, signal });
 
-	const settledFailure = await assertReadiness(userId, request);
+	const settledFailure = await assertReadiness(userId, request, exemptImages);
 	return settledFailure ? toPreflightError(settledFailure) : null;
 }
 
@@ -358,6 +380,7 @@ function toPreflightError(failure: AttachmentReadinessFailure): PreflightError {
 async function assertReadiness(
 	userId: string,
 	request: ParsedChatTurnRequest,
+	exemptImages: boolean,
 ): Promise<AttachmentReadinessFailure | null> {
 	try {
 		await assertPromptReadyAttachments({
@@ -365,6 +388,7 @@ async function assertReadiness(
 			conversationId: request.conversationId,
 			attachmentIds: request.attachmentIds,
 			traceId: request.attachmentTraceId,
+			exemptImages,
 		});
 		return null;
 	} catch (error) {

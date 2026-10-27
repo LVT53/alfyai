@@ -40,6 +40,7 @@ const basePreparedContext: PreparedContext = {
 	inputValue: "Prepared user prompt",
 	turnGuidance: "",
 	historyMessages: [],
+	currentImages: [],
 	systemPrompt: "Prepared system prompt",
 	contextStatus: undefined,
 	taskState: null,

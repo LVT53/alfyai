@@ -97,6 +97,12 @@ export type SessionHistoryBudgetInput = {
 	contextBudget: Pick<ModelContextBudget, "targetConstructedContext">;
 	minTotalBudget?: number;
 	minRecentTurnCount?: number;
+	/**
+	 * Tokens the pictures of the current message take (each one by its own
+	 * prepared size, vision/turn-images.ts). The history gives them up, down to
+	 * its floor, because the pictures ride in the newest turn.
+	 */
+	pictureTokens?: number;
 };
 
 export type SessionHistoryBudget = {
@@ -379,12 +385,13 @@ export function deriveSessionHistoryBudget(
 		1,
 		Math.floor(input.minRecentTurnCount ?? 1),
 	);
+	const pictureTokens = Math.max(0, Math.floor(input.pictureTokens ?? 0));
 	const modelScaledBudget = Math.max(
 		minTotalBudget,
 		Math.floor(
 			input.contextBudget.targetConstructedContext *
 				SESSION_HISTORY_TARGET_CONTEXT_RATIO,
-		),
+		) - pictureTokens,
 	);
 	const totalBudget = Math.min(
 		input.contextBudget.targetConstructedContext,

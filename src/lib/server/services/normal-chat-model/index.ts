@@ -24,6 +24,7 @@ import {
 	type ModelCapabilityKey,
 	type ModelCapabilitySet,
 } from "$lib/model-capabilities";
+import { readModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
@@ -39,6 +40,15 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "../providers";
+import {
+	providerCanSeeImages,
+	providerRunsLocally,
+} from "../vision/provider-vision";
+import {
+	buildVisionPrepareStep,
+	type StepImageQueue,
+} from "../vision/step-images";
+import { stripImageParts } from "../vision/turn-images";
 import {
 	isRetryableNormalChatFallbackError,
 	resolveNormalChatFallbackTargetModelId,
@@ -164,6 +174,57 @@ function buildFirstStepOnlyPrepareStep(
 	return ({ stepNumber }) => (stepNumber === 0 ? { toolChoice } : {});
 }
 
+// Runs the given step functions in order for one step and merges what they
+// return, each seeing the messages the ones before it left. A step that returns
+// nothing leaves the step as it is. With one function it is that function, with
+// none `undefined`, so a run without extra steps is the run it always was.
+function composePrepareSteps(
+	...steps: Array<PrepareStepFunction<ToolSet> | undefined>
+): PrepareStepFunction<ToolSet> | undefined {
+	const active = steps.filter(
+		(step): step is PrepareStepFunction<ToolSet> => step !== undefined,
+	);
+	if (active.length <= 1) return active[0];
+	return async (options) => {
+		let merged: NonNullable<Awaited<ReturnType<PrepareStepFunction<ToolSet>>>> =
+			{};
+		let messages = options.messages;
+		for (const step of active) {
+			const result = await step({ ...options, messages });
+			if (!result) continue;
+			merged = { ...merged, ...result };
+			if (result.messages) messages = result.messages;
+		}
+		return merged;
+	};
+}
+
+// Every step function one attempt needs, built for the provider that attempt
+// runs on: the forced first-step tool choice, and the one that hands the model
+// the pictures a tool queued (the photos tool's Immich thumbnails). The latter
+// asks THIS attempt's provider whether it can see and whether it runs on the
+// person's own box, whatever the model before it could do: a fallback that
+// cannot see gets the label and a note in place of the pixels, and pictures
+// cleared for the box only (the person keeps connector data local) are sent to a
+// fallback on another host neither as pixels nor with the photos' names
+// (vision/AGENTS.md, Failover).
+function buildAttemptPrepareStep(params: {
+	provider: NormalChatModelRunProvider;
+	firstStepToolChoice?: ToolChoice<ToolSet>;
+	stepImages?: StepImageQueue;
+}): PrepareStepFunction<ToolSet> | undefined {
+	return composePrepareSteps(
+		buildFirstStepOnlyPrepareStep(params.firstStepToolChoice),
+		params.stepImages
+			? buildVisionPrepareStep({
+					queue: params.stepImages,
+					providerCanSee: providerCanSeeImages(params.provider),
+					providerIsLocal: providerRunsLocally(params.provider),
+				})
+			: undefined,
+	);
+}
+
 function readDoneToolSummary(input: unknown): string | null {
 	if (!input || typeof input !== "object" || Array.isArray(input)) return null;
 	const summary = (input as Record<string, unknown>).summary;
@@ -269,6 +330,12 @@ export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	// automatic. Distinct from `toolChoice`, which (when set) applies to
 	// every step for the run's whole lifetime.
 	firstStepToolChoice?: ToolChoice<ToolSet>;
+	// The turn's pictures a tool queued for the model to see (the photos tool's
+	// Immich thumbnails). A tool result reaches the model as text, so each
+	// attempt hands them over in a user message that follows the result, in the
+	// next step, built for the model that attempt runs on (see
+	// buildAttemptPrepareStep). Only used with `tools`.
+	stepImages?: StepImageQueue;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 };
@@ -278,6 +345,8 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	toolChoice?: ToolChoice<ToolSet>;
 	// See PlainNormalChatModelRunParams.firstStepToolChoice.
 	firstStepToolChoice?: ToolChoice<ToolSet>;
+	// See PlainNormalChatModelRunParams.stepImages.
+	stepImages?: StepImageQueue;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 	firstOutputTimeoutMs?: number | null;
@@ -504,14 +573,51 @@ function parseProviderModelCapabilities(
 		);
 		if (entries.length === 0) return undefined;
 
-		return createModelCapabilitySet(
-			Object.fromEntries(
-				entries.map((key) => [key, (parsed as Record<string, unknown>)[key]]),
+		return withStoredImageInput(
+			createModelCapabilitySet(
+				Object.fromEntries(
+					entries.map((key) => [key, (parsed as Record<string, unknown>)[key]]),
+				),
 			),
+			json,
 		);
 	} catch {
 		return undefined;
 	}
+}
+
+// "Can see images" is the one capability two readers decide on: the admin form
+// and the model list read the stored entry with modelCanSeeImages
+// (model-image-input.ts), and a chat turn reads the provider built here. The
+// strict builder above only understands the status object a probe writes, so an
+// entry saved as "detected", as a bare true or as an object without a state
+// would read as unknown here and as ticked there (and the reverse for a state
+// that its own supported value contradicts). The image entry therefore takes the
+// admin's reading: readModelImageInput, which modelCanSeeImages takes its yes
+// from, with all three of its answers, a yes, an explicit no and nothing said.
+// (The boolean would turn the last two into one, and a whole capability set that
+// knows nothing about images must stay unknown.) Every other key keeps the
+// strict reading: a string or a bare boolean there has always read as unknown,
+// and the tools fallback depends on it.
+function withStoredImageInput(
+	capabilities: ModelCapabilitySet,
+	json: string,
+): ModelCapabilitySet {
+	const stored = readModelImageInput(json);
+	if (capabilities.imageMessageParts.supported === stored) return capabilities;
+	return {
+		...capabilities,
+		imageMessageParts: createModelCapabilitySet({
+			imageMessageParts:
+				stored === null
+					? { state: "unknown", source: capabilities.imageMessageParts.source }
+					: {
+							state: "manual_override",
+							supported: stored,
+							source: "manual_override",
+						},
+		}).imageMessageParts,
+	};
 }
 
 function builtinModelRunProvider(
@@ -1132,6 +1238,17 @@ function isUnsupportedToolsRequestError(error: unknown): boolean {
 	return referencesTools && rejectsRequestShape;
 }
 
+// A model that cannot see is never sent a picture, whichever attempt it is
+// (vision/AGENTS.md, Failover): the primary may be ticked "Can see images" and
+// the fallback it fails over to not, or be a cloud model nobody ticked. Both the
+// plain loop and the streaming failover build every attempt's messages here.
+function messagesForAttempt(
+	messages: ModelMessage[],
+	provider: NormalChatModelRunProvider,
+): ModelMessage[] {
+	return providerCanSeeImages(provider) ? messages : stripImageParts(messages);
+}
+
 export async function runPlainNormalChatModelRun(
 	params: PlainNormalChatModelRunParams,
 ): Promise<PlainNormalChatModelRunResult> {
@@ -1173,10 +1290,15 @@ export async function runPlainNormalChatModelRun(
 				}, attemptTimeoutMs)
 			: null;
 		attemptTimeoutId?.unref?.();
+		const attemptMessages = messagesForAttempt(
+			params.messages,
+			currentProvider,
+		);
 		const attemptParams = {
 			...params,
 			provider: currentProvider,
 			modelId: currentModelId as ModelId,
+			messages: attemptMessages,
 			abortSignal: combineAbortSignals(
 				params.abortSignal,
 				attemptTimeoutController?.signal,
@@ -1186,7 +1308,7 @@ export async function runPlainNormalChatModelRun(
 				currentProvider,
 				{
 					modelId: currentModelId,
-					messages: params.messages,
+					messages: attemptMessages,
 					system: params.system,
 					tools: params.tools,
 					toolChoice: params.toolChoice,
@@ -1269,7 +1391,7 @@ async function runPlainNormalChatModelRunAttempt(
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
 	const prepareStep = params.tools
-		? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
+		? buildAttemptPrepareStep(params)
 		: undefined;
 	const sampling = resolveModelCallSampling(params.provider);
 
@@ -1411,10 +1533,15 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			if (!firstOutputTimeoutId) return;
 			clearTimeout(firstOutputTimeoutId);
 		};
+		const attemptMessages = messagesForAttempt(
+			params.messages,
+			currentProvider,
+		);
 		const attemptParams = {
 			...params,
 			provider: currentProvider,
 			modelId: currentModelId as ModelId,
+			messages: attemptMessages,
 			abortSignal: combineAbortSignals(
 				params.abortSignal,
 				attemptAbortController?.signal,
@@ -1424,7 +1551,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 				currentProvider,
 				{
 					modelId: currentModelId,
-					messages: params.messages,
+					messages: attemptMessages,
 					system: params.system,
 					tools: params.tools,
 					toolChoice: params.toolChoice,
@@ -1594,9 +1721,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		tools,
 		toolChoice: params.toolChoice,
 		stopWhen: toolStopWhen,
-		prepareStep: tools
-			? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
-			: undefined,
+		prepareStep: tools ? buildAttemptPrepareStep(params) : undefined,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		temperature: sampling.temperature,
 		topP: sampling.topP,

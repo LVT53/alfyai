@@ -1,7 +1,9 @@
+export type { PromptAttachmentResolutionItem } from "./store/attachments";
 export {
 	AttachmentReadinessError,
 	assertPromptReadyAttachments,
 	attachArtifactsToMessage,
+	blockingAttachmentItems,
 	isAttachmentReadinessError,
 	listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames,

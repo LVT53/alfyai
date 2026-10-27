@@ -88,6 +88,12 @@ import {
 	hasSourceHost,
 	resetUrlProvenanceForTests,
 } from "./url-provenance";
+import {
+	CANNOT_SEE_IMAGES_GUIDANCE,
+	noTurnImages,
+	type TurnImage,
+	type TurnImages,
+} from "./vision/turn-images";
 
 const modelConfig = {
 	baseUrl: "http://local-model/v1",
@@ -119,8 +125,24 @@ type ConstructedContextTestResult = {
 	taskState: unknown;
 	contextDebug: unknown;
 	contextTraceSections: unknown[];
+	turnImages: TurnImages;
 	_reuseData: unknown;
 };
+
+/** A prepared picture of the current message, as big as its token cost says. */
+function pictureOf(name: string, estimatedTokens: number): TurnImage {
+	return {
+		artifactId: `artifact-${name}`,
+		name,
+		image: {
+			base64: "QUJD",
+			mediaType: "image/jpeg",
+			width: 64,
+			height: 48,
+			estimatedTokens,
+		},
+	};
+}
 
 function createConstructedContextResult(
 	inputValue: string,
@@ -134,6 +156,7 @@ function createConstructedContextResult(
 		taskState: null,
 		contextDebug: null,
 		contextTraceSections: [],
+		turnImages: noTurnImages(),
 		_reuseData: undefined,
 		...overrides,
 	};
@@ -2288,6 +2311,80 @@ describe("prepareOutboundChatContext", () => {
 			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
 		});
 
+		it("counts the pictures of the current message, each by its own size", async () => {
+			const turnImages: TurnImages = {
+				images: [
+					pictureOf("wide.jpg", 11_000),
+					pictureOf("square.jpg", 12_000),
+				],
+				heldBack: [],
+				notShown: [],
+				hasImageAttachments: true,
+			};
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nUse them.", {
+					turnImages,
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			const info = vi
+				.spyOn(console, "info")
+				.mockImplementation(() => undefined);
+
+			try {
+				await prepareOutboundChatContext({
+					message: "Use them.",
+					sessionId: "conv-1",
+					modelConfig,
+					user: { id: "user-1" },
+					modelId: "model1",
+					collectImages: true,
+					contextLimits: limits,
+					compressionControlMessageSender: vi.fn() as never,
+					logLabel: "provider request",
+				});
+
+				// The text is a few tokens; the 23,000 of the two pictures are what
+				// puts the prompt over the 20,000-token target.
+				expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+				expect(info).toHaveBeenCalledWith(
+					"[NORMAL_CHAT_CONTEXT] Running automatic context compression before model call",
+					expect.objectContaining({ trigger: "prompt_over_budget" }),
+				);
+			} finally {
+				info.mockRestore();
+			}
+		});
+
+		it("does not compress for pictures that fit", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nUse them.", {
+					turnImages: {
+						images: [pictureOf("wide.jpg", 1_900)],
+						heldBack: [],
+						notShown: [],
+						hasImageAttachments: true,
+					},
+				}),
+			);
+
+			await prepareOutboundChatContext({
+				message: "Use them.",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				collectImages: true,
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
 		it("keeps the newest turns out of the snapshot so the next reply still sees them verbatim", async () => {
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("## Current User Message\nWhat next?", {
@@ -2668,6 +2765,307 @@ describe("prepareOutboundChatContext", () => {
 			expect(mocks.runContextCompression).not.toHaveBeenCalled();
 			expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(1);
 			expect(prepared.historyMessages).toHaveLength(2);
+		});
+	});
+
+	describe("the pictures of the current message", () => {
+		const limits = {
+			maxModelContext: 262_144,
+			compactionUiThreshold: 209_715,
+			targetConstructedContext: 157_286,
+		};
+		const turn = (
+			overrides: Partial<Parameters<typeof prepareOutboundChatContext>[0]> = {},
+		) => ({
+			message: "What are these?",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model1" as const,
+			contextLimits: limits,
+			logLabel: "provider request",
+			...overrides,
+		});
+		const withPictures = (turnImages: Partial<TurnImages>) =>
+			createConstructedContextResult(
+				"## Current User Message\nWhat are these?",
+				{
+					turnImages: { ...noTurnImages(), ...turnImages },
+				},
+			);
+
+		it("hands the prepared pictures back as currentImages", async () => {
+			const images = [pictureOf("a.jpg", 100), pictureOf("b.jpg", 100)];
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				withPictures({ images, hasImageAttachments: true }),
+			);
+
+			const prepared = await prepareOutboundChatContext(
+				turn({ collectImages: true }),
+			);
+
+			expect(prepared.currentImages).toEqual(images);
+		});
+
+		it("has no pictures when there is no constructed context to take them from", async () => {
+			const prepared = await prepareOutboundChatContext({
+				message: "Hello",
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				collectImages: true,
+				contextLimits: limits,
+				logLabel: "provider request",
+			});
+
+			expect(prepared.currentImages).toEqual([]);
+			expect(prepared.turnGuidance).not.toContain("attached");
+		});
+
+		it.each([
+			["can see", true],
+			["cannot see", false],
+		])("asks the context to prepare them only when the model %s", async (_label, canSee) => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
+
+			await prepareOutboundChatContext(turn({ collectImages: canSee }));
+
+			expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+				expect.objectContaining({ collectImages: canSee }),
+			);
+		});
+
+		it("rebuilds a compressed context with the same picture setting", async () => {
+			const reuseData = {
+				relevantArtifacts: [],
+				preparedContext: null,
+				artifactSnippets: new Map(),
+				turnImages: noTurnImages(),
+			};
+			mocks.buildConstructedContext
+				.mockResolvedValueOnce(
+					createConstructedContextResult(
+						"## Current User Message\nSummarize this context.",
+						{
+							_reuseData: reuseData,
+							historyWindow: { includedTurnCount: 4, omittedTurnCount: 6 },
+						},
+					),
+				)
+				.mockResolvedValueOnce(createConstructedContextResult("compressed"));
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+				{
+					id: "m1",
+					messageSequence: 1,
+					role: "user",
+					content: "Earlier conversation context. ".repeat(20_000),
+					thinking: null,
+					toolCalls: null,
+				},
+			]);
+
+			const info = vi
+				.spyOn(console, "info")
+				.mockImplementation(() => undefined);
+
+			try {
+				await prepareOutboundChatContext(
+					turn({
+						collectImages: true,
+						contextLimits: {
+							maxModelContext: 50_000,
+							compactionUiThreshold: 40_000,
+							targetConstructedContext: 20_000,
+						},
+						compressionControlMessageSender: vi.fn() as never,
+					}),
+				);
+			} finally {
+				info.mockRestore();
+			}
+
+			expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+			const [[first], [rebuild]] = mocks.buildConstructedContext.mock.calls;
+			expect(first).toMatchObject({ collectImages: true });
+			expect(rebuild).toEqual({ ...first, reuseFrom: reuseData });
+		});
+
+		describe("tell the model, in the turn guidance after the message", () => {
+			it("that it cannot see, when an image is attached and it cannot", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({ hasImageAttachments: true }),
+				);
+
+				const prepared = await prepareOutboundChatContext(turn());
+
+				expect(prepared.turnGuidance).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.currentImages).toEqual([]);
+				// Not in the system prompt: it is a fact about this message.
+				expect(prepared.systemPrompt).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(
+					appendTurnGuidance(prepared.inputValue, prepared.turnGuidance),
+				).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+			});
+
+			it("which pictures the limit left out, when it can see", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({
+						images: [pictureOf("a.jpg", 100)],
+						heldBack: ["b.jpg", "c.jpg"],
+						hasImageAttachments: true,
+					}),
+				);
+
+				const prepared = await prepareOutboundChatContext(
+					turn({ collectImages: true }),
+				);
+
+				expect(prepared.turnGuidance).toContain(
+					"2 more attached images were not sent as pictures because of the limit: b.jpg, c.jpg.",
+				);
+				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+			});
+
+			it("which pictures it could not be shown, one line each, when it can see", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({
+						images: [pictureOf("a.jpg", 100)],
+						notShown: ["scan.bmp", "broken.png"],
+						hasImageAttachments: true,
+					}),
+				);
+
+				const prepared = await prepareOutboundChatContext(
+					turn({ collectImages: true }),
+				);
+
+				expect(prepared.turnGuidance).toContain(
+					"The user attached scan.bmp, but it could not be shown to you.",
+				);
+				expect(prepared.turnGuidance).toContain(
+					"The user attached broken.png, but it could not be shown to you.",
+				);
+				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.systemPrompt).not.toContain(
+					"could not be shown to you",
+				);
+			});
+
+			it("only the cannot-see line, when it cannot see", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({ notShown: ["scan.bmp"], hasImageAttachments: true }),
+				);
+
+				const prepared = await prepareOutboundChatContext(turn());
+
+				expect(prepared.turnGuidance).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.turnGuidance).not.toContain(
+					"could not be shown to you",
+				);
+			});
+
+			it("nothing about pictures when none is attached", async () => {
+				for (const collectImages of [true, false]) {
+					mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
+					const prepared = await prepareOutboundChatContext(
+						turn({ collectImages }),
+					);
+					expect(prepared.turnGuidance).not.toContain(
+						CANNOT_SEE_IMAGES_GUIDANCE,
+					);
+					expect(prepared.turnGuidance).not.toContain("not sent as pictures");
+				}
+			});
+
+			it("nothing about pictures when every one was sent", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({
+						images: [pictureOf("a.jpg", 100)],
+						hasImageAttachments: true,
+					}),
+				);
+
+				const prepared = await prepareOutboundChatContext(
+					turn({ collectImages: true }),
+				);
+
+				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+				expect(prepared.turnGuidance).not.toContain("not sent as pictures");
+			});
+
+			it("nothing at all for a call that skips the default runtime guidance", async () => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					withPictures({ hasImageAttachments: true }),
+				);
+
+				const prepared = await prepareOutboundChatContext(
+					turn({ skipDefaultRuntimeGuidance: true }),
+				);
+
+				expect(prepared.turnGuidance).toBe("");
+			});
+		});
+
+		describe("share the prompt budget with the text", () => {
+			const small = {
+				maxModelContext: 10_000,
+				compactionUiThreshold: 8_000,
+				targetConstructedContext: 8_000,
+			};
+			// About 5,000 estimated tokens of text: it fits this budget alone.
+			const packet = `## Current User Message\n${"word ".repeat(5_000)}`;
+			const squeeze = (turnImages: Partial<TurnImages>) => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					createConstructedContextResult(packet, {
+						turnImages: { ...noTurnImages(), ...turnImages },
+					}),
+				);
+				return prepareOutboundChatContext(
+					turn({
+						message: "word ".repeat(5_000),
+						modelConfig: { ...modelConfig, maxTokens: 1_000 },
+						contextLimits: small,
+						collectImages: true,
+					}),
+				);
+			};
+
+			const outputBudgetOf = (
+				prepared: Awaited<ReturnType<typeof prepareOutboundChatContext>>,
+			) => {
+				if (!prepared.outputTokenBudget) throw new Error("no output budget");
+				return prepared.outputTokenBudget;
+			};
+
+			it("keeps the whole text when there are no pictures", async () => {
+				const prepared = await squeeze({});
+
+				expect(prepared.inputValue).toBe(packet);
+				expect(outputBudgetOf(prepared).effectiveMaxTokens).toBe(1_000);
+			});
+
+			it("cuts the text to leave room for the pictures, each by its own size", async () => {
+				const prepared = await squeeze({
+					images: [pictureOf("a.jpg", 1_900), pictureOf("b.jpg", 1_100)],
+					hasImageAttachments: true,
+				});
+
+				expect(prepared.inputValue.length).toBeLessThan(packet.length);
+				expect(estimateTokenCount(prepared.inputValue)).toBeLessThan(
+					estimateTokenCount(packet),
+				);
+			});
+
+			it("counts them in what the message costs when it sizes the answer", async () => {
+				const prepared = await squeeze({
+					images: [pictureOf("a.jpg", 12_000)],
+					hasImageAttachments: true,
+				});
+
+				const budget = outputBudgetOf(prepared);
+				expect(budget.effectiveMaxTokens).toBeLessThan(1_000);
+				expect(budget.outputReserveClamped).toBe(true);
+			});
 		});
 	});
 
