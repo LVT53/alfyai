@@ -15,6 +15,7 @@
 import { untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
 import { thumbWidth } from "$lib/shared/artifacts/image-body";
+import "./checkerboard.css";
 
 let {
 	fileId,
@@ -172,19 +173,12 @@ function markShown(id: string, event: TransitionEvent): void {
 		width: 100%;
 		overflow: hidden;
 		border-radius: inherit;
-		background: var(--surface-elevated);
 	}
 
-	/* What is see-through shows as a checkerboard, in both themes (F8). */
-	.image-checkerboard {
-		background-color: var(--checker-a);
-		background-image: conic-gradient(
-			var(--checker-b) 25%,
-			var(--checker-a) 0 50%,
-			var(--checker-b) 0 75%,
-			var(--checker-a) 0
-		);
-		background-size: 16px 16px;
+	/* An opaque picture waits on the surface; a see-through one on the shared
+	   checkerboard (`checkerboard.css`). */
+	.image-picture:not(.image-checkerboard) {
+		background: var(--surface-elevated);
 	}
 
 	.image-picture-thumb.image-checkerboard {

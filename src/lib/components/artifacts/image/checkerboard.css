@@ -1,0 +1,15 @@
+/*
+ * What is see-through shows as a checkerboard, in both themes (plan 2b F8):
+ * the one look for a transparent picture, wherever it is drawn (`ImagePicture`,
+ * History's `CompareWipe`). Global on purpose, under a name of its own.
+ */
+.image-checkerboard {
+	background-color: var(--checker-a);
+	background-image: conic-gradient(
+		var(--checker-b) 25%,
+		var(--checker-a) 0 50%,
+		var(--checker-b) 0 75%,
+		var(--checker-a) 0
+	);
+	background-size: 16px 16px;
+}

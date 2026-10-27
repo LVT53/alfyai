@@ -90,9 +90,15 @@ describe("ImagePicture", () => {
 	});
 
 	it("draws the checkerboard with its own tokens, which each theme sets (Review Focus 2, F8)", () => {
-		const source = readFileSync(path.join(here, "ImagePicture.svelte"), "utf8");
+		// One shared look (checkerboard.css), used by the picture and History's wipe.
+		const source = readFileSync(path.join(here, "checkerboard.css"), "utf8");
 		expect(source).toContain("var(--checker-a)");
 		expect(source).toContain("var(--checker-b)");
+		for (const user of ["ImagePicture.svelte", "CompareWipe.svelte"]) {
+			expect(readFileSync(path.join(here, user), "utf8")).toContain(
+				'import "./checkerboard.css";',
+			);
+		}
 		const css = readFileSync(path.join(here, "../../../../app.css"), "utf8");
 		const light = css.indexOf("--checker-a: #ffffff");
 		const dark = css.indexOf("--checker-a: #2a2a2a");

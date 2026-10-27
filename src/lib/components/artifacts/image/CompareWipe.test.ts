@@ -7,8 +7,9 @@ import CompareWipe from "./CompareWipe.svelte";
 // a native range input (keyboard and touch come with it); the position is
 // written to `clip-path` in an animation frame, never through a transition.
 
-function renderWipe(position = 50) {
+function renderWipe(position = 50, hasAlpha = false) {
 	return render(CompareWipe, {
+		hasAlpha,
 		beforeUrl: "/api/images/files/file-1",
 		afterUrl: "/api/images/files/file-2",
 		width: 1248,
@@ -59,5 +60,41 @@ describe("CompareWipe", () => {
 	it("says where it stands to a screen reader", () => {
 		renderWipe(30);
 		expect(range().getAttribute("aria-valuetext")).toBe("30%");
+	});
+
+	it("clips the older picture to its own side of the cut, so a see-through newer one never shows it", async () => {
+		renderWipe(50);
+		await fireEvent.input(range(), { target: { value: "30" } });
+		await waitFor(() =>
+			expect(screen.getByTestId("compare-wipe-under").style.clipPath).toBe(
+				"inset(0 70% 0 0)",
+			),
+		);
+		expect(top().style.clipPath).toBe("inset(0 0 0 30%)");
+		expect(screen.getByTestId("compare-wipe-under").style.transition).toBe("");
+		// The older picture and its marks are inside the clipped side.
+		expect(
+			screen
+				.getByTestId("compare-wipe-under")
+				.contains(screen.getByTestId("compare-wipe-before")),
+		).toBe(true);
+	});
+
+	it("draws the checkerboard behind both pictures when one is see-through", () => {
+		renderWipe(50, true);
+		expect(
+			screen
+				.getByTestId("compare-wipe")
+				.classList.contains("image-checkerboard"),
+		).toBe(true);
+	});
+
+	it("draws no checkerboard for two opaque pictures", () => {
+		renderWipe(50, false);
+		expect(
+			screen
+				.getByTestId("compare-wipe")
+				.classList.contains("image-checkerboard"),
+		).toBe(false);
 	});
 });
