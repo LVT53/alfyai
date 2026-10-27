@@ -1123,6 +1123,8 @@ const artifactsDict = {
 		"artifacts.image.card.madeFrom": "Made from",
 		"artifacts.image.card.seeThrough": "See-through background",
 		"artifacts.image.card.takeAlt": "{title}, take {number}",
+		"artifacts.image.card.actionFailed":
+			"That didn't work. Try again in a moment.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -2053,6 +2055,8 @@ const artifactsDict = {
 		"artifacts.image.card.madeFrom": "Ebből készült",
 		"artifacts.image.card.seeThrough": "Átlátszó háttér",
 		"artifacts.image.card.takeAlt": "{title}, {number}. változat",
+		"artifacts.image.card.actionFailed":
+			"Ez most nem sikerült. Próbáld újra egy kicsit később.",
 	},
 } as const;
 

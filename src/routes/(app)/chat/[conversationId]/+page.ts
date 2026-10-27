@@ -90,6 +90,7 @@ export const load: PageLoad = async ({
 		generatedFiles: detail.generatedFiles ?? [],
 		fileProductionJobs: detail.fileProductionJobs ?? [],
 		artifacts: detail.artifacts ?? [],
+		imageCards: detail.imageCards ?? [],
 		deletedArtifactIds: detail.deletedArtifactIds ?? [],
 		unreachableArtifactIds: detail.unreachableArtifactIds ?? [],
 		atlasJobs: detail.atlasJobs ?? [],

@@ -19,6 +19,10 @@ import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageBubble from "./MessageBubble.svelte";
 
 const markdownLoaderMock = vi.hoisted(() => ({
@@ -3318,6 +3322,85 @@ describe("MessageBubble", () => {
 			);
 			expect(summary).not.toBeNull();
 			expect(summary?.textContent).not.toContain("Weekend plan");
+		});
+
+		it("draws one picture card per card, after the text, however many make_image calls made its takes", async () => {
+			const first = imageTake({ toolCallId: "call-pic-1" });
+			const second = imageTake({ toolCallId: "call-pic-2" });
+			const pictureCall = (callId: string, takeId: string) => ({
+				type: "tool_call" as const,
+				callId,
+				name: "make_image",
+				input: { prompt: "a cosy room", title: "Cosy room" },
+				status: "done" as const,
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageCardId: "card-1",
+					imageTakeId: takeId,
+					imageTitle: "Cosy room",
+				},
+			});
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					thinkingSegments: [
+						pictureCall("call-pic-1", first.id),
+						pictureCall("call-pic-2", second.id),
+					],
+				}),
+				conversationId: "conv-1",
+				imageCards: [imageCard([first, second])],
+			});
+
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			await waitFor(() => {
+				expect(
+					made?.querySelectorAll('[data-testid="image-card-body"]'),
+				).toHaveLength(1);
+			});
+			expect(
+				made?.querySelectorAll('[data-testid="tool-activity-standalone-card"]'),
+			).toHaveLength(1);
+			const prose = container.querySelector(".prose-container");
+			expect(
+				(prose?.compareDocumentPosition(made as Node) ?? 0) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		});
+
+		it("finds a running make_image call's card by the take made for it", async () => {
+			const running = imageTake({
+				toolCallId: "call-pic-run",
+				status: "running",
+				phase: "rendering",
+				fileId: null,
+			});
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					isStreaming: true,
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							callId: "call-pic-run",
+							name: "make_image",
+							input: { prompt: "a cosy room", title: "Cosy room" },
+							status: "running",
+						},
+					],
+				}),
+				conversationId: "conv-1",
+				imageCards: [imageCard([running], { pickedTakeId: null })],
+			});
+
+			await waitFor(() => {
+				expect(
+					container.querySelector(
+						'[data-testid="message-deliverables"] [data-testid="image-card-body"]',
+					),
+				).not.toBeNull();
+			});
 		});
 
 		it("has no block for a message that made nothing", () => {

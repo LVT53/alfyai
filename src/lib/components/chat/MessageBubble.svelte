@@ -18,7 +18,10 @@ import {
 	messageRenderResourcesFromKey,
 	messageRenderResourcesKey,
 } from "$lib/utils/message-render-resources";
-import { buildToolActivityItem } from "$lib/utils/tool-activity";
+import {
+	buildToolActivityItem,
+	type ToolActivityItem,
+} from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { intlLocale } from "$lib/utils/locale";
@@ -42,6 +45,8 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -120,6 +125,8 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	imageCards = [],
+	onImageAction = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -204,6 +211,10 @@ let {
 	activeArtifactId?: string | null;
 	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** The chat's picture cards (`ConversationDetail.imageCards`): a make_image row draws its own. */
+	imageCards?: ImageCardView[];
+	/** What a picture card's buttons ask the chat page for. */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 let copied = $state(false);
@@ -314,15 +325,34 @@ let foldedDeliverables = $derived(
 	foldArtifactDeliverables(
 		deliverableSegments.map((segment, index) => ({
 			segment,
-			item: buildToolActivityItem(
-				segment,
-				segment.callId ??
-					`${segment.name + JSON.stringify(segment.input)}-${index}`,
-				$t,
+			item: withResolvedImageCard(
+				buildToolActivityItem(
+					segment,
+					segment.callId ??
+						`${segment.name + JSON.stringify(segment.input)}-${index}`,
+					$t,
+				),
+				segment.callId,
 			),
 		})),
 	),
 );
+/**
+ * A make_image row whose call has not named its card yet finds it by the take
+ * made for the call (plan 2b preflight F5), so the card can be drawn, and folded
+ * with the other calls of the same card, before the call ends.
+ */
+function withResolvedImageCard(
+	item: ToolActivityItem,
+	callId: string | undefined,
+): ToolActivityItem {
+	const body = item.body;
+	if (body?.kind !== "image-card" || body.cardId || !callId) return item;
+	const card = imageCards.find((candidate) =>
+		candidate.takes.some((take) => take.toolCallId === callId),
+	);
+	return card ? { ...item, body: { ...body, cardId: card.id } } : item;
+}
 let retriedAttempts = $derived(new Set(foldedDeliverables.retried));
 let thinkingSegmentsForDisplay = $derived(
 	rawThinkingSegments.filter(
@@ -334,6 +364,12 @@ let thinkingSegmentsForDisplay = $derived(
 let deliverableItems = $derived(
 	foldedDeliverables.shown.map((item) => {
 		const body = item.body;
+		if (body?.kind === "image-card") {
+			const card = body.cardId
+				? (imageCards.find((candidate) => candidate.id === body.cardId) ?? null)
+				: null;
+			return card ? { ...item, body: { ...body, card } } : item;
+		}
 		if (body?.kind !== "artifact") return item;
 		const preview = conversationArtifacts.find(
 			(candidate) => candidate.id === body.artifactId,
@@ -1223,6 +1259,7 @@ function sendFollowUp(question: string) {
 						{alfyActivity}
 						{activeArtifactId}
 						{deletedArtifacts}
+						{onImageAction}
 					/>
 				</div>
 			{/if}

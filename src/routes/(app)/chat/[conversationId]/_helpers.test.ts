@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -32,6 +36,7 @@ import {
 	patchSkillDraftInMessageList,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldPollImageCards,
 	toFriendlySendError,
 } from "./_helpers";
 
@@ -2117,5 +2122,34 @@ describe("awaitOpenStepSave", () => {
 				throw new Error("the body is gone");
 			}, 2000),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("shouldPollImageCards", () => {
+	it("polls while a take is queued or running", () => {
+		expect(
+			shouldPollImageCards([imageCard([imageTake({ status: "queued" })])], []),
+		).toBe(true);
+		expect(
+			shouldPollImageCards([imageCard([imageTake({ status: "running" })])], []),
+		).toBe(true);
+	});
+
+	it("polls for a make_image call still running in the streaming reply before its card exists", () => {
+		expect(
+			shouldPollImageCards([], [{ name: "make_image", status: "running" }]),
+		).toBe(true);
+	});
+
+	it("stops once every take has settled and no picture call runs", () => {
+		expect(
+			shouldPollImageCards(
+				[imageCard([imageTake({ status: "succeeded" })])],
+				[
+					{ name: "make_image", status: "done" },
+					{ name: "research_web", status: "running" },
+				],
+			),
+		).toBe(false);
 	});
 });

@@ -25,6 +25,10 @@ import ArtifactCard, {
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import {
+	cardSubtitle,
+	type ImageCardActionHandler,
+} from "$lib/components/artifacts/image/image-card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
@@ -55,6 +59,7 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	onImageAction = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -112,6 +117,8 @@ let {
 	 * one whose item is in `unreachableIds` says it was made in the original chat.
 	 */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** A make_image row's picture card: what its buttons ask the chat page for (plan 2b T2). */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -255,6 +262,44 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	};
 }
 
+type ImageCardActivityBody = Extract<ToolActivityBody, { kind: "image-card" }>;
+
+/**
+ * A picture card's head (plan 2b T2): the Image kind's tile, the card's title,
+ * what it was made from or how many takes it holds, and Open › once the
+ * picture is an item. No "edited … ago": an older card keeps its own turn's
+ * picture (preflight F33).
+ */
+function imageCardView(
+	body: ImageCardActivityBody & {
+		card: NonNullable<ImageCardActivityBody["card"]>;
+	},
+): ArtifactCardView {
+	const card = body.card;
+	return {
+		id: card.artifactId ?? `image-card:${card.id}`,
+		kind: "image",
+		title: card.title || body.title,
+		subtitle: cardSubtitle(card, $t),
+		openTargetId: card.artifactId,
+		current: activeArtifactId != null && activeArtifactId === card.artifactId,
+		editedLabel: null,
+	};
+}
+
+function handleOpenImage(artifactId: string, title: string): void {
+	onOpenDocument?.({
+		id: `artifact:${artifactId}`,
+		source: "knowledge_artifact",
+		filename: title,
+		title,
+		mimeType: null,
+		artifactId,
+		conversationId,
+		kind: "image",
+	});
+}
+
 /** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
 function artifactCreatingCardView(
 	body: ArtifactCreatingBody,
@@ -339,7 +384,8 @@ const isInteractive = $derived(hasBody && !item.alwaysOpen);
 const isStandaloneCard = $derived(
 	item.body?.kind === "artifact" ||
 		item.body?.kind === "artifact-creating" ||
-		item.body?.kind === "artifact-failed",
+		item.body?.kind === "artifact-failed" ||
+		item.body?.kind === "image-card",
 );
 const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 
@@ -530,7 +576,23 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed'}
+	{#if isOpen && item.body?.kind === 'image-card' && item.body.card}
+		{@const body = item.body}
+		{@const card = item.body.card}
+		<!-- The picture card (plan 2b T2): the same standalone card as an item's,
+		     drawn once the chat's cards hold it; until then the row stands alone. -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard
+				view={imageCardView({ ...body, card })}
+				chrome="full"
+				imageCard={card}
+				onImageAction={onImageAction}
+				onOpen={(artifactId) => handleOpenImage(artifactId, card.title || body.title)}
+			/>
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if body.kind === 'sources'}

@@ -406,6 +406,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		generatedFiles: [],
 		fileProductionJobs: [],
 		artifacts: [],
+		imageCards: [],
 		deletedArtifactIds: [] as string[],
 		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],

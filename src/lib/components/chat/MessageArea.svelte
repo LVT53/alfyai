@@ -23,6 +23,8 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -78,6 +80,8 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	imageCards = [],
+	onImageAction = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -187,6 +191,9 @@ let {
 	activeArtifactId?: string | null;
 	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
+	imageCards?: ImageCardView[];
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -1065,6 +1072,8 @@ async function scrollToMessage(messageId: string) {
 					{alfyActivity}
 					{activeArtifactId}
 					{deletedArtifacts}
+					{imageCards}
+					{onImageAction}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the

@@ -5,6 +5,7 @@ import {
 	buildDocumentReadActivity,
 	type DocumentAlfyActivity,
 } from "$lib/components/artifacts/document/alfy-activity";
+import { hasActiveImageTakes } from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
@@ -18,6 +19,7 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type {
 	ArtifactSummary,
 	PendingAttachment,
@@ -388,6 +390,24 @@ export function filesWaitingForTheList(
 export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	return jobs.some(
 		(job) => job.status === "queued" || job.status === "running",
+	);
+}
+
+/**
+ * Whether the chat page reads its detail again on its 2.5 s poll for the
+ * picture cards (plan 2b T2, F4): a take is still being made, or a make_image
+ * call of the reply being streamed runs before its card exists (the stream
+ * carries no card; only the detail does).
+ */
+export function shouldPollImageCards(
+	cards: readonly ImageCardView[],
+	streamingToolCalls: readonly { name: string; status: string }[],
+): boolean {
+	return (
+		hasActiveImageTakes(cards) ||
+		streamingToolCalls.some(
+			(call) => call.name === "make_image" && call.status === "running",
+		)
 	);
 }
 

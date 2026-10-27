@@ -3,6 +3,19 @@ import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
+import {
+	anotherImageTake,
+	imageFileUrl,
+	retryImageTake,
+	stopImageTake,
+	useImageTake,
+} from "$lib/client/api/images";
+import { startAuthenticatedDownload } from "$lib/client/downloads";
+import type {
+	ImageCardAction,
+	ImageCardActionResult,
+} from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import { page } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
@@ -221,6 +234,7 @@ import {
 	markPendingSkillUnavailable,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldPollImageCards,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -285,6 +299,7 @@ const initialArtifacts = getData().artifacts ?? [];
 const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
 const initialUnreachableArtifactIds = getData().unreachableArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
+const initialImageCards = getData().imageCards ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
@@ -607,6 +622,9 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // alongside generatedFiles/fileProductionJobs everywhere they are, never a
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
+// The chat's picture cards (plan 2b T2): the detail's `imageCards`, kept from
+// the load and every read of the detail; the stream carries none.
+let imageCards = $state<ImageCardView[]>(initialImageCards);
 // Ruling 76, amendment A1 (one latest moment everywhere): the newest version
 // the server has told this browser about, per artifact, with its time, author
 // and kind — fed by every save, fetch, restore and History read
@@ -1700,6 +1718,76 @@ function handleArtifactUnreachable(artifactId: string) {
 }
 
 /**
+ * What a picture card's buttons ask for (plan 2b T2). Each goes through
+ * `client/api/images.ts` and reads the detail back, so the card shows what
+ * the server did; a failure says so in a toast and rejects, so the card can
+ * take back what it showed at once (Another's tile).
+ */
+async function handleImageAction(
+	action: ImageCardAction,
+): Promise<ImageCardActionResult> {
+	const conversationId = data.conversation.id;
+	const card = (artifactId: string) =>
+		imageCards.find((candidate) => candidate.artifactId === artifactId);
+	const openImage = (artifactId: string, history: boolean) => {
+		const title = card(artifactId)?.title ?? "";
+		void openArtifactFromChat({
+			id: `artifact:${artifactId}`,
+			source: "knowledge_artifact",
+			filename: title,
+			title,
+			mimeType: null,
+			artifactId,
+			conversationId,
+			kind: "image",
+		}).then(() => {
+			if (history) artifactHistoryOpen = true;
+		});
+	};
+	try {
+		switch (action.type) {
+			case "another": {
+				const { takeId } = await anotherImageTake(
+					action.cardId,
+					conversationId,
+				);
+				void refreshConversationFiles();
+				return { takeId };
+			}
+			case "use":
+				await useImageTake(action.takeId, conversationId);
+				break;
+			case "stop":
+				await stopImageTake(action.takeId, conversationId);
+				break;
+			case "retry":
+				await retryImageTake(action.takeId, conversationId);
+				break;
+			case "download":
+				await startAuthenticatedDownload(
+					imageFileUrl(action.fileId, { download: true, conversationId }),
+				);
+				return undefined;
+			case "history":
+				openImage(action.artifactId, true);
+				return undefined;
+			case "open":
+				openImage(action.artifactId, false);
+				return undefined;
+		}
+		// Read back whatever the poll is doing: Use this on a settled card has no poll.
+		void refreshConversationFiles();
+		return undefined;
+	} catch (error) {
+		showToast({
+			type: "error",
+			message: get(t)("artifacts.image.card.actionFailed"),
+		});
+		throw error;
+	}
+}
+
+/**
  * A chat card's or file row's Open: find out first that the item is still
  * there. If the server has no such item any more (deleted in another tab) the
  * card flips to its deleted state — an artifact by its own 404, a produced
@@ -2112,6 +2200,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
+	imageCards = data.imageCards ?? [];
 	deletedArtifactIds = data.deletedArtifactIds ?? [];
 	unreachableArtifactIds = data.unreachableArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
@@ -2245,6 +2334,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.artifacts) {
 		artifacts = [...detail.artifacts];
+	}
+	if (detail.imageCards) {
+		imageCards = [...detail.imageCards];
 	}
 	if (detail.deletedArtifactIds) {
 		deletedArtifactIds = [...detail.deletedArtifactIds];
@@ -2557,6 +2649,10 @@ async function hydrateConversationDetail(conversationId: string) {
 		// browser deleted while the answer was in flight stays deleted (the ids
 		// are added to, never replaced).
 		artifacts = payload.artifacts ?? artifacts;
+		// The picture cards too (plan 2b F4): a take's state only moves forward on
+		// the server, and a mid-turn poll is exactly what moves the boundary, so a
+		// card's first take would otherwise wait for the next poll.
+		imageCards = payload.imageCards ?? imageCards;
 		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
 			markArtifactDeleted,
 			deletedArtifactIds,
@@ -2744,11 +2840,29 @@ async function handleAtlasLifecycleAction(payload: {
 	});
 }
 
+/** The tool calls of the reply being streamed: a make_image call running before its card exists keeps the poll on. */
+let streamingToolCalls = $derived.by(() => {
+	const calls: { name: string; status: string }[] = [];
+	for (const message of $messages) {
+		if (message.role !== "assistant" || !message.isStreaming) continue;
+		for (const segment of message.thinkingSegments ?? []) {
+			if (segment.type === "tool_call") {
+				calls.push({ name: segment.name, status: segment.status });
+			}
+		}
+	}
+	return calls;
+});
+let pollForImageCards = $derived(
+	shouldPollImageCards(imageCards, streamingToolCalls),
+);
+
 $effect(() => {
 	const conversationId = data.conversation?.id;
 	const shouldPollConversation =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
-		hasActiveAtlasJobs(atlasJobs);
+		hasActiveAtlasJobs(atlasJobs) ||
+		pollForImageCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
@@ -4052,6 +4166,8 @@ function handleDrop(event: DragEvent) {
 						alfyActivity={liveDocumentAlfyActivity}
 						{activeArtifactId}
 						deletedArtifacts={deletedArtifactsForCards}
+						{imageCards}
+						onImageAction={handleImageAction}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}

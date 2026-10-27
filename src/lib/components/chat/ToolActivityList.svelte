@@ -7,6 +7,7 @@
 import type { Snippet } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ToolActivityItem } from "$lib/utils/tool-activity";
@@ -30,6 +31,7 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	onImageAction = undefined,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -52,6 +54,8 @@ let {
 	activeArtifactId?: string | null;
 	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** Forwarded to each make_image row's picture card. See ToolActivityRow's own prop doc. */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 </script>
 
@@ -71,6 +75,7 @@ let {
 			{alfyActivity}
 			{activeArtifactId}
 			{deletedArtifacts}
+			{onImageAction}
 		/>
 		{@render afterItem?.(item)}
 	{/each}
