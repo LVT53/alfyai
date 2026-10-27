@@ -201,6 +201,8 @@ type MakeImageParams = {
 	onTick?: () => void;
 	/** The turn's queue of pictures the model is shown in the step after this result (the look). */
 	stepImages?: StepImageQueue;
+	/** Whether the turn's model can see pictures; when it cannot, there is no look and the note says only that the picture is on its card. */
+	modelCanSee?: boolean;
 	/** How long to wait for the take; tests shorten it. */
 	waitBudgetMs?: number;
 	/** Least wait to leave for the automatic retry; tests lower it. */
@@ -278,23 +280,31 @@ async function planTake(
 export async function runMakeImageTool(
 	params: MakeImageParams,
 ): Promise<Outcome> {
-	const planned = await planTake(params);
-	if (!planned.ok) return planned.refused;
-	const { plan, cardId } = planned;
-
-	const call = makeCallHelpers({
-		params,
-		plan,
-		cardId,
-		budgetMs: params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS,
+	const startedAt = Date.now();
+	// Planning, the card and the first take go one call at a time, so parallel
+	// calls of one step share a card and respect the four-takes cap.
+	const started = await params.turnTakes.exclusive(async () => {
+		const planned = await planTake(params);
+		if (!planned.ok) return planned;
+		const call = makeCallHelpers({
+			params,
+			plan: planned.plan,
+			cardId: planned.cardId,
+			budgetMs: params.waitBudgetMs ?? IMAGE_TOOL_WAIT_MS,
+			startedAt,
+		});
+		const firstId = await call.queue(
+			planned.plan.request,
+			planned.plan.retryOf,
+			params.toolCallId,
+		);
+		return { ok: true as const, call, firstId };
 	});
+	if (!started.ok) return started.refused;
+	const { call, firstId } = started;
+	const { plan, cardId } = call;
 	const retriedByModel = plan.retryOf !== null;
 
-	const firstId = await call.queue(
-		plan.request,
-		plan.retryOf,
-		params.toolCallId,
-	);
 	const held = new Set<string>([firstId]);
 	const released = new Set<string>();
 
@@ -382,10 +392,11 @@ function makeCallHelpers(input: {
 	plan: TakePlan;
 	cardId: string;
 	budgetMs: number;
+	/** When the tool call began: the wait is measured from here, not from after planning. */
+	startedAt: number;
 }) {
-	const { params, plan, cardId, budgetMs } = input;
+	const { params, plan, cardId, budgetMs, startedAt } = input;
 	const { userId, conversationId, turnTakes } = params;
-	const startedAt = Date.now();
 	const elapsedMs = () => Date.now() - startedAt;
 	const leftMs = () => budgetMs - elapsedMs();
 
@@ -609,7 +620,12 @@ async function lookAtResult(
 	snapshot: TakeSnapshot,
 ): Promise<boolean> {
 	const { params, plan } = call;
-	if (!params.stepImages || !snapshot.resultFileId || params.signal.aborted) {
+	if (
+		!params.stepImages ||
+		params.modelCanSee === false ||
+		!snapshot.resultFileId ||
+		params.signal.aborted
+	) {
 		return false;
 	}
 	const request = params.turnTakes.take(winnerId)?.request ?? plan.request;

@@ -29,6 +29,14 @@ export type TurnTakeRecord = {
 };
 
 export type TurnTakes = {
+	/**
+	 * Runs one planning step at a time for the turn. The AI SDK runs every tool
+	 * call of a step at once, so four `make_image` calls for a new picture would
+	 * each find no card, each make their own, and slip past the four-takes cap;
+	 * in line, the second call finds the first's card. Waiting for a take stays
+	 * outside it. A step that throws lets the next one run.
+	 */
+	exclusive<T>(step: () => Promise<T>): Promise<T>;
 	/** This call's count, the first being 1. */
 	countCall(): number;
 	cardFor(cardKey: string): string | undefined;
@@ -46,7 +54,13 @@ export function createTurnTakes(): TurnTakes {
 	let calls = 0;
 	const cardByKey = new Map<string, string>();
 	const takes = new Map<string, TurnTakeRecord>();
+	let line: Promise<unknown> = Promise.resolve();
 	return {
+		exclusive: <T>(step: () => Promise<T>): Promise<T> => {
+			const run = line.then(step, step);
+			line = run.catch(() => undefined);
+			return run;
+		},
 		countCall: () => {
 			calls += 1;
 			return calls;

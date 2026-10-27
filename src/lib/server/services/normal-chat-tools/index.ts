@@ -1,6 +1,7 @@
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
+import type { ModelId } from "$lib/model-types";
 
 import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
@@ -37,6 +38,7 @@ import {
 	logRefusedAddresses,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
+import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 import {
 	buildGroundedWebModelPayload,
@@ -2235,6 +2237,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											signal: abortSignal,
 											onTick: ctx.onToolActivity,
 											stepImages: ctx.stepImages,
+											modelCanSee: await modelIdCanSeeImages(
+												ctx.modelId as ModelId | undefined,
+											),
 										});
 										const ok = result.modelPayload.ok;
 										return {

@@ -427,6 +427,56 @@ describe("repeating a call for options", () => {
 	});
 });
 
+describe("parallel calls in one step", () => {
+	it("share one card and make one Image item: four identical new-picture calls at once", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const results = await Promise.all(
+			[0, 1, 2, 3].map(() => run({}, { turnTakes })),
+		);
+		for (const result of results) {
+			expect(result.modelPayload).toMatchObject({ ok: true });
+		}
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(1);
+		expect(takes).toHaveLength(4);
+		const { db } = await import("$lib/server/db");
+		expect(
+			db
+				.select()
+				.from(schema.artifacts)
+				.where(eq(schema.artifacts.conversationId, conversationId))
+				.all(),
+		).toHaveLength(1);
+		expect(cards[0]?.pickedTakeId).toBeTruthy();
+	});
+
+	it("respects the four-takes cap when the calls arrive together", async () => {
+		await configureOnly();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const results = await Promise.all(
+			[0, 1, 2, 3, 4, 5].map(() => run({}, { turnTakes, waitBudgetMs: 0 })),
+		);
+		const payloads = results.map((result) => result.modelPayload);
+		expect(payloads.filter((p) => p.ok)).toHaveLength(4);
+		expect(
+			payloads.filter(
+				(p) => !p.ok && "errorCode" in p && p.errorCode === "too_many_takes",
+			),
+		).toHaveLength(2);
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(1);
+		expect(takes).toHaveLength(4);
+	});
+});
+
 describe("changing a picture", () => {
 	it("makes the open item's version the first picture, on its edit canvas, with a seed unlike its own", async () => {
 		await configureOnly();
@@ -467,15 +517,27 @@ describe("changing a picture", () => {
 			"$lib/server/services/images/turn-takes"
 		);
 		const turnTakes = createTurnTakes();
+		const { db } = await import("$lib/server/db");
 		for (let i = 0; i < 2; i++) {
 			await run(
 				{ pictures: ["1"], startNew: true },
 				{ turnPictures, turnTakes, waitBudgetMs: 0 },
 			);
+			if (i === 0) {
+				// Take 1 lands with a stored picture of its own before the second
+				// call: the second must still be based on the item, not on this.
+				const landed = await storeFile();
+				db.update(schema.imageJobs)
+					.set({ status: "succeeded", resultFileId: landed.id })
+					.run();
+			}
 		}
 		const { cards, takes } = await rows();
 		expect(cards).toHaveLength(1);
-		expect(cards[0]?.artifactId).toBeNull();
+		expect(takes).toHaveLength(2);
+		expect(takes[0]?.resultFileId).toBeTruthy();
+		// Take 1 became its own new item; the item it was started from is untouched.
+		expect(cards[0]?.artifactId).not.toBe(item.artifactId);
 		for (const take of takes) {
 			const request = JSON.parse(take.requestJson);
 			expect(request.inputs[0].fileId).toBe(item.file.id);
@@ -988,16 +1050,49 @@ describe("the automatic retry of a clear miss", () => {
 		{ miss: null, changedShare: 0.1, insideMarksShare: null },
 	];
 
-	it("shows only the first take when the retry has not landed by the end of the wait: the retry lands hidden", async () => {
+	/** A render that answers the base picture at once the first time and only once released the second time, so no timing decides the test. */
+	function gatedSecondRender() {
+		let calls = 0;
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		return {
+			release: () => release(),
+			render: async (input: { images: Uint8Array[] }) => {
+				calls += 1;
+				if (calls > 1) await gate;
+				const base = input.images[0];
+				if (!base) throw new Error("no input picture");
+				return base;
+			},
+		};
+	}
+
+	it("shows only the first take when the retry has not landed by the end of the call: the retry lands hidden", async () => {
 		guardReporting(MISS_THEN_FINE);
-		await startPictureServer({ steps: 2, render: slowSecondRender(2500) });
+		const gated = gatedSecondRender();
+		await startPictureServer({ steps: 2, render: gated.render });
 		await startEngine();
 		const { artifactId } = await makeItem();
 
-		const { modelPayload } = await run(
+		// The call ends (a watchdog-style abort, no reason) while the retry is
+		// still waiting on the picture server; nothing here depends on a clock.
+		const controller = new AbortController();
+		const running = run(
 			{ pictures: [artifactId] },
-			{ waitBudgetMs: 1800, retryMinLeftMs: 0 },
+			{
+				waitBudgetMs: 60_000,
+				retryMinLeftMs: 0,
+				signal: controller.signal,
+			},
 		);
+		await until(
+			async () => (await rows()).takes,
+			(takes) => takes.length === 2 && takes[1]?.status === "running",
+		);
+		controller.abort();
+		const { modelPayload } = await running;
 
 		const early = (await rows()).takes;
 		expect(early).toHaveLength(2);
@@ -1007,6 +1102,7 @@ describe("the automatic retry of a clear miss", () => {
 			status: "succeeded",
 			takeId: early[0]?.id,
 		});
+		gated.release();
 		const landed = await until(
 			async () => (await rows()).takes[1],
 			(take) => take?.status === "succeeded",
@@ -1155,6 +1251,7 @@ describe("the look at the result", () => {
 		input: Partial<MakeImageInput>,
 		options: Parameters<typeof run>[1] & {
 			queue?: import("$lib/server/services/vision/step-images").StepImageQueue;
+			modelCanSee?: boolean;
 		},
 	) {
 		const { createStepImageQueue } = await import(
@@ -1177,6 +1274,7 @@ describe("the look at the result", () => {
 			signal: options.signal ?? new AbortController().signal,
 			waitBudgetMs: options.waitBudgetMs,
 			stepImages: queue,
+			modelCanSee: options.modelCanSee,
 		});
 		return { ...result, queue };
 	}
@@ -1302,6 +1400,23 @@ describe("the look at the result", () => {
 			status: "succeeded",
 			note: expect.stringContaining("on its card in the chat"),
 		});
+	});
+
+	it("gives a model that cannot see no look and a note that claims no picture was shown", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+
+		const { modelPayload, queue } = await lookRun({}, { modelCanSee: false });
+
+		expect(queue.drain()).toEqual([]);
+		expect(queue.room()).toBe(8);
+		if (!modelPayload.ok || modelPayload.status !== "succeeded") {
+			throw new Error(`not succeeded: ${JSON.stringify(modelPayload)}`);
+		}
+		expect(modelPayload.note).toContain("on its card in the chat");
+		expect(modelPayload.note).not.toContain("follows as a picture");
+		expect(modelPayload.note).not.toContain("retryOf");
+		expect((await rows()).takes).toHaveLength(1);
 	});
 
 	it("gives a picture that lands after the wait no look", async () => {
