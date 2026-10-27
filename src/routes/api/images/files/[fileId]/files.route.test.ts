@@ -87,9 +87,7 @@ describe("GET /api/images/files/[fileId]", () => {
 		const res = (await GET(event({ fileId, userId: "u1" }))) as Response;
 		expect(res.status).toBe(200);
 		expect(res.headers.get("Content-Type")).toBe("image/png");
-		expect(res.headers.get("Cache-Control")).toBe(
-			"private, max-age=31536000, immutable",
-		);
+		expect(res.headers.get("Cache-Control")).toBe("private, max-age=3600");
 		expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
 		expect(res.headers.get("Content-Disposition")).toBeNull();
 		const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
@@ -148,6 +146,38 @@ describe("GET /api/images/files/[fileId]", () => {
 		expect(named.headers.get("Content-Disposition")).toMatch(
 			/^attachment; filename="Red fox\.png"/,
 		);
+	});
+
+	it("encodes quotes and brackets in the name and strips direction controls", async () => {
+		memory.db
+			.insert(schema.artifacts)
+			.values({
+				id: "a2",
+				userId: "u1",
+				conversationId: "c1",
+				type: "artifact",
+				name: "x",
+				metadataJson: JSON.stringify({
+					artifactType: "image",
+					title: 'Mom\'s "room" (v*2) \u00e1\u202egnp.exe',
+				}),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})
+			.run();
+		await attachImageFilesToArtifact([fileId], "a2");
+		const res = (await GET(
+			event({ fileId, userId: "u1", query: "?download=1" }),
+		)) as Response;
+		const header = res.headers.get("Content-Disposition") ?? "";
+		const star = header.split("filename*=UTF-8''")[1] ?? "";
+		expect(star).not.toMatch(/['()*]/);
+		expect(star).toContain("Mom%27s");
+		expect(star).toContain("%28v");
+		expect(decodeURIComponent(star)).toBe(
+			"Mom's - room - (v - 2) \u00e1gnp.exe.png",
+		);
+		expect(header).not.toContain("\u202e");
 	});
 
 	it("keeps an incognito chat's file to the request that names the chat", async () => {

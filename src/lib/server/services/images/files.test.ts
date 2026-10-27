@@ -225,6 +225,19 @@ describe("getImageFile", () => {
 });
 
 describe("deleting", () => {
+	it("never removes the pictures root for an id that is not one folder name", async () => {
+		await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await png(32, 32),
+		});
+		for (const id of ["", ".", "..", "c1/..", "..\\c1", "a\0b"]) {
+			await files.deleteImageFilesForConversation(id);
+		}
+		expect(onDisk("c1")).toEqual(["exists"]);
+	});
+
 	it("deleting a chat's files removes rows and folder", async () => {
 		await files.storeImageFile({
 			userId: "u1",

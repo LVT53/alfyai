@@ -74,6 +74,16 @@ async function removeFiles(storagePaths: readonly string[]): Promise<void> {
 }
 
 async function removeConversationDir(conversationId: string): Promise<void> {
+	// An id that is not one folder name would resolve to the root of every
+	// chat's pictures (or above it): refuse it.
+	if (
+		!conversationId ||
+		conversationId === "." ||
+		conversationId === ".." ||
+		/[/\\\0]/.test(conversationId)
+	) {
+		return;
+	}
 	const absolute = await resolveDeletablePath(
 		join(IMAGE_FILES_DIR, conversationId),
 	);
@@ -391,6 +401,9 @@ export async function imageFileDownloadName(file: ImageFile): Promise<string> {
 				: (row?.name ?? "");
 	}
 	const clean = title
+		// Format characters (a right-to-left override can disguise the extension)
+		// and line separators never reach a file name.
+		.replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, "")
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: strips control characters from a file name
 		.replace(/[\u0000-\u001f\u007f/\\:*?"<>|]+/g, " - ")
 		.replace(/\s*-\s*(?:-\s*)*/g, " - ")
