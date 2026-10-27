@@ -597,6 +597,31 @@ async function pressMidMotion(page: Page, name: RegExp) {
 	}, name.source);
 }
 
+/**
+ * Waits until the shell's own shape animation (expand's or dock's insets) is
+ * running and has drawn at least one frame, with the content held: the moment a
+ * reader's press lands "mid-motion". It waits on the animation the shell started
+ * (`getAnimations()`), never on a clock, so a slow frame cannot make the press
+ * land before the motion or after it.
+ */
+async function waitForShellMidMotion(page: Page) {
+	await page.waitForFunction(
+		(selector) => {
+			const content = document.querySelector<HTMLElement>(selector);
+			const shell = content?.parentElement;
+			if (!content || !shell) return false;
+			if (!content.classList.contains("workspace-content-held")) return false;
+			return shell.getAnimations().some((animation) => {
+				const time = Number(animation.currentTime ?? 0);
+				const duration = Number(animation.effect?.getTiming().duration ?? 0);
+				return animation.playState === "running" && time > 0 && time < duration;
+			});
+		},
+		SHELL_CONTENT,
+		{ polling: "raf" },
+	);
+}
+
 function expectAtRest(fit: Awaited<ReturnType<typeof contentFitsShell>>) {
 	expect(fit, "no content").not.toBeNull();
 	expect(fit?.held, "the hold was never let go").toBe(false);
@@ -624,7 +649,7 @@ test.describe("shape changes that overlap, and a window that changes under them"
 
 			await startRecording(page, { content: SHELL_CONTENT });
 			await page.locator(".workspace-expand-button:visible").first().click();
-			await page.waitForTimeout(90);
+			await waitForShellMidMotion(page);
 			// Pressed while the overlay still grows. Playwright's click waits for a
 			// button that stops moving, which would be after the expand: this press
 			// lands mid-motion, as a reader's does.
@@ -661,7 +686,7 @@ test.describe("shape changes that overlap, and a window that changes under them"
 				.locator(".workspace-shell-expanded:visible")
 				.getByRole("button", { name: /to the docked workspace/ })
 				.click();
-			await page.waitForTimeout(80);
+			await waitForShellMidMotion(page);
 			await page.keyboard.press("Escape");
 			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
 			const run = await settleAndStop(page);
@@ -686,7 +711,7 @@ test.describe("shape changes that overlap, and a window that changes under them"
 			await page.waitForTimeout(300);
 
 			await page.locator(".workspace-expand-button:visible").first().click();
-			await page.waitForTimeout(60);
+			await waitForShellMidMotion(page);
 			await page.setViewportSize({ width: 1280, height: 860 });
 			await expect(
 				page.locator(".workspace-shell-expanded:visible"),
