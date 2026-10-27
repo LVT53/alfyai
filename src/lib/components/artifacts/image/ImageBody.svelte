@@ -52,6 +52,10 @@ let picture = $state.raw<ImageVersionBody | null>(null);
 /** The version `picture` is: the page's own number rising past it reads the item again. */
 let loadedVersion = $state(0);
 let loading = false;
+/** A load was asked for while one was out (a restore landing mid-read): one more runs when it answers. */
+let loadAgain = false;
+/** Only the newest History read may draw the strip: an older one can answer last. */
+let stripRequest = 0;
 let moments = $state.raw<ArtifactMoment[]>([]);
 let showing = $state<"before" | "after">("after");
 let isPhone = $state(isPhoneViewport());
@@ -59,7 +63,10 @@ let isPhone = $state(isPhoneViewport());
 $effect(() => watchPhoneViewport((phone) => (isPhone = phone)));
 
 async function load(): Promise<void> {
-	if (loading) return;
+	if (loading) {
+		loadAgain = true;
+		return;
+	}
 	loading = true;
 	try {
 		const detail = await fetchArtifact(artifactId, conversationId);
@@ -77,16 +84,21 @@ async function load(): Promise<void> {
 		if (!untrack(() => picture)) status = "error";
 	} finally {
 		loading = false;
+		if (loadAgain) {
+			loadAgain = false;
+			void load();
+		}
 	}
 }
 
 async function loadStrip(): Promise<void> {
+	const request = ++stripRequest;
 	try {
 		const result = await fetchArtifactHistory(artifactId, {
 			limit: STRIP_PAGE_SIZE,
 			conversationId,
 		});
-		if (result.ok) moments = result.moments;
+		if (request === stripRequest && result.ok) moments = result.moments;
 	} catch {
 		// The strip keeps what it showed; the next version asks again.
 	}
@@ -142,7 +154,7 @@ let canFlip = $derived(picture?.baseFileId != null);
 		{/if}
 	</div>
 
-	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone }} data-testid="image-body-stage">
+	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone, resetKey: picture?.fileId ?? null }} data-testid="image-body-stage">
 		{#if picture}
 			<div
 				class="image-body-frame"

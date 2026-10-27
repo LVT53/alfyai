@@ -29,7 +29,11 @@ export function zoomFrom(
 	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, raw));
 }
 
-export type PinchZoomOptions = { enabled: boolean };
+export type PinchZoomOptions = {
+	enabled: boolean;
+	/** What is being zoomed (the picture's file): another one starts at 1x again. */
+	resetKey?: string | null;
+};
 
 type Point = { x: number; y: number };
 
@@ -233,12 +237,21 @@ export function pinchZoom(
 		reset(false);
 	}
 
+	let resetKey = options.resetKey ?? null;
 	if (options.enabled) enable();
 
 	return {
 		update(next) {
 			if (next.enabled) enable();
 			else disable();
+			const key = next.resetKey ?? null;
+			if (key !== resetKey) {
+				resetKey = key;
+				pointers.clear();
+				tap = null;
+				lastTap = null;
+				reset(false);
+			}
 		},
 		destroy() {
 			disable();

@@ -127,3 +127,34 @@ describe("pinchZoom", () => {
 		node.remove();
 	});
 });
+
+describe("pinchZoom and a new picture", () => {
+	it("goes back to 1x when the picture it zooms is another one (a new version landed)", async () => {
+		const node = document.createElement("div");
+		const target = document.createElement("div");
+		target.dataset.pinchTarget = "";
+		node.append(target);
+		document.body.append(node);
+		const action = pinchZoom(node, { enabled: true, resetKey: "file-1" });
+		const touch = (type: string, id: number, x: number) => {
+			const event = new MouseEvent(type, { bubbles: true, clientX: x });
+			Object.defineProperty(event, "pointerId", { value: id });
+			Object.defineProperty(event, "pointerType", { value: "touch" });
+			node.dispatchEvent(event);
+		};
+		touch("pointerdown", 1, -40);
+		touch("pointerdown", 2, 40);
+		touch("pointermove", 2, 120);
+		touch("pointerup", 2, 120);
+		touch("pointerup", 1, -40);
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		expect(target.style.transform).toContain("scale(");
+
+		action.update?.({ enabled: true, resetKey: "file-1" });
+		expect(target.style.transform).toContain("scale(");
+		action.update?.({ enabled: true, resetKey: "file-2" });
+		expect(target.style.transform).toBe("");
+		action.destroy?.();
+		node.remove();
+	});
+});

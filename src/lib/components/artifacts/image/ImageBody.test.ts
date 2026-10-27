@@ -235,4 +235,55 @@ describe("ImageBody", () => {
 		renderBody();
 		expect(await screen.findByTestId("image-body-error")).toBeInTheDocument();
 	});
+
+	it("loads again when a reload is asked for while a load is still out", async () => {
+		let answerFirst: (value: unknown) => void = () => undefined;
+		api.fetchArtifact.mockImplementationOnce(
+			() => new Promise((resolve) => (answerFirst = resolve)),
+		);
+		api.fetchArtifact.mockResolvedValueOnce(
+			detail(body({ fileId: "file-3", baseFileId: "file-2" }), 3),
+		);
+		let actions: ArtifactPanelBodyActions | null = null;
+		renderBody({
+			registerPanelActions: (registered: ArtifactPanelBodyActions) => {
+				actions = registered;
+			},
+		});
+		await waitFor(() => expect(actions?.reload).toBeTypeOf("function"));
+		// A restore wrote version 3 while the first read (of version 2) was out.
+		(actions as unknown as ArtifactPanelBodyActions).reload?.();
+		answerFirst(detail(body(), 2));
+		await waitFor(() =>
+			expect(
+				screen
+					.getByTestId("image-body-picture")
+					.querySelector('[data-testid="image-picture-after"]')
+					?.getAttribute("src"),
+			).toBe("/api/images/files/file-3?conversationId=conv-1"),
+		);
+		expect(api.fetchArtifact).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the strip of the latest History read when an older read answers last", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		let answerFirst: (value: unknown) => void = () => undefined;
+		api.fetchArtifactHistory.mockImplementationOnce(
+			() => new Promise((resolve) => (answerFirst = resolve)),
+		);
+		api.fetchArtifactHistory.mockResolvedValueOnce(history(3));
+		const { rerender } = renderBody({ versionNumber: 2 });
+		await screen.findByTestId("image-body-picture");
+		api.fetchArtifact.mockResolvedValue(
+			detail(body({ fileId: "file-3", baseFileId: "file-2" }), 3),
+		);
+		await rerender({ versionNumber: 3 });
+		await waitFor(() =>
+			expect(screen.getAllByTestId("image-version-frame")).toHaveLength(3),
+		);
+		answerFirst(history(2));
+		await tick();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(screen.getAllByTestId("image-version-frame")).toHaveLength(3);
+	});
 });
