@@ -38,7 +38,13 @@ export function momentPhraseKey(
 		case "made_again":
 			return artifactKind === "document"
 				? "artifacts.history.phrase.alfyWrote"
-				: "artifacts.history.phrase.alfyBuilt";
+				: artifactKind === "image"
+					? "artifacts.history.phrase.alfyMade"
+					: "artifacts.history.phrase.alfyBuilt";
+		case "user_photo":
+			return "artifacts.history.phrase.yourPhoto";
+		case "picked_take":
+			return "artifacts.history.phrase.youPicked";
 		case "kept_from_chat":
 			return "artifacts.history.phrase.alfyWrote";
 		case "app_made":

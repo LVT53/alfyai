@@ -168,9 +168,13 @@ export function entryHeadline(
 	const text = entry.text?.trim() ? entry.text.trim() : null;
 	switch (entry.kind) {
 		case "first_draft":
+			// Each kind's first version in its own words: a board is made, a picture
+			// is made (the photo a person brought is `user_photo`), a text is written.
 			return artifactKind === "canvas"
 				? t("artifacts.history.moment.firstDraftBoard")
-				: t("artifacts.history.moment.firstDraft");
+				: artifactKind === "image"
+					? t("artifacts.history.moment.firstPicture")
+					: t("artifacts.history.moment.firstDraft");
 		case "app_made":
 			return t("artifacts.history.moment.appMade");
 		case "kept_from_chat":
@@ -200,7 +204,9 @@ export function entryHeadline(
 		case "alfy_edit":
 			return text
 				? t("artifacts.history.moment.alfyEdit", { text })
-				: t("artifacts.history.moment.alfyEditFallback");
+				: artifactKind === "image"
+					? t("artifacts.history.moment.alfyChangedPicture")
+					: t("artifacts.history.moment.alfyEditFallback");
 		case "alfy_reply_edit":
 			return t("artifacts.history.moment.alfyReplyEdit");
 		case "app_rebuilt":

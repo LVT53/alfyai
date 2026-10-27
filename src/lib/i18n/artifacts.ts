@@ -933,6 +933,9 @@ const artifactsDict = {
 		"artifacts.history.phrase.youUndid": "Alfy's change undone",
 		"artifacts.history.phrase.youBroughtBack": "Brought back by you",
 		"artifacts.history.phrase.edited": "Edited",
+		"artifacts.history.phrase.alfyMade": "Made by Alfy",
+		"artifacts.history.phrase.yourPhoto": "Your photo",
+		"artifacts.history.phrase.youPicked": "Picked by you",
 		// The in-chat card's facts line, in place of the version number it used
 		// to end with ("Document · 3 tabs · edited 2 min ago").
 		"artifacts.card.edited": "edited {when}",
@@ -970,6 +973,7 @@ const artifactsDict = {
 		"artifacts.history.deleted.canvas": "This canvas was deleted.",
 		"artifacts.history.deleted.slides": "These slides were deleted.",
 		"artifacts.history.deleted.file": "This file was deleted.",
+		"artifacts.history.deleted.image": "This picture was deleted.",
 		"artifacts.history.back": "History",
 		"artifacts.history.previewA11y": "{label}",
 		"artifacts.history.moment.firstDraft": "Alfy wrote the first draft",
@@ -981,6 +985,8 @@ const artifactsDict = {
 		"artifacts.history.moment.madeAgain": "Alfy made it again",
 		"artifacts.history.moment.userPhoto": "Your photo",
 		"artifacts.history.moment.pickedTake": "You picked another take",
+		"artifacts.history.moment.firstPicture": "Alfy made the picture",
+		"artifacts.history.moment.alfyChangedPicture": "Alfy changed the picture",
 		"artifacts.history.moment.youEdited": "You edited",
 		"artifacts.history.moment.youChangedBoard": "You changed the board",
 		"artifacts.history.moment.tick": "You ticked “{text}”",
@@ -1134,6 +1140,10 @@ const artifactsDict = {
 		"artifacts.image.panel.compare":
 			"Compare with the picture it was made from",
 		"artifacts.image.panel.versions": "Earlier pictures",
+		"artifacts.image.history.wipe": "Drag to compare",
+		"artifacts.image.history.prompt": "Prompt Alfy sent",
+		"artifacts.image.history.marks": "With marks {letters}",
+		"artifacts.image.history.then": "Then",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1876,6 +1886,9 @@ const artifactsDict = {
 		"artifacts.history.phrase.youUndid": "Visszavontad Alfy módosítását",
 		"artifacts.history.phrase.youBroughtBack": "Visszahoztad",
 		"artifacts.history.phrase.edited": "Szerkesztve",
+		"artifacts.history.phrase.alfyMade": "Alfy készítette",
+		"artifacts.history.phrase.yourPhoto": "A fotód",
+		"artifacts.history.phrase.youPicked": "Te választottad",
 		// A csevegőkártya tényeinek sora, a korábban a végén álló verziószám
 		// helyett ("Dokumentum · 3 lap · szerkesztve 2 perce").
 		"artifacts.card.edited": "szerkesztve {when}",
@@ -1913,6 +1926,7 @@ const artifactsDict = {
 		"artifacts.history.deleted.canvas": "Ezt a táblát törölték.",
 		"artifacts.history.deleted.slides": "Ezt a diasort törölték.",
 		"artifacts.history.deleted.file": "Ezt a fájlt törölték.",
+		"artifacts.history.deleted.image": "Ezt a képet törölték.",
 		"artifacts.history.back": "Előzmények",
 		"artifacts.history.previewA11y": "{label}",
 		"artifacts.history.moment.firstDraft": "Alfy megírta az első vázlatot",
@@ -1924,6 +1938,8 @@ const artifactsDict = {
 		"artifacts.history.moment.madeAgain": "Alfy újra elkészítette",
 		"artifacts.history.moment.userPhoto": "A fotód",
 		"artifacts.history.moment.pickedTake": "Másik változatot választottál",
+		"artifacts.history.moment.firstPicture": "Alfy elkészítette a képet",
+		"artifacts.history.moment.alfyChangedPicture": "Alfy módosította a képet",
 		"artifacts.history.moment.youEdited": "Szerkesztetted",
 		"artifacts.history.moment.youChangedBoard": "Módosítottad a táblát",
 		"artifacts.history.moment.tick": "Kipipáltad: „{text}”",
@@ -2074,6 +2090,10 @@ const artifactsDict = {
 		"artifacts.image.panel.loadFailed": "Nem sikerült megnyitni a képet.",
 		"artifacts.image.panel.compare": "Összevetés azzal, amiből készült",
 		"artifacts.image.panel.versions": "Korábbi képek",
+		"artifacts.image.history.wipe": "Húzd az összevetéshez",
+		"artifacts.image.history.prompt": "Alfy utasítása",
+		"artifacts.image.history.marks": "{letters} jelöléssel",
+		"artifacts.image.history.then": "Akkor",
 	},
 } as const;
 

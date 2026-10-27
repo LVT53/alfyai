@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	at,
 	makeMoment,
+	makeStep,
 } from "$lib/components/artifacts/history/__fixtures__/moments";
 import { uiLanguage } from "$lib/stores/settings";
 import VersionStrip from "./VersionStrip.svelte";
@@ -114,5 +115,57 @@ describe("VersionStrip", () => {
 		});
 		expect(screen.getByTestId("image-version-strip")).toBeInTheDocument();
 		expect(screen.queryAllByTestId("image-version-frame")).toHaveLength(0);
+	});
+});
+
+describe("VersionStrip and History's moments (plan 2b T4)", () => {
+	it("draws one frame per History moment, so a folded run's frame opens History on the moment the rail shows", async () => {
+		uiLanguage.set("en");
+		const onOpenHistory = vi.fn();
+		render(VersionStrip, {
+			moments: [
+				// Two changes of Alfy's a minute apart fold into one moment (F4): the
+				// rail shows the moment with the newer as its version.
+				makeMoment({
+					versionNumber: 3,
+					kind: "alfy_turn",
+					author: "alfy",
+					fold: "alfy_turn",
+					at: at(2026, 10, 27, 10, 13),
+					detail: imageDetail("file-3"),
+					isNewest: true,
+					containsNewest: true,
+					steps: [
+						makeStep({ versionNumber: 2, kind: "alfy_edit", author: "alfy" }),
+						makeStep({
+							versionNumber: 3,
+							kind: "alfy_edit",
+							author: "alfy",
+							isNewest: true,
+						}),
+					],
+				}),
+				makeMoment({
+					versionNumber: 1,
+					kind: "first_draft",
+					author: "alfy",
+					at: at(2026, 10, 27, 10, 0),
+					detail: imageDetail("file-1"),
+				}),
+			],
+			conversationId: "conv-1",
+			onOpenHistory,
+		});
+		const frames = screen.getAllByTestId("image-version-frame");
+		expect(frames.map((frame) => frame.dataset.versionId)).toEqual([
+			"v1",
+			"v3",
+		]);
+		// The first picture is named in the picture's own words.
+		expect(frames[0].getAttribute("aria-label")).toContain(
+			"Alfy made the picture",
+		);
+		await fireEvent.click(frames[1]);
+		expect(onOpenHistory).toHaveBeenCalledWith("v3");
 	});
 });
