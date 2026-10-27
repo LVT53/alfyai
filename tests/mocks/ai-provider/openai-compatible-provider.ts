@@ -16,6 +16,16 @@ import {
 	AI_SMOKE_LATE_CARD_WRITING_MS,
 } from "../../fixtures/ai/late-card-scenario";
 import {
+	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+	AI_SMOKE_CHANGE_PICTURE_PROMPT,
+	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+	AI_SMOKE_LATE_PICTURE_INTRO,
+	AI_SMOKE_LATE_PICTURE_MARKER,
+	AI_SMOKE_LATE_PICTURE_PROMPT,
+	AI_SMOKE_LATE_PICTURE_TITLE,
+	changePictureIdFrom,
+} from "../../fixtures/ai/late-picture-scenario";
+import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
 	AI_SMOKE_CANVAS_EDIT_MARKER,
@@ -125,6 +135,23 @@ function hasToolResultMessage(body: Record<string, unknown>): boolean {
 				isJsonObject(message) &&
 				message.role === "tool" &&
 				typeof message.tool_call_id === "string",
+		)
+	);
+}
+
+/** Whether the request answers THIS call (a later turn's request carries earlier turns' tool results too). */
+function hasToolResultFor(
+	body: Record<string, unknown>,
+	callId: string,
+): boolean {
+	const messages = body.messages;
+	return (
+		Array.isArray(messages) &&
+		messages.some(
+			(message) =>
+				isJsonObject(message) &&
+				message.role === "tool" &&
+				message.tool_call_id === callId,
 		)
 	);
 }
@@ -1116,13 +1143,90 @@ function bodyAsksForLateCard(body: unknown): boolean {
 	return currentTurnText(body)?.includes(AI_SMOKE_LATE_CARD_MARKER) === true;
 }
 
+/** What a late scenario says and calls: the late card's by default. */
+type LateTurnScript = {
+	id: string;
+	intro: readonly string[];
+	writingMs: number;
+	call: { id: string; name: string; args: Record<string, unknown> };
+	finalText: string;
+};
+
+const LATE_CARD_SCRIPT: LateTurnScript = {
+	id: "late_card",
+	intro: AI_SMOKE_LATE_CARD_INTRO,
+	writingMs: AI_SMOKE_LATE_CARD_WRITING_MS,
+	call: {
+		id: CREATE_ARTIFACT_CALL_ID,
+		name: "create_artifact",
+		args: {
+			artifactType: "document",
+			title: AI_SMOKE_LATE_CARD_TITLE,
+			body: AI_SMOKE_LATE_CARD_MARKDOWN,
+		},
+	},
+	finalText: AI_SMOKE_LATE_CARD_FINAL_TEXT,
+};
+
+/**
+ * Plan 2b T2: the picture card's late turn (a few sentences, then `make_image`),
+ * and a change of an Image named in the message, so a card has a Before.
+ */
+function latePictureScript(
+	body: Record<string, unknown>,
+): LateTurnScript | null {
+	// The request that carries the tool result may end in the app's own look at
+	// the picture, so its marker is read from the whole body then (as make_image's).
+	const text =
+		hasToolResultFor(body, "call_fake_change_picture") ||
+		hasToolResultFor(body, "call_fake_late_picture")
+			? JSON.stringify(body)
+			: (currentTurnText(body) ?? "");
+	const imageId = changePictureIdFrom(text);
+	if (imageId) {
+		return {
+			id: "change_picture",
+			intro: ["Changing only the lighthouse. "],
+			writingMs: 200,
+			call: {
+				id: "call_fake_change_picture",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_CHANGE_PICTURE_PROMPT,
+					pictures: [imageId],
+					summary: "Made the lighthouse blue",
+				},
+			},
+			finalText: AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+		};
+	}
+	if (text.includes(AI_SMOKE_LATE_PICTURE_MARKER)) {
+		return {
+			id: "late_picture",
+			intro: AI_SMOKE_LATE_PICTURE_INTRO,
+			writingMs: 300,
+			call: {
+				id: "call_fake_late_picture",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_LATE_PICTURE_PROMPT,
+					title: AI_SMOKE_LATE_PICTURE_TITLE,
+				},
+			},
+			finalText: AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+		};
+	}
+	return null;
+}
+
 function lateCardStreamResponse(
 	phase: "call" | "final",
 	signal: AbortSignal,
+	script: LateTurnScript = LATE_CARD_SCRIPT,
 ): Response {
 	const encoder = new TextEncoder();
 	const chunkBase = {
-		id: `chatcmpl_fake_late_card_${phase}`,
+		id: `chatcmpl_fake_${script.id}_${phase}`,
 		object: "chat.completion.chunk",
 		created: 1_700_000_013,
 		model: AI_SMOKE_MODEL_ID,
@@ -1154,11 +1258,11 @@ function lateCardStreamResponse(
 					],
 				});
 				if (phase === "call") {
-					for (const piece of AI_SMOKE_LATE_CARD_INTRO) {
+					for (const piece of script.intro) {
 						await delay(AI_SMOKE_LATE_CARD_PIECE_DELAY_MS);
 						text(piece);
 					}
-					await delay(AI_SMOKE_LATE_CARD_WRITING_MS);
+					await delay(script.writingMs);
 					write({
 						...chunkBase,
 						choices: [
@@ -1168,15 +1272,11 @@ function lateCardStreamResponse(
 									tool_calls: [
 										{
 											index: 0,
-											id: CREATE_ARTIFACT_CALL_ID,
+											id: script.call.id,
 											type: "function",
 											function: {
-												name: "create_artifact",
-												arguments: JSON.stringify({
-													artifactType: "document",
-													title: AI_SMOKE_LATE_CARD_TITLE,
-													body: AI_SMOKE_LATE_CARD_MARKDOWN,
-												}),
+												name: script.call.name,
+												arguments: JSON.stringify(script.call.args),
 											},
 										},
 									],
@@ -1197,7 +1297,7 @@ function lateCardStreamResponse(
 				} else {
 					await delay(AI_SMOKE_LATE_CARD_FINAL_DELAY_MS);
 					// A new paragraph, as a model starts its answer after a tool.
-					text(`\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`);
+					text(`\n\n${script.finalText}`);
 					write({
 						...chunkBase,
 						choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
@@ -1613,6 +1713,14 @@ export function createOpenAICompatibleProviderHarness(
 					const payload = findEditArtifactPayload(body);
 					if (payload) return buildEditArtifactToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
+				}
+				const latePicture = latePictureScript(body);
+				if (latePicture) {
+					return lateCardStreamResponse(
+						hasToolResultFor(body, latePicture.call.id) ? "final" : "call",
+						request.signal ?? new AbortController().signal,
+						latePicture,
+					);
 				}
 				if (bodyAsksForLateCard(body)) {
 					return lateCardStreamResponse(
