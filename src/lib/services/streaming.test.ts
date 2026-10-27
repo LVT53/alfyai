@@ -558,6 +558,43 @@ describe("streamChat", () => {
 		});
 	});
 
+	// The same allow-list gap, for the line that says Alfy is looking at the
+	// pictures of the message: a kind the parser does not list is dropped before
+	// it reaches message.responseActivity, and the line never shows.
+	it("maps viewing_images response-activity events onto the activity callback, with their count", async () => {
+		const onResponseActivity = vi.fn();
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "viewing-images",
+						kind: "viewing_images",
+						status: "running",
+						count: 2,
+						occurredAt: 456,
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledTimes(1);
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "viewing-images",
+			kind: "viewing_images",
+			status: "running",
+			count: 2,
+			occurredAt: 456,
+		});
+	});
+
 	it("maps AI SDK UI stream-error data parts onto onError with code", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [

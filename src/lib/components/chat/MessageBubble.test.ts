@@ -424,6 +424,223 @@ describe("MessageBubble", () => {
 		);
 	});
 
+	// The line that says Alfy is looking at the pictures of the message
+	// (vision/AGENTS.md). The server sends it once, with how many pictures the
+	// model was sent, just before the model call; the stream orchestrator then
+	// marks the context ready and drafting a moment later. It is a status line
+	// like the others: below the text, only while the reply streams, and gone
+	// the moment words or thoughts arrive (nothing is inserted above prose).
+	describe("while Alfy looks at the pictures of the message", () => {
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		function lookingMessage(
+			count: number | undefined,
+			over: Partial<ChatMessage> = {},
+			entryOver: Partial<
+				NonNullable<ChatMessage["responseActivity"]>[number]
+			> = {},
+		): ChatMessage {
+			return {
+				id: "assistant-looking",
+				renderKey: "assistant-looking",
+				role: "assistant",
+				content: "",
+				timestamp: Date.now(),
+				isStreaming: true,
+				isThinkingStreaming: false,
+				// In the order the browser holds them for a streamed turn with
+				// pictures: the context-preparing entry keeps its first place
+				// (entries are merged by id), and the viewing entry is followed at
+				// once by context-ready and drafting-answer.
+				responseActivity: [
+					{
+						id: RESPONSE_ACTIVITY_IDS.CONTEXT_PREPARING,
+						kind: "context",
+						status: "done",
+						contextPreparationClass: "budgeting",
+					},
+					{
+						id: RESPONSE_ACTIVITY_IDS.DEPTH_SELECTED,
+						kind: "depth",
+						status: "done",
+						detail: "standard",
+					},
+					{
+						id: RESPONSE_ACTIVITY_IDS.VIEWING_IMAGES,
+						kind: "viewing_images",
+						status: "running",
+						...(count === undefined ? {} : { count }),
+						...entryOver,
+					},
+					{
+						id: RESPONSE_ACTIVITY_IDS.CONTEXT_READY,
+						kind: "context",
+						status: "done",
+					},
+					{
+						id: RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER,
+						kind: "drafting",
+						status: "running",
+					},
+				],
+				...over,
+			};
+		}
+
+		it("says it is looking at the image, and keeps saying it over the drafting line that follows", () => {
+			render(MessageBubble, { message: lookingMessage(1) });
+
+			expect(screen.getByText("Looking at the image…")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Drafting response..."),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("Preparing response..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("says how many images when there are several", () => {
+			render(MessageBubble, { message: lookingMessage(2) });
+
+			expect(screen.getByText("Looking at 2 images…")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Drafting response..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("says it in Hungarian for a reader of Hungarian, the number before the noun", () => {
+			uiLanguage.set("hu");
+			const { unmount } = render(MessageBubble, { message: lookingMessage(2) });
+			expect(screen.getByText("Megnézem a 2 képet…")).toBeInTheDocument();
+			unmount();
+
+			render(MessageBubble, { message: lookingMessage(1) });
+			expect(screen.getByText("Megnézem a képet…")).toBeInTheDocument();
+		});
+
+		it("follows a change of the interface language while it is on screen", async () => {
+			uiLanguage.set("en");
+			render(MessageBubble, { message: lookingMessage(2) });
+			expect(screen.getByText("Looking at 2 images…")).toBeInTheDocument();
+
+			uiLanguage.set("hu");
+
+			expect(
+				await screen.findByText("Megnézem a 2 képet…"),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText("Looking at 2 images…"),
+			).not.toBeInTheDocument();
+		});
+
+		it("is not pushed aside by an acknowledgment that arrives after it", () => {
+			const message = lookingMessage(2);
+			message.responseActivity = [
+				...(message.responseActivity ?? []),
+				{
+					id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+					kind: "acknowledgment",
+					status: "running",
+					detail: "analyze",
+					label: "the receipt",
+				},
+			];
+
+			render(MessageBubble, { message });
+
+			expect(screen.getByText("Looking at 2 images…")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Taking a closer look at the receipt..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("goes the moment the first words of the answer arrive", () => {
+			render(MessageBubble, {
+				message: lookingMessage(2, { content: "It is a" }),
+			});
+
+			expect(screen.queryByText(/Looking at/)).not.toBeInTheDocument();
+		});
+
+		it("goes the moment the first thoughts arrive", () => {
+			render(MessageBubble, {
+				message: lookingMessage(2, {
+					thinking: "Let me look at the receipt.",
+					isThinkingStreaming: true,
+				}),
+			});
+
+			expect(screen.queryByText(/Looking at/)).not.toBeInTheDocument();
+		});
+
+		it("is shown only while the reply streams", async () => {
+			// A turn that is over and never said a word (stopped, say): the status
+			// line is not drawn at all, and the entries it was built from are not
+			// read once the turn is done.
+			const { container } = render(MessageBubble, {
+				message: lookingMessage(2, { isStreaming: false }),
+			});
+
+			expect(screen.queryByText(/Looking at/)).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("Drafting response..."),
+			).not.toBeInTheDocument();
+			expect(container.querySelector(".preparing-status")).toBeNull();
+		});
+
+		it("is not part of a finished answer either", async () => {
+			render(MessageBubble, {
+				message: lookingMessage(2, {
+					content: "A receipt for 42 euros.",
+					isStreaming: false,
+				}),
+			});
+
+			// The answer is drawn (the markdown renders a moment later) without it.
+			expect(
+				await screen.findByText("A receipt for 42 euros."),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/Looking at/)).not.toBeInTheDocument();
+		});
+
+		it("is not drawn for the person's own message", () => {
+			render(MessageBubble, {
+				message: lookingMessage(2, { role: "user", content: "What is this?" }),
+			});
+
+			expect(screen.queryByText(/Looking at/)).not.toBeInTheDocument();
+		});
+
+		it("falls back to the drafting line for a count it cannot say", () => {
+			for (const count of [undefined, 0, -2, 1.5, Number.NaN]) {
+				cleanup();
+				render(MessageBubble, { message: lookingMessage(count) });
+
+				expect(
+					screen.getByText("Drafting response..."),
+					String(count),
+				).toBeInTheDocument();
+				expect(screen.queryByText(/Looking at/), String(count)).toBeNull();
+			}
+		});
+
+		it("says nothing the entry carries besides the count", () => {
+			const { container } = render(MessageBubble, {
+				message: lookingMessage(
+					1,
+					{},
+					{ label: "bank-statement.jpg", detail: "a receipt for 42 euros" },
+				),
+			});
+
+			expect(screen.getByText("Looking at the image…")).toBeInTheDocument();
+			expect(container).not.toHaveTextContent("bank-statement.jpg");
+			expect(container).not.toHaveTextContent("42 euros");
+		});
+	});
+
 	it("shows a localized finalizing label for a finalizing assistant response", () => {
 		const message: ChatMessage = {
 			id: "assistant-finalizing",

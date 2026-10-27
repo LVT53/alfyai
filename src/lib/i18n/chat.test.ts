@@ -96,6 +96,24 @@ describe("chat i18n dictionary", () => {
 		);
 	});
 
+	// The vision line (kind "viewing_images"): one picture reads without a number,
+	// several with it. `$t` has no `#` and no braces inside a plural branch, so the
+	// two readings are two keys. A counted line that lost its {count} would say
+	// "Looking at images…" in one language, and the component tests render only
+	// the counts they are given.
+	it("keeps the number in the vision line for several pictures, and out of it for one, in both languages", () => {
+		for (const lang of ["en", "hu"] as const) {
+			expect(
+				chatDict[lang]["chat.responseActivity.viewingImages"],
+				`${lang} several`,
+			).toContain("{count}");
+			expect(
+				chatDict[lang]["chat.responseActivity.viewingImage"],
+				`${lang} one`,
+			).not.toContain("{count}");
+		}
+	});
+
 	it("has no empty translations", () => {
 		for (const [key, value] of Object.entries(chatDict.en)) {
 			expect(value.trim(), `en.${key}`).not.toBe("");

@@ -264,6 +264,13 @@ const chatDict = {
 		// any of this text; {label} is one of the six keys above, {entity}
 		// is a substring already verified server-side.
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
+		// The vision line: shown while the model reads the pictures attached to
+		// the message (kind "viewing_images", MessageBubble's status line, only
+		// while the reply streams). One picture reads without a number, several
+		// with it. `$t` has no `#` and no braces inside a plural branch, so the two
+		// readings are two keys, and the caller picks by the count.
+		"chat.responseActivity.viewingImage": "Looking at the image…",
+		"chat.responseActivity.viewingImages": "Looking at {count} images…",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
 		// laterTurnCount counts individual MESSAGES (a Q&A exchange is 2), so the
@@ -1429,6 +1436,10 @@ const chatDict = {
 		"chat.responseActivity.thoughtStep.workingThroughLogic":
 			"Logika végiggondolása...",
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
+		// Hungarian keeps the noun singular after a numeral, so "N képet" needs no
+		// plural form; one picture drops the number.
+		"chat.responseActivity.viewingImage": "Megnézem a képet…",
+		"chat.responseActivity.viewingImages": "Megnézem a {count} képet…",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		// Hungarian doesn't inflect the noun for plural after a numeral (e.g.

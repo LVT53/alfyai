@@ -47,6 +47,11 @@ export const RESPONSE_ACTIVITY_IDS = {
 	// topic even as later activities (context-ready, drafting-answer) are
 	// appended alongside it.
 	TURN_ACKNOWLEDGED: "turn-acknowledged",
+	// Vision — the model is about to read the pictures attached to the message.
+	// One entry per turn: the id is fixed so that a repeat updates it in place
+	// (the stream buffer and the browser both merge entries by id) and never
+	// adds a second line.
+	VIEWING_IMAGES: "viewing-images",
 } as const;
 
 export type StaticResponseActivityId =

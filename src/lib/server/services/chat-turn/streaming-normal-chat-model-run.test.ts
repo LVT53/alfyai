@@ -370,6 +370,139 @@ describe("runStreamingNormalChatSendModel", () => {
 		).toBe(1_900);
 	});
 
+	// The line that says Alfy is looking at the pictures (vision/AGENTS.md): one
+	// response-activity entry with how many pictures the model is sent, said once
+	// the context is prepared and before the model is called, so the person sees
+	// it while the model reads the message. A turn with no pictures says nothing.
+	describe("saying that it is looking at the pictures", () => {
+		const image = {
+			base64: "QUJD",
+			mediaType: "image/jpeg" as const,
+			width: 64,
+			height: 48,
+			estimatedTokens: 6,
+		};
+		const pictures = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				artifactId: `a-${index}`,
+				name: `private-name-${index}.jpg`,
+				image,
+			}));
+
+		async function send(
+			currentImages: unknown[],
+			onResponseActivity?: (entry: unknown) => void,
+		) {
+			mocks.prepareOutboundChatContext.mockImplementation(async (params) => {
+				// The context preparation reports its stages through the same
+				// callback, so the order of the two kinds of entry is visible.
+				params.onContextPreparationActivity?.({
+					stageId: "prompt_budget",
+					status: "done",
+				});
+				return {
+					inputValue: "What is in these?",
+					systemPrompt: "Prepared system prompt",
+					contextStatus: { status: "ready" },
+					taskState: null,
+					contextDebug: null,
+					contextTraceSections: [],
+					currentImages,
+				};
+			});
+			return runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "What is in these?",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+				onResponseActivity,
+			});
+		}
+
+		it("emits one viewing_images entry with the number of pictures, before it calls the model", async () => {
+			const order: string[] = [];
+			const activity: unknown[] = [];
+			mocks.runStreamingNormalChatModelRun.mockImplementation(() => {
+				order.push("model call");
+				return streamEvents();
+			});
+
+			await send(pictures(2), (entry) => {
+				activity.push(entry);
+				order.push("activity");
+			});
+
+			expect(
+				activity.filter(
+					(entry) => (entry as { kind: string }).kind === "viewing_images",
+				),
+			).toEqual([
+				{
+					id: "viewing-images",
+					kind: "viewing_images",
+					status: "running",
+					count: 2,
+				},
+			]);
+			// After the preparation's own entry, before the call to the model.
+			expect(order).toEqual(["activity", "activity", "model call"]);
+			expect((activity[0] as { kind: string }).kind).toBe("context");
+			expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledTimes(1);
+		});
+
+		it("counts the pictures the model is sent, one for one picture", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send(pictures(1), onResponseActivity);
+
+			const viewing = onResponseActivity.mock.calls
+				.map(([entry]) => entry)
+				.filter((entry) => entry.kind === "viewing_images");
+			expect(viewing).toHaveLength(1);
+			expect(viewing[0].count).toBe(1);
+		});
+
+		it("says nothing for a turn with no pictures", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send([], onResponseActivity);
+
+			expect(
+				onResponseActivity.mock.calls.map(([entry]) => entry.kind),
+			).not.toContain("viewing_images");
+		});
+
+		it("carries only the count: no name, no description, no diagnostics", async () => {
+			const onResponseActivity = vi.fn();
+
+			await send(pictures(3), onResponseActivity);
+
+			const viewing = onResponseActivity.mock.calls
+				.map(([entry]) => entry)
+				.find((entry) => entry.kind === "viewing_images");
+			expect(Object.keys(viewing).sort()).toEqual([
+				"count",
+				"id",
+				"kind",
+				"status",
+			]);
+			expect(JSON.stringify(viewing)).not.toContain("private-name");
+		});
+
+		it("sends the same pictures to the model whether or not anyone listens", async () => {
+			await send(pictures(2));
+
+			const [{ messages }] = mocks.runStreamingNormalChatModelRun.mock
+				.calls[0] as [{ messages: Array<{ content: unknown[] }> }];
+			expect(
+				messages[0].content.filter(
+					(part) => (part as { type: string }).type === "image",
+				),
+			).toHaveLength(2);
+		});
+	});
+
 	it("does not force a named first-step tool choice for forced web search (guidance carries it instead)", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",

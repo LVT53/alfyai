@@ -36,6 +36,7 @@ import {
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
+import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
@@ -161,6 +162,23 @@ export async function runStreamingNormalChatSendModel(
 		messages: outboundMessages,
 		toolCount: toolPack.tools ? Object.keys(toolPack.tools).length : 0,
 	});
+
+	// The model is about to read the pictures of this message, which is the part
+	// of the wait the person would otherwise not be told about. One entry on the
+	// response-activity channel with the number of pictures it is sent (the
+	// pictures that made it into the request, not the ones attached), nothing
+	// else: no name, no description. `currentImages` is empty unless the model can
+	// see, so a turn without pictures says nothing. The browser shows it only while
+	// the reply streams (MessageBubble), and the stream is lazy: the model call
+	// below starts when the orchestrator reads it, after this.
+	if (prepared.currentImages.length > 0) {
+		params.onResponseActivity?.({
+			id: RESPONSE_ACTIVITY_IDS.VIEWING_IMAGES,
+			kind: "viewing_images",
+			status: "running",
+			count: prepared.currentImages.length,
+		});
+	}
 
 	const stream = runStreamingNormalChatModelRun({
 		provider: runtime.provider,

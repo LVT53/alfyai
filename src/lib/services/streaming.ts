@@ -386,7 +386,10 @@ function isResponseActivityKind(
 		// real browser session either (its own tests never exercise this
 		// parser — they construct message.responseActivity directly).
 		value === "acknowledgment" ||
-		value === "thought_step"
+		value === "thought_step" ||
+		// Vision: the line that says the model is reading the message's pictures.
+		// Left out of this list it is dropped here and never shows.
+		value === "viewing_images"
 	);
 }
 

@@ -7,6 +7,7 @@
 //
 // This is the ONE home for those pure decisions:
 //   - the "is this a thought-step / tool-progress" predicates,
+//   - the picture count of the vision line ("Looking at 2 images…"),
 //   - the classified thought-step class -> leading-icon-type mapping.
 //
 // It mirrors the existing `reasoning-spine.ts` /
@@ -55,6 +56,25 @@ export function isToolProgressActivity(
 	entry: ResponseActivityEntry,
 ): entry is ResponseActivityEntry & { label: string } {
 	return entry.id.startsWith("tool-progress:") && Boolean(entry.label?.trim());
+}
+
+/**
+ * How many pictures Alfy is looking at, for a live `viewing_images` entry (the
+ * vision line, src/lib/server/services/vision/AGENTS.md). Only a running entry
+ * with a whole count of at least one says anything: a count the browser cannot
+ * put into words is not said, and the status line falls back to the generic one.
+ * The entry carries nothing else, so there is nothing else to read.
+ */
+export function viewingImagesCount(
+	entry: ResponseActivityEntry,
+): number | null {
+	if (entry.kind !== "viewing_images" || entry.status !== "running") {
+		return null;
+	}
+	const count = entry.count;
+	return typeof count === "number" && Number.isInteger(count) && count >= 1
+		? count
+		: null;
 }
 
 // ---------------------------------------------------------------------------

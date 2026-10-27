@@ -9,6 +9,7 @@ import {
 	isToolProgressActivity,
 	type ThoughtStepIconType,
 	thoughtStepIconTypeForClass,
+	viewingImagesCount,
 } from "./activity-presentation";
 
 // Tier B2 (chat-experience-elevation §5) — the extracted core is the test
@@ -81,6 +82,53 @@ describe("isToolProgressActivity", () => {
 				activityEntry({ id: "tool-progress:1", kind: "tool", label: "" }),
 			),
 		).toBe(false);
+	});
+});
+
+// Alfy looking at the pictures attached to the message (vision/AGENTS.md): the
+// entry carries how many were sent and nothing else, and the browser only says
+// it when it can say a number it can trust.
+describe("viewingImagesCount", () => {
+	const viewing = (
+		over: Partial<ResponseActivityEntry> = {},
+	): ResponseActivityEntry => ({
+		id: "viewing-images",
+		kind: "viewing_images",
+		status: "running",
+		count: 2,
+		...over,
+	});
+
+	it("is the count of a running viewing_images entry", () => {
+		expect(viewingImagesCount(viewing({ count: 2 }))).toBe(2);
+		expect(viewingImagesCount(viewing({ count: 1 }))).toBe(1);
+		expect(viewingImagesCount(viewing({ count: 8 }))).toBe(8);
+	});
+
+	it("is null for any other kind, even one that carries a count", () => {
+		expect(viewingImagesCount(viewing({ kind: "tool", count: 3 }))).toBeNull();
+		expect(
+			viewingImagesCount(viewing({ kind: "context", count: 3 })),
+		).toBeNull();
+	});
+
+	it("is null once the entry is no longer running", () => {
+		expect(viewingImagesCount(viewing({ status: "done" }))).toBeNull();
+		expect(viewingImagesCount(viewing({ status: "error" }))).toBeNull();
+	});
+
+	it("is null for a count that is not a whole number of at least one", () => {
+		for (const count of [
+			undefined,
+			0,
+			-1,
+			1.5,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			"2" as unknown as number,
+		]) {
+			expect(viewingImagesCount(viewing({ count })), String(count)).toBeNull();
+		}
 	});
 });
 
