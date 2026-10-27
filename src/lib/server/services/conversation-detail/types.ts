@@ -19,6 +19,7 @@ import type {
 	ChatGeneratedFile,
 	FileProductionJob,
 } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -47,6 +48,8 @@ export interface ConversationDetail {
 	bootstrap?: boolean;
 	generatedFiles?: ChatGeneratedFile[];
 	fileProductionJobs?: FileProductionJob[];
+	/** The picture cards (Image items' takes) of this conversation, oldest first. */
+	imageCards?: ImageCardView[];
 	/** The artifact family rows for this conversation: the panel list and the header count's source. */
 	artifacts?: ArtifactCardSummary[];
 	/**

@@ -44,6 +44,10 @@ vi.mock("$lib/server/services/file-production/read-model", () => ({
 	listConversationFileProductionJobs: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/images/read-model", () => ({
+	listConversationImageCards: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/atlas/read-model", () => ({
 	listConversationAtlasJobs: vi.fn(),
 }));
@@ -97,6 +101,7 @@ import {
 	listConversationFileProductionJobs,
 	listConversationGeneratedFiles,
 } from "$lib/server/services/file-production/read-model";
+import { listConversationImageCards } from "$lib/server/services/images/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -124,6 +129,7 @@ import {
 	getOlderConversationMessages,
 } from "./read-model";
 
+const mockListConversationImageCards = vi.mocked(listConversationImageCards);
 const mockGetConversation = vi.mocked(getConversation);
 const mockGetConversationDraft = vi.mocked(getConversationDraft);
 const mockGetConversationForkOrigin = vi.mocked(getConversationForkOrigin);
@@ -213,6 +219,7 @@ describe("Conversation Detail Read Model", () => {
 		mockListConversationGeneratedFiles.mockResolvedValue([]);
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
 		mockListConversationAtlasJobs.mockResolvedValue([]);
+		mockListConversationImageCards.mockResolvedValue([]);
 		mockListContextCompressionSnapshots.mockResolvedValue([]);
 		mockGetConversationCostSummary.mockResolvedValue({
 			totalCostUsdMicros: 0,
@@ -243,6 +250,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
 		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
+		expect(mockListConversationImageCards).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
 		expect(mockListArtifactsForConversation).not.toHaveBeenCalled();
@@ -258,6 +266,7 @@ describe("Conversation Detail Read Model", () => {
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
+			imageCards: [],
 			atlasJobs: [],
 			contextCompressionSnapshots: [],
 			artifacts: [],
@@ -266,6 +275,25 @@ describe("Conversation Detail Read Model", () => {
 		});
 		expect(detail?.draft?.draftText).toBe("Continue from here");
 		expect(detail?.forkOrigin?.sourceTitle).toBe("Source title");
+	});
+
+	it("carries the conversation's image cards", async () => {
+		mockListMessageWindow.mockResolvedValue({
+			messages: [],
+			hasMoreBefore: false,
+		} as never);
+		mockListConversationImageCards.mockResolvedValue([
+			{ id: "card-1", takes: [] } as never,
+		]);
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(mockListConversationImageCards).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
+		expect(detail?.imageCards).toEqual([{ id: "card-1", takes: [] }]);
 	});
 
 	it("returns full conversation detail payload pieces from read services", async () => {
