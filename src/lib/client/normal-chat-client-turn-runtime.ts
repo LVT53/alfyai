@@ -1626,6 +1626,15 @@ function cloneSendPayload(
 					unavailable: payload.pendingSkill.unavailable === true,
 				}
 			: null,
+		pictureRefs: payload.pictureRefs
+			? payload.pictureRefs.map((ref) => ({ ...ref }))
+			: undefined,
+		imageMarks: payload.imageMarks
+			? {
+					...payload.imageMarks,
+					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
+				}
+			: null,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		personalityProfileId: payload.personalityProfileId ?? null,

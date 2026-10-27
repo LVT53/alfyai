@@ -1293,6 +1293,75 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	it("keeps a queued follow-up's card pictures and marks through the queue, the snapshot, the restore and the drain", async () => {
+		const marks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+		};
+		const pictureRefs = [{ imageFileId: "file-1", number: 2 }];
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs,
+			imageMarks: marks,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.pictureRefs).toEqual(pictureRefs);
+		expect(queued?.imageMarks).toEqual(marks);
+		// A copy: the person's later edits do not reach the queued turn.
+		expect(queued?.pictureRefs).not.toBe(pictureRefs);
+		expect(queued?.imageMarks?.marks).not.toBe(marks.marks);
+
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ pictureRefs, imageMarks: marks }),
+		);
+		expect(streamInvocations).toHaveLength(1);
+	});
+
+	it("sends a drained follow-up with its pictures and marks", async () => {
+		const marks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+		};
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			imageMarks: marks,
+		});
+		streamInvocations[0].callbacks.onEnd("Done", {
+			assistantMessageId: "assistant-1",
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(streamInvocations).toHaveLength(2);
+		expect(streamInvocations[1].options).toMatchObject({
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			imageMarks: marks,
+		});
+	});
+
 	it("keeps the first queued follow-up when later queue attempts are rejected", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
