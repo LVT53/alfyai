@@ -1936,9 +1936,32 @@ describe("make_image rows", () => {
 			"k7",
 			translate,
 		);
-		expect(refused.body).toEqual({
+		// A refusal is a correction for the model: the person is told nothing about it.
+		expect(refused.body).toBeNull();
+		expect(JSON.stringify(refused)).not.toContain(modelText);
+		for (const code of [
+			"too_many_calls",
+			"retry_twice",
+			"retry_unknown",
+			"unknown_picture",
+		]) {
+			const other = buildToolActivityItem(
+				makeImageCall({ metadata: { ok: false, imageRefusal: code } }),
+				`refusal-${code}`,
+				translate,
+			);
+			expect(other.body).toBeNull();
+		}
+		const noServer = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "not_configured" },
+			}),
+			"k7b",
+			translate,
+		);
+		expect(noServer.body).toEqual({
 			kind: "error",
-			reason: "This picture could not be started. Try asking again.",
+			reason: "No picture server is set up.",
 		});
 		const unreachable = buildToolActivityItem(
 			makeImageCall({
@@ -1967,9 +1990,11 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(JSON.stringify(failedStatus)).not.toContain(modelText);
-		expect(failedStatus.body).toMatchObject({
-			kind: "error",
-			reason: expect.stringContaining("taking longer than expected"),
+		// The envelope gave up waiting, but the take is still being made: not a failure.
+		expect(failedStatus).toMatchObject({
+			status: "done",
+			verb: "Still being made, it will appear on its card",
+			body: null,
 		});
 	});
 
@@ -2000,10 +2025,11 @@ describe("make_image rows", () => {
 		const keys = Object.keys(chatDict.en).filter((key) =>
 			key.startsWith("toolActivity.pictureReason."),
 		);
-		expect(keys.length).toBeGreaterThanOrEqual(11);
+		expect(keys.length).toBeGreaterThanOrEqual(9);
 		for (const key of keys) {
 			expect(chatDict.hu[key as keyof typeof chatDict.hu]).toBeTruthy();
 		}
 		expect(chatDict.hu["toolActivity.pictureStopped"]).toBe("Kép leállítva");
+		expect(chatDict.hu["toolActivity.pictureStillMaking"]).toBeTruthy();
 	});
 });

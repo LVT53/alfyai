@@ -188,6 +188,7 @@ const VERB_KEYS = {
 	changedPicture: "toolActivity.changedPicture",
 	pictureFailed: "toolActivity.pictureFailed",
 	pictureStopped: "toolActivity.pictureStopped",
+	pictureStillMaking: "toolActivity.pictureStillMaking",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -402,13 +403,17 @@ const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
 	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
 	not_configured: "toolActivity.pictureReason.notConfigured",
 	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
-	image_tool_timeout: "toolActivity.pictureReason.slow",
 };
 
-/** The localized reason for a make_image row that did not make its picture. */
+/**
+ * The localized reason for a make_image row that did not make its picture; null
+ * when the person has nothing to act on. A refusal (too many takes, a repeated
+ * retry, an unknown picture name...) is a correction for the model, which
+ * recovers by itself, so only "no picture server" is worth saying.
+ */
 function imageReasonKey(
 	metadata: Record<string, string | number | boolean | null> | undefined,
-): I18nKey {
+): I18nKey | null {
 	const code = metadata?.imageError;
 	if (typeof code === "string" && IMAGE_REASON_KEYS[code]) {
 		return IMAGE_REASON_KEYS[code];
@@ -417,7 +422,7 @@ function imageReasonKey(
 	if (typeof refusal === "string") {
 		return refusal === "not_configured"
 			? "toolActivity.pictureReason.notConfigured"
-			: "toolActivity.pictureReason.refused";
+			: null;
 	}
 	return "toolActivity.pictureReason.generic";
 }
@@ -826,10 +831,26 @@ function buildSettledToolActivityItem(
 				body: null,
 			};
 		}
+		// The tool's envelope gave up waiting, but the take is still rendering and
+		// lands on its card: that is not a failure.
+		if (metadata?.imageError === "image_tool_timeout") {
+			const stillVerb = translate(VERB_KEYS.pictureStillMaking);
+			return {
+				...base,
+				status: "done",
+				verb: stillVerb,
+				object: title,
+				meta: "",
+				summaryLabel: stillVerb,
+				title: title ? `${stillVerb}: ${title}` : stillVerb,
+				body: null,
+			};
+		}
 		if (status === "failed" || metadata?.ok === false) {
 			const failedVerb = translate(VERB_KEYS.pictureFailed);
 			// Words for the person come from the code, never from what the model was told.
-			const reason = translate(imageReasonKey(metadata));
+			const reasonKey = imageReasonKey(metadata);
+			const reason = reasonKey ? translate(reasonKey) : "";
 			return {
 				...base,
 				status: "failed",
