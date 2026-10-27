@@ -29,7 +29,10 @@ import {
 } from "../../src/lib/server/services/images/files";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
-import { serializeImageVersionBody } from "../../src/lib/shared/artifacts/image-body";
+import {
+	type ImageVersionBody,
+	serializeImageVersionBody,
+} from "../../src/lib/shared/artifacts/image-body";
 import {
 	SHIPPED_ARTIFACT_TOUR_TYPES,
 	type ShippedArtifactTourType,
@@ -509,6 +512,14 @@ export async function seedImageItem(
 		versions?: number;
 		width?: number;
 		height?: number;
+		/**
+		 * How each later version was written (plan 2b T4): `alfy`, a change of Alfy's
+		 * (changes written in a row fold into one History moment), or `picked`, a
+		 * take the reader chose (a moment of its own). Alfy's by default.
+		 */
+		authorOf?: (index: number) => "alfy" | "picked";
+		/** More of a version's body: a prompt, marks. */
+		decorate?: (index: number) => Partial<ImageVersionBody>;
 	} = {},
 ): Promise<{ artifactId: string; fileIds: string[] }> {
 	const width = options.width ?? 1248;
@@ -539,6 +550,7 @@ export async function seedImageItem(
 			seed: null,
 			anchorFileId: null,
 			chainSinceAnchor: 0,
+			...options.decorate?.(index),
 		});
 	const created = await createArtifact({
 		userId: user.id,
@@ -552,7 +564,13 @@ export async function seedImageItem(
 	if (!created.ok) throw new Error(`seedImageItem: ${created.reason}`);
 	const artifactId = created.artifact.id;
 	for (let index = 1; index < count; index++) {
-		await addImageVersion(user, artifactId, bodyOf(index), conversationId);
+		await addImageVersion(
+			user,
+			artifactId,
+			bodyOf(index),
+			conversationId,
+			options.authorOf?.(index) ?? "alfy",
+		);
 	}
 	await attachImageFilesToArtifact(fileIds, artifactId);
 	return { artifactId, fileIds };
@@ -564,13 +582,15 @@ export async function addImageVersion(
 	artifactId: string,
 	body: string,
 	conversationId: string,
+	as: "alfy" | "picked" = "alfy",
 ): Promise<void> {
 	const written = await updateArtifactBody({
 		userId: user.id,
 		artifactId,
 		body,
-		author: "alfy",
-		summary: "Alfy changed the picture",
+		author: as === "picked" ? "user" : "alfy",
+		summary:
+			as === "picked" ? "Picked another take" : "Alfy changed the picture",
 		conversationId,
 	});
 	if (!written.ok) throw new Error(`addImageVersion: ${written.reason}`);
