@@ -675,13 +675,23 @@ describe("the boot sweep", () => {
 });
 
 describe("the boot sweep after a restart", () => {
-	it("settles a take still inside its hold, because the tool call that held it died with the process", async () => {
+	it("settles a take still inside its hold once the init has cleared the holds, because the tool call that held it died with the process", async () => {
+		const { clearTakeHolds, settleCardsAfterRestart } = await import("./cards");
+		const cardId = await card();
+		const held = await landedTake(cardId, { heldUntil: Date.now() + 120_000 });
+		clearTakeHolds();
+		expect((await takeRow(held.id))?.heldUntil).toBeNull();
+		await expect(settleCardsAfterRestart()).resolves.toBe(1);
+		expect((await cardRow(cardId))?.pickedTakeId).toBe(held.id);
+	});
+
+	it("leaves a hold alone: the deferred settle must not clear a live request's take", async () => {
 		const { settleCardsAfterRestart } = await import("./cards");
 		const cardId = await card();
 		const held = await landedTake(cardId, { heldUntil: Date.now() + 120_000 });
-		await expect(settleCardsAfterRestart()).resolves.toBe(1);
-		expect((await cardRow(cardId))?.pickedTakeId).toBe(held.id);
-		expect((await takeRow(held.id))?.heldUntil).toBeNull();
+		await expect(settleCardsAfterRestart()).resolves.toBe(0);
+		expect((await takeRow(held.id))?.heldUntil).not.toBeNull();
+		expect((await cardRow(cardId))?.pickedTakeId).toBeNull();
 	});
 });
 

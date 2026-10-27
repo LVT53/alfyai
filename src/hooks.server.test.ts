@@ -15,6 +15,7 @@ const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const imageJobStub = { name: "image", logPrefix: "[IMAGES]" };
 const mockSettleHeldCards = vi.fn(async () => undefined);
+const mockClearTakeHolds = vi.fn();
 const fileProductionJobStub = {
 	name: "file-production",
 	logPrefix: "[FILE_PRODUCTION]",
@@ -99,6 +100,7 @@ vi.mock("$lib/server/services/images/image-job", () => ({
 
 vi.mock("$lib/server/services/images/cards", () => ({
 	settleCardsAfterRestart: mockSettleHeldCards,
+	clearTakeHolds: mockClearTakeHolds,
 }));
 
 vi.mock("$lib/server/services/jobs", () => ({
@@ -247,6 +249,13 @@ describe("hooks.server.ts", () => {
 		// Once the engine is up, a take that landed while the process was down
 		// becomes its card's version in use.
 		await vi.waitFor(() => expect(mockSettleHeldCards).toHaveBeenCalledOnce());
+		// The holds are cleared inside init itself, before the engine starts and
+		// before any request: no tool call survives a restart, and a deferred
+		// clear would wipe the hold of a request already being served.
+		expect(mockClearTakeHolds).toHaveBeenCalledOnce();
+		expect(mockClearTakeHolds.mock.invocationCallOrder[0]).toBeLessThan(
+			mockStartJobs.mock.invocationCallOrder[0],
+		);
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);

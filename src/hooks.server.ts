@@ -245,6 +245,17 @@ export const init: ServerInit = async () => {
 	} catch (error) {
 		console.error("Failed to settle interrupted ChatGPT imports:", error);
 	}
+	// No tool call survives a restart, so no take hold does either. Cleared here,
+	// synchronously, before the first request: the deferred settle below must not
+	// do it, or it would wipe the hold of a request already being served.
+	try {
+		const { clearTakeHolds } = await import(
+			"$lib/server/services/images/cards"
+		);
+		clearTakeHolds();
+	} catch (error) {
+		console.error("Failed to clear image take holds:", error);
+	}
 	seedDefaultProviders().catch((error) =>
 		console.error("Failed to seed default providers:", error),
 	);

@@ -681,16 +681,25 @@ export async function settleHeldCards(now = Date.now()): Promise<number> {
 }
 
 /**
- * The boot sweep. A hold belongs to a tool call, and no tool call survives a
- * restart, so every hold is cleared first; otherwise a take held when the
- * process went down would wait out its 130 s and then never be settled (the
- * runner skips held takes, and this sweep runs once). Answers how many cards
+ * Clears every take hold. A hold belongs to a tool call, and no tool call
+ * survives a restart, so `init` calls this synchronously before the process
+ * serves anything. It must NOT run later (a deferred call would wipe the hold
+ * of a request already being served), and it assumes one app process: a second
+ * process booting would clear the live holds of the first.
+ */
+export function clearTakeHolds(): void {
+	db.update(imageJobs)
+		.set({ heldUntil: null })
+		.where(isNotNull(imageJobs.heldUntil))
+		.run();
+}
+
+/**
+ * The boot sweep, deferred until the job engine is up: settles every card whose
+ * take landed while the process was down. The holds are already cleared by
+ * `clearTakeHolds` in `init`; this never touches them. Answers how many cards
  * got a pick.
  */
 export async function settleCardsAfterRestart(): Promise<number> {
-	await db
-		.update(imageJobs)
-		.set({ heldUntil: null })
-		.where(isNotNull(imageJobs.heldUntil));
 	return settleHeldCards();
 }
