@@ -175,7 +175,7 @@ Words only. A new picture defaults to the 1248x832 landscape canvas unless the w
 
 ### 5.11 Storage
 
-Every version and every take is a PNG the chat owns. Deleting the chat deletes them through the existing cleanup (`src/lib/server/services/cleanup/conversation-cleanup.ts`). No quota in this version (my call).
+Every version and every take is a PNG the chat owns. Deleting the chat deletes them through the existing cleanup (`src/lib/server/services/cleanup/conversation-cleanup.ts`). An Image item goes with its chat even when another chat links to it (owner, 2026-10-27): a family item cannot be opened once its own chat is gone, so keeping one would only leave its files on disk. The person's uploaded photos are not touched; they keep the uploads' rule. No quota in this version (my call).
 
 ### 5.12 Done when (my proposal, calibrated on the first real run)
 
@@ -196,7 +196,7 @@ Every version and every take is a PNG the chat owns. Deleting the chat deletes t
 | 2026-10-26 | No content checker on the app's side. |
 | 2026-10-26 | Alfy may look at Immich thumbnails when a question needs it. |
 | 2026-10-26 | Server setup: an agent installs and runs ComfyUI on GPU1 over ssh, and the owner approves each command. |
-| 2026-10-27 | The picture cap limits one picture request, not a message: every chat keeps part 1's 8 pictures a message. `make_image` is paid for by a measured raise of the tool catalogue's ceiling. The part 2 plans' other calls stand as written, except call 5 (pictures and chat deletion), still open. |
+| 2026-10-27 | The picture cap limits one picture request, not a message: every chat keeps part 1's 8 pictures a message. `make_image` is paid for by a measured raise of the tool catalogue's ceiling. Pictures go with their chat, even when another chat uses them, as the family's other kinds already do. The part 2 plans' other calls stand as written. |
 
 ## 7. My calls, for the owner to check
 
