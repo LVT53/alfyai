@@ -222,7 +222,7 @@ Every version and every take is a PNG the chat owns. Deleting the chat deletes t
 ## Decided during the build
 
 - BMP is not shown to the model, while TIF and SVG are (section 4.2 listed bmp, but the prebuilt image library cannot decode it).
-- Thumbnails are decided for each attempt, by the attempt model's locality as well as its sight. Someone with local summarising on never has thumbnails, or their file names, sent to a cloud model, failover included.
+- Thumbnails are decided for each attempt, by the attempt model's locality as well as its sight. Someone with local summarising on never has thumbnails, or the file names in their label, sent to a cloud model, failover included. The photos tool's text result on a failover attempt is still gated for the turn's first model, like every connector's; the release checklist's last follow-up covers it.
 - At most 8 thumbnails a turn, shared by every look.
 - A look has its own deadline (8 s showing, 12 s describing) and never costs the search results.
 - Hungarian for several pictures reads "{count} képet nézek meg…", with no article, because the right article depends on the number.
