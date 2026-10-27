@@ -69,10 +69,13 @@ let loaded = $state<Record<string, boolean>>({});
  * one under it goes once the new one is fully shown, so the box never shows
  * its empty background between two pictures.
  */
-let layers = $state<string[]>([]);
-$effect.pre(() => {
+let layers = $state<string[]>(untrack(() => [fileId]));
+$effect(() => {
 	const id = fileId;
-	if (layers.at(-1) !== id) layers = [...layers.filter((l) => l !== id), id];
+	const current = untrack(() => layers);
+	if (current.at(-1) !== id) {
+		layers = [...current.filter((layer) => layer !== id), id];
+	}
 });
 
 function settle(id: string): void {
@@ -80,31 +83,21 @@ function settle(id: string): void {
 	if (index > 0) layers = layers.slice(index);
 }
 
-/** Marks a picture shown once it has decoded, also when it was already cached. */
-function fadeInOnLoad(id: string) {
-	return (img: HTMLImageElement) => {
-		const done = () => {
-			loaded = { ...loaded, [id]: true };
-		};
-		const shown = (event: TransitionEvent) => {
-			if (event.propertyName === "opacity" && loaded[id]) settle(id);
-		};
-		// Untracked: an attachment is an effect, and reading `loaded` or `layers`
-		// here would make it re-run on its own write (a picture already in the
-		// cache is complete at once).
-		untrack(() => {
-			if (img.complete && img.naturalWidth > 0) {
-				done();
-				settle(id);
-			}
-		});
-		img.addEventListener("load", done);
-		img.addEventListener("transitionend", shown);
-		return () => {
-			img.removeEventListener("load", done);
-			img.removeEventListener("transitionend", shown);
-		};
-	};
+/**
+ * A picture is shown once it has loaded. The handlers are the element's own
+ * (`onload`), attached when Svelte creates it, so a load that finishes at once
+ * (a picture already in the cache) is never missed, and nothing here is an
+ * effect that could re-run on its own write. The motion check found both: an
+ * attachment that looped on a cached picture, and a new picture whose
+ * attachment never ran, left invisible under the one it replaced.
+ */
+function markLoaded(id: string): void {
+	loaded = { ...loaded, [id]: true };
+}
+
+/** The picture under a new one goes once the new one has faded in. */
+function markShown(id: string, event: TransitionEvent): void {
+	if (event.propertyName === "opacity" && loaded[id]) settle(id);
 }
 </script>
 
@@ -133,7 +126,8 @@ function fadeInOnLoad(id: string) {
 			decoding="async"
 			draggable="false"
 			data-testid={current ? 'image-picture-after' : 'image-picture-leaving'}
-			{@attach fadeInOnLoad(id)}
+			onload={() => markLoaded(id)}
+			ontransitionend={(event) => markShown(id, event)}
 		/>
 	{/each}
 	{#if before && beforeFileId && beforeWanted}
@@ -152,7 +146,7 @@ function fadeInOnLoad(id: string) {
 				decoding="async"
 				draggable="false"
 				data-testid="image-picture-before"
-				{@attach fadeInOnLoad(beforeFileId)}
+				onload={() => markLoaded(beforeFileId)}
 			/>
 		{/key}
 	{/if}
@@ -202,7 +196,6 @@ function fadeInOnLoad(id: string) {
 		opacity: 1;
 	}
 
-	.image-picture-img.is-loaded.is-hidden,
 	.image-picture-img.is-hidden {
 		opacity: 0;
 	}

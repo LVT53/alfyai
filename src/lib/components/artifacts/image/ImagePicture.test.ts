@@ -116,7 +116,7 @@ describe("ImagePicture", () => {
 });
 
 describe("ImagePicture with a picture already in the cache", () => {
-	it("shows it at once, without its attachment re-running on its own write", async () => {
+	it("shows it once loaded and flips to Before without looping (the browser still fires load for a cached picture)", async () => {
 		const complete = Object.getOwnPropertyDescriptor(
 			HTMLImageElement.prototype,
 			"complete",
@@ -141,13 +141,15 @@ describe("ImagePicture with a picture already in the cache", () => {
 				alt: "Cached",
 				beforeFileId: "before-file",
 			});
+			await fireEvent.load(screen.getByRole("img", { name: "Cached" }));
 			expect(screen.getByRole("img", { name: "Cached" })).toHaveClass(
 				"is-loaded",
 			);
 			await rerender({ showing: "before" });
-			expect(screen.getByRole("img", { name: "Cached" })).toHaveClass(
-				"is-loaded",
-			);
+			const before = screen.getByRole("img", { name: "Cached" });
+			expect(before.getAttribute("src")).toContain("before-file");
+			await fireEvent.load(before);
+			expect(before).toHaveClass("is-loaded");
 		} finally {
 			if (complete)
 				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
@@ -158,5 +160,25 @@ describe("ImagePicture with a picture already in the cache", () => {
 					natural,
 				);
 		}
+	});
+});
+
+describe("ImagePicture swapping its picture", () => {
+	it("fades the new picture in once it loads, over the one it replaces", async () => {
+		const { rerender } = render(ImagePicture, {
+			fileId: "first",
+			width: 10,
+			height: 10,
+			alt: "Swap",
+		});
+		await fireEvent.load(screen.getByTestId("image-picture-after"));
+		await rerender({ fileId: "second" });
+		const next = screen.getByTestId("image-picture-after");
+		expect(next.getAttribute("src")).toContain("second");
+		expect(screen.getByTestId("image-picture-leaving")).toHaveClass(
+			"is-loaded",
+		);
+		await fireEvent.load(next);
+		expect(next).toHaveClass("is-loaded");
 	});
 });
