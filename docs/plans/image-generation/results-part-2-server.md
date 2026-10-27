@@ -288,7 +288,56 @@ TEI (:7997, :7998), MinerU (`/v1/health`) and the MinerU VLM (:30001) answered 2
 
 ## Tuning
 
-(Task 5.)
+Task 5, run 2026-10-27 by agent claude-sonnet-5-5. Scenes: three living rooms and one sofa picture generated through the app's graphs (`drift.ts --make-scenes`), never personal photos; copies in `/home/lvt53/alfyai-handoff/composites/t5-scene-*.png`. LPIPS (alex, spatial, mean over pixels outside the paste mask; `scripts/images/lpips.py`, throwaway venv `/tmp/claude-1000/lpips-venv`, torch CPU + lpips 0.1.4) and offset (phase correlation outside the mask). Sequence per scene: recolour sofa, reupholster, add cushion, move sofa, put the sofa picture in (two pictures), then five chained changes (lamp, rug blue, framed picture, plant, red curtains), raw chain vs paste-back chain. "Outside" means outside the guard's own paste mask (dilated, feathered change). The brief's "cushion / move inside a box" ran as prompt words only (no drawn boxes), so `marks` was null.
+
+### Starting numbers (provisional GUARD, 3 scenes)
+
+| | worst raw LPIPS outside | worst raw offset | worst paste-back LPIPS outside | chain of 5 vs original, raw | chain of 5, paste-back |
+|---|---|---|---|---|---|
+| target | 0.10 | 4 px | 0.05 | 0.20 | 0.05 |
+| provisional | 0.076 | 0.41 px | 0.0074 | 0.205 / 0.183 / 0.144 | 0.007 / 0.019 / 0.012 |
+
+Every target already held with margin except the raw chain on room-0 (0.2047, just over 0.20; this is the unguarded baseline the guards exist to fix; with paste-back it is 0.007). One edit (room-0 "move": the sofa moved and the wall behind it was repainted, 66.7% changed) is classed `global`: kept whole, which is right since the model really repainted the room.
+
+### Moves, one at a time (others as provisional; worst case over the 3 scenes)
+
+| move | raw / paste-back / chain paste-back | verdict |
+|---|---|---|
+| diffThreshold 24 to 16 | 0.072 / 0.0054 / 0.013 | no gain; mask grows a little |
+| diffThreshold 24 to 36 | 0.136 / 0.0235 / 0.023 | worse: misses real changes, raw outside LPIPS breaks 0.10 |
+| dilateShare 0.02 to 0.01 | 0.080 / 0.0091 / 0.029 | worse |
+| dilateShare 0.02 to 0.04 | 0.070 / 0.0021 / 0.004 | best paste-back, but the mask grows about 20% (more of the model's drift gets pasted); not taken |
+| featherShare 0.015 to 0.03 | 0.072 / 0.0025 / 0.008 | looked good (paste-back and chain down about 3x) but **rejected**: a feather wider than the dilation (0.02) leaves the edge of a small changed box only partly pasted (mask 0.72 inside the box; `change-mask.test.ts` failed). Feather must stay at or under the dilation |
+| globalChangeShare 0.6 to 0.7 | 0.096 / 0.0171 / 0.019 | not taken: the room-0 move stops being global and pastes a wall the model repainted |
+| reanchorEvery 4 to 2 / 8 | chain worst 0.019 / 0.014 (vs 0.019) | no measurable difference over a five-step chain; stays 4 |
+| nothingChangedShare | not swept | held by `tuned.test.ts` (a blurred base is `nothing_changed`) |
+
+### Final GUARD
+
+No tuned value changed: the provisional numbers stand (`diffThreshold` 24, `dilateShare` 0.02, `featherShare` 0.015, `globalChangeShare` 0.6, `nothingChangedShare` 0.002, `reanchorEvery` 4). New: `pasteMinAlpha: 240` (Alpha hardening below). Only the comment in `thresholds.ts` changed to say they were measured. The sweep showed the margin: the one tempting move (`dilateShare` 0.04) buys paste-back 0.002 at the cost of a 20% larger pasted area, and is not needed.
+
+| | worst raw LPIPS outside | worst raw offset | worst paste-back LPIPS outside | chain of 5 raw | chain of 5 paste-back |
+|---|---|---|---|---|---|
+| target | 0.10 | 4 px | 0.05 | 0.20 | 0.05 |
+| final | 0.0758 | 0.41 px | 0.0074 | 0.2047 / 0.1829 / 0.1442 | 0.0068 / 0.0192 / 0.0118 |
+
+All targets reached. The only number over a target is the unguarded raw chain on room-0 (0.2047 vs 0.20), which paste-back brings to 0.007. Raw offset stayed under 0.42 px in single edits (1.8 px after five chained raw changes). All measure lines: `/home/lvt53/alfyai-handoff/composites/t5-measures-final.jsonl`. Pictures per edit and the sweep logs are in `/tmp/claude-1000/drift/` (throwaway).
+
+### Alpha hardening
+
+`compositeOnto` keeps an opaque base pixel opaque (a pasted pixel never makes a hole), and `keepTransparent` zeroes the paste where the base is opaque and the top's alpha is below `GUARD.pasteMinAlpha` (240; the model's own alpha is 252 or more, see "PreviewImage and alpha"). Tests: `composite.test.ts` and `guard-edit.test.ts` (a half-transparent rim of the kind a fractional rescale leaves). Note: `applyAlignment` rounds its offsets to whole pixels, so on today's code the exposed edge is exactly alpha 0; the test builds the rim by hand.
+
+### Composites (owner away; I looked at each, the controller should too)
+
+In `/home/lvt53/alfyai-handoff/composites/`, each `-pasteback` with its `-raw` (the model's picture as returned, resized to the base):
+
+1. `t5-1-room0-recolour-pasteback.png` / `-raw.png`: grey sofa to dark green. No seam; the cushion stayed grey, wall, window, curtain and table are the original's bytes.
+2. `t5-2-room1-cushion-pasteback.png` / `-raw.png`: orange cushion added. Clean; nothing else moved.
+3. `t5-3-room2-move-pasteback.png` / `-raw.png`: sofa moved. No seam, no drift in the shelf, lamp or windows.
+4. `t5-4-room1-sofa-picture-pasteback.png` / `-raw.png`: the red velvet sofa from the second picture replaced the old one. No visible seam on floor, rug or wall.
+5. `t5-5-room1-chain5-pasteback.png` / `-raw.png`: after lamp, blue rug, picture, plant, red curtains. All five present, no seam; the left windows changed only where the curtains edit reached.
+
+Scenes: `t5-scene-room0/1/2.png`, `t5-scene-sofa.png`.
 
 ## Acceptance
 

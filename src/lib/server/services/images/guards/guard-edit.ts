@@ -27,6 +27,8 @@ export type GuardParams = {
 
 export type GuardOutcome = {
 	picture: RawImage;
+	/** The paste mask used (0..1, picture size); all 1 for a whole repaint. */
+	mask: Float32Array;
 	measures: GuardMeasures;
 	chainSinceAnchor: number;
 	anchorIsResult: boolean;
@@ -65,7 +67,8 @@ export function insideMarksShare(
 
 /**
  * Nothing is pasted where the picture underneath is fully transparent, nor
- * where the top is (an edge the alignment exposed); returns the new mean.
+ * where the top is (an edge the alignment exposed), nor where the top is
+ * clearly translucent over an opaque base (a fractional-shift rim); returns the new mean.
  */
 function keepTransparent(
 	found: { mask: Float32Array; changedShare: number },
@@ -75,7 +78,14 @@ function keepTransparent(
 	const { mask } = found;
 	let sum = 0;
 	for (let i = 0; i < mask.length; i++) {
-		if (under.data[i * 4 + 3] === 0 || top.data[i * 4 + 3] === 0) mask[i] = 0;
+		const underAlpha = under.data[i * 4 + 3];
+		const topAlpha = top.data[i * 4 + 3];
+		if (
+			underAlpha === 0 ||
+			topAlpha === 0 ||
+			(underAlpha === 255 && topAlpha < GUARD.pasteMinAlpha)
+		)
+			mask[i] = 0;
 		sum += mask[i];
 	}
 	return { mask, changedShare: mask.length > 0 ? sum / mask.length : 0 };
@@ -121,6 +131,7 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	if (against.changedShare > GUARD.globalChangeShare) {
 		return {
 			picture: aligned,
+			mask: new Float32Array(aligned.width * aligned.height).fill(1),
 			measures: { ...measures, global: true },
 			chainSinceAnchor: 0,
 			anchorIsResult: true,
@@ -140,6 +151,7 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		).mask;
 		return {
 			picture: compositeOnto(anchor, aligned, mask),
+			mask,
 			measures: { ...measures, reanchored: true },
 			chainSinceAnchor: 0,
 			anchorIsResult: false,
@@ -147,6 +159,7 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	}
 	return {
 		picture: compositeOnto(base, aligned, against.mask),
+		mask: against.mask,
 		measures,
 		chainSinceAnchor: params.chainSinceAnchor + 1,
 		anchorIsResult: false,

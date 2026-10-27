@@ -17,13 +17,18 @@ export function compositeOnto(
 		const m = mask[i];
 		if (m <= 0) continue;
 		const o = i * 4;
+		const keepAlpha = base.data[o + 3] === 255;
 		if (m >= 1) {
 			for (let c = 0; c < 4; c++) out[o + c] = top.data[o + c];
-			continue;
+		} else {
+			for (let c = 0; c < 4; c++) {
+				out[o + c] = Math.round(
+					base.data[o + c] * (1 - m) + top.data[o + c] * m,
+				);
+			}
 		}
-		for (let c = 0; c < 4; c++) {
-			out[o + c] = Math.round(base.data[o + c] * (1 - m) + top.data[o + c] * m);
-		}
+		// An opaque base stays opaque: a pasted pixel never makes a hole.
+		if (keepAlpha) out[o + 3] = 255;
 	}
 	return { data: out, width: base.width, height: base.height };
 }

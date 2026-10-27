@@ -197,6 +197,36 @@ describe("guardEdit", () => {
 		expect(out.picture.data[(400 * SCENE_W + 10) * 4 + 3]).toBe(0);
 	});
 
+	it("never pastes a semi-transparent rim onto an opaque base (fractional scale)", async () => {
+		const result = copyOf(base);
+		fillBox(result, RECTS[1].box, [250, 20, 200]);
+		// What a fractional rescale leaves: a half-transparent rim with colours off.
+		for (let x = 0; x < SCENE_W; x++) {
+			for (const y of [0, 1, SCENE_H - 1, SCENE_H - 2]) {
+				const o = (y * SCENE_W + x) * 4;
+				result.data[o] = 0;
+				result.data[o + 1] = 0;
+				result.data[o + 2] = 0;
+				result.data[o + 3] = 120;
+			}
+		}
+		const out = await guardEdit({
+			base,
+			anchor: null,
+			chainSinceAnchor: 0,
+			result,
+			marks: null,
+		});
+		for (let i = 3; i < out.picture.data.length; i += 4)
+			expect(out.picture.data[i]).toBe(255);
+		for (const y of [0, 1, SCENE_H - 1, SCENE_H - 2]) {
+			const o = (y * SCENE_W + 10) * 4;
+			expect(Array.from(out.picture.data.subarray(o, o + 4))).toEqual(
+				Array.from(base.data.subarray(o, o + 4)),
+			);
+		}
+	}, 60_000);
+
 	it("refuses an empty base", async () => {
 		const empty = { data: new Uint8Array(0), width: 0, height: 0 };
 		await expect(

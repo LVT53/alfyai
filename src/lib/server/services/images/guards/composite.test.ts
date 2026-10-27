@@ -27,4 +27,14 @@ describe("compositeOnto", () => {
 			),
 		).toThrow();
 	});
+
+	it("keeps an opaque base opaque where the top is semi-transparent", () => {
+		const top = flat(200);
+		top.data[3] = 100;
+		const mask = new Float32Array(16).fill(1);
+		const opaque = flat(10);
+		for (let i = 3; i < opaque.data.length; i += 4) opaque.data[i] = 255;
+		const out = compositeOnto(opaque, top, mask);
+		expect(out.data[3]).toBe(255);
+	});
 });

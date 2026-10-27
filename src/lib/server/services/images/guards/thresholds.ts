@@ -1,6 +1,7 @@
 /**
- * Pixel-guard numbers. Plan's call: provisional until plan 2c Task 5 tunes them
- * against real pictures. Keep every one of them here.
+ * Pixel-guard numbers, tuned in plan 2c Task 5 on real Qwen renders of generated
+ * rooms (see Tuning in docs/plans/image-generation/results-part-2-server.md;
+ * scripts/images/drift.ts re-measures). Keep every one of them here.
  */
 export const GUARD = {
 	/** Width the alignment and the change mask are measured at. */
@@ -21,6 +22,8 @@ export const GUARD = {
 	marksMissShare: 0.5,
 	/** Every this-many changes the paste goes back onto the anchor. */
 	reanchorEvery: 4,
+	/** Over an opaque base, a top pixel less opaque than this (0-255) is never pasted; the model's own alpha is 252 or more. */
+	pasteMinAlpha: 240,
 	/** Largest shift searched, as a share of the width. */
 	maxShiftShare: 0.06,
 	scaleMin: 0.94,
