@@ -49,6 +49,8 @@ export interface FakeComfyUi {
 	setOptions(next: FakeComfyUiOptions): void;
 	holdQueue(held: boolean): void;
 	restart(): void;
+	/** Goes dark for `ms` (every connection is cut), then comes back having forgotten its prompts and results, like a real reload. */
+	outage(ms: number): void;
 	close(): Promise<void>;
 }
 
@@ -189,6 +191,7 @@ export async function createFakeComfyUi(
 	let held = false;
 	let counter = 0;
 	let generation = 0;
+	let downUntil = 0;
 	let current: Prompt | null = null;
 	const requests: FakeRequest[] = [];
 	const prompts = new Map<string, FakePromptStatus>();
@@ -309,6 +312,10 @@ export async function createFakeComfyUi(
 	}
 
 	const server: Server = createServer(async (req, res) => {
+		if (Date.now() < downUntil) {
+			req.destroy();
+			return;
+		}
 		const url = new URL(req.url ?? "/", "http://fake");
 		const path = url.pathname;
 		const method = req.method ?? "GET";
@@ -408,6 +415,10 @@ export async function createFakeComfyUi(
 	server.on("upgrade", (req, socket) => {
 		const key = req.headers["sec-websocket-key"];
 		const url = new URL(req.url ?? "/", "http://fake");
+		if (Date.now() < downUntil) {
+			socket.destroy();
+			return;
+		}
 		if (url.pathname !== "/ws" || typeof key !== "string") {
 			socket.destroy();
 			return;
@@ -450,6 +461,17 @@ export async function createFakeComfyUi(
 			prompts.clear();
 			history.clear();
 			files.clear();
+		},
+		outage(ms) {
+			downUntil = Date.now() + ms;
+			generation += 1;
+			current = null;
+			records.clear();
+			prompts.clear();
+			history.clear();
+			files.clear();
+			for (const socket of sockets.keys()) socket.destroy();
+			server.closeAllConnections();
 		},
 		async close() {
 			generation += 1;

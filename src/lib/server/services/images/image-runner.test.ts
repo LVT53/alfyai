@@ -4,6 +4,7 @@
 // on a loopback port. The database is a migrated file; the picture files go to
 // a temp working directory.
 
+import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,6 +69,7 @@ afterEach(async () => {
 	}
 	fixture.cleanup();
 	vi.restoreAllMocks();
+	vi.doUnmock("./files");
 	await rm(workdir, { recursive: true, force: true });
 });
 
@@ -599,5 +601,89 @@ describe("stopping takes in bulk", () => {
 		expect(await retryTake(userId, second)).toBe(true);
 		expect((await readTake(second)).status).toBe("queued");
 		expect(await retryTake("someone-else", first)).toBe(false);
+	});
+});
+
+describe("a picture server that goes dark mid-render", () => {
+	it("is waited for, then the take is submitted once more", async () => {
+		const comfy = await startFake({ steps: 10, stepDelayMs: 100 });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 256 } }),
+		);
+		const draining = drainImageTakes();
+		await until(
+			() => readTake(takeId),
+			(row) => row.phase === "rendering",
+		);
+		// Connection refused for a while, then back with no memory of the prompt.
+		comfy.outage(2500);
+		await draining;
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(comfy.requests.filter((r) => r.path === "/prompt")).toHaveLength(2);
+	}, 40_000);
+});
+
+describe("the seed", () => {
+	it("is never one that made an input", async () => {
+		const takeId = await queueTake(request({ avoidSeeds: [4242, 7] }), 4242);
+		const take = await readTake(takeId);
+		expect(take.seed).not.toBe(4242);
+		expect(take.seed).not.toBe(7);
+		const fine = await queueTake(request({ avoidSeeds: [7] }), 99);
+		expect((await readTake(fine)).seed).toBe(99);
+	});
+});
+
+describe("a take stopped while its picture is stored", () => {
+	function picturesOnDisk(): string[] {
+		const dir = join(workdir, "data", "image-files", conversationId);
+		return existsSync(dir) ? readdirSync(dir) : [];
+	}
+
+	async function withStoreHook(after: () => Promise<void> | void) {
+		vi.doMock("./files", async () => {
+			const actual = await vi.importActual<typeof import("./files")>("./files");
+			return {
+				...actual,
+				storeImageFile: async (
+					params: Parameters<typeof actual.storeImageFile>[0],
+				) => {
+					const file = await actual.storeImageFile(params);
+					await after();
+					return file;
+				},
+			};
+		});
+	}
+
+	it("leaves no file when the stop reaches the run before it succeeds", async () => {
+		await startFake();
+		let takeId = "";
+		await withStoreHook(async () => {
+			const { cancelTake } = await import("./image-job");
+			await cancelTake(userId, takeId);
+		});
+		takeId = await queueTake(request({ canvas: { width: 256, height: 256 } }));
+		await drainImageTakes();
+
+		expect((await readTake(takeId)).status).toBe("cancelled");
+		expect(picturesOnDisk()).toEqual([]);
+		expect(fixture.sqlite.prepare("SELECT id FROM image_files").all()).toEqual(
+			[],
+		);
+	});
+
+	it("leaves no file when the chat was deleted and its cleanup already ran", async () => {
+		await startFake();
+		await withStoreHook(() => {
+			// The chat goes (rows cascade) after the files were stored.
+			fixture.sqlite.exec("DELETE FROM conversations");
+		});
+		await queueTake(request({ canvas: { width: 256, height: 256 } }));
+		await drainImageTakes();
+
+		expect(picturesOnDisk()).toEqual([]);
 	});
 });

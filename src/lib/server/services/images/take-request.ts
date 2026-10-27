@@ -140,3 +140,18 @@ export function parseTakeRequest(json: string): TakeRequest | null {
 		summary: value.summary as string | null,
 	};
 }
+
+/** The prompt id a take's checkpoint holds, or null. Shared by the kind (Stop) and the handler (resume). */
+export function promptIdOf(checkpoint: string | null): string | null {
+	if (!checkpoint) return null;
+	try {
+		const parsed: unknown = JSON.parse(checkpoint);
+		if (typeof parsed === "object" && parsed !== null && "promptId" in parsed) {
+			const id = (parsed as { promptId: unknown }).promptId;
+			return typeof id === "string" && id !== "" ? id : null;
+		}
+	} catch {
+		// A checkpoint we cannot read is no checkpoint.
+	}
+	return null;
+}

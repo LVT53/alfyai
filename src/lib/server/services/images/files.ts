@@ -222,6 +222,24 @@ async function takeRows(rows: Row[]): Promise<number> {
 	return rows.length;
 }
 
+/**
+ * Removes a stored picture's PNG and thumbnail by the path `storeImageFile`
+ * gave them, and its row if it still has one. For a store that finished after
+ * its chat's cleanup ran: the row may already be gone (the cascade took it),
+ * and the files still must not stay.
+ */
+export async function discardStoredImageFile(
+	file: Pick<ImageFile, "id" | "conversationId">,
+): Promise<void> {
+	await db.delete(imageFiles).where(eq(imageFiles.id, file.id));
+	const storagePath = join(
+		IMAGE_FILES_DIR,
+		file.conversationId,
+		`${file.id}.png`,
+	);
+	await removeFiles([storagePath, thumbPathOf(storagePath)]);
+}
+
 export async function deleteImageFilesForConversation(
 	conversationId: string,
 ): Promise<number> {

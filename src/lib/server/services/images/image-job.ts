@@ -20,7 +20,8 @@ import {
 	retry,
 } from "$lib/server/services/jobs";
 import { createConfiguredComfyClient } from "./comfy-client";
-import type { TakeRequest } from "./take-request";
+import { freshSeed } from "./seeds";
+import { promptIdOf, type TakeRequest } from "./take-request";
 
 export { IMAGE_RENDER_DEADLINE_MS } from "./take-request";
 
@@ -72,6 +73,11 @@ export async function enqueueTake(input: {
 	seed: number;
 	heldUntil: number | null;
 }): Promise<{ takeId: string }> {
+	// Never the seed that made an input (global constraint): a caller's seed that
+	// is on the avoid list is redrawn, so the rule holds whoever queues the take.
+	const seed = input.request.avoidSeeds.includes(input.seed)
+		? freshSeed(input.request.avoidSeeds)
+		: input.seed;
 	const { row } = await enqueue(imageJob, {
 		values: {
 			userId: input.userId,
@@ -81,7 +87,7 @@ export async function enqueueTake(input: {
 			origin: input.origin,
 			retryOf: input.retryOf,
 			requestJson: JSON.stringify(input.request),
-			seed: input.seed,
+			seed,
 			heldUntil: input.heldUntil,
 		},
 	});
@@ -137,20 +143,6 @@ export async function cancelTake(
 		.set({ cancelInterrupt: interrupt ? 1 : 0 })
 		.where(eq(imageJobs.id, takeId));
 	return (await cancel(imageJob, takeId, { userId })) !== null;
-}
-
-function promptIdOf(checkpoint: string | null): string | null {
-	if (!checkpoint) return null;
-	try {
-		const parsed: unknown = JSON.parse(checkpoint);
-		if (typeof parsed === "object" && parsed !== null && "promptId" in parsed) {
-			const id = (parsed as { promptId: unknown }).promptId;
-			return typeof id === "string" && id !== "" ? id : null;
-		}
-	} catch {
-		// Not ours to read.
-	}
-	return null;
 }
 
 /** The person's Retry of a failed or cancelled take. */
