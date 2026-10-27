@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { guardEdit } from "./guard-edit";
-import {
-	copyOf,
-	fillBox,
-	makeScene,
-	RECTS,
-	SCENE_H,
-	SCENE_W,
-	warp,
-} from "./test-scene";
+import { copyOf, fillBox, sceneAt, warp } from "./test-scene";
 
-const base = makeScene();
+// A small canvas: the alignment search costs the same on any frame the size of
+// its work width, so a 208-wide scene keeps every case well under a second
+// where the full 1248-wide one took over a second (and seven for one case).
+const scene = sceneAt(208);
+const base = scene.base;
+const RECTS = scene.rects;
+const SCENE_W = scene.width;
+const SCENE_H = scene.height;
 const margin = Math.ceil(0.04 * SCENE_H) + 12; // dilation + feather + a work pixel
 
 function equalOutside(
@@ -61,7 +60,7 @@ describe("guardEdit", () => {
 		expect(out.chainSinceAnchor).toBe(1);
 		expect(out.anchorIsResult).toBe(false);
 		expect(equalOutside(out.picture.data, base.data, [box])).toBeNull();
-		const o = ((box.y + 40) * SCENE_W + box.x + 40) * 4;
+		const o = ((box.y + scene.px(40)) * SCENE_W + box.x + scene.px(40)) * 4;
 		expect(Array.from(out.picture.data.subarray(o, o + 3))).toEqual([
 			250, 20, 200,
 		]);
@@ -180,12 +179,13 @@ describe("guardEdit", () => {
 	it("keeps transparency where the base had none to give", async () => {
 		const clear = copyOf(base);
 		for (let y = 0; y < SCENE_H; y++) {
-			for (let x = 0; x < 40; x++)
+			for (let x = 0; x < scene.px(40); x++)
 				clear.data.fill(0, (y * SCENE_W + x) * 4, (y * SCENE_W + x) * 4 + 4);
 		}
 		const result = copyOf(clear);
 		for (let y = 0; y < SCENE_H; y++)
-			for (let x = 0; x < 40; x++) result.data[(y * SCENE_W + x) * 4 + 3] = 255;
+			for (let x = 0; x < scene.px(40); x++)
+				result.data[(y * SCENE_W + x) * 4 + 3] = 255;
 		fillBox(result, RECTS[2].box, [250, 20, 200]);
 		const out = await guardEdit({
 			base: clear,
@@ -194,7 +194,7 @@ describe("guardEdit", () => {
 			result,
 			marks: null,
 		});
-		expect(out.picture.data[(400 * SCENE_W + 10) * 4 + 3]).toBe(0);
+		expect(out.picture.data[(scene.px(400) * SCENE_W + 2) * 4 + 3]).toBe(0);
 	});
 
 	it("never pastes a semi-transparent rim onto an opaque base (fractional scale)", async () => {
@@ -220,23 +220,24 @@ describe("guardEdit", () => {
 		for (let i = 3; i < out.picture.data.length; i += 4)
 			expect(out.picture.data[i]).toBe(255);
 		for (const y of [0, 1, SCENE_H - 1, SCENE_H - 2]) {
-			const o = (y * SCENE_W + 10) * 4;
+			const o = (y * SCENE_W + 2) * 4;
 			expect(Array.from(out.picture.data.subarray(o, o + 4))).toEqual(
 				Array.from(base.data.subarray(o, o + 4)),
 			);
 		}
-	}, 60_000);
+	});
 
 	it("does not paste a translucent top onto an opaque cut-out base (pasteMinAlpha)", async () => {
 		const cutout = copyOf(base);
 		// A transparent-subject picture: the left third is cut away (alpha 0).
 		for (let y = 0; y < SCENE_H; y++)
-			for (let x = 0; x < 300; x++) cutout.data[(y * SCENE_W + x) * 4 + 3] = 0;
+			for (let x = 0; x < scene.px(300); x++)
+				cutout.data[(y * SCENE_W + x) * 4 + 3] = 0;
 		const result = copyOf(cutout);
 		const box = RECTS[1].box;
 		fillBox(result, box, [250, 20, 200]);
 		// Translucent top (alpha 100) over part of the opaque change: not pasted there.
-		for (let y = box.y; y < box.y + 40; y++)
+		for (let y = box.y; y < box.y + scene.px(40); y++)
 			for (let x = box.x; x < box.x + box.w; x++)
 				result.data[(y * SCENE_W + x) * 4 + 3] = 100;
 		const out = await guardEdit({
@@ -247,13 +248,13 @@ describe("guardEdit", () => {
 			marks: null,
 		});
 		const at = (x: number, y: number) => (y * SCENE_W + x) * 4;
-		const mid = box.x + box.w / 2;
-		expect(out.picture.data[at(mid, box.y + 20) + 3]).toBe(255);
-		expect(out.picture.data[at(mid, box.y + 20)]).toBe(
-			cutout.data[at(mid, box.y + 20)],
+		const mid = Math.floor(box.x + box.w / 2);
+		expect(out.picture.data[at(mid, box.y + 3) + 3]).toBe(255);
+		expect(out.picture.data[at(mid, box.y + 3)]).toBe(
+			cutout.data[at(mid, box.y + 3)],
 		);
-		expect(out.picture.data[at(mid, box.y + 100)]).toBe(250);
-	}, 60_000);
+		expect(out.picture.data[at(mid, box.y + scene.px(100))]).toBe(250);
+	});
 
 	it("refuses an empty base", async () => {
 		const empty = { data: new Uint8Array(0), width: 0, height: 0 };
@@ -272,7 +273,7 @@ describe("guardEdit", () => {
 		const box = RECTS[1].box;
 		const edited = copyOf(base);
 		fillBox(edited, box, [250, 20, 200]);
-		const result = warp(edited, 1, 12, -8);
+		const result = warp(edited, 1, 2, -1);
 		const out = await guardEdit({
 			base,
 			anchor: null,
@@ -291,7 +292,7 @@ describe("guardEdit", () => {
 	});
 
 	it("calls a shifted no-op nothing changed", async () => {
-		const result = warp(base, 1, 12, -8);
+		const result = warp(base, 1, 2, -1);
 		const out = await guardEdit({
 			base,
 			anchor: null,

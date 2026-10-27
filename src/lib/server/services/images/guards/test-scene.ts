@@ -32,19 +32,47 @@ export function fillBox(
 
 /** A smooth gradient with five coloured rectangles; all opaque. */
 export function makeScene(): RawImage {
-	const data = new Uint8Array(SCENE_W * SCENE_H * 4);
-	const image = { data, width: SCENE_W, height: SCENE_H };
-	for (let y = 0; y < SCENE_H; y++) {
-		for (let x = 0; x < SCENE_W; x++) {
-			const o = (y * SCENE_W + x) * 4;
-			data[o] = 20 + Math.round((x / SCENE_W) * 180);
-			data[o + 1] = 20 + Math.round((y / SCENE_H) * 180);
+	return sceneAt(SCENE_W).base;
+}
+
+/**
+ * The same scene at another width (its shape and the rectangles' places scale
+ * with it). The guard's alignment search is fixed work per frame, so a test
+ * that does not need a full-size canvas uses a small one and stays fast.
+ */
+export function sceneAt(width: number): {
+	width: number;
+	height: number;
+	rects: Array<{ box: Box; rgb: [number, number, number] }>;
+	base: RawImage;
+	/** A length in the 1248-wide scene, scaled to this one. */
+	px: (full: number) => number;
+} {
+	const factor = width / SCENE_W;
+	const px = (full: number) => Math.max(1, Math.round(full * factor));
+	const height = Math.round(SCENE_H * factor);
+	const rects = RECTS.map(({ box, rgb }) => ({
+		box: {
+			x: Math.round(box.x * factor),
+			y: Math.round(box.y * factor),
+			w: px(box.w),
+			h: px(box.h),
+		},
+		rgb,
+	}));
+	const data = new Uint8Array(width * height * 4);
+	const base = { data, width, height };
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const o = (y * width + x) * 4;
+			data[o] = 20 + Math.round((x / width) * 180);
+			data[o + 1] = 20 + Math.round((y / height) * 180);
 			data[o + 2] = 120;
 			data[o + 3] = 255;
 		}
 	}
-	for (const rect of RECTS) fillBox(image, rect.box, rect.rgb);
-	return image;
+	for (const rect of rects) fillBox(base, rect.box, rect.rgb);
+	return { width, height, rects, base, px };
 }
 
 export function copyOf(image: RawImage): RawImage {
