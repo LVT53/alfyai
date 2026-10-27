@@ -260,12 +260,12 @@ export const init: ServerInit = async () => {
 	// (db/compat.ts), which is awaited above, before any kind starts.
 	startJobs([atlasResearchJob, extractionJob, fileProductionJob, imageJob])
 		.then(async () => {
-			// A take that landed (or whose hold ran out) while the process was down
+			// A take that landed (held or not) while the process was down
 			// still becomes its card's version in use.
-			const { settleHeldCards } = await import(
+			const { settleCardsAfterRestart } = await import(
 				"$lib/server/services/images/cards"
 			);
-			await settleHeldCards();
+			await settleCardsAfterRestart();
 		})
 		.catch((error) => console.error("Failed to start the job engine:", error));
 

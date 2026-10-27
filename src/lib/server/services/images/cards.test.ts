@@ -585,6 +585,17 @@ describe("the boot sweep", () => {
 	});
 });
 
+describe("the boot sweep after a restart", () => {
+	it("settles a take still inside its hold, because the tool call that held it died with the process", async () => {
+		const { settleCardsAfterRestart } = await import("./cards");
+		const cardId = await card();
+		const held = await landedTake(cardId, { heldUntil: Date.now() + 120_000 });
+		await expect(settleCardsAfterRestart()).resolves.toBe(1);
+		expect((await cardRow(cardId))?.pickedTakeId).toBe(held.id);
+		expect((await takeRow(held.id))?.heldUntil).toBeNull();
+	});
+});
+
 describe("the version body", () => {
 	it("carries the base, references, marks, prompt, seed and take", async () => {
 		const { versionBodyForTake } = await import("./cards");
