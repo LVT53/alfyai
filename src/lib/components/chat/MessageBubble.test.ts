@@ -3403,6 +3403,61 @@ describe("MessageBubble", () => {
 			});
 		});
 
+		it("follows the chat's picture cards as they change while the call still runs", async () => {
+			const first = imageTake({
+				toolCallId: "call-pic-live",
+				status: "running",
+				phase: "rendering",
+				fileId: null,
+			});
+			const message = buildArtifactMessage({
+				isStreaming: true,
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-pic-live",
+						name: "make_image",
+						input: { prompt: "a cosy room", title: "Cosy room" },
+						status: "running",
+					},
+				],
+			});
+			const { container, rerender } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+				imageCards: [imageCard([first], { pickedTakeId: null })],
+			});
+			await waitFor(() =>
+				expect(
+					container.querySelector('[data-testid="image-card-body"]'),
+				).toHaveAttribute("data-state", "making"),
+			);
+			await rerender({
+				message,
+				conversationId: "conv-1",
+				imageCards: [
+					imageCard(
+						[
+							{ ...first, status: "succeeded", phase: null, fileId: "landed" },
+							imageTake({
+								origin: "auto_retry",
+								held: true,
+								retryOf: first.id,
+								status: "running",
+								fileId: null,
+							}),
+						],
+						{ pickedTakeId: null },
+					),
+				],
+			});
+			await waitFor(() =>
+				expect(
+					container.querySelector('[data-testid="image-card-body"]'),
+				).toHaveAttribute("data-state", "ready"),
+			);
+		});
+
 		it("has no block for a message that made nothing", () => {
 			const { container } = render(MessageBubble, {
 				message: buildArtifactMessage({ thinkingSegments: [] }),
