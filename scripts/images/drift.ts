@@ -148,7 +148,7 @@ export function boxesMask(
 	return mask;
 }
 
-export type RegionFields = {
+type RegionFields = {
 	scene: string;
 	edit: string;
 	marked: boolean;
@@ -162,7 +162,7 @@ export type RegionFields = {
 	global: boolean;
 };
 
-export function regionLine(f: RegionFields): string {
+function regionLine(f: RegionFields): string {
 	return JSON.stringify({
 		scene: f.scene,
 		edit: f.edit,

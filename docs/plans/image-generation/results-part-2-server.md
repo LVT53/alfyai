@@ -370,6 +370,20 @@ Which targets hold:
 
 Proposal (not applied; the controller rules): the only threshold with a measured effect on a move is `globalChangeShare` 0.6 to 0.7. It makes the room-0 move non-global; its independent-region LPIPS falls 0.046 to 0.0055 and its whole-frame LPIPS 0.494 to 0.468, but a faint ghost patch of the old wall appears at the top left of the pasted result (it was rejected on that ground in the sweep above) and it does not touch the room-1 and room-2 failures. `marksMissShare` 0.5 to 0.8 would flag room-1 move-marked (0.77) and none of the other five marked runs (0.87 or more); it only sets a miss flag, so it does not change the pixels. Neither fixes the move targets; I recommend keeping thresholds and treating the 0.10 / 0.05 targets as holding for local edits only, with the move either excluded from them in 5.12 or handled by a marks-clamped paste. Owner acceptance on own photos stays pending.
 
+
+### Marked edits after the clamp (plan 2b Task 0, 2026-10-27)
+
+The controller ruled (2b Task 0): a marked edit pastes back only inside the marks grown by 10% of the short side, feathered inward by `GUARD.featherShare`, and `marksMissShare` is 0.8. `drift.ts --remeasure` re-run by claude-sonnet-5-5 on the CACHED renders (no new renders, no tunnel; same scenes, same independent regions, same LPIPS venv). Only the marked rows change; the unmarked rows are the table above. Composites (base | raw | guarded): `/home/lvt53/alfyai-handoff/composites/t0-room-{0,1,2}-move-marked-composite.png`; guarded pictures `t0-room-N-move-marked-guarded.png`; every line `t0-region-measures.jsonl`.
+
+| scene | step | outside region raw / paste-back (was) | whole frame raw / paste-back (was) | changed | insideMarksShare, miss |
+|---|---|---|---|---|---|
+| room-0 | move, marked | 0.035 / 0.000 (0.035 / 0.000) | 0.220 / 0.172 (0.220 / 0.172) | 25.2% | 1.00, none |
+| room-1 | move, marked | 0.107 / **0.064** (0.107 / 0.069) | 0.263 / 0.230 (0.263 / 0.234) | 35.9% | 0.769, **outside_marks** (was none) |
+| room-2 | move, marked | 0.059 / **0.030** (0.059 / 0.032) | 0.254 / 0.234 (0.254 / 0.235) | 37.1% | 0.87, none |
+| all three | cushion, marked | paste-back 0.0020 / 0.0014 / 0.0026 (unchanged) | | | 1.00, none |
+
+What changed: the miss line now fires on the one marked run that removed the coffee table (room-1, 0.769 < 0.8), so the tool retries it once and shows the better take; room-0 and room-2 are not flagged (1.00 and 0.87). What did not change: room-1's pasted picture still has no coffee table. The table sits in front of the sofa, inside the grown boxes of marks A (the sofa) and B (the destination), so the clamp allows the change there; the paste-back LPIPS outside the hand region moved only 0.069 to 0.064 and the move targets (raw 0.10, paste-back 0.05) still do not hold for room-1. The clamp guarantees only that nothing changes outside the grown marks (tested pixel for pixel on a fixture); it cannot undo what the model changed inside a large mark. The remaining defence for that is the miss-and-retry above and the person's Another. Cost the ruling named, still open: a marked edit whose shadow or reflection falls outside the grown box loses it (the feathered edge limits the seam).
+
 Files: `/home/lvt53/alfyai-handoff/composites/t5b-region-measures.jsonl` (all 48 region rows), `t5b-measures-whole.jsonl` (normal run with `lpips_whole`), and for the move step `t5b-room-{0,1,2}-move[-marked]-{raw,guarded,composite}.png` (composite = base | raw | guarded).
 
 ### Alpha hardening
