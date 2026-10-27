@@ -323,7 +323,54 @@ No tuned value changed: the provisional numbers stand (`diffThreshold` 24, `dila
 | target | 0.10 | 4 px | 0.05 | 0.20 | 0.05 |
 | final | 0.0758 | 0.41 px | 0.0074 | 0.2047 / 0.1829 / 0.1442 | 0.0068 / 0.0192 / 0.0118 |
 
-All targets reached. The only number over a target is the unguarded raw chain on room-0 (0.2047 vs 0.20), which paste-back brings to 0.007. Raw offset stayed under 0.42 px in single edits (1.8 px after five chained raw changes). All measure lines: `/home/lvt53/alfyai-handoff/composites/t5-measures-final.jsonl`. Pictures per edit and the sweep logs are in `/tmp/claude-1000/drift/` (throwaway).
+All targets reached, measured outside the guard's own mask; the final review found that measure cannot fail, see "Re-measure (independent region)" below for the verdict. The only number over a target is the unguarded raw chain on room-0 (0.2047 vs 0.20), which paste-back brings to 0.007. Raw offset stayed under 0.42 px in single edits (1.8 px after five chained raw changes). All measure lines: `/home/lvt53/alfyai-handoff/composites/t5-measures-final.jsonl`. Pictures per edit and the sweep logs are in `/tmp/claude-1000/drift/` (throwaway).
+
+### Re-measure (independent region)
+
+Re-run 2026-10-27 by agent claude-sonnet-5-5 after the final review (I2): the numbers above are measured outside the guard's OWN paste mask, where the paste-back is the base by construction, so they could not fail. `drift.ts --remeasure` now measures LPIPS (alex, spatial) and offset outside a region the guard does not produce, and the whole frame (nothing excluded). `drift.ts` also adds `lpips_whole` to every line of the normal run. GUARD and `thresholds.ts` are unchanged.
+
+Regions (fractions of the 1248 x 832 picture, read off the base renders by eye, one per scene; each box grown by 10% of its own width/height on every side, clipped to the picture):
+
+| scene | sofa bbox (x, y, w, h) | cushion mark A (on the seat) | move destination (mark B; also the unmarked move's target) |
+|---|---|---|---|
+| room-0 | 0, 0.19, 0.71, 0.78 | 0.48, 0.47, 0.20, 0.11 | 0.55, 0.25, 0.45, 0.70 |
+| room-1 | 0.49, 0.48, 0.37, 0.27 | 0.62, 0.57, 0.18, 0.09 | 0.08, 0.55, 0.40, 0.27 |
+| room-2 | 0.22, 0.48, 0.47, 0.39 | 0.34, 0.59, 0.18, 0.09 | 0.56, 0.58, 0.42, 0.30 |
+
+Region per step: unmarked recolour, reupholster, sofa-picture and cushion = the sofa bbox; unmarked move = sofa bbox plus destination; marked cushion = box A; marked move = A plus B. Marked steps go through the app's `paintMarks` and `marksLabel` (`images/marks.ts`), the edit graph with two inputs (the base, then the marked copy), and `guardEdit` with the boxes as `marks`, so `insideMarksShare` and the `outside_marks` check ran on real renders for the first time (3 scenes x 2 steps). Prompts: "add one orange cushion inside box A" and "move the sofa in box A to the place of box B", each followed by the `marksLabel` sentence, then "Remove the boxes and letters from the result, keep everything else exactly as it is". Unmarked steps reuse the cached tuning renders.
+
+Worst case over the three scenes (outside the independent region):
+
+| | target | raw LPIPS | raw offset | paste-back LPIPS |
+|---|---|---|---|---|
+| recolour, reupholster, sofa-picture, cushion, marked cushion (15 rows) | 0.10 / 4 px / 0.05 | 0.069 (room-1 sofa-picture) | 0.34 px | 0.0075 (room-1 sofa-picture) |
+| marked cushion only (3 rows) | same | 0.065 (room-0) | 0.34 px | 0.0026 (room-2) |
+| move, unmarked and marked (6 rows) | same | **0.114** (room-1 unmarked), **0.107** (room-1 marked) | 2.94 px (room-0, global) | **0.069** (room-1 marked), **0.062** (room-1 unmarked), **0.055** (room-2 unmarked) |
+
+Moves in full (LPIPS outside region raw / paste-back; whole frame raw / paste-back; changed share):
+
+| scene | step | outside region | whole frame | changed | global | insideMarksShare, miss |
+|---|---|---|---|---|---|---|
+| room-0 | move | 0.063 / 0.046 | 0.500 / 0.494 | 66.7% | yes | n/a |
+| room-0 | move, marked | 0.035 / 0.000 | 0.220 / 0.172 | 25.2% | no | 1.00, none |
+| room-1 | move | 0.114 / 0.062 | 0.157 / 0.112 | 15.9% | no | n/a |
+| room-1 | move, marked | 0.107 / 0.069 | 0.263 / 0.234 | 35.9% | no | 0.77, none |
+| room-2 | move | 0.083 / 0.055 | 0.284 / 0.264 | 40.6% | no | n/a |
+| room-2 | move, marked | 0.059 / 0.032 | 0.254 / 0.235 | 37.1% | no | 0.87, none |
+
+Marked cushion: `insideMarksShare` 0.9997 / 1.00 / 1.00, no miss; raw 0.030-0.065, paste-back 0.0014-0.0026.
+
+Which targets hold:
+
+- Single, local edits (recolour, reupholster, add cushion, sofa-picture, marked cushion): every target holds with margin on the independent region. Raw 0.069 worst against 0.10, offset 0.34 px against 4 px, paste-back 0.0075 against 0.05. The earlier "worst paste-back 0.0074" was lucky agreement; the independent number is the same size, so for these edits the guard does pull the room back.
+- Moves: **the raw 0.10 and paste-back 0.05 targets do NOT hold.** Raw outside LPIPS is 0.114 and 0.107 on room-1 (both unmarked and marked), paste-back is 0.062 / 0.069 on room-1 and 0.055 on room-2 (unmarked). The offset target holds (2.94 px, only on the global room-0 move; 0.07-0.23 px elsewhere). Why: a move is not a local edit. In room-1 the marked move also removed the glass coffee table (the model put the sofa on the left and dropped the table), and in the other moves the model changed things outside my region as well (the unmarked room-1 and room-2 moves put the sofa somewhere other than my hand-picked destination, which counts as outside); the guard sees a real change and keeps it, so paste-back only trims the model's noise (about 40% off: 0.114 to 0.062) and cannot undo content the model chose to change outside the region. No threshold fixes that: it needs a rule that pastes only inside the marks, which is a design change for the controller, not a threshold. With marks the move did better in room-0 and room-2 (0.000 and 0.032 against 0.046 and 0.055) and worse in room-1.
+- The move is not a clean "global" case: the room-0 move is the only one classed global (66.7%); the other five moves changed 16-41% and were pasted back normally. The room-0 global result is a camera reframe plus a smaller sofa (see composites): kept whole, it is the model's picture, aligned to the base, and the anchor becomes that picture. Consequence for the review's second point: after a global move, "re-render from the original every four or five rounds" (5.5) re-anchors to the moved picture, not the original. This is by design in `guard-edit.ts`; flagged for the owner.
+- Marks path: `insideMarksShare` was 0.77-1.00 on all six marked runs, so `outside_marks` never fired and `marksMissShare` 0.5 was never exercised in a firing direction. It holds in the sense that no correct edit was flagged. It also did not flag the one marked run with a real outside-box change (room-1 move, coffee table removed, 0.77).
+- Chain of five (guard-union mask, as before): raw 0.2047 / 0.1829 / 0.1442, paste-back 0.0068 / 0.0192 / 0.0118. These are not independent (the union of five hand regions was not built: the rug and curtain edits cover large, hand-ambiguous areas). Whole-frame LPIPS for the chains, which legitimately change the room: raw 0.371 / 0.295 / 0.410, paste-back 0.250 / 0.183 / 0.314. So the chain targets are still evidenced only by the guard-mask measure; the whole-frame numbers show the guard removes a quarter to two fifths of the raw whole-frame difference, not that the room is unchanged.
+
+Proposal (not applied; the controller rules): the only threshold with a measured effect on a move is `globalChangeShare` 0.6 to 0.7. It makes the room-0 move non-global; its independent-region LPIPS falls 0.046 to 0.0055 and its whole-frame LPIPS 0.494 to 0.468, but a faint ghost patch of the old wall appears at the top left of the pasted result (it was rejected on that ground in the sweep above) and it does not touch the room-1 and room-2 failures. `marksMissShare` 0.5 to 0.8 would flag room-1 move-marked (0.77) and none of the other five marked runs (0.87 or more); it only sets a miss flag, so it does not change the pixels. Neither fixes the move targets; I recommend keeping thresholds and treating the 0.10 / 0.05 targets as holding for local edits only, with the move either excluded from them in 5.12 or handled by a marks-clamped paste. Owner acceptance on own photos stays pending.
+
+Files: `/home/lvt53/alfyai-handoff/composites/t5b-region-measures.jsonl` (all 48 region rows), `t5b-measures-whole.jsonl` (normal run with `lpips_whole`), and for the move step `t5b-room-{0,1,2}-move[-marked]-{raw,guarded,composite}.png` (composite = base | raw | guarded).
 
 ### Alpha hardening
 

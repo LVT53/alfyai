@@ -6,6 +6,7 @@
 // LPIPS venv (see lpips.py).
 //
 // Run:  npx tsx scripts/images/drift.ts --make-scenes <scenes dir>
+//       npx tsx scripts/images/drift.ts <scenes dir> <out dir> --remeasure   (independent region, marked steps)
 //       npx tsx scripts/images/drift.ts <scenes dir> <out dir> [--mask-only]
 // Scenes: <scenes dir>/room-*.png plus sofa-0.png. Renders are cached in <out dir>
 // by a hash of their inputs, so a threshold change re-runs only the guards.
@@ -42,7 +43,12 @@ import {
 	type RawImage,
 } from "../../src/lib/server/services/images/guards/raw-image";
 import { GUARD } from "../../src/lib/server/services/images/guards/thresholds";
+import {
+	marksLabel,
+	paintMarks,
+} from "../../src/lib/server/services/images/marks";
 import { freshSeed } from "../../src/lib/server/services/images/seeds";
+import type { ImageMark } from "../../src/lib/shared/artifacts/image-body";
 
 const KEEP = "keep everything else exactly as it is";
 
@@ -89,6 +95,90 @@ export function unionMasks(masks: ReadonlyArray<Float32Array>): Float32Array {
 	return out;
 }
 
+/** A box as fractions of the picture (x, y from the top left), the shape of a drawn mark. */
+export type Box = { x: number; y: number; w: number; h: number };
+
+/**
+ * Hand-specified boxes per generated scene (read off the base renders once; recorded in
+ * results-part-2-server.md): `sofa` is the sofa's bounding box, `seat` is where the cushion
+ * mark A goes, `dest` is where "move" puts the sofa (mark B, and the unmarked move's target).
+ */
+export const SCENE_BOXES: Record<string, { sofa: Box; seat: Box; dest: Box }> =
+	{
+		"room-0": {
+			sofa: { x: 0, y: 0.19, w: 0.71, h: 0.78 },
+			seat: { x: 0.48, y: 0.47, w: 0.2, h: 0.11 },
+			dest: { x: 0.55, y: 0.25, w: 0.45, h: 0.7 },
+		},
+		"room-1": {
+			sofa: { x: 0.49, y: 0.48, w: 0.37, h: 0.27 },
+			seat: { x: 0.62, y: 0.57, w: 0.18, h: 0.09 },
+			dest: { x: 0.08, y: 0.55, w: 0.4, h: 0.27 },
+		},
+		"room-2": {
+			sofa: { x: 0.22, y: 0.48, w: 0.47, h: 0.39 },
+			seat: { x: 0.34, y: 0.59, w: 0.18, h: 0.09 },
+			dest: { x: 0.56, y: 0.58, w: 0.42, h: 0.3 },
+		},
+	};
+
+/** Each side moved out by `share` of the box's own width/height, kept inside the picture. */
+export function growBox(box: Box, share: number): Box {
+	const x0 = Math.max(0, box.x - box.w * share);
+	const y0 = Math.max(0, box.y - box.h * share);
+	const x1 = Math.min(1, box.x + box.w * (1 + share));
+	const y1 = Math.min(1, box.y + box.h * (1 + share));
+	return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** 1 inside any of the boxes, 0 elsewhere. */
+export function boxesMask(
+	boxes: ReadonlyArray<Box>,
+	width: number,
+	height: number,
+): Float32Array {
+	const mask = new Float32Array(width * height);
+	for (const b of boxes) {
+		const x0 = Math.floor(b.x * width);
+		const x1 = Math.min(width, Math.ceil((b.x + b.w) * width));
+		const y0 = Math.floor(b.y * height);
+		const y1 = Math.min(height, Math.ceil((b.y + b.h) * height));
+		for (let y = y0; y < y1; y++) mask.fill(1, y * width + x0, y * width + x1);
+	}
+	return mask;
+}
+
+export type RegionFields = {
+	scene: string;
+	edit: string;
+	marked: boolean;
+	mode: "raw" | "pasteback";
+	lpipsRegion: number;
+	offsetPx: number;
+	lpipsWhole: number;
+	changedShare: number;
+	insideMarksShare: number | null;
+	miss: string | null;
+	global: boolean;
+};
+
+export function regionLine(f: RegionFields): string {
+	return JSON.stringify({
+		scene: f.scene,
+		edit: f.edit,
+		marked: f.marked,
+		mode: f.mode,
+		lpips_outside_region: f.lpipsRegion,
+		offset_outside_region_px: f.offsetPx,
+		lpips_whole_frame: f.lpipsWhole,
+		changed_share: +f.changedShare.toFixed(4),
+		inside_marks_share:
+			f.insideMarksShare === null ? null : +f.insideMarksShare.toFixed(4),
+		miss: f.miss,
+		global: f.global,
+	});
+}
+
 export type DriftFields = {
 	scene: string;
 	edit: string;
@@ -99,6 +189,8 @@ export type DriftFields = {
 	miss: string | null;
 	global: boolean;
 	reanchored: boolean;
+	/** LPIPS over the whole frame (nothing excluded), when measured. */
+	lpipsWhole?: number;
 };
 
 export function driftLine(f: DriftFields): string {
@@ -112,6 +204,7 @@ export function driftLine(f: DriftFields): string {
 		miss: f.miss,
 		global: f.global,
 		reanchored: f.reanchored,
+		lpips_whole: f.lpipsWhole,
 	});
 }
 
@@ -184,6 +277,16 @@ function runLpips(before: string, after: string, mask: string): LpipsResult {
 	} catch {
 		throw new Error(`lpips.py failed: ${r.stderr.slice(-400)}`);
 	}
+}
+
+/** A mask with nothing masked out, so LPIPS covers the whole frame. */
+async function writeBlankMask(
+	path: string,
+	w: number,
+	h: number,
+): Promise<string> {
+	await writeFile(path, await maskPng(new Float32Array(w * h), w, h));
+	return path;
 }
 
 async function makeScenes(dir: string): Promise<void> {
@@ -295,8 +398,28 @@ async function main(): Promise<void> {
 		const guardedPath = join(dir, `${tag}-guarded.png`);
 		await writeFile(rawOut, await encodePng(raw));
 		await writeFile(guardedPath, await encodePng(guarded));
+		const blank = await writeBlankMask(
+			join(dir, "blank-mask.png"),
+			base.width,
+			base.height,
+		);
+		const rawWhole = runLpips(basePath, rawOut, blank).lpips_outside;
+		const guardedWhole = runLpips(basePath, guardedPath, blank).lpips_outside;
 		if (out.measures.global) {
-			await emit({ ...base_, mode: "raw", lpipsOutside: null, offsetPx: null });
+			await emit({
+				...base_,
+				mode: "raw",
+				lpipsOutside: null,
+				offsetPx: null,
+				lpipsWhole: rawWhole,
+			});
+			await emit({
+				...base_,
+				mode: "pasteback",
+				lpipsOutside: null,
+				offsetPx: null,
+				lpipsWhole: guardedWhole,
+			});
 			return;
 		}
 		const r = runLpips(basePath, rawOut, maskPath);
@@ -305,6 +428,7 @@ async function main(): Promise<void> {
 			mode: "raw",
 			lpipsOutside: r.lpips_outside,
 			offsetPx: r.offset_px,
+			lpipsWhole: rawWhole,
 		});
 		const g = runLpips(basePath, guardedPath, maskPath);
 		await emit({
@@ -312,7 +436,135 @@ async function main(): Promise<void> {
 			mode: "pasteback",
 			lpipsOutside: g.lpips_outside,
 			offsetPx: g.offset_px,
+			lpipsWhole: guardedWhole,
 		});
+	}
+
+	// Independent region (plan 2c Task 5 re-measure): LPIPS and offset outside a region the
+	// guard does not produce, plus the whole frame. Marked steps go through the app's marks
+	// painter (images/marks.ts) and the edit graph with a second, marked input picture.
+	if (args.includes("--remeasure")) {
+		const regionLines = join(outDir, "region-measures.jsonl");
+		await writeFile(regionLines, "");
+		try {
+			for (const file of names) {
+				const scene = file.replace(".png", "");
+				const boxes = SCENE_BOXES[scene];
+				if (!boxes) continue;
+				await mkdir(join(outDir, scene), { recursive: true });
+				const basePath = join(scenesDir, file);
+				const baseBytes = new Uint8Array(await readFile(basePath));
+				const base = await decodeRaw(baseBytes);
+				const blank = await writeBlankMask(
+					join(outDir, scene, "blank-mask.png"),
+					base.width,
+					base.height,
+				);
+				const steps: Array<{
+					id: string;
+					prompt: string;
+					inputs: Uint8Array[];
+					marks: ImageMark[] | null;
+					region: Box[];
+				}> = [];
+				for (const edit of SINGLE_EDITS) {
+					const unmarkedRegion =
+						edit.id === "move" ? [boxes.sofa, boxes.dest] : [boxes.sofa];
+					steps.push({
+						id: edit.id,
+						prompt: edit.prompt,
+						inputs: edit.needsSofa ? [baseBytes, sofaBytes] : [baseBytes],
+						marks: null,
+						region: unmarkedRegion.map((b) => growBox(b, 0.1)),
+					});
+				}
+				const cushionMarks: ImageMark[] = [{ letter: "A", ...boxes.seat }];
+				const moveMarks: ImageMark[] = [
+					{ letter: "A", ...boxes.sofa },
+					{ letter: "B", ...boxes.dest },
+				];
+				for (const [id, instruction, marks] of [
+					[
+						"cushion-marked",
+						"add one orange cushion inside box A",
+						cushionMarks,
+					],
+					[
+						"move-marked",
+						"move the sofa in box A to the place of box B",
+						moveMarks,
+					],
+				] as const) {
+					const painted = new Uint8Array(await paintMarks(baseBytes, marks));
+					steps.push({
+						id,
+						prompt: `${instruction}. ${marksLabel(2, marks)}. Remove the boxes and letters from the result, ${KEEP}`,
+						inputs: [baseBytes, painted],
+						marks: [...marks],
+						region: marks.map((m) => growBox(m, 0.1)),
+					});
+				}
+				for (const step of steps) {
+					const { raw } = await resultFor(
+						scene,
+						step.id,
+						step.prompt,
+						step.inputs,
+						base,
+					);
+					const out = await guardEdit({
+						base,
+						anchor: null,
+						chainSinceAnchor: 0,
+						result: raw,
+						marks: step.marks,
+					});
+					const dir = join(outDir, scene);
+					const regionPath = join(dir, `${step.id}-region-mask.png`);
+					await writeFile(
+						regionPath,
+						await maskPng(
+							boxesMask(step.region, base.width, base.height),
+							base.width,
+							base.height,
+						),
+					);
+					await writeFile(
+						join(dir, `${step.id}-mask.png`),
+						await maskPng(out.mask, base.width, base.height),
+					);
+					const rawPath = join(dir, `${step.id}-rawview.png`);
+					const guardedPath = join(dir, `${step.id}-guarded.png`);
+					await writeFile(rawPath, await encodePng(raw));
+					await writeFile(guardedPath, await encodePng(out.picture));
+					for (const [mode, path] of [
+						["raw", rawPath],
+						["pasteback", guardedPath],
+					] as const) {
+						const r = runLpips(basePath, path, regionPath);
+						const whole = runLpips(basePath, path, blank);
+						const line = regionLine({
+							scene,
+							edit: step.id,
+							marked: step.marks !== null,
+							mode,
+							lpipsRegion: r.lpips_outside,
+							offsetPx: r.offset_px,
+							lpipsWhole: whole.lpips_outside,
+							changedShare: out.measures.changedShare,
+							insideMarksShare: out.measures.insideMarksShare,
+							miss: out.measures.miss,
+							global: out.measures.global,
+						});
+						console.log(line);
+						await appendFile(regionLines, `${line}\n`);
+					}
+				}
+			}
+		} finally {
+			client.close();
+		}
+		return;
 	}
 
 	try {
@@ -395,7 +647,13 @@ async function main(): Promise<void> {
 				if (maskOnly) continue;
 				await writeFile(finalPath, await encodePng(last));
 				const r = runLpips(basePath, finalPath, maskPath);
+				const blank = await writeBlankMask(
+					join(dir, "blank-mask.png"),
+					base.width,
+					base.height,
+				);
 				await emit({
+					lpipsWhole: runLpips(basePath, finalPath, blank).lpips_outside,
 					scene,
 					edit: "chain-after-5",
 					mode: mode === "raw" ? "raw" : "pasteback",
