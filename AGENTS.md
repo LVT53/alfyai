@@ -75,7 +75,7 @@ Browser and shared:
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
-- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/` and `tour/` each keep their own file.
+- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/` and `tour/` each keep their own file.
 
 Routes and tests:
 

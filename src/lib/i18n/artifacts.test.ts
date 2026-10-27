@@ -101,6 +101,7 @@ describe("the artifacts dictionary", () => {
 describe("the retry buttons", () => {
 	const RETRY_BUTTONS = [
 		"artifacts.action.retry",
+		"artifacts.image.card.tryAgain",
 		"artifacts.document.export.tryAgain",
 		"artifacts.canvas.retry",
 		"artifacts.canvas.chat.retry",
