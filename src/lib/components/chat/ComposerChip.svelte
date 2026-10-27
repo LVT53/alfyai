@@ -27,6 +27,7 @@ import {
 	X,
 } from "@lucide/svelte";
 import { getContext, tick } from "svelte";
+import { t } from "$lib/i18n";
 import Spinner from "../ui/Spinner.svelte";
 import {
 	COMPOSER_CHIP_ROW_CONTEXT,
@@ -54,6 +55,7 @@ let {
 	busyLabel = "",
 	detailsId,
 	testId,
+	number = null,
 }: {
 	kind: ComposerChipKind;
 	label: string;
@@ -89,6 +91,12 @@ let {
 	 */
 	detailsId?: string | undefined;
 	testId?: string | undefined;
+	/**
+	 * A picture's place in the message ("Picture 2"): uploaded photos and card
+	 * pictures share one sequence, in the order they were added. The numeral
+	 * rides on the leading mark; the chip is named "Picture 2: rug.jpg".
+	 */
+	number?: number | null;
 } = $props();
 
 let tint = $derived(composerChipTint(kind));
@@ -106,6 +114,11 @@ $effect(() => {
 let thumbnailVisible = $derived(showThumbnail && !thumbnailBroken);
 let iconSize = $derived(size === "message" ? 12 : 14);
 let isInteractive = $derived(Boolean(onActivate) && !disabled);
+let numberName = $derived(
+	number != null
+		? $t("composerChips.pictureNumberA11y", { number, name: label })
+		: undefined,
+);
 
 const rowContext = getContext<ComposerChipRowContext | undefined>(
 	COMPOSER_CHIP_ROW_CONTEXT,
@@ -184,6 +197,8 @@ function handleBodyKeydown(event: KeyboardEvent) {
 	data-chip-tint={tint}
 	data-chip-size={size}
 	data-testid={testId}
+	role={numberName ? "group" : undefined}
+	aria-label={numberName}
 	aria-busy={busy ? "true" : undefined}
 	tabindex="-1"
 >
@@ -197,6 +212,7 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		onclick={isInteractive ? handleActivate : undefined}
 		onkeydown={isInteractive ? handleBodyKeydown : undefined}
 	>
+		<span class="composer-chip__mark" class:composer-chip__mark--numbered={number != null}>
 		{#if thumbnailVisible}
 			<img
 				class="composer-chip__thumb"
@@ -226,6 +242,10 @@ function handleBodyKeydown(event: KeyboardEvent) {
 				{/if}
 			</span>
 		{/if}
+		{#if number != null}
+			<span class="composer-chip__number" data-testid="composer-chip-number" aria-hidden="true">{number}</span>
+		{/if}
+		</span>
 		<span class="composer-chip__label">{label}</span>
 		{#if meta}
 			<span class="composer-chip__meta" data-testid="composer-chip-meta">· {meta}</span>
@@ -362,6 +382,41 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		border-radius: 4px;
 		object-fit: cover;
 		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 12%, transparent);
+	}
+
+	.composer-chip__mark {
+		position: relative;
+		display: inline-flex;
+		flex: 0 0 auto;
+	}
+
+	/* The numeral sits on the mark's corner (the card's "Made from" numbers
+	   wear the same dot), so the chip is no wider for being numbered. */
+	.composer-chip__number {
+		position: absolute;
+		right: -5px;
+		bottom: -5px;
+		display: grid;
+		place-items: center;
+		min-width: 13px;
+		height: 13px;
+		padding: 0 3px;
+		box-sizing: border-box;
+		border-radius: var(--radius-full);
+		background: var(--text-primary);
+		color: var(--surface-page);
+		font-size: 9px;
+		font-weight: 700;
+		line-height: 1;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.composer-chip--message .composer-chip__number {
+		right: -4px;
+		bottom: -4px;
+		min-width: 12px;
+		height: 12px;
+		font-size: 8px;
 	}
 
 	.composer-chip__label {

@@ -121,9 +121,21 @@ import {
 	attachmentReadinessReasonKey,
 	type AttachmentReadinessSnapshot,
 } from "$lib/shared/attachment-readiness";
+import { imageFileUrl } from "$lib/client/api/images";
+import type {
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import ComposerChip from "./ComposerChip.svelte";
 import ComposerChipFailureDetails from "./ComposerChipFailureDetails.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
+import {
+	arrangePictureChips,
+	type ComposerPictureRef,
+	numberPictures,
+	pictureKey,
+	reconcilePictureOrder,
+} from "./composer-pictures";
 import {
 	fieldTextRoom,
 	fitPlaceholder,
@@ -175,6 +187,10 @@ type SendPayload = {
 	attachmentIds: string[];
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
+	// Card pictures attached to this message, under the numbers the chips showed,
+	// and the same pictures with their names for the sent bubble (plan 2b T5).
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
@@ -229,6 +245,9 @@ let {
 	draftAtlasProfile = null,
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
+	pictureRefs = [],
+	onRemovePictureRef = undefined,
+	focusRequest = 0,
 	onSend = undefined,
 	onQueue = undefined,
 	onStop = undefined,
@@ -298,6 +317,16 @@ let {
 	draftAtlasProfile?: AtlasProfile | null;
 	draftClientAtlasTurnId?: string | null;
 	draftVersion?: number;
+	/**
+	 * Card, strip and History pictures waiting in this message (Attach), held by
+	 * the page. They are numbered with the uploaded photos in the order they
+	 * were added; the send carries them as `pictureRefs`. Optional: a composer
+	 * with none (the landing page) draws and sends exactly as before.
+	 */
+	pictureRefs?: readonly ComposerPictureRef[];
+	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
+	/** Rises when the page wants the box focused (a picture was just attached). */
+	focusRequest?: number;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
 	onStop?: (() => void | Promise<void>) | undefined;
@@ -577,6 +606,41 @@ let isComposerDisabled = $derived(disabled || !isHydrated);
 let pendingAttachmentArtifacts = $derived(
 	pendingAttachments.map((attachment) => attachment.artifact),
 );
+// Plan 2b T5 — one numbering for the uploaded photos and the card pictures,
+// in the order they were added (the server numbers the same way). `pictureOrder`
+// remembers the order; the live list is worked out in the same pass as the
+// chips, so a new chip never draws without its number and a removal renumbers
+// the rest in the frame it happens.
+let pictureOrder = $state.raw<readonly string[]>([]);
+let uploadPictureKeys = $derived(
+	pendingAttachments.map((attachment) =>
+		attachmentChipKind(attachment.artifact) === "image"
+			? pictureKey({ kind: "upload", artifactId: attachment.artifact.id })
+			: null,
+	),
+);
+let refPictureKeys = $derived(
+	pictureRefs.map((ref) =>
+		pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+	),
+);
+let livePictureOrder = $derived(
+	reconcilePictureOrder(pictureOrder, [
+		...uploadPictureKeys.filter((key): key is string => key !== null),
+		...refPictureKeys,
+	]),
+);
+$effect(() => {
+	if (livePictureOrder !== pictureOrder) pictureOrder = livePictureOrder;
+});
+let pictureNumbers = $derived(numberPictures(livePictureOrder, () => true));
+let pictureChipSlots = $derived(
+	arrangePictureChips(livePictureOrder, uploadPictureKeys, refPictureKeys),
+);
+$effect(() => {
+	const request = focusRequest;
+	if (request > 0 && !isMobile()) untrack(() => textarea?.focus());
+});
 let effectiveLinkedSources = $derived(
 	dedupeLinkedSourcesByFamily(
 		selectedLinkedSources.filter(
@@ -811,6 +875,7 @@ let hasComposerChips = $derived(
 		(forceWebSearch && !selectedAtlasProfile) ||
 		Boolean(selectedAtlasProfile) ||
 		pendingAttachments.length > 0 ||
+		pictureRefs.length > 0 ||
 		optimisticUploads.length > 0 ||
 		pendingQuotes.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0),
@@ -1803,6 +1868,47 @@ function canSubmitMessageText(text: string): boolean {
 	);
 }
 
+// What the message carries of its pictures: the card pictures under the numbers
+// the chips showed (the server keeps them), and the same numbers for the bubble
+// so its thumbnails exist from its first paint (F13). Nothing without a card
+// picture: the server records picture metadata only then, so the bubble the
+// server sends back looks the same.
+function picturePayload(): {
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
+} {
+	if (pictureRefs.length === 0) return {};
+	const refs = pictureRefs.flatMap((ref) => {
+		const number = pictureNumbers.get(
+			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+		);
+		return number === undefined
+			? []
+			: [{ imageFileId: ref.imageFileId, number, name: ref.name }];
+	});
+	const uploads = pendingAttachments.flatMap((attachment) => {
+		const number = pictureNumbers.get(
+			pictureKey({ kind: "upload", artifactId: attachment.artifact.id }),
+		);
+		return number === undefined
+			? []
+			: [{ artifactId: attachment.artifact.id, number }];
+	});
+	refs.sort((a, b) => a.number - b.number);
+	return {
+		pictureRefs: refs.map(({ imageFileId, number }) => ({
+			imageFileId,
+			number,
+		})),
+		pictures: {
+			refs,
+			...(uploads.length > 0 ? { uploads } : {}),
+			open: null,
+			marks: null,
+		},
+	};
+}
+
 function buildSendPayload(nextMessage = message): SendPayload {
 	return {
 		// Chips redesign — quote chips expand back into the message here,
@@ -1817,6 +1923,7 @@ function buildSendPayload(nextMessage = message): SendPayload {
 		pendingAttachments: pendingAttachments.map((attachment) => ({
 			...attachment,
 		})),
+		...picturePayload(),
 		linkedSources: composerCommandRegistryEnabled
 			? effectiveLinkedSources.map((source) => ({
 					...source,
@@ -3698,7 +3805,23 @@ async function emitDraftChange(force = false) {
 				     there is nothing useful to remove. A failed chip keeps its
 				     ×, wears a short danger clause, and reveals the full
 				     explanation on hover/focus. -->
-				{#each pendingAttachments as attachment (attachment.artifact.id)}
+				{#each pictureChipSlots as slot (slot.type === 'ref' ? `ref:${pictureRefs[slot.index].imageFileId}` : `att:${pendingAttachments[slot.index].artifact.id}`)}
+				{#if slot.type === 'ref'}
+					{@const pictureRef = pictureRefs[slot.index]}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="image"
+							label={pictureRef.name}
+							thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
+							number={pictureNumbers.get(pictureKey({ kind: 'ref', imageFileId: pictureRef.imageFileId })) ?? null}
+							removable
+							removeLabel={$t('composerChips.removePicture', { name: pictureRef.name })}
+							onRemove={() => onRemovePictureRef?.(pictureRef.imageFileId)}
+							testId="composer-chip-picture"
+						/>
+					</li>
+				{:else}
+					{@const attachment = pendingAttachments[slot.index]}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
 					{@const chip = extractionChipState(extraction, {
 						picture: isPictureForModel(attachment.artifact, pictureOptions),
@@ -3724,6 +3847,7 @@ async function emitDraftChange(force = false) {
 										: ''}
 									detailsId={detailsId}
 									thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
+									number={pictureNumbers.get(pictureKey({ kind: 'upload', artifactId: attachment.artifact.id })) ?? null}
 									removable
 									removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
 									onRemove={() => removePendingAttachment(attachment.artifact.id)}
@@ -3768,6 +3892,7 @@ async function emitDraftChange(force = false) {
 							/>
 						{/if}
 					</li>
+				{/if}
 				{/each}
 
 				<!-- OQ6 — a file whose bytes are still moving. No artifact id

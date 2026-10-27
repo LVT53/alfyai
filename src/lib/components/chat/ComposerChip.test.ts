@@ -434,3 +434,31 @@ describe("ComposerChip", () => {
 		expect(source).not.toMatch(/\n\s*animation:/);
 	});
 });
+
+// Plan 2b T5 — a picture chip wears its number, and is named by it.
+describe("ComposerChip number", () => {
+	it("shows the numeral and is named 'Picture 2: rug.jpg'", () => {
+		const { getByTestId, getByLabelText } = render(ComposerChip, {
+			props: { kind: "image", label: "rug.jpg", number: 2, testId: "chip" },
+		});
+		expect(getByTestId("composer-chip-number").textContent).toBe("2");
+		expect(getByLabelText("Picture 2: rug.jpg")).toBe(getByTestId("chip"));
+	});
+
+	it("draws no numeral and no group name for a chip without a number", () => {
+		const { queryByTestId, getByTestId } = render(ComposerChip, {
+			props: { kind: "image", label: "rug.jpg", testId: "chip" },
+		});
+		expect(queryByTestId("composer-chip-number")).toBeNull();
+		expect(getByTestId("chip").getAttribute("aria-label")).toBeNull();
+	});
+
+	it("hides the numeral from the reader of the screen (the chip's name says it)", () => {
+		const { getByTestId } = render(ComposerChip, {
+			props: { kind: "image", label: "rug.jpg", number: 1, testId: "chip" },
+		});
+		expect(
+			getByTestId("composer-chip-number").getAttribute("aria-hidden"),
+		).toBe("true");
+	});
+});

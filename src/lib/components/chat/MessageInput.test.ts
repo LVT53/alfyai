@@ -6394,3 +6394,199 @@ describe("MessageInput paste-to-attach", () => {
 		expect(textarea.value).toBe("");
 	});
 });
+
+// Plan 2b T5 — pictures in the composer: one numbering for uploaded photos and
+// card pictures (Attach), in the order they were added, and no words about a
+// limit (the cap is the server's, for one picture request).
+describe("MessageInput pictures (numbers and Attach)", () => {
+	function upload(name: string, mimeType: string, id: string) {
+		return {
+			success: true as const,
+			attachment: {
+				artifact: {
+					id,
+					type: "source_document",
+					retrievalClass: "durable",
+					name,
+					mimeType,
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				} as PendingAttachment["artifact"],
+				promptReady: true,
+				promptArtifactId: id,
+				readinessError: null,
+			},
+		};
+	}
+
+	function renderComposer(props: Record<string, unknown> = {}) {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const onSend = vi.fn();
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+			...props,
+		});
+		const textarea = rendered.container.querySelector(
+			"textarea",
+		) as HTMLTextAreaElement;
+		async function attach(name: string, mimeType: string, id: string) {
+			const fileInput = rendered.container.querySelector(
+				'input[type="file"]',
+			) as HTMLInputElement;
+			await fireEvent.change(fileInput, {
+				target: { files: [new File(["x"], name, { type: mimeType })] },
+			});
+			completeUpload(doneCallback, upload(name, mimeType, id));
+			await tick();
+		}
+		return { ...rendered, onSend, textarea, attach };
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionStatusMock.mockResolvedValue({ jobs: [], readiness: [] });
+	});
+
+	it("numbers a photo 1 and a card picture 2, and gives the PDF no number", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.attach("notes.pdf", "application/pdf", "pdf-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+
+		const chips = view.getAllByTestId("composer-chip-attachment");
+		expect(
+			within(chips[0]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("1");
+		expect(within(chips[1]).queryByTestId("composer-chip-number")).toBeNull();
+		const ref = view.getByTestId("composer-chip-picture");
+		expect(within(ref).getByTestId("composer-chip-number")).toHaveTextContent(
+			"2",
+		);
+		expect(view.getByLabelText("Picture 2: Red rug")).toBeTruthy();
+		expect(view.getByLabelText("Picture 1: rug.jpg")).toBeTruthy();
+	});
+
+	it("names a numbered chip in Hungarian", async () => {
+		uiLanguage.set("hu");
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Piros szonyeg" }],
+		});
+		expect(view.getByLabelText("1. kép: Piros szonyeg")).toBeTruthy();
+		expect(view.getByLabelText("Piros szonyeg eltávolítása")).toBeTruthy();
+	});
+
+	it("moves the card picture up to 1 when the photo is removed", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.click(view.getByLabelText("Remove rug.jpg"));
+		await waitFor(() => {
+			const ref = view.getByTestId("composer-chip-picture");
+			expect(within(ref).getByTestId("composer-chip-number")).toHaveTextContent(
+				"1",
+			);
+		});
+	});
+
+	it("draws a card picture added before a photo in front of it, so 1 comes first", async () => {
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		const numbers = view
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2"]);
+	});
+
+	it("numbers nine pictures 1 to 9, keeps Send open and says nothing about a limit", async () => {
+		const view = renderComposer();
+		for (let index = 0; index < 8; index += 1) {
+			await view.attach(`p${index}.jpg`, "image/jpeg", `photo-${index}`);
+		}
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f9", name: "Ninth" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Make it red" } });
+		const numbers = view
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+		const send = view.getByTestId("send-button") as HTMLButtonElement;
+		expect(send.disabled).toBe(false);
+		expect(view.container.textContent ?? "").not.toMatch(
+			/limit|at most|too many/i,
+		);
+	});
+
+	it("sends pictureRefs under their numbers and the numbered pictures for the bubble", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Blend them" } });
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		const payload = view.onSend.mock.calls[0][0];
+		expect(payload.pictureRefs).toEqual([{ imageFileId: "f1", number: 2 }]);
+		expect(payload.pictures).toEqual({
+			refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("hands a removed card picture back to the page", async () => {
+		const onRemovePictureRef = vi.fn();
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+			onRemovePictureRef,
+		});
+		await fireEvent.click(view.getByLabelText("Remove Red rug"));
+		expect(onRemovePictureRef).toHaveBeenCalledWith("f1");
+	});
+
+	it("focuses the box when the page asks (a picture was attached)", async () => {
+		const view = renderComposer();
+		view.textarea.blur();
+		await view.rerender({ focusRequest: 1 });
+		await waitFor(() => expect(document.activeElement).toBe(view.textarea));
+	});
+
+	it("keeps Send open for a card picture with the words typed, and lets one send with only a card picture and words", async () => {
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Make it blue" } });
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		expect(view.onSend.mock.calls[0][0].pictureRefs).toEqual([
+			{ imageFileId: "f1", number: 1 },
+		]);
+	});
+});
