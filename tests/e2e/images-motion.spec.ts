@@ -2762,9 +2762,8 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 /**
  * A probe of the wipe's own writes: every `input` the range fires and every
  * write to the top picture's `clip-path`, each stamped with the animation frame
- * it happened in. "Applied in the same rAF" is: the write for an input lands
- * before the next paint (the probe's frame count moves by at most one between
- * them), never later, and carries the input's position.
+ * it happened in. "Applied in the same rAF" is: the write for an input lands in
+ * the frame the input was counted in (lag 0), and carries the input's position.
  */
 async function installWipeProbe(page: Page) {
 	await page.evaluate(() => {
@@ -2874,7 +2873,7 @@ test.describe("the compare wipe follows the hand (T4)", () => {
 		{ name: "history-wipe-desktop", viewport: DESKTOP },
 		{ name: "history-wipe-phone", viewport: PHONE },
 	] as const) {
-		test(`${variant.name}: the wipe is dragged by ${variant.viewport === PHONE ? "a finger" : "a pointer and the keyboard"}, its cut written in the frame after each move`, async ({
+		test(`${variant.name}: the wipe is dragged by ${variant.viewport === PHONE ? "a finger" : "a pointer and the keyboard"}, its cut written in the same frame as each move`, async ({
 			browser,
 		}, testInfo) => {
 			test.setTimeout(180_000);
@@ -3014,10 +3013,10 @@ test.describe("the compare wipe follows the hand (T4)", () => {
 			type SeenTransitionLike = { property: string };
 			const holdDrag = (drag: Drag, endsAt: number, offPx: number | null) => {
 				expect(drag.inputs, "the range never moved").toBeGreaterThan(10);
-				// Every move's cut is written before the next paint: in the frame the
-				// input landed in (0, the input was dispatched with the frame) or the
-				// one after it (1), never later.
-				expect(Math.max(...drag.lagFrames)).toBeLessThanOrEqual(1);
+				// The owner's bar, "the same frame": every move's cut is written in the
+				// frame its input was dispatched in (Chrome dispatches pointer and touch
+				// moves with the frame, before its animation callbacks), lag 0.
+				expect(drag.lagFrames).toEqual([0]);
 				expect(drag.cutAt ?? -1).toBeCloseTo(endsAt, 0);
 				// The line stands under the hand.
 				expect(offPx ?? 99).toBeLessThanOrEqual(2);
@@ -3051,7 +3050,7 @@ test.describe("the compare wipe follows the hand (T4)", () => {
 				expect(
 					keyboard.keys.map((entry) => Math.round(entry.at ?? -1)),
 				).toEqual([22, 24, 26, 36, 100, 0, 10]);
-				expect(Math.max(...keyboard.lagFrames)).toBeLessThanOrEqual(1);
+				expect(keyboard.lagFrames).toEqual([0]);
 				expect(keyboard.cls).toBe(0);
 				expect(keyboard.longFrames).toEqual([]);
 			}
@@ -3280,4 +3279,135 @@ test.describe("History for pictures on a phone (T4)", () => {
 		expect(wipe.cls).toBe(0);
 		expect(wipe.longFrames).toEqual([]);
 	});
+});
+
+/** One pixel of the page, as [r, g, b]. */
+async function pixelAt(page: Page, x: number, y: number) {
+	const png = await page.screenshot({
+		clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 },
+	});
+	const raw = await sharp(png).removeAlpha().raw().toBuffer();
+	return [raw[0], raw[1], raw[2]];
+}
+
+/** How far a colour is from grey: the checkerboard's cells are near-grey in both themes, the gradients are not. */
+const chroma = ([r, g, b]: number[]) => Math.max(r, g, b) - Math.min(r, g, b);
+
+test.describe("a see-through picture in the wipe (T4 fix round 1)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const colorScheme of ["light", "dark"] as const) {
+		test(`history-wipe-transparent-${colorScheme}: the selected picture's see-through part shows the checkerboard, never the picture compared with`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: DESKTOP, colorScheme },
+				// An opaque first picture, then one see-through right of 55 %.
+				(user, chatId) =>
+					seedImageItem(user, chatId, {
+						versions: 2,
+						seeThroughOf: (index) => index === 1,
+					}),
+			);
+			const { page } = flow;
+			const metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				await historyButton(page).click();
+				await expectHistoryShown(page, "image");
+				await settle(page);
+				const wipe = page.getByTestId("compare-wipe");
+				const box = await wipe.boundingBox();
+				if (!box) throw new Error("no wipe on screen");
+				const y = box.y + box.height * 0.5;
+				const at = (fraction: number) => box.x + box.width * fraction;
+				metrics.checkerboard = await wipe.evaluate((element) =>
+					element.classList.contains("image-checkerboard"),
+				);
+
+				await startRecording(page, HISTORY_TRACK);
+				mark(flow, "transparent-wipe");
+				const range = page.getByTestId("compare-wipe-range");
+				await range.focus();
+				// The cut at the middle: right of it is the selected picture, see-through at 80 %.
+				metrics.middle = {
+					seeThrough: await pixelAt(page, at(0.8), y),
+					opaque: await pixelAt(page, at(0.3), y),
+				};
+				// All of the picture compared with: at 80 % it is its own opaque gradient.
+				await page.keyboard.press("End");
+				await nextFrame(page);
+				await nextFrame(page);
+				metrics.allLeft = { at80: await pixelAt(page, at(0.8), y) };
+				// All of the selected picture: at 80 % its see-through part, on the checkerboard.
+				await page.keyboard.press("Home");
+				await nextFrame(page);
+				await nextFrame(page);
+				metrics.allRight = { at80: await pixelAt(page, at(0.8), y) };
+				metrics.clips = await page.evaluate(() => ({
+					under: document.querySelector<HTMLElement>(
+						'[data-testid="compare-wipe-under"]',
+					)?.style.clipPath,
+					top: document.querySelector<HTMLElement>(
+						'[data-testid="compare-wipe-after"]',
+					)?.style.clipPath,
+					underTransition: getComputedStyle(
+						document.querySelector<HTMLElement>(
+							'[data-testid="compare-wipe-under"]',
+						) as HTMLElement,
+					).transitionDuration,
+				}));
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await settle(page);
+				const run = await stopRecording(page);
+				metrics.cls = shiftSum(run);
+				metrics.longFrames = run.longFrames;
+			} finally {
+				await saveRecording(
+					flow,
+					`history-wipe-transparent-${colorScheme}`,
+					metrics,
+					{ prefix: "t4", segments: ["transparent-wipe"] },
+				);
+			}
+			expect(flow.errors).toEqual([]);
+			expect(metrics.checkerboard).toBe(true);
+			const middle = metrics.middle as {
+				seeThrough: number[];
+				opaque: number[];
+			};
+			// Right of the cut, where the selected picture is see-through: the
+			// checkerboard, not the opaque gradient of the picture compared with.
+			expect(
+				chroma(middle.seeThrough),
+				"the other picture showed through",
+			).toBeLessThan(30);
+			expect(chroma(middle.opaque)).toBeGreaterThan(60);
+			expect(
+				chroma((metrics.allLeft as { at80: number[] }).at80),
+				"the picture compared with is not shown left of the cut",
+			).toBeGreaterThan(60);
+			expect(
+				chroma((metrics.allRight as { at80: number[] }).at80),
+			).toBeLessThan(30);
+			const clips = metrics.clips as {
+				under: string;
+				top: string;
+				underTransition: string;
+			};
+			expect(clips.under).toBe("inset(0px 100% 0px 0px)");
+			expect(clips.top).toBe("inset(0px 0px 0px 0%)");
+			// No transition on the left side's cut either.
+			expect(clips.underTransition).toBe("0s");
+			expect(metrics.cls).toBe(0);
+			expect(metrics.longFrames).toEqual([]);
+		});
+	}
 });

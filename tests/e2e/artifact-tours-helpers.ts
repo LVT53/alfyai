@@ -484,19 +484,21 @@ export async function gradientPng(
 	width: number,
 	height: number,
 	shade = 0,
+	/** See-through right of 55 % of the width (plan 2b T4: a transparent picture in the wipe). */
+	seeThrough = false,
 ): Promise<Uint8Array> {
-	const pixels = Buffer.alloc(width * height * 3);
+	const channels = seeThrough ? 4 : 3;
+	const pixels = Buffer.alloc(width * height * channels);
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
-			const i = (y * width + x) * 3;
+			const i = (y * width + x) * channels;
 			pixels[i] = Math.round((255 * x) / width + shade * 60) % 256;
 			pixels[i + 1] = Math.round((200 * y) / height + shade * 25) % 256;
 			pixels[i + 2] = (150 + shade * 40) % 256;
+			if (seeThrough) pixels[i + 3] = x > width * 0.55 ? 0 : 255;
 		}
 	}
-	return sharp(pixels, { raw: { width, height, channels: 3 } })
-		.png()
-		.toBuffer();
+	return sharp(pixels, { raw: { width, height, channels } }).png().toBuffer();
 }
 
 /**
@@ -518,6 +520,8 @@ export async function seedImageItem(
 		 * take the reader chose (a moment of its own). Alfy's by default.
 		 */
 		authorOf?: (index: number) => "alfy" | "picked";
+		/** Which versions' pictures are see-through (right of 55 % of the width). */
+		seeThroughOf?: (index: number) => boolean;
 		/** More of a version's body: a prompt, marks. */
 		decorate?: (index: number) => Partial<ImageVersionBody>;
 	} = {},
@@ -531,7 +535,12 @@ export async function seedImageItem(
 			userId: user.id,
 			conversationId,
 			role: "take",
-			png: await gradientPng(width, height, index),
+			png: await gradientPng(
+				width,
+				height,
+				index,
+				options.seeThroughOf?.(index) ?? false,
+			),
 		});
 		fileIds.push(file.id);
 	}
@@ -541,7 +550,7 @@ export async function seedImageItem(
 			fileId: fileIds[index],
 			width,
 			height,
-			hasAlpha: false,
+			hasAlpha: options.seeThroughOf?.(index) ?? false,
 			baseFileId: index > 0 ? fileIds[index - 1] : null,
 			sources: [],
 			marks: null,
