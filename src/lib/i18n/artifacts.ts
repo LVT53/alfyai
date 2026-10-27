@@ -1130,6 +1130,10 @@ const artifactsDict = {
 		"artifacts.image.card.goneDetail": "The picture is no longer kept.",
 		"artifacts.image.card.elsewhereDetail":
 			"Open it from the chat it was made in.",
+		"artifacts.image.panel.loadFailed": "Could not open the picture.",
+		"artifacts.image.panel.compare":
+			"Compare with the picture it was made from",
+		"artifacts.image.panel.versions": "Earlier pictures",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -2067,6 +2071,9 @@ const artifactsDict = {
 		"artifacts.image.card.goneDetail": "A kép már nincs meg.",
 		"artifacts.image.card.elsewhereDetail":
 			"Abban a beszélgetésben nyitható meg, ahol készült.",
+		"artifacts.image.panel.loadFailed": "Nem sikerült megnyitni a képet.",
+		"artifacts.image.panel.compare": "Összevetés azzal, amiből készült",
+		"artifacts.image.panel.versions": "Korábbi képek",
 	},
 } as const;
 

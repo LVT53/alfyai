@@ -181,4 +181,5 @@ export const ARTIFACT_BODIES: Partial<
 	document: () => import("./document/DocumentBody.svelte"),
 	app: () => import("./app/AppBody.svelte"),
 	canvas: () => import("./canvas/CanvasEditor.svelte"),
+	image: () => import("./image/ImageBody.svelte"),
 };
