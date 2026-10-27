@@ -217,6 +217,7 @@ let shouldAutoScroll = $state(true);
 let distanceToBottomPx = $state(0);
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
+let lastImageCardCount = 0;
 let lastAtlasJobUpdateKey = "";
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
@@ -510,6 +511,7 @@ $effect.pre(() => {
 	scrollContainer;
 	isThinkingActive;
 	fileProductionJobs.length;
+	imageCards.length;
 	atlasJobs;
 	contextCompressionMarkers.length;
 
@@ -528,6 +530,7 @@ $effect.pre(() => {
 		followingStreamingReply = false;
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
+		lastImageCardCount = 0;
 		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
 		// A restore belongs to the conversation it was scheduled for. Clear any
@@ -575,6 +578,7 @@ $effect.pre(() => {
 		// existing messages as "new" and override restored position.
 		lastMessageCount = dedupedMessages.length;
 		lastFileProductionJobCount = fileProductionJobs.length;
+		lastImageCardCount = imageCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -586,6 +590,7 @@ $effect.pre(() => {
 		}
 		lastMessageCount = 0;
 		lastFileProductionJobCount = fileProductionJobs.length;
+		lastImageCardCount = imageCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -593,6 +598,8 @@ $effect.pre(() => {
 	const isNewMessage = hasNewMessage(dedupedMessages);
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
+	// A picture card arrives under the reply it belongs to, like a file card.
+	const hasNewImageCards = imageCards.length > lastImageCardCount;
 	const currentAtlasJobUpdateKey = atlasJobs
 		.map((job) => `${job.id}:${job.status}:${job.updatedAt}`)
 		.join("|");
@@ -626,8 +633,12 @@ $effect.pre(() => {
 		// that end in view while they land, held like a newly opened thread.
 		holdPosition("bottom");
 		void alignToBottomAfterRender();
-	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
-		// File-production cards render inside the latest assistant message; keep that expanded area visible.
+	} else if (
+		(hasNewFileProductionJobs || hasNewImageCards) &&
+		shouldAutoScroll
+	) {
+		// File-production and picture cards render inside the latest assistant
+		// message; keep that expanded area visible.
 		void alignToBottomAfterRender();
 	} else if (hasAtlasJobUpdates && shouldAutoScroll) {
 		void alignToBottomAfterRender();
@@ -644,8 +655,32 @@ $effect.pre(() => {
 
 	lastMessageCount = dedupedMessages.length;
 	lastFileProductionJobCount = fileProductionJobs.length;
+	lastImageCardCount = imageCards.length;
 	lastAtlasJobUpdateKey = currentAtlasJobUpdateKey;
 	lastContextCompressionMarkerCount = contextCompressionMarkers.length;
+});
+
+/**
+ * The picture card's body is a lazy chunk, and the card draws nothing until it
+ * is here; the reveal above lands two frames after the card arrives. So the
+ * chunk is fetched as soon as the chat has a picture card, or a make_image
+ * call starts (seconds before its card exists), and the card then has its
+ * height in the frame the reveal measures.
+ */
+let imageCardBodyWarmed = false;
+$effect(() => {
+	if (imageCardBodyWarmed) return;
+	const wanted =
+		imageCards.length > 0 ||
+		messages.some((message) =>
+			message.thinkingSegments?.some(
+				(segment) =>
+					segment.type === "tool_call" && segment.name === "make_image",
+			),
+		);
+	if (!wanted) return;
+	imageCardBodyWarmed = true;
+	void import("$lib/components/artifacts/image/ImageCardBody.svelte");
 });
 
 function instantScrollToBottom() {

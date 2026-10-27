@@ -4,6 +4,10 @@ import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import {
+	card as pictureCard,
+	take as pictureTake,
+} from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageArea from "./MessageArea.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
@@ -1091,6 +1095,70 @@ describe("MessageArea", () => {
 		await waitFor(() => {
 			expect(getByText("report.pdf")).toBeInTheDocument();
 			expect(scrollContainer.scrollTop).toBe(960);
+		});
+	});
+
+	it("scrolls to reveal a picture card when it appears under the reply (plan 2b T2)", async () => {
+		const reply: ChatMessage = {
+			id: "assistant-pic",
+			renderKey: "assistant-pic",
+			role: "assistant",
+			content: "Here is the lighthouse.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			thinkingSegments: [
+				{
+					type: "tool_call",
+					callId: "call-pic",
+					name: "make_image",
+					input: { prompt: "a lighthouse", title: "Lighthouse" },
+					status: "running",
+				},
+			],
+		};
+		const { container, rerender } = render(MessageArea, {
+			messages: [reply],
+			conversationId: "conv-pic",
+			isThinkingActive: false,
+			imageCards: [],
+		});
+		const scrollContainer = container.querySelector(
+			'[aria-live="polite"]',
+		) as HTMLDivElement;
+		let scrollHeight = 640;
+		Object.defineProperty(scrollContainer, "clientHeight", {
+			configurable: true,
+			value: 640,
+		});
+		Object.defineProperty(scrollContainer, "scrollHeight", {
+			configurable: true,
+			get: () => scrollHeight,
+		});
+		scrollContainer.scrollTop = 0;
+		await fireEvent.scroll(scrollContainer);
+
+		scrollHeight = 1100;
+		await rerender({
+			messages: [reply],
+			conversationId: "conv-pic",
+			isThinkingActive: false,
+			imageCards: [
+				pictureCard(
+					[
+						pictureTake({
+							toolCallId: "call-pic",
+							status: "queued",
+							fileId: null,
+						}),
+					],
+					{ pickedTakeId: null },
+				),
+			],
+		});
+
+		await waitFor(() => {
+			expect(scrollContainer.scrollTop).toBe(1100);
 		});
 	});
 
