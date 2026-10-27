@@ -40,6 +40,8 @@ export type TrackedBox = {
 	w: number;
 	h: number;
 	transform: string;
+	/** The element's own computed opacity (not its ancestors'). */
+	opacity: number;
 };
 
 export type ShiftEntry = {
@@ -64,6 +66,21 @@ export type SeenTransition = {
 	target: string;
 	/** ms: under reduced motion the app's global rule makes every transition 0.01 ms. */
 	duration: number;
+	/** The timing function the transition runs on (its keyframe's, where the browser keeps it there). */
+	easing: string;
+};
+
+/**
+ * A script-driven animation (`element.animate`, the dock's expand and dock insets)
+ * that ran while recording: what it animated, on what, for how long and on which
+ * curve, so a spec can put one kind's timing beside another's.
+ */
+export type SeenAnimation = {
+	t: number;
+	target: string;
+	properties: string[];
+	duration: number;
+	easing: string;
 };
 
 export type MotionRun = {
@@ -73,6 +90,7 @@ export type MotionRun = {
 	inputAt: number | null;
 	longFrames: LongFrame[];
 	transitions: SeenTransition[];
+	animations: SeenAnimation[];
 };
 
 export async function installMotionRecorder(page: Page): Promise<void> {
@@ -145,7 +163,14 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 			loafObserver = null;
 		}
 		const transitions: SeenTransition[] = [];
+		const animations: SeenAnimation[] = [];
 		const seenTransitions = new WeakSet<Animation>();
+		const easingOf = (effect: KeyframeEffect | null): string => {
+			const timing = effect?.getTiming().easing ?? "linear";
+			if (timing !== "linear") return timing;
+			const keyframes = effect?.getKeyframes() ?? [];
+			return String(keyframes[0]?.easing ?? timing);
+		};
 		const describe = (node: Element | null): string => {
 			const named = node?.closest("[data-testid]");
 			if (named) return named.getAttribute("data-testid") ?? "";
@@ -157,14 +182,45 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 				const property = (
 					animation as Animation & { transitionProperty?: string }
 				).transitionProperty;
-				if (!property) continue;
-				seenTransitions.add(animation);
 				const effect = animation.effect as KeyframeEffect | null;
+				seenTransitions.add(animation);
+				if (!property) {
+					// A CSS @keyframes animation names itself; only script-driven ones are recorded.
+					if (
+						(animation as Animation & { animationName?: string }).animationName
+					) {
+						continue;
+					}
+					const keyframes = effect?.getKeyframes() ?? [];
+					animations.push({
+						t: performance.now() - t0,
+						target: describe(effect?.target ?? null),
+						properties: [
+							...new Set(
+								keyframes.flatMap((frame) =>
+									Object.keys(frame).filter(
+										(key) =>
+											![
+												"offset",
+												"computedOffset",
+												"easing",
+												"composite",
+											].includes(key),
+									),
+								),
+							),
+						],
+						duration: Number(effect?.getTiming().duration ?? 0),
+						easing: easingOf(effect),
+					});
+					continue;
+				}
 				transitions.push({
 					t: performance.now() - t0,
 					property,
 					target: describe(effect?.target ?? null),
 					duration: Number(effect?.getTiming().duration ?? 0),
+					easing: easingOf(effect),
 				});
 			}
 		};
@@ -193,6 +249,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 								w: rect.width,
 								h: rect.height,
 								transform: getComputedStyle(element).transform,
+								opacity: Number(getComputedStyle(element).opacity),
 							}
 						: null;
 			}
@@ -220,6 +277,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 				shifts.length = 0;
 				longFrames.length = 0;
 				transitions.length = 0;
+				animations.length = 0;
 				inputAt = null;
 				t0 = performance.now();
 				running = true;
@@ -236,6 +294,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 					inputAt,
 					longFrames: longFrames.slice(),
 					transitions: transitions.slice(),
+					animations: animations.slice(),
 				};
 			},
 		};
