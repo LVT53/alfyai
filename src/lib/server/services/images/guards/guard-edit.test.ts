@@ -135,6 +135,127 @@ describe("guardEdit", () => {
 		expect(out.measures.insideMarksShare as number).toBeGreaterThan(0.9);
 	});
 
+	describe("an edit with marks", () => {
+		// A marked box in a free patch of the scene and a second change elsewhere:
+		// the picture's gradient is the only thing under both.
+		const MARKED = { x: 70, y: 60, w: 40, h: 40 };
+		const marks = [
+			{
+				x: MARKED.x / SCENE_W,
+				y: MARKED.y / SCENE_H,
+				w: MARKED.w / SCENE_W,
+				h: MARKED.h / SCENE_H,
+			},
+		];
+		const grow = Math.ceil(0.1 * Math.min(SCENE_W, SCENE_H));
+		const changed = (outsideWidth: number) => {
+			const result = copyOf(base);
+			fillBox(result, MARKED, [250, 20, 200]);
+			fillBox(
+				result,
+				{ x: 60, y: 128, w: outsideWidth, h: 10 },
+				[10, 250, 250],
+			);
+			return result;
+		};
+		const run = (result: typeof base) =>
+			guardEdit({ base, anchor: null, chainSinceAnchor: 0, result, marks });
+
+		it("changes nothing outside the marks grown by a tenth of the short side, even when the result changed more", async () => {
+			const out = await run(changed(16));
+			const x0 = MARKED.x - grow;
+			const x1 = MARKED.x + MARKED.w + grow;
+			const y0 = MARKED.y - grow;
+			const y1 = MARKED.y + MARKED.h + grow;
+			let outside = 0;
+			for (let y = 0; y < SCENE_H; y++) {
+				for (let x = 0; x < SCENE_W; x++) {
+					if (x >= x0 && x < x1 && y >= y0 && y < y1) continue;
+					outside++;
+					const o = (y * SCENE_W + x) * 4;
+					for (let c = 0; c < 4; c++) {
+						if (out.picture.data[o + c] !== base.data[o + c]) {
+							throw new Error(`differs at ${x},${y}`);
+						}
+					}
+				}
+			}
+			expect(outside).toBeGreaterThan(0);
+			// The marked change itself is carried.
+			const o = ((MARKED.y + 20) * SCENE_W + MARKED.x + 20) * 4;
+			expect(Array.from(out.picture.data.subarray(o, o + 3))).toEqual([
+				250, 20, 200,
+			]);
+			expect(out.mask[(MARKED.y + 20) * SCENE_W + MARKED.x + 20]).toBe(1);
+		});
+
+		it("feathers the edge of the allowed area instead of cutting it", async () => {
+			// A repaint that runs well past the allowed area on every side.
+			const result = copyOf(base);
+			fillBox(result, { x: 20, y: 40, w: 150, h: 80 }, [250, 20, 200]);
+			const out = await run(result);
+			const edgeRow = MARKED.y + 20;
+			const inner =
+				out.mask[edgeRow * SCENE_W + MARKED.x + MARKED.w + grow - 1];
+			const farther =
+				out.mask[edgeRow * SCENE_W + MARKED.x + MARKED.w + grow + 4];
+			expect(farther).toBe(0);
+			expect(inner).toBeGreaterThan(0);
+			expect(inner).toBeLessThan(1);
+			// Full strength well inside.
+			expect(out.mask[edgeRow * SCENE_W + MARKED.x + 20]).toBe(1);
+		});
+
+		it("calls a change that is mostly outside the marks a miss at 0.77 and not at 0.87", async () => {
+			const miss = await run(changed(36));
+			expect(miss.measures.insideMarksShare as number).toBeGreaterThan(0.7);
+			expect(miss.measures.insideMarksShare as number).toBeLessThan(0.8);
+			expect(miss.measures.miss).toBe("outside_marks");
+			const hit = await run(changed(16));
+			expect(hit.measures.insideMarksShare as number).toBeGreaterThan(0.85);
+			expect(hit.measures.miss).toBeNull();
+		});
+
+		it("keeps an earlier change outside the marks when the fourth change goes back onto the anchor", async () => {
+			const anchor = base;
+			const earlier = copyOf(anchor);
+			fillBox(earlier, RECTS[3].box, [20, 200, 200]);
+			const result = copyOf(earlier);
+			fillBox(result, MARKED, [250, 20, 200]);
+			const out = await guardEdit({
+				base: earlier,
+				anchor,
+				chainSinceAnchor: 3,
+				result,
+				marks,
+			});
+			expect(out.measures.reanchored).toBe(true);
+			const at = (x: number, y: number) => (y * SCENE_W + x) * 4;
+			const inEarlier = at(RECTS[3].box.x + 10, RECTS[3].box.y + 10);
+			expect(
+				Array.from(out.picture.data.subarray(inEarlier, inEarlier + 3)),
+			).toEqual([20, 200, 200]);
+			const inMarked = at(MARKED.x + 20, MARKED.y + 20);
+			expect(
+				Array.from(out.picture.data.subarray(inMarked, inMarked + 3)),
+			).toEqual([250, 20, 200]);
+		});
+
+		it("leaves an edit without marks unclamped", async () => {
+			const out = await guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: changed(16),
+				marks: null,
+			});
+			const o = (130 * SCENE_W + 66) * 4;
+			expect(Array.from(out.picture.data.subarray(o, o + 3))).toEqual([
+				10, 250, 250,
+			]);
+		});
+	});
+
 	it("keeps a whole repaint whole and restarts the chain", async () => {
 		const result = copyOf(base);
 		fillBox(

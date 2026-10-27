@@ -1,6 +1,7 @@
 import { applyAlignment, estimateAlignment, isNegligible } from "./align";
 import { changeMask } from "./change-mask";
 import { compositeOnto } from "./composite";
+import { marksClamp } from "./marks-clamp";
 import { isEmptyImage, type RawImage } from "./raw-image";
 import { GUARD, MARK_GROW_SHARE } from "./thresholds";
 
@@ -117,6 +118,19 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	const aligned = await applyAlignment(result, base, applied);
 
 	const against = keepTransparent(changeMask(base, aligned), base, aligned);
+	// A marked edit changes the picture only where the person marked (grown a
+	// little, feathered): the measures below see the model's whole change, so a
+	// change mostly outside the marks still counts as a miss, but none of it is pasted.
+	const clamp =
+		marks && marks.length > 0
+			? marksClamp(base.width, base.height, marks)
+			: null;
+	const limit = (mask: Float32Array): Float32Array => {
+		if (!clamp) return mask;
+		const limited = new Float32Array(mask.length);
+		for (let i = 0; i < mask.length; i++) limited[i] = mask[i] * clamp[i];
+		return limited;
+	};
 	const measures: GuardMeasures = {
 		...applied,
 		changedShare: against.changedShare,
@@ -129,6 +143,16 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	};
 
 	if (against.changedShare > GUARD.globalChangeShare) {
+		if (clamp) {
+			// Even a whole repaint changes only what was marked; the rest stays as it was.
+			return {
+				picture: compositeOnto(base, aligned, clamp),
+				mask: clamp,
+				measures: { ...measures, global: true },
+				chainSinceAnchor: params.chainSinceAnchor + 1,
+				anchorIsResult: false,
+			};
+		}
 		return {
 			picture: aligned,
 			mask: new Float32Array(aligned.width * aligned.height).fill(1),
@@ -144,22 +168,30 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		anchor !== null &&
 		sameSize(anchor, base);
 	if (reanchor) {
-		const mask = keepTransparent(
-			changeMask(anchor, aligned),
-			anchor,
-			aligned,
-		).mask;
+		const mask = limit(
+			keepTransparent(changeMask(anchor, aligned), anchor, aligned).mask,
+		);
+		// With marks, what earlier changes made outside them must survive the
+		// reset: the anchor shows only where the base never left it.
+		const under = clamp
+			? compositeOnto(
+					anchor,
+					base,
+					keepTransparent(changeMask(anchor, base), anchor, base).mask,
+				)
+			: anchor;
 		return {
-			picture: compositeOnto(anchor, aligned, mask),
+			picture: compositeOnto(under, aligned, mask),
 			mask,
 			measures: { ...measures, reanchored: true },
 			chainSinceAnchor: 0,
 			anchorIsResult: false,
 		};
 	}
+	const mask = limit(against.mask);
 	return {
-		picture: compositeOnto(base, aligned, against.mask),
-		mask: against.mask,
+		picture: compositeOnto(base, aligned, mask),
+		mask,
 		measures,
 		chainSinceAnchor: params.chainSinceAnchor + 1,
 		anchorIsResult: false,

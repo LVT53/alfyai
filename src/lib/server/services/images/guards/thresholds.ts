@@ -18,8 +18,14 @@ export const GUARD = {
 	globalChangeShare: 0.6,
 	/** Below this share nothing counts as changed. */
 	nothingChangedShare: 0.002,
-	/** Less than this share of the change inside the marks is a miss. */
-	marksMissShare: 0.5,
+	/**
+	 * Less than this share of the change inside the marks is a miss. Raised from
+	 * 0.5 to 0.8 on 2026-10-27 after the plan 2c re-measure (results-part-2-server.md,
+	 * "Re-measure (independent region)"): room-1's marked move had insideMarksShare
+	 * 0.77 and removed the coffee table, so a change mostly outside the marks is a
+	 * clear miss and is retried once.
+	 */
+	marksMissShare: 0.8,
 	/** Every this-many changes the paste goes back onto the anchor. */
 	reanchorEvery: 4,
 	/** Over an opaque base, a top pixel less opaque than this (0-255) is never pasted; the model's own alpha is 252 or more. */
@@ -33,3 +39,6 @@ export const GUARD = {
 
 /** The marks are grown by this share of the short side before counting. */
 export const MARK_GROW_SHARE = 0.05;
+
+/** A marked edit may change the picture only inside the marks grown by this share of the short side. */
+export const MARK_CLAMP_GROW_SHARE = 0.1;
