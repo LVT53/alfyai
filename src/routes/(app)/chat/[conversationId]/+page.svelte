@@ -212,6 +212,7 @@ import {
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
+	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
@@ -1179,15 +1180,12 @@ let activeWorkspaceDocument = $derived(
  * card's `body.artifactId` carries.
  */
 let activeArtifactId = $derived(activeWorkspaceDocument?.artifactId ?? null);
-/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App gets its own phrasing ("ask to CHANGE it"), every other kind keeps the generic "ask ABOUT it". */
+/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App and Image get "ask to CHANGE it" (plan 2b T3), every other kind keeps the generic "ask ABOUT it". */
 let composerPlaceholder = $derived(
 	activeWorkspaceDocument
-		? $t(
-				activeWorkspaceDocument.kind === "app"
-					? "artifacts.chat.composerPlaceholderApp"
-					: "artifacts.chat.composerPlaceholder",
-				{ title: activeWorkspaceDocument.title },
-			)
+		? $t(composerPlaceholderKey(activeWorkspaceDocument.kind), {
+				title: activeWorkspaceDocument.title,
+			})
 		: null,
 );
 

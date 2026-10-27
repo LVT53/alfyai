@@ -1241,3 +1241,16 @@ export function liveDocumentAlfyActivityExcluding(
 	}
 	return activity;
 }
+
+/**
+ * The composer's placeholder while an item is open (redesign §9.2): an App and
+ * an Image are asked to be CHANGED ("Ask Alfy to change {title}…"), every
+ * other kind is asked ABOUT.
+ */
+export function composerPlaceholderKey(
+	kind: string | null | undefined,
+): I18nKey {
+	return kind === "app" || kind === "image"
+		? "artifacts.chat.composerPlaceholderApp"
+		: "artifacts.chat.composerPlaceholder";
+}

@@ -18,6 +18,7 @@ import {
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
+	composerPlaceholderKey,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
 	FILE_LIST_RETRY_DELAYS_MS,
@@ -2158,5 +2159,29 @@ describe("shouldPollImageCards", () => {
 				],
 			),
 		).toBe(false);
+	});
+});
+
+describe("composerPlaceholderKey", () => {
+	it("asks to change an open App or Image, and about anything else", async () => {
+		const { get } = await import("svelte/store");
+		const { t } = await import("$lib/i18n");
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("en");
+		expect(
+			get(t)(composerPlaceholderKey("image"), { title: "Cosy room" }),
+		).toBe("Ask Alfy to change Cosy room…");
+		expect(composerPlaceholderKey("image")).toBe(
+			"artifacts.chat.composerPlaceholderApp",
+		);
+		expect(composerPlaceholderKey("app")).toBe(
+			"artifacts.chat.composerPlaceholderApp",
+		);
+		expect(composerPlaceholderKey("document")).toBe(
+			"artifacts.chat.composerPlaceholder",
+		);
+		expect(composerPlaceholderKey(null)).toBe(
+			"artifacts.chat.composerPlaceholder",
+		);
 	});
 });
