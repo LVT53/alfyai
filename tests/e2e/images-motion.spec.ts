@@ -8,6 +8,7 @@ import {
 	type Page,
 	test,
 } from "@playwright/test";
+import sharp from "sharp";
 import { AI_SMOKE_LATE_CARD_MARKER } from "../fixtures/ai/late-card-scenario";
 import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
@@ -304,6 +305,28 @@ const TRACK = {
  * while the take waits its turn, the take is made, the picture lands and fades in,
  * and the closing sentence follows.
  */
+/**
+ * Where the newest card sits against the window and the composer: the reveal
+ * (MessageArea's scroll dispatch) must bring the whole card into view above
+ * the composer, not leave it behind it (review I1).
+ */
+async function cardPlacement(page: Page) {
+	return page.evaluate((cardSelector) => {
+		const cards = document.querySelectorAll(cardSelector);
+		const card = cards[cards.length - 1]?.getBoundingClientRect();
+		const composer = document
+			.querySelector(".composer-shell")
+			?.getBoundingClientRect();
+		if (!card || !composer) return null;
+		return {
+			top: card.top,
+			bottom: card.bottom,
+			composerTop: composer.top,
+			fullyAboveComposer: card.top >= 0 && card.bottom <= composer.top + 0.5,
+		};
+	}, CARD);
+}
+
 async function runArrival(flow: Flow) {
 	const { page, comfy } = flow;
 	comfy.setOptions({ steps: 12, stepDelayMs: 400 });
@@ -316,6 +339,13 @@ async function runArrival(flow: Flow) {
 		timeout: 30_000,
 	});
 	mark(flow, "waiting");
+	await expect
+		.poll(async () => (await cardPlacement(page))?.fullyAboveComposer, {
+			message: "the waiting card is on screen, whole, above the composer",
+			timeout: 5_000,
+		})
+		.toBe(true);
+	const placementAtWaiting = await cardPlacement(page);
 	comfy.holdQueue(false);
 	await expect(page.locator(BODY_STATE("making"))).toBeVisible({
 		timeout: 30_000,
@@ -328,7 +358,7 @@ async function runArrival(flow: Flow) {
 	).toBeVisible({ timeout: 30_000 });
 	mark(flow, "final-text");
 	const run = await stopRecording(page);
-	return measureArrival(run);
+	return { ...measureArrival(run), placementAtWaiting };
 }
 
 function measureArrival(run: MotionRun) {
@@ -427,6 +457,42 @@ function holdArrival(metrics: ReturnType<typeof measureArrival>) {
 		metrics.nonCompositedCardTransitions,
 		"a transition other than transform/opacity in the card",
 	).toEqual([]);
+}
+
+/** A picture the guards see as changed: the input with a block painted in its middle. */
+async function changedPicture(
+	source: Uint8Array | undefined,
+	width: number,
+	height: number,
+): Promise<Uint8Array> {
+	const base = source
+		? sharp(source)
+		: sharp({
+				create: { width, height, channels: 3, background: "#4a7" },
+			});
+	const meta = await base.metadata();
+	const w = meta.width ?? width;
+	const h = meta.height ?? height;
+	const block = await sharp({
+		create: {
+			width: Math.floor(w / 4),
+			height: Math.floor(h / 4),
+			channels: 3,
+			background: "#1e3a8a",
+		},
+	})
+		.png()
+		.toBuffer();
+	return base
+		.composite([
+			{
+				input: block,
+				left: Math.floor((w * 3) / 8),
+				top: Math.floor((h * 3) / 8),
+			},
+		])
+		.png()
+		.toBuffer();
 }
 
 /** What `GET /api/conversations/[id]` says about its picture cards. */
@@ -597,6 +663,7 @@ test.describe("the picture card moves like the Document's", () => {
 		expect(another.longFramesAroundLanding).toEqual([]);
 		expect(another.cardTransitions.other).toEqual([]);
 		expect(use.clsNotFromInput).toBe(0);
+		expect(metrics.use).toMatchObject({ longFrames: [] });
 		expect(use.stageDrift.h).toBeLessThanOrEqual(0.5);
 		expect(use.cardTransitions.other).toEqual([]);
 	});
@@ -685,6 +752,93 @@ test.describe("the picture card moves like the Document's", () => {
 		expect((metrics.cardTransitions as { other: unknown[] }).other).toEqual([]);
 	});
 
+	test("checking-again: the server's automatic retry shows a quiet note over the take and swaps in place", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(150_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+		);
+		const { page, comfy } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			comfy.setOptions({ steps: 4, stepDelayMs: 200 });
+			const conversationId = await newChat(flow);
+			await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+			await expect(
+				page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT),
+			).toBeVisible({ timeout: 45_000 });
+			await expect
+				.poll(
+					async () => (await readCards(page, conversationId))[0]?.artifactId,
+					{ timeout: 20_000 },
+				)
+				.toBeTruthy();
+			const [made] = await readCards(page, conversationId);
+
+			// The change's first take changes nothing (a clear miss the guards
+			// measure), so the server makes its one automatic retry, which does
+			// change the picture and wins.
+			let renders = 0;
+			comfy.setOptions({
+				steps: 4,
+				stepDelayMs: 200,
+				render: async (input) => {
+					renders += 1;
+					const source = input.images[0];
+					if (renders === 1 && source) return source;
+					// The retry takes a while, so the note is on screen across polls.
+					await new Promise((resolve) => setTimeout(resolve, 6_000));
+					return changedPicture(source, input.width, input.height);
+				},
+			});
+			await startRecording(page, {
+				...TRACK,
+				checking: '[data-testid="image-card-checking"]',
+			});
+			mark(flow, "send-change");
+			await sendMessage(
+				page,
+				`${AI_SMOKE_CHANGE_PICTURE_MARKER} ${made.artifactId}`,
+			);
+			const changed = page.locator(CARD).last();
+			await expect(changed.getByTestId("image-card-checking")).toBeVisible({
+				timeout: 45_000,
+			});
+			mark(flow, "checking");
+			await expect(changed.getByTestId("image-card-checking")).toBeHidden({
+				timeout: 45_000,
+			});
+			await expect(
+				changed.locator('[data-testid="image-picture-after"].is-loaded'),
+			).toBeVisible();
+			mark(flow, "swapped");
+			const run = await stopRecording(page);
+			const checkingAt = momentOf(run, "checking") ?? 0;
+			const goneAt =
+				run.frames.findLast((frame) => frame.tracked.checking != null)?.t ??
+				checkingAt;
+			metrics = {
+				renders,
+				checkingShownMs: goneAt - checkingAt,
+				cardCls: shiftsBetween(run, checkingAt - 50, goneAt + 400),
+				notTheCard: otherShiftsBetween(run, checkingAt - 50, goneAt + 400),
+				longFramesAround: longFramesAround(run, [checkingAt, goneAt]),
+				cardTransitions: cardTransitions(run),
+			};
+		} finally {
+			comfy.setOptions({ render: undefined });
+			await closeFlow(flow, "checking-again", metrics);
+		}
+		expect(flow.errors, "the page logged an error").toEqual([]);
+		expect(metrics.renders).toBe(2);
+		expect(metrics.cardCls).toBe(0);
+		expect(metrics.longFramesAround).toEqual([]);
+		expect((metrics.cardTransitions as { other: unknown[] }).other).toEqual([]);
+	});
+
 	test("failure-try-again: a failed take says so and Try again makes it in place", async ({
 		browser,
 	}, testInfo) => {
@@ -722,8 +876,15 @@ test.describe("the picture card moves like the Document's", () => {
 			const moments = ["making", "ready", "loaded"]
 				.map((name) => momentOf(retry, name))
 				.filter((moment): moment is number => moment !== null);
+			const failedAt = momentOf(failing, "failed") ?? 0;
 			metrics = {
 				failing: {
+					clsNotFromInput: shiftsBetween(
+						failing,
+						(momentOf(failing, "card") ?? 0) + 1,
+						Number.POSITIVE_INFINITY,
+					),
+					longFramesAroundFailure: longFramesAround(failing, [failedAt]),
 					stageDrift: sizeDrift(
 						failing.frames.slice(firstSeen(failing.frames, "card")),
 						"stage",
@@ -742,6 +903,11 @@ test.describe("the picture card moves like the Document's", () => {
 			await closeFlow(flow, "failure-try-again", metrics);
 		}
 		expect(flow.errors, "the page logged an error").toEqual([]);
+		expect(metrics.failing).toMatchObject({
+			clsNotFromInput: 0,
+			longFramesAroundFailure: [],
+			stageDrift: { w: 0, h: 0 },
+		});
 		const retry = metrics.retry as {
 			clsNotFromInput: number;
 			stageDrift: { h: number };
@@ -756,61 +922,74 @@ test.describe("the picture card moves like the Document's", () => {
 		expect(retry.cardTransitions.other).toEqual([]);
 	});
 
-	test("document-arrival: the Document's late card, recorded the same way for the side-by-side", async ({
-		browser,
-	}, testInfo) => {
-		test.setTimeout(150_000);
-		const flow = await openFlow(
+	// The Document's late card on desktop and on a phone: on a phone, what moves
+	// outside the card when an item is made (the header's item count row) is
+	// recorded the same way as for the picture card (review I5).
+	for (const variant of [
+		{ name: "document-arrival", viewport: DESKTOP },
+		{ name: "document-arrival-phone", viewport: PHONE },
+	] as const) {
+		test(`${variant.name}: the Document's late card, recorded the same way for the side-by-side`, async ({
 			browser,
-			testInfo.project.use.baseURL as string,
-			{ viewport: DESKTOP },
-		);
-		const { page } = flow;
-		let metrics: Record<string, unknown> = {};
-		try {
-			await newChat(flow);
-			await startRecording(page, {
-				card: CARD,
-				prose: PROSE,
-				user: '[data-testid="user-message"]',
-			});
-			mark(flow, "send");
-			await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
-			await expect(page.locator(CARD)).toBeVisible({ timeout: 30_000 });
-			mark(flow, "card");
-			await expect(page.getByText("Elkészült a dokumentum")).toBeVisible({
-				timeout: 30_000,
-			});
-			mark(flow, "final-text");
-			const run = await stopRecording(page);
-			const frames = run.frames;
-			const arrival = firstSeen(frames, "card");
-			const offsetOf = (frame: MotionFrame | undefined) =>
-				frame?.tracked.prose && frame.tracked.user
-					? frame.tracked.prose.y - frame.tracked.user.y
-					: null;
-			const proseTop = offsetOf(frames[arrival - 1]) ?? 0;
-			metrics = {
-				arrivalMs: frames[arrival]?.t ?? null,
-				proseMovedPx: Math.max(
-					0,
-					...frames.slice(arrival).map((frame) => {
-						const now = offsetOf(frame);
-						return now === null ? 0 : Math.abs(now - proseTop);
-					}),
-				),
-				cardHeightFirstFrame: frames[arrival]?.tracked.card?.h ?? null,
-				cardHeightSettled: boxes(frames, "card").at(-1)?.h ?? null,
-				clsAll: run.shifts.reduce((sum, entry) => sum + entry.value, 0),
-				toolRowWordShift: rowWordShifts(run),
-				shifts: run.shifts,
-				longFramesAll: run.longFrames,
-				cardTransitionProperties: cardTransitions(run).properties,
-			};
-		} finally {
-			await closeFlow(flow, "document-arrival", metrics);
-		}
-		expect(flow.errors, "the page logged an error").toEqual([]);
-		expect(metrics.proseMovedPx).toBeLessThanOrEqual(1);
-	});
+		}, testInfo) => {
+			test.setTimeout(150_000);
+			const flow = await openFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: variant.viewport },
+			);
+			const { page } = flow;
+			let metrics: Record<string, unknown> = {};
+			try {
+				await newChat(flow);
+				await startRecording(page, {
+					card: CARD,
+					prose: PROSE,
+					user: '[data-testid="user-message"]',
+				});
+				mark(flow, "send");
+				await sendMessage(page, AI_SMOKE_LATE_CARD_MARKER);
+				await expect(page.locator(CARD)).toBeVisible({ timeout: 30_000 });
+				mark(flow, "card");
+				await expect(page.getByText("Elkészült a dokumentum")).toBeVisible({
+					timeout: 30_000,
+				});
+				mark(flow, "final-text");
+				const run = await stopRecording(page);
+				const frames = run.frames;
+				const arrival = firstSeen(frames, "card");
+				const offsetOf = (frame: MotionFrame | undefined) =>
+					frame?.tracked.prose && frame.tracked.user
+						? frame.tracked.prose.y - frame.tracked.user.y
+						: null;
+				const proseTop = offsetOf(frames[arrival - 1]) ?? 0;
+				metrics = {
+					arrivalMs: frames[arrival]?.t ?? null,
+					proseMovedPx: Math.max(
+						0,
+						...frames.slice(arrival).map((frame) => {
+							const now = offsetOf(frame);
+							return now === null ? 0 : Math.abs(now - proseTop);
+						}),
+					),
+					cardHeightFirstFrame: frames[arrival]?.tracked.card?.h ?? null,
+					cardHeightSettled: boxes(frames, "card").at(-1)?.h ?? null,
+					clsAll: run.shifts.reduce((sum, entry) => sum + entry.value, 0),
+					notTheCardShiftsAfterArrival: otherShiftsBetween(
+						run,
+						frames[arrival]?.t ?? 0,
+						Number.POSITIVE_INFINITY,
+					),
+					toolRowWordShift: rowWordShifts(run),
+					shifts: run.shifts,
+					longFramesAll: run.longFrames,
+					cardTransitionProperties: cardTransitions(run).properties,
+				};
+			} finally {
+				await closeFlow(flow, variant.name, metrics);
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			expect(metrics.proseMovedPx).toBeLessThanOrEqual(1);
+		});
+	}
 });

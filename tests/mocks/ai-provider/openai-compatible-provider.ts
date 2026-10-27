@@ -139,21 +139,32 @@ function hasToolResultMessage(body: Record<string, unknown>): boolean {
 	);
 }
 
-/** Whether the request answers THIS call (a later turn's request carries earlier turns' tool results too). */
+/**
+ * Whether the request answers THIS call in THIS turn: its tool result comes
+ * after the turn's own message (the bundle that carries "## Current User
+ * Message"). A later turn's request may carry an earlier turn's tool results,
+ * which come before its own message, so it is never taken for an answer.
+ */
 function hasToolResultFor(
 	body: Record<string, unknown>,
 	callId: string,
 ): boolean {
-	const messages = body.messages;
-	return (
-		Array.isArray(messages) &&
-		messages.some(
-			(message) =>
-				isJsonObject(message) &&
-				message.role === "tool" &&
-				message.tool_call_id === callId,
-		)
-	);
+	const messages = Array.isArray(body.messages) ? body.messages : [];
+	let turnStart = -1;
+	let answer = -1;
+	messages.forEach((message, index) => {
+		if (!isJsonObject(message)) return;
+		if (
+			message.role === "user" &&
+			JSON.stringify(message.content ?? "").includes("## Current User Message")
+		) {
+			turnStart = index;
+		}
+		if (message.role === "tool" && message.tool_call_id === callId) {
+			answer = index;
+		}
+	});
+	return answer > turnStart;
 }
 
 function delay(ms: number): Promise<void> {
