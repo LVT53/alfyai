@@ -27,7 +27,7 @@ export type LoadedPicture = {
 	height: number;
 	/** The stored picture file when the source is one OF THIS CHAT, so an input of the right size can reuse it; a file of another chat is always copied. */
 	fileId: string | null;
-	/** The Image item that owns that file, if one does: a file another item owns is never reused as an input. */
+	/** The Image item that owns that file, if one does: only that item's in-place change reuses the file as an input. */
 	fileArtifactId?: string | null;
 };
 
@@ -109,12 +109,14 @@ export async function prepareTakeInputs(params: {
 	changing?: string | null;
 }): Promise<TakeInput[]> {
 	const { userId, conversationId, canvas } = params;
-	// A stored file is reused by id only when no item owns it or it is the item
-	// being changed. Another item's file is copied: it must not be claimed by this
-	// take's item, and deleting the other item must not break this one.
+	// A stored file is reused by id only for an in-place change of the item that
+	// owns it. Anything else is copied, even a file nobody owns yet: an unpicked
+	// take can still be picked by its own card later, and must then stay that
+	// card's item's, whatever other item was made from it.
 	const reusable = (loaded: LoadedPicture): string | null =>
 		loaded.fileId &&
-		(!loaded.fileArtifactId || loaded.fileArtifactId === params.changing)
+		loaded.fileArtifactId &&
+		loaded.fileArtifactId === params.changing
 			? loaded.fileId
 			: null;
 	const store = async (

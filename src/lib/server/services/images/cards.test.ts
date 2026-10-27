@@ -459,6 +459,95 @@ describe("when a take becomes the version in use", () => {
 		).toBe(sofaItem);
 	});
 
+	it("keeps item A's current picture when an item made from A's unpicked take is deleted", async () => {
+		const { settleCard, useTake } = await import("./cards");
+		const { prepareTakeInputs } = await import("./inputs");
+		const { deleteLibraryArtifact } = await import(
+			"$lib/server/services/artifacts"
+		);
+		const { db } = await import("$lib/server/db");
+		const diskPath = (fileId: string) =>
+			join(workdir, "data", "image-files", conversationId, `${fileId}.png`);
+		const ownerOf = (fileId: string) =>
+			db
+				.select()
+				.from(schema.imageFiles)
+				.where(eq(schema.imageFiles.id, fileId))
+				.get()?.artifactId;
+
+		// Card 1 / item A: T1 is picked, T2 landed but was not.
+		const cardOne = await card();
+		const t1 = await landedTake(cardOne);
+		const itemA = (await settleCard(cardOne, { preferTakeId: t1.id }))
+			.artifactId;
+		const t2 = await landedTake(cardOne);
+		expect(itemA).toBeTruthy();
+		expect(ownerOf(t2.file.id)).toBeNull();
+
+		// Item B is made with the unowned T2 as its base, the way the tool prepares it.
+		const inputs = await prepareTakeInputs({
+			userId,
+			conversationId,
+			base: {
+				type: "image_file",
+				fileId: t2.file.id,
+				name: "Take two",
+				artifactId: null,
+				role: "attached",
+			},
+			references: [],
+			marked: null,
+			canvas: { width: 64, height: 64 },
+			changing: null,
+		});
+		expect(inputs.map((input) => input.fileId)).not.toContain(t2.file.id);
+		const cardTwo = await card("words", null, "Other");
+		await landedTake(cardTwo, {
+			request: request({
+				mode: "edit",
+				inputs,
+				canvas: { width: 64, height: 64 },
+			}),
+		});
+		const itemB = (await settleCard(cardTwo)).artifactId ?? "";
+		expect(itemB).not.toBe(itemA);
+
+		// The person picks T2 on card 1; B goes.
+		expect((await useTake({ userId, takeId: t2.id })).ok).toBe(true);
+		expect(ownerOf(t2.file.id)).toBe(itemA);
+		await deleteLibraryArtifact(userId, itemB);
+		expect(existsSync(diskPath(t2.file.id))).toBe(true);
+		expect(ownerOf(t2.file.id)).toBe(itemA);
+		expect((await bodyOf(itemA ?? "", 2))?.fileId).toBe(t2.file.id);
+	});
+
+	it("copies an unowned file for two cards prepared before either settles", async () => {
+		const { prepareTakeInputs } = await import("./inputs");
+		const shared = await storeFile("take");
+		const prepare = () =>
+			prepareTakeInputs({
+				userId,
+				conversationId,
+				base: null,
+				references: [
+					{
+						type: "image_file",
+						fileId: shared.id,
+						name: "Shared",
+						artifactId: null,
+						role: "attached",
+					},
+				],
+				marked: null,
+				canvas: { width: 64, height: 64 },
+				changing: null,
+			});
+		const [one, two] = [await prepare(), await prepare()];
+		const ids = [...one, ...two].map((input) => input.fileId);
+		expect(ids).not.toContain(shared.id);
+		expect(new Set(ids).size).toBe(2);
+	});
+
 	it("brings nothing back and leaves no file when the whole chat went", async () => {
 		const { settleCard } = await import("./cards");
 		const { db } = await import("$lib/server/db");

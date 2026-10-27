@@ -154,6 +154,9 @@ async function makeItem(seed = 123) {
 		versionSummary: VERSION_SUMMARY.alfyPicture,
 	});
 	if (!created.ok) throw new Error("item not made");
+	// A settled card attaches its pictures to the item; so does this stand-in.
+	const { attachImageFilesToArtifact } = await import("./files");
+	await attachImageFilesToArtifact([file.id], created.artifact.id);
 	return { artifactId: created.artifact.id, file };
 }
 
@@ -486,7 +489,9 @@ describe("what a call is made from", () => {
 		);
 		if (!result.ok) throw new Error("not resolved");
 		expect(result.plan.cardId).toBe(cardId);
-		expect(result.plan.request.inputs[0]?.fileId).toBe(landed.id);
+		// An unpicked take's picture is copied, never shared: its own card may still pick it.
+		expect(result.plan.request.inputs[0]?.fileId).not.toBe(landed.id);
+		expect(result.plan.request.inputs[0]?.role).toBe("base");
 		expect(result.plan.request.avoidSeeds).toEqual([777]);
 		expect(result.plan.request.anchor).toEqual({
 			fileId: item.file.id,

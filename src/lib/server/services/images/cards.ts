@@ -27,7 +27,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { imageCards, imageJobs } from "$lib/server/db/schema";
+import { imageCards, imageFiles, imageJobs } from "$lib/server/db/schema";
 import {
 	createArtifact,
 	deleteLibraryArtifact,
@@ -256,6 +256,19 @@ const NOTHING = {
 	versionNumber: null,
 } as const;
 
+/** A picture file some other Image item owns (its current or an earlier picture) must outlive this card's cleanup. */
+async function ownedByAnotherItem(
+	fileId: string,
+	itemId: string | null,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ artifactId: imageFiles.artifactId })
+		.from(imageFiles)
+		.where(eq(imageFiles.id, fileId))
+		.limit(1);
+	return Boolean(row?.artifactId && row.artifactId !== itemId);
+}
+
 /** The card has no item to show them on: every landed picture of it goes, file and row. */
 async function discardLandedTakes(card: CardRow): Promise<void> {
 	const rows = await db
@@ -270,6 +283,7 @@ async function discardLandedTakes(card: CardRow): Promise<void> {
 		);
 	for (const { fileId } of rows) {
 		if (!fileId) continue;
+		if (await ownedByAnotherItem(fileId, card.artifactId)) continue;
 		await discardStoredImageFile({
 			id: fileId,
 			conversationId: card.conversationId,
@@ -280,6 +294,7 @@ async function discardLandedTakes(card: CardRow): Promise<void> {
 /** The item is gone: the card keeps no item and no pick, and the take's picture, which nothing will show, goes. */
 async function itemGone(card: CardRow, ready: ReadyTake): Promise<void> {
 	await touchCard(card.id, { artifactId: null, pickedTakeId: null });
+	if (await ownedByAnotherItem(ready.file.id, card.artifactId)) return;
 	await discardStoredImageFile(ready.file).catch(() => undefined);
 }
 

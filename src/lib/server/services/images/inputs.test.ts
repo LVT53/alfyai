@@ -92,6 +92,27 @@ function fileSource(fileId: string, name = "A picture"): TurnPictureSource {
 	};
 }
 
+async function ownedBy(fileId: string, itemId: string) {
+	const { db } = await import("$lib/server/db");
+	const schema = await import("$lib/server/db/schema");
+	const { eq } = await import("drizzle-orm");
+	db.insert(schema.artifacts)
+		.values({
+			id: itemId,
+			userId,
+			conversationId,
+			type: "artifact",
+			name: "Item",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.run();
+	db.update(schema.imageFiles)
+		.set({ artifactId: itemId })
+		.where(eq(schema.imageFiles.id, fileId))
+		.run();
+}
+
 async function bytesOf(fileId: string): Promise<Uint8Array> {
 	const { getImageFile, readImageFileBytes } = await import("./files");
 	const file = await getImageFile({ userId, fileId, conversationId });
@@ -140,7 +161,25 @@ describe("the base", () => {
 		expect(meta).toMatchObject({ format: "png", width: 1184, height: 896 });
 	});
 
-	it("reuses a stored picture that is already the canvas size", async () => {
+	it("reuses the item's own picture that is already the canvas size, for its in-place change", async () => {
+		const file = await storeFile(1248, 832);
+		await ownedBy(file.id, "item-own");
+		const { prepareTakeInputs } = await import("./inputs");
+		const inputs = await prepareTakeInputs({
+			userId,
+			conversationId,
+			base: fileSource(file.id),
+			references: [],
+			marked: null,
+			canvas: { width: 1248, height: 832 },
+			changing: "item-own",
+		});
+		expect(inputs).toEqual([
+			{ fileId: file.id, role: "base", name: "A picture" },
+		]);
+	});
+
+	it("copies a picture nobody owns yet, since its own card may still pick it", async () => {
 		const file = await storeFile(1248, 832);
 		const { prepareTakeInputs } = await import("./inputs");
 		const inputs = await prepareTakeInputs({
@@ -150,10 +189,9 @@ describe("the base", () => {
 			references: [],
 			marked: null,
 			canvas: { width: 1248, height: 832 },
+			changing: null,
 		});
-		expect(inputs).toEqual([
-			{ fileId: file.id, role: "base", name: "A picture" },
-		]);
+		expect(inputs[0]?.fileId).not.toBe(file.id);
 	});
 
 	it("copies a picture that belongs to another item, and reuses the one of the item being changed", async () => {
@@ -240,6 +278,7 @@ describe("a reference", () => {
 
 	it("is not enlarged when it is already smaller", async () => {
 		const small = await storeFile(600, 400);
+		await ownedBy(small.id, "item-small");
 		const { prepareTakeInputs } = await import("./inputs");
 		const inputs = await prepareTakeInputs({
 			userId,
@@ -248,6 +287,7 @@ describe("a reference", () => {
 			references: [fileSource(small.id)],
 			marked: null,
 			canvas: { width: 1248, height: 832 },
+			changing: "item-small",
 		});
 		expect(inputs[0]?.fileId).toBe(small.id);
 	});
