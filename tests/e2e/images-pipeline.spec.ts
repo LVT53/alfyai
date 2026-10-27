@@ -156,17 +156,27 @@ test.describe("Making a picture from words", () => {
 			{ timeout: 45_000 },
 		);
 
-		// The card has one succeeded take, and it is the pick.
+		// The card has one succeeded take, it is the pick, and the chat's artifact
+		// list has the Image: the take landing, the pick and the item are three
+		// writes, so the wait is on all of them, not on the take alone.
 		await expect
 			.poll(
 				async () => {
-					const card = (await readDetail(page, conversationId as string))
-						.imageCards[0];
-					return card?.takes.map((take) => take.status).join(",") ?? "";
+					const read = await readDetail(page, conversationId as string);
+					const card = read.imageCards[0];
+					const settled =
+						card?.takes.length === 1 &&
+						card.takes[0]?.status === "succeeded" &&
+						card.pickedTakeId === card.takes[0]?.id &&
+						read.artifacts.some((entry) => entry.kind === "image");
+					return settled ? "settled" : JSON.stringify(card ?? null);
 				},
-				{ message: "the card holds one succeeded take", timeout: 30_000 },
+				{
+					message: "the card holds one succeeded take, picked, with its Image",
+					timeout: 30_000,
+				},
 			)
-			.toBe("succeeded");
+			.toBe("settled");
 		const detail = await readDetail(page, conversationId as string);
 		expect(detail.imageCards).toHaveLength(1);
 		const [take] = detail.imageCards[0].takes;

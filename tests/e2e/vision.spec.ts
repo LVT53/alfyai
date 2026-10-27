@@ -494,14 +494,16 @@ test.describe("Alfy can see images", () => {
 			);
 
 			// The last user message of the model's request: the person's text,
-			// then the picture as an image part holding a data URL.
+			// the picture's label, then the picture as an image part holding a data URL.
 			const parts = partsOf(userMessagesOf(turnRequest(firstMessage)).at(-1));
 			expect(
 				parts.map((part) => part.type),
-				"the person's message goes to the model as text plus one picture",
-			).toEqual(["text", "image_url"]);
+				"the person's message goes to the model as text, a picture label and one picture",
+			).toEqual(["text", "text", "image_url"]);
 			expect(parts[0]?.text).toContain(firstMessage);
-			dataUrl = parts[1]?.image_url?.url ?? "";
+			// The label the model can hand to make_image, right before its picture.
+			expect(parts[1]?.text).toBe(`Picture 1: ${picture.name}`);
+			dataUrl = parts[2]?.image_url?.url ?? "";
 			expect(dataUrl).toMatch(/^data:image\/jpeg;base64,/);
 
 			// It is this picture, prepared: a JPEG of the PNG's size and colour.
