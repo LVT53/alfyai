@@ -10,6 +10,7 @@ import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reas
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
+import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
 import {
 	isConversationIncognito,
@@ -174,6 +175,12 @@ export type NormalChatSendModelBaseParams = {
 	// picture (see chat-turn/request.ts).
 	pictureRefs?: PictureRef[];
 	imageMarks?: ImageMarksRequest | null;
+	/**
+	 * What this turn has made with `make_image`, shared by every model run of the
+	 * turn (the stream and its non-stream rerun), so a rerun finds the cards and
+	 * takes already made instead of making the picture again.
+	 */
+	turnTakes?: TurnTakes;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	// An explicit `$` composer selection's full instructions, resolved during
@@ -498,6 +505,7 @@ export async function createToolPack(
 		modelId,
 		stepImages,
 		turnPictures,
+		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit

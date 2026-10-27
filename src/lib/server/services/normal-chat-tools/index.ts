@@ -48,7 +48,7 @@ import {
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
 import type { TurnPictureIndex } from "../images/turn-pictures";
-import { createTurnTakes } from "../images/turn-takes";
+import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
 import {
 	advertisedArtifactKinds,
@@ -284,6 +284,9 @@ export interface CreateNormalChatToolsContext {
 	// authority a picture-making tool resolves "Picture 2" against. Server-owned,
 	// never a model input.
 	turnPictures?: TurnPictureIndex;
+	// What the turn has made with make_image, when a caller runs the turn more than
+	// once (a stream and its non-stream rerun) and wants the reruns to share it.
+	turnTakes?: TurnTakes;
 	// Called about once a second while a tool waits on slow work (make_image),
 	// so the stream's idle watchdog counts the wait as activity.
 	onToolActivity?: () => void;
@@ -690,7 +693,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// server; without one the tool is not offered at all.
 	const includeMakeImageTool = isImageMakingConfigured(registrationConfig);
 	// What this turn has made with it: its cards, takes and call count.
-	const turnTakes = createTurnTakes();
+	const turnTakes = ctx.turnTakes ?? createTurnTakes();
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);

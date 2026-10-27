@@ -1597,6 +1597,40 @@ describe("the tool in the set", () => {
 		expect(await toolNames()).toContain("make_image");
 	});
 
+	it("two tool packs of one turn (a stream and its rerun) share the turn's cards instead of making the picture twice", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { createNormalChatTools } = await import("./index");
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const callOn = async (id: string) => {
+			const pack = createNormalChatTools({
+				userId,
+				conversationId,
+				turnId: `turn-${id}`,
+				turnTakes,
+			});
+			const tool = pack.tools.make_image as unknown as {
+				execute: (input: unknown, options: unknown) => Promise<unknown>;
+			};
+			return tool.execute(
+				{ prompt: "a red door" },
+				{
+					toolCallId: id,
+					messages: [],
+					abortSignal: new AbortController().signal,
+				},
+			);
+		};
+		await callOn("first");
+		await callOn("rerun");
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(1);
+		expect(takes).toHaveLength(2);
+	});
+
 	it("says it is not configured when called without a server", async () => {
 		useFakeComfyUi(null);
 		const { modelPayload } = await run({});

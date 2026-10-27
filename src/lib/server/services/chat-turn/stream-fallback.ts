@@ -5,6 +5,7 @@ import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -28,6 +29,8 @@ export interface NonStreamFallbackSendParams {
 	activeDocumentArtifactId: string | undefined;
 	pictureRefs?: PictureRef[];
 	imageMarks?: ImageMarksRequest | null;
+	/** The turn's make_image bookkeeping, so a rerun does not make the same picture a second time. */
+	turnTakes?: TurnTakes;
 	attachmentTraceId: string | undefined;
 	thinkingMode: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -62,6 +65,7 @@ export interface NonStreamFallbackDeps {
 		activeDocumentArtifactId?: string;
 		pictureRefs?: PictureRef[];
 		imageMarks?: ImageMarksRequest | null;
+		turnTakes?: TurnTakes;
 		attachmentTraceId?: string;
 		systemPromptAppendix?: string;
 		pendingSkillInstructions?: string;
@@ -224,6 +228,7 @@ function buildFallbackAttemptParams(
 		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
 		pictureRefs: sendParams.pictureRefs,
 		imageMarks: sendParams.imageMarks,
+		turnTakes: sendParams.turnTakes,
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
 		pendingSkillInstructions: context.pendingSkillInstructions,

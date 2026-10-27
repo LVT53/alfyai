@@ -69,6 +69,7 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
+import { createTurnTakes } from "$lib/server/services/images/turn-takes";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -324,6 +325,8 @@ export function runChatStreamOrchestrator(
 	const safeAttachmentIds = turn.attachmentIds;
 	const activeDocumentArtifactId = turn.activeDocumentArtifactId;
 	const attachmentTraceId = turn.attachmentTraceId;
+	// What this turn has made with make_image, shared by the stream and its rerun.
+	const turnTakes = createTurnTakes();
 	const personalityProfileId = turn.personalityProfileId;
 	const thinkingMode = turn.thinkingMode;
 	const skillControlEnabled = getConfig().composerCommandRegistryEnabled;
@@ -1050,6 +1053,7 @@ export function runChatStreamOrchestrator(
 						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
 						pictureRefs: turn.pictureRefs,
 						imageMarks: turn.imageMarks,
+						turnTakes,
 						attachmentTraceId: attachmentTraceId ?? undefined,
 						thinkingMode,
 						depthMetadata: latestDepthMetadata,
@@ -1189,6 +1193,7 @@ export function runChatStreamOrchestrator(
 					activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
 					pictureRefs: turn.pictureRefs,
 					imageMarks: turn.imageMarks,
+					turnTakes,
 					attachmentTraceId: attachmentTraceId ?? undefined,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					pendingSkillInstructions: currentPendingSkillInstructions(),
