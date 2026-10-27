@@ -244,6 +244,15 @@ function index(sources: TurnPictureSource[]): TurnPictureIndex {
 	};
 }
 
+async function bytesOfFile(fileId: string): Promise<Uint8Array> {
+	const { getImageFile, readImageFileBytes } = await import(
+		"$lib/server/services/images/files"
+	);
+	const file = await getImageFile({ userId, fileId, conversationId });
+	if (!file) throw new Error("no such picture file");
+	return readImageFileBytes(file, "full");
+}
+
 async function makeItem(seed = 123) {
 	const file = await storeFile();
 	const { createArtifact } = await import("$lib/server/services/artifacts");
@@ -274,6 +283,11 @@ async function makeItem(seed = 123) {
 		versionSummary: VERSION_SUMMARY.alfyPicture,
 	});
 	if (!created.ok) throw new Error("item not made");
+	// A settled card attaches its pictures to the item; so does this stand-in.
+	const { attachImageFilesToArtifact } = await import(
+		"$lib/server/services/images/files"
+	);
+	await attachImageFilesToArtifact([file.id], created.artifact.id);
 	return { artifactId: created.artifact.id, file };
 }
 
@@ -354,8 +368,11 @@ describe("naming pictures", () => {
 		);
 		expect(made.modelPayload).toMatchObject({ ok: true, status: "running" });
 		const { takes } = await rows();
-		expect(JSON.parse(takes[0]?.requestJson ?? "{}").inputs[0].fileId).toBe(
-			files[2]?.id,
+		// Picture 3's bytes, as the take's own copy (a picture is never shared as an input).
+		const baseId = JSON.parse(takes[0]?.requestJson ?? "{}").inputs[0].fileId;
+		expect(baseId).not.toBe(files[2]?.id);
+		expect(await bytesOfFile(baseId)).toEqual(
+			await bytesOfFile(files[2]?.id ?? ""),
 		);
 
 		for (const picture of ["9", document.artifact.id]) {
@@ -545,8 +562,12 @@ describe("changing a picture", () => {
 		expect(cards[0]?.artifactId).not.toBe(item.artifactId);
 		for (const take of takes) {
 			const request = JSON.parse(take.requestJson);
-			expect(request.inputs[0].fileId).toBe(item.file.id);
-			expect(request.anchor.fileId).toBe(item.file.id);
+			// A new item is not an in-place change: it gets its own copy of the base.
+			expect(request.inputs[0].fileId).not.toBe(item.file.id);
+			expect(await bytesOfFile(request.inputs[0].fileId)).toEqual(
+				await bytesOfFile(item.file.id),
+			);
+			expect(request.anchor.fileId).toBe(request.inputs[0].fileId);
 		}
 	});
 
