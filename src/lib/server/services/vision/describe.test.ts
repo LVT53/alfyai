@@ -170,9 +170,12 @@ describe("describeImage", () => {
 		expect(body.max_tokens).toBe(160);
 	});
 
-	it("asks for a short plain description in plain ASCII English", () => {
+	// A photo of a Hungarian sign must come back as an English sentence that
+	// quotes the sign's words as they are written, so history reads the same
+	// whatever language the picture holds.
+	it("asks for a short plain description in English, with visible text quoted as written, in plain ASCII", () => {
 		expect(IMAGE_DESCRIPTION_PROMPT).toBe(
-			"Describe this image for someone who cannot see it, in at most 60 words. Name the main subject, the setting and any visible text, and quote short text exactly. Use plain sentences.",
+			"Describe this image in English for someone who cannot see it, in at most 60 words. Name the main subject, the setting and any visible text, and quote short text exactly as written. Use plain sentences.",
 		);
 		expect(IMAGE_DESCRIPTION_PROMPT).toMatch(/^[\x20-\x7e]+$/);
 	});

@@ -26,10 +26,12 @@ import type { TurnImage } from "./turn-images";
 /**
  * What the model is asked about a picture. English whatever the person writes:
  * it is scaffolding the model reads, and the description it makes is for a
- * model to read in a later turn (ruling 79).
+ * model to read in a later turn (ruling 79). It asks for English as well, so a
+ * photo of a Hungarian sign is described in English sentences that quote the
+ * sign as it is written, and history reads the same whatever the picture holds.
  */
 export const IMAGE_DESCRIPTION_PROMPT =
-	"Describe this image for someone who cannot see it, in at most 60 words. Name the main subject, the setting and any visible text, and quote short text exactly. Use plain sentences.";
+	"Describe this image in English for someone who cannot see it, in at most 60 words. Name the main subject, the setting and any visible text, and quote short text exactly as written. Use plain sentences.";
 
 /** 60 words fit well inside it; the cap stops a model that rambles. */
 const IMAGE_DESCRIPTION_MAX_TOKENS = 160;
