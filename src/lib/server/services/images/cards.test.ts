@@ -22,14 +22,11 @@ import {
 	vi,
 } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { warmModules } from "$lib/server/testing/warm-modules";
 import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import type { StoredTakeMeasures, TakeRequest } from "./take-request";
-import {
-	createImageFixture,
-	type ImageFixture,
-	warmModules,
-} from "./testing/fixture";
+import { createImageFixture, type ImageFixture } from "./testing/fixture";
 
 const userId = "user-1";
 const conversationId = "conv-1";

@@ -245,3 +245,51 @@ describe("ComfyUI client against the fake", () => {
 		expect(data[0]).toBe(255);
 	});
 });
+
+describe("ending the poll pause", () => {
+	const POLL_MS = 2000;
+
+	it("ends it when the socket reports completion, instead of sitting out the interval", async () => {
+		const quick = await createFakeComfyUi({ steps: 2, stepDelayMs: 30 });
+		try {
+			const client = createComfyUiClient({
+				baseUrl: quick.baseUrl,
+				pollMs: POLL_MS,
+			});
+			clients.push(client);
+			const { promptId } = await client.submit(graph);
+			const started = Date.now();
+			const { events } = follow(client, promptId, 10_000);
+			await waitFor(() => events.some((e) => e.type === "done"), 1500);
+			expect(Date.now() - started).toBeLessThan(POLL_MS / 2);
+		} finally {
+			await quick.close();
+		}
+	});
+
+	it("still finishes at the poll interval when there is no socket", async () => {
+		const quick = await createFakeComfyUi({ steps: 2, stepDelayMs: 10 });
+		try {
+			const NoSocket = class {
+				constructor() {
+					throw new Error("no sockets here");
+				}
+			} as unknown as typeof WebSocket;
+			const pollMs = 150;
+			const client = createComfyUiClient({
+				baseUrl: quick.baseUrl,
+				pollMs,
+				webSocketImpl: NoSocket,
+			});
+			clients.push(client);
+			const { promptId } = await client.submit(graph);
+			const started = Date.now();
+			const { events, result } = follow(client, promptId, 10_000);
+			await result;
+			expect(events.at(-1)?.type).toBe("done");
+			expect(Date.now() - started).toBeGreaterThanOrEqual(pollMs - 20);
+		} finally {
+			await quick.close();
+		}
+	});
+});

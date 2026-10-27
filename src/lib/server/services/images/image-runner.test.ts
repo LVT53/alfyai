@@ -20,6 +20,7 @@ import {
 	vi,
 } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { warmModules } from "$lib/server/testing/warm-modules";
 import { createComfyUiClient } from "./comfyui/client";
 import { buildPromptGraph, graphFor } from "./comfyui/templates";
 import {
@@ -28,11 +29,7 @@ import {
 } from "./comfyui/testing/fake-comfyui";
 import { decodeRaw } from "./guards/raw-image";
 import type { StoredTakeMeasures, TakeRequest } from "./take-request";
-import {
-	createImageFixture,
-	type ImageFixture,
-	warmModules,
-} from "./testing/fixture";
+import { createImageFixture, type ImageFixture } from "./testing/fixture";
 import { drainImageTakes, useFakeComfyUi } from "./testing/run-takes";
 
 const userId = "user-1";

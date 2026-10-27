@@ -320,6 +320,9 @@ export function createComfyUiClient(options: {
 			// socket, so the follower looks at the history at once instead of
 			// sitting out the rest of its poll interval.
 			let wakePoll: (() => void) | null = null;
+			// A wake that lands while the loop is reading the queue or history (no
+			// pause to end) is kept, so the next pause returns at once.
+			let woken = false;
 
 			const emitQueued = (ahead: number) => {
 				if (queuedAhead === ahead) return;
@@ -340,6 +343,7 @@ export function createComfyUiClient(options: {
 					message.type === "execution_interrupted" ||
 					(message.type === "executing" && message.data.node === null)
 				) {
+					woken = true;
 					wakePoll?.();
 				}
 				if (message.type === "execution_start") emitStarted();
@@ -364,7 +368,13 @@ export function createComfyUiClient(options: {
 			// The first poll goes before any socket message so "queued" leads.
 			const wait = (ms: number) =>
 				new Promise<void>((resolve, reject) => {
+					if (woken) {
+						woken = false;
+						resolve();
+						return;
+					}
 					const finish = () => {
+						woken = false;
 						clearTimeout(timer);
 						wakePoll = null;
 						signal.removeEventListener("abort", onAbort);

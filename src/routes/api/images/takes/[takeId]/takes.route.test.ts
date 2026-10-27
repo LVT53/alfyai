@@ -26,7 +26,6 @@ import {
 import {
 	createImageFixture,
 	type ImageFixture,
-	warmModules,
 } from "$lib/server/services/images/testing/fixture";
 import {
 	drainImageTakes,
@@ -36,6 +35,7 @@ import {
 	insertTake,
 	takeRequest,
 } from "$lib/server/services/images/testing/takes";
+import { warmModules } from "$lib/server/testing/warm-modules";
 
 let fixture: ImageFixture;
 let workdir: string;

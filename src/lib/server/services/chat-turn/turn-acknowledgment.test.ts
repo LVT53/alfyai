@@ -13,7 +13,7 @@ import {
 	vi,
 } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import { warmModules } from "$lib/server/services/images/testing/fixture";
+import { warmModules } from "$lib/server/testing/warm-modules";
 
 // Every turn-acknowledgment call funnels through this one control-model
 // entrypoint, exactly like the memory-control-model adapter's own test

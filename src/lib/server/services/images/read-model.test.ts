@@ -16,11 +16,8 @@ import {
 	it,
 	vi,
 } from "vitest";
-import {
-	createImageFixture,
-	type ImageFixture,
-	warmModules,
-} from "./testing/fixture";
+import { warmModules } from "$lib/server/testing/warm-modules";
+import { createImageFixture, type ImageFixture } from "./testing/fixture";
 import { insertTake, takeRequest } from "./testing/takes";
 
 let fixture: ImageFixture;
