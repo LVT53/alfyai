@@ -217,6 +217,39 @@ describe("ImageCardBody", () => {
 		expect(screen.queryByTestId("image-card-tile-placeholder")).toBeNull();
 	});
 
+	it("leaves no unhandled rejection when an action fails (the page's toast is the one signal)", async () => {
+		const unhandled: unknown[] = [];
+		const collect = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", collect);
+		try {
+			// A plain function: a vi.fn() mock attaches its own handler to what it
+			// returns (settledResults), which would hide the rejection.
+			let calls = 0;
+			const onAction = () => {
+				calls += 1;
+				return Promise.reject(new Error("refused"));
+			};
+			const first = take({ fileId: "file-1" });
+			const making = take({
+				status: "running",
+				phase: "rendering",
+				fileId: null,
+			});
+			render(ImageCardBody, {
+				card: card([first, making], { pickedTakeId: first.id }),
+				onAction,
+			});
+			await fireEvent.click(screen.getByTestId("image-card-picture"));
+			await fireEvent.click(screen.getAllByTestId("image-card-tile")[1]);
+			await fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(calls).toBe(2);
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", collect);
+		}
+	});
+
 	it("holds Download and History in its menu", async () => {
 		const ready = take({ fileId: "file-z" });
 		const onAction = vi.fn();

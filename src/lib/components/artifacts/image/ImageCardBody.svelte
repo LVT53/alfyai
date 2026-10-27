@@ -165,6 +165,15 @@ function send(action: ImageCardAction) {
 	return onAction?.(action);
 }
 
+/**
+ * An action the card does not wait on. The page has already said what went
+ * wrong (its toast); the rejection is caught here so it never reaches the
+ * window as an unhandled one.
+ */
+function fire(action: ImageCardAction): void {
+	void send(action)?.catch(() => undefined);
+}
+
 function chooseTake(id: string): void {
 	selectedTakeId = id;
 }
@@ -186,32 +195,32 @@ async function pressAnother(): Promise<void> {
 }
 
 function pressUse(): void {
-	if (shown && canUse) void send({ type: "use", takeId: shown.id });
+	if (shown && canUse) fire({ type: "use", takeId: shown.id });
 }
 
 function pressStop(): void {
-	if (shown) void send({ type: "stop", takeId: shown.id });
+	if (shown) fire({ type: "stop", takeId: shown.id });
 }
 
 function pressRetry(): void {
-	if (shown) void send({ type: "retry", takeId: shown.id });
+	if (shown) fire({ type: "retry", takeId: shown.id });
 }
 
 function pressOpen(): void {
-	if (card.artifactId) void send({ type: "open", artifactId: card.artifactId });
+	if (card.artifactId) fire({ type: "open", artifactId: card.artifactId });
 }
 
 function pressDownload(): void {
 	menuOpen = false;
 	if (shown?.fileId) {
-		void send({ type: "download", fileId: shown.fileId, title: card.title });
+		fire({ type: "download", fileId: shown.fileId, title: card.title });
 	}
 }
 
 function pressHistory(): void {
 	menuOpen = false;
 	if (card.artifactId) {
-		void send({ type: "history", artifactId: card.artifactId });
+		fire({ type: "history", artifactId: card.artifactId });
 	}
 }
 
