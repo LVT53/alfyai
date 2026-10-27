@@ -98,7 +98,7 @@ vi.mock("$lib/server/services/images/image-job", () => ({
 }));
 
 vi.mock("$lib/server/services/images/cards", () => ({
-	settleHeldCards: mockSettleHeldCards,
+	settleCardsAfterRestart: mockSettleHeldCards,
 }));
 
 vi.mock("$lib/server/services/jobs", () => ({
