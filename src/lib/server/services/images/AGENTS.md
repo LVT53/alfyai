@@ -16,3 +16,22 @@ Making and changing pictures: the ComfyUI client and its fake, graphs, pixel gua
 ## The fake (`comfyui/testing/fake-comfyui.ts`)
 
 A real loopback HTTP and WebSocket server for unit and Playwright tests. It imports Node built-ins and sharp only, so specs may import it by relative path. Options: `steps`, `stepDelayMs`, `startDelayMs`, `fail` (`reject` | `execution`), `render` (override per call or through `setOptions`); controls: `holdQueue`, `restart` (forgets prompts and history, keeps uploads). Tests that run the real client over the fake start with `// @vitest-environment node` (jsdom's `Event` and `FormData` do not mix with Node's WebSocket and fetch).
+
+## Takes on the job engine
+
+A take is one render of a card: a job of the `image` kind (`image-job.ts`, tables `image_jobs` and `image_job_attempts`; the card is `image_cards`). The engine owns every lifecycle transition; this folder writes only the take's own columns (`queue_ahead`, `progress_percent`, `eta_seconds`, `phase_at`, `result_file_id`, `measures_json`, `cancel_interrupt`…). `held_until` and `phase_at` are milliseconds; every `mode: "timestamp"` column is unix seconds.
+
+| File | Owns |
+|---|---|
+| `take-request.ts` | `TakeRequest` (what `request_json` holds), `parseTakeRequest` (null for anything unreadable), `StoredTakeMeasures`, `IMAGE_RENDER_DEADLINE_MS` (shared by the kind and the handler so neither imports the other) |
+| `image-job.ts` | the kind's definition (six at once install-wide, four per person, so prompts reach ComfyUI together and its queue orders them), `enqueueTake`, `cancelTake`, `retryTake`, `cancelImageTakesForUser` (quiesce, Clear Workspace), `cancelImageTakesForConversation` (chat delete, before any picture file is removed) |
+| `image-runner.ts` | the handler, loaded on the first claim: upload inputs, build the graph, submit, checkpoint the prompt id, follow, guard an edit, store the PNG, succeed |
+| `idle-free.ts` | `scheduleIdleFree` (one unref'd timer on `globalThis`, re-armed after every take, `IMAGE_IDLE_FREE_MS` 15 min measured in plan 2c) and `freeIfIdle(client)` |
+| `comfy-client.ts` | the only place a client is made from `getConfig().comfyuiUrl` |
+| `testing/` | `fixture.ts` (migrated database), `run-takes.ts` (`drainImageTakes`, a thin wrapper over the engine's `drain`) |
+
+- **No import cycle.** `image-job.ts` loads `image-runner.ts` dynamically; the runner never imports `image-job.ts` (the deadline lives in `take-request.ts`). Card code that imports `image-job.ts` (`card-actions.ts`, not `cards.ts`) must not be imported by the runner.
+- **Two Stops.** `cancelTake(userId, takeId, { interrupt })`: the card's Stop (`true`, the default) may interrupt our own running prompt; the composer's Stop (`false`) only deletes a prompt still waiting in ComfyUI's queue and leaves a started render alone (the call answers false and the take is not cancelled). The kind of Stop is written on the take (`cancel_interrupt`) before the engine cancels it, so the run that gets the abort, in this process or another, acts on the right one. Bulk cancels (erasure, chat delete) always interrupt.
+- **Failure codes.** unreachable `image_server_unreachable` (retryable), rejected graph or `GraphBuildError` `image_graph_rejected` (not), failed render `image_render_failed`, timeout `image_render_timeout`, missing result `image_result_missing` (all retryable), missing input file `image_input_missing` (not), no address `image_server_not_configured` (not), unreadable request `image_request_invalid` (not). Only `image_worker_lost` is requeued by the policy (three attempts, 2 s apart); everything else waits for the person's Retry.
+- **Resume.** A later attempt that finds `{ promptId }` in the checkpoint follows that prompt. If ComfyUI no longer knows it (it restarted), the take is submitted once more, once per run; a second miss fails `image_result_missing`.
+- **A stopped take stores nothing.** If `ctx.succeed` is refused after the picture was stored (stopped, chat deleted), the runner deletes the file it just made.

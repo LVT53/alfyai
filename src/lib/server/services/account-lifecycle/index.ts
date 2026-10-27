@@ -17,6 +17,7 @@ import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams
 import { cancelActiveDocumentExtractionForUser } from "../extraction";
 import { cancelActiveFileProductionForUser } from "../file-production";
 import { deleteImageFilesForUser } from "../images/files";
+import { cancelImageTakesForUser } from "../images/image-job";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -99,6 +100,8 @@ export async function clearMemoryAndKnowledgeForUser(
  */
 export async function purgeUserData(userId: string): Promise<void> {
 	await cancelActiveAtlasJobsForUser(userId);
+	// Clear Workspace does not quiesce first: stop the takes before their files go.
+	await cancelImageTakesForUser(userId);
 	await deleteAllChatFilesForUser(userId);
 	await deleteImageFilesForUser(userId);
 	await deleteAtlasJobsForUser(userId);
@@ -263,5 +266,8 @@ export async function quiesceUserWorkspace(userId: string): Promise<void> {
 	// that asked to be forgotten.
 	await cancelActiveFileProductionForUser(userId);
 	await cancelActiveDocumentExtractionForUser(userId);
+	// A take being rendered when erasure started stops at once and stores no
+	// picture into an account that asked to be forgotten.
+	await cancelImageTakesForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
 }

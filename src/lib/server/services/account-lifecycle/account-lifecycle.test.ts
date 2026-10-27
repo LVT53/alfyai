@@ -599,6 +599,31 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.imageCards)
+		.values({
+			id: p("image-card"),
+			userId,
+			conversationId: p("conv"),
+			turnId: p("turn"),
+			title: "Cosy room",
+			madeFrom: "words",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.imageJobs)
+		.values({
+			id: p("image-take"),
+			userId,
+			cardId: p("image-card"),
+			conversationId: p("conv"),
+			origin: "turn",
+			requestJson: "{}",
+			seed: 7,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.fileProductionJobs)
 		.values({
 			id: p("file-job"),
@@ -834,7 +859,9 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"document_extraction_jobs",
 				"file_production_jobs",
 				"image_descriptions",
+				"image_cards",
 				"image_files",
+				"image_jobs",
 				"import_jobs",
 				"memory_consolidation_reports",
 				"memory_dirty_ledger",
@@ -1218,6 +1245,32 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(
 			attempts.find((row) => row.id === "keep-me-extraction-attempt")?.status,
 		).toBe("running");
+	});
+
+	// Picture takes (the image kind) are on the engine too: a take rendering when
+	// erasure started must stop, not store a picture into the account.
+	it("cancels the user's picture takes before deletion, sparing another user's", async () => {
+		seedEveryUserScopedTable("quiesce-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { sqlite } = openMigratedDb();
+		sqlite.prepare("UPDATE image_jobs SET status = 'queued'").run();
+		sqlite.close();
+
+		const { quiesceUserWorkspace } = await import("./index");
+		await quiesceUserWorkspace("quiesce-me");
+
+		const { db: appDb } = await import("$lib/server/db");
+		const jobs = await appDb
+			.select({
+				userId: schema.imageJobs.userId,
+				status: schema.imageJobs.status,
+			})
+			.from(schema.imageJobs);
+		expect(jobs.find((row) => row.userId === "quiesce-me")?.status).toBe(
+			"cancelled",
+		);
+		expect(jobs.find((row) => row.userId === "keep-me")?.status).toBe("queued");
 	});
 
 	// File production is on the job engine as well: the quiesce used to write the

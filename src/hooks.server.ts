@@ -27,6 +27,7 @@ import { startAuthSweep, stopAuthSweep } from "$lib/server/services/auth-sweep";
 import { settleInterruptedImports } from "$lib/server/services/chatgpt-import/import-row";
 import { extractionJob } from "$lib/server/services/extraction/extraction-job";
 import { fileProductionJob } from "$lib/server/services/file-production/production-job";
+import { imageJob } from "$lib/server/services/images/image-job";
 import { startJobs, stopJobs } from "$lib/server/services/jobs";
 import {
 	ensureMemoryConsolidationScheduler,
@@ -257,9 +258,12 @@ export const init: ServerInit = async () => {
 	// the process starting and it answering a health check. Extraction's status
 	// words were rewritten to the engine's by `ensureRuntimeConfigReady`
 	// (db/compat.ts), which is awaited above, before any kind starts.
-	startJobs([atlasResearchJob, extractionJob, fileProductionJob]).catch(
-		(error) => console.error("Failed to start the job engine:", error),
-	);
+	startJobs([
+		atlasResearchJob,
+		extractionJob,
+		fileProductionJob,
+		imageJob,
+	]).catch((error) => console.error("Failed to start the job engine:", error));
 
 	// The account tables' one sweep (R14): expired sessions and dead two-step
 	// rows, every five minutes, from a single unref'd timer. It lives here

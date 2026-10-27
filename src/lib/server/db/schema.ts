@@ -618,6 +618,98 @@ export const imageFiles = sqliteTable(
 );
 
 /**
+ * A card: one ask for pictures in one turn (design 5.1). It groups the takes
+ * that answer it; its timestamps are unix seconds like every table's.
+ * `picked_take_id` has no foreign key (the take points back at the card).
+ */
+export const imageCards = sqliteTable(
+	"image_cards",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		turnId: text("turn_id").notNull(),
+		artifactId: text("artifact_id").references(() => artifacts.id, {
+			onDelete: "set null",
+		}),
+		title: text("title").notNull(),
+		// words | photo | pictures | change
+		madeFrom: text("made_from").notNull(),
+		sourceCount: integer("source_count").notNull().default(0),
+		pickedTakeId: text("picked_take_id"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("image_cards_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * A take: one render of a card, a job of the image kind on the job engine
+ * (services/jobs). The engine's lifecycle columns come from `jobColumns`;
+ * everything below is the image kind's own. `held_until` and `phase_at` are
+ * milliseconds (a take's own clock for display); every `mode: "timestamp"`
+ * column is unix seconds.
+ */
+export const imageJobs = sqliteTable(
+	"image_jobs",
+	{
+		...jobColumns({ userId: () => users.id }),
+		cardId: text("card_id")
+			.notNull()
+			.references(() => imageCards.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		toolCallId: text("tool_call_id"),
+		// turn | retry | another
+		origin: text("origin").notNull(),
+		retryOf: text("retry_of"),
+		requestJson: text("request_json").notNull(),
+		seed: integer("seed").notNull(),
+		heldUntil: integer("held_until"),
+		hidden: integer("hidden").notNull().default(0),
+		phaseAt: integer("phase_at"),
+		queueAhead: integer("queue_ahead"),
+		progressPercent: integer("progress_percent"),
+		etaSeconds: integer("eta_seconds"),
+		resultFileId: text("result_file_id").references(() => imageFiles.id, {
+			onDelete: "set null",
+		}),
+		measuresJson: text("measures_json"),
+		retried: integer("retried").notNull().default(0),
+		versionNumber: integer("version_number"),
+		// 1 = a cancel may interrupt our own running prompt (the card's Stop);
+		// 0 = it may only delete a pending one (the composer's Stop).
+		cancelInterrupt: integer("cancel_interrupt").notNull().default(1),
+	},
+	(table) => [
+		liveClaimIndex("image_jobs_live_claim_idx", table),
+		index("image_jobs_card_created_idx").on(table.cardId, table.createdAt),
+	],
+);
+
+export const imageJobAttempts = sqliteTable(
+	"image_job_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => imageJobs.id }),
+	},
+	(table) => ({ ...jobAttemptIndexes("image_job_attempts", table) }),
+);
+
+/**
  * One saved state of an artifact-family row (Feature 2, ADR-0066): the whole
  * serialised artifact at that point, who made it, and a one-line summary.
  * `versionNumber` is the ordering authority — `createdAt` is second-resolution,
