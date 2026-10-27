@@ -6,6 +6,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { posterFileName } from "$lib/shared/artifacts/poster-file";
 import { saveSummaryFor } from "$lib/shared/artifacts/version-summaries";
 import {
@@ -249,6 +250,46 @@ describe("createArtifact", () => {
 			expect(result).toEqual({ ok: false, reason: "invalid_kind" });
 		}
 		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
+	});
+
+	it("creates an Image row, which the model-facing tools never advertise", async () => {
+		const stored = serializeImageVersionBody({
+			v: 1,
+			fileId: "file-1",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+			baseFileId: null,
+			sources: [],
+			marks: null,
+			prompt: "a cosy room",
+			takeId: null,
+			seed: 7,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		});
+		const result = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "image",
+			title: "Cosy living room",
+			body: stored,
+			author: "alfy",
+			versionSummary: "Alfy made the picture",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.artifact.kind).toBe("image");
+		expect(
+			kindForArtifactRow({
+				type: "artifact",
+				metadataJson: JSON.stringify(result.artifact.metadata),
+			}),
+		).toBe("image");
+		const { advertisedArtifactKinds } = await import(
+			"$lib/server/services/normal-chat-tools/artifact-tools/kind-registry"
+		);
+		expect(advertisedArtifactKinds()).not.toContain("image");
 	});
 
 	it("refuses a title that is empty after trimming, and writes nothing", async () => {

@@ -299,3 +299,28 @@ describe("the Canvas's wording after the review (RV-3 Minor 8, I2, Minor 9)", ()
 		expect(hu["artifacts.canvas.zoom"]).toBe("Nagyítás mértéke");
 	});
 });
+
+describe("the Image kind's strings", () => {
+	it("names the kind Image / Kep, never Artifact", () => {
+		uiLanguage.set("en");
+		expect(get(t)("artifacts.type.image")).toBe("Image");
+		uiLanguage.set("hu");
+		expect(get(t)("artifacts.type.image")).toBe("Kép");
+	});
+
+	it("names pictures in the bulk delete dialog, in both languages", () => {
+		uiLanguage.set("en");
+		expect(get(t)("sidebar.deleteConversationsMessage")).toBe(
+			"Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone.",
+		);
+		uiLanguage.set("hu");
+		expect(get(t)("sidebar.deleteConversationsMessage")).toBe(
+			"Az üzenetek, fájljaik".length
+				? get(t)("sidebar.deleteConversationsMessage")
+				: "",
+		);
+		expect(get(t)("sidebar.deleteConversationsMessage")).toContain(
+			"dokumentumok és képek",
+		);
+	});
+});

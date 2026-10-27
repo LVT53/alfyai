@@ -43,6 +43,7 @@ const knowledgeDict = {
 		"knowledge.documents.filter.canvas": "Canvas",
 		"knowledge.documents.filter.app": "Apps",
 		"knowledge.documents.filter.slides": "Slides",
+		"knowledge.documents.filter.image": "Images",
 		// Ruling 60: "Uploaded" became "Files" — the bucket is unchanged
 		// (uploads, produced files, Skill Notes), only the label reads better
 		// as the parent of the new second-tier file-type row below it.
@@ -56,6 +57,7 @@ const knowledgeDict = {
 		"knowledge.documents.filter.emptyReason.canvas": "No canvases yet",
 		"knowledge.documents.filter.emptyReason.app": "No apps yet",
 		"knowledge.documents.filter.emptyReason.slides": "No slides yet",
+		"knowledge.documents.filter.emptyReason.image": "No images yet",
 		"knowledge.documents.filter.emptyReason.uploaded": "No files yet",
 		// Step 14: renamed from "{count} uploaded" to match the mockup's own
 		// wording ("8 files") now that the chip itself reads "Files", plus
@@ -70,6 +72,8 @@ const knowledgeDict = {
 			"{count} {count, plural, one {app} other {apps}}",
 		"knowledge.documents.count.canvas": "{count} canvas",
 		"knowledge.documents.count.slides": "{count} slides",
+		"knowledge.documents.count.image":
+			"{count} {count, plural, one {image} other {images}}",
 		"knowledge.documents.totalLabel": "{count} items",
 		// Ruling 60: the Documents tab's second-tier row, live only under
 		// Files. Seven families over the shared file-type registry's category
@@ -578,6 +582,7 @@ const knowledgeDict = {
 		"knowledge.documents.filter.canvas": "Táblák",
 		"knowledge.documents.filter.app": "Alkalmazások",
 		"knowledge.documents.filter.slides": "Diasorok",
+		"knowledge.documents.filter.image": "Képek",
 		"knowledge.documents.filter.uploaded": "Fájlok",
 		"knowledge.documents.filter.optionA11y": "Szűrő: {label}, {count} elem",
 		"knowledge.documents.filter.emptyReason.all": "Még nincs elem",
@@ -585,6 +590,7 @@ const knowledgeDict = {
 		"knowledge.documents.filter.emptyReason.canvas": "Még nincs tábla",
 		"knowledge.documents.filter.emptyReason.app": "Még nincs alkalmazás",
 		"knowledge.documents.filter.emptyReason.slides": "Még nincs diasor",
+		"knowledge.documents.filter.emptyReason.image": "Még nincs kép",
 		"knowledge.documents.filter.emptyReason.uploaded": "Még nincs fájl",
 		// Hungarian nouns after a numeral do not take a plural suffix, so
 		// there is no ICU one/other split here (see the EN entries above).
@@ -593,6 +599,7 @@ const knowledgeDict = {
 		"knowledge.documents.count.app": "{count} alkalmazás",
 		"knowledge.documents.count.canvas": "{count} tábla",
 		"knowledge.documents.count.slides": "{count} diasor",
+		"knowledge.documents.count.image": "{count} kép",
 		"knowledge.documents.totalLabel": "{count} elem",
 		"knowledge.documents.fileFamily.groupLabel": "Fájltípus",
 		"knowledge.documents.fileFamily.all": "Minden fájl",

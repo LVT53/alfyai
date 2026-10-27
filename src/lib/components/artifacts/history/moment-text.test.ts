@@ -640,3 +640,31 @@ describe("statusLabel and the option's accessible name", () => {
 		);
 	});
 });
+
+describe("an Image's moments", () => {
+	const entry = (overrides: Parameters<typeof makeMoment>[0]) =>
+		momentEntry(makeMoment(overrides));
+
+	it("words the photo and the picked take in both languages", () => {
+		const photo = entry({ versionNumber: 1, kind: "user_photo" });
+		const take = entry({ versionNumber: 3, kind: "picked_take" });
+		expect(entryHeadline(photo, ctx("en"))).toBe("Your photo");
+		expect(entryHeadline(take, ctx("en"))).toBe("You picked another take");
+		expect(entryHeadline(photo, ctx("hu"))).toBe("A fot\u00f3d");
+		expect(entryHeadline(take, ctx("hu"))).toBe(
+			"M\u00e1sik v\u00e1ltozatot v\u00e1lasztott\u00e1l",
+		);
+	});
+
+	it("says how many pictures went into a version, and nothing for one", () => {
+		const from = (sourceCount: number) =>
+			entry({
+				versionNumber: 2,
+				detail: { type: "image", fileId: "f1", sourceCount },
+			});
+		expect(entryDetail(from(3), ctx("en"))).toBe("from 3 pictures");
+		expect(entryDetail(from(3), ctx("hu"))).toBe("3 k\u00e9pb\u0151l");
+		expect(entryDetail(from(1), ctx("en"))).toBeNull();
+		expect(entryDetail(from(0), ctx("en"))).toBeNull();
+	});
+});

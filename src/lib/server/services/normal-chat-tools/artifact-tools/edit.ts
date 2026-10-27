@@ -765,6 +765,24 @@ export async function runEditArtifactTool(params: {
 		};
 	}
 
+	if (record.kind === "image") {
+		const error = `Pictures are not edited as text. Change it with make_image (pictures: ["${record.id}"]).`;
+		const refusal: ArtifactRefusal = {
+			target: record.id,
+			reason: "unsupported_kind",
+		};
+		return {
+			modelPayload: { success: false, error, refused: [refusal] },
+			outputSummary: truncateText(error, 200),
+			metadata: {
+				ok: false,
+				artifactId: record.id,
+				artifactKind: "image",
+				artifactTitle: record.title,
+			},
+		};
+	}
+
 	const handler = EDIT_ARTIFACT_HANDLERS[record.kind];
 	if (!handler) {
 		const error = unsupportedKindMessage();

@@ -52,6 +52,10 @@ export const MOMENT_KINDS = [
 	"kept_from_chat",
 	/** The reader saved it as a new Document after the open one was deleted (v1). */
 	"saved_as_copy",
+	/** An Image's v1 from the reader's own photo. */
+	"user_photo",
+	/** The reader chose another take of a picture. */
+	"picked_take",
 	/** v1 after a delete: Alfy made it again under the same id. */
 	"made_again",
 	/** The reader's typing, board steps or other saves ("Edited"). */
@@ -153,6 +157,12 @@ export type MomentDetail =
 			type: "app";
 			linesAdded: number;
 			linesRemoved: number;
+	  }
+	| {
+			/** An Image version: the picture it holds and how many pictures went into it. */
+			type: "image";
+			fileId: string;
+			sourceCount: number;
 	  };
 
 /** A row folded into a moment: a real state, selectable and previewable on its own. */

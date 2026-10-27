@@ -131,6 +131,40 @@ describe("semantic-embedding-refresh", () => {
 		).toContain("Objective: Finish the proposal");
 	});
 
+	it("embeds an Image item by its title and prompt, never by its JSON body", async () => {
+		const { buildArtifactEmbeddingSourceText } = await import(
+			"./semantic-embedding-refresh"
+		);
+		const body = JSON.stringify({
+			v: 1,
+			fileId: "abc123",
+			width: 10,
+			height: 10,
+			hasAlpha: false,
+			baseFileId: null,
+			sources: [],
+			marks: null,
+			prompt: "lamplight on a sofa",
+			takeId: null,
+			seed: 1,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		});
+		const source = buildArtifactEmbeddingSourceText({
+			id: "image-1",
+			userId: "user-1",
+			name: "Cosy living room",
+			summary: null,
+			contentText: body,
+			metadata: { artifactType: "image", title: "Cosy living room" },
+		});
+
+		expect(source).toContain("Cosy living room");
+		expect(source).toContain("lamplight on a sofa");
+		expect(source).not.toContain("abc123");
+		expect(source).not.toContain("fileId");
+	});
+
 	it("keeps Qwen-sized artifact source text before clipping", async () => {
 		const { buildArtifactEmbeddingSourceText } = await import(
 			"./semantic-embedding-refresh"

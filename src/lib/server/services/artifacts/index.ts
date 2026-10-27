@@ -134,6 +134,8 @@ export type {
 	ArtifactVersionSummary,
 	CreatableArtifactKind,
 	CreateArtifactInput,
+	ImageCardPreview,
+	RowArtifactKind,
 } from "./types";
 export {
 	getVersionBody,

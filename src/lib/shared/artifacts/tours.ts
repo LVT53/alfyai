@@ -18,9 +18,12 @@ import type { ArtifactKind, ShippedArtifactKind } from "./kinds";
  * kind has shipped copy — a missing tour is loud, a silently-untoured kind is
  * not.
  *
+ * Image gets none either: the design (5.3) lists what pictures get, and a tour
+ * is not among them.
+ *
  * Having copy is not shipping: see `SHIPPED_ARTIFACT_TOUR_TYPES`.
  */
-export type ArtifactTourType = Exclude<ArtifactKind, "file">;
+export type ArtifactTourType = Exclude<ArtifactKind, "file" | "image">;
 
 /**
  * The kinds whose tour ships — the ONE list of tours (ruling 69: Slides is

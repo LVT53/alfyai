@@ -498,7 +498,8 @@ async function loadMatchingArtifactMetadataCandidateRows(
  * this one already returns full `KnowledgeDocumentItem`s — there is no
  * family to expand, so that second round trip is not needed here.
  *
- * An App's `content_text` is HTML markup, not prose: `<> 'app'` excludes it
+ * An App's `content_text` is HTML markup, and an Image's is JSON (file ids,
+ * the prompt, marks), not prose: `not in ('app', 'image')` excludes both
  * from the content/summary half of the match so a CSS class name or a tag
  * name can never surface an unrelated app (Review Focus #3). A name match
  * still finds an App by its title, same as every other kind.
@@ -519,7 +520,7 @@ async function loadMatchingArtifactFamilyCandidateRows(
 				sql`(
 					lower(${artifacts.name}) like ${likeQuery} escape '\\'
 					or (
-						json_extract(${artifacts.metadataJson}, '$.artifactType') <> 'app'
+						json_extract(${artifacts.metadataJson}, '$.artifactType') not in ('app', 'image')
 						and (
 							lower(${artifacts.contentText}) like ${likeQuery} escape '\\'
 							or lower(${artifacts.summary}) like ${likeQuery} escape '\\'
@@ -651,7 +652,7 @@ function scoreDocument(
 		// still a document by this point), and this loop re-scores it against
 		// every field independently, so without this guard the raw markup
 		// could still win the "best field" comparison (Review Focus #3).
-		if (document.kind === "app") continue;
+		if (document.kind === "app" || document.kind === "image") continue;
 		const textRow = textRows.get(artifactId);
 		const contentScore = termScore(textRow?.contentText, query, 10);
 		if (contentScore > best.score) {

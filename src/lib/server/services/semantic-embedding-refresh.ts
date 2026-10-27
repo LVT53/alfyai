@@ -6,6 +6,7 @@ import type { Artifact } from "$lib/server/services/knowledge/types";
 import { mapTaskState } from "$lib/server/services/task-state/mappers";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
+import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import {
 	listSemanticEmbeddingsBySubject,
 	needsSemanticEmbeddingRefresh,
@@ -40,7 +41,26 @@ type RefreshableSubject =
 type ArtifactEmbeddingSource = Pick<
 	Artifact,
 	"id" | "userId" | "name" | "summary" | "contentText"
->;
+> & {
+	/** Either form of the row's metadata: the stored JSON or the mapped object. */
+	metadataJson?: string | null;
+	metadata?: Record<string, unknown> | null;
+};
+
+function isImageItem(artifact: ArtifactEmbeddingSource): boolean {
+	if (artifact.metadata?.artifactType === "image") return true;
+	if (!artifact.metadataJson) return false;
+	try {
+		const parsed: unknown = JSON.parse(artifact.metadataJson);
+		return (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			(parsed as { artifactType?: unknown }).artifactType === "image"
+		);
+	} catch {
+		return false;
+	}
+}
 
 function getEmbeddingModelName(): string | null {
 	const modelName = normalizeWhitespace(getConfig().teiEmbedderModel ?? "");
@@ -61,10 +81,15 @@ function compactLines(lines: Array<string | null | undefined>): string {
 export function buildArtifactEmbeddingSourceText(
 	artifact: ArtifactEmbeddingSource,
 ): string | null {
+	// An Image item's content is JSON (file ids, marks, the prompt): it is
+	// embedded by its title and the latest prompt, never by the body.
+	const imageItem = isImageItem(artifact);
 	const source = compactLines([
 		artifact.name,
-		artifact.summary,
-		artifact.contentText,
+		imageItem ? null : artifact.summary,
+		imageItem
+			? parseImageVersionBody(artifact.contentText)?.prompt
+			: artifact.contentText,
 	]);
 	return source || null;
 }
@@ -282,6 +307,7 @@ export async function backfillSemanticEmbeddingsForUser(
 					name: row.name,
 					summary: row.summary,
 					contentText: row.contentText,
+					metadataJson: row.metadataJson,
 				}) ?? "",
 		})),
 	);

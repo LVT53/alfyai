@@ -43,6 +43,14 @@ export const VERSION_SUMMARY = {
 	keptFromChat: "Kept from a chat reply",
 	/** Regenerate made a deleted item again under its old id. */
 	alfyRemade: "Alfy made it again",
+	/** An Image's v1 when the reader's own photo is the first picture. */
+	userPhoto: "The user's photo",
+	/** The reader chose another take of a picture. */
+	pickedTake: "Picked another take",
+	/** An Image's v1 made by Alfy. */
+	alfyPicture: "Alfy made the picture",
+	/** A later picture version made by Alfy. */
+	alfyChangedPicture: "Alfy changed the picture",
 } as const;
 
 const MADE_APP_PREFIX = "Alfy made the app: ";
@@ -269,6 +277,12 @@ export function classifyVersionSummary(row: {
 		if (first && summary === VERSION_SUMMARY.savedAsCopy) {
 			return { ...base, kind: "saved_as_copy" };
 		}
+		if (summary === VERSION_SUMMARY.userPhoto) {
+			return { ...base, kind: "user_photo" };
+		}
+		if (summary === VERSION_SUMMARY.pickedTake) {
+			return { ...base, kind: "picked_take" };
+		}
 		const restored = parseRestoredVersion(summary);
 		if (restored !== null)
 			return { ...base, kind: "restore", version: restored };
@@ -353,7 +367,12 @@ export function classifyVersionSummary(row: {
 	return {
 		kind: "alfy_edit",
 		actor: "alfy",
-		text: words === "" || words === VERSION_SUMMARY.alfyEdit ? null : words,
+		text:
+			words === "" ||
+			words === VERSION_SUMMARY.alfyEdit ||
+			words === VERSION_SUMMARY.alfyChangedPicture
+				? null
+				: words,
 		version: null,
 	};
 }

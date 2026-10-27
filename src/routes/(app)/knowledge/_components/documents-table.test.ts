@@ -683,12 +683,13 @@ describe("DOCUMENT_TYPE_FILTER_ORDER", () => {
 	// Ruling 69 (Slides is shelved): the mockup's six chips lose one. Production
 	// shows no filter for a kind it cannot make; the day Slides ships it is one
 	// entry back, between Apps and Files.
-	it("is All · Documents · Canvas · Apps · Files while no Slides can exist", () => {
+	it("is All · Documents · Canvas · Apps · Images · Files while no Slides can exist", () => {
 		expect(DOCUMENT_TYPE_FILTER_ORDER).toEqual([
 			"all",
 			"document",
 			"canvas",
 			"app",
+			"image",
 			"uploaded",
 		]);
 	});

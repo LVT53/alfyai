@@ -22,6 +22,7 @@ const KIND_FILTERS = new Set<KnowledgeDocumentKindFilter>([
 	"canvas",
 	"app",
 	"slides",
+	"image",
 	"uploaded",
 ]);
 const FILE_FAMILY_FILTERS = new Set<FileFamily>(FILE_FAMILY_ORDER);

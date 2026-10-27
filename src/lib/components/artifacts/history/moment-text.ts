@@ -179,6 +179,10 @@ export function entryHeadline(
 			return t("artifacts.history.moment.savedAsCopy");
 		case "made_again":
 			return t("artifacts.history.moment.madeAgain");
+		case "user_photo":
+			return t("artifacts.history.moment.userPhoto");
+		case "picked_take":
+			return t("artifacts.history.moment.pickedTake");
 		case "user_edit":
 			return artifactKind === "canvas"
 				? t("artifacts.history.moment.youChangedBoard")
@@ -326,6 +330,13 @@ export function entryDetail(
 			}
 			return parts.length > 0 ? parts.join(", ") : null;
 		}
+		case "image":
+			// One picture in says nothing; several says how many went in.
+			return detail.sourceCount > 1
+				? t("artifacts.history.detail.fromPictures", {
+						count: detail.sourceCount,
+					})
+				: null;
 	}
 }
 

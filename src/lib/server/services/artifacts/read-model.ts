@@ -20,6 +20,7 @@ import {
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import { computeCanvasPendingReviewCounts } from "./canvas-review";
 import {
@@ -37,6 +38,7 @@ import type {
 	ArtifactCardSummary,
 	CanvasCardPreview,
 	DocumentCardPreview,
+	ImageCardPreview,
 } from "./types";
 
 /** T9 steps 4/7's bounded checklist: never more than this many task items travel with the card summary. */
@@ -88,6 +90,26 @@ function buildCanvasPreview(row: {
 	} catch {
 		return { blockCount: 0 };
 	}
+}
+
+/**
+ * `kind: "image"`: the newest version's picture, read off the stored body. The
+ * card gets the file and its shape, never the JSON, the prompt or the marks. A
+ * body that does not parse gives no preview (the card draws its empty state).
+ */
+function imagePreviewField(row: { contentText: string | null }): {
+	imagePreview?: ImageCardPreview;
+} {
+	const body = parseImageVersionBody(row.contentText);
+	if (!body) return {};
+	return {
+		imagePreview: {
+			fileId: body.fileId,
+			width: body.width,
+			height: body.height,
+			hasAlpha: body.hasAlpha,
+		},
+	};
 }
 
 /**
@@ -282,7 +304,9 @@ export async function listArtifactsForConversation(params: {
 									? { pendingReviewCount: pendingReviewCountById.get(row.id) }
 									: {}),
 							}
-						: {}),
+						: kind === "image"
+							? imagePreviewField(row)
+							: {}),
 		};
 	});
 }

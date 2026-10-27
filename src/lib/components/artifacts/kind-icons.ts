@@ -6,6 +6,7 @@
 import {
 	AppWindow,
 	FileText,
+	Image,
 	Presentation,
 	Shapes,
 	SquarePen,
@@ -19,4 +20,5 @@ export const ARTIFACT_KIND_ICONS: Record<ArtifactKind, Component> = {
 	app: AppWindow,
 	canvas: Shapes,
 	slides: Presentation,
+	image: Image,
 };

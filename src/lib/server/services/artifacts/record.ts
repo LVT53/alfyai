@@ -42,8 +42,8 @@ import type {
 	ArtifactMetadata,
 	ArtifactRecord,
 	ArtifactScopeOptions,
-	CreatableArtifactKind,
 	CreateArtifactInput,
+	RowArtifactKind,
 } from "./types";
 
 export type ArtifactRow = typeof artifacts.$inferSelect;
@@ -75,30 +75,31 @@ const KNOWN_KINDS: Record<ArtifactKind, true> = {
 	canvas: true,
 	slides: true,
 	file: true,
+	image: true,
 };
 
 function isArtifactKind(value: unknown): value is ArtifactKind {
 	return typeof value === "string" && Object.hasOwn(KNOWN_KINDS, value);
 }
 
-const CREATABLE_KINDS: Record<CreatableArtifactKind, true> = {
+const ROW_KINDS: Record<RowArtifactKind, true> = {
 	document: true,
 	app: true,
 	canvas: true,
 	slides: true,
+	image: true,
 };
 
 /**
- * The runtime half of `CreatableArtifactKind`. The type alone only protects a
+ * The runtime half of `RowArtifactKind` (an Image is a row of the family; the
+ * model-facing tools are kept off it by `CreatableArtifactKind`, not here). The type alone only protects a
  * caller that goes through TypeScript; slice 5's tools hand this a
  * model-supplied string, so "file" (a produced file stays `generated_output`
  * — ruling 18, never a second representation of the same row) and anything
  * else unrecognised must be refused here too.
  */
-function isCreatableArtifactKind(
-	value: unknown,
-): value is CreatableArtifactKind {
-	return typeof value === "string" && Object.hasOwn(CREATABLE_KINDS, value);
+function isRowArtifactKind(value: unknown): value is RowArtifactKind {
+	return typeof value === "string" && Object.hasOwn(ROW_KINDS, value);
 }
 
 /**
@@ -312,7 +313,7 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 	// kind or title never went through TypeScript (a model-supplied tool call,
 	// slice 5) gets refused without spending a conversation-ownership query on
 	// input that was never going to be written anyway.
-	if (!isCreatableArtifactKind(input.kind)) {
+	if (!isRowArtifactKind(input.kind)) {
 		return { ok: false, reason: "invalid_kind" };
 	}
 	const title = clampChars(input.title.trim(), ARTIFACT_TITLE_MAX_CHARS);

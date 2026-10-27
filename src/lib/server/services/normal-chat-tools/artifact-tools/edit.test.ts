@@ -258,6 +258,32 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		}
 	});
 
+	it("refuses a picture edit and points at make_image", async () => {
+		getArtifactMock.mockResolvedValue(
+			detail({ id: "img-1", kind: "image", title: "Cosy room" }),
+		);
+
+		const result = await runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "img-1",
+			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.error).toContain(
+				'make_image (pictures: ["img-1"])',
+			);
+			expect(result.modelPayload.refused).toEqual([
+				{ target: "img-1", reason: "unsupported_kind" },
+			]);
+		}
+		expect(result.metadata.ok).toBe(false);
+	});
+
 	it("refuses a File edit — files are produced, not edited", async () => {
 		getArtifactMock.mockResolvedValue(
 			detail({ kind: "file", title: "Trip.pdf" }),

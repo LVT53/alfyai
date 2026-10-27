@@ -320,6 +320,32 @@ describe("deleteConversationWithCleanup", () => {
 		).toEqual(["source-1"]);
 	});
 
+	it("deletes an Image item with its chat even when another chat links to it", async () => {
+		seedConversation();
+
+		mockListConversationOwnedArtifacts.mockResolvedValue([
+			{
+				id: "image-1",
+				type: "artifact",
+				metadata: { artifactType: "image", title: "Cosy room" },
+			},
+		]);
+		mockArtifactHasReferencesOutsideConversation.mockResolvedValue(true);
+
+		const { deleteConversationWithCleanup } = await import(
+			"./conversation-cleanup"
+		);
+
+		const result = await deleteConversationWithCleanup(
+			"user-1",
+			"conversation-1",
+		);
+
+		expect(result?.deletedArtifactIds).toEqual(["image-1"]);
+		expect(result?.preservedArtifactIds).toEqual([]);
+		expect(mockArtifactHasReferencesOutsideConversation).not.toHaveBeenCalled();
+	});
+
 	it("removes a normal chat's artifact-family row (with no outside references) and never even asks about another chat's", async () => {
 		seedConversation();
 

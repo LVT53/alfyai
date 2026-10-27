@@ -104,6 +104,17 @@ export interface AppVerificationSummary {
 	verdict: "clean" | "repaired" | "uncertain" | "unavailable";
 }
 
+/**
+ * `kind: "image"` only: what a picture's card needs to draw itself, read off
+ * the newest version's body (never the JSON, never the prompt).
+ */
+export interface ImageCardPreview {
+	fileId: string;
+	width: number;
+	height: number;
+	hasAlpha: boolean;
+}
+
 export interface ArtifactCardSummary {
 	id: string;
 	kind: ArtifactKind;
@@ -127,6 +138,8 @@ export interface ArtifactCardSummary {
 	appVerification?: AppVerificationSummary | null;
 	/** `kind: "canvas"` only. */
 	canvasPreview?: CanvasCardPreview;
+	/** `kind: "image"` only. */
+	imagePreview?: ImageCardPreview;
 	/**
 	 * `kind: "document"` or `"canvas"` (Wave 2.5 review, F1; ruling 63): the
 	 * PERSISTED review state — a Document's `computePendingReviewBlocks`, a
@@ -231,7 +244,14 @@ export interface ArtifactKvRow {
  * kind `file` (ruling 18), so creating one would be a second representation
  * of the same thing.
  */
-export type CreatableArtifactKind = Exclude<ArtifactKind, "file">;
+export type RowArtifactKind = Exclude<ArtifactKind, "file">;
+
+/**
+ * What the model-facing artifact tools make. An Image is a row of the family
+ * too (`RowArtifactKind`), but pictures are `make_image`'s: `create_artifact`
+ * and `edit_artifact` never take one.
+ */
+export type CreatableArtifactKind = Exclude<RowArtifactKind, "image">;
 
 export interface CreateArtifactInput {
 	userId: string;
@@ -242,7 +262,7 @@ export interface CreateArtifactInput {
 	 * one (every other caller). Refused as `id_taken` when a row already has it.
 	 */
 	id?: string;
-	kind: CreatableArtifactKind;
+	kind: RowArtifactKind;
 	title: string;
 	body?: string | null;
 	metadata?: Record<string, unknown>;

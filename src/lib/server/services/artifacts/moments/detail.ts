@@ -25,6 +25,10 @@ import type {
 	MomentDetail,
 	MomentDetailBucket,
 } from "$lib/shared/artifacts/history";
+import {
+	type ImageVersionBody,
+	parseImageVersionBody,
+} from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { diffLineCounts } from "./line-diff";
 
@@ -38,6 +42,7 @@ export type ParsedBody =
 	| { kind: "document"; blocks: DocumentBlock[] }
 	| { kind: "canvas"; board: CanvasBody }
 	| { kind: "app"; source: string }
+	| { kind: "image"; image: ImageVersionBody }
 	| { kind: "other" };
 
 export interface RowDetail {
@@ -74,6 +79,10 @@ export function parseBodyForDetail(
 			return { kind, board: readBoard(body) };
 		}
 		if (kind === "app") return { kind, source: body };
+		if (kind === "image") {
+			const image = parseImageVersionBody(body);
+			if (image) return { kind, image };
+		}
 	} catch {
 		// A body that does not parse says nothing rather than failing the history.
 	}
@@ -267,6 +276,18 @@ export function detailBetween(
 	}
 	if (after.kind === "app") {
 		return appDetail(before?.kind === "app" ? before : null, after);
+	}
+	if (after.kind === "image") {
+		// A picture is not compared pixel by pixel: the moment says which picture
+		// the version holds and how many pictures went into it.
+		return {
+			...NONE,
+			detail: {
+				type: "image",
+				fileId: after.image.fileId,
+				sourceCount: after.image.sources.length,
+			},
+		};
 	}
 	return NONE;
 }

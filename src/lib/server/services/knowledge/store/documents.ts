@@ -326,7 +326,8 @@ function parseArtifactFamilyKind(
 	return value === "document" ||
 		value === "app" ||
 		value === "canvas" ||
-		value === "slides"
+		value === "slides" ||
+		value === "image"
 		? value
 		: null;
 }
@@ -474,6 +475,7 @@ function tallyCountsByKind(
 		app: 0,
 		canvas: 0,
 		slides: 0,
+		image: 0,
 		uploaded: 0,
 	};
 	for (const item of items) {

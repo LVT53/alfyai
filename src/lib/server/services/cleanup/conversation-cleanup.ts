@@ -86,6 +86,16 @@ export async function deleteConversationWithCleanup(
 			continue;
 		}
 
+		// An Image item always goes with its chat: its pictures live under the
+		// chat's own folder, so another chat's link to it could not keep them.
+		if (
+			artifact.type === "artifact" &&
+			artifact.metadata?.artifactType === "image"
+		) {
+			deletedArtifactIds.push(artifact.id);
+			continue;
+		}
+
 		if (artifact.type === "normalized_document") {
 			const sourceArtifactId = await getSourceArtifactIdForNormalizedArtifact(
 				userId,

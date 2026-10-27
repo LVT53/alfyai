@@ -125,6 +125,7 @@ const ARTIFACT_KIND_ICONS: Partial<Record<ArtifactKind, Component>> = {
 	app: AppWindow,
 	canvas: LayoutDashboard,
 	slides: Presentation,
+	image: Image,
 };
 
 /** The top-row filter chip's own icon (redesign §6.2, Wave 2.5 review F2):
@@ -339,6 +340,7 @@ const SUMMARY_BUCKET_ORDER: readonly KnowledgeDocumentKindFilter[] = [
 	"document",
 	"canvas",
 	"app",
+	"image",
 	"slides",
 ];
 

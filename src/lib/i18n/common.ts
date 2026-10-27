@@ -231,7 +231,7 @@ const commonDict = {
 			"Are you sure you want to delete this conversation? This action cannot be undone.",
 		"sidebar.deleteConversationTitle": "Delete this conversation?",
 		"sidebar.deleteConversationsMessage":
-			"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
+			"Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone.",
 		"sidebar.deleteConversationsTitle":
 			"Delete {count} {count, plural, one {chat} other {chats}}?",
 		"sidebar.deleteProjectMessage":
@@ -565,7 +565,7 @@ const commonDict = {
 			"Biztosan törlöd ezt a beszélgetést? Ez a művelet nem vonható vissza.",
 		"sidebar.deleteConversationTitle": "Törlöd ezt a beszélgetést?",
 		"sidebar.deleteConversationsMessage":
-			"Az üzeneteik, fájljaik, jelentéseik és a bennük készült dokumentumok is törlődnek. Ez nem vonható vissza.",
+			"Az üzeneteik, fájljaik, jelentéseik, valamint a bennük készült dokumentumok és képek is törlődnek. Ez nem vonható vissza.",
 		"sidebar.deleteConversationsTitle": "Törölsz {count} beszélgetést?",
 		"sidebar.deleteProjectMessage":
 			"A projekt törlődik. A benne lévő beszélgetések rendezetlenek lesznek.",

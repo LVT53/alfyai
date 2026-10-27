@@ -40,6 +40,20 @@ describe("buildArtifactCatalogueBlock", () => {
 		expect(buildArtifactCatalogueBlock([])).toBeNull();
 	});
 
+	it("lists an Image item in the family's one line format, named Image", () => {
+		const block = buildArtifactCatalogueBlock([
+			entry({
+				artifactId: "img-1",
+				artifactType: "image",
+				title: "Cosy living room",
+				updatedAt: Date.now(),
+			}),
+		]);
+		expect(block).toContain(
+			'- img-1 \u00b7 Image \u00b7 "Cosy living room" (updated just now)',
+		);
+	});
+
 	it("lists at most ARTIFACT_CATALOGUE_MAX entries, newest first", () => {
 		const entries = Array.from({ length: ARTIFACT_CATALOGUE_MAX + 5 }, (_, i) =>
 			entry({ artifactId: `id-${i}`, title: `Item ${i}` }),
