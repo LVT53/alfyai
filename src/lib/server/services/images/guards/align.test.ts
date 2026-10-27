@@ -5,31 +5,39 @@ import { copyOf, fillBox, makeScene, warp } from "./test-scene";
 describe("estimateAlignment", () => {
 	const base = makeScene();
 
-	it("recovers a shift to within a pixel", () => {
-		const a = estimateAlignment(warp(base, 1, 12, -8), base);
+	it("recovers a shift to within a pixel", async () => {
+		const a = await estimateAlignment(warp(base, 1, 12, -8), base);
 		expect(Math.abs(a.dx - 12)).toBeLessThanOrEqual(1);
 		expect(Math.abs(a.dy + 8)).toBeLessThanOrEqual(1);
 		expect(Math.abs(a.scale - 1)).toBeLessThan(0.005);
 	});
 
-	it("recovers a scale of 1.03", () => {
-		const a = estimateAlignment(warp(base, 1.03, 0, 0), base);
+	it("recovers a scale of 1.03", async () => {
+		const a = await estimateAlignment(warp(base, 1.03, 0, 0), base);
 		expect(Math.abs(a.scale - 1.03)).toBeLessThanOrEqual(0.005);
 	});
 
-	it("still finds a shift when 30% of the area is recoloured", () => {
+	it("still finds a shift when 30% of the area is recoloured", async () => {
 		const moved = warp(base, 1, 6, 4);
 		const recoloured = copyOf(moved);
 		fillBox(recoloured, { x: 0, y: 0, w: 1248, h: 250 }, [10, 240, 240]);
-		const a = estimateAlignment(recoloured, base);
+		const a = await estimateAlignment(recoloured, base);
 		expect(Math.abs(a.dx - 6)).toBeLessThanOrEqual(1);
 		expect(Math.abs(a.dy - 4)).toBeLessThanOrEqual(1);
 	});
 
-	it("answers the identity for an empty picture", () => {
+	it("answers the identity for an empty picture", async () => {
 		const empty = { data: new Uint8Array(0), width: 0, height: 0 };
-		expect(estimateAlignment(empty, base)).toEqual({ dx: 0, dy: 0, scale: 1 });
-		expect(estimateAlignment(base, empty)).toEqual({ dx: 0, dy: 0, scale: 1 });
+		expect(await estimateAlignment(empty, base)).toEqual({
+			dx: 0,
+			dy: 0,
+			scale: 1,
+		});
+		expect(await estimateAlignment(base, empty)).toEqual({
+			dx: 0,
+			dy: 0,
+			scale: 1,
+		});
 	});
 });
 

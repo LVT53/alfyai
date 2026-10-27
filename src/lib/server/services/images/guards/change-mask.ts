@@ -17,7 +17,9 @@ function differencePlane(before: RawImage, after: RawImage): Plane {
 			Math.abs(a.data[o + 1] - b.data[o + 1]),
 			Math.abs(a.data[o + 2] - b.data[o + 2]),
 		);
-		data[i] = Math.max(Math.abs(a.data[o + 3] - b.data[o + 3]), colour * alpha);
+		// Edges that alignment exposed are transparent in `after`; that is not an edit.
+		const filled = Math.max(0, b.data[o + 3] - a.data[o + 3]);
+		data[i] = Math.max(filled, colour * alpha);
 	}
 	return { data, width, height };
 }

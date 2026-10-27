@@ -7,6 +7,7 @@ import {
 	RECTS,
 	SCENE_H,
 	SCENE_W,
+	warp,
 } from "./test-scene";
 
 const base = makeScene();
@@ -68,11 +69,17 @@ describe("guardEdit", () => {
 
 	it("reports nothing changed for a result that is the base with noise", async () => {
 		const result = copyOf(base);
-		for (let i = 0; i < result.data.length; i += 4)
-			result.data[i] = Math.min(
-				255,
-				result.data[i] + (i % 8 === 0 ? 3 : -3 + 3),
-			);
+		let seed = 12345;
+		for (let i = 0; i < result.data.length; i += 4) {
+			for (let c = 0; c < 3; c++) {
+				seed = (seed * 1664525 + 1013904223) >>> 0;
+				const noise = seed & 0x8000 ? 3 : -3;
+				result.data[i + c] = Math.min(
+					255,
+					Math.max(0, result.data[i + c] + noise),
+				);
+			}
+		}
 		const out = await guardEdit({
 			base,
 			anchor: null,
@@ -201,5 +208,39 @@ describe("guardEdit", () => {
 				marks: null,
 			}),
 		).rejects.toThrow();
+	});
+
+	it("leaves no transparent strip when the result was shifted, and measures only the box", async () => {
+		const box = RECTS[1].box;
+		const edited = copyOf(base);
+		fillBox(edited, box, [250, 20, 200]);
+		const result = warp(edited, 1, 12, -8);
+		const out = await guardEdit({
+			base,
+			anchor: null,
+			chainSinceAnchor: 0,
+			result,
+			marks: null,
+		});
+		let notOpaque = 0;
+		for (let i = 3; i < out.picture.data.length; i += 4)
+			if (out.picture.data[i] !== 255) notOpaque++;
+		expect(notOpaque).toBe(0);
+		const g = 0.04 * SCENE_H;
+		const boxShare = ((box.w + 2 * g) * (box.h + 2 * g)) / (SCENE_W * SCENE_H);
+		expect(out.measures.miss).toBeNull();
+		expect(out.measures.changedShare).toBeLessThan(boxShare * 1.5);
+	});
+
+	it("calls a shifted no-op nothing changed", async () => {
+		const result = warp(base, 1, 12, -8);
+		const out = await guardEdit({
+			base,
+			anchor: null,
+			chainSinceAnchor: 0,
+			result,
+			marks: null,
+		});
+		expect(out.measures.miss).toBe("nothing_changed");
 	});
 });

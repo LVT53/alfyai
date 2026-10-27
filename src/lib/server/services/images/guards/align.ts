@@ -106,15 +106,17 @@ function score(
 
 type Best = { scale: number; dx: number; dy: number; cost: number };
 
-function search(
+async function search(
 	base: Gradient,
 	result: Gradient,
 	scales: number[],
 	shifts: { dx: number[]; dy: number[] },
 	stride: number,
-): Best {
+): Promise<Best> {
 	let best: Best = { scale: 1, dx: 0, dy: 0, cost: Number.POSITIVE_INFINITY };
 	for (const scale of scales) {
+		// Let other work run between scales: the search is plain synchronous JS.
+		await yieldToEventLoop();
 		for (const dy of shifts.dy) {
 			for (const dx of shifts.dx) {
 				const cost = score(base, result, scale, dx, dy, stride);
@@ -125,6 +127,10 @@ function search(
 	return best;
 }
 
+function yieldToEventLoop(): Promise<void> {
+	return new Promise((resolve) => setImmediate(resolve));
+}
+
 function range(from: number, to: number, step: number): number[] {
 	const out: number[] = [];
 	const n = Math.round((to - from) / step);
@@ -132,8 +138,11 @@ function range(from: number, to: number, step: number): number[] {
 	return out;
 }
 
-/** Finds where the result sits against the base. Pure, synchronous; empty input is the identity. */
-export function estimateAlignment(result: RawImage, base: RawImage): Alignment {
+/** Finds where the result sits against the base. Yields to the event loop between scales; empty input is the identity. */
+export async function estimateAlignment(
+	result: RawImage,
+	base: RawImage,
+): Promise<Alignment> {
 	if (isEmptyImage(result) || isEmptyImage(base)) return { ...IDENTITY };
 	const coarseSize = workSize(base, GUARD.workWidth);
 	const fineSize = workSize(base, GUARD.workWidth * 2);
@@ -143,7 +152,7 @@ export function estimateAlignment(result: RawImage, base: RawImage): Alignment {
 	const baseCoarse = g(base, coarseSize);
 	const resultCoarse = g(result, coarseSize);
 	const reach = Math.max(1, Math.round(GUARD.maxShiftShare * coarseSize.width));
-	const coarse = search(
+	const coarse = await search(
 		baseCoarse,
 		resultCoarse,
 		range(GUARD.scaleMin, GUARD.scaleMax, GUARD.scaleStep),
@@ -157,7 +166,7 @@ export function estimateAlignment(result: RawImage, base: RawImage): Alignment {
 	const resultFine = g(result, fineSize);
 	const cx = coarse.dx * up;
 	const cy = coarse.dy * (fineSize.height / coarseSize.height);
-	const fine = search(
+	const fine = await search(
 		baseFine,
 		resultFine,
 		range(coarse.scale - 0.005, coarse.scale + 0.005, 0.0025),

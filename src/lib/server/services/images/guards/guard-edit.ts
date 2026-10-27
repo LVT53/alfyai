@@ -63,15 +63,19 @@ export function insideMarksShare(
 	return total > 0 ? within / total : null;
 }
 
-/** Where the picture underneath is fully transparent nothing is pasted; returns the new mean. */
+/**
+ * Nothing is pasted where the picture underneath is fully transparent, nor
+ * where the top is (an edge the alignment exposed); returns the new mean.
+ */
 function keepTransparent(
 	found: { mask: Float32Array; changedShare: number },
 	under: RawImage,
+	top: RawImage,
 ): { mask: Float32Array; changedShare: number } {
 	const { mask } = found;
 	let sum = 0;
 	for (let i = 0; i < mask.length; i++) {
-		if (under.data[i * 4 + 3] === 0) mask[i] = 0;
+		if (under.data[i * 4 + 3] === 0 || top.data[i * 4 + 3] === 0) mask[i] = 0;
 		sum += mask[i];
 	}
 	return { mask, changedShare: mask.length > 0 ? sum / mask.length : 0 };
@@ -96,13 +100,13 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	if (isEmptyImage(base))
 		throw new Error("guardEdit needs a base picture with pixels");
 
-	const alignment = estimateAlignment(result, base);
+	const alignment = await estimateAlignment(result, base);
 	const applied = isNegligible(alignment)
 		? { dx: 0, dy: 0, scale: 1 }
 		: alignment;
 	const aligned = await applyAlignment(result, base, applied);
 
-	const against = keepTransparent(changeMask(base, aligned), base);
+	const against = keepTransparent(changeMask(base, aligned), base, aligned);
 	const measures: GuardMeasures = {
 		...applied,
 		changedShare: against.changedShare,
@@ -129,7 +133,11 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		anchor !== null &&
 		sameSize(anchor, base);
 	if (reanchor) {
-		const mask = keepTransparent(changeMask(anchor, aligned), anchor).mask;
+		const mask = keepTransparent(
+			changeMask(anchor, aligned),
+			anchor,
+			aligned,
+		).mask;
 		return {
 			picture: compositeOnto(anchor, aligned, mask),
 			measures: { ...measures, reanchored: true },
