@@ -74,6 +74,8 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 		// helper reads them to describe the ones it sends.
 		prepareOutboundChatContext: async (...args: unknown[]) => ({
 			currentImages: [],
+			turnPictureImages: [],
+			turnPictures: { pictures: [], byNumber: () => null, metadata: null },
 			...(await mocks.prepareOutboundChatContext(...args)),
 		}),
 	};
@@ -538,6 +540,8 @@ describe("prepareOutboundContext picture descriptions", () => {
 	async function prepareTurnWith(
 		images: ReturnType<typeof picture>[],
 		schedule: () => unknown = () => undefined,
+		// Every picture sent: by default the uploads alone.
+		turnPictureImages: unknown[] = images,
 	) {
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.scheduleImageDescriptions.mockReset();
@@ -546,6 +550,7 @@ describe("prepareOutboundContext picture descriptions", () => {
 			inputValue: "prepared",
 			systemPrompt: "system",
 			currentImages: images,
+			turnPictureImages,
 			contextStatus: undefined,
 			taskState: null,
 			contextDebug: null,
@@ -587,6 +592,39 @@ describe("prepareOutboundContext picture descriptions", () => {
 		).toBeLessThan(mocks.scheduleImageDescriptions.mock.invocationCallOrder[0]);
 	});
 
+	it("describes the uploads and never a picture that is an image file (R15)", async () => {
+		const upload = picture("kitchen.jpg");
+		const openPicture = {
+			number: 2,
+			name: "Cosy living room (open in the panel)",
+			image: upload.image,
+		};
+
+		const { prepared, runtime } = await prepareTurnWith([upload], undefined, [
+			upload,
+			openPicture,
+		]);
+
+		expect(prepared.turnPictureImages).toHaveLength(2);
+		expect(mocks.scheduleImageDescriptions).toHaveBeenCalledWith({
+			userId: "user-1",
+			provider: runtime.provider,
+			images: [upload],
+		});
+	});
+
+	it("asks for no description for a turn whose only picture is the open one", async () => {
+		await prepareTurnWith([], undefined, [
+			{
+				number: 1,
+				name: "Cosy living room (open in the panel)",
+				image: picture("x.jpg").image,
+			},
+		]);
+
+		expect(mocks.scheduleImageDescriptions).not.toHaveBeenCalled();
+	});
+
 	it("asks for no description when the turn carries no picture", async () => {
 		await prepareTurnWith([]);
 
@@ -608,6 +646,7 @@ describe("estimateTurnPromptTokens", () => {
 			turnGuidance: "",
 			historyMessages: [],
 			currentImages: images,
+			turnPictureImages: images,
 			systemPrompt: "system",
 		}) as unknown as PreparedModelContext;
 	const picture = (estimatedTokens: number) => ({

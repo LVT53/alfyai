@@ -13,6 +13,7 @@ import { artifacts, imageFiles } from "$lib/server/db/schema";
 import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/ownership";
 import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 
 export type ImageFileRole = "input" | "take" | "marked";
 
@@ -290,6 +291,50 @@ export async function deleteImageFilesForUser(userId: string): Promise<number> {
 		await removeConversationDir(conversationId);
 	}
 	return count;
+}
+
+/**
+ * An Image item the person may read, as a plain select (this file must not
+ * import the artifacts facade): its title and the picture file its newest
+ * version points at. `null` for anything else: another kind, another person's
+ * item, an incognito chat's item outside that chat, an item with no readable
+ * body. The scope is `getImageFile`'s own.
+ */
+export async function getImageItem(params: {
+	userId: string;
+	artifactId: string;
+	conversationId: string;
+}): Promise<{
+	artifactId: string;
+	title: string;
+	fileId: string;
+} | null> {
+	const [row] = await db
+		.select({
+			id: artifacts.id,
+			userId: artifacts.userId,
+			conversationId: artifacts.conversationId,
+			name: artifacts.name,
+			metadataJson: artifacts.metadataJson,
+			contentText: artifacts.contentText,
+		})
+		.from(artifacts)
+		.where(eq(artifacts.id, params.artifactId))
+		.limit(1);
+	if (!row || row.userId !== params.userId || !row.conversationId) return null;
+	const metadata = parseJsonRecord(row.metadataJson);
+	if (metadata?.artifactType !== "image") return null;
+	const scope = await getArtifactOwnershipScope(params.userId, {
+		conversationId: params.conversationId,
+	});
+	if (!scope.conversationIds.has(row.conversationId)) return null;
+	const body = parseImageVersionBody(row.contentText);
+	if (!body) return null;
+	const title =
+		typeof metadata.title === "string" && metadata.title.trim()
+			? metadata.title
+			: row.name;
+	return { artifactId: row.id, title, fileId: body.fileId };
 }
 
 /** The name a download carries: the item's title when the file belongs to one, else `picture.png`. */

@@ -903,6 +903,31 @@ describe("completeStreamTurn", () => {
 		});
 	});
 
+	// The pictures a user message carried beside its uploads come from the same
+	// snapshot, and ride the USER message's metadata (the assistant's has no use
+	// for them).
+	it("persists the pictures the user message carried into that message's metadata", async () => {
+		const userPictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Rug" }],
+			open: null,
+			marks: null,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			preparedContext: { ...defaultParams.preparedContext, userPictures },
+		});
+
+		const userCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "user",
+		);
+		expect(userCall?.[5]).toEqual({ pictures: userPictures });
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[5]).not.toHaveProperty("pictures");
+	});
+
 	it("omits instructionsApplied from persisted metadata when no scope applied", async () => {
 		await completeStreamTurn(defaultParams);
 

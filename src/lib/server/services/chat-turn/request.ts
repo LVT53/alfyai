@@ -16,6 +16,11 @@ import {
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import {
+	type ImageMarksRequest,
+	type PictureRef,
+	parseImageMarks,
+} from "$lib/shared/artifacts/image-body";
 import type {
 	AtlasAction,
 	AtlasProfile,
@@ -38,6 +43,8 @@ type RequestBody = {
 	skipPersistUserMessage?: unknown;
 	isEditResend?: unknown;
 	attachmentIds?: unknown;
+	pictureRefs?: unknown;
+	imageMarks?: unknown;
 	linkedSources?: unknown;
 	pendingSkill?: unknown;
 	activeDocumentArtifactId?: unknown;
@@ -119,6 +126,10 @@ export async function parseChatTurnRequest(
 	}
 
 	const safeAttachmentIds = parseAttachmentIds(body.attachmentIds);
+	const pictureRefs = parsePictureRefs(body.pictureRefs);
+	if (!pictureRefs.ok) return pictureRefs;
+	const imageMarks = parseImageMarksRequest(body.imageMarks);
+	if (!imageMarks.ok) return imageMarks;
 	const atlasResult = parseAtlasTurnFields(body);
 	if (!atlasResult.ok) {
 		return atlasResult;
@@ -139,6 +150,8 @@ export async function parseChatTurnRequest(
 			modelDisplayName: modelResult.value.modelDisplayName,
 			providerDisplayName: modelResult.value.providerDisplayName,
 			attachmentIds: safeAttachmentIds,
+			pictureRefs: pictureRefs.value,
+			imageMarks: imageMarks.value,
 			linkedSources: parseLinkedSources(body.linkedSources),
 			pendingSkill: atlasFields.atlasMode
 				? null
@@ -361,6 +374,74 @@ function parseAttachmentIds(value: unknown): string[] {
 				(candidate): candidate is string => typeof candidate === "string",
 			)
 		: [];
+}
+
+/**
+ * The most picture refs one request may carry. An abuse guard that bounds the
+ * work of one request, not a product limit (a message carries any number of
+ * pictures; at most 8 are shown as pixels): the composer cannot produce a body
+ * above it, so a body above it is malformed.
+ */
+const MAX_PICTURE_REFS = 64;
+
+type ParsedField<T> =
+	| { ok: true; value: T }
+	| { ok: false; error: ChatTurnRequestError };
+
+function parsePictureRefs(value: unknown): ParsedField<PictureRef[]> {
+	if (value === undefined || value === null) return { ok: true, value: [] };
+	const invalid = {
+		ok: false as const,
+		error: {
+			status: 400,
+			error: "pictureRefs must be a short list of picture files and numbers",
+			code: "invalid_picture_refs",
+		},
+	};
+	if (!Array.isArray(value) || value.length > MAX_PICTURE_REFS) return invalid;
+	const refs: PictureRef[] = [];
+	for (const entry of value) {
+		if (typeof entry !== "object" || entry === null) return invalid;
+		const { imageFileId, number } = entry as Record<string, unknown>;
+		if (
+			typeof imageFileId !== "string" ||
+			imageFileId.trim().length === 0 ||
+			typeof number !== "number" ||
+			!Number.isInteger(number) ||
+			number < 1
+		) {
+			return invalid;
+		}
+		refs.push({ imageFileId: imageFileId.trim(), number });
+	}
+	return { ok: true, value: refs };
+}
+
+function parseImageMarksRequest(
+	value: unknown,
+): ParsedField<ImageMarksRequest | null> {
+	if (value === undefined || value === null) return { ok: true, value: null };
+	const invalid = {
+		ok: false as const,
+		error: {
+			status: 400,
+			error: "imageMarks must name a picture and its boxes",
+			code: "invalid_image_marks",
+		},
+	};
+	if (typeof value !== "object") return invalid;
+	const { imageFileId, marks } = value as Record<string, unknown>;
+	if (typeof imageFileId !== "string" || imageFileId.trim().length === 0) {
+		return invalid;
+	}
+	const parsed = parseImageMarks(marks);
+	if (!parsed) return invalid;
+	// No boxes is no marks.
+	if (parsed.length === 0) return { ok: true, value: null };
+	return {
+		ok: true,
+		value: { imageFileId: imageFileId.trim(), marks: parsed },
+	};
 }
 
 // Issue 7.2 — the composer's per-turn connection capability selection. Only

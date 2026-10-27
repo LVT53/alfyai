@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../config-store", () => ({
 	getConfig: mocks.getConfig,
+	// The picture server is off in these tests unless one sets an address.
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		(config.comfyuiUrl ?? "").trim() !== "",
+	getImageReferenceCap: () => 4,
 }));
 
 vi.mock("../prompts", async (importOriginal) => {
@@ -146,6 +150,40 @@ function pictureOf(
 			height: 48,
 			estimatedTokens,
 		},
+	};
+}
+
+/** A partial TurnImages with its picture lists derived from its uploads. */
+function derivedTurnImages(partial: Partial<TurnImages>): TurnImages {
+	const base = { ...noTurnImages(), ...partial };
+	return {
+		...base,
+		pictureImages:
+			partial.pictureImages ??
+			base.images.map(({ number, name, image }) => ({ number, name, image })),
+		pictures:
+			partial.pictures ??
+			base.images.map(({ number, name }) => ({ number, name })),
+	};
+}
+
+/** The turn's pictures as the context build reports them: uploads only. */
+function turnImagesOf(
+	images: NumberedTurnImage[],
+	rest: Partial<TurnImages> = {},
+): TurnImages {
+	return {
+		images,
+		pictureImages: images.map(({ number, name, image }) => ({
+			number,
+			name,
+			image,
+		})),
+		pictures: images.map(({ number, name }) => ({ number, name })),
+		heldBack: [],
+		notShown: [],
+		hasImageAttachments: true,
+		...rest,
 	};
 }
 
@@ -2317,15 +2355,10 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		it("counts the pictures of the current message, each by its own size", async () => {
-			const turnImages: TurnImages = {
-				images: [
-					pictureOf("wide.jpg", 11_000),
-					pictureOf("square.jpg", 12_000),
-				],
-				heldBack: [],
-				notShown: [],
-				hasImageAttachments: true,
-			};
+			const turnImages = turnImagesOf([
+				pictureOf("wide.jpg", 11_000),
+				pictureOf("square.jpg", 12_000),
+			]);
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("## Current User Message\nUse them.", {
 					turnImages,
@@ -2366,12 +2399,7 @@ describe("prepareOutboundChatContext", () => {
 		it("does not compress for pictures that fit", async () => {
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("## Current User Message\nUse them.", {
-					turnImages: {
-						images: [pictureOf("wide.jpg", 1_900)],
-						heldBack: [],
-						notShown: [],
-						hasImageAttachments: true,
-					},
+					turnImages: turnImagesOf([pictureOf("wide.jpg", 1_900)]),
 				}),
 			);
 
@@ -2795,7 +2823,7 @@ describe("prepareOutboundChatContext", () => {
 			createConstructedContextResult(
 				"## Current User Message\nWhat are these?",
 				{
-					turnImages: { ...noTurnImages(), ...turnImages },
+					turnImages: derivedTurnImages(turnImages),
 				},
 			);
 
@@ -3031,7 +3059,7 @@ describe("prepareOutboundChatContext", () => {
 			const squeeze = (turnImages: Partial<TurnImages>) => {
 				mocks.buildConstructedContext.mockResolvedValueOnce(
 					createConstructedContextResult(packet, {
-						turnImages: { ...noTurnImages(), ...turnImages },
+						turnImages: derivedTurnImages(turnImages),
 					}),
 				);
 				return prepareOutboundChatContext(

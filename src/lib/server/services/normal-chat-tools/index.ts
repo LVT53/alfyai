@@ -45,6 +45,7 @@ import {
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
 import {
 	advertisedArtifactKinds,
@@ -270,6 +271,10 @@ export interface CreateNormalChatToolsContext {
 	// is given (createToolPack makes one and returns it). Without one a look can
 	// still be described by a local model, but nothing is shown to the model.
 	stepImages?: StepImageQueue;
+	// The turn's numbered pictures (images/turn-pictures.ts): the one numbering
+	// authority a picture-making tool resolves "Picture 2" against. Server-owned,
+	// never a model input.
+	turnPictures?: TurnPictureIndex;
 	// Names of the routing regions currently ready (on-demand coverage), used
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.

@@ -22,6 +22,7 @@ import type { ChatGeneratedFile } from "$lib/server/services/file-production/typ
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { createMessage } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	buildBaselineDepthMetadata,
@@ -131,6 +132,9 @@ export type FinalizeChatTurnParams = {
 	reasoningDepth?: ReasoningDepth;
 	depthMetadata?: DepthMetadata;
 	attachmentIds: string[];
+	// What the user message keeps of the pictures beside its uploads (card
+	// pictures, the open picture, the marked copy): ids and names, never pixels.
+	userPictures?: UserPicturesMetadata;
 	activeDocumentArtifactId: string | null;
 	contextStatus: PersistAssistantTurnStateParams["contextStatus"];
 	initialTaskState: PersistAssistantTurnStateParams["initialTaskState"];
@@ -197,7 +201,16 @@ async function createTurnMessage(
 ): Promise<{ id: string } | undefined> {
 	const create =
 		params.role === "user"
-			? createMessageImpl(params.conversationId, params.role, params.content)
+			? params.metadata
+				? createMessageImpl(
+						params.conversationId,
+						params.role,
+						params.content,
+						undefined,
+						undefined,
+						params.metadata,
+					)
+				: createMessageImpl(params.conversationId, params.role, params.content)
 			: createMessageImpl(
 					params.conversationId,
 					params.role,
@@ -437,6 +450,9 @@ export async function finalizeChatTurn(
 					conversationId: params.conversationId,
 					role: "user",
 					content: params.userMessageContent,
+					...(params.userPictures
+						? { metadata: { pictures: params.userPictures } }
+						: {}),
 				},
 				mode,
 				createMessage,

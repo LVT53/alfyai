@@ -6,7 +6,7 @@ import type { Artifact } from "$lib/server/services/knowledge/types";
 import { getCategory } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 // A type only: sharp and the HEIC decoder load when a picture is prepared, not
-// when the chat turn's modules do (see prepareTurnImage).
+// when the chat turn's modules do (see prepareUpload).
 import type { PreparedImage } from "./prepare-image";
 
 // The pictures of the current message: which attachments are sent as pixels,
@@ -50,8 +50,21 @@ export type LabelledPicture = {
 
 /** What the current message's image attachments came to for this turn. */
 export type TurnImages = {
-	/** The prepared pictures to send: empty unless the model can see. */
+	/**
+	 * The prepared UPLOADED pictures: empty unless the model can see. This list
+	 * feeds `scheduleImageDescriptions` alone (a picture that is not an uploaded
+	 * artifact is never described, R15); the message is built from
+	 * `pictureImages`.
+	 */
 	images: NumberedTurnImage[];
+	/**
+	 * Every picture sent, uploads and image files together, labelled and in
+	 * number order: the one list `buildCurrentUserMessage` reads and the
+	 * `viewing_images` count counts. Empty unless the model can see.
+	 */
+	pictureImages: LabelledPicture[];
+	/** Every picture of the message, sent or not, in number order (named, not pixels). */
+	pictures: NumberedName[];
 	/** The pictures the per-turn limit left out. */
 	heldBack: NumberedName[];
 	/**
@@ -67,7 +80,14 @@ export type TurnImages = {
 };
 
 export function noTurnImages(): TurnImages {
-	return { images: [], heldBack: [], notShown: [], hasImageAttachments: false };
+	return {
+		images: [],
+		pictureImages: [],
+		pictures: [],
+		heldBack: [],
+		notShown: [],
+		hasImageAttachments: false,
+	};
 }
 
 /**
@@ -91,20 +111,16 @@ export function oneLineName(name: string, maxChars = 80): string {
 		: oneLine;
 }
 
-/** What stands right before a picture, and in the sentences about the ones not sent. */
-export function pictureLabel(number: number, name: string): string {
-	return `Picture ${number}: ${name}`;
-}
+/** A picture's name in a label: long enough for the app's own marks line (eight marks). */
+const LABEL_NAME_MAX_CHARS = 200;
 
-/** The pictures as labelled pictures, for `buildCurrentUserMessage`. */
-export function labelledPicturesOf(
-	images: readonly NumberedTurnImage[],
-): LabelledPicture[] {
-	return images.map(({ number, name, artifactId, image }) => ({
-		number,
-		name: oneLineName(name) || artifactId,
-		image,
-	}));
+/**
+ * What stands right before a picture, and in the sentences about the ones not
+ * sent. The name goes through `oneLineName` here, the one cleaning rule, so no
+ * caller can put a newline into a label; cleaning twice changes nothing.
+ */
+export function pictureLabel(number: number, name: string): string {
+	return `Picture ${number}: ${oneLineName(name, LABEL_NAME_MAX_CHARS)}`;
 }
 
 /** Said to a model that can see when the limit left some attached pictures out. */
@@ -112,7 +128,7 @@ export function heldBackImagesGuidance(
 	pictures: readonly NumberedName[],
 ): string {
 	return `Not sent as pictures because of the limit: ${pictures
-		.map(({ number, name }) => pictureLabel(number, oneLineName(name)))
+		.map(({ number, name }) => pictureLabel(number, name))
 		.join("; ")}.`;
 }
 
@@ -121,30 +137,57 @@ export function heldBackImagesGuidance(
  * a reason other than the limit, so it does not answer as if it had looked.
  */
 export function notShownImageGuidance(picture: NumberedName): string {
-	return `${pictureLabel(picture.number, oneLineName(picture.name))} was attached, but it could not be shown to you.`;
+	return `${pictureLabel(picture.number, picture.name)} was attached, but it could not be shown to you.`;
 }
 
 /**
- * The image lines of a turn's guidance: a model that cannot see is told so, one
+ * The image lines of a turn's guidance: a model that cannot see is told so and
+ * given the pictures by number (so it can still hand them to `make_image`), one
  * that can is told which pictures the limit left out and, one line each, which
- * it could not be shown. Nothing is added when every picture was sent or none
- * was attached.
+ * it could not be shown. Either is told what one `make_image` call takes when
+ * the message holds more pictures than that (`referenceCap`, null when picture
+ * making is off). Nothing is added when every picture was sent and none needs
+ * the cap's line.
  */
 export function buildTurnImageGuidance(params: {
 	canSee: boolean;
 	turnImages: TurnImages;
+	referenceCap?: number | null;
 }): string[] {
-	if (!params.canSee) {
-		return params.turnImages.hasImageAttachments
-			? [CANNOT_SEE_IMAGES_GUIDANCE]
+	const { turnImages, referenceCap } = params;
+	const capLine =
+		referenceCap != null && turnImages.pictures.length > referenceCap
+			? [makeImageCapGuidance(referenceCap)]
 			: [];
+	if (!params.canSee) {
+		if (!turnImages.hasImageAttachments) return [];
+		return [
+			CANNOT_SEE_IMAGES_GUIDANCE,
+			...(turnImages.pictures.length > 0
+				? [picturesInMessageGuidance(turnImages.pictures)]
+				: []),
+			...capLine,
+		];
 	}
 	return [
-		...(params.turnImages.heldBack.length > 0
-			? [heldBackImagesGuidance(params.turnImages.heldBack)]
+		...(turnImages.heldBack.length > 0
+			? [heldBackImagesGuidance(turnImages.heldBack)]
 			: []),
-		...params.turnImages.notShown.map(notShownImageGuidance),
+		...turnImages.notShown.map(notShownImageGuidance),
+		...capLine,
 	];
+}
+
+/** Said to a model that cannot see: the message's pictures by number. */
+function picturesInMessageGuidance(pictures: readonly NumberedName[]): string {
+	return `Pictures in this message: ${pictures
+		.map(({ number, name }) => pictureLabel(number, name))
+		.join("; ")}.`;
+}
+
+/** Said when the message holds more pictures than one `make_image` call takes. */
+function makeImageCapGuidance(cap: number): string {
+	return `make_image takes at most ${cap} pictures per call: pass the ones the picture needs.`;
 }
 
 /** An attachment in the image category, whether or not it can be decoded. */
@@ -156,10 +199,13 @@ function attachedImage(item: PromptAttachmentResolutionItem): Artifact | null {
 }
 
 /**
- * The image attachments, in the order they were attached, once each. Not
- * `promptReady`: a picture needs no extracted text to be looked at.
+ * The image attachments, in the order they were attached, once each (the same
+ * upload twice is one picture). Not `promptReady`: a picture needs no extracted
+ * text to be looked at.
  */
-function attachedImagesOf(items: PromptAttachmentResolutionItem[]): Artifact[] {
+export function attachedImagesOf(
+	items: PromptAttachmentResolutionItem[],
+): Artifact[] {
 	const seen = new Set<string>();
 	const found: Artifact[] = [];
 	for (const item of items) {
@@ -171,106 +217,225 @@ function attachedImagesOf(items: PromptAttachmentResolutionItem[]): Artifact[] {
 	return found;
 }
 
+/**
+ * A picture of the message that is not an uploaded attachment (a card picture,
+ * the open picture, the marked copy): its number comes from the turn's picture
+ * index and its pixels from `load` (a stored picture file).
+ */
+export type ExtraPicture = {
+	number: number;
+	/** A key for the log and the fallback name (never the picture). */
+	id: string;
+	/** The name the label carries; cleaned here. */
+	name: string;
+	load: () => Promise<PreparedImage>;
+};
+
+/** One picture the turn may send, from either source, before it is prepared. */
+type PictureEntry = {
+	number: number;
+	id: string;
+	name: string;
+	/** null: a type that cannot be decoded, named and never sent. */
+	read: (() => Promise<PreparedImage>) | null;
+	upload: boolean;
+};
+
+/**
+ * A name for a label or a sentence: cleaned, and never empty. An upload's file
+ * name is user data and is cut at 80; another picture's name is the app's own
+ * words (an open picture's title is cut where it is read) and may be longer.
+ */
+function nameOrId(name: string, id: string, maxChars = 80): string {
+	return oneLineName(name, maxChars) || id;
+}
+
+/** The longest name another picture carries: the marks line of eight marks. */
+const EXTRA_NAME_MAX_CHARS = LABEL_NAME_MAX_CHARS;
+
+async function prepareUpload(artifact: Artifact): Promise<PreparedImage> {
+	if (!artifact.storagePath) {
+		throw new Error("the attachment has no stored file");
+	}
+	const bytes = await readFile(join(process.cwd(), artifact.storagePath));
+	const { ATTACHMENT_MAX_LONG_EDGE, prepareImageForModel } = await import(
+		"./prepare-image"
+	);
+	return prepareImageForModel(bytes, artifact.mimeType, {
+		maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
+	});
+}
+
 /** A picture that cannot be read or decoded is left out and the turn goes on. */
-async function prepareTurnImage(artifact: Artifact): Promise<TurnImage | null> {
+async function prepareEntry(
+	entry: PictureEntry,
+): Promise<PreparedImage | null> {
 	try {
-		if (!artifact.storagePath) {
-			throw new Error("the attachment has no stored file");
-		}
-		const bytes = await readFile(join(process.cwd(), artifact.storagePath));
-		const { ATTACHMENT_MAX_LONG_EDGE, prepareImageForModel } = await import(
-			"./prepare-image"
-		);
-		const image = await prepareImageForModel(bytes, artifact.mimeType, {
-			maxLongEdge: ATTACHMENT_MAX_LONG_EDGE,
-		});
-		return { artifactId: artifact.id, name: artifact.name, image };
+		if (!entry.read) throw new Error("the picture cannot be decoded");
+		return await entry.read();
 	} catch (error) {
 		console.warn("[ATTACHMENTS] Image not sent as a picture", {
-			artifactId: artifact.id,
+			...(entry.upload ? { artifactId: entry.id } : { pictureId: entry.id }),
 			reason: error instanceof Error ? error.message : String(error),
 		});
 		return null;
 	}
 }
 
+/** The number an upload carries, from the index or, without one, from its place. */
+function uploadNumbers(
+	uploads: readonly Artifact[],
+	numberOf: ((artifactId: string) => number) | undefined,
+): (artifactId: string) => number {
+	if (numberOf) return numberOf;
+	const byPlace = new Map(
+		uploads.map((artifact, index) => [artifact.id, index + 1]),
+	);
+	return (artifactId) => {
+		const place = byPlace.get(artifactId);
+		if (place === undefined) {
+			throw new Error(`Attachment ${artifactId} has no picture number`);
+		}
+		return place;
+	};
+}
+
 /**
- * Prepares the pictures among a message's attachments, at most `maxImages` of
- * them and two at a time; the ones after the limit are named in `heldBack`. A
- * picture that cannot be read leaves its slot to the next one. The image
- * attachments that were not sent for any other reason (a format that cannot be
- * decoded, a file that would not read or prepare) are named in `notShown`, in
- * the order they were attached.
+ * Prepares the pictures of a message, at most `maxImages` of them and two at a
+ * time, in number order; the ones after the limit are named in `heldBack`. A
+ * picture that cannot be read leaves its slot to the next one. The pictures not
+ * sent for any other reason (a format that cannot be decoded, a file that would
+ * not read or prepare) are named in `notShown`.
+ *
+ * The numbers come from the caller: `numberOf` for the uploads (the turn's
+ * picture index, so a card picture attached at 1 makes the first upload
+ * `Picture 2`) and each extra picture's own. Without `numberOf` the uploads are
+ * numbered by their place among the image attachments, the uploads-only case.
  */
 export async function collectTurnImages(params: {
 	items: PromptAttachmentResolutionItem[];
 	maxImages: number;
+	numberOf?: (artifactId: string) => number;
+	extras?: readonly ExtraPicture[];
 }): Promise<{
 	images: NumberedTurnImage[];
+	pictureImages: LabelledPicture[];
+	pictures: NumberedName[];
 	heldBack: NumberedName[];
 	notShown: NumberedName[];
 }> {
 	const attached = attachedImagesOf(params.items);
-	// Numbered by place among the image attachments, seeable or not.
-	const numberOf = new Map(
-		attached.map((artifact, index) => [artifact.id, index + 1]),
-	);
-	const numbered = (artifact: Artifact): NumberedName => ({
-		number: numberOf.get(artifact.id) ?? 0,
-		name: artifact.name,
+	const numberOf = uploadNumbers(attached, params.numberOf);
+	const entries: PictureEntry[] = [
+		...attached.map(
+			(artifact): PictureEntry => ({
+				number: numberOf(artifact.id),
+				id: artifact.id,
+				name: artifact.name,
+				read: isSeeableImage(artifact.name, artifact.mimeType)
+					? () => prepareUpload(artifact)
+					: null,
+				upload: true,
+			}),
+		),
+		...(params.extras ?? []).map(
+			(extra): PictureEntry => ({
+				number: extra.number,
+				id: extra.id,
+				name: extra.name,
+				read: extra.load,
+				upload: false,
+			}),
+		),
+	].sort((a, b) => a.number - b.number);
+
+	const nameOf = (entry: PictureEntry) =>
+		nameOrId(entry.name, entry.id, entry.upload ? 80 : EXTRA_NAME_MAX_CHARS);
+	const named = (entry: PictureEntry): NumberedName => ({
+		number: entry.number,
+		name: nameOf(entry),
 	});
-	const candidates = attached.filter((artifact) =>
-		isSeeableImage(artifact.name, artifact.mimeType),
-	);
-	const images: NumberedTurnImage[] = [];
-	const unprepared = new Set<string>();
+	const candidates = entries.filter((entry) => entry.read !== null);
+	const shown: Array<{ entry: PictureEntry; image: PreparedImage }> = [];
+	const unprepared = new Set<PictureEntry>();
 	let next = 0;
-	while (next < candidates.length && images.length < params.maxImages) {
-		const room = params.maxImages - images.length;
+	while (next < candidates.length && shown.length < params.maxImages) {
+		const room = params.maxImages - shown.length;
 		const wave = candidates.slice(
 			next,
 			next + Math.min(PREPARE_CONCURRENCY, room),
 		);
 		next += wave.length;
-		const prepared = await Promise.all(wave.map(prepareTurnImage));
+		const prepared = await Promise.all(wave.map(prepareEntry));
 		prepared.forEach((image, index) => {
-			if (image) {
-				images.push({ ...image, number: numberOf.get(image.artifactId) ?? 0 });
-			} else unprepared.add(wave[index].id);
+			if (image) shown.push({ entry: wave[index], image });
+			else unprepared.add(wave[index]);
 		});
 	}
-	const candidateIds = new Set(candidates.map((artifact) => artifact.id));
+	const candidateSet = new Set(candidates);
 	return {
-		images,
-		heldBack: candidates.slice(next).map(numbered),
-		notShown: attached
-			.filter(
-				(artifact) =>
-					!candidateIds.has(artifact.id) || unprepared.has(artifact.id),
-			)
-			.map(numbered),
+		images: shown
+			.filter(({ entry }) => entry.upload)
+			.map(({ entry, image }) => ({
+				artifactId: entry.id,
+				name: entry.name,
+				image,
+				number: entry.number,
+			})),
+		pictureImages: shown.map(({ entry, image }) => ({
+			number: entry.number,
+			name: nameOf(entry),
+			image,
+		})),
+		pictures: entries.map(named),
+		heldBack: candidates.slice(next).map(named),
+		notShown: entries
+			.filter((entry) => !candidateSet.has(entry) || unprepared.has(entry))
+			.map(named),
 	};
 }
 
 /**
  * The turn's pictures: prepared when the model can see, and only reported
- * (nothing is read) when it cannot, so the turn can tell the model why.
+ * (nothing is read) when it cannot, so the turn can tell the model why. The
+ * message's other pictures (`extras`) and the numbers all of them carry come
+ * from the turn's picture index (`images/turn-pictures.ts`); without it the
+ * message's pictures are its image uploads.
  */
 export async function resolveTurnImages(params: {
 	items: PromptAttachmentResolutionItem[];
 	collect: boolean;
+	numberOf?: (artifactId: string) => number;
+	extras?: readonly ExtraPicture[];
 }): Promise<TurnImages> {
-	const hasImageAttachments = params.items.some(
-		(item) => attachedImage(item) !== null,
-	);
-	if (!params.collect || !hasImageAttachments) {
-		return { images: [], heldBack: [], notShown: [], hasImageAttachments };
+	const extras = params.extras ?? [];
+	const hasImageAttachments =
+		params.items.some((item) => attachedImage(item) !== null) ||
+		extras.length > 0;
+	if (!hasImageAttachments) return noTurnImages();
+	if (!params.collect) {
+		// Nothing is read for a model that cannot see; the pictures are only named.
+		const uploads = attachedImagesOf(params.items);
+		const numberOf = uploadNumbers(uploads, params.numberOf);
+		const pictures = [
+			...uploads.map((artifact) => ({
+				number: numberOf(artifact.id),
+				name: nameOrId(artifact.name, artifact.id),
+			})),
+			...extras.map((extra) => ({
+				number: extra.number,
+				name: nameOrId(extra.name, extra.id, EXTRA_NAME_MAX_CHARS),
+			})),
+		].sort((a, b) => a.number - b.number);
+		return { ...noTurnImages(), pictures, hasImageAttachments };
 	}
-	const { images, heldBack, notShown } = await collectTurnImages({
+	const collected = await collectTurnImages({
 		items: params.items,
 		maxImages: MAX_TURN_IMAGES,
+		numberOf: params.numberOf,
+		extras,
 	});
-	return { images, heldBack, notShown, hasImageAttachments };
+	return { ...collected, hasImageAttachments };
 }
 
 function imagePart({ base64, mediaType }: PreparedImage) {
@@ -363,6 +528,8 @@ export function stripImageParts(
 }
 
 /** Prompt tokens the pictures cost, by each one's own size (not a flat amount). */
-export function sumTurnImageTokens(images: readonly TurnImage[] = []): number {
+export function sumTurnImageTokens(
+	images: readonly { image: PreparedImage }[] = [],
+): number {
 	return images.reduce((sum, { image }) => sum + image.estimatedTokens, 0);
 }

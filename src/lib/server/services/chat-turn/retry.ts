@@ -33,6 +33,10 @@ type RetryRequestBody = {
 	userMessage?: unknown;
 	activeDocumentArtifactId?: unknown;
 	attachmentIds?: unknown;
+	// The card pictures and marks of the turn being retried, sent by the
+	// browser like a fresh send's; parsed by parseChatTurnRequest.
+	pictureRefs?: unknown;
+	imageMarks?: unknown;
 	streamId?: unknown;
 	model?: unknown;
 	reasoningDepth?: unknown;
@@ -90,6 +94,8 @@ export async function prepareRetryChatTurn(params: {
 		userMessage,
 		activeDocumentArtifactId,
 		attachmentIds,
+		pictureRefs,
+		imageMarks,
 		streamId,
 		model,
 		reasoningDepth,
@@ -254,6 +260,8 @@ export async function prepareRetryChatTurn(params: {
 		message: precedingUserMsg.content,
 		activeDocumentArtifactId,
 		attachmentIds: retryAttachmentIds,
+		pictureRefs,
+		imageMarks,
 		streamId,
 		model,
 		reasoningDepth,
@@ -418,6 +426,8 @@ function buildSyntheticRetryBody(params: {
 	message: string;
 	activeDocumentArtifactId: unknown;
 	attachmentIds: unknown;
+	pictureRefs: unknown;
+	imageMarks: unknown;
 	streamId: unknown;
 	model: unknown;
 	reasoningDepth: unknown;
@@ -443,6 +453,8 @@ function buildSyntheticRetryBody(params: {
 			params.activeDocumentArtifactId.trim()
 				? params.activeDocumentArtifactId.trim()
 				: undefined,
+		pictureRefs: params.pictureRefs ?? undefined,
+		imageMarks: params.imageMarks ?? undefined,
 		streamId:
 			typeof params.streamId === "string" && params.streamId.trim()
 				? params.streamId.trim()

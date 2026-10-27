@@ -284,6 +284,8 @@ function createTurn(
 		skipPersistUserMessage: false,
 		turnOrigin: "send",
 		attachmentIds: [],
+		pictureRefs: [],
+		imageMarks: null,
 		linkedSources: [],
 		pendingSkill: null,
 		reasoningDepth: "thorough",
@@ -580,6 +582,31 @@ describe("stream-orchestrator SSE contract", () => {
 				modelId: "model1",
 				signal: expect.any(AbortSignal),
 			}),
+		);
+	});
+
+	it("hands the card pictures and the marks of the turn to the model run", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
+		const imageMarks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		await readSseResponse(runStream({ pictureRefs, imageMarks }));
+
+		expect(runStreamingNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({ pictureRefs, imageMarks }),
 		);
 	});
 

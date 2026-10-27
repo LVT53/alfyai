@@ -947,6 +947,72 @@ describe("finalizeChatTurn", () => {
 		expect(getPendingWrites).not.toHaveBeenCalled();
 	});
 
+	it("keeps the pictures a user message carried beside its uploads in the message's metadata, and nothing extra for one that carried none", async () => {
+		mockCreateMessage.mockImplementation(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<ChatMessage> =>
+				makeChatMessage(`${role}-message`, role, "text"),
+		);
+		const { finalizeChatTurn } = await import("./finalize");
+		const base = {
+			turnKind: "send" as const,
+			responseLanguage: "en" as const,
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "Make it warmer",
+			persistUserMessage: true,
+			normalizedMessage: "Make it warmer",
+			upstreamMessage: "Make it warmer",
+			assistantResponse: "Done.",
+			assistantMetadata: { evidenceStatus: "pending" as const },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: "model-1",
+				modelDisplayName: "Model One",
+				promptTokens: 8,
+				completionTokens: 1,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			assistantMirrorContent: "",
+			maintenanceReason: "chat_send" as const,
+		};
+		const userPictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Rug" }],
+			open: { imageFileId: "file-2", name: "Cosy living room" },
+			marks: {
+				imageFileId: "file-2",
+				markedFileId: "file-3",
+				letters: ["A" as const],
+			},
+		};
+
+		await finalizeChatTurn({ ...base, userPictures });
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"user",
+			"Make it warmer",
+			undefined,
+			undefined,
+			{ pictures: userPictures },
+		);
+
+		mockCreateMessage.mockClear();
+		await finalizeChatTurn(base);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"user",
+			"Make it warmer",
+		);
+	});
+
 	it("persists completed control-only turns with empty visible assistant text", async () => {
 		mockCreateMessage.mockImplementation(
 			async (

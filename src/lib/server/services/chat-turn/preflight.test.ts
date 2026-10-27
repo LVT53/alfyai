@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => ({
 	waitForExtractionJobVerdict: vi.fn(),
 	getExtractionConfig: vi.fn(),
 	modelIdCanSeeImages: vi.fn(),
+	validatePictureRequest: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/images/turn-pictures", () => ({
+	validatePictureRequest: mocks.validatePictureRequest,
 }));
 
 vi.mock("$lib/server/services/extraction", () => ({
@@ -64,6 +69,8 @@ function makeRequest(
 		modelDisplayName: "Model One",
 		providerDisplayName: "Provider One",
 		attachmentIds: [],
+		pictureRefs: [],
+		imageMarks: null,
 		linkedSources: [],
 		pendingSkill: null,
 		reasoningDepth: "thorough",
@@ -119,6 +126,7 @@ function resetPreflightMocks() {
 	// A model that cannot see, unless a test says otherwise: the gate is as it
 	// always was.
 	mocks.modelIdCanSeeImages.mockResolvedValue(false);
+	mocks.validatePictureRequest.mockResolvedValue(null);
 	mocks.addConversationLinkedContextSources.mockResolvedValue([]);
 	mocks.isLinkedContextSourceError.mockReturnValue(false);
 	mocks.resolvePendingSkillApplication.mockResolvedValue({ ok: false });
@@ -1014,5 +1022,71 @@ describe("preflightChatTurn attachment send gate for a model that can see", () =
 			ok: false,
 			error: { code: "attachment_extraction_pending" },
 		});
+	});
+});
+
+describe("preflightChatTurn pictures", () => {
+	beforeEach(() => {
+		resetPreflightMocks();
+	});
+
+	it("takes eight uploaded pictures and one attached card picture with the cap at 4: the cap limits a picture request, not a message", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		const { getConfig } = await import("$lib/server/config-store");
+		vi.mocked(getConfig).mockReturnValue({
+			composerCommandRegistryEnabled: true,
+			imageReferenceCap: 4,
+		} as never);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				attachmentIds: Array.from({ length: 8 }, (_, i) => `upload-${i}`),
+				pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mocks.validatePictureRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			}),
+		);
+	});
+
+	it("refuses the turn with the picture check's answer, before anything else is read", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.validatePictureRequest.mockResolvedValue({
+			status: 404,
+			error: "Picture not found",
+			code: "picture_not_found",
+		});
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				attachmentIds: ["upload-1"],
+				pictureRefs: [{ imageFileId: "not-mine", number: 1 }],
+			}),
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				status: 404,
+				error: "Picture not found",
+				code: "picture_not_found",
+			},
+		});
+		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+	});
+
+	it("asks nothing when the turn carries no card picture and no marks", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		await preflightChatTurn({ userId: "user-1", request: makeRequest() });
+		expect(mocks.validatePictureRequest).not.toHaveBeenCalled();
 	});
 });

@@ -326,6 +326,32 @@ describe("prepareRetryChatTurn", () => {
 		]);
 	});
 
+	it("carries the card pictures and the marks of the retried turn into the synthetic body the request parser reads", async () => {
+		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
+		const imageMarks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+		};
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+				pictureRefs,
+				imageMarks,
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		expect(capturedSyntheticBodies[0]).toEqual(
+			expect.objectContaining({ pictureRefs, imageMarks }),
+		);
+	});
+
 	it("passes resolved Auto Reasoning Depth metadata through the prepared orchestrator input", async () => {
 		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			ok: true,

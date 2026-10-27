@@ -74,6 +74,8 @@ const parsedRequest = {
 	modelDisplayName: "Model 1",
 	providerDisplayName: undefined,
 	attachmentIds: [],
+	pictureRefs: [],
+	imageMarks: null,
 	linkedSources: [],
 	pendingSkill: null,
 	activeDocumentArtifactId: undefined,

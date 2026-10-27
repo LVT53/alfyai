@@ -13,6 +13,10 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import { renderHistoryTurn } from "./conversation-history";
 
 export interface NonStreamFallbackSendParams {
@@ -22,6 +26,8 @@ export interface NonStreamFallbackSendParams {
 	modelId: ModelId | undefined;
 	attachmentIds: string[];
 	activeDocumentArtifactId: string | undefined;
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 	attachmentTraceId: string | undefined;
 	thinkingMode: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -54,6 +60,8 @@ export interface NonStreamFallbackDeps {
 		user?: { id: string; displayName: string | null; email: string | null };
 		attachmentIds?: string[];
 		activeDocumentArtifactId?: string;
+		pictureRefs?: PictureRef[];
+		imageMarks?: ImageMarksRequest | null;
 		attachmentTraceId?: string;
 		systemPromptAppendix?: string;
 		pendingSkillInstructions?: string;
@@ -214,6 +222,8 @@ function buildFallbackAttemptParams(
 		modelId: sendParams.modelId,
 		attachmentIds: sendParams.attachmentIds,
 		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
+		pictureRefs: sendParams.pictureRefs,
+		imageMarks: sendParams.imageMarks,
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
 		pendingSkillInstructions: context.pendingSkillInstructions,

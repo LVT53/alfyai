@@ -6,6 +6,7 @@ import {
 	getExtractionJobsForArtifacts,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
+import { validatePictureRequest } from "$lib/server/services/images/turn-pictures";
 import {
 	assertPromptReadyAttachments,
 	isAttachmentReadinessError,
@@ -94,6 +95,19 @@ async function prepareChatTurn(params: {
 	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
 	const { userId, request } = params;
+	// The pictures the request names must be the person's own. Their number is
+	// not checked: a message carries any number of them (the model is shown at
+	// most MAX_TURN_IMAGES as pixels, a fact of the context build, never a refusal).
+	if (request.pictureRefs.length > 0 || request.imageMarks) {
+		const pictureError = await validatePictureRequest({
+			userId,
+			conversationId: request.conversationId,
+			pictureRefs: request.pictureRefs,
+			imageMarks: request.imageMarks,
+			openImageArtifactId: request.activeDocumentArtifactId,
+		});
+		if (pictureError) return { ok: false, error: pictureError };
+	}
 	// A model that can see needs no extracted text to be shown a picture, so the
 	// send gate lets the pictures it can be shown through (knowledge/store/
 	// attachments.ts decides which). Asked once, for the turn's own model, and

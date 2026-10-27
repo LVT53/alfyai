@@ -9,6 +9,7 @@ import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
+import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
 import {
 	isConversationIncognito,
@@ -45,6 +46,10 @@ import {
 	type StepImageQueue,
 } from "$lib/server/services/vision/step-images";
 import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -136,7 +141,7 @@ export function estimateTurnPromptTokens(params: {
 			params.prepared.historyMessages ?? [],
 			estimateTokenCount,
 		) +
-		sumTurnImageTokens(params.prepared.currentImages)
+		sumTurnImageTokens(params.prepared.turnPictureImages)
 	);
 }
 
@@ -165,6 +170,10 @@ export type NormalChatSendModelBaseParams = {
 	user?: AuthenticatedPromptUser;
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string;
+	// The card pictures attached to this message and the marks drawn on one
+	// picture (see chat-turn/request.ts).
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	// An explicit `$` composer selection's full instructions, resolved during
@@ -380,6 +389,8 @@ export async function prepareOutboundContext(
 		user: params.user,
 		attachmentIds: params.attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
+		pictureRefs: params.pictureRefs,
+		imageMarks: params.imageMarks,
 		attachmentTraceId: params.attachmentTraceId,
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
@@ -406,8 +417,9 @@ export async function prepareOutboundContext(
 	});
 	// The pictures this turn sends are described once, in the background, so the
 	// turns after it carry a few words instead of the pixels (vision/AGENTS.md).
-	// `currentImages` is empty unless the model can see; nothing here waits for
-	// the descriptions or can fail the turn.
+	// `currentImages` is the UPLOADED pictures alone (R15: an image file is never
+	// described) and is empty unless the model can see; nothing here waits for the
+	// descriptions or can fail the turn.
 	if (prepared.currentImages.length > 0) {
 		scheduleImageDescriptions({
 			userId: params.userId,
@@ -465,6 +477,7 @@ export async function createToolPack(
 	activeDepthEffort: ActiveDepthEffort | null,
 	modelId: ModelId,
 	enabledConnectionCapabilities: Set<Capability>,
+	turnPictures: TurnPictureIndex,
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
@@ -479,6 +492,7 @@ export async function createToolPack(
 		enabledConnectionCapabilities,
 		modelId,
 		stepImages,
+		turnPictures,
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }

@@ -32,6 +32,7 @@ import {
 	type ServerStreamTimelineMark,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import {
 	isConnectionWriteToolName,
@@ -77,6 +78,9 @@ export type PreparedContextSnapshot = {
 	// a reloaded page's Info popover reports the same scopes the live turn did,
 	// and never re-read from storage here (see PreparedOutboundChatContext).
 	instructionsApplied?: InstructionScopeApplication;
+	// What the user message keeps of the pictures beside its uploads (card
+	// pictures, the open picture, the marked copy); written with the message.
+	userPictures?: UserPicturesMetadata;
 };
 
 export type FileProductionStartSnapshot =
@@ -730,6 +734,7 @@ export async function completeStreamTurn(
 			reasoningDepth,
 			depthMetadata,
 			attachmentIds,
+			userPictures: preparedContext.userPictures,
 			activeDocumentArtifactId,
 			contextStatus: completedContextStatus ?? null,
 			initialTaskState: preparedContext.taskState,

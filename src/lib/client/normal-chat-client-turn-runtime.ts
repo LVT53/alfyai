@@ -32,6 +32,10 @@ import {
 	type StreamTimingSnapshot,
 	streamChat,
 } from "$lib/services/streaming";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import {
 	isFileProductionToolName,
 	toolCallInputKey,
@@ -47,6 +51,11 @@ export type NormalChatSendPayload = {
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
 	linkedSources?: LinkedContextSource[];
+	// Card pictures attached to this message (Attach) under the numbers the
+	// person saw, and the marks drawn on one picture. Sent in the stream body;
+	// the server numbers them with the uploads and the open picture.
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -1315,6 +1324,8 @@ export function createNormalChatClientTurnRuntime(
 				forceWebSearch: payload.forceWebSearch === true,
 				enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+				pictureRefs: payload.pictureRefs,
+				imageMarks: payload.imageMarks ?? null,
 				personalityProfileId: personalityProfileIdForTurn,
 				retryAssistantMessageId: options.retryAssistantMessageId,
 				retryUserMessageId: options.retryUserMessageId,

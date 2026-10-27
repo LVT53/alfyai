@@ -817,6 +817,30 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	it("hands the card pictures and the marks of a send to the stream", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
+		const imageMarks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "B" as const, x: 0, y: 0, w: 0.5, h: 0.5 }],
+		};
+
+		await runtime.send({
+			message: "Make the marked part blue",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs,
+			imageMarks,
+		});
+
+		expect(streamInvocations[0].options).toMatchObject({
+			pictureRefs,
+			imageMarks,
+		});
+	});
+
 	// The composer's chips are gone once the turn is sent, so what the user
 	// chose is stamped on the optimistic assistant placeholder for its
 	// provenance line (see $lib/message-user-intent.ts). The server's own

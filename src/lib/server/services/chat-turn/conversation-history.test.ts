@@ -280,6 +280,88 @@ describe("renderHistoryTurn", () => {
 		]);
 	});
 
+	it("says the pictures beside the uploads as short lines, never pixels", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Make the sofa blue",
+						pictures: {
+							refs: [
+								{ imageFileId: "f1", number: 1, name: "Cosy living room" },
+							],
+							open: { imageFileId: "f2", name: "Garden\nview" },
+							marks: {
+								imageFileId: "f1",
+								markedFileId: "f3",
+								letters: ["A", "B"],
+							},
+						},
+					},
+				],
+			},
+			"native",
+		);
+		expect(out).toEqual([
+			{
+				role: "user",
+				content:
+					"Make the sofa blue\n[picture: Cosy living room]\n[open picture: Garden view]\n[marks: A, B on Cosy living room]",
+			},
+		]);
+		expect(JSON.stringify(out)).not.toContain("f3");
+	});
+
+	it("names marks on the open picture, and a marked picture it cannot find as a picture", () => {
+		const base = {
+			role: "user" as const,
+			content: "Here",
+		};
+		expect(
+			renderHistoryTurn(
+				{
+					messages: [
+						{
+							...base,
+							pictures: {
+								refs: [],
+								open: { imageFileId: "f2", name: "Garden view" },
+								marks: {
+									imageFileId: "f2",
+									markedFileId: "f3",
+									letters: ["C"],
+								},
+							},
+						},
+					],
+				},
+				"native",
+			)[0].content,
+		).toBe("Here\n[open picture: Garden view]\n[marks: C on Garden view]");
+		expect(
+			renderHistoryTurn(
+				{
+					messages: [
+						{
+							...base,
+							pictures: {
+								refs: [],
+								open: null,
+								marks: {
+									imageFileId: "gone",
+									markedFileId: "f3",
+									letters: ["A"],
+								},
+							},
+						},
+					],
+				},
+				"native",
+			)[0].content,
+		).toBe("Here\n[marks: A on a picture]");
+	});
+
 	it("falls back to the name for a picture with no description yet, and for any other file", () => {
 		const out = renderHistoryTurn(
 			{

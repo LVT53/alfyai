@@ -35,6 +35,11 @@ import {
 	detectTopicShift,
 	shouldSuppressCarryover,
 } from "$lib/server/utils/topic-shift-detector";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { getConfig } from "../../config-store";
@@ -54,6 +59,13 @@ import { listConversationFileProductionJobStates } from "../file-production";
 // Leaf module, imported directly rather than through the lazy facade — it is
 // pure string work and pulls no DB into this module's graph.
 import { redactHostPathsFromFileProductionMessage } from "../file-production/error-message";
+import {
+	emptyTurnPictureIndex,
+	extraPicturesOf,
+	resolveTurnPictures,
+	type TurnPictureIndex,
+	uploadNumberOf,
+} from "../images/turn-pictures";
 import {
 	AttachmentReadinessError,
 	blockingAttachmentItems,
@@ -104,6 +116,7 @@ import { embedTexts } from "../tei-embedder";
 import { canUseTeiReranker, rerankItems } from "../tei-reranker";
 import { getImageDescriptions } from "../vision/descriptions-store";
 import {
+	attachedImagesOf,
 	noTurnImages,
 	resolveTurnImages,
 	sumTurnImageTokens,
@@ -146,6 +159,9 @@ type PromptContextMessage = {
 	// short description kept from the turn that sent its pixels, when there is one
 	// (`artifactId` and `mimeType` are how that is looked up).
 	attachments?: PromptContextAttachment[];
+	// The pictures a user message carried beside its uploads, for the history's
+	// short lines (conversation-history.ts); ids and names only.
+	pictures?: UserPicturesMetadata;
 };
 
 type PromptContextAttachment = Pick<
@@ -189,6 +205,7 @@ function buildNativeHistory(params: {
 						name,
 						description,
 					})),
+					pictures: message.pictures,
 					thinkingSegments: message.thinkingSegments,
 					...(forkCopy
 						? {
@@ -303,6 +320,9 @@ export type ConstructedContextReuseData = {
 	// The turn's prepared pictures, so a rebuild after compression does not
 	// decode them again (a HEIC photo takes about a second).
 	turnImages: TurnImages;
+	// The same build's picture index, so a rebuild keeps the numbers and does not
+	// paint a second marked copy.
+	turnPictures: TurnPictureIndex;
 };
 
 // How much of the conversation history (after the latest valid compression
@@ -1304,6 +1324,7 @@ async function loadSessionPromptContext(params: {
 			messageSequence: sequenceByMessageId.get(message.id),
 			forkCopy: message.forkCopy,
 			thinkingSegments: message.thinkingSegments,
+			pictures: message.pictures,
 			attachments: message.attachments?.map((attachment) => ({
 				name: attachment.name,
 				artifactId: attachment.artifactId,
@@ -1422,12 +1443,14 @@ function getPromptMessageForkCopy(message: PromptContextMessage) {
 function resolveContextLatencyTier(params: {
 	message: string;
 	attachmentIds: string[];
+	pictureRefCount: number;
 	activeDocumentArtifactId?: string;
 	reuseFrom?: ConstructedContextReuseData;
 }): ContextLatencyTierResolution {
 	const reasons: string[] = [];
 	if (params.reuseFrom) reasons.push("reuse_context");
 	if (params.attachmentIds.length > 0) reasons.push("current_attachment");
+	if (params.pictureRefCount > 0) reasons.push("picture_refs");
 	if (params.activeDocumentArtifactId) reasons.push("active_document");
 	const trimmedMessage = params.message.trim();
 	if (trimmedMessage.length > SHALLOW_CONTEXT_MAX_MESSAGE_CHARS) {
@@ -1484,6 +1507,7 @@ async function buildShallowConstructedContext(params: {
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	turnImages: TurnImages;
+	turnPictures: TurnPictureIndex;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const projectIdPromise = getConversationProjectId(
@@ -1741,7 +1765,51 @@ async function buildShallowConstructedContext(params: {
 		// This tier is for turns with no attachment at all (an attachment makes
 		// a turn deep), so there is no picture to send or to report.
 		turnImages: noTurnImages(),
+		turnPictures: emptyTurnPictureIndex(),
 	};
+}
+
+/**
+ * The turn's numbered pictures from the message's image uploads, the card
+ * pictures attached, the open picture and the marks. The index is the one
+ * numbering authority. If it cannot be built (a database hiccup) the turn goes
+ * on with its uploads numbered by their place, never fails for it.
+ */
+async function resolveNumberedPictures(params: {
+	userId: string;
+	conversationId: string;
+	items: Parameters<typeof attachedImagesOf>[0];
+	pictureRefs: readonly PictureRef[];
+	imageMarks: ImageMarksRequest | null;
+	openImageArtifactId: string | null;
+}): Promise<TurnPictureIndex> {
+	const uploads = attachedImagesOf(params.items).map((artifact) => ({
+		artifactId: artifact.id,
+		name: artifact.name,
+		mimeType: artifact.mimeType,
+	}));
+	try {
+		return await resolveTurnPictures({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			uploads,
+			pictureRefs: params.pictureRefs,
+			openImageArtifactId: params.openImageArtifactId,
+			marks: params.imageMarks,
+		});
+	} catch (error) {
+		console.warn("[ATTACHMENTS] Pictures not numbered with the turn's others", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+		return resolveTurnPictures({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			uploads,
+			pictureRefs: [],
+			openImageArtifactId: null,
+			marks: null,
+		});
+	}
 }
 
 export async function buildConstructedContext(params: {
@@ -1764,6 +1832,11 @@ export async function buildConstructedContext(params: {
 	// the pixels of the message's image attachments. Without it they are only
 	// reported, so the turn can tell a model that cannot see.
 	collectImages?: boolean;
+	// The card pictures attached to this message and the marks drawn on one
+	// picture; with the open picture (`activeDocumentArtifactId`) and the
+	// uploads they are the turn's numbered pictures (images/turn-pictures.ts).
+	pictureRefs?: readonly PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1773,6 +1846,7 @@ export async function buildConstructedContext(params: {
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	turnImages: TurnImages;
+	turnPictures: TurnPictureIndex;
 	_reuseData?: ConstructedContextReuseData;
 }> {
 	const historyToolMessages = params.historyToolMessages ?? "native";
@@ -1801,6 +1875,7 @@ export async function buildConstructedContext(params: {
 	const latencyTier = resolveContextLatencyTier({
 		message: params.message,
 		attachmentIds,
+		pictureRefCount: params.pictureRefs?.length ?? 0,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		reuseFrom: params.reuseFrom,
 	});
@@ -1994,12 +2069,29 @@ export async function buildConstructedContext(params: {
 	// come from every attachment, not from `currentAttachments`: a picture
 	// needs no extracted text to be looked at. A rebuild after compression
 	// reuses the first build's.
+	const turnPicturesPromise = params.reuseFrom
+		? Promise.resolve(params.reuseFrom.turnPictures)
+		: resolveNumberedPictures({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				items: resolvedAttachments.items,
+				pictureRefs: params.pictureRefs ?? [],
+				imageMarks: params.imageMarks ?? null,
+				openImageArtifactId: params.activeDocumentArtifactId ?? null,
+			});
 	const turnImagesPromise = params.reuseFrom
 		? Promise.resolve(params.reuseFrom.turnImages)
-		: resolveTurnImages({
-				items: resolvedAttachments.items,
-				collect: params.collectImages === true,
-			});
+		: turnPicturesPromise.then((index) =>
+				resolveTurnImages({
+					items: resolvedAttachments.items,
+					collect: params.collectImages === true,
+					numberOf: uploadNumberOf(index),
+					extras: extraPicturesOf(index, {
+						userId: params.userId,
+						conversationId: params.conversationId,
+					}),
+				}),
+			);
 	const retrievalSelection = resolveWorkingDocumentSelection({
 		artifacts: dedupeById([
 			...currentAttachments,
@@ -2183,8 +2275,9 @@ export async function buildConstructedContext(params: {
 	// The pictures ride in the newest turn, so the history gives up their
 	// tokens: each prepared picture by its own size, never a flat 1,600.
 	const turnImages = await turnImagesPromise;
+	const turnPictures = await turnPicturesPromise;
 	const historyTokenBudget = deriveHistoryBudget(
-		sumTurnImageTokens(turnImages.images),
+		sumTurnImageTokens(turnImages.pictureImages),
 	).totalBudget;
 	const nativeHistory = buildNativeHistory({
 		turns: allTurns,
@@ -2584,8 +2677,15 @@ export async function buildConstructedContext(params: {
 			),
 		contextTraceSections: selectedPromptContext.contextTraceSections,
 		turnImages,
+		turnPictures,
 		_reuseData: params.reuseFrom
 			? undefined
-			: { relevantArtifacts, preparedContext, artifactSnippets, turnImages },
+			: {
+					relevantArtifacts,
+					preparedContext,
+					artifactSnippets,
+					turnImages,
+					turnPictures,
+				},
 	};
 }

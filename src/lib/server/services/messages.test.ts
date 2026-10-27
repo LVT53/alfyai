@@ -797,6 +797,48 @@ describe("messages metadata", () => {
 		});
 	});
 
+	it("projects the pictures a user message carried, and drops a malformed record", async () => {
+		const pictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Rug" }],
+			open: { imageFileId: "file-2", name: "Cosy living room" },
+			marks: {
+				imageFileId: "file-2",
+				markedFileId: "file-3",
+				letters: ["A", "B"],
+			},
+		};
+		mockRows.push(
+			{
+				id: "user-pictures-1",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Make it warmer",
+				thinking: null,
+				toolCalls: null,
+				createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				metadataJson: JSON.stringify({ pictures }),
+			},
+			{
+				id: "user-pictures-2",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Another",
+				thinking: null,
+				toolCalls: null,
+				createdAt: new Date("2026-03-29T12:00:01.000Z"),
+				metadataJson: JSON.stringify({
+					pictures: { refs: "nope", open: null, marks: null },
+				}),
+			},
+		);
+
+		const { listMessages } = await import("./messages");
+
+		const [first, second] = await listMessages("conv-1");
+		expect(first.pictures).toEqual(pictures);
+		expect(second.pictures).toBeUndefined();
+	});
+
 	// A message from before the record existed — even one whose turn loaded a
 	// skill and searched the web by tool call — has no userIntent.
 	it("omits userIntent for a legacy message that has no record", async () => {

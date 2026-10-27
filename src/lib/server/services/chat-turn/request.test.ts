@@ -392,3 +392,93 @@ describe("parseChatTurnRequest turnOrigin", () => {
 		expect(result.value.turnOrigin).toBe(expected);
 	});
 });
+
+describe("parseChatTurnRequest pictures", () => {
+	const parse = (body: Record<string, unknown>) =>
+		parseChatTurnRequest(makeRequest(body), makeRuntimeConfig(), "stream");
+
+	it("takes no pictures from a body that names none", async () => {
+		expect(await parse({})).toMatchObject({
+			ok: true,
+			value: { pictureRefs: [], imageMarks: null },
+		});
+	});
+
+	it("parses the card pictures attached and the marks drawn", async () => {
+		const result = await parse({
+			pictureRefs: [{ imageFileId: " file-1 ", number: 2 }],
+			imageMarks: {
+				imageFileId: "file-1",
+				marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+			},
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			value: {
+				pictureRefs: [{ imageFileId: "file-1", number: 2 }],
+				imageMarks: {
+					imageFileId: "file-1",
+					marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+				},
+			},
+		});
+	});
+
+	it("takes 64 picture refs: the bound is an abuse guard, not a picture cap", async () => {
+		const refs = Array.from({ length: 64 }, (_, index) => ({
+			imageFileId: `file-${index}`,
+			number: index + 1,
+		}));
+		expect(await parse({ pictureRefs: refs })).toMatchObject({ ok: true });
+	});
+
+	it("answers 400 invalid_picture_refs for a body above 64 refs or a malformed ref", async () => {
+		const tooMany = Array.from({ length: 65 }, (_, index) => ({
+			imageFileId: `file-${index}`,
+			number: index + 1,
+		}));
+		for (const pictureRefs of [
+			tooMany,
+			"nope",
+			[{ imageFileId: "", number: 1 }],
+			[{ imageFileId: "f", number: 0 }],
+			[{ imageFileId: "f", number: 1.5 }],
+			[null],
+		]) {
+			expect(await parse({ pictureRefs })).toEqual({
+				ok: false,
+				error: expect.objectContaining({
+					status: 400,
+					code: "invalid_picture_refs",
+				}),
+			});
+		}
+	});
+
+	it("answers 400 invalid_image_marks for marks that cannot stand, and drops an empty set", async () => {
+		const box = { x: 0.1, y: 0.1, w: 0.4, h: 0.4 };
+		for (const imageMarks of [
+			{
+				imageFileId: "f",
+				marks: [
+					{ letter: "A", ...box },
+					{ letter: "A", ...box },
+				],
+			},
+			{ imageFileId: "f", marks: [{ letter: "Z", ...box }] },
+			{ imageFileId: "", marks: [{ letter: "A", ...box }] },
+			"nope",
+		]) {
+			expect(await parse({ imageMarks })).toEqual({
+				ok: false,
+				error: expect.objectContaining({
+					status: 400,
+					code: "invalid_image_marks",
+				}),
+			});
+		}
+		expect(
+			await parse({ imageMarks: { imageFileId: "f", marks: [] } }),
+		).toMatchObject({ ok: true, value: { imageMarks: null } });
+	});
+});

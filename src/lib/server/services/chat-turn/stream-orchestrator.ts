@@ -95,6 +95,7 @@ import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
@@ -797,6 +798,7 @@ export function runChatStreamOrchestrator(
 				| undefined;
 			let latestEstimatedPromptTokens: number | undefined;
 			let latestInstructionsApplied: InstructionScopeApplication | undefined;
+			let latestUserPictures: UserPicturesMetadata | undefined;
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
@@ -886,6 +888,7 @@ export function runChatStreamOrchestrator(
 						contextTraceSections: latestContextTraceSections,
 						estimatedPromptTokens: latestEstimatedPromptTokens,
 						instructionsApplied: latestInstructionsApplied,
+						userPictures: latestUserPictures,
 					},
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
@@ -1045,6 +1048,8 @@ export function runChatStreamOrchestrator(
 						modelId: (fallbackModelId ?? undefined) as ModelId | undefined,
 						attachmentIds: safeAttachmentIds,
 						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+						pictureRefs: turn.pictureRefs,
+						imageMarks: turn.imageMarks,
 						attachmentTraceId: attachmentTraceId ?? undefined,
 						thinkingMode,
 						depthMetadata: latestDepthMetadata,
@@ -1182,6 +1187,8 @@ export function runChatStreamOrchestrator(
 					},
 					attachmentIds: safeAttachmentIds,
 					activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+					pictureRefs: turn.pictureRefs,
+					imageMarks: turn.imageMarks,
 					attachmentTraceId: attachmentTraceId ?? undefined,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					pendingSkillInstructions: currentPendingSkillInstructions(),
@@ -1242,6 +1249,7 @@ export function runChatStreamOrchestrator(
 				latestContextStatus = prepared.contextStatus;
 				latestEstimatedPromptTokens = prepared.estimatedPromptTokens;
 				latestInstructionsApplied = prepared.instructionsApplied;
+				latestUserPictures = prepared.userPictures;
 				latestTaskState =
 					prepared.taskState ??
 					(await getConversationTaskState(user.id, conversationId).catch(

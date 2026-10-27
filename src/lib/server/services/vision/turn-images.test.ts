@@ -41,6 +41,7 @@ import {
 	noTurnImages,
 	notShownImageGuidance,
 	oneLineName,
+	pictureLabel,
 	resolveTurnImages,
 	STRIPPED_IMAGE_NOTE,
 	stripImageParts,
@@ -782,6 +783,8 @@ describe("resolveTurnImages", () => {
 		// listed as "not shown" for it: that list is for a model that can see.
 		expect(result).toEqual({
 			images: [],
+			pictureImages: [],
+			pictures: [{ number: 1, name: "photo-0.png" }],
 			heldBack: [],
 			notShown: [],
 			hasImageAttachments: true,
@@ -801,6 +804,8 @@ describe("resolveTurnImages", () => {
 		for (const collect of [true, false]) {
 			expect(await resolveTurnImages({ items: [pdf], collect })).toEqual({
 				images: [],
+				pictureImages: [],
+				pictures: [],
 				heldBack: [],
 				notShown: [],
 				hasImageAttachments: false,
@@ -816,6 +821,8 @@ describe("resolveTurnImages", () => {
 
 		expect(result).toEqual({
 			images: [],
+			pictureImages: [],
+			pictures: [{ number: 1, name: "scan.bmp" }],
 			heldBack: [],
 			notShown: [{ number: 1, name: "scan.bmp" }],
 			hasImageAttachments: true,
@@ -850,6 +857,8 @@ describe("resolveTurnImages", () => {
 			await resolveTurnImages({ items: [item(null)], collect: true }),
 		).toEqual({
 			images: [],
+			pictureImages: [],
+			pictures: [],
 			heldBack: [],
 			notShown: [],
 			hasImageAttachments: false,
@@ -857,10 +866,224 @@ describe("resolveTurnImages", () => {
 	});
 });
 
+describe("pictures beside the uploads (the turn's picture index is the one numbering authority)", () => {
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const extra = (
+		number: number,
+		name: string,
+		id = `image-file:${number}`,
+	) => ({
+		number,
+		id,
+		name,
+		load: async () => preparedImage(),
+	});
+
+	it("labels the uploads from the index: with a card picture at 1 they read Picture 2 and Picture 3", async () => {
+		const items = [await imageItem(0), await imageItem(1)];
+		const numbers = new Map([
+			["artifact-0", 2],
+			["artifact-1", 3],
+		]);
+
+		const result = await collectTurnImages({
+			items,
+			maxImages: MAX_TURN_IMAGES,
+			numberOf: (id) => {
+				const number = numbers.get(id);
+				if (number === undefined) throw new Error("no number");
+				return number;
+			},
+			extras: [extra(1, "rug.jpg")],
+		});
+
+		expect(
+			result.pictureImages.map(({ number, name }) => [number, name]),
+		).toEqual([
+			[1, "rug.jpg"],
+			[2, "photo-0.png"],
+			[3, "photo-1.png"],
+		]);
+		expect(result.images.map((entry) => entry.number)).toEqual([2, 3]);
+		const message = buildCurrentUserMessage("Compare", result.pictureImages);
+		const labels = (message.content as Array<{ type: string; text?: string }>)
+			.filter((part) => part.type === "text")
+			.map((part) => part.text);
+		expect(labels).toEqual([
+			"Compare",
+			"Picture 1: rug.jpg",
+			"Picture 2: photo-0.png",
+			"Picture 3: photo-1.png",
+		]);
+	});
+
+	it("shows at most eight pictures across uploads and the rest, in number order, and names the others", async () => {
+		const items = await Promise.all(
+			Array.from({ length: 8 }, (_, index) => imageItem(index)),
+		);
+
+		const result = await collectTurnImages({
+			items,
+			maxImages: MAX_TURN_IMAGES,
+			// The upload photo-i is picture i+2; two card pictures take 1 and 10.
+			numberOf: (id) => Number(id.replace("artifact-", "")) + 2,
+			extras: [extra(1, "rug.jpg"), extra(10, "sofa.jpg")],
+		});
+
+		expect(result.pictureImages).toHaveLength(8);
+		expect(result.pictureImages.map((entry) => entry.number)).toEqual([
+			1, 2, 3, 4, 5, 6, 7, 8,
+		]);
+		expect(result.heldBack.map((entry) => entry.number)).toEqual([9, 10]);
+		expect(result.heldBack.at(-1)?.name).toBe("sofa.jpg");
+	});
+
+	it("falls back to the id for a picture whose name is empty, in the labels and in the sentences", async () => {
+		const result = await collectTurnImages({
+			items: [await imageItem(0, { name: "\n " })],
+			maxImages: 0,
+			numberOf: () => 1,
+			extras: [extra(2, "  ", "image-file:f2")],
+		});
+
+		expect(result.heldBack).toEqual([
+			{ number: 1, name: "artifact-0" },
+			{ number: 2, name: "image-file:f2" },
+		]);
+	});
+
+	it("asserts instead of numbering an upload 0", async () => {
+		await expect(
+			collectTurnImages({
+				items: [await imageItem(0)],
+				maxImages: 8,
+				numberOf: () => {
+					throw new Error("Attachment artifact-0 has no picture number");
+				},
+			}),
+		).rejects.toThrow(/no picture number/);
+	});
+
+	it("leaves a stored picture that will not read out, names it, and goes on", async () => {
+		const result = await collectTurnImages({
+			items: [await imageItem(0)],
+			maxImages: 8,
+			numberOf: () => 2,
+			extras: [
+				{
+					number: 1,
+					id: "image-file:gone",
+					name: "rug.jpg",
+					load: async () => {
+						throw new Error("the picture file is gone");
+					},
+				},
+			],
+		});
+
+		expect(result.pictureImages.map((entry) => entry.number)).toEqual([2]);
+		expect(result.notShown).toEqual([{ number: 1, name: "rug.jpg" }]);
+		expect(warn).toHaveBeenCalledWith(
+			"[ATTACHMENTS] Image not sent as a picture",
+			expect.objectContaining({ pictureId: "image-file:gone" }),
+		);
+	});
+
+	it("names the message's pictures for a model that cannot see, reading no file", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [await imageItem(0, { name: "rug.jpg" })],
+			collect: false,
+			numberOf: () => 1,
+			extras: [extra(2, "Cosy living room (open in the panel)")],
+		});
+
+		expect(mocks.prepareImageForModel).not.toHaveBeenCalled();
+		expect(turnImages.pictureImages).toEqual([]);
+		expect(
+			buildTurnImageGuidance({ canSee: false, turnImages, referenceCap: 4 }),
+		).toEqual([
+			CANNOT_SEE_IMAGES_GUIDANCE,
+			"Pictures in this message: Picture 1: rug.jpg; Picture 2: Cosy living room (open in the panel).",
+		]);
+	});
+
+	it("a message with only the open picture is a message with a picture", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [],
+			collect: true,
+			extras: [extra(1, "Cosy living room (open in the panel)")],
+		});
+		expect(turnImages.hasImageAttachments).toBe(true);
+		expect(turnImages.images).toEqual([]);
+		expect(turnImages.pictureImages).toHaveLength(1);
+	});
+
+	it("adds the make_image line for five pictures at a cap of 4, for a model that sees and one that does not, and none for four", () => {
+		const five = Array.from({ length: 5 }, (_, index) => ({
+			number: index + 1,
+			name: `p${index + 1}.png`,
+		}));
+		const turnImages = (pictures: typeof five) => ({
+			...noTurnImages(),
+			pictures,
+			hasImageAttachments: true,
+		});
+		const line =
+			"make_image takes at most 4 pictures per call: pass the ones the picture needs.";
+
+		for (const canSee of [true, false]) {
+			expect(
+				buildTurnImageGuidance({
+					canSee,
+					turnImages: turnImages(five),
+					referenceCap: 4,
+				}),
+			).toContain(line);
+			expect(
+				buildTurnImageGuidance({
+					canSee,
+					turnImages: turnImages(five.slice(0, 4)),
+					referenceCap: 4,
+				}),
+			).not.toContain(line);
+			// No picture server: no make_image to limit.
+			expect(
+				buildTurnImageGuidance({
+					canSee,
+					turnImages: turnImages(five),
+					referenceCap: null,
+				}),
+			).not.toContain(line);
+		}
+	});
+
+	it("cleans a name once in the label, whoever passes it, and cleaning twice changes nothing", () => {
+		expect(pictureLabel(2, "kitchen\n photo.jpg")).toBe(
+			"Picture 2: kitchen photo.jpg",
+		);
+		const once = pictureLabel(3, "a\tb  c");
+		expect(pictureLabel(3, oneLineName("a\tb  c"))).toBe(once);
+		// Long enough for the marks line of eight marks.
+		const marks = `Picture 4 with the user's marks: ${"A = purple box, ".repeat(8)}`;
+		expect(pictureLabel(5, marks)).toBe(`Picture 5: ${marks.trim()}`);
+	});
+});
+
 describe("noTurnImages", () => {
 	it("is a turn with no images attached, sent, held back or left unshown", () => {
 		expect(noTurnImages()).toEqual({
 			images: [],
+			pictureImages: [],
+			pictures: [],
 			heldBack: [],
 			notShown: [],
 			hasImageAttachments: false,
@@ -914,8 +1137,7 @@ describe("the guidance the model reads about pictures", () => {
 			...buildTurnImageGuidance({
 				canSee: true,
 				turnImages: {
-					images: [],
-					heldBack: [],
+					...noTurnImages(),
 					notShown: [{ number: 1, name: "scan.bmp" }],
 					hasImageAttachments: true,
 				},
@@ -925,12 +1147,7 @@ describe("the guidance the model reads about pictures", () => {
 		}
 	});
 
-	const base = {
-		images: [],
-		heldBack: [],
-		notShown: [],
-		hasImageAttachments: false,
-	};
+	const base = noTurnImages();
 
 	it("adds the limit line for a model that can see and had pictures held back", () => {
 		expect(

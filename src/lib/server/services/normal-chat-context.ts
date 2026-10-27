@@ -2,11 +2,17 @@ import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import { isProviderModelId } from "$lib/model-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { resolveInstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	getConfig,
+	getImageReferenceCap,
+	isImageMakingConfigured,
 	type ModelConfig,
 	type RuntimeConfig,
 } from "../config-store";
@@ -39,6 +45,10 @@ import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { Capability } from "./connections/registry";
 import type { ContextCompressionControlSender } from "./context-compression";
+import {
+	emptyTurnPictureIndex,
+	type TurnPictureIndex,
+} from "./images/turn-pictures";
 import type { ResolvedTurnInstructions } from "./instructions";
 import { inferModelContextWindow } from "./model-context";
 import {
@@ -60,6 +70,7 @@ import type { GroundedWebResult } from "./parallel-search/types";
 import { noteWebPrefetch } from "./url-provenance";
 import {
 	buildTurnImageGuidance,
+	type LabelledPicture,
 	type NumberedTurnImage,
 	noTurnImages,
 	sumTurnImageTokens,
@@ -116,6 +127,14 @@ export type PreparedOutboundChatContext = {
 	// the turn's model can see (`collectImages`). They ride in the user message
 	// the run builds (vision/turn-images.ts's buildCurrentUserMessage).
 	currentImages: NumberedTurnImage[];
+	// Every picture of the message the model is sent (uploads, card pictures, the
+	// open picture, the marked copy), labelled and in number order. The only
+	// input `buildCurrentUserMessage` reads and what `viewing_images` counts;
+	// `currentImages` stays the uploads alone and feeds
+	// `scheduleImageDescriptions` (an image file is never described, R15).
+	turnPictureImages: LabelledPicture[];
+	// The turn's picture index: the one numbering authority, handed to the tools.
+	turnPictures: TurnPictureIndex;
 	systemPrompt: string;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
@@ -222,6 +241,7 @@ type OutboundChatContextPreparationState = {
 	historyMessages?: ModelMessage[];
 	historyWindow?: ConstructedContextResult["historyWindow"];
 	turnImages?: TurnImages;
+	turnPictures?: TurnPictureIndex;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug?:
@@ -1941,6 +1961,12 @@ type PrepareOutboundChatContextParams = {
 	// guidance names any the limit left out. Without it a message that attaches
 	// an image tells the model it cannot see.
 	collectImages?: boolean;
+	// The card pictures attached to this message and the marks drawn on one
+	// picture (chat-turn/request.ts); with the open picture
+	// (`activeDocumentArtifactId`) and the uploads they are the message's
+	// numbered pictures (images/turn-pictures.ts).
+	pictureRefs?: readonly PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 	logLabel: string;
 };
 
@@ -1954,6 +1980,7 @@ function applyConstructedContextToPreparationState(
 		historyMessages: constructed.historyMessages,
 		historyWindow: constructed.historyWindow,
 		turnImages: constructed.turnImages,
+		turnPictures: constructed.turnPictures,
 		contextStatus: constructed.contextStatus,
 		taskState: constructed.taskState,
 		contextDebug: constructed.contextDebug,
@@ -2196,7 +2223,7 @@ function runPromptBudgetStage(input: {
 		modelName: input.params.modelConfig.modelName,
 		providerId: input.params.modelConfig.providerId ?? null,
 		automaticCompression: input.state.automaticCompression,
-		imageTokens: sumTurnImageTokens(input.state.turnImages?.images),
+		imageTokens: sumTurnImageTokens(input.state.turnImages?.pictureImages),
 	});
 	return {
 		inputValue: budgetedPrompt.inputValue,
@@ -2232,6 +2259,8 @@ export async function prepareOutboundChatContext(
 				contextLimits,
 				historyToolMessages: params.historyToolMessages,
 				collectImages: params.collectImages,
+				pictureRefs: params.pictureRefs,
+				imageMarks: params.imageMarks,
 			}
 		: null;
 	// The guidance rides the user turn (see appendTurnGuidance): automatic
@@ -2251,6 +2280,12 @@ export async function prepareOutboundChatContext(
 			imageGuidance: buildTurnImageGuidance({
 				canSee: params.collectImages === true,
 				turnImages,
+				// With no picture server there is no make_image to limit; the config
+				// is only read for a message that has pictures.
+				referenceCap:
+					turnImages.pictures.length > 0 && isImageMakingConfigured(getConfig())
+						? getImageReferenceCap()
+						: null,
 			}),
 		});
 	const { state, timings } =
@@ -2339,7 +2374,7 @@ export async function prepareOutboundChatContext(
 							historyMessages: currentState.historyMessages,
 							historyWindow: currentState.historyWindow,
 							turnGuidance: buildGuidanceFor(turnImages),
-							imageTokens: sumTurnImageTokens(turnImages.images),
+							imageTokens: sumTurnImageTokens(turnImages.pictureImages),
 							systemPrompt,
 							contextLimits,
 							constructedContextParams,
@@ -2392,6 +2427,8 @@ export async function prepareOutboundChatContext(
 		turnGuidance: buildGuidanceFor(turnImages),
 		historyMessages: state.historyMessages ?? [],
 		currentImages: turnImages.images,
+		turnPictureImages: turnImages.pictureImages,
+		turnPictures: state.turnPictures ?? emptyTurnPictureIndex(),
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
 		contextStatus: state.contextStatus,
 		taskState: state.taskState,

@@ -18,6 +18,10 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import type { AttachmentReadinessItem } from "$lib/shared/attachment-readiness";
 import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 
@@ -85,6 +89,11 @@ export type ParsedChatTurnRequest = {
 	modelDisplayName: string;
 	providerDisplayName?: string;
 	attachmentIds: string[];
+	// Card pictures the person attached (Attach), under the numbers they saw
+	// them with, and the marks they drew on one picture. Not a picture cap: the
+	// parser's bound (MAX_PICTURE_REFS) is an abuse guard.
+	pictureRefs: PictureRef[];
+	imageMarks: ImageMarksRequest | null;
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	activeDocumentArtifactId?: string;

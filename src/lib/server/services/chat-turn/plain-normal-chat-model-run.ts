@@ -35,10 +35,8 @@ import {
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
-import {
-	buildCurrentUserMessage,
-	labelledPicturesOf,
-} from "$lib/server/services/vision/turn-images";
+import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
@@ -70,6 +68,9 @@ export type PlainNormalChatSendModelResult = {
 	// route persists what the model actually got instead of re-reading the
 	// user's settings after the turn.
 	instructionsApplied?: InstructionScopeApplication;
+	// What the user message keeps of the pictures beside its uploads (card
+	// pictures, the open picture, the marked copy), for finalize.
+	userPictures?: UserPicturesMetadata;
 };
 
 type ModelRunParams = {
@@ -119,6 +120,7 @@ export async function runPlainNormalChatSendModel(
 		activeDepthEffort,
 		runtime.modelId,
 		enabledConnectionCapabilities,
+		prepared.turnPictures,
 	);
 	const result = await runPlainModelRun({
 		params,
@@ -155,10 +157,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
-		buildCurrentUserMessage(
-			finalInputValue,
-			labelledPicturesOf(prepared.currentImages),
-		),
+		buildCurrentUserMessage(finalInputValue, prepared.turnPictureImages),
 		...(prepared.prefetchedToolMessages ?? []),
 		...(modelRunParams.continuationMessages ?? []),
 	];
@@ -245,5 +244,6 @@ function buildRunResult(
 		resolvedProviderId: result.model.providerId,
 		depthMetadata: activeDepthEffort?.depthMetadata,
 		instructionsApplied: prepared.instructionsApplied,
+		userPictures: prepared.turnPictures.metadata ?? undefined,
 	};
 }

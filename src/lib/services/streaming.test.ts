@@ -1110,6 +1110,53 @@ describe("streamChat", () => {
 		expect(parsedBody.activeDocumentArtifactId).toBe("artifact-focused-2");
 	});
 
+	it("leaves the card pictures and the marks out of the body when there are none", async () => {
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { pictureRefs: [], imageMarks: null },
+		});
+		await done;
+		const plain = parseLastStreamRequestBody(mockFetch);
+		expect("pictureRefs" in plain).toBe(false);
+		expect("imageMarks" in plain).toBe(false);
+	});
+
+	it("sends the card pictures and the marks in the stream body", async () => {
+		const refs = [{ imageFileId: "file-1", number: 1 }];
+		const marks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.4 }],
+		};
+		const withPictures = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { pictureRefs: refs, imageMarks: marks },
+		});
+		await withPictures.done;
+		const body = parseLastStreamRequestBody(withPictures.mockFetch);
+		expect(body.pictureRefs).toEqual(refs);
+		expect(body.imageMarks).toEqual(marks);
+	});
+
+	it("sends the card pictures and the marks to the retry route too", async () => {
+		const refs = [{ imageFileId: "file-1", number: 2 }];
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				pictureRefs: refs,
+			},
+		});
+		await done;
+		expect(mockFetch).toHaveBeenCalledWith(
+			"/api/chat/retry",
+			expect.anything(),
+		);
+		expect(parseLastStreamRequestBody(mockFetch).pictureRefs).toEqual(refs);
+	});
+
 	it("threads the retry origin into retry requests", async () => {
 		const { mockFetch, done } = runStreamWithMockedResponse({
 			message: "ignored",

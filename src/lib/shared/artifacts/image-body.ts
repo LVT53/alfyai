@@ -72,6 +72,23 @@ export type PictureRef = { imageFileId: string; number: number };
 /** Marks the person drew on one picture, sent with a message. */
 export type ImageMarksRequest = { imageFileId: string; marks: ImageMark[] };
 
+/**
+ * What a user message keeps of the pictures it carried besides its uploads
+ * (`ChatMessage.pictures`): which card pictures were attached under which
+ * number, which picture was open in the panel, and which letters the person
+ * marked on which picture (with the marked copy that was made). Ids and names
+ * only, never pixels: a later turn's history reads it as short lines.
+ */
+export type UserPicturesMetadata = {
+	refs: Array<{ imageFileId: string; number: number; name: string }>;
+	open: { imageFileId: string; name: string } | null;
+	marks: {
+		imageFileId: string;
+		markedFileId: string;
+		letters: MarkLetter[];
+	} | null;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -133,6 +150,65 @@ function parseSources(
 function nullableString(value: unknown): string | null | undefined {
 	if (value === null || value === undefined) return null;
 	return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The pictures a stored user message kept, or `undefined` when there is
+ * nothing usable: a record from before this existed, or one that is malformed
+ * reads as "carried none" and never reaches the page half-shaped.
+ */
+export function parseUserPictures(
+	value: unknown,
+): UserPicturesMetadata | undefined {
+	if (!isRecord(value) || !Array.isArray(value.refs)) return undefined;
+	const refs: UserPicturesMetadata["refs"] = [];
+	for (const ref of value.refs) {
+		if (
+			!isRecord(ref) ||
+			!isNonEmptyString(ref.imageFileId) ||
+			typeof ref.number !== "number" ||
+			!Number.isInteger(ref.number) ||
+			typeof ref.name !== "string"
+		) {
+			return undefined;
+		}
+		refs.push({
+			imageFileId: ref.imageFileId,
+			number: ref.number,
+			name: ref.name,
+		});
+	}
+	let open: UserPicturesMetadata["open"] = null;
+	if (value.open != null) {
+		if (
+			!isRecord(value.open) ||
+			!isNonEmptyString(value.open.imageFileId) ||
+			typeof value.open.name !== "string"
+		) {
+			return undefined;
+		}
+		open = { imageFileId: value.open.imageFileId, name: value.open.name };
+	}
+	let marks: UserPicturesMetadata["marks"] = null;
+	if (value.marks != null) {
+		const raw = value.marks;
+		if (
+			!isRecord(raw) ||
+			!isNonEmptyString(raw.imageFileId) ||
+			!isNonEmptyString(raw.markedFileId) ||
+			!Array.isArray(raw.letters) ||
+			!raw.letters.every(isLetter)
+		) {
+			return undefined;
+		}
+		marks = {
+			imageFileId: raw.imageFileId,
+			markedFileId: raw.markedFileId,
+			letters: raw.letters,
+		};
+	}
+	if (refs.length === 0 && !open && !marks) return undefined;
+	return { refs, open, marks };
 }
 
 /** The body a stored string holds, or `null` when it is not a version-1 image body. Never throws. */

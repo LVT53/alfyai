@@ -33,6 +33,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type {
 	InstructionScopeApplication,
 	InstructionSuggestion,
@@ -340,6 +341,11 @@ export interface ChatMessage {
 	// user chose nothing, and on every message persisted before the record
 	// existed. Assistant turns only; read by the provenance line.
 	userIntent?: MessageUserIntent;
+	// On a user message: the pictures it carried beside its uploads (card
+	// pictures attached under their numbers, the picture open in the panel and
+	// the letters marked on a picture). Ids and names, never pixels; absent when
+	// the message carried none.
+	pictures?: UserPicturesMetadata;
 	// Which instruction scopes shaped this assistant turn — personal, and
 	// (once Slice D lands) the project whose project instructions applied.
 	// Scopes only, never the text: the Info popover says *which* instructions

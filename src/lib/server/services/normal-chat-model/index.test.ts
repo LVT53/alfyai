@@ -4976,6 +4976,42 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		expect(content[4]?.image_url?.url).toContain("/9j/AAAA");
 	});
 
+	it("sends the open picture and the marked copy like any other picture, each under its Picture N line", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Done." },
+			}),
+		);
+		const open: LabelledPicture = {
+			...photo,
+			number: 4,
+			name: "Cosy living room (open in the panel)",
+		};
+		const marked: LabelledPicture = {
+			...photo,
+			number: 5,
+			name: "Picture 4 with the user's marks: A = red box",
+		};
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Make it warmer", [open, marked])],
+			fetch,
+		});
+
+		const content = lastUserMessage(parseRequestBody(fetch))?.content as Array<{
+			type: string;
+			text?: string;
+		}>;
+		expect(content.map((part) => part.text ?? part.type)).toEqual([
+			"Make it warmer",
+			"Picture 4: Cosy living room (open in the panel)",
+			"image_url",
+			"Picture 5: Picture 4 with the user's marks: A = red box",
+			"image_url",
+		]);
+	});
+
 	it("sends a picture to a streaming run the same way", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
 			createStreamResponse([

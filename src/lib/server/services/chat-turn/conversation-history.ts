@@ -17,6 +17,7 @@ import type {
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
 export type HistoryMessage = {
@@ -27,6 +28,9 @@ export type HistoryMessage = {
 	// kept from the turn that sent its pixels (vision/AGENTS.md), once there is
 	// one. Pixels never ride the history.
 	attachments?: Array<{ name: string; description?: string }>;
+	// The pictures a user message carried beside its uploads (card pictures, the
+	// open picture, marks): ids and names, said as short lines, never pixels.
+	pictures?: UserPicturesMetadata;
 	thinkingSegments?: ThinkingSegment[];
 	// Rendered provenance prefix (fork copies), already computed by the caller.
 	contentPrefix?: string;
@@ -197,6 +201,34 @@ function attachmentLine(
 		: `[attachment: ${name}]`;
 }
 
+function historyName(name: string): string {
+	return name.replace(/[\p{Cc}\s]+/gu, " ").trim() || "picture";
+}
+
+// The pictures beside the uploads: `[picture: Cosy living room]` for one
+// attached from a card, `[open picture: Cosy living room]` for the one open in
+// the panel and `[marks: A, B on Cosy living room]` for the letters marked.
+function pictureLines(pictures: UserPicturesMetadata | undefined): string[] {
+	if (!pictures) return [];
+	const nameOf = (imageFileId: string) => {
+		const found =
+			pictures.refs.find((ref) => ref.imageFileId === imageFileId) ??
+			(pictures.open?.imageFileId === imageFileId ? pictures.open : null);
+		return found ? historyName(found.name) : "a picture";
+	};
+	return [
+		...pictures.refs.map((ref) => `[picture: ${historyName(ref.name)}]`),
+		...(pictures.open
+			? [`[open picture: ${historyName(pictures.open.name)}]`]
+			: []),
+		...(pictures.marks
+			? [
+					`[marks: ${pictures.marks.letters.join(", ")} on ${nameOf(pictures.marks.imageFileId)}]`,
+				]
+			: []),
+	];
+}
+
 function userText(message: HistoryMessage): string {
 	const attachmentLines = (message.attachments ?? [])
 		.map(attachmentLine)
@@ -205,6 +237,7 @@ function userText(message: HistoryMessage): string {
 		message.contentPrefix?.trim(),
 		message.content.trim(),
 		...attachmentLines,
+		...pictureLines(message.pictures),
 	]
 		.filter((part): part is string => Boolean(part))
 		.join("\n");
