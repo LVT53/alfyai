@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
 import sharp from "sharp";
+import { db } from "../../src/lib/server/db";
+import { memoryProfileItems, users } from "../../src/lib/server/db/schema";
+import { createMemoryProfileItem } from "../../src/lib/server/services/memory-profile/projection-store";
 import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
 	AI_SMOKE_EDIT_PHOTO_MARKER,
@@ -16,6 +20,7 @@ import {
 	createEmptyConversation,
 	login,
 	sendMessage,
+	TEST_EMAIL,
 } from "./helpers";
 import {
 	attachPhoto,
@@ -316,6 +321,75 @@ test.describe("Pictures end to end", () => {
 			timeout: 15_000,
 		});
 		await waitForSettledCard(page, conversationId, 1);
+	});
+
+	// Task 20, live on ai.dev a72ea77: a picture-only reply still showed a
+	// Sources row. The person had remembered facts, and the Baseline Memory
+	// Profile the prompt carries on every turn reached the reply's evidence as
+	// fact rows: the chat's continuity, not a source the reply drew on.
+	test("a picture-only reply shows no Sources row, though the prompt carried a remembered fact", async ({
+		page,
+	}) => {
+		videoName = "picture-reply-no-sources";
+		(fake as FakeComfyUi).setOptions({ steps: 4, stepDelayMs: 100 });
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const statement = `Prefers sage green rooms (${Date.now()}).`;
+		const fact = await createMemoryProfileItem({
+			userId: user.id,
+			category: "preferences",
+			scope: { type: "global" },
+			statement,
+		});
+		try {
+			const conversationId = await openChat(page);
+			await makePicture(page);
+			// The live shape: the remembered fact reached the model.
+			expect(
+				fakeProvider
+					.requests()
+					.some((request) => JSON.stringify(request.body).includes(statement)),
+				"the remembered fact is in the prompt",
+			).toBe(true);
+			await expect
+				.poll(
+					async () => {
+						const detail = (await (
+							await page.request.get(`/api/conversations/${conversationId}`)
+						).json()) as {
+							messages: Array<{
+								role: string;
+								evidencePending?: boolean;
+								evidenceSummary?: unknown;
+							}>;
+						};
+						const reply = detail.messages
+							.filter((message) => message.role === "assistant")
+							.at(-1);
+						return reply?.evidencePending === false
+							? JSON.stringify(reply.evidenceSummary ?? null)
+							: "pending";
+					},
+					{ message: "the reply's evidence is settled", timeout: 30_000 },
+				)
+				.toBe("null");
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(LOADED).last()).toBeVisible({
+				timeout: 30_000,
+			});
+			await expect(
+				page
+					.getByTestId("assistant-message")
+					.last()
+					.locator(".evidence-toggle"),
+			).toHaveCount(0);
+		} finally {
+			await db
+				.delete(memoryProfileItems)
+				.where(eq(memoryProfileItems.id, fact.id));
+		}
 	});
 
 	test("Another adds a take and Use this moves the tick", async ({ page }) => {

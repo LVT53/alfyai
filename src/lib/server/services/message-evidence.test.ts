@@ -1047,6 +1047,76 @@ describe("a reply that made a picture", () => {
 		expect(summary).toBeNull();
 	});
 
+	// Task 20, live on ai.dev a72ea77: a picture-only reply still showed a
+	// Sources row. Its evidence held only the Baseline Memory Profile facts the
+	// prompt carries on every turn — ambient profile memory replaces the
+	// aggregate "Session memory" row, so it is the same continuity, not a
+	// source the reply drew on.
+	it("has no sources when it made a picture and used only the ambient profile facts", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Make a picture of a bright living room",
+			taskState: null,
+			contextStatus: {
+				layersUsed: ["session"],
+				summary: "Session summary text.",
+				taskStateApplied: true,
+				recentTurnCount: 2,
+			} as never,
+			contextTraceSections: [
+				{
+					name: "Baseline Memory Profile",
+					source: "memory",
+					body: "Facts:\n- Prefers concise answers.\n- Lives in Budapest.",
+					inclusionLevel: "legacy_full",
+					itemIds: ["fact-a", "fact-b"],
+					itemTitles: ["Prefers concise answers.", "Lives in Budapest."],
+				},
+			],
+			toolCalls: [makeImage],
+		});
+		expect(summary).toBeNull();
+	});
+
+	it("keeps a profile fact the reply looked up with memory_context", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Make a picture of my favourite room",
+			taskState: null,
+			contextTraceSections: [
+				{
+					name: "Baseline Memory Profile",
+					source: "memory",
+					body: "Facts:\n- Prefers concise answers.",
+					inclusionLevel: "legacy_full",
+					itemIds: ["fact-a"],
+					itemTitles: ["Prefers concise answers."],
+				},
+			],
+			toolCalls: [
+				makeImage,
+				{
+					name: "memory_context",
+					input: { mode: "facts", query: "favourite room" },
+					status: "done",
+					sourceType: "memory",
+					candidates: [
+						{
+							id: "memory-fact:fact-room",
+							title: "Favourite room is the sage living room.",
+							sourceType: "memory",
+							metadata: { memoryItemId: "fact-room", selected: true },
+						},
+					],
+				} as ToolCallEntry,
+			],
+		});
+		const ids = (summary?.groups ?? []).flatMap((group) =>
+			group.items.map((item) => item.id),
+		);
+		expect(ids).toContain("memory-fact:fact-room");
+	});
+
 	it("never lists its make_image call as a tool source", async () => {
 		const summary = await buildAssistantEvidenceSummary({
 			userId: "user-1",

@@ -157,6 +157,13 @@ function mergeChannels(
 	return Array.from(new Set([...(left ?? []), ...(right ?? [])]));
 }
 
+/**
+ * The canonical-id prefix of an ambient profile fact: one the Baseline Memory
+ * Profile put in the prompt, as it does on every turn. A fact a tool looked up
+ * (memory_context) is keyed `memory:item:…` instead, so the two stay apart.
+ */
+const AMBIENT_PERSONA_FACT_CANONICAL_PREFIX = "memory:fact:";
+
 function buildAmbientPersonaFactItems(
 	contextTraceSections: LegacyContextTraceSectionInput[] | undefined,
 ): MessageEvidenceItem[] {
@@ -179,7 +186,7 @@ function buildAmbientPersonaFactItems(
 			const title = itemTitles[index]?.trim() || "Remembered detail";
 			items.push({
 				id: `memory-fact:${itemId}`,
-				canonicalId: `memory:fact:${itemId}`,
+				canonicalId: `${AMBIENT_PERSONA_FACT_CANONICAL_PREFIX}${itemId}`,
 				title,
 				sourceType: "memory",
 				status: "reference",
@@ -755,6 +762,19 @@ const CONTINUITY_MEMORY_IDS: ReadonlySet<string> = new Set(
 	Object.values(CONTINUITY_MEMORY_ID),
 );
 
+/**
+ * A row every turn of the chat carries — its continuity (task state, recent
+ * turns, session memory) or the ambient profile facts that stand in for the
+ * session memory row — rather than a source the reply drew on.
+ */
+function isContinuity(item: MessageEvidenceItem): boolean {
+	return (
+		CONTINUITY_MEMORY_IDS.has(item.id) ||
+		(item.canonicalId?.startsWith(AMBIENT_PERSONA_FACT_CANONICAL_PREFIX) ??
+			false)
+	);
+}
+
 export async function buildAssistantEvidenceSummary(params: {
 	userId?: string;
 	message: string;
@@ -830,14 +850,10 @@ export async function buildAssistantEvidenceSummary(params: {
 
 	if (groups.length === 0) return null;
 	// A reply that made a picture and used nothing but the chat's own continuity
-	// (task state, recent turns, session memory) has no sources: no Sources
-	// section under it (the rehearsal's empty one, Task 17).
-	if (
-		madePicture &&
-		groups.every((group) =>
-			group.items.every((item) => CONTINUITY_MEMORY_IDS.has(item.id)),
-		)
-	) {
+	// (task state, recent turns, session memory, the ambient profile facts) has
+	// no sources: no Sources section under it (the rehearsal's empty one, Task
+	// 17; the profile facts kept it on ai.dev, Task 20).
+	if (madePicture && groups.every((group) => group.items.every(isContinuity))) {
 		return null;
 	}
 
