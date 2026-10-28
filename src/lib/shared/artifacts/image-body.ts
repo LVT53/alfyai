@@ -24,9 +24,10 @@ export function thumbWidth(width: number, height: number): number {
 	return Math.max(1, Math.round((width * IMAGE_THUMB_LONG_EDGE) / longEdge));
 }
 
-const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
+export const MARK_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export type MarkLetter = (typeof MARK_LETTERS)[number];
-const MAX_MARKS = 8;
+/** The most marks one picture carries (A to H). */
+export const MAX_MARKS = 8;
 
 /** A boxed area of the picture, in fractions of its width and height. */
 export type ImageMark = {
@@ -61,7 +62,7 @@ export const MARK_COLOUR_NAMES: Record<MarkLetter, string> = {
 };
 
 /** The smallest box side that is still a mark, as a fraction. */
-const MIN_MARK_SIDE = 0.02;
+export const MIN_MARK_SIDE = 0.02;
 /** Float noise from a drawn box is not a box past the edge. */
 const EDGE_TOLERANCE = 1e-6;
 
