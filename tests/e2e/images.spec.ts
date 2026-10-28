@@ -350,7 +350,9 @@ test.describe("Pictures end to end", () => {
 			expect(
 				fakeProvider
 					.requests()
-					.some((request) => JSON.stringify(request.body).includes(statement)),
+					.some((request) =>
+						JSON.stringify(request.body ?? null).includes(statement),
+					),
 				"the remembered fact is in the prompt",
 			).toBe(true);
 			await expect
