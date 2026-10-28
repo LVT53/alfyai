@@ -292,6 +292,21 @@ describe("ImageCardBody", () => {
 		});
 	});
 
+	it("names an attached picture on one line of at most 80 characters, as the server does", async () => {
+		const onAction = vi.fn();
+		const long = `Lighthouse\non a hill ${"very ".repeat(30)}`;
+		render(ImageCardBody, {
+			card: { ...card([take({ fileId: "file-z" })]), title: long },
+			onAction,
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "More" }));
+		await fireEvent.click(await screen.findByTestId("image-card-attach"));
+		const { name } = onAction.mock.calls[0][0];
+		expect(name).not.toMatch(/\n/);
+		expect(Array.from(name).length).toBeLessThanOrEqual(80);
+		expect(name.startsWith("Lighthouse on a hill")).toBe(true);
+	});
+
 	it("offers no Attach while the take has no picture yet", async () => {
 		const making = take({
 			status: "running",

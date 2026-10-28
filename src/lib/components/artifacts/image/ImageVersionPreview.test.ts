@@ -108,6 +108,17 @@ describe("ImageVersionPreview Attach", () => {
 		});
 	});
 
+	it("names the attached version on one line of at most 80 characters", async () => {
+		const onAttachPicture = vi.fn();
+		renderPreview({ onAttachPicture, title: `Cosy\nroom ${"x".repeat(100)}` });
+		const button = await screen.findByTestId("image-version-preview-attach");
+		await waitFor(() => expect(button).not.toBeDisabled());
+		await fireEvent.click(button);
+		const { name } = onAttachPicture.mock.calls[0][0];
+		expect(name).not.toMatch(/\n/);
+		expect(Array.from(name).length).toBeLessThanOrEqual(80);
+	});
+
 	it("keeps the Attach row while the version loads, disabled, so the picture never moves", async () => {
 		renderPreview({ onAttachPicture: vi.fn(), versionId: "vMissing" });
 		const button = await screen.findByTestId("image-version-preview-attach");

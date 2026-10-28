@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -86,6 +89,30 @@ describe("VersionStrip", () => {
 			name: "Cosy room",
 		});
 		expect(onOpenHistory).not.toHaveBeenCalled();
+	});
+
+	it("names an attached frame on one line of at most 80 characters", async () => {
+		const onAttachPicture = vi.fn();
+		render(VersionStrip, {
+			moments: photoItemMoments(),
+			currentVersionId: "v3",
+			title: `Cosy\nroom ${"x".repeat(100)}`,
+			onAttachPicture,
+		});
+		await fireEvent.click(screen.getAllByTestId("image-version-attach")[0]);
+		const { name } = onAttachPicture.mock.calls[0][0];
+		expect(name).not.toMatch(/\n/);
+		expect(Array.from(name).length).toBeLessThanOrEqual(80);
+	});
+
+	it("draws the Attach dot at least 24 px across (WCAG 2.5.8)", () => {
+		const source = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "VersionStrip.svelte"),
+			"utf-8",
+		);
+		const rule = source.slice(source.indexOf(".attach {"));
+		expect(rule.slice(0, 400)).toContain("width: 1.5rem");
+		expect(rule.slice(0, 400)).toContain("height: 1.5rem");
 	});
 
 	it("draws no Attach where the host cannot take a picture", () => {

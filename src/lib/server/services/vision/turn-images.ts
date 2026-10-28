@@ -104,19 +104,15 @@ export const CANNOT_SEE_IMAGES_GUIDANCE =
 const PICTURES_NOT_VISIBLE_GUIDANCE =
 	"You cannot see these pictures; they can still be passed to make_image by number.";
 
+import { oneLineName } from "$lib/shared/one-line-name";
+
 /**
- * One line, short: a file name is user data that lands in a user message. Control
+ * One line, short (the rule lives in `$lib/shared/one-line-name.ts`, shared with the browser): a file name is user data that lands in a user message. Control
  * characters and runs of whitespace become one space, and it is cut by code
  * points (never in the middle of a character). May return "": a caller that
  * needs a name falls back to an id.
  */
-export function oneLineName(name: string, maxChars = 80): string {
-	const oneLine = name.replace(/[\p{Cc}\s]+/gu, " ").trim();
-	const points = Array.from(oneLine);
-	return points.length > maxChars
-		? `${points.slice(0, maxChars - 3).join("")}...`
-		: oneLine;
-}
+export { oneLineName };
 
 /** A picture's name in a label: long enough for the app's own marks line (eight marks). */
 const LABEL_NAME_MAX_CHARS = 200;

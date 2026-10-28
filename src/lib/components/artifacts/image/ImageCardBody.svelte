@@ -25,6 +25,7 @@ import {
 } from "@lucide/svelte";
 import { fade } from "svelte/transition";
 import { t } from "$lib/i18n";
+import { oneLineName } from "$lib/shared/one-line-name";
 import { MAX_VISIBLE_TAKES_PER_CARD } from "$lib/shared/artifacts/image-body";
 import type {
 	ImageCardView,
@@ -253,7 +254,11 @@ function pressDownload(): void {
 function pressAttach(): void {
 	menuOpen = false;
 	if (shown?.fileId) {
-		fire({ type: "attach", fileId: shown.fileId, name: card.title });
+		fire({
+			type: "attach",
+			fileId: shown.fileId,
+			name: oneLineName(card.title),
+		});
 	}
 }
 

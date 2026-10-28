@@ -16,6 +16,7 @@
 import Paperclip from "@lucide/svelte/icons/paperclip";
 import { imageFileUrl } from "$lib/client/api/images";
 import { t } from "$lib/i18n";
+import { oneLineName } from "$lib/shared/one-line-name";
 import {
 	type ImageVersionBody,
 	MARK_COLOURS,
@@ -179,7 +180,7 @@ const tags = $derived(
 				class="ivp-attach"
 				data-testid="image-version-preview-attach"
 				disabled={!shown}
-				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: title || label })}
+				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: oneLineName(title || label) })}
 			>
 				<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
 				{$t('artifacts.image.card.attach')}

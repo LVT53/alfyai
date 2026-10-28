@@ -11,6 +11,7 @@
 // thumbnails sit in reserved square tiles and fade in on load (`ImagePicture`).
 import { Paperclip } from "@lucide/svelte";
 import { t } from "$lib/i18n";
+import { oneLineName } from "$lib/shared/one-line-name";
 import type { ArtifactMoment } from "$lib/shared/artifacts/history";
 import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 import { uiLanguage } from "$lib/stores/settings";
@@ -103,7 +104,7 @@ let frames = $derived(
 						aria-label={$t('artifacts.image.attachNamed', { name: frame.label })}
 						title={$t('artifacts.image.card.attach')}
 						data-testid="image-version-attach"
-						onclick={() => onAttachPicture?.({ imageFileId: frame.fileId, name: title })}
+						onclick={() => onAttachPicture?.({ imageFileId: frame.fileId, name: oneLineName(title) })}
 					>
 						<Paperclip size={12} strokeWidth={2} aria-hidden="true" />
 					</button>
@@ -154,8 +155,8 @@ let frames = $derived(
 		bottom: 0.125rem;
 		display: grid;
 		place-items: center;
-		width: 1.25rem;
-		height: 1.25rem;
+		width: 1.5rem;
+		height: 1.5rem;
 		padding: 0;
 		border: 0;
 		border-radius: var(--radius-full);

@@ -532,3 +532,138 @@ describe("validatePictureRequest", () => {
 		).toBeNull();
 	});
 });
+
+// Fix round 1: the composer's numbers (components/chat/composer-pictures.ts) and
+// the server's are one rule written twice. The same adds and removes go through
+// both, and the numbers each gives a picture must be equal.
+describe("composer and server number pictures alike", () => {
+	type Add =
+		| { kind: "upload"; id: string; mime: string }
+		| { kind: "ref"; fileId: string };
+
+	async function bothNumberings(
+		adds: Add[],
+		removeKeys: string[],
+		duplicateUploadIds: string[] = [],
+	) {
+		const composer = await import("$lib/components/chat/composer-pictures");
+		const { getFileType } = await import(
+			"$lib/components/chat/attachment-file-type"
+		);
+		const keyOf = (add: Add) =>
+			add.kind === "upload"
+				? composer.pictureKey({ kind: "upload", artifactId: add.id })
+				: composer.pictureKey({ kind: "ref", imageFileId: add.fileId });
+		const isPictureUpload = (add: Add) =>
+			add.kind === "upload" && getFileType(add.mime, `${add.id}`) === "image";
+		// The composer sees each add land, then the removes.
+		let order: readonly string[] = [];
+		let present: Add[] = [];
+		for (const add of adds) {
+			present = [...present, add];
+			order = composer.reconcilePictureOrder(
+				order,
+				present
+					.filter((a) => a.kind === "ref" || isPictureUpload(a))
+					.map(keyOf),
+			);
+		}
+		present = present.filter((add) => !removeKeys.includes(keyOf(add)));
+		order = composer.reconcilePictureOrder(
+			order,
+			present.filter((a) => a.kind === "ref" || isPictureUpload(a)).map(keyOf),
+		);
+		const composerNumbers = composer.numberPictures(order, () => true);
+
+		// The server gets the refs under the composer's numbers, and the image
+		// uploads in attachment order (a duplicate id is sent twice).
+		const uploads = present
+			.filter(isPictureUpload)
+			.flatMap((add) =>
+				add.kind === "upload" && duplicateUploadIds.includes(add.id)
+					? [add, add]
+					: [add],
+			)
+			.map((add) => upload((add as { id: string }).id));
+		const refs = present
+			.filter((add): add is Extract<Add, { kind: "ref" }> => add.kind === "ref")
+			.map((add) => ({
+				imageFileId: add.fileId,
+				number: composerNumbers.get(keyOf(add)) as number,
+			}));
+		const index = await resolve({ uploads, pictureRefs: refs });
+		const serverNumbers = new Map<string, number>();
+		for (const picture of index.pictures) {
+			if (picture.source.type === "upload") {
+				serverNumbers.set(
+					composer.pictureKey({
+						kind: "upload",
+						artifactId: picture.source.artifactId,
+					}),
+					picture.number,
+				);
+			} else if (picture.source.type === "image_file") {
+				serverNumbers.set(
+					composer.pictureKey({
+						kind: "ref",
+						imageFileId: picture.source.fileId,
+					}),
+					picture.number,
+				);
+			}
+		}
+		return { composerNumbers, serverNumbers };
+	}
+
+	it("agrees for a [pdf, jpg] message: the jpg is 1", async () => {
+		const { composerNumbers, serverNumbers } = await bothNumberings(
+			[
+				{ kind: "upload", id: "doc-pdf", mime: "application/pdf" },
+				{ kind: "upload", id: "photo-jpg", mime: "image/jpeg" },
+			],
+			[],
+		);
+		expect(composerNumbers.get("upload:photo-jpg")).toBe(1);
+		expect(serverNumbers).toEqual(composerNumbers);
+	});
+
+	it("agrees when an artifact id is sent twice", async () => {
+		const x = await storeFile();
+		const { composerNumbers, serverNumbers } = await bothNumberings(
+			[
+				{ kind: "upload", id: "photo-a", mime: "image/jpeg" },
+				{ kind: "ref", fileId: x.id },
+				{ kind: "upload", id: "photo-b", mime: "image/png" },
+			],
+			[],
+			["photo-a"],
+		);
+		expect(serverNumbers).toEqual(composerNumbers);
+		expect(composerNumbers.size).toBe(3);
+	});
+
+	it("agrees after a remove in the middle, whichever kind was added first", async () => {
+		const x = await storeFile();
+		const y = await storeFile({ color: "#aa5533" });
+		for (const adds of [
+			[
+				{ kind: "upload", id: "p1", mime: "image/jpeg" },
+				{ kind: "ref", fileId: x.id },
+				{ kind: "upload", id: "p2", mime: "image/jpeg" },
+				{ kind: "ref", fileId: y.id },
+			] as Add[],
+			[
+				{ kind: "ref", fileId: x.id },
+				{ kind: "upload", id: "p1", mime: "image/jpeg" },
+				{ kind: "ref", fileId: y.id },
+				{ kind: "upload", id: "p2", mime: "image/jpeg" },
+			] as Add[],
+		]) {
+			const { composerNumbers, serverNumbers } = await bothNumberings(adds, [
+				`upload:p1`,
+			]);
+			expect([...composerNumbers.values()].sort()).toEqual([1, 2, 3]);
+			expect(serverNumbers).toEqual(composerNumbers);
+		}
+	});
+});
