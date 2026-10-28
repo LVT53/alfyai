@@ -285,10 +285,13 @@ export function renderHistoryTurn(
 		const ids = calls.map((segment, index) =>
 			historyToolCallId(message, segment, index),
 		);
+		// The calls, their results, and then the answer: a stored reply is written
+		// after its tools return, and replaying it before the call taught the model
+		// to say "Added: a brass lamp..." before calling make_image, and again after
+		// the result (images part 2, Task 11).
 		out.push({
 			role: "assistant",
 			content: [
-				...(text ? [{ type: "text" as const, text }] : []),
 				...calls.map((segment, index) => ({
 					type: "tool-call" as const,
 					toolCallId: ids[index],
@@ -309,6 +312,7 @@ export function renderHistoryTurn(
 				},
 			})),
 		});
+		if (text) out.push({ role: "assistant", content: text });
 	}
 	return out;
 }

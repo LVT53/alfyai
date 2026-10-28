@@ -69,11 +69,15 @@ describe("renderHistoryTurn", () => {
 			}),
 			"native",
 		);
-		expect(out).toHaveLength(3);
+		// The answer follows the tool's result, as it was written: replayed before
+		// the call, it taught the model to answer first and call after (Task 11:
+		// "Added - a slim brass floor lamp..." said before make_image, then again
+		// after its result).
+		expect(out).toHaveLength(4);
+		expect(out[3]).toEqual({ role: "assistant", content: "It is 15°C." });
 		expect(out[1]).toEqual({
 			role: "assistant",
 			content: [
-				{ type: "text", text: "It is 15°C." },
 				{
 					type: "tool-call",
 					toolCallId: "call_1",
