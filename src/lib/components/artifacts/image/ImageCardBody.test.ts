@@ -330,7 +330,9 @@ describe("ImageCardBody", () => {
 		render(ImageCardBody, { card: card([take()]), onAction });
 		await fireEvent.click(screen.getByRole("button", { name: /Another/ }));
 		await tick();
-		expect(screen.getByTestId("image-card-tile-placeholder")).toBeInTheDocument();
+		expect(
+			screen.getByTestId("image-card-tile-placeholder"),
+		).toBeInTheDocument();
 		expect(screen.getByTestId("image-card-another")).toBeDisabled();
 	});
 

@@ -564,7 +564,9 @@ describe("what a call is made from", () => {
 	it("prefers the model's own title over the person's words", async () => {
 		const result = await resolve(
 			{ title: "Green sofa room" },
-			{ requestText: "This is a photo of my living room. Make the sofa green." },
+			{
+				requestText: "This is a photo of my living room. Make the sofa green.",
+			},
 		);
 		if (!result.ok) throw new Error("not resolved");
 		expect(result.plan.title).toBe("Green sofa room");

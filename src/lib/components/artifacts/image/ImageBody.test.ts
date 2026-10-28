@@ -507,7 +507,9 @@ describe("the panel body's room", () => {
 		"utf-8",
 	);
 	const rule = (name: string) =>
-		source.match(new RegExp(`\\n\\t\\.${name} \\{([\\s\\S]*?)\\n\\t\\}`))?.[1] ?? "";
+		source.match(
+			new RegExp(`\\n\\t\\.${name} \\{([\\s\\S]*?)\\n\\t\\}`),
+		)?.[1] ?? "";
 
 	it("pads the body and spaces the picture from its row with space tokens", () => {
 		expect(rule("image-body")).toMatch(/padding:\s*var\(--space-md\)/);

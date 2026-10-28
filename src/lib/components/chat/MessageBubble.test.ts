@@ -3658,9 +3658,9 @@ describe("MessageBubble", () => {
 			for (const cls of reveal) expect(block?.classList).toContain(cls);
 			expect(block?.querySelector(".copy-action-row")).not.toBeNull();
 			// Neither row has a reveal of its own, which could let them drift apart.
-			expect(container.querySelector(".copy-action-row")?.className).not.toMatch(
-				/opacity/,
-			);
+			expect(
+				container.querySelector(".copy-action-row")?.className,
+			).not.toMatch(/opacity/);
 			expect(chip?.closest(".follow-up-row")?.className).not.toMatch(/opacity/);
 
 			const source = readFileSync(

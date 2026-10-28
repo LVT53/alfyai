@@ -317,7 +317,6 @@ export function checkFollowUpChip(
 	}
 	if ((body.match(/,/g) ?? []).length > 3) return reject("format");
 
-
 	if (NON_LATIN_SCRIPT_RE.test(text)) return reject("script");
 
 	if (options.language && !isInLanguage(text, options.language)) {

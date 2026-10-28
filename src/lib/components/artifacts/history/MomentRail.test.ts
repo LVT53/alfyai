@@ -113,10 +113,15 @@ describe("a picture's rail row in a narrow rail", () => {
 
 	it("moves the time of a row with a picture under its headline when the rail is narrow", () => {
 		const block =
-			source.match(/@container moment-rail \(max-width: [\d.]+rem\) \{([\s\S]*?)\n\t\}/)?.[1] ??
-			"";
-		expect(block).toMatch(/\.option\.with-thumb \.line1 \{[^}]*flex-wrap:\s*wrap/);
-		expect(block).toMatch(/\.option\.with-thumb \.time \{[^}]*flex-basis:\s*100%/);
+			source.match(
+				/@container moment-rail \(max-width: [\d.]+rem\) \{([\s\S]*?)\n\t\}/,
+			)?.[1] ?? "";
+		expect(block).toMatch(
+			/\.option\.with-thumb \.line1 \{[^}]*flex-wrap:\s*wrap/,
+		);
+		expect(block).toMatch(
+			/\.option\.with-thumb \.time \{[^}]*flex-basis:\s*100%/,
+		);
 		expect(block).toMatch(/var\(--space-/);
 	});
 });

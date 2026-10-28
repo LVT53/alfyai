@@ -430,10 +430,7 @@ export async function resolveTurnPictures(params: {
 	// Uploads alone are recorded too: the bubble shows each photo's number, as
 	// the composer did (Task 17).
 	const metadata: UserPicturesMetadata | null =
-		metadataRefs.length > 0 ||
-		metadataUploads.length > 0 ||
-		open ||
-		markedMeta
+		metadataRefs.length > 0 || metadataUploads.length > 0 || open || markedMeta
 			? {
 					refs: metadataRefs.sort((a, b) => a.number - b.number),
 					...(metadataUploads.length > 0 ? { uploads: metadataUploads } : {}),

@@ -512,7 +512,10 @@ describe("imageFileDownloadName", () => {
 	// already names the type is saved through the shared download-name rule, so
 	// never "room..png" and never "Sunset.png.png".
 	it.each([
-		["This is a photo of my living room.", "This is a photo of my living room.png"],
+		[
+			"This is a photo of my living room.",
+			"This is a photo of my living room.png",
+		],
 		["Sunset.png", "Sunset.png"],
 		["Sunset.PNG", "Sunset.PNG"],
 		["Notes. ", "Notes.png"],
@@ -539,7 +542,10 @@ describe("imageFileDownloadName", () => {
 			})
 			.run();
 		await files.attachImageFilesToArtifact([file.id], id);
-		const attached = await files.getImageFile({ userId: "u1", fileId: file.id });
+		const attached = await files.getImageFile({
+			userId: "u1",
+			fileId: file.id,
+		});
 		expect(await files.imageFileDownloadName(attached as never)).toBe(expected);
 	});
 });

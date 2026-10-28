@@ -355,7 +355,9 @@ describe("the title the model gives", () => {
 		const description = makeImageInputSchema.shape.title.description ?? "";
 		expect(description).not.toMatch(/^For a new picture/);
 		expect(description).toMatch(/photo/i);
-		expect(description).toMatch(/never the user's (own )?words|not the user's (own )?words/i);
+		expect(description).toMatch(
+			/never the user's (own )?words|not the user's (own )?words/i,
+		);
 	});
 });
 

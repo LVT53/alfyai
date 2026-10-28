@@ -139,7 +139,9 @@ test.describe("Follow-up chips", () => {
 		const chipBox = await chip.boundingBox();
 		expect(copyBox && chipBox).toBeTruthy();
 		if (copyBox && chipBox) {
-			expect(chipBox.y - (copyBox.y + copyBox.height)).toBeGreaterThanOrEqual(8);
+			expect(chipBox.y - (copyBox.y + copyBox.height)).toBeGreaterThanOrEqual(
+				8,
+			);
 		}
 	});
 
