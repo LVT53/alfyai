@@ -217,7 +217,8 @@ describe("listConversationImageCards", () => {
 			userId: "u1",
 			conversationId: "c1",
 			cardId: card,
-			origin: "something_else",
+			// A value the column was never meant to hold.
+			origin: "something_else" as "turn",
 		});
 		const [view] = await listConversationImageCards("u1", "c1");
 		const byId = new Map(view.takes.map((take) => [take.id, take]));
