@@ -513,7 +513,7 @@ describe("resolveWorkingDocumentFileServing", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("expected successful resolution");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''requested-name.pdf",
+			`attachment; filename="requested-name.pdf"; filename*=UTF-8''requested-name.pdf`,
 		);
 		expect(Buffer.from(result.body).toString()).toBe("PDF binary content");
 	});
@@ -539,12 +539,36 @@ describe("resolveWorkingDocumentFileServing", () => {
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("expected successful resolution");
-		expect(result.headers["Content-Type"]).toBe("text/plain; charset=utf-8");
+		expect(result.headers["Content-Type"]).toBe("text/markdown; charset=utf-8");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''Skill%20Note.md",
+			`attachment; filename="Skill Note.md"; filename*=UTF-8''Skill%20Note.md`,
 		);
 		expect(result.headers["Cache-Control"]).toBe("private, no-store");
 		expect(Buffer.from(result.body).toString()).toBe(contentText);
+	});
+
+	it("keeps the extension of a name that merely contains a dot", async () => {
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "note-dot",
+			name: "Terv v1.2 \u00e9",
+			storagePath: null,
+			contentText: "# Terv",
+			mimeType: "text/plain",
+			extension: "md",
+			type: "skill_note",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "note-dot",
+			mode: "download",
+		});
+
+		if (!result.ok) throw new Error("expected successful resolution");
+		expect(result.headers["Content-Disposition"]).toContain(
+			`filename*=UTF-8''Terv%20v1.2%20%C3%A9.md`,
+		);
 	});
 
 	it("serves stored HTML previews with the shared restricted browser policy", async () => {
@@ -574,7 +598,7 @@ describe("resolveWorkingDocumentFileServing", () => {
 		if (!result.ok) throw new Error("expected successful resolution");
 		expect(result.headers["Content-Type"]).toBe("text/html; charset=utf-8");
 		expect(result.headers["Content-Disposition"]).toBe(
-			'inline; filename="report.html"',
+			`inline; filename="report.html"; filename*=UTF-8''report.html`,
 		);
 		expect(result.headers["Cache-Control"]).toBe("private, max-age=3600");
 		expect(result.headers["Content-Security-Policy"]).toBe(
@@ -612,7 +636,7 @@ describe("resolveWorkingDocumentFileServing", () => {
 		if (!result.ok) throw new Error("expected successful resolution");
 		expect(result.headers["Content-Type"]).toBe("application/xml");
 		expect(result.headers["Content-Disposition"]).toBe(
-			'inline; filename="Diagram"',
+			`inline; filename="Diagram"; filename*=UTF-8''Diagram`,
 		);
 		expect(result.headers["Content-Security-Policy"]).toBe(
 			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",

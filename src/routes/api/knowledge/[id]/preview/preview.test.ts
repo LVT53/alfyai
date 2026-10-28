@@ -381,7 +381,7 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			"text/html; charset=utf-8",
 		);
 		expect(response.headers.get("Content-Disposition")).toBe(
-			'inline; filename="report.html"',
+			`inline; filename="report.html"; filename*=UTF-8''report.html`,
 		);
 		expect(response.headers.get("Cache-Control")).toBe("private, max-age=3600");
 		expect(response.headers.get("Content-Security-Policy")).toBe(

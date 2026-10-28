@@ -87,10 +87,10 @@ describe("GET /api/knowledge/[id]/download", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe(
-			"text/plain; charset=utf-8",
+			"text/markdown; charset=utf-8",
 		);
 		expect(response.headers.get("Content-Disposition")).toBe(
-			"attachment; filename*=UTF-8''Skill%20Note.md",
+			`attachment; filename="Skill Note.md"; filename*=UTF-8''Skill%20Note.md`,
 		);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(response.headers.get("Content-Security-Policy")).toBeNull();
@@ -121,7 +121,7 @@ describe("GET /api/knowledge/[id]/download", () => {
 		expect(response.headers.get("Content-Range")).toBe("bytes 6-9/10");
 		expect(response.headers.get("Content-Length")).toBe("4");
 		expect(response.headers.get("Content-Disposition")).toBe(
-			"attachment; filename*=UTF-8''ranged.pdf",
+			`attachment; filename="ranged.pdf"; filename*=UTF-8''ranged.pdf`,
 		);
 		expect(await response.text()).toBe("6789");
 	});

@@ -7,6 +7,11 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import {
+	fileExtension,
+	getContentTypeForFile,
+	getEntryByExtension,
+} from "$lib/shared/file-types";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 import {
 	getArtifactForUser,
@@ -219,20 +224,44 @@ function resolveStoredArtifactFilenames(params: {
 	filenameArtifact: Artifact;
 }): { safeName: string; downloadName: string; previewContentName: string } {
 	const safeName = params.filenameArtifact.name || "document";
-	const downloadName =
-		safeName.includes(".") || !params.filenameArtifact.extension
-			? safeName
-			: `${safeName}.${params.filenameArtifact.extension}`;
-	const previewContentName =
-		safeName.includes(".") || !params.artifact.extension
-			? safeName
-			: `${safeName}.${params.artifact.extension}`;
+	const downloadName = withArtifactExtension(
+		safeName,
+		params.filenameArtifact.extension,
+	);
+	const previewContentName = withArtifactExtension(
+		safeName,
+		params.artifact.extension,
+	);
 
 	return { safeName, downloadName, previewContentName };
 }
 
+/**
+ * "Terv v1.2" contains a dot but no extension, so the test is whether the name
+ * already ends in the artifact's own extension, not whether it has any dot.
+ */
+function withArtifactExtension(
+	name: string,
+	extension: string | null | undefined,
+): string {
+	if (!extension) return name;
+	const own = fileExtension(name);
+	if (own && (own === extension.toLowerCase() || getEntryByExtension(own))) {
+		return name;
+	}
+	return `${name}.${extension}`;
+}
+
 function isUnsafeStoredArtifactPath(storagePath: string): boolean {
 	return storagePath.includes("..") || storagePath.startsWith("/");
+}
+
+/** A text download is typed by its name: a `.md` note is `text/markdown`, not `text/plain`. */
+function textDownloadContentType(name: string): string {
+	const byName = getContentTypeForFile(name, null);
+	return byName.startsWith("text/")
+		? `${byName}; charset=utf-8`
+		: "text/plain; charset=utf-8";
 }
 
 function resolveStoredTextArtifact(params: {
@@ -246,7 +275,10 @@ function resolveStoredTextArtifact(params: {
 	const headers = buildFileServingResponseHeaders({
 		mode: params.mode,
 		contentLength: textBuffer.length,
-		contentType: "text/plain; charset=utf-8",
+		contentType:
+			params.mode === "download"
+				? textDownloadContentType(params.downloadName)
+				: "text/plain; charset=utf-8",
 		filename: params.mode === "preview" ? params.safeName : params.downloadName,
 		safetyFilenames: [params.downloadName],
 	});
