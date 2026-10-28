@@ -575,16 +575,41 @@ describe("composer and server number pictures alike", () => {
 		);
 		const composerNumbers = composer.numberPictures(order, () => true);
 
-		// The server gets the refs under the composer's numbers, and the image
-		// uploads in attachment order (a duplicate id is sent twice).
-		const uploads = present
-			.filter(isPictureUpload)
+		// The server gets the refs under the composer's numbers, and EVERY upload
+		// in attachment order (a duplicate id is sent twice): which of them are
+		// pictures is the server's own call (`attachedImagesOf`, the turn's path),
+		// never the composer's classifier handed over.
+		const { attachedImagesOf } = await import(
+			"$lib/server/services/vision/turn-images"
+		);
+		const extension: Record<string, string> = {
+			"application/pdf": "pdf",
+			"image/jpeg": "jpg",
+			"image/png": "png",
+		};
+		const items = present
 			.flatMap((add) =>
-				add.kind === "upload" && duplicateUploadIds.includes(add.id)
-					? [add, add]
-					: [add],
+				add.kind === "upload"
+					? duplicateUploadIds.includes(add.id)
+						? [add, add]
+						: [add]
+					: [],
 			)
-			.map((add) => upload((add as { id: string }).id));
+			.map(
+				(add) =>
+					({
+						displayArtifact: {
+							id: add.id,
+							name: `${add.id}.${extension[add.mime] ?? "bin"}`,
+							mimeType: add.mime,
+						},
+					}) as unknown as Parameters<typeof attachedImagesOf>[0][number],
+			);
+		const uploads = attachedImagesOf(items).map((artifact) => ({
+			artifactId: artifact.id,
+			name: artifact.name,
+			mimeType: artifact.mimeType ?? "",
+		}));
 		const refs = present
 			.filter((add): add is Extract<Add, { kind: "ref" }> => add.kind === "ref")
 			.map((add) => ({
