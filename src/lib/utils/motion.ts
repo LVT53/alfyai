@@ -56,7 +56,7 @@ export const MOTION_EASING = {
  * (0..1) solved for the curve's x, then its y. For Svelte transitions, which
  * take a function where WAAPI takes the token's string.
  */
-export function cubicBezier(
+function cubicBezier(
 	x1: number,
 	y1: number,
 	x2: number,

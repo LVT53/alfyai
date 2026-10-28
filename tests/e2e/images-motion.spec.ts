@@ -5028,6 +5028,7 @@ test.describe("marks sent with a message, and left from an older picture (T6)", 
 				segments: ["new-version", "edit-queued"],
 			});
 		}
+		expect(flow.errors, "the page logged an error").toEqual([]);
 		expect(metrics.chipAfterEdit, "the old marks came back as a chip").toBe(0);
 		expect(
 			metrics.boxesAfterEdit,
