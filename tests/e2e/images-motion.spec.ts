@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
 	type Browser,
 	type BrowserContext,
+	type CDPSession,
 	expect,
 	type Page,
 	test,
@@ -1370,10 +1371,61 @@ async function makeDocument(flow: Flow) {
 	).toBeVisible({ timeout: 30_000 });
 }
 
+/**
+ * Waits for the page to be still, on its own state rather than a guessed
+ * time (final review A-M4): no finite animation or transition running, no
+ * scroll moving, every picture decoded and the shell's boxes unchanged, for
+ * QUIET_FRAMES frames in a row. A step whose motion starts a few frames late
+ * (after a fetch) resets the count instead of being measured mid-motion.
+ */
+const QUIET_FRAMES = 8;
 async function settle(page: Page) {
-	await page.waitForTimeout(150);
 	await waitForMotionToSettle(page);
-	await page.waitForTimeout(200);
+	await page.waitForFunction(
+		(needed) => {
+			type Quiet = { last: string; count: number };
+			const store = window as unknown as { __settle?: Quiet };
+			const running = document
+				.getAnimations()
+				.filter(
+					(animation) =>
+						animation.playState === "running" &&
+						animation.effect?.getComputedTiming().iterations !== Infinity,
+				).length;
+			const box = (selector: string) => {
+				const rect = document.querySelector(selector)?.getBoundingClientRect();
+				return rect
+					? [rect.x, rect.y, rect.width, rect.height].map(Math.round).join(",")
+					: "-";
+			};
+			const scrollers = [...document.querySelectorAll(".scroll-container")]
+				.map((element) => Math.round(element.scrollTop))
+				.join(",");
+			const undecoded = [...document.images].filter(
+				(image) => image.src && !image.complete,
+			).length;
+			const now = [
+				running,
+				undecoded,
+				scrollers,
+				box("aside.workspace-shell-desktop"),
+				box(".workspace-content"),
+				box('[data-testid="image-picture"]'),
+			].join("|");
+			const quiet = store.__settle ?? { last: "", count: 0 };
+			quiet.count =
+				running === 0 && undecoded === 0 && now === quiet.last
+					? quiet.count + 1
+					: 0;
+			quiet.last = now;
+			store.__settle = quiet;
+			if (quiet.count < needed) return false;
+			store.__settle = undefined;
+			return true;
+		},
+		QUIET_FRAMES,
+		{ polling: "raf", timeout: 10_000 },
+	);
 }
 
 const isPhoneFlow = (flow: Flow) =>
@@ -2125,19 +2177,18 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 					{ x: cx - spread, y: cy },
 					{ x: cx + spread, y: cy },
 				]);
-				await page.waitForTimeout(16);
+				await nextFrame(page);
 			}
 			await touch("touchEnd", []);
-			await page.waitForTimeout(200);
+			await waitForMotionToSettle(page);
 			const zoomed = await scaleOf();
 			const shellAfter = await page.locator(MOBILE_SHELL).boundingBox();
 			mark(flow, "double-tap");
-			for (let tap = 0; tap < 2; tap++) {
-				await touch("touchStart", [{ x: cx, y: cy }]);
-				await touch("touchEnd", []);
-				await page.waitForTimeout(80);
-			}
-			await page.waitForTimeout(400);
+			// The two taps carry their own times, 80 ms apart: what the page reads
+			// as their gap (event.timeStamp) is then never the harness's dispatch
+			// latency, which under load can pass the 300 ms double-tap window.
+			await doubleTap(client, { x: cx, y: cy });
+			await expect.poll(scaleOf, { timeout: 5_000 }).toBe(1);
 			await waitForMotionToSettle(page);
 			const reset = await scaleOf();
 			const run = await stopRecording(page);
@@ -4400,8 +4451,36 @@ type Hand = {
 		steps?: number,
 	): Promise<void>;
 	tap(at: { x: number; y: number }): Promise<void>;
+	/** Two taps 80 ms apart by their own event times (a mouse: two clicks). */
+	doubleTap(at: { x: number; y: number }): Promise<void>;
 	press(selector: string): Promise<void>;
 };
+
+/**
+ * Two one-finger taps whose touch events carry explicit times 80 ms apart
+ * (CDP `timestamp`, which becomes the events' `timeStamp`), so the gap the
+ * page measures is the one written here, whatever the dispatch latency.
+ */
+async function doubleTap(
+	client: CDPSession,
+	at: { x: number; y: number },
+): Promise<void> {
+	const base = Date.now() / 1000;
+	const send = (
+		type: string,
+		offsetMs: number,
+		points: Array<{ x: number; y: number }>,
+	) =>
+		client.send("Input.dispatchTouchEvent", {
+			type,
+			timestamp: base + offsetMs / 1000,
+			touchPoints: points.map((point, id) => ({ ...point, id })),
+		});
+	await send("touchStart", 0, [at]);
+	await send("touchEnd", 10, []);
+	await send("touchStart", 80, [at]);
+	await send("touchEnd", 90, []);
+}
 
 /** A mouse on a desktop, one finger (CDP touch) on a phone. Each move waits for a frame. */
 async function handFor(page: Page, phone: boolean): Promise<Hand> {
@@ -4420,6 +4499,10 @@ async function handFor(page: Page, phone: boolean): Promise<Hand> {
 				await page.mouse.up();
 			},
 			async tap(at) {
+				await page.mouse.click(at.x, at.y);
+			},
+			async doubleTap(at) {
+				await page.mouse.click(at.x, at.y);
 				await page.mouse.click(at.x, at.y);
 			},
 			async press(selector) {
@@ -4450,6 +4533,9 @@ async function handFor(page: Page, phone: boolean): Promise<Hand> {
 		async tap(at) {
 			await touch("touchStart", [at]);
 			await touch("touchEnd", []);
+		},
+		async doubleTap(at) {
+			await doubleTap(client, at);
 		},
 		async press(selector) {
 			await page.locator(selector).first().tap();
@@ -4771,10 +4857,7 @@ test.describe("marks on the open picture (T6)", () => {
 					// Fix round 1: two quick taps in Mark mode (on no box) keep the zoom.
 					mark(flow, "double-tap");
 					const empty = zoomed.at(0.3, 0.75);
-					for (let tap = 0; tap < 2; tap++) {
-						await hand.tap(empty);
-						await page.waitForTimeout(80);
-					}
+					await hand.doubleTap(empty);
 					await settle(page);
 					const afterDoubleTap = await frameBox(page);
 					steps.zoom = t6Step(await stopRecording(page));
