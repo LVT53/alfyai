@@ -261,11 +261,16 @@ const valueText = $derived(`${Math.round(clamp(position))}%`);
 		box-shadow: 0 1px 6px color-mix(in srgb, var(--text-primary) 30%, transparent);
 	}
 
+	/* One pill for both tags, with an edge and a lift, so it reads as a pill on a
+	   light picture, a dark one and the checkerboard alike (V2: After looked bare
+	   wherever its side was light). */
 	.compare-wipe-tag {
 		position: absolute;
 		top: var(--space-sm);
 		padding: calc(var(--space-xs) / 2) var(--space-sm);
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-full);
+		box-shadow: var(--shadow-md);
 		background: color-mix(in srgb, var(--surface-page) 86%, transparent);
 		color: var(--text-primary);
 		font-family: var(--font-sans);

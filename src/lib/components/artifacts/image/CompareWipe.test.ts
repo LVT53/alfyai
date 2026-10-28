@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import CompareWipe from "./CompareWipe.svelte";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // History's compare wipe (plan 2b T4, preflight §4 T4): two pictures in one
 // box, the newer laid over the older and cut at the wipe's position. The cut is
@@ -96,5 +101,22 @@ describe("CompareWipe", () => {
 				.getByTestId("compare-wipe")
 				.classList.contains("image-checkerboard"),
 		).toBe(false);
+	});
+});
+
+describe("CompareWipe's tags (final fix wave, V2)", () => {
+	it("draws both tags as one pill with an edge, so neither vanishes on a light or see-through picture", () => {
+		const source = readFileSync(path.join(here, "CompareWipe.svelte"), "utf8");
+		const rule = /\.compare-wipe-tag \{([^}]*)\}/.exec(source)?.[1] ?? "";
+		expect(rule).toMatch(/border:\s*1px solid var\(--border-default\)/);
+		expect(rule).toMatch(/box-shadow:\s*var\(--shadow-md\)/);
+		// One look for both: the side rules only place them.
+		for (const side of ["before", "after"]) {
+			const own =
+				new RegExp(`\\.compare-wipe-tag-${side} \\{([^}]*)\\}`).exec(
+					source,
+				)?.[1] ?? "";
+			expect(own.trim()).toMatch(/^(left|right): var\(--space-sm\);$/);
+		}
 	});
 });
