@@ -19,6 +19,7 @@ import {
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
+	composerMarksFromSend,
 	composerPicturesFromSend,
 	composerPlaceholderKey,
 	createAssistantPlaceholder,
@@ -34,6 +35,7 @@ import {
 	isPendingSkillUnavailableError,
 	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
+	marksOutdated,
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
@@ -2261,5 +2263,116 @@ describe("restoring a turn's picture order (plan 2b T5 fix round 1)", () => {
 			}),
 		).toEqual(["upload:photo-1", "ref:f1"]);
 		expect(pictureOrderFromSend(undefined)).toEqual([]);
+	});
+});
+
+describe("marks left from an older picture (plan 2b T6, Review Focus 4)", () => {
+	const held = {
+		marks: {
+			imageFileId: "file-2",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+			artifactId: "img-1",
+			name: "Cosy room",
+		},
+		version: 2,
+	};
+
+	it("keeps the marks while their item is open on the version they were drawn on, or the panel is shut", () => {
+		expect(marksOutdated(held, { openItemId: "img-1", version: 2 })).toBe(
+			false,
+		);
+		expect(marksOutdated(held, { openItemId: null, version: 2 })).toBe(false);
+		expect(marksOutdated(held, { openItemId: null, version: null })).toBe(
+			false,
+		);
+	});
+
+	it("lets them go when another item opens", () => {
+		expect(marksOutdated(held, { openItemId: "img-2", version: 2 })).toBe(true);
+		expect(
+			marksOutdated(held, { openItemId: "generated:report.pdf", version: 2 }),
+		).toBe(true);
+	});
+
+	it("lets them go when their item gets a newer version, open or not", () => {
+		expect(marksOutdated(held, { openItemId: "img-1", version: 3 })).toBe(true);
+		expect(marksOutdated(held, { openItemId: null, version: 3 })).toBe(true);
+	});
+
+	it("never lets them go on a version it cannot compare", () => {
+		expect(
+			marksOutdated(
+				{ ...held, version: null },
+				{ openItemId: "img-1", version: 5 },
+			),
+		).toBe(false);
+	});
+});
+
+describe("restoring a turn's marks (plan 2b T6)", () => {
+	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
+	const pictures = {
+		refs: [
+			{ imageFileId: "f1", number: 1, name: "Red rug" },
+			{ imageFileId: "file-2", number: 2, name: "Cosy room" },
+		],
+		open: null,
+		marks: null,
+	};
+
+	it("brings the marks chip back from the turn, and only the attached pictures as picture chips", () => {
+		const payload = {
+			pictures,
+			imageMarks: { imageFileId: "file-2", marks },
+			markedPicture: { artifactId: "img-1", name: "Cosy room", addedRef: true },
+		};
+		expect(composerMarksFromSend(payload)).toEqual({
+			imageFileId: "file-2",
+			marks,
+			artifactId: "img-1",
+			name: "Cosy room",
+		});
+		expect(
+			composerPicturesFromSend(
+				pictures,
+				payload.markedPicture.addedRef ? "file-2" : null,
+			),
+		).toEqual([{ imageFileId: "f1", name: "Red rug" }]);
+	});
+
+	it("keeps a marked picture that was attached as its own chip", () => {
+		expect(composerPicturesFromSend(pictures, null)).toHaveLength(2);
+	});
+
+	it("brings no marks back from a turn that had none", () => {
+		expect(composerMarksFromSend({})).toBeNull();
+		expect(
+			composerMarksFromSend({
+				imageMarks: { imageFileId: "file-2", marks: [] },
+				markedPicture: {
+					artifactId: "img-1",
+					name: "Cosy room",
+					addedRef: true,
+				},
+			}),
+		).toBeNull();
+	});
+
+	it("keeps the marks when a send payload is copied", () => {
+		const cloned = cloneSendPayload({
+			message: "Move A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			imageMarks: { imageFileId: "file-2", marks },
+			markedPicture: { artifactId: "img-1", name: "Cosy room", addedRef: true },
+		});
+		expect(cloned.imageMarks).toEqual({ imageFileId: "file-2", marks });
+		expect(cloned.imageMarks?.marks[0]).not.toBe(marks[0]);
+		expect(cloned.markedPicture).toEqual({
+			artifactId: "img-1",
+			name: "Cosy room",
+			addedRef: true,
+		});
 	});
 });

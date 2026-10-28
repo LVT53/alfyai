@@ -8,6 +8,7 @@ import {
 import { hasActiveImageTakes } from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import {
+	type ComposerMarks,
 	type ComposerPictureRef,
 	pictureKey,
 } from "$lib/components/chat/composer-pictures";
@@ -44,6 +45,7 @@ import type {
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
 import type {
+	ImageMarksRequest,
 	PictureRef,
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
@@ -71,6 +73,10 @@ export type SendPayload = {
 	// (plan 2b T5). See normal-chat-client-turn-runtime.ts's NormalChatSendPayload.
 	pictureRefs?: PictureRef[];
 	pictures?: UserPicturesMetadata;
+	// The marks drawn on one picture, and (client-only) the item they were drawn
+	// on (plan 2b T6). See NormalChatSendPayload.
+	imageMarks?: ImageMarksRequest | null;
+	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -1128,8 +1134,11 @@ export function addComposerPicture(
 /** The chips of a queued turn put back in the composer (in their number order). */
 export function composerPicturesFromSend(
 	pictures: UserPicturesMetadata | undefined,
+	/** The marked picture the send added as a ref itself (T6): it comes back as the marks chip, not as a picture chip. */
+	exceptFileId: string | null = null,
 ): ComposerPictureRef[] {
 	return [...(pictures?.refs ?? [])]
+		.filter((ref) => ref.imageFileId !== exceptFileId)
 		.sort((a, b) => a.number - b.number)
 		.map((ref) => ({ imageFileId: ref.imageFileId, name: ref.name }));
 }
@@ -1139,6 +1148,46 @@ export function composerPicturesFromSend(
  * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
  * back in the composer keeps the numbers the person's own text names.
  */
+/**
+ * The marks chip a queued or failed turn had (plan 2b T6), or `null`: its
+ * request and the item it was drawn on.
+ */
+export function composerMarksFromSend(
+	payload: Pick<SendPayload, "imageMarks" | "markedPicture">,
+): ComposerMarks | null {
+	const { imageMarks, markedPicture } = payload;
+	if (!imageMarks || !markedPicture || imageMarks.marks.length === 0) {
+		return null;
+	}
+	return {
+		imageFileId: imageMarks.imageFileId,
+		marks: imageMarks.marks.map((mark) => ({ ...mark })),
+		artifactId: markedPicture.artifactId,
+		name: markedPicture.name,
+	};
+}
+
+/** The marks the page holds, and the version of their item they were drawn on. */
+export type HeldMarks = { marks: ComposerMarks; version: number | null };
+
+/**
+ * Whether the marks the page holds were left by an older picture (Review Focus
+ * 4): another item is open in the panel (a closed panel keeps them: the send
+ * adds their picture, F14), or their item has a newer version than the one
+ * they were drawn on. A version either side does not know never drops them.
+ */
+export function marksOutdated(
+	held: HeldMarks,
+	now: { openItemId: string | null; version: number | null },
+): boolean {
+	if (now.openItemId !== null && now.openItemId !== held.marks.artifactId) {
+		return true;
+	}
+	return (
+		held.version !== null && now.version !== null && now.version > held.version
+	);
+}
+
 export function pictureOrderFromSend(
 	pictures: UserPicturesMetadata | undefined,
 ): string[] {
@@ -1184,6 +1233,15 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 				}
 			: null,
 		pictureRefs: payload.pictureRefs?.map((ref) => ({ ...ref })),
+		imageMarks: payload.imageMarks
+			? {
+					imageFileId: payload.imageMarks.imageFileId,
+					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
+				}
+			: payload.imageMarks,
+		markedPicture: payload.markedPicture
+			? { ...payload.markedPicture }
+			: undefined,
 		pictures: payload.pictures
 			? {
 					...payload.pictures,

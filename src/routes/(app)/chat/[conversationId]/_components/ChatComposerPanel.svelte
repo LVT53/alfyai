@@ -1,7 +1,10 @@
 <script lang='ts'>
 import type { Snippet } from "svelte";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
-import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
+import type {
+	ComposerMarks,
+	ComposerPictureRef,
+} from "$lib/components/chat/composer-pictures";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -31,6 +34,8 @@ let {
 	pictureRefs = [],
 	onRemovePictureRef = undefined,
 	draftPictureOrder = [],
+	imageMarks = null,
+	onClearMarks = undefined,
 	focusRequest = 0,
 	onStop,
 	onDraftChange,
@@ -94,6 +99,9 @@ let {
 	/** Rises when a picture was just attached: the composer takes focus. */
 	/** The numbering order of a restored turn's pictures, applied with the draft. */
 	draftPictureOrder?: readonly string[];
+	/** The marks drawn on one picture in the panel (plan 2b T6): one chip, cleared by its x. */
+	imageMarks?: ComposerMarks | null;
+	onClearMarks?: (() => void) | undefined;
 	focusRequest?: number;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
@@ -223,6 +231,8 @@ $effect(() => {
 			{pictureRefs}
 			{onRemovePictureRef}
 			{draftPictureOrder}
+			{imageMarks}
+			{onClearMarks}
 			{focusRequest}
 			{onStop}
 			{onDraftChange}

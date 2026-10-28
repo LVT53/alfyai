@@ -66,6 +66,11 @@ export type NormalChatSendPayload = {
 	// the uploads, never from this.
 	pictures?: UserPicturesMetadata;
 	imageMarks?: ImageMarksRequest | null;
+	// The item the marks were drawn on and whether the send added its picture as
+	// a ref (plan 2b T6): a queued or failed turn put back in the composer gets
+	// its marks chip back, and only the pictures the person attached as chips.
+	// CLIENT-ONLY, like `pictures`: `streamChat` never sends it.
+	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -1661,6 +1666,9 @@ function cloneSendPayload(
 					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
 				}
 			: null,
+		markedPicture: payload.markedPicture
+			? { ...payload.markedPicture }
+			: undefined,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		personalityProfileId: payload.personalityProfileId ?? null,

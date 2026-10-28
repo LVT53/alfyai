@@ -1384,6 +1384,40 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(streamInvocations).toHaveLength(1);
 	});
 
+	it("keeps the marked item through a queued turn's copy and its restore, and never sends it (T6)", async () => {
+		const markedPicture = {
+			artifactId: "img-1",
+			name: "Cosy room",
+			addedRef: true,
+		};
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			markedPicture,
+		});
+		expect(JSON.stringify(streamInvocations[0]?.options ?? {})).not.toContain(
+			"markedPicture",
+		);
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			markedPicture,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.markedPicture).toEqual(markedPicture);
+		expect(queued?.markedPicture).not.toBe(markedPicture);
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ markedPicture }),
+		);
+	});
+
 	it("sends a drained follow-up with its pictures and marks", async () => {
 		const marks = {
 			imageFileId: "file-1",

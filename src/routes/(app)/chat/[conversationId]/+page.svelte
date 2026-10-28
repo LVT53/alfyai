@@ -90,6 +90,7 @@ import {
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import {
 	conversationDisplayTitle,
@@ -214,7 +215,10 @@ import {
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
+	composerMarksFromSend,
 	composerPicturesFromSend,
+	type HeldMarks,
+	marksOutdated,
 	pictureOrderFromSend,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
@@ -437,6 +441,12 @@ let queuedTurn = $state<SendPayload | null>(null);
 let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
 // The order a restored turn's pictures were numbered in (travels with the draft).
 let composerPictureOrder = $state.raw<readonly string[]>([]);
+// The marks drawn on the open picture (plan 2b T6): one composer chip, and the
+// boxes in the panel. Held with the version of their item they were drawn on,
+// and let go when they would be left from an older picture (another item
+// opens, a newer version lands: Review Focus 4), on the chip's x, on a send or
+// queue, and on a switch to another chat.
+let heldMarks = $state.raw<HeldMarks | null>(null);
 let composerFocusRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
@@ -1749,16 +1759,81 @@ function removeComposerPicture(imageFileId: string) {
 	);
 }
 
-// The pictures leave the composer with the message, sent or queued.
+// The pictures and the marks leave the composer with the message, sent or queued.
 function handleComposerSend(payload: SendPayload) {
 	composerPictures = [];
+	heldMarks = null;
 	return handleSend(payload);
 }
 
 function handleComposerQueue(payload: SendPayload) {
 	composerPictures = [];
+	heldMarks = null;
 	handleQueue(payload);
 }
+
+/** The newest version the page knows of an item: its list row's, or its open panel item's. */
+function latestVersionOf(artifactId: string): number | null {
+	const row = currentArtifactMomentById.get(artifactId)?.version ?? null;
+	const open =
+		liveWorkspaceDocuments.find(
+			(document) => document.artifactId === artifactId,
+		)?.versionNumber ?? null;
+	if (row === null) return open;
+	return open === null ? row : Math.max(row, open);
+}
+
+/** The open panel item, by its artifact (or its own id when it is not one); null while the panel is shut or shows its list. */
+let openPanelItemId = $derived.by(() => {
+	if (!workspaceOpen || !activeWorkspaceDocumentId) return null;
+	const active = liveWorkspaceDocuments.find(
+		(document) => document.id === activeWorkspaceDocumentId,
+	);
+	return active?.artifactId ?? activeWorkspaceDocumentId;
+});
+
+/** The open Image body drew, changed or emptied its marks. */
+function handleMarksChange(request: ImageMarksRequest | null) {
+	if (!request) {
+		heldMarks = null;
+		return;
+	}
+	const active = liveWorkspaceDocuments.find(
+		(document) => document.id === activeWorkspaceDocumentId,
+	);
+	const artifactId = active?.artifactId;
+	if (!active || !artifactId) return;
+	const sameFile =
+		heldMarks?.marks.artifactId === artifactId &&
+		heldMarks.marks.imageFileId === request.imageFileId;
+	heldMarks = {
+		marks: {
+			imageFileId: request.imageFileId,
+			marks: request.marks,
+			artifactId,
+			name: active.title || active.filename || "",
+		},
+		version:
+			sameFile && heldMarks ? heldMarks.version : latestVersionOf(artifactId),
+	};
+}
+
+$effect(() => {
+	const held = heldMarks;
+	if (!held) return;
+	const now = {
+		openItemId: openPanelItemId,
+		version: latestVersionOf(held.marks.artifactId),
+	};
+	if (marksOutdated(held, now)) untrack(() => (heldMarks = null));
+});
+
+/** The boxes the panel shows: the held marks, on their own item only. */
+let panelMarks = $derived(
+	heldMarks && openPanelItemId === heldMarks.marks.artifactId
+		? heldMarks.marks.marks
+		: [],
+);
 
 /**
  * What a picture card's buttons ask for (plan 2b T2). Each goes through
@@ -2224,6 +2299,7 @@ function resetState() {
 	sendError = null;
 	isSending = false;
 	composerPictures = [];
+	heldMarks = null;
 	titleGenerationTriggered = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,
@@ -3027,9 +3103,22 @@ $effect(() => {
 });
 
 function restorePayloadToDraft(payload: SendPayload) {
-	// The queued turn's card pictures come back as chips (its marks come back
-	// with T6's Mark chip).
-	composerPictures = composerPicturesFromSend(payload.pictures);
+	// The queued turn's card pictures come back as chips, and its marks as the
+	// marks chip (the marked picture the send added itself is that chip, not a
+	// picture chip of its own).
+	const restoredMarks = composerMarksFromSend(payload);
+	heldMarks = restoredMarks
+		? {
+				marks: restoredMarks,
+				version: latestVersionOf(restoredMarks.artifactId),
+			}
+		: null;
+	composerPictures = composerPicturesFromSend(
+		payload.pictures,
+		payload.markedPicture?.addedRef
+			? (payload.imageMarks?.imageFileId ?? null)
+			: null,
+	);
 	composerPictureOrder = pictureOrderFromSend(payload.pictures);
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
 	conversationDraft = createConversationDraftRecord({
@@ -4252,6 +4341,8 @@ function handleDrop(event: DragEvent) {
 				pictureRefs={composerPictures}
 				onRemovePictureRef={removeComposerPicture}
 				draftPictureOrder={composerPictureOrder}
+				imageMarks={heldMarks?.marks ?? null}
+				onClearMarks={() => (heldMarks = null)}
 				focusRequest={composerFocusRequest}
 				onStop={handleStop}
 				onCompact={handleCompact}
@@ -4345,6 +4436,8 @@ function handleDrop(event: DragEvent) {
 			{artifactVersionMessages}
 			onShowChatMessage={handleShowChatMessage}
 			onAttachPicture={attachPicture}
+			marks={panelMarks}
+			onMarksChange={handleMarksChange}
 			currentUser={data.user}
 		/>
 	</div>
