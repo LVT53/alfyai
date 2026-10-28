@@ -1,4 +1,5 @@
 <script lang="ts">
+import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import { sanitizeHtml } from "$lib/utils/html-sanitizer";
@@ -214,7 +215,7 @@ function downloadFile() {
 	const url = URL.createObjectURL(content);
 	const anchor = document.createElement("a");
 	anchor.href = url;
-	anchor.download = filename;
+	anchor.download = ensureFilenameExtension(filename, content.type || mimeType);
 	document.body.appendChild(anchor);
 	anchor.click();
 	document.body.removeChild(anchor);
