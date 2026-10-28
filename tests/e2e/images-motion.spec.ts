@@ -4433,12 +4433,9 @@ test.describe("pictures in the composer on a phone (T5)", () => {
 				await seedPictureHistory(user, chatId);
 				await reopenChat(page, chatId);
 				const attachFromHistory = async (label: string, frame: number) => {
-					if (label === "first") {
-						await openItem(page, IMAGE_ITEM_TITLE);
-					} else {
-						// The panel gave way and remembers its item: the count button brings it back.
-						await page.getByTestId("artifact-count-button-compact").click();
-					}
+					// The panel gave way; the count button opens the list (Task 14), and the
+					// row opens the item again.
+					await openItem(page, IMAGE_ITEM_TITLE);
 					await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
 						timeout: 20_000,
 					});

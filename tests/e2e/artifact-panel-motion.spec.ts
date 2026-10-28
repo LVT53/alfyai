@@ -477,7 +477,7 @@ test.describe("deleting, expanding and closing the open item", () => {
 			).toBeLessThanOrEqual(2);
 		});
 
-		test(`${item.kind}: the X of an expanded panel closes it, and the count button brings the item back`, async ({
+		test(`${item.kind}: the X of an expanded panel closes it, and the count button opens the list`, async ({
 			page,
 		}) => {
 			await readerWithItems(page, [...item.seed]);
@@ -500,9 +500,10 @@ test.describe("deleting, expanding and closing the open item", () => {
 				page.locator("aside.workspace-shell-desktop:visible"),
 			).toHaveCount(0);
 
+			// The count button opens this chat's list, never the item (Task 14).
 			await page.getByTestId("artifact-count-button").click();
-			await expect(visibleTitle(page)).toHaveText(item.title);
-			await expect(panelList(page)).toHaveCount(0);
+			await expect(panelList(page)).toBeVisible();
+			await expect(visibleTitle(page)).toHaveCount(0);
 		});
 
 		test(`${item.kind}: an expanded panel can be docked again, by its own button`, async ({
