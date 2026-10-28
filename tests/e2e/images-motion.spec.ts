@@ -2102,7 +2102,11 @@ test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
 					element ? element.getBoundingClientRect() : null;
 				const strip = row.querySelector(".image-body-strip");
 				const tools = row.querySelector(".image-body-toolbar");
-				const buttons = [...row.querySelectorAll("button")].map((button) => {
+				// A button that is not drawn (the strip's Attach dot, hidden on touch) is no target.
+				const drawn = [...row.querySelectorAll("button")].filter(
+					(button) => button.getClientRects().length > 0,
+				);
+				const buttons = drawn.map((button) => {
 					const box = button.getBoundingClientRect();
 					return {
 						label:
