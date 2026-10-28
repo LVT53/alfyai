@@ -17,6 +17,7 @@
 import {
 	Check,
 	Ellipsis,
+	EyeOff,
 	History,
 	Download,
 	ImageOff,
@@ -294,6 +295,16 @@ function stateWords(current: ImageCardState): {
 					: $t("artifacts.image.card.failed"),
 				detail: $t("artifacts.image.card.nothingSaved"),
 			};
+		case "blocked":
+			return current.unchecked
+				? {
+						line: $t("artifacts.image.card.unchecked"),
+						detail: $t("artifacts.image.card.uncheckedDetail"),
+					}
+				: {
+						line: $t("artifacts.image.card.blocked"),
+						detail: $t("artifacts.image.card.blockedDetail"),
+					};
 		case "stopped":
 			return { line: $t("artifacts.image.card.stopped"), detail: null };
 		case "ready":
@@ -404,19 +415,26 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			</div>
 		{:else}
 			{#key cardState.kind}
+				<!-- A picture the explicit-picture filter kept back is not a failure: a
+				     quiet eye-off and two calm lines; Try again only when the check
+				     could not run (the same seed would make a blocked picture again,
+				     and Another is still there for a new one). -->
 				<div
 					class="image-card-layer image-card-state"
-					data-testid="image-card-state"
+					class:image-card-blocked={cardState.kind === 'blocked'}
+					data-testid={cardState.kind === 'blocked' ? 'image-card-blocked' : 'image-card-state'}
 					transition:crossfade={{ duration: MOTION_DURATION.standard }}
 				>
 					<span class="image-card-state-line">
 						{#if cardState.kind === 'failed'}
 							<TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
+						{:else if cardState.kind === 'blocked'}
+							<EyeOff size={16} strokeWidth={1.75} aria-hidden="true" />
 						{/if}
 						<span>{words.line}</span>
 					</span>
 					<span class="image-card-state-detail">{words.detail ?? ''}</span>
-					{#if shown && (cardState.kind === 'failed' || cardState.kind === 'stopped')}
+					{#if shown && (cardState.kind === 'failed' || cardState.kind === 'stopped' || (cardState.kind === 'blocked' && cardState.unchecked))}
 						<button type="button" class="image-card-button" data-testid="image-card-retry" onclick={pressRetry}>
 							{$t('artifacts.image.card.tryAgain')}
 						</button>
@@ -457,6 +475,8 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 							{conversationId}
 							variant="thumb"
 						/>
+					{:else if tileState.kind === 'blocked'}
+						<span class="image-card-tile-state"><EyeOff size={14} strokeWidth={1.75} aria-hidden="true" /></span>
 					{:else if tileState.kind === 'failed' || tileState.kind === 'stopped'}
 						<span class="image-card-tile-state"><TriangleAlert size={14} strokeWidth={2} aria-hidden="true" /></span>
 					{:else}
@@ -709,6 +729,20 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		min-height: 1.2em;
 		max-width: 22rem;
 		font-size: 0.75rem;
+	}
+
+	/* Kept back by the explicit-picture filter: calmer than a failure. A quiet
+	   surface, a muted eye-off and regular weight, no warning colour. */
+	.image-card-blocked {
+		background: var(--surface-elevated);
+	}
+
+	.image-card-blocked .image-card-state-line {
+		font-weight: 500;
+	}
+
+	.image-card-blocked .image-card-state-line :global(svg) {
+		color: var(--icon-muted);
 	}
 
 	/* Waiting, starting up, being made (Task 11): a soft tint over the whole

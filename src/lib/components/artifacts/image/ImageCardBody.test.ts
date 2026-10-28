@@ -520,6 +520,63 @@ describe("ImageCardBody", () => {
 		).toBeInTheDocument();
 	});
 
+	it("says calmly that a blocked picture was not shown, and offers no Try again", () => {
+		render(ImageCardBody, {
+			card: card([
+				take({
+					status: "failed",
+					fileId: null,
+					errorCode: "image_blocked",
+				}),
+			]),
+		});
+		expect(screen.getByTestId("image-card-blocked")).toBeInTheDocument();
+		expect(screen.getByText("This picture was blocked.")).toBeInTheDocument();
+		expect(
+			screen.getByText("It looked explicit, so it wasn't shown or kept."),
+		).toBeInTheDocument();
+		expect(screen.queryByTestId("image-card-retry")).toBeNull();
+		expect(screen.queryByTestId("image-card-picture")).toBeNull();
+		// Another (a new picture) is still there.
+		expect(screen.getByTestId("image-card-another")).toBeEnabled();
+	});
+
+	it("says a picture that could not be checked was not kept, and may be tried again", async () => {
+		const unchecked = take({
+			status: "failed",
+			fileId: null,
+			errorCode: "image_unchecked",
+			retryable: true,
+		});
+		const onAction = vi.fn();
+		render(ImageCardBody, { card: card([unchecked]), onAction });
+		expect(
+			screen.getByText("This picture couldn't be checked."),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Pictures are checked before they're shown, so this one wasn't kept.",
+			),
+		).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(onAction).toHaveBeenCalledWith({
+			type: "retry",
+			takeId: unchecked.id,
+		});
+	});
+
+	it("says it in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(ImageCardBody, {
+			card: card([
+				take({ status: "failed", fileId: null, errorCode: "image_blocked" }),
+			]),
+		});
+		expect(
+			screen.getByText("Ezt a képet a szűrő visszatartotta."),
+		).toBeInTheDocument();
+	});
+
 	it("says a failed take could not be made and that nothing was saved", () => {
 		render(ImageCardBody, {
 			card: card([

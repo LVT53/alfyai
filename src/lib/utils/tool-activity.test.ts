@@ -2098,6 +2098,69 @@ describe("make_image rows", () => {
 		});
 	});
 
+	it("says a picture the filter stopped plainly, from the code, never the model's words", () => {
+		const modelText = "Tell the user plainly that it was blocked.";
+		const blocked = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_blocked",
+				},
+			}),
+			"blocked",
+			translate,
+		);
+		expect(blocked).toMatchObject({
+			verb: "Picture blocked",
+			body: {
+				kind: "error",
+				reason: "It looked explicit, so it was not shown or kept.",
+			},
+		});
+		expect(JSON.stringify(blocked)).not.toContain(modelText);
+
+		const unchecked = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_unchecked",
+				},
+			}),
+			"unchecked",
+			translate,
+		);
+		expect(unchecked).toMatchObject({
+			verb: "Picture blocked",
+			body: {
+				kind: "error",
+				reason: "The picture could not be checked, so it was not shown.",
+			},
+		});
+
+		const request = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: { ok: false, imageRefusal: "explicit_request" },
+			}),
+			"explicit-request",
+			translate,
+		);
+		expect(request).toMatchObject({
+			verb: "Picture not made",
+			body: { kind: "error", reason: "Explicit pictures are not made here." },
+		});
+		expect(chatDict.hu["toolActivity.pictureBlocked"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureNotMade"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureReason.blocked"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureReason.unchecked"]).toBeTruthy();
+		expect(
+			chatDict.hu["toolActivity.pictureReason.explicitRequest"],
+		).toBeTruthy();
+	});
+
 	it("says a timeout that made no take failed plainly", () => {
 		const item = buildToolActivityItem(
 			makeImageCall({

@@ -127,6 +127,30 @@ describe("takeState", () => {
 	});
 });
 
+describe("takeState for a picture the explicit-picture filter stopped", () => {
+	it("is blocked, never a failure to make it", () => {
+		expect(
+			takeState(
+				take({ status: "failed", errorCode: "image_blocked", fileId: null }),
+				0,
+			),
+		).toEqual({ kind: "blocked", unchecked: false });
+	});
+	it("is blocked as unchecked when the check could not run", () => {
+		expect(
+			takeState(
+				take({
+					status: "failed",
+					errorCode: "image_unchecked",
+					fileId: null,
+					retryable: true,
+				}),
+				0,
+			),
+		).toEqual({ kind: "blocked", unchecked: true });
+	});
+});
+
 describe("visibleTakes and shownTake", () => {
 	it("folds a held automatic retry into its first take's slot", () => {
 		const first = take();

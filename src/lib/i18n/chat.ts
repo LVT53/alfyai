@@ -1002,6 +1002,14 @@ const chatDict = {
 		"toolActivity.pictureStillMaking":
 			"Still being made, it will appear on its card",
 		"toolActivity.pictureRequestAdjusted": "Adjusting the picture request",
+		"toolActivity.pictureBlocked": "Picture blocked",
+		"toolActivity.pictureNotMade": "Picture not made",
+		"toolActivity.pictureReason.blocked":
+			"It looked explicit, so it was not shown or kept.",
+		"toolActivity.pictureReason.unchecked":
+			"The picture could not be checked, so it was not shown.",
+		"toolActivity.pictureReason.explicitRequest":
+			"Explicit pictures are not made here.",
 		"toolActivity.pictureReason.unreadable": "This picture could not be read.",
 		"toolActivity.pictureReason.unreachable":
 			"The picture server could not be reached.",
@@ -2190,6 +2198,14 @@ const chatDict = {
 		"toolActivity.pictureStopped": "Kép leállítva",
 		"toolActivity.pictureStillMaking": "Még készül, a kártyán jelenik meg",
 		"toolActivity.pictureRequestAdjusted": "Képkérés pontosítása",
+		"toolActivity.pictureBlocked": "Kép visszatartva",
+		"toolActivity.pictureNotMade": "A kép nem készült el",
+		"toolActivity.pictureReason.blocked":
+			"Szexuális tartalmúnak tűnt, ezért nem jelenik meg, és nem maradt meg.",
+		"toolActivity.pictureReason.unchecked":
+			"A képet nem sikerült ellenőrizni, ezért nem jelenik meg.",
+		"toolActivity.pictureReason.explicitRequest":
+			"Szexuális tartalmú képek itt nem készülnek.",
 		"toolActivity.pictureReason.unreadable": "A kép nem olvasható.",
 		"toolActivity.pictureReason.unreachable": "A képkészítő nem érhető el.",
 		"toolActivity.pictureReason.rejected":

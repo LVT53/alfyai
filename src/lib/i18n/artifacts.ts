@@ -1118,6 +1118,12 @@ const artifactsDict = {
 		"artifacts.image.card.failed": "Couldn't make this one.",
 		"artifacts.image.card.nothingSaved": "Nothing was saved.",
 		"artifacts.image.card.unavailable": "Pictures can't be made right now.",
+		"artifacts.image.card.blocked": "This picture was blocked.",
+		"artifacts.image.card.blockedDetail":
+			"It looked explicit, so it wasn't shown or kept.",
+		"artifacts.image.card.unchecked": "This picture couldn't be checked.",
+		"artifacts.image.card.uncheckedDetail":
+			"Pictures are checked before they're shown, so this one wasn't kept.",
 		"artifacts.image.card.stopped": "Stopped.",
 		"artifacts.image.card.stop": "Stop",
 		"artifacts.image.card.tryAgain": "Try again",
@@ -2078,6 +2084,12 @@ const artifactsDict = {
 		"artifacts.image.card.failed": "Ezt nem sikerült elkészíteni.",
 		"artifacts.image.card.nothingSaved": "Nem lett elmentve semmi.",
 		"artifacts.image.card.unavailable": "Most nem lehet képet készíteni.",
+		"artifacts.image.card.blocked": "Ezt a képet a szűrő visszatartotta.",
+		"artifacts.image.card.blockedDetail":
+			"Szexuális tartalmúnak tűnt, ezért nem jelenik meg, és nem maradt meg.",
+		"artifacts.image.card.unchecked": "Ezt a képet nem sikerült ellenőrizni.",
+		"artifacts.image.card.uncheckedDetail":
+			"A képeket megjelenés előtt ellenőrizzük, ezért ez nem maradt meg.",
 		"artifacts.image.card.stopped": "Leállítva.",
 		"artifacts.image.card.stop": "Leállítás",
 		"artifacts.image.card.tryAgain": "Újrapróbálom",

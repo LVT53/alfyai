@@ -16,6 +16,8 @@ export type ImageCardState =
 			progressPercent: number | null;
 	  }
 	| { kind: "failed"; unavailable: boolean; retryable: boolean }
+	/** The explicit-picture filter kept the picture back: it looked explicit, or (unchecked) the check could not run. */
+	| { kind: "blocked"; unchecked: boolean }
 	| { kind: "stopped" }
 	| { kind: "ready" };
 
@@ -114,6 +116,12 @@ export function takeState(take: ImageTakeView, now: number): ImageCardState {
 		case "cancelled":
 			return { kind: "stopped" };
 		case "failed":
+			if (take.errorCode === "image_blocked") {
+				return { kind: "blocked", unchecked: false };
+			}
+			if (take.errorCode === "image_unchecked") {
+				return { kind: "blocked", unchecked: true };
+			}
 			return {
 				kind: "failed",
 				unavailable:

@@ -202,6 +202,8 @@ const VERB_KEYS = {
 	pictureStopped: "toolActivity.pictureStopped",
 	pictureStillMaking: "toolActivity.pictureStillMaking",
 	pictureRequestAdjusted: "toolActivity.pictureRequestAdjusted",
+	pictureBlocked: "toolActivity.pictureBlocked",
+	pictureNotMade: "toolActivity.pictureNotMade",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -416,7 +418,12 @@ const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
 	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
 	not_configured: "toolActivity.pictureReason.notConfigured",
 	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
+	image_blocked: "toolActivity.pictureReason.blocked",
+	image_unchecked: "toolActivity.pictureReason.unchecked",
 };
+
+/** The explicit-picture filter's codes: the row says the picture was blocked, not that making it failed. */
+const IMAGE_FILTER_ERRORS = new Set(["image_blocked", "image_unchecked"]);
 
 /**
  * The localized reason for a make_image row that did not make its picture; null
@@ -435,6 +442,9 @@ function imageReasonKey(
 	if (typeof refusal === "string") {
 		if (refusal === "not_configured") {
 			return "toolActivity.pictureReason.notConfigured";
+		}
+		if (refusal === "explicit_request") {
+			return "toolActivity.pictureReason.explicitRequest";
 		}
 		return metadata?.imageUnreadable === true
 			? "toolActivity.pictureReason.unreadable"
@@ -692,6 +702,7 @@ function makeImageRow(
 	if (
 		typeof metadata?.imageRefusal === "string" &&
 		metadata.imageRefusal !== "not_configured" &&
+		metadata.imageRefusal !== "explicit_request" &&
 		metadata.imageUnreadable !== true
 	) {
 		const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
@@ -707,7 +718,14 @@ function makeImageRow(
 		};
 	}
 	if (status === "failed" || metadata?.ok === false) {
-		const failedVerb = translate(VERB_KEYS.pictureFailed);
+		const failedVerb = translate(
+			metadata?.imageRefusal === "explicit_request"
+				? VERB_KEYS.pictureNotMade
+				: typeof metadata?.imageError === "string" &&
+						IMAGE_FILTER_ERRORS.has(metadata.imageError)
+					? VERB_KEYS.pictureBlocked
+					: VERB_KEYS.pictureFailed,
+		);
 		// Words for the person come from the code, never from what the model was told.
 		const reasonKey = imageReasonKey(metadata);
 		const reason = reasonKey ? translate(reasonKey) : "";
