@@ -831,7 +831,7 @@ const settingsDict = {
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Back to settings",
 		settings_skillsManagerOpenA11y: "Open skills manager",
-		settings_skillsManagerStatus: "{active} active · {disabled} disabled",
+		settings_skillsManagerStatus: "{active} enabled · {disabled} disabled",
 		settings_skillsManagerSummaryLabel: "Skills",
 		settings_skillsManagerTitle: "Skills",
 		settings_uploadPhotoA11y: "Upload photo",
@@ -2010,7 +2010,7 @@ const settingsDict = {
 		"profileTab.skillsHelp":
 			"Short instructions AlfyAI follows for a kind of task. Opens the full manager.",
 		"profileTab.manageSkills": "Manage skills",
-		"profileTab.skillsCountActive": "{count} active",
+		"profileTab.skillsCountEnabled": "{count} enabled",
 		"profileTab.skillsCountDisabled": "{count} disabled",
 		"profileTab.memoryProfile": "Memory profile",
 		"profileTab.memoryProfileHelp":
@@ -2285,7 +2285,7 @@ const settingsDict = {
 		"admin.completionTokens": "Befejezési tokenek",
 		"admin.composerCommandRegistry": "Beviteli parancsregiszter",
 		"admin.composerCommandRegistryDescription":
-			"Megjeleníti a normál chat parancsregiszterének vázát. A skill futtatási viselkedés a későbbi szeletekig inaktív marad.",
+			"Megjeleníti a normál chat parancsregiszterének vázát. A készségek futtatási viselkedése a későbbi szeletekig inaktív marad.",
 		"admin.composerCommandRegistryEnabled":
 			"Beviteli parancsregiszter engedélyezése",
 		"admin.connected": "Kapcsolódva",
@@ -2599,31 +2599,31 @@ const settingsDict = {
 		"admin.systemPrompt": "Rendszerprompt",
 		"admin.systemPromptDescription": `Állítsd be az összes modellhez használt rendszerpromptot. Beilleszthetsz egy teljes rendszerpromptot, vagy megadhatsz egy referenciakulcsot, például \`alfyai-nemotron\`. Hagyd üresen a modellenkénti alapértelmezésekhez.`,
 		"admin.systemPromptLabel": "Rendszerprompt",
-		"admin.systemSkills.createTitle": "Skill létrehozása",
-		"admin.systemSkills.created": "Skill létrehozva.",
-		"admin.systemSkills.description": `Admin által meghatározott skillek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.`,
+		"admin.systemSkills.createTitle": "Készség létrehozása",
+		"admin.systemSkills.created": "Készség létrehozva.",
+		"admin.systemSkills.description": `Admin által meghatározott készségek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.`,
 		"admin.systemSkills.descriptionPlaceholder":
 			"Felhasználóknak megjelenő rövid cél",
 		// An example skill NAME, not a label — it has to be a plausible thing a
 		// Hungarian admin would type into the field, so it is translated like
 		// the description placeholder next to it rather than left in English.
 		"admin.systemSkills.displayNamePlaceholder": "Értékelő partner",
-		"admin.systemSkills.editTitle": "Skill szerkesztése",
-		"admin.systemSkills.empty": "Még nincsenek skillek.",
-		"admin.systemSkills.errors.load": "Nem sikerült betölteni a skilleket.",
-		"admin.systemSkills.errors.save": "Nem sikerült menteni a skillt.",
+		"admin.systemSkills.editTitle": "Készség szerkesztése",
+		"admin.systemSkills.empty": "Még nincsenek készségek.",
+		"admin.systemSkills.errors.load": "Nem sikerült betölteni a készségeket.",
+		"admin.systemSkills.errors.save": "Nem sikerült menteni a készséget.",
 		"admin.systemSkills.instructionsPlaceholder":
-			"Csak adminoknak látható utasítások ehhez a skillhez",
-		"admin.systemSkills.loading": "Skillek betöltése...",
-		"admin.systemSkills.new": "Új skill",
+			"Csak adminoknak látható utasítások ehhez a készséghez",
+		"admin.systemSkills.loading": "Készségek betöltése...",
+		"admin.systemSkills.new": "Új készség",
 		"admin.systemSkills.publish": "Közzététel",
 		"admin.systemSkills.publishA11y": "{name} közzététele",
 		"admin.systemSkills.published": "Közzétéve",
-		"admin.systemSkills.save": "Skill mentése",
+		"admin.systemSkills.save": "Készség mentése",
 		"admin.systemSkills.status.draft": "Vázlat",
 		"admin.systemSkills.status.published": "Közzétéve",
-		"admin.systemSkills.title": "Skillek",
-		"admin.systemSkills.updated": "Skill frissítve.",
+		"admin.systemSkills.title": "Készségek",
+		"admin.systemSkills.updated": "Készség frissítve.",
 		"admin.targetConstructedContext": "Célkontextus (token)",
 		"admin.thinkingType": "thinking.type",
 		"admin.thirdPartyDescription": `A külső modellek ugyanazt az OpenAI-kompatibilis chat futtatást és csatlakoztatott eszközöket használják, mint a beépített modellek.`,
@@ -2915,10 +2915,10 @@ const settingsDict = {
 		settings_systemAnalyticsTab: "Rendszerstatisztika",
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Vissza a beállításokhoz",
-		settings_skillsManagerOpenA11y: "Skill-kezelő megnyitása",
-		settings_skillsManagerStatus: "{active} aktív · {disabled} letiltva",
-		settings_skillsManagerSummaryLabel: "Skillek",
-		settings_skillsManagerTitle: "Skillek",
+		settings_skillsManagerOpenA11y: "Készségkezelő megnyitása",
+		settings_skillsManagerStatus: "{active} engedélyezve · {disabled} letiltva",
+		settings_skillsManagerSummaryLabel: "Készségek",
+		settings_skillsManagerTitle: "Készségek",
 		settings_uploadPhotoA11y: "Kép feltöltése",
 		settings_campaignsTab: "Kampányok",
 		settings_changePassword: "Jelszó módosítása",
@@ -3259,7 +3259,7 @@ const settingsDict = {
 		"admin.system.pages.aiTasks": "AI-feladatok",
 		"admin.system.pages.integrations": "Integrációk és kulcsok",
 		"admin.system.pages.limits": "Korlátok",
-		"admin.system.pages.skills": "Képességek",
+		"admin.system.pages.skills": "Készségek",
 		"admin.system.pages.advanced": "Haladó",
 		"admin.system.pages.diagnostics": "Diagnosztika",
 		"admin.system.search.placeholder":
@@ -3478,18 +3478,18 @@ const settingsDict = {
 		"admin.system.limits.title": "Korlátok",
 		"admin.system.limits.description":
 			"Kemény korlátok. Mindegyiket elutasításként éli meg a felhasználó, ezért mindegyiknél leírjuk, hogyan néz ki az elutasítás.",
-		"admin.system.skills.title": "Képességek",
+		"admin.system.skills.title": "Készségek",
 		"admin.system.skills.description":
-			"A képesség szerkesztése párbeszédablakot nyit, nem a listán belül növő űrlapot, így a lista sosem mozdul el alattad.",
-		"admin.system.skills.new": "Új képesség",
-		"admin.system.skills.editTitle": "Képesség szerkesztése",
-		"admin.system.skills.createTitle": "Új képesség",
+			"A készség szerkesztése párbeszédablakot nyit, nem a listán belül növő űrlapot, így a lista sosem mozdul el alattad.",
+		"admin.system.skills.new": "Új készség",
+		"admin.system.skills.editTitle": "Készség szerkesztése",
+		"admin.system.skills.createTitle": "Új készség",
 		"admin.system.skills.dialogHint":
 			"Az itteni módosításokat ez a párbeszédablak menti, nem az oldal mentősávja.",
 		"admin.system.skills.menu": "További műveletek: {name}",
 		"admin.system.skills.unpublish": "Publikálás visszavonása",
 		"admin.system.skills.policyNote":
-			"Ez a négy minden létrehozott képességnél létezik — eddig néma alapértékként kerültek mentésre, bárhol elérhető vezérlő nélkül.",
+			"Ez a négy minden létrehozott készségnél létezik — eddig néma alapértékként kerültek mentésre, bárhol elérhető vezérlő nélkül.",
 		"admin.system.skills.durationPolicy": "Időtartam-szabály",
 		"admin.system.skills.questionPolicy": "Kérdezési szabály",
 		"admin.system.skills.notesPolicy": "Jegyzetelési szabály",
@@ -4117,7 +4117,7 @@ const settingsDict = {
 		"profileTab.skillsHelp":
 			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
 		"profileTab.manageSkills": "Készségek kezelése",
-		"profileTab.skillsCountActive": "{count} aktív",
+		"profileTab.skillsCountEnabled": "{count} engedélyezve",
 		"profileTab.skillsCountDisabled": "{count} kikapcsolva",
 		"profileTab.memoryProfile": "Memóriaprofil",
 		"profileTab.memoryProfileHelp":

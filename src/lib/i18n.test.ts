@@ -258,3 +258,90 @@ describe("i18n composer and skills namespaces", () => {
 		expect(new Set(keys.hu).size).toBe(keys.hu.length);
 	});
 });
+
+// One Hungarian name for the Skill concept: "készség". "Skill", "Képesség" and
+// "Skill csomag" were all in the UI at once. This is an allow-list of the
+// skills-related keys (not a regex over the whole dictionary) because
+// "képesség" is the right word for tool and model capabilities, which live
+// elsewhere and must keep it.
+const HU_SKILL_KEY_PREFIXES = [
+	"composerCommandRegistry.",
+	"pendingSkill.",
+	"skillDrafts.",
+	"skills.",
+	"skillsPicker.",
+	"composerMenu.skills",
+	"composerCommands.skill",
+	"admin.systemSkills.",
+	"admin.system.skills.",
+	"settings_skills",
+	"profileTab.skillsHelp",
+	"profileTab.manageSkills",
+	"profileTab.skillsCount",
+] as const;
+const HU_SKILL_KEYS = [
+	"toolActivity.usedSkill",
+	"toolActivity.usingSkill",
+	"admin.system.pages.skills",
+	"admin.composerCommandRegistryDescription",
+	"analytics.commandsSkillsActions",
+	"analytics.kindSkill",
+	"searchModal.badgeSkillNote",
+	"knowledge.skillNote",
+	"knowledge.uploadLimitTooltip",
+] as const;
+
+describe("Hungarian skill terminology", () => {
+	const hu: Record<string, string> = {
+		...commonDict.hu,
+		...chatDict.hu,
+		...knowledgeDict.hu,
+		...settingsDict.hu,
+		...skillsDict.hu,
+	};
+	const skillKeys = Object.keys(hu).filter(
+		(key) =>
+			(HU_SKILL_KEYS as readonly string[]).includes(key) ||
+			HU_SKILL_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
+	);
+
+	it("covers every allow-listed key", () => {
+		for (const key of HU_SKILL_KEYS) expect(hu[key], key).toBeTypeOf("string");
+		expect(skillKeys.length).toBeGreaterThan(150);
+	});
+
+	it("uses only 'készség' for the Skill concept", () => {
+		for (const key of skillKeys) {
+			expect(hu[key], key).not.toMatch(/skill|képesség/i);
+		}
+	});
+});
+
+describe("composer skill status wording", () => {
+	// Skills are loaded per turn; there is no durable Skill Session, so no
+	// skill is "active" in a chat. A count of enabled skills must not say so.
+	it("never calls an enabled skill active, in either language", () => {
+		expect(Object.keys(chatDict.en)).not.toContain("composerMenu.skillsActive");
+		for (const key of [
+			"composerMenu.skillsAvailable",
+			"skillsPicker.subtitle",
+		]) {
+			expect(chatDict.en[key as keyof typeof chatDict.en], key).not.toMatch(
+				/active/i,
+			);
+			expect(chatDict.hu[key as keyof typeof chatDict.hu], key).not.toMatch(
+				/aktív/i,
+			);
+		}
+	});
+	it("says available / elérhető", () => {
+		expect(chatDict.en["composerMenu.skillsAvailable"]).toBe(
+			"{count} available",
+		);
+		expect(chatDict.hu["composerMenu.skillsAvailable"]).toBe(
+			"{count} elérhető",
+		);
+		expect(chatDict.en["skillsPicker.subtitle"]).toBe("{count} available");
+		expect(chatDict.hu["skillsPicker.subtitle"]).toBe("{count} elérhető");
+	});
+});

@@ -4437,7 +4437,7 @@ describe("MessageInput composer menu", () => {
 		expect(queryByRole("menuitemcheckbox", { name: "Web search" })).toBeNull();
 	});
 
-	it("says how many skills are active once the menu has asked", async () => {
+	it("says how many skills are available once the menu has asked", async () => {
 		discoverSkillsMock.mockResolvedValue([
 			{
 				id: "s1",
@@ -4458,7 +4458,9 @@ describe("MessageInput composer menu", () => {
 		await openComposerMenu(getByTestId);
 
 		await waitFor(() => {
-			expect(getByTestId("composer-menu-skills")).toHaveTextContent("2 active");
+			expect(getByTestId("composer-menu-skills")).toHaveTextContent(
+				"2 available",
+			);
 		});
 	});
 

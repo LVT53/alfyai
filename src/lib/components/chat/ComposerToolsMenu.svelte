@@ -561,7 +561,7 @@ onMount(() => {
 							? ''
 							: skillCount === 0
 								? $t('composerMenu.skillsNone')
-								: $t('composerMenu.skillsActive', { count: skillCount }))}
+								: $t('composerMenu.skillsAvailable', { count: skillCount }))}
 				</span>
 				<span class="menu-row__chevron" aria-hidden="true"><ChevronRight size={15} strokeWidth={2} /></span>
 			</button>

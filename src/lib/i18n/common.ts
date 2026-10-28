@@ -627,7 +627,7 @@ const commonDict = {
 		"searchModal.badgeCurrent": "Aktuális",
 		"searchModal.badgeGenerated": "Létrehozott",
 		"searchModal.badgeHistorical": "Előzmény",
-		"searchModal.badgeSkillNote": "Skill jegyzet",
+		"searchModal.badgeSkillNote": "Készségjegyzet",
 		"searchModal.badgeUploaded": "Feltöltött",
 		"searchModal.conversations": "Beszélgetések",
 		"searchModal.currentConversation": "Aktuális beszélgetés",

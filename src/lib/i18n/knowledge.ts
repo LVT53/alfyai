@@ -728,7 +728,7 @@ const knowledgeDict = {
 		"knowledge.size": "Méret",
 		"knowledge.sortBy": "Dokumentumok rendezése ez alapján",
 		"knowledge.sortDirection": "Rendezési irány módosítása",
-		"knowledge.skillNote": "Skill-jegyzet",
+		"knowledge.skillNote": "Készségjegyzet",
 		"knowledge.title": "Tudásbázis",
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
@@ -755,7 +755,7 @@ const knowledgeDict = {
 		"knowledge.uploadFileTooLarge":
 			"A(z) {name} meghaladja a feltöltési korlátot, ami {limit}. Tölts fel kisebb fájlt, vagy kérd meg az adminisztrátort, hogy emelje meg a korlátot.",
 		"knowledge.uploadLimitTooltip":
-			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
+			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és készségjegyzetek maguktól kerülnek ide.",
 		"knowledge.uploadOrGenerateHint":
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
 		"knowledge.uploadRejectedArchive":

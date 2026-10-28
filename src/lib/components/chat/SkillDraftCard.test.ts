@@ -176,7 +176,7 @@ describe("SkillDraftCard", () => {
 		});
 
 		expect(
-			screen.getByRole("button", { name: "Privát skill mentése" }),
+			screen.getByRole("button", { name: "Privát készség mentése" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Vázlat elvetése" }),
@@ -199,7 +199,7 @@ describe("SkillDraftCard", () => {
 		});
 
 		expect(
-			screen.getByRole("link", { name: "Ugrás a skillhez" }),
+			screen.getByRole("link", { name: "Ugrás a készséghez" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Bővebben" }),
@@ -221,7 +221,7 @@ describe("SkillDraftCard", () => {
 			"Nem sikerült menteni a skill vázlatot.",
 		);
 		expect(
-			screen.getByRole("button", { name: "Privát skill mentése" }),
+			screen.getByRole("button", { name: "Privát készség mentése" }),
 		).toBeDisabled();
 		expect(
 			screen.getByRole("button", { name: "Vázlat elvetése" }),
