@@ -312,10 +312,14 @@ let busy = $derived(
 			cardState.kind === "starting" ||
 			cardState.kind === "making"),
 );
-/** What the shimmer means, for screen readers: today's words, read out as they change. */
-let statusText = $derived(
-	busy ? [words.line, words.detail].filter(Boolean).join(" ") : "",
-);
+/**
+ * What the shimmer means, for screen readers. The live region says the state
+ * ("Next up", "Making the picture…") and is read out when it changes; the time
+ * left, which moves on every poll, sits beside it outside the live region, so
+ * it is there to read but never re-announced (Task 11 fix round 1).
+ */
+let statusText = $derived(busy ? words.line : "");
+let statusDetail = $derived(busy ? (words.detail ?? "") : "");
 let menuAnchorId = $derived(`image-card-more-${card.id}`);
 </script>
 
@@ -422,6 +426,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		{/if}
 	</div>
 	<span class="sr-only" role="status" data-testid="image-card-status">{statusText}</span>
+	<span class="sr-only" data-testid="image-card-status-detail">{statusDetail}</span>
 
 	{#if stripCount > 1}
 		<div class="image-card-strip" role="group" aria-label={$t('artifacts.image.subtitle.takes', { count: stripCount })} data-testid="image-card-strip">

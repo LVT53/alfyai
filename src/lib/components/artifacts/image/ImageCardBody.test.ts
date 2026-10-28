@@ -40,9 +40,36 @@ describe("ImageCardBody", () => {
 		const status = screen.getByTestId("image-card-status");
 		expect(status).toHaveAttribute("role", "status");
 		expect(status).toHaveClass("sr-only");
-		expect(status).toHaveTextContent("Making the picture… About 8 s left");
+		// The live region says the state; the time left is beside it, read on
+		// demand, never re-announced on every poll (Task 11 fix round 1).
+		expect(status).toHaveTextContent(/^Making the picture…$/);
+		const detail = screen.getByTestId("image-card-status-detail");
+		expect(detail).toHaveClass("sr-only");
+		expect(detail).not.toHaveAttribute("role");
+		expect(detail).not.toHaveAttribute("aria-live");
+		expect(detail).toHaveTextContent("About 8 s left");
 		await fireEvent.click(screen.getByRole("button", { name: "Stop" }));
 		expect(onAction).toHaveBeenCalledWith({ type: "stop", takeId: making.id });
+	});
+
+	it("does not re-announce the time left on every poll: the live region changes with the state only", async () => {
+		const making = (etaSeconds: number) =>
+			take({
+				status: "running",
+				phase: "rendering",
+				phaseAt: Date.now(),
+				etaSeconds,
+				fileId: null,
+			});
+		const { rerender } = render(ImageCardBody, { card: card([making(12)]) });
+		const status = screen.getByTestId("image-card-status");
+		const before = status.textContent;
+		await rerender({ card: card([making(9)]) });
+		await rerender({ card: card([making(6)]) });
+		expect(status.textContent).toBe(before);
+		expect(screen.getByTestId("image-card-status-detail")).toHaveTextContent(
+			"About 6 s left",
+		);
 	});
 
 	it("keeps one shimmer from waiting through making, and fades it out for the picture in place", async () => {
