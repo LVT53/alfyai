@@ -163,7 +163,8 @@ function storedFilename(
 	) {
 		const extension = fileExtension(file.filename);
 		const base = sanitizeDocumentFilename(request.documentSource.title);
-		return extension ? `${base}.${extension}` : base;
+		if (!extension || base.toLowerCase().endsWith(`.${extension}`)) return base;
+		return `${base}.${extension}`;
 	}
 	return file.filename;
 }
