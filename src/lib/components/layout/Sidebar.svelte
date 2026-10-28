@@ -369,17 +369,21 @@ onMount(() => {
 	{:else}
 		<!-- Expanded: search pill + compose icon in a single row -->
 		<div class="flex items-center gap-2">
-			<!-- Search pill -->
+			<!-- Search pill. It gives way, not the icons beside it: `min-w-0` lets it shrink
+			     below its label and shortcut chip (a flex item will not go below its content
+			     otherwise, and at the sidebar's narrowest it pushed Knowledge Base past the
+			     sidebar's edge, under the page), and as a size container it drops the chip
+			     when there is no room for it (Task 9b). -->
 			<button
 				type="button"
-				class="search-pill flex flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				class="search-pill @container flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 				onclick={openSearchModal}
 				aria-label={$t('sidebar.searchConversations')}
 			>
 				<Search size={15} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
 					<span class="flex-1 truncate">{$t('sidebar.search')}</span>
 					<kbd
-						class="search-shortcut-hint shrink-0 rounded border border-border px-1.5 py-0.5 font-sans text-[11px] text-text-muted"
+						class="search-shortcut-hint shrink-0 @max-[7.5rem]:hidden rounded border border-border px-1.5 py-0.5 font-sans text-[11px] text-text-muted"
 						data-testid="search-shortcut-hint"
 						aria-hidden="true"
 					>{searchShortcutHint}</kbd>
