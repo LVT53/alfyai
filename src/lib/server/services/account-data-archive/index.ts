@@ -1312,6 +1312,7 @@ const ARTIFACT_TOUR_KIND_LABELS: Record<ShippedArtifactTourType, string> = {
 	document: "Document",
 	app: "App",
 	canvas: "Canvas",
+	image: "Image",
 };
 
 /**

@@ -17,12 +17,13 @@ describe("SHIPPED_ARTIFACT_KINDS", () => {
 		]);
 	});
 
-	it("includes Image, and gives it no tour", () => {
+	it("includes Image, and gives it a tour like the other kinds (plan 2b T16)", () => {
 		expect(isShippedArtifactKind("image")).toBe(true);
 		expect([...SHIPPED_ARTIFACT_TOUR_TYPES]).toEqual([
 			"document",
 			"app",
 			"canvas",
+			"image",
 		]);
 	});
 

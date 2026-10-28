@@ -147,6 +147,47 @@ export const ARTIFACT_TOUR_DEFAULTS: Record<
 			},
 		],
 	},
+	// Plan 2b T16. The Image has no empty state (an item always holds a
+	// picture), so its summary is never an empty-state line: it is the tour's
+	// one-line gist, what the admin's preview shows on the summary slide. The
+	// slides name the panel's controls by their labels (Before / After, Mark,
+	// Attach, History's Restore), and the test holds them to the dictionary.
+	image: {
+		artifactType: "image",
+		summary: {
+			en: "A picture Alfy made. Ask for a change and it becomes a new version.",
+			hu: "Egy kép, amit Alfy készített. Kérj rajta változtatást, és új verzió lesz belőle.",
+		},
+		slides: [
+			{
+				title: { en: "Your picture, in versions", hu: "A képed, verziókban" },
+				body: {
+					en: "This is the picture Alfy made for you. Ask for a change in the chat and you get a new version; the earlier ones are kept.",
+					hu: "Ezt a képet Alfy készítette neked. Kérj rajta változtatást a chatben, és új verziót kapsz; a korábbiak megmaradnak.",
+				},
+			},
+			{
+				title: {
+					en: "Before / After, and Mark",
+					hu: "Előtte / Utána, és Jelölés",
+				},
+				body: {
+					en: "When a picture was made from another, Before / After shows what changed. With Mark, draw lettered boxes on it: they go with your next message, so Alfy knows where to change it.",
+					hu: "Ha a kép egy másikból készült, az Előtte / Utána megmutatja, mi változott. A Jelöléssel betűs kereteket rajzolhatsz rá: a következő üzeneteddel mennek, így Alfy tudja, hol változtasson.",
+				},
+			},
+			{
+				title: {
+					en: "Earlier pictures, and Attach",
+					hu: "Korábbi képek és Csatolás",
+				},
+				body: {
+					en: "An earlier picture opens History: drag to compare two versions, and Restore the one you want. Attach puts this picture into your next message.",
+					hu: "Egy korábbi kép megnyitja az Előzményeket: húzással összevetheted a két verziót, és a Visszaállítással visszahozhatod, amelyiket szeretnéd. A Csatolás a következő üzenetedbe teszi ezt a képet.",
+				},
+			},
+		],
+	},
 	slides: {
 		artifactType: "slides",
 		summary: {

@@ -141,7 +141,7 @@ const settingsDict = {
 			"{count} step{count, plural, one {} other {s}} + empty-state line",
 		"admin.campaigns.tour.stepNumber": "Step {number}",
 		"admin.campaigns.tour.summaryHint":
-			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.",
+			"The title is the line an empty Document, App or Canvas shows; an Image is never empty. Nothing else on this slide is shown.",
 		"admin.campaigns.tour.summarySlide": "Empty-state line",
 		"admin.campaigns.type": "Type",
 		"admin.campaigns.type.feature": "Feature",
@@ -190,7 +190,7 @@ const settingsDict = {
 		"admin.campaigns.validation.sortOrderInvalid":
 			"Slide order must use unique positive integers.",
 		"admin.campaigns.validation.tourKindInvalid":
-			"A tour must belong to a Document, App or Canvas, or no one will ever see it.",
+			"A tour must belong to a Document, App, Canvas or Image, or no one will ever see it.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A tour needs exactly one summary slide first, followed by exactly three standard slides.",
 		"admin.campaigns.validation.typeInvalid":
@@ -1033,7 +1033,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
 		"admin.campaigns.checklist.fail.tourKind":
-			"Tour kind: Document, App or Canvas",
+			"Tour kind: Document, App, Canvas or Image",
 		"admin.campaigns.checklist.fail.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
@@ -1062,7 +1062,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.rule.slides": "At least one slide",
 		"admin.campaigns.checklist.rule.tourKind":
-			"Tour belongs to a Document, App or Canvas",
+			"Tour belongs to a Document, App, Canvas or Image",
 		"admin.campaigns.checklist.rule.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.rule.type": "Campaign type",
@@ -2206,7 +2206,7 @@ const settingsDict = {
 		"admin.campaigns.tour.stepCount": "{count} lépés + üres állapot sora",
 		"admin.campaigns.tour.stepNumber": "{number}. lépés",
 		"admin.campaigns.tour.summaryHint":
-			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat; egy kép sosem üres. Ezen a dián más nem jelenik meg.",
 		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
@@ -2254,7 +2254,7 @@ const settingsDict = {
 		"admin.campaigns.validation.sortOrderInvalid":
 			"A diasorrendnek egyedi pozitív egész számokat kell használnia.",
 		"admin.campaigns.validation.tourKindInvalid":
-			"A bemutatónak egy dokumentumhoz, alkalmazáshoz vagy táblához kell tartoznia, különben senki nem látja soha.",
+			"A bemutatónak egy dokumentumhoz, alkalmazáshoz, táblához vagy képhez kell tartoznia, különben senki nem látja soha.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A bemutatóhoz pontosan egy összegző dia szükséges elsőként, amit pontosan három általános dia követ.",
 		"admin.campaigns.validation.typeInvalid":
@@ -3124,7 +3124,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.fail.slides": "Legalább egy dia",
 		"admin.campaigns.checklist.fail.tourKind":
-			"A bemutató típusa: dokumentum, alkalmazás vagy tábla",
+			"A bemutató típusa: dokumentum, alkalmazás, tábla vagy kép",
 		"admin.campaigns.checklist.fail.tourShape":
 			"Egy összegző, utána három általános dia",
 		"admin.campaigns.checklist.fail.type": "Kampány típusa",
@@ -3151,7 +3151,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.rule.slides": "Legalább egy dia",
 		"admin.campaigns.checklist.rule.tourKind":
-			"A bemutató dokumentumhoz, alkalmazáshoz vagy táblához tartozik",
+			"A bemutató dokumentumhoz, alkalmazáshoz, táblához vagy képhez tartozik",
 		"admin.campaigns.checklist.rule.tourShape":
 			"Egy összegző dia, utána három általános dia",
 		"admin.campaigns.checklist.rule.type": "Kampány típusa",

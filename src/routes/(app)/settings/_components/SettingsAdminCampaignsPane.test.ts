@@ -642,7 +642,7 @@ describe("SettingsAdminCampaignsPane", () => {
 		});
 
 		const SUMMARY_HINT =
-			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.";
+			"The title is the line an empty Document, App or Canvas shows; an Image is never empty. Nothing else on this slide is shown.";
 
 		// RC-T I-2: the summary slide's body is shown nowhere, so the editor does
 		// not ask for one; it says what the title is instead.
@@ -666,7 +666,7 @@ describe("SettingsAdminCampaignsPane", () => {
 
 				expect(
 					screen.getByText(
-						"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+						"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat; egy kép sosem üres. Ezen a dián más nem jelenik meg.",
 					),
 				).toBeInTheDocument();
 				expect(

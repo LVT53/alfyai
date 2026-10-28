@@ -345,16 +345,19 @@ const TOUR_DRAFT_NAMES: Record<
 		document: "Document tour",
 		app: "App tour",
 		canvas: "Canvas tour",
+		image: "Image tour",
 	},
 	hu: {
 		document: "Dokumentum bemutatója",
 		app: "Alkalmazás bemutatója",
 		canvas: "Tábla bemutatója",
+		image: "Kép bemutatója",
 	},
 };
 
 /**
- * Seeds one `artifact_tour` draft per shipped kind — document, app, canvas
+ * Seeds one `artifact_tour` draft per shipped kind — document, app, canvas,
+ * image
  * (`SHIPPED_ARTIFACT_TOUR_TYPES`, ruling 69: no Slides draft while Slides is
  * shelved) — each with the shipped default copy pre-filled (Task T2's
  * `ARTIFACT_TOUR_DEFAULTS`) so an admin reviews and publishes real content

@@ -18,16 +18,17 @@ import type { ArtifactKind, ShippedArtifactKind } from "./kinds";
  * kind has shipped copy — a missing tour is loud, a silently-untoured kind is
  * not.
  *
- * Image gets none either: the design (5.3) lists what pictures get, and a tour
- * is not among them.
+ * Image has one (plan 2b T16, the owner: "there needs to be a 'tour' for the
+ * new image type as well, like the other Document types also have").
  *
  * Having copy is not shipping: see `SHIPPED_ARTIFACT_TOUR_TYPES`.
  */
-export type ArtifactTourType = Exclude<ArtifactKind, "file" | "image">;
+export type ArtifactTourType = Exclude<ArtifactKind, "file">;
 
 /**
  * The kinds whose tour ships — the ONE list of tours (ruling 69: Slides is
- * shelved, so three tours ship until it comes back). The tour routes, the
+ * shelved, so four tours ship until it comes back: Document, App, Canvas and,
+ * since plan 2b T16, Image). The tour routes, the
  * resolver, the admin seeding and the account archive's labels all read this
  * list, so a kind that is not on it is not served (a 404, like any unknown
  * path segment), not seeded as a draft and not shown. Its default copy may stay
@@ -47,6 +48,7 @@ export const SHIPPED_ARTIFACT_TOUR_TYPES = [
 	"document",
 	"app",
 	"canvas",
+	"image",
 ] as const satisfies readonly (ArtifactTourType & ShippedArtifactKind)[];
 
 export type ShippedArtifactTourType =

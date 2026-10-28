@@ -94,6 +94,15 @@ const appItem = () =>
 		mimeType: null,
 	});
 
+const imageItem = () =>
+	makeWorkspaceDocument({
+		id: "image-1",
+		artifactId: "image-1",
+		kind: "image",
+		title: "Sunset gradient",
+		mimeType: null,
+	});
+
 function openDocument(extra: Parameters<typeof renderWorkspace>[0] = {}) {
 	return renderWorkspace({
 		documents: [documentItem()],
@@ -125,6 +134,7 @@ beforeEach(() => {
 	ARTIFACT_BODIES.document = () =>
 		import("./__fixtures__/FakeReplayBody.svelte");
 	ARTIFACT_BODIES.app = () => import("./__fixtures__/FakeReplayBody.svelte");
+	ARTIFACT_BODIES.image = () => import("./__fixtures__/FakeReplayBody.svelte");
 	warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
 
@@ -133,13 +143,20 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 	delete ARTIFACT_BODIES.document;
 	delete ARTIFACT_BODIES.app;
+	delete ARTIFACT_BODIES.image;
 	warn.mockRestore();
 	uiLanguage.set("en");
 });
 
-/** The card, once the lazy chunk has loaded. */
+/**
+ * The card, once the lazy chunk has loaded. The first test in a worker pays for
+ * transforming that chunk (and the card's four drawings) cold, which under a full
+ * parallel run can take longer than `findBy`'s 1 s default: the wait is for the
+ * card to arrive, not a bound on how fast it arrives (the e2e motion checks own
+ * that), so it gets room for a cold transform.
+ */
 async function card() {
-	return screen.findByTestId("artifact-tour");
+	return screen.findByTestId("artifact-tour", {}, { timeout: 5_000 });
 }
 
 async function settle() {
@@ -211,6 +228,26 @@ describe("DocumentWorkspace: the first-open tour", () => {
 			screen.getByTestId("page-scroll-container"),
 		);
 		// Showing it wrote nothing.
+		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
+	});
+
+	// Plan 2b T16: the Image is a kind with a first-open tour like the others, on
+	// the same card in the same row of the stage, ahead of the picture.
+	it("asks for an Image's tour and shows its card ahead of the picture, writing nothing", async () => {
+		renderWorkspace({ documents: [imageItem()], activeDocumentId: "image-1" });
+
+		const tour = await card();
+		expect(tourClient.getArtifactTour.mock.calls.map(([kind]) => kind)).toEqual(
+			["image"],
+		);
+		expect(tour).toHaveAttribute("data-kind", "image");
+		const body = await screen.findByTestId("fake-replay-body");
+		expect(
+			tour.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(tour.closest(".workspace-tour-slot")?.parentElement).toHaveClass(
+			"workspace-stage",
+		);
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
 	});
 
@@ -637,6 +674,25 @@ describe("DocumentWorkspace: replaying a tour", () => {
 		tourClient.getArtifactTour.mockImplementation(seen);
 		tourClient.refreshArtifactTour.mockImplementation(seen);
 	}
+
+	it("offers an Image's tour again from its list row's menu", async () => {
+		everyTourSeen();
+		renderWorkspace({
+			documents: [imageItem()],
+			activeDocumentId: "image-1",
+			list: listWith([imageItem()]),
+			onDeleteArtifact: vi.fn(async () => {}),
+		});
+		await fireEvent.click(
+			await within(await screen.findByTestId("artifact-panel-list")).findByRole(
+				"button",
+				{ name: "More actions for Sunset gradient" },
+			),
+		);
+		expect(
+			await screen.findByRole("menuitem", { name: "How this kind works" }),
+		).toBeInTheDocument();
+	});
 
 	it("hands a body the replay, which shows the tour again whether or not it was seen, and writes nothing", async () => {
 		everyTourSeen();

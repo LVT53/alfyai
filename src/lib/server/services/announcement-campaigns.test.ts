@@ -1270,7 +1270,7 @@ describe("announcement campaign service", () => {
 			).rejects.toMatchObject({
 				fieldErrors: {
 					tourKind:
-						"A tour campaign's release must be the kind it introduces: document, app or canvas.",
+						"A tour campaign's release must be the kind it introduces: document, app, canvas or image.",
 				},
 			});
 		}

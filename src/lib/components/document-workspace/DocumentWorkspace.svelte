@@ -866,7 +866,7 @@ let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
 
 // ---- First-open tours (Feature 2 · Slice 6; rulings 4, 32, 33, 69) ----
 //
-// The first time a user opens a Document, App or Canvas the panel shows a
+// The first time a user opens a Document, App, Canvas or Image the panel shows a
 // three-slide card about that kind, above the item, in the panel's flow: it
 // makes room for itself and covers nothing (ruling 77, FX-2). Which kinds have a
 // tour is the shared list (`isShippedArtifactTourType`: File and Slides never
