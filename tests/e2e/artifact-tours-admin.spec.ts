@@ -107,7 +107,7 @@ async function removeDrafts(
 }
 
 const HINT =
-	"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.";
+	"The title is the line an empty Document, App or Canvas shows; an Image is never empty. Nothing else on this slide is shown.";
 
 test.describe("the admin's tour editor", () => {
 	test("publishes a tour whose summary slide has no body, and says what that slide is", async ({

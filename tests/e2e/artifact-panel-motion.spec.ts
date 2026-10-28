@@ -14,7 +14,6 @@ import {
 	panelList,
 	panelShell,
 	reopenChat,
-	seedImageItem,
 	seedItem,
 	startChatAs,
 	type TourUser,
@@ -57,10 +56,7 @@ async function readerWithItems(
 	const user = await createTourUser("en");
 	await markToursSeen(user);
 	const chatId = await startChatAs(page, user);
-	for (const kind of kinds) {
-		if (kind === "image") await seedImageItem(user, chatId);
-		else await seedItem(user, chatId, kind);
-	}
+	for (const kind of kinds) await seedItem(user, chatId, kind);
 	await reopenChat(page, chatId);
 	await expect(page.getByTestId("artifact-count-button")).toBeVisible();
 	return { user, chatId };
@@ -820,7 +816,8 @@ test.describe("the chat keeps its room beside a docked panel", () => {
 });
 
 /**
- * F15 (ruling 77): the first time a reader opens a Document, an App or a Canvas the tour
+ * F15 (ruling 77): the first time a reader opens a Document, an App, a Canvas or (plan 2b
+ * T16) an Image the tour
  * card arrived ~230 ms after the item had painted and was put in the flow above it, so the
  * Document moved 120-190 px, the board re-fitted (100% -> 87%) and, when the card left,
  * moved back. FB-3 laid the card over the item (nothing moved, but the card covered the
@@ -836,6 +833,8 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		document: ".workspace-stage .ProseMirror",
 		app: ".workspace-stage iframe",
 		canvas: ".workspace-stage .svelte-flow__viewport",
+		// Plan 2b T16: the Image's body, the row the picture and its strip sit in.
+		image: '.workspace-stage [data-testid="image-body"]',
 	} as const;
 
 	async function freshReader(
@@ -906,7 +905,7 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		return (top + bottom) / 2 - (pane.y + pane.height / 2);
 	}
 
-	for (const kind of ["document", "app", "canvas"] as const) {
+	for (const kind of ["document", "app", "canvas", "image"] as const) {
 		test(`a ${kind} stays where it painted when its card arrives, and gets the card's room back as a glide when the card is dismissed`, async ({
 			page,
 		}) => {

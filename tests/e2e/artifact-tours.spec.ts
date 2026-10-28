@@ -35,6 +35,7 @@ const SLIDE_ONE: Record<TourKind, string> = {
 	document: ARTIFACT_TOUR_DEFAULTS.document.slides[0].title.en,
 	app: ARTIFACT_TOUR_DEFAULTS.app.slides[0].title.en,
 	canvas: ARTIFACT_TOUR_DEFAULTS.canvas.slides[0].title.en,
+	image: ARTIFACT_TOUR_DEFAULTS.image.slides[0].title.en,
 };
 
 /** Opens the item of `kind`, waits for the panel to be answered, and returns once the card is on screen. */
@@ -184,6 +185,66 @@ test.describe("the first-open tours", () => {
 				(await tourRows(user.id)).map((row) => row.artifactType).sort(),
 			)
 			.toEqual(["app", "canvas"]);
+	});
+
+	// Plan 2b T16: the Image has a first-open tour like the others. The item here is a
+	// single version with nothing Before it, the commonest first open: the card is above
+	// the picture, the picture is whole under it, and the copy is the Image's own.
+	test("an Image shows its own tour above the picture, and finishing it records the Image", async ({
+		page,
+	}) => {
+		const user = await createTourUser();
+		const requests = watchTourRequests(page);
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "image");
+		await reopenChat(page, chatId);
+
+		const card = await openAndExpectTour(page, "image");
+		const picture = panelShell(page).locator(
+			'[data-testid="image-body-picture"] [data-testid="image-picture-after"].is-loaded',
+		);
+		await expect(picture).toBeVisible({ timeout: 20_000 });
+		// A single version: nothing to show Before, and the card is there all the same.
+		await expect(panelShell(page).getByTestId("image-body-flip")).toHaveCount(
+			0,
+		);
+		const cardBox = await card.boundingBox();
+		const pictureBox = await picture.boundingBox();
+		expect(cardBox && pictureBox).toBeTruthy();
+		expect((cardBox?.y ?? 0) + (cardBox?.height ?? 0)).toBeLessThanOrEqual(
+			(pictureBox?.y ?? 0) + 0.5,
+		);
+		expect(pictureBox?.height ?? 0).toBeGreaterThan(200);
+
+		// Each step is the Image's own copy, in order.
+		for (const [
+			index,
+			slide,
+		] of ARTIFACT_TOUR_DEFAULTS.image.slides.entries()) {
+			await expect(card.getByTestId("artifact-tour-title")).toHaveText(
+				slide.title.en,
+			);
+			await expect(card.getByTestId("artifact-tour-step")).toHaveText(
+				`Step ${index + 1} of 3`,
+			);
+			if (index < 2) await card.getByTestId("artifact-tour-next").click();
+		}
+		expect(requests.posts()).toHaveLength(0);
+		await card.getByTestId("artifact-tour-done").click();
+		await expect(tourCard(page)).toHaveCount(0);
+		await expect.poll(async () => (await tourRows(user.id)).length).toBe(1);
+		expect((await tourRows(user.id))[0]).toMatchObject({
+			artifactType: "image",
+			status: "completed",
+			lastSlide: 2,
+		});
+
+		// Seen: the next open of an Image shows the picture and no card.
+		await backToList(page);
+		await openItem(page, ITEM_TITLES.image);
+		await expect(picture).toBeVisible({ timeout: 20_000 });
+		await page.waitForTimeout(400);
+		await expect(tourCard(page)).toHaveCount(0);
 	});
 
 	test("a File never shows a tour, and never asks for one", async ({
@@ -656,5 +717,76 @@ test.describe("the first-open tour on a phone", () => {
 		expect(position).toBe("static");
 
 		await finishTour(page);
+	});
+});
+
+// Plan 2b T16: the Image's card in the phone sheet, in the language that runs longer at
+// the narrowest common width. Every step fits without a scroll inside the card, the buttons
+// keep a finger's room, and the picture is still on screen under the card.
+test.describe("the Image's first-open tour on a 360 px phone, in Hungarian", () => {
+	test.use({
+		viewport: { width: 360, height: 800 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("every step fits, and the picture shows under the card", async ({
+		page,
+	}) => {
+		const user = await createTourUser("hu");
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "image");
+		await reopenChat(page, chatId);
+		expect(isMobile(page)).toBe(true);
+
+		await openItem(page, ITEM_TITLES.image);
+		const card = tourCard(page);
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		await waitForMotionToSettle(page);
+		await expect(card).toHaveAttribute("data-kind", "image");
+		const picture = page.locator(
+			'[data-testid="image-body-picture"] [data-testid="image-picture-after"].is-loaded',
+		);
+		await expect(picture).toBeVisible({ timeout: 20_000 });
+
+		for (const [
+			index,
+			slide,
+		] of ARTIFACT_TOUR_DEFAULTS.image.slides.entries()) {
+			await expect(card.getByTestId("artifact-tour-title")).toHaveText(
+				slide.title.hu,
+			);
+			await waitForMotionToSettle(page);
+			const box = await card.boundingBox();
+			expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+			expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(360);
+			expect(
+				await card.evaluate(
+					(element) => element.scrollHeight - element.clientHeight,
+				),
+				`step ${index + 1} scrolls inside the card`,
+			).toBeLessThanOrEqual(1);
+			expect(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth - window.innerWidth,
+				),
+			).toBeLessThanOrEqual(0);
+			const primary = index < 2 ? "artifact-tour-next" : "artifact-tour-done";
+			for (const id of ["artifact-tour-skip", primary]) {
+				const button = await card.getByTestId(id).boundingBox();
+				expect(button?.height ?? 0, id).toBeGreaterThanOrEqual(44);
+				expect(button?.width ?? 0, id).toBeGreaterThanOrEqual(44);
+			}
+			const pictureBox = await picture.boundingBox();
+			expect(
+				pictureBox?.height ?? 0,
+				"the picture is on screen",
+			).toBeGreaterThan(80);
+			expect(pictureBox?.y ?? 0).toBeGreaterThanOrEqual(
+				(box?.y ?? 0) + (box?.height ?? 0) - 0.5,
+			);
+			await card.getByTestId(primary).tap();
+		}
+		await expect(tourCard(page)).toHaveCount(0);
 	});
 });

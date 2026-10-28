@@ -507,6 +507,10 @@ const ROOM_PARTS: Record<TourKind, { root: string; first: string }> = {
 		root: '[data-testid="canvas-editor"]',
 		first: '[data-testid="canvas-board"]',
 	},
+	image: {
+		root: '[data-testid="image-body"]',
+		first: '[data-testid="image-body-stage"]',
+	},
 };
 
 /** From now on, once per animation frame: the card, the item's root and its first part, as edges inside the panel. */
@@ -612,7 +616,7 @@ function expectRoomFromTheFirstFrame(frames: RoomFrame[], what: string) {
 	return { cardHeight: (cards[0]?.bottom ?? 0) - (cards[0]?.top ?? 0) };
 }
 
-for (const kind of ["document", "app", "canvas"] as const) {
+for (const kind of ["document", "app", "canvas", "image"] as const) {
 	test.describe(`a ${kind}'s tour card has its room from the first frame (desktop)`, () => {
 		test.use({ viewport: { width: 1440, height: 900 } });
 

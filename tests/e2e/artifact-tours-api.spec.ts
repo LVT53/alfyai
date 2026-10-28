@@ -42,10 +42,10 @@ test.describe("Artifact tour routes, signed in", () => {
 		await login(page);
 	});
 
-	test("serves a three-slide tour in both languages for each of the three shipped kinds", async ({
+	test("serves a three-slide tour in both languages for each of the four shipped kinds", async ({
 		page,
 	}) => {
-		for (const type of ["document", "app", "canvas"]) {
+		for (const type of ["document", "app", "canvas", "image"]) {
 			const response = await page.request.get(`/api/artifact-tours/${type}`);
 			expect(response.status(), type).toBe(200);
 			const body = await response.json();

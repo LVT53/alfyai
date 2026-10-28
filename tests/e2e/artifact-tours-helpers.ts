@@ -54,6 +54,7 @@ export const ITEM_TITLES: Record<TourKind, string> = {
 	document: "Trip notes",
 	app: "Tip calculator",
 	canvas: "Weekend board",
+	image: "Sunset gradient",
 };
 
 export function isMobile(page: Page): boolean {
@@ -178,6 +179,10 @@ export async function seedItem(
 	options: { empty?: boolean; title?: string; board?: CanvasBody } = {},
 ): Promise<string> {
 	const title = options.title ?? ITEM_TITLES[kind];
+	if (kind === "image") {
+		// A picture is never empty: an Image item always holds one.
+		return (await seedImageItem(user, conversationId, { title })).artifactId;
+	}
 	if (kind === "document") {
 		const document = await createDocumentArtifact({
 			userId: user.id,
@@ -474,7 +479,7 @@ export async function archiveTour(api: APIRequestContext, campaignId: string) {
 }
 
 /** The title a seeded Image carries. */
-export const IMAGE_ITEM_TITLE = "Sunset gradient";
+export const IMAGE_ITEM_TITLE = ITEM_TITLES.image;
 
 /**
  * A gradient PNG made here, never a photo of anyone: `shade` moves the hues, so

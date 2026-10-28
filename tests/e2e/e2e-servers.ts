@@ -193,7 +193,7 @@ function wipeUserData(dbPath: string): void {
 /**
  * The shared e2e admin (the user nearly every spec signs in as) has already
  * been through every first-open tour. Without this, each artifact spec would
- * meet a card above its Document, App or Canvas the first time it opened one,
+ * meet a card above its Document, App, Canvas or Image the first time it opened one,
  * and the card would move what those specs measure and take the focus they
  * type into. The rows are what finishing a tour writes (`completed`, the last
  * slide, the code copy's key), put in the table directly: the app has no route
