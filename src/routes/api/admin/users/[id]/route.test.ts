@@ -109,6 +109,22 @@ describe("admin user detail route", () => {
 		).not.toHaveBeenCalled();
 	});
 
+	it("returns 400, not 500, for a JSON body that is not an object", async () => {
+		for (const body of [null, 42, "admin", []]) {
+			const response = await PATCH(makeEvent("PATCH", body));
+			expect(response.status, JSON.stringify(body)).toBe(400);
+		}
+		expect(mockUpdateManagedUserRole).not.toHaveBeenCalled();
+	});
+
+	it("returns 400 for a role change and an exemption in one body", async () => {
+		const response = await PATCH(
+			makeEvent("PATCH", { role: "admin", explicitPictureFilterExempt: true }),
+		);
+		expect(response.status).toBe(400);
+		expect(mockUpdateManagedUserRole).not.toHaveBeenCalled();
+	});
+
 	it("deletes a user", async () => {
 		const response = await DELETE(makeEvent("DELETE"));
 		const data = await response.json();

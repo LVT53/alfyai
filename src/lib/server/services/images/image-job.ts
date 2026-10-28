@@ -167,7 +167,7 @@ export async function retryTake(
 	const [take] = await db
 		.select({ errorCode: imageJobs.errorCode })
 		.from(imageJobs)
-		.where(eq(imageJobs.id, takeId))
+		.where(and(eq(imageJobs.id, takeId), eq(imageJobs.userId, userId)))
 		.limit(1);
 	if (take?.errorCode === "image_blocked") return false;
 	return (await retry(imageJob, takeId, { userId })) !== null;

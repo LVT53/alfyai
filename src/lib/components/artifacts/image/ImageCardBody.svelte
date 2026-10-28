@@ -738,7 +738,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	}
 
 	.image-card-blocked .image-card-state-line {
-		font-weight: 500;
+		font-weight: 400;
 	}
 
 	.image-card-blocked .image-card-state-line :global(svg) {
