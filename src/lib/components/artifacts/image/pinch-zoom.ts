@@ -6,6 +6,7 @@
  * Only `transform` moves, on the element marked `data-pinch-target` inside the
  * node (or its first child), and it follows the fingers in the frame they move
  * (one `requestAnimationFrame` write per frame, no transition while pinching).
+ * With `doubleTapReset: false` (the Mark tool on) a double tap leaves the zoom.
  * The way back to 1x eases on the motion tokens; the app's reduced-motion rule
  * makes it instant. `touch-action: none` is set on the node alone while the
  * action is on, so the page and the panel keep their own gestures everywhere
@@ -33,6 +34,11 @@ export type PinchZoomOptions = {
 	enabled: boolean;
 	/** What is being zoomed (the picture's file): another one starts at 1x again. */
 	resetKey?: string | null;
+	/**
+	 * A double tap goes back to 1x (default). Off while the Mark tool has the
+	 * finger: two quick taps there remove marks, and the zoom stays.
+	 */
+	doubleTapReset?: boolean;
 };
 
 type Point = { x: number; y: number };
@@ -54,6 +60,7 @@ export function pinchZoom(
 	options: PinchZoomOptions,
 ): ActionReturn<PinchZoomOptions> {
 	let enabled = false;
+	let doubleTapReset = options.doubleTapReset ?? true;
 	let scale = 1;
 	let x = 0;
 	let y = 0;
@@ -200,7 +207,9 @@ export function pinchZoom(
 			event.timeStamp - lastTap.at <= DOUBLE_TAP_MS &&
 			distanceOf(lastTap.point, point) <= DOUBLE_TAP_PX;
 		lastTap = double ? null : { at: event.timeStamp, point };
-		if (double && (scale !== 1 || x !== 0 || y !== 0)) reset(true);
+		if (double && doubleTapReset && (scale !== 1 || x !== 0 || y !== 0)) {
+			reset(true);
+		}
 	}
 
 	function onPointerEnd(event: PointerEvent): void {
@@ -242,6 +251,7 @@ export function pinchZoom(
 
 	return {
 		update(next) {
+			doubleTapReset = next.doubleTapReset ?? true;
 			if (next.enabled) enable();
 			else disable();
 			const key = next.resetKey ?? null;

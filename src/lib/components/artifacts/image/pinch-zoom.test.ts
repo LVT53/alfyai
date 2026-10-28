@@ -116,6 +116,36 @@ describe("pinchZoom", () => {
 		node.remove();
 	});
 
+	it("keeps the zoom on a double tap while the Mark tool has the finger", async () => {
+		const { node, target } = stage();
+		const action = pinchZoom(node, { enabled: true, doubleTapReset: false });
+		node.dispatchEvent(pointer("pointerdown", 1, -40));
+		node.dispatchEvent(pointer("pointerdown", 2, 40));
+		node.dispatchEvent(pointer("pointermove", 2, 120));
+		node.dispatchEvent(pointer("pointerup", 2, 120));
+		node.dispatchEvent(pointer("pointerup", 1, -40));
+		await frame();
+		const zoomed = target.style.transform;
+		expect(zoomed).toContain("scale(");
+		// Two taps removing two marks: the picture stays where it is.
+		node.dispatchEvent(pointer("pointerdown", 5, 10, 10, { timeStamp: 2000 }));
+		node.dispatchEvent(pointer("pointerup", 5, 10, 10, { timeStamp: 2050 }));
+		node.dispatchEvent(pointer("pointerdown", 6, 12, 10, { timeStamp: 2200 }));
+		node.dispatchEvent(pointer("pointerup", 6, 12, 10, { timeStamp: 2250 }));
+		await frame();
+		expect(target.style.transform).toBe(zoomed);
+		// Mark off again: a double tap resets as before.
+		action.update?.({ enabled: true, doubleTapReset: true });
+		node.dispatchEvent(pointer("pointerdown", 7, 10, 10, { timeStamp: 3000 }));
+		node.dispatchEvent(pointer("pointerup", 7, 10, 10, { timeStamp: 3050 }));
+		node.dispatchEvent(pointer("pointerdown", 8, 12, 10, { timeStamp: 3200 }));
+		node.dispatchEvent(pointer("pointerup", 8, 12, 10, { timeStamp: 3250 }));
+		await frame();
+		expect(target.style.transform).toBe("");
+		action.destroy?.();
+		node.remove();
+	});
+
 	it("turns on and off with its option", () => {
 		const { node } = stage();
 		const action = pinchZoom(node, { enabled: false });
