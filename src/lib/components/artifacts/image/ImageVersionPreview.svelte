@@ -215,11 +215,15 @@ const tags = $derived(
 	}
 
 	/* As in the panel's body: the stage is the container the picture is fitted to
-	   by CSS alone, so a History that changes shape never re-flows it by script. */
+	   by CSS alone, so a History that changes shape never re-flows it by script.
+	   The picture hangs from History's toolbar, as the Document's preview starts
+	   right under it (V3), instead of floating centred between two empty bands;
+	   the Attach row and the prompt stay at the foot, reserved, so a version
+	   loading never moves them. */
 	.ivp-stage {
 		position: relative;
 		display: grid;
-		place-items: center;
+		place-items: start center;
 		flex: 1 1 auto;
 		min-height: 0;
 		overflow: hidden;

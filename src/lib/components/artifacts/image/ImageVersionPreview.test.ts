@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -241,5 +244,19 @@ describe("ImageVersionPreview", () => {
 		renderPreview({ versionId: "vAlpha", baseVersionId: "v1" });
 		const wipe = await screen.findByTestId("compare-wipe");
 		expect(wipe.classList.contains("image-checkerboard")).toBe(true);
+	});
+});
+
+describe("ImageVersionPreview's place in History (final fix wave, V3)", () => {
+	it("hangs the picture from History's toolbar, as the Document's preview starts there, never centred in bands", () => {
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const source = readFileSync(
+			path.join(here, "ImageVersionPreview.svelte"),
+			"utf8",
+		);
+		const stage = /\.ivp-stage \{([^}]*)\}/.exec(source)?.[1] ?? "";
+		expect(stage).toMatch(/place-items:\s*start center;/);
+		// Still the size container the picture is fitted to (no re-flow by script).
+		expect(stage).toMatch(/container-type:\s*size;/);
 	});
 });
