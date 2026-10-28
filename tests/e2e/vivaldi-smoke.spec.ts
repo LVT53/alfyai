@@ -141,10 +141,11 @@ test.beforeAll(async () => {
 	// What a worker killed outright left behind in the temp folder.
 	if (hasVivaldi()) sweepStaleVivaldiFolders();
 	// A library with rows in it: the table's columns are part of what must fit.
-	for (const suffix of ["", " (szombat–vasárnap)"]) {
-		const { conversationId } = await seedDocument({
-			title: `${TITLE}${suffix}`,
-		});
+	// Longer than the window, as the library is wherever other specs ran first
+	// on this worker's database: rows below the fold are scrolled, not clipped.
+	const fillers = Array.from({ length: 8 }, (_, i) => `Filler ${i + 1}`);
+	for (const title of [TITLE, `${TITLE} (szombat–vasárnap)`, ...fillers]) {
+		const { conversationId } = await seedDocument({ title });
 		seeded.push(conversationId);
 	}
 });

@@ -22,7 +22,11 @@ export type Clipping = {
  * icon belongs to, the `root` region itself (whatever is laid out next to it
  * paints over what spills out), or the viewport. A control scrolled out of a
  * scroller's view is not clipped, nor is one a vertical scroller cuts at its
- * top or bottom; one a scroller cuts sideways is.
+ * top or bottom; one a scroller cuts sideways is. Past a vertical scroller,
+ * only the part of the control it shows is measured: the box that holds the
+ * scroller (the Knowledge page's own `overflow: hidden` frame round its
+ * `overflow-y: auto` column) cuts a row below the fold at the same edge, and
+ * that is still scrolling, not a control drawn outside its box.
  *
  * `tolerance` absorbs float noise in the layout (CSS pixels).
  */
@@ -72,7 +76,9 @@ export async function findClippedControls(
 			const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
 
 			const check = (element: Element, owner: Element | null) => {
-				const box = element.getBoundingClientRect();
+				// What can be drawn of the element: narrowed, past each vertical
+				// scroller, to the band that scroller shows.
+				let box = element.getBoundingClientRect();
 				const what = owner ? `icon in ${describe(owner)}` : describe(element);
 				if (owner) {
 					const sides = cut(box, owner.getBoundingClientRect());
@@ -109,6 +115,11 @@ export async function findClippedControls(
 					if (sides && Object.values(sides).some((side) => side > tolerance)) {
 						found.push({ what, by: describe(ancestor), overflow: sides });
 						return;
+					}
+					if (scrollsY) {
+						const top = Math.max(box.top, clip.top);
+						const bottom = Math.min(box.bottom, clip.bottom);
+						box = new DOMRect(box.left, top, box.width, bottom - top);
 					}
 				}
 				// The region itself: a control drawn past its edge is painted
