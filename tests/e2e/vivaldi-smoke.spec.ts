@@ -76,9 +76,22 @@ async function openKnowledge(page: Page, baseURL: string, sidebar: Sidebar) {
 		.poll(async () => (await panel.boundingBox())?.width)
 		.toBe(sidebar.width);
 	await expect(page.locator("tbody tr").first()).toBeVisible();
-	// The sidebar's width animates; measure the layout it settles on.
+	// The sidebar's width animates; measure the layout it settles on. Only
+	// what ends is waited for: a row still being read shows a spinner that
+	// turns for as long as the document service is away (as it is in e2e), and
+	// it moves nothing.
 	await expect
-		.poll(() => page.evaluate(() => document.getAnimations().length))
+		.poll(() =>
+			page.evaluate(
+				() =>
+					document
+						.getAnimations()
+						.filter(
+							(animation) =>
+								animation.effect?.getComputedTiming().endTime !== Infinity,
+						).length,
+			),
+		)
 		.toBe(0);
 }
 
