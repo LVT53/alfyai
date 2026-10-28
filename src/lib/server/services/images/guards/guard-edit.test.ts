@@ -457,6 +457,164 @@ describe("guardEdit", () => {
 		expect(out.measures.changedShare).toBeLessThan(boxShare * 1.5);
 	});
 
+	describe("a result shifted against the base", () => {
+		// What the live check found: the model moved the picture a pixel (or a
+		// few), alignment undid it, and the strip it exposed was stored see-through.
+		// Every path must store an opaque picture over an opaque base, the strip
+		// taking the base's own pixels.
+		const SEE_THROUGH = 250;
+		const seeThrough = (picture: { data: Uint8Array }) => {
+			let count = 0;
+			for (let i = 3; i < picture.data.length; i += 4)
+				if (picture.data[i] < SEE_THROUGH) count++;
+			return count;
+		};
+		const recoloured = () => {
+			const edited = copyOf(base);
+			fillBox(edited, RECTS[1].box, [250, 20, 200]);
+			return edited;
+		};
+		const repainted = () => {
+			const edited = copyOf(base);
+			fillBox(
+				edited,
+				{ x: 0, y: 0, w: SCENE_W, h: Math.round(SCENE_H * 0.7) },
+				[30, 220, 90],
+			);
+			return edited;
+		};
+		const box = RECTS[1].box;
+		const marked = [
+			{
+				x: box.x / SCENE_W,
+				y: box.y / SCENE_H,
+				w: box.w / SCENE_W,
+				h: box.h / SCENE_H,
+			},
+		];
+		const elsewhere = [
+			{
+				x: RECTS[3].box.x / SCENE_W,
+				y: RECTS[3].box.y / SCENE_H,
+				w: RECTS[3].box.w / SCENE_W,
+				h: RECTS[3].box.h / SCENE_H,
+			},
+		];
+		const anchor = (() => {
+			const a = copyOf(base);
+			fillBox(a, RECTS[4].box, [10, 10, 10]);
+			return a;
+		})();
+		const paths = [
+			{ name: "paste-back", edited: recoloured, marks: null, chain: 0 },
+			{ name: "re-anchor", edited: recoloured, marks: null, chain: 3 },
+			{ name: "whole repaint", edited: repainted, marks: null, chain: 0 },
+			{ name: "marked edit", edited: recoloured, marks: marked, chain: 0 },
+			{ name: "marked repaint", edited: repainted, marks: marked, chain: 0 },
+			{ name: "marked re-anchor", edited: recoloured, marks: marked, chain: 3 },
+			{
+				name: "clear miss (outside the marks)",
+				edited: recoloured,
+				marks: elsewhere,
+				chain: 0,
+			},
+			{
+				name: "clear miss (nothing changed)",
+				edited: () => copyOf(base),
+				marks: null,
+				chain: 0,
+			},
+		] as const;
+		const shifts = [
+			{ dx: 0, dy: -1 },
+			{ dx: 0, dy: 1 },
+			{ dx: -1, dy: 0 },
+			{ dx: 0, dy: -5 },
+			{ dx: 5, dy: 3 },
+		];
+
+		for (const path of paths) {
+			for (const { dx, dy } of shifts) {
+				it(`stores an opaque picture on the ${path.name} path for a ${dx},${dy} px shift`, async () => {
+					const out = await guardEdit({
+						base,
+						anchor: path.chain > 0 ? anchor : null,
+						chainSinceAnchor: path.chain,
+						result: warp(path.edited(), 1, dx, dy),
+						marks: path.marks,
+					});
+					// The shift was found and undone, so a strip was exposed.
+					expect(Math.round(out.measures.dy)).toBe(dy);
+					expect(Math.round(out.measures.dx)).toBe(dx);
+					expect(seeThrough(out.picture)).toBe(0);
+				});
+			}
+		}
+
+		it("fills the exposed strip of a whole repaint with the base's own pixels", async () => {
+			const out = await guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: warp(repainted(), 1, 0, -1),
+				marks: null,
+			});
+			expect(out.measures.global).toBe(true);
+			const row = SCENE_W * 4;
+			expect(Array.from(out.picture.data.subarray(0, row))).toEqual(
+				Array.from(base.data.subarray(0, row)),
+			);
+			// Below the strip the repaint is kept as the model made it.
+			expect(Array.from(out.picture.data.subarray(row, row + 4))).toEqual([
+				30, 220, 90, 255,
+			]);
+		});
+
+		it("keeps a transparent base transparent where it is, and fills only where it is opaque", async () => {
+			const clear = copyOf(base);
+			const cut = scene.px(100);
+			for (let y = 0; y < SCENE_H; y++)
+				for (let x = 0; x < cut; x++) clear.data[(y * SCENE_W + x) * 4 + 3] = 0;
+			const globals: boolean[] = [];
+			for (const edited of [
+				(() => {
+					const e = copyOf(clear);
+					fillBox(e, RECTS[1].box, [250, 20, 200]);
+					return e;
+				})(),
+				(() => {
+					const e = copyOf(clear);
+					fillBox(
+						e,
+						{ x: cut, y: 0, w: SCENE_W - cut, h: Math.round(SCENE_H * 0.7) },
+						[30, 220, 90],
+					);
+					return e;
+				})(),
+			]) {
+				const out = await guardEdit({
+					base: clear,
+					anchor: null,
+					chainSinceAnchor: 0,
+					result: warp(edited, 1, 0, -1),
+					marks: null,
+				});
+				expect(out.measures).toMatchObject({ dx: 0, dy: -1, scale: 1 });
+				globals.push(out.measures.global);
+				for (let y = 0; y < SCENE_H; y++) {
+					for (let x = 0; x < SCENE_W; x++) {
+						const a = out.picture.data[(y * SCENE_W + x) * 4 + 3];
+						if (x < cut - 2) expect(a).toBe(0);
+						else if (x > cut + 2 && a < SEE_THROUGH)
+							throw new Error(`see-through at ${x},${y}: ${a}`);
+					}
+				}
+			}
+			// Both the paste-back and the whole-repaint path were taken.
+			expect(globals).toEqual([false, true]);
+		});
+	});
+
 	it("calls a shifted no-op nothing changed", async () => {
 		const result = warp(base, 1, 2, -1);
 		const out = await guardEdit({

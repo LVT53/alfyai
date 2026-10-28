@@ -344,6 +344,76 @@ describe("an edit", () => {
 	});
 });
 
+describe("an edit the model moved by a pixel", () => {
+	// The live check on ai.dev: "make the sky stormy" repainted most of the
+	// frame and moved it up a pixel. Alignment undid the move and the top row it
+	// exposed was stored transparent, so the edit was called see-through.
+	for (const shift of [1, 4]) {
+		it(`stores a whole repaint moved up ${shift} px as opaque RGB, the exposed rows the base's`, async () => {
+			await startFake({
+				render: async ({ images }) => {
+					const { data, info } = await sharp(images[0])
+						.removeAlpha()
+						.raw()
+						.toBuffer({ resolveWithObject: true });
+					const { width, height } = info;
+					const out = Buffer.alloc(data.length);
+					for (let y = 0; y < height; y++) {
+						// Moved up: row y shows the base's row y + shift (the last rows repeat).
+						const from = Math.min(height - 1, y + shift);
+						data.copy(
+							out,
+							y * width * 3,
+							from * width * 3,
+							(from + 1) * width * 3,
+						);
+					}
+					// A stormy sky: the top two thirds repainted.
+					for (let y = 0; y < Math.round(height * (2 / 3)); y++) {
+						for (let x = 0; x < width; x++) {
+							const at = (y * width + x) * 3;
+							out[at] = 60 + ((x * 7 + y * 3) % 40);
+							out[at + 1] = 64 + ((x * 5 + y * 11) % 40);
+							out[at + 2] = 80 + ((x * 3 + y * 5) % 40);
+						}
+					}
+					return sharp(out, { raw: { width, height, channels: 3 } })
+						.png()
+						.toBuffer();
+				},
+			});
+			const base = await photo(640, 480);
+			const baseId = await storeInput(base);
+			const takeId = await queueTake(
+				request({
+					mode: "edit",
+					prompt: "make the sky stormy",
+					inputs: [{ fileId: baseId, role: "base", name: "street.png" }],
+					baseFromUpload: true,
+					canvas: { width: 640, height: 480 },
+				}),
+			);
+			await drainImageTakes();
+			const take = await readTake(takeId);
+			expect(take.status).toBe("succeeded");
+			const measures = JSON.parse(
+				take.measuresJson ?? "null",
+			) as StoredTakeMeasures;
+			expect(measures.global).toBe(true);
+			expect(Math.round(measures.dy)).toBe(-shift);
+			const stored = await resultBytes(takeId);
+			expect((await sharp(stored).metadata()).channels).toBe(3);
+			expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+			const kept = await decodeRaw(stored);
+			const original = await decodeRaw(base);
+			const rows = shift * kept.width * 4;
+			expect(Array.from(kept.data.subarray(0, rows))).toEqual(
+				Array.from(original.data.subarray(0, rows)),
+			);
+		});
+	}
+});
+
 describe("waiting in ComfyUI's queue", () => {
 	it("writes how many are ahead", async () => {
 		const comfy = await startFake();

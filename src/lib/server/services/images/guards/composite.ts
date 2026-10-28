@@ -32,3 +32,31 @@ export function compositeOnto(
 	}
 	return { data: out, width: base.width, height: base.height };
 }
+
+/**
+ * The top laid over the base ("over"): where the top is see-through the base
+ * shows through, so an edge that alignment exposed (alpha 0) takes the base's
+ * own pixels, which are the right content there. Where the base is see-through
+ * too, so is the result: transparency the base really has is never filled.
+ */
+export function overBase(base: RawImage, top: RawImage): RawImage {
+	if (base.width !== top.width || base.height !== top.height) {
+		throw new Error("overBase needs two pictures of the same size");
+	}
+	const out = new Uint8Array(top.data);
+	for (let o = 0; o < out.length; o += 4) {
+		const topAlpha = top.data[o + 3];
+		const baseAlpha = base.data[o + 3];
+		if (topAlpha === 255 || baseAlpha === 0) continue;
+		const t = topAlpha / 255;
+		const b = (baseAlpha / 255) * (1 - t);
+		const alpha = t + b;
+		for (let c = 0; c < 3; c++) {
+			out[o + c] = Math.round(
+				(top.data[o + c] * t + base.data[o + c] * b) / alpha,
+			);
+		}
+		out[o + 3] = Math.round(alpha * 255);
+	}
+	return { data: out, width: top.width, height: top.height };
+}
