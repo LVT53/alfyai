@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { uiLanguage } from "$lib/stores/settings";
 import ArtifactCard, { type ArtifactCardView } from "./ArtifactCard.svelte";
@@ -932,6 +932,15 @@ describe("ArtifactCard — a Canvas", () => {
 });
 
 describe("ArtifactCard, the picture card (plan 2b T2)", () => {
+	// The card draws its picture body through `import()` (it is kept out of the chat
+	// route's first load). The first test here paid for evaluating that module graph
+	// cold inside `findBy`'s one second, which a loaded folder-wide run overran while
+	// the file passed alone. Load it once here, as `block-forms.test.ts` does with its
+	// lazy blocks, so the tests wait only for the card's own update.
+	beforeAll(async () => {
+		await import("./image/ImageCardBody.svelte");
+	});
+
 	beforeEach(() => {
 		uiLanguage.set("en");
 	});
