@@ -191,7 +191,20 @@ export async function launchVivaldi(options: {
 	const exited = new Promise<void>((resolve) =>
 		child?.once("exit", () => resolve()),
 	);
+	// A test that times out never reaches its `finally`, and a detached group
+	// outlives the worker: the worker's own exit takes the browser down too.
+	const group = child.pid;
+	const killGroupOnExit = () => {
+		try {
+			if (group) process.kill(-group, "SIGKILL");
+		} catch {
+			// Already gone.
+		}
+		rmSync(profile, { recursive: true, force: true });
+	};
+	process.once("exit", killGroupOnExit);
 	const cleanUp = async () => {
+		process.off("exit", killGroupOnExit);
 		const running = child;
 		child = null;
 		if (
