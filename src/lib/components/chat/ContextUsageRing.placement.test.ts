@@ -316,13 +316,17 @@ describe("ContextUsageRing popup: the mouse going from the ring to the popup", (
 		fakeTimers();
 		renderRing();
 		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		// Counted against what was there before the leave, as the test below
+		// does: Svelte 5.56 may hold a timer of its own after a delegated event,
+		// which is not the ring's. The ring's hover timer must be gone after
+		// Escape (a leaked one would be counted here).
+		const beforeLeave = vi.getTimerCount();
 		ring().dispatchEvent(pointer("pointerleave", "mouse"));
+		expect(vi.getTimerCount()).toBe(beforeLeave + 1);
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		expect(isVisible()).toBe(false);
-		// Not a count of timers: Svelte 5.56 keeps one of its own after a
-		// delegated event (to let go of the last event). The hover timer is
-		// cancelled if running it out changes nothing.
+		expect(vi.getTimerCount()).toBe(beforeLeave);
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(isVisible()).toBe(false);
 	});
