@@ -267,6 +267,29 @@ test.describe("Pictures end to end", () => {
 		await waitForSettledCard(page, conversationId, 1);
 	});
 
+	// Task 11, the owner on ai.dev: "the file didn't appear, I had to refresh".
+	// A first message from the home page whose card arrives with the take
+	// already being made (progress above 0, as a real render is by the first
+	// poll) froze every update of the page on Svelte 5.55.8 (see
+	// svelte-scheduler.test.ts): the card said "Making the picture…" for good.
+	test("a picture asked for from the home page lands on its card without a reload", async ({
+		page,
+	}) => {
+		videoName = "home-page-picture";
+		(fake as FakeComfyUi).setOptions({ steps: 10, stepDelayMs: 600 });
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+		await page.waitForURL(/\/chat\/[^/?]+/);
+		const conversationId = new URL(page.url()).pathname.split("/").at(-1);
+		const card = page.locator(CARD).last();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
+		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+			timeout: 30_000,
+		});
+		await waitForSettledCard(page, conversationId as string, 1);
+	});
+
 	test("Another adds a take and Use this moves the tick", async ({ page }) => {
 		videoName = "another-and-use-this";
 		const comfy = fake as FakeComfyUi;
