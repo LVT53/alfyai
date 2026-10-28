@@ -15,6 +15,7 @@ import {
 	shownTake,
 	takeState,
 	visibleTakes,
+	waitingLine,
 } from "./image-card-view";
 
 let n = 0;
@@ -264,6 +265,17 @@ describe("etaLabel", () => {
 		expect(etaLabel(7.2, get(t))).toBe("Még kb. 8 mp");
 		expect(etaLabel(null, get(t))).toBeNull();
 		expect(etaLabel(0, get(t))).toBeNull();
+	});
+});
+
+describe("waitingLine", () => {
+	it("counts the pictures ahead, and says Next up when none are (never 'another picture')", () => {
+		expect(waitingLine(2, get(t))).toBe("2 ahead of this one");
+		expect(waitingLine(0, get(t))).toBe("Next up");
+		expect(waitingLine(null, get(t))).toBe("Next up");
+		uiLanguage.set("hu");
+		expect(waitingLine(2, get(t))).toBe("2 van előtte");
+		expect(waitingLine(null, get(t))).toBe("Következik");
 	});
 });
 

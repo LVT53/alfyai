@@ -68,10 +68,20 @@ describe("ImageCardBody", () => {
 				}),
 			]),
 		});
-		expect(
-			screen.getByText("Another picture is being made"),
-		).toBeInTheDocument();
 		expect(screen.getByText("1 ahead of this one")).toBeInTheDocument();
+		expect(
+			screen.queryByText("Another picture is being made"),
+		).not.toBeInTheDocument();
+	});
+
+	it("says Next up for a chat's first picture waiting to start, not that another is being made", () => {
+		render(ImageCardBody, {
+			card: card([take({ status: "queued", fileId: null })]),
+		});
+		expect(screen.getByText("Next up")).toBeInTheDocument();
+		expect(
+			screen.queryByText("Another picture is being made"),
+		).not.toBeInTheDocument();
 	});
 
 	it("says the picture maker is starting after a quiet spell", () => {

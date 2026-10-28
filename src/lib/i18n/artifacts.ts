@@ -1111,6 +1111,7 @@ const artifactsDict = {
 		"artifacts.image.card.eta": "About {count} s left",
 		"artifacts.image.card.waiting": "Another picture is being made",
 		"artifacts.image.card.ahead": "{count} ahead of this one",
+		"artifacts.image.card.nextUp": "Next up",
 		"artifacts.image.card.starting": "Starting the picture maker…",
 		"artifacts.image.card.startingDetail":
 			"After a quiet spell the model loads first, so this one takes longer.",
@@ -2070,6 +2071,7 @@ const artifactsDict = {
 		"artifacts.image.card.eta": "Még kb. {count} mp",
 		"artifacts.image.card.waiting": "Egy másik kép készül",
 		"artifacts.image.card.ahead": "{count} van előtte",
+		"artifacts.image.card.nextUp": "Következik",
 		"artifacts.image.card.starting": "Indul a képkészítő…",
 		"artifacts.image.card.startingDetail":
 			"Szünet után előbb betöltődik a modell, ezért ez tovább tart.",

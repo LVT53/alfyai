@@ -43,6 +43,7 @@ import {
 	shownTake,
 	takeState,
 	visibleTakes,
+	waitingLine,
 } from "./image-card-view";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
@@ -279,13 +280,7 @@ function stateWords(current: ImageCardState): {
 } {
 	switch (current.kind) {
 		case "waiting":
-			return {
-				line: $t("artifacts.image.card.waiting"),
-				detail:
-					current.ahead !== null
-						? $t("artifacts.image.card.ahead", { count: current.ahead })
-						: null,
-			};
+			return { line: waitingLine(current.ahead, $t), detail: null };
 		case "starting":
 			return {
 				line: $t("artifacts.image.card.starting"),

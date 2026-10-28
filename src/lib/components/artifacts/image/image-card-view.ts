@@ -135,6 +135,19 @@ export function cardSubtitle(card: ImageCardView, t: Translate): string {
 		: t("artifacts.type.image");
 }
 
+/**
+ * A waiting take's line: how many pictures are ahead of it, or Next up when
+ * none are (or none is counted yet: a take waiting in the app's own queue is
+ * there for a moment before it reaches the picture server). Never "another
+ * picture is being made": on a chat's first picture or right after Another
+ * that read as something else being busy.
+ */
+export function waitingLine(ahead: number | null, t: Translate): string {
+	return ahead !== null && ahead >= 1
+		? t("artifacts.image.card.ahead", { count: ahead })
+		: t("artifacts.image.card.nextUp");
+}
+
 export function etaLabel(seconds: number | null, t: Translate): string | null {
 	if (seconds === null || seconds <= 0) return null;
 	return t("artifacts.image.card.eta", { count: Math.ceil(seconds) });
