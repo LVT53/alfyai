@@ -2490,10 +2490,21 @@ function applyConversationDetailMetadata(
  * reply it hangs from show it at once instead of at the next read of the chat.
  */
 async function refreshConversationFiles() {
-	const detail = await fetchConversationDetail(data.conversation.id).catch(
+	const conversationId = data.conversation.id;
+	const detail = await fetchConversationDetail(conversationId).catch(
 		() => null,
 	);
-	if (detail) applyConversationDetailMetadata(detail);
+	// The person may have opened another chat while this was read (a picture
+	// card's button, then a sidebar click): its answer belongs to the chat it
+	// was asked for, never to the one now shown (hydrateConversationDetail's rule).
+	if (
+		!detail ||
+		conversationId !== data.conversation.id ||
+		detail.conversation?.id !== conversationId
+	) {
+		return;
+	}
+	applyConversationDetailMetadata(detail);
 }
 
 async function refreshPendingWrites() {

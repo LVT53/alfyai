@@ -3022,6 +3022,63 @@ describe("chat page runtime integration", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("drops a files read-back for the chat the person left: the chat now shown keeps its own state", async () => {
+		// A picture card's Another / Use this / Stop / Retry (and a board's
+		// kept picture) read the chat's detail back through one function; its
+		// answer for chat A must not land in chat B, opened meanwhile.
+		const { announceChatFilesChanged } = await import(
+			"$lib/client/api/artifacts"
+		);
+		const view = renderPage(pageData());
+		let resolveDetail: (
+			value: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveDetail = resolve;
+			}),
+		);
+		announceChatFilesChanged("conv-1");
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		});
+
+		await view.rerender({
+			data: pageData({
+				conversation: conversationFixture("conv-2", {
+					title: "Second chat",
+					createdAt: 2,
+					updatedAt: 2,
+				}),
+			}),
+			params: { conversationId: "conv-2" },
+		});
+		resolveDetail({
+			...conversationDetailFixture(),
+			conversation: conversationFixture("conv-1"),
+			artifacts: [
+				{
+					id: "artifact-a",
+					kind: "image",
+					title: "Chat A's picture",
+					conversationId: "conv-1",
+					versionNumber: 1,
+					commentCount: 0,
+					updatedAt: Date.now(),
+				},
+			],
+			totalCostUsdMicros: 990_000,
+			totalTokens: 99,
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(
+			screen.queryByTestId("artifact-count-button"),
+		).not.toBeInTheDocument();
+	});
+
 	it("updates cost and token totals from first-render sidecar detail", async () => {
 		vi.mocked(fetchConversationDetail).mockResolvedValueOnce({
 			...conversationDetailFixture(),
