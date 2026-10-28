@@ -838,6 +838,37 @@ test.describe("the picture card moves like the Document's", () => {
 			await startRecording(page, {
 				stage: '[data-motion-target="changed"]',
 			});
+			// Before is fetched ahead of the first press (B-I3), so the press never
+			// waits on a download with an empty box.
+			await expect(
+				changed.locator('[data-testid="image-picture-before"].is-loaded'),
+			).toBeAttached();
+			// After's own fade-in (is-loaded starts it) is over before the flips.
+			await settle(page);
+			// After stays fully shown under Before through both flips (B-I2): an
+			// opaque pair never washes through the box's background.
+			await page.evaluate(() => {
+				const store = window as unknown as {
+					__afterOpacity?: { min: number; frames: number; running: boolean };
+				};
+				const sample = { min: 1, frames: 0, running: true };
+				store.__afterOpacity = sample;
+				const tick = () => {
+					if (!sample.running) return;
+					const after = document.querySelector(
+						'[data-motion-target="changed"] [data-testid="image-picture-after"]',
+					);
+					if (after) {
+						sample.min = Math.min(
+							sample.min,
+							Number(getComputedStyle(after).opacity),
+						);
+						sample.frames += 1;
+					}
+					requestAnimationFrame(tick);
+				};
+				requestAnimationFrame(tick);
+			});
 			mark(flow, "before");
 			await before.click();
 			await expect(
@@ -853,8 +884,18 @@ test.describe("the picture card moves like the Document's", () => {
 				"data-showing",
 				"after",
 			);
+			await settle(page);
+			const afterOpacity = await page.evaluate(() => {
+				const store = window as unknown as {
+					__afterOpacity?: { min: number; frames: number; running: boolean };
+				};
+				const sample = store.__afterOpacity;
+				if (sample) sample.running = false;
+				return sample ? { min: sample.min, frames: sample.frames } : null;
+			});
 			const run = await stopRecording(page);
 			metrics = {
+				afterOpacity,
 				cls: shiftsBetween(run, 0, Number.POSITIVE_INFINITY),
 				clsWithInput: run.shifts.reduce((sum, entry) => sum + entry.value, 0),
 				shifts: run.shifts,
@@ -866,6 +907,15 @@ test.describe("the picture card moves like the Document's", () => {
 			await closeFlow(flow, "before-after", metrics);
 		}
 		expect(flow.errors, "the page logged an error").toEqual([]);
+		const afterOpacity = metrics.afterOpacity as {
+			min: number;
+			frames: number;
+		} | null;
+		expect(afterOpacity?.frames ?? 0).toBeGreaterThan(10);
+		expect(
+			afterOpacity?.min,
+			"After faded under Before: the flip washed through the background",
+		).toBe(1);
 		expect(metrics.cls).toBe(0);
 		expect((metrics.stageDrift as { h: number }).h).toBeLessThanOrEqual(0.5);
 		expect(metrics.longFrames).toEqual([]);
@@ -2124,6 +2174,72 @@ test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
 		expect(metrics.longFrames).toEqual([]);
 		expect((metrics.transitions as { other: unknown[] }).other).toEqual([]);
 	});
+});
+
+test.describe("the versions strip on a phone (final review B-I5)", () => {
+	for (const variant of [
+		{ name: "phone-strip-current", reducedMotion: "no-preference" },
+		{ name: "phone-strip-current-reduced-motion", reducedMotion: "reduce" },
+	] as const) {
+		test(`${variant.name}: with five versions the current one shows whole, and the side that hides frames fades`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(120_000);
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: PHONE, reducedMotion: variant.reducedMotion },
+				// Each later version a take the reader picked: one frame each.
+				(user, chatId) =>
+					seedImageItem(user, chatId, {
+						versions: 5,
+						authorOf: () => "picked",
+					}),
+			);
+			const { page } = flow;
+			let metrics: Record<string, unknown> = {};
+			try {
+				await openItem(page, IMAGE_ITEM_TITLE);
+				await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
+					timeout: 20_000,
+				});
+				await expect(page.getByTestId("image-version-frame")).toHaveCount(5);
+				mark(flow, "strip");
+				await settle(page);
+				metrics = await page
+					.getByTestId("image-version-strip")
+					.last()
+					.evaluate((strip) => {
+						const box = strip.getBoundingClientRect();
+						const current = strip.querySelector('[aria-current="true"]');
+						const frame = current?.getBoundingClientRect() ?? null;
+						return {
+							strip: { left: box.left, right: box.right },
+							current: frame && { left: frame.left, right: frame.right },
+							currentWhole:
+								frame !== null &&
+								frame.left >= box.left - 0.5 &&
+								frame.right <= box.right + 0.5,
+							overflows: strip.scrollWidth > strip.clientWidth + 1,
+							fadeStart: strip.classList.contains("fade-start"),
+							fadeEnd: strip.classList.contains("fade-end"),
+							mask: getComputedStyle(strip).maskImage,
+						};
+					});
+			} finally {
+				await saveRecording(flow, variant.name, metrics, { prefix: "t3" });
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			expect(metrics.overflows, "five frames overflow a phone's row").toBe(
+				true,
+			);
+			expect(metrics.currentWhole, "the current version is cut").toBe(true);
+			// The current (newest) frame is last: the hidden frames are at the start.
+			expect(metrics.fadeStart).toBe(true);
+			expect(metrics.fadeEnd).toBe(false);
+			expect(metrics.mask).toContain("linear-gradient");
+		});
+	}
 });
 
 test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
