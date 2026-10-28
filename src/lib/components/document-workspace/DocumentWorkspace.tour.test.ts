@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import {
 	afterEach,
+	beforeAll,
 	beforeEach,
 	describe,
 	expect,
@@ -111,6 +112,21 @@ function openDocument(extra: Parameters<typeof renderWorkspace>[0] = {}) {
 	});
 }
 
+// The panel draws two things through `import()` when an item opens: the item's body
+// (here the fixture every kind is given) and the tour card's chunk (the card and its
+// four drawings, `tour/tour-card.ts`). The first test in a worker paid for evaluating
+// both cold inside `findBy`'s one second, and under a loaded folder-wide run that did
+// not fit while the file passed alone. Load them once here, the client-side analogue
+// of the server's `warmModules` (as `block-forms.test.ts` does): the module cache is
+// warm, `tour-card.ts`'s own `loaded` is untouched (a test below holds the panel to
+// bringing the card in), and `findBy` waits only for the panel's own update.
+beforeAll(async () => {
+	await Promise.all([
+		import("./__fixtures__/FakeReplayBody.svelte"),
+		import("$lib/components/artifacts/tour/ArtifactTour.svelte"),
+	]);
+});
+
 let warn: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -148,15 +164,9 @@ afterEach(() => {
 	uiLanguage.set("en");
 });
 
-/**
- * The card, once the lazy chunk has loaded. The first test in a worker pays for
- * transforming that chunk (and the card's four drawings) cold, which under a full
- * parallel run can take longer than `findBy`'s 1 s default: the wait is for the
- * card to arrive, not a bound on how fast it arrives (the e2e motion checks own
- * that), so it gets room for a cold transform.
- */
+/** The card, once the lazy chunk has loaded. */
 async function card() {
-	return screen.findByTestId("artifact-tour", {}, { timeout: 5_000 });
+	return screen.findByTestId("artifact-tour");
 }
 
 async function settle() {
