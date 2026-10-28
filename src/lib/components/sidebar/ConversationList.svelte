@@ -1,6 +1,7 @@
 <script lang="ts">
-import { fade, slide } from "svelte/transition";
+import { fade, fly, slide } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
+import { MOTION_DURATION, MOTION_EASE } from "$lib/utils/motion";
 import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/stores";
@@ -50,6 +51,7 @@ import {
 	MessageSquare,
 	Pin,
 	Plus,
+	Trash2,
 } from "@lucide/svelte";
 import { countProjectConversations } from "./project-count";
 import type { ConversationListItem } from "$lib/server/services/conversations";
@@ -62,6 +64,9 @@ import SidebarReorderRow from "./SidebarReorderRow.svelte";
 import SidebarSelectionBar from "./SidebarSelectionBar.svelte";
 import {
 	bulkPinAction,
+	chatsToMove,
+	chatsToPin,
+	draggedChatIds,
 	pruneSelected,
 	selectRange,
 	shownConversationOrder,
@@ -87,11 +92,18 @@ let {
 // JS-driven transitions (see motion.ts), so wrap them explicitly.
 const sectionSlide = reducedMotionAware(slide);
 const rowFade = reducedMotionAware(fade);
+// The bin rises into the sidebar's foot and sinks out of it: transform and
+// opacity only, on the motion tokens.
+const binFly = reducedMotionAware(fly);
 
 let projectsStoreReady = $state(false);
 let conversationsStoreReady = $state(false);
 let supportsDragAndDrop = $state(true);
+// The row a drag started on, and the chats it carries: the whole selection
+// when that row is selected, that row alone when it is not.
 let draggedConversationId = $state<string | null>(null);
+let draggedIds = $state<string[]>([]);
+let dragCarriesSelection = $state(false);
 type SidebarReorderState =
 	| { kind: "pinned-conversation"; id: string }
 	| { kind: "project"; id: string }
@@ -100,6 +112,8 @@ let activeSidebarReorder = $state<SidebarReorderState>(null);
 type SidebarDropTarget =
 	| { kind: "project"; projectId: string }
 	| { kind: "unorganized" }
+	| { kind: "pinned" }
+	| { kind: "bin" }
 	| null;
 let dropTarget = $state<SidebarDropTarget>(null);
 type ReorderInsertPosition = "before" | "after";
@@ -209,6 +223,13 @@ let selectionAnchorId = $state<string | null>(null);
 // A bulk call is running: nothing changes the selection until it has answered.
 let bulkBusy = $state(false);
 let bulkDeleteConfirmOpen = $state(false);
+// One chat dropped on the bin: asked about with the row menu's own dialog.
+let binDeleteId = $state<string | null>(null);
+// What the live region says once a dragged selection has moved ("Moved 3 chats
+// to Trips"); the count of a selection takes its place while one is open.
+let dragAnnouncement = $state("");
+// The "3 chats" a dragged selection shows under the pointer.
+let dragPreview = $state<HTMLDivElement | undefined>(undefined);
 
 const selecting = $derived(selectedIds.size > 0);
 
@@ -252,6 +273,13 @@ const selectedConversations = $derived(
 );
 const pinAction = $derived(bulkPinAction(selectedConversations));
 const canSelectAll = $derived(shownOrder.some((id) => !selectedIds.has(id)));
+// The chats the drag under way carries, as rows.
+const draggedConversations = $derived(
+	draggedIds.flatMap((id) => {
+		const conversation = conversationsById.get(id);
+		return conversation ? [conversation] : [];
+	}),
+);
 const canRemoveFromProject = $derived(
 	selectedConversations.some((conversation) => conversation.projectId != null),
 );
@@ -423,6 +451,7 @@ async function runBulkAction(
 			message: $t(failureMessage, { count: failedIds.length }),
 		});
 	}
+	return failedIds;
 }
 
 function handleBulkDeleteRequest() {
@@ -457,9 +486,9 @@ async function handleBulkPin() {
 	const pin = pinAction === "pin";
 	// Pin sends the unpinned ones only (a pinned chat stays where it is); Unpin
 	// is offered only when every selected chat is pinned.
-	const ids = selectedConversations
-		.filter((conversation) => !pin || !conversation.sidebarPinned)
-		.map((conversation) => conversation.id);
+	const ids = pin
+		? chatsToPin(selectedConversations)
+		: selectedConversations.map((conversation) => conversation.id);
 	await runBulkAction(
 		ids,
 		() => setConversationsSidebarPinned(ids, pin),
@@ -468,17 +497,110 @@ async function handleBulkPin() {
 }
 
 async function handleBulkMove(payload: { projectId: string | null }) {
-	if (bulkBusy || !selecting) return;
+	if (bulkBusy || !selecting) return [];
 	const { projectId } = payload;
 	// A chat already in the project (or already out of any) has nothing to move.
-	const ids = selectedConversations
-		.filter((conversation) => (conversation.projectId ?? null) !== projectId)
-		.map((conversation) => conversation.id);
-	await runBulkAction(
+	const ids = chatsToMove(selectedConversations, projectId);
+	const failedIds = await runBulkAction(
 		ids,
 		() => moveConversationsToProject(ids, projectId),
 		"sidebar.bulkMoveFailed",
 	);
+	return ids.filter((id) => !failedIds.includes(id));
+}
+
+// ── Dragging a selection ───────────────────────────────────────────────────
+//
+// A drag that starts on a selected row carries the selection, and a drop does
+// what the bar does: Move, Pin, or Delete after the same confirm. These run
+// the bar's own handlers, so a drop and a click cannot drift apart.
+
+function announceDraggedMove(movedIds: string[], name: string) {
+	if (movedIds.length === 0) return;
+	dragAnnouncement = $t("sidebar.movedChats", {
+		count: movedIds.length,
+		name,
+	});
+}
+
+async function dropSelectionInto(projectId: string | null, name: string) {
+	clearDragState();
+	announceDraggedMove(await handleBulkMove({ projectId }), name);
+}
+
+async function dropSelectionOnPinned() {
+	clearDragState();
+	if (bulkBusy || !selecting) return;
+	const ids = chatsToPin(selectedConversations);
+	const failedIds = await runBulkAction(
+		ids,
+		() => setConversationsSidebarPinned(ids, true),
+		"sidebar.bulkPinFailed",
+	);
+	announceDraggedMove(
+		ids.filter((id) => !failedIds.includes(id)),
+		$t("sidebar.pinned"),
+	);
+}
+
+function handlePinnedDragOver(event: DragEvent) {
+	// A pinned row being reordered is the reorder rows' business.
+	if (activeSidebarReorder !== null || draggedIds.length === 0) return;
+	setMoveDropEffect(event);
+	dropTarget =
+		chatsToPin(draggedConversations).length > 0 ? { kind: "pinned" } : null;
+}
+
+function handlePinnedDragLeave(event: DragEvent) {
+	if (leftCurrentDropTarget(event) && dropTarget?.kind === "pinned") {
+		dropTarget = null;
+	}
+}
+
+async function handlePinnedDrop(event: DragEvent) {
+	if (activeSidebarReorder !== null || draggedIds.length === 0) return;
+	setMoveDropEffect(event);
+	if (dragCarriesSelection) {
+		await dropSelectionOnPinned();
+		return;
+	}
+	const conversation = getConversationById(draggedConversationId);
+	clearDragState();
+	if (!conversation || conversation.sidebarPinned) return;
+	await handleConversationTogglePin({ id: conversation.id, pinned: true });
+}
+
+function handleBinDragOver(event: DragEvent) {
+	if (draggedIds.length === 0) return;
+	setMoveDropEffect(event);
+	dropTarget = { kind: "bin" };
+}
+
+function handleBinDragLeave(event: DragEvent) {
+	if (leftCurrentDropTarget(event) && dropTarget?.kind === "bin") {
+		dropTarget = null;
+	}
+}
+
+// Never a delete without its confirm: several chats get the bar's dialog, one
+// chat the row menu's.
+function handleBinDrop(event: DragEvent) {
+	if (draggedIds.length === 0) return;
+	setMoveDropEffect(event);
+	const ids = draggedIds;
+	const carriesSelection = dragCarriesSelection;
+	clearDragState();
+	if (carriesSelection && ids.length > 1) {
+		handleBulkDeleteRequest();
+		return;
+	}
+	binDeleteId = ids[0] ?? null;
+}
+
+async function confirmBinDelete() {
+	const id = binDeleteId;
+	binDeleteId = null;
+	if (id !== null) await handleDelete({ id });
 }
 
 // ── Conversation handlers ──────────────────────────────────────────────────
@@ -489,6 +611,8 @@ function closeAllMenus() {
 
 function clearDragState() {
 	draggedConversationId = null;
+	draggedIds = [];
+	dragCarriesSelection = false;
 	dropTarget = null;
 }
 
@@ -730,7 +854,11 @@ function handleMenuClose(payload?: { id: string }) {
 }
 
 function handleConversationDragStart(payload: { id: string }) {
+	if (bulkBusy) return;
 	draggedConversationId = payload.id;
+	draggedIds = draggedChatIds(selectedIds, shownOrder, payload.id);
+	dragCarriesSelection = selectedIds.has(payload.id);
+	dragAnnouncement = "";
 	dropTarget = null;
 	closeAllMenus();
 }
@@ -741,6 +869,13 @@ function handleConversationDragEnd() {
 
 function handleProjectDragOver(payload: { id: string }) {
 	if (!draggedConversationId) return;
+	if (dragCarriesSelection) {
+		dropTarget =
+			chatsToMove(draggedConversations, payload.id).length > 0
+				? { kind: "project", projectId: payload.id }
+				: null;
+		return;
+	}
 	const draggedConversation = getConversationById(draggedConversationId);
 	if (!draggedConversation || draggedConversation.projectId === payload.id) {
 		dropTarget = null;
@@ -759,6 +894,14 @@ async function handleProjectDropConversation(payload: {
 	projectId: string;
 	conversationId?: string | null;
 }) {
+	if (dragCarriesSelection) {
+		// Never opens or closes the folder either (see below).
+		await dropSelectionInto(
+			payload.projectId,
+			projectsById.get(payload.projectId)?.name ?? "",
+		);
+		return;
+	}
 	const conversationId = payload.conversationId ?? draggedConversationId;
 	const draggedConversation = getConversationById(conversationId);
 	clearDragState();
@@ -785,6 +928,13 @@ async function handleProjectDropConversation(payload: {
 
 function handleUnorganizedDragOver() {
 	if (!draggedConversationId) return;
+	if (dragCarriesSelection) {
+		dropTarget =
+			chatsToMove(draggedConversations, null).length > 0
+				? { kind: "unorganized" }
+				: null;
+		return;
+	}
 	if (
 		!activeDraggedConversation ||
 		activeDraggedConversation.projectId == null
@@ -804,6 +954,10 @@ function handleUnorganizedDragLeave() {
 async function handleUnorganizedDropConversation(
 	conversationId?: string | null,
 ) {
+	if (dragCarriesSelection) {
+		await dropSelectionInto(null, $t("sidebar.chats"));
+		return;
+	}
 	const resolvedConversationId = conversationId ?? draggedConversationId;
 	const draggedConversation = getConversationById(resolvedConversationId);
 	clearDragState();
@@ -1026,9 +1180,19 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		class="sr-only"
 		aria-live="polite"
 		aria-atomic="true"
-	>{selecting ? $t('sidebar.selectionCount', { count: selectedIds.size }) : ''}</div>
+	>{selecting ? $t('sidebar.selectionCount', { count: selectedIds.size }) : dragAnnouncement}</div>
 	{#if pinnedConversations.length > 0}
-		<div data-testid="pinned-conversations-section" class="mb-1">
+		<!-- A drop target too: chats dragged here are pinned. -->
+		<div
+			data-testid="pinned-conversations-section"
+			class="pinned-drop-zone mb-1 rounded-xl"
+			class:pinned-drop-zone-active={dropTarget?.kind === 'pinned'}
+			role="group"
+			aria-label={$t('sidebar.pinned')}
+			ondragover={handlePinnedDragOver}
+			ondragleave={handlePinnedDragLeave}
+			ondrop={handlePinnedDrop}
+		>
 			<!-- Section header (collapsible, matches Projects/Chats headers) -->
 			<div class="px-2 py-1">
 				<button
@@ -1238,8 +1402,9 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 											active={$currentConversationId === conversation.id}
 											menuOpen={isConversationMenuOpen(conversation.id)}
 											projects={allProjects}
-											dragEnabled={supportsDragAndDrop}
-											isDragging={draggedConversationId === conversation.id}
+											dragEnabled={supportsDragAndDrop && !bulkBusy}
+											dragImage={selectedIds.has(conversation.id) ? dragPreview : null}
+											isDragging={draggedIds.includes(conversation.id)}
 											{selecting}
 											selected={selectedIds.has(conversation.id)}
 											onSelect={handleSelect}
@@ -1396,8 +1561,9 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							active={$currentConversationId === conversation.id}
 							menuOpen={isConversationMenuOpen(conversation.id)}
 							projects={allProjects}
-							dragEnabled={supportsDragAndDrop}
-							isDragging={draggedConversationId === conversation.id}
+							dragEnabled={supportsDragAndDrop && !bulkBusy}
+							dragImage={selectedIds.has(conversation.id) ? dragPreview : null}
+							isDragging={draggedIds.includes(conversation.id)}
 							{selecting}
 							selected={selectedIds.has(conversation.id)}
 							onSelect={handleSelect}
@@ -1435,7 +1601,57 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 			onDelete={handleBulkDeleteRequest}
 		/>
 	{/if}
+
+	<!-- The bin's anchor: no height, so the list never moves for it, and stuck to
+	     the foot of the sidebar's scroll box. The bin is laid over the foot (over
+	     the selection bar when there is one) only while a chat is dragged. Not a
+	     keyboard stop: the keyboard deletes through the bar and the row menu. -->
+	<div class="sidebar-bin-anchor" class:mt-auto={!selecting}>
+		{#if draggedIds.length > 0}
+			<div
+				data-testid="sidebar-drop-bin"
+				class="sidebar-drop-bin"
+				class:sidebar-drop-bin-active={dropTarget?.kind === 'bin'}
+				role="group"
+				aria-label={$t('sidebar.dropToDelete')}
+				ondragover={handleBinDragOver}
+				ondragleave={handleBinDragLeave}
+				ondrop={handleBinDrop}
+				in:binFly={{ y: 12, duration: MOTION_DURATION.standard, easing: MOTION_EASE.out }}
+				out:binFly={{ y: 12, duration: MOTION_DURATION.standard, easing: MOTION_EASE.in }}
+			>
+				<Trash2 size={15} strokeWidth={2.2} aria-hidden="true" />
+				<span>{$t('sidebar.dropToDelete')}</span>
+			</div>
+		{/if}
+	</div>
 </div>
+
+<!-- What a dragged selection shows under the pointer: drawn off screen, where the
+     browser takes its picture from. -->
+{#if selectedIds.size > 1}
+	<div
+		bind:this={dragPreview}
+		data-testid="sidebar-drag-preview"
+		class="sidebar-drag-preview"
+		aria-hidden="true"
+	>
+		<MessageSquare size={13} strokeWidth={2.2} aria-hidden="true" />
+		<span>{$t('sidebar.dragChatCount', { count: selectedIds.size })}</span>
+	</div>
+{/if}
+
+{#if binDeleteId !== null}
+	<ConfirmDialog
+		title={$t('sidebar.deleteConversationTitle')}
+		message={$t('sidebar.deleteConversationMessage')}
+		confirmText={$t('common.delete')}
+		cancelText={$t('common.cancel')}
+		confirmVariant="danger"
+		onConfirm={confirmBinDelete}
+		onCancel={() => (binDeleteId = null)}
+	/>
+{/if}
 
 {#if bulkDeleteConfirmOpen}
 	<ConfirmDialog
@@ -1484,6 +1700,79 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 	.project-reorder-insert-line-active {
 		background: var(--accent);
 		opacity: 1;
+	}
+
+	/* Pinned had no border before it was a drop target, and one now would move
+	   it: the outline is an inset shadow, the fill the folders' own. */
+	.pinned-drop-zone {
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	.pinned-drop-zone-active {
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 72%, transparent 28%);
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--accent) 12%, transparent 88%),
+				color-mix(in srgb, var(--surface-elevated) 78%, transparent 22%)
+			);
+	}
+
+	.sidebar-bin-anchor {
+		position: sticky;
+		bottom: 0;
+		z-index: 2;
+		height: 0;
+		flex: none;
+	}
+
+	.sidebar-drop-bin {
+		position: absolute;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		display: flex;
+		min-height: 44px;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-sm);
+		border: 1px dashed color-mix(in srgb, var(--danger) 55%, transparent);
+		border-radius: var(--radius-lg);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-md);
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: 12px;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out);
+	}
+
+	.sidebar-drop-bin-active {
+		border-style: solid;
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 14%, var(--surface-overlay));
+		color: var(--danger);
+	}
+
+	.sidebar-drag-preview {
+		position: fixed;
+		top: -1000px;
+		left: -1000px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		background: var(--surface-overlay);
+		color: var(--text-primary);
+		font-size: 12px;
+		pointer-events: none;
+		white-space: nowrap;
 	}
 
 	.empty-projects-btn {

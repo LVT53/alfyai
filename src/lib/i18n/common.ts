@@ -227,6 +227,9 @@ const commonDict = {
 		"sidebar.createChatInProject": "Create chat in {name}",
 		"sidebar.createNewProject": "Create new project",
 		"sidebar.delete": "Delete",
+		"sidebar.dragChatCount":
+			"{count} {count, plural, one {chat} other {chats}}",
+		"sidebar.dropToDelete": "Drop to delete",
 		"sidebar.deleteConversationMessage":
 			"Are you sure you want to delete this conversation? This action cannot be undone.",
 		"sidebar.deleteConversationTitle": "Delete this conversation?",
@@ -264,6 +267,8 @@ const commonDict = {
 			"End your session? You can sign back in anytime.",
 		"sidebar.logoutConfirmTitle": "Log out?",
 		"sidebar.moveToProject": "Move to project",
+		"sidebar.movedChats":
+			"Moved {count} {count, plural, one {chat} other {chats}} to {name}",
 		"sidebar.newChat": "New chat",
 		"sidebar.newChatInProject": "New chat",
 		"sidebar.newProject": "New project",
@@ -561,6 +566,8 @@ const commonDict = {
 		"sidebar.createChatInProject": "Új beszélgetés létrehozása itt: {name}",
 		"sidebar.createNewProject": "Új projekt létrehozása",
 		"sidebar.delete": "Törlés",
+		"sidebar.dragChatCount": "{count} beszélgetés",
+		"sidebar.dropToDelete": "Engedd el a törléshez",
 		"sidebar.deleteConversationMessage":
 			"Biztosan törlöd ezt a beszélgetést? Ez a művelet nem vonható vissza.",
 		"sidebar.deleteConversationTitle": "Törlöd ezt a beszélgetést?",
@@ -599,6 +606,7 @@ const commonDict = {
 			"Bontod a munkamenetet? Bármikor visszajelentkezhetsz.",
 		"sidebar.logoutConfirmTitle": "Kijelentkezel?",
 		"sidebar.moveToProject": "Áthelyezés projektbe",
+		"sidebar.movedChats": "{count} beszélgetés áthelyezve ide: {name}",
 		"sidebar.newChat": "Új beszélgetés",
 		"sidebar.newChatInProject": "Új beszélgetés",
 		"sidebar.newProject": "Új projekt",

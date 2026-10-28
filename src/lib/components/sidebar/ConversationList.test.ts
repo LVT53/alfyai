@@ -1176,27 +1176,21 @@ describe("ConversationList multi-select", () => {
 			expect(row("b")).not.toHaveClass("conversation-item-dragging");
 		});
 
-		it("lets no row be dragged while selecting, the reorder rows included", async () => {
+		it("keeps the chat rows draggable while selecting, but not the reorder rows", async () => {
 			seed(
 				[pinned("pin", 0), chat("f1", { projectId: "p1" }), chat("a")],
 				[project("p1", "Alpha")],
 				["p1"],
 			);
-			expect(
-				document.querySelectorAll('[draggable="true"]').length,
-			).toBeGreaterThan(0);
 
 			await pick("a");
 
-			expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
+			// A selected row drags the selection, an unselected one itself.
+			expect(row("a")).toHaveAttribute("draggable", "true");
+			expect(row("f1")).toHaveAttribute("draggable", "true");
 			for (const reorderRow of screen.getAllByTestId("sidebar-reorder-row")) {
 				expect(reorderRow).toHaveAttribute("draggable", "false");
 			}
-
-			await fireEvent.click(screen.getByTestId("selection-close"));
-			expect(
-				document.querySelectorAll('[draggable="true"]').length,
-			).toBeGreaterThan(0);
 		});
 
 		it("puts no options button on a row while selecting", async () => {
@@ -2273,6 +2267,260 @@ describe("ConversationList multi-select", () => {
 
 			expect(bar()).toBeInTheDocument();
 			expect(screen.queryByTestId("selection-move")).not.toBeInTheDocument();
+		});
+	});
+	describe("dragging a selection", () => {
+		const folders = [project("p1", "Alpha"), project("p2", "Beta", 1)];
+
+		function folderZone(projectId: string): HTMLElement {
+			const zone = screen
+				.getAllByTestId("project-folder-drop-zone")
+				.find((element) => element.dataset.projectId === projectId);
+			if (!zone) throw new Error(`no drop zone for ${projectId}`);
+			return zone;
+		}
+
+		function bin(): HTMLElement | null {
+			return screen.queryByTestId("sidebar-drop-bin");
+		}
+
+		// Requests that are not a batch: what a one-chat move or delete sends.
+		function singleRequests(): string[] {
+			return vi
+				.mocked(fetch)
+				.mock.calls.map(
+					([input, init]) => `${init?.method ?? "GET"} ${String(input)}`,
+				)
+				.filter(
+					(line) => line.startsWith("PATCH") || line.startsWith("DELETE"),
+				);
+		}
+
+		async function dropOn(target: HTMLElement) {
+			await fireEvent.dragOver(target);
+			await fireEvent.drop(target);
+		}
+
+		it("drags every selected chat when the drag starts on a selected row, and names how many", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("c");
+
+			await fireEvent.dragStart(row("c"));
+
+			expect(row("a")).toHaveClass("conversation-item-dragging");
+			expect(row("c")).toHaveClass("conversation-item-dragging");
+			expect(row("b")).not.toHaveClass("conversation-item-dragging");
+			expect(screen.getByTestId("sidebar-drag-preview")).toHaveTextContent(
+				"2 chats",
+			);
+		});
+
+		it("names the drag in Hungarian with the app's word for a chat", async () => {
+			uiLanguage.set("hu");
+			try {
+				seed([chat("a"), chat("b"), chat("c")]);
+				await pick("a");
+				await pick("b");
+				await pick("c");
+
+				await fireEvent.dragStart(row("b"));
+
+				expect(screen.getByTestId("sidebar-drag-preview")).toHaveTextContent(
+					"3 beszélgetés",
+				);
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+
+		it("moves the whole selection into a folder in one batch, ends the selection and says so", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a"), chat("b")], folders, [
+				"p1",
+			]);
+			await pick("b");
+			await pick("a");
+			await pick("f1");
+
+			await fireEvent.dragStart(row("a"));
+			await fireEvent.dragOver(folderZone("p2"));
+			expect(folderZone("p2")).toHaveClass("project-drop-zone-active");
+			await fireEvent.drop(folderZone("p2"));
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["f1", "a", "b"], projectId: "p2" },
+			]);
+			expect(singleRequests()).toEqual([]);
+			expect(screen.getByTestId("selection-live-region")).toHaveTextContent(
+				"Moved 3 chats to Beta",
+			);
+		});
+
+		it("skips the chats already in the folder it is dropped on", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a")], folders, ["p1"]);
+			await pick("a");
+			await pick("f1");
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(folderZone("p1"));
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["a"], projectId: "p1" },
+			]);
+		});
+
+		it("never opens or closes a collapsed folder it drops the selection into", async () => {
+			seed([chat("a"), chat("b")], folders);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(folderZone("p1"));
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(get(projectFolderExpanded).p1 ?? false).toBe(false);
+		});
+
+		it("takes the selected chats out of their projects when dropped on Chats", async () => {
+			seed([chat("f1", { projectId: "p1" }), chat("a")], folders, ["p1"]);
+			await pick("f1");
+			await pick("a");
+
+			await fireEvent.dragStart(row("f1"));
+			await fireEvent.dragOver(screen.getByTestId("unorganized-drop-target"));
+			expect(screen.getByTestId("unorganized-drop-target")).toHaveClass(
+				"unorganized-drop-zone-active",
+			);
+			await fireEvent.drop(screen.getByTestId("unorganized-drop-target"));
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "move", ids: ["f1"], projectId: null },
+			]);
+		});
+
+		it("pins the selection when dropped on Pinned", async () => {
+			seed([pinned("pin", 0), chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.dragStart(row("a"));
+			const pinnedSection = screen.getByTestId("pinned-conversations-section");
+			await fireEvent.dragOver(pinnedSection);
+			expect(pinnedSection).toHaveClass("pinned-drop-zone-active");
+			await fireEvent.drop(pinnedSection);
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([
+				{ action: "pin", ids: ["a", "b"], pinned: true },
+			]);
+		});
+
+		it("drags only an unselected row, as before, and keeps the selection", async () => {
+			seed([chat("a"), chat("b"), chat("c")], folders);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.dragStart(row("c"));
+			expect(row("a")).not.toHaveClass("conversation-item-dragging");
+			await dropOn(folderZone("p1"));
+
+			await waitFor(() =>
+				expect(singleRequests()).toEqual(["PATCH /api/conversations/c"]),
+			);
+			expect(batches).toEqual([]);
+			expect(countText()).toBe("2 selected");
+		});
+
+		it("shows the bin only while a drag is under way", async () => {
+			seed([chat("a"), chat("b")]);
+			expect(bin()).not.toBeInTheDocument();
+
+			await fireEvent.dragStart(row("a"));
+			expect(bin()).toBeInTheDocument();
+			expect(bin()).toHaveAttribute("aria-label", "Drop to delete");
+
+			await fireEvent.dragEnd(row("a"));
+			await waitFor(() => expect(bin()).not.toBeInTheDocument());
+		});
+
+		it("asks before deleting a selection dropped on the bin, and Cancel keeps everything", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("b");
+			await pick("c");
+
+			await fireEvent.dragStart(row("b"));
+			await dropOn(bin() as HTMLElement);
+			await fireEvent.dragEnd(row("b"));
+
+			const dialog = await screen.findByRole("dialog");
+			expect(within(dialog).getByText("Delete 3 chats?")).toBeInTheDocument();
+			expect(batches).toEqual([]);
+
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Cancel" }),
+			);
+
+			await waitFor(() =>
+				expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+			);
+			expect(batches).toEqual([]);
+			expect(countText()).toBe("3 selected");
+			expect(hasRow("a") && hasRow("b") && hasRow("c")).toBe(true);
+		});
+
+		it("deletes a selection dropped on the bin in one batch once confirmed", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			await pick("a");
+			await pick("c");
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(bin() as HTMLElement);
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(batches).toEqual([{ action: "delete", ids: ["a", "c"] }]);
+			expect(hasRow("b")).toBe(true);
+		});
+
+		it("asks with the row menu's own dialog before deleting one chat dropped on the bin", async () => {
+			seed([chat("a"), chat("b")]);
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(bin() as HTMLElement);
+
+			const dialog = await screen.findByRole("dialog");
+			expect(
+				within(dialog).getByText("Delete this conversation?"),
+			).toBeInTheDocument();
+			expect(singleRequests()).toEqual([]);
+
+			await confirmDelete();
+
+			await waitFor(() =>
+				expect(singleRequests()).toEqual(["DELETE /api/conversations/a"]),
+			);
+			expect(batches).toEqual([]);
+		});
+
+		it("keeps the chat when the one-chat bin dialog is cancelled", async () => {
+			seed([chat("a"), chat("b")]);
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(bin() as HTMLElement);
+			const dialog = await screen.findByRole("dialog");
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Cancel" }),
+			);
+
+			await waitFor(() =>
+				expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+			);
+			expect(singleRequests()).toEqual([]);
+			expect(hasRow("a")).toBe(true);
 		});
 	});
 });

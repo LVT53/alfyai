@@ -16,6 +16,7 @@ let {
 	selecting = false,
 	selected = false,
 	dragEnabled = false,
+	dragImage = null,
 	projects = [],
 	onSelect = () => {},
 	onSelectionToggle = () => {},
@@ -23,12 +24,14 @@ let {
 	onDelete = () => {},
 	onTogglePin = () => {},
 	onMoveToProject = () => {},
+	onDragStart = () => {},
 }: {
 	conversation: ConversationListItem;
 	active?: boolean;
 	selecting?: boolean;
 	selected?: boolean;
 	dragEnabled?: boolean;
+	dragImage?: HTMLElement | null;
 	projects?: Project[];
 	onSelect?: (event: SelectPayload) => void;
 	onSelectionToggle?: (event: SelectionTogglePayload) => void;
@@ -36,6 +39,7 @@ let {
 	onDelete?: (event: DeletePayload) => void;
 	onTogglePin?: (event: TogglePinPayload) => void;
 	onMoveToProject?: (event: MovePayload) => void;
+	onDragStart?: (event: { id: string }) => void;
 } = $props();
 
 let menuOpen = $state(false);
@@ -47,6 +51,7 @@ let menuOpen = $state(false);
 	{selecting}
 	{selected}
 	{dragEnabled}
+	{dragImage}
 	{projects}
 	{menuOpen}
 	onSelect={onSelect}
@@ -55,6 +60,7 @@ let menuOpen = $state(false);
 	onDelete={onDelete}
 	onTogglePin={onTogglePin}
 	onMoveToProject={onMoveToProject}
+	onDragStart={onDragStart}
 	onMenuToggle={(payload) => (menuOpen = payload.open)}
 	onMenuClose={() => (menuOpen = false)}
 />

@@ -72,8 +72,14 @@ const CASES: Case[] = [
 	},
 	{
 		file: "src/lib/components/sidebar/ConversationList.svelte",
-		wrappedNames: ["sectionSlide", "rowFade"],
-		bannedDirectives: [/transition:slide=/, /in:fade=/, /out:fade=/],
+		wrappedNames: ["sectionSlide", "rowFade", "binFly"],
+		bannedDirectives: [
+			/transition:slide=/,
+			/in:fade=/,
+			/out:fade=/,
+			/in:fly=/,
+			/out:fly=/,
+		],
 	},
 	{
 		file: "src/lib/components/chat/CodeBlock.svelte",

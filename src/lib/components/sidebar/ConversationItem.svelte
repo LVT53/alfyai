@@ -38,6 +38,7 @@ let {
 	projects = [],
 	projectLabel = null,
 	dragEnabled = false,
+	dragImage = null,
 	isDragging = false,
 	selecting = false,
 	selected = false,
@@ -58,6 +59,8 @@ let {
 	projects?: Project[];
 	projectLabel?: string | null;
 	dragEnabled?: boolean;
+	/** What a drag from this row shows under the pointer instead of the row (a selection's "3 chats"). */
+	dragImage?: HTMLElement | null;
 	isDragging?: boolean;
 	/** A selection is open in the sidebar: the row shows its box and a click picks it instead of opening it. */
 	selecting?: boolean;
@@ -373,8 +376,10 @@ function handleMoveToProject(e: MouseEvent, projectId: string | null) {
 	onMoveToProject?.({ id: conversation.id, projectId });
 }
 
+// A row drags while a selection is open too: the list decides what the drag
+// carries (the selection when this row is in it, this row when it is not).
 function handleDragStart(event: DragEvent) {
-	if (!dragEnabled || isEditing || selecting) {
+	if (!dragEnabled || isEditing) {
 		event.preventDefault();
 		return;
 	}
@@ -389,6 +394,7 @@ function handleDragStart(event: DragEvent) {
 	event.dataTransfer?.setData("text/plain", conversation.id);
 	if (event.dataTransfer) {
 		event.dataTransfer.effectAllowed = "move";
+		if (dragImage) event.dataTransfer.setDragImage?.(dragImage, 12, 12);
 	}
 	onDragStart?.({ id: conversation.id });
 }
@@ -442,7 +448,7 @@ onMount(() => {
 	class:conversation-item-selected={selecting && selected}
 	data-selected={selecting ? String(selected) : undefined}
 	aria-pressed={selecting ? selected : undefined}
-	draggable={dragEnabled && !isEditing && !selecting}
+	draggable={dragEnabled && !isEditing}
   onclick={handleRowClick}
 	onmousedown={handleRowMouseDown}
 	oncontextmenu={openContextMenu}
