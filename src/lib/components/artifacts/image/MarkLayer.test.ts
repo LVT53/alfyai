@@ -11,7 +11,7 @@ function pointer(
 	type: string,
 	x: number,
 	y: number,
-	options: { id?: number; pointerType?: string } = {},
+	options: { id?: number; pointerType?: string; isPrimary?: boolean } = {},
 ): Event {
 	const event = new MouseEvent(type, {
 		bubbles: true,
@@ -24,7 +24,9 @@ function pointer(
 	Object.defineProperty(event, "pointerType", {
 		value: options.pointerType ?? "mouse",
 	});
-	Object.defineProperty(event, "isPrimary", { value: (options.id ?? 1) === 1 });
+	Object.defineProperty(event, "isPrimary", {
+		value: options.isPrimary ?? (options.id ?? 1) === 1,
+	});
 	return event;
 }
 
@@ -191,6 +193,18 @@ describe("MarkLayer", () => {
 		await fireEvent(view.layer, pointer("pointermove", 320, 190, touch));
 		await fireEvent(view.layer, pointer("pointerup", 320, 190, touch));
 		expect(view.onChange).not.toHaveBeenCalled();
+	});
+
+	it("draws on a new press after a pointer whose up never came", async () => {
+		const view = renderLayer();
+		const touch = { pointerType: "touch" };
+		await fireEvent(
+			view.layer,
+			pointer("pointerdown", 140, 70, { ...touch, id: 7, isPrimary: true }),
+		);
+		// The up is lost (outside the window, a browser gesture): a new press comes.
+		await view.drag([140, 70], [300, 170], touch);
+		expect(view.marks().map((mark) => mark.letter)).toEqual(["A"]);
 	});
 
 	it("stops a finger's drag from scrolling with a non-passive touchmove while Mark is on", async () => {
