@@ -23,6 +23,7 @@ import {
 	startFakeComfyUiForSpec,
 	stopFakeComfyUiForSpec,
 	useSpecChatModel,
+	VIDEO_DIR,
 } from "./images-helpers";
 
 // Pictures in the composer, end to end (docs/plans/image-generation, part 2b
@@ -91,7 +92,9 @@ async function dragBox(
 	await page.mouse.up();
 }
 
-test.use({ video: { mode: "on", size: { width: 1440, height: 900 } } });
+test.use({
+	video: VIDEO_DIR ? { mode: "on", size: { width: 1440, height: 900 } } : "off",
+});
 
 test.describe("Pictures in the composer", () => {
 	let fake: FakeComfyUi | null = null;

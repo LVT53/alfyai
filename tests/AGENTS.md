@@ -43,6 +43,8 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 **Snapshots**: Visual regression tests store snapshots in `tests/e2e/*.spec.ts-snapshots/`.
 
+**Motion videos**: set `MOTION_VIDEO_DIR` to a folder to keep the image specs' videos, numbers and contact sheets there (`images-motion.spec.ts`, `images.spec.ts`, `images-composer.spec.ts`). Unset, nothing is recorded or written and the specs hold the same bars.
+
 ## Anti-Patterns
 
 - Do not use hardcoded waits (`page.waitForTimeout`). Use explicit conditions or `expect().toBeVisible()`.

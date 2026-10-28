@@ -27,6 +27,7 @@ import {
 	startFakeComfyUiForSpec,
 	stopFakeComfyUiForSpec,
 	useSpecChatModel,
+	VIDEO_DIR,
 } from "./images-helpers";
 
 // The picture card, the panel and History, end to end (docs/plans/image-generation,
@@ -98,7 +99,9 @@ async function waitForSettledCard(
 	return (await readDetail(page, conversationId)).imageCards[0];
 }
 
-test.use({ video: { mode: "on", size: { width: 1440, height: 900 } } });
+test.use({
+	video: VIDEO_DIR ? { mode: "on", size: { width: 1440, height: 900 } } : "off",
+});
 
 test.describe("Pictures end to end", () => {
 	let fake: FakeComfyUi | null = null;
@@ -425,7 +428,7 @@ test.describe("Pictures end to end", () => {
 			videoName = "transparent-picture";
 			const conversationId = await openChat(page);
 			await makePicture(page, AI_SMOKE_TRANSPARENT_PICTURE_MARKER);
-			const settled = await waitForSettledCard(page, conversationId, 1);
+			await waitForSettledCard(page, conversationId, 1);
 
 			const card = page.locator(CARD).last();
 			await expect(card).toContainText("Lighthouse cut-out");
@@ -451,7 +454,20 @@ test.describe("Pictures end to end", () => {
 				true,
 			);
 			expect(meta.channels).toBe(4);
-			expect(settled.takes[0].fileId).toBeTruthy();
+			// The see-through part really is clear: left opaque, right fully transparent.
+			const { data, info } = await sharp(readFileSync(path))
+				.ensureAlpha()
+				.raw()
+				.toBuffer({ resolveWithObject: true });
+			const alphaAt = (fx: number) =>
+				data[
+					(Math.floor(info.height / 2) * info.width +
+						Math.floor(info.width * fx)) *
+						4 +
+						3
+				];
+			expect(alphaAt(0.2)).toBe(255);
+			expect(alphaAt(0.9)).toBe(0);
 		});
 	});
 

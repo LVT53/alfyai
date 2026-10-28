@@ -238,16 +238,17 @@ export function lastUserParts(
 }
 
 /**
- * One video of the test, for the owner's demo reel (plan 2b F19): closing the
- * page ends the recording, and the file goes under the handoff folder. Call it
+ * One video of the test, for the owner's demo reel (plan 2b F19). Set
+ * MOTION_VIDEO_DIR to keep them (`t8-<name>.webm` there); unset, the page is
+ * closed and nothing is written. Closing the page ends the recording. Call it
  * last in `afterEach`, after the cleanup that needs the page.
  */
-export const VIDEO_DIR = "/home/lvt53/alfyai-handoff/checks/videos";
+export const VIDEO_DIR = process.env.MOTION_VIDEO_DIR ?? null;
 
 export async function saveSpecVideo(page: Page, name: string): Promise<void> {
 	const video = page.video();
 	await page.close();
-	if (!video) return;
+	if (!video || !VIDEO_DIR) return;
 	mkdirSync(VIDEO_DIR, { recursive: true });
 	await video.saveAs(join(VIDEO_DIR, `t8-${name}.webm`));
 }

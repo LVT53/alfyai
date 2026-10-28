@@ -83,7 +83,12 @@ import {
  * wait is on a state the page shows.
  */
 
-const OUT_DIR = "/home/lvt53/alfyai-handoff/checks/videos";
+/**
+ * Where the owner's demo reel goes: set MOTION_VIDEO_DIR to record videos, numbers
+ * and contact sheets there. Unset, nothing is recorded or written and the bars
+ * are held all the same.
+ */
+const OUT_DIR = process.env.MOTION_VIDEO_DIR ?? null;
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 
@@ -127,7 +132,9 @@ async function openFlow(
 		reducedMotion: options.reducedMotion ?? "no-preference",
 		hasTouch: options.viewport.width < 500,
 		isMobile: options.viewport.width < 500,
-		recordVideo: { dir: join(OUT_DIR, ".raw"), size: options.viewport },
+		recordVideo: OUT_DIR
+			? { dir: join(OUT_DIR, ".raw"), size: options.viewport }
+			: undefined,
 	});
 	const page = await context.newPage();
 	const startedAt = Date.now();
@@ -187,6 +194,7 @@ async function saveRecording(
 	const { page, context } = flow;
 	const video = page.video();
 	await context.close();
+	if (!OUT_DIR) return;
 	mkdirSync(OUT_DIR, { recursive: true });
 	const videoPath = join(OUT_DIR, `${prefix}-${name}.webm`);
 	if (video) await video.saveAs(videoPath);
@@ -2076,7 +2084,9 @@ test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
 			viewport,
 			hasTouch: true,
 			isMobile: true,
-			recordVideo: { dir: join(OUT_DIR, ".raw"), size: viewport },
+			recordVideo: OUT_DIR
+				? { dir: join(OUT_DIR, ".raw"), size: viewport }
+				: undefined,
 		});
 		const page = await context.newPage();
 		const errors: string[] = [];
@@ -2137,30 +2147,32 @@ test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
 		} finally {
 			const video = page.video();
 			await context.close();
-			mkdirSync(OUT_DIR, { recursive: true });
-			const videoPath = join(OUT_DIR, "t3-phone-foot-360-hu.webm");
-			if (video) await video.saveAs(videoPath);
-			writeFileSync(
-				join(OUT_DIR, "t3-phone-foot-360-hu.json"),
-				`${JSON.stringify({ name: "phone-foot-360-hu", pageErrors: errors, ...metrics }, null, 2)}\n`,
-			);
-			// The panel at rest: the last second of the video, one sheet.
-			execFileSync(
-				"ffmpeg",
-				[
-					"-y",
-					"-loglevel",
-					"error",
-					"-sseof",
-					"-2",
-					"-i",
-					videoPath,
-					"-vf",
-					"fps=12,scale=480:-1,tile=6x4",
-					join(OUT_DIR, "t3-phone-foot-360-hu-sheet-%02d.png"),
-				],
-				{ stdio: "inherit" },
-			);
+			if (OUT_DIR) {
+				mkdirSync(OUT_DIR, { recursive: true });
+				const videoPath = join(OUT_DIR, "t3-phone-foot-360-hu.webm");
+				if (video) await video.saveAs(videoPath);
+				writeFileSync(
+					join(OUT_DIR, "t3-phone-foot-360-hu.json"),
+					`${JSON.stringify({ name: "phone-foot-360-hu", pageErrors: errors, ...metrics }, null, 2)}\n`,
+				);
+				// The panel at rest: the last second of the video, one sheet.
+				execFileSync(
+					"ffmpeg",
+					[
+						"-y",
+						"-loglevel",
+						"error",
+						"-sseof",
+						"-2",
+						"-i",
+						videoPath,
+						"-vf",
+						"fps=12,scale=480:-1,tile=6x4",
+						join(OUT_DIR, "t3-phone-foot-360-hu-sheet-%02d.png"),
+					],
+					{ stdio: "inherit" },
+				);
+			}
 		}
 		expect(errors).toEqual([]);
 		type Box = { left: number; right: number };
@@ -2257,7 +2269,9 @@ async function openSeededFlow(
 		reducedMotion: options.reducedMotion ?? "no-preference",
 		hasTouch: phone,
 		isMobile: phone,
-		recordVideo: { dir: join(OUT_DIR, ".raw"), size: options.viewport },
+		recordVideo: OUT_DIR
+			? { dir: join(OUT_DIR, ".raw"), size: options.viewport }
+			: undefined,
 	});
 	const page = await context.newPage();
 	const startedAt = Date.now();
@@ -3899,7 +3913,9 @@ test.describe("pictures in the composer on a phone (T5)", () => {
 				viewport: variant.viewport,
 				hasTouch: true,
 				isMobile: true,
-				recordVideo: { dir: join(OUT_DIR, ".raw"), size: variant.viewport },
+				recordVideo: OUT_DIR
+					? { dir: join(OUT_DIR, ".raw"), size: variant.viewport }
+					: undefined,
 			});
 			const page = await context.newPage();
 			const startedAt = Date.now();
