@@ -6,7 +6,10 @@
 // transparent one is drawn over the checkerboard tokens. Before / After keeps
 // both pictures stacked in the same box (opacity only). Before is fetched
 // ahead of the first press, once After is shown (the switch answers at once,
-// the picture flips when Before has loaded: the box never empties).
+// the picture flips when Before has loaded: the box never empties), and an
+// opaque pair fades only Before, on top, over an After that stays fully shown,
+// so a flip never washes through the box's background. A see-through pair
+// crossfades: After must not show through Before's clear parts.
 //
 // `variant: "thumb"` loads only the 320 px thumbnail (strips, chips, "Made
 // from", History's rail); `"full"` lets the browser choose between the
@@ -151,7 +154,7 @@ function markShown(id: string, event: TransitionEvent): void {
 		<img
 			class="image-picture-img"
 			class:is-loaded={loaded[id]}
-			class:is-hidden={showBefore}
+			class:is-hidden={showBefore && hasAlpha}
 			src={source.src}
 			srcset={source.srcset}
 			sizes={source.srcset ? sizes : undefined}

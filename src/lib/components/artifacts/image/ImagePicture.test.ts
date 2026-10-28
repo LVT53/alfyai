@@ -257,4 +257,28 @@ describe("ImagePicture flipping Before / After", () => {
 			"before",
 		);
 	});
+
+	it("keeps an opaque After fully shown underneath while Before fades in over it", async () => {
+		const { rerender } = await rendered(false);
+		await rerender({ showing: "before" });
+		await fireEvent.load(screen.getByTestId("image-picture-before"));
+		expect(screen.getByTestId("image-picture-after")).not.toHaveClass(
+			"is-hidden",
+		);
+		expect(screen.getByTestId("image-picture-before")).not.toHaveClass(
+			"is-hidden",
+		);
+		await rerender({ showing: "after" });
+		expect(screen.getByTestId("image-picture-after")).not.toHaveClass(
+			"is-hidden",
+		);
+		expect(screen.getByTestId("image-picture-before")).toHaveClass("is-hidden");
+	});
+
+	it("crossfades a see-through pair, so After never shows through Before's clear parts", async () => {
+		const { rerender } = await rendered(true);
+		await rerender({ showing: "before" });
+		await fireEvent.load(screen.getByTestId("image-picture-before"));
+		expect(screen.getByTestId("image-picture-after")).toHaveClass("is-hidden");
+	});
 });
