@@ -1920,9 +1920,9 @@ function canSubmitMessageText(text: string): boolean {
 
 // What the message carries of its pictures: the card pictures under the numbers
 // the chips showed (the server keeps them), and the same numbers for the bubble
-// so its thumbnails exist from its first paint (F13). Nothing without a card
-// picture: the server records picture metadata only then, so the bubble the
-// server sends back looks the same.
+// so its thumbnails exist from its first paint (F13). Uploaded photos alone
+// carry their numbers too (Task 17): the server records them, so the bubble it
+// sends back looks the same. Nothing without a picture.
 function picturePayload(): {
 	pictureRefs?: PictureRef[];
 	pictures?: UserPicturesMetadata;
@@ -1950,15 +1950,6 @@ function picturePayload(): {
 				},
 			}
 		: {};
-	if (pictureRefs.length === 0 && !addMarkedRef) return marksPart;
-	const refs = pictureRefs.flatMap((ref) => {
-		const number = pictureNumbers.get(
-			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
-		);
-		return number === undefined
-			? []
-			: [{ imageFileId: ref.imageFileId, number, name: ref.name }];
-	});
 	const uploads = pendingAttachments.flatMap((attachment) => {
 		const number = pictureNumbers.get(
 			pictureKey({ kind: "upload", artifactId: attachment.artifact.id }),
@@ -1966,6 +1957,17 @@ function picturePayload(): {
 		return number === undefined
 			? []
 			: [{ artifactId: attachment.artifact.id, number }];
+	});
+	if (pictureRefs.length === 0 && !addMarkedRef && uploads.length === 0) {
+		return marksPart;
+	}
+	const refs = pictureRefs.flatMap((ref) => {
+		const number = pictureNumbers.get(
+			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+		);
+		return number === undefined
+			? []
+			: [{ imageFileId: ref.imageFileId, number, name: ref.name }];
 	});
 	if (marked && addMarkedRef && markedNumber !== null) {
 		refs.push({
@@ -1977,10 +1979,14 @@ function picturePayload(): {
 	refs.sort((a, b) => a.number - b.number);
 	return {
 		...marksPart,
-		pictureRefs: refs.map(({ imageFileId, number }) => ({
-			imageFileId,
-			number,
-		})),
+		...(refs.length > 0
+			? {
+					pictureRefs: refs.map(({ imageFileId, number }) => ({
+						imageFileId,
+						number,
+					})),
+				}
+			: {}),
 		pictures: {
 			refs,
 			...(uploads.length > 0 ? { uploads } : {}),

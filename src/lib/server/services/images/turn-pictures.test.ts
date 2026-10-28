@@ -319,6 +319,17 @@ describe("resolveTurnPictures", () => {
 			openImageArtifactId: "not-an-item",
 		});
 		expect(numbers(index)).toEqual([[1, "a"]]);
+		// The upload's number is kept for the bubble (Task 17), with no open picture.
+		expect(index.metadata).toEqual({
+			refs: [],
+			uploads: [{ artifactId: "a", number: 1 }],
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("records nothing for a message without pictures", async () => {
+		const index = await resolve({});
 		expect(index.metadata).toBeNull();
 	});
 });

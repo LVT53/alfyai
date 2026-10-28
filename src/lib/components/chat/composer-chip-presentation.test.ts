@@ -78,6 +78,26 @@ describe("attachmentChipMeta", () => {
 		});
 	});
 
+	// Task 17 (rehearsal): a sent photo's chip said "living-room.jpg · 5 tok".
+	// A picture is seen, not read as text: its chip is its number and its name.
+	it("says nothing about a picture's tokens or pages", () => {
+		expect(
+			attachmentChipMeta({
+				name: "living-room.jpg",
+				mimeType: "image/jpeg",
+				tokenEstimate: 5,
+			}),
+		).toBeNull();
+		expect(
+			attachmentChipMeta({
+				name: "scan.png",
+				tokenEstimate: 1_200,
+				pageCount: 1,
+				pageCountKind: "physical",
+			}),
+		).toBeNull();
+	});
+
 	it("says nothing rather than zero", () => {
 		expect(attachmentChipMeta({ name: "a.pdf" })).toBeNull();
 		expect(

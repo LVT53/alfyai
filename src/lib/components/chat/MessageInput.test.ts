@@ -6587,6 +6587,31 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 		});
 	});
 
+	// Task 17 (rehearsal): two uploaded photos and no card picture went with no
+	// numbers, so the sent bubble drew "living-room.jpg · 5 tok" where the
+	// composer had shown "1 living-room.jpg". The numbers ride with uploads too.
+	it("sends the numbered uploads for the bubble when there is no card picture", async () => {
+		const view = renderComposer();
+		await view.attach("room.jpg", "image/jpeg", "photo-1");
+		await view.attach("sofa.jpg", "image/jpeg", "photo-2");
+		await fireEvent.input(view.textarea, {
+			target: { value: "Put the sofa in the room" },
+		});
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		const payload = view.onSend.mock.calls[0][0];
+		expect(payload.pictureRefs).toBeUndefined();
+		expect(payload.pictures).toEqual({
+			refs: [],
+			uploads: [
+				{ artifactId: "photo-1", number: 1 },
+				{ artifactId: "photo-2", number: 2 },
+			],
+			open: null,
+			marks: null,
+		});
+	});
+
 	it("hands a removed card picture back to the page", async () => {
 		const onRemovePictureRef = vi.fn();
 		const view = renderComposer({
