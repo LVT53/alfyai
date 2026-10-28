@@ -208,7 +208,7 @@ describe("the classifier's life cycle (an injected engine, no model)", () => {
 	it("reads the file once per load and hands the engine those very bytes", async () => {
 		await setUp();
 		const readFileImpl = counting();
-		const loadEngine = vi.fn(async () => engine());
+		const loadEngine = vi.fn(async (_bytes: Uint8Array) => engine());
 		const classifier = createOnnxPictureClassifier(file, {
 			sha256,
 			loadEngine,
@@ -217,9 +217,7 @@ describe("the classifier's life cycle (an injected engine, no model)", () => {
 		await classifier.classify(await solid("#778899"));
 		await classifier.classify(await solid("#778899"));
 		expect(readFileImpl).toHaveBeenCalledTimes(1);
-		expect(Buffer.from(loadEngine.mock.calls[0]?.[0] as Uint8Array)).toEqual(
-			bytes,
-		);
+		expect(Buffer.from(loadEngine.mock.calls[0]?.[0] ?? [])).toEqual(bytes);
 	});
 
 	it("does not hash the file again after a failed load until the file changes", async () => {
