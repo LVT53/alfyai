@@ -45,18 +45,7 @@ export function wrapTransparentPrompt(prompt: string): string {
 	return `This is an RGBA format image with transparency. ${prompt} The image has an alpha channel and a transparent background.`;
 }
 
-/**
- * 20 steps, measured on the installed Qwen-Image 2.1 weights (NoctQ V4, int8
- * convrot) at 1248x832 on 2026-10-29. Halving from 40 halves the wall time —
- * 9.7 s -> 5.2 s generate, 11.7 s -> 7.8 s edit — with no visible loss on a
- * portrait or a text-render prompt. 16 is the comfortable floor; 8 is where
- * lettering collapses into smears. The graph JSONs keep the installed
- * template's own 40 and this constant overwrites it in buildPromptGraph.
- * CFG stays 1: the model card's 25 steps at CFG 3 plus a negative prompt cost
- * twice as much, gained nothing, and produced artifacts (an engraved mug, a
- * duplicated pen, a malformed collar), so the negative prompt stays unused.
- */
-export const QWEN_STEPS = 20;
+export const QWEN_STEPS = 40;
 export const QWEN_CFG = 1;
 
 export const GRAPH_TEMPLATES: Partial<Record<GraphName, GraphTemplate>> = {

@@ -78,7 +78,7 @@ describe("installed Qwen-Image 2.1 graphs", () => {
 		}
 	});
 
-	it.each(NAMES)("%s: buildPromptGraph writes 20 steps and CFG 1", (name) => {
+	it.each(NAMES)("%s: buildPromptGraph writes 40 steps and CFG 1", (name) => {
 		const t = template(name);
 		const graph = buildPromptGraph(t, {
 			prompt: "p",
@@ -90,7 +90,7 @@ describe("installed Qwen-Image 2.1 graphs", () => {
 		const sampler = graph[t.slots.steps.node].inputs;
 		expect(sampler.steps).toBe(QWEN_STEPS);
 		expect(sampler.cfg).toBe(QWEN_CFG);
-		expect(sampler.steps).toBe(20);
+		expect(sampler.steps).toBe(40);
 		expect(sampler.cfg).toBe(1);
 	});
 
