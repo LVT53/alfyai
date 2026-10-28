@@ -40,6 +40,7 @@ import {
 	type ImageCardAction,
 	type ImageCardActionHandler,
 	type ImageCardState,
+	hasActiveImageTakes,
 	isCheckingAgain,
 	STARTING_SHOWN_AFTER_MS,
 	shownTake,
@@ -150,8 +151,13 @@ let madeFromIds = $derived(
 		? (shown?.sourceFileIds ?? card.takes[0]?.sourceFileIds ?? [])
 		: [],
 );
+// Another is offered once nothing of the card is on its way: not beside Stop
+// while a take is made, and not again while the one pressed is (Task 17).
 let anotherDisabled = $derived(
-	Boolean(gone) || stripCount >= MAX_VISIBLE_TAKES_PER_CARD,
+	Boolean(gone) ||
+		stripCount >= MAX_VISIBLE_TAKES_PER_CARD ||
+		placeholders > 0 ||
+		hasActiveImageTakes([card]),
 );
 
 // Before / After is about the shown take: a new take starts on After.

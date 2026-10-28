@@ -269,6 +269,43 @@ describe("ImageCardBody", () => {
 		expect(tiles[1]).toHaveAttribute("aria-pressed", "true");
 	});
 
+	// Task 17 (rehearsal): while a picture was being made the card offered
+	// Another beside Stop, and nothing said what pressing it would do. Another
+	// is offered once no take of the card is on its way.
+	it("does not offer Another while a take of the card is on its way", async () => {
+		const making = take({
+			status: "running",
+			phase: "rendering",
+			phaseAt: Date.now(),
+			fileId: null,
+		});
+		const onAction = vi.fn();
+		const { rerender } = render(ImageCardBody, {
+			card: card([making]),
+			onAction,
+		});
+		const another = screen.getByRole("button", { name: /Another/ });
+		expect(another).toBeDisabled();
+		await fireEvent.click(another);
+		expect(onAction).not.toHaveBeenCalled();
+
+		const queued = take({ id: "take-2", status: "queued", fileId: null });
+		await rerender({ card: card([take(), queued]) });
+		expect(screen.getByRole("button", { name: /Another/ })).toBeDisabled();
+
+		await rerender({ card: card([take(), take({ id: "take-2" })]) });
+		expect(screen.getByRole("button", { name: /Another/ })).not.toBeDisabled();
+	});
+
+	it("does not offer Another again while the one pressed is on its way", async () => {
+		const onAction = vi.fn(async () => ({ takeId: "take-new" }));
+		render(ImageCardBody, { card: card([take()]), onAction });
+		await fireEvent.click(screen.getByRole("button", { name: /Another/ }));
+		await tick();
+		expect(screen.getByTestId("image-card-tile-placeholder")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-another")).toBeDisabled();
+	});
+
 	it("takes the placeholder back when Another did not go through", async () => {
 		const onAction = vi.fn(async () => {
 			throw new Error("refused");
