@@ -1,7 +1,12 @@
 <script lang="ts">
 import { tick, untrack } from "svelte";
 import { fade, fly } from "svelte/transition";
-import { reducedMotionAware } from "$lib/utils/motion";
+import {
+	MOTION_DURATION,
+	MOTION_EASE,
+	prefersReducedMotion,
+	reducedMotionAware,
+} from "$lib/utils/motion";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import {
@@ -301,7 +306,7 @@ function noteScrollPosition(scrollTop: number, distanceToBottom: number) {
 
 function applyHeldPosition() {
 	const container = scrollContainer;
-	if (!container || heldPosition === null) return;
+	if (!container || heldPosition === null || glideFrame !== null) return;
 	if (currentStreamingAssistantMessageId !== null) {
 		releaseHeldPosition();
 		return;
@@ -336,10 +341,21 @@ $effect(() => {
 	// nothing interactive.
 	container.addEventListener("pointerdown", releaseHeldPosition);
 	container.addEventListener("keydown", releaseHeldPosition);
+	// The reader's own move ends a glide where it is.
+	const readerTakesOver = () => stopGlide();
+	container.addEventListener("pointerdown", readerTakesOver);
+	container.addEventListener("keydown", readerTakesOver);
+	container.addEventListener("wheel", readerTakesOver, { passive: true });
+	container.addEventListener("touchstart", readerTakesOver, { passive: true });
 	return () => {
+		stopGlide();
 		observer.disconnect();
 		container.removeEventListener("pointerdown", releaseHeldPosition);
 		container.removeEventListener("keydown", releaseHeldPosition);
+		container.removeEventListener("pointerdown", readerTakesOver);
+		container.removeEventListener("keydown", readerTakesOver);
+		container.removeEventListener("wheel", readerTakesOver);
+		container.removeEventListener("touchstart", readerTakesOver);
 	};
 });
 
@@ -524,6 +540,7 @@ $effect.pre(() => {
 	if (conversationId && conversationId !== lastConversationId) {
 		lastConversationId = conversationId;
 		shouldAutoScroll = true;
+		stopGlide();
 		// A hold belongs to the conversation it was set in.
 		releaseHeldPosition();
 		lastStreamingAssistantMessageId = null;
@@ -638,8 +655,8 @@ $effect.pre(() => {
 		shouldAutoScroll
 	) {
 		// File-production and picture cards render inside the latest assistant
-		// message; keep that expanded area visible.
-		void alignToBottomAfterRender();
+		// message; keep that expanded area visible, gliding to it (B-I1).
+		void followToBottomAfterRender();
 	} else if (hasAtlasJobUpdates && shouldAutoScroll) {
 		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
@@ -650,7 +667,8 @@ $effect.pre(() => {
 		!pageShowsLinkedMessage()
 	) {
 		// Only follow during thinking phase; stop once content streaming begins.
-		instantScrollToBottom();
+		// A card mounting meanwhile glides rather than cuts (B-I1).
+		followToBottom();
 	}
 
 	lastMessageCount = dedupedMessages.length;
@@ -687,6 +705,69 @@ function instantScrollToBottom() {
 	if (!scrollContainer) return;
 	scrollContainer.scrollTop = scrollContainer.scrollHeight;
 	lastKnownScrollTop = scrollContainer.scrollTop;
+}
+
+/**
+ * A follow longer than this glides instead of cutting (final review B-I1): a
+ * picture card (or any tall deliverable) arriving under a reply moved the
+ * thread ~400 px in one frame, and the reader lost their place in the prose.
+ * A streamed line or two stays an instant follow, as before.
+ */
+const GLIDE_FROM_PX = 96;
+let glideFrame: number | null = null;
+
+function stopGlide() {
+	if (glideFrame !== null) cancelAnimationFrame(glideFrame);
+	glideFrame = null;
+}
+
+/**
+ * Moves the view to the latest content over `--duration-emphasis` on
+ * `--ease-out`, aiming every frame at the live bottom (the card may still be
+ * growing). The reader's own scroll, press or key ends it where it is.
+ */
+function glideToBottom() {
+	const container = scrollContainer;
+	if (!container) return;
+	stopGlide();
+	const from = container.scrollTop;
+	const started = performance.now();
+	// A frame callback run at once, inside the request (no real frames to
+	// glide over), lands at the bottom instead of asking again forever.
+	let requesting = false;
+	let landed = false;
+	const step = () => {
+		const progress = requesting
+			? 1
+			: Math.min(1, (performance.now() - started) / MOTION_DURATION.emphasis);
+		const target = container.scrollHeight - container.clientHeight;
+		container.scrollTop = from + (target - from) * MOTION_EASE.out(progress);
+		lastKnownScrollTop = container.scrollTop;
+		landed = progress >= 1;
+		glideFrame = landed ? null : requestFrame();
+	};
+	const requestFrame = (): number | null => {
+		requesting = true;
+		const id = requestAnimationFrame(step);
+		requesting = false;
+		return landed ? null : id;
+	};
+	glideFrame = requestFrame();
+}
+
+/**
+ * Keeps the latest content in view while the reader follows a reply: a short
+ * way is an instant follow, a long one (a card landing) glides, and under
+ * reduced motion every follow is instant. A glide in flight already aims at
+ * the live bottom, so a follow asked for meanwhile leaves it to finish.
+ */
+function followToBottom() {
+	const container = scrollContainer;
+	if (!container || glideFrame !== null) return;
+	const distance =
+		container.scrollHeight - container.clientHeight - container.scrollTop;
+	if (distance > GLIDE_FROM_PX && !prefersReducedMotion()) glideToBottom();
+	else instantScrollToBottom();
 }
 
 function isNearLiveEdge(): boolean {
@@ -963,6 +1044,20 @@ async function alignToBottomAfterRender() {
 		requestAnimationFrame(() => {
 			if (pageShowsLinkedMessage()) return;
 			instantScrollToBottom();
+		});
+	});
+}
+
+/** `alignToBottomAfterRender`'s two frames, through `followToBottom`: a tall card glides into view. */
+async function followToBottomAfterRender() {
+	if (!scrollContainer) return;
+	await tick();
+	requestAnimationFrame(() => {
+		if (pageShowsLinkedMessage()) return;
+		followToBottom();
+		requestAnimationFrame(() => {
+			if (pageShowsLinkedMessage()) return;
+			followToBottom();
 		});
 	});
 }

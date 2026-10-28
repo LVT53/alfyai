@@ -1958,7 +1958,117 @@ describe("MessageArea", () => {
 				conversationId: "conv-follow-batch",
 				isThinkingActive: true,
 			});
-			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1700));
+			// A batch that tall glides (B-I1) to the bottom a browser can reach.
+			await waitFor(() =>
+				expect(scrollContainer.scrollTop).toBeGreaterThanOrEqual(1700 - 400),
+			);
+		});
+
+		describe("a tall follow glides instead of cutting (final review B-I1)", () => {
+			function streamingReply(content: string): ChatMessage[] {
+				return [
+					twoTurnMessages()[0],
+					{
+						id: "assistant-1",
+						role: "assistant",
+						content,
+						timestamp: Date.now(),
+						isStreaming: true,
+						isThinkingStreaming: true,
+					},
+				];
+			}
+
+			async function followedThread() {
+				// Real frames, one every 16 ms, so a glide has frames to move over.
+				vi.mocked(window.requestAnimationFrame).mockImplementation(
+					(callback: FrameRequestCallback) =>
+						window.setTimeout(() => callback(performance.now()), 16),
+				);
+				const view = render(MessageArea, {
+					messages: streamingReply("One"),
+					conversationId: "conv-glide",
+					isThinkingActive: true,
+				});
+				const scrollContainer = view.container.querySelector(
+					".scroll-container",
+				) as HTMLDivElement;
+				const size = { scrollHeight: 1200 };
+				Object.defineProperty(scrollContainer, "clientHeight", {
+					configurable: true,
+					value: 400,
+				});
+				Object.defineProperty(scrollContainer, "scrollHeight", {
+					configurable: true,
+					get: () => size.scrollHeight,
+				});
+				// jsdom does not clamp scrollTop; a browser stops at the bottom.
+				let top = 0;
+				const writes: number[] = [];
+				Object.defineProperty(scrollContainer, "scrollTop", {
+					configurable: true,
+					get: () => top,
+					set: (value: number) => {
+						top = Math.min(value, size.scrollHeight - 400);
+						writes.push(top);
+					},
+				});
+				await view.rerender({
+					messages: streamingReply("One two"),
+					conversationId: "conv-glide",
+					isThinkingActive: true,
+				});
+				await waitFor(() => expect(top).toBe(800));
+				return { view, size, writes, top: () => top };
+			}
+
+			it("moves over several frames to a card that grew the thread 400 px", async () => {
+				const { view, size, writes, top } = await followedThread();
+				writes.length = 0;
+				size.scrollHeight = 1600;
+				await view.rerender({
+					messages: streamingReply("One two three"),
+					conversationId: "conv-glide",
+					isThinkingActive: true,
+				});
+				await waitFor(() => expect(top()).toBe(1200));
+				const between = writes.filter((value) => value > 801 && value < 1199);
+				expect(between.length).toBeGreaterThanOrEqual(2);
+				const steps = writes.map((value, index) =>
+					index === 0 ? value - 800 : value - writes[index - 1],
+				);
+				expect(Math.max(...steps)).toBeLessThan(400);
+			});
+
+			it("cuts straight to it under reduced motion", async () => {
+				const matchMedia = window.matchMedia;
+				window.matchMedia = ((query: string) => ({
+					matches: query.includes("prefers-reduced-motion"),
+					media: query,
+					onchange: null,
+					addListener: () => {},
+					removeListener: () => {},
+					addEventListener: () => {},
+					removeEventListener: () => {},
+					dispatchEvent: () => false,
+				})) as typeof window.matchMedia;
+				try {
+					const { view, size, writes } = await followedThread();
+					writes.length = 0;
+					size.scrollHeight = 1600;
+					await view.rerender({
+						messages: streamingReply("One two three"),
+						conversationId: "conv-glide",
+						isThinkingActive: true,
+					});
+					await waitFor(() => expect(writes).toContain(1200));
+					expect(writes.filter((value) => value > 801 && value < 1199)).toEqual(
+						[],
+					);
+				} finally {
+					window.matchMedia = matchMedia;
+				}
+			});
 		});
 
 		it('shows the "jump to latest" button when the reader scrolls down short of content that grew below them', async () => {

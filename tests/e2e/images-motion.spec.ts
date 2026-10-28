@@ -440,6 +440,36 @@ async function runArrival(flow: Flow) {
 	return { ...measureArrival(run), placementAtWaiting };
 }
 
+/**
+ * How the thread scrolls while a late card arrives (final review B-I1): the
+ * prose's top moves on screen only by scrolling (nothing above it changes in
+ * that window), so its frame-to-frame steps are the scroll's. A follow that
+ * lands in one frame is one step as large as the whole travel.
+ */
+function arrivalScroll(frames: MotionFrame[], from: number, to: number) {
+	const window = frames.slice(Math.max(0, from), to);
+	const tops = window
+		.map((frame) => frame.tracked.prose)
+		.filter((box): box is NonNullable<typeof box> => box != null);
+	let largestStepPx = 0;
+	let framesMoving = 0;
+	for (let index = 1; index < tops.length; index++) {
+		const step = Math.abs(tops[index].y - tops[index - 1].y);
+		largestStepPx = Math.max(largestStepPx, step);
+		if (step > 1) framesMoving += 1;
+	}
+	const travelPx =
+		tops.length > 1 ? Math.abs((tops.at(-1)?.y ?? 0) - (tops[0]?.y ?? 0)) : 0;
+	return {
+		travelPx,
+		largestStepPx,
+		largestStepShare: travelPx > 0 ? largestStepPx / travelPx : 0,
+		framesMoving,
+		/** The lowest the prose's bottom edge got on screen (0 is the top of the window). */
+		proseBottomMinPx: Math.min(...tops.map((box) => box.y + box.h)),
+	};
+}
+
 function measureArrival(run: MotionRun) {
 	const frames = run.frames;
 	const arrival = firstSeen(frames, "card");
@@ -482,6 +512,7 @@ function measureArrival(run: MotionRun) {
 	const transitions = cardTransitions(run);
 	return {
 		arrivalMs: arrivalT,
+		arrivalScroll: arrivalScroll(frames, arrival - 1, end),
 		moments: Object.fromEntries(
 			["waiting", "making", "ready", "loaded", "failed"].map((name) => [
 				name,
@@ -637,6 +668,16 @@ test.describe("the picture card moves like the Document's", () => {
 			expect(flow.errors, "the page logged an error").toEqual([]);
 			if (!metrics) throw new Error("the arrival was not measured");
 			holdArrival(metrics);
+			// The follow to the card glides on the emphasis token (B-I1): no frame
+			// carries most of the way. Under reduced motion it is one cut.
+			const scroll = metrics.arrivalScroll;
+			if (!("reducedMotion" in variant) && scroll.travelPx > 96) {
+				expect(
+					scroll.largestStepShare,
+					`one frame moved the thread ${scroll.largestStepPx} of ${scroll.travelPx} px`,
+				).toBeLessThanOrEqual(0.3);
+				expect(scroll.framesMoving).toBeGreaterThanOrEqual(4);
+			}
 		});
 	}
 
@@ -1042,8 +1083,20 @@ test.describe("the picture card moves like the Document's", () => {
 						? frame.tracked.prose.y - frame.tracked.user.y
 						: null;
 				const proseTop = offsetOf(frames[arrival - 1]) ?? 0;
+				const grew = frames.findIndex(
+					(frame, index) =>
+						index > arrival &&
+						frame.tracked.prose != null &&
+						frame.tracked.prose.h >
+							(frames[arrival - 1]?.tracked.prose?.h ?? 0) + 1,
+				);
 				metrics = {
 					arrivalMs: frames[arrival]?.t ?? null,
+					arrivalScroll: arrivalScroll(
+						frames,
+						arrival - 1,
+						grew < 0 ? frames.length : grew,
+					),
 					proseMovedPx: Math.max(
 						0,
 						...frames.slice(arrival).map((frame) => {
