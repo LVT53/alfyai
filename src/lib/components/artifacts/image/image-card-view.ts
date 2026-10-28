@@ -161,6 +161,16 @@ export function hasActiveImageTakes(cards: readonly ImageCardView[]): boolean {
 	return cards.some((card) => card.takes.some(isBeingMade));
 }
 
+/**
+ * A held take (the server's automatic retry, or a take a dead turn left held)
+ * is settled for the card only once its hold is let go or runs out, which
+ * nothing announces: `held` is the server's word at read time, so the page
+ * keeps reading while any take is held (holds are short, about 130 s at most).
+ */
+export function hasHeldImageTakes(cards: readonly ImageCardView[]): boolean {
+	return cards.some((card) => card.takes.some((take) => take.held));
+}
+
 /** What a picture card asks the chat page to do (plan 2b T2; T5 adds `attach`). */
 export type ImageCardAction =
 	| { type: "another"; cardId: string }

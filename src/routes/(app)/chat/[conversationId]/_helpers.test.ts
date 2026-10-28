@@ -2154,6 +2154,17 @@ describe("shouldPollImageCards", () => {
 		).toBe(true);
 	});
 
+	it("keeps polling while a settled take is still held, so the card re-reads when the hold runs out", () => {
+		// A turn that died with its automatic retry held: every take has settled,
+		// but "checking again" and a disabled Use this must not stick until a reload.
+		expect(
+			shouldPollImageCards(
+				[imageCard([imageTake({ status: "succeeded", held: true })])],
+				[],
+			),
+		).toBe(true);
+	});
+
 	it("stops once every take has settled and no picture call runs", () => {
 		expect(
 			shouldPollImageCards(

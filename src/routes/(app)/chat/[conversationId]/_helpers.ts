@@ -5,7 +5,10 @@ import {
 	buildDocumentReadActivity,
 	type DocumentAlfyActivity,
 } from "$lib/components/artifacts/document/alfy-activity";
-import { hasActiveImageTakes } from "$lib/components/artifacts/image/image-card-view";
+import {
+	hasActiveImageTakes,
+	hasHeldImageTakes,
+} from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import {
 	type ComposerMarks,
@@ -428,6 +431,7 @@ export function shouldPollImageCards(
 ): boolean {
 	return (
 		hasActiveImageTakes(cards) ||
+		hasHeldImageTakes(cards) ||
 		streamingToolCalls.some(
 			(call) => call.name === "make_image" && call.status === "running",
 		)
