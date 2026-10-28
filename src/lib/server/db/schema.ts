@@ -64,6 +64,14 @@ export const users = sqliteTable("users", {
 	// src/lib/shared/instructions.ts, checked in the dialog and on the server
 	// through the same function.
 	personalInstructions: text("personal_instructions"),
+	// An admin exempted this person from the explicit-picture filter (Users
+	// pane). False for everyone by default: the filter is on unless an admin
+	// turns it off for the install (IMAGE_EXPLICIT_FILTER_ENABLED) or here.
+	explicitPictureFilterExempt: integer("explicit_picture_filter_exempt", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	// When set, the home-screen "memories need review" notice is hidden until a
 	// newer open review item appears (created after this timestamp). Null means
 	// never dismissed. See home-summary.ts.
