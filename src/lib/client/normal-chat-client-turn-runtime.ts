@@ -60,7 +60,10 @@ export type NormalChatSendPayload = {
 	// (the composer's numbering): the optimistic user message draws its numbered
 	// thumbnails from it from the first paint (F13), and a queued turn put back
 	// in the composer gets its chips and their names from it. The server's
-	// record replaces it with the same numbers.
+	// record replaces it with the same numbers. CLIENT-ONLY: it is never sent on
+	// the wire (`streamChat` builds the request body field by field and only
+	// `pictureRefs` goes out); the server takes the numbers from `pictureRefs` and
+	// the uploads, never from this.
 	pictures?: UserPicturesMetadata;
 	imageMarks?: ImageMarksRequest | null;
 	pendingSkill?: PendingSkillSelection | null;
