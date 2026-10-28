@@ -41,6 +41,16 @@ SQLite persistence — all in a single Node deployment.
   picture's wait inside a chat turn is up to 100 s, and the turn's stream-wide cap is
   `max(60 s, REQUEST_TIMEOUT_MS)` (default 300 s), so an admin `REQUEST_TIMEOUT_MS` under about
   130 s can end a picture's wait early.
+- **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
+  setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
+  Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
+  for one, and every finished picture (generate, edit, Another, retries) is checked on this server
+  by a local classifier before it is stored: a picture that looks explicit is never shown or kept.
+  The classifier is Falconsai/nsfw_image_detection (int8 ONNX, run in-process on the CPU through
+  onnxruntime-node, about 90 ms a picture). Its model file is pinned by SHA-256 and fetched into
+  `data/models/picture-check/` by `npm run models:fetch` (the deploy scripts run it). Without the
+  file the filter fails closed: pictures are held back as "could not be checked", and Tool Health
+  reports `make_image:picture_check` as degraded.
 - **Maps and routing** — inline map cards and self-hosted OpenRouteService routing with optional
   on-demand regions and GTFS transit. See [docs/routing.md](docs/routing.md).
 

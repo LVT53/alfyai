@@ -176,6 +176,16 @@ describe.each([
 		expect(script).not.toMatch(/\bcp\s+-[a-zA-Z]*r[a-zA-Z]*\s+\S*current/);
 	});
 
+	it("fetches the picture check's model after shared data is linked, and never aborts on it", () => {
+		const linkIndex = script.indexOf('ln -sfn "$SHARED_DIR/data"');
+		const fetchIndex = script.indexOf("npm run models:fetch");
+		const flipIndex = script.indexOf("mv -Tf");
+		expect(linkIndex).toBeGreaterThan(-1);
+		expect(fetchIndex).toBeGreaterThan(linkIndex);
+		expect(flipIndex).toBeGreaterThan(fetchIndex);
+		expect(script).toMatch(/if timeout \d+ npm run models:fetch; then/);
+	});
+
 	it("still runs npm run check:migrations", () => {
 		expect(script).toContain("npm run check:migrations");
 	});

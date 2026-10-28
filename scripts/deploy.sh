@@ -161,6 +161,18 @@ echo -e "${YELLOW}4c. Installing Python sandbox packages for the container's int
 setup_sandbox_python_packages "$RELEASE_DIR"
 echo ""
 
+echo -e "${YELLOW}4d. Fetching the explicit-picture check's model...${NC}"
+# Idempotent: kept when shared/data already holds the pinned file, verified by
+# SHA-256 when downloaded. Never aborts the deploy: without the file the
+# filter fails closed (no picture is shown while it is on) and Tool Health says
+# so, which is repeated in red by print_deploy_warnings at the end.
+if timeout 900 npm run models:fetch; then
+  echo -e "${GREEN}✓ Picture check model in place${NC}"
+else
+  deploy_warn "The explicit-picture check's model could not be fetched (npm run models:fetch). While the filter is on, every finished picture is held back as unchecked until it is in place: run 'npm run models:fetch' in $RELEASE_DIR."
+fi
+echo ""
+
 echo -e "${YELLOW}5. Building application...${NC}"
 npm run build
 echo -e "${GREEN}✓ Build complete${NC}"
