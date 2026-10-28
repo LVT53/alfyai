@@ -402,6 +402,33 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 				expectOk,
 			),
 	},
+	// The explicit-picture filter's local classifier, beside make_image. While
+	// the filter is on, a check that cannot run keeps every picture back (fail
+	// closed), so an admin must see it here. Loading it is local and free.
+	{
+		id: "make_image:picture_check",
+		name: "make_image",
+		backend: "Explicit picture check (local)",
+		configured: (config) =>
+			hasValue(config.comfyuiUrl) && config.imageExplicitFilterEnabled,
+		probe: async (ctx) => {
+			const started = Date.now();
+			try {
+				await ctx.pictureCheckReady();
+				return {
+					ok: true,
+					detail: "model loaded",
+					latencyMs: Date.now() - started,
+				};
+			} catch (error) {
+				return {
+					ok: false,
+					detail: clampDetail(describeError(error, ctx.signal)),
+					latencyMs: Date.now() - started,
+				};
+			}
+		},
+	},
 	{
 		id: "location",
 		name: "location",

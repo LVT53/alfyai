@@ -96,6 +96,12 @@ export function createDefaultToolHealthDeps(): ToolHealthDeps {
 		getConfig,
 		dockerPing: pingDocker,
 		listTransitRegions,
+		pictureCheckReady: async () => {
+			const { pictureCheckReady } = await import(
+				"$lib/server/services/images/picture-check/classifier"
+			);
+			await pictureCheckReady();
+		},
 		countConnectedConnections,
 		now: Date.now,
 		timeoutMs: TOOL_HEALTH_PROBE_TIMEOUT_MS,
