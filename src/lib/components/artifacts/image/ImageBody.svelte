@@ -172,10 +172,24 @@ $effect(() => {
 function changeMarks(next: ImageMark[]): void {
 	const fileId = picture?.fileId;
 	if (!fileId) return;
+	if (next.length === 0) letGoHere = true;
 	onMarksChange?.(
 		next.length > 0 ? { imageFileId: fileId, marks: next } : null,
 	);
 }
+
+// Marks the page lets go (the message they went with was sent or queued, or the
+// chip's x) switch Mark off: an armed tool after a send drew a new box on the
+// next drag (Task 17). A let-go of the body's own (its last box removed, or
+// marks on another file) leaves the tool as it is.
+let letGoHere = false;
+let hadMarks = false;
+$effect(() => {
+	const has = marks != null;
+	if (hadMarks && !has && !letGoHere) untrack(() => (marking = false));
+	if (has || hadMarks) letGoHere = false;
+	hadMarks = has;
+});
 
 // The marks belong to the file they were drawn on, and show only on it. Marks
 // on another file (a newer picture landed under them, or a restored turn's
@@ -187,6 +201,7 @@ $effect(() => {
 	const fileId = picture?.fileId ?? null;
 	const markedOn = marks?.imageFileId ?? null;
 	if (status !== "ready" || !fileId || !markedOn || markedOn === fileId) return;
+	letGoHere = true;
 	untrack(() => onMarksChange?.(null));
 });
 

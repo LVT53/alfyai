@@ -411,6 +411,34 @@ describe("ImageBody", () => {
 			expect(view.onMarksChange).toHaveBeenLastCalledWith(null);
 		});
 
+		it("keeps Mark on when its own last box is removed", async () => {
+			await renderMarking();
+			const mark = screen.getByRole("button", { name: "Mark" });
+			await fireEvent.click(mark);
+			await drag([40, 20], [200, 120]);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Mark A, tap to remove" }),
+			);
+			await tick();
+			expect(mark).toHaveAttribute("aria-pressed", "true");
+		});
+
+		// Task 17 (rehearsal): after a marked message was sent the page let its
+		// marks go, but Mark stayed armed, so the next drag drew a new box. Marks
+		// the page lets go (sent, queued, or the chip's ×) switch the tool off.
+		it("switches Mark off when the page lets the marks go (the message was sent)", async () => {
+			const view = await renderMarking();
+			const mark = screen.getByRole("button", { name: "Mark" });
+			await fireEvent.click(mark);
+			await drag([40, 20], [200, 120]);
+			expect(mark).toHaveAttribute("aria-pressed", "true");
+
+			await view.rerender({ marks: null });
+			await tick();
+			expect(mark).toHaveAttribute("aria-pressed", "false");
+			expect(screen.queryByText("Drag to draw a box")).toBeNull();
+		});
+
 		it("says Up to 8 marks when a ninth box is drawn, in English and Hungarian", async () => {
 			await renderMarking();
 			await fireEvent.click(screen.getByRole("button", { name: "Mark" }));
