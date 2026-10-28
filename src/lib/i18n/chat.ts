@@ -1225,6 +1225,8 @@ const chatDict = {
 		"composerChips.removeQuote": "Remove quote {name}",
 		"composerChips.pictureNumberA11y": "Picture {number}: {name}",
 		"composerChips.removePicture": "Remove {name}",
+		"composerChips.marks": "Marks {letters}",
+		"composerChips.removeMarks": "Remove the marks",
 		// The chip's own readiness states. `busy*` is the accessible sentence
 		// behind the spinner while the × is withheld; `failure*` is the short
 		// danger clause a terminal readiness failure wears, with the full
@@ -2401,6 +2403,8 @@ const chatDict = {
 		"composerChips.removeQuote": "{name} idézet eltávolítása",
 		"composerChips.pictureNumberA11y": "{number}. kép: {name}",
 		"composerChips.removePicture": "{name} eltávolítása",
+		"composerChips.marks": "{letters} jelölés",
+		"composerChips.removeMarks": "Jelölések törlése",
 		"composerChips.busyPreparing": "{name} előkészítése",
 		"composerChips.busyUploading": "{name} feltöltése",
 		"composerChips.failureGeneric": "Nem sikerült előkészíteni",

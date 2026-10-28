@@ -123,6 +123,7 @@ import {
 } from "$lib/shared/attachment-readiness";
 import { imageFileUrl } from "$lib/client/api/images";
 import type {
+	ImageMarksRequest,
 	PictureRef,
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
@@ -131,7 +132,9 @@ import ComposerChipFailureDetails from "./ComposerChipFailureDetails.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
 import {
 	arrangePictureChips,
+	type ComposerMarks,
 	type ComposerPictureRef,
+	markedPictureNumber,
 	numberPictures,
 	pictureKey,
 	reconcilePictureOrder,
@@ -191,6 +194,11 @@ type SendPayload = {
 	// and the same pictures with their names for the sent bubble (plan 2b T5).
 	pictureRefs?: PictureRef[];
 	pictures?: UserPicturesMetadata;
+	// The marks drawn on one picture (plan 2b T6), and, client-only, the item
+	// they were drawn on and whether the send added that picture as a ref, so a
+	// turn put back in the composer gets its marks chip back (never on the wire).
+	imageMarks?: ImageMarksRequest;
+	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
@@ -248,6 +256,8 @@ let {
 	pictureRefs = [],
 	draftPictureOrder = [],
 	onRemovePictureRef = undefined,
+	imageMarks = null,
+	onClearMarks = undefined,
 	focusRequest = 0,
 	onSend = undefined,
 	onQueue = undefined,
@@ -332,6 +342,15 @@ let {
 	 */
 	draftPictureOrder?: readonly string[];
 	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
+	/**
+	 * The marks drawn on one picture in the panel (plan 2b T6), held by the
+	 * page: one `image` chip ("Marks A, B") under the number the marked picture
+	 * goes by. The send carries them as `imageMarks` and adds the picture as a
+	 * ref when it is not attached already (F14).
+	 */
+	imageMarks?: ComposerMarks | null;
+	/** The marks chip's x: the page lets the marks go (and the panel's boxes with them). */
+	onClearMarks?: (() => void) | undefined;
 	/** Rises when the page wants the box focused (a picture was just attached). */
 	focusRequest?: number;
 	onSend?: ((payload: SendPayload) => void) | undefined;
@@ -644,6 +663,11 @@ let pictureNumbers = $derived(numberPictures(livePictureOrder, () => true));
 let pictureChipSlots = $derived(
 	arrangePictureChips(livePictureOrder, uploadPictureKeys, refPictureKeys),
 );
+let markedNumber = $derived(
+	imageMarks
+		? markedPictureNumber(pictureNumbers, imageMarks.imageFileId)
+		: null,
+);
 $effect(() => {
 	const request = focusRequest;
 	if (request > 0 && !isMobile()) untrack(() => textarea?.focus());
@@ -883,6 +907,7 @@ let hasComposerChips = $derived(
 		Boolean(selectedAtlasProfile) ||
 		pendingAttachments.length > 0 ||
 		pictureRefs.length > 0 ||
+		Boolean(imageMarks) ||
 		optimisticUploads.length > 0 ||
 		pendingQuotes.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0),
@@ -1884,8 +1909,30 @@ function canSubmitMessageText(text: string): boolean {
 function picturePayload(): {
 	pictureRefs?: PictureRef[];
 	pictures?: UserPicturesMetadata;
+	imageMarks?: ImageMarksRequest;
+	markedPicture?: SendPayload["markedPicture"];
 } {
-	if (pictureRefs.length === 0) return {};
+	// The marks ride with their picture: one not attached already is added as a
+	// ref under the number its chip showed (F14), so the server paints the marks
+	// whether or not the panel is still open on it when the turn is sent.
+	const marked = imageMarks;
+	const addMarkedRef =
+		marked !== null &&
+		!pictureRefs.some((ref) => ref.imageFileId === marked.imageFileId);
+	const marksPart = marked
+		? {
+				imageMarks: {
+					imageFileId: marked.imageFileId,
+					marks: marked.marks.map((mark) => ({ ...mark })),
+				},
+				markedPicture: {
+					artifactId: marked.artifactId,
+					name: marked.name,
+					addedRef: addMarkedRef,
+				},
+			}
+		: {};
+	if (pictureRefs.length === 0 && !addMarkedRef) return marksPart;
 	const refs = pictureRefs.flatMap((ref) => {
 		const number = pictureNumbers.get(
 			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
@@ -1902,8 +1949,16 @@ function picturePayload(): {
 			? []
 			: [{ artifactId: attachment.artifact.id, number }];
 	});
+	if (marked && addMarkedRef && markedNumber !== null) {
+		refs.push({
+			imageFileId: marked.imageFileId,
+			number: markedNumber,
+			name: marked.name,
+		});
+	}
 	refs.sort((a, b) => a.number - b.number);
 	return {
+		...marksPart,
 		pictureRefs: refs.map(({ imageFileId, number }) => ({
 			imageFileId,
 			number,
@@ -3902,6 +3957,25 @@ async function emitDraftChange(force = false) {
 					</li>
 				{/if}
 				{/each}
+
+				<!-- Plan 2b T6 — the marks drawn on one picture: ONE image chip,
+				     named by its letters, with the picture's thumbnail and the
+				     number the picture goes by in this message. -->
+				{#if imageMarks}
+					{@const markLabel = $t('composerChips.marks', { letters: imageMarks.marks.map((mark) => mark.letter).join(', ') })}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="image"
+							label={markLabel}
+							thumbnailUrl={imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
+							number={markedNumber}
+							removable
+							removeLabel={$t('composerChips.removeMarks')}
+							onRemove={() => onClearMarks?.()}
+							testId="composer-chip-marks"
+						/>
+					</li>
+				{/if}
 
 				<!-- OQ6 — a file whose bytes are still moving. No artifact id
 				     exists yet, so it cannot be removed or cancelled; it is a

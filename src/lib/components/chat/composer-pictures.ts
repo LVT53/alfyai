@@ -10,9 +10,22 @@
  * order list and asks these for the numbers. There is no cap here: the cap
  * limits one picture request on the server, and Alfy says so in its reply.
  */
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 
 /** A card, strip or History picture waiting in the composer. */
 export type ComposerPictureRef = { imageFileId: string; name: string };
+
+/**
+ * The marks the person drew on one picture (plan 2b T6), held by the chat page
+ * and shown as one `image` chip: the request the send carries, and the item the
+ * picture belongs to (its title names the picture when the send adds it).
+ */
+export type ComposerMarks = {
+	imageFileId: string;
+	marks: ImageMark[];
+	artifactId: string;
+	name: string;
+};
 
 export type PictureSource =
 	| { kind: "upload"; artifactId: string }
@@ -100,4 +113,19 @@ export function arrangePictureChips(
 		slots.push({ type: "ref", index: pending[next].index });
 	}
 	return slots;
+}
+
+/**
+ * The number the marked picture goes by in this message. Attached already: its
+ * chip's number. Otherwise the next one: the send adds it as a ref under that
+ * number (F14), the number the server would give it as the open picture, after
+ * every attached and uploaded picture (`images/turn-pictures.ts`).
+ */
+export function markedPictureNumber(
+	numbers: ReadonlyMap<string, number>,
+	imageFileId: string,
+): number {
+	return (
+		numbers.get(pictureKey({ kind: "ref", imageFileId })) ?? numbers.size + 1
+	);
 }

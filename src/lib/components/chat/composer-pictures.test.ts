@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	arrangePictureChips,
+	markedPictureNumber,
 	numberPictures,
 	pictureKey,
 	reconcilePictureOrder,
@@ -79,5 +80,18 @@ describe("arrangePictureChips", () => {
 			{ type: "attachment", index: 1 },
 			{ type: "ref", index: 0 },
 		]);
+	});
+});
+
+describe("markedPictureNumber", () => {
+	it("is the number of the attached chip when the marked picture is attached", () => {
+		const numbers = numberPictures(["upload:a", "ref:f1"], () => true);
+		expect(markedPictureNumber(numbers, "f1")).toBe(2);
+	});
+
+	it("is the next number otherwise, the one the server gives the open picture or the added ref", () => {
+		const numbers = numberPictures(["upload:a", "ref:f1"], () => true);
+		expect(markedPictureNumber(numbers, "f9")).toBe(3);
+		expect(markedPictureNumber(new Map(), "f9")).toBe(1);
 	});
 });

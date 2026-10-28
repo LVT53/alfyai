@@ -6625,4 +6625,108 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 			]);
 		});
 	}
+
+	describe("marks (T6)", () => {
+		const marks = [
+			{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 },
+			{ letter: "B" as const, x: 0.55, y: 0.2, w: 0.4, h: 0.7 },
+		];
+		const imageMarks = {
+			imageFileId: "open-file",
+			marks,
+			artifactId: "img-1",
+			name: "Cosy room",
+		};
+
+		it("shows one chip for the marks, with the picture's thumbnail and the next number", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks,
+			});
+			const chips = view.getAllByTestId("composer-chip-marks");
+			expect(chips).toHaveLength(1);
+			expect(chips[0]).toHaveTextContent("Marks A, B");
+			expect(
+				within(chips[0]).getByTestId("composer-chip-number"),
+			).toHaveTextContent("2");
+			const thumb = chips[0].querySelector("img");
+			expect(thumb?.getAttribute("src")).toBe(
+				"/api/images/files/open-file?variant=thumb&conversationId=conv-1",
+			);
+			expect(view.getByLabelText("Picture 2: Marks A, B")).toBeTruthy();
+		});
+
+		it("names the chip in Hungarian", () => {
+			uiLanguage.set("hu");
+			const view = renderComposer({ imageMarks });
+			expect(view.getByTestId("composer-chip-marks")).toHaveTextContent(
+				"A, B jelölés",
+			);
+			expect(view.getByLabelText("Jelölések törlése")).toBeTruthy();
+		});
+
+		it("hands the page the chip's x", async () => {
+			const onClearMarks = vi.fn();
+			const view = renderComposer({ imageMarks, onClearMarks });
+			await fireEvent.click(view.getByLabelText("Remove the marks"));
+			expect(onClearMarks).toHaveBeenCalledTimes(1);
+		});
+
+		it("sends the marks in fractions, adding the marked picture as a ref under its number (F14)", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks,
+			});
+			await fireEvent.input(view.textarea, {
+				target: { value: "Move A to B" },
+			});
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.imageMarks).toEqual({ imageFileId: "open-file", marks });
+			expect(payload.pictureRefs).toEqual([
+				{ imageFileId: "f1", number: 1 },
+				{ imageFileId: "open-file", number: 2 },
+			]);
+			expect(payload.pictures.refs).toEqual([
+				{ imageFileId: "f1", number: 1, name: "Red rug" },
+				{ imageFileId: "open-file", number: 2, name: "Cosy room" },
+			]);
+			expect(payload.markedPicture).toEqual({
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+			});
+		});
+
+		it("adds no second ref when the marked picture is attached already", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "open-file", name: "Cosy room" }],
+				imageMarks,
+			});
+			expect(
+				within(view.getByTestId("composer-chip-marks")).getByTestId(
+					"composer-chip-number",
+				),
+			).toHaveTextContent("1");
+			await fireEvent.input(view.textarea, { target: { value: "Move A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.pictureRefs).toEqual([
+				{ imageFileId: "open-file", number: 1 },
+			]);
+			expect(payload.markedPicture.addedRef).toBe(false);
+		});
+
+		it("sends no marks without the chip", async () => {
+			const view = renderComposer();
+			await fireEvent.input(view.textarea, { target: { value: "Hello" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.imageMarks).toBeUndefined();
+			expect(payload.markedPicture).toBeUndefined();
+		});
+	});
 });
