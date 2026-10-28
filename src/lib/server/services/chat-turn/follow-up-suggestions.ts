@@ -34,6 +34,25 @@ import { callShortLocalControlModel } from "./short-local-text";
  * exclusion is structural, not a runtime flag.
  */
 
+/**
+ * The letters of the marks a chat's messages carried (`pictures.marks`, the
+ * record each marked message keeps), in first-seen order: the honest sign that
+ * the chat had marks, and which. Marks end with their message, so all are gone.
+ */
+export function goneMarkLettersOf(
+	messages: readonly {
+		pictures?: { marks?: { letters?: readonly string[] } | null } | null;
+	}[],
+): string[] {
+	const letters: string[] = [];
+	for (const message of messages) {
+		for (const letter of message.pictures?.marks?.letters ?? []) {
+			if (!letters.includes(letter)) letters.push(letter);
+		}
+	}
+	return letters;
+}
+
 export const FOLLOW_UP_SUGGESTIONS_FEATURE = "follow_up_suggestions";
 
 // Same budget class as the thought-step classifier / rail summary (6s):
@@ -129,8 +148,17 @@ export const FOLLOW_UP_CHIP_EXAMPLES: Record<"en" | "hu", string[]> = {
 	],
 };
 
-function buildFollowUpSuggestionsSystemPrompt(language: "en" | "hu"): string {
+// Said only in a chat that had marks: elsewhere "box" and "mark" are the reply's
+// own words and a chip may use them.
+const MARKS_RULE =
+	"- Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for and are gone once it is sent: never name one of those boxes or marks.\n";
+
+function buildFollowUpSuggestionsSystemPrompt(
+	language: "en" | "hu",
+	hadMarks: boolean,
+): string {
 	const languageLabel = language === "hu" ? "Hungarian" : "English";
+	const marksRule = hadMarks ? MARKS_RULE : "";
 	const examples = FOLLOW_UP_CHIP_EXAMPLES[language].join("\n");
 	return `You write the suggestion chips shown under an assistant's reply in a chat app. A chip is the NEXT MESSAGE THE USER WOULD SEND to the assistant: tapping it sends its text, exactly as written, as the user's own message. So every chip is the user speaking to the assistant, and it must make sense on its own. Respond with strict JSON only, matching exactly: {"followUps": [string, string, string]} — no preamble, no explanation, no markdown.
 
@@ -143,8 +171,7 @@ Rules:
 - Never answer a question the assistant asked the user, and never state a fact about the user that the conversation has not stated.
 - Ask only for what the assistant can do in the chat itself, never for sending, booking, buying or calling.
 - Never ask for something the reply already gives, and never repeat anything the user has already asked earlier in the conversation.
-- Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for and are gone once it is sent: never name a box or a mark.
-- If the reply ends by offering something, the first message accepts that offer.
+${marksRule}- If the reply ends by offering something, the first message accepts that offer.
 - Make the ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} genuinely different from one another.
 - Avoid "you": write an instruction, or the user's own question with "I".
 - Write natural, idiomatic ${languageLabel}, the way a person types to an assistant.
@@ -245,6 +272,7 @@ export function isPlausibleFollowUpSuggestion(
 function parseFollowUpSuggestions(
 	rawText: string,
 	language: "en" | "hu",
+	goneMarkLetters: readonly string[],
 ): string[] | null {
 	const data = parseJsonWithEnvelopeExtraction(rawText, "followUps");
 	if (!data) return null;
@@ -258,6 +286,7 @@ function parseFollowUpSuggestions(
 			language,
 			maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
 			maxChars: FOLLOW_UP_SUGGESTIONS_MAX_CHARS,
+			goneMarkLetters,
 		});
 		if (!chip.ok) continue;
 		// The client keys chips by text; a repeated suggestion must never
@@ -295,8 +324,15 @@ export async function generateFollowUpSuggestions(params: {
 	 * in and whatever language the account is shown in.
 	 */
 	responseLanguage: SupportedLanguage;
+	/**
+	 * The letters of the marks this chat's recent messages carried, the current
+	 * one included (`goneMarkLettersOf`): all let go by now. Empty or absent: the
+	 * chat had no marks, and nothing is said or filtered about them.
+	 */
+	goneMarkLetters?: readonly string[];
 	signal?: AbortSignal;
 }): Promise<string[] | null> {
+	const goneMarkLetters = params.goneMarkLetters ?? [];
 	const response = params.assistantResponse.trim();
 	if (response.length < FOLLOW_UP_SUGGESTIONS_MIN_CONTENT_LENGTH) return null;
 	if (looksLikeClarificationQuestion(response)) return null;
@@ -317,7 +353,10 @@ export async function generateFollowUpSuggestions(params: {
 		feature: FOLLOW_UP_SUGGESTIONS_FEATURE,
 		userId: params.userId,
 		conversationId: params.conversationId,
-		systemPrompt: buildFollowUpSuggestionsSystemPrompt(language),
+		systemPrompt: buildFollowUpSuggestionsSystemPrompt(
+			language,
+			goneMarkLetters.length > 0,
+		),
 		thinkingMode: "off",
 		// The suggestions are read by a person: the family sampling profile
 		// (sampling.ts); a family without one keeps its 0.4.
@@ -331,7 +370,7 @@ export async function generateFollowUpSuggestions(params: {
 	if (!result) return null;
 
 	try {
-		return parseFollowUpSuggestions(result.text, language);
+		return parseFollowUpSuggestions(result.text, language, goneMarkLetters);
 	} catch (error) {
 		console.error("[FOLLOW_UP_SUGGESTIONS] Failed to parse response", error);
 		return null;

@@ -47,6 +47,7 @@ import {
 import {
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT,
 	generateFollowUpSuggestions,
+	goneMarkLettersOf,
 } from "./follow-up-suggestions";
 import { resolveTurnReplyLanguage } from "./reply-language";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
@@ -640,21 +641,26 @@ export async function completeStreamTurn(
 			// below, after this point, so the window holds exactly the PRIOR
 			// turns. Best-effort like everything else on this path: a failed read
 			// degrades to no history section, never to a failed turn.
-			const recentHistory = await listMessageWindow(conversationId, {
+			const recentMessages = await listMessageWindow(conversationId, {
 				limit: FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT,
 			})
 				.then((page) =>
-					page.messages
-						.filter(
-							(message) =>
-								message.role === "user" || message.role === "assistant",
-						)
-						.map((message) => ({
-							role: message.role as "user" | "assistant",
-							content: message.content,
-						})),
+					page.messages.filter(
+						(message) =>
+							message.role === "user" || message.role === "assistant",
+					),
 				)
 				.catch(() => []);
+			const recentHistory = recentMessages.map((message) => ({
+				role: message.role as "user" | "assistant",
+				content: message.content,
+			}));
+			// The marks this window's messages and this turn carried: only a chat
+			// that had marks is told they are gone, and has its chips checked for them.
+			const goneMarkLetters = goneMarkLettersOf([
+				...recentMessages,
+				{ pictures: preparedContext.userPictures ?? null },
+			]);
 			followUps = await generateFollowUpSuggestions({
 				userId,
 				conversationId,
@@ -662,6 +668,7 @@ export async function completeStreamTurn(
 				assistantResponse: finalResponse,
 				recentHistory,
 				responseLanguage,
+				goneMarkLetters,
 			}).catch((error) => {
 				console.error("[CHAT_STREAM] Follow-up suggestions failed", {
 					conversationId,

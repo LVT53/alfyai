@@ -129,31 +129,36 @@ const ASKS_PERSON_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
 	],
 };
 
-// ----- a mark, named by its letter ------------------------------------------------
-// The boxes drawn on a picture (A, B, …: MARK_LETTERS) belong to the one message
-// they were drawn for and are let go when it is sent, so the NEXT message, a
-// chip, never has one to act on ("Move the sofa to the spot in box B" after the
-// marks are gone, the rehearsal's P5). The letter is a capital and stands alone;
-// "a box for the move", "plan A and plan B" and "A keretszerződés" are not marks.
-const MARK_LETTER = `[${MARK_LETTERS.join("")}]`;
-const MARK_LETTERS_RUN = `${MARK_LETTER}(?:\\s*(?:,|&|and|or|és|vagy)\\s*${MARK_LETTER})*`;
-const STALE_MARK_PATTERNS: RegExp[] = [
-	// "box B", "boxes A and B", "mark C", "frame A", "area D"
-	new RegExp(
-		`${START}(?:[Bb]ox(?:es)?|[Mm]arks?|[Ff]rames?|[Aa]reas?)\\s+${MARK_LETTERS_RUN}${END}`,
-		"u",
-	),
-	// "a B keretbe", "az A jelölésen", "a C dobozba"
-	new RegExp(
-		`${START}[Aa]z?\\s+${MARK_LETTERS_RUN}\\s+(?:keret|doboz|jelöl)\\p{L}*`,
-		"u",
-	),
-	// "keret B", "jelölés A"
-	new RegExp(
-		`${START}(?:keret|doboz|jelölés)\\p{L}*\\s+${MARK_LETTERS_RUN}${END}`,
-		"u",
-	),
-];
+// ----- a mark that is gone, named by its letter --------------------------------
+// The boxes drawn on a picture (A, B, …) belong to the one message they were
+// drawn for and are let go when it is sent, so the NEXT message, a chip, never
+// has one to act on ("Move the sofa to the spot in box B" after the marks are
+// gone, the rehearsal's P5). Checked only in a chat that had marks, and only for
+// ITS letters (`goneMarkLetters`): "Area C", "frames A and B", "Mark A as the
+// default", "az A és B jelölésű hűtők" and, in a chat that never had marks,
+// "box B", stay what they mean.
+function staleMarkPatterns(letters: readonly string[]): RegExp[] {
+	const known = letters.filter((letter) =>
+		(MARK_LETTERS as readonly string[]).includes(letter),
+	);
+	if (known.length === 0) return [];
+	const letter = `[${known.join("")}]`;
+	const run = `${letter}(?:\\s*(?:,|&|and|or|és|vagy)\\s*${letter})*`;
+	return [
+		// "box B", "boxes A and B", "in mark C" (the noun; "Mark A as…" is a verb)
+		new RegExp(`${START}(?:[Bb]ox(?:es)?|marks?)\\s+${run}${END}`, "u"),
+		// "a B keretbe", "az A jelölésen", "a C dobozba" (not "jelölésű", labelled)
+		new RegExp(
+			`${START}[Aa]z?\\s+${run}\\s+(?:keret|doboz|jelölés(?!ű))\\p{L}*`,
+			"u",
+		),
+		// "keret B", "jelölés A"
+		new RegExp(
+			`${START}(?:keret|doboz|jelölés(?!ű))\\p{L}*\\s+${run}${END}`,
+			"u",
+		),
+	];
+}
 
 // ----- generic ----------------------------------------------------------------
 // A chip made of nothing but these asks for nothing in particular ("Tell me
@@ -286,6 +291,8 @@ export function checkFollowUpChip(
 		maxWords: number;
 		/** The chip's length budget in characters, for a language with long words. */
 		maxChars?: number;
+		/** The letters of the marks this chat's recent messages carried (all gone now); none: the chat never had marks. */
+		goneMarkLetters?: readonly string[];
 	},
 ): FollowUpChipCheck {
 	const text = normalizeChip(raw);
@@ -295,7 +302,11 @@ export function checkFollowUpChip(
 	});
 	const body = text.replace(/\?$/, "").trim();
 	if (!body) return reject("empty");
-	if (STALE_MARK_PATTERNS.some((pattern) => pattern.test(text))) {
+	if (
+		staleMarkPatterns(options.goneMarkLetters ?? []).some((pattern) =>
+			pattern.test(text),
+		)
+	) {
 		return reject("stale_mark");
 	}
 

@@ -22,6 +22,7 @@ import {
 	FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT,
 	FOLLOW_UP_SUGGESTIONS_TIMEOUT_MS,
 	generateFollowUpSuggestions,
+	goneMarkLettersOf,
 	isPlausibleFollowUpSuggestion,
 	looksLikeClarificationQuestion,
 	renderFollowUpReply,
@@ -220,38 +221,30 @@ describe("generateFollowUpSuggestions", () => {
 		expect(args.conversationId).toBe("c1");
 	});
 
-	// Task 17 (rehearsal P5): after the marked move, the history said "Move the
-	// sofa from box A to the spot in box B" and a chip offered the move again to a
-	// box that was gone. The prompt says marks end with their message, and a chip
-	// that names one is dropped whatever the model writes.
-	it("tells the model marks are gone and drops a chip that names one", async () => {
-		callShortLocalControlModelMock.mockResolvedValue(
-			controlResult(
-				JSON.stringify({
-					followUps: [
-						"Move the new sofa to the spot in box B",
-						"Make the new sofa a lighter red",
-						"Add a rug in front of the sofa",
-					],
-				}),
-			),
-		);
+	// Task 17 (rehearsal P5), fix round 1: after the marked move a chip offered
+	// the move again to a box that was gone. In a chat that had marks the prompt
+	// says marks end with their message, and a chip that names one is dropped;
+	// a chat that never had marks is asked and filtered as before.
+	const STALE_CANDIDATES = [
+		"Move the new sofa to the spot in box B",
+		"Make the new sofa a lighter red",
+		"Add a rug in front of the sofa",
+	];
+	const MARKS_LINE =
+		"Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for";
 
+	it("in a chat whose marks are gone: tells the model and drops a chip that names one", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: STALE_CANDIDATES })),
+		);
 		const result = await generateFollowUpSuggestions({
 			userId: "u1",
 			conversationId: "c1",
 			userMessage: "Put this sofa into the room photo.",
 			assistantResponse: LONG_REPLY,
-			recentHistory: [
-				{
-					role: "user",
-					content: "Move the sofa from box A to the spot in box B.",
-				},
-				{ role: "assistant", content: "The sofa now sits in box B." },
-			],
+			goneMarkLetters: ["A", "B"],
 			responseLanguage: "en",
 		});
-
 		expect(result).toEqual([
 			"Make the new sofa a lighter red",
 			"Add a rug in front of the sofa",
@@ -259,9 +252,40 @@ describe("generateFollowUpSuggestions", () => {
 		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
 			{ systemPrompt: string },
 		];
-		expect(args.systemPrompt).toContain(
-			"Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for",
+		expect(args.systemPrompt).toContain(MARKS_LINE);
+	});
+
+	it("in a chat that never had marks: no marks line, and a box chip stays", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: STALE_CANDIDATES })),
 		);
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Help me with the probability puzzle.",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+		expect(result).toEqual([
+			"Move the new sofa to the spot in box B",
+			"Make the new sofa a lighter red",
+		]);
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(args.systemPrompt).not.toContain(MARKS_LINE);
+	});
+
+	it("reads the letters of the marks a chat's recent messages carried", () => {
+		expect(
+			goneMarkLettersOf([
+				{ pictures: { marks: { letters: ["A", "B"] } } },
+				{ pictures: { refs: [] } },
+				{},
+				{ pictures: { marks: { letters: ["B", "C"] } } },
+			]),
+		).toEqual(["A", "B", "C"]);
+		expect(goneMarkLettersOf([{}, { pictures: { marks: null } }])).toEqual([]);
 	});
 
 	it("returns the best two of the three candidates it asks for", async () => {

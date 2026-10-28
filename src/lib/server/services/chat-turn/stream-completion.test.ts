@@ -62,9 +62,12 @@ const {
 // post-turn steps in this file (finalize-steps etc.): the glue tests below
 // assert what completeStreamTurn hands this seam and what it does with the
 // result, never the real control model.
-vi.mock("./follow-up-suggestions", () => ({
+vi.mock("./follow-up-suggestions", async (importOriginal) => ({
 	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
+	goneMarkLettersOf: (
+		await importOriginal<typeof import("./follow-up-suggestions")>()
+	).goneMarkLettersOf,
 }));
 
 // The language of the conversation for the person, named after the reply
@@ -2621,6 +2624,7 @@ describe("completeStreamTurn", () => {
 				assistantResponse: "response text",
 				recentHistory: [],
 				responseLanguage: "en",
+				goneMarkLetters: [],
 			});
 			expect(getLatestEndPayload()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
@@ -2704,6 +2708,39 @@ describe("completeStreamTurn", () => {
 						{ role: "assistant", content: "earlier answer" },
 					],
 				}),
+			);
+		});
+
+		// Task 17 fix round 1: only a chat that had marks is checked for them.
+		it("hands the suggester the letters of the marks the window and this turn carried", async () => {
+			mockListMessageWindow.mockResolvedValue({
+				messages: [
+					{
+						role: "user",
+						content: "Move the sofa from box A to box B.",
+						pictures: {
+							refs: [],
+							open: null,
+							marks: { letters: ["A", "B"] },
+						},
+					},
+					{ role: "assistant", content: "Moved." },
+				],
+				hasMoreBefore: false,
+			});
+			await completeStreamTurn({
+				...defaultParams,
+				preparedContext: {
+					...defaultParams.preparedContext,
+					userPictures: {
+						refs: [],
+						open: null,
+						marks: { letters: ["C"] },
+					} as never,
+				},
+			});
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ goneMarkLetters: ["A", "B", "C"] }),
 			);
 		});
 
