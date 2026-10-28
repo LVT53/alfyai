@@ -172,7 +172,9 @@ $effect(() => {
 function changeMarks(next: ImageMark[]): void {
 	const fileId = picture?.fileId;
 	if (!fileId) return;
-	if (next.length === 0) letGoHere = true;
+	// Set for this let-go only: a box drawn after it clears it, so a let-go the
+	// page did not answer never leaves Mark on after a later send.
+	letGoHere = next.length === 0;
 	onMarksChange?.(
 		next.length > 0 ? { imageFileId: fileId, marks: next } : null,
 	);

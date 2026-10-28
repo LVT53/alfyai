@@ -192,6 +192,13 @@ function buildAmbientPersonaFactItems(
 	return items;
 }
 
+/** The memory rows every turn of a chat carries: its continuity, not a source the reply drew on (one name each, read by the builder and the picture-reply rule). */
+const CONTINUITY_MEMORY_ID = {
+	taskState: "task-state",
+	recentTurns: "recent-turns",
+	sessionMemory: "session-memory",
+} as const;
+
 function buildMemoryGroup(params: {
 	contextStatus: ConversationContextStatus | null | undefined;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
@@ -210,7 +217,7 @@ function buildMemoryGroup(params: {
 
 	if (contextStatus?.taskStateApplied) {
 		items.push({
-			id: "task-state",
+			id: CONTINUITY_MEMORY_ID.taskState,
 			title: "Task state",
 			sourceType: "memory",
 			status: "reference",
@@ -221,7 +228,7 @@ function buildMemoryGroup(params: {
 
 	if ((contextStatus?.recentTurnCount ?? 0) > 0) {
 		items.push({
-			id: "recent-turns",
+			id: CONTINUITY_MEMORY_ID.recentTurns,
 			title: `Recent turns (${contextStatus?.recentTurnCount ?? 0})`,
 			sourceType: "memory",
 			status: "reference",
@@ -236,7 +243,7 @@ function buildMemoryGroup(params: {
 		items.push(...personaFactItems);
 	} else if (contextStatus?.layersUsed.includes("session")) {
 		items.push({
-			id: "session-memory",
+			id: CONTINUITY_MEMORY_ID.sessionMemory,
 			title: "Session memory",
 			sourceType: "memory",
 			status: "reference",
@@ -744,12 +751,9 @@ function buildTurnArtifactsGroup(
 }
 
 const MAKE_IMAGE_TOOL_NAME = "make_image";
-/** The memory rows every turn of a chat carries: its continuity, not a source the reply drew on. */
-const CONTINUITY_MEMORY_IDS: ReadonlySet<string> = new Set([
-	"task-state",
-	"recent-turns",
-	"session-memory",
-]);
+const CONTINUITY_MEMORY_IDS: ReadonlySet<string> = new Set(
+	Object.values(CONTINUITY_MEMORY_ID),
+);
 
 export async function buildAssistantEvidenceSummary(params: {
 	userId?: string;

@@ -431,6 +431,8 @@ function fromChat(entry: RailEntry): boolean {
 	}
 
 	.option {
+		/* The avatar's size, read by the narrow rail's time indent too. */
+		--rail-avatar-size: 22px;
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
@@ -485,7 +487,7 @@ function fromChat(entry: RailEntry): boolean {
 
 		.option.with-thumb .time {
 			flex-basis: 100%;
-			padding-left: calc(22px + var(--space-sm));
+			padding-left: calc(var(--rail-avatar-size) + var(--space-sm));
 			text-align: left;
 		}
 	}
@@ -557,8 +559,8 @@ function fromChat(entry: RailEntry): boolean {
 	.alfy-avatar {
 		display: inline-grid;
 		place-items: center;
-		width: 22px;
-		height: 22px;
+		width: var(--rail-avatar-size);
+		height: var(--rail-avatar-size);
 		border-radius: var(--radius-full);
 		background: var(--accent-tint-strong);
 		color: var(--accent-text);
