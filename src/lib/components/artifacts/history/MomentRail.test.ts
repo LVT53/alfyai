@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -92,5 +93,30 @@ describe("MomentRail thumbnails", () => {
 		renderRail("document", "conv-1");
 		expect(screen.getAllByTestId("history-option")).toHaveLength(1);
 		expect(screen.queryByTestId("history-thumb")).toBeNull();
+	});
+});
+
+// Task 12 (crowding with the sidebar open): beside the preview the rail is 300 px,
+// and an Image row's 40 px picture left its headline ~130 px next to the time, so a
+// short line ran to three. A narrow rail (its own width, a container query like the
+// card's and the review bar's) puts the time of a picture's row under its headline.
+describe("a picture's rail row in a narrow rail", () => {
+	const source = readFileSync(
+		`${process.cwd()}/src/lib/components/artifacts/history/MomentRail.svelte`,
+		"utf-8",
+	);
+
+	it("makes the rail list a named inline-size container", () => {
+		const list = source.match(/\n\t\.rail-list \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+		expect(list).toMatch(/container:\s*moment-rail\s*\/\s*inline-size/);
+	});
+
+	it("moves the time of a row with a picture under its headline when the rail is narrow", () => {
+		const block =
+			source.match(/@container moment-rail \(max-width: [\d.]+rem\) \{([\s\S]*?)\n\t\}/)?.[1] ??
+			"";
+		expect(block).toMatch(/\.option\.with-thumb \.line1 \{[^}]*flex-wrap:\s*wrap/);
+		expect(block).toMatch(/\.option\.with-thumb \.time \{[^}]*flex-basis:\s*100%/);
+		expect(block).toMatch(/var\(--space-/);
 	});
 });

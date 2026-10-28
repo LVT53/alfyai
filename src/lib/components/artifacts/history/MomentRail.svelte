@@ -407,6 +407,9 @@ function fromChat(entry: RailEntry): boolean {
 		overscroll-behavior: contain;
 		padding: 0.25rem 0.5rem 0.75rem;
 		outline: none;
+		/* Its own width decides a picture row's shape (below), as the card's and
+		   the review bar's do. */
+		container: moment-rail / inline-size;
 	}
 
 	.day-heading {
@@ -463,6 +466,28 @@ function fromChat(entry: RailEntry): boolean {
 
 	.rail-thumb :global(.image-picture-img) {
 		object-fit: cover;
+	}
+
+	/* Beside the preview the rail is 300 px, and a picture row's 40 px square
+	   left its headline ~130 px beside the time (Task 12, crowding with the
+	   sidebar open): in a narrow rail the time goes under the headline, in line
+	   with it (past the avatar), so the headline has the row's width. */
+	@container moment-rail (max-width: 22rem) {
+		.option.with-thumb .line1 {
+			flex-wrap: wrap;
+			row-gap: 0;
+		}
+
+		/* A zero basis keeps the headline on the avatar's line, growing into it. */
+		.option.with-thumb .headline {
+			flex-basis: 0;
+		}
+
+		.option.with-thumb .time {
+			flex-basis: 100%;
+			padding-left: calc(22px + var(--space-sm));
+			text-align: left;
+		}
 	}
 
 	.option:hover {

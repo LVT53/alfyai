@@ -286,10 +286,13 @@ let markNote = $derived(
 	.image-body {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		/* The family's room (Task 12): expanded, the picture used to stand 12 px
+		   under the header and over its row; a space-md all round keeps it clear of
+		   both in every shape, docked beside an open sidebar included. */
+		gap: var(--space-md);
 		height: 100%;
 		min-height: 0;
-		padding: 0.75rem 1rem 1rem;
+		padding: var(--space-md);
 		box-sizing: border-box;
 	}
 
@@ -420,7 +423,7 @@ let markNote = $derived(
 	.image-body-foot {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: var(--space-md);
 		flex: none;
 		min-height: 3.5rem;
 	}
@@ -433,7 +436,7 @@ let markNote = $derived(
 	.image-body-toolbar {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		flex: none;
 	}
 </style>

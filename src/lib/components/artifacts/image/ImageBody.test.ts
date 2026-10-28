@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
 	fireEvent,
 	render,
@@ -466,5 +467,28 @@ describe("ImageBody", () => {
 				expect(view.onMarksChange).toHaveBeenLastCalledWith(null),
 			);
 		});
+	});
+});
+
+// Task 12 (crowding with the sidebar open): expanded, the picture filled the stage
+// to within 12 px of the header and the tools row; the body's room is the family's
+// space tokens, not literal rems.
+describe("the panel body's room", () => {
+	const source = readFileSync(
+		`${process.cwd()}/src/lib/components/artifacts/image/ImageBody.svelte`,
+		"utf-8",
+	);
+	const rule = (name: string) =>
+		source.match(new RegExp(`\\n\\t\\.${name} \\{([\\s\\S]*?)\\n\\t\\}`))?.[1] ?? "";
+
+	it("pads the body and spaces the picture from its row with space tokens", () => {
+		expect(rule("image-body")).toMatch(/padding:\s*var\(--space-md\)/);
+		expect(rule("image-body")).toMatch(/gap:\s*var\(--space-md\)/);
+		expect(rule("image-body")).not.toMatch(/\d(\.\d+)?rem/);
+	});
+
+	it("spaces the tools row with space tokens", () => {
+		expect(rule("image-body-foot")).toMatch(/gap:\s*var\(--space-/);
+		expect(rule("image-body-toolbar")).toMatch(/gap:\s*var\(--space-/);
 	});
 });
