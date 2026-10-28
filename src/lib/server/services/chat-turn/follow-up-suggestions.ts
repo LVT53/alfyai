@@ -143,6 +143,7 @@ Rules:
 - Never answer a question the assistant asked the user, and never state a fact about the user that the conversation has not stated.
 - Ask only for what the assistant can do in the chat itself, never for sending, booking, buying or calling.
 - Never ask for something the reply already gives, and never repeat anything the user has already asked earlier in the conversation.
+- Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for and are gone once it is sent: never name a box or a mark.
 - If the reply ends by offering something, the first message accepts that offer.
 - Make the ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} genuinely different from one another.
 - Avoid "you": write an instruction, or the user's own question with "I".

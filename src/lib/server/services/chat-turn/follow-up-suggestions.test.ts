@@ -220,6 +220,50 @@ describe("generateFollowUpSuggestions", () => {
 		expect(args.conversationId).toBe("c1");
 	});
 
+	// Task 17 (rehearsal P5): after the marked move, the history said "Move the
+	// sofa from box A to the spot in box B" and a chip offered the move again to a
+	// box that was gone. The prompt says marks end with their message, and a chip
+	// that names one is dropped whatever the model writes.
+	it("tells the model marks are gone and drops a chip that names one", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Move the new sofa to the spot in box B",
+						"Make the new sofa a lighter red",
+						"Add a rug in front of the sofa",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Put this sofa into the room photo.",
+			assistantResponse: LONG_REPLY,
+			recentHistory: [
+				{
+					role: "user",
+					content: "Move the sofa from box A to the spot in box B.",
+				},
+				{ role: "assistant", content: "The sofa now sits in box B." },
+			],
+			responseLanguage: "en",
+		});
+
+		expect(result).toEqual([
+			"Make the new sofa a lighter red",
+			"Add a rug in front of the sofa",
+		]);
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(args.systemPrompt).toContain(
+			"Boxes drawn on a picture (A, B, …) belong to the one message they were drawn for",
+		);
+	});
+
 	it("returns the best two of the three candidates it asks for", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(

@@ -1,3 +1,4 @@
+import { MARK_LETTERS } from "$lib/shared/artifacts/image-body";
 import {
 	readShortTextLanguage,
 	type SupportedLanguage,
@@ -38,7 +39,8 @@ export type FollowUpChipRejection =
 	| "offer"
 	| "asks_person"
 	| "not_a_request"
-	| "generic";
+	| "generic"
+	| "stale_mark";
 
 export type FollowUpChipCheck =
 	| { ok: true; text: string }
@@ -126,6 +128,32 @@ const ASKS_PERSON_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
 		),
 	],
 };
+
+// ----- a mark, named by its letter ------------------------------------------------
+// The boxes drawn on a picture (A, B, …: MARK_LETTERS) belong to the one message
+// they were drawn for and are let go when it is sent, so the NEXT message, a
+// chip, never has one to act on ("Move the sofa to the spot in box B" after the
+// marks are gone, the rehearsal's P5). The letter is a capital and stands alone;
+// "a box for the move", "plan A and plan B" and "A keretszerződés" are not marks.
+const MARK_LETTER = `[${MARK_LETTERS.join("")}]`;
+const MARK_LETTERS_RUN = `${MARK_LETTER}(?:\\s*(?:,|&|and|or|és|vagy)\\s*${MARK_LETTER})*`;
+const STALE_MARK_PATTERNS: RegExp[] = [
+	// "box B", "boxes A and B", "mark C", "frame A", "area D"
+	new RegExp(
+		`${START}(?:[Bb]ox(?:es)?|[Mm]arks?|[Ff]rames?|[Aa]reas?)\\s+${MARK_LETTERS_RUN}${END}`,
+		"u",
+	),
+	// "a B keretbe", "az A jelölésen", "a C dobozba"
+	new RegExp(
+		`${START}[Aa]z?\\s+${MARK_LETTERS_RUN}\\s+(?:keret|doboz|jelöl)\\p{L}*`,
+		"u",
+	),
+	// "keret B", "jelölés A"
+	new RegExp(
+		`${START}(?:keret|doboz|jelölés)\\p{L}*\\s+${MARK_LETTERS_RUN}${END}`,
+		"u",
+	),
+];
 
 // ----- generic ----------------------------------------------------------------
 // A chip made of nothing but these asks for nothing in particular ("Tell me
@@ -267,6 +295,9 @@ export function checkFollowUpChip(
 	});
 	const body = text.replace(/\?$/, "").trim();
 	if (!body) return reject("empty");
+	if (STALE_MARK_PATTERNS.some((pattern) => pattern.test(text))) {
+		return reject("stale_mark");
+	}
 
 	const wordList = body.split(" ").filter(Boolean);
 	if (wordList.length < 2) return reject("too_short");
@@ -285,6 +316,7 @@ export function checkFollowUpChip(
 		return reject("format");
 	}
 	if ((body.match(/,/g) ?? []).length > 3) return reject("format");
+
 
 	if (NON_LATIN_SCRIPT_RE.test(text)) return reject("script");
 

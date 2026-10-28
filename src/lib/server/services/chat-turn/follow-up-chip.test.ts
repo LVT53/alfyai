@@ -288,3 +288,32 @@ describe("a chip is the next message the person would send to Alfy", () => {
 		});
 	});
 });
+
+// Task 17 (rehearsal P5): after a turn whose message carried marks, a chip offered
+// "Move the new sofa to the spot in box B". Marks belong to the one message they
+// were drawn for and are let go when it is sent, so a chip (the NEXT message)
+// never has a box to act on: one that names a box or a mark by its letter is
+// always stale. A chip about something else that happens to say "box" or a
+// capital letter stays.
+describe("a chip never names a mark (marks end with the message they were drawn for)", () => {
+	it.each([
+		["Move the new sofa to the spot in box B", "en"],
+		["Make box A a little brighter", "en"],
+		["Fill boxes A and B with plants", "en"],
+		["Put a lamp in mark C", "en"],
+		["Tedd a kanapét a B keretbe", "hu"],
+		["Színezd át az A jelölésen belüli részt", "hu"],
+		["Tegyél növényt a C dobozba", "hu"],
+	] as const)("rejects %j", (text, language) => {
+		expect(rejectionOf(text, language)).toBe("stale_mark");
+	});
+
+	it.each([
+		["Pack the books into a box for the move", "en"],
+		["Compare plan A and plan B in a table", "en"],
+		["Készíts listát a dobozokba pakoláshoz", "hu"],
+		["A keretszerződést foglald össze röviden", "hu"],
+	] as const)("keeps %j", (text, language) => {
+		expect(rejectionOf(text, language)).not.toBe("stale_mark");
+	});
+});
