@@ -44,6 +44,7 @@ let {
 	onDemoteUser,
 	onDeleteUser,
 	onRevokeSessions,
+	onSetExplicitPictureFilterExempt,
 }: {
 	users?: AdminManagedUserSummary[];
 	usersLoading?: boolean;
@@ -59,6 +60,10 @@ let {
 	onDemoteUser: (userId: string) => void | Promise<void>;
 	onDeleteUser: (userId: string) => void | Promise<void>;
 	onRevokeSessions: (userId: string) => void | Promise<void>;
+	onSetExplicitPictureFilterExempt: (
+		userId: string,
+		exempt: boolean,
+	) => void | Promise<void>;
 	/** Whether the ADMIN has a factor: the reset dialog then asks for a code. */
 	adminHasTwoStep?: boolean;
 	onResetTwoStep: (
@@ -289,6 +294,8 @@ function confirmDelete() {
 				onDemote={(userId) => void onDemoteUser(userId)}
 				onRevokeSessions={(userId) => void onRevokeSessions(userId)}
 				onResetTwoStep={(userId) => (resetCandidateId = userId)}
+				onSetExplicitPictureFilterExempt={(userId, exempt) =>
+					void onSetExplicitPictureFilterExempt(userId, exempt)}
 				onDelete={(userId) => (deleteCandidateId = userId)}
 			/>
 			{#if !selectedUser && (usersMessage || usersError)}

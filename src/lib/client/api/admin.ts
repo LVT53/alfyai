@@ -53,6 +53,22 @@ export async function updateAdminUserRole(
 	return response.user;
 }
 
+export async function updateAdminUserExplicitPictureFilter(
+	userId: string,
+	exempt: boolean,
+): Promise<AdminManagedUserSummary> {
+	const response = await requestJson<AdminUserResponse>(
+		`/api/admin/users/${userId}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ explicitPictureFilterExempt: exempt }),
+		},
+		"Failed to update the picture filter",
+	);
+	return response.user;
+}
+
 export async function deleteAdminUser(userId: string): Promise<void> {
 	await requestVoid(
 		`/api/admin/users/${userId}`,

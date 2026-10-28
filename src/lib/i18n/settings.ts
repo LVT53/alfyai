@@ -940,6 +940,11 @@ const settingsDict = {
 		"admin.users.twoStepOn": "On",
 		"admin.users.twoStepOff": "Off",
 		"admin.users.twoStepSignIn": "Two-step sign-in",
+		"admin.users.pictureFilter": "Explicit picture filter",
+		"admin.users.pictureFilterOn": "On",
+		"admin.users.pictureFilterExempt": "Exempt",
+		"admin.users.pictureFilterExemptAction": "Exempt",
+		"admin.users.pictureFilterRestoreAction": "Filter again",
 		"admin.users.twoStepOnSince": "On since {date} · {count} backup codes left",
 		"admin.users.twoStepOffDetail": "Off",
 		"admin.users.twoStepResetAction": "Reset two-step sign-in",
@@ -979,6 +984,10 @@ const settingsDict = {
 		"admin.users.messages.demoted": "Admin access removed.",
 		"admin.users.messages.promoted": "Admin access granted.",
 		"admin.users.messages.sessionsRevoked": "Active sessions revoked.",
+		"admin.users.messages.pictureFilterExempted":
+			"The explicit picture filter is off for this person.",
+		"admin.users.messages.pictureFilterRestored":
+			"The explicit picture filter is on again for this person.",
 		"admin.users.promoteMessage":
 			"An admin can change the models and system prompt for every user, read account-level analytics for everyone, create and delete accounts, and promote other admins. You can demote {name} again at any time.",
 		"admin.users.promoteTitle": "Make {name} an admin?",
@@ -3030,6 +3039,11 @@ const settingsDict = {
 		"admin.users.twoStepOn": "Be",
 		"admin.users.twoStepOff": "Ki",
 		"admin.users.twoStepSignIn": "Kétlépcsős bejelentkezés",
+		"admin.users.pictureFilter": "Szűrő a szexuális tartalmú képekre",
+		"admin.users.pictureFilterOn": "Bekapcsolva",
+		"admin.users.pictureFilterExempt": "Kivéve",
+		"admin.users.pictureFilterExemptAction": "Kivétel",
+		"admin.users.pictureFilterRestoreAction": "Szűrés újra",
 		"admin.users.twoStepOnSince":
 			"Bekapcsolva: {date} · {count} tartalékkód maradt",
 		"admin.users.twoStepOffDetail": "Kikapcsolva",
@@ -3073,6 +3087,10 @@ const settingsDict = {
 		"admin.users.messages.promoted": "Az admin hozzáférés megadva.",
 		"admin.users.messages.sessionsRevoked":
 			"Az aktív munkamenetek visszavonva.",
+		"admin.users.messages.pictureFilterExempted":
+			"Ennél a személynél kikapcsolva a szűrő a szexuális tartalmú képekre.",
+		"admin.users.messages.pictureFilterRestored":
+			"Ennél a személynél újra be van kapcsolva a szűrő a szexuális tartalmú képekre.",
 		"admin.users.promoteMessage":
 			"Az adminisztrátor mindenkinek módosíthatja a modelleket és a rendszerpromptot, láthatja mindenki fiókszintű analitikáját, fiókokat hozhat létre és törölhet, és más adminisztrátorokat is kinevezhet. {name} bármikor visszaminősíthető.",
 		"admin.users.promoteTitle": "Legyen {name} adminisztrátor?",

@@ -6,12 +6,14 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/services/user-admin", () => ({
 	deleteManagedUser: vi.fn(),
+	setManagedUserExplicitPictureFilterExempt: vi.fn(),
 	updateManagedUserRole: vi.fn(),
 }));
 
 import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	deleteManagedUser,
+	setManagedUserExplicitPictureFilterExempt,
 	updateManagedUserRole,
 } from "$lib/server/services/user-admin";
 import { DELETE, PATCH } from "./+server";
@@ -72,6 +74,38 @@ describe("admin user detail route", () => {
 		expect(response.status).toBe(400);
 		expect(data.error).toMatch(/role must be user or admin/i);
 		expect(mockUpdateManagedUserRole).not.toHaveBeenCalled();
+	});
+
+	it("exempts a person from the explicit-picture filter", async () => {
+		const mockExempt =
+			setManagedUserExplicitPictureFilterExempt as ReturnType<typeof vi.fn>;
+		mockExempt.mockResolvedValue({
+			id: "user-2",
+			explicitPictureFilterExempt: true,
+		});
+
+		const response = await PATCH(
+			makeEvent("PATCH", { explicitPictureFilterExempt: true }),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.user.explicitPictureFilterExempt).toBe(true);
+		expect(mockExempt).toHaveBeenCalledWith({
+			targetUserId: "user-2",
+			exempt: true,
+		});
+		expect(mockUpdateManagedUserRole).not.toHaveBeenCalled();
+	});
+
+	it("returns 400 when the exemption is not a boolean", async () => {
+		const response = await PATCH(
+			makeEvent("PATCH", { explicitPictureFilterExempt: "yes" }),
+		);
+		expect(response.status).toBe(400);
+		expect(
+			setManagedUserExplicitPictureFilterExempt as ReturnType<typeof vi.fn>,
+		).not.toHaveBeenCalled();
 	});
 
 	it("deletes a user", async () => {
