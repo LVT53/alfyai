@@ -3991,4 +3991,33 @@ describe("MessageBubble pictures the message carried", () => {
 		render(MessageBubble, { message: userMessage() });
 		expect(screen.queryByTestId("message-picture-chip")).toBeNull();
 	});
+
+	it("draws the pictures in number order, a card picture added first before the photo", () => {
+		render(MessageBubble, {
+			message: userMessage({
+				attachments: [
+					{
+						id: "att-1",
+						artifactId: "photo-1",
+						name: "rug.jpg",
+						type: "source_document",
+						mimeType: "image/jpeg",
+						sizeBytes: 100,
+						conversationId: "conv-1",
+						createdAt: Date.now(),
+					},
+				] as ChatMessage["attachments"],
+				pictures: {
+					refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+					uploads: [{ artifactId: "photo-1", number: 2 }],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const numbers = screen
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2"]);
+	});
 });

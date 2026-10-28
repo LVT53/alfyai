@@ -67,6 +67,7 @@ import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
 import { imageFileUrl } from "$lib/client/api/images";
+import { arrangePictureChips, pictureKey } from "./composer-pictures";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerChip from "./ComposerChip.svelte";
@@ -289,6 +290,35 @@ let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
 // first paint (the composer's numbers, then the server's, the same).
 let sentPictureRefs = $derived(
 	[...(message.pictures?.refs ?? [])].sort((a, b) => a.number - b.number),
+);
+// Drawn in number order, as the composer drew them: a card picture sent as 1 is
+// never drawn after a photo sent as 2.
+let sentChipSlots = $derived(
+	arrangePictureChips(
+		[
+			...sentPictureRefs.map((ref) => ({
+				key: pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+				number: ref.number,
+			})),
+			...(message.pictures?.uploads ?? []).map((upload) => ({
+				key: pictureKey({ kind: "upload", artifactId: upload.artifactId }),
+				number: upload.number,
+			})),
+		]
+			.sort((a, b) => a.number - b.number)
+			.map((entry) => entry.key),
+		(message.attachments ?? []).map((attachment) =>
+			sentUploadNumbers.has(attachment.artifactId ?? attachment.id)
+				? pictureKey({
+						kind: "upload",
+						artifactId: attachment.artifactId ?? attachment.id,
+					})
+				: null,
+		),
+		sentPictureRefs.map((ref) =>
+			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+		),
+	),
 );
 let sentUploadNumbers = $derived(
 	new Map(
@@ -1195,26 +1225,28 @@ function sendFollowUp(question: string) {
 				     and opens the document workspace, as the compact chip did. -->
 				{#if hasAttachments || sentPictureRefs.length > 0 || userQuoteSplit.quoteLabels.length > 0}
 					<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
-						{#each message.attachments ?? [] as attachment (attachment.id)}
-							<span class="user-bubble-chip">
-								<FileAttachment
-									attachment={toArtifactSummary(attachment)}
-									variant="chip"
-									number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
-									viewable={Boolean(onOpenDocument)}
-									onView={handleViewAttachment}
-								/>
-								{#if attachment.outline && attachment.outline.length > 0}
-									<AttachmentOutline
-										outline={attachment.outline}
-										onQuote={requestComposerQuote}
-										variant="disclosure"
-										disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
+						{#each sentChipSlots as slot (slot.type === 'ref' ? `ref:${sentPictureRefs[slot.index].imageFileId}` : `att:${(message.attachments ?? [])[slot.index].id}`)}
+							{#if slot.type === 'attachment'}
+								{@const attachment = (message.attachments ?? [])[slot.index]}
+								<span class="user-bubble-chip">
+									<FileAttachment
+										attachment={toArtifactSummary(attachment)}
+										variant="chip"
+										number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
+										viewable={Boolean(onOpenDocument)}
+										onView={handleViewAttachment}
 									/>
-								{/if}
-							</span>
-						{/each}
-						{#each sentPictureRefs as pictureRef (pictureRef.imageFileId)}
+									{#if attachment.outline && attachment.outline.length > 0}
+										<AttachmentOutline
+											outline={attachment.outline}
+											onQuote={requestComposerQuote}
+											variant="disclosure"
+											disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
+										/>
+									{/if}
+								</span>
+							{:else}
+								{@const pictureRef = sentPictureRefs[slot.index]}
 							<ComposerChip
 								kind="image"
 								label={pictureRef.name}
@@ -1223,6 +1255,7 @@ function sendFollowUp(question: string) {
 								size="message"
 								testId="message-picture-chip"
 							/>
+							{/if}
 						{/each}
 						{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
 							<ComposerChip
