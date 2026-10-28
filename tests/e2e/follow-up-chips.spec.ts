@@ -105,28 +105,10 @@ test.describe("Follow-up chips", () => {
 		expect(streamRequests[1]).toContain(CHIP_DRAFT);
 		await expect(page.getByText(SECOND_REPLY)).toBeVisible();
 	});
-	// F17 (ruling 77): the chips are the way to the next question, so they are
-	// there at rest on a desktop as they are on a phone. The message's other
-	// actions (copy, regenerate, ...) keep their hover-only row.
-	test("shows the chips at rest on a desktop, with no pointer over the reply", async ({
-		page,
-	}) => {
-		await openChatWithChips(page);
-		await page.mouse.move(4, 4);
-
-		for (const chipText of [CHIP_COMPARE, CHIP_DRAFT]) {
-			const chip = page.getByRole("button", { name: `Send: ${chipText}` });
-			await expect.poll(() => seenOpacity(chip)).toBe(1);
-			const box = await chip.boundingBox();
-			const viewport = page.viewportSize();
-			expect(box, "the chip is laid out").not.toBeNull();
-			expect(box && viewport && box.y + box.height <= viewport.height).toBe(
-				true,
-			);
-		}
-	});
-
-	test("keeps the other actions behind the pointer, and the chips where they were", async ({
+	// Task 15 (the owner's call, reversing F17): on a desktop the chips wait for
+	// the pointer like the message's icon row above them, and are revealed with
+	// it, by the same rule: one hover shows both, and nothing moves.
+	test("hides the chips at rest on a desktop and reveals them with the icon row, moving nothing", async ({
 		page,
 	}) => {
 		await openChatWithChips(page);
@@ -135,14 +117,77 @@ test.describe("Follow-up chips", () => {
 		// The last "Copy message" is the reply's (the first is the question's).
 		const copy = page.getByRole("button", { name: "Copy message" }).last();
 		const chip = page.getByRole("button", { name: `Send: ${CHIP_COMPARE}` });
-		await expect.poll(() => seenOpacity(chip)).toBe(1);
+		await expect.poll(() => seenOpacity(chip)).toBe(0);
 		await expect.poll(() => seenOpacity(copy)).toBe(0);
 		const chipBefore = await chip.boundingBox();
+		const copyBefore = await copy.boundingBox();
 
 		await page.getByText(FIRST_REPLY).hover();
 		await expect.poll(() => seenOpacity(copy)).toBe(1);
 		await expect.poll(() => seenOpacity(chip)).toBe(1);
-		// Showing the actions moves nothing.
+		// The reveal is opacity alone: the rows kept their space.
 		expect(await chip.boundingBox()).toEqual(chipBefore);
+		expect(await copy.boundingBox()).toEqual(copyBefore);
+
+		// And they leave together.
+		await page.mouse.move(4, 4);
+		await expect.poll(() => seenOpacity(chip)).toBe(0);
+		await expect.poll(() => seenOpacity(copy)).toBe(0);
+
+		// A little room between the icon row and the chips (a space token).
+		const copyBox = await copy.boundingBox();
+		const chipBox = await chip.boundingBox();
+		expect(copyBox && chipBox).toBeTruthy();
+		if (copyBox && chipBox) {
+			expect(chipBox.y - (copyBox.y + copyBox.height)).toBeGreaterThanOrEqual(8);
+		}
+	});
+
+	test("keyboard focus on a chip reveals the chips and the icon row together", async ({
+		page,
+	}) => {
+		await openChatWithChips(page);
+		await page.mouse.move(4, 4);
+		const copy = page.getByRole("button", { name: "Copy message" }).last();
+		const chip = page.getByRole("button", { name: `Send: ${CHIP_DRAFT}` });
+		await expect.poll(() => seenOpacity(chip)).toBe(0);
+
+		await chip.focus();
+		await expect.poll(() => seenOpacity(chip)).toBe(1);
+		await expect.poll(() => seenOpacity(copy)).toBe(1);
+	});
+
+	test("reduced motion: the reveal does not animate", async ({ browser }) => {
+		const context = await browser.newContext({ reducedMotion: "reduce" });
+		const page = await context.newPage();
+		try {
+			await login(page);
+			await openChatWithChips(page);
+			const chip = page.getByRole("button", { name: `Send: ${CHIP_COMPARE}` });
+			const duration = await chip.evaluate((element) => {
+				const block = element.closest(".message-actions");
+				return block ? getComputedStyle(block).transitionDuration : "";
+			});
+			expect(Number.parseFloat(duration)).toBeLessThan(0.001);
+		} finally {
+			await context.close();
+		}
+	});
+});
+
+test.describe("Follow-up chips on a phone", () => {
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	// The icon row's own touch rule: below md there is no hover, so both rows show at rest.
+	test("shows the chips and the icon row at rest", async ({ page }) => {
+		await openChatWithChips(page);
+		const chip = page.getByRole("button", { name: `Send: ${CHIP_COMPARE}` });
+		const copy = page.getByRole("button", { name: "Copy message" }).last();
+		await expect.poll(() => seenOpacity(chip)).toBe(1);
+		await expect.poll(() => seenOpacity(copy)).toBe(1);
 	});
 });

@@ -2159,7 +2159,9 @@ describe("MessageBubble", () => {
 
 		const actionRow = container.querySelector(".copy-action-row");
 		expect(actionRow).not.toBeNull();
-		expect(actionRow?.className).toContain("md:focus-within:opacity-100");
+		expect(actionRow?.closest(".message-actions")?.className).toContain(
+			"md:focus-within:opacity-100",
+		);
 	});
 
 	it("sizes every action-row icon button with the compact 28px class, keeping the touch target in CSS", () => {
@@ -3595,24 +3597,44 @@ describe("MessageBubble", () => {
 			expect(container.querySelector(".follow-up-row")).toBeNull();
 		});
 
-		// F17: the action row is hover-only on a wide screen, and a chip inside
-		// it went invisible with it. The chips have a row of their own, which
-		// carries no hover rule at all.
-		it("keeps the chips out of the hover-only action row", () => {
+		// Task 15 (the owner's call, reversing F17): the chips show only on hover,
+		// like the icon row above them, and with it. One reveal rule on the block
+		// that holds both rows, so they are revealed together (a hover, or keyboard
+		// focus in either row) and hidden on opacity alone, the space kept: the
+		// reveal moves nothing. Below md (the touch rule of the icon row) both stay
+		// visible.
+		it("reveals the chips with the icon row: one hover/focus-within rule on the block that holds both", () => {
 			const { container } = render(MessageBubble, {
 				message: buildFollowUpMessage(),
 				isLast: true,
 			});
 
 			const chip = container.querySelector(".follow-up-chip");
-			expect(chip).not.toBeNull();
-			expect(chip?.closest(".copy-action-row")).toBeNull();
-			const row = chip?.closest(".follow-up-row");
-			expect(row).not.toBeNull();
-			expect(row?.className).not.toMatch(/opacity/);
-			expect(container.querySelector(".copy-action-row")?.className).toContain(
+			const block = chip?.closest(".message-actions");
+			expect(block).not.toBeNull();
+			const reveal = [
+				"opacity-100",
+				"transition-opacity",
+				"duration-[var(--duration-micro)]",
 				"md:opacity-0",
+				"md:group-hover:opacity-100",
+				"md:focus-within:opacity-100",
+			];
+			for (const cls of reveal) expect(block?.classList).toContain(cls);
+			expect(block?.querySelector(".copy-action-row")).not.toBeNull();
+			// Neither row has a reveal of its own, which could let them drift apart.
+			expect(container.querySelector(".copy-action-row")?.className).not.toMatch(
+				/opacity/,
 			);
+			expect(chip?.closest(".follow-up-row")?.className).not.toMatch(/opacity/);
+
+			const source = readFileSync(
+				`${process.cwd()}/src/lib/components/chat/MessageBubble.svelte`,
+				"utf-8",
+			);
+			const rowRule =
+				source.match(/\n\t\.follow-up-row \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			expect(rowRule).toMatch(/padding-top:\s*var\(--space-/);
 		});
 
 		it("renders a single chip when the control model repeats a suggestion", () => {

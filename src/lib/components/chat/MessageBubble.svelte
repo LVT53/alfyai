@@ -1498,14 +1498,19 @@ function sendFollowUp(question: string) {
 	     assistant message with a report attached, so copy / feedback /
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
 	{#if !message.isStreaming && !isEditing}
-		<!-- Two rows with two rules. The action row (copy, regenerate, ...) is
-		     hover-only on a wide screen: it is reference, not an invitation. The
-		     follow-up chips are the way to the next question, so they live in a
-		     row of their own that is never hidden (F17); they used to be children
-		     of the action row and went invisible with it on every desktop. -->
-		<div class="message-actions">
+		<!-- Two rows, one reveal. The action row (copy, regenerate, ...) and the
+		     follow-up chips under it are hover-only on a wide screen, revealed
+		     together by ONE rule on the block that holds both (Task 15, the
+		     owner's call; it reverses F17's always-shown chips): a hover over the
+		     message, or keyboard focus anywhere in either row (focus-within).
+		     Opacity only, so the rows keep their space and the reveal moves
+		     nothing; below md (touch) both are always shown, the icon row's own
+		     touch rule. Reduced motion: the app's global rule. -->
 		<div
-			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
+			class="message-actions opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
+		>
+		<div
+			class="copy-action-row flex w-full items-center gap-0.5"
 			class:justify-end={isUser}
 			class:justify-start={!isUser}
 		>
@@ -1909,8 +1914,8 @@ function sendFollowUp(question: string) {
 	/* The action row wraps at ANY width: its icon buttons never shrink, and a
 	   long list of them (info, regenerate, fork, keep, copy, ...) must have
 	   somewhere to go. The hover-reveal (`md:opacity-0
-	   md:group-hover:opacity-100` in the class list) is on this element alone:
-	   the follow-up chips are not in it (see `.follow-up-row`). */
+	   md:group-hover:opacity-100`) is on `.message-actions`, which holds this
+	   row and the follow-up chips, so the two are revealed together. */
 	/* Chips redesign — what the message was sent with, and what the answer
 	   was made with. Both are chip rows; they differ only in where they sit. */
 	.user-bubble-chips {
@@ -2289,10 +2294,11 @@ function sendFollowUp(question: string) {
 	/* Owner idea (variant A) — the follow-up chips. Each chip is a quiet,
 	   pill-shaped outline button (never filled) that only picks up
 	   surface/text color on hover, matching the mockup exactly. They have a row
-	   of their own under the action row, and that row is always drawn: at rest
-	   on a desktop too, where the action row above it waits for the pointer
-	   (F17, ruling 77). */
+	   of their own under the action row and are revealed with it (Task 15, the
+	   `.message-actions` reveal). A little more room above them than the gap
+	   the rows share, so the chips read as their own row. */
 	.follow-up-row {
+		padding-top: var(--space-xs);
 		display: flex;
 		flex-wrap: wrap;
 		align-items: flex-start;
