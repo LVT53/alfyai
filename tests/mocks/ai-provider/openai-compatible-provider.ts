@@ -1675,6 +1675,19 @@ export function createOpenAICompatibleProviderHarness(
 					if (scripted.delayMs) await delay(scripted.delayMs);
 					return streamResponse(scripted.frames);
 				}
+				// The picture scripts read this turn's own message (the bundle's evidence
+				// holds the user's other finished tasks, request text included), so they
+				// run before the scenarios below that search the whole body for their
+				// marker: a worker that ran such a spec earlier answered a photo edit
+				// with the default text.
+				const latePicture = latePictureScript(body);
+				if (latePicture) {
+					return lateCardStreamResponse(
+						hasToolResultFor(body, latePicture.call.id) ? "final" : "call",
+						request.signal ?? new AbortController().signal,
+						latePicture,
+					);
+				}
 				if (
 					// The request that carries the tool result may end in the app's own
 					// look at the picture, so the marker is read from the whole body then.
@@ -1763,14 +1776,6 @@ export function createOpenAICompatibleProviderHarness(
 					const payload = findEditArtifactPayload(body);
 					if (payload) return buildEditArtifactToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
-				}
-				const latePicture = latePictureScript(body);
-				if (latePicture) {
-					return lateCardStreamResponse(
-						hasToolResultFor(body, latePicture.call.id) ? "final" : "call",
-						request.signal ?? new AbortController().signal,
-						latePicture,
-					);
 				}
 				if (bodyAsksForLateCard(body)) {
 					return lateCardStreamResponse(
