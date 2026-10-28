@@ -28,6 +28,8 @@ export type FakeComfyUiOptions = {
 	stepDelayMs?: number;
 	startDelayMs?: number;
 	fail?: "reject" | "execution";
+	/** Answers `POST /prompt` with an id of its own, ignoring a caller's `prompt_id` (a ComfyUI from before caller-supplied ids). */
+	ignorePromptId?: boolean;
 	render?: (input: FakeRenderInput) => Promise<Uint8Array>;
 };
 
@@ -48,6 +50,8 @@ export interface FakeComfyUi {
 	readonly uploads: Map<string, Uint8Array>;
 	setOptions(next: FakeComfyUiOptions): void;
 	holdQueue(held: boolean): void;
+	/** Parks every request to `path` (`/upload/image`, `/prompt`) after it is recorded in `requests`, before it is acted on, until released. */
+	holdRequests(path: string, held: boolean): void;
 	restart(): void;
 	/** Goes dark for `ms` (every connection is cut), then comes back having forgotten its prompts and results, like a real reload. */
 	outage(ms: number): void;
@@ -214,6 +218,14 @@ export async function createFakeComfyUi(
 	const history = new Map<string, unknown>();
 	const files = new Map<string, Uint8Array>();
 	const sockets = new Map<Duplex, string>();
+	const parked = new Map<string, (() => void)[]>();
+
+	/** Resolves at once unless `path` is held, else when it is released. */
+	function gate(path: string): Promise<void> {
+		const waiting = parked.get(path);
+		if (!waiting) return Promise.resolve();
+		return new Promise((resolve) => waiting.push(resolve));
+	}
 
 	function send(clientId: string, type: string, data: Record<string, unknown>) {
 		const frame = textFrame(JSON.stringify({ type, data }));
@@ -340,6 +352,7 @@ export async function createFakeComfyUi(
 			if (method === "POST" && path === "/upload/image") {
 				const form = parseMultipart(body, contentType);
 				requests.push({ method, path, fields: form.fields });
+				await gate(path);
 				const file = form.files[0];
 				if (!file) return reply(res, 400, { error: "no image" });
 				uploads.set(file.filename, new Uint8Array(file.bytes));
@@ -355,6 +368,7 @@ export async function createFakeComfyUi(
 					: undefined;
 			requests.push({ method, path, ...(json === undefined ? {} : { json }) });
 			if (method === "POST" && path === "/prompt") {
+				await gate(path);
 				if (options.fail === "reject") {
 					return reply(res, 400, {
 						error: {
@@ -364,7 +378,13 @@ export async function createFakeComfyUi(
 						node_errors: { "3": { errors: [{ type: "fake_rejection" }] } },
 					});
 				}
-				const id = randomUUID();
+				// ComfyUI takes the caller's prompt_id when it sends one.
+				const id =
+					!options.ignorePromptId &&
+					typeof json?.prompt_id === "string" &&
+					json.prompt_id !== ""
+						? json.prompt_id
+						: randomUUID();
 				const prompt: Prompt = {
 					id,
 					number: counter++,
@@ -467,6 +487,15 @@ export async function createFakeComfyUi(
 		holdQueue(value) {
 			held = value;
 			if (!held) pump();
+		},
+		holdRequests(path, value) {
+			if (value) {
+				if (!parked.has(path)) parked.set(path, []);
+				return;
+			}
+			const waiting = parked.get(path) ?? [];
+			parked.delete(path);
+			for (const release of waiting) release();
 		},
 		restart() {
 			generation += 1;

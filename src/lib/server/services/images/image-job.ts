@@ -8,7 +8,7 @@
 // ComfyUI together and its own queue orders them (plan's call); a person may
 // have four.
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobAttempts, imageJobs } from "$lib/server/db/schema";
@@ -97,8 +97,9 @@ export async function enqueueTake(input: {
 /**
  * Stops a take. `interrupt: true` (the card's own Stop, the default) may stop
  * a prompt ComfyUI is already rendering. `interrupt: false` (the composer's
- * Stop) only deletes a prompt still waiting in ComfyUI's queue: a take that has
- * started finishes onto its card, so nothing is cancelled and false comes back.
+ * Stop) cancels a take that has not reached ComfyUI (no prompt id recorded) and
+ * otherwise only deletes a prompt still waiting in ComfyUI's queue: a take that
+ * has started finishes onto its card, so nothing is cancelled and false comes back.
  * The kind of Stop is written on the take before the engine cancels it, so the
  * run that gets the abort (in this process or another) acts on the right one.
  */
@@ -122,11 +123,19 @@ export async function cancelTake(
 
 	if (!interrupt && row.status === "running") {
 		const promptId = promptIdOf(row.checkpoint);
-		// A running take with no prompt id is between the worker's submit and the
-		// write of its checkpoint (or still preparing inputs). ComfyUI may already
-		// have the prompt and be rendering it, which cannot be told apart from here,
-		// so it is left alone like any other take that may be rendering.
-		if (!promptId) return false;
+		if (!promptId) {
+			// The runner writes the prompt id it will submit under BEFORE it posts,
+			// so a running take with none is still preparing its inputs and has not
+			// reached ComfyUI: it is cancelled outright. The check and the cancel
+			// are one transaction, so a checkpoint written meanwhile wins (the take
+			// is then left to the queue's rule on the next Stop).
+			const cancelled = await cancelAll(imageJob, {
+				userId,
+				where: (jobs) =>
+					and(eq(jobs.id, takeId), isNull(jobs.checkpoint)) as SQL,
+			});
+			return cancelled > 0;
+		}
 		// Submitted: take it out of ComfyUI's queue if it is still waiting there.
 		// Anything else (rendering, gone, ComfyUI unreachable) leaves the take alone.
 		const client = createConfiguredComfyClient();

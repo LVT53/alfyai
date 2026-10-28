@@ -1547,8 +1547,8 @@ describe("the composer's Stop and the picture server's queue", () => {
 		);
 		const controller = new AbortController();
 		const call = run({}, { signal: controller.signal, waitBudgetMs: 60_000 });
-		// Stop only reaches a prompt the take has recorded: between ComfyUI taking
-		// it and the checkpoint write a Stop leaves the take alone (it may be rendering).
+		// The prompt is waiting in ComfyUI's queue under the id the take recorded
+		// before posting it, so the Stop deletes it there.
 		await until(
 			async () => ({
 				statuses: [...picture.prompts.values()],

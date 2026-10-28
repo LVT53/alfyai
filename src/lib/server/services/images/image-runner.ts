@@ -3,14 +3,15 @@
 // goes through `ctx` and is refused once the take is cancelled or the claim is
 // gone. Loaded lazily by `image-job.ts`.
 //
-// Shape of a run: upload the inputs, build the graph, submit, write the prompt
-// id as the checkpoint (`submitted`), then follow the prompt (`starting`,
+// Shape of a run: upload the inputs, build the graph, name the prompt and write
+// its id as the checkpoint, submit it under that id (`submitted`), then follow the prompt (`starting`,
 // `rendering`), fetch the picture (`finishing`), guard an edit against the
 // picture it started from, store the PNG and succeed. A later attempt (the
 // worker was lost after submitting) finds the checkpoint and follows the same
 // prompt; if ComfyUI no longer knows it (it restarted), the take is submitted
 // once more.
 
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "$lib/server/db";
@@ -205,11 +206,21 @@ async function readInput(ctx: Ctx, fileId: string): Promise<Uint8Array> {
 	}
 }
 
+/**
+ * Uploads the inputs and submits the graph. Resolves with the id ComfyUI knows
+ * the prompt by, or null when the take was stopped before the submit.
+ *
+ * The prompt is named here and its id written to the checkpoint BEFORE the
+ * POST: a running take with no prompt id has then certainly not reached
+ * ComfyUI, so the composer's Stop may cancel it outright, and a take with one
+ * is stopped only through ComfyUI's queue (it may already be rendering).
+ */
 async function submitTake(
 	ctx: Ctx,
 	request: TakeRequest,
 	client: ComfyUiClient,
-): Promise<string> {
+	prompt: { setPromptId(id: string): void },
+): Promise<string | null> {
 	const graphChoice = graphFor(request.mode, request.transparent);
 	if (!graphChoice) {
 		throw new TakeError(
@@ -234,8 +245,23 @@ async function submitTake(
 		height: request.canvas.height,
 		images: names,
 	});
-	const { promptId } = await client.submit(graph);
-	return promptId;
+	const promptId = randomUUID();
+	// Refused once the take is stopped: then nothing is posted.
+	const recorded = await ctx.progress({ checkpoint: { promptId } });
+	if (!recorded || ctx.signal.aborted) return null;
+	prompt.setPromptId(promptId);
+	const answer = await client.submit(graph, { promptId });
+	if (answer.promptId !== promptId) {
+		// A ComfyUI that predates caller-supplied ids picks its own: follow that one.
+		console.warn("[IMAGES] ComfyUI answered with another prompt id", {
+			takeId: ctx.row.id,
+			sent: promptId,
+			answered: answer.promptId,
+		});
+		prompt.setPromptId(answer.promptId);
+		await ctx.progress({ checkpoint: { promptId: answer.promptId } });
+	}
+	return answer.promptId;
 }
 
 /** Moves the phase and stamps when (ms), for the card's "how long has it been here". */
@@ -391,10 +417,10 @@ async function renderTake(
 	for (;;) {
 		let promptId = prompt.getPromptId();
 		if (!promptId) {
-			promptId = await submitTake(ctx, request, client);
-			prompt.setPromptId(promptId);
-			if (signal.aborted) return;
-			await enterPhase(ctx, "submitted", { promptId });
+			const submitted = await submitTake(ctx, request, client, prompt);
+			if (!submitted || signal.aborted) return;
+			promptId = submitted;
+			await enterPhase(ctx, "submitted");
 			if (signal.aborted) return;
 		}
 		try {

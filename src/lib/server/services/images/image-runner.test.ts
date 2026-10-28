@@ -340,7 +340,7 @@ describe("waiting in ComfyUI's queue", () => {
 		const draining = drainImageTakes();
 		await until(
 			() => readTake(takeId),
-			(row) => row.checkpoint !== null,
+			(row) => row.phase === "submitted",
 		);
 		const { cancelTake } = await import("./image-job");
 		expect(await cancelTake(userId, takeId)).toBe(true);
@@ -363,7 +363,7 @@ describe("waiting in ComfyUI's queue", () => {
 		const draining = drainImageTakes();
 		await until(
 			() => readTake(takeId),
-			(row) => row.checkpoint !== null,
+			(row) => row.phase === "submitted",
 		);
 		const { cancelTake } = await import("./image-job");
 		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(true);
@@ -410,6 +410,108 @@ describe("stopping a render", () => {
 
 		expect((await readTake(takeId)).status).toBe("succeeded");
 		expect(comfy.requests.some((r) => r.path === "/interrupt")).toBe(false);
+	});
+});
+
+describe("the composer's Stop around the submit", () => {
+	it("cancels a take still preparing its inputs: nothing reached ComfyUI's queue", async () => {
+		const comfy = await startFake();
+		comfy.holdRequests("/upload/image", true);
+		const baseId = await storeInput(await photo(256, 256));
+		const takeId = await queueTake(
+			request({
+				mode: "edit",
+				inputs: [{ fileId: baseId, role: "base", name: "room.png" }],
+				baseFromUpload: true,
+				canvas: { width: 256, height: 256 },
+			}),
+		);
+		const draining = drainImageTakes();
+		await until(
+			() => comfy.requests.some((r) => r.path === "/upload/image"),
+			(arrived) => arrived,
+		);
+		expect((await readTake(takeId)).checkpoint).toBeNull();
+
+		const { cancelTake } = await import("./image-job");
+		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(true);
+		comfy.holdRequests("/upload/image", false);
+		await draining;
+
+		expect((await readTake(takeId)).status).toBe("cancelled");
+		expect(comfy.requests.some((r) => r.path === "/prompt")).toBe(false);
+		expect(comfy.prompts.size).toBe(0);
+	});
+
+	it("records the prompt id before it posts, and then only the queue can stop it", async () => {
+		const comfy = await startFake({ steps: 3, stepDelayMs: 20 });
+		comfy.holdRequests("/prompt", true);
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 256 } }),
+		);
+		const draining = drainImageTakes();
+		// The POST has reached ComfyUI but has not been answered.
+		const posted = await until(
+			async () => ({
+				checkpoint: (await readTake(takeId)).checkpoint,
+				post: comfy.requests.find((r) => r.path === "/prompt"),
+			}),
+			({ checkpoint, post }) => checkpoint !== null && post !== undefined,
+		);
+		const recorded = (
+			JSON.parse(posted.checkpoint ?? "{}") as { promptId: string }
+		).promptId;
+		expect((posted.post?.json as { prompt_id?: string }).prompt_id).toBe(
+			recorded,
+		);
+
+		// ComfyUI may already hold it, so the composer's Stop goes the queue's way:
+		// not in the queue (yet) means it may be rendering, and it is left alone.
+		const { cancelTake } = await import("./image-job");
+		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(false);
+		comfy.holdRequests("/prompt", false);
+		await draining;
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect([...comfy.prompts.keys()]).toEqual([recorded]);
+	});
+
+	it("follows the id ComfyUI answers with when it is not the one sent", async () => {
+		const comfy = await startFake({ ignorePromptId: true });
+		comfy.holdQueue(true);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 256 } }),
+		);
+		const draining = drainImageTakes();
+		const submitted = await until(
+			() => readTake(takeId),
+			(row) => row.phase === "submitted",
+		);
+		const sent = (
+			comfy.requests.find((r) => r.path === "/prompt")?.json as {
+				prompt_id?: string;
+			}
+		).prompt_id;
+		const answered = [...comfy.prompts.keys()][0];
+		expect(typeof sent).toBe("string");
+		expect(answered).not.toBe(sent);
+		// The checkpoint now names the prompt ComfyUI knows, so a resume follows it.
+		expect(
+			(JSON.parse(submitted.checkpoint ?? "{}") as { promptId: string })
+				.promptId,
+		).toBe(answered);
+		comfy.holdQueue(false);
+		await draining;
+
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(comfy.requests.filter((r) => r.path === "/prompt")).toHaveLength(1);
+		expect(
+			warn.mock.calls.some((call) =>
+				String(call[0]).includes("answered with another prompt id"),
+			),
+		).toBe(true);
 	});
 });
 
@@ -474,7 +576,7 @@ describe("when ComfyUI cannot render", () => {
 		const firstRun = drainImageTakes();
 		const submitted = await until(
 			() => readTake(takeId),
-			(row) => row.checkpoint !== null,
+			(row) => row.phase === "submitted",
 		);
 		const promptId = (
 			JSON.parse(submitted.checkpoint ?? "{}") as { promptId: string }

@@ -283,12 +283,18 @@ export function createComfyUiClient(options: {
 			};
 		},
 
-		async submit(graph) {
+		async submit(graph, submitOptions) {
 			await ensureSocket();
 			const response = await request("/prompt", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ prompt: graph, client_id: clientId }),
+				body: JSON.stringify({
+					prompt: graph,
+					client_id: clientId,
+					...(submitOptions?.promptId
+						? { prompt_id: submitOptions.promptId }
+						: {}),
+				}),
 			});
 			if (response.status === 400) {
 				const body = await readJson(response, "/prompt").catch(() => null);

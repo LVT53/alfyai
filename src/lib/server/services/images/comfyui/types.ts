@@ -48,7 +48,15 @@ export type ComfyCancelResult =
 
 export interface ComfyUiClient {
 	uploadImage(bytes: Uint8Array, name: string): Promise<ComfyImageRef>;
-	submit(graph: ComfyGraph): Promise<{ promptId: string }>;
+	/**
+	 * `POST /prompt`. With `promptId` the caller names the prompt (ComfyUI takes
+	 * a caller's `prompt_id`); the answer is the id ComfyUI actually gave it,
+	 * which an older ComfyUI may pick itself.
+	 */
+	submit(
+		graph: ComfyGraph,
+		options?: { promptId?: string },
+	): Promise<{ promptId: string }>;
 	follow(
 		promptId: string,
 		options: {
