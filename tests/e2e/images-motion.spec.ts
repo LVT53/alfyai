@@ -4128,11 +4128,35 @@ async function installMarkProbe(page: Page) {
 			attributes: true,
 			attributeFilter: ["style"],
 		});
+		// A removed box's fade: Svelte samples the easing into keyframes, so the
+		// opacity at each offset says which curve it runs on.
+		const fadeFrames: Array<Array<{ offset: number; opacity: number }>> = [];
+		const animate = Element.prototype.animate;
+		Element.prototype.animate = function (
+			this: Element,
+			keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+			options?: number | KeyframeAnimationOptions,
+		) {
+			if (
+				this.getAttribute("data-testid") === "mark-box" &&
+				Array.isArray(keyframes) &&
+				keyframes.length > 2
+			) {
+				fadeFrames.push(
+					keyframes.map((frame, index) => ({
+						offset: index / (keyframes.length - 1),
+						opacity: Number(frame.opacity),
+					})),
+				);
+			}
+			return animate.call(this, keyframes, options);
+		};
 		w.__markProbe = {
 			read: () => ({
 				inputs: inputs.slice(),
 				writes: writes.slice(),
 				draftTransitions: [...draftTransitions],
+				fadeFrames: fadeFrames.slice(),
 			}),
 			reset: () => {
 				inputs.length = 0;
@@ -4144,6 +4168,7 @@ async function installMarkProbe(page: Page) {
 }
 
 type MarkProbe = {
+	fadeFrames: Array<Array<{ offset: number; opacity: number }>>;
 	inputs: Array<{ frame: number; x: number; y: number; t: number }>;
 	writes: Array<{ frame: number; right: number; bottom: number; t: number }>;
 	draftTransitions: string[];
@@ -4293,6 +4318,34 @@ function misalignment(boxes: Awaited<ReturnType<typeof readMarkBoxes>>) {
 	return worst;
 }
 
+/** The --ease-out token, cubic-bezier(0.4, 0, 0.2, 1), at time t (bisection on x). */
+function easeOutAt(t: number): number {
+	const at = (a: number, b: number, s: number) =>
+		3 * a * s * (1 - s) ** 2 + 3 * b * s ** 2 * (1 - s) + s ** 3;
+	let low = 0;
+	let high = 1;
+	for (let step = 0; step < 50; step++) {
+		const mid = (low + high) / 2;
+		if (at(0.4, 0.2, mid) < t) low = mid;
+		else high = mid;
+	}
+	return at(0, 1, (low + high) / 2);
+}
+
+/** How far each sampled fade is from 1 - easeOut(offset): the worst gap, and how many fades. */
+function easeOutGap(fades: MarkProbe["fadeFrames"]) {
+	let worst = 0;
+	for (const frames of fades) {
+		for (const frame of frames) {
+			worst = Math.max(
+				worst,
+				Math.abs(frame.opacity - (1 - easeOutAt(frame.offset))),
+			);
+		}
+	}
+	return { fades: fades.length, worstGap: worst };
+}
+
 function t6Transitions(run: MotionRun) {
 	const seen = run.transitions.filter(
 		(entry) => T6_PARTS.test(entry.target) && entry.duration >= 1,
@@ -4432,6 +4485,7 @@ test.describe("marks on the open picture (T6)", () => {
 				await expect(page.locator(MARK_BOX)).toHaveCount(1);
 				await settle(page);
 				steps.remove = t6Step(await stopRecording(page));
+				metrics.fadeCurve = easeOutGap((await readMarkProbe(page)).fadeFrames);
 
 				if (!phone) {
 					// Up to eight: the ninth is refused, and the note says so.
@@ -4465,6 +4519,48 @@ test.describe("marks on the open picture (T6)", () => {
 							type,
 							touchPoints: points.map((point, id) => ({ ...point, id })),
 						});
+					// Fix round 1 (I1): a second finger beside the picture, in the stage's
+					// band, drops the box being drawn: nothing is committed.
+					const stageBox = await page
+						.getByTestId("image-body-stage")
+						.boundingBox();
+					if (!stageBox) throw new Error("no stage on screen");
+					const band = {
+						x: frame.x + frame.width / 2,
+						y: (frame.y + frame.height + stageBox.y + stageBox.height) / 2,
+					};
+					mark(flow, "band-finger");
+					const before = await page.locator(MARK_BOX).count();
+					const start = frame.at(0.1, 0.4);
+					await touch("touchStart", [start]);
+					for (let step = 1; step <= 8; step++) {
+						await touch("touchMove", [
+							{ x: start.x + step * 6, y: start.y + step * 4 },
+						]);
+						await nextFrame(page);
+					}
+					const drawingBeforeBand = await page
+						.getByTestId("mark-draft")
+						.count();
+					await touch("touchStart", [
+						{ x: start.x + 48, y: start.y + 32 },
+						band,
+					]);
+					await nextFrame(page);
+					const drawingAfterBand = await page.getByTestId("mark-draft").count();
+					await touch("touchMove", [
+						{ x: start.x + 70, y: start.y + 50 },
+						{ x: band.x, y: band.y + 10 },
+					]);
+					await touch("touchEnd", []);
+					await settle(page);
+					metrics.bandFinger = {
+						bandBelowPicture: band.y > frame.y + frame.height,
+						drawingBeforeBand,
+						drawingAfterBand,
+						boxesBefore: before,
+						boxesAfter: await page.locator(MARK_BOX).count(),
+					};
 					const centre = frame.at(0.5, 0.5);
 					await startRecording(page, MARK_TRACK);
 					mark(flow, "zoom");
@@ -4487,9 +4583,19 @@ test.describe("marks on the open picture (T6)", () => {
 					await hand.drag(zoomed.at(0.4, 0.4), zoomed.at(0.55, 0.6));
 					await expect(page.locator(MARK_BOX)).toHaveCount(2);
 					await settle(page);
+					// Fix round 1: two quick taps in Mark mode (on no box) keep the zoom.
+					mark(flow, "double-tap");
+					const empty = zoomed.at(0.3, 0.75);
+					for (let tap = 0; tap < 2; tap++) {
+						await hand.tap(empty);
+						await page.waitForTimeout(80);
+					}
+					await settle(page);
+					const afterDoubleTap = await frameBox(page);
 					steps.zoom = t6Step(await stopRecording(page));
 					const boxes = await readMarkBoxes(page);
 					metrics.zoom = {
+						scaleAfterDoubleTap: afterDoubleTap.width / frame.width,
 						scale: zoomed.width / frame.width,
 						boxes,
 						misalignment: misalignment(boxes),
@@ -4590,6 +4696,10 @@ test.describe("marks on the open picture (T6)", () => {
 			}
 			// The removal faded (instantly under reduced motion).
 			if (!reduced) {
+				// The removal fade runs on the ease-out token.
+				const curve = metrics.fadeCurve as { fades: number; worstGap: number };
+				expect(curve.fades).toBeGreaterThan(0);
+				expect(curve.worstGap).toBeLessThan(0.02);
 				expect(steps.remove.fades.length).toBeGreaterThan(0);
 				if (!phone) expect(steps.chipClear.fades.length).toBeGreaterThan(0);
 			}
@@ -4617,6 +4727,18 @@ test.describe("marks on the open picture (T6)", () => {
 					sheetStillOpen: boolean;
 				};
 				expect(zoom.scale).toBeGreaterThan(1.5);
+				expect(
+					(zoom as unknown as { scaleAfterDoubleTap: number })
+						.scaleAfterDoubleTap,
+					"a double tap in Mark mode reset the zoom",
+				).toBeCloseTo(zoom.scale, 2);
+				expect(metrics.bandFinger).toEqual({
+					bandBelowPicture: true,
+					drawingBeforeBand: 1,
+					drawingAfterBand: 0,
+					boxesBefore: 1,
+					boxesAfter: 1,
+				});
 				// The boxes stand where they were drawn on the zoomed picture.
 				expect(zoom.misalignment).toBeLessThan(0.01);
 				// A box drawn at 40 % to 55 % of the zoomed picture is 40 % to 55 % of the picture.
@@ -4830,5 +4952,86 @@ test.describe("marks sent with a message, and left from an older picture (T6)", 
 		expect(body.markedPicture).toBeNull();
 		expect(body.pictures).toBeNull();
 		expect(metrics.afterReload).toBe("1");
+	});
+
+	test("queued-older-marks: marks queued while a turn runs go when a newer version lands before the queued message is edited (fix round 1, I2)", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(240_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+		);
+		const { page, comfy } = flow;
+		const metrics: Record<string, unknown> = {};
+		try {
+			await makePicture(flow);
+			await page.locator(CARD).last().getByTestId("artifact-card-head").click();
+			await expect(page.locator(PANEL_LOADED).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await settle(page);
+
+			// A turn that runs until it is stopped: the stream request is held.
+			let held = false;
+			await page.route("**/api/chat/stream", async (route) => {
+				if (route.request().method() !== "POST" || held) {
+					await route.fallback();
+					return;
+				}
+				held = true;
+				// Never answered: the page stays in "generating" until Stop.
+			});
+			await sendMessage(page, "Think about the colours for a while.");
+			await expect(page.getByTestId("stop-button")).toBeVisible();
+
+			// Marks on the picture as it is now, queued with "move A to B".
+			const hand = await handFor(page, false);
+			await hand.press(MARK_TRACK.toggle);
+			const frame = await frameBox(page);
+			await hand.drag(frame.at(0.1, 0.1), frame.at(0.4, 0.5));
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+			await page.getByTestId("message-input").fill("Move A to B");
+			await page.getByTestId("queue-button").click();
+			await expect(page.getByTestId("queued-message-banner")).toBeVisible();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+
+			// A newer version lands while the turn still runs.
+			comfy.setOptions({ steps: 3, stepDelayMs: 150 });
+			mark(flow, "new-version");
+			await page.locator(CARD).last().getByTestId("image-card-another").click();
+			await expect(page.getByTestId("image-card-use")).toBeVisible({
+				timeout: 30_000,
+			});
+			await page.getByTestId("image-card-use").click();
+			await expect(
+				page.locator(CARD).last().getByTestId("image-card-use"),
+			).toBeHidden({ timeout: 15_000 });
+			await settle(page);
+
+			// Edit the queued message: its text comes back, its old marks do not.
+			mark(flow, "edit-queued");
+			await page.getByTestId("edit-queued-button").click();
+			await expect(page.getByTestId("message-input")).toHaveValue(
+				"Move A to B",
+			);
+			await settle(page);
+			metrics.chipAfterEdit = await page.locator(MARKS_CHIP).count();
+			metrics.boxesAfterEdit = await page.locator(MARK_BOX).count();
+			await page.getByTestId("stop-button").click();
+			await settle(page);
+		} finally {
+			await page.unrouteAll({ behavior: "ignoreErrors" });
+			await closeFlow(flow, "queued-older-marks", metrics, {
+				prefix: "t6",
+				segments: ["new-version", "edit-queued"],
+			});
+		}
+		expect(metrics.chipAfterEdit, "the old marks came back as a chip").toBe(0);
+		expect(
+			metrics.boxesAfterEdit,
+			"the old boxes came back over the newer picture",
+		).toBe(0);
 	});
 });
