@@ -197,6 +197,38 @@ describe("listConversationImageCards", () => {
 		expect(byId.get(expired)).toMatchObject({ origin: "another", held: false });
 	});
 
+	it("passes the server's automatic retry on as auto_retry, so the card can fold it (and only it)", async () => {
+		const { listConversationImageCards } = await import("./read-model");
+		const card = await makeCard("t1");
+		const first = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+		});
+		const auto = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			origin: "auto_retry",
+			retryOf: first,
+			heldUntil: Date.now() + 100_000,
+		});
+		const unknown = await insertTake({
+			userId: "u1",
+			conversationId: "c1",
+			cardId: card,
+			origin: "something_else",
+		});
+		const [view] = await listConversationImageCards("u1", "c1");
+		const byId = new Map(view.takes.map((take) => [take.id, take]));
+		expect(byId.get(auto)).toMatchObject({
+			origin: "auto_retry",
+			retryOf: first,
+			held: true,
+		});
+		expect(byId.get(unknown)).toMatchObject({ origin: "turn" });
+	});
+
 	it("reserves the exact size the picture will have: the canvas for a new picture, the base file's size for an edit", async () => {
 		const { storeImageFile } = await import("./files");
 		const { listConversationImageCards } = await import("./read-model");

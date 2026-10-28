@@ -674,7 +674,8 @@ export const imageJobs = sqliteTable(
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
 		toolCallId: text("tool_call_id"),
-		// turn | retry | another
+		// turn | retry | auto_retry | another (auto_retry: the server's own held
+		// retry of a clear miss, folded into its first take's slot on the card)
 		origin: text("origin").notNull(),
 		retryOf: text("retry_of"),
 		requestJson: text("request_json").notNull(),
