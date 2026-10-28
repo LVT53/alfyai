@@ -2714,6 +2714,7 @@ describe("completeStreamTurn", () => {
 		// Task 17 fix round 1: only a chat that had marks is checked for them.
 		it("hands the suggester the letters of the marks the window and this turn carried", async () => {
 			mockListMessageWindow.mockResolvedValue({
+				// The window's rows carry their pictures record (ChatMessage.pictures).
 				messages: [
 					{
 						role: "user",
@@ -2725,7 +2726,7 @@ describe("completeStreamTurn", () => {
 						},
 					},
 					{ role: "assistant", content: "Moved." },
-				],
+				] as never,
 				hasMoreBefore: false,
 			});
 			await completeStreamTurn({

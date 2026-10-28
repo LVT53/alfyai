@@ -280,7 +280,7 @@ describe("generateFollowUpSuggestions", () => {
 		expect(
 			goneMarkLettersOf([
 				{ pictures: { marks: { letters: ["A", "B"] } } },
-				{ pictures: { refs: [] } },
+				{ pictures: {} },
 				{},
 				{ pictures: { marks: { letters: ["B", "C"] } } },
 			]),
