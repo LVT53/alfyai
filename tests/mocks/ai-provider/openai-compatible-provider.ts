@@ -1433,8 +1433,11 @@ const PROJECT_FILE_PROBE_NAME_RE = new RegExp(
 	`${AI_SMOKE_PROJECT_FILE_PROBE_PREFIX}[0-9a-f]{8}\\.txt`,
 );
 
+// The one deliberate read of the whole request: the probe file's name reaches
+// the model through the prompt's "Project Files" listing, not through the user's
+// message. The marker (which asks for this scenario) is still this turn's only.
 function findProjectFileProbeName(body: unknown): string | null {
-	return thisTurnUserText(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
+	return JSON.stringify(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
 }
 
 function buildReadProjectFileStreamResponse(
