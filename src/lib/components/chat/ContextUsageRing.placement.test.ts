@@ -320,19 +320,26 @@ describe("ContextUsageRing popup: the mouse going from the ring to the popup", (
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		expect(isVisible()).toBe(false);
-		expect(vi.getTimerCount()).toBe(0);
+		// Not a count of timers: Svelte 5.56 keeps one of its own after a
+		// delegated event (to let go of the last event). The hover timer is
+		// cancelled if running it out changes nothing.
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(isVisible()).toBe(false);
 	});
 
 	it("leaves no timer behind when the ring goes", async () => {
 		fakeTimers();
 		const { unmount } = renderRing();
 		ring().dispatchEvent(pointer("pointerenter", "mouse"));
+		const beforeLeave = vi.getTimerCount();
 		ring().dispatchEvent(pointer("pointerleave", "mouse"));
-		expect(vi.getTimerCount()).toBe(1);
+		// Counted against what was there before: Svelte 5.56 may hold a timer of
+		// its own after a delegated event, which is not the ring's.
+		expect(vi.getTimerCount()).toBe(beforeLeave + 1);
 
 		unmount();
 
-		expect(vi.getTimerCount()).toBe(0);
+		expect(vi.getTimerCount()).toBe(beforeLeave);
 	});
 });
 
