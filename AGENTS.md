@@ -200,6 +200,7 @@ Name the specs that cover what you changed (they run in full; the `@smoke` set c
 - an artifact kind: its `tests/e2e/artifact*.spec.ts` files (the Document, App and Canvas ones are named by kind)
 - seeing images (image attachments, the "Can see images" tick, what the model is sent of a picture): `tests/e2e/vision.spec.ts`
 - making pictures (the `make_image` tool, the picture job, the card and the Image item, against the fake ComfyUI): `tests/e2e/images-pipeline.spec.ts`
+- an Image (the picture card, the panel, History, Attach and marks in the composer, the Knowledge Base's Images chip): `tests/e2e/images*.spec.ts`
 
 Playwright runs against the **production build** (`npm run build` first, about 15 s alone; a build older than `src/` is refused before any server starts, and a build that does not hydrate stops the run in two seconds), with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. **Never run `npm run check` or `npm test` while `npm run build` runs** (both run `svelte-kit sync`, which rewrites `.svelte-kit/` under the build: it still exits 0 and the app it made does not hydrate); `scripts/gates.sh` orders them for you.
 
