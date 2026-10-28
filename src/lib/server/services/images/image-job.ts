@@ -122,19 +122,22 @@ export async function cancelTake(
 
 	if (!interrupt && row.status === "running") {
 		const promptId = promptIdOf(row.checkpoint);
-		if (promptId) {
-			// Submitted: take it out of ComfyUI's queue if it is still waiting there.
-			// Anything else (rendering, gone, ComfyUI unreachable) leaves the take alone.
-			const client = createConfiguredComfyClient();
-			if (!client) return false;
-			try {
-				const found = await client.cancel(promptId, { interrupt: false });
-				if (found !== "deleted") return false;
-			} catch {
-				return false;
-			} finally {
-				client.close();
-			}
+		// A running take with no prompt id is between the worker's submit and the
+		// write of its checkpoint (or still preparing inputs). ComfyUI may already
+		// have the prompt and be rendering it, which cannot be told apart from here,
+		// so it is left alone like any other take that may be rendering.
+		if (!promptId) return false;
+		// Submitted: take it out of ComfyUI's queue if it is still waiting there.
+		// Anything else (rendering, gone, ComfyUI unreachable) leaves the take alone.
+		const client = createConfiguredComfyClient();
+		if (!client) return false;
+		try {
+			const found = await client.cancel(promptId, { interrupt: false });
+			if (found !== "deleted") return false;
+		} catch {
+			return false;
+		} finally {
+			client.close();
 		}
 	}
 

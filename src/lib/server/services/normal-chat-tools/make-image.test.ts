@@ -1547,9 +1547,15 @@ describe("the composer's Stop and the picture server's queue", () => {
 		);
 		const controller = new AbortController();
 		const call = run({}, { signal: controller.signal, waitBudgetMs: 60_000 });
+		// Stop only reaches a prompt the take has recorded: between ComfyUI taking
+		// it and the checkpoint write a Stop leaves the take alone (it may be rendering).
 		await until(
-			async () => [...picture.prompts.values()],
-			(statuses) => statuses.includes("pending"),
+			async () => ({
+				statuses: [...picture.prompts.values()],
+				checkpoint: (await rows()).takes[0]?.checkpoint ?? null,
+			}),
+			({ statuses, checkpoint }) =>
+				statuses.includes("pending") && checkpoint !== null,
 		);
 
 		controller.abort(new UserStopReason());
