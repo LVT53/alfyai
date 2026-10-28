@@ -57,7 +57,7 @@
     "express": "^5.2.1",
     "fallow": "3.33.1",
     "postcss": "^8.5.8",
-    "svelte": "5.55.8",
+    "svelte": "5.56.10",
     "svelte-check": "^4.4.6",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
