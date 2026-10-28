@@ -23,9 +23,14 @@ export function withFileExtension(
 ): string {
 	const wanted = extension?.trim().replace(/^\./, "").toLowerCase();
 	if (!wanted) return filename;
+	const entry = getEntryByExtension(wanted);
+	if (!entry) return filename;
 	const own = fileExtension(filename);
 	if (own === wanted) return filename;
-	const entry = getEntryByExtension(wanted);
+	// text/plain is lenient: "notes.md" is not "notes.md.txt".
+	if (entry.mimeTypes[0] === "text/plain" && getEntryByExtension(own)) {
+		return filename;
+	}
 	if (own && entry?.extensions.includes(own)) return filename;
 	return append(filename, wanted);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ensureFilenameExtension } from "./download-name";
+import { ensureFilenameExtension, withFileExtension } from "./download-name";
 
 const DOCX =
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -31,6 +31,19 @@ describe("ensureFilenameExtension", () => {
 		expect(ensureFilenameExtension("notes", "text/plain")).toBe("notes.txt");
 		expect(ensureFilenameExtension("blob", "application/octet-stream")).toBe(
 			"blob",
+		);
+	});
+});
+
+describe("withFileExtension", () => {
+	it("is lenient for a text/plain extension and ignores an unknown one", () => {
+		expect(withFileExtension("notes.md", "txt")).toBe("notes.md");
+		expect(withFileExtension("notes", "txt")).toBe("notes.txt");
+		expect(withFileExtension("notes", "zzzunknown")).toBe("notes");
+	});
+	it("stays strict for a specific type", () => {
+		expect(withFileExtension("Intro to Node.js", "docx")).toBe(
+			"Intro to Node.js.docx",
 		);
 	});
 });

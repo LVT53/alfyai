@@ -1,4 +1,5 @@
 <script lang="ts">
+import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
@@ -215,7 +216,10 @@ function downloadFile() {
 	const url = URL.createObjectURL(content);
 	const anchor = document.createElement("a");
 	anchor.href = url;
-	anchor.download = ensureFilenameExtension(filename, content.type || mimeType);
+	anchor.download = ensureFilenameExtension(
+		filename,
+		isGenericMimeType(content.type) ? mimeType : content.type,
+	);
 	document.body.appendChild(anchor);
 	anchor.click();
 	document.body.removeChild(anchor);
