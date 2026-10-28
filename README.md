@@ -46,8 +46,9 @@ SQLite persistence — all in a single Node deployment.
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
   for one, and every finished picture (generate, edit, Another, retries) is checked on this server
   by a local classifier before it is stored: a picture that looks explicit is never shown or kept.
-  The classifier is Falconsai/nsfw_image_detection (int8 ONNX, run in-process on the CPU through
-  onnxruntime-node, about 90 ms a picture). Its model file is pinned by SHA-256 and fetched into
+  The classifier is Falconsai/nsfw_image_detection (fp32 ONNX, 343 MB, run in-process on the CPU
+  through onnxruntime-node, about 150 ms a picture; loaded on the first check and released after
+  15 minutes without one). Its model file is pinned by SHA-256 and fetched into
   `data/models/picture-check/` by `npm run models:fetch` (the deploy scripts run it). Without the
   file the filter fails closed: pictures are held back as "could not be checked", and Tool Health
   reports `make_image:picture_check` as degraded.

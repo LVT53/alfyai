@@ -3,28 +3,49 @@
 // server for it.
 //
 // The model (`model.ts`) is Falconsai/nsfw_image_detection in the
-// onnx-community int8 export, pinned by revision and SHA-256.
-// `scripts/fetch-picture-check-model.ts` puts it at PICTURE_CHECK_MODEL.path (data/ is shared across releases on deploy); a
-// file that is missing or does not hash to the pin makes the check
-// unavailable, and the caller then fails closed (nothing is shown).
+// onnx-community fp32 export (the owner's choice over int8), pinned by
+// revision and SHA-256. `scripts/fetch-picture-check-model.ts` puts it at
+// PICTURE_CHECK_MODEL.path (data/ is shared across releases on deploy); a file
+// that is missing or does not hash to the pin makes the check unavailable, and
+// the caller then fails closed (nothing is shown).
+//
+// Life cycle (Task 18 review):
+// - Lazy: only a real check loads the model. Tool Health asks `fileReady`,
+//   which checks the file's presence and hash (cached until the file changes)
+//   and never builds a session.
+// - One read per load: the file is read once, that buffer is hashed and handed
+//   to the session, so what was hashed is what runs.
+// - A failed load is not retried (or re-hashed) until the file changes.
+// - Every check, its load included, has a deadline (CHECK_TIMEOUT_MS). A check
+//   that misses it is unavailable (the take fails closed as unchecked), the
+//   engine it ran on is dropped (released once it settles, if ever) and the
+//   next check loads a fresh one: one hung run never wedges the queue.
+// - After IMAGE_IDLE_FREE_MS with no check the session is released, so idle
+//   memory returns.
 //
 // Tests never see a real explicit picture: under vitest or Playwright, and
 // only there, IMAGE_CHECK_CLASSIFIER=stub swaps in a stub that flags one
 // marker colour and cannot check another.
 
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile as readFileFromDisk, stat } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+import { IMAGE_IDLE_FREE_MS } from "../take-request";
 import { PICTURE_CHECK_MODEL } from "./model";
 
 /** The model's input side and normalisation (its preprocessor_config.json). */
 const SIDE = 224;
-/** "nsfw" is label 1; a picture at or above this probability is blocked. */
+/** "nsfw" is label 1 (config.json id2label); at or above this probability a picture is blocked. */
 export const EXPLICIT_THRESHOLD = 0.5;
-/** Kept low so a check never crowds the app's own work (~50-110 ms a picture). */
+/** Kept low so a check never crowds the app's own work. */
 const THREADS = 2;
+/**
+ * A check's deadline, its load included. fp32 measured 140-170 ms a check and
+ * about 1 s to load (hash and session) on the dev box; 15 s is ~100x a check
+ * and over 10x a load, so only a hung or starved run reaches it.
+ */
+export const CHECK_TIMEOUT_MS = 15_000;
 
 export type PictureVerdict = {
 	explicit: boolean;
@@ -34,7 +55,7 @@ export type PictureVerdict = {
 	ms: number;
 };
 
-/** The check could not run: no model file, a file that is not the pinned model, or an error inside it. */
+/** The check could not run: no model file, a file that is not the pinned model, a timeout, or an error inside it. */
 export class PictureCheckUnavailable extends Error {
 	constructor(message: string) {
 		super(message);
@@ -42,25 +63,27 @@ export class PictureCheckUnavailable extends Error {
 	}
 }
 
+/** What runs the model: logits for one 1x3x224x224 input. */
+export interface PictureCheckEngine {
+	run(input: Float32Array): Promise<ArrayLike<number>>;
+	release(): Promise<void>;
+}
+
 export interface PictureClassifier {
-	/** Resolves once the model is loaded; rejects with PictureCheckUnavailable. */
-	ready(): Promise<void>;
+	/** For Tool Health: resolves when the pinned file is in place. Never loads the model. */
+	fileReady(): Promise<void>;
 	classify(png: Uint8Array): Promise<PictureVerdict>;
+	/** Whether a session is held now. */
+	loaded(): boolean;
 }
 
-type OrtModule = typeof import("onnxruntime-node");
-type OrtSession = Awaited<ReturnType<OrtModule["InferenceSession"]["create"]>>;
-
-async function sha256Of(path: string): Promise<string> {
-	const hash = createHash("sha256");
-	await new Promise<void>((resolve, reject) => {
-		createReadStream(path)
-			.on("data", (chunk) => hash.update(chunk))
-			.on("end", () => resolve())
-			.on("error", reject);
-	});
-	return hash.digest("hex");
-}
+type ClassifierOptions = {
+	sha256?: string;
+	loadEngine?: (bytes: Uint8Array) => Promise<PictureCheckEngine>;
+	readFile?: (path: string) => Promise<Uint8Array>;
+	timeoutMs?: number;
+	idleMs?: number;
+};
 
 function unavailable(error: unknown): PictureCheckUnavailable {
 	return error instanceof PictureCheckUnavailable
@@ -96,83 +119,213 @@ function softmaxExplicit(logits: ArrayLike<number>): number {
 	return b / (a + b);
 }
 
-export function createOnnxPictureClassifier(
-	modelPath: string,
-): PictureClassifier {
-	let loading: Promise<{ ort: OrtModule; session: OrtSession }> | null = null;
-	// One check at a time: six takes landing together queue here instead of
-	// taking six cores.
-	let turn: Promise<unknown> = Promise.resolve();
-
-	const load = () => {
-		loading ??= (async () => {
-			try {
-				const info = await stat(modelPath).catch(() => null);
-				if (!info?.isFile()) {
-					throw new PictureCheckUnavailable(
-						`The picture check's model file is missing (${modelPath}); run the fetch-picture-check-model script.`,
-					);
-				}
-				const digest = await sha256Of(modelPath);
-				if (digest !== PICTURE_CHECK_MODEL.sha256) {
-					throw new PictureCheckUnavailable(
-						`The picture check's model file does not match its pinned SHA-256 (${digest}).`,
-					);
-				}
-				const ort = await import("onnxruntime-node");
-				const session = await ort.InferenceSession.create(modelPath, {
-					executionProviders: ["cpu"],
-					intraOpNumThreads: THREADS,
-					interOpNumThreads: 1,
-					graphOptimizationLevel: "all",
-				});
-				return { ort, session };
-			} catch (error) {
-				// The next call tries again (the file may have been fetched since).
-				loading = null;
-				throw unavailable(error);
-			}
-		})();
-		return loading;
-	};
-
-	const classify = async (png: Uint8Array): Promise<PictureVerdict> => {
-		const started = performance.now();
-		const { ort, session } = await load();
-		try {
-			const input = new ort.Tensor("float32", await toTensorData(png), [
-				1,
-				3,
-				SIDE,
-				SIDE,
-			]);
-			const inputName = session.inputNames[0] ?? "pixel_values";
-			const outputName = session.outputNames[0] ?? "logits";
-			const result = await session.run({ [inputName]: input });
+/** The real engine: an onnxruntime-node CPU session built from the bytes that were hashed. */
+async function loadOnnxEngine(bytes: Uint8Array): Promise<PictureCheckEngine> {
+	const ort = await import("onnxruntime-node");
+	const session = await ort.InferenceSession.create(bytes, {
+		executionProviders: ["cpu"],
+		intraOpNumThreads: THREADS,
+		interOpNumThreads: 1,
+		graphOptimizationLevel: "all",
+	});
+	const inputName = session.inputNames[0] ?? "pixel_values";
+	const outputName = session.outputNames[0] ?? "logits";
+	return {
+		run: async (input) => {
+			const tensor = new ort.Tensor("float32", input, [1, 3, SIDE, SIDE]);
+			const result = await session.run({ [inputName]: tensor });
 			const logits = result[outputName]?.data as ArrayLike<number> | undefined;
 			if (!logits || logits.length < 2) {
 				throw new PictureCheckUnavailable("The picture check gave no answer.");
 			}
-			const score = softmaxExplicit(logits);
+			return logits;
+		},
+		release: () => session.release(),
+	};
+}
+
+/** Identifies one state of the file on disk; a change means it may be read again. */
+async function fileSignature(path: string): Promise<string> {
+	const info = await stat(path).catch(() => null);
+	return info?.isFile() ? `${info.size}:${info.mtimeMs}` : "missing";
+}
+
+function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(
+			() =>
+				reject(
+					new PictureCheckUnavailable(
+						`The picture check timed out after ${ms} ms.`,
+					),
+				),
+			ms,
+		);
+		timer.unref?.();
+		work.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(error: unknown) => {
+				clearTimeout(timer);
+				reject(error);
+			},
+		);
+	});
+}
+
+export function createOnnxPictureClassifier(
+	modelPath: string,
+	options: ClassifierOptions = {},
+): PictureClassifier {
+	const sha256 = options.sha256 ?? PICTURE_CHECK_MODEL.sha256;
+	const loadEngine = options.loadEngine ?? loadOnnxEngine;
+	const readFile = options.readFile ?? readFileFromDisk;
+	const timeoutMs = options.timeoutMs ?? CHECK_TIMEOUT_MS;
+	const idleMs = options.idleMs ?? IMAGE_IDLE_FREE_MS;
+
+	let engine: PictureCheckEngine | null = null;
+	let loading: Promise<PictureCheckEngine> | null = null;
+	/** The file state a verdict about it was made on: verified, or the error. */
+	let fileVerdict: {
+		signature: string;
+		error: PictureCheckUnavailable | null;
+	} | null = null;
+	let turn: Promise<unknown> = Promise.resolve();
+	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	let busy = 0;
+
+	/** The bytes of the pinned file, read once; or the cached reason it is not usable. */
+	const readVerified = async (): Promise<Uint8Array> => {
+		const signature = await fileSignature(modelPath);
+		if (fileVerdict?.signature === signature && fileVerdict.error) {
+			throw fileVerdict.error;
+		}
+		try {
+			if (signature === "missing") {
+				throw new PictureCheckUnavailable(
+					`The picture check's model file is missing (${modelPath}); run npm run models:fetch.`,
+				);
+			}
+			const bytes = await readFile(modelPath);
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			if (digest !== sha256) {
+				throw new PictureCheckUnavailable(
+					`The picture check's model file does not match its pinned SHA-256 (${digest}).`,
+				);
+			}
+			fileVerdict = { signature, error: null };
+			return bytes;
+		} catch (error) {
+			fileVerdict = { signature, error: unavailable(error) };
+			throw fileVerdict.error;
+		}
+	};
+
+	const load = (): Promise<PictureCheckEngine> => {
+		if (engine) return Promise.resolve(engine);
+		loading ??= (async () => {
+			const bytes = await readVerified();
+			try {
+				return await loadEngine(bytes);
+			} catch (error) {
+				throw unavailable(error);
+			}
+		})().then(
+			(loaded) => {
+				engine = loaded;
+				loading = null;
+				return loaded;
+			},
+			(error: unknown) => {
+				loading = null;
+				throw error;
+			},
+		);
+		return loading;
+	};
+
+	/** Drops the engine a hung check ran on: released once its run settles, if ever. */
+	const abandon = (
+		stuck: Promise<unknown>,
+		onEngine: PictureCheckEngine | null,
+	) => {
+		if (onEngine && engine === onEngine) engine = null;
+		if (!onEngine) {
+			// A load that hung: whatever it yields later is released, never used.
+			const abandoned = loading;
+			loading = null;
+			abandoned?.then(
+				(late) => {
+					if (engine === late) engine = null;
+					void late.release().catch(() => undefined);
+				},
+				() => undefined,
+			);
+			return;
+		}
+		stuck.then(
+			() => onEngine.release().catch(() => undefined),
+			() => onEngine.release().catch(() => undefined),
+		);
+	};
+
+	const armIdle = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			idleTimer = null;
+			if (busy > 0 || !engine) return;
+			const idle = engine;
+			engine = null;
+			void idle.release().catch(() => undefined);
+		}, idleMs);
+		idleTimer.unref?.();
+	};
+
+	const check = async (png: Uint8Array): Promise<PictureVerdict> => {
+		const started = performance.now();
+		busy += 1;
+		let usedEngine: PictureCheckEngine | null = null;
+		const work = (async () => {
+			const ready = await load();
+			usedEngine = ready;
+			const logits = await ready.run(await toTensorData(png));
+			return softmaxExplicit(logits);
+		})();
+		try {
+			const score = await deadline(work, timeoutMs);
 			return {
 				explicit: score >= EXPLICIT_THRESHOLD,
 				score,
 				ms: Math.round(performance.now() - started),
 			};
 		} catch (error) {
-			throw unavailable(error);
+			const failure = unavailable(error);
+			if (/timed out/.test(failure.message)) abandon(work, usedEngine);
+			throw failure;
+		} finally {
+			busy -= 1;
+			armIdle();
 		}
 	};
 
 	return {
-		ready: async () => {
-			await load();
+		fileReady: async () => {
+			if (engine) return;
+			const signature = await fileSignature(modelPath);
+			if (fileVerdict?.signature === signature) {
+				if (fileVerdict.error) throw fileVerdict.error;
+				return;
+			}
+			await readVerified();
 		},
 		classify: (png) => {
-			const next = turn.then(() => classify(png));
+			const next = turn.then(() => check(png));
 			turn = next.catch(() => undefined);
 			return next;
 		},
+		loaded: () => engine !== null,
 	};
 }
 
@@ -219,7 +372,8 @@ async function isAll(png: Uint8Array, hex: string): Promise<boolean> {
 }
 
 const stubClassifier: PictureClassifier = {
-	ready: async () => undefined,
+	fileReady: async () => undefined,
+	loaded: () => false,
 	classify: async (png) => {
 		if (await isAll(png, STUB_UNAVAILABLE_COLOUR)) {
 			throw new PictureCheckUnavailable("The stub cannot check this picture.");
@@ -246,7 +400,7 @@ export function classifyPicture(png: Uint8Array): Promise<PictureVerdict> {
 	return activeClassifier().classify(png);
 }
 
-/** For Tool Health: resolves when the check can run (loading the model once). */
-export function pictureCheckReady(): Promise<void> {
-	return activeClassifier().ready();
+/** For Tool Health: resolves when the pinned model file is in place, without loading it. */
+export function pictureCheckFileReady(): Promise<void> {
+	return activeClassifier().fileReady();
 }

@@ -129,7 +129,7 @@ describe("make_image health", () => {
 describe("the explicit-picture check's health", () => {
 	const ID = "make_image:picture_check";
 
-	it("sits beside make_image and is healthy when the classifier loads", async () => {
+	it("sits beside make_image and is healthy when the pinned model file is in place", async () => {
 		const deps = makeDeps(healthyHandler);
 		const tools = byId(await checkToolHealth(deps));
 		expect(tools[ID]).toMatchObject({

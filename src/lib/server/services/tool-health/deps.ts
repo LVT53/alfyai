@@ -97,10 +97,12 @@ export function createDefaultToolHealthDeps(): ToolHealthDeps {
 		dockerPing: pingDocker,
 		listTransitRegions,
 		pictureCheckReady: async () => {
-			const { pictureCheckReady } = await import(
+			// The pinned file's presence and hash only: Tool Health never loads
+			// the model (only a real picture check does).
+			const { pictureCheckFileReady } = await import(
 				"$lib/server/services/images/picture-check/classifier"
 			);
-			await pictureCheckReady();
+			await pictureCheckFileReady();
 		},
 		countConnectedConnections,
 		now: Date.now,

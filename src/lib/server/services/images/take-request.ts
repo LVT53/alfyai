@@ -43,6 +43,9 @@ export type TakeRequest = {
 /** Longest a render may take once submitted. A print-size edit measured ~70 s on the real box; this also covers waiting in ComfyUI's queue. Lives here so the kind and its handler share it without importing each other. */
 export const IMAGE_RENDER_DEADLINE_MS = 600_000;
 
+/** A quiet spell after which held models are let go: ComfyUI's (idle-free.ts) and the picture check's session. Measured in plan 2c Task 4. Lives here so the picture check reads it without loading idle-free's database and config. */
+export const IMAGE_IDLE_FREE_MS = 15 * 60_000;
+
 const CANVAS_STEP = 32;
 /** An abuse guard, not a product limit: a side beyond this is not a picture size. */
 const CANVAS_MAX_SIDE = 8192;

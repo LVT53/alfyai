@@ -45,8 +45,8 @@ export interface ToolProbeContext {
 	signal: AbortSignal;
 	dockerPing: (signal: AbortSignal) => Promise<void>;
 	listTransitRegions: () => Promise<TransitRegionHealth[]>;
-	// Resolves when the explicit-picture check can run (its model loads);
-	// rejects with why not.
+	// Resolves when the explicit-picture check's pinned model file is in place
+	// (present and hashing to the pin); rejects with why not. Never loads it.
 	pictureCheckReady: () => Promise<void>;
 }
 

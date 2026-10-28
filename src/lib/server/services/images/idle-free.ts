@@ -10,8 +10,9 @@ import { imageJobs } from "$lib/server/db/schema";
 import { createConfiguredComfyClient } from "./comfy-client";
 import type { ComfyUiClient } from "./comfyui/client";
 
-/** Measured in plan 2c Task 4. */
-export const IMAGE_IDLE_FREE_MS = 15 * 60_000;
+import { IMAGE_IDLE_FREE_MS } from "./take-request";
+
+export { IMAGE_IDLE_FREE_MS };
 
 const TIMER_KEY = Symbol.for("alfyai.images.idleFreeTimer");
 type Holder = { [TIMER_KEY]?: ReturnType<typeof setTimeout> };

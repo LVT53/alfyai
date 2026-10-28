@@ -404,7 +404,9 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 	},
 	// The explicit-picture filter's local classifier, beside make_image. While
 	// the filter is on, a check that cannot run keeps every picture back (fail
-	// closed), so an admin must see it here. Loading it is local and free.
+	// closed), so an admin must see it here. The probe checks the pinned model
+	// file (present, right SHA-256, cached until it changes); it never loads
+	// the model, which only a real picture check does.
 	{
 		id: "make_image:picture_check",
 		name: "make_image",
@@ -417,7 +419,7 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 				await ctx.pictureCheckReady();
 				return {
 					ok: true,
-					detail: "model loaded",
+					detail: "model file in place",
 					latencyMs: Date.now() - started,
 				};
 			} catch (error) {
