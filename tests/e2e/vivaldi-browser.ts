@@ -15,12 +15,15 @@
 // ratio (what a Linux desktop at 125 % scaling gives Vivaldi), not an emulated one.
 import { type ChildProcess, spawn } from "node:child_process";
 import {
+	accessSync,
+	constants,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +34,84 @@ export const VIVALDI_PATH =
 	process.env.VIVALDI_PATH ?? "/usr/bin/vivaldi-stable";
 
 export function hasVivaldi(): boolean {
-	return existsSync(VIVALDI_PATH);
+	try {
+		accessSync(VIVALDI_PATH, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+const PROFILE_PREFIX = "alfyai-vivaldi-";
+
+/** Rejects with `what` timed out unless `work` settles within `ms`. */
+function within<T>(what: string, ms: number, work: Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`[vivaldi] timed out: ${what}`)),
+			ms,
+		);
+	});
+	return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Every process's command line, to see which throwaway folders are in use. */
+function commandLines(): string[] {
+	const lines: string[] = [];
+	for (const pid of readdirSync("/proc")) {
+		if (!/^\d+$/.test(pid)) continue;
+		try {
+			lines.push(readFileSync(`/proc/${pid}/cmdline`, "utf8"));
+		} catch {
+			// It ended while we looked.
+		}
+	}
+	return lines;
+}
+
+/**
+ * Removes the throwaway profiles and download folders an earlier run left in
+ * the temp folder (a worker killed outright, before the watchdog existed).
+ * A folder some process still names, or one made in the last minute (its
+ * browser may be starting), is left alone.
+ */
+export function sweepStaleVivaldiFolders(): void {
+	const root = tmpdir();
+	const inUse = commandLines();
+	for (const name of readdirSync(root)) {
+		if (!name.startsWith(PROFILE_PREFIX)) continue;
+		const folder = join(root, name);
+		try {
+			if (Date.now() - statSync(folder).mtimeMs < 60_000) continue;
+		} catch {
+			continue;
+		}
+		if (inUse.some((line) => line.includes(folder))) continue;
+		rmSync(folder, { recursive: true, force: true });
+	}
+}
+
+/**
+ * A watchdog of its own for the browser: once the worker that started it is
+ * gone, even killed outright (SIGKILL runs no exit handler), it kills the
+ * browser's whole process group and removes its profile. It ends by itself
+ * when the browser does.
+ */
+function watch(browserPid: number, profile: string): void {
+	const watchdog = spawn(
+		"/bin/sh",
+		[
+			"-c",
+			'while kill -0 "$1" 2>/dev/null && kill -0 "$2" 2>/dev/null; do sleep 0.2; done; if ! kill -0 "$1" 2>/dev/null; then kill -9 -- "-$2" 2>/dev/null; rm -rf -- "$3"; fi',
+			"alfyai-vivaldi-watchdog",
+			String(process.pid),
+			String(browserPid),
+			profile,
+		],
+		{ stdio: "ignore", detached: true },
+	);
+	watchdog.unref();
 }
 
 export type VivaldiTab = {
@@ -50,21 +130,28 @@ type Target = {
 	webSocketDebuggerUrl: string;
 };
 
-/** `Page.navigate` on one target over its own DevTools socket. */
+/** `Page.navigate` on one target over its own DevTools socket, within 10 s. */
 async function navigateTarget(target: Target, url: string): Promise<void> {
 	const socket = new WebSocket(target.webSocketDebuggerUrl);
 	try {
-		await new Promise<void>((resolve, reject) => {
-			socket.onopen = () => resolve();
-			socket.onerror = () => reject(new Error("[vivaldi] tab socket failed"));
-		});
-		const replied = new Promise<void>((resolve) => {
-			socket.onmessage = () => resolve();
-		});
-		socket.send(
-			JSON.stringify({ id: 1, method: "Page.navigate", params: { url } }),
+		await within(
+			"navigating the first tab",
+			10_000,
+			(async () => {
+				await new Promise<void>((resolve, reject) => {
+					socket.onopen = () => resolve();
+					socket.onerror = () =>
+						reject(new Error("[vivaldi] tab socket failed"));
+				});
+				const replied = new Promise<void>((resolve) => {
+					socket.onmessage = () => resolve();
+				});
+				socket.send(
+					JSON.stringify({ id: 1, method: "Page.navigate", params: { url } }),
+				);
+				await replied;
+			})(),
 		);
-		await replied;
 	} finally {
 		socket.close();
 	}
@@ -158,7 +245,7 @@ export async function launchVivaldi(options: {
 	height: number;
 	deviceScaleFactor: number;
 }): Promise<VivaldiTab> {
-	const profile = mkdtempSync(join(tmpdir(), "alfyai-vivaldi-"));
+	const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
 	// Downloads start by themselves (Vivaldi's own "Download …?" dialog would
 	// wait for a click no one makes) and land in the throwaway profile, never in
 	// the machine's ~/Downloads, until `saveDownloadsTo` names a folder.
@@ -188,12 +275,19 @@ export async function launchVivaldi(options: {
 		// Its own process group, so the browser and its helpers stop together.
 		{ stdio: "ignore", detached: true },
 	);
+	// Not executable after all, or gone: an error event, which would otherwise
+	// take the worker down, fails the launch instead.
+	let spawnError: Error | null = null;
+	child.once("error", (error) => {
+		spawnError = error;
+	});
 	const exited = new Promise<void>((resolve) =>
 		child?.once("exit", () => resolve()),
 	);
-	// A test that times out never reaches its `finally`, and a detached group
-	// outlives the worker: the worker's own exit takes the browser down too.
 	const group = child.pid;
+	if (group) watch(group, profile);
+	// A test that times out never reaches its `finally`: the worker's own exit
+	// takes the browser down at once (the watchdog would, within a moment).
 	const killGroupOnExit = () => {
 		try {
 			if (group) process.kill(-group, "SIGKILL");
@@ -230,6 +324,7 @@ export async function launchVivaldi(options: {
 	try {
 		// Chromium writes the port it chose (first line) once DevTools listens.
 		const port = await until("DevTools port", () => {
+			if (spawnError) throw spawnError;
 			const file = join(profile, "DevToolsActivePort");
 			if (!existsSync(file)) return undefined;
 			const first = readFileSync(file, "utf8").split("\n")[0];
@@ -292,7 +387,7 @@ export type SavedDownload = {
 export async function saveDownloadsTo(
 	browser: Browser,
 	dir: string,
-): Promise<{ next: () => Promise<SavedDownload> }> {
+): Promise<{ next: (timeoutMs?: number) => Promise<SavedDownload> }> {
 	const session = await browser.newBrowserCDPSession();
 	await session.send("Browser.setDownloadBehavior", {
 		behavior: "allow",
@@ -321,10 +416,22 @@ export async function saveDownloadsTo(
 		else finished.push(download);
 	});
 	return {
-		next: () => {
+		/** The next finished download; rejects if none finishes in time. */
+		next: (timeoutMs = 30_000) => {
 			const ready = finished.shift();
 			if (ready) return Promise.resolve(ready);
-			return new Promise((resolve) => waiting.push(resolve));
+			let waiter: (download: SavedDownload) => void = () => {};
+			const arrived = new Promise<SavedDownload>((resolve) => {
+				waiter = resolve;
+				waiting.push(resolve);
+			});
+			return within("a download to finish", timeoutMs, arrived).catch(
+				(error: unknown) => {
+					const index = waiting.indexOf(waiter);
+					if (index >= 0) waiting.splice(index, 1);
+					throw error;
+				},
+			);
 		},
 	};
 }
