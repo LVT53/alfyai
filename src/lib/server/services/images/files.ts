@@ -18,6 +18,7 @@ import {
 	type ImageVersionBody,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
+import { normalizePngAlpha } from "./alpha";
 
 export type ImageFileRole = "input" | "take" | "marked";
 
@@ -114,13 +115,13 @@ export async function storeImageFile(params: {
 	if (meta.format !== "png" || !meta.width || !meta.height) {
 		throw new Error("A picture file must be a PNG.");
 	}
-	// See-through means a pixel that is not fully opaque, not an alpha channel:
-	// an edit is stored as RGBA (the guards work in RGBA) however opaque it is,
-	// and a picture marked see-through is drawn on the checkerboard and
-	// crossfaded on Before / After instead of laid over its Before.
-	const seeThrough =
-		meta.hasAlpha === true && !(await sharp(params.png).stats()).isOpaque;
-	const thumb = await sharp(params.png)
+	// See-through means a pixel that is meaningfully not opaque, not an alpha
+	// channel: an edit is decoded as RGBA (the guards work in RGBA) and
+	// resampling leaves alpha at 254. Such a picture is stored as RGB; a picture
+	// marked see-through is drawn on the checkerboard and crossfaded on
+	// Before / After instead of laid over its Before.
+	const { png, hasAlpha: seeThrough } = await normalizePngAlpha(params.png);
+	const thumb = await sharp(png)
 		.resize({
 			width: IMAGE_THUMB_LONG_EDGE,
 			height: IMAGE_THUMB_LONG_EDGE,
@@ -145,7 +146,7 @@ export async function storeImageFile(params: {
 	const absolute = join(process.cwd(), storagePath);
 	await mkdir(dirname(absolute), { recursive: true });
 	try {
-		await writeFile(absolute, params.png);
+		await writeFile(absolute, png);
 		await writeFile(join(process.cwd(), thumbPath), thumb);
 		const [row] = await db
 			.insert(imageFiles)
@@ -158,7 +159,7 @@ export async function storeImageFile(params: {
 				width: meta.width,
 				height: meta.height,
 				hasAlpha: seeThrough ? 1 : 0,
-				sizeBytes: params.png.byteLength,
+				sizeBytes: png.byteLength,
 				storagePath,
 			})
 			.returning();

@@ -201,6 +201,18 @@ async function resultBytes(takeId: string): Promise<Uint8Array> {
 	return readImageFileBytes(file, "full");
 }
 
+async function storedHasAlpha(
+	fileId: string | null,
+): Promise<number | undefined> {
+	if (!fileId) throw new Error("No result file");
+	const { db } = await import("$lib/server/db");
+	return db
+		.select()
+		.from(schema.imageFiles)
+		.where(eq(schema.imageFiles.id, fileId))
+		.get()?.hasAlpha;
+}
+
 describe("a new picture", () => {
 	it("renders to a stored PNG and passes every phase", async () => {
 		// A small canvas: the fake paints, and the runner decodes, guards and
@@ -232,6 +244,19 @@ describe("a new picture", () => {
 		const meta = await sharp(await resultBytes(takeId)).metadata();
 		expect(meta).toMatchObject({ format: "png", width: 256, height: 192 });
 	});
+
+	it("stores an opaque picture as opaque RGB", async () => {
+		await startFake({ steps: 2 });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		const meta = await sharp(await resultBytes(takeId)).metadata();
+		expect(meta.channels).toBe(3);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
 });
 
 describe("landing on a card", () => {
@@ -253,6 +278,26 @@ describe("landing on a card", () => {
 });
 
 describe("an edit", () => {
+	it("stores an opaque edit as opaque RGB", async () => {
+		await startFake();
+		const baseId = await storeInput(await photo(640, 480));
+		const takeId = await queueTake(
+			request({
+				mode: "edit",
+				prompt: "make the middle red",
+				inputs: [{ fileId: baseId, role: "base", name: "room.png" }],
+				baseFromUpload: true,
+				canvas: { width: 640, height: 480 },
+			}),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		const meta = await sharp(await resultBytes(takeId)).metadata();
+		expect(meta.channels).toBe(3);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+
 	it("keeps everything it did not change", async () => {
 		await startFake();
 		const base = await photo(640, 480);

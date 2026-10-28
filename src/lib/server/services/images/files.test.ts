@@ -131,6 +131,79 @@ describe("storeImageFile", () => {
 		expect(file.hasAlpha).toBe(false);
 	});
 
+	it("stores an opaque RGBA picture as RGB with no alpha channel", async () => {
+		const opaque = new Uint8Array(
+			await sharp({
+				create: {
+					width: 64,
+					height: 64,
+					channels: 4,
+					background: { r: 10, g: 20, b: 30, alpha: 1 },
+				},
+			})
+				.png()
+				.toBuffer(),
+		);
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: opaque,
+		});
+		const stored = await sharp(
+			await files.readImageFileBytes(file, "full"),
+		).metadata();
+		expect(stored.channels).toBe(3);
+		expect(stored.hasAlpha).toBe(false);
+	});
+
+	it("treats alpha that rounding left at 254 as opaque", async () => {
+		const width = 32;
+		const height = 32;
+		const data = Buffer.alloc(width * height * 4, 200);
+		for (let i = 3; i < data.length; i += 4) data[i] = 254;
+		const rounded = new Uint8Array(
+			await sharp(data, { raw: { width, height, channels: 4 } })
+				.png()
+				.toBuffer(),
+		);
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: rounded,
+		});
+		expect(file.hasAlpha).toBe(false);
+		const stored = await sharp(
+			await files.readImageFileBytes(file, "full"),
+		).metadata();
+		expect(stored.channels).toBe(3);
+	});
+
+	it("keeps the alpha of a picture with truly transparent pixels", async () => {
+		const width = 32;
+		const height = 32;
+		const data = Buffer.alloc(width * height * 4, 200);
+		for (let i = 3; i < data.length; i += 4) data[i] = 255;
+		for (let i = 0; i < 100; i++) data[i * 4 + 3] = 0;
+		const cutout = new Uint8Array(
+			await sharp(data, { raw: { width, height, channels: 4 } })
+				.png()
+				.toBuffer(),
+		);
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: cutout,
+		});
+		expect(file.hasAlpha).toBe(true);
+		const stored = await sharp(
+			await files.readImageFileBytes(file, "full"),
+		).metadata();
+		expect(stored.channels).toBe(4);
+	});
+
 	it("refuses bytes that are not a PNG", async () => {
 		const jpeg = new Uint8Array(
 			await sharp({
