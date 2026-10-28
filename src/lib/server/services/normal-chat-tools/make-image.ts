@@ -20,6 +20,8 @@ import {
 } from "$lib/server/services/images/cards";
 import { cancelTake, enqueueTake } from "$lib/server/services/images/image-job";
 import { PictureUnreadableError } from "$lib/server/services/images/inputs";
+import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
+import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import {
 	type MakeImageRefusal,
 	resolveMakeImageRequest,
@@ -130,9 +132,15 @@ export type MakeImagePayload =
 	  }
 	| {
 			ok: false;
-			errorCode: MakeImageRefusal | "not_configured" | "image_error";
+			errorCode: RefusalCode;
 			message: string;
 	  };
+
+type RefusalCode =
+	| MakeImageRefusal
+	| "not_configured"
+	| "image_error"
+	| "explicit_request";
 
 /** How long a call waits for its take. A print-size change (about 70 s, 140 s with a retry) may outlive it and then lands on its card. */
 export const IMAGE_TOOL_WAIT_MS = 100_000;
@@ -161,7 +169,15 @@ const FAILURE_MESSAGES: Record<string, string> = {
 	image_input_missing: "A picture this one is made from is gone.",
 	image_server_not_configured: "No picture server is set up.",
 	image_request_invalid: "The picture request could not be read.",
+	image_blocked:
+		"The finished picture was blocked by the explicit-picture filter: it was not shown to the user and not kept. Tell the user plainly that it was blocked. Do not call make_image again for this request.",
+	image_unchecked:
+		"The finished picture could not be checked by the explicit-picture filter, so it was not shown to the user and not kept. Tell the user it could not be checked right now. Do not call make_image again for it now.",
 };
+/** A take the filter stopped is never the model's to repeat, whatever the card offers. */
+const NOT_FOR_THE_MODEL_TO_RETRY = new Set(["image_blocked", "image_unchecked"]);
+const EXPLICIT_REQUEST_MESSAGE =
+	"Explicit or sexual pictures are not made here: the explicit-picture filter refused this request and no picture was made. Tell the user plainly that this picture cannot be made. Do not call make_image again for this request.";
 const FAILURE_FALLBACK = "The picture could not be made.";
 const STOPPED_MESSAGE =
 	"The user stopped the turn before this picture started, so it was not made.";
@@ -170,7 +186,7 @@ type Metadata = Record<string, string | number | boolean | null>;
 type Outcome = { modelPayload: MakeImagePayload; metadata: Metadata };
 
 function refusal(
-	errorCode: MakeImageRefusal | "not_configured" | "image_error",
+	errorCode: RefusalCode,
 	message: string,
 ): Outcome {
 	return {
@@ -222,6 +238,18 @@ async function planTake(
 		return {
 			ok: false,
 			refused: refusal("not_configured", "No picture server is set up."),
+		};
+	}
+	// The request half of the explicit-picture filter: the model was told to
+	// decline (make_image's description); a plain case it let through stops here,
+	// before a card or a take exists.
+	if (
+		findExplicitRequestTerm(`${input.prompt}\n${input.title ?? ""}`) !== null &&
+		(await isExplicitFilterOnFor(userId))
+	) {
+		return {
+			ok: false,
+			refused: refusal("explicit_request", EXPLICIT_REQUEST_MESSAGE),
 		};
 	}
 	if (callNumber > MAX_IMAGE_CALLS_PER_TURN) {
@@ -610,7 +638,7 @@ function failedOutcome(
 				errorCode === "image_stopped"
 					? STOPPED_MESSAGE
 					: (FAILURE_MESSAGES[errorCode] ?? FAILURE_FALLBACK),
-			retryable,
+			retryable: retryable && !NOT_FOR_THE_MODEL_TO_RETRY.has(errorCode),
 		},
 		metadata: {
 			...base,

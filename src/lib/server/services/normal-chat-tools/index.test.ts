@@ -5742,7 +5742,10 @@ describe("tool description hygiene", () => {
 	// 2026-10-27: make_image (design section 5, images part 2) adds 76 estimated
 	// tokens, paid by a measured raise (plan-part-2-images.md, Plan's call 1,
 	// approved by the owner). No margin added.
-	const CATALOGUE_TOKEN_CEILING = 5298;
+	// 2026-10-28: the explicit-picture filter (plan 2b Task 18, asked for by
+	// the owner) adds one sentence to make_image telling the model to decline
+	// explicit pictures: 26 measured tokens, raised by exactly that. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5324;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);

@@ -666,6 +666,8 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/chat-turn/follow-up-chip.ts": "the chip check",
 	"lib/server/services/images/requests.ts":
 		"the title fallback's abbreviation list, matched against the person's words",
+	"lib/server/services/images/picture-check/request-terms.ts":
+		"the explicit-request word list, matched against make_image's prompt and title",
 	"lib/server/services/chat-turn/context-selection.ts": "context cues",
 	"lib/server/services/chat-turn/proactive-connector-context.ts":
 		"connector cues",

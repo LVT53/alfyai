@@ -1,7 +1,11 @@
 import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
+import {
+	getConfig,
+	isImageMakingConfigured,
+	type RuntimeConfig,
+} from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { resolveArtifactCatalogueBlock } from "$lib/server/services/artifacts";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
@@ -9,6 +13,7 @@ import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
+import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
 import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
@@ -496,6 +501,11 @@ export async function createToolPack(
 	// One queue for the turn, shared by the tools that fill it and the model run
 	// that empties it (every attempt of the run, failover included).
 	const stepImages = createStepImageQueue();
+	// Whether make_image's description tells the model to decline explicit
+	// pictures; only read when there is a make_image to describe.
+	const explicitPictureFilter = isImageMakingConfigured(getConfig())
+		? await isExplicitFilterOnFor(params.userId)
+		: null;
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -505,6 +515,7 @@ export async function createToolPack(
 		modelId,
 		stepImages,
 		turnPictures,
+		...(explicitPictureFilter === null ? {} : { explicitPictureFilter }),
 		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),

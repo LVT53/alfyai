@@ -794,6 +794,100 @@ describe("a picture that takes longer than the wait", () => {
 	});
 });
 
+describe("the explicit-picture filter, before rendering", () => {
+	async function exempt() {
+		fixture.sqlite
+			.prepare(
+				"update users set explicit_picture_filter_exempt = 1 where id = ?",
+			)
+			.run(userId);
+	}
+
+	it("refuses an explicit request before anything is submitted, and tells the model plainly in ASCII", async () => {
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+
+		const { modelPayload, metadata } = await run({
+			prompt: "a nude woman on a beach",
+		});
+
+		expect(modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "explicit_request",
+		});
+		if (modelPayload.ok) throw new Error("not refused");
+		expect(modelPayload.message).toMatch(/^[\x20-\x7e]*$/);
+		expect(modelPayload.message).toMatch(/do not call make_image again/i);
+		expect(metadata).toMatchObject({
+			ok: false,
+			imageRefusal: "explicit_request",
+		});
+		const { cards, takes } = await rows();
+		expect(cards).toHaveLength(0);
+		expect(takes).toHaveLength(0);
+		expect(fake?.prompts.size ?? 0).toBe(0);
+	});
+
+	it("checks the title too", async () => {
+		await configureOnly();
+		const { modelPayload } = await run({
+			prompt: "a woman on a beach",
+			title: "Meztelen nő",
+		});
+		expect(modelPayload).toMatchObject({ errorCode: "explicit_request" });
+	});
+
+	it("lets an ordinary request with a look-alike word through", async () => {
+		await configureOnly();
+		const { modelPayload } = await run(
+			{ prompt: "a nude-coloured sofa in a bright living room" },
+			{ waitBudgetMs: 0 },
+		);
+		expect(modelPayload).not.toMatchObject({ errorCode: "explicit_request" });
+	});
+
+	it("does not refuse for an exempt person", async () => {
+		await configureOnly();
+		await exempt();
+		const { modelPayload } = await run(
+			{ prompt: "a nude figure study" },
+			{ waitBudgetMs: 0 },
+		);
+		expect(modelPayload).not.toMatchObject({ errorCode: "explicit_request" });
+	});
+
+	it("does not refuse once the filter is off for the install", async () => {
+		await configureOnly();
+		const { getConfig } = await import("$lib/server/config-store");
+		getConfig().imageExplicitFilterEnabled = false;
+		const { modelPayload } = await run(
+			{ prompt: "a nude figure study" },
+			{ waitBudgetMs: 0 },
+		);
+		expect(modelPayload).not.toMatchObject({ errorCode: "explicit_request" });
+	});
+
+	it("tells the model in the tool description to decline, unless the person is not filtered", async () => {
+		useFakeComfyUi("http://127.0.0.1:8188");
+		const { createNormalChatTools } = await import("./index");
+		const describe = (explicitPictureFilter?: boolean) =>
+			(
+				createNormalChatTools({
+					userId,
+					conversationId,
+					turnId: "turn-1",
+					...(explicitPictureFilter === undefined
+						? {}
+						: { explicitPictureFilter }),
+				}).tools.make_image as unknown as { description: string }
+			).description;
+		expect(describe()).toMatch(/explicit/i);
+		expect(describe(true)).toMatch(/explicit/i);
+		expect(describe(false)).not.toMatch(/explicit/i);
+		expect(describe(true)).toMatch(/^[\x20-\x7e]*$/);
+	});
+});
+
 describe("a render that fails", () => {
 	it("answers failed with the code and whether it can be tried again", async () => {
 		await startPictureServer({ fail: "execution" });

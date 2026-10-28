@@ -288,6 +288,11 @@ export interface CreateNormalChatToolsContext {
 	// What the turn has made with make_image, when a caller runs the turn more than
 	// once (a stream and its non-stream rerun) and wants the reruns to share it.
 	turnTakes?: TurnTakes;
+	// Whether the explicit-picture filter applies to this person (images/
+	// picture-check/policy.ts). Computed upstream (createToolPack) because tool
+	// construction is synchronous. Omitted means filtered: the make_image
+	// description then tells the model to decline explicit pictures.
+	explicitPictureFilter?: boolean;
 	// Called about once a second while a tool waits on slow work (make_image),
 	// so the stream's idle watchdog counts the wait as activity.
 	onToolActivity?: () => void;
@@ -309,6 +314,11 @@ export interface CreateNormalChatToolsContext {
 	// already says, do not wait").
 	fileProductionVerdictWaitMs?: number;
 }
+
+// Added to make_image's description while the explicit-picture filter applies
+// to the person: the model's own judgement is the filter's first line.
+const MAKE_IMAGE_EXPLICIT_LINE =
+	"No explicit, sexual or nude pictures: decline such a request in your reply, without calling make_image.";
 
 // ── Tool text ──────────────────────────────────────────────────
 //
@@ -2217,7 +2227,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 			? {
 					make_image: asExecutableTool(
 						tool({
-							description: i18n.make_image.description,
+							description:
+								ctx.explicitPictureFilter === false
+									? i18n.make_image.description
+									: `${i18n.make_image.description} ${MAKE_IMAGE_EXPLICIT_LINE}`,
 							inputSchema: makeImageInputSchema,
 							execute: async (
 								input: MakeImageInput,
