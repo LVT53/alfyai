@@ -41,3 +41,16 @@ export function changePictureIdFrom(text: string): string | null {
 	);
 	return match?.[1] ?? null;
 }
+
+/**
+ * Changes the photo the person attached to this message: the model names it by
+ * its picture number in this message ("1"), the way the make_image tool's own
+ * guidance tells it to (plan 2b T8).
+ */
+export const AI_SMOKE_EDIT_PHOTO_MARKER =
+	"Fake model step: change my photo, picture 1.";
+
+/** A new picture on a see-through background (the make_image tool's `transparent`). */
+export const AI_SMOKE_TRANSPARENT_PICTURE_MARKER =
+	"Fake model step: make a cut-out picture.";
+export const AI_SMOKE_TRANSPARENT_PICTURE_TITLE = "Lighthouse cut-out";

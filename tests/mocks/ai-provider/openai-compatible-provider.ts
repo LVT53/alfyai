@@ -18,11 +18,14 @@ import {
 import {
 	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
 	AI_SMOKE_CHANGE_PICTURE_PROMPT,
+	AI_SMOKE_EDIT_PHOTO_MARKER,
 	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
 	AI_SMOKE_LATE_PICTURE_INTRO,
 	AI_SMOKE_LATE_PICTURE_MARKER,
 	AI_SMOKE_LATE_PICTURE_PROMPT,
 	AI_SMOKE_LATE_PICTURE_TITLE,
+	AI_SMOKE_TRANSPARENT_PICTURE_MARKER,
+	AI_SMOKE_TRANSPARENT_PICTURE_TITLE,
 	changePictureIdFrom,
 } from "../../fixtures/ai/late-picture-scenario";
 import {
@@ -1190,9 +1193,45 @@ function latePictureScript(
 	// the picture, so its marker is read from the whole body then (as make_image's).
 	const text =
 		hasToolResultFor(body, "call_fake_change_picture") ||
+		hasToolResultFor(body, "call_fake_edit_photo") ||
+		hasToolResultFor(body, "call_fake_cut_out") ||
 		hasToolResultFor(body, "call_fake_late_picture")
 			? JSON.stringify(body)
 			: (currentTurnText(body) ?? "");
+	if (text.includes(AI_SMOKE_EDIT_PHOTO_MARKER)) {
+		return {
+			id: "edit_photo",
+			intro: ["Changing only the lighthouse. "],
+			writingMs: 200,
+			call: {
+				id: "call_fake_edit_photo",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_CHANGE_PICTURE_PROMPT,
+					pictures: ["1"],
+					summary: "Made the lighthouse blue",
+				},
+			},
+			finalText: AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+		};
+	}
+	if (text.includes(AI_SMOKE_TRANSPARENT_PICTURE_MARKER)) {
+		return {
+			id: "cut_out",
+			intro: AI_SMOKE_LATE_PICTURE_INTRO,
+			writingMs: 300,
+			call: {
+				id: "call_fake_cut_out",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_LATE_PICTURE_PROMPT,
+					title: AI_SMOKE_TRANSPARENT_PICTURE_TITLE,
+					transparent: true,
+				},
+			},
+			finalText: AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+		};
+	}
 	const imageId = changePictureIdFrom(text);
 	if (imageId) {
 		return {

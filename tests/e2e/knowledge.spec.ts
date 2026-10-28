@@ -389,6 +389,7 @@ test.describe("Knowledge page", () => {
 			/^\s*Documents/,
 			/^\s*Canvas/,
 			/^\s*Apps/,
+			/^\s*Images/,
 			/^\s*Files/,
 		]);
 		await expect(page.getByTestId("documents-filter-chip-slides")).toHaveCount(
