@@ -1016,3 +1016,59 @@ describe("toolReadArtifactIdsMetadata", () => {
 		).toBe(2);
 	});
 });
+
+// Task 17 (rehearsal P5): a reply that only made a picture showed a "Sources"
+// section holding nothing but its own make_image call and the chat's continuity
+// (recent turns, session memory). The picture's card tells what the call made, as
+// an item's own row does for create_artifact; with nothing else, there are no
+// sources, and the reply shows no Sources section.
+describe("a reply that made a picture", () => {
+	const makeImage: ToolCallEntry = {
+		name: "make_image",
+		input: { prompt: "a sofa" },
+		status: "done",
+		outputSummary: "Picture made",
+	} as ToolCallEntry;
+	const continuity = {
+		layersUsed: ["session"],
+		summary: "Session summary text.",
+		taskStateApplied: true,
+		recentTurnCount: 2,
+	} as never;
+
+	it("has no sources when it made a picture and used only the chat's continuity", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Put this sofa into the room photo",
+			taskState: null,
+			contextStatus: continuity,
+			toolCalls: [makeImage],
+		});
+		expect(summary).toBeNull();
+	});
+
+	it("never lists its make_image call as a tool source", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Put this sofa into the room photo",
+			taskState: null,
+			toolCalls: [makeImage],
+		});
+		const titles = (summary?.groups ?? []).flatMap((group) =>
+			group.items.map((item) => item.title),
+		);
+		expect(titles).not.toContain("make_image");
+	});
+
+	it("keeps the continuity of a reply that made no picture", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "What floor is in my photo?",
+			taskState: null,
+			contextStatus: continuity,
+		});
+		expect(summary?.groups.map((group) => group.sourceType)).toEqual([
+			"memory",
+		]);
+	});
+});

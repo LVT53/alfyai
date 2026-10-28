@@ -536,8 +536,14 @@ let hasAtlasCards = $derived(atlasJobs.length > 0);
 let hasFileProductionCards = $derived(
 	fileProductionJobs.length > 0 && Boolean(conversationId) && !hasAtlasCards,
 );
+// A reply that made a picture says what it made on its card; the server lists
+// sources for it only when it drew on some, and they arrive with the poll, so
+// no "Evidence is loading…" under the card (Task 17).
+let madePicture = $derived(
+	deliverableSegments.some((segment) => segment.name === "make_image"),
+);
 let showEvidencePending = $derived(
-	Boolean(message.evidencePending) && isDone && !hasAtlasCards,
+	Boolean(message.evidencePending) && isDone && !hasAtlasCards && !madePicture,
 );
 // P3c (ADR-0056) — reverse-scan-latest-match, gated identically to
 // markdownIsStreaming so it (like every other live activity) disappears once

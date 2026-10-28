@@ -743,6 +743,14 @@ function buildTurnArtifactsGroup(
 	};
 }
 
+const MAKE_IMAGE_TOOL_NAME = "make_image";
+/** The memory rows every turn of a chat carries: its continuity, not a source the reply drew on. */
+const CONTINUITY_MEMORY_IDS: ReadonlySet<string> = new Set([
+	"task-state",
+	"recent-turns",
+	"session-memory",
+]);
+
 export async function buildAssistantEvidenceSummary(params: {
 	userId?: string;
 	message: string;
@@ -775,7 +783,13 @@ export async function buildAssistantEvidenceSummary(params: {
 	const madeIds = new Set(
 		(params.turnArtifacts ?? []).map((made) => made.artifactId),
 	);
+	// make_image's picture is told by its card, as an item's own row tells a
+	// create_artifact: never a tool source (Task 17).
+	const madePicture = completedToolCalls.some(
+		(tool) => tool.name === MAKE_IMAGE_TOOL_NAME,
+	);
 	const toolOutputCalls = completedToolCalls.filter((tool) => {
+		if (tool.name === MAKE_IMAGE_TOOL_NAME) return false;
 		const made = artifactCallOf(tool);
 		return !made || !madeIds.has(made.artifactId);
 	});
@@ -811,6 +825,17 @@ export async function buildAssistantEvidenceSummary(params: {
 	);
 
 	if (groups.length === 0) return null;
+	// A reply that made a picture and used nothing but the chat's own continuity
+	// (task state, recent turns, session memory) has no sources: no Sources
+	// section under it (the rehearsal's empty one, Task 17).
+	if (
+		madePicture &&
+		groups.every((group) =>
+			group.items.every((item) => CONTINUITY_MEMORY_IDS.has(item.id)),
+		)
+	) {
+		return null;
+	}
 
 	groups.sort(
 		(a, b) =>

@@ -742,6 +742,41 @@ describe("MessageBubble", () => {
 		expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
 	});
 
+	// Task 17 (rehearsal P5): a reply that made a picture showed "Evidence is
+	// loading…" under its card. Its picture is on the card; the server lists
+	// sources for it only when it drew on some, and they arrive with the poll.
+	it("does not show pending Evidence loading on a reply that made a picture", () => {
+		const message: ChatMessage = {
+			id: "assistant-picture",
+			renderKey: "assistant-picture",
+			role: "assistant",
+			content: "Here is the room with the new sofa.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			evidencePending: true,
+			thinkingSegments: [
+				{
+					type: "tool_call",
+					callId: "call-pic",
+					name: "make_image",
+					input: { prompt: "a sofa in the room", title: "Room" },
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: "card-1",
+						imageTitle: "Room",
+					},
+				},
+			],
+		} as ChatMessage;
+
+		render(MessageBubble, { message, conversationId: "conv-1" });
+
+		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
+	});
+
 	it("does not show pending Evidence loading on Atlas messages", () => {
 		const message: ChatMessage = {
 			id: "assistant-atlas",
