@@ -903,7 +903,7 @@ test.describe("dragging chats in the sidebar", () => {
 	test("drags three selected chats into a folder and moves all three", async ({
 		page,
 	}) => {
-		await startWithChats(
+		const { ids } = await startWithChats(
 			page,
 			["Alpha plan", "Bravo plan", "Charlie plan", "Delta plan"],
 			"en",
@@ -931,13 +931,10 @@ test.describe("dragging chats in the sidebar", () => {
 		await expect(page.getByTestId("sidebar-drop-bin")).toBeVisible();
 		await dropOn(page, folder);
 
+		// The three, in the order the sidebar shows them.
 		expect((await batch).postDataJSON()).toMatchObject({
 			action: "move",
-			ids: expect.arrayContaining([
-				expect.any(String),
-				expect.any(String),
-				expect.any(String),
-			]),
+			ids: ids.slice(0, 3),
 		});
 		const chats = page.getByTestId("unorganized-drop-target");
 		await expect(chats.getByTestId("conversation-item")).toHaveCount(1);
