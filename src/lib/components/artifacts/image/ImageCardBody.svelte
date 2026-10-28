@@ -8,12 +8,14 @@
 // Motion (MOTION-PARITY): nothing here changes height when a take changes
 // state. The picture box keeps the take's aspect ratio from the first paint;
 // the state and the picture are two layers stacked in it that crossfade
-// (opacity only); progress moves by `transform: scaleX()` and never goes
-// backwards; Before / After floats over the picture, so it takes no row.
+// (opacity only). While a take waits, starts or is made the box shows only a
+// calm light sweeping left to right (`transform` only; a still tint under
+// reduced motion); the words for it are read out from an sr-only status
+// (Task 11, the owner's call). Before / After floats over the picture, so it
+// takes no row.
 // Everything the card shows is worked out in `image-card-view.ts`.
 import {
 	Check,
-	Clock,
 	Ellipsis,
 	History,
 	Download,
@@ -180,19 +182,6 @@ $effect(() => {
 	return () => clearInterval(timer);
 });
 
-/** Progress never goes backwards for one take, whatever a poll reports: the best seen per take. */
-let progressSeen = $state.raw<Record<string, number>>({});
-let progress = $derived.by(() => {
-	if (cardState.kind !== "making" || !shown) return 0;
-	const reported = Math.max(0, Math.min(100, cardState.progressPercent ?? 0));
-	return Math.max(progressSeen[shown.id] ?? 0, reported);
-});
-$effect.pre(() => {
-	const id = shown?.id;
-	if (!id || progress <= (progressSeen[id] ?? 0)) return;
-	progressSeen = { ...progressSeen, [id]: progress };
-});
-
 function send(action: ImageCardAction) {
 	return onAction?.(action);
 }
@@ -307,6 +296,20 @@ function stateWords(current: ImageCardState): {
 }
 
 let words = $derived(stateWords(cardState));
+/**
+ * Waiting, starting up and being made are one look: the shimmer, kept as one
+ * layer from the first state to the last, so it never restarts between them.
+ */
+let busy = $derived(
+	!gone &&
+		(cardState.kind === "waiting" ||
+			cardState.kind === "starting" ||
+			cardState.kind === "making"),
+);
+/** What the shimmer means, for screen readers: today's words, read out as they change. */
+let statusText = $derived(
+	busy ? [words.line, words.detail].filter(Boolean).join(" ") : "",
+);
 let menuAnchorId = $derived(`image-card-more-${card.id}`);
 </script>
 
@@ -378,6 +381,17 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					</div>
 				{/if}
 			</div>
+		{:else if busy}
+			<!-- Waiting, starting up, being made: only a calm light sweeping across
+			     the whole box. The words are the sr-only status below. -->
+			<div
+				class="image-card-layer image-card-shimmer"
+				data-testid="image-card-shimmer"
+				aria-hidden="true"
+				transition:crossfade={{ duration: MOTION_DURATION.standard }}
+			>
+				<span class="image-card-shimmer-band"></span>
+			</div>
 		{:else}
 			{#key cardState.kind}
 				<div
@@ -388,31 +402,11 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					<span class="image-card-state-line">
 						{#if cardState.kind === 'failed'}
 							<TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
-						{:else if cardState.kind === 'waiting'}
-							<Clock size={16} strokeWidth={2} aria-hidden="true" />
-						{:else if cardState.kind !== 'stopped'}
-							<LoaderCircle class="image-card-spin" size={16} strokeWidth={2} aria-hidden="true" />
 						{/if}
 						<span>{words.line}</span>
 					</span>
-					{#if cardState.kind === 'making'}
-						<div
-							class="image-card-progress"
-							role="progressbar"
-							aria-label={words.line}
-							aria-valuemin={0}
-							aria-valuemax={100}
-							aria-valuenow={Math.round(progress)}
-						>
-							<span class="image-card-progress-bar" style:transform="scaleX({progress / 100})"></span>
-						</div>
-					{/if}
 					<span class="image-card-state-detail">{words.detail ?? ''}</span>
-					{#if shown && (cardState.kind === 'waiting' || cardState.kind === 'starting' || cardState.kind === 'making')}
-						<button type="button" class="image-card-button" data-testid="image-card-stop" onclick={pressStop}>
-							{$t('artifacts.image.card.stop')}
-						</button>
-					{:else if shown && (cardState.kind === 'failed' || cardState.kind === 'stopped')}
+					{#if shown && (cardState.kind === 'failed' || cardState.kind === 'stopped')}
 						<button type="button" class="image-card-button" data-testid="image-card-retry" onclick={pressRetry}>
 							{$t('artifacts.image.card.tryAgain')}
 						</button>
@@ -421,6 +415,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			{/key}
 		{/if}
 	</div>
+	<span class="sr-only" role="status" data-testid="image-card-status">{statusText}</span>
 
 	{#if stripCount > 1}
 		<div class="image-card-strip" role="group" aria-label={$t('artifacts.image.subtitle.takes', { count: stripCount })} data-testid="image-card-strip">
@@ -454,7 +449,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					{:else if tileState.kind === 'failed' || tileState.kind === 'stopped'}
 						<span class="image-card-tile-state"><TriangleAlert size={14} strokeWidth={2} aria-hidden="true" /></span>
 					{:else}
-						<span class="image-card-tile-state"><LoaderCircle class="image-card-spin" size={14} strokeWidth={2} aria-hidden="true" /></span>
+						<span class="image-card-tile-shimmer image-card-shimmer" aria-hidden="true"><span class="image-card-shimmer-band"></span></span>
 					{/if}
 					{#if take.id === card.pickedTakeId}
 						<span class="image-card-badge" title={$t('artifacts.image.card.inUse')} data-testid="image-card-in-use">
@@ -475,7 +470,7 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 					data-testid="image-card-tile-placeholder"
 					onclick={() => (selectedTakeId = PLACEHOLDER)}
 				>
-					<span class="image-card-tile-state"><LoaderCircle class="image-card-spin" size={14} strokeWidth={2} aria-hidden="true" /></span>
+					<span class="image-card-tile-shimmer image-card-shimmer" aria-hidden="true"><span class="image-card-shimmer-band"></span></span>
 				</button>
 			{/each}
 		</div>
@@ -506,6 +501,18 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
 			{$t('artifacts.image.card.another')}
 		</button>
+		{#if shown && busy}
+			<!-- Stop sits where Use this will: the box holds nothing but the shimmer. -->
+			<button
+				type="button"
+				class="image-card-button"
+				data-testid="image-card-stop"
+				transition:crossfade={{ duration: MOTION_DURATION.standard }}
+				onclick={pressStop}
+			>
+				{$t('artifacts.image.card.stop')}
+			</button>
+		{/if}
 		{#if canUse}
 			<button
 				type="button"
@@ -688,22 +695,43 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		font-size: 0.75rem;
 	}
 
-	.image-card-progress {
-		width: min(12rem, 70%);
-		height: 4px;
+	/* Waiting, starting up, being made (Task 11): a soft tint over the whole
+	   box with a lighter band sweeping slowly left to right. Only `transform`
+	   moves; the loop is --duration-shimmer on the ease-out curve. Under reduced
+	   motion the band is gone and the tint stays still. */
+	.image-card-shimmer {
 		overflow: hidden;
-		border-radius: var(--radius-full);
-		background: var(--border-default);
+		background: color-mix(in srgb, var(--text-muted) 8%, var(--surface-elevated));
 	}
 
-	/* Progress eases between polls and only ever grows (F21). */
-	.image-card-progress-bar {
-		display: block;
-		width: 100%;
-		height: 100%;
-		background: var(--accent);
-		transform-origin: left center;
-		transition: transform var(--duration-settle) var(--ease-out);
+	.image-card-shimmer-band {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			90deg,
+			transparent 0%,
+			var(--shimmer-highlight) 50%,
+			transparent 100%
+		);
+		transform: translateX(-100%);
+		animation: image-card-shimmer var(--duration-shimmer) var(--ease-out) infinite;
+		will-change: transform;
+	}
+
+	@keyframes image-card-shimmer {
+		from {
+			transform: translateX(-100%);
+		}
+		to {
+			transform: translateX(100%);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.image-card-shimmer-band {
+			animation: none;
+			visibility: hidden;
+		}
 	}
 
 	.image-card-body :global(.image-card-spin) {
@@ -744,6 +772,12 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	.image-card-icon-button:disabled {
 		cursor: not-allowed;
 		opacity: 0.55;
+	}
+
+	/* A take still on its way, in the strip: the same shimmer, tile-sized. */
+	.image-card-tile-shimmer {
+		position: absolute;
+		inset: 0;
 	}
 
 	.image-card-tile-state {

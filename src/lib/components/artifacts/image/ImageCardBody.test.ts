@@ -18,7 +18,7 @@ describe("ImageCardBody", () => {
 		uiLanguage.set("en");
 	});
 
-	it("shows a take being made with its words, its progress and Stop", async () => {
+	it("shows a take being made as a shimmer over its box, its words for screen readers only, and Stop", async () => {
 		const making = take({
 			status: "running",
 			phase: "rendering",
@@ -32,28 +32,65 @@ describe("ImageCardBody", () => {
 		const onAction = vi.fn();
 		render(ImageCardBody, { card: card([making]), onAction });
 
-		expect(screen.getByText("Making the picture…")).toBeInTheDocument();
-		expect(screen.getByText("About 8 s left")).toBeInTheDocument();
-		expect(screen.getByRole("progressbar")).toHaveAttribute(
-			"aria-valuenow",
-			"40",
-		);
+		const shimmer = screen.getByTestId("image-card-shimmer");
+		expect(shimmer).toHaveAttribute("aria-hidden", "true");
+		expect(shimmer.textContent?.trim()).toBe("");
+		expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("image-card-state")).not.toBeInTheDocument();
+		const status = screen.getByTestId("image-card-status");
+		expect(status).toHaveAttribute("role", "status");
+		expect(status).toHaveClass("sr-only");
+		expect(status).toHaveTextContent("Making the picture… About 8 s left");
 		await fireEvent.click(screen.getByRole("button", { name: "Stop" }));
 		expect(onAction).toHaveBeenCalledWith({ type: "stop", takeId: making.id });
 	});
 
-	it("never moves the progress back when a later poll reports less", async () => {
-		const making = take({
-			status: "running",
-			phase: "rendering",
-			progressPercent: 60,
+	it("keeps one shimmer from waiting through making, and fades it out for the picture in place", async () => {
+		const waiting = take({
+			status: "queued",
 			fileId: null,
+			width: null,
+			height: null,
 		});
-		const { rerender } = render(ImageCardBody, { card: card([making]) });
-		await rerender({ card: card([{ ...making, progressPercent: 30 }]) });
-		expect(screen.getByRole("progressbar")).toHaveAttribute(
-			"aria-valuenow",
-			"60",
+		const { rerender } = render(ImageCardBody, { card: card([waiting]) });
+		const shimmer = screen.getByTestId("image-card-shimmer");
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"Next up",
+		);
+
+		await rerender({
+			card: card([
+				{
+					...waiting,
+					status: "running",
+					phase: "rendering",
+					progressPercent: 30,
+				},
+			]),
+		});
+		expect(screen.getByTestId("image-card-shimmer")).toBe(shimmer);
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"Making the picture…",
+		);
+		expect(screen.queryByRole("button", { name: "Stop" })).toBeInTheDocument();
+
+		await rerender({
+			card: card([
+				{
+					...waiting,
+					status: "succeeded",
+					phase: null,
+					fileId: "landed",
+					width: 1248,
+					height: 832,
+				},
+			]),
+		});
+		expect(screen.getByTestId("image-card-picture")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent("");
+		const stop = screen.queryByTestId("image-card-stop");
+		expect(stop === null || isInert(stop), "Stop is gone or fading out").toBe(
+			true,
 		);
 	});
 
@@ -68,7 +105,10 @@ describe("ImageCardBody", () => {
 				}),
 			]),
 		});
-		expect(screen.getByText("1 ahead of this one")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"1 ahead of this one",
+		);
+		expect(screen.getByTestId("image-card-shimmer")).toBeInTheDocument();
 		expect(
 			screen.queryByText("Another picture is being made"),
 		).not.toBeInTheDocument();
@@ -78,7 +118,9 @@ describe("ImageCardBody", () => {
 		render(ImageCardBody, {
 			card: card([take({ status: "queued", fileId: null })]),
 		});
-		expect(screen.getByText("Next up")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"Next up",
+		);
 		expect(
 			screen.queryByText("Another picture is being made"),
 		).not.toBeInTheDocument();
@@ -95,7 +137,10 @@ describe("ImageCardBody", () => {
 				}),
 			]),
 		});
-		expect(screen.getByText("Starting the picture maker…")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"Starting the picture maker…",
+		);
+		expect(screen.getByTestId("image-card-shimmer")).toBeInTheDocument();
 	});
 
 	it("draws a ready take from its file, sized, in the box its take reserved", () => {
@@ -564,6 +609,8 @@ describe("ImageCardBody", () => {
 			screen.getByRole("button", { name: /Ez legyen/ }),
 		).toBeInTheDocument();
 		await fireEvent.click(screen.getAllByTestId("image-card-tile")[2]);
-		expect(screen.getByText("Készül a kép…")).toBeInTheDocument();
+		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
+			"Készül a kép…",
+		);
 	});
 });

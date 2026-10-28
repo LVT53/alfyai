@@ -407,7 +407,162 @@ async function cardPlacement(page: Page) {
 	}, CARD);
 }
 
-async function runArrival(flow: Flow) {
+/**
+ * The picture box while a take waits or is made (Task 11, the owner's call): only
+ * a calm light sweeping left to right across the whole box, no spinner, no words
+ * on screen (they are the sr-only status), and every CSS animation in the card on
+ * transform or opacity alone.
+ */
+async function shimmerState(page: Page) {
+	return page.evaluate((cardSelector) => {
+		const cards = document.querySelectorAll(cardSelector);
+		const card = cards[cards.length - 1];
+		const stage = card?.querySelector('[data-testid="image-card-stage"]');
+		const shimmer = stage?.querySelector('[data-testid="image-card-shimmer"]');
+		const band = shimmer?.querySelector(".image-card-shimmer-band") ?? null;
+		const propertiesOf = (animation: Animation) => [
+			...new Set(
+				(
+					(animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []
+				).flatMap((frame) =>
+					Object.keys(frame).filter(
+						(key) =>
+							!["offset", "computedOffset", "easing", "composite"].includes(
+								key,
+							),
+					),
+				),
+			),
+		];
+		const cssAnimations = (card?.getAnimations({ subtree: true }) ?? []).filter(
+			(animation) =>
+				(animation as Animation & { animationName?: string }).animationName,
+		);
+		const bandAnimations = (band?.getAnimations() ?? []).map((animation) => {
+			const timing = animation.effect?.getComputedTiming();
+			return {
+				name:
+					(animation as Animation & { animationName?: string }).animationName ??
+					"",
+				playState: animation.playState,
+				properties: propertiesOf(animation),
+				durationMs: Number(timing?.duration ?? 0),
+				iterations:
+					timing?.iterations === Infinity ? "infinite" : timing?.iterations,
+				// A CSS animation keeps its timing function on its keyframes.
+				easing: String(
+					(animation.effect as KeyframeEffect | null)?.getKeyframes()[0]
+						?.easing ??
+						timing?.easing ??
+						"",
+				),
+			};
+		});
+		const box = shimmer?.getBoundingClientRect();
+		const stageBox = stage?.getBoundingClientRect();
+		return {
+			shimmer: shimmer != null,
+			coversBox:
+				box != null &&
+				stageBox != null &&
+				Math.abs(box.width - stageBox.width) <= 0.5 &&
+				Math.abs(box.height - stageBox.height) <= 0.5,
+			textOnScreen: stage?.textContent?.trim() ?? null,
+			spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
+			progressBars: card?.querySelectorAll('[role="progressbar"]').length ?? 0,
+			tint: shimmer ? getComputedStyle(shimmer).backgroundColor : null,
+			bandVisibility: band ? getComputedStyle(band).visibility : null,
+			bandAnimations,
+			cardAnimationProperties: [
+				...new Set(
+					cssAnimations.flatMap((animation) => propertiesOf(animation)),
+				),
+			],
+			status:
+				card
+					?.querySelector('[data-testid="image-card-status"]')
+					?.textContent?.trim() ?? null,
+		};
+	}, CARD);
+}
+
+type ShimmerState = Awaited<ReturnType<typeof shimmerState>>;
+
+function holdShimmer(
+	state: ShimmerState,
+	label: string,
+	reducedMotion: boolean,
+): void {
+	expect(state.shimmer, `${label}: the box shows the shimmer`).toBe(true);
+	expect(state.coversBox, `${label}: the shimmer covers the whole box`).toBe(
+		true,
+	);
+	expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
+	expect(state.spinners, `${label}: no spinner in the card`).toBe(0);
+	expect(state.progressBars, `${label}: no progress bar`).toBe(0);
+	expect(state.status, `${label}: the state is still read out`).not.toBe("");
+	expect(
+		state.cardAnimationProperties.filter(
+			(property) => property !== "transform" && property !== "opacity",
+		),
+		`${label}: a card animation on something other than transform/opacity`,
+	).toEqual([]);
+	expect(state.tint, `${label}: the box is tinted`).not.toBe(
+		"rgba(0, 0, 0, 0)",
+	);
+	if (reducedMotion) {
+		expect(
+			state.bandAnimations.filter(
+				(animation) => animation.playState === "running",
+			),
+			`${label}: the shimmer moves under reduced motion`,
+		).toEqual([]);
+		expect(
+			state.bandVisibility,
+			`${label}: a band shows under reduced motion`,
+		).toBe("hidden");
+		return;
+	}
+	expect(state.bandAnimations, `${label}: one sweep`).toHaveLength(1);
+	const [sweep] = state.bandAnimations;
+	expect(sweep.properties, `${label}: the sweep animates`).toEqual([
+		"transform",
+	]);
+	expect(sweep.playState).toBe("running");
+	expect(sweep.iterations).toBe("infinite");
+	expect(
+		sweep.durationMs,
+		`${label}: a slow, calm loop`,
+	).toBeGreaterThanOrEqual(1600);
+	expect(sweep.durationMs, `${label}: a slow, calm loop`).toBeLessThanOrEqual(
+		2400,
+	);
+	expect(sweep.easing, `${label}: on the ease-out token`).toBe(
+		"cubic-bezier(0.4, 0, 0.2, 1)",
+	);
+}
+
+/** Lets the sweep run `loops` whole passes (for the video), read from the animation itself. */
+async function letShimmerRun(page: Page, loops: number): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				page.evaluate((cardSelector) => {
+					const cards = document.querySelectorAll(cardSelector);
+					const band = cards[cards.length - 1]?.querySelector(
+						".image-card-shimmer-band",
+					);
+					const [sweep] = band?.getAnimations() ?? [];
+					// Reduced motion: nothing runs, nothing to wait for.
+					if (!sweep) return Number.POSITIVE_INFINITY;
+					return sweep.effect?.getComputedTiming().currentIteration ?? 0;
+				}, CARD),
+			{ message: `the shimmer ran ${loops} passes`, timeout: 15_000 },
+		)
+		.toBeGreaterThanOrEqual(loops);
+}
+
+async function runArrival(flow: Flow, options: { loops?: number } = {}) {
 	const { page, comfy } = flow;
 	comfy.setOptions({ steps: 12, stepDelayMs: 400 });
 	comfy.holdQueue(true);
@@ -426,11 +581,14 @@ async function runArrival(flow: Flow) {
 		})
 		.toBe(true);
 	const placementAtWaiting = await cardPlacement(page);
+	const shimmerAtWaiting = await shimmerState(page);
+	if (options.loops) await letShimmerRun(page, options.loops);
 	comfy.holdQueue(false);
 	await expect(page.locator(BODY_STATE("making"))).toBeVisible({
 		timeout: 30_000,
 	});
 	mark(flow, "making");
+	const shimmerAtMaking = await shimmerState(page);
 	await expect(page.locator(TRACK.loaded)).toBeVisible({ timeout: 30_000 });
 	mark(flow, "loaded");
 	await expect(
@@ -438,7 +596,12 @@ async function runArrival(flow: Flow) {
 	).toBeVisible({ timeout: 30_000 });
 	mark(flow, "final-text");
 	const run = await stopRecording(page);
-	return { ...measureArrival(run), placementAtWaiting };
+	return {
+		...measureArrival(run),
+		placementAtWaiting,
+		shimmerAtWaiting,
+		shimmerAtMaking,
+	};
 }
 
 /**
@@ -660,7 +823,7 @@ test.describe("the picture card moves like the Document's", () => {
 						"reducedMotion" in variant ? variant.reducedMotion : undefined,
 				},
 			);
-			let metrics: ReturnType<typeof measureArrival> | null = null;
+			let metrics: Awaited<ReturnType<typeof runArrival>> | null = null;
 			try {
 				metrics = await runArrival(flow);
 			} finally {
@@ -669,6 +832,9 @@ test.describe("the picture card moves like the Document's", () => {
 			expect(flow.errors, "the page logged an error").toEqual([]);
 			if (!metrics) throw new Error("the arrival was not measured");
 			holdArrival(metrics);
+			const reduced = "reducedMotion" in variant;
+			holdShimmer(metrics.shimmerAtWaiting, "waiting", reduced);
+			holdShimmer(metrics.shimmerAtMaking, "making", reduced);
 			// The follow to the card glides on the emphasis token (B-I1): no frame
 			// carries most of the way. Under reduced motion it is one cut.
 			const scroll = metrics.arrivalScroll;
@@ -679,6 +845,51 @@ test.describe("the picture card moves like the Document's", () => {
 				).toBeLessThanOrEqual(0.3);
 				expect(scroll.framesMoving).toBeGreaterThanOrEqual(4);
 			}
+		});
+	}
+
+	// Task 11: the owner's shimmer, recorded for the owner (`t11-shimmer-*`). The
+	// take waits two whole passes of the sweep before it is let through, so the
+	// video shows the loop, then the picture crossfades in over the same box.
+	const SHIMMERS = [
+		{ name: "shimmer-desktop-light", viewport: DESKTOP, colorScheme: "light" },
+		{ name: "shimmer-desktop-dark", viewport: DESKTOP, colorScheme: "dark" },
+		{ name: "shimmer-phone", viewport: PHONE, colorScheme: "light" },
+		{
+			name: "shimmer-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+		},
+	] as const;
+
+	for (const variant of SHIMMERS) {
+		test(`${variant.name}: the box shimmers calmly while the take waits and is made, then the picture fades in`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(150_000);
+			const flow = await openFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{
+					viewport: variant.viewport,
+					colorScheme: variant.colorScheme,
+					reducedMotion:
+						"reducedMotion" in variant ? variant.reducedMotion : undefined,
+				},
+			);
+			let metrics: Awaited<ReturnType<typeof runArrival>> | null = null;
+			try {
+				metrics = await runArrival(flow, { loops: 2 });
+			} finally {
+				await closeFlow(flow, variant.name, { metrics }, { prefix: "t11" });
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			if (!metrics) throw new Error("the arrival was not measured");
+			holdArrival(metrics);
+			const reduced = "reducedMotion" in variant;
+			holdShimmer(metrics.shimmerAtWaiting, "waiting", reduced);
+			holdShimmer(metrics.shimmerAtMaking, "making", reduced);
 		});
 	}
 

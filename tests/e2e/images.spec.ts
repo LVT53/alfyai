@@ -191,9 +191,14 @@ test.describe("Pictures end to end", () => {
 		const card = page.locator(CARD).last();
 		await expect(card).toBeVisible({ timeout: 30_000 });
 		comfy.holdQueue(false);
-		await expect(card.getByText("Making the picture…")).toBeVisible({
-			timeout: 30_000,
-		});
+		// Being made: the box shows only the shimmer; the words are for screen readers.
+		await expect(
+			card.locator('[data-testid="image-card-body"][data-state="making"]'),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByTestId("image-card-shimmer")).toBeVisible();
+		await expect(card.getByTestId("image-card-status")).toHaveText(
+			/^Making the picture…/,
+		);
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
 		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
 			timeout: 30_000,
