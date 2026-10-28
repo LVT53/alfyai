@@ -415,77 +415,116 @@ async function cardPlacement(page: Page) {
  * on screen (they are the sr-only status), and every CSS animation in the card on
  * transform or opacity alone.
  */
-async function shimmerState(page: Page) {
-	return page.evaluate((cardSelector) => {
-		const cards = document.querySelectorAll(cardSelector);
-		const card = cards[cards.length - 1];
-		const stage = card?.querySelector('[data-testid="image-card-stage"]');
-		const shimmer = stage?.querySelector('[data-testid="image-card-shimmer"]');
-		const band = shimmer?.querySelector(".image-card-shimmer-band") ?? null;
-		const propertiesOf = (animation: Animation) => [
-			...new Set(
-				(
-					(animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []
-				).flatMap((frame) =>
-					Object.keys(frame).filter(
-						(key) =>
-							!["offset", "computedOffset", "easing", "composite"].includes(
-								key,
-							),
+async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
+	return page.evaluate(
+		({ cardSelector, tag }) => {
+			const cards = document.querySelectorAll(cardSelector);
+			const card = cards[cards.length - 1];
+			const stage = card?.querySelector('[data-testid="image-card-stage"]');
+			const shimmer = stage?.querySelector<HTMLElement>(
+				'[data-testid="image-card-shimmer"]',
+			);
+			// The node seen at waiting is tagged, so making can say whether it is still
+			// the same one (a remount would restart the sweep: Task 11 fix round 1).
+			if (shimmer && tag) shimmer.dataset.probeSeenAtWaiting = "1";
+			const band = shimmer?.querySelector(".image-card-shimmer-band") ?? null;
+			const propertiesOf = (animation: Animation) => [
+				...new Set(
+					(
+						(animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []
+					).flatMap((frame) =>
+						Object.keys(frame).filter(
+							(key) =>
+								!["offset", "computedOffset", "easing", "composite"].includes(
+									key,
+								),
+						),
 					),
 				),
-			),
-		];
-		const cssAnimations = (card?.getAnimations({ subtree: true }) ?? []).filter(
-			(animation) =>
-				(animation as Animation & { animationName?: string }).animationName,
-		);
-		const bandAnimations = (band?.getAnimations() ?? []).map((animation) => {
-			const timing = animation.effect?.getComputedTiming();
+			];
+			const cssAnimations = (
+				card?.getAnimations({ subtree: true }) ?? []
+			).filter(
+				(animation) =>
+					(animation as Animation & { animationName?: string }).animationName,
+			);
+			const bandAnimations = (band?.getAnimations() ?? []).map((animation) => {
+				const timing = animation.effect?.getComputedTiming();
+				return {
+					name:
+						(animation as Animation & { animationName?: string })
+							.animationName ?? "",
+					playState: animation.playState,
+					properties: propertiesOf(animation),
+					durationMs: Number(timing?.duration ?? 0),
+					iterations:
+						timing?.iterations === Infinity ? "infinite" : timing?.iterations,
+					// A CSS animation keeps its timing function on its keyframes.
+					easing: String(
+						(animation.effect as KeyframeEffect | null)?.getKeyframes()[0]
+							?.easing ??
+							timing?.easing ??
+							"",
+					),
+				};
+			});
+			const box = shimmer?.getBoundingClientRect();
+			const stageBox = stage?.getBoundingClientRect();
 			return {
-				name:
-					(animation as Animation & { animationName?: string }).animationName ??
-					"",
-				playState: animation.playState,
-				properties: propertiesOf(animation),
-				durationMs: Number(timing?.duration ?? 0),
-				iterations:
-					timing?.iterations === Infinity ? "infinite" : timing?.iterations,
-				// A CSS animation keeps its timing function on its keyframes.
-				easing: String(
-					(animation.effect as KeyframeEffect | null)?.getKeyframes()[0]
-						?.easing ??
-						timing?.easing ??
-						"",
-				),
+				shimmer: shimmer != null,
+				coversBox:
+					box != null &&
+					stageBox != null &&
+					Math.abs(box.width - stageBox.width) <= 0.5 &&
+					Math.abs(box.height - stageBox.height) <= 0.5,
+				textOnScreen: stage?.textContent?.trim() ?? null,
+				spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
+				progressBars:
+					card?.querySelectorAll('[role="progressbar"]').length ?? 0,
+				tint: shimmer ? getComputedStyle(shimmer).backgroundColor : null,
+				bandVisibility: band ? getComputedStyle(band).visibility : null,
+				bandAnimations,
+				cardAnimationProperties: [
+					...new Set(
+						cssAnimations.flatMap((animation) => propertiesOf(animation)),
+					),
+				],
+				status:
+					card
+						?.querySelector('[data-testid="image-card-status"]')
+						?.textContent?.trim() ?? null,
+				sameShimmerAsWaiting: shimmer?.dataset.probeSeenAtWaiting === "1",
 			};
-		});
-		const box = shimmer?.getBoundingClientRect();
-		const stageBox = stage?.getBoundingClientRect();
-		return {
-			shimmer: shimmer != null,
-			coversBox:
-				box != null &&
-				stageBox != null &&
-				Math.abs(box.width - stageBox.width) <= 0.5 &&
-				Math.abs(box.height - stageBox.height) <= 0.5,
-			textOnScreen: stage?.textContent?.trim() ?? null,
-			spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
-			progressBars: card?.querySelectorAll('[role="progressbar"]').length ?? 0,
-			tint: shimmer ? getComputedStyle(shimmer).backgroundColor : null,
-			bandVisibility: band ? getComputedStyle(band).visibility : null,
-			bandAnimations,
-			cardAnimationProperties: [
-				...new Set(
-					cssAnimations.flatMap((animation) => propertiesOf(animation)),
-				),
-			],
-			status:
-				card
-					?.querySelector('[data-testid="image-card-status"]')
-					?.textContent?.trim() ?? null,
-		};
-	}, CARD);
+		},
+		{ cardSelector: CARD, tag: options.tag === true },
+	);
+}
+
+/**
+ * The newest card's shimmer once that same card shows `state` (Task 11 fix
+ * round 1): the gate and the read are on one card, and the read is polled
+ * until the shimmer is there, so a lazily drawn body is not read half-made.
+ */
+async function shimmerWhen(
+	page: Page,
+	state: "waiting" | "making",
+	options: { tag?: boolean } = {},
+): Promise<ShimmerState> {
+	await expect(
+		page.locator(CARD).last().locator(BODY_STATE(state)),
+	).toBeVisible({ timeout: 30_000 });
+	let read: ShimmerState | null = null;
+	await expect
+		.poll(
+			async () => {
+				read = await shimmerState(page, options);
+				return read.shimmer;
+			},
+			{ message: `${state}: the box shows the shimmer`, timeout: 10_000 },
+		)
+		.toBe(true);
+	if (!read) throw new Error(`${state}: the shimmer was not read`);
+	return read;
 }
 
 type ShimmerState = Awaited<ReturnType<typeof shimmerState>>;
@@ -572,7 +611,9 @@ async function runArrival(flow: Flow, options: { loops?: number } = {}) {
 	await startRecording(page, TRACK);
 	mark(flow, "send");
 	await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
-	await expect(page.locator(BODY_STATE("waiting"))).toBeVisible({
+	await expect(
+		page.locator(CARD).last().locator(BODY_STATE("waiting")),
+	).toBeVisible({
 		timeout: 30_000,
 	});
 	mark(flow, "waiting");
@@ -583,14 +624,16 @@ async function runArrival(flow: Flow, options: { loops?: number } = {}) {
 		})
 		.toBe(true);
 	const placementAtWaiting = await cardPlacement(page);
-	const shimmerAtWaiting = await shimmerState(page);
+	const shimmerAtWaiting = await shimmerWhen(page, "waiting", { tag: true });
 	if (options.loops) await letShimmerRun(page, options.loops);
 	comfy.holdQueue(false);
-	await expect(page.locator(BODY_STATE("making"))).toBeVisible({
+	await expect(
+		page.locator(CARD).last().locator(BODY_STATE("making")),
+	).toBeVisible({
 		timeout: 30_000,
 	});
 	mark(flow, "making");
-	const shimmerAtMaking = await shimmerState(page);
+	const shimmerAtMaking = await shimmerWhen(page, "making");
 	await expect(page.locator(TRACK.loaded)).toBeVisible({ timeout: 30_000 });
 	mark(flow, "loaded");
 	await expect(
@@ -837,6 +880,10 @@ test.describe("the picture card moves like the Document's", () => {
 			const reduced = "reducedMotion" in variant;
 			holdShimmer(metrics.shimmerAtWaiting, "waiting", reduced);
 			holdShimmer(metrics.shimmerAtMaking, "making", reduced);
+			expect(
+				metrics.shimmerAtMaking.sameShimmerAsWaiting,
+				"the shimmer seen at waiting is the same node at making (no remount, no restarted sweep)",
+			).toBe(true);
 			// The follow to the card glides on the emphasis token (B-I1): no frame
 			// carries most of the way. Under reduced motion it is one cut.
 			const scroll = metrics.arrivalScroll;
@@ -892,6 +939,10 @@ test.describe("the picture card moves like the Document's", () => {
 			const reduced = "reducedMotion" in variant;
 			holdShimmer(metrics.shimmerAtWaiting, "waiting", reduced);
 			holdShimmer(metrics.shimmerAtMaking, "making", reduced);
+			expect(
+				metrics.shimmerAtMaking.sameShimmerAsWaiting,
+				"the shimmer seen at waiting is the same node at making (no remount, no restarted sweep)",
+			).toBe(true);
 		});
 	}
 
