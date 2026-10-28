@@ -103,7 +103,9 @@ function missOf(
 
 /**
  * Keeps the room in place: aligns the result to the base, then pastes back only
- * what changed. A whole repaint is kept whole. Every `reanchorEvery`th change
+ * what changed. An unmarked whole repaint is kept whole; a marked one is not
+ * (it is measured and pasted back inside the marks, `global` reported). Every
+ * `reanchorEvery`th change
  * pastes onto the anchor instead of the base so drift cannot pile up.
  */
 export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
