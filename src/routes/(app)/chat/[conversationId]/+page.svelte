@@ -441,7 +441,9 @@ let queuedTurn = $state<SendPayload | null>(null);
 // uploaded photos and the send carries them. Cleared by a send, a queue and a
 // switch to another chat; not kept in the draft.
 let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
-// The order a restored turn's pictures were numbered in (travels with the draft).
+// The order a restored turn's pictures were numbered in (travels with the draft
+// it restores). Let go with the pictures (a send, a queue, another chat), so a
+// later draft apply never brings back a stale order.
 let composerPictureOrder = $state.raw<readonly string[]>([]);
 // The marks drawn on the open picture (plan 2b T6): one composer chip, and the
 // boxes in the panel. Held with the version of their item they were drawn on,
@@ -1764,12 +1766,14 @@ function removeComposerPicture(imageFileId: string) {
 // The pictures and the marks leave the composer with the message, sent or queued.
 function handleComposerSend(payload: SendPayload) {
 	composerPictures = [];
+	composerPictureOrder = [];
 	heldMarks = null;
 	return handleSend(payload);
 }
 
 function handleComposerQueue(payload: SendPayload) {
 	composerPictures = [];
+	composerPictureOrder = [];
 	heldMarks = null;
 	handleQueue(payload);
 }
@@ -2299,6 +2303,7 @@ function resetState() {
 	sendError = null;
 	isSending = false;
 	composerPictures = [];
+	composerPictureOrder = [];
 	heldMarks = null;
 	titleGenerationTriggered = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
