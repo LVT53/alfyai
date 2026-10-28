@@ -2268,12 +2268,10 @@ describe("restoring a turn's picture order (plan 2b T5 fix round 1)", () => {
 
 describe("marks left from an older picture (plan 2b T6, Review Focus 4)", () => {
 	const held = {
-		marks: {
-			imageFileId: "file-2",
-			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
-			artifactId: "img-1",
-			name: "Cosy room",
-		},
+		imageFileId: "file-2",
+		marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+		artifactId: "img-1",
+		name: "Cosy room",
 		version: 2,
 	};
 
@@ -2310,6 +2308,29 @@ describe("marks left from an older picture (plan 2b T6, Review Focus 4)", () => 
 });
 
 describe("restoring a turn's marks (plan 2b T6)", () => {
+	it("restores the marks with the version they were drawn on, so a newer one drops them (fix round 1, I2)", () => {
+		const restored = composerMarksFromSend({
+			imageMarks: {
+				imageFileId: "file-2",
+				marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+			},
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
+		});
+		expect(restored?.version).toBe(2);
+		if (!restored) throw new Error("no marks");
+		expect(marksOutdated(restored, { openItemId: null, version: 3 })).toBe(
+			true,
+		);
+		expect(marksOutdated(restored, { openItemId: null, version: 2 })).toBe(
+			false,
+		);
+	});
+
 	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
 	const pictures = {
 		refs: [
@@ -2324,13 +2345,19 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 		const payload = {
 			pictures,
 			imageMarks: { imageFileId: "file-2", marks },
-			markedPicture: { artifactId: "img-1", name: "Cosy room", addedRef: true },
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
 		};
 		expect(composerMarksFromSend(payload)).toEqual({
 			imageFileId: "file-2",
 			marks,
 			artifactId: "img-1",
 			name: "Cosy room",
+			version: 2,
 		});
 		expect(
 			composerPicturesFromSend(
@@ -2353,6 +2380,7 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 					artifactId: "img-1",
 					name: "Cosy room",
 					addedRef: true,
+					version: 2,
 				},
 			}),
 		).toBeNull();
@@ -2365,7 +2393,12 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 			attachments: [],
 			pendingAttachments: [],
 			imageMarks: { imageFileId: "file-2", marks },
-			markedPicture: { artifactId: "img-1", name: "Cosy room", addedRef: true },
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
 		});
 		expect(cloned.imageMarks).toEqual({ imageFileId: "file-2", marks });
 		expect(cloned.imageMarks?.marks[0]).not.toBe(marks[0]);
@@ -2373,6 +2406,7 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 			artifactId: "img-1",
 			name: "Cosy room",
 			addedRef: true,
+			version: 2,
 		});
 	});
 });

@@ -70,7 +70,12 @@ export type NormalChatSendPayload = {
 	// a ref (plan 2b T6): a queued or failed turn put back in the composer gets
 	// its marks chip back, and only the pictures the person attached as chips.
 	// CLIENT-ONLY, like `pictures`: `streamChat` never sends it.
-	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;

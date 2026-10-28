@@ -76,7 +76,12 @@ export type SendPayload = {
 	// The marks drawn on one picture, and (client-only) the item they were drawn
 	// on (plan 2b T6). See NormalChatSendPayload.
 	imageMarks?: ImageMarksRequest | null;
-	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -1144,13 +1149,8 @@ export function composerPicturesFromSend(
 }
 
 /**
- * The key order of a queued or failed turn's pictures, from the numbers it was
- * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
- * back in the composer keeps the numbers the person's own text names.
- */
-/**
  * The marks chip a queued or failed turn had (plan 2b T6), or `null`: its
- * request and the item it was drawn on.
+ * request, the item and the item's version it was drawn on.
  */
 export function composerMarksFromSend(
 	payload: Pick<SendPayload, "imageMarks" | "markedPicture">,
@@ -1164,11 +1164,10 @@ export function composerMarksFromSend(
 		marks: imageMarks.marks.map((mark) => ({ ...mark })),
 		artifactId: markedPicture.artifactId,
 		name: markedPicture.name,
+		// The version they were drawn on, never today's: a newer one drops them.
+		version: markedPicture.version ?? null,
 	};
 }
-
-/** The marks the page holds, and the version of their item they were drawn on. */
-export type HeldMarks = { marks: ComposerMarks; version: number | null };
 
 /**
  * Whether the marks the page holds were left by an older picture (Review Focus
@@ -1177,10 +1176,10 @@ export type HeldMarks = { marks: ComposerMarks; version: number | null };
  * they were drawn on. A version either side does not know never drops them.
  */
 export function marksOutdated(
-	held: HeldMarks,
+	held: ComposerMarks,
 	now: { openItemId: string | null; version: number | null },
 ): boolean {
-	if (now.openItemId !== null && now.openItemId !== held.marks.artifactId) {
+	if (now.openItemId !== null && now.openItemId !== held.artifactId) {
 		return true;
 	}
 	return (
@@ -1188,6 +1187,11 @@ export function marksOutdated(
 	);
 }
 
+/**
+ * The key order of a queued or failed turn's pictures, from the numbers it was
+ * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
+ * back in the composer keeps the numbers the person's own text names.
+ */
 export function pictureOrderFromSend(
 	pictures: UserPicturesMetadata | undefined,
 ): string[] {

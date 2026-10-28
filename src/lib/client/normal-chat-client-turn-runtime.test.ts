@@ -1389,6 +1389,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			artifactId: "img-1",
 			name: "Cosy room",
 			addedRef: true,
+			version: 2,
 		};
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

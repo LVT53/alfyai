@@ -16,7 +16,10 @@ import type {
 	ImageCardActionResult,
 } from "$lib/components/artifacts/image/image-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
-import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
+import type {
+	ComposerMarks,
+	ComposerPictureRef,
+} from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
@@ -217,7 +220,6 @@ import {
 	buildPendingFileProductionJobPlaceholder,
 	composerMarksFromSend,
 	composerPicturesFromSend,
-	type HeldMarks,
 	marksOutdated,
 	pictureOrderFromSend,
 	composerPlaceholderKey,
@@ -446,7 +448,7 @@ let composerPictureOrder = $state.raw<readonly string[]>([]);
 // and let go when they would be left from an older picture (another item
 // opens, a newer version lands: Review Focus 4), on the chip's x, on a send or
 // queue, and on a switch to another chat.
-let heldMarks = $state.raw<HeldMarks | null>(null);
+let heldMarks = $state.raw<ComposerMarks | null>(null);
 let composerFocusRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
@@ -1804,15 +1806,13 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 	const artifactId = active?.artifactId;
 	if (!active || !artifactId) return;
 	const sameFile =
-		heldMarks?.marks.artifactId === artifactId &&
-		heldMarks.marks.imageFileId === request.imageFileId;
+		heldMarks?.artifactId === artifactId &&
+		heldMarks.imageFileId === request.imageFileId;
 	heldMarks = {
-		marks: {
-			imageFileId: request.imageFileId,
-			marks: request.marks,
-			artifactId,
-			name: active.title || active.filename || "",
-		},
+		imageFileId: request.imageFileId,
+		marks: request.marks,
+		artifactId,
+		name: active.title || active.filename || "",
 		version:
 			sameFile && heldMarks ? heldMarks.version : latestVersionOf(artifactId),
 	};
@@ -1823,16 +1823,16 @@ $effect(() => {
 	if (!held) return;
 	const now = {
 		openItemId: openPanelItemId,
-		version: latestVersionOf(held.marks.artifactId),
+		version: latestVersionOf(held.artifactId),
 	};
 	if (marksOutdated(held, now)) untrack(() => (heldMarks = null));
 });
 
-/** The boxes the panel shows: the held marks, on their own item only. */
+/** The boxes the panel shows: the held marks, on their own item only (the body matches the file). */
 let panelMarks = $derived(
-	heldMarks && openPanelItemId === heldMarks.marks.artifactId
-		? heldMarks.marks.marks
-		: [],
+	heldMarks && openPanelItemId === heldMarks.artifactId
+		? { imageFileId: heldMarks.imageFileId, marks: heldMarks.marks }
+		: null,
 );
 
 /**
@@ -3106,13 +3106,9 @@ function restorePayloadToDraft(payload: SendPayload) {
 	// The queued turn's card pictures come back as chips, and its marks as the
 	// marks chip (the marked picture the send added itself is that chip, not a
 	// picture chip of its own).
-	const restoredMarks = composerMarksFromSend(payload);
-	heldMarks = restoredMarks
-		? {
-				marks: restoredMarks,
-				version: latestVersionOf(restoredMarks.artifactId),
-			}
-		: null;
+	// With the version they were drawn on, so marks from an older picture (a
+	// version landed while the turn was queued) go at once (Review Focus 4).
+	heldMarks = composerMarksFromSend(payload);
 	composerPictures = composerPicturesFromSend(
 		payload.pictures,
 		payload.markedPicture?.addedRef
@@ -4341,7 +4337,7 @@ function handleDrop(event: DragEvent) {
 				pictureRefs={composerPictures}
 				onRemovePictureRef={removeComposerPicture}
 				draftPictureOrder={composerPictureOrder}
-				imageMarks={heldMarks?.marks ?? null}
+				imageMarks={heldMarks}
 				onClearMarks={() => (heldMarks = null)}
 				focusRequest={composerFocusRequest}
 				onStop={handleStop}

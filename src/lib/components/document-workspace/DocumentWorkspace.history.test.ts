@@ -242,7 +242,10 @@ describe("DocumentWorkspace: History as the host's layer", () => {
 			import("./__fixtures__/FakeMarksBody.svelte");
 		const onMarksChange = vi.fn();
 		openDocument({
-			marks: [{ letter: "B", x: 0.2, y: 0.2, w: 0.3, h: 0.3 }],
+			marks: {
+				imageFileId: "file-2",
+				marks: [{ letter: "B", x: 0.2, y: 0.2, w: 0.3, h: 0.3 }],
+			},
 			onMarksChange,
 		});
 		const body = await screen.findByTestId("fake-marks-body");

@@ -1,10 +1,7 @@
 import { render } from "@testing-library/svelte";
 import { vi } from "vitest";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
-import type {
-	ImageMark,
-	ImageMarksRequest,
-} from "$lib/shared/artifacts/image-body";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import DocumentWorkspace from "./DocumentWorkspace.svelte";
 
 type SelectDocumentCallback = (documentId: string) => void;
@@ -58,7 +55,7 @@ type WorkspaceRenderOptions = {
 	) => void;
 	onDeleteArtifact?: (document: DocumentWorkspaceItem) => Promise<void>;
 	onFlushReady?: (flush: (() => Promise<void>) | null) => void;
-	marks?: ImageMark[];
+	marks?: ImageMarksRequest | null;
 	onMarksChange?: (marks: ImageMarksRequest | null) => void;
 };
 

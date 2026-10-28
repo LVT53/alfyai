@@ -356,10 +356,10 @@ describe("ImageBody", () => {
 			api.fetchArtifact.mockResolvedValue(detail(stored, 2));
 			const onMarksChange = vi.fn();
 			const view = renderBody({
-				marks: [],
+				marks: null,
 				onMarksChange: (request: ImageMarksRequest | null) => {
 					onMarksChange(request);
-					void view.rerender({ marks: request?.marks ?? [] });
+					void view.rerender({ marks: request });
 				},
 			});
 			await screen.findByTestId("image-body-picture");
@@ -432,6 +432,23 @@ describe("ImageBody", () => {
 			expect(mark).toBeDisabled();
 			await fireEvent.click(screen.getByRole("button", { name: "After" }));
 			expect(mark).not.toBeDisabled();
+		});
+
+		it("shows no marks drawn on another picture, and lets them go (a restored turn's marks on an older version)", async () => {
+			api.fetchArtifact.mockResolvedValue(
+				detail(body({ fileId: "file-3", baseFileId: "file-2" }), 3),
+			);
+			const onMarksChange = vi.fn();
+			renderBody({
+				marks: {
+					imageFileId: "file-2",
+					marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+				},
+				onMarksChange,
+			});
+			await screen.findByTestId("image-body-picture");
+			expect(screen.queryByTestId("mark-box")).toBeNull();
+			await waitFor(() => expect(onMarksChange).toHaveBeenCalledWith(null));
 		});
 
 		it("lets the marks go when a newer picture lands in the open body", async () => {

@@ -198,7 +198,12 @@ type SendPayload = {
 	// they were drawn on and whether the send added that picture as a ref, so a
 	// turn put back in the composer gets its marks chip back (never on the wire).
 	imageMarks?: ImageMarksRequest;
-	markedPicture?: { artifactId: string; name: string; addedRef: boolean };
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
@@ -1929,6 +1934,7 @@ function picturePayload(): {
 					artifactId: marked.artifactId,
 					name: marked.name,
 					addedRef: addMarkedRef,
+					version: marked.version,
 				},
 			}
 		: {};

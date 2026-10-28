@@ -25,6 +25,8 @@ export type ComposerMarks = {
 	marks: ImageMark[];
 	artifactId: string;
 	name: string;
+	/** The item's version the marks were drawn on: a newer one lets them go (Review Focus 4). */
+	version: number | null;
 };
 
 export type PictureSource =

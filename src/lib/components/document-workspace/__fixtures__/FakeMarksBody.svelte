@@ -6,10 +6,10 @@
 <script lang="ts">
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 
-let { marks = [], onMarksChange }: ArtifactBodyProps = $props();
+let { marks = null, onMarksChange }: ArtifactBodyProps = $props();
 </script>
 
-<div data-testid="fake-marks-body" data-letters={marks.map((mark) => mark.letter).join(',')}>
+<div data-testid="fake-marks-body" data-letters={(marks?.marks ?? []).map((mark) => mark.letter).join(',')}>
 	<button
 		type="button"
 		data-testid="fake-draw-mark"

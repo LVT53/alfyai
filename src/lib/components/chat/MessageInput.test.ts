@@ -6636,6 +6636,7 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 			marks,
 			artifactId: "img-1",
 			name: "Cosy room",
+			version: 4,
 		};
 
 		it("shows one chip for the marks, with the picture's thumbnail and the next number", async () => {
@@ -6696,6 +6697,7 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 				artifactId: "img-1",
 				name: "Cosy room",
 				addedRef: true,
+				version: 4,
 			});
 		});
 

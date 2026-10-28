@@ -53,7 +53,7 @@ let {
 	registerPanelActions,
 	onOpenHistory,
 	onAttachPicture,
-	marks = [],
+	marks = null,
 	onMarksChange,
 }: ArtifactBodyProps = $props();
 
@@ -166,7 +166,7 @@ $effect(() => {
 	if (showing === "before") marking = false;
 });
 $effect(() => {
-	if (!marking || marks.length < MAX_MARKS) refused = false;
+	if (!marking || shownMarks.length < MAX_MARKS) refused = false;
 });
 
 function changeMarks(next: ImageMark[]): void {
@@ -177,17 +177,17 @@ function changeMarks(next: ImageMark[]): void {
 	);
 }
 
-// The marks were drawn on the picture shown: when a newer one lands under them
-// (a late take, Use this, a restore), they go, and their chip with them.
-let markedFileId: string | null = null;
+// The marks belong to the file they were drawn on, and show only on it. Marks
+// on another file (a newer picture landed under them, or a restored turn's
+// marks on an older version) are never drawn here and go, chip and all.
+let shownMarks = $derived(
+	marks && picture && marks.imageFileId === picture.fileId ? marks.marks : [],
+);
 $effect(() => {
 	const fileId = picture?.fileId ?? null;
-	untrack(() => {
-		if (markedFileId !== null && fileId !== markedFileId && marks.length > 0) {
-			onMarksChange?.(null);
-		}
-		markedFileId = fileId;
-	});
+	const markedOn = marks?.imageFileId ?? null;
+	if (status !== "ready" || !fileId || !markedOn || markedOn === fileId) return;
+	untrack(() => onMarksChange?.(null));
 });
 
 let markNote = $derived(
@@ -200,7 +200,7 @@ let markNote = $derived(
 </script>
 
 <div class="image-body" data-testid="image-body">
-	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone, resetKey: picture?.fileId ?? null }} data-testid="image-body-stage">
+	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone, resetKey: picture?.fileId ?? null, doubleTapReset: !marking }} data-testid="image-body-stage">
 		{#if picture}
 			<div
 				class="image-body-frame"
@@ -225,7 +225,7 @@ let markNote = $derived(
 				{#if onMarksChange}
 					<div class="image-body-marks" class:is-hidden={showing === 'before'} inert={showing === 'before'}>
 						<MarkLayer
-							{marks}
+							marks={shownMarks}
 							active={marking && showing === 'after'}
 							onChange={changeMarks}
 							onRefused={() => (refused = true)}

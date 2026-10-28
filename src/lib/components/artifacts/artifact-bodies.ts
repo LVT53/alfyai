@@ -15,10 +15,7 @@
 import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
-import type {
-	ImageMark,
-	ImageMarksRequest,
-} from "$lib/shared/artifacts/image-body";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { LocalizedText } from "$lib/shared/artifacts/tours";
 
@@ -121,11 +118,12 @@ export interface ArtifactBodyProps {
 	 */
 	onAttachPicture?: (picture: { imageFileId: string; name: string }) => void;
 	/**
-	 * The marks the person drew on this item's picture (plan 2b T6), held by the
-	 * chat page (they ride the next message as one composer chip). Absent or
-	 * empty: none.
+	 * The marks the person drew on this item's picture (plan 2b T6), with the
+	 * file they were drawn on, held by the chat page (they ride the next message
+	 * as one composer chip). A body shows them only on that file. Absent or
+	 * null: none.
 	 */
-	marks?: ImageMark[];
+	marks?: ImageMarksRequest | null;
 	/**
 	 * The Image body hands the page the marks on its picture's file, or `null`
 	 * when the last one goes (or the picture under them changed). The panel
