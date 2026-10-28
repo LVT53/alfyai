@@ -15,7 +15,7 @@
 //
 // Each box is a button that removes it ("Mark A, tap to remove"): with Mark off
 // a click or a tap on it, with Mark on a tap on the layer, from the keyboard
-// always. A removed box fades out on opacity alone; the colours are
+// always. A removed box fades out on opacity alone, on the ease-out token; the colours are
 // `MARK_COLOURS`, the panel's and the painter's one constant.
 import type { ActionReturn } from "svelte/action";
 import { fade } from "svelte/transition";
@@ -25,7 +25,11 @@ import {
 	MARK_COLOURS,
 	type MarkLetter,
 } from "$lib/shared/artifacts/image-body";
-import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
+import {
+	MOTION_DURATION,
+	MOTION_EASE,
+	reducedMotionAware,
+} from "$lib/utils/motion";
 import {
 	boxFromDrag,
 	dragBox,
@@ -148,6 +152,21 @@ function handlePointerCancel(event: PointerEvent): void {
 	draft = null;
 }
 
+// Any other pointer that comes down while a box is drawn cancels it, wherever
+// it lands: on the layer, on the stage's bands beside the picture, anywhere in
+// the page. A pinch whose second finger is beside the picture is the zoom's
+// too. Capture phase on the document, so it is heard before anything stops it.
+$effect(() => {
+	if (!active) return;
+	const cancelOnOther = (event: PointerEvent) => {
+		if (!gesture || event.pointerId === gesture.id) return;
+		gesture = null;
+		draft = null;
+	};
+	document.addEventListener("pointerdown", cancelOnOther, true);
+	return () => document.removeEventListener("pointerdown", cancelOnOther, true);
+});
+
 // Mark turned off mid-drag: nothing is left half drawn.
 $effect(() => {
 	if (active) return;
@@ -211,7 +230,7 @@ const boxStyle = (box: MarkBox) => ({
 			data-testid="mark-box"
 			data-letter={mark.letter}
 			onclick={() => remove(mark.letter)}
-			out:markFade={{ duration: MOTION_DURATION.standard }}
+			out:markFade={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.out }}
 		>
 			<span class="mark-tag" aria-hidden="true">{mark.letter}</span>
 		</button>

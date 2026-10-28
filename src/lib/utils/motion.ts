@@ -51,6 +51,40 @@ export const MOTION_EASING = {
 	in: "cubic-bezier(0.4, 0, 1, 1)",
 } as const;
 
+/**
+ * An easing function for a CSS `cubic-bezier(x1, y1, x2, y2)`: the time `t`
+ * (0..1) solved for the curve's x, then its y. For Svelte transitions, which
+ * take a function where WAAPI takes the token's string.
+ */
+export function cubicBezier(
+	x1: number,
+	y1: number,
+	x2: number,
+	y2: number,
+): (t: number) => number {
+	const curve = (a: number, b: number, s: number) =>
+		3 * a * s * (1 - s) ** 2 + 3 * b * s ** 2 * (1 - s) + s ** 3;
+	return (t) => {
+		if (t <= 0) return 0;
+		if (t >= 1) return 1;
+		let low = 0;
+		let high = 1;
+		for (let step = 0; step < 30; step++) {
+			const mid = (low + high) / 2;
+			if (curve(x1, x2, mid) < t) low = mid;
+			else high = mid;
+		}
+		return curve(y1, y2, (low + high) / 2);
+	};
+}
+
+/** `MOTION_EASING` as easing functions, for Svelte transitions (same curves as the `--ease-*` tokens). */
+export const MOTION_EASE = {
+	out: cubicBezier(0.4, 0, 0.2, 1),
+	emphasis: cubicBezier(0.2, 0, 0, 1),
+	in: cubicBezier(0.4, 0, 1, 1),
+} as const;
+
 export interface MotionAnimateOptions {
 	/** Typically one of `MOTION_DURATION`'s values. */
 	duration: number;

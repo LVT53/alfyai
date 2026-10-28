@@ -6,6 +6,20 @@ import { uiLanguage } from "$lib/stores/settings";
 import { MOTION_DURATION } from "$lib/utils/motion";
 import MarkLayer from "./MarkLayer.svelte";
 
+/** The --ease-out token, cubic-bezier(0.4, 0, 0.2, 1), solved for x = t (bisection). */
+function easeOutAt(t: number): number {
+	const at = (a: number, b: number, s: number) =>
+		3 * a * s * (1 - s) ** 2 + 3 * b * s ** 2 * (1 - s) + s ** 3;
+	let low = 0;
+	let high = 1;
+	for (let step = 0; step < 50; step++) {
+		const mid = (low + high) / 2;
+		if (at(0.4, 0.2, mid) < t) low = mid;
+		else high = mid;
+	}
+	return at(0, 1, (low + high) / 2);
+}
+
 /** A pointer event jsdom can carry: a MouseEvent with the pointer's id and type. */
 function pointer(
 	type: string,
@@ -195,6 +209,29 @@ describe("MarkLayer", () => {
 		expect(view.onChange).not.toHaveBeenCalled();
 	});
 
+	it("drops the box being drawn when a second finger lands outside the picture (in a band of the stage)", async () => {
+		const view = renderLayer();
+		const touch = { pointerType: "touch" };
+		const band = document.createElement("div");
+		document.body.append(band);
+		await fireEvent(view.layer, pointer("pointerdown", 140, 70, touch));
+		await fireEvent(view.layer, pointer("pointermove", 300, 170, touch));
+		expect(screen.getByTestId("mark-draft")).toBeTruthy();
+		await fireEvent(
+			band,
+			pointer("pointerdown", 300, 400, { ...touch, id: 2, isPrimary: false }),
+		);
+		expect(screen.queryByTestId("mark-draft")).toBeNull();
+		await fireEvent(
+			band,
+			pointer("pointerup", 300, 400, { ...touch, id: 2, isPrimary: false }),
+		);
+		await fireEvent(view.layer, pointer("pointermove", 320, 190, touch));
+		await fireEvent(view.layer, pointer("pointerup", 320, 190, touch));
+		expect(view.onChange).not.toHaveBeenCalled();
+		band.remove();
+	});
+
 	it("draws on a new press after a pointer whose up never came", async () => {
 		const view = renderLayer();
 		const touch = { pointerType: "touch" };
@@ -275,6 +312,8 @@ describe("MarkLayer", () => {
 				marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.6 }],
 			});
 			const box = screen.getByTestId("mark-box");
+			// jsdom computes no opacity of its own; fade starts from the computed one.
+			box.style.opacity = "1";
 			await fireEvent.click(screen.getByRole("button", { name: /Mark A/ }));
 			expect(view.marks()).toEqual([]);
 			await waitFor(() => expect(screen.queryByTestId("mark-box")).toBeNull());
@@ -292,6 +331,11 @@ describe("MarkLayer", () => {
 				);
 				expect([...properties]).toEqual(["opacity"]);
 				expect(fadeCall.options.duration).toBe(MOTION_DURATION.standard);
+				// On the ease-out token: fast at first (linear would be 1 - offset).
+				const index = Math.floor(fadeCall.keyframes.length / 2);
+				const offset = index / (fadeCall.keyframes.length - 1);
+				const shown = Number(fadeCall.keyframes[index].opacity);
+				expect(shown).toBeCloseTo(1 - easeOutAt(offset), 2);
 			}
 		} finally {
 			animate.mockRestore();
