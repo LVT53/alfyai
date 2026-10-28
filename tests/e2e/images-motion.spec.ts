@@ -29,6 +29,7 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
+	backToList,
 	createTourUser,
 	IMAGE_ITEM_TITLE,
 	markToursSeen,
@@ -2243,6 +2244,8 @@ async function openSeededFlow(
 		viewport: { width: number; height: number };
 		colorScheme?: "light" | "dark";
 		reducedMotion?: "reduce" | "no-preference";
+		/** The reader's language (T6's 360 px Hungarian row). */
+		language?: "en" | "hu";
 	},
 	seed: (user: TourUser, chatId: string) => Promise<unknown>,
 ): Promise<SeededFlow> {
@@ -2264,7 +2267,7 @@ async function openSeededFlow(
 		if (message.type() === "error") errors.push(message.text());
 	});
 	await installMotionRecorder(page);
-	const user = await createTourUser("en");
+	const user = await createTourUser(options.language ?? "en");
 	await markToursSeen(user);
 	const chatId = await startChatAs(page, user);
 	await seed(user, chatId);
@@ -4029,4 +4032,803 @@ test.describe("pictures in the composer on a phone (T5)", () => {
 			}
 		});
 	}
+});
+
+// ---------------------------------------------------------------------------
+// Marks (plan 2b T6): lettered boxes on the open picture, sent as one chip.
+// ---------------------------------------------------------------------------
+
+const MARK_TRACK = {
+	frame: '[data-testid="image-body-frame"]',
+	layer: '[data-testid="mark-layer"]',
+	draft: '[data-testid="mark-draft"]',
+	boxA: '[data-testid="mark-box"][data-letter="A"]',
+	boxB: '[data-testid="mark-box"][data-letter="B"]',
+	note: '[data-testid="image-body-mark-note"]',
+	toggle: '[data-testid="image-body-mark"]',
+	chip: '[data-testid="composer-chip-marks"]',
+	composer: ".composer-shell",
+};
+/** The pieces T6 adds, by the recorder's target names. */
+const T6_PARTS = /^(mark-|image-body-mark|composer-chip-marks)/;
+const MARK_BOX = '[data-testid="mark-box"]';
+const MARKS_CHIP = '[data-testid="composer-chip-marks"]';
+
+/**
+ * Records, per animation frame, every pointer move over an active marks layer
+ * and every time the box being drawn was written, so "the box follows the hand
+ * in the frame it moved" is a number: for each move, the frames until the box's
+ * corner stood under the pointer.
+ */
+async function installMarkProbe(page: Page) {
+	await page.evaluate(() => {
+		const w = window as unknown as Record<string, unknown>;
+		let frame = 0;
+		const tick = () => {
+			frame += 1;
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+		const inputs: Array<{ frame: number; x: number; y: number; t: number }> =
+			[];
+		const writes: Array<{
+			frame: number;
+			right: number;
+			bottom: number;
+			t: number;
+		}> = [];
+		const draftTransitions = new Set<string>();
+		let down: { x: number; y: number } | null = null;
+		const active = () =>
+			document.querySelector('[data-testid="mark-layer"].is-active') !== null;
+		window.addEventListener(
+			"pointerdown",
+			(event) => {
+				if (active()) down = { x: event.clientX, y: event.clientY };
+			},
+			true,
+		);
+		window.addEventListener(
+			"pointermove",
+			(event) => {
+				if (!active() || !down) return;
+				// The first moves are inside the tap slop: no box yet, by design.
+				if (Math.hypot(event.clientX - down.x, event.clientY - down.y) < 10)
+					return;
+				inputs.push({
+					frame,
+					x: event.clientX,
+					y: event.clientY,
+					t: performance.now(),
+				});
+			},
+			true,
+		);
+		window.addEventListener("pointerup", () => (down = null), true);
+		const observer = new MutationObserver(() => {
+			const draft = document.querySelector<HTMLElement>(
+				'[data-testid="mark-draft"]',
+			);
+			if (!draft) return;
+			const rect = draft.getBoundingClientRect();
+			const style = getComputedStyle(draft);
+			draftTransitions.add(
+				`${style.transitionProperty} ${style.transitionDuration}`,
+			);
+			writes.push({
+				frame,
+				right: rect.right,
+				bottom: rect.bottom,
+				t: performance.now(),
+			});
+		});
+		observer.observe(document.body, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ["style"],
+		});
+		w.__markProbe = {
+			read: () => ({
+				inputs: inputs.slice(),
+				writes: writes.slice(),
+				draftTransitions: [...draftTransitions],
+			}),
+			reset: () => {
+				inputs.length = 0;
+				writes.length = 0;
+				draftTransitions.clear();
+			},
+		};
+	});
+}
+
+type MarkProbe = {
+	inputs: Array<{ frame: number; x: number; y: number; t: number }>;
+	writes: Array<{ frame: number; right: number; bottom: number; t: number }>;
+	draftTransitions: string[];
+};
+
+async function readMarkProbe(page: Page): Promise<MarkProbe> {
+	return page.evaluate(() =>
+		(
+			window as unknown as { __markProbe: { read(): unknown } }
+		).__markProbe.read(),
+	) as Promise<MarkProbe>;
+}
+
+/** For each move, the frames until the box's lower right corner stood under the pointer (1.5 px). */
+function markLag(probe: MarkProbe) {
+	return probe.inputs.map((input) => {
+		const write = probe.writes.find(
+			(candidate) =>
+				candidate.t >= input.t &&
+				Math.abs(candidate.right - input.x) <= 1.5 &&
+				Math.abs(candidate.bottom - input.y) <= 1.5,
+		);
+		return write ? write.frame - input.frame : Number.POSITIVE_INFINITY;
+	});
+}
+
+/** The picture's own rectangle on screen, and a point in it from fractions. */
+async function frameBox(page: Page) {
+	const box = await page.getByTestId("image-body-frame").boundingBox();
+	if (!box) throw new Error("no picture frame on screen");
+	return {
+		...box,
+		at: (fx: number, fy: number) => ({
+			x: box.x + box.width * fx,
+			y: box.y + box.height * fy,
+		}),
+	};
+}
+
+type Hand = {
+	drag(
+		from: { x: number; y: number },
+		to: { x: number; y: number },
+		steps?: number,
+	): Promise<void>;
+	tap(at: { x: number; y: number }): Promise<void>;
+	press(selector: string): Promise<void>;
+};
+
+/** A mouse on a desktop, one finger (CDP touch) on a phone. Each move waits for a frame. */
+async function handFor(page: Page, phone: boolean): Promise<Hand> {
+	if (!phone) {
+		return {
+			async drag(from, to, steps = 24) {
+				await page.mouse.move(from.x, from.y);
+				await page.mouse.down();
+				for (let step = 1; step <= steps; step++) {
+					await page.mouse.move(
+						from.x + ((to.x - from.x) * step) / steps,
+						from.y + ((to.y - from.y) * step) / steps,
+					);
+					await nextFrame(page);
+				}
+				await page.mouse.up();
+			},
+			async tap(at) {
+				await page.mouse.click(at.x, at.y);
+			},
+			async press(selector) {
+				await page.locator(selector).first().click();
+			},
+		};
+	}
+	const client = await page.context().newCDPSession(page);
+	const touch = (type: string, points: Array<{ x: number; y: number }>) =>
+		client.send("Input.dispatchTouchEvent", {
+			type,
+			touchPoints: points.map((point, id) => ({ ...point, id })),
+		});
+	return {
+		async drag(from, to, steps = 24) {
+			await touch("touchStart", [from]);
+			for (let step = 1; step <= steps; step++) {
+				await touch("touchMove", [
+					{
+						x: from.x + ((to.x - from.x) * step) / steps,
+						y: from.y + ((to.y - from.y) * step) / steps,
+					},
+				]);
+				await nextFrame(page);
+			}
+			await touch("touchEnd", []);
+		},
+		async tap(at) {
+			await touch("touchStart", [at]);
+			await touch("touchEnd", []);
+		},
+		async press(selector) {
+			await page.locator(selector).first().tap();
+		},
+	};
+}
+
+/** Each box on screen against the picture's rectangle, and the fractions it was drawn at. */
+async function readMarkBoxes(page: Page) {
+	return page.evaluate(() => {
+		const frame = document
+			.querySelector('[data-testid="image-body-frame"]')
+			?.getBoundingClientRect();
+		return [
+			...document.querySelectorAll<HTMLElement>('[data-testid="mark-box"]'),
+		].map((box) => {
+			const rect = box.getBoundingClientRect();
+			const pct = (value: string) => Number.parseFloat(value) / 100;
+			return {
+				letter: box.dataset.letter ?? "",
+				colour: getComputedStyle(box).borderTopColor,
+				onScreen: frame
+					? {
+							x: (rect.left - frame.left) / frame.width,
+							y: (rect.top - frame.top) / frame.height,
+							w: rect.width / frame.width,
+							h: rect.height / frame.height,
+						}
+					: null,
+				drawn: {
+					x: pct(box.style.left),
+					y: pct(box.style.top),
+					w: pct(box.style.width),
+					h: pct(box.style.height),
+				},
+				transitionDuration: getComputedStyle(box).transitionDuration,
+			};
+		});
+	});
+}
+
+/** The largest gap, in fractions of the picture, between where a box stands and where it was drawn. */
+function misalignment(boxes: Awaited<ReturnType<typeof readMarkBoxes>>) {
+	let worst = 0;
+	for (const box of boxes) {
+		if (!box.onScreen) return Number.POSITIVE_INFINITY;
+		for (const key of ["x", "y", "w", "h"] as const) {
+			worst = Math.max(worst, Math.abs(box.onScreen[key] - box.drawn[key]));
+		}
+	}
+	return worst;
+}
+
+function t6Transitions(run: MotionRun) {
+	const seen = run.transitions.filter(
+		(entry) => T6_PARTS.test(entry.target) && entry.duration >= 1,
+	);
+	return {
+		properties: [...new Set(seen.map((entry) => entry.property))],
+		other: seen.filter(
+			(entry) => entry.property !== "opacity" && entry.property !== "transform",
+		),
+	};
+}
+
+function markFades(run: MotionRun) {
+	return run.animations.filter((entry) => entry.target === "mark-box");
+}
+
+/** What a T6 interaction measured: its shifts not caused by the hand, long frames and the motion of the added parts. */
+function t6Step(run: MotionRun) {
+	return {
+		cls: shiftSum(run, { ignoreRecentInput: true }),
+		allShifts: shiftSum(run),
+		longFrames: run.longFrames,
+		transitions: t6Transitions(run),
+		fades: markFades(run),
+	};
+}
+
+type T6Step = ReturnType<typeof t6Step>;
+
+function holdT6Step(label: string, step: T6Step, reduced: boolean) {
+	expect(step.cls, `${label}: a shift not caused by the hand`).toBe(0);
+	expect(step.longFrames, `${label}: a frame over 50 ms`).toEqual([]);
+	expect(
+		step.transitions.other,
+		`${label}: something other than opacity or transform animated`,
+	).toEqual([]);
+	for (const fade of step.fades) {
+		// A removed box fades, on opacity alone, over the standard duration (none under reduced motion).
+		expect(fade.properties, `${label}: a box's removal`).toEqual(["opacity"]);
+		expect(fade.duration).toBe(reduced ? 0 : 150);
+	}
+}
+
+test.describe("marks on the open picture (T6)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	const VARIANTS = [
+		{ name: "draw-desktop-light", viewport: DESKTOP, colorScheme: "light" },
+		{ name: "draw-desktop-dark", viewport: DESKTOP, colorScheme: "dark" },
+		{
+			name: "draw-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+		},
+		{ name: "draw-phone-light", viewport: PHONE, colorScheme: "light" },
+		{ name: "draw-phone-dark", viewport: PHONE, colorScheme: "dark" },
+		{
+			name: "draw-phone-360-hu",
+			viewport: { width: 360, height: 780 },
+			colorScheme: "light",
+			language: "hu",
+		},
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: boxes follow the hand, a tap fades one out, the chip shows and its x clears them`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(240_000);
+			const phone = variant.viewport.width < 500;
+			const reduced = "reducedMotion" in variant;
+			const hu = "language" in variant;
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{
+					viewport: variant.viewport,
+					colorScheme: variant.colorScheme,
+					reducedMotion: reduced ? "reduce" : undefined,
+					language: hu ? "hu" : "en",
+				},
+				(user, chatId) => seedPictureHistory(user, chatId, 2),
+			);
+			const { page } = flow;
+			const metrics: Record<string, unknown> = {};
+			const steps: Record<string, T6Step> = {};
+			try {
+				await openSeededItem(flow, "image");
+				const hand = await handFor(page, phone);
+				await installMarkProbe(page);
+
+				// The toggle: Mark on, the hint over the picture.
+				await startRecording(page, MARK_TRACK);
+				mark(flow, "toggle");
+				await hand.press(MARK_TRACK.toggle);
+				await expect(page.getByTestId("image-body-mark")).toHaveAttribute(
+					"aria-pressed",
+					"true",
+				);
+				await expect(page.getByTestId("image-body-mark-note")).toHaveText(
+					hu ? "Húzással rajzolj keretet" : "Drag to draw a box",
+				);
+				await settle(page);
+				steps.toggle = t6Step(await stopRecording(page));
+				metrics.toggleTarget = await page
+					.getByTestId("image-body-mark")
+					.evaluate((node) => {
+						const rect = node.getBoundingClientRect();
+						return { w: rect.width, h: rect.height };
+					});
+
+				// Two boxes, A then B, drawn by the hand.
+				let frame = await frameBox(page);
+				await startRecording(page, MARK_TRACK);
+				mark(flow, "draw");
+				await hand.drag(frame.at(0.1, 0.15), frame.at(0.45, 0.6));
+				await hand.drag(frame.at(0.55, 0.3), frame.at(0.9, 0.85));
+				await expect(page.locator(MARK_BOX)).toHaveCount(2);
+				await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+				await settle(page);
+				steps.draw = t6Step(await stopRecording(page));
+				const probe = await readMarkProbe(page);
+				metrics.draw = {
+					moves: probe.inputs.length,
+					lagFrames: [...new Set(markLag(probe))],
+					draftTransitions: probe.draftTransitions,
+					boxes: await readMarkBoxes(page),
+					chipText: await page.locator(MARKS_CHIP).textContent(),
+				};
+
+				// A tap on A removes it, fading.
+				frame = await frameBox(page);
+				await startRecording(page, MARK_TRACK);
+				mark(flow, "remove");
+				await hand.tap(frame.at(0.2, 0.3));
+				await expect(page.locator(MARK_BOX)).toHaveCount(1);
+				await settle(page);
+				steps.remove = t6Step(await stopRecording(page));
+
+				if (!phone) {
+					// Up to eight: the ninth is refused, and the note says so.
+					await startRecording(page, MARK_TRACK);
+					mark(flow, "too-many");
+					for (let index = 0; index < 8; index++) {
+						const left = 0.02 + index * 0.11;
+						await hand.drag(
+							frame.at(left, 0.03),
+							frame.at(left + 0.08, 0.2),
+							8,
+						);
+					}
+					await expect(page.locator(MARK_BOX)).toHaveCount(8);
+					await expect(page.getByTestId("image-body-mark-note")).toHaveText(
+						"Up to 8 marks",
+					);
+					await settle(page);
+					steps.tooMany = t6Step(await stopRecording(page));
+					metrics.tooManyNoteOpacity = await page
+						.getByTestId("image-body-mark-note")
+						.evaluate((node) => getComputedStyle(node).opacity);
+				} else {
+					// Two fingers are the zoom's, Mark on or off; the boxes zoom with the picture.
+					const client = await page.context().newCDPSession(page);
+					const touch = (
+						type: string,
+						points: Array<{ x: number; y: number }>,
+					) =>
+						client.send("Input.dispatchTouchEvent", {
+							type,
+							touchPoints: points.map((point, id) => ({ ...point, id })),
+						});
+					const centre = frame.at(0.5, 0.5);
+					await startRecording(page, MARK_TRACK);
+					mark(flow, "zoom");
+					await touch("touchStart", [{ x: centre.x - 30, y: centre.y }]);
+					await touch("touchStart", [
+						{ x: centre.x - 30, y: centre.y },
+						{ x: centre.x + 30, y: centre.y },
+					]);
+					for (let step = 1; step <= 10; step++) {
+						await touch("touchMove", [
+							{ x: centre.x - 30 - step * 3, y: centre.y },
+							{ x: centre.x + 30 + step * 3, y: centre.y },
+						]);
+						await nextFrame(page);
+					}
+					await touch("touchEnd", []);
+					await settle(page);
+					const zoomed = await frameBox(page);
+					// A box drawn on the zoomed picture (in its part on screen) lands where the finger drew it.
+					await hand.drag(zoomed.at(0.4, 0.4), zoomed.at(0.55, 0.6));
+					await expect(page.locator(MARK_BOX)).toHaveCount(2);
+					await settle(page);
+					steps.zoom = t6Step(await stopRecording(page));
+					const boxes = await readMarkBoxes(page);
+					metrics.zoom = {
+						scale: zoomed.width / frame.width,
+						boxes,
+						misalignment: misalignment(boxes),
+						drawnOnZoomed: boxes.find((box) => box.letter === "A")?.drawn,
+						sheetStillOpen: await page.locator(MOBILE_SHELL).isVisible(),
+					};
+					// The sheet gives way; the marks stay for the message (F14).
+					await page.locator(".workspace-close-button:visible").first().tap();
+					await expect(page.locator(MOBILE_SHELL)).toHaveCount(0);
+					await settle(page);
+				}
+
+				// The chip in the composer, then its x.
+				const chip = page.locator(MARKS_CHIP);
+				await expect(chip).toBeVisible();
+				const letters = phone ? "B, A" : "B, A, C, D, E, F, G, H";
+				await expect(chip).toContainText(
+					hu ? `${letters} jelölés` : `Marks ${letters}`,
+				);
+				metrics.chip = await chip.evaluate((node) => {
+					const rect = node.getBoundingClientRect();
+					const img = node.querySelector("img");
+					return {
+						x: rect.x,
+						right: rect.right,
+						h: rect.height,
+						number:
+							node.querySelector('[data-testid="composer-chip-number"]')
+								?.textContent ?? null,
+						thumb: Boolean(img?.complete && img.naturalWidth > 0),
+						label: node.getAttribute("aria-label"),
+						viewport: window.innerWidth,
+						pageScrollsSideways:
+							document.scrollingElement !== null &&
+							document.scrollingElement.scrollWidth > window.innerWidth,
+					};
+				});
+				await startRecording(page, MARK_TRACK);
+				mark(flow, "chip-clear");
+				await hand.press(
+					`${MARKS_CHIP} button[aria-label="${hu ? "Jelölések törlése" : "Remove the marks"}"]`,
+				);
+				await expect(chip).toHaveCount(0);
+				if (!phone) await expect(page.locator(MARK_BOX)).toHaveCount(0);
+				await settle(page);
+				steps.chipClear = t6Step(await stopRecording(page));
+			} finally {
+				metrics.steps = steps;
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t6",
+					segments: [
+						"toggle",
+						"draw",
+						"remove",
+						"too-many",
+						"zoom",
+						"chip-clear",
+					],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+
+			const draw = metrics.draw as {
+				moves: number;
+				lagFrames: number[];
+				draftTransitions: string[];
+				boxes: Awaited<ReturnType<typeof readMarkBoxes>>;
+			};
+			expect(draw.moves, "the hand never drew").toBeGreaterThan(20);
+			// The owner's bar: the box is written in the frame its pointer moved, lag 0.
+			expect(draw.lagFrames).toEqual([0]);
+			// Nothing eases the box being drawn: no transition on its position.
+			for (const entry of draw.draftTransitions) {
+				// "none" or a zero duration (the reduced-motion rule writes 0.01 ms on everything).
+				expect(
+					entry.startsWith("none ") || entry.endsWith(" 0s"),
+					`the box being drawn: ${entry}`,
+				).toBe(true);
+			}
+			expect(draw.boxes.map((box) => box.letter)).toEqual(["A", "B"]);
+			// MARK_COLOURS: A red, B blue.
+			expect(draw.boxes.map((box) => box.colour)).toEqual([
+				"rgb(229, 57, 53)",
+				"rgb(30, 136, 229)",
+			]);
+			for (const box of draw.boxes) {
+				expect(["0s", "1e-05s"]).toContain(box.transitionDuration);
+			}
+			expect(misalignment(draw.boxes)).toBeLessThan(0.01);
+			const a = draw.boxes[0].drawn;
+			expect(a.x).toBeCloseTo(0.1, 1);
+			expect(a.y).toBeCloseTo(0.15, 1);
+			expect(a.w).toBeCloseTo(0.35, 1);
+			expect(a.h).toBeCloseTo(0.45, 1);
+
+			for (const [label, step] of Object.entries(steps)) {
+				holdT6Step(label, step, reduced);
+			}
+			// The removal faded (instantly under reduced motion).
+			if (!reduced) {
+				expect(steps.remove.fades.length).toBeGreaterThan(0);
+				if (!phone) expect(steps.chipClear.fades.length).toBeGreaterThan(0);
+			}
+
+			const chip = metrics.chip as {
+				x: number;
+				right: number;
+				h: number;
+				number: string | null;
+				thumb: boolean;
+				label: string | null;
+				viewport: number;
+				pageScrollsSideways: boolean;
+			};
+			expect(Math.round(chip.h), "the chip is 28 px tall").toBe(28);
+			expect(chip.thumb, "the chip shows the picture's thumbnail").toBe(true);
+			expect(chip.number).toBe("1");
+			expect(chip.pageScrollsSideways).toBe(false);
+			expect(chip.x).toBeGreaterThanOrEqual(0);
+			if (phone) {
+				const zoom = metrics.zoom as {
+					scale: number;
+					misalignment: number;
+					drawnOnZoomed: { x: number; y: number; w: number; h: number };
+					sheetStillOpen: boolean;
+				};
+				expect(zoom.scale).toBeGreaterThan(1.5);
+				// The boxes stand where they were drawn on the zoomed picture.
+				expect(zoom.misalignment).toBeLessThan(0.01);
+				// A box drawn at 40 % to 55 % of the zoomed picture is 40 % to 55 % of the picture.
+				expect(zoom.drawnOnZoomed.x).toBeCloseTo(0.4, 1);
+				expect(zoom.drawnOnZoomed.w).toBeCloseTo(0.15, 1);
+				expect(zoom.drawnOnZoomed.y).toBeCloseTo(0.4, 1);
+				expect(zoom.drawnOnZoomed.h).toBeCloseTo(0.2, 1);
+				expect(zoom.sheetStillOpen).toBe(true);
+				const toggle = metrics.toggleTarget as { w: number; h: number };
+				expect(toggle.w).toBeGreaterThanOrEqual(44);
+				expect(toggle.h).toBeGreaterThanOrEqual(44);
+			} else {
+				expect(metrics.tooManyNoteOpacity).toBe("1");
+			}
+		});
+	}
+
+	test("other-item-clears: opening another item lets the marks and their chip go (Review Focus 4)", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(180_000);
+		const flow = await openSeededFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+			async (user, chatId) => {
+				await seedPictureHistory(user, chatId, 2);
+				await seedDocumentHistory(user, chatId);
+			},
+		);
+		const { page } = flow;
+		const metrics: Record<string, unknown> = {};
+		try {
+			await openSeededItem(flow, "image");
+			const hand = await handFor(page, false);
+			await hand.press(MARK_TRACK.toggle);
+			const frame = await frameBox(page);
+			await hand.drag(frame.at(0.1, 0.1), frame.at(0.4, 0.5));
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+			mark(flow, "open-other");
+			// The panel's way back to its list, then the other item (the count
+			// button would close the panel: a closed panel keeps the marks, F14).
+			await backToList(page);
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+			await openItem(page, DOCUMENT_TITLE);
+			await expect(page.locator(`${DOC_BODY}:visible`).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+			metrics.chipAfterOther = await page.locator(MARKS_CHIP).count();
+			// Back on the picture: nothing of the old marks is left.
+			await backToList(page);
+			await openItem(page, IMAGE_ITEM_TITLE);
+			await expect(page.locator(PANEL_LOADED).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			metrics.boxesBack = await page.locator(MARK_BOX).count();
+		} finally {
+			await saveRecording(flow, "other-item-clears", metrics, {
+				prefix: "t6",
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		expect(metrics.chipAfterOther).toBe(0);
+		expect(metrics.boxesBack).toBe(0);
+	});
+});
+
+test.describe("marks sent with a message, and left from an older picture (T6)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	test("version-clears-and-send: a newer version lets the marks go; marks on a closed panel ride the send with their picture (F14)", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(240_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+		);
+		const { page, comfy } = flow;
+		const metrics: Record<string, unknown> = {};
+		let sentBody: Record<string, unknown> | null = null;
+		try {
+			const { artifactId } = await makePicture(flow);
+			await page.locator(CARD).last().getByTestId("artifact-card-head").click();
+			await expect(page.locator(PANEL_LOADED).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await settle(page);
+			const hand = await handFor(page, false);
+			await hand.press(MARK_TRACK.toggle);
+			let frame = await frameBox(page);
+			await hand.drag(frame.at(0.1, 0.1), frame.at(0.4, 0.5));
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+
+			// A newer version of the item lands (Another, then Use this): the marks go.
+			comfy.setOptions({ steps: 3, stepDelayMs: 150 });
+			mark(flow, "new-version");
+			await page.locator(CARD).last().getByTestId("image-card-another").click();
+			await expect(page.getByTestId("image-card-use")).toBeVisible({
+				timeout: 30_000,
+			});
+			await page.getByTestId("image-card-use").click();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0, {
+				timeout: 15_000,
+			});
+			await expect(page.locator(MARK_BOX)).toHaveCount(0);
+			metrics.clearedOnVersion = true;
+
+			// New marks on the newer picture, then the panel is closed before the send.
+			await settle(page);
+			await expect(page.getByTestId("image-body-mark")).toBeVisible();
+			if (
+				(await page
+					.getByTestId("image-body-mark")
+					.getAttribute("aria-pressed")) !== "true"
+			) {
+				await hand.press(MARK_TRACK.toggle);
+			}
+			frame = await frameBox(page);
+			await hand.drag(frame.at(0.2, 0.2), frame.at(0.5, 0.6));
+			await hand.drag(frame.at(0.6, 0.3), frame.at(0.9, 0.7));
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A, B");
+			const fileId = await page
+				.locator(MARKS_CHIP)
+				.locator("img")
+				.getAttribute("src");
+			metrics.chipThumb = fileId;
+			await page.locator(".workspace-close-button:visible").first().click();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+
+			mark(flow, "send");
+			const request = page.waitForRequest(
+				(candidate) =>
+					candidate.method() === "POST" &&
+					new URL(candidate.url()).pathname === "/api/chat/stream",
+			);
+			await sendMessage(
+				page,
+				`${AI_SMOKE_CHANGE_PICTURE_MARKER} ${artifactId}`,
+			);
+			sentBody = (await request).postDataJSON() as Record<string, unknown>;
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+			await expect(
+				page.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+			).toBeVisible({ timeout: 45_000 });
+			metrics.sentBody = {
+				imageMarks: sentBody.imageMarks,
+				pictureRefs: sentBody.pictureRefs,
+				markedPicture: sentBody.markedPicture ?? null,
+				pictures: sentBody.pictures ?? null,
+			};
+
+			// The server's record: the marked picture rode as picture 1.
+			await page.reload({ waitUntil: "domcontentloaded" });
+			const sent = page
+				.locator('[data-testid="user-message"]')
+				.filter({ hasText: AI_SMOKE_CHANGE_PICTURE_MARKER })
+				.getByTestId("message-picture-chip");
+			await expect(sent).toHaveCount(1, { timeout: 20_000 });
+			metrics.afterReload = await sent
+				.getByTestId("composer-chip-number")
+				.textContent();
+		} finally {
+			await closeFlow(flow, "version-clears-and-send", metrics, {
+				prefix: "t6",
+				segments: ["new-version", "send"],
+			});
+		}
+		expect(flow.errors, "the page logged an error").toEqual([]);
+		expect(metrics.clearedOnVersion).toBe(true);
+		const body = metrics.sentBody as {
+			imageMarks: {
+				imageFileId: string;
+				marks: Array<{
+					letter: string;
+					x: number;
+					y: number;
+					w: number;
+					h: number;
+				}>;
+			};
+			pictureRefs: Array<{ imageFileId: string; number: number }>;
+			markedPicture: unknown;
+			pictures: unknown;
+		};
+		expect(body.imageMarks.marks.map((entry) => entry.letter)).toEqual([
+			"A",
+			"B",
+		]);
+		const first = body.imageMarks.marks[0];
+		expect(first.x).toBeCloseTo(0.2, 1);
+		expect(first.w).toBeCloseTo(0.3, 1);
+		// F14: the panel was closed, so the marked picture rides as a ref.
+		expect(body.pictureRefs).toEqual([
+			{ imageFileId: body.imageMarks.imageFileId, number: 1 },
+		]);
+		expect(String(metrics.chipThumb)).toContain(body.imageMarks.imageFileId);
+		// Client-only fields never go on the wire.
+		expect(body.markedPicture).toBeNull();
+		expect(body.pictures).toBeNull();
+		expect(metrics.afterReload).toBe("1");
+	});
 });
