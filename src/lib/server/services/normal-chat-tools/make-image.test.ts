@@ -888,6 +888,66 @@ describe("the explicit-picture filter, before rendering", () => {
 	});
 });
 
+describe("the explicit-picture filter, after rendering", () => {
+	const solid = (colour: string) => async (input: { width: number; height: number }) =>
+		new Uint8Array(
+			await sharp({
+				create: {
+					width: input.width,
+					height: input.height,
+					channels: 3,
+					background: colour,
+				},
+			})
+				.png()
+				.toBuffer(),
+		);
+
+	it("tells the model the picture was blocked, plainly and without a retry", async () => {
+		const { STUB_EXPLICIT_COLOUR } = await import(
+			"$lib/server/services/images/picture-check/classifier"
+		);
+		await startPictureServer({ render: solid(STUB_EXPLICIT_COLOUR) });
+		await startEngine();
+
+		const { modelPayload, metadata } = await run({ prompt: "a red door" });
+
+		expect(modelPayload).toMatchObject({
+			ok: false,
+			status: "failed",
+			errorCode: "image_blocked",
+			retryable: false,
+		});
+		if (modelPayload.ok) throw new Error("not failed");
+		expect(modelPayload.message).toMatch(/^[\x20-\x7e]*$/);
+		expect(modelPayload.message).toMatch(/blocked/);
+		expect(modelPayload.message).toMatch(/do not call make_image again/i);
+		expect(metadata).toMatchObject({
+			ok: false,
+			imageStatus: "failed",
+			imageError: "image_blocked",
+		});
+		const { cards, takes } = await rows();
+		expect(cards[0]?.pickedTakeId).toBeNull();
+		expect(takes[0]?.resultFileId).toBeNull();
+	});
+
+	it("says a picture that could not be checked was not shown, and offers the model no retry", async () => {
+		const { STUB_UNAVAILABLE_COLOUR } = await import(
+			"$lib/server/services/images/picture-check/classifier"
+		);
+		await startPictureServer({ render: solid(STUB_UNAVAILABLE_COLOUR) });
+		await startEngine();
+		const { modelPayload, metadata } = await run({ prompt: "a red door" });
+		expect(modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "image_unchecked",
+			retryable: false,
+		});
+		expect(metadata).toMatchObject({ imageError: "image_unchecked" });
+	});
+});
+
 describe("a render that fails", () => {
 	it("answers failed with the code and whether it can be tried again", async () => {
 		await startPictureServer({ fail: "execution" });

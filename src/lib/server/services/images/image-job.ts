@@ -162,6 +162,14 @@ export async function retryTake(
 	userId: string,
 	takeId: string,
 ): Promise<boolean> {
+	// A take the explicit-picture filter blocked is not tried again: its seed
+	// would make the same picture. "Another" (a new seed) still may.
+	const [take] = await db
+		.select({ errorCode: imageJobs.errorCode })
+		.from(imageJobs)
+		.where(eq(imageJobs.id, takeId))
+		.limit(1);
+	if (take?.errorCode === "image_blocked") return false;
 	return (await retry(imageJob, takeId, { userId })) !== null;
 }
 

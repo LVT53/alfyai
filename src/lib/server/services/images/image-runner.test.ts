@@ -524,6 +524,138 @@ describe("an edit the model moved by a pixel", () => {
 	}
 });
 
+describe("the explicit-picture check after rendering", () => {
+	// The stub classifier (IMAGE_CHECK_CLASSIFIER=stub, vitest only) flags a
+	// picture of only its marker colour and cannot check another; no explicit
+	// picture is used anywhere.
+	const solid = (colour: string) => async (input: { width: number; height: number }) =>
+		new Uint8Array(
+			await sharp({
+				create: {
+					width: input.width,
+					height: input.height,
+					channels: 3,
+					background: colour,
+				},
+			})
+				.png()
+				.toBuffer(),
+		);
+	const small = { canvas: { width: 256, height: 192 } };
+
+	async function takeFiles() {
+		const { db } = await import("$lib/server/db");
+		return db
+			.select()
+			.from(schema.imageFiles)
+			.where(eq(schema.imageFiles.role, "take"))
+			.all();
+	}
+
+	function filesOnDisk(): string[] {
+		const dir = join(workdir, "data", "image-files", conversationId);
+		return existsSync(dir) ? readdirSync(dir) : [];
+	}
+
+	it("blocks a picture that looks explicit: the take fails image_blocked, nothing is stored, the card has no pick", async () => {
+		const { STUB_EXPLICIT_COLOUR } = await import("./picture-check/classifier");
+		await startFake({ render: solid(STUB_EXPLICIT_COLOUR) });
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("failed");
+		expect(take.errorCode).toBe("image_blocked");
+		expect(take.retryable).toBe(false);
+		expect(take.resultFileId).toBeNull();
+		expect(await takeFiles()).toEqual([]);
+		expect(filesOnDisk()).toEqual([]);
+		const { db } = await import("$lib/server/db");
+		const card = db
+			.select()
+			.from(schema.imageCards)
+			.where(eq(schema.imageCards.id, cardId))
+			.get();
+		expect(card?.pickedTakeId).toBeNull();
+	});
+
+	it("blocks an edit of the person's photo that came back explicit", async () => {
+		const { STUB_EXPLICIT_COLOUR } = await import("./picture-check/classifier");
+		await startFake({ render: solid(STUB_EXPLICIT_COLOUR) });
+		const baseId = await storeInput(
+			await solid(STUB_EXPLICIT_COLOUR)({ width: 640, height: 480 }),
+		);
+		const takeId = await queueTake(
+			request({
+				mode: "edit",
+				prompt: "change it",
+				inputs: [{ fileId: baseId, role: "base", name: "photo.png" }],
+				baseFromUpload: true,
+				canvas: { width: 640, height: 480 },
+			}),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.errorCode).toBe("image_blocked");
+		expect(take.resultFileId).toBeNull();
+		expect(await takeFiles()).toEqual([]);
+	});
+
+	it("fails closed when the picture cannot be checked: image_unchecked, retryable, nothing stored", async () => {
+		const { STUB_UNAVAILABLE_COLOUR } = await import("./picture-check/classifier");
+		await startFake({ render: solid(STUB_UNAVAILABLE_COLOUR) });
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("failed");
+		expect(take.errorCode).toBe("image_unchecked");
+		expect(take.retryable).toBe(true);
+		expect(take.resultFileId).toBeNull();
+		expect(await takeFiles()).toEqual([]);
+	});
+
+	it("keeps an ordinary picture", async () => {
+		await startFake({ render: solid("#778899") });
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+	});
+
+	it("does not check the pictures of a person an admin exempted", async () => {
+		const { STUB_EXPLICIT_COLOUR } = await import("./picture-check/classifier");
+		fixture.sqlite
+			.prepare("update users set explicit_picture_filter_exempt = 1 where id = ?")
+			.run(userId);
+		await startFake({ render: solid(STUB_EXPLICIT_COLOUR) });
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(take.resultFileId).not.toBeNull();
+	});
+
+	it("does not check anything once the filter is off for the install", async () => {
+		const { STUB_UNAVAILABLE_COLOUR } = await import("./picture-check/classifier");
+		await startFake({ render: solid(STUB_UNAVAILABLE_COLOUR) });
+		// After the fake: the config is first read with its address in place.
+		const { getConfig } = await import("$lib/server/config-store");
+		getConfig().imageExplicitFilterEnabled = false;
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+	});
+
+	it("refuses to try a blocked take again (the same seed would make the same picture)", async () => {
+		const { STUB_EXPLICIT_COLOUR } = await import("./picture-check/classifier");
+		await startFake({ render: solid(STUB_EXPLICIT_COLOUR) });
+		const takeId = await queueTake(request(small));
+		await drainImageTakes();
+		const { retryTake } = await import("./image-job");
+		expect(await retryTake(userId, takeId)).toBe(false);
+		expect((await readTake(takeId)).status).toBe("failed");
+	});
+});
+
 describe("waiting in ComfyUI's queue", () => {
 	it("writes how many are ahead", async () => {
 		const comfy = await startFake();

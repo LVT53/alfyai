@@ -4,6 +4,10 @@ import { afterEach, inject, vi } from "vitest";
 import "@testing-library/jest-dom";
 
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-secret";
+// The explicit-picture filter's classifier is a stub in tests: it flags one
+// marker colour and cannot check another (images/picture-check/classifier.ts),
+// so no test needs the real model file or an explicit picture.
+process.env.IMAGE_CHECK_CLASSIFIER = process.env.IMAGE_CHECK_CLASSIFIER || "stub";
 
 // Some components kick off a dynamic import() from inside an effect (e.g.
 // ArtifactCard's lazy FileProductionCard body). Testing Library's own

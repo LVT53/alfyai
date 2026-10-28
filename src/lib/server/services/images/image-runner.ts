@@ -37,6 +37,7 @@ import {
 import { guardEdit } from "./guards/guard-edit";
 import { decodeRaw, encodePng } from "./guards/raw-image";
 import { scheduleIdleFree } from "./idle-free";
+import { checkFinishedPicture } from "./picture-check";
 import {
 	IMAGE_RENDER_DEADLINE_MS,
 	parseTakeRequest,
@@ -512,6 +513,30 @@ async function renderTake(
 		png = PNG_SIGNATURE.every((byte, index) => output[index] === byte)
 			? output
 			: await sharp(output).png().toBuffer();
+	}
+	if (signal.aborted) return;
+
+	// The explicit-picture filter, on the picture as it would be stored (an
+	// edit's pasted result too). A blocked or unchecked picture is never
+	// stored, so there is no file to serve, thumbnail or download.
+	const check = await checkFinishedPicture({
+		userId: row.userId,
+		takeId: row.id,
+		png,
+	});
+	if (check === "blocked") {
+		throw new TakeError(
+			"image_blocked",
+			"The picture was blocked by the explicit-picture filter.",
+			false,
+		);
+	}
+	if (check === "unchecked") {
+		throw new TakeError(
+			"image_unchecked",
+			"The picture could not be checked, so it was not kept.",
+			true,
+		);
 	}
 	if (signal.aborted) return;
 
