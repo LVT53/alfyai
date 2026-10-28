@@ -1441,6 +1441,50 @@ describe("DocumentsList", () => {
 	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row
 	// (`type: "artifact"`, `KnowledgeDocumentItem.kind`) joins the same table.
 	describe("artifact-family rows (kind-bearing)", () => {
+		it("lists an image row with the Image icon and the kind label Image", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-img-1",
+							displayArtifactId: "art-img-1",
+							name: "Harbour at dusk",
+							kind: "image",
+						}),
+					],
+				},
+			});
+
+			const typeCell = document.querySelector(
+				".documents-table tbody .col-type",
+			);
+			expect(typeCell?.textContent?.trim()).toBe("Image");
+			const row = screen.getByText("Harbour at dusk").closest("tr");
+			expect(row?.querySelector("svg")?.getAttribute("class")).toContain(
+				"lucide-image",
+			);
+		});
+
+		it("offers an Images chip with its count", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 0,
+						app: 0,
+						canvas: 0,
+						slides: 0,
+						image: 4,
+						uploaded: 0,
+					},
+				},
+			});
+
+			expect(
+				screen.getByTestId("documents-filter-chip-image").textContent?.trim(),
+			).toBe("Images 4");
+		});
+
 		it("shows the kind pill, and says what changed last in the Version cell instead of a number (ruling 76, A1)", () => {
 			render(DocumentsList, {
 				props: {

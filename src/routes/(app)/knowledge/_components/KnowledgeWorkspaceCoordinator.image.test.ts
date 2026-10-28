@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
 import KnowledgeWorkspaceCoordinator from "./KnowledgeWorkspaceCoordinator.svelte";
 
 // Workspace Search hands an image result off as `/knowledge?open_artifact=<id>`;
