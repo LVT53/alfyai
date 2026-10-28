@@ -39,7 +39,7 @@ describe("buildPromptGraph", () => {
 		expect(read(g, t.slots.seed)).toBe(77);
 		expect(read(g, t.slots.steps)).toBe(QWEN_STEPS);
 		expect(read(g, t.slots.cfg)).toBe(QWEN_CFG);
-		expect(QWEN_STEPS).toBe(40);
+		expect(QWEN_STEPS).toBe(20);
 		expect(QWEN_CFG).toBe(1);
 		expect(t.slots.width && read(g, t.slots.width)).toBe(1248);
 		expect(t.slots.height && read(g, t.slots.height)).toBe(832);
