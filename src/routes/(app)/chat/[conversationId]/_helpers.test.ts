@@ -2220,6 +2220,12 @@ describe("composer pictures (plan 2b T5)", () => {
 		]);
 	});
 
+	it("keeps when a picture was made, so two versions of one item can be told apart", () => {
+		expect(
+			addComposerPicture([], { imageFileId: "f1", name: "Sunset", at: 100 }),
+		).toEqual([{ imageFileId: "f1", name: "Sunset", at: 100 }]);
+	});
+
 	it("takes a queued turn's pictures back into the composer in their number order", () => {
 		expect(
 			composerPicturesFromSend({

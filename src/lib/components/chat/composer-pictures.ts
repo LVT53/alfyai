@@ -13,7 +13,46 @@
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 
 /** A card, strip or History picture waiting in the composer. */
-export type ComposerPictureRef = { imageFileId: string; name: string };
+export type ComposerPictureRef = {
+	imageFileId: string;
+	name: string;
+	/** When the picture was made (ms): tells two pictures of one item apart in their chips. */
+	at?: number;
+};
+
+/**
+ * The name each picture chip shows. Two pictures under one name (two versions
+ * or takes of one item) are told apart by the older ones carrying when they
+ * were made ("Sunset gradient · today 10:31"); the newest keeps the bare name.
+ * Words, never a version number (ruling 76). A name shared with a picture
+ * whose time is unknown is left as it is. Keyed by `imageFileId`.
+ */
+export function pictureChipNames(
+	refs: readonly ComposerPictureRef[],
+	when: (at: number) => string,
+): Map<string, string> {
+	const byName = new Map<string, ComposerPictureRef[]>();
+	for (const ref of refs) {
+		byName.set(ref.name, [...(byName.get(ref.name) ?? []), ref]);
+	}
+	const names = new Map<string, string>();
+	for (const [name, group] of byName) {
+		const times = group.map((ref) => ref.at);
+		const newest =
+			group.length > 1 && times.every((at) => at !== undefined)
+				? Math.max(...(times as number[]))
+				: null;
+		for (const ref of group) {
+			names.set(
+				ref.imageFileId,
+				newest !== null && ref.at !== undefined && ref.at < newest
+					? `${name} · ${when(ref.at)}`
+					: name,
+			);
+		}
+	}
+	return names;
+}
 
 /**
  * The marks the person drew on one picture (plan 2b T6), held by the chat page

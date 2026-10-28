@@ -31,6 +31,7 @@ let {
 	artifactId,
 	conversationId,
 	versionId,
+	at = undefined,
 	baseVersionId,
 	compare,
 	nowVersionId,
@@ -180,7 +181,7 @@ const tags = $derived(
 				class="ivp-attach"
 				data-testid="image-version-preview-attach"
 				disabled={!shown}
-				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: oneLineName(title || label) })}
+				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: oneLineName(title || label), at })}
 			>
 				<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
 				{$t('artifacts.image.card.attach')}

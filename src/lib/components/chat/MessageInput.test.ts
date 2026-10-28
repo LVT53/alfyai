@@ -6489,6 +6489,30 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 		expect(view.getByLabelText("Picture 1: rug.jpg")).toBeTruthy();
 	});
 
+	it("tells two versions of one picture apart by when the older was made", async () => {
+		const today = new Date();
+		today.setHours(9, 5, 0, 0);
+		const view = renderComposer({
+			pictureRefs: [
+				{
+					imageFileId: "f2",
+					name: "Sunset gradient",
+					at: today.getTime() + 60_000,
+				},
+				{ imageFileId: "f1", name: "Sunset gradient", at: today.getTime() },
+			],
+		});
+		const labels = view
+			.getAllByTestId("composer-chip-picture")
+			.map((chip) => chip.textContent ?? "");
+		expect(
+			labels.some((text) => text.includes("Sunset gradient · today")),
+		).toBe(true);
+		expect(
+			labels.filter((text) => text.includes("Sunset gradient")),
+		).toHaveLength(2);
+	});
+
 	it("names a numbered chip in Hungarian", async () => {
 		uiLanguage.set("hu");
 		const view = renderComposer({

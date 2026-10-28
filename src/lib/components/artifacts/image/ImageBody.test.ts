@@ -242,6 +242,7 @@ describe("ImageBody", () => {
 		expect(onAttachPicture).toHaveBeenCalledWith({
 			imageFileId: "file-2",
 			name: "Cosy room",
+			at: expect.any(Number),
 		});
 	});
 

@@ -87,6 +87,7 @@ describe("VersionStrip", () => {
 		expect(onAttachPicture).toHaveBeenCalledWith({
 			imageFileId: "file-1",
 			name: "Cosy room",
+			at: expect.any(Number),
 		});
 		expect(onOpenHistory).not.toHaveBeenCalled();
 	});

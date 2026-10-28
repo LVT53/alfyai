@@ -259,6 +259,7 @@ function pressAttach(): void {
 			type: "attach",
 			fileId: shown.fileId,
 			name: oneLineName(card.title),
+			at: shown.createdAt,
 		});
 	}
 }

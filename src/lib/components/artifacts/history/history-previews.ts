@@ -47,9 +47,15 @@ export interface HistoryPreviewProps {
 	/** The item's name, for a kind that offers to attach a version's picture to the chat (the Image, plan 2b T5). */
 	title?: string;
 	/** Puts the shown version's picture in the chat's composer. Absent where the host has none, and the preview draws no Attach. */
-	onAttachPicture?: (picture: { imageFileId: string; name: string }) => void;
+	onAttachPicture?: (picture: {
+		imageFileId: string;
+		name: string;
+		at?: number;
+	}) => void;
 	/** The version to show. */
 	versionId: string;
+	/** When that version was made (ms), handed on with an attached picture. */
+	at?: number;
 	/** What its changes are measured against, or `null` when there is nothing to compare (a first version). */
 	baseVersionId: string | null;
 	compare: HistoryCompare;

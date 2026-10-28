@@ -113,7 +113,7 @@ let {
 	initialVersionId?: string | undefined;
 	/** Puts a version's picture in the chat's composer (the Image's Attach, plan 2b T5). */
 	onAttachPicture?:
-		| ((picture: { imageFileId: string; name: string }) => void)
+		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
 		| undefined;
 } = $props();
 
@@ -991,6 +991,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					{title}
 					{onAttachPicture}
 					versionId={selected.versionId}
+					at={selected.at}
 					baseVersionId={compareEffective === 'step' ? selected.parentVersionId : nowRow.versionId}
 					compare={compareEffective}
 					author={selected.author}

@@ -299,6 +299,7 @@ describe("ImageCardBody", () => {
 			type: "attach",
 			fileId: "file-z",
 			name: "Cosy room",
+			at: ready.createdAt,
 		});
 	});
 

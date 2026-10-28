@@ -1897,7 +1897,11 @@ async function handleImageAction(
 				openImage(action.artifactId, false);
 				return undefined;
 			case "attach":
-				attachPicture({ imageFileId: action.fileId, name: action.name });
+				attachPicture({
+					imageFileId: action.fileId,
+					name: action.name,
+					at: action.at,
+				});
 				return undefined;
 		}
 		// Read back whatever the poll is doing: Use this on a settled card has no poll.

@@ -38,7 +38,7 @@ let {
 	onOpenHistory?: ((versionId: string) => void) | undefined;
 	/** Puts a frame's own picture in the composer (plan 2b T5). Absent where the host has none. */
 	onAttachPicture?:
-		| ((picture: { imageFileId: string; name: string }) => void)
+		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
 		| undefined;
 } = $props();
 
@@ -64,6 +64,7 @@ let frames = $derived(
 								currentVersionId !== null
 									? moment.versionId === currentVersionId
 									: moment.containsNewest,
+							at: moment.at,
 							label: `${capitalize(whenLabel(moment.at, ctx))} · ${entryHeadline(momentEntry(moment), ctx, "image")}`,
 						},
 					]
@@ -104,7 +105,7 @@ let frames = $derived(
 						aria-label={$t('artifacts.image.attachNamed', { name: frame.label })}
 						title={$t('artifacts.image.card.attach')}
 						data-testid="image-version-attach"
-						onclick={() => onAttachPicture?.({ imageFileId: frame.fileId, name: oneLineName(title) })}
+						onclick={() => onAttachPicture?.({ imageFileId: frame.fileId, name: oneLineName(title), at: frame.at })}
 					>
 						<Paperclip size={12} strokeWidth={2} aria-hidden="true" />
 					</button>

@@ -3,6 +3,7 @@ import {
 	arrangePictureChips,
 	markedPictureNumber,
 	numberPictures,
+	pictureChipNames,
 	pictureKey,
 	reconcilePictureOrder,
 } from "./composer-pictures";
@@ -93,5 +94,35 @@ describe("markedPictureNumber", () => {
 		const numbers = numberPictures(["upload:a", "ref:f1"], () => true);
 		expect(markedPictureNumber(numbers, "f9")).toBe(3);
 		expect(markedPictureNumber(new Map(), "f9")).toBe(1);
+	});
+});
+
+describe("pictureChipNames", () => {
+	const when = (at: number) => `at ${at}`;
+
+	it("tells two pictures of one item apart: the older carries when it was made, the newest keeps the name", () => {
+		const names = pictureChipNames(
+			[
+				{ imageFileId: "new", name: "Sunset gradient", at: 200 },
+				{ imageFileId: "old", name: "Sunset gradient", at: 100 },
+				{ imageFileId: "rug", name: "Red rug", at: 50 },
+			],
+			when,
+		);
+		expect(names.get("new")).toBe("Sunset gradient");
+		expect(names.get("old")).toBe("Sunset gradient · at 100");
+		expect(names.get("rug")).toBe("Red rug");
+	});
+
+	it("leaves a name alone when it cannot say when the picture was made", () => {
+		const names = pictureChipNames(
+			[
+				{ imageFileId: "a", name: "Sunset gradient" },
+				{ imageFileId: "b", name: "Sunset gradient", at: 100 },
+			],
+			when,
+		);
+		expect(names.get("a")).toBe("Sunset gradient");
+		expect(names.get("b")).toBe("Sunset gradient");
 	});
 });

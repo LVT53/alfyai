@@ -1137,7 +1137,14 @@ export function addComposerPicture(
 	if (list.some((entry) => entry.imageFileId === picture.imageFileId)) {
 		return list;
 	}
-	return [...list, { imageFileId: picture.imageFileId, name: picture.name }];
+	return [
+		...list,
+		{
+			imageFileId: picture.imageFileId,
+			name: picture.name,
+			...(picture.at === undefined ? {} : { at: picture.at }),
+		},
+	];
 }
 
 /** The chips of a queued turn put back in the composer (in their number order). */

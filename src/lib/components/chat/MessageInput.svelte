@@ -42,7 +42,8 @@ import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
 import { startNewChat } from "$lib/client/new-chat";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
-import { selectedModel } from "$lib/stores/settings";
+import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { whenLabel } from "$lib/components/artifacts/history/moment-text";
 import { showToast } from "$lib/stores/toast";
 import {
 	cancelExtraction,
@@ -136,6 +137,7 @@ import {
 	type ComposerPictureRef,
 	markedPictureNumber,
 	numberPictures,
+	pictureChipNames,
 	pictureKey,
 	reconcilePictureOrder,
 } from "./composer-pictures";
@@ -665,6 +667,16 @@ $effect(() => {
 	if (livePictureOrder !== pictureOrder) pictureOrder = livePictureOrder;
 });
 let pictureNumbers = $derived(numberPictures(livePictureOrder, () => true));
+// Two versions of one item would read alike: the older says when it was made.
+let pictureRefNames = $derived(
+	pictureChipNames(pictureRefs, (at) =>
+		whenLabel(at, {
+			t: $t,
+			lang: $uiLanguage === "hu" ? "hu" : "en",
+			now: Date.now(),
+		}),
+	),
+);
 let pictureChipSlots = $derived(
 	arrangePictureChips(livePictureOrder, uploadPictureKeys, refPictureKeys),
 );
@@ -3880,11 +3892,11 @@ async function emitDraftChange(force = false) {
 					<li class="composer-chip-item">
 						<ComposerChip
 							kind="image"
-							label={pictureRef.name}
+							label={pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name}
 							thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
 							number={pictureNumbers.get(pictureKey({ kind: 'ref', imageFileId: pictureRef.imageFileId })) ?? null}
 							removable
-							removeLabel={$t('composerChips.removePicture', { name: pictureRef.name })}
+							removeLabel={$t('composerChips.removePicture', { name: pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name })}
 							onRemove={() => onRemovePictureRef?.(pictureRef.imageFileId)}
 							testId="composer-chip-picture"
 						/>

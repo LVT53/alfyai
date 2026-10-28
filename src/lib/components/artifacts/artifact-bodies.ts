@@ -116,7 +116,11 @@ export interface ArtifactBodyProps {
 	 * where there is a composer to put it in; absent otherwise (the Knowledge
 	 * page), and the strip then draws no Attach.
 	 */
-	onAttachPicture?: (picture: { imageFileId: string; name: string }) => void;
+	onAttachPicture?: (picture: {
+		imageFileId: string;
+		name: string;
+		at?: number;
+	}) => void;
 	/**
 	 * The marks the person drew on this item's picture (plan 2b T6), with the
 	 * file they were drawn on, held by the chat page (they ride the next message

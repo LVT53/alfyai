@@ -233,7 +233,7 @@ let {
 	onShowChatMessage?: ((messageId: string) => void) | undefined;
 	/** Puts a picture of the open Image (a strip frame, a History version) in the chat's composer (plan 2b T5, F12). Absent for a host with no chat (the Knowledge page). */
 	onAttachPicture?:
-		| ((picture: { imageFileId: string; name: string }) => void)
+		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
 		| undefined;
 	/** The marks drawn on the open Image's picture, held by the chat page (plan 2b T6); handed to the open body. */
 	marks?: ArtifactBodyProps["marks"];
