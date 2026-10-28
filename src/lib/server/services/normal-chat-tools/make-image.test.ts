@@ -889,19 +889,20 @@ describe("the explicit-picture filter, before rendering", () => {
 });
 
 describe("the explicit-picture filter, after rendering", () => {
-	const solid = (colour: string) => async (input: { width: number; height: number }) =>
-		new Uint8Array(
-			await sharp({
-				create: {
-					width: input.width,
-					height: input.height,
-					channels: 3,
-					background: colour,
-				},
-			})
-				.png()
-				.toBuffer(),
-		);
+	const solid =
+		(colour: string) => async (input: { width: number; height: number }) =>
+			new Uint8Array(
+				await sharp({
+					create: {
+						width: input.width,
+						height: input.height,
+						channels: 3,
+						background: colour,
+					},
+				})
+					.png()
+					.toBuffer(),
+			);
 
 	it("tells the model the picture was blocked, plainly and without a retry", async () => {
 		const { STUB_EXPLICIT_COLOUR } = await import(

@@ -528,19 +528,20 @@ describe("the explicit-picture check after rendering", () => {
 	// The stub classifier (IMAGE_CHECK_CLASSIFIER=stub, vitest only) flags a
 	// picture of only its marker colour and cannot check another; no explicit
 	// picture is used anywhere.
-	const solid = (colour: string) => async (input: { width: number; height: number }) =>
-		new Uint8Array(
-			await sharp({
-				create: {
-					width: input.width,
-					height: input.height,
-					channels: 3,
-					background: colour,
-				},
-			})
-				.png()
-				.toBuffer(),
-		);
+	const solid =
+		(colour: string) => async (input: { width: number; height: number }) =>
+			new Uint8Array(
+				await sharp({
+					create: {
+						width: input.width,
+						height: input.height,
+						channels: 3,
+						background: colour,
+					},
+				})
+					.png()
+					.toBuffer(),
+			);
 	const small = { canvas: { width: 256, height: 192 } };
 
 	async function takeFiles() {
@@ -602,7 +603,9 @@ describe("the explicit-picture check after rendering", () => {
 	});
 
 	it("fails closed when the picture cannot be checked: image_unchecked, retryable, nothing stored", async () => {
-		const { STUB_UNAVAILABLE_COLOUR } = await import("./picture-check/classifier");
+		const { STUB_UNAVAILABLE_COLOUR } = await import(
+			"./picture-check/classifier"
+		);
 		await startFake({ render: solid(STUB_UNAVAILABLE_COLOUR) });
 		const takeId = await queueTake(request(small));
 		await drainImageTakes();
@@ -624,7 +627,9 @@ describe("the explicit-picture check after rendering", () => {
 	it("does not check the pictures of a person an admin exempted", async () => {
 		const { STUB_EXPLICIT_COLOUR } = await import("./picture-check/classifier");
 		fixture.sqlite
-			.prepare("update users set explicit_picture_filter_exempt = 1 where id = ?")
+			.prepare(
+				"update users set explicit_picture_filter_exempt = 1 where id = ?",
+			)
 			.run(userId);
 		await startFake({ render: solid(STUB_EXPLICIT_COLOUR) });
 		const takeId = await queueTake(request(small));
@@ -635,7 +640,9 @@ describe("the explicit-picture check after rendering", () => {
 	});
 
 	it("does not check anything once the filter is off for the install", async () => {
-		const { STUB_UNAVAILABLE_COLOUR } = await import("./picture-check/classifier");
+		const { STUB_UNAVAILABLE_COLOUR } = await import(
+			"./picture-check/classifier"
+		);
 		await startFake({ render: solid(STUB_UNAVAILABLE_COLOUR) });
 		// After the fake: the config is first read with its address in place.
 		const { getConfig } = await import("$lib/server/config-store");

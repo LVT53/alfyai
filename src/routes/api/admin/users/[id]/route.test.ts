@@ -77,8 +77,9 @@ describe("admin user detail route", () => {
 	});
 
 	it("exempts a person from the explicit-picture filter", async () => {
-		const mockExempt =
-			setManagedUserExplicitPictureFilterExempt as ReturnType<typeof vi.fn>;
+		const mockExempt = setManagedUserExplicitPictureFilterExempt as ReturnType<
+			typeof vi.fn
+		>;
 		mockExempt.mockResolvedValue({
 			id: "user-2",
 			explicitPictureFilterExempt: true,

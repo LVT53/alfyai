@@ -49,9 +49,7 @@ export interface PictureClassifier {
 }
 
 type OrtModule = typeof import("onnxruntime-node");
-type OrtSession = Awaited<
-	ReturnType<OrtModule["InferenceSession"]["create"]>
->;
+type OrtSession = Awaited<ReturnType<OrtModule["InferenceSession"]["create"]>>;
 
 async function sha256Of(path: string): Promise<string> {
 	const hash = createHash("sha256");

@@ -65,9 +65,7 @@ describe("the stub classifier (tests only)", () => {
 
 describe("the real classifier", () => {
 	it("is unavailable when its model file is missing", async () => {
-		const classifier = createOnnxPictureClassifier(
-			"/nonexistent/model.onnx",
-		);
+		const classifier = createOnnxPictureClassifier("/nonexistent/model.onnx");
 		await expect(classifier.ready()).rejects.toBeInstanceOf(
 			PictureCheckUnavailable,
 		);

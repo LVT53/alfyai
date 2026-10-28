@@ -175,7 +175,10 @@ const FAILURE_MESSAGES: Record<string, string> = {
 		"The finished picture could not be checked by the explicit-picture filter, so it was not shown to the user and not kept. Tell the user it could not be checked right now. Do not call make_image again for it now.",
 };
 /** A take the filter stopped is never the model's to repeat, whatever the card offers. */
-const NOT_FOR_THE_MODEL_TO_RETRY = new Set(["image_blocked", "image_unchecked"]);
+const NOT_FOR_THE_MODEL_TO_RETRY = new Set([
+	"image_blocked",
+	"image_unchecked",
+]);
 const EXPLICIT_REQUEST_MESSAGE =
 	"Explicit or sexual pictures are not made here: the explicit-picture filter refused this request and no picture was made. Tell the user plainly that this picture cannot be made. Do not call make_image again for this request.";
 const FAILURE_FALLBACK = "The picture could not be made.";
@@ -185,10 +188,7 @@ const STOPPED_MESSAGE =
 type Metadata = Record<string, string | number | boolean | null>;
 type Outcome = { modelPayload: MakeImagePayload; metadata: Metadata };
 
-function refusal(
-	errorCode: RefusalCode,
-	message: string,
-): Outcome {
+function refusal(errorCode: RefusalCode, message: string): Outcome {
 	return {
 		modelPayload: { ok: false, errorCode, message },
 		// No `error` text: the row the person reads is made from the code, in their language.

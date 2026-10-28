@@ -134,7 +134,16 @@ const TERMS: readonly Term[] = [
 ];
 
 /** A negation just before a term ("no nudity", "not nude", "non-nude"). */
-const NEGATIONS = new Set(["no", "not", "non", "without", "never", "nem", "nincs", "semmi"]);
+const NEGATIONS = new Set([
+	"no",
+	"not",
+	"non",
+	"without",
+	"never",
+	"nem",
+	"nincs",
+	"semmi",
+]);
 
 const LETTER = /[\p{L}\p{N}]/u;
 

@@ -6,7 +6,11 @@
 import { classifyPicture } from "./classifier";
 import { isExplicitFilterOnFor } from "./policy";
 
-export type FinishedPictureCheck = "not_filtered" | "shown" | "blocked" | "unchecked";
+export type FinishedPictureCheck =
+	| "not_filtered"
+	| "shown"
+	| "blocked"
+	| "unchecked";
 
 export async function checkFinishedPicture(input: {
 	userId: string;
