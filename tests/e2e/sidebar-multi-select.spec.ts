@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
@@ -785,5 +787,326 @@ test.describe("selecting chats on a 360 px phone", () => {
 		await scrollListTo(page, "bottom");
 		await expectBarInView(page, "at the bottom of the list");
 		await expectBarOnOneLine(page);
+	});
+});
+
+// Set MOTION_VIDEO_DIR to keep a video of each drag test (t10-<name>.webm) and
+// its numbers (t10-<name>.json); unset, nothing is recorded or written. Top-level
+// because a video forces its own worker, which Playwright rejects in a describe
+// group: with it set every test here records, and only the drag tests keep theirs.
+const DRAG_VIDEO_DIR = process.env.MOTION_VIDEO_DIR ?? null;
+test.use({
+	video: DRAG_VIDEO_DIR
+		? { mode: "on", size: { width: 1280, height: 800 } }
+		: "off",
+});
+
+/** Starts a mouse drag on a row and leaves it held a little way off it. */
+async function startDrag(page: Page, row: Locator) {
+	const box = await row.boundingBox();
+	if (!box) throw new Error("no box for the dragged row");
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 12, {
+		steps: 4,
+	});
+}
+
+/** Moves a held drag onto the target and lets it go there. */
+async function dropOn(page: Page, target: Locator) {
+	const box = await target.boundingBox();
+	if (!box) throw new Error("no box for the drop target");
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {
+		steps: 8,
+	});
+	await page.mouse.up();
+}
+
+/**
+ * Watches the sidebar from now on: every layout shift (with or without recent
+ * input: a drag is input, and the list must not move for the bin either way),
+ * and the properties the bin animates when it comes in.
+ */
+async function watchSidebarMotion(page: Page) {
+	await page.evaluate(() => {
+		const record = { shift: 0, binAnimated: [] as string[] };
+		(window as unknown as { __t10: typeof record }).__t10 = record;
+		new PerformanceObserver((list) => {
+			for (const entry of list.getEntries() as (PerformanceEntry & {
+				value: number;
+			})[]) {
+				record.shift += entry.value;
+			}
+		}).observe({ type: "layout-shift" });
+		new MutationObserver(() => {
+			const bin = document.querySelector('[data-testid="sidebar-drop-bin"]');
+			if (!bin) return;
+			for (const animation of bin.getAnimations()) {
+				const effect = animation.effect as KeyframeEffect | null;
+				for (const frame of effect?.getKeyframes() ?? []) {
+					for (const key of Object.keys(frame)) {
+						if (
+							["offset", "easing", "composite", "computedOffset"].includes(key)
+						)
+							continue;
+						if (!record.binAnimated.includes(key)) record.binAnimated.push(key);
+					}
+				}
+			}
+		}).observe(document.body, { childList: true, subtree: true });
+	});
+}
+
+async function readSidebarMotion(page: Page) {
+	return page.evaluate(
+		() =>
+			(window as unknown as { __t10: { shift: number; binAnimated: string[] } })
+				.__t10,
+	);
+}
+
+/** A still of the sidebar mid-drag, beside the videos, when they are kept. */
+async function snapSidebar(page: Page, name: string) {
+	if (!DRAG_VIDEO_DIR) return;
+	await waitForMotionToSettle(page);
+	mkdirSync(DRAG_VIDEO_DIR, { recursive: true });
+	await page
+		.locator("aside.sidebar-panel")
+		.screenshot({ path: join(DRAG_VIDEO_DIR, `t10-${name}.png`) });
+}
+
+/** Where every row is: the list must not move while the bin is up. */
+async function rowTops(page: Page): Promise<number[]> {
+	return page
+		.getByTestId("conversation-item")
+		.evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().top));
+}
+
+test.describe("dragging chats in the sidebar", () => {
+	test.afterEach(async ({ page }, testInfo) => {
+		const video = page.video();
+		const metrics = await readSidebarMotion(page).catch(() => null);
+		await page.close();
+		if (!video || !DRAG_VIDEO_DIR) return;
+		mkdirSync(DRAG_VIDEO_DIR, { recursive: true });
+		const name = `t10-${testInfo.title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-|-$/g, "")}`;
+		await video.saveAs(join(DRAG_VIDEO_DIR, `${name}.webm`));
+		writeFileSync(
+			join(DRAG_VIDEO_DIR, `${name}.json`),
+			JSON.stringify({ title: testInfo.title, ...metrics }, null, 2),
+		);
+	});
+
+	test("drags three selected chats into a folder and moves all three", async ({
+		page,
+	}) => {
+		await startWithChats(
+			page,
+			["Alpha plan", "Bravo plan", "Charlie plan", "Delta plan"],
+			"en",
+			{ project: "Trips" },
+		);
+		const folder = page
+			.getByTestId("project-drop-target")
+			.filter({ hasText: "Trips" });
+		await expect(folder).toBeVisible();
+		await watchSidebarMotion(page);
+		for (const title of ["Alpha plan", "Bravo plan", "Charlie plan"]) {
+			await chatRow(page, title).click({ modifiers: [MOD] });
+		}
+		await expect(selectionCount(page)).toHaveText("3 selected");
+		await expect(page.getByTestId("sidebar-drag-preview")).toHaveText(
+			"3 chats",
+		);
+
+		const batch = page.waitForRequest(
+			(request) =>
+				request.method() === "POST" &&
+				request.url().endsWith("/api/conversations/batch"),
+		);
+		await startDrag(page, chatRow(page, "Bravo plan"));
+		await expect(page.getByTestId("sidebar-drop-bin")).toBeVisible();
+		await dropOn(page, folder);
+
+		expect((await batch).postDataJSON()).toMatchObject({
+			action: "move",
+			ids: expect.arrayContaining([
+				expect.any(String),
+				expect.any(String),
+				expect.any(String),
+			]),
+		});
+		const chats = page.getByTestId("unorganized-drop-target");
+		await expect(chats.getByTestId("conversation-item")).toHaveCount(1);
+		await expect(chatRow(page, "Delta plan")).toBeVisible();
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await expect(page.getByTestId("sidebar-drop-bin")).toHaveCount(0);
+		await expect(page.getByTestId("selection-live-region")).toHaveText(
+			"Moved 3 chats to Trips",
+		);
+		// A collapsed folder stays collapsed; the three are in it once it is opened.
+		await folder.click();
+		await expect(
+			page
+				.getByTestId("project-folder-drop-zone")
+				.filter({ hasText: "Trips" })
+				.getByTestId("conversation-item"),
+		).toHaveCount(3);
+	});
+
+	test("asks before deleting a selection dropped on the bin; Cancel keeps it, Delete deletes it", async ({
+		page,
+	}) => {
+		await startWithChats(page, [
+			"Alpha plan",
+			"Bravo plan",
+			"Charlie plan",
+			"Delta plan",
+		]);
+		for (const title of ["Alpha plan", "Bravo plan", "Charlie plan"]) {
+			await chatRow(page, title).click({ modifiers: [MOD] });
+		}
+		const bin = page.getByTestId("sidebar-drop-bin");
+		await watchSidebarMotion(page);
+
+		await startDrag(page, chatRow(page, "Alpha plan"));
+		await expect(bin).toBeVisible();
+		await expect(bin).toHaveAttribute("aria-label", "Drop to delete");
+		await snapSidebar(page, "bin-over-selection-bar");
+		await dropOn(page, bin);
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toContainText("Delete 3 chats?");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toHaveCount(0);
+		await expect(selectionCount(page)).toHaveText("3 selected");
+		await expect(page.getByTestId("conversation-item")).toHaveCount(4);
+
+		await startDrag(page, chatRow(page, "Charlie plan"));
+		await dropOn(page, bin);
+		await expect(dialog).toContainText("Delete 3 chats?");
+		await page.getByTestId("confirm-delete").click();
+
+		await expect(page.getByTestId("conversation-item")).toHaveCount(1);
+		await expect(chatRow(page, "Delta plan")).toBeVisible();
+		await expect(page.getByTestId("sidebar-selection-bar")).toHaveCount(0);
+		await page.reload();
+		await waitForHydration(page);
+		await expect(chatRow(page, "Delta plan")).toBeVisible();
+		await expect(chatRow(page, "Alpha plan")).toHaveCount(0);
+	});
+
+	test("drags one unselected row into a folder as before, and the bin never moves the list", async ({
+		page,
+	}) => {
+		const { ids } = await startWithChats(
+			page,
+			["Alpha plan", "Bravo plan", "Charlie plan"],
+			"en",
+			{ project: "Trips" },
+		);
+		const folder = page
+			.getByTestId("project-drop-target")
+			.filter({ hasText: "Trips" });
+		await expect(folder).toBeVisible();
+		const bin = page.getByTestId("sidebar-drop-bin");
+		await expect(bin).toHaveCount(0);
+		await watchSidebarMotion(page);
+		const before = await rowTops(page);
+
+		const move = page.waitForRequest(
+			(request) =>
+				request.method() === "PATCH" &&
+				request.url().endsWith(`/api/conversations/${ids[1]}`),
+		);
+		await startDrag(page, chatRow(page, "Bravo plan"));
+		await expect(bin).toBeVisible();
+		await waitForMotionToSettle(page);
+		// The bin lies over the foot of the list, inside it, and nothing moved.
+		const scroller = await page.getByTestId("sidebar-scroll").boundingBox();
+		const binBox = await bin.boundingBox();
+		if (!scroller || !binBox) throw new Error("no box for the list or the bin");
+		expect(binBox.y + binBox.height).toBeLessThanOrEqual(
+			scroller.y + scroller.height + 0.5,
+		);
+		expect(binBox.y + binBox.height).toBeGreaterThan(
+			scroller.y + scroller.height - 24,
+		);
+		expect(await rowTops(page)).toEqual(before);
+		await snapSidebar(page, "bin-single-drag");
+		await dropOn(page, folder);
+
+		expect((await move).postDataJSON()).toEqual({
+			projectId: expect.any(String),
+		});
+		await expect(bin).toHaveCount(0);
+		await expect(
+			page
+				.getByTestId("unorganized-drop-target")
+				.getByTestId("conversation-item"),
+		).toHaveCount(2);
+		const motion = await readSidebarMotion(page);
+		expect(motion.shift, "no layout shift while the bin came and went").toBe(0);
+		expect(motion.binAnimated.sort()).toEqual(["opacity", "transform"]);
+	});
+
+	test("lays the bin over the foot of a long list that scrolls, and moves no row", async ({
+		page,
+	}) => {
+		const titles = Array.from(
+			{ length: 30 },
+			(_, index) => `Plan ${String(index + 1).padStart(2, "0")}`,
+		);
+		await startWithChats(page, titles);
+		await chatRow(page, titles[0]).click({ modifiers: [MOD] });
+		await chatRow(page, titles[1]).click({ modifiers: [MOD] });
+		await watchSidebarMotion(page);
+		const before = await rowTops(page);
+
+		await startDrag(page, chatRow(page, titles[0]));
+		const bin = page.getByTestId("sidebar-drop-bin");
+		await expect(bin).toBeVisible();
+		await waitForMotionToSettle(page);
+		const scroller = await page.getByTestId("sidebar-scroll").boundingBox();
+		const binBox = await bin.boundingBox();
+		if (!scroller || !binBox) throw new Error("no box for the list or the bin");
+		expect(binBox.y + binBox.height).toBeLessThanOrEqual(
+			scroller.y + scroller.height + 0.5,
+		);
+		expect(binBox.y + binBox.height).toBeGreaterThan(
+			scroller.y + scroller.height - 24,
+		);
+		expect(await rowTops(page)).toEqual(before);
+		await snapSidebar(page, "bin-long-list");
+		await page.keyboard.press("Escape");
+		await page.mouse.up();
+		await expect(bin).toHaveCount(0);
+		expect((await readSidebarMotion(page)).shift).toBe(0);
+		await expect(selectionCount(page)).toHaveText("2 selected");
+	});
+
+	test("shows the bin at once, with no animation, under reduced motion", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await startWithChats(page, ["Alpha plan", "Bravo plan"]);
+		await watchSidebarMotion(page);
+
+		await startDrag(page, chatRow(page, "Alpha plan"));
+		const bin = page.getByTestId("sidebar-drop-bin");
+		await expect(bin).toBeVisible();
+		expect(
+			await bin.evaluate((element) => element.getAnimations().length),
+		).toBe(0);
+		await dropOn(page, bin);
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toContainText("Delete this conversation?");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(page.getByTestId("conversation-item")).toHaveCount(2);
+		const motion = await readSidebarMotion(page);
+		expect(motion.shift).toBe(0);
+		expect(motion.binAnimated).toEqual([]);
 	});
 });
