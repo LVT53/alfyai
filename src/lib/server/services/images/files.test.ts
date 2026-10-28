@@ -108,6 +108,29 @@ describe("storeImageFile", () => {
 		expect(file.hasAlpha).toBe(true);
 	});
 
+	it("does not call a fully opaque RGBA picture see-through (an edit is stored as RGBA)", async () => {
+		const opaque = new Uint8Array(
+			await sharp({
+				create: {
+					width: 64,
+					height: 64,
+					channels: 4,
+					background: { r: 10, g: 20, b: 30, alpha: 1 },
+				},
+			})
+				.png()
+				.toBuffer(),
+		);
+		expect((await sharp(opaque).metadata()).hasAlpha).toBe(true);
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: opaque,
+		});
+		expect(file.hasAlpha).toBe(false);
+	});
+
 	it("refuses bytes that are not a PNG", async () => {
 		const jpeg = new Uint8Array(
 			await sharp({

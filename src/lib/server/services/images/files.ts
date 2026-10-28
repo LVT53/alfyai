@@ -114,6 +114,12 @@ export async function storeImageFile(params: {
 	if (meta.format !== "png" || !meta.width || !meta.height) {
 		throw new Error("A picture file must be a PNG.");
 	}
+	// See-through means a pixel that is not fully opaque, not an alpha channel:
+	// an edit is stored as RGBA (the guards work in RGBA) however opaque it is,
+	// and a picture marked see-through is drawn on the checkerboard and
+	// crossfaded on Before / After instead of laid over its Before.
+	const seeThrough =
+		meta.hasAlpha === true && !(await sharp(params.png).stats()).isOpaque;
 	const thumb = await sharp(params.png)
 		.resize({
 			width: IMAGE_THUMB_LONG_EDGE,
@@ -151,7 +157,7 @@ export async function storeImageFile(params: {
 				role: params.role,
 				width: meta.width,
 				height: meta.height,
-				hasAlpha: meta.hasAlpha ? 1 : 0,
+				hasAlpha: seeThrough ? 1 : 0,
 				sizeBytes: params.png.byteLength,
 				storagePath,
 			})
