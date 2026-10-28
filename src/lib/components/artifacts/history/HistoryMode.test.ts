@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
+import { artifactHistoryHelpDismissed } from "$lib/stores/ui";
 import { fakePreviewStatus } from "./__fixtures__/fake-preview-status";
 import { at, makeMoment, makeStep } from "./__fixtures__/moments";
 
@@ -166,6 +167,55 @@ describe("HistoryMode for an Image (plan 2b T4)", () => {
 		expect(thumbs[0].querySelector("img")?.getAttribute("src")).toBe(
 			"/api/images/files/file-2?variant=thumb&conversationId=conv-incognito",
 		);
+	});
+});
+
+describe("History's tip names what the kind can do (plan 2b fix wave, V1)", () => {
+	beforeEach(() => {
+		artifactHistoryHelpDismissed.set(false);
+	});
+
+	it("tells an Image only that Restore brings back a version: a picture has no undo steps", async () => {
+		api.fetchArtifactHistory.mockResolvedValue({
+			ok: true,
+			artifactKind: "image",
+			moments: [
+				makeMoment({
+					versionNumber: 2,
+					kind: "alfy_edit",
+					author: "alfy",
+					isNewest: true,
+					containsNewest: true,
+					detail: { type: "image", fileId: "file-2", sourceCount: 1 },
+				}),
+				makeMoment({
+					versionNumber: 1,
+					kind: "first_draft",
+					author: "alfy",
+					detail: { type: "image", fileId: "file-1", sourceCount: 0 },
+				}),
+			],
+			older: false,
+			nextBefore: null,
+			newestVersion: 2,
+			newestHash: "hash-2",
+		});
+		render(HistoryMode, {
+			artifactId: "img-1",
+			kind: "image",
+			title: "Cosy room",
+			conversationId: "conv-1",
+			onDone: vi.fn(),
+		});
+		const help = await screen.findByTestId("history-help");
+		expect(help).toHaveTextContent("Restore brings back a whole version.");
+		expect(help.textContent).not.toMatch(/undo/i);
+	});
+
+	it("keeps the Document's undo tip", async () => {
+		renderHistory();
+		const help = await screen.findByTestId("history-help");
+		expect(help).toHaveTextContent(/undoes your last steps/);
 	});
 });
 

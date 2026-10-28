@@ -384,12 +384,15 @@ const restoreLines = $derived.by(() => {
 // A touch screen has no chord to press: the hint keeps what Undo and Restore mean
 // and leaves out the keyboard part (the owner, 2026-10-12).
 const touchScreen = isTouchDevice();
+// A picture has no undo steps and no Undo on Alfy's change: its tip names Restore only.
 const help = $derived(
 	$artifactHistoryHelpDismissed || moments.length < 2
 		? null
-		: touchScreen
-			? $t("artifacts.history.helpTouch")
-			: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
+		: kind === "image"
+			? $t("artifacts.history.helpImage")
+			: touchScreen
+				? $t("artifacts.history.helpTouch")
+				: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
 );
 
 // ---- the preview ---------------------------------------------------------------
