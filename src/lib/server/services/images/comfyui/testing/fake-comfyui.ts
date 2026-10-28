@@ -169,19 +169,33 @@ async function defaultRender(input: FakeRenderInput): Promise<Uint8Array> {
 			.toBuffer();
 	}
 	const { width, height } = input;
-	const data = Buffer.alloc(width * height * 3);
+	// A transparent graph is the plain one with the prompt wrapped (templates.ts,
+	// wrapTransparentPrompt): the model is asked for an RGBA picture, so the fake
+	// answers with one: four channels, the right part of it fully see-through.
+	const channels = wantsTransparency(input.graph) ? 4 : 3;
+	const data = Buffer.alloc(width * height * channels);
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
-			const at = (y * width + x) * 3;
+			const at = (y * width + x) * channels;
 			const t = x / Math.max(1, width - 1);
 			data[at] = Math.round(r * (1 - t) + 255 * t * 0.5);
 			data[at + 1] = Math.round(g * (1 - y / Math.max(1, height - 1)));
 			data[at + 2] = b;
+			if (channels === 4) data[at + 3] = t >= 0.6 ? 0 : 255;
 		}
 	}
-	return sharp(data, { raw: { width, height, channels: 3 } })
-		.png()
-		.toBuffer();
+	return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
+}
+
+/** True when any text input of the graph is the transparent route's wrapped prompt. */
+function wantsTransparency(graph: ComfyGraph): boolean {
+	return Object.values(graph).some((node) =>
+		Object.values(node.inputs ?? {}).some(
+			(value) =>
+				typeof value === "string" &&
+				value.startsWith("This is an RGBA format image with transparency."),
+		),
+	);
 }
 
 export async function createFakeComfyUi(
