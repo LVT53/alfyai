@@ -20,7 +20,12 @@ import {
 	TITLE,
 } from "./artifact-download-helpers";
 import { findClippedControls } from "./clipping-probe";
-import { hasVivaldi, launchVivaldi, saveDownloadsTo } from "./vivaldi-browser";
+import {
+	hasVivaldi,
+	launchVivaldi,
+	saveDownloadsTo,
+	sweepStaleVivaldiFolders,
+} from "./vivaldi-browser";
 
 const SHOTS = process.env.VIVALDI_SMOKE_SHOTS;
 const SIZES = [
@@ -33,9 +38,12 @@ const SIZES = [
 const RATIOS = [1, 1.25];
 /** The sidebar's two narrow states: the icon rail, and dragged to its minimum. */
 const SIDEBARS = [
-	{ name: "collapsed", collapsed: true },
-	{ name: "narrowest", collapsed: false },
+	{ name: "collapsed", collapsed: true, width: 48 },
+	{ name: "narrowest", collapsed: false, width: 240 },
 ] as const;
+/** The sidebar as it opens by default. */
+const DEFAULT_SIDEBAR = { name: "default", collapsed: false, width: 300 };
+type Sidebar = { name: string; collapsed: boolean; width: number };
 /** Straddles the sidebar's edge on purpose: it is the edge you drag. */
 const ON_THE_EDGE = /"Resize sidebar"/;
 
@@ -53,24 +61,20 @@ async function logIn(page: Page, baseURL: string) {
 }
 
 /** The Knowledge page with the sidebar as asked, fonts loaded and hydrated. */
-async function openKnowledge(
-	page: Page,
-	baseURL: string,
-	sidebar: (typeof SIDEBARS)[number],
-) {
+async function openKnowledge(page: Page, baseURL: string, sidebar: Sidebar) {
 	await page.goto(`${baseURL}/knowledge`, { waitUntil: "domcontentloaded" });
-	await page.evaluate((collapsed) => {
+	await page.evaluate(({ collapsed, width }) => {
 		localStorage.setItem("sidebarCollapsed", String(collapsed));
 		localStorage.setItem("sidebarOpen", "true");
-		localStorage.setItem("sidebarWidth", "240");
-	}, sidebar.collapsed);
+		localStorage.setItem("sidebarWidth", String(collapsed ? 240 : width));
+	}, sidebar);
 	await page.reload({ waitUntil: "domcontentloaded" });
 	await page.waitForSelector("#svelte-announcer", { state: "attached" });
 	await page.evaluate(() => document.fonts.ready);
 	const panel = page.locator("aside.sidebar-panel");
 	await expect
 		.poll(async () => (await panel.boundingBox())?.width)
-		.toBe(sidebar.collapsed ? 48 : 240);
+		.toBe(sidebar.width);
 	await expect(page.locator("tbody tr").first()).toBeVisible();
 	// The sidebar's width animates; measure the layout it settles on.
 	await expect
@@ -134,6 +138,8 @@ async function measureEverywhere(
 
 const seeded: string[] = [];
 test.beforeAll(async () => {
+	// What a worker killed outright left behind in the temp folder.
+	if (hasVivaldi()) sweepStaleVivaldiFolders();
 	// A library with rows in it: the table's columns are part of what must fit.
 	for (const suffix of ["", " (szombat–vasárnap)"]) {
 		const { conversationId } = await seedDocument({
@@ -277,4 +283,68 @@ test.describe("Playwright's Chromium, the same measurements", () => {
 			);
 		});
 	}
+
+	// The Knowledge column is a border box whose padding is named once
+	// (`--column-pad`): on a wide screen its content is still 65rem (1040 px)
+	// with 2rem either side, and in a narrow one it is its scroller's width.
+	test("the Knowledge column keeps its 1040 px content on a wide screen and its scroller's width on a narrow one", async ({
+		browser,
+		baseURL,
+	}) => {
+		const context = await browser.newContext({
+			viewport: { width: 1440, height: 900 },
+		});
+		try {
+			const page = await context.newPage();
+			await logIn(page, baseURL as string);
+			const column = () =>
+				page
+					.locator(".main-content > div")
+					.first()
+					.evaluate((element) => {
+						const style = getComputedStyle(element);
+						const padding = Number.parseFloat(style.paddingLeft);
+						return {
+							padding,
+							content: element.clientWidth - 2 * padding,
+							outer: element.getBoundingClientRect().width,
+							scroller: (element.parentElement as HTMLElement).clientWidth,
+						};
+					});
+			await openKnowledge(page, baseURL as string, SIDEBARS[0]);
+			expect(await column()).toMatchObject({ padding: 32, content: 1040 });
+			await page.setViewportSize({ width: 1024, height: 768 });
+			await openKnowledge(page, baseURL as string, SIDEBARS[1]);
+			const narrow = await column();
+			expect(narrow.padding).toBe(32);
+			expect(narrow.outer).toBe(narrow.scroller);
+		} finally {
+			await context.close();
+		}
+	});
+
+	// The search pill gives way at the narrowest sidebar by dropping its Ctrl+K
+	// chip (a size container, 7.5rem); the chip must still show by default.
+	test("the search pill shows its shortcut chip at the default sidebar width and drops it at the narrowest", async ({
+		browser,
+		baseURL,
+	}) => {
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 720 },
+		});
+		try {
+			const page = await context.newPage();
+			await logIn(page, baseURL as string);
+			const chip = page.getByTestId("search-shortcut-hint");
+			await openKnowledge(page, baseURL as string, DEFAULT_SIDEBAR);
+			await expect(chip).toBeVisible();
+			await openKnowledge(page, baseURL as string, SIDEBARS[1]);
+			await expect(chip).toBeHidden();
+			await expect(
+				page.getByRole("button", { name: "Search conversations" }),
+			).toContainText("Search");
+		} finally {
+			await context.close();
+		}
+	});
 });
