@@ -93,17 +93,61 @@ function refuse(refusal: MakeImageRefusal, message: string): Resolution {
 function titleFor(given: string | undefined, requestText: string): string {
 	const own = oneLineName(given ?? "", TITLE_MAX_CHARS);
 	if (own) return own;
-	const firstSentence = requestText.trim().split(/(?<=[.!?…])\s+/u)[0] ?? "";
-	const words = firstSentence.split(/\s+/).filter(Boolean);
 	return (
 		oneLineName(
-			words
-				.slice(0, TITLE_FALLBACK_WORDS)
+			firstSentenceWords(requestText, TITLE_FALLBACK_WORDS)
 				.join(" ")
 				.replace(/[\s.!?…,;:]+$/u, ""),
 			TITLE_MAX_CHARS,
 		) || TITLE_FALLBACK
 	);
+}
+
+/** Short words whose dot is an abbreviation's, not a sentence's end (English and Hungarian). */
+const ABBREVIATIONS = new Set([
+	"dr",
+	"mr",
+	"mrs",
+	"ms",
+	"prof",
+	"st",
+	"no",
+	"vs",
+	"etc",
+	"e.g",
+	"i.e",
+	"pl",
+	"kb",
+	"ld",
+	"stb",
+	"ill",
+	"ún",
+	"id",
+	"ifj",
+	"özv",
+	"sz",
+	"u",
+]);
+
+/**
+ * The first words of a message, at most `max`, ending with its first sentence: a
+ * word ending in ! ? … ends it, and so does a dot unless the word is an
+ * initial ("J.") or a known abbreviation ("Dr.", "pl."), so "Dr. Kovács's
+ * office" is not cut to "Dr" (fix round 1).
+ */
+function firstSentenceWords(text: string, max: number): string[] {
+	const words: string[] = [];
+	for (const word of text.trim().split(/\s+/).filter(Boolean)) {
+		words.push(word);
+		if (words.length >= max) break;
+		if (/[!?…]$/u.test(word)) break;
+		if (word.endsWith(".")) {
+			const bare = word.slice(0, -1).toLowerCase();
+			const initial = /^\p{L}$/u.test(bare);
+			if (!initial && !ABBREVIATIONS.has(bare)) break;
+		}
+	}
+	return words;
 }
 
 function newCardKey(input: MakeImageRequestInput): string {

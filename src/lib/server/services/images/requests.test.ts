@@ -561,6 +561,30 @@ describe("what a call is made from", () => {
 		expect(result.plan.title).toBe("Sunset over the lake");
 	});
 
+	// Fix round 1 (review Minor 4): an abbreviation's dot is not a sentence's end.
+	it.each([
+		[
+			"Dr. Kovács's office, warmer light please",
+			"Dr. Kovács's office, warmer light please",
+		],
+		[
+			"Mrs. Smith wants the kitchen brighter. Keep the rest",
+			"Mrs. Smith wants the kitchen brighter",
+		],
+		[
+			"A kert pl. a fák legyenek zöldebbek. Köszi",
+			"A kert pl. a fák legyenek zöldebbek",
+		],
+		[
+			"J. R. R. Tolkien style castle on a hill",
+			"J. R. R. Tolkien style castle on a",
+		],
+	])("does not cut %j at an abbreviation", async (requestText, title) => {
+		const result = await resolve({}, { requestText });
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.title).toBe(title);
+	});
+
 	it("prefers the model's own title over the person's words", async () => {
 		const result = await resolve(
 			{ title: "Green sofa room" },
