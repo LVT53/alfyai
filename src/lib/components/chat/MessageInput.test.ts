@@ -96,7 +96,12 @@ const recordComposerCommandUsedMock = vi.hoisted(() => vi.fn());
 // vi.clearAllMocks() clears call history but not a mockImplementation set at
 // creation, so this survives across the whole file's describe blocks.
 const fetchAvailableModelsMock = vi.hoisted(() =>
-	vi.fn(async (): Promise<AvailableModelsResponse> => ({ providers: [] })),
+	vi.fn(
+		async (): Promise<AvailableModelsResponse> => ({
+			providers: [],
+			modelAliases: {},
+		}),
+	),
 );
 
 const fetchExtractionStatusMock = vi.hoisted(() =>
@@ -123,7 +128,8 @@ vi.mock("$lib/client/api/knowledge", () => ({
 // `supportsReasoningControls` flag through this same fetch ModelSelector
 // uses. Defaults to an empty provider list (so the toggle defaults to
 // visible); individual tests override this to exercise the hidden case.
-vi.mock("$lib/client/api/models", () => ({
+vi.mock("$lib/client/api/models", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/models")>()),
 	fetchAvailableModels: fetchAvailableModelsMock,
 }));
 
@@ -1462,6 +1468,7 @@ describe("MessageInput", () => {
 					],
 				},
 			],
+			modelAliases: {},
 		});
 
 		const { queryByTestId } = render(MessageInput, {
@@ -4784,6 +4791,7 @@ describe("MessageInput extraction chips", () => {
 						],
 					},
 				],
+				modelAliases: {},
 			};
 		}
 
@@ -4868,6 +4876,30 @@ describe("MessageInput extraction chips", () => {
 			} finally {
 				uiLanguage.set("en");
 			}
+		});
+
+		// Task 20, live on ai.dev: the system default is the legacy id "model1",
+		// which the server runs on the provider row named after it. The list
+		// names that row by its own id, so the composer must read "model1"
+		// through the server's alias for it, as the send gate does.
+		it("reads a legacy default id through the server's alias for it", async () => {
+			selectedModel.set("model1");
+			fetchAvailableModelsMock.mockResolvedValueOnce({
+				...modelList(true),
+				modelAliases: { model1: "provider:p1:seer" },
+			});
+			const { getByLabelText, getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				noTextJob("photo.jpg"),
+			);
+
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No text in this image",
+				);
+			});
+			expect(getByLabelText("Send message")).not.toBeDisabled();
 		});
 
 		it("keeps the failure and the closed Send when the selected model cannot see", async () => {

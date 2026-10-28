@@ -12,9 +12,14 @@ vi.mock("$lib/server/services/provider-models", () => ({
 	listEnabledProviderModels: vi.fn(async () => []),
 }));
 
+vi.mock("$lib/server/services/vision/model-vision", () => ({
+	legacyModelIdAliases: vi.fn(async () => ({})),
+}));
+
 import { getConfig } from "$lib/server/config-store";
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import { listEnabledProviders } from "$lib/server/services/providers";
+import { legacyModelIdAliases } from "$lib/server/services/vision/model-vision";
 import { GET } from "./+server";
 
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
@@ -204,5 +209,18 @@ describe("GET /api/models", () => {
 				supportsImages: false,
 			},
 		]);
+	});
+
+	// Task 20: the composer holds the legacy default "model1"; the list names
+	// the row it runs on by that row's own id, so the payload carries the
+	// run's alias for it.
+	it("carries the legacy ids' aliases to the provider models they run on", async () => {
+		vi.mocked(legacyModelIdAliases).mockResolvedValueOnce({
+			model1: "provider:p1:m1",
+		});
+
+		const data = await (await GET(routeEvent())).json();
+
+		expect(data.modelAliases).toEqual({ model1: "provider:p1:m1" });
 	});
 });

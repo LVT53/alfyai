@@ -39,3 +39,37 @@ export async function modelIdCanSeeImages(
 		return false;
 	}
 }
+
+const LEGACY_MODEL_IDS = ["model1", "model2"] as const;
+
+/**
+ * The provider model ("provider:<id>:<model>") each legacy id ("model1",
+ * "model2") runs on, for the ids a provider row named after them has taken
+ * over. The model list (`/api/models`) names such a row by its own id and hides
+ * the legacy one, while a person's selection, and the system default, may
+ * still be "model1". This is the run's own resolution of the id, not a second
+ * one, so the composer's "can this model see" reads the same row as the send
+ * gate's (`modelIdCanSeeImages`). A legacy id with no provider row is left out:
+ * the list names it itself.
+ */
+export async function legacyModelIdAliases(): Promise<
+	Partial<Record<(typeof LEGACY_MODEL_IDS)[number], ModelId>>
+> {
+	const runtimeConfig = getConfig();
+	const aliases: Partial<Record<(typeof LEGACY_MODEL_IDS)[number], ModelId>> =
+		{};
+	for (const legacyId of LEGACY_MODEL_IDS) {
+		try {
+			const provider = await resolveNormalChatModelRunProvider(
+				legacyId,
+				runtimeConfig,
+			);
+			if (provider.modelId && provider.modelId !== legacyId) {
+				aliases[legacyId] = provider.modelId;
+			}
+		} catch {
+			// An id the run cannot resolve has nothing to alias.
+		}
+	}
+	return aliases;
+}

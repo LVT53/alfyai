@@ -31,8 +31,9 @@ import {
 } from "$lib/client/connections/composer-selection";
 import ConnectionsPopover from "./ConnectionsPopover.svelte";
 import {
+	type AvailableModelsResponse,
 	fetchAvailableModels,
-	type ModelProvider,
+	findAvailableModel,
 } from "$lib/client/api/models";
 import {
 	fetchConversationMarkdownExport,
@@ -559,31 +560,29 @@ let forceWebSearch = $state(false);
 // ADR-0061 — the thinking toggle hides itself for a model whose recorded
 // capabilities explicitly mark reasoning controls unsupported. Loaded once
 // on mount (same models list ModelSelector fetches independently) and
-// looked up by the currently selected model id from the settings store.
-let modelProviders = $state<ModelProvider[]>([]);
-let currentModelSupportsReasoningControls = $derived.by(() => {
-	const currentModelId = $selectedModel;
-	for (const provider of modelProviders) {
-		const found = provider.models.find((model) => model.id === currentModelId);
-		if (found) return found.supportsReasoningControls;
-	}
-	// Not loaded yet (or not found): default to showing the toggle rather
-	// than hiding it on every cold load.
-	return true;
+// looked up by the currently selected model id from the settings store — a
+// legacy id ("model1", the system default) through the server's alias for it,
+// so the composer reads the row the server will run.
+let availableModels = $state<AvailableModelsResponse>({
+	providers: [],
+	modelAliases: {},
 });
+let selectedListedModel = $derived(
+	findAvailableModel(availableModels, $selectedModel),
+);
+// Not loaded yet (or not found): default to showing the toggle rather than
+// hiding it on every cold load.
+let currentModelSupportsReasoningControls = $derived(
+	selectedListedModel?.supportsReasoningControls ?? true,
+);
 // A model the admin marked "Can see images" needs no extracted text to be shown
 // a picture, so with one selected a photo the reader found no text in does not
 // hold Send (the server's send gate lets it through the same way). Read from
 // the same list, for the same selected model. The cautious default is the
 // opposite of the toggle's: until the list says the model can see, it cannot.
-let selectedModelSupportsImages = $derived.by(() => {
-	const currentModelId = $selectedModel;
-	for (const provider of modelProviders) {
-		const found = provider.models.find((model) => model.id === currentModelId);
-		if (found) return found.supportsImages === true;
-	}
-	return false;
-});
+let selectedModelSupportsImages = $derived(
+	selectedListedModel?.supportsImages === true,
+);
 // ADR 0044 Decision 1 — the composer's Connections master toggle.
 // `availableCapabilities` (served) and `defaultOnCapabilities` come from a
 // single fetch on mount. `connectionsEnabled` is the per-conversation
@@ -2225,7 +2224,7 @@ onMount(() => {
 	void ensureCapabilitiesLoaded();
 	void fetchAvailableModels()
 		.then((response) => {
-			modelProviders = response.providers;
+			availableModels = response;
 		})
 		.catch(() => {
 			// Non-fatal: the thinking toggle just stays visible by default.
