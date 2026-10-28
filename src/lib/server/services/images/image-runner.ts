@@ -207,6 +207,29 @@ async function readInput(ctx: Ctx, fileId: string): Promise<Uint8Array> {
 }
 
 /**
+ * See-through is the request's to decide, not the sampling's (Task 17): a take
+ * may be see-through only when its graph was the transparent one or the picture
+ * it changes really is. A plain generate that came back with a few pixels at
+ * alpha 244 (ai.dev) is stored RGB.
+ */
+async function takeMayBeSeeThrough(
+	ctx: Ctx,
+	request: TakeRequest,
+): Promise<boolean> {
+	if (graphFor(request.mode, request.transparent)?.transparentApplied) {
+		return true;
+	}
+	const base = request.mode === "edit" ? request.inputs[0] : undefined;
+	if (!base) return false;
+	const file = await getImageFile({
+		userId: ctx.row.userId,
+		fileId: base.fileId,
+		conversationId: ctx.row.conversationId,
+	});
+	return file?.hasAlpha === true;
+}
+
+/**
  * Uploads the inputs and submits the graph. Resolves with the id ComfyUI knows
  * the prompt by, or null when the take was stopped before the submit.
  *
@@ -497,6 +520,7 @@ async function renderTake(
 		conversationId: row.conversationId,
 		role: "take",
 		png,
+		mayBeSeeThrough: await takeMayBeSeeThrough(ctx, request),
 	});
 	if (signal.aborted) {
 		await discardStoredImageFile(file).catch(() => undefined);

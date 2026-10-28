@@ -21,11 +21,19 @@ export async function pngIsSeeThrough(bytes: Uint8Array): Promise<boolean> {
 /**
  * The PNG as it should be stored: a picture whose alpha is only rounding noise
  * loses its alpha channel (RGB), a really see-through one is returned as is.
+ * See-through is first the request's to decide (Task 17): with `mayBeSeeThrough`
+ * false (a plain generate, an edit of an opaque base) the alpha is dropped
+ * whatever the pixels say, and the threshold above is only the second guard for
+ * a request that may be see-through.
  */
 export async function normalizePngAlpha(
 	png: Uint8Array,
+	options: { mayBeSeeThrough?: boolean } = {},
 ): Promise<{ png: Uint8Array; hasAlpha: boolean }> {
-	if (await pngIsSeeThrough(png)) return { png, hasAlpha: true };
+	const mayBeSeeThrough = options.mayBeSeeThrough ?? true;
+	if (mayBeSeeThrough && (await pngIsSeeThrough(png))) {
+		return { png, hasAlpha: true };
+	}
 	const meta = await sharp(png).metadata();
 	if (!meta.hasAlpha) return { png, hasAlpha: false };
 	return {

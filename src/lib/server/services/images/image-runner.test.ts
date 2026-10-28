@@ -259,6 +259,120 @@ describe("a new picture", () => {
 	});
 });
 
+/**
+ * An opaque picture whose alpha is mostly 255 but a few pixels sit at `low`
+ * (ai.dev, Task 17: a plain generate came back from ComfyUI with 5 pixels at
+ * alpha 244-249), or, with `cutOut`, its right third fully see-through.
+ */
+function alphaPicture(options: { low?: number; cutOut?: boolean } = {}) {
+	return async ({ width, height }: { width: number; height: number }) => {
+		const data = Buffer.alloc(width * height * 4);
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const at = (y * width + x) * 4;
+				data[at] = (x * 3) & 255;
+				data[at + 1] = (y * 5) & 255;
+				data[at + 2] = 120;
+				data[at + 3] = options.cutOut && x >= (width * 2) / 3 ? 0 : 255;
+			}
+		}
+		if (options.low !== undefined) {
+			for (let i = 0; i < 5; i++) data[(i * 37 + 11) * 4 + 3] = options.low;
+		}
+		return new Uint8Array(
+			await sharp(data, { raw: { width, height, channels: 4 } })
+				.png()
+				.toBuffer(),
+		);
+	};
+}
+
+// Task 17: see-through is decided by the request, not by sampling noise. A
+// picture is stored RGB unless its graph was the transparent one or its base is
+// really see-through; the 250 threshold is a second guard for those only.
+describe("see-through, by the request", () => {
+	it("stores a plain generate whose PNG has a few alpha-244 pixels as RGB with has_alpha=0", async () => {
+		await startFake({ steps: 2, render: alphaPicture({ low: 244 }) });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect((await sharp(await resultBytes(takeId)).metadata()).channels).toBe(
+			3,
+		);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+
+	it("stores even a plain generate's fully see-through pixels flattened: the request did not ask", async () => {
+		await startFake({ steps: 2, render: alphaPicture({ cutOut: true }) });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+
+	it("keeps a transparent generate's cut-out see-through", async () => {
+		await startFake({ steps: 2, render: alphaPicture({ cutOut: true }) });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 }, transparent: true }),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(await storedHasAlpha(take.resultFileId)).toBe(1);
+	});
+
+	it("lets an edit of a really see-through base stay see-through, and an edit of an opaque one not", async () => {
+		const cutOut = alphaPicture({ cutOut: true });
+		// The model answers with a cut-out either way: only a see-through base
+		// lets it stay one.
+		await startFake({ steps: 2, render: cutOut });
+		const seeThroughBase = await storeInput(
+			await cutOut({ width: 640, height: 480 }),
+		);
+		const opaqueBase = await storeInput(await photo(640, 480));
+		const edit = (fileId: string) =>
+			request({
+				mode: "edit",
+				prompt: "keep it",
+				inputs: [{ fileId, role: "base", name: "cut.png" }],
+				baseFromUpload: true,
+				canvas: { width: 640, height: 480 },
+			});
+		const fromSeeThrough = await queueTake(edit(seeThroughBase), 1);
+		const fromOpaque = await queueTake(edit(opaqueBase), 2);
+		await drainImageTakes();
+		const a = await readTake(fromSeeThrough);
+		const b = await readTake(fromOpaque);
+		expect([a.status, a.errorCode, b.status, b.errorCode]).toEqual([
+			"succeeded",
+			null,
+			"succeeded",
+			null,
+		]);
+		expect(
+			await storedHasAlpha((await readTake(fromSeeThrough)).resultFileId),
+		).toBe(1);
+		expect(
+			await storedHasAlpha((await readTake(fromOpaque)).resultFileId),
+		).toBe(0);
+	});
+
+	it("stores a transparent generate with only alpha noise as RGB (the 250 guard)", async () => {
+		await startFake({ steps: 2, render: alphaPicture({ low: 252 }) });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 }, transparent: true }),
+		);
+		await drainImageTakes();
+		const take = await readTake(takeId);
+		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+});
+
 describe("landing on a card", () => {
 	it("makes a take that lands unheld the card's version in use", async () => {
 		await startFake({ steps: 2 });

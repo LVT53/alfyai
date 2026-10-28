@@ -108,6 +108,13 @@ export async function storeImageFile(params: {
 	artifactId?: string | null;
 	role: ImageFileRole;
 	png: Uint8Array;
+	/**
+	 * Whether what made the picture may make it see-through: false for a take
+	 * whose graph was not the transparent one and whose base is opaque, so its
+	 * alpha is dropped whatever the pixels say (Task 17). An input (a photo the
+	 * person uploaded, a card picture) may be: its own pixels decide.
+	 */
+	mayBeSeeThrough?: boolean;
 }): Promise<ImageFile> {
 	if (!hasPngSignature(params.png)) {
 		throw new Error("A picture file must be a PNG.");
@@ -121,7 +128,9 @@ export async function storeImageFile(params: {
 	// resampling leaves alpha at 254. Such a picture is stored as RGB; a picture
 	// marked see-through is drawn on the checkerboard and crossfaded on
 	// Before / After instead of laid over its Before.
-	const { png, hasAlpha: seeThrough } = await normalizePngAlpha(params.png);
+	const { png, hasAlpha: seeThrough } = await normalizePngAlpha(params.png, {
+		mayBeSeeThrough: params.mayBeSeeThrough,
+	});
 	const thumb = await sharp(png)
 		.resize({
 			width: IMAGE_THUMB_LONG_EDGE,
