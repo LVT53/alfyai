@@ -246,6 +246,7 @@ let {
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
 	pictureRefs = [],
+	draftPictureOrder = [],
 	onRemovePictureRef = undefined,
 	focusRequest = 0,
 	onSend = undefined,
@@ -324,6 +325,12 @@ let {
 	 * with none (the landing page) draws and sends exactly as before.
 	 */
 	pictureRefs?: readonly ComposerPictureRef[];
+	/**
+	 * The order a restored turn's pictures were numbered in (keys from
+	 * `pictureKey`), applied together with the draft so the numbers the person's
+	 * own text names come back unchanged. Empty: the order is the order added.
+	 */
+	draftPictureOrder?: readonly string[];
 	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
 	/** Rises when the page wants the box focused (a picture was just attached). */
 	focusRequest?: number;
@@ -1439,6 +1446,7 @@ $effect(() => {
 		}
 
 		pendingAttachments = Array.from(merged.values());
+		if (draftPictureOrder.length > 0) pictureOrder = [...draftPictureOrder];
 		// A restored draft can carry a terminal success whose content verdict
 		// never travelled with it. The poller will not ask again for a finished
 		// job, so this is the moment to fetch that verdict once. Untracked: the

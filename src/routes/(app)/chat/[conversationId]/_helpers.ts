@@ -7,7 +7,10 @@ import {
 } from "$lib/components/artifacts/document/alfy-activity";
 import { hasActiveImageTakes } from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
-import type { ComposerPictureRef } from "$lib/components/chat/composer-pictures";
+import {
+	type ComposerPictureRef,
+	pictureKey,
+} from "$lib/components/chat/composer-pictures";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
@@ -1131,6 +1134,29 @@ export function composerPicturesFromSend(
 		.map((ref) => ({ imageFileId: ref.imageFileId, name: ref.name }));
 }
 
+/**
+ * The key order of a queued or failed turn's pictures, from the numbers it was
+ * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
+ * back in the composer keeps the numbers the person's own text names.
+ */
+export function pictureOrderFromSend(
+	pictures: UserPicturesMetadata | undefined,
+): string[] {
+	if (!pictures) return [];
+	return [
+		...pictures.refs.map((ref) => ({
+			key: pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+			number: ref.number,
+		})),
+		...(pictures.uploads ?? []).map((upload) => ({
+			key: pictureKey({ kind: "upload", artifactId: upload.artifactId }),
+			number: upload.number,
+		})),
+	]
+		.sort((a, b) => a.number - b.number)
+		.map((entry) => entry.key);
+}
+
 export function cloneSendPayload(payload: SendPayload): SendPayload {
 	return {
 		message: payload.message,
@@ -1162,6 +1188,13 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 			? {
 					...payload.pictures,
 					refs: payload.pictures.refs.map((ref) => ({ ...ref })),
+					...(payload.pictures.uploads
+						? {
+								uploads: payload.pictures.uploads.map((upload) => ({
+									...upload,
+								})),
+							}
+						: {}),
 				}
 			: undefined,
 		conversationId: payload.conversationId ?? null,

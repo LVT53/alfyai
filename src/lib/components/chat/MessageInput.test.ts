@@ -6589,4 +6589,40 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 			{ imageFileId: "f1", number: 1 },
 		]);
 	});
+
+	// Fix round 1 (I1): a turn put back in the composer keeps the numbers the
+	// person's own text names ("put 2 into 1"), whichever was added first.
+	for (const order of [
+		["ref:f1", "upload:photo-1"],
+		["upload:photo-1", "ref:f1"],
+	]) {
+		it(`restores a draft's pictures in the saved order ${order.join(" then ")}`, async () => {
+			const view = renderComposer({
+				draftVersion: 1,
+				draftText: "put 2 into 1",
+				draftAttachments: [
+					upload("rug.jpg", "image/jpeg", "photo-1").attachment,
+				],
+				draftPictureOrder: order,
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+			});
+			await waitFor(() =>
+				expect(view.getAllByTestId("composer-chip-number")).toHaveLength(2),
+			);
+			const refNumber = Number(
+				within(view.getByTestId("composer-chip-picture")).getByTestId(
+					"composer-chip-number",
+				).textContent,
+			);
+			expect(refNumber).toBe(order[0] === "ref:f1" ? 1 : 2);
+			await fireEvent.input(view.textarea, {
+				target: { value: "put 2 into 1" },
+			});
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			expect(view.onSend.mock.calls[0][0].pictureRefs).toEqual([
+				{ imageFileId: "f1", number: refNumber },
+			]);
+		});
+	}
 });

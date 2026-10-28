@@ -215,6 +215,7 @@ import {
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	composerPicturesFromSend,
+	pictureOrderFromSend,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
@@ -434,6 +435,8 @@ let queuedTurn = $state<SendPayload | null>(null);
 // uploaded photos and the send carries them. Cleared by a send, a queue and a
 // switch to another chat; not kept in the draft.
 let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
+// The order a restored turn's pictures were numbered in (travels with the draft).
+let composerPictureOrder = $state.raw<readonly string[]>([]);
 let composerFocusRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
@@ -3027,6 +3030,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 	// The queued turn's card pictures come back as chips (its marks come back
 	// with T6's Mark chip).
 	composerPictures = composerPicturesFromSend(payload.pictures);
+	composerPictureOrder = pictureOrderFromSend(payload.pictures);
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
 	conversationDraft = createConversationDraftRecord({
 		conversationId: nextConversationId,
@@ -4247,6 +4251,7 @@ function handleDrop(event: DragEvent) {
 				onQueue={handleComposerQueue}
 				pictureRefs={composerPictures}
 				onRemovePictureRef={removeComposerPicture}
+				draftPictureOrder={composerPictureOrder}
 				focusRequest={composerFocusRequest}
 				onStop={handleStop}
 				onCompact={handleCompact}

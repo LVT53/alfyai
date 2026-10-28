@@ -37,6 +37,7 @@ import {
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
+	pictureOrderFromSend,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
@@ -2238,5 +2239,27 @@ describe("composer pictures (plan 2b T5)", () => {
 		});
 		expect(cloned.pictureRefs).toEqual([{ imageFileId: "f1", number: 1 }]);
 		expect(cloned.pictures?.refs[0].name).toBe("Red rug");
+	});
+});
+
+describe("restoring a turn's picture order (plan 2b T5 fix round 1)", () => {
+	it("reads the order from the saved numbers, refs and uploads together", () => {
+		expect(
+			pictureOrderFromSend({
+				refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+				uploads: [{ artifactId: "photo-1", number: 2 }],
+				open: null,
+				marks: null,
+			}),
+		).toEqual(["ref:f1", "upload:photo-1"]);
+		expect(
+			pictureOrderFromSend({
+				refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+				uploads: [{ artifactId: "photo-1", number: 1 }],
+				open: null,
+				marks: null,
+			}),
+		).toEqual(["upload:photo-1", "ref:f1"]);
+		expect(pictureOrderFromSend(undefined)).toEqual([]);
 	});
 });

@@ -30,6 +30,7 @@ let {
 	onQueue,
 	pictureRefs = [],
 	onRemovePictureRef = undefined,
+	draftPictureOrder = [],
 	focusRequest = 0,
 	onStop,
 	onDraftChange,
@@ -91,6 +92,8 @@ let {
 	pictureRefs?: readonly ComposerPictureRef[];
 	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
 	/** Rises when a picture was just attached: the composer takes focus. */
+	/** The numbering order of a restored turn's pictures, applied with the draft. */
+	draftPictureOrder?: readonly string[];
 	focusRequest?: number;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
@@ -219,6 +222,7 @@ $effect(() => {
 			{onQueue}
 			{pictureRefs}
 			{onRemovePictureRef}
+			{draftPictureOrder}
 			{focusRequest}
 			{onStop}
 			{onDraftChange}
