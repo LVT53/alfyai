@@ -850,7 +850,7 @@ describe("the explicit-picture filter, before rendering", () => {
 		await configureOnly();
 		await exempt();
 		const { modelPayload } = await run(
-			{ prompt: "a nude figure study" },
+			{ prompt: "a nude woman, figure study" },
 			{ waitBudgetMs: 0 },
 		);
 		expect(modelPayload).not.toMatchObject({ errorCode: "explicit_request" });
@@ -861,7 +861,7 @@ describe("the explicit-picture filter, before rendering", () => {
 		const { getConfig } = await import("$lib/server/config-store");
 		getConfig().imageExplicitFilterEnabled = false;
 		const { modelPayload } = await run(
-			{ prompt: "a nude figure study" },
+			{ prompt: "a nude woman, figure study" },
 			{ waitBudgetMs: 0 },
 		);
 		expect(modelPayload).not.toMatchObject({ errorCode: "explicit_request" });
