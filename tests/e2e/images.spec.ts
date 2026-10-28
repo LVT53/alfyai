@@ -290,6 +290,29 @@ test.describe("Pictures end to end", () => {
 		await waitForSettledCard(page, conversationId as string, 1);
 	});
 
+	// Task 11, the sofa rehearsal on ai.dev: in an open chat, 8 of 11 picture
+	// turns froze the page once the picture was made. The card stayed on
+	// "Making the picture…", the reply's closing words (streamed after the
+	// picture) never showed, and the composer kept Stop, until a reload. Same
+	// freeze as above: the card mounts while its take is already being made.
+	test("a picture made in an open chat ends its turn on screen: picture, closing words and Send", async ({
+		page,
+	}) => {
+		videoName = "open-chat-picture-turn-ends";
+		(fake as FakeComfyUi).setOptions({ steps: 10, stepDelayMs: 600 });
+		const conversationId = await openChat(page);
+		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+		await expect(page.locator(CARD).last()).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
+		await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(page.getByTestId("send-button")).toBeVisible({
+			timeout: 15_000,
+		});
+		await waitForSettledCard(page, conversationId, 1);
+	});
+
 	test("Another adds a take and Use this moves the tick", async ({ page }) => {
 		videoName = "another-and-use-this";
 		const comfy = fake as FakeComfyUi;
