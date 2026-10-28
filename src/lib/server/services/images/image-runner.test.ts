@@ -326,40 +326,36 @@ describe("see-through, by the request", () => {
 		expect(await storedHasAlpha(take.resultFileId)).toBe(1);
 	});
 
-	it("lets an edit of a really see-through base stay see-through, and an edit of an opaque one not", async () => {
-		const cutOut = alphaPicture({ cutOut: true });
-		// The model answers with a cut-out either way: only a see-through base
-		// lets it stay one.
-		await startFake({ steps: 2, render: cutOut });
-		const seeThroughBase = await storeInput(
-			await cutOut({ width: 640, height: 480 }),
-		);
-		const opaqueBase = await storeInput(await photo(640, 480));
-		const edit = (fileId: string) =>
+	// The model answers with a cut-out either way: only a see-through base lets it
+	// stay one. One edit per test: each runs the guards over every pixel in JS.
+	async function editOfBase(base: Uint8Array): Promise<number | undefined> {
+		await startFake({ steps: 2, render: alphaPicture({ cutOut: true }) });
+		const fileId = await storeInput(base);
+		const takeId = await queueTake(
 			request({
 				mode: "edit",
 				prompt: "keep it",
 				inputs: [{ fileId, role: "base", name: "cut.png" }],
 				baseFromUpload: true,
 				canvas: { width: 640, height: 480 },
-			});
-		const fromSeeThrough = await queueTake(edit(seeThroughBase), 1);
-		const fromOpaque = await queueTake(edit(opaqueBase), 2);
+			}),
+		);
 		await drainImageTakes();
-		const a = await readTake(fromSeeThrough);
-		const b = await readTake(fromOpaque);
-		expect([a.status, a.errorCode, b.status, b.errorCode]).toEqual([
-			"succeeded",
-			null,
-			"succeeded",
-			null,
-		]);
-		expect(
-			await storedHasAlpha((await readTake(fromSeeThrough)).resultFileId),
-		).toBe(1);
-		expect(
-			await storedHasAlpha((await readTake(fromOpaque)).resultFileId),
-		).toBe(0);
+		const take = await readTake(takeId);
+		expect([take.status, take.errorCode]).toEqual(["succeeded", null]);
+		return storedHasAlpha(take.resultFileId);
+	}
+
+	it("lets an edit of a really see-through base stay see-through", async () => {
+		const base = await alphaPicture({ cutOut: true })({
+			width: 640,
+			height: 480,
+		});
+		expect(await editOfBase(base)).toBe(1);
+	});
+
+	it("stores an edit of an opaque base as RGB, though the model sent a cut-out", async () => {
+		expect(await editOfBase(await photo(640, 480))).toBe(0);
 	});
 
 	it("stores a transparent generate with only alpha noise as RGB (the 250 guard)", async () => {
