@@ -1,8 +1,4 @@
-import {
-	fileExtension,
-	getEntryByExtension,
-	getEntryByMimeType,
-} from "$lib/shared/file-types";
+import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
 
 export type FileServingMode = "preview" | "download";
 
@@ -49,26 +45,6 @@ export function encodeRfc5987(value: string): string {
 		/['()*]/g,
 		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
 	);
-}
-
-/**
- * The name with the extension its content type needs. A name that already ends in
- * an extension of that type is left alone ("Plan.docx" stays), as is one ending in
- * any other known file extension; only an extensionless or unknown-suffixed name
- * ("Terv", "Report v1.2") gets the type's canonical one, so a download is never
- * saved as a bare id-or-title with no way to open it.
- */
-export function ensureFilenameExtension(
-	filename: string,
-	contentType: string,
-): string {
-	const entry = getEntryByMimeType(contentType);
-	const canonical = entry?.extensions[0];
-	if (!entry || !canonical) return filename;
-	const extension = fileExtension(filename);
-	if (extension && entry.extensions.includes(extension)) return filename;
-	if (extension && getEntryByExtension(extension)) return filename;
-	return `${filename.replace(/[.\s]+$/, "")}.${canonical}`;
 }
 
 /**

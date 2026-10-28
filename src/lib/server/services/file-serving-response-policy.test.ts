@@ -199,3 +199,16 @@ describe("download Content-Disposition", () => {
 		);
 	});
 });
+
+describe("download extension for a suffix of another type", () => {
+	it("appends .docx to a Document titled like a script file", () => {
+		const value = buildFileServingResponseHeaders({
+			mode: "download",
+			contentLength: 1,
+			contentType:
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			filename: "Intro to Node.js",
+		})["Content-Disposition"];
+		expect(value).toContain(`filename="Intro to Node.js.docx"`);
+	});
+});

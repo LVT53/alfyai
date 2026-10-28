@@ -571,6 +571,28 @@ describe("resolveWorkingDocumentFileServing", () => {
 		);
 	});
 
+	it("appends the artifact extension after a suffix of another type", async () => {
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "note-js",
+			name: "Intro to Node.js",
+			storagePath: null,
+			contentText: "# Intro",
+			mimeType: "text/plain",
+			extension: "md",
+			type: "skill_note",
+			metadata: null,
+		});
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "note-js",
+			mode: "download",
+		});
+		if (!result.ok) throw new Error("expected successful resolution");
+		expect(result.headers["Content-Disposition"]).toContain(
+			`filename*=UTF-8''Intro%20to%20Node.js.md`,
+		);
+	});
+
 	it("serves stored HTML previews with the shared restricted browser policy", async () => {
 		const htmlBody = Buffer.from("<!doctype html><h1>Knowledge report</h1>");
 		await writeKnowledgeFile(
