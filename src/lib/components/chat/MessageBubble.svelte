@@ -1505,227 +1505,226 @@ function sendFollowUp(question: string) {
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
 	{#if !message.isStreaming && !isEditing}
 		<!-- Two rows, one reveal. The action row (copy, regenerate, ...) and the
-		     follow-up chips under it are hover-only on a wide screen, revealed
-		     together by ONE rule on the block that holds both (Task 15, the
-		     owner's call; it reverses F17's always-shown chips): a hover over the
-		     message, or keyboard focus anywhere in either row (focus-within).
-		     Opacity only, so the rows keep their space and the reveal moves
-		     nothing; below md (touch) both are always shown, the icon row's own
-		     touch rule. Reduced motion: the app's global rule. -->
-		<div
-			class="message-actions opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
-		>
-		<div
-			class="copy-action-row flex w-full items-center gap-0.5"
-			class:justify-end={isUser}
-			class:justify-start={!isUser}
-		>
-			{#if !isUser && hasResponseAuditInfo}
-				<div class="info-container" use:releaseInfoForcedClose>
-					<button
-						type="button"
-						class="btn-icon-bare action-icon-btn info-button"
-						aria-label={$t('messageBubble.info')}
-						aria-describedby={auditDetailsId}
-						aria-expanded={infoPopoverTouched || undefined}
-						onclick={toggleInfoPopoverOnTouch}
-					>
-						<Info size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<div
-						id={auditDetailsId}
-						class="info-popover"
-						data-open={infoPopoverTouched ? "true" : "false"}
-						class:info-popover-open={infoPopoverTouched}
-						class:info-popover-forced-closed={infoForcedClosed}
-					>
-					<ResponseAuditDetails
-						{message}
-						modelIconUrl={messageModelIconUrl}
-						atlasCostUsdMicros={atlasJobCostUsdMicros}
-						onOpenSources={openSourcesFromInfo}
-					/>
-					</div>
-				</div>
-			{/if}
-
-		{#if !isUser && !readOnly}
-			<!-- Regenerate button -->
-				<div class="action-tooltip-container">
-					<button
-						id={regenerateButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={() => onRegenerate?.({ messageId: message.id })}
-						aria-label={$t('messageBubble.regenerate')}
-						aria-describedby={`${regenerateButtonId}-tooltip`}
-					>
-						<RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<div
-						id={`${regenerateButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{$t('messageBubble.actionRegenerate')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if canFork}
-				<div class="action-tooltip-container">
-					<button
-						id={forkButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={() => onFork?.({ messageId: message.id })}
-						disabled={forkBusy}
-						aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
-						aria-describedby={`${forkButtonId}-tooltip`}
-					>
-						{#if forkBusy}
-							<span class="mini-spinner" aria-hidden="true"></span>
-						{:else}
-							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
-						{/if}
-					</button>
-					<div
-						id={`${forkButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if canKeepAsDocument}
-				<div class="action-tooltip-container">
-					<button
-						id={keepAsDocumentButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={handleKeepAsDocument}
-						disabled={keepingAsDocumentBusy}
-						aria-label={keepingAsDocumentBusy
-							? $t('chat.artifacts.keepAsDocumentBusy')
-							: $t('chat.artifacts.keepAsDocument')}
-						aria-describedby={`${keepAsDocumentButtonId}-tooltip`}
-					>
-						{#if keepingAsDocumentBusy}
-							<span class="mini-spinner" aria-hidden="true"></span>
-						{:else}
-							<FileText size={15} strokeWidth={2} aria-hidden="true" />
-						{/if}
-					</button>
-					<div
-						id={`${keepAsDocumentButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{keepingAsDocumentBusy ? $t('chat.artifacts.keepAsDocumentBusy') : $t('chat.artifacts.keepAsDocument')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if isUser}
-				<div class="timestamp-container">
-					<button
-						type="button"
-						class="timestamp-label font-mono tabular-nums"
-						onclick={toggleTimestampTooltip}
-					>{timestampLabel}</button>
-					<div class="timestamp-tooltip" class:visible={showTimestampTooltip}>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{fullTimestampLabel}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-				{#if !readOnly}
-					<!-- Edit button -->
-					<div class="action-tooltip-container">
+		     follow-up chips under it wait for the pointer on a device that can
+		     hover, revealed together by ONE rule on the block that holds both
+		     (Task 15, the owner's call; it reverses F17's always-shown chips): a
+		     hover over the message, or keyboard focus anywhere in either row
+		     (focus-within). Keyed to hover capability, not width (fix round 1): a
+		     touch screen of any width (a phone, an iPad in landscape) shows both
+		     at rest. Opacity only, so the rows keep their space and the reveal
+		     moves nothing. Reduced motion: the app's global rule. -->
+		<div class="message-actions">
+			<div
+				class="copy-action-row flex w-full items-center gap-0.5"
+				class:justify-end={isUser}
+				class:justify-start={!isUser}
+			>
+				{#if !isUser && hasResponseAuditInfo}
+					<div class="info-container" use:releaseInfoForcedClose>
 						<button
-							id={editButtonId}
 							type="button"
-							class="btn-icon-bare action-icon-btn"
-							onclick={startEdit}
-							aria-label={$t('messageBubble.editMessage')}
-							aria-describedby={`${editButtonId}-tooltip`}
+							class="btn-icon-bare action-icon-btn info-button"
+							aria-label={$t('messageBubble.info')}
+							aria-describedby={auditDetailsId}
+							aria-expanded={infoPopoverTouched || undefined}
+							onclick={toggleInfoPopoverOnTouch}
 						>
-							<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+							<Info size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<div
-							id={`${editButtonId}-tooltip`}
+							id={auditDetailsId}
+							class="info-popover"
+							data-open={infoPopoverTouched ? "true" : "false"}
+							class:info-popover-open={infoPopoverTouched}
+							class:info-popover-forced-closed={infoForcedClosed}
+						>
+						<ResponseAuditDetails
+							{message}
+							modelIconUrl={messageModelIconUrl}
+							atlasCostUsdMicros={atlasJobCostUsdMicros}
+							onOpenSources={openSourcesFromInfo}
+						/>
+						</div>
+					</div>
+				{/if}
+
+			{#if !isUser && !readOnly}
+				<!-- Regenerate button -->
+					<div class="action-tooltip-container">
+						<button
+							id={regenerateButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={() => onRegenerate?.({ messageId: message.id })}
+							aria-label={$t('messageBubble.regenerate')}
+							aria-describedby={`${regenerateButtonId}-tooltip`}
+						>
+							<RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<div
+							id={`${regenerateButtonId}-tooltip`}
 							class="action-tooltip"
 							role="tooltip"
 						>
 							<div class="tooltip-content">
 								<div class="tooltip-row">
-									<span class="tooltip-value">{$t('messageBubble.actionEdit')}</span>
+									<span class="tooltip-value">{$t('messageBubble.actionRegenerate')}</span>
 								</div>
 							</div>
 						</div>
 					</div>
 				{/if}
-			{/if}
 
-			<div class="action-tooltip-container">
-				<button
-					id={copyButtonId}
-					type="button"
-					class="btn-icon-bare action-icon-btn"
-					onclick={copyToClipboard}
-					aria-label={$t('messageBubble.copyMessage')}
-					aria-describedby={`${copyButtonId}-tooltip`}
-				>
-					{#if copied}
-						<Check size={15} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
-					{:else}
-						<Copy size={15} strokeWidth={2} aria-hidden="true" />
+				{#if canFork}
+					<div class="action-tooltip-container">
+						<button
+							id={forkButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={() => onFork?.({ messageId: message.id })}
+							disabled={forkBusy}
+							aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
+							aria-describedby={`${forkButtonId}-tooltip`}
+						>
+							{#if forkBusy}
+								<span class="mini-spinner" aria-hidden="true"></span>
+							{:else}
+								<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+						<div
+							id={`${forkButtonId}-tooltip`}
+							class="action-tooltip"
+							role="tooltip"
+						>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if canKeepAsDocument}
+					<div class="action-tooltip-container">
+						<button
+							id={keepAsDocumentButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={handleKeepAsDocument}
+							disabled={keepingAsDocumentBusy}
+							aria-label={keepingAsDocumentBusy
+								? $t('chat.artifacts.keepAsDocumentBusy')
+								: $t('chat.artifacts.keepAsDocument')}
+							aria-describedby={`${keepAsDocumentButtonId}-tooltip`}
+						>
+							{#if keepingAsDocumentBusy}
+								<span class="mini-spinner" aria-hidden="true"></span>
+							{:else}
+								<FileText size={15} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+						<div
+							id={`${keepAsDocumentButtonId}-tooltip`}
+							class="action-tooltip"
+							role="tooltip"
+						>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{keepingAsDocumentBusy ? $t('chat.artifacts.keepAsDocumentBusy') : $t('chat.artifacts.keepAsDocument')}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if isUser}
+					<div class="timestamp-container">
+						<button
+							type="button"
+							class="timestamp-label font-mono tabular-nums"
+							onclick={toggleTimestampTooltip}
+						>{timestampLabel}</button>
+						<div class="timestamp-tooltip" class:visible={showTimestampTooltip}>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{fullTimestampLabel}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+					{#if !readOnly}
+						<!-- Edit button -->
+						<div class="action-tooltip-container">
+							<button
+								id={editButtonId}
+								type="button"
+								class="btn-icon-bare action-icon-btn"
+								onclick={startEdit}
+								aria-label={$t('messageBubble.editMessage')}
+								aria-describedby={`${editButtonId}-tooltip`}
+							>
+								<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+							</button>
+							<div
+								id={`${editButtonId}-tooltip`}
+								class="action-tooltip"
+								role="tooltip"
+							>
+								<div class="tooltip-content">
+									<div class="tooltip-row">
+										<span class="tooltip-value">{$t('messageBubble.actionEdit')}</span>
+									</div>
+								</div>
+							</div>
+						</div>
 					{/if}
-				</button>
-				<div
-					id={`${copyButtonId}-tooltip`}
-					class="action-tooltip"
-					role="tooltip"
-				>
-					<div class="tooltip-content">
-						<div class="tooltip-row">
-							<span class="tooltip-value">{$t('messageBubble.actionCopy')}</span>
+				{/if}
+
+				<div class="action-tooltip-container">
+					<button
+						id={copyButtonId}
+						type="button"
+						class="btn-icon-bare action-icon-btn"
+						onclick={copyToClipboard}
+						aria-label={$t('messageBubble.copyMessage')}
+						aria-describedby={`${copyButtonId}-tooltip`}
+					>
+						{#if copied}
+							<Check size={15} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
+						{:else}
+							<Copy size={15} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+					<div
+						id={`${copyButtonId}-tooltip`}
+						class="action-tooltip"
+						role="tooltip"
+					>
+						<div class="tooltip-content">
+							<div class="tooltip-row">
+								<span class="tooltip-value">{$t('messageBubble.actionCopy')}</span>
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
 
-		</div>
-		{#if followUpChips.length > 0}
-			<div class="follow-up-row" data-testid="follow-up-chips">
-				{#each followUpChips as question (question)}
-					<button
-						type="button"
-						class="follow-up-chip"
-						onclick={() => sendFollowUp(question)}
-						aria-label={$t('messageBubble.followUpAriaLabel', { question })}
-					>
-						{question}
-					</button>
-				{/each}
 			</div>
-		{/if}
+			{#if followUpChips.length > 0}
+				<div class="follow-up-row" data-testid="follow-up-chips">
+					{#each followUpChips as question (question)}
+						<button
+							type="button"
+							class="follow-up-chip"
+							onclick={() => sendFollowUp(question)}
+							aria-label={$t('messageBubble.followUpAriaLabel', { question })}
+						>
+							{question}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -1977,6 +1976,18 @@ function sendFollowUp(question: string) {
 		width: 100%;
 		margin-top: var(--space-sm);
 		row-gap: var(--space-xs);
+		transition: opacity var(--duration-micro) var(--ease-out);
+	}
+
+	@media (hover: hover) {
+		.message-actions {
+			opacity: 0;
+		}
+
+		:global(.group:hover) .message-actions,
+		.message-actions:focus-within {
+			opacity: 1;
+		}
 	}
 
 	.copy-action-row {

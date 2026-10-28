@@ -2194,9 +2194,9 @@ describe("MessageBubble", () => {
 
 		const actionRow = container.querySelector(".copy-action-row");
 		expect(actionRow).not.toBeNull();
-		expect(actionRow?.closest(".message-actions")?.className).toContain(
-			"md:focus-within:opacity-100",
-		);
+		// The reveal (hover or focus-within, on a device that can hover) is the
+		// block's that holds the row: follow-up-chips.spec.ts drives it.
+		expect(actionRow?.closest(".message-actions")).not.toBeNull();
 	});
 
 	it("sizes every action-row icon button with the compact 28px class, keeping the touch target in CSS", () => {
@@ -3647,15 +3647,8 @@ describe("MessageBubble", () => {
 			const chip = container.querySelector(".follow-up-chip");
 			const block = chip?.closest(".message-actions");
 			expect(block).not.toBeNull();
-			const reveal = [
-				"opacity-100",
-				"transition-opacity",
-				"duration-[var(--duration-micro)]",
-				"md:opacity-0",
-				"md:group-hover:opacity-100",
-				"md:focus-within:opacity-100",
-			];
-			for (const cls of reveal) expect(block?.classList).toContain(cls);
+			// The reveal itself (hover capability, focus-within, opacity only) is
+			// driven for real in follow-up-chips.spec.ts.
 			expect(block?.querySelector(".copy-action-row")).not.toBeNull();
 			// Neither row has a reveal of its own, which could let them drift apart.
 			expect(

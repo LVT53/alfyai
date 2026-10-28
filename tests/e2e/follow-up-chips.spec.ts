@@ -193,3 +193,31 @@ test.describe("Follow-up chips on a phone", () => {
 		await expect.poll(() => seenOpacity(copy)).toBe(1);
 	});
 });
+
+// Fix round 1 (review Minor 1): the reveal follows the device, not the width. A
+// wide touch screen (an iPad in landscape: no hover) keeps both rows shown at
+// rest, as a phone does; only a device that can hover waits for the pointer.
+test.describe("Follow-up chips on a wide touch screen", () => {
+	test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true });
+
+	test.beforeEach(async ({ page }) => {
+		const cdp = await page.context().newCDPSession(page);
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [
+				{ name: "hover", value: "none" },
+				{ name: "any-hover", value: "none" },
+				{ name: "pointer", value: "coarse" },
+			],
+		});
+		await login(page);
+	});
+
+	test("shows the chips and the icon row at rest", async ({ page }) => {
+		await openChatWithChips(page);
+		await page.mouse.move(4, 4);
+		const chip = page.getByRole("button", { name: `Send: ${CHIP_COMPARE}` });
+		const copy = page.getByRole("button", { name: "Copy message" }).last();
+		await expect.poll(() => seenOpacity(chip)).toBe(1);
+		await expect.poll(() => seenOpacity(copy)).toBe(1);
+	});
+});
