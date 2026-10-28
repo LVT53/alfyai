@@ -236,4 +236,21 @@ describe("DocumentWorkspace: History as the host's layer", () => {
 			);
 		}
 	});
+
+	it("hands the open body the page's marks and the page the body's (plan 2b T6)", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeMarksBody.svelte");
+		const onMarksChange = vi.fn();
+		openDocument({
+			marks: [{ letter: "B", x: 0.2, y: 0.2, w: 0.3, h: 0.3 }],
+			onMarksChange,
+		});
+		const body = await screen.findByTestId("fake-marks-body");
+		expect(body).toHaveAttribute("data-letters", "B");
+		await fireEvent.click(within(body).getByTestId("fake-draw-mark"));
+		expect(onMarksChange).toHaveBeenCalledWith({
+			imageFileId: "file-2",
+			marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+		});
+	});
 });

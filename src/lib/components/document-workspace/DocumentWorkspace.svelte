@@ -135,6 +135,8 @@ let {
 	artifactVersionMessages = undefined,
 	onShowChatMessage = undefined,
 	onAttachPicture = undefined,
+	marks = undefined,
+	onMarksChange = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -233,6 +235,10 @@ let {
 	onAttachPicture?:
 		| ((picture: { imageFileId: string; name: string }) => void)
 		| undefined;
+	/** The marks drawn on the open Image's picture, held by the chat page (plan 2b T6); handed to the open body. */
+	marks?: ArtifactBodyProps["marks"];
+	/** The open Image body's marks, back to the chat page that sends them as one chip. Absent for a host with no chat (the Knowledge page): the body then offers no Mark. */
+	onMarksChange?: ArtifactBodyProps["onMarksChange"];
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -2866,6 +2872,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onOpenHistory={(versionId) => void openHistory(versionId)}
 								{onAttachPicture}
+								{marks}
+								{onMarksChange}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
@@ -3218,6 +3226,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onOpenHistory={(versionId) => void openHistory(versionId)}
 						{onAttachPicture}
+						{marks}
+						{onMarksChange}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}
