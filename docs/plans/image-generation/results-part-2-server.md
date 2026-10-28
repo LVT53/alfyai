@@ -388,7 +388,7 @@ Files: `/home/lvt53/alfyai-handoff/composites/t5b-region-measures.jsonl` (all 48
 
 ### Alpha hardening
 
-`compositeOnto` keeps an opaque base pixel opaque (a pasted pixel never makes a hole), and `keepTransparent` zeroes the paste where the base is opaque and the top's alpha is below `GUARD.pasteMinAlpha` (240; the model's own alpha is 252 or more, see "PreviewImage and alpha"). Tests: `composite.test.ts` and `guard-edit.test.ts` (a half-transparent rim of the kind a fractional rescale leaves). Note: `applyAlignment` rounds its offsets to whole pixels, so on today's code the exposed edge is exactly alpha 0; the test builds the rim by hand.
+`compositeOnto` keeps an opaque base pixel opaque (a pasted pixel never makes a hole), and `keepTransparent` zeroes the paste where the base is opaque and the top's alpha is below `GUARD.pasteMinAlpha` (240; the model's own alpha is 252 or more, see "PreviewImage and alpha"). Tests: `composite.test.ts` and `guard-edit.test.ts` (a half-transparent rim of the kind a fractional rescale leaves). Note: `applyAlignment` rounds its offsets to whole pixels, so on today's code the exposed edge is exactly alpha 0; the test builds the rim by hand. Exposed edges (2026-10-28, live ai.dev check: a "make the sky stormy" whole repaint moved up 1 px was stored with a transparent top row): every guard path now pastes or keeps the aligned result laid over the base (`overBase`), so the exposed strip takes the base's pixels; the masks and measures still come from the unfilled aligned result, so no tuned number moved.
 
 ### Composites (owner away; I looked at each, the controller should too)
 
