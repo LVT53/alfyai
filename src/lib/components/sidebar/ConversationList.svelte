@@ -341,6 +341,10 @@ async function focusRowAfterSelection(anchorId: string | null) {
 // better (a bulk call asked when the person acted, before its buttons went off).
 function endSelection({ refocus = barHoldsKeyboardFocus() } = {}) {
 	const anchorId = selectionAnchorId;
+	// The region goes back to empty, never to an old "Moved 3 chats": that would be
+	// read out again. A drop's own announcement is written after this, once the
+	// move has answered.
+	dragAnnouncement = "";
 	if (selectedIds.size > 0) selectedIds = new Set();
 	selectionAnchorId = null;
 	bulkDeleteConfirmOpen = false;
@@ -374,6 +378,7 @@ function handleSelectionToggle(payload: { id: string; range: boolean }) {
 	if (bulkBusy) return;
 	const { id, range } = payload;
 	if (!selecting) {
+		dragAnnouncement = "";
 		closeAllMenus();
 		clearDragState();
 		activeSidebarReorder = null;
@@ -523,6 +528,11 @@ function announceDraggedMove(movedIds: string[], name: string) {
 	});
 }
 
+function announceDraggedPin(pinnedIds: string[]) {
+	if (pinnedIds.length === 0) return;
+	dragAnnouncement = $t("sidebar.pinnedChats", { count: pinnedIds.length });
+}
+
 async function dropSelectionInto(projectId: string | null, name: string) {
 	clearDragState();
 	announceDraggedMove(await handleBulkMove({ projectId }), name);
@@ -537,10 +547,7 @@ async function dropSelectionOnPinned() {
 		() => setConversationsSidebarPinned(ids, true),
 		"sidebar.bulkPinFailed",
 	);
-	announceDraggedMove(
-		ids.filter((id) => !failedIds.includes(id)),
-		$t("sidebar.pinned"),
-	);
+	announceDraggedPin(ids.filter((id) => !failedIds.includes(id)));
 }
 
 function handlePinnedDragOver(event: DragEvent) {
@@ -1641,6 +1648,8 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 	</div>
 {/if}
 
+<!-- The row menu's own delete confirm (ConversationItem.svelte): keep the two
+     the same, copy and props alike. -->
 {#if binDeleteId !== null}
 	<ConfirmDialog
 		title={$t('sidebar.deleteConversationTitle')}
@@ -1764,8 +1773,8 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		left: -1000px;
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		padding: 6px 10px;
+		gap: var(--space-xs);
+		padding: var(--space-xs) var(--space-sm);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
 		background: var(--surface-overlay);

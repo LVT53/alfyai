@@ -2357,6 +2357,67 @@ describe("ConversationList multi-select", () => {
 			);
 		});
 
+		it("says nothing of an old move once a later selection starts or ends", async () => {
+			seed([chat("a"), chat("b"), chat("c")], folders);
+			await pick("a");
+			await pick("b");
+			await fireEvent.dragStart(row("a"));
+			await dropOn(folderZone("p1"));
+			const region = screen.getByTestId("selection-live-region");
+			await waitFor(() =>
+				expect(region).toHaveTextContent("Moved 2 chats to Alpha"),
+			);
+
+			await pick("c");
+			expect(region).toHaveTextContent("1 selected");
+			await fireEvent.keyDown(window, { key: "Escape" });
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(region.textContent).toBe("");
+		});
+
+		it("says the selection was pinned, not moved, when dropped on Pinned", async () => {
+			seed([pinned("pin", 0), chat("a"), chat("b")]);
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(screen.getByTestId("pinned-conversations-section"));
+
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-live-region")).toHaveTextContent(
+					"Pinned 2 chats",
+				),
+			);
+		});
+
+		it("goes home first when the open chat is in a selection dropped on the bin", async () => {
+			seed([chat("a"), chat("b"), chat("c")]);
+			currentConversationId.set("a");
+			await pick("a");
+			await pick("b");
+
+			await fireEvent.dragStart(row("b"));
+			await dropOn(bin() as HTMLElement);
+			await confirmDelete();
+
+			await waitFor(() => expect(bar()).not.toBeInTheDocument());
+			expect(goto).toHaveBeenCalledWith("/");
+			expect(events).toEqual(["goto", "batch"]);
+		});
+
+		it("goes home when the open chat alone is dropped on the bin and confirmed", async () => {
+			seed([chat("a"), chat("b")]);
+			currentConversationId.set("a");
+
+			await fireEvent.dragStart(row("a"));
+			await dropOn(bin() as HTMLElement);
+			await confirmDelete();
+
+			await waitFor(() => expect(goto).toHaveBeenCalledWith("/"));
+			expect(get(currentConversationId)).toBeNull();
+		});
+
 		it("skips the chats already in the folder it is dropped on", async () => {
 			seed([chat("f1", { projectId: "p1" }), chat("a")], folders, ["p1"]);
 			await pick("a");

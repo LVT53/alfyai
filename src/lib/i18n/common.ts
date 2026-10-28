@@ -278,6 +278,8 @@ const commonDict = {
 		"sidebar.openSettings": "Open settings",
 		"sidebar.pinToSidebar": "Pin to sidebar",
 		"sidebar.pinned": "Pinned",
+		"sidebar.pinnedChats":
+			"Pinned {count} {count, plural, one {chat} other {chats}}",
 		"sidebar.profile": "Profile",
 		"sidebar.projectDropArea": "{name} project drop area",
 		"sidebar.projectName": "Project name",
@@ -616,6 +618,7 @@ const commonDict = {
 		"sidebar.openSettings": "Beállítások megnyitása",
 		"sidebar.pinToSidebar": "Rögzítés",
 		"sidebar.pinned": "Rögzítve",
+		"sidebar.pinnedChats": "{count} beszélgetés rögzítve",
 		"sidebar.profile": "Profil",
 		"sidebar.projectDropArea": "{name} projekt célterülete",
 		"sidebar.projectName": "Projekt neve",
