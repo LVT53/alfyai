@@ -10,15 +10,18 @@
 // while the panel is open (F23) fills it instead of pushing the picture up. The
 // thumbnails sit in reserved square tiles and fade in on load (`ImagePicture`).
 import { Paperclip } from "@lucide/svelte";
+import { tick } from "svelte";
 import { t } from "$lib/i18n";
 import { oneLineName } from "$lib/shared/one-line-name";
 import type { ArtifactMoment } from "$lib/shared/artifacts/history";
 import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 import { uiLanguage } from "$lib/stores/settings";
+import { prefersReducedMotion } from "$lib/utils/motion";
 import { entryHeadline, whenLabel } from "../history/moment-text";
 import { momentEntry } from "../history/rail-model";
 import ImagePicture from "./ImagePicture.svelte";
 import "./picture-tile.css";
+import { overflowEdges, scrollLeftToShow } from "./strip-scroll";
 
 let {
 	moments,
@@ -72,9 +75,76 @@ let frames = $derived(
 		)
 		.reverse(),
 );
+
+// A narrow row (a phone) shows two or three frames: the current one (oldest
+// first, so usually the last) is scrolled whole into view, at once on the
+// first paint and under reduced motion, smoothly after; and a side that
+// hides frames wears a fade, as the composer's chip rail does (B-I5).
+let stripEl = $state<HTMLDivElement | null>(null);
+let edges = $state({ start: false, end: false });
+let placedOnce = false;
+
+function measureEdges(): void {
+	if (!stripEl) return;
+	const next = overflowEdges(stripEl);
+	if (next.start !== edges.start || next.end !== edges.end) edges = next;
+}
+
+function showCurrentFrame(strip: HTMLDivElement, versionId: string): void {
+	const frame = [
+		...strip.querySelectorAll<HTMLElement>('[data-testid="image-version-frame"]'),
+	].find((element) => element.dataset.versionId === versionId);
+	if (!frame) return;
+	const stripRect = strip.getBoundingClientRect();
+	const rect = frame.getBoundingClientRect();
+	const left = scrollLeftToShow(
+		{ left: rect.left - stripRect.left + strip.scrollLeft, width: rect.width },
+		strip,
+	);
+	if (Math.abs(left - strip.scrollLeft) <= 0.5) return;
+	const smooth = placedOnce && !prefersReducedMotion();
+	if (typeof strip.scrollTo === "function") {
+		strip.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+	} else {
+		strip.scrollLeft = left;
+	}
+}
+
+$effect(() => {
+	const strip = stripEl;
+	const current = frames.find((frame) => frame.current)?.versionId ?? null;
+	const count = frames.length;
+	if (!strip) return;
+	void tick().then(() => {
+		if (current && count > 1) showCurrentFrame(strip, current);
+		placedOnce = true;
+		measureEdges();
+	});
+});
+
+$effect(() => {
+	const strip = stripEl;
+	if (!strip) return;
+	const onScroll = () => measureEdges();
+	strip.addEventListener("scroll", onScroll, { passive: true });
+	const observer =
+		typeof ResizeObserver === "undefined"
+			? null
+			: new ResizeObserver(() => measureEdges());
+	observer?.observe(strip);
+	return () => {
+		strip.removeEventListener("scroll", onScroll);
+		observer?.disconnect();
+	};
+});
 </script>
 
-<div class="strip" role="group" aria-label={$t('artifacts.image.panel.versions')} data-testid="image-version-strip">
+<div
+	bind:this={stripEl}
+	class="strip"
+	class:fade-start={edges.start}
+	class:fade-end={edges.end}
+	role="group" aria-label={$t('artifacts.image.panel.versions')} data-testid="image-version-strip">
 	{#if frames.length > 1}
 		{#each frames as frame (frame.versionId)}
 			<div class="cell">
@@ -130,6 +200,39 @@ let frames = $derived(
 
 	.strip::-webkit-scrollbar {
 		display: none;
+	}
+
+	/* A side that hides frames fades out, so a cut frame reads as "more this
+	   way". Not animated: the mask follows the scroll. */
+	.strip.fade-end {
+		mask-image: linear-gradient(90deg, #000 calc(100% - 1.5rem), transparent);
+		-webkit-mask-image: linear-gradient(
+			90deg,
+			#000 calc(100% - 1.5rem),
+			transparent
+		);
+	}
+
+	.strip.fade-start {
+		mask-image: linear-gradient(90deg, transparent, #000 1.5rem);
+		-webkit-mask-image: linear-gradient(90deg, transparent, #000 1.5rem);
+	}
+
+	.strip.fade-start.fade-end {
+		mask-image: linear-gradient(
+			90deg,
+			transparent,
+			#000 1.5rem,
+			#000 calc(100% - 1.5rem),
+			transparent
+		);
+		-webkit-mask-image: linear-gradient(
+			90deg,
+			transparent,
+			#000 1.5rem,
+			#000 calc(100% - 1.5rem),
+			transparent
+		);
 	}
 
 	/* The tile's look is the shared picture tile (picture-tile.css); a frame is square. */

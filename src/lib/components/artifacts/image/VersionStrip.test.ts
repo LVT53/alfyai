@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	at,
 	makeMoment,
@@ -223,5 +229,106 @@ describe("VersionStrip and History's moments (plan 2b T4)", () => {
 		);
 		await fireEvent.click(frames[1]);
 		expect(onOpenHistory).toHaveBeenCalledWith("v3");
+	});
+});
+
+// Final review B-I5: on a phone the strip shows about two frames, and the
+// current one (always last: oldest first) was the one cut in half.
+describe("VersionStrip on a narrow row", () => {
+	const FRAME = 56;
+	const GAP = 6;
+	let restore: () => void = () => {};
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+		// A 130 px strip holding three 56 px frames: the layout jsdom lacks.
+		const rect = Object.getOwnPropertyDescriptor(
+			Element.prototype,
+			"getBoundingClientRect",
+		);
+		const widths = ["clientWidth", "scrollWidth"].map((name) => [
+			name,
+			Object.getOwnPropertyDescriptor(HTMLElement.prototype, name),
+		]);
+		Element.prototype.getBoundingClientRect = function (this: Element) {
+			const strip = this.closest('[data-testid="image-version-strip"]');
+			const scrollLeft = strip ? (strip as HTMLElement).scrollLeft : 0;
+			const index = ["v1", "v2", "v3"].indexOf(
+				(this as HTMLElement).dataset?.versionId ?? "",
+			);
+			const left = index < 0 ? 0 : index * (FRAME + GAP) - scrollLeft;
+			const width = index < 0 ? 130 : FRAME;
+			return {
+				left,
+				right: left + width,
+				width,
+				top: 0,
+				bottom: FRAME,
+				height: FRAME,
+				x: left,
+				y: 0,
+				toJSON: () => ({}),
+			} as DOMRect;
+		};
+		Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+			configurable: true,
+			get(this: HTMLElement) {
+				return this.dataset?.testid === "image-version-strip" ? 130 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+			configurable: true,
+			get(this: HTMLElement) {
+				return this.dataset?.testid === "image-version-strip"
+					? 3 * FRAME + 2 * GAP
+					: 0;
+			},
+		});
+		restore = () => {
+			if (rect)
+				Object.defineProperty(Element.prototype, "getBoundingClientRect", rect);
+			for (const [name, descriptor] of widths) {
+				if (descriptor)
+					Object.defineProperty(
+						HTMLElement.prototype,
+						name as string,
+						descriptor as PropertyDescriptor,
+					);
+				else
+					delete (HTMLElement.prototype as unknown as Record<string, unknown>)[
+						name as string
+					];
+			}
+		};
+	});
+
+	afterEach(() => restore());
+
+	it("scrolls the current frame whole into view and fades the side that hides frames", async () => {
+		render(VersionStrip, {
+			moments: photoItemMoments(),
+			currentVersionId: "v3",
+			conversationId: "conv-1",
+			onOpenHistory: vi.fn(),
+		});
+		const strip = screen.getByTestId("image-version-strip");
+		await waitFor(() =>
+			expect(strip.scrollLeft).toBe(3 * FRAME + 2 * GAP - 130),
+		);
+		await waitFor(() => expect(strip).toHaveClass("fade-start"));
+		expect(strip).not.toHaveClass("fade-end");
+	});
+
+	it("fades the end while the current frame is the first", async () => {
+		render(VersionStrip, {
+			moments: photoItemMoments(),
+			currentVersionId: "v1",
+			conversationId: "conv-1",
+			onOpenHistory: vi.fn(),
+		});
+		const strip = screen.getByTestId("image-version-strip");
+		await waitFor(() => expect(strip).toHaveClass("fade-end"));
+		expect(strip.scrollLeft).toBe(0);
+		expect(strip).not.toHaveClass("fade-start");
 	});
 });
