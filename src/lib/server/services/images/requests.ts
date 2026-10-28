@@ -83,13 +83,24 @@ function refuse(refusal: MakeImageRefusal, message: string): Resolution {
 	return { ok: false, refusal, message };
 }
 
+/**
+ * The model's own title (the tool asks for one on every call that starts an
+ * Image). Without one, the first words of the person's message, which are in
+ * their language: at most eight, never past the first sentence's end, and
+ * without its closing punctuation, so a sentence never becomes "room." (and its
+ * download "room..png").
+ */
 function titleFor(given: string | undefined, requestText: string): string {
 	const own = oneLineName(given ?? "", TITLE_MAX_CHARS);
 	if (own) return own;
-	const words = requestText.split(/\s+/).filter(Boolean);
+	const firstSentence = requestText.trim().split(/(?<=[.!?…])\s+/u)[0] ?? "";
+	const words = firstSentence.split(/\s+/).filter(Boolean);
 	return (
 		oneLineName(
-			words.slice(0, TITLE_FALLBACK_WORDS).join(" "),
+			words
+				.slice(0, TITLE_FALLBACK_WORDS)
+				.join(" ")
+				.replace(/[\s.!?…,;:]+$/u, ""),
 			TITLE_MAX_CHARS,
 		) || TITLE_FALLBACK
 	);

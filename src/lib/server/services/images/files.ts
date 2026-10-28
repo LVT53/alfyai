@@ -18,6 +18,7 @@ import {
 	type ImageVersionBody,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
+import { withFileExtension } from "$lib/shared/file-types/download-name";
 import { normalizePngAlpha } from "./alpha";
 
 export type ImageFileRole = "input" | "take" | "marked";
@@ -393,7 +394,7 @@ export async function getImageItem(params: {
 	};
 }
 
-/** The name a download carries: the item's title when the file belongs to one, else `picture.png`. */
+/** The name a download carries: the item's title when the file belongs to one, else `picture.png`, through the shared download-name rule. */
 export async function imageFileDownloadName(file: ImageFile): Promise<string> {
 	let title = "";
 	if (file.artifactId) {
@@ -419,5 +420,7 @@ export async function imageFileDownloadName(file: ImageFile): Promise<string> {
 		.replace(/^[\s.-]+|[\s.-]+$/g, "")
 		.slice(0, 120)
 		.trim();
-	return `${clean || "picture"}.png`;
+	// The shared rule (download-name.ts): a title that already ends in .png keeps
+	// it, and a sentence's closing dot never doubles the extension's ("room..png").
+	return withFileExtension(clean || "picture", "png");
 }

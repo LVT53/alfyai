@@ -1259,7 +1259,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             }
           },
           "title": {
-            "description": "For a new picture: a short title in the conversation's language.",
+            "description": "A short title (2-6 words, in the conversation's language) naming what the picture shows, never the user's own words copied. Give it on every call that does not change an Image of this chat in place: a new picture, a change of the user's photo, or a picture made from several. A change of an Image keeps that Image's title.",
             "type": "string",
             "maxLength": 80
           },

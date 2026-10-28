@@ -544,6 +544,31 @@ describe("what a call is made from", () => {
 		if (!result.ok) throw new Error("not resolved");
 		expect(result.plan.title).toBe("please draw me a cosy living room with");
 	});
+
+	// Task 17 (rehearsal P2): with no title from the model, a photo's change was
+	// named "This is a photo of my living room." — the person's sentence, its dot
+	// and all ("room..png"). The fallback stops at the sentence's end and keeps no
+	// closing punctuation.
+	it("keeps the fallback to the first sentence, without its closing punctuation", async () => {
+		const result = await resolve(
+			{},
+			{
+				requestText:
+					"Sunset over the lake. Make it warmer and add a boat please",
+			},
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.title).toBe("Sunset over the lake");
+	});
+
+	it("prefers the model's own title over the person's words", async () => {
+		const result = await resolve(
+			{ title: "Green sofa room" },
+			{ requestText: "This is a photo of my living room. Make the sofa green." },
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.title).toBe("Green sofa room");
+	});
 });
 
 describe("a retry", () => {

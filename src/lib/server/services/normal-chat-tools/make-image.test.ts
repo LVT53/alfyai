@@ -345,6 +345,20 @@ describe("a new picture from words", () => {
 	});
 });
 
+describe("the title the model gives", () => {
+	// Task 17 (rehearsal P2): the description said "For a new picture", so a change
+	// of the person's photo (which starts a new Image) came without one and was
+	// named after their first sentence. Any call that does not change an Image of
+	// this chat in place starts one, and that one needs a title.
+	it("asks for a title for every Image a call starts, a changed photo included", async () => {
+		const { makeImageInputSchema } = await import("./make-image");
+		const description = makeImageInputSchema.shape.title.description ?? "";
+		expect(description).not.toMatch(/^For a new picture/);
+		expect(description).toMatch(/photo/i);
+		expect(description).toMatch(/never the user's (own )?words|not the user's (own )?words/i);
+	});
+});
+
 describe("naming pictures", () => {
 	it("resolves a picture number through the message, and refuses what it does not hold", async () => {
 		await configureOnly();

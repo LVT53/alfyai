@@ -507,4 +507,39 @@ describe("imageFileDownloadName", () => {
 			"Red - fox.png",
 		);
 	});
+
+	// Task 17 (rehearsal): a title that is a sentence ("…living room.") or that
+	// already names the type is saved through the shared download-name rule, so
+	// never "room..png" and never "Sunset.png.png".
+	it.each([
+		["This is a photo of my living room.", "This is a photo of my living room.png"],
+		["Sunset.png", "Sunset.png"],
+		["Sunset.PNG", "Sunset.PNG"],
+		["Notes. ", "Notes.png"],
+		["v2.5 draft", "v2.5 draft.png"],
+	])("saves %j as %j", async (title, expected) => {
+		const file = await files.storeImageFile({
+			userId: "u1",
+			conversationId: "c1",
+			role: "take",
+			png: await png(8, 8),
+		});
+		const id = `a-${expected}`;
+		memory.db
+			.insert(schema.artifacts)
+			.values({
+				id,
+				userId: "u1",
+				conversationId: "c1",
+				type: "artifact",
+				name: "ignored",
+				metadataJson: JSON.stringify({ artifactType: "image", title }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})
+			.run();
+		await files.attachImageFilesToArtifact([file.id], id);
+		const attached = await files.getImageFile({ userId: "u1", fileId: file.id });
+		expect(await files.imageFileDownloadName(attached as never)).toBe(expected);
+	});
 });
