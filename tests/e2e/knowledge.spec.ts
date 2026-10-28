@@ -398,6 +398,25 @@ test.describe("Knowledge page", () => {
 		await expect(chips.getByText(/Slides/)).toHaveCount(0);
 	});
 
+	// Task 20: any `?type=` deep link was a 500 (the page read its kind
+	// allowlist before declaring it), and the page's copy of the allowlist
+	// lacked "image" even though the server filters by it.
+	for (const type of ["image", "document"] as const) {
+		test(`a ?type=${type} link opens the page on that chip`, async ({
+			page,
+		}) => {
+			const response = await page.goto(`/knowledge?type=${type}`, {
+				waitUntil: "domcontentloaded",
+			});
+			expect(response?.status()).toBe(200);
+			await waitForHydration(page);
+
+			await expect(
+				page.getByTestId(`documents-filter-chip-${type}`),
+			).toHaveAttribute("aria-pressed", "true");
+		});
+	}
+
 	// Slice 7 (Feature 2, ADR-0066): the artifact family (Document/App/Canvas/
 	// Slides) joins the Documents tab. Neither this spec nor any other seeded
 	// a document/generated-file/artifact row before this slice, so this is

@@ -1,11 +1,13 @@
 import { redirect } from "@sveltejs/kit";
 import {
 	getKnowledgeLibraryPage,
-	type KnowledgeDocumentKindFilter,
 	type KnowledgeLibrarySortDirection,
 	type KnowledgeLibrarySortKey,
 } from "$lib/server/services/knowledge";
-import { FILE_FAMILY_ORDER, type FileFamily } from "$lib/shared/file-types";
+import {
+	parseFileFamilyFilter,
+	parseKnowledgeKindFilter,
+} from "./_components/documents-table";
 import type { PageServerLoad } from "./$types";
 
 const SORT_KEYS = new Set<KnowledgeLibrarySortKey>([
@@ -15,17 +17,6 @@ const SORT_KEYS = new Set<KnowledgeLibrarySortKey>([
 	"date",
 ]);
 const SORT_DIRECTIONS = new Set<KnowledgeLibrarySortDirection>(["asc", "desc"]);
-// No "file" bucket (ruling 46, corrected): a produced file groups under
-// "uploaded" with its own format pill.
-const KIND_FILTERS = new Set<KnowledgeDocumentKindFilter>([
-	"document",
-	"canvas",
-	"app",
-	"slides",
-	"image",
-	"uploaded",
-]);
-const FILE_FAMILY_FILTERS = new Set<FileFamily>(FILE_FAMILY_ORDER);
 
 function parsePositiveInteger(value: string | null): number | null {
 	if (!value) return null;
@@ -45,25 +36,6 @@ function parseSortDirection(
 	return direction && SORT_DIRECTIONS.has(direction) ? direction : null;
 }
 
-function parseKindFilter(
-	value: string | null,
-): KnowledgeDocumentKindFilter | null {
-	const kind = value as KnowledgeDocumentKindFilter | null;
-	// Unrecognised value silently ignored — same rule as sort/dir.
-	return kind && KIND_FILTERS.has(kind) ? kind : null;
-}
-
-/**
- * Ruling 60's second-tier filter. Parsed independently of `type`: the store
- * already refuses to leak a Files row into a non-Files kind chip (see
- * `resolveFileFamilyBucket` in `knowledge/store/documents.ts`), so this stays
- * a plain allowlist check, same rule as sort/dir/kind.
- */
-function parseFileFamilyFilter(value: string | null): FileFamily | null {
-	const family = value as FileFamily | null;
-	return family && FILE_FAMILY_FILTERS.has(family) ? family : null;
-}
-
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) {
@@ -75,7 +47,7 @@ export const load: PageServerLoad = async (event) => {
 		sortDirection: parseSortDirection(event.url.searchParams.get("dir")),
 		page: parsePositiveInteger(event.url.searchParams.get("page")),
 		pageSize: parsePositiveInteger(event.url.searchParams.get("pageSize")),
-		kindFilter: parseKindFilter(event.url.searchParams.get("type")),
+		kindFilter: parseKnowledgeKindFilter(event.url.searchParams.get("type")),
 		fileFamilyFilter: parseFileFamilyFilter(
 			event.url.searchParams.get("family"),
 		),

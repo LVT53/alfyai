@@ -27,7 +27,11 @@ import {
 	isExtractionWaitingForBackend,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
-import { getCategory } from "$lib/shared/file-types";
+import {
+	FILE_FAMILY_ORDER,
+	type FileFamily,
+	getCategory,
+} from "$lib/shared/file-types";
 
 /**
  * Every row of this table is a library row, so the extraction verdict the
@@ -216,6 +220,42 @@ export type DocumentKind =
  * groups under "uploaded" with its own format pill.
  */
 export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
+
+/**
+ * Every `?type=` value the Knowledge page accepts — the ONE list, read by the
+ * page's server load and by the page itself. Two hand-kept copies drifted
+ * (the page's lacked "image", so `?type=image` silently fell back to All).
+ * Slides stays accepted though its chip is shelved (ruling 69, see below).
+ */
+const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
+	new Set<KnowledgeDocumentKindFilter>([
+		"document",
+		"canvas",
+		"app",
+		"slides",
+		"image",
+		"uploaded",
+	]);
+
+/** A `?type=` value as a kind filter; anything unrecognised is ignored
+ *  (`null`), same rule as sort/dir. */
+export function parseKnowledgeKindFilter(
+	value: string | null,
+): KnowledgeDocumentKindFilter | null {
+	return value && KNOWLEDGE_KIND_FILTERS.has(value)
+		? (value as KnowledgeDocumentKindFilter)
+		: null;
+}
+
+const FILE_FAMILY_FILTERS: ReadonlySet<string> = new Set<FileFamily>(
+	FILE_FAMILY_ORDER,
+);
+
+/** Ruling 60's second-tier `?family=` filter, read the same way: an
+ *  allowlist check, unrecognised values ignored. */
+export function parseFileFamilyFilter(value: string | null): FileFamily | null {
+	return value && FILE_FAMILY_FILTERS.has(value) ? (value as FileFamily) : null;
+}
 
 /** Chip order, the mockup's left-to-right reading order less Slides:
  *  All · Documents · Canvas · Apps · Images · Uploaded (shown as Files).

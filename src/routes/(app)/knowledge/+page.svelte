@@ -54,11 +54,15 @@ import type {
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
-import { FILE_FAMILY_ORDER, type FileFamily } from "$lib/shared/file-types";
+import type { FileFamily } from "$lib/shared/file-types";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { createExtractionPoller } from "$lib/client/extraction-poll";
 import { toWorkspaceDocument } from "./_helpers";
-import type { DocumentTypeFilter } from "./_components/documents-table";
+import {
+	type DocumentTypeFilter,
+	parseFileFamilyFilter,
+	parseKnowledgeKindFilter,
+} from "./_components/documents-table";
 import type { PageProps } from "./$types";
 
 type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
@@ -228,31 +232,16 @@ function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
 		: "documents";
 }
 
-const KIND_FILTER_VALUES = new Set<DocumentTypeFilter>([
-	"document",
-	"canvas",
-	"app",
-	"slides",
-	"uploaded",
-]);
-
-/** Mirrors `+page.server.ts`'s own `parseKindFilter` — an unrecognised value
- *  is silently ignored, same rule as sort/dir. */
+// `?type=` / `?family=` read through the route's shared parsers (the server
+// load uses the same ones): module imports, so the `$state` initialisers above
+// can call them — a local `const` allowlist declared below its first use threw
+// "Cannot access … before initialization" on any `?type=` link (Task 20).
 function getDocumentTypeFilterFromUrl(url: URL): DocumentTypeFilter {
-	const type = url.searchParams.get("type");
-	return type && KIND_FILTER_VALUES.has(type as DocumentTypeFilter)
-		? (type as DocumentTypeFilter)
-		: "all";
+	return parseKnowledgeKindFilter(url.searchParams.get("type")) ?? "all";
 }
 
-const FILE_FAMILY_FILTER_VALUES = new Set<FileFamily>(FILE_FAMILY_ORDER);
-
-/** Mirrors `+page.server.ts`'s own `parseFileFamilyFilter` (ruling 60). */
 function getFileFamilyFilterFromUrl(url: URL): FileFamily | null {
-	const family = url.searchParams.get("family");
-	return family && FILE_FAMILY_FILTER_VALUES.has(family as FileFamily)
-		? (family as FileFamily)
-		: null;
+	return parseFileFamilyFilter(url.searchParams.get("family"));
 }
 
 function syncSearchParam(
