@@ -43,6 +43,7 @@ import {
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+	AI_SMOKE_MAKE_IMAGE_BLOCKED_TEXT,
 	AI_SMOKE_MAKE_IMAGE_FINAL_TEXT,
 	AI_SMOKE_MAKE_IMAGE_MARKER,
 	AI_SMOKE_MAKE_IMAGE_PROMPT,
@@ -1492,6 +1493,18 @@ function buildReadProjectFileStreamResponse(
 
 const MAKE_IMAGE_CALL_ID = "call_fake_make_image";
 
+/** Whether make_image's result in this request says the filter blocked the picture. */
+function makeImageWasBlocked(body: Record<string, unknown>): boolean {
+	const messages = Array.isArray(body.messages) ? body.messages : [];
+	return messages.some(
+		(message) =>
+			isJsonObject(message) &&
+			message.role === "tool" &&
+			message.tool_call_id === MAKE_IMAGE_CALL_ID &&
+			JSON.stringify(message.content ?? "").includes("image_blocked"),
+	);
+}
+
 function buildMakeImageStreamResponse(body: Record<string, unknown>): Response {
 	if (hasToolResultMessage(body)) {
 		const chunkBase = {
@@ -1506,7 +1519,11 @@ function buildMakeImageStreamResponse(body: Record<string, unknown>): Response {
 				choices: [
 					{
 						index: 0,
-						delta: { content: AI_SMOKE_MAKE_IMAGE_FINAL_TEXT },
+						delta: {
+							content: makeImageWasBlocked(body)
+								? AI_SMOKE_MAKE_IMAGE_BLOCKED_TEXT
+								: AI_SMOKE_MAKE_IMAGE_FINAL_TEXT,
+						},
 						finish_reason: null,
 					},
 				],

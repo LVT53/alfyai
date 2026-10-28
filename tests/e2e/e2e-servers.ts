@@ -272,6 +272,10 @@ export function serverCommand(
 		// The same dotenv preload the dev server always had: a developer's .env still applies.
 		dotenv_config_path: ".env",
 		PLAYWRIGHT_TEST: "1",
+		// The explicit-picture filter's classifier is the stub here (honoured only
+		// with PLAYWRIGHT_TEST): it flags one marker colour, so no spec needs the
+		// model file or an explicit picture (images-picture-filter.spec.ts).
+		IMAGE_CHECK_CLASSIFIER: "stub",
 		// The home summary is cached 30s per user in production. Specs seed the
 		// conversations, jobs and usage rows it reads straight into SQLite,
 		// behind the server's back, so a warm entry would serve the state from

@@ -37,6 +37,9 @@ export const AI_SMOKE_MAKE_IMAGE_MARKER =
 export const AI_SMOKE_MAKE_IMAGE_PROMPT =
 	"A small red lighthouse on a green hill under a clear sky.";
 export const AI_SMOKE_MAKE_IMAGE_FINAL_TEXT = "Made the picture you asked for.";
+/** What the fake model says when make_image answered that the picture was blocked (the explicit-picture filter). */
+export const AI_SMOKE_MAKE_IMAGE_BLOCKED_TEXT =
+	"The picture was blocked by the filter, so it is not shown.";
 
 /**
  * A turn that reads a project file with the real `read_generated_file` tool
