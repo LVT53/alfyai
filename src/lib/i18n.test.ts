@@ -310,6 +310,12 @@ describe("Hungarian skill terminology", () => {
 		expect(skillKeys.length).toBeGreaterThan(150);
 	});
 
+	it("calls a disabled skill 'letiltva' everywhere", () => {
+		expect(hu["profileTab.skillsCountDisabled"]).toBe("{count} letiltva");
+		expect(hu["skills.status.disabled"]).toBe("Letiltva");
+		expect(hu["settings_skillsManagerStatus"]).toContain("letiltva");
+	});
+
 	it("uses only 'készség' for the Skill concept", () => {
 		for (const key of skillKeys) {
 			expect(hu[key], key).not.toMatch(/skill|képesség/i);

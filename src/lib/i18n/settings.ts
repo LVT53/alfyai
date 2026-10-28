@@ -4118,7 +4118,7 @@ const settingsDict = {
 			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
 		"profileTab.manageSkills": "Készségek kezelése",
 		"profileTab.skillsCountEnabled": "{count} engedélyezve",
-		"profileTab.skillsCountDisabled": "{count} kikapcsolva",
+		"profileTab.skillsCountDisabled": "{count} letiltva",
 		"profileTab.memoryProfile": "Memóriaprofil",
 		"profileTab.memoryProfileHelp":
 			"Olvasd és szerkeszd a rólad őrzött képet, kategóriánként.",
