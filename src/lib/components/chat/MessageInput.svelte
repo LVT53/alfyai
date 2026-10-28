@@ -1923,34 +1923,28 @@ function canSubmitMessageText(text: string): boolean {
 // so its thumbnails exist from its first paint (F13). Uploaded photos alone
 // carry their numbers too (Task 17): the server records them, so the bubble it
 // sends back looks the same. Nothing without a picture.
-function picturePayload(): {
-	pictureRefs?: PictureRef[];
-	pictures?: UserPicturesMetadata;
-	imageMarks?: ImageMarksRequest;
-	markedPicture?: SendPayload["markedPicture"];
-} {
-	// The marks ride with their picture: one not attached already is added as a
-	// ref under the number its chip showed (F14), so the server paints the marks
-	// whether or not the panel is still open on it when the turn is sent.
-	const marked = imageMarks;
-	const addMarkedRef =
-		marked !== null &&
-		!pictureRefs.some((ref) => ref.imageFileId === marked.imageFileId);
-	const marksPart = marked
-		? {
-				imageMarks: {
-					imageFileId: marked.imageFileId,
-					marks: marked.marks.map((mark) => ({ ...mark })),
-				},
-				markedPicture: {
-					artifactId: marked.artifactId,
-					name: marked.name,
-					addedRef: addMarkedRef,
-					version: marked.version,
-				},
-			}
-		: {};
-	const uploads = pendingAttachments.flatMap((attachment) => {
+/** The marks the send carries, and the picture they were drawn on (F14). */
+function marksPayload(
+	marked: ComposerMarks,
+	addMarkedRef: boolean,
+): Pick<SendPayload, "imageMarks" | "markedPicture"> {
+	return {
+		imageMarks: {
+			imageFileId: marked.imageFileId,
+			marks: marked.marks.map((mark) => ({ ...mark })),
+		},
+		markedPicture: {
+			artifactId: marked.artifactId,
+			name: marked.name,
+			addedRef: addMarkedRef,
+			version: marked.version,
+		},
+	};
+}
+
+/** The uploaded photos under the numbers their chips showed. */
+function numberedUploads(): { artifactId: string; number: number }[] {
+	return pendingAttachments.flatMap((attachment) => {
 		const number = pictureNumbers.get(
 			pictureKey({ kind: "upload", artifactId: attachment.artifact.id }),
 		);
@@ -1958,9 +1952,13 @@ function picturePayload(): {
 			? []
 			: [{ artifactId: attachment.artifact.id, number }];
 	});
-	if (pictureRefs.length === 0 && !addMarkedRef && uploads.length === 0) {
-		return marksPart;
-	}
+}
+
+/** The card pictures under the numbers their chips showed, the marked one added when it is not attached. */
+function numberedRefs(
+	marked: ComposerMarks | null,
+	addMarkedRef: boolean,
+): UserPicturesMetadata["refs"] {
 	const refs = pictureRefs.flatMap((ref) => {
 		const number = pictureNumbers.get(
 			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
@@ -1976,7 +1974,26 @@ function picturePayload(): {
 			name: marked.name,
 		});
 	}
-	refs.sort((a, b) => a.number - b.number);
+	return refs.sort((a, b) => a.number - b.number);
+}
+
+function picturePayload(): {
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
+	imageMarks?: ImageMarksRequest;
+	markedPicture?: SendPayload["markedPicture"];
+} {
+	// The marks ride with their picture: one not attached already is added as a
+	// ref under the number its chip showed (F14), so the server paints the marks
+	// whether or not the panel is still open on it when the turn is sent.
+	const marked = imageMarks;
+	const addMarkedRef =
+		marked !== null &&
+		!pictureRefs.some((ref) => ref.imageFileId === marked.imageFileId);
+	const marksPart = marked ? marksPayload(marked, addMarkedRef) : {};
+	const uploads = numberedUploads();
+	const refs = numberedRefs(marked, addMarkedRef);
+	if (refs.length === 0 && uploads.length === 0) return marksPart;
 	return {
 		...marksPart,
 		...(refs.length > 0

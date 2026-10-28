@@ -448,26 +448,31 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 				(animation) =>
 					(animation as Animation & { animationName?: string }).animationName,
 			);
-			const bandAnimations = (band?.getAnimations() ?? []).map((animation) => {
+			// A CSS animation keeps its timing function on its keyframes.
+			const easingOf = (animation: Animation, timing?: ComputedEffectTiming) =>
+				String(
+					(animation.effect as KeyframeEffect | null)?.getKeyframes()[0]
+						?.easing ??
+						timing?.easing ??
+						"",
+				);
+			const iterationsOf = (timing?: ComputedEffectTiming) =>
+				timing?.iterations === Infinity ? "infinite" : timing?.iterations;
+			const nameOf = (animation: Animation) =>
+				(animation as Animation & { animationName?: string }).animationName ??
+				"";
+			const describeSweep = (animation: Animation) => {
 				const timing = animation.effect?.getComputedTiming();
 				return {
-					name:
-						(animation as Animation & { animationName?: string })
-							.animationName ?? "",
+					name: nameOf(animation),
 					playState: animation.playState,
 					properties: propertiesOf(animation),
 					durationMs: Number(timing?.duration ?? 0),
-					iterations:
-						timing?.iterations === Infinity ? "infinite" : timing?.iterations,
-					// A CSS animation keeps its timing function on its keyframes.
-					easing: String(
-						(animation.effect as KeyframeEffect | null)?.getKeyframes()[0]
-							?.easing ??
-							timing?.easing ??
-							"",
-					),
+					iterations: iterationsOf(timing),
+					easing: easingOf(animation, timing),
 				};
-			});
+			};
+			const bandAnimations = (band?.getAnimations() ?? []).map(describeSweep);
 			const box = shimmer?.getBoundingClientRect();
 			const stageBox = stage?.getBoundingClientRect();
 			return {
