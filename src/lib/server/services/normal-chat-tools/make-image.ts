@@ -61,7 +61,7 @@ export const makeImageInputSchema = z.object({
 		.max(80)
 		.optional()
 		.describe(
-			"A short title (2-6 words, in the conversation's language) naming what the picture shows, never the user's own words copied. Give it on every call that does not change an Image of this chat in place: a new picture, a change of the user's photo, or a picture made from several. A change of an Image keeps that Image's title.",
+			"A title, 2-5 words, in the conversation's language: name the subject as a person would title a picture (\"Meowing Orange Cat\"), never restating the request or its verbs (make, change, add). Title Case in English, normal capitalisation in Hungarian. Give it on every call that does not change an Image of this chat in place: a new picture, a change of the user's photo, or a picture made from several. A change of an Image keeps that Image's title.",
 		),
 	summary: z
 		.string()
