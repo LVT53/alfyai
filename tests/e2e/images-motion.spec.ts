@@ -35,6 +35,8 @@ import {
 	IMAGE_ITEM_TITLE,
 	markToursSeen,
 	openItem,
+	openPanelList,
+	panelList,
 	reopenChat,
 	seedImageItem,
 	seedItem,
@@ -2689,6 +2691,8 @@ async function openSeededFlow(
 		reducedMotion?: "reduce" | "no-preference";
 		/** The reader's language (T6's 360 px Hungarian row). */
 		language?: "en" | "hu";
+		/** T16: a reader who has not seen the tours, so the first open shows its card. */
+		toursSeen?: boolean;
 	},
 	seed: (user: TourUser, chatId: string) => Promise<unknown>,
 ): Promise<SeededFlow> {
@@ -2713,7 +2717,7 @@ async function openSeededFlow(
 	});
 	await installMotionRecorder(page);
 	const user = await createTourUser(options.language ?? "en");
-	await markToursSeen(user);
+	if (options.toursSeen !== false) await markToursSeen(user);
 	const chatId = await startChatAs(page, user);
 	await seed(user, chatId);
 	await reopenChat(page, chatId);
@@ -5514,4 +5518,279 @@ test.describe("marks sent with a message, and left from an older picture (T6)", 
 			"the old boxes came back over the newer picture",
 		).toBe(0);
 	});
+});
+
+// ---- Plan 2b T16: the Image's first-open tour -----------------------------------
+
+/**
+ * The Image's first-open tour (plan 2b T16) against the Document's, recorded the same
+ * way (MOTION-PARITY "By measurement"): a reader who has seen no tour opens the item,
+ * the card is in the page with it (nothing under it moves), Next twice slides the
+ * steps, and "Got it" gives the card's room back as a short glide. Desktop light and
+ * dark and the phone sheet, each beside the Document's, to `t16-tour-*`.
+ */
+test.describe("the Image's first-open tour moves like the Document's (T16)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	const TOUR_CARD = '[data-testid="artifact-tour"]';
+	const TOUR_BODY = {
+		image: '.workspace-stage [data-testid="image-body"]',
+		document: DOC_BODY,
+	} as const;
+
+	type TourMetrics = {
+		arrivalTopMove: number;
+		arrivalShift: number;
+		stepLongFrames: number;
+		leaveLongFrames: number;
+		leaveShift: number;
+		room: number;
+		leaveTravel: number;
+		leaveMaxStep: number;
+		leaveMovingFrames: number;
+		leaveSpanMs: number;
+		/** The card's own motion (the step slide and the exit), as `duration easing` per animated part. */
+		cardCurves: string[];
+	};
+
+	function bodyGlide(frames: MotionFrame[]) {
+		const samples = frames.flatMap((frame) =>
+			frame.tracked.body ? [{ t: frame.t, y: frame.tracked.body.y }] : [],
+		);
+		let maxStep = 0;
+		let moving = 0;
+		let firstMove = -1;
+		let lastMove = 0;
+		for (let index = 1; index < samples.length; index++) {
+			const step = Math.abs(samples[index].y - samples[index - 1].y);
+			maxStep = Math.max(maxStep, step);
+			if (step > 0.5) {
+				moving += 1;
+				if (firstMove < 0) firstMove = samples[index].t;
+				lastMove = samples[index].t;
+			}
+		}
+		return {
+			travel: (samples[0]?.y ?? 0) - (samples.at(-1)?.y ?? 0),
+			maxStep,
+			moving,
+			spanMs: firstMove < 0 ? 0 : lastMove - firstMove,
+		};
+	}
+
+	function curvesOf(...runs: MotionRun[]) {
+		const seen = new Set<string>();
+		for (const run of runs) {
+			// The card's own motion; a part that only nudges for a frame or two (under
+			// 50 ms) is not a curve anyone sees.
+			for (const entry of run.animations) {
+				if (!/tour/.test(entry.target) || entry.duration < 50) continue;
+				seen.add(`${Math.round(entry.duration)} ${entry.easing}`);
+			}
+			for (const entry of run.transitions) {
+				if (!/tour/.test(entry.target) || entry.duration < 50) continue;
+				seen.add(`${Math.round(entry.duration)} ${entry.easing}`);
+			}
+		}
+		return [...seen].sort();
+	}
+
+	async function tourFlow(
+		flow: SeededFlow,
+		kind: "image" | "document",
+	): Promise<TourMetrics> {
+		const { page } = flow;
+		const body = TOUR_BODY[kind];
+		await openPanelList(page);
+		await settle(page);
+
+		// ARRIVING: the card is in the page with the item; nothing under it moves.
+		await startRecording(page, { card: TOUR_CARD, body });
+		mark(flow, `tour-open-${kind}`);
+		await panelList(page)
+			.getByTestId("artifact-row")
+			.filter({ hasText: kind === "image" ? IMAGE_ITEM_TITLE : DOCUMENT_TITLE })
+			.click();
+		const card = page.getByTestId("artifact-tour");
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page
+				.locator(kind === "image" ? PANEL_LOADED : `${DOC_BODY}:visible`)
+				.first(),
+		).toBeVisible({ timeout: 20_000 });
+		await settle(page);
+		const arrival = await stopRecording(page);
+		const cardAt = arrival.frames.findIndex(
+			(frame) => frame.tracked.card !== null,
+		);
+		expect(cardAt, "the card never showed").toBeGreaterThanOrEqual(0);
+		const sinceCard = arrival.frames.slice(Math.max(cardAt - 1, 0));
+		const firstBody = sinceCard.find((frame) => frame.tracked.body)?.tracked
+			.body;
+		const arrivalTopMove = Math.max(
+			0,
+			...sinceCard.flatMap((frame) =>
+				frame.tracked.body && firstBody
+					? [Math.abs(frame.tracked.body.y - firstBody.y)]
+					: [],
+			),
+		);
+		// THE STEPS: Next twice, each a short slide inside the card.
+		await startRecording(page, { card: TOUR_CARD, body });
+		mark(flow, `tour-steps-${kind}`);
+		for (let step = 0; step < 2; step++) {
+			await card.getByTestId("artifact-tour-next").click();
+			await page.waitForTimeout(450);
+		}
+		await settle(page);
+		const steps = await stopRecording(page);
+
+		// The room the card holds as the reader leaves it: its height on the last step
+		// (a longer step is a taller card) and the margin above it.
+		const room = await card.evaluate(
+			(element) =>
+				element.getBoundingClientRect().height +
+				Number.parseFloat(getComputedStyle(element).marginTop),
+		);
+
+		// LEAVING: "Got it" gives the room back as the card's own short glide.
+		await startRecording(page, { body });
+		mark(flow, `tour-leave-${kind}`);
+		await card.getByTestId("artifact-tour-done").click();
+		await expect(card).toHaveCount(0);
+		await page.waitForTimeout(300);
+		await settle(page);
+		const leave = await stopRecording(page);
+		const glide = bodyGlide(leave.frames);
+
+		return {
+			arrivalTopMove,
+			arrivalShift: shiftSum(arrival),
+			stepLongFrames: steps.longFrames.filter((entry) => entry.duration > 50)
+				.length,
+			leaveLongFrames: leave.longFrames.filter((entry) => entry.duration > 50)
+				.length,
+			leaveShift: shiftSum(leave),
+			room,
+			leaveTravel: glide.travel,
+			leaveMaxStep: glide.maxStep,
+			leaveMovingFrames: glide.moving,
+			leaveSpanMs: glide.spanMs,
+			cardCurves: curvesOf(steps, leave),
+		};
+	}
+
+	function holdTour(metrics: TourMetrics, kind: string) {
+		expect(
+			metrics.arrivalTopMove,
+			`${kind}: moved when its card arrived`,
+		).toBeLessThan(1.5);
+		expect(metrics.room, `${kind}: the card holds room`).toBeGreaterThan(100);
+		expect(metrics.stepLongFrames, `${kind}: a long frame while stepping`).toBe(
+			0,
+		);
+		expect(metrics.leaveLongFrames, `${kind}: a long frame while leaving`).toBe(
+			0,
+		);
+		expect(
+			metrics.leaveMovingFrames,
+			`${kind}: the room closed in one cut`,
+		).toBeGreaterThanOrEqual(4);
+		expect(
+			metrics.leaveMaxStep,
+			`${kind}: one frame took most of the way`,
+		).toBeLessThanOrEqual(Math.abs(metrics.leaveTravel) * 0.5 + 1);
+		expect(
+			metrics.leaveSpanMs,
+			`${kind}: the room took too long to close`,
+		).toBeLessThanOrEqual(600);
+		expect(
+			Math.abs(metrics.leaveTravel - metrics.room),
+			`${kind}: did not end where it would be without the card`,
+		).toBeLessThan(2);
+	}
+
+	const VARIANTS = [
+		{ name: "tour-desktop-light", viewport: DESKTOP, colorScheme: "light" },
+		{ name: "tour-desktop-dark", viewport: DESKTOP, colorScheme: "dark" },
+		{ name: "tour-phone-light", viewport: PHONE, colorScheme: "light" },
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: the Image's tour arrives, steps and leaves on the Document's curve`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const options = {
+				viewport: variant.viewport,
+				colorScheme: variant.colorScheme,
+				toursSeen: false,
+			};
+			const baseURL = testInfo.project.use.baseURL as string;
+
+			const docFlow = await openSeededFlow(
+				browser,
+				baseURL,
+				options,
+				(user, chatId) => seedItem(user, chatId, "document"),
+			);
+			let document: TourMetrics | null = null;
+			try {
+				document = await tourFlow(docFlow, "document");
+			} finally {
+				await saveRecording(
+					docFlow,
+					`document-${variant.name}`,
+					{ document },
+					{
+						prefix: "t16",
+						segments: [
+							"tour-open-document",
+							"tour-steps-document",
+							"tour-leave-document",
+						],
+					},
+				);
+			}
+			expect(docFlow.errors, "the page logged an error").toEqual([]);
+
+			const flow = await openSeededFlow(
+				browser,
+				baseURL,
+				options,
+				(user, chatId) => seedImageItem(user, chatId),
+			);
+			let image: TourMetrics | null = null;
+			try {
+				image = await tourFlow(flow, "image");
+			} finally {
+				await saveRecording(
+					flow,
+					variant.name,
+					{ image, document, sideBySide: { image, document } },
+					{
+						prefix: "t16",
+						segments: [
+							"tour-open-image",
+							"tour-steps-image",
+							"tour-leave-image",
+						],
+					},
+				);
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+
+			if (!image || !document) throw new Error("a flow did not finish");
+			holdTour(document, "document");
+			holdTour(image, "image");
+			// Side by side: the same card on the same curves, gone in the same time.
+			expect(image.cardCurves, "the Image's card ran on other curves").toEqual(
+				document.cardCurves,
+			);
+			expect(
+				Math.abs(image.leaveSpanMs - document.leaveSpanMs),
+				"the Image's card took another time to go",
+			).toBeLessThanOrEqual(80);
+		});
+	}
 });
