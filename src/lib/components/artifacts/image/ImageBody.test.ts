@@ -152,6 +152,8 @@ describe("ImageBody", () => {
 		expect(shown.getAttribute("src")).toBe(
 			"/api/images/files/file-1?conversationId=conv-1",
 		);
+		// After stays until Before has loaded.
+		await fireEvent.load(shown);
 		expect(
 			within(screen.getByTestId("image-body-picture")).getByTestId(
 				"image-picture",

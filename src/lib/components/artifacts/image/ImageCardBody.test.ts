@@ -408,7 +408,9 @@ describe("ImageCardBody", () => {
 		expect(after).toHaveAttribute("aria-pressed", "true");
 
 		await fireEvent.click(before);
+		// The switch answers at once; the picture flips once Before has loaded.
 		expect(before).toHaveAttribute("aria-pressed", "true");
+		await fireEvent.load(screen.getByTestId("image-picture-before"));
 		expect(
 			screen.getByRole("img", { name: "Cosy room" }).getAttribute("src"),
 		).toContain("base-f");

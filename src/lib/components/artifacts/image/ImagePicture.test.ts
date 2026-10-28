@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import ImagePicture from "./ImagePicture.svelte";
 
@@ -123,6 +123,8 @@ describe("ImagePicture", () => {
 		).toContain("after-file");
 
 		await rerender({ showing: "before" });
+		// After stays until Before has loaded (fix wave, B-I3).
+		await fireEvent.load(screen.getByTestId("image-picture-before"));
 		expect(
 			screen.getByRole("img", { name: "Sofa" }).getAttribute("src"),
 		).toContain("before-file");
@@ -169,10 +171,11 @@ describe("ImagePicture with a picture already in the cache", () => {
 				"is-loaded",
 			);
 			await rerender({ showing: "before" });
-			const before = screen.getByRole("img", { name: "Cached" });
+			const before = screen.getByTestId("image-picture-before");
 			expect(before.getAttribute("src")).toContain("before-file");
 			await fireEvent.load(before);
 			expect(before).toHaveClass("is-loaded");
+			expect(screen.getByRole("img", { name: "Cached" })).toBe(before);
 		} finally {
 			if (complete)
 				Object.defineProperty(HTMLImageElement.prototype, "complete", complete);
@@ -208,5 +211,50 @@ describe("ImagePicture swapping its picture", () => {
 		expect(next).not.toHaveClass("is-loaded");
 		await new Promise((resolve) => requestAnimationFrame(resolve));
 		expect(next).toHaveClass("is-loaded");
+	});
+});
+
+// Final fix wave (B-I2, B-I3): a flip never shows the box's background, and
+// the first Before press never empties the box while Before downloads.
+describe("ImagePicture flipping Before / After", () => {
+	async function rendered(hasAlpha = false) {
+		const view = render(ImagePicture, {
+			fileId: "after-file",
+			width: 10,
+			height: 10,
+			alt: "Sofa",
+			hasAlpha,
+			beforeFileId: "before-file",
+			showing: "after",
+		});
+		await fireEvent.load(screen.getByTestId("image-picture-after"));
+		return view;
+	}
+
+	it("fetches Before ahead of the first press, once After is shown", async () => {
+		await rendered();
+		await waitFor(() =>
+			expect(screen.getByTestId("image-picture-before")).toBeInTheDocument(),
+		);
+		expect(screen.getByTestId("image-picture")).toHaveAttribute(
+			"data-showing",
+			"after",
+		);
+	});
+
+	it("keeps After on screen until Before has loaded", async () => {
+		const { rerender } = await rendered();
+		await rerender({ showing: "before" });
+		const after = screen.getByTestId("image-picture-after");
+		expect(after).not.toHaveClass("is-hidden");
+		expect(screen.getByTestId("image-picture")).toHaveAttribute(
+			"data-showing",
+			"after",
+		);
+		await fireEvent.load(screen.getByTestId("image-picture-before"));
+		expect(screen.getByTestId("image-picture")).toHaveAttribute(
+			"data-showing",
+			"before",
+		);
 	});
 });

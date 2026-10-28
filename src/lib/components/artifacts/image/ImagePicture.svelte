@@ -4,8 +4,9 @@
 // numbers the server knows before the PNG arrives, so nothing moves when it
 // lands. The picture fades in over `--duration-standard` once decoded; a
 // transparent one is drawn over the checkerboard tokens. Before / After keeps
-// both pictures stacked in the same box and crossfades them (opacity only),
-// so a flip never waits for a load it has already made.
+// both pictures stacked in the same box (opacity only). Before is fetched
+// ahead of the first press, once After is shown (the switch answers at once,
+// the picture flips when Before has loaded: the box never empties).
 //
 // `variant: "thumb"` loads only the 320 px thumbnail (strips, chips, "Made
 // from", History's rail); `"full"` lets the browser choose between the
@@ -57,14 +58,37 @@ function sourceOf(id: string) {
 }
 
 let before = $derived(beforeFileId ? sourceOf(beforeFileId) : null);
-/** The Before picture is fetched once it is first asked for, then kept. */
+let loaded = $state<Record<string, boolean>>({});
+
+/**
+ * The Before picture is fetched once After is shown, when the browser is idle
+ * (or at once on a press), then kept: the first press then has it ready.
+ */
 let beforeWanted = $state(false);
 $effect(() => {
-	if (showing === "before" && beforeFileId) beforeWanted = true;
+	if (!beforeFileId || beforeWanted) return;
+	if (showing === "before") {
+		beforeWanted = true;
+		return;
+	}
+	if (!loaded[fileId]) return;
+	const want = () => {
+		beforeWanted = true;
+	};
+	if (typeof requestIdleCallback === "function") {
+		const handle = requestIdleCallback(want, { timeout: 1000 });
+		return () => cancelIdleCallback(handle);
+	}
+	const timer = setTimeout(want, 0);
+	return () => clearTimeout(timer);
 });
-let showBefore = $derived(showing === "before" && before !== null);
-
-let loaded = $state<Record<string, boolean>>({});
+/** Before is shown once it has loaded; until then After stays. */
+let showBefore = $derived(
+	showing === "before" &&
+		before !== null &&
+		beforeFileId !== null &&
+		loaded[beforeFileId] === true,
+);
 
 /**
  * The After pictures on screen, oldest first. A new picture (another take
