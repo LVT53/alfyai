@@ -92,7 +92,9 @@ function measureEdges(): void {
 
 function showCurrentFrame(strip: HTMLDivElement, versionId: string): void {
 	const frame = [
-		...strip.querySelectorAll<HTMLElement>('[data-testid="image-version-frame"]'),
+		...strip.querySelectorAll<HTMLElement>(
+			'[data-testid="image-version-frame"]',
+		),
 	].find((element) => element.dataset.versionId === versionId);
 	if (!frame) return;
 	const stripRect = strip.getBoundingClientRect();
