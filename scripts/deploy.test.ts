@@ -186,6 +186,12 @@ describe.each([
 		expect(script).toMatch(/if timeout \d+ npm run models:fetch; then/);
 	});
 
+	it("skips onnxruntime-node's CUDA download through its own environment variable, before npm ci", () => {
+		const skipIndex = script.indexOf("export ONNXRUNTIME_NODE_INSTALL=skip");
+		expect(skipIndex).toBeGreaterThan(-1);
+		expect(skipIndex).toBeLessThan(script.indexOf("npm ci"));
+	});
+
 	it("still runs npm run check:migrations", () => {
 		expect(script).toContain("npm run check:migrations");
 	});

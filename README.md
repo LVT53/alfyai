@@ -60,9 +60,13 @@ SQLite persistence — all in a single Node deployment.
 Requires **Node.js 22.x** (see `.nvmrc`).
 
 ```bash
+# onnxruntime-node's install script would otherwise download 272 MB of CUDA
+# libraries on linux-x64; the picture check runs on the CPU, which ships in the package.
+export ONNXRUNTIME_NODE_INSTALL=skip
 npm install
 cp .env.example .env
 # edit .env — at minimum set SESSION_SECRET and your MODEL_1_* endpoint
+npm run models:fetch   # the explicit-picture check's model (343 MB, pinned by SHA-256)
 npm run dev
 ```
 

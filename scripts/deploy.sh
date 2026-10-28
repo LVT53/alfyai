@@ -117,6 +117,10 @@ fi
 cd "$RELEASE_DIR"
 
 echo -e "${YELLOW}3. Installing dependencies...${NC}"
+# onnxruntime-node's install script reads this (not an npm config key): skip its
+# 272 MB CUDA download on linux-x64. The picture check runs on the CPU, which
+# ships inside the package.
+export ONNXRUNTIME_NODE_INSTALL=skip
 npm ci || npm install
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
