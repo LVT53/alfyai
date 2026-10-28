@@ -637,6 +637,14 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// The explicit-picture filter, on for everyone unless turned off here; a
+		// person can also be exempted on their own in the Users pane.
+		key: "IMAGE_EXPLICIT_FILTER_ENABLED",
+		group: "integrations",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+	{
 		key: "MINERU_API_KEY",
 		group: "integrations",
 		control: { kind: "secret" },

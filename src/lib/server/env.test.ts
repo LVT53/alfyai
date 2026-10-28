@@ -420,4 +420,22 @@ describe("Environment Configuration", () => {
 			expect(config.imageReferenceCap, raw).toBe(expected);
 		}
 	});
+
+	it("turns the explicit-picture filter on unless the environment says false", async () => {
+		delete process.env.IMAGE_EXPLICIT_FILTER_ENABLED;
+		let { config } = await import("./env");
+		expect(config.imageExplicitFilterEnabled).toBe(true);
+		for (const [raw, expected] of [
+			["false", false],
+			["true", true],
+			["0", true],
+			["", true],
+		] as const) {
+			vi.resetModules();
+			process.env.IMAGE_EXPLICIT_FILTER_ENABLED = raw;
+			({ config } = await import("./env"));
+			expect(config.imageExplicitFilterEnabled, raw).toBe(expected);
+		}
+		delete process.env.IMAGE_EXPLICIT_FILTER_ENABLED;
+	});
 });

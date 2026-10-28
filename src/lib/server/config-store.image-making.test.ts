@@ -49,4 +49,21 @@ describe("picture making settings", () => {
 		await refreshConfig();
 		expect(getImageReferenceCap()).toBe(10);
 	});
+
+	it("keeps the explicit-picture filter on by default and lets an admin turn it off", async () => {
+		const { getConfig, refreshConfig, getResolvedAdminConfigValues } =
+			await import("./config-store");
+		await refreshConfig();
+		expect(getConfig().imageExplicitFilterEnabled).toBe(true);
+		rows.push({ key: "IMAGE_EXPLICIT_FILTER_ENABLED", value: "false" });
+		await refreshConfig();
+		expect(getConfig().imageExplicitFilterEnabled).toBe(false);
+		expect(
+			getResolvedAdminConfigValues(getConfig()).IMAGE_EXPLICIT_FILTER_ENABLED,
+		).toBe("false");
+		rows.length = 0;
+		rows.push({ key: "IMAGE_EXPLICIT_FILTER_ENABLED", value: "true" });
+		await refreshConfig();
+		expect(getConfig().imageExplicitFilterEnabled).toBe(true);
+	});
 });

@@ -1356,6 +1356,7 @@ const settingsDict = {
 			"Every secret in the product, in one place and one idiom.",
 		"admin.system.integrations.webResearch": "Web research",
 		"admin.system.integrations.documentExtraction": "Document extraction",
+		"admin.system.integrations.pictures": "Pictures",
 		"admin.system.integrations.webPush": "Web push notifications",
 		"admin.mineruStatus.title": "MinerU status",
 		"admin.mineruStatus.description":
@@ -1771,6 +1772,10 @@ const settingsDict = {
 		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Source pictures per image",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
 			"How many pictures Alfy may use to make or change one image, from 1 to 10. Each extra picture costs the picture server about 2 GiB. A message itself may hold more.",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label":
+			"Explicit picture filter",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.meaning":
+			"Alfy declines explicit picture requests, and every finished picture is checked on this server before anyone sees it; a picture that looks explicit is not shown or kept. On for everyone unless turned off here. You can also exempt one person in Users.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API key",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Empty means anonymous access, which a local MinerU allows.",
@@ -3453,6 +3458,7 @@ const settingsDict = {
 			"A termék összes titkos kulcsa egy helyen, egyféle módon.",
 		"admin.system.integrations.webResearch": "Webes kutatás",
 		"admin.system.integrations.documentExtraction": "Dokumentumkivonatolás",
+		"admin.system.integrations.pictures": "Képek",
 		"admin.system.integrations.webPush": "Webes push-értesítések",
 		"admin.mineruStatus.title": "MinerU állapota",
 		"admin.mineruStatus.description":
@@ -3884,6 +3890,10 @@ const settingsDict = {
 		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Forrásképek egy képhez",
 		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
 			"Egy kép elkészítéséhez vagy módosításához legfeljebb ennyi képet használhat Alfy (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől. Egy üzenetben ennél több kép is lehet.",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label":
+			"Szűrő a szexuális tartalmú képekre",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.meaning":
+			"Alfy nem teljesíti a szexuális tartalmú képkéréseket, és minden elkészült képet ez a szerver ellenőriz, mielőtt bárki látná; ami szexuális tartalmúnak tűnik, azt nem mutatja meg és nem őrzi meg. Mindenkinél be van kapcsolva, hacsak itt ki nem kapcsolod. A Felhasználóknál egy-egy embert külön is kivehetsz alóla.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API-kulcs",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Üresen névtelen hozzáférést jelent, amit a helyi MinerU megenged.",

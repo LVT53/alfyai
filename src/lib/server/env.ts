@@ -124,6 +124,9 @@ interface Config {
 	// Empty means picture making is off.
 	comfyuiUrl: string;
 	imageReferenceCap: number;
+	// The explicit-picture filter (request check and picture check). On unless
+	// the environment says "false"; an admin may turn it off at runtime.
+	imageExplicitFilterEnabled: boolean;
 	mineruApiKey: string;
 	mineruDefaultTier: string;
 	mineruOcrMode: string;
@@ -814,6 +817,8 @@ function readConfig(): Config {
 			1,
 			10,
 		),
+		imageExplicitFilterEnabled:
+			process.env.IMAGE_EXPLICIT_FILTER_ENABLED !== "false",
 		mineruApiKey: process.env.MINERU_API_KEY || "",
 		mineruDefaultTier: normalizeMineruDefaultTier(
 			process.env.MINERU_DEFAULT_TIER,
