@@ -664,6 +664,8 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/language.ts": "the reader's word lists",
 	"lib/server/services/chat-turn/short-local-text.ts": "leak checks",
 	"lib/server/services/chat-turn/follow-up-chip.ts": "the chip check",
+	"lib/server/services/images/requests.ts":
+		"the title fallback's abbreviation list, matched against the person's words",
 	"lib/server/services/chat-turn/context-selection.ts": "context cues",
 	"lib/server/services/chat-turn/proactive-connector-context.ts":
 		"connector cues",
