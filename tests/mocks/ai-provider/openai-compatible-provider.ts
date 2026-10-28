@@ -549,7 +549,7 @@ function buildToolCallWithoutIdStreamResponse(): Response {
  * no way to send one (see the marker's comment in the fixtures).
  */
 function bodyAsksForStandingInstruction(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_STANDING_INSTRUCTION_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_STANDING_INSTRUCTION_MARKER);
 }
 
 function buildSuggestInstructionToolCallStreamResponse(): Response {
@@ -647,11 +647,11 @@ function buildSuggestInstructionFinalStreamResponse(): Response {
  * them back out and forwards them verbatim as the tool call's arguments.
  */
 function bodyAsksForEditArtifact(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_EDIT_ARTIFACT_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_EDIT_ARTIFACT_MARKER);
 }
 
 function findEditArtifactPayload(body: unknown) {
-	return decodeEditArtifactScenarioPayload(JSON.stringify(body));
+	return decodeEditArtifactScenarioPayload(thisTurnUserText(body));
 }
 
 function buildEditArtifactToolCallStreamResponse(
@@ -853,14 +853,63 @@ function lastUserMessageText(body: unknown): string | null {
 		.join("\n");
 }
 
-function currentTurnText(body: unknown): string | null {
-	const text = lastUserMessageText(body);
-	if (text === null) return null;
+/**
+ * Everything the user said in THIS turn: the turn's own message (its section of
+ * the bundle) and any user message the app adds after it, such as its look at a
+ * picture a tool made. Never the system prompt, the memory or earlier turns: a
+ * worker's user profile and history carry other specs' markers and payloads.
+ */
+function thisTurnUserText(body: unknown): string {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return "";
+	const users = body.messages.filter(
+		(message) => isJsonObject(message) && message.role === "user",
+	);
+	let start = users.length - 1;
+	for (let i = users.length - 1; i >= 0; i--) {
+		const message = users[i];
+		if (
+			isJsonObject(message) &&
+			JSON.stringify(message.content ?? "").includes(
+				CURRENT_USER_MESSAGE_HEADING.trim(),
+			)
+		) {
+			start = i;
+			break;
+		}
+	}
+	const parts: string[] = [];
+	for (let i = Math.max(start, 0); i < users.length; i++) {
+		const message = users[i];
+		if (!isJsonObject(message)) continue;
+		const { content } = message;
+		const text =
+			typeof content === "string"
+				? content
+				: Array.isArray(content)
+					? content
+							.map((part) =>
+								isJsonObject(part) && typeof part.text === "string"
+									? part.text
+									: "",
+							)
+							.join("\n")
+					: "";
+		parts.push(i === start ? sliceCurrentTurn(text) : text);
+	}
+	return parts.join("\n");
+}
+
+function sliceCurrentTurn(text: string): string {
 	const start = text.lastIndexOf(CURRENT_USER_MESSAGE_HEADING);
 	if (start === -1) return text;
 	const section = text.slice(start + CURRENT_USER_MESSAGE_HEADING.length);
 	const end = section.indexOf("\n\n## ");
 	return end === -1 ? section : section.slice(0, end);
+}
+
+function currentTurnText(body: unknown): string | null {
+	const text = lastUserMessageText(body);
+	return text === null ? null : sliceCurrentTurn(text);
 }
 
 function bodyAsksForCanvasEdit(body: unknown): boolean {
@@ -1072,7 +1121,7 @@ function buildEditAppFinalStreamResponse(): Response {
  * nothing here depends on ids or hashes the test's own setup resolved first.
  */
 function bodyAsksForCreateArtifact(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_CREATE_ARTIFACT_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_CREATE_ARTIFACT_MARKER);
 }
 
 function buildCreateArtifactToolCallStreamResponse(): Response {
@@ -1196,7 +1245,7 @@ function latePictureScript(
 		hasToolResultFor(body, "call_fake_edit_photo") ||
 		hasToolResultFor(body, "call_fake_cut_out") ||
 		hasToolResultFor(body, "call_fake_late_picture")
-			? JSON.stringify(body)
+			? thisTurnUserText(body)
 			: (currentTurnText(body) ?? "");
 	if (text.includes(AI_SMOKE_EDIT_PHOTO_MARKER)) {
 		return {
@@ -1377,7 +1426,7 @@ function lateCardStreamResponse(
  * hanging.
  */
 function bodyAsksToReadProjectFile(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_READ_PROJECT_FILE_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_READ_PROJECT_FILE_MARKER);
 }
 
 const PROJECT_FILE_PROBE_NAME_RE = new RegExp(
@@ -1385,7 +1434,7 @@ const PROJECT_FILE_PROBE_NAME_RE = new RegExp(
 );
 
 function findProjectFileProbeName(body: unknown): string | null {
-	return JSON.stringify(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
+	return thisTurnUserText(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
 }
 
 function buildReadProjectFileStreamResponse(
@@ -1692,7 +1741,7 @@ export function createOpenAICompatibleProviderHarness(
 					// The request that carries the tool result may end in the app's own
 					// look at the picture, so the marker is read from the whole body then.
 					hasToolResultMessage(body)
-						? JSON.stringify(body).includes(AI_SMOKE_MAKE_IMAGE_MARKER)
+						? thisTurnUserText(body).includes(AI_SMOKE_MAKE_IMAGE_MARKER)
 						: currentTurnText(body)?.includes(AI_SMOKE_MAKE_IMAGE_MARKER) ===
 							true
 				) {
