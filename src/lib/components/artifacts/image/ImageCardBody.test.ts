@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -331,6 +332,42 @@ describe("ImageCardBody", () => {
 		await tick();
 		expect(screen.getByTestId("image-card-tile-placeholder")).toBeInTheDocument();
 		expect(screen.getByTestId("image-card-another")).toBeDisabled();
+	});
+
+	// Task 11 fix round 1 (review Minor 3): when a take landed, Stop's fade-out
+	// and Use this's fade-in shared the actions row, so Use this came in one
+	// Stop-width to the right and jumped left when Stop went. The two share one
+	// slot, stacked in a single grid cell, so Use this appears where Stop was.
+	it("puts Stop and Use this in one slot, so neither moves the other", async () => {
+		const making = take({
+			id: "take-2",
+			status: "running",
+			phase: "rendering",
+			phaseAt: Date.now(),
+			fileId: null,
+		});
+		const { rerender } = render(ImageCardBody, {
+			card: card([take(), making], { pickedTakeId: "take-1" }),
+		});
+		const stop = screen.getByTestId("image-card-stop");
+		const slot = stop.parentElement;
+		expect(slot).toHaveAttribute("data-testid", "image-card-swap");
+
+		await rerender({
+			card: card([take(), take({ id: "take-2" })], { pickedTakeId: "take-1" }),
+		});
+		await fireEvent.click(screen.getAllByTestId("image-card-tile")[1]);
+		expect(screen.getByTestId("image-card-use").parentElement).toBe(
+			screen.getByTestId("image-card-swap"),
+		);
+
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/artifacts/image/ImageCardBody.svelte`,
+			"utf-8",
+		);
+		expect(source).toMatch(
+			/\.image-card-swap > :global\(\*\)\s*\{[^}]*grid-area:\s*1\s*\/\s*1/,
+		);
 	});
 
 	it("takes the placeholder back when Another did not go through", async () => {

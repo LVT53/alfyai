@@ -512,30 +512,35 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 			<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
 			{$t('artifacts.image.card.another')}
 		</button>
-		{#if shown && busy}
-			<!-- Stop sits where Use this will: the box holds nothing but the shimmer. -->
-			<button
-				type="button"
-				class="image-card-button"
-				data-testid="image-card-stop"
-				transition:crossfade={{ duration: MOTION_DURATION.standard }}
-				onclick={pressStop}
-			>
-				{$t('artifacts.image.card.stop')}
-			</button>
-		{/if}
-		{#if canUse}
-			<button
-				type="button"
-				class="image-card-button image-card-button-accent"
-				data-testid="image-card-use"
-				transition:crossfade={{ duration: MOTION_DURATION.standard }}
-				onclick={pressUse}
-			>
-				<Check size={14} strokeWidth={2} aria-hidden="true" />
-				{$t('artifacts.image.card.useThis')}
-			</button>
-		{/if}
+		<!-- Stop and Use this share one slot (one grid cell): when a take lands,
+		     Use this fades in where Stop fades out, and never jumps sideways once
+		     Stop has gone (Task 11 fix round 1). -->
+		<span class="image-card-swap" data-testid="image-card-swap">
+			{#if shown && busy}
+				<!-- Stop sits where Use this will: the box holds nothing but the shimmer. -->
+				<button
+					type="button"
+					class="image-card-button"
+					data-testid="image-card-stop"
+					transition:crossfade={{ duration: MOTION_DURATION.standard }}
+					onclick={pressStop}
+				>
+					{$t('artifacts.image.card.stop')}
+				</button>
+			{/if}
+			{#if canUse}
+				<button
+					type="button"
+					class="image-card-button image-card-button-accent"
+					data-testid="image-card-use"
+					transition:crossfade={{ duration: MOTION_DURATION.standard }}
+					onclick={pressUse}
+				>
+					<Check size={14} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.image.card.useThis')}
+				</button>
+			{/if}
+		</span>
 		<span class="image-card-grow"></span>
 		<button
 			type="button"
@@ -861,6 +866,16 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		align-items: center;
 		gap: 0.5rem;
 		min-width: 0;
+	}
+
+	.image-card-swap {
+		display: grid;
+		align-items: center;
+		justify-items: start;
+	}
+
+	.image-card-swap > :global(*) {
+		grid-area: 1 / 1;
 	}
 
 	.image-card-grow {
