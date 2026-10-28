@@ -284,9 +284,11 @@ for (const mode of MODES) {
 			await expect(page).not.toHaveURL(/\/chat\//);
 		});
 
-		test("the count button brings back the item the panel was closed on", async ({
+		test("the count button opens this chat's list, never the item it was closed on", async ({
 			page,
 		}) => {
+			// The owner's call (Task 14): the header's items button is the neutral entry, the
+			// list of what this chat made; opening one item is the card's and the row's job.
 			await readerWithTwoItems(page);
 			await openListThenItem(page, mode.touch, ITEM_TITLES.document);
 			// The phone's panel covers the header, so the panel's own X closes it there.
@@ -297,34 +299,35 @@ for (const mode of MODES) {
 			await expectPanelClosed(page, "the X over an item");
 			await press(countButton(page), mode.touch);
 			await expect(
-				itemTitle(page),
-				"the item comes back, not the list",
-			).toHaveText(ITEM_TITLES.document, { timeout: 15_000 });
+				panelList(page),
+				"closed over an item: the list, not the item",
+			).toBeVisible({ timeout: 15_000 });
+			await expect(itemTitle(page)).toHaveCount(0);
+		});
 
-			// A Back closes through the same function: the item comes back the same way.
-			await page.goBack();
-			await expectPanelClosed(
-				page,
-				"Back over the item the count button brought back",
-			);
-			await press(countButton(page), mode.touch);
-			await expect(
-				itemTitle(page),
-				"closed by a Back on the item: the item",
-			).toHaveText(ITEM_TITLES.document, { timeout: 15_000 });
+		test("the count button opens the list after an item opened straight from a chat card", async ({
+			page,
+		}) => {
+			const user = await createTourUser("en");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			const documentId = await seedItem(user, chatId, "document");
+			await seedCreateCall(chatId, documentId, ITEM_TITLES.document);
+			await reopenChat(page, chatId);
 
-			// Closed from the list, it is the list that comes back.
 			await press(
-				panelShell(page).locator(".artifact-panel-header-crumb:visible"),
+				page.getByTestId("artifact-card").getByTestId("artifact-card-head"),
 				mode.touch,
 			);
-			await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+			await expect(itemTitle(page)).toHaveText(ITEM_TITLES.document, {
+				timeout: 30_000,
+			});
 			await page.goBack();
-			await expectPanelClosed(page, "Back from the list");
+			await expectPanelClosed(page, "Back from a card-opened item");
 			await press(countButton(page), mode.touch);
 			await expect(
 				panelList(page),
-				"closed from the list: the list",
+				"the latest item is not opened for the reader: the list is",
 			).toBeVisible({ timeout: 15_000 });
 		});
 
