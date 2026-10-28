@@ -95,3 +95,38 @@ export function bulkPinAction(
 		? "unpin"
 		: "pin";
 }
+
+/**
+ * The chats a drag carries: the whole selection, in the order shown, when the
+ * row it starts on is selected; that row alone when it is not (or nothing is),
+ * as a drag always did.
+ */
+export function draggedChatIds(
+	selected: ReadonlySet<string>,
+	order: readonly string[],
+	id: string,
+): string[] {
+	if (!selected.has(id)) return [id];
+	return order.filter((shownId) => selected.has(shownId));
+}
+
+/**
+ * The chats a move into `projectId` changes (`null`: out of every project):
+ * the ones not there already, in the order given. What the bar's Move and a
+ * drop on a folder or on Chats send.
+ */
+export function chatsToMove(
+	chats: readonly { id: string; projectId?: string | null }[],
+	projectId: string | null,
+): string[] {
+	return chats
+		.filter((chat) => (chat.projectId ?? null) !== projectId)
+		.map((chat) => chat.id);
+}
+
+/** The chats a pin changes: the ones not pinned yet, in the order given. */
+export function chatsToPin(
+	chats: readonly { id: string; sidebarPinned?: boolean }[],
+): string[] {
+	return chats.filter((chat) => !chat.sidebarPinned).map((chat) => chat.id);
+}

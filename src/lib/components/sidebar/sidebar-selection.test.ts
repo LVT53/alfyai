@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	bulkPinAction,
+	chatsToMove,
+	chatsToPin,
+	draggedChatIds,
 	pruneSelected,
 	type ShownSections,
 	selectRange,
@@ -227,5 +230,54 @@ describe("shownConversationOrder", () => {
 				chats: { expanded: true, ids: [] },
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("draggedChatIds", () => {
+	const order = ["a", "b", "c", "d"];
+
+	it("carries the whole selection, in the order shown, when the dragged row is selected", () => {
+		expect(draggedChatIds(new Set(["c", "a", "d"]), order, "d")).toEqual([
+			"a",
+			"c",
+			"d",
+		]);
+	});
+
+	it("carries only the dragged row when it is not selected", () => {
+		expect(draggedChatIds(new Set(["a", "b"]), order, "c")).toEqual(["c"]);
+	});
+
+	it("carries only the dragged row when nothing is selected", () => {
+		expect(draggedChatIds(new Set(), order, "b")).toEqual(["b"]);
+	});
+});
+
+describe("chatsToMove", () => {
+	const chats = [
+		{ id: "a", projectId: null },
+		{ id: "b", projectId: "p1" },
+		{ id: "c" },
+		{ id: "d", projectId: "p2" },
+	];
+
+	it("keeps the chats not already in the project, in the order given", () => {
+		expect(chatsToMove(chats, "p1")).toEqual(["a", "c", "d"]);
+	});
+
+	it("takes only the chats in a project when the move is out of every project", () => {
+		expect(chatsToMove(chats, null)).toEqual(["b", "d"]);
+	});
+});
+
+describe("chatsToPin", () => {
+	it("keeps the chats that are not pinned yet", () => {
+		expect(
+			chatsToPin([
+				{ id: "a", sidebarPinned: true },
+				{ id: "b", sidebarPinned: false },
+				{ id: "c" },
+			]),
+		).toEqual(["b", "c"]);
 	});
 });
