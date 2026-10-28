@@ -206,7 +206,7 @@ const commonDict = {
 		settingsAnalytics: "Analytics",
 		settingsConnections: "Connections",
 		settingsProfile: "Profile",
-		"sidebar.activeConversationIndicator": "Active conversation open",
+		"sidebar.newActivityIndicator": "new activity",
 		"sidebar.bulkDeleteFailed":
 			"Couldn't delete {count} {count, plural, one {chat} other {chats}}. Try again.",
 		"sidebar.bulkMoveFailed":
@@ -547,7 +547,7 @@ const commonDict = {
 		settingsAnalytics: "Analitika",
 		settingsConnections: "Kapcsolatok",
 		settingsProfile: "Profil",
-		"sidebar.activeConversationIndicator": "Aktív beszélgetés nyitva",
+		"sidebar.newActivityIndicator": "új tevékenység",
 		"sidebar.bulkDeleteFailed":
 			"{count} beszélgetést nem sikerült törölni. Próbáld újra.",
 		"sidebar.bulkMoveFailed":
