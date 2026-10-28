@@ -15,6 +15,10 @@
 import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type {
+	ImageMark,
+	ImageMarksRequest,
+} from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { LocalizedText } from "$lib/shared/artifacts/tours";
 
@@ -116,6 +120,19 @@ export interface ArtifactBodyProps {
 	 * page), and the strip then draws no Attach.
 	 */
 	onAttachPicture?: (picture: { imageFileId: string; name: string }) => void;
+	/**
+	 * The marks the person drew on this item's picture (plan 2b T6), held by the
+	 * chat page (they ride the next message as one composer chip). Absent or
+	 * empty: none.
+	 */
+	marks?: ImageMark[];
+	/**
+	 * The Image body hands the page the marks on its picture's file, or `null`
+	 * when the last one goes (or the picture under them changed). The panel
+	 * supplies it where there is a composer to take them; absent otherwise (the
+	 * Knowledge page), and the body then offers no Mark.
+	 */
+	onMarksChange?: (marks: ImageMarksRequest | null) => void;
 	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and

@@ -1,7 +1,7 @@
 <script lang="ts">
 // The Image kind's body in the family's panel (plan 2b T3, design 5.6): the
 // picture large and, in one row below it, the strip of its versions and the
-// tools (Before / After; T6 adds Mark). It is a body like the Document's, inside `DocumentWorkspace`:
+// tools (Before / After, Mark). It is a body like the Document's, inside `DocumentWorkspace`:
 // the panel's open, dock, expand and phone sheet are the shell's, never this
 // file's.
 //
@@ -15,6 +15,13 @@
 // A version can land while the panel is open without a stream to follow (a late
 // take, Use this, a restore): the page's latest moment for the item rises, and the
 // body reads the item and History's first page again (F23).
+//
+// Mark (T6): with Mark on, one pointer draws lettered boxes on the picture
+// (`MarkLayer`, in the picture's own rectangle, so they zoom with it). The page
+// holds them (`marks`, `onMarksChange`) and sends them with the next message as
+// one chip; a newer picture under them lets them go. Mark is off while Before
+// shows: the marks belong to the picture, not to the one it was made from.
+import SquareDashed from "@lucide/svelte/icons/square-dashed";
 import { untrack } from "svelte";
 import { fetchArtifact, fetchArtifactHistory } from "$lib/client/api/artifacts";
 import { imageFileUrl } from "$lib/client/api/images";
@@ -22,7 +29,9 @@ import { startAuthenticatedDownload } from "$lib/client/downloads";
 import { t } from "$lib/i18n";
 import type { ArtifactMoment } from "$lib/shared/artifacts/history";
 import {
+	type ImageMark,
 	type ImageVersionBody,
+	MAX_MARKS,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
 import {
@@ -32,6 +41,7 @@ import {
 import type { ArtifactBodyProps } from "../artifact-bodies";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
+import MarkLayer from "./MarkLayer.svelte";
 import { pinchZoom } from "./pinch-zoom";
 import VersionStrip from "./VersionStrip.svelte";
 
@@ -43,6 +53,8 @@ let {
 	registerPanelActions,
 	onOpenHistory,
 	onAttachPicture,
+	marks = [],
+	onMarksChange,
 }: ArtifactBodyProps = $props();
 
 /** History's first page is enough for the strip: a picture is rarely changed fifty times. */
@@ -144,6 +156,47 @@ $effect(() => {
 });
 
 let canFlip = $derived(picture?.baseFileId != null);
+
+let marking = $state(false);
+/** A ninth box was drawn: "Up to 8 marks" shows until a box goes or Mark is off. */
+let refused = $state(false);
+let canMark = $derived(Boolean(onMarksChange) && picture !== null);
+
+$effect(() => {
+	if (showing === "before") marking = false;
+});
+$effect(() => {
+	if (!marking || marks.length < MAX_MARKS) refused = false;
+});
+
+function changeMarks(next: ImageMark[]): void {
+	const fileId = picture?.fileId;
+	if (!fileId) return;
+	onMarksChange?.(
+		next.length > 0 ? { imageFileId: fileId, marks: next } : null,
+	);
+}
+
+// The marks were drawn on the picture shown: when a newer one lands under them
+// (a late take, Use this, a restore), they go, and their chip with them.
+let markedFileId: string | null = null;
+$effect(() => {
+	const fileId = picture?.fileId ?? null;
+	untrack(() => {
+		if (markedFileId !== null && fileId !== markedFileId && marks.length > 0) {
+			onMarksChange?.(null);
+		}
+		markedFileId = fileId;
+	});
+});
+
+let markNote = $derived(
+	refused
+		? $t("artifacts.image.panel.tooManyMarks")
+		: marking
+			? $t("artifacts.image.panel.markHint")
+			: "",
+);
 </script>
 
 <div class="image-body" data-testid="image-body">
@@ -169,7 +222,23 @@ let canFlip = $derived(picture?.baseFileId != null);
 						variant="original"
 					/>
 				</div>
+				{#if onMarksChange}
+					<div class="image-body-marks" class:is-hidden={showing === 'before'} inert={showing === 'before'}>
+						<MarkLayer
+							{marks}
+							active={marking && showing === 'after'}
+							onChange={changeMarks}
+							onRefused={() => (refused = true)}
+						/>
+					</div>
+				{/if}
 			</div>
+		{#if canMark}
+			<!-- Over the stage, outside the zoomed picture, so it never scales. -->
+			<p class="image-body-mark-note" class:is-shown={markNote !== ''} role="status" data-testid="image-body-mark-note">
+				{markNote}
+			</p>
+		{/if}
 		{:else if status === 'error'}
 			<p class="image-body-error" role="alert" data-testid="image-body-error">
 				{$t('artifacts.image.panel.loadFailed')}
@@ -193,6 +262,21 @@ let canFlip = $derived(picture?.baseFileId != null);
 					size="md"
 					testIdPrefix="image-body"
 				/>
+			{/if}
+			{#if canMark}
+				<button
+					type="button"
+					class="image-body-mark"
+					aria-pressed={marking}
+					aria-label={$t('artifacts.image.panel.mark')}
+					title={$t('artifacts.image.panel.mark')}
+					disabled={showing === 'before'}
+					data-testid="image-body-mark"
+					onclick={() => (marking = !marking)}
+				>
+					<SquareDashed size={16} strokeWidth={2} aria-hidden="true" />
+					<span class="image-body-mark-label">{$t('artifacts.image.panel.mark')}</span>
+				</button>
 			{/if}
 		</div>
 	</div>
@@ -237,6 +321,93 @@ let canFlip = $derived(picture?.baseFileId != null);
 	.image-body-picture :global(.image-picture) {
 		width: 100%;
 		height: 100%;
+	}
+
+	/* The marks lie on the picture's own rectangle; while Before shows they are
+	   not on the picture shown, so they fade out (opacity only). */
+	.image-body-marks {
+		position: absolute;
+		inset: 0;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.image-body-marks.is-hidden {
+		opacity: 0;
+	}
+
+	.image-body-mark-note {
+		position: absolute;
+		top: var(--space-sm);
+		left: 50%;
+		z-index: 1;
+		margin: 0;
+		max-width: calc(100% - 2 * var(--space-md));
+		padding: var(--space-xs) var(--space-md);
+		border-radius: 999px;
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 0.8125rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		pointer-events: none;
+		opacity: 0;
+		transform: translateX(-50%);
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.image-body-mark-note.is-shown {
+		opacity: 1;
+	}
+
+	.image-body-mark {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-xs);
+		min-height: 2.25rem;
+		padding: 0 0.75rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.image-body-mark[aria-pressed='true'] {
+		border-color: var(--text-primary);
+		background: var(--text-primary);
+		color: var(--surface-page);
+	}
+
+	.image-body-mark:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+
+	.image-body-mark:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* A phone's row holds the strip, Before / After and Mark at 360 px: Mark is
+	   its icon there (named for a screen reader), a 44 px target. */
+	@media (hover: none) and (pointer: coarse) {
+		.image-body-mark {
+			min-width: 44px;
+			min-height: 44px;
+			justify-content: center;
+			padding: 0;
+		}
+
+		.image-body-mark-label {
+			display: none;
+		}
 	}
 
 	.image-body-error {

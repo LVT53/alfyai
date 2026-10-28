@@ -13,6 +13,7 @@ import {
 	makeMoment,
 } from "$lib/components/artifacts/history/__fixtures__/moments";
 import {
+	type ImageMarksRequest,
 	type ImageVersionBody,
 	serializeImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
@@ -313,5 +314,137 @@ describe("ImageBody", () => {
 		// Nothing of the panel's own sits above the picture.
 		const stage = screen.getByTestId("image-body-stage");
 		expect(stage.previousElementSibling).toBeNull();
+	});
+
+	describe("Mark (T6)", () => {
+		function pointer(type: string, x: number, y: number): Event {
+			const event = new MouseEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				clientX: x,
+				clientY: y,
+				button: 0,
+			});
+			Object.defineProperty(event, "pointerId", { value: 1 });
+			Object.defineProperty(event, "pointerType", { value: "mouse" });
+			return event;
+		}
+
+		/** The layer is 400 x 200 at the page's corner. */
+		async function drag(from: [number, number], to: [number, number]) {
+			const layer = screen.getByTestId("mark-layer");
+			layer.getBoundingClientRect = () =>
+				({
+					left: 0,
+					top: 0,
+					x: 0,
+					y: 0,
+					width: 400,
+					height: 200,
+					right: 400,
+					bottom: 200,
+					toJSON: () => ({}),
+				}) as DOMRect;
+			await fireEvent(layer, pointer("pointerdown", ...from));
+			await fireEvent(layer, pointer("pointermove", ...to));
+			await fireEvent(layer, pointer("pointerup", ...to));
+			await tick();
+		}
+
+		/** The body as the panel holds it: the page keeps the marks and hands them back. */
+		async function renderMarking(stored = body()) {
+			api.fetchArtifact.mockResolvedValue(detail(stored, 2));
+			const onMarksChange = vi.fn();
+			const view = renderBody({
+				marks: [],
+				onMarksChange: (request: ImageMarksRequest | null) => {
+					onMarksChange(request);
+					void view.rerender({ marks: request?.marks ?? [] });
+				},
+			});
+			await screen.findByTestId("image-body-picture");
+			return { ...view, onMarksChange };
+		}
+
+		it("offers no Mark where nothing can take the marks (the Knowledge page)", async () => {
+			api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+			renderBody();
+			await screen.findByTestId("image-body-picture");
+			expect(screen.queryByRole("button", { name: "Mark" })).toBeNull();
+		});
+
+		it("draws a box with Mark on and hands the page the marks on this picture's file", async () => {
+			const view = await renderMarking();
+			const mark = screen.getByRole("button", { name: "Mark" });
+			expect(mark).toHaveAttribute("aria-pressed", "false");
+			await drag([40, 20], [200, 120]);
+			expect(view.onMarksChange).not.toHaveBeenCalled();
+
+			await fireEvent.click(mark);
+			expect(mark).toHaveAttribute("aria-pressed", "true");
+			expect(screen.getByText("Drag to draw a box")).toBeTruthy();
+			await drag([40, 20], [200, 120]);
+			expect(view.onMarksChange).toHaveBeenLastCalledWith({
+				imageFileId: "file-2",
+				marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+			});
+			expect(
+				screen.getByRole("button", { name: "Mark A, tap to remove" }),
+			).toBeTruthy();
+			// The layer lives in the picture's own rectangle, which the zoom transforms.
+			expect(screen.getByTestId("image-body-frame")).toContainElement(
+				screen.getByTestId("mark-layer"),
+			);
+		});
+
+		it("hands the page no marks once the last box is removed", async () => {
+			const view = await renderMarking();
+			await fireEvent.click(screen.getByRole("button", { name: "Mark" }));
+			await drag([40, 20], [200, 120]);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Mark A, tap to remove" }),
+			);
+			expect(view.onMarksChange).toHaveBeenLastCalledWith(null);
+		});
+
+		it("says Up to 8 marks when a ninth box is drawn, in English and Hungarian", async () => {
+			await renderMarking();
+			await fireEvent.click(screen.getByRole("button", { name: "Mark" }));
+			for (let index = 0; index < 9; index++) {
+				const left = index * 40;
+				await drag([left + 2, 20], [left + 30, 100]);
+			}
+			expect(screen.getAllByTestId("mark-box")).toHaveLength(8);
+			expect(screen.getByRole("status")).toHaveTextContent("Up to 8 marks");
+			uiLanguage.set("hu");
+			await tick();
+			expect(screen.getByRole("status")).toHaveTextContent(
+				"Legfeljebb 8 jelölés",
+			);
+		});
+
+		it("turns Mark off and holds it off while Before is showing", async () => {
+			await renderMarking(body({ baseFileId: "file-1" }));
+			const mark = screen.getByRole("button", { name: "Mark" });
+			await fireEvent.click(mark);
+			await fireEvent.click(screen.getByRole("button", { name: "Before" }));
+			expect(mark).toHaveAttribute("aria-pressed", "false");
+			expect(mark).toBeDisabled();
+			await fireEvent.click(screen.getByRole("button", { name: "After" }));
+			expect(mark).not.toBeDisabled();
+		});
+
+		it("lets the marks go when a newer picture lands in the open body", async () => {
+			const view = await renderMarking();
+			await fireEvent.click(screen.getByRole("button", { name: "Mark" }));
+			await drag([40, 20], [200, 120]);
+			api.fetchArtifact.mockResolvedValue(
+				detail(body({ fileId: "file-3", baseFileId: "file-2" }), 3),
+			);
+			await view.rerender({ versionNumber: 3 });
+			await waitFor(() =>
+				expect(view.onMarksChange).toHaveBeenLastCalledWith(null),
+			);
+		});
 	});
 });
