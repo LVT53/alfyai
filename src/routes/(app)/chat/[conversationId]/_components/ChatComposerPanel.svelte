@@ -96,12 +96,12 @@ let {
 	/** Card, strip and History pictures waiting in the message (Attach), numbered by the composer. */
 	pictureRefs?: readonly ComposerPictureRef[];
 	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
-	/** Rises when a picture was just attached: the composer takes focus. */
 	/** The numbering order of a restored turn's pictures, applied with the draft. */
 	draftPictureOrder?: readonly string[];
 	/** The marks drawn on one picture in the panel (plan 2b T6): one chip, cleared by its x. */
 	imageMarks?: ComposerMarks | null;
 	onClearMarks?: (() => void) | undefined;
+	/** Rises when a picture was just attached: the composer takes focus. */
 	focusRequest?: number;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;

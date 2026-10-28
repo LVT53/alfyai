@@ -5,6 +5,7 @@ import type { PromptAttachmentResolutionItem } from "$lib/server/services/knowle
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { getCategory } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import { oneLineName } from "$lib/shared/one-line-name";
 // A type only: sharp and the HEIC decoder load when a picture is prepared, not
 // when the chat turn's modules do (see prepareUpload).
 import type { PreparedImage } from "./prepare-image";
@@ -103,8 +104,6 @@ export const CANNOT_SEE_IMAGES_GUIDANCE =
  */
 const PICTURES_NOT_VISIBLE_GUIDANCE =
 	"You cannot see these pictures; they can still be passed to make_image by number.";
-
-import { oneLineName } from "$lib/shared/one-line-name";
 
 /**
  * One line, short (the rule lives in `$lib/shared/one-line-name.ts`, shared with the browser): a file name is user data that lands in a user message. Control
