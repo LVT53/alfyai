@@ -80,6 +80,8 @@ function remove(letter: MarkLetter): void {
 function handlePointerDown(event: PointerEvent): void {
 	if (!active || !layer) return;
 	if (event.pointerType === "mouse" && event.button !== 0) return;
+	// The first pointer of a new press: nothing else is down, whatever was missed.
+	if (event.isPrimary) pointers.clear();
 	pointers.add(event.pointerId);
 	if (pointers.size > 1) {
 		// A second finger: this is a pinch, the zoom's. The box being drawn goes.
