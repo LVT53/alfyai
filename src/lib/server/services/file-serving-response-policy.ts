@@ -1,3 +1,9 @@
+import {
+	fileExtension,
+	getEntryByExtension,
+	getEntryByMimeType,
+} from "$lib/shared/file-types";
+
 export type FileServingMode = "preview" | "download";
 
 export interface FileServingResponsePolicyParams {
@@ -36,6 +42,54 @@ const STANDARD_REPORT_PREVIEW_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 export type FileServingPreviewProfile = "standard-report";
+
+/** `encodeURIComponent` leaves ' ( ) * alone, which RFC 5987 does not allow in `filename*`. */
+export function encodeRfc5987(value: string): string {
+	return encodeURIComponent(value).replace(
+		/['()*]/g,
+		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+}
+
+/**
+ * The name with the extension its content type needs. A name that already ends in
+ * an extension of that type is left alone ("Plan.docx" stays), as is one ending in
+ * any other known file extension; only an extensionless or unknown-suffixed name
+ * ("Terv", "Report v1.2") gets the type's canonical one, so a download is never
+ * saved as a bare id-or-title with no way to open it.
+ */
+export function ensureFilenameExtension(
+	filename: string,
+	contentType: string,
+): string {
+	const entry = getEntryByMimeType(contentType);
+	const canonical = entry?.extensions[0];
+	if (!entry || !canonical) return filename;
+	const extension = fileExtension(filename);
+	if (extension && entry.extensions.includes(extension)) return filename;
+	if (extension && getEntryByExtension(extension)) return filename;
+	return `${filename.replace(/[.\s]+$/, "")}.${canonical}`;
+}
+
+/**
+ * The one Content-Disposition every file route sends: an ASCII `filename=` fallback
+ * (accents folded, quotes, slashes and control characters replaced) for readers
+ * that ignore RFC 5987, and `filename*=UTF-8''...` carrying the real name.
+ */
+export function buildContentDisposition(
+	disposition: "attachment" | "inline",
+	filename: string,
+): string {
+	const ascii =
+		filename
+			.normalize("NFD")
+			.replace(/\p{M}+/gu, "")
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: strips control characters from a header value
+			.replace(/[\u0000-\u001f\u007f"\\/*?:<>|]/g, "_")
+			.replace(/[^\x20-\x7e]/g, "_")
+			.trim() || "download";
+	return `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeRfc5987(filename)}`;
+}
 
 function hasSvgFilename(filename: string): boolean {
 	return filename.toLowerCase().endsWith(".svg");
@@ -83,10 +137,12 @@ export function buildFileServingResponseHeaders(
 		"Content-Type": contentType,
 		"Content-Length": params.contentLength.toString(),
 		"Accept-Ranges": "bytes",
-		"Content-Disposition":
+		"Content-Disposition": buildContentDisposition(
+			params.mode === "preview" ? "inline" : "attachment",
 			params.mode === "preview"
-				? `inline; filename="${encodeURIComponent(params.filename)}"`
-				: `attachment; filename*=UTF-8''${encodeURIComponent(params.filename)}`,
+				? params.filename
+				: ensureFilenameExtension(params.filename, contentType),
+		),
 		"Cache-Control":
 			params.mode === "preview" ? "private, max-age=3600" : "private, no-store",
 	};

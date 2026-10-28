@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { passwordThrottledResponse } from "$lib/server/api/current-password";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { createAccountDataArchive } from "$lib/server/services/account-data-archive";
+import { buildContentDisposition } from "$lib/server/services/file-serving-response-policy";
 import type { RequestHandler } from "./$types";
 
 function parsePasswordBody(body: unknown): string | null {
@@ -57,7 +58,10 @@ export const POST: RequestHandler = async (event) => {
 		status: 200,
 		headers: {
 			"Content-Type": "application/zip",
-			"Content-Disposition": `attachment; filename="${result.filename}"`,
+			"Content-Disposition": buildContentDisposition(
+				"attachment",
+				result.filename,
+			),
 			"Cache-Control": "no-store",
 		},
 	});

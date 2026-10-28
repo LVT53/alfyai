@@ -143,3 +143,59 @@ describe("the CSP of a script-capable report preview", () => {
 		expect(directive(report, "connect-src")).toBeUndefined();
 	});
 });
+
+describe("download Content-Disposition", () => {
+	const DOCX =
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+	function download(filename: string, contentType: string) {
+		return buildFileServingResponseHeaders({
+			mode: "download",
+			contentLength: 1,
+			contentType,
+			filename,
+		})["Content-Disposition"] as string;
+	}
+
+	it("carries an ASCII fallback and the RFC 5987 real name for an accented title", () => {
+		expect(download("Bécsi útiterv.docx", DOCX)).toBe(
+			`attachment; filename="Becsi utiterv.docx"; filename*=UTF-8''B%C3%A9csi%20%C3%BAtiterv.docx`,
+		);
+	});
+
+	it("never lets quotes, slashes or RFC 5987 delimiters break out of the header", () => {
+		const value = download(`Tom's "plan" (a/b)*.docx`, DOCX);
+		expect(value).toBe(
+			`attachment; filename="Tom's _plan_ (a_b)_.docx"; filename*=UTF-8''Tom%27s%20%22plan%22%20%28a%2Fb%29%2A.docx`,
+		);
+	});
+
+	it("adds the extension its type needs when the name has none", () => {
+		expect(download("Terv", DOCX)).toContain(`filename="Terv.docx"`);
+		expect(download("Report v1.2", DOCX)).toContain(
+			`filename="Report v1.2.docx"`,
+		);
+		expect(download("notes", "text/markdown; charset=utf-8")).toContain(
+			`filename="notes.md"`,
+		);
+	});
+
+	it("does not double an extension it already has", () => {
+		expect(download("Plan.docx", DOCX)).toContain(`filename="Plan.docx"`);
+		expect(download("Plan.docx", DOCX)).not.toContain(".docx.docx");
+		expect(download("README.markdown", "text/markdown")).toContain(
+			`filename="README.markdown"`,
+		);
+	});
+
+	it("keeps an inline preview name readable instead of percent-encoding it in quotes", () => {
+		const value = buildFileServingResponseHeaders({
+			mode: "preview",
+			contentLength: 1,
+			contentType: "text/plain",
+			filename: "Jegyzet é.txt",
+		})["Content-Disposition"];
+		expect(value).toBe(
+			`inline; filename="Jegyzet e.txt"; filename*=UTF-8''Jegyzet%20%C3%A9.txt`,
+		);
+	});
+});
