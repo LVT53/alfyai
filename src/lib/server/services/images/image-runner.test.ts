@@ -338,9 +338,14 @@ describe("waiting in ComfyUI's queue", () => {
 			request({ canvas: { width: 256, height: 256 } }),
 		);
 		const draining = drainImageTakes();
+		// Waiting in ComfyUI's queue under the id the take recorded (the engine
+		// stamps the first phase on claim, so the phase says nothing here).
 		await until(
-			() => readTake(takeId),
-			(row) => row.phase === "submitted",
+			async () => ({
+				checkpoint: (await readTake(takeId)).checkpoint,
+				pending: [...comfy.prompts.values()].includes("pending"),
+			}),
+			({ checkpoint, pending }) => checkpoint !== null && pending,
 		);
 		const { cancelTake } = await import("./image-job");
 		expect(await cancelTake(userId, takeId)).toBe(true);
@@ -361,9 +366,14 @@ describe("waiting in ComfyUI's queue", () => {
 			request({ canvas: { width: 256, height: 256 } }),
 		);
 		const draining = drainImageTakes();
+		// Waiting in ComfyUI's queue under the id the take recorded (the engine
+		// stamps the first phase on claim, so the phase says nothing here).
 		await until(
-			() => readTake(takeId),
-			(row) => row.phase === "submitted",
+			async () => ({
+				checkpoint: (await readTake(takeId)).checkpoint,
+				pending: [...comfy.prompts.values()].includes("pending"),
+			}),
+			({ checkpoint, pending }) => checkpoint !== null && pending,
 		);
 		const { cancelTake } = await import("./image-job");
 		expect(await cancelTake(userId, takeId, { interrupt: false })).toBe(true);
@@ -485,9 +495,13 @@ describe("the composer's Stop around the submit", () => {
 			request({ canvas: { width: 256, height: 256 } }),
 		);
 		const draining = drainImageTakes();
+		// Once ComfyUI has answered with its own id, the checkpoint names it.
 		const submitted = await until(
 			() => readTake(takeId),
-			(row) => row.phase === "submitted",
+			(row) =>
+				comfy.prompts.size === 1 &&
+				row.checkpoint ===
+					JSON.stringify({ promptId: [...comfy.prompts.keys()][0] }),
 		);
 		const sent = (
 			comfy.requests.find((r) => r.path === "/prompt")?.json as {
@@ -576,7 +590,7 @@ describe("when ComfyUI cannot render", () => {
 		const firstRun = drainImageTakes();
 		const submitted = await until(
 			() => readTake(takeId),
-			(row) => row.phase === "submitted",
+			(row) => row.checkpoint !== null && comfy.prompts.size === 1,
 		);
 		const promptId = (
 			JSON.parse(submitted.checkpoint ?? "{}") as { promptId: string }
