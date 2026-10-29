@@ -88,6 +88,23 @@ let counterLabel = $derived(
 		: "",
 );
 
+/**
+ * The source that has loaded: a picture is shown (faded in) once its own file is
+ * here, so paging to another hides the box until that one has loaded too.
+ */
+let loadedSrc = $state<string | null>(null);
+let loaded = $derived(current !== null && loadedSrc === current.src);
+let sized = $derived(
+	Boolean(
+		current?.width && current.height && current.width > 0 && current.height > 0,
+	),
+);
+
+function pictureLoaded(src: string): void {
+	loadedSrc = src;
+	zoom.refresh();
+}
+
 let zoomState = $state.raw<{ view: ZoomView; frame: ZoomFrame } | null>(null);
 let zoomed = $derived((zoomState?.view.scale ?? 1) > 1);
 let percent = $derived(
@@ -217,6 +234,7 @@ $effect(() => {
 		>
 			<figure
 				class="image-lightbox-figure"
+				class:is-loaded={loaded}
 				data-lightbox-figure
 				in:figureScale|global={{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASE.emphasis, start: 0.96 }}
 				out:figureScale|global={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.in, start: 0.96 }}
@@ -224,6 +242,10 @@ $effect(() => {
 				<img
 					class="image-lightbox-image"
 					class:is-zoomed={zoomed}
+					class:is-loaded={loaded}
+					class:has-size={sized}
+					style:--picture-ratio={sized && current.width && current.height ? current.width / current.height : undefined}
+					style:--picture-width={sized ? `${current.width}px` : undefined}
 					class:image-checkerboard={current.checkerboard}
 					src={current.src}
 					alt={current.alt}
@@ -233,7 +255,7 @@ $effect(() => {
 					draggable="false"
 					data-zoom-target
 					data-testid="image-lightbox-image"
-					onload={() => zoom.refresh()}
+					onload={() => current && pictureLoaded(current.src)}
 				/>
 			</figure>
 		</div>
@@ -334,6 +356,8 @@ $effect(() => {
 	   window's edges. `touch-action: none` is set by the zoom on this element
 	   alone. A click on it beside the picture closes the viewer. */
 	.image-lightbox-stage {
+		--viewer-max-width: calc(100vw - 2.5rem);
+		--viewer-max-height: calc(100dvh - 7.5rem);
 		position: absolute;
 		inset: 0;
 		display: grid;
@@ -342,10 +366,27 @@ $effect(() => {
 		overflow: hidden;
 	}
 
+	/* While the full-size file is on its way, its reserved box shows as a quiet
+	   tint; the picture fades in over it once loaded (opacity only). */
 	.image-lightbox-figure {
+		position: relative;
 		margin: 0;
 		min-width: 0;
 		line-height: 0;
+	}
+
+	.image-lightbox-figure::before {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, #fff 8%, transparent 92%);
+		pointer-events: none;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.image-lightbox-figure.is-loaded::before {
+		opacity: 0;
 	}
 
 	/* Fit: as large as the padded stage allows, never past the picture's own
@@ -354,15 +395,34 @@ $effect(() => {
 		display: block;
 		width: auto;
 		height: auto;
-		max-width: calc(100vw - 2.5rem);
-		max-height: calc(100dvh - 7.5rem);
+		max-width: var(--viewer-max-width);
+		max-height: var(--viewer-max-height);
 		border-radius: var(--radius-md);
+		position: relative;
+		opacity: 0;
+		transition: opacity var(--duration-standard) var(--ease-out);
 		box-shadow: var(--shadow-lg);
 		transform-origin: center;
 		will-change: transform;
 		cursor: zoom-in;
 		user-select: none;
 		-webkit-user-drag: none;
+	}
+
+	.image-lightbox-image.is-loaded {
+		opacity: 1;
+	}
+
+	/* A picture whose size is known holds its fitted box before it loads (the
+	   attributes alone do not, under width/height: auto): its own width, never
+	   past the stage, never taller than it. */
+	.image-lightbox-image.has-size {
+		width: min(
+			var(--picture-width),
+			var(--viewer-max-width),
+			calc(var(--viewer-max-height) * var(--picture-ratio))
+		);
+		aspect-ratio: var(--picture-ratio);
 	}
 
 	.image-lightbox-image.is-zoomed {
@@ -502,12 +562,19 @@ $effect(() => {
 	}
 
 	@media (max-width: 640px) {
+		/* On a phone the zoom pill and Close take the top row: the counter goes
+		   under the picture, above its caption (review minor 4). */
+		.image-lightbox-counter {
+			top: auto;
+			bottom: 3rem;
+		}
+
 		.image-lightbox-stage {
 			padding: 3.75rem 0.75rem;
 		}
 
-		.image-lightbox-image {
-			max-width: calc(100vw - 1.5rem);
+		.image-lightbox-stage {
+			--viewer-max-width: calc(100vw - 1.5rem);
 		}
 
 		.image-lightbox-nav {

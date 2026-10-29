@@ -210,6 +210,12 @@ export function createLightboxZoom(
 	} | null = null;
 	let lastTap: Tap | null = null;
 	let tapStart: { at: number; point: Point; multi: boolean } | null = null;
+	/**
+	 * What the last press was. A finger's or a pen's double tap is `endTap`'s
+	 * alone: the browser follows it with a `dblclick` too, and toggling on both
+	 * undid the zoom (review I1). The double click is the mouse's.
+	 */
+	let pressType = "";
 
 	const target = () =>
 		stage?.querySelector<HTMLElement>("[data-zoom-target]") ?? null;
@@ -252,8 +258,9 @@ export function createLightboxZoom(
 		if (animate) {
 			if (frameRequest) cancelAnimationFrame(frameRequest);
 			frameRequest = 0;
+			// The picture's own fade on load (opacity) keeps running beside the zoom's ease.
 			picture.style.transition =
-				"transform var(--duration-standard) var(--ease-out)";
+				"transform var(--duration-standard) var(--ease-out), opacity var(--duration-standard) var(--ease-out)";
 			write();
 			return;
 		}
@@ -313,10 +320,11 @@ export function createLightboxZoom(
 		if (event.pointerType === "mouse" && event.button !== 0) return;
 		const point = { x: event.clientX, y: event.clientY };
 		pointers.set(event.pointerId, point);
+		pressType = event.pointerType;
 		if (pointers.size === 1) {
 			gestured = false;
 			tapStart =
-				event.pointerType === "touch"
+				event.pointerType === "touch" || event.pointerType === "pen"
 					? { at: event.timeStamp, point, multi: false }
 					: null;
 			drag = { pointerId: event.pointerId, last: point, moved: 0 };
@@ -393,6 +401,7 @@ export function createLightboxZoom(
 
 	function onDoubleClick(event: MouseEvent): void {
 		event.preventDefault();
+		if (pressType === "touch" || pressType === "pen") return;
 		const at = fromCentre(event.clientX, event.clientY);
 		apply((current, frame) => toggleFitActual(current, at, frame), true);
 	}

@@ -480,3 +480,44 @@ describe("ImageLightbox zoom", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 });
+
+// Fix round 1, I2 (MOTION-PARITY 4): the full-size file can take seconds on a
+// phone; its box is there from the first frame, and it fades in once loaded.
+describe("ImageLightbox reserves the picture's box and fades it in", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	const shown = () =>
+		screen.getByTestId("image-lightbox-image") as HTMLImageElement;
+
+	it("sizes the box from the picture's known shape before a byte arrives", () => {
+		renderOpen({
+			images: [
+				{ src: "/api/images/files/f1", alt: "Logo", width: 1248, height: 832 },
+			],
+			index: 0,
+		});
+		const image = shown();
+		expect(image).toHaveClass("has-size");
+		expect(image.style.getPropertyValue("--picture-ratio")).toBe("1.5");
+		expect(image.style.getPropertyValue("--picture-width")).toBe("1248px");
+		expect(image).not.toHaveClass("is-loaded");
+	});
+
+	it("shows the picture once it has loaded, and a picture paged to waits for its own load", async () => {
+		renderOpen({ images: IMAGES, index: 0 });
+		const first = shown();
+		expect(first).not.toHaveClass("is-loaded");
+		await fireEvent.load(first);
+		expect(shown()).toHaveClass("is-loaded");
+
+		await fireEvent.click(screen.getByRole("button", { name: "Next image" }));
+		// A host that pages hands in the next index; the same element waits again.
+	});
+
+	it("leaves a picture of unknown size to its own shape", () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		expect(shown()).not.toHaveClass("has-size");
+	});
+});
