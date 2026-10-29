@@ -87,11 +87,11 @@ let {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* 40 px targets where the finger is the pointer, in a 44 px pill. */
+	/* 44 px targets where the finger is the pointer (MOTION-PARITY 8). */
 	@media (hover: none) and (pointer: coarse) {
 		.list-grid-toggle-button {
-			width: 40px;
-			height: 40px;
+			width: 44px;
+			height: 44px;
 		}
 	}
 </style>

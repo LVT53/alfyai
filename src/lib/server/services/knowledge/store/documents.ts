@@ -1183,6 +1183,7 @@ async function loadArtifactFamilyDocumentEntries(params: {
  * a few hundred bytes of JSON, of which only the file and its shape travel.
  */
 async function attachImagePreviews(
+	userId: string,
 	items: KnowledgeDocumentItem[],
 ): Promise<KnowledgeDocumentItem[]> {
 	const imageIds = items
@@ -1192,7 +1193,9 @@ async function attachImagePreviews(
 	const rows = await db
 		.select({ id: artifacts.id, contentText: artifacts.contentText })
 		.from(artifacts)
-		.where(inArray(artifacts.id, imageIds));
+		// The ids come from the owner-scoped page already; the owner is named here
+		// too, so no caller can ever read another user's body through this.
+		.where(and(eq(artifacts.userId, userId), inArray(artifacts.id, imageIds)));
 	const previews = new Map<string, ImagePreview>();
 	for (const row of rows) {
 		const preview = imagePreviewOf(row.contentText);
@@ -1285,6 +1288,7 @@ export async function listLogicalDocumentsPage(
 
 	return {
 		documents: await attachImagePreviews(
+			userId,
 			sorted.slice(offset, offset + limit).map((entry) => entry.item),
 		),
 		totalItems: sorted.length,
