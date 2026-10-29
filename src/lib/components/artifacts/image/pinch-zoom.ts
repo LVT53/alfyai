@@ -48,8 +48,27 @@ export function midpointOf(a: Point, b: Point): Point {
 }
 
 /** Two taps this close in time and place are a double tap. */
-export const DOUBLE_TAP_MS = 300;
-export const DOUBLE_TAP_PX = 30;
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_PX = 30;
+
+/** A finger's tap: when, and where on the screen. */
+export type Tap = { at: number; point: Point };
+
+/**
+ * A tap after `last`: whether the two make a double tap, and the tap to compare
+ * the next one with (none after a double, so a third tap starts afresh). Shared
+ * with the full-screen viewer, so a double tap is the same gesture in both.
+ */
+export function nextTap(
+	last: Tap | null,
+	tap: Tap,
+): { double: boolean; last: Tap | null } {
+	const double =
+		last !== null &&
+		tap.at - last.at <= DOUBLE_TAP_MS &&
+		distanceOf(last.point, tap.point) <= DOUBLE_TAP_PX;
+	return { double, last: double ? null : tap };
+}
 
 export type PinchZoomOptions = {
 	enabled: boolean;
@@ -87,7 +106,7 @@ export function pinchZoom(
 	} | null = null;
 	/** A single finger's tap: where and when it came down, and whether a pinch joined it. */
 	let tap: { at: number; point: Point; pinched: boolean } | null = null;
-	let lastTap: { at: number; point: Point } | null = null;
+	let lastTap: Tap | null = null;
 
 	const target = (): HTMLElement | null =>
 		node.querySelector<HTMLElement>("[data-pinch-target]") ??
@@ -208,13 +227,16 @@ export function pinchZoom(
 		const ended = tap;
 		tap = null;
 		if (!ended || ended.pinched) return;
-		const point = { x: event.clientX, y: event.clientY };
-		const double =
-			lastTap !== null &&
-			event.timeStamp - lastTap.at <= DOUBLE_TAP_MS &&
-			distanceOf(lastTap.point, point) <= DOUBLE_TAP_PX;
-		lastTap = double ? null : { at: event.timeStamp, point };
-		if (double && doubleTapReset && (scale !== 1 || x !== 0 || y !== 0)) {
+		const result = nextTap(lastTap, {
+			at: event.timeStamp,
+			point: { x: event.clientX, y: event.clientY },
+		});
+		lastTap = result.last;
+		if (
+			result.double &&
+			doubleTapReset &&
+			(scale !== 1 || x !== 0 || y !== 0)
+		) {
 			reset(true);
 		}
 	}

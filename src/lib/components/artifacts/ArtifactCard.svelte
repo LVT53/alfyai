@@ -41,9 +41,8 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ImageCardActionHandler } from "./image/image-card-view";
-import ImagePicture from "./image/ImagePicture.svelte";
+import PictureThumb from "./image/PictureThumb.svelte";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
-import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 
 export interface ArtifactCardTickableItem {
 	id: string;
@@ -399,17 +398,12 @@ function handleOpen(): void {
 		onclick={handleOpen}
 	>
 		{#if view.thumbnail && !view.working}
-			<span class="artifact-row-thumb" aria-hidden="true" data-testid="artifact-row-thumb">
-				<ImagePicture
-					fileId={view.thumbnail.fileId}
-					width={IMAGE_THUMB_LONG_EDGE}
-					height={IMAGE_THUMB_LONG_EDGE}
-					hasAlpha={view.thumbnail.hasAlpha}
-					alt=""
-					conversationId={view.thumbnail.conversationId}
-					variant="thumb"
-				/>
-			</span>
+			<PictureThumb
+				fileId={view.thumbnail.fileId}
+				hasAlpha={view.thumbnail.hasAlpha}
+				conversationId={view.thumbnail.conversationId}
+				testId="artifact-row-thumb"
+			/>
 		{:else}
 		<span class="artifact-row-icon" aria-hidden="true">
 			{#if view.working}
@@ -1255,27 +1249,6 @@ function handleOpen(): void {
 		border-radius: 8px;
 		background: var(--accent-tint);
 		color: var(--accent-text);
-	}
-
-	/* A picture's row: its thumbnail, square-cropped, in a box reserved before it
-	   loads (ImagePicture fades it in; nothing moves). */
-	.artifact-row-thumb {
-		display: block;
-		width: 40px;
-		height: 40px;
-		flex: 0 0 auto;
-		overflow: hidden;
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px var(--border-default);
-	}
-
-	.artifact-row-thumb :global(.image-picture) {
-		height: 100%;
-	}
-
-	.artifact-row-thumb :global(.image-picture-img) {
-		object-fit: cover;
 	}
 
 	.artifact-row-main {

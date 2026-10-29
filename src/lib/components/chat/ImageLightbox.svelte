@@ -129,26 +129,26 @@ function handleStageClick(event: MouseEvent) {
 // The arrow keys page through the pictures and + / - / 0 zoom, but only while
 // this is the layer on top. Escape and Tab are the focus trap's (below). With
 // Ctrl or Cmd, + and - are the browser's own page zoom.
+const PAGING_KEYS: Record<string, () => void> = {
+	ArrowRight: () => step(1),
+	ArrowLeft: () => step(-1),
+};
+const ZOOM_KEYS: Record<string, () => void> = {
+	"+": () => zoom.zoomIn(),
+	"=": () => zoom.zoomIn(),
+	"-": () => zoom.zoomOut(),
+	_: () => zoom.zoomOut(),
+	"0": () => zoom.fit(),
+};
+
 function handleKeydown(event: KeyboardEvent) {
 	if (!isOpen || !isTopmostDialog(dialogId)) return;
-	if (event.key === "ArrowRight") {
-		event.preventDefault();
-		step(1);
-	} else if (event.key === "ArrowLeft") {
-		event.preventDefault();
-		step(-1);
-	}
-	if (event.ctrlKey || event.metaKey || event.altKey) return;
-	if (event.key === "+" || event.key === "=") {
-		event.preventDefault();
-		zoom.zoomIn();
-	} else if (event.key === "-" || event.key === "_") {
-		event.preventDefault();
-		zoom.zoomOut();
-	} else if (event.key === "0") {
-		event.preventDefault();
-		zoom.fit();
-	}
+	const withModifier = event.ctrlKey || event.metaKey || event.altKey;
+	const action =
+		PAGING_KEYS[event.key] ?? (withModifier ? undefined : ZOOM_KEYS[event.key]);
+	if (!action) return;
+	event.preventDefault();
+	action();
 }
 
 const dialogId = Symbol("image-lightbox");
@@ -211,7 +211,6 @@ $effect(() => {
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="image-lightbox-stage"
-			class:is-zoomed={zoomed}
 			data-testid="image-lightbox-stage"
 			{@attach zoom.attach}
 			onclick={handleStageClick}
@@ -224,6 +223,7 @@ $effect(() => {
 			>
 				<img
 					class="image-lightbox-image"
+					class:is-zoomed={zoomed}
 					class:image-checkerboard={current.checkerboard}
 					src={current.src}
 					alt={current.alt}
@@ -365,11 +365,11 @@ $effect(() => {
 		-webkit-user-drag: none;
 	}
 
-	.image-lightbox-stage.is-zoomed .image-lightbox-image {
+	.image-lightbox-image.is-zoomed {
 		cursor: grab;
 	}
 
-	.image-lightbox-stage.is-zoomed .image-lightbox-image:active {
+	.image-lightbox-image.is-zoomed:active {
 		cursor: grabbing;
 	}
 

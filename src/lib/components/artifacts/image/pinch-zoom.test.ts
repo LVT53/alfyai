@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pinchZoom, zoomFrom } from "./pinch-zoom";
+import { nextTap, pinchZoom, zoomFrom } from "./pinch-zoom";
 
 describe("zoomFrom", () => {
 	it("scales with the distance between the two fingers", () => {
@@ -186,5 +186,21 @@ describe("pinchZoom and a new picture", () => {
 		expect(target.style.transform).toBe("");
 		action.destroy?.();
 		node.remove();
+	});
+});
+
+describe("nextTap", () => {
+	const at = (time: number, x = 100) => ({ at: time, point: { x, y: 100 } });
+
+	it("makes a double tap of two taps close in time and place, and starts afresh after it", () => {
+		const first = nextTap(null, at(0));
+		expect(first).toEqual({ double: false, last: at(0) });
+		const second = nextTap(first.last, at(200, 110));
+		expect(second).toEqual({ double: true, last: null });
+	});
+
+	it("does not make a double tap of taps too far apart in time or place", () => {
+		expect(nextTap(at(0), at(400)).double).toBe(false);
+		expect(nextTap(at(0), at(100, 200)).double).toBe(false);
 	});
 });

@@ -17,10 +17,10 @@
  */
 import type { Attachment } from "svelte/attachments";
 import {
-	DOUBLE_TAP_MS,
-	DOUBLE_TAP_PX,
 	distanceOf,
 	midpointOf,
+	nextTap,
+	type Tap,
 	zoomFrom,
 } from "$lib/components/artifacts/image/pinch-zoom";
 
@@ -145,6 +145,33 @@ export function zoomPercent(view: ZoomView, frame: ZoomFrame): number {
 	return Math.round((view.scale / actualScale(frame)) * 100);
 }
 
+/** The picture's own pixels: the decoded image's, else its width/height attributes, else what it is drawn at. */
+function naturalSizeOf(picture: HTMLElement, fitted: Size): Size {
+	const image = picture instanceof HTMLImageElement ? picture : null;
+	const attribute = (name: string) => Number(picture.getAttribute(name)) || 0;
+	return {
+		width: image?.naturalWidth || attribute("width") || fitted.width,
+		height: image?.naturalHeight || attribute("height") || fitted.height,
+	};
+}
+
+/** Where a pinch has the picture: the picture point under the fingers' start stays under their middle. */
+function pinchView(
+	gesture: { distance: number; scale: number; anchor: Point },
+	fingers: { distance: number; mid: Point },
+	frame: ZoomFrame,
+): ZoomView {
+	const scale = zoomFrom(gesture, fingers, scaleRange(frame));
+	return clampView(
+		{
+			scale,
+			x: fingers.mid.x - gesture.anchor.x * scale,
+			y: fingers.mid.y - gesture.anchor.y * scale,
+		},
+		frame,
+	);
+}
+
 export type LightboxZoom = {
 	/** On the stage: wheel, drag, pinch, double click and double tap. */
 	attach: Attachment<HTMLElement>;
@@ -181,7 +208,7 @@ export function createLightboxZoom(
 		scale: number;
 		anchor: Point;
 	} | null = null;
-	let lastTap: { at: number; point: Point } | null = null;
+	let lastTap: Tap | null = null;
 	let tapStart: { at: number; point: Point; multi: boolean } | null = null;
 
 	const target = () =>
@@ -190,21 +217,10 @@ export function createLightboxZoom(
 	function measure(): ZoomFrame | null {
 		const picture = target();
 		if (!stage || !picture) return null;
-		const image = picture instanceof HTMLImageElement ? picture : null;
 		const fitted = { width: picture.offsetWidth, height: picture.offsetHeight };
-		const natural = {
-			width:
-				image?.naturalWidth ||
-				Number(picture.getAttribute("width")) ||
-				fitted.width,
-			height:
-				image?.naturalHeight ||
-				Number(picture.getAttribute("height")) ||
-				fitted.height,
-		};
 		return {
 			fitted,
-			natural,
+			natural: naturalSizeOf(picture, fitted),
 			stage: { width: stage.clientWidth, height: stage.clientHeight },
 		};
 	}
@@ -309,32 +325,31 @@ export function createLightboxZoom(
 		}
 	}
 
-	function onPointerMove(event: PointerEvent): void {
-		if (!pointers.has(event.pointerId)) return;
-		const point = { x: event.clientX, y: event.clientY };
-		pointers.set(event.pointerId, point);
-		if (pinch && pointers.size >= 2) {
-			const [a, b] = [...pointers.values()];
-			const midClient = midpointOf(a, b);
-			const mid = fromCentre(midClient.x, midClient.y);
-			const gesture = pinch;
-			apply((_, frame) => {
-				const scale = zoomFrom(
-					gesture,
-					{ distance: distanceOf(a, b) },
-					scaleRange(frame),
-				);
-				return clampView(
-					{
-						scale,
-						x: mid.x - gesture.anchor.x * scale,
-						y: mid.y - gesture.anchor.y * scale,
-					},
-					frame,
-				);
-			}, false);
-			return;
+	/** Two fingers move: the picture follows them in the frame they move. */
+	function movePinch(): void {
+		const gesture = pinch;
+		const [a, b] = [...pointers.values()];
+		if (!gesture || !a || !b) return;
+		const middle = midpointOf(a, b);
+		const fingers = {
+			distance: distanceOf(a, b),
+			mid: fromCentre(middle.x, middle.y),
+		};
+		apply((_, frame) => pinchView(gesture, fingers, frame), false);
+	}
+
+	/** The drag keeps the picture even when the hand leaves the stage. */
+	function capture(pointerId: number): void {
+		if (!stage || stage.hasPointerCapture(pointerId)) return;
+		try {
+			stage.setPointerCapture(pointerId);
+		} catch {
+			// A pointer the browser no longer knows (lifted mid-move): the drag goes on uncaptured.
 		}
+	}
+
+	/** One pointer moves: past a few pixels it is a drag, and a zoomed picture pans with it. */
+	function moveDrag(event: PointerEvent, point: Point): void {
 		if (!drag || drag.pointerId !== event.pointerId) return;
 		const dx = point.x - drag.last.x;
 		const dy = point.y - drag.last.y;
@@ -342,15 +357,30 @@ export function createLightboxZoom(
 		drag.moved += Math.abs(dx) + Math.abs(dy);
 		if (drag.moved > 4) gestured = true;
 		if (view.scale <= 1) return;
-		if (gestured && stage && !stage.hasPointerCapture(event.pointerId)) {
-			try {
-				// The drag keeps the picture even when the hand leaves the stage.
-				stage.setPointerCapture(event.pointerId);
-			} catch {
-				// A pointer the browser no longer knows (lifted mid-move): the drag goes on uncaptured.
-			}
-		}
+		if (gestured) capture(event.pointerId);
 		apply((current, frame) => panBy(current, dx, dy, frame), false);
+	}
+
+	function onPointerMove(event: PointerEvent): void {
+		if (!pointers.has(event.pointerId)) return;
+		const point = { x: event.clientX, y: event.clientY };
+		pointers.set(event.pointerId, point);
+		if (pinch && pointers.size >= 2) movePinch();
+		else moveDrag(event, point);
+	}
+
+	/** The last finger came off a tap no drag or pinch joined: the second in the window toggles fit and 100%. */
+	function endTap(event: PointerEvent): void {
+		const started = tapStart;
+		tapStart = null;
+		if (!started || started.multi || gestured) return;
+		const point = { x: event.clientX, y: event.clientY };
+		const result = nextTap(lastTap, { at: event.timeStamp, point });
+		lastTap = result.last;
+		if (!result.double) return;
+		gestured = true;
+		const at = fromCentre(point.x, point.y);
+		apply((current, frame) => toggleFitActual(current, at, frame), true);
 	}
 
 	function onPointerEnd(event: PointerEvent): void {
@@ -358,22 +388,7 @@ export function createLightboxZoom(
 		pointers.delete(event.pointerId);
 		if (pointers.size < 2) pinch = null;
 		if (drag?.pointerId === event.pointerId) drag = null;
-		if (pointers.size > 0 || event.type === "pointercancel") return;
-		const started = tapStart;
-		tapStart = null;
-		if (!started || started.multi || gestured) return;
-		// A touch tap: the second in the window toggles fit and 100%.
-		const point = { x: event.clientX, y: event.clientY };
-		const double =
-			lastTap !== null &&
-			event.timeStamp - lastTap.at <= DOUBLE_TAP_MS &&
-			distanceOf(lastTap.point, point) <= DOUBLE_TAP_PX;
-		lastTap = double ? null : { at: event.timeStamp, point };
-		if (double) {
-			gestured = true;
-			const at = fromCentre(point.x, point.y);
-			apply((current, frame) => toggleFitActual(current, at, frame), true);
-		}
+		if (pointers.size === 0 && event.type !== "pointercancel") endTap(event);
 	}
 
 	function onDoubleClick(event: MouseEvent): void {

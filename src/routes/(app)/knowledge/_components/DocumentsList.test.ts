@@ -127,9 +127,6 @@ function makeDocument(
 		...(Object.hasOwn(overrides, "lastKind") && {
 			lastKind: overrides.lastKind,
 		}),
-		...(Object.hasOwn(overrides, "imagePreview") && {
-			imagePreview: overrides.imagePreview,
-		}),
 	};
 }
 
@@ -3120,21 +3117,21 @@ describe("DocumentsList", () => {
 // Plan 2b Task 22: "in the list of images there should be [a] preview present,
 // and also an alternative view that shows the images as a gallery grid."
 describe("pictures in the library", () => {
-	const picture = (overrides: Partial<KnowledgeDocumentItem> = {}) =>
-		makeArtifactDocument({
+	const picture = (): KnowledgeDocumentItem => ({
+		...makeArtifactDocument({
 			id: "img-1",
 			displayArtifactId: "img-1",
 			name: "Harbour at dusk",
 			kind: "image",
 			conversationId: "conv-1",
-			imagePreview: {
-				fileId: "file-1",
-				width: 1248,
-				height: 832,
-				hasAlpha: false,
-			},
-			...overrides,
-		});
+		}),
+		imagePreview: {
+			fileId: "file-1",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+		},
+	});
 
 	beforeEach(() => {
 		uiLanguage.set("en");

@@ -1495,6 +1495,18 @@ function rowFactsFor(item: DocumentWorkspaceItem): string | null {
  * older cached list) falls back to the plain card this list has always
  * shown.
  */
+/** A picture's row shows the picture (plan 2b Task 22), read in its chat's scope. */
+function rowThumbnailFor(
+	item: DocumentWorkspaceItem,
+): ArtifactCardView["thumbnail"] {
+	if (item.kind !== "image" || !item.imagePreview) return null;
+	return {
+		fileId: item.imagePreview.fileId,
+		hasAlpha: item.imagePreview.hasAlpha,
+		conversationId: item.conversationId ?? conversationId,
+	};
+}
+
 function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 	const madeBy =
 		item.updatedAt != null
@@ -1558,15 +1570,7 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		title: getDocumentTitle(item),
 		openTargetId: item.id,
 		madeBy,
-		// A picture's row shows the picture (plan 2b Task 22), in its chat's scope.
-		thumbnail:
-			item.kind === "image" && item.imagePreview
-				? {
-						fileId: item.imagePreview.fileId,
-						hasAlpha: item.imagePreview.hasAlpha,
-						conversationId: item.conversationId ?? conversationId,
-					}
-				: null,
+		thumbnail: rowThumbnailFor(item),
 		...rowExtras,
 	};
 }

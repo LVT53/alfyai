@@ -72,8 +72,8 @@ import type { Component } from "svelte";
 import type { KnowledgeDocumentKindFilter } from "$lib/server/services/knowledge";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import Spinner from "$lib/components/ui/Spinner.svelte";
-import ImagePicture from "$lib/components/artifacts/image/ImagePicture.svelte";
-import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
+import PictureThumb from "$lib/components/artifacts/image/PictureThumb.svelte";
+import DocumentsGrid from "./DocumentsGrid.svelte";
 import {
 	canCancelExtraction,
 	canOpenDocument,
@@ -958,6 +958,14 @@ function formatFileType(mimeType: string | null, filename: string): string {
 	return extension.toUpperCase();
 }
 
+/** A row's or tile's icon: its kind's, or its file type's. */
+function documentIcon(document: KnowledgeDocumentItem): Component {
+	return (
+		(document.kind ? ARTIFACT_KIND_ICONS[document.kind] : undefined) ??
+		getFileIcon(document.mimeType, document.name)
+	);
+}
+
 /** A tile's second line: the kind, or the file's type (the row's Type pill, in words). */
 function documentTypeLabel(document: KnowledgeDocumentItem): string {
 	if (document.kind) return $t(`artifacts.type.${document.kind}`);
@@ -1345,25 +1353,6 @@ async function handleBulkDelete(): Promise<boolean> {
 	mobile meta line, so the two can never drift into saying different things
 	about the same row.
 -->
-<!-- A picture's thumbnail (Task 22): the 320 px file, square-cropped, in a box
-     its parent reserves; it fades in (ImagePicture) and nothing moves. -->
-{#snippet pictureThumb(document: KnowledgeDocumentItem)}
-	{@const thumb = documentThumbnail(document)}
-	{#if thumb}
-		<span class="documents-thumb" aria-hidden="true" data-testid="document-thumb">
-			<ImagePicture
-				fileId={thumb.fileId}
-				width={IMAGE_THUMB_LONG_EDGE}
-				height={IMAGE_THUMB_LONG_EDGE}
-				hasAlpha={thumb.hasAlpha}
-				alt=""
-				conversationId={thumb.conversationId}
-				variant="thumb"
-			/>
-		</span>
-	{/if}
-{/snippet}
-
 {#snippet statusContent(document: KnowledgeDocumentItem, badge: ReturnType<typeof deriveDocumentStatus>, busy: boolean, place: 'status' | 'meta')}
 	{#if badge?.kind === 'extraction'}
 		{@const job = badge.job}
@@ -1907,41 +1896,14 @@ async function handleBulkDelete(): Promise<boolean> {
 			</div>
 		{:else}
 			{#if documentsView === 'grid'}
-			<!-- The gallery: a reserved square per item, the picture (or its type's
-			     icon) and the title under it; a press opens it as a row does. -->
-			<ul class="documents-grid" data-testid="documents-grid">
-				{#each paginatedDocuments as document (document.id)}
-					{@const Icon = getFileIcon(document.mimeType, document.name)}
-					{@const ArtifactIcon = document.kind ? ARTIFACT_KIND_ICONS[document.kind] : undefined}
-					<li class="documents-grid-item">
-						<button
-							type="button"
-							class="documents-grid-tile"
-							data-testid="documents-grid-tile"
-							disabled={!canOpenDocument(document)}
-							onclick={() => openDocument(document)}
-							onpointerenter={() => handleDocumentPreviewIntent(document)}
-							onfocus={() => handleDocumentPreviewIntent(document)}
-						>
-							<span class="documents-grid-picture">
-								{#if documentThumbnail(document)}
-									{@render pictureThumb(document)}
-								{:else}
-									<span class="documents-grid-icon" aria-hidden="true">
-										{#if ArtifactIcon}
-											<ArtifactIcon size={28} strokeWidth={1.5} aria-hidden="true" />
-										{:else}
-											<Icon size={28} strokeWidth={1.5} aria-hidden="true" />
-										{/if}
-									</span>
-								{/if}
-							</span>
-							<span class="documents-grid-title">{document.name}</span>
-							<span class="documents-grid-meta">{documentTypeLabel(document)}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
+			<DocumentsGrid
+				documents={paginatedDocuments}
+				iconFor={documentIcon}
+				typeLabel={documentTypeLabel}
+				canOpen={canOpenDocument}
+				onOpen={openDocument}
+				onPreviewIntent={handleDocumentPreviewIntent}
+			/>
 		{:else}
 			<div class="table-container">
 				<!-- A zero-height mark at the very top of the card. Once it has
@@ -2030,6 +1992,7 @@ async function handleBulkDelete(): Promise<boolean> {
 							{@const aiVersionAvailable = hasNormalisedVersion(document)}
 							{@const extracting = isExtractionInProgress(document)}
 							{@const extractionBusy = extractionActionIds.has(document.displayArtifactId)}
+							{@const thumb = documentThumbnail(document)}
 							<tr
 								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
@@ -2058,9 +2021,9 @@ async function handleBulkDelete(): Promise<boolean> {
 									</label>
 								</td>
 								<td class="col-icon">
-									<div class="file-icon" data-testid="file-icon">
-										{#if documentThumbnail(document)}
-											{@render pictureThumb(document)}
+									<div class="file-icon" class:has-thumb={thumb !== null} data-testid="file-icon">
+										{#if thumb}
+											<PictureThumb {...thumb} testId="document-thumb" />
 										{:else if ArtifactIcon}
 											<ArtifactIcon size={18} strokeWidth={1.5} aria-hidden="true" />
 										{:else}
@@ -2836,120 +2799,6 @@ async function handleBulkDelete(): Promise<boolean> {
 	.view-toggle-button:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	/* A picture's thumbnail, in a row (40 px) or a tile (the tile's square). */
-	.documents-thumb {
-		display: block;
-		width: 40px;
-		height: 40px;
-		flex: 0 0 auto;
-		overflow: hidden;
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px var(--border-default);
-	}
-
-	.documents-thumb :global(.image-picture) {
-		height: 100%;
-	}
-
-	.documents-thumb :global(.image-picture-img) {
-		object-fit: cover;
-	}
-
-	/* The gallery: as many columns as fit (sidebar open or not), two on a
-	   phone. Every tile's picture box is a square reserved before anything
-	   loads, so a page of tiles never moves as the pictures arrive. */
-	.documents-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-		gap: var(--space-md);
-		margin: 0;
-		padding: var(--space-md) 0;
-		list-style: none;
-	}
-
-	.documents-grid-item {
-		min-width: 0;
-	}
-
-	.documents-grid-tile {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-xs);
-		width: 100%;
-		padding: var(--space-xs);
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		background: transparent;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.documents-grid-tile:hover {
-		border-color: var(--border-default);
-		background: color-mix(in srgb, var(--accent) 4%, transparent 96%);
-	}
-
-	.documents-grid-tile:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.documents-grid-tile:disabled {
-		cursor: default;
-		opacity: 0.6;
-	}
-
-	.documents-grid-picture {
-		display: grid;
-		place-items: center;
-		width: 100%;
-		aspect-ratio: 1 / 1;
-		overflow: hidden;
-		border-radius: var(--radius-sm);
-		background: var(--surface-page);
-		box-shadow: 0 0 0 1px var(--border-subtle);
-	}
-
-	.documents-grid-picture .documents-thumb {
-		width: 100%;
-		height: 100%;
-		border-radius: 0;
-		box-shadow: none;
-	}
-
-	.documents-grid-icon {
-		display: grid;
-		place-items: center;
-		color: var(--icon-muted);
-	}
-
-	.documents-grid-title {
-		display: -webkit-box;
-		overflow: hidden;
-		font-size: 0.8125rem;
-		font-weight: 600;
-		line-height: 1.3;
-		overflow-wrap: anywhere;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-
-	.documents-grid-meta {
-		color: var(--text-muted);
-		font-size: 0.75rem;
-	}
-
-	@media (max-width: 480px) {
-		.documents-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			gap: var(--space-sm);
-		}
 	}
 
 	.sort-direction:hover,
@@ -4094,7 +3943,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 
 		/* A picture's card shows its thumbnail, which brings its own edge. */
-		.documents-table .col-icon .file-icon:has(.documents-thumb) {
+		.documents-table .col-icon .file-icon.has-thumb {
 			width: 40px;
 			height: 40px;
 			border: 0;
