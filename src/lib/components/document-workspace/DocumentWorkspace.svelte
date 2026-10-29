@@ -38,6 +38,16 @@ import { focusTrap } from "$lib/utils/focus-trap";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import ItemGrid, {
+	type ItemGridTile,
+} from "$lib/components/artifacts/ItemGrid.svelte";
+import { ARTIFACT_KIND_ICONS } from "$lib/components/artifacts/kind-icons";
+import ListGridToggle from "$lib/components/ui/ListGridToggle.svelte";
+import {
+	type ListView,
+	readListView,
+	writeListView,
+} from "$lib/utils/list-view-preference";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
@@ -1495,6 +1505,52 @@ function rowFactsFor(item: DocumentWorkspaceItem): string | null {
  * older cached list) falls back to the plain card this list has always
  * shown.
  */
+/**
+ * "What this chat made" as a list or a gallery (Task 22b), remembered per viewer
+ * under its own key: the panel is narrow and holds one chat's few items, the
+ * library holds everything, so each keeps the reader's own choice.
+ */
+const ARTIFACT_PANEL_LIST_VIEW_KEY = "artifactPanelListView";
+let panelListView = $state<ListView>(
+	readListView(ARTIFACT_PANEL_LIST_VIEW_KEY),
+);
+
+function choosePanelListView(view: ListView): void {
+	panelListView = view;
+	writeListView(ARTIFACT_PANEL_LIST_VIEW_KEY, view);
+}
+
+/** The gallery's tiles: an item being made again first, as its row is, then the items. */
+let panelGridTiles = $derived.by((): ItemGridTile[] => {
+	if (!list) return [];
+	const making = (list.pending ?? []).map((item) => ({
+		id: item.id,
+		title: item.title,
+		meta: $t("artifacts.deleted.regenerating"),
+		icon: ARTIFACT_KIND_ICONS[item.kind],
+		disabled: true,
+		busy: true,
+	}));
+	const items = list.items.map((item) => {
+		const kind = item.kind ?? "file";
+		return {
+			id: item.id,
+			title: getDocumentTitle(item),
+			meta: $t(`artifacts.type.${kind}`),
+			icon: ARTIFACT_KIND_ICONS[kind],
+			thumbnail: rowThumbnailFor(item),
+			current: item.id === activeDocumentId,
+		};
+	});
+	return [...making, ...items];
+});
+
+/** A tile opens its item exactly as its row does. */
+function selectTileFromList(id: string): void {
+	const item = list?.items.find((entry) => entry.id === id);
+	if (item) selectFromList(item);
+}
+
 /** A picture's row shows the picture (plan 2b Task 22), read in its chat's scope. */
 function rowThumbnailFor(
 	item: DocumentWorkspaceItem,
@@ -2260,6 +2316,20 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{#if list.items.length === 0 && !list.pending?.length}
 				<p class="artifact-panel-empty">{$t('artifacts.panel.empty')}</p>
 			{:else}
+				<div class="artifact-panel-list-tools">
+					<ListGridToggle
+						view={panelListView}
+						onChange={choosePanelListView}
+						testIdPrefix="artifact-panel-view"
+					/>
+				</div>
+				{#if panelListView === 'grid'}
+					<ItemGrid
+						tiles={panelGridTiles}
+						testId="artifact-panel-grid"
+						onOpen={selectTileFromList}
+					/>
+				{:else}
 				<ul class="artifact-panel-list-rows">
 					{#each list.pending ?? [] as making (making.id)}
 						<li data-testid="artifact-row-pending">
@@ -2309,6 +2379,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						</li>
 					{/each}
 				</ul>
+				{/if}
 			{/if}
 		</div>
 	{/snippet}
@@ -4319,6 +4390,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		color: var(--text-muted);
 		font-size: var(--text-sm);
 		text-align: center;
+	}
+
+	/* The list / grid choice, over the items, at the right. */
+	.artifact-panel-list-tools {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: var(--space-sm);
 	}
 
 	.artifact-panel-list-rows {

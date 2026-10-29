@@ -1938,6 +1938,102 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			);
 		});
 
+		// Task 22b: "I also meant a gallery view inside the chat artifact list sidebar."
+		describe("the list's gallery", () => {
+			const items = () => [
+				makeWorkspaceDocument({
+					id: "img-1",
+					title: "Cosy room",
+					kind: "image",
+					artifactId: "img-1",
+					conversationId: "conv-1",
+					imagePreview: {
+						fileId: "file-1",
+						width: 1248,
+						height: 832,
+						hasAlpha: false,
+					},
+				}),
+				makeWorkspaceDocument({
+					id: "doc-1",
+					title: "Trip plan",
+					kind: "document",
+				}),
+			];
+
+			beforeEach(() => {
+				localStorage.clear();
+			});
+
+			it("offers List and Grid, List first; Grid draws a tile per item and a press opens it as a row does", async () => {
+				const onSelectDocument = vi.fn();
+				const onListOpenChange = vi.fn();
+				renderWorkspace({
+					documents: [],
+					activeDocumentId: null,
+					onSelectDocument,
+					onListOpenChange,
+					list: { open: true, title: "What this chat made", items: items() },
+				});
+				const list = await screen.findByTestId("artifact-panel-list");
+				const listButton = within(list).getByRole("button", {
+					name: "List view",
+				});
+				expect(listButton).toHaveAttribute("aria-pressed", "true");
+				expect(
+					within(list).queryByTestId("artifact-panel-grid"),
+				).not.toBeInTheDocument();
+
+				await fireEvent.click(
+					within(list).getByRole("button", { name: "Grid view" }),
+				);
+				const grid = within(list).getByTestId("artifact-panel-grid");
+				expect(within(list).queryAllByTestId("artifact-row")).toHaveLength(0);
+				const tiles = within(grid).getAllByTestId("artifact-panel-grid-tile");
+				expect(tiles).toHaveLength(2);
+				expect(
+					tiles[0]
+						.querySelector('[data-testid="item-grid-thumb"] img')
+						?.getAttribute("src"),
+				).toBe("/api/images/files/file-1?variant=thumb&conversationId=conv-1");
+				expect(
+					tiles[1].querySelector('[data-testid="item-grid-thumb"]'),
+				).toBeNull();
+				expect(tiles[1]).toHaveTextContent("Trip plan");
+
+				await fireEvent.click(tiles[1]);
+				expect(onSelectDocument).toHaveBeenCalledWith("doc-1");
+				expect(onListOpenChange).toHaveBeenCalledWith(false);
+			});
+
+			it("remembers the choice for this viewer under its own key, apart from the library's", async () => {
+				renderWorkspace({
+					documents: [],
+					activeDocumentId: null,
+					list: { open: true, title: "What this chat made", items: items() },
+				});
+				const list = await screen.findByTestId("artifact-panel-list");
+				await fireEvent.click(
+					within(list).getByRole("button", { name: "Grid view" }),
+				);
+				expect(localStorage.getItem("artifactPanelListView")).toBe("grid");
+				expect(localStorage.getItem("knowledgeDocumentsView")).toBeNull();
+			});
+
+			it("opens in the grid when the viewer chose it before", async () => {
+				localStorage.setItem("artifactPanelListView", "grid");
+				renderWorkspace({
+					documents: [],
+					activeDocumentId: null,
+					list: { open: true, title: "What this chat made", items: items() },
+				});
+				const list = await screen.findByTestId("artifact-panel-list");
+				expect(
+					within(list).getByTestId("artifact-panel-grid"),
+				).toBeInTheDocument();
+			});
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
