@@ -234,32 +234,24 @@ async function pinch(page: Page, from: number, to: number): Promise<void> {
 }
 
 /** Two quick taps of one finger at the picture's centre. */
+/**
+ * Two real taps of one finger at the picture's centre: the browser's own touch
+ * events, so it also sends the clicks and the \`dblclick\` a real phone sends
+ * (review I1: synthetic pointer events never did, and hid a double toggle).
+ */
 async function doubleTap(page: Page): Promise<void> {
-	await page
-		.locator('[data-testid="image-lightbox-stage"]')
-		.evaluate(async (stage) => {
-			const image = stage.querySelector("img") as HTMLImageElement;
-			const rect = image.getBoundingClientRect();
-			const x = rect.left + rect.width / 2;
-			const y = rect.top + rect.height / 2;
-			const fire = (type: string) =>
-				stage.dispatchEvent(
-					new PointerEvent(type, {
-						pointerId: 21,
-						pointerType: "touch",
-						isPrimary: true,
-						clientX: x,
-						clientY: y,
-						bubbles: true,
-						cancelable: true,
-					}),
-				);
-			fire("pointerdown");
-			fire("pointerup");
-			fire("pointerdown");
-			fire("pointerup");
-			await new Promise((resolve) => requestAnimationFrame(resolve));
-		});
+	const box = await page.locator(VIEWER_IMAGE).boundingBox();
+	if (!box) throw new Error("no picture box");
+	const x = box.x + box.width / 2;
+	const y = box.y + box.height / 2;
+	await page.touchscreen.tap(x, y);
+	await page.touchscreen.tap(x, y);
+}
+
+/** The zoom a double tap left, once anything it started has settled. */
+async function settledZoom(page: Page): Promise<number> {
+	await waitForMotionToSettle(page);
+	return zoomLevel(page);
 }
 
 async function seededChat(
@@ -381,6 +373,54 @@ test.describe("enlarging a picture (Task 22)", () => {
 		await expect(shown(page, "image-body")).toBeVisible();
 	});
 
+	test("the full-size picture's box is there before the file, and the picture fades in on it", async ({
+		page,
+	}) => {
+		await page.setViewportSize(DESKTOP);
+		const { conversationId, fileId } = await seededChat(page);
+		await reopenChat(page, conversationId);
+		// Hold the full-size file from the start (a big PNG on a slow line): the
+		// panel's own copy waits too, so the viewer cannot find it in the cache.
+		const held: Array<() => Promise<void>> = [];
+		await page.route(
+			(url) =>
+				url.pathname === `/api/images/files/${fileId}` &&
+				!url.searchParams.has("variant"),
+			(route) => {
+				held.push(() => route.continue());
+			},
+		);
+		await openItem(page, IMAGE_ITEM_TITLE);
+		await shown(page, "image-body-enlarge").click();
+		await expect(page.locator(VIEWER)).toBeVisible();
+		await expect.poll(() => held.length).toBeGreaterThan(0);
+		await waitForMotionToSettle(page);
+		const image = page.locator(VIEWER_IMAGE);
+		// 2048 x 1024 fitted in 1400 x 780 is 1400 x 700, before a byte has come.
+		const box = await image.boundingBox();
+		expect(box?.width ?? 0).toBeGreaterThan(1000);
+		expect(Math.round((box?.width ?? 0) / (box?.height ?? 1))).toBe(2);
+		await expect(image).not.toHaveClass(/is-loaded/);
+		expect(
+			await image.evaluate((element) => getComputedStyle(element).opacity),
+		).toBe("0");
+
+		for (const release of held.splice(0)) await release();
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+		await expect(image).toHaveClass(/is-loaded/);
+		await waitForMotionToSettle(page);
+		expect(
+			await image.evaluate((element) => getComputedStyle(element).opacity),
+		).toBe("1");
+		const after = await image.boundingBox();
+		expect(
+			Math.abs((after?.width ?? 0) - (box?.width ?? 0)),
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs((after?.height ?? 0) - (box?.height ?? 0)),
+		).toBeLessThanOrEqual(1);
+	});
+
 	test("a see-through picture lies on the checkerboard in the viewer", async ({
 		page,
 	}) => {
@@ -417,6 +457,10 @@ test.describe("enlarging a picture (Task 22)", () => {
 			await reopenChat(page, conversationId);
 			await openItem(page, IMAGE_ITEM_TITLE);
 			await expect(shown(page, "image-body-enlarge")).toBeVisible();
+			// A finger's tap on the picture stays the pinch's and Mark's (review I3).
+			await shown(page, "image-body-frame").tap();
+			await waitForMotionToSettle(page);
+			await expect(page.locator(VIEWER)).toHaveCount(0);
 			await shown(page, "image-body-enlarge").tap();
 			await expect(page.locator(VIEWER)).toBeVisible();
 			await expect
@@ -449,9 +493,9 @@ test.describe("enlarging a picture (Task 22)", () => {
 				.toBeGreaterThan(2);
 			expect(await zoomLevel(page)).toBeGreaterThan(fit);
 			await doubleTap(page);
-			await expect.poll(() => zoomLevel(page)).toBe(fit);
+			expect(await settledZoom(page)).toBe(fit);
 			await doubleTap(page);
-			await expect.poll(() => zoomLevel(page)).toBe(100);
+			expect(await settledZoom(page)).toBe(100);
 
 			await closeViewer(page).tap();
 			await expect(page.locator(VIEWER)).toHaveCount(0);
@@ -584,14 +628,22 @@ test.describe("pictures in the Knowledge Base (Task 22)", () => {
 			.filter({ hasText: "Trip notes" });
 		await expect(docRow.getByTestId("document-thumb")).toHaveCount(0);
 
-		// Grid: a square tile per item, the title under it.
+		// The gallery is the Images chip's (controller ruling, fix round 1).
+		await expect(page.getByRole("button", { name: "Grid view" })).toHaveCount(
+			0,
+		);
+		await page.goto("/knowledge?type=image", { waitUntil: "networkidle" });
+
+		// Grid: a square tile per picture, the title under it.
 		await page.getByRole("button", { name: "Grid view" }).click();
 		const grid = page.getByTestId("documents-grid");
 		await expect(grid).toBeVisible();
 		await expect(page.locator(".documents-table")).toHaveCount(0);
-		await expect(grid.getByTestId("documents-grid-tile")).toHaveCount(3);
+		await expect(grid.getByTestId("documents-grid-tile")).toHaveCount(2);
 		await expect(grid.locator(`${GRID_THUMBS}.is-loaded`)).toHaveCount(2);
-		for (const picture of await grid.locator(".documents-grid-picture").all()) {
+		const squares = await grid.locator(".item-grid-picture").all();
+		expect(squares).toHaveLength(2);
+		for (const picture of squares) {
 			const box = await picture.boundingBox();
 			expect(
 				Math.abs((box?.width ?? 0) - (box?.height ?? 1)),
@@ -612,8 +664,11 @@ test.describe("pictures in the Knowledge Base (Task 22)", () => {
 			.click();
 		await expect(shown(page, "image-body")).toBeVisible();
 
-		// And back to the list, remembered too.
+		// Another chip draws the list though the grid is remembered.
 		await page.goto("/knowledge", { waitUntil: "networkidle" });
+		await expect(page.locator(".documents-table")).toBeVisible();
+		// And back to the list on Images, remembered too.
+		await page.goto("/knowledge?type=image", { waitUntil: "networkidle" });
 		await page.getByRole("button", { name: "List view" }).click();
 		await page.reload({ waitUntil: "networkidle" });
 		await expect(page.locator(".documents-table")).toBeVisible();
@@ -632,10 +687,10 @@ test.describe("pictures in the Knowledge Base (Task 22)", () => {
 		const page = await context.newPage();
 		try {
 			await seededLibrary(page);
-			await page.goto("/knowledge", { waitUntil: "networkidle" });
+			await page.goto("/knowledge?type=image", { waitUntil: "networkidle" });
 			await page.getByRole("button", { name: "Grid view" }).tap();
 			const tiles = page.getByTestId("documents-grid-tile");
-			await expect(tiles).toHaveCount(3);
+			await expect(tiles).toHaveCount(2);
 			const lefts = new Set<number>();
 			for (const tile of await tiles.all()) {
 				const box = await tile.boundingBox();
@@ -851,6 +906,9 @@ test.describe("the Task 22 reel", () => {
 					path: shot(`kb-list-${shape}-${scheme}`),
 					fullPage: true,
 				});
+				await page.goto("/knowledge?type=image", { waitUntil: "networkidle" });
+				await expect(page.locator(`${KB_THUMBS}.is-loaded`)).toHaveCount(2);
+				await waitForMotionToSettle(page);
 				const toggled = await now(page);
 				const grid = page.getByRole("button", { name: "Grid view" });
 				if (shape === "phone") await grid.tap();
