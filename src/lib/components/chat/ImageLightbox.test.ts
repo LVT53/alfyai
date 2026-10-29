@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -5,6 +6,7 @@ import {
 	hasOpenDialog,
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
+import { uiLanguage } from "$lib/stores/settings";
 import ImageLightbox from "./ImageLightbox.svelte";
 
 const IMAGES = [
@@ -506,14 +508,49 @@ describe("ImageLightbox reserves the picture's box and fades it in", () => {
 	});
 
 	it("shows the picture once it has loaded, and a picture paged to waits for its own load", async () => {
-		renderOpen({ images: IMAGES, index: 0 });
+		const { rerender, onNavigate } = renderOpen({ images: IMAGES, index: 0 });
 		const first = shown();
 		expect(first).not.toHaveClass("is-loaded");
 		await fireEvent.load(first);
 		expect(shown()).toHaveClass("is-loaded");
 
 		await fireEvent.click(screen.getByRole("button", { name: "Next image" }));
-		// A host that pages hands in the next index; the same element waits again.
+		expect(onNavigate).toHaveBeenLastCalledWith(1);
+		// The host pages: the next picture is hidden until its own file loads.
+		await rerender({ index: 1 });
+		expect(shown()).toHaveAttribute("src", IMAGES[1].src);
+		expect(shown()).not.toHaveClass("is-loaded");
+		await fireEvent.load(shown());
+		expect(shown()).toHaveClass("is-loaded");
+	});
+
+	// Round 2, N1: a file that cannot be read leaves no blank, endless wait.
+	it("says so, calmly, when the picture cannot be loaded, in English and Hungarian", async () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		expect(
+			screen.queryByTestId("image-lightbox-error"),
+		).not.toBeInTheDocument();
+		await fireEvent.error(shown());
+		const note = screen.getByTestId("image-lightbox-error");
+		expect(note).toHaveAttribute("role", "status");
+		expect(note).toHaveTextContent("This picture couldn't be loaded.");
+		uiLanguage.set("hu");
+		await waitFor(() =>
+			expect(note).toHaveTextContent("Ezt a képet nem sikerült betölteni."),
+		);
+		uiLanguage.set("en");
+	});
+
+	// Round 2, N2: a stated shape that differs from the file's never distorts it.
+	it("contains the picture in its reserved box, never stretches it", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/ImageLightbox.svelte`,
+			"utf-8",
+		);
+		const rule =
+			source.match(/\.image-lightbox-image\.has-size \{([\s\S]*?)\}/)?.[1] ??
+			"";
+		expect(rule).toMatch(/object-fit:\s*contain/);
 	});
 
 	it("leaves a picture of unknown size to its own shape", () => {

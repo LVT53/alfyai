@@ -1097,6 +1097,7 @@ const chatDict = {
 		"imageLightbox.next": "Next image",
 		"imageLightbox.counter": "{current} / {total}",
 		"imageLightbox.zoomIn": "Zoom in",
+		"imageLightbox.loadFailed": "This picture couldn't be loaded.",
 		"imageLightbox.zoomOut": "Zoom out",
 		"imageLightbox.fit": "Fit to screen, now {percent}%",
 		"personalityProfile.concise.description":
@@ -2291,6 +2292,7 @@ const chatDict = {
 		"imageLightbox.next": "Következő kép",
 		"imageLightbox.counter": "{current} / {total}",
 		"imageLightbox.zoomIn": "Nagyítás",
+		"imageLightbox.loadFailed": "Ezt a képet nem sikerült betölteni.",
 		"imageLightbox.zoomOut": "Kicsinyítés",
 		"imageLightbox.fit": "Képernyőhöz igazítás, most {percent}%",
 		"personalityProfile.concise.description":

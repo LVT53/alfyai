@@ -105,6 +105,10 @@ function pictureLoaded(src: string): void {
 	zoom.refresh();
 }
 
+/** A file that cannot be read says so, instead of a box that waits forever (round 2, N1). */
+let failedSrc = $state<string | null>(null);
+let failed = $derived(current !== null && failedSrc === current.src);
+
 let zoomState = $state.raw<{ view: ZoomView; frame: ZoomFrame } | null>(null);
 let zoomed = $derived((zoomState?.view.scale ?? 1) > 1);
 let percent = $derived(
@@ -256,8 +260,16 @@ $effect(() => {
 					data-zoom-target
 					data-testid="image-lightbox-image"
 					onload={() => current && pictureLoaded(current.src)}
+					onerror={() => {
+						if (current) failedSrc = current.src;
+					}}
 				/>
 			</figure>
+			{#if failed}
+				<p class="image-lightbox-error" role="status" data-testid="image-lightbox-error">
+					{$t('imageLightbox.loadFailed')}
+				</p>
+			{/if}
 		</div>
 
 		{#if current.alt.trim()}
@@ -417,6 +429,9 @@ $effect(() => {
 	   attributes alone do not, under width/height: auto): its own width, never
 	   past the stage, never taller than it. */
 	.image-lightbox-image.has-size {
+		/* A file whose shape differs from the one stated is fitted inside the box,
+		   never stretched to it (round 2, N2). */
+		object-fit: contain;
 		width: min(
 			var(--picture-width),
 			var(--viewer-max-width),
@@ -436,6 +451,24 @@ $effect(() => {
 	/* A see-through picture's checkerboard reads at the viewer's size. */
 	.image-lightbox-image:global(.image-checkerboard) {
 		background-size: 24px 24px;
+	}
+
+	/* A picture that could not be read: one calm line over the stage's middle. */
+	.image-lightbox-error {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		margin: 0;
+		max-width: min(80vw, 24rem);
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, #000 55%, transparent 45%);
+		color: #fff;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		text-align: center;
+		transform: translate(-50%, -50%);
+		pointer-events: none;
 	}
 
 	.image-lightbox-caption {
