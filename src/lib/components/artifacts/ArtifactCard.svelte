@@ -41,7 +41,9 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ImageCardActionHandler } from "./image/image-card-view";
+import ImagePicture from "./image/ImagePicture.svelte";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
+import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 
 export interface ArtifactCardTickableItem {
 	id: string;
@@ -79,6 +81,17 @@ export interface ArtifactCardView {
 	 * mockup's own complaints (§5.1 problem 4). `null`/omitted renders no time.
 	 */
 	updatedAtLabel?: string | null;
+	/**
+	 * `chrome="row"`, `kind: "image"` (plan 2b Task 22): the picture the row
+	 * shows in place of the kind's icon, its 320 px thumbnail in a reserved
+	 * 40 px square (it fades in, nothing moves), read in its chat's scope.
+	 * `null`/omitted draws the kind's icon, as for every other kind.
+	 */
+	thumbnail?: {
+		fileId: string;
+		hasAlpha: boolean;
+		conversationId: string | null;
+	} | null;
 	/**
 	 * `chrome="row"` only (FB-5, F9): what tells this row from another of the same
 	 * name, already localised — a produced file's "PDF · 363.1 KB", and the time
@@ -385,6 +398,19 @@ function handleOpen(): void {
 		disabled={!view.openTargetId}
 		onclick={handleOpen}
 	>
+		{#if view.thumbnail && !view.working}
+			<span class="artifact-row-thumb" aria-hidden="true" data-testid="artifact-row-thumb">
+				<ImagePicture
+					fileId={view.thumbnail.fileId}
+					width={IMAGE_THUMB_LONG_EDGE}
+					height={IMAGE_THUMB_LONG_EDGE}
+					hasAlpha={view.thumbnail.hasAlpha}
+					alt=""
+					conversationId={view.thumbnail.conversationId}
+					variant="thumb"
+				/>
+			</span>
+		{:else}
 		<span class="artifact-row-icon" aria-hidden="true">
 			{#if view.working}
 				<LoaderCircle class="artifact-row-spinner" size={18} strokeWidth={1.75} aria-hidden="true" />
@@ -392,6 +418,7 @@ function handleOpen(): void {
 				<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
 			{/if}
 		</span>
+		{/if}
 		<span class="artifact-row-main">
 			<span class="artifact-row-title">{view.title}</span>
 			<span class="artifact-row-sub">
@@ -1167,7 +1194,9 @@ function handleOpen(): void {
 
 	.artifact-row {
 		display: grid;
-		grid-template-columns: 34px minmax(0, 1fr) auto;
+		/* The first column is a picture's 40 px thumbnail wide (Task 22); a kind's
+		   34 px icon sits centred in it, so every title starts in one place. */
+		grid-template-columns: 40px minmax(0, 1fr) auto;
 		align-items: center;
 		gap: 0.75rem;
 		width: 100%;
@@ -1219,12 +1248,34 @@ function handleOpen(): void {
 	.artifact-row-icon {
 		display: grid;
 		place-items: center;
+		justify-self: center;
 		width: 34px;
 		height: 34px;
 		flex: 0 0 auto;
 		border-radius: 8px;
 		background: var(--accent-tint);
 		color: var(--accent-text);
+	}
+
+	/* A picture's row: its thumbnail, square-cropped, in a box reserved before it
+	   loads (ImagePicture fades it in; nothing moves). */
+	.artifact-row-thumb {
+		display: block;
+		width: 40px;
+		height: 40px;
+		flex: 0 0 auto;
+		overflow: hidden;
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		box-shadow: 0 0 0 1px var(--border-default);
+	}
+
+	.artifact-row-thumb :global(.image-picture) {
+		height: 100%;
+	}
+
+	.artifact-row-thumb :global(.image-picture-img) {
+		object-fit: cover;
 	}
 
 	.artifact-row-main {

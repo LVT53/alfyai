@@ -1905,6 +1905,39 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			).not.toBeInTheDocument();
 		});
 
+		it("shows each picture's thumbnail in its row, read in its chat's scope (Task 22)", async () => {
+			renderWorkspace({
+				documents: [],
+				activeDocumentId: null,
+				list: {
+					open: true,
+					title: "What this chat made",
+					items: [
+						makeWorkspaceDocument({
+							id: "img-1",
+							title: "Cosy room",
+							kind: "image",
+							artifactId: "img-1",
+							conversationId: "conv-1",
+							imagePreview: {
+								fileId: "file-1",
+								width: 1248,
+								height: 832,
+								hasAlpha: false,
+							},
+						}),
+						makeWorkspaceDocument({ id: "doc-1", title: "Trip plan" }),
+					],
+				},
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+			const thumbs = within(list).getAllByTestId("artifact-row-thumb");
+			expect(thumbs).toHaveLength(1);
+			expect(thumbs[0].querySelector("img")?.getAttribute("src")).toBe(
+				"/api/images/files/file-1?variant=thumb&conversationId=conv-1",
+			);
+		});
+
 		it("names the list for what it lists, not 'Document workspace'", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],

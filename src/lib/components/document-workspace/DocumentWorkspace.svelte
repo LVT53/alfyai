@@ -1558,6 +1558,15 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		title: getDocumentTitle(item),
 		openTargetId: item.id,
 		madeBy,
+		// A picture's row shows the picture (plan 2b Task 22), in its chat's scope.
+		thumbnail:
+			item.kind === "image" && item.imagePreview
+				? {
+						fileId: item.imagePreview.fileId,
+						hasAlpha: item.imagePreview.hasAlpha,
+						conversationId: item.conversationId ?? conversationId,
+					}
+				: null,
 		...rowExtras,
 	};
 }

@@ -419,6 +419,41 @@ describe("ArtifactCard", () => {
 
 	// chrome="row": the panel list's one-line-per-item row (redesign §5.2).
 	describe("chrome=row", () => {
+		// Plan 2b Task 22: a picture's row shows the picture, never just the kind's icon.
+		it("shows an Image row's thumbnail in a reserved 40 px box, read in the chat's scope", () => {
+			render(ArtifactCard, {
+				view: view({
+					kind: "image",
+					title: "Cosy room",
+					openTargetId: "artifact-1",
+					thumbnail: {
+						fileId: "file-9",
+						hasAlpha: true,
+						conversationId: "conv-1",
+					},
+				}),
+				chrome: "row",
+			});
+
+			const box = screen.getByTestId("artifact-row-thumb");
+			expect(box).toHaveAttribute("aria-hidden", "true");
+			const img = box.querySelector("img");
+			expect(img?.getAttribute("src")).toBe(
+				"/api/images/files/file-9?variant=thumb&conversationId=conv-1",
+			);
+			expect(box.querySelector(".image-checkerboard")).not.toBeNull();
+		});
+
+		it("keeps the kind's icon for a row with no picture", () => {
+			render(ArtifactCard, {
+				view: view({ openTargetId: "artifact-1" }),
+				chrome: "row",
+			});
+			expect(
+				screen.queryByTestId("artifact-row-thumb"),
+			).not.toBeInTheDocument();
+		});
+
 		it("renders the whole row as one button: icon, title, kind/facts, and time (no version number: ruling 76)", () => {
 			render(ArtifactCard, {
 				view: view({

@@ -1310,6 +1310,7 @@ function artifactToWorkspaceItem(
 		lastKind: summary.lastKind ?? null,
 		documentPreview: summary.documentPreview,
 		pendingReviewCount: summary.pendingReviewCount,
+		imagePreview: summary.imagePreview,
 	};
 }
 
