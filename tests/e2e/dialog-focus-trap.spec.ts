@@ -125,6 +125,11 @@ test.describe("Image lightbox from the keyboard", () => {
 		expect(await bodyOverflow(page)).toBe("hidden");
 
 		const close = lightbox.getByRole("button", { name: "Close" });
+		// Plan 2b Task 22 (the owner: "it should be possible to actually enlarge
+		// the picture"): the viewer's named zoom controls sit after Close.
+		const zoomOut = lightbox.getByRole("button", { name: "Zoom out" });
+		const zoomLevel = lightbox.getByRole("button", { name: /Fit to screen/ });
+		const zoomIn = lightbox.getByRole("button", { name: "Zoom in" });
 		const previous = lightbox.getByRole("button", { name: "Previous image" });
 		const next = lightbox.getByRole("button", { name: "Next image" });
 		const inside = lightbox.locator(":focus");
@@ -136,6 +141,12 @@ test.describe("Image lightbox from the keyboard", () => {
 		// way round lands on a control of the dialog, never on the page.
 		await page.keyboard.press("Tab");
 		await expect(close).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(zoomOut).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(zoomLevel).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(zoomIn).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(previous).toBeFocused();
 		await page.keyboard.press("Tab");
