@@ -58,6 +58,8 @@ let menuOpenForTabId = $state<string | null>(null);
 let tabStripEl = $state<HTMLElement | null>(null);
 let tabListEl = $state<HTMLElement | null>(null);
 let inkEl = $state<HTMLElement | null>(null);
+/** The tab the underline was last placed under (plain: only `positionInk` reads it). */
+let inkTabId: string | null = null;
 let optionsButtonEl = $state<HTMLButtonElement | null>(null);
 let tabButtons = new Map<string, HTMLButtonElement>();
 // Review 2.5 (rd/review-2-5.md:183-190): the ⋯ menu used to render inline,
@@ -224,8 +226,20 @@ async function positionInk(): Promise<void> {
 	const buttonRect = activeButton.getBoundingClientRect();
 	const left = buttonRect.left - stripRect.left + tabStripEl.scrollLeft;
 	if (inkEl) {
+		// The underline slides to a tab the reader moved to (§7.2 #6). Its first
+		// placement, a rename or a resize puts it where it belongs at once: it
+		// used to grow from the strip's corner as the Document opened, and a tab
+		// pressed during that slide retargeted it mid-way.
+		const slide = inkTabId !== null && inkTabId !== activeTabId;
+		if (!slide) inkEl.style.transition = "none";
 		inkEl.style.left = `${left}px`;
 		inkEl.style.width = `${buttonRect.width}px`;
+		if (!slide) {
+			// Commit the place before the transition comes back, so nothing animates.
+			void inkEl.offsetWidth;
+			inkEl.style.transition = "";
+		}
+		inkTabId = activeTabId;
 	}
 	if (optionsButtonEl) {
 		optionsButtonEl.style.left = `${left + buttonRect.width + OPTIONS_GAP_PX}px`;
