@@ -3188,11 +3188,13 @@ describe("pictures in the library", () => {
 		expect(pictureTile).toHaveTextContent("Image");
 		expect(
 			pictureTile
-				.querySelector('[data-testid="document-thumb"] img')
+				.querySelector('[data-testid="item-grid-thumb"] img')
 				?.getAttribute("src"),
 		).toBe("/api/images/files/file-1?variant=thumb&conversationId=conv-1");
 		// A file keeps its type's icon on its tile.
-		expect(fileTile.querySelector('[data-testid="document-thumb"]')).toBeNull();
+		expect(
+			fileTile.querySelector('[data-testid="item-grid-thumb"]'),
+		).toBeNull();
 		expect(fileTile.querySelector("svg")).not.toBeNull();
 
 		await fireEvent.click(pictureTile);

@@ -55,8 +55,6 @@ import {
 	Folder,
 	Image,
 	LayoutDashboard,
-	LayoutGrid,
-	List as ListIcon,
 	Monitor,
 	Paperclip,
 	PanelRightOpen,
@@ -73,7 +71,8 @@ import type { KnowledgeDocumentKindFilter } from "$lib/server/services/knowledge
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import Spinner from "$lib/components/ui/Spinner.svelte";
 import PictureThumb from "$lib/components/artifacts/image/PictureThumb.svelte";
-import DocumentsGrid from "./DocumentsGrid.svelte";
+import ItemGrid from "$lib/components/artifacts/ItemGrid.svelte";
+import ListGridToggle from "$lib/components/ui/ListGridToggle.svelte";
 import {
 	canCancelExtraction,
 	canOpenDocument,
@@ -958,6 +957,27 @@ function formatFileType(mimeType: string | null, filename: string): string {
 	return extension.toUpperCase();
 }
 
+/** The gallery's tiles for this page (Task 22): `ItemGrid` draws them. */
+const gridTiles = $derived(
+	paginatedDocuments.map((document) => ({
+		id: document.id,
+		title: document.name,
+		meta: documentTypeLabel(document),
+		icon: documentIcon(document),
+		thumbnail: documentThumbnail(document),
+		disabled: !canOpenDocument(document),
+	})),
+);
+
+function documentById(id: string): KnowledgeDocumentItem | undefined {
+	return paginatedDocuments.find((document) => document.id === id);
+}
+
+function openDocumentById(id: string): void {
+	const document = documentById(id);
+	if (document) openDocument(document);
+}
+
 /** A row's or tile's icon: its kind's, or its file type's. */
 function documentIcon(document: KnowledgeDocumentItem): Component {
 	return (
@@ -1827,30 +1847,7 @@ async function handleBulkDelete(): Promise<boolean> {
 					{/if}
 				</button>
 				<!-- List or grid (Task 22): two pressed-state buttons, one group. -->
-				<div class="view-toggle" role="group" aria-label={$t('knowledge.view.label')} data-testid="documents-view-toggle">
-					<button
-						type="button"
-						class="view-toggle-button"
-						aria-pressed={documentsView === 'list'}
-						aria-label={$t('knowledge.view.list')}
-						title={$t('knowledge.view.list')}
-						data-testid="documents-view-list"
-						onclick={() => chooseView('list')}
-					>
-						<ListIcon size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<button
-						type="button"
-						class="view-toggle-button"
-						aria-pressed={documentsView === 'grid'}
-						aria-label={$t('knowledge.view.grid')}
-						title={$t('knowledge.view.grid')}
-						data-testid="documents-view-grid"
-						onclick={() => chooseView('grid')}
-					>
-						<LayoutGrid size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-				</div>
+				<ListGridToggle view={documentsView} onChange={chooseView} testIdPrefix="documents-view" />
 			</div>
 
 			<!-- Last in the row, beside Sort: the toolbar reads search · sort ·
@@ -1896,14 +1893,17 @@ async function handleBulkDelete(): Promise<boolean> {
 			</div>
 		{:else}
 			{#if documentsView === 'grid'}
-			<DocumentsGrid
-				documents={paginatedDocuments}
-				iconFor={documentIcon}
-				typeLabel={documentTypeLabel}
-				canOpen={canOpenDocument}
-				onOpen={openDocument}
-				onPreviewIntent={handleDocumentPreviewIntent}
-			/>
+			<div class="documents-grid-wrap">
+				<ItemGrid
+					tiles={gridTiles}
+					testId="documents-grid"
+					onOpen={(id) => openDocumentById(id)}
+					onPreviewIntent={(id) => {
+						const document = documentById(id);
+						if (document) handleDocumentPreviewIntent(document);
+					}}
+				/>
+			</div>
 		{:else}
 			<div class="table-container">
 				<!-- A zero-height mark at the very top of the card. Once it has
@@ -2762,43 +2762,9 @@ async function handleBulkDelete(): Promise<boolean> {
 			background-color var(--duration-standard) var(--ease-out);
 	}
 
-	/* List / grid: one hairline pill of two icon buttons beside Sort. The
-	   pressed one is filled; colours change at once (no transition). */
-	.view-toggle {
-		display: inline-flex;
-		align-items: center;
-		margin-left: var(--space-xs);
-		padding: 2px;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-	}
-
-	.view-toggle-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.75rem;
-		height: 1.75rem;
-		padding: 0;
-		border: 0;
-		border-radius: calc(var(--radius-md) - 2px);
-		background: transparent;
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-
-	.view-toggle-button:hover {
-		color: var(--accent);
-	}
-
-	.view-toggle-button[aria-pressed='true'] {
-		background: var(--accent-tint);
-		color: var(--accent-text);
-	}
-
-	.view-toggle-button:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
+	/* The gallery stands where the table does, with its room above and below. */
+	.documents-grid-wrap {
+		padding: var(--space-md) 0;
 	}
 
 	.sort-direction:hover,
@@ -3859,14 +3825,6 @@ async function handleBulkDelete(): Promise<boolean> {
 			padding: 0;
 		}
 
-		.view-toggle {
-			margin-left: 0;
-		}
-
-		.view-toggle-button {
-			width: 40px;
-			height: 40px;
-		}
 
 		.table-container {
 			max-height: none;

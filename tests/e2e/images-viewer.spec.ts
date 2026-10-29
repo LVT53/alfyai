@@ -547,6 +547,8 @@ async function seededLibrary(page: Page): Promise<TourUser> {
 
 const KB_THUMBS =
 	'[data-testid="document-thumb"] [data-testid="image-picture-after"]';
+const GRID_THUMBS =
+	'[data-testid="item-grid-thumb"] [data-testid="image-picture-after"]';
 
 test.describe("pictures in the Knowledge Base (Task 22)", () => {
 	test("rows show thumbnails without a shift; the grid is remembered and opens an item", async ({
@@ -588,7 +590,7 @@ test.describe("pictures in the Knowledge Base (Task 22)", () => {
 		await expect(grid).toBeVisible();
 		await expect(page.locator(".documents-table")).toHaveCount(0);
 		await expect(grid.getByTestId("documents-grid-tile")).toHaveCount(3);
-		await expect(grid.locator(`${KB_THUMBS}.is-loaded`)).toHaveCount(2);
+		await expect(grid.locator(`${GRID_THUMBS}.is-loaded`)).toHaveCount(2);
 		for (const picture of await grid.locator(".documents-grid-picture").all()) {
 			const box = await picture.boundingBox();
 			expect(
@@ -854,7 +856,9 @@ test.describe("the Task 22 reel", () => {
 				if (shape === "phone") await grid.tap();
 				else await grid.click();
 				await expect(
-					page.locator(`[data-testid="documents-grid"] ${KB_THUMBS}.is-loaded`),
+					page.locator(
+						`[data-testid="documents-grid"] ${GRID_THUMBS}.is-loaded`,
+					),
 				).toHaveCount(2);
 				await waitForMotionToSettle(page);
 				const toggleMetrics = await metricsSince(page, toggled);

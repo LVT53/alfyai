@@ -32,6 +32,11 @@ import {
 	type FileFamily,
 	getCategory,
 } from "$lib/shared/file-types";
+import {
+	type ListView,
+	readListView,
+	writeListView,
+} from "$lib/utils/list-view-preference";
 
 /**
  * Every row of this table is a library row, so the extraction verdict the
@@ -497,42 +502,26 @@ export function documentThumbnail(document: KnowledgeDocumentItem): {
 }
 
 /** The Documents tab's two views: the table, or a gallery of tiles. */
-export type DocumentsView = "list" | "grid";
+export type DocumentsView = ListView;
 
-/** Per viewer, in this browser (the sidebar keeps its own choices the same way). */
+/**
+ * Per viewer, in this browser. The library keeps its own choice, apart from the
+ * chat panel's list (`artifactPanelListView`): a reader may browse the library
+ * as a gallery and keep the narrow panel a list.
+ */
 export const DOCUMENTS_VIEW_STORAGE_KEY = "knowledgeDocumentsView";
 
 type ViewStorage = Pick<Storage, "getItem" | "setItem">;
 
-function defaultStorage(): ViewStorage | null {
-	try {
-		return typeof localStorage === "undefined" ? null : localStorage;
-	} catch {
-		return null;
-	}
-}
-
 /** The reader's last view, or the list. A blocked or missing storage is the list, never an error. */
-export function readDocumentsView(
-	storage: ViewStorage | null = defaultStorage(),
-): DocumentsView {
-	try {
-		return storage?.getItem(DOCUMENTS_VIEW_STORAGE_KEY) === "grid"
-			? "grid"
-			: "list";
-	} catch {
-		return "list";
-	}
+export function readDocumentsView(storage?: ViewStorage | null): DocumentsView {
+	return readListView(DOCUMENTS_VIEW_STORAGE_KEY, storage);
 }
 
 /** Keeps the choice; a storage that refuses it (a private window) is left alone. */
 export function writeDocumentsView(
 	view: DocumentsView,
-	storage: ViewStorage | null = defaultStorage(),
+	storage?: ViewStorage | null,
 ): void {
-	try {
-		storage?.setItem(DOCUMENTS_VIEW_STORAGE_KEY, view);
-	} catch {
-		// The view still changes; it is only not remembered.
-	}
+	writeListView(DOCUMENTS_VIEW_STORAGE_KEY, view, storage);
 }
