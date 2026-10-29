@@ -14,6 +14,10 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
+import {
+	type ImagePreview,
+	imagePreviewOf,
+} from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import {
@@ -1171,6 +1175,35 @@ async function loadArtifactFamilyDocumentEntries(params: {
 	});
 }
 
+/**
+ * The page's Image rows carry their picture (plan 2b Task 22: every list that
+ * shows Images shows each one's thumbnail). The list selection leaves
+ * `contentText` out on purpose (a Document's body can be large), so the page's
+ * Image rows, already owner-checked, read theirs in one query; an Image body is
+ * a few hundred bytes of JSON, of which only the file and its shape travel.
+ */
+async function attachImagePreviews(
+	items: KnowledgeDocumentItem[],
+): Promise<KnowledgeDocumentItem[]> {
+	const imageIds = items
+		.filter((item) => item.kind === "image")
+		.map((item) => item.id);
+	if (imageIds.length === 0) return items;
+	const rows = await db
+		.select({ id: artifacts.id, contentText: artifacts.contentText })
+		.from(artifacts)
+		.where(inArray(artifacts.id, imageIds));
+	const previews = new Map<string, ImagePreview>();
+	for (const row of rows) {
+		const preview = imagePreviewOf(row.contentText);
+		if (preview) previews.set(row.id, preview);
+	}
+	return items.map((item) => {
+		const imagePreview = previews.get(item.id);
+		return imagePreview ? { ...item, imagePreview } : item;
+	});
+}
+
 export async function listLogicalDocumentsPage(
 	userId: string,
 	options: LogicalDocumentPageOptions = {},
@@ -1251,7 +1284,9 @@ export async function listLogicalDocumentsPage(
 	});
 
 	return {
-		documents: sorted.slice(offset, offset + limit).map((entry) => entry.item),
+		documents: await attachImagePreviews(
+			sorted.slice(offset, offset + limit).map((entry) => entry.item),
+		),
 		totalItems: sorted.length,
 		countsByKind,
 		countsByFileFamily,

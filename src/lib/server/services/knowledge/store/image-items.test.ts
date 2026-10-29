@@ -129,6 +129,22 @@ describe("an Image item in the knowledge library and in search", () => {
 		expect(filtered.documents.map((doc) => doc.id)).toEqual(["image-1"]);
 	});
 
+	it("carries the picture a list row shows (the file and its shape), never the JSON, and nothing for a Document", async () => {
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const page = await listLogicalDocumentsPage("owner", { limit: 20 });
+		const image = page.documents.find((doc) => doc.id === "image-1");
+		expect(image?.imagePreview).toEqual({
+			fileId: "abc123",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+		});
+		expect(JSON.stringify(image)).not.toContain("lamplight");
+		const document = page.documents.find((doc) => doc.id === "doc-1");
+		expect(document).not.toHaveProperty("imagePreview");
+	});
+
 	it("finds an Image item in the Knowledge Base by its title, and not by its JSON", async () => {
 		const { listLogicalDocumentsPage } = await import("./documents");
 

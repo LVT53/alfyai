@@ -360,3 +360,28 @@ export function serializeImageVersionBody(body: ImageVersionBody): string {
 		chainSinceAnchor: body.chainSinceAnchor,
 	});
 }
+
+/**
+ * What a card or a list row shows of a picture item: the newest version's file
+ * and its shape, read off the stored body (never the JSON, the prompt or the
+ * marks). The chat's card summary and the Knowledge Base's rows both read it
+ * here, so the two never disagree about which picture an item is.
+ */
+export type ImagePreview = {
+	fileId: string;
+	width: number;
+	height: number;
+	hasAlpha: boolean;
+};
+
+/** The preview a stored body gives, or `null` when it is not an image body. Never throws. */
+export function imagePreviewOf(stored: string | null): ImagePreview | null {
+	const body = parseImageVersionBody(stored);
+	if (!body) return null;
+	return {
+		fileId: body.fileId,
+		width: body.width,
+		height: body.height,
+		hasAlpha: body.hasAlpha,
+	};
+}

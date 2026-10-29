@@ -20,7 +20,7 @@ import {
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
-import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
+import { imagePreviewOf } from "$lib/shared/artifacts/image-body";
 import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import { computeCanvasPendingReviewCounts } from "./canvas-review";
 import {
@@ -100,16 +100,8 @@ function buildCanvasPreview(row: {
 function imagePreviewField(row: { contentText: string | null }): {
 	imagePreview?: ImageCardPreview;
 } {
-	const body = parseImageVersionBody(row.contentText);
-	if (!body) return {};
-	return {
-		imagePreview: {
-			fileId: body.fileId,
-			width: body.width,
-			height: body.height,
-			hasAlpha: body.hasAlpha,
-		},
-	};
+	const imagePreview = imagePreviewOf(row.contentText);
+	return imagePreview ? { imagePreview } : {};
 }
 
 /**

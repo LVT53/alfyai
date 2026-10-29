@@ -8,6 +8,7 @@
 
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
+import type { ImagePreview } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 export type { Anchor } from "$lib/shared/artifacts/anchor";
@@ -108,12 +109,7 @@ export interface AppVerificationSummary {
  * `kind: "image"` only: what a picture's card needs to draw itself, read off
  * the newest version's body (never the JSON, never the prompt).
  */
-export interface ImageCardPreview {
-	fileId: string;
-	width: number;
-	height: number;
-	hasAlpha: boolean;
-}
+export type ImageCardPreview = ImagePreview;
 
 export interface ArtifactCardSummary {
 	id: string;
