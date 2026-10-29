@@ -17,7 +17,10 @@
 // The overlay is portaled to <body> (use:portal) so its position: fixed
 // fills the real viewport rather than being trapped by a transformed chat
 // message ancestor. It opens on the family's emphasis curve and closes on
-// ease-in (opacity and transform only); reduced motion makes both instant.
+// ease-in (opacity and transform only); reduced motion makes both instant. The
+// transitions are `|global`: a host that mounts the viewer together with its
+// first picture (the first open, once the lazy chunk is here) still sees it
+// open, and one that unmounts it still sees it close.
 //
 // It is a modal dialog, so it behaves as one: it takes focus when it opens,
 // keeps Tab and Shift+Tab inside, hands focus back to what had it when it
@@ -201,8 +204,8 @@ $effect(() => {
 		aria-modal="true"
 		aria-label={$t('imageLightbox.label')}
 		tabindex="-1"
-		in:backdropFade={{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASE.emphasis }}
-		out:backdropFade={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.in }}
+		in:backdropFade|global={{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASE.emphasis }}
+		out:backdropFade|global={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.in }}
 		onclick={handleBackdropClick}
 	>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -216,8 +219,8 @@ $effect(() => {
 			<figure
 				class="image-lightbox-figure"
 				data-lightbox-figure
-				in:figureScale={{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASE.emphasis, start: 0.96 }}
-				out:figureScale={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.in, start: 0.96 }}
+				in:figureScale|global={{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASE.emphasis, start: 0.96 }}
+				out:figureScale|global={{ duration: MOTION_DURATION.standard, easing: MOTION_EASE.in, start: 0.96 }}
 			>
 				<img
 					class="image-lightbox-image"

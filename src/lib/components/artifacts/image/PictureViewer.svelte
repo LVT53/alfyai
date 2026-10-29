@@ -42,21 +42,27 @@ $effect(() => {
 	);
 });
 
-let images = $derived(
-	picture
+/**
+ * The viewer stays mounted once loaded and is opened and shut by its index, so it
+ * keeps the picture it showed while it closes (its own outro, then nothing).
+ */
+let kept: NonNullable<typeof picture> | null = null;
+let images = $derived.by(() => {
+	if (picture) kept = picture;
+	return kept
 		? [
 				{
-					src: imageFileUrl(picture.fileId, { conversationId }),
+					src: imageFileUrl(kept.fileId, { conversationId }),
 					alt: title,
-					width: picture.width,
-					height: picture.height,
-					checkerboard: picture.hasAlpha,
+					width: kept.width,
+					height: kept.height,
+					checkerboard: kept.hasAlpha,
 				},
 			]
-		: [],
-);
+		: [];
+});
 </script>
 
-{#if Viewer && picture}
-	<Viewer {images} index={0} {onClose} onNavigate={() => {}} />
+{#if Viewer}
+	<Viewer {images} index={picture ? 0 : null} {onClose} onNavigate={() => {}} />
 {/if}

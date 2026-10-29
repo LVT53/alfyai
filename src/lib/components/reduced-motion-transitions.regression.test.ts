@@ -204,9 +204,9 @@ describe("Svelte transition directives are routed through reducedMotionAware", (
 		// At least one directive actually references each wrapped name —
 		// guards against an unused wrapper that never made it into markup.
 		for (const name of wrappedNames) {
-			const usedAsDirective = new RegExp(`(transition|in|out):${name}=`).test(
-				source,
-			);
+			const usedAsDirective = new RegExp(
+				`(transition|in|out):${name}(\\|(global|local))?=`,
+			).test(source);
 			expect(usedAsDirective).toBe(true);
 		}
 	});

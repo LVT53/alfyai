@@ -815,7 +815,7 @@ $effect(() => {
     {/if}
   {/each}
 </div>
-{#if lightboxIndex !== null && ImageLightbox}
+{#if ImageLightbox}
   <ImageLightbox
     images={lightboxImages}
     index={lightboxIndex}

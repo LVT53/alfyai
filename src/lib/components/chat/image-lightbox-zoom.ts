@@ -342,8 +342,13 @@ export function createLightboxZoom(
 		drag.moved += Math.abs(dx) + Math.abs(dy);
 		if (drag.moved > 4) gestured = true;
 		if (view.scale <= 1) return;
-		if (gestured && !stage?.hasPointerCapture(event.pointerId)) {
-			stage?.setPointerCapture?.(event.pointerId);
+		if (gestured && stage && !stage.hasPointerCapture(event.pointerId)) {
+			try {
+				// The drag keeps the picture even when the hand leaves the stage.
+				stage.setPointerCapture(event.pointerId);
+			} catch {
+				// A pointer the browser no longer knows (lifted mid-move): the drag goes on uncaptured.
+			}
 		}
 		apply((current, frame) => panBy(current, dx, dy, frame), false);
 	}

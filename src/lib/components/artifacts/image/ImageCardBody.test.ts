@@ -7,7 +7,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import ImageCardBody from "./ImageCardBody.svelte";
 import { card, take } from "./image-card-fixtures.test-helpers";
@@ -781,14 +781,36 @@ describe("ImageCardBody", () => {
 	});
 });
 
+/**
+ * The viewer leaves on its outro; jsdom's stand-in `animate` never finishes one,
+ * so the tests that watch it go ask for reduced motion, where it is gone at once.
+ */
+function preferReducedMotion(): void {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: query.includes("reduce"),
+		media: query,
+		onchange: null,
+		addListener: () => {},
+		removeListener: () => {},
+		addEventListener: () => {},
+		removeEventListener: () => {},
+		dispatchEvent: () => false,
+	}));
+}
+
 // Task 22: the card's picture still opens the panel; a button of its own on the
 // picture enlarges it to the full-screen viewer, on the full-size file.
 describe("enlarging the card's picture", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	beforeEach(() => {
 		uiLanguage.set("en");
 	});
 
 	it("keeps the picture's press for the panel and enlarges from its own button", async () => {
+		preferReducedMotion();
 		const onAction = vi.fn();
 		render(ImageCardBody, {
 			card: card([

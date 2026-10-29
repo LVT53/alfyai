@@ -7,7 +7,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
 import {
 	at,
@@ -498,10 +498,31 @@ describe("ImageBody", () => {
 	});
 });
 
+/**
+ * The viewer leaves on its outro; jsdom's stand-in `animate` never finishes one,
+ * so the tests that watch it go ask for reduced motion, where it is gone at once.
+ */
+function preferReducedMotion(): void {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: query.includes("reduce"),
+		media: query,
+		onchange: null,
+		addListener: () => {},
+		removeListener: () => {},
+		addEventListener: () => {},
+		removeEventListener: () => {},
+		dispatchEvent: () => false,
+	}));
+}
+
 // Task 22 ("it should be possible to actually enlarge the picture"): the panel's
 // picture opens the full-screen viewer, from a button on the picture and from a
 // mouse click on it, with the full-size file and nothing drawn on it.
 describe("enlarging the panel's picture", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	beforeEach(() => {
 		uiLanguage.set("en");
 		api.fetchArtifact.mockReset();
@@ -520,6 +541,7 @@ describe("enlarging the panel's picture", () => {
 	});
 
 	it("opens the viewer on the full-size file, on the checkerboard when it is see-through", async () => {
+		preferReducedMotion();
 		api.fetchArtifact.mockResolvedValue(detail(body({ hasAlpha: true }), 2));
 		renderBody();
 		await fireEvent.click(await screen.findByTestId("image-body-enlarge"));
