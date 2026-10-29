@@ -16,9 +16,11 @@ import {
 	compareDocuments,
 	DOCUMENT_COLUMN_ORDER,
 	DOCUMENT_TYPE_FILTER_ORDER,
+	DOCUMENTS_VIEW_STORAGE_KEY,
 	deriveArtifactMoment,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
+	documentThumbnail,
 	documentTypeFilterFor,
 	documentVersionRank,
 	extractionDetailKey,
@@ -30,7 +32,9 @@ import {
 	isExtractionInProgress,
 	isImageWithNoText,
 	nextSortDirection,
+	readDocumentsView,
 	sortDocuments,
+	writeDocumentsView,
 } from "./documents-table";
 
 function job(
@@ -859,5 +863,64 @@ describe("deriveArtifactMoment", () => {
 			documentFamilyId: "family-x",
 		});
 		expect(deriveArtifactMoment(row)?.version).toBe(7);
+	});
+});
+
+// Plan 2b Task 22: the library's picture rows and its list/grid choice.
+describe("the library's pictures and its view", () => {
+	const image = {
+		id: "img-1",
+		type: "artifact",
+		displayArtifactId: "img-1",
+		promptArtifactId: null,
+		familyArtifactIds: ["img-1"],
+		name: "Harbour",
+		mimeType: null,
+		sizeBytes: null,
+		conversationId: "conv-1",
+		summary: null,
+		normalizedAvailable: false,
+		kind: "image",
+		imagePreview: { fileId: "file-1", width: 10, height: 10, hasAlpha: true },
+		createdAt: 1,
+		updatedAt: 1,
+	} as KnowledgeDocumentItem;
+
+	it("gives an Image row its picture's thumbnail, in its chat's scope, and nothing to any other row", () => {
+		expect(documentThumbnail(image)).toEqual({
+			fileId: "file-1",
+			hasAlpha: true,
+			conversationId: "conv-1",
+		});
+		expect(documentThumbnail({ ...image, kind: "document" })).toBeNull();
+		expect(documentThumbnail({ ...image, imagePreview: undefined })).toBeNull();
+	});
+
+	it("reads and writes the view through the storage it is given, falling back to the list", () => {
+		const store = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => void store.set(key, value),
+		};
+		expect(readDocumentsView(storage)).toBe("list");
+		writeDocumentsView("grid", storage);
+		expect(store.get(DOCUMENTS_VIEW_STORAGE_KEY)).toBe("grid");
+		expect(readDocumentsView(storage)).toBe("grid");
+		store.set(DOCUMENTS_VIEW_STORAGE_KEY, "carousel");
+		expect(readDocumentsView(storage)).toBe("list");
+	});
+
+	it("never throws when storage is blocked or missing", () => {
+		const blocked = {
+			getItem: () => {
+				throw new Error("blocked");
+			},
+			setItem: () => {
+				throw new Error("blocked");
+			},
+		};
+		expect(readDocumentsView(blocked)).toBe("list");
+		expect(() => writeDocumentsView("grid", blocked)).not.toThrow();
+		expect(readDocumentsView(null)).toBe("list");
 	});
 });

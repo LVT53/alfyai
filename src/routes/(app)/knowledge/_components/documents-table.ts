@@ -475,3 +475,64 @@ export function nextSortDirection(
 	}
 	return nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
 }
+
+// ── Pictures, and the list/grid choice (plan 2b Task 22) ──────────────────
+
+/**
+ * The thumbnail a row or a gallery tile shows: an Image item's newest picture
+ * (`imagePreview`, from the library page's load), read in the chat it was made
+ * in. `null` for every other row, which keeps its icon.
+ */
+export function documentThumbnail(document: KnowledgeDocumentItem): {
+	fileId: string;
+	hasAlpha: boolean;
+	conversationId: string | null;
+} | null {
+	if (document.kind !== "image" || !document.imagePreview) return null;
+	return {
+		fileId: document.imagePreview.fileId,
+		hasAlpha: document.imagePreview.hasAlpha,
+		conversationId: document.conversationId,
+	};
+}
+
+/** The Documents tab's two views: the table, or a gallery of tiles. */
+export type DocumentsView = "list" | "grid";
+
+/** Per viewer, in this browser (the sidebar keeps its own choices the same way). */
+export const DOCUMENTS_VIEW_STORAGE_KEY = "knowledgeDocumentsView";
+
+type ViewStorage = Pick<Storage, "getItem" | "setItem">;
+
+function defaultStorage(): ViewStorage | null {
+	try {
+		return typeof localStorage === "undefined" ? null : localStorage;
+	} catch {
+		return null;
+	}
+}
+
+/** The reader's last view, or the list. A blocked or missing storage is the list, never an error. */
+export function readDocumentsView(
+	storage: ViewStorage | null = defaultStorage(),
+): DocumentsView {
+	try {
+		return storage?.getItem(DOCUMENTS_VIEW_STORAGE_KEY) === "grid"
+			? "grid"
+			: "list";
+	} catch {
+		return "list";
+	}
+}
+
+/** Keeps the choice; a storage that refuses it (a private window) is left alone. */
+export function writeDocumentsView(
+	view: DocumentsView,
+	storage: ViewStorage | null = defaultStorage(),
+): void {
+	try {
+		storage?.setItem(DOCUMENTS_VIEW_STORAGE_KEY, view);
+	} catch {
+		// The view still changes; it is only not remembered.
+	}
+}
