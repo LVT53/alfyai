@@ -3156,7 +3156,9 @@ describe("pictures in the library", () => {
 	});
 
 	it("offers List and Grid, List first, and says which is on", () => {
-		render(DocumentsList, { props: { documents: [picture()] } });
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
 
 		const list = screen.getByRole("button", { name: "List view" });
 		const grid = screen.getByRole("button", { name: "Grid view" });
@@ -3169,7 +3171,11 @@ describe("pictures in the library", () => {
 		const onSelect = vi.fn();
 		const image = picture();
 		render(DocumentsList, {
-			props: { documents: [image, mockUploadedDocument], onSelect },
+			props: {
+				documents: [image, mockUploadedDocument],
+				onSelect,
+				typeFilter: "image",
+			},
 		});
 
 		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
@@ -3203,12 +3209,14 @@ describe("pictures in the library", () => {
 
 	it("remembers the reader's choice for the next visit", async () => {
 		const { unmount } = render(DocumentsList, {
-			props: { documents: [picture()] },
+			props: { documents: [picture()], typeFilter: "image" },
 		});
 		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
 		unmount();
 
-		render(DocumentsList, { props: { documents: [picture()] } });
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
 		expect(screen.getByTestId("documents-grid")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute(
 			"aria-pressed",
@@ -3228,7 +3236,9 @@ describe("pictures in the library", () => {
 				throw new Error("blocked");
 			});
 		try {
-			render(DocumentsList, { props: { documents: [picture()] } });
+			render(DocumentsList, {
+				props: { documents: [picture()], typeFilter: "image" },
+			});
 			expect(document.querySelector(".documents-table")).not.toBeNull();
 			await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
 			expect(screen.getByTestId("documents-grid")).toBeInTheDocument();
@@ -3240,12 +3250,50 @@ describe("pictures in the library", () => {
 
 	it("names the views in Hungarian", () => {
 		uiLanguage.set("hu");
-		render(DocumentsList, { props: { documents: [picture()] } });
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
 		expect(
 			screen.getByRole("button", { name: "Listanézet" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Rácsnézet" }),
 		).toBeInTheDocument();
+	});
+
+	// Fix round 1, controller ruling: the gallery is the Images filter's.
+	it("offers no grid on another filter, and draws the list there though the grid was chosen", () => {
+		localStorage.setItem("knowledgeDocumentsView", "grid");
+		render(DocumentsList, {
+			props: {
+				documents: [picture(), mockUploadedDocument],
+				typeFilter: "all",
+			},
+		});
+		expect(
+			screen.queryByRole("button", { name: "Grid view" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByTestId("documents-grid")).not.toBeInTheDocument();
+		expect(document.querySelector(".documents-table")).not.toBeNull();
+	});
+
+	it("lets a selection go when the grid is chosen, so no Delete bar is left under it", async () => {
+		render(DocumentsList, {
+			props: {
+				documents: [picture()],
+				typeFilter: "image",
+				onBulkDelete: vi.fn(),
+			},
+		});
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: /Harbour at dusk/ }),
+		);
+		expect(document.querySelector(".bulk-action-bar")).not.toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+		expect(document.querySelector(".bulk-action-bar")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "List view" }));
+		expect(
+			screen.getByRole("checkbox", { name: /Harbour at dusk/ }),
+		).not.toBeChecked();
 	});
 });

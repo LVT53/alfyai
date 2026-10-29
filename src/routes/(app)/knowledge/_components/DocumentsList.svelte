@@ -96,19 +96,6 @@ import {
 	writeDocumentsView,
 } from "./documents-table";
 
-// The table or a gallery of tiles (plan 2b Task 22: "an alternative view that
-// shows the images as a gallery grid"). Offered on every chip: one remembered
-// choice that means the same thing whatever is filtered, and with Images chosen
-// the grid is a pure picture gallery; a tile with no picture shows its type's
-// icon. Read at once in the browser so a reader who chose the grid gets it on
-// the first client frame (the server draws the list: an `{#if}` that differs at
-// hydration is redrawn by Svelte, never warned about).
-let documentsView = $state<DocumentsView>(readDocumentsView());
-
-function chooseView(view: DocumentsView): void {
-	documentsView = view;
-	writeDocumentsView(view);
-}
 
 // The newest version of an artifact-family row says what happened last (ruling 76,
 // A1), and a save or an Alfy edit made in the panel opened from this table reaches
@@ -269,6 +256,30 @@ let {
 	onFileFamilyFilterChange,
 	countsByFileFamily,
 }: DocumentsListProps = $props();
+
+// The table or a gallery of tiles (plan 2b Task 22: "an alternative view that
+// shows the images as a gallery grid"). Offered on the Images chip only
+// (controller ruling, fix round 1): elsewhere a tile is a big icon and the table
+// holds what a tile cannot (status, retry, download, delete, selection), so the
+// other chips always draw the list. The choice is remembered and comes back on
+// Images. Read at once in the browser so a reader who chose the grid gets it on
+// the first client frame (the server draws the list: an `{#if}` that differs at
+// hydration is redrawn by Svelte, never warned about).
+let documentsView = $state<DocumentsView>(readDocumentsView());
+const gridOffered = $derived(typeFilter === "image");
+const shownView = $derived<DocumentsView>(gridOffered ? documentsView : "list");
+
+function chooseView(view: DocumentsView): void {
+	documentsView = view;
+	writeDocumentsView(view);
+}
+
+// The grid shows no selection, so none may stand under it: a Delete bar for rows
+// the reader cannot see. Entering the grid, by the toggle or by the Images chip
+// with the grid remembered, lets the selection go.
+$effect(() => {
+	if (shownView === "grid" && selectedIds.size > 0) selectedIds = new Set();
+});
 
 /**
  * The projects that know one document. Names rather than a count, because the
@@ -1847,7 +1858,9 @@ async function handleBulkDelete(): Promise<boolean> {
 					{/if}
 				</button>
 				<!-- List or grid (Task 22): two pressed-state buttons, one group. -->
-				<ListGridToggle view={documentsView} onChange={chooseView} testIdPrefix="documents-view" />
+				{#if gridOffered}
+					<ListGridToggle view={documentsView} onChange={chooseView} testIdPrefix="documents-view" />
+				{/if}
 			</div>
 
 			<!-- Last in the row, beside Sort: the toolbar reads search · sort ·
@@ -1891,8 +1904,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				{$t('knowledge.noDocumentsAvailable')}
 				</p>
 			</div>
-		{:else}
-			{#if documentsView === 'grid'}
+		{:else if shownView === 'grid'}
 			<div class="documents-grid-wrap">
 				<ItemGrid
 					tiles={gridTiles}
@@ -2222,8 +2234,9 @@ async function handleBulkDelete(): Promise<boolean> {
 					</tbody>
 				</table>
 			</div>
-			{/if}
+		{/if}
 
+		{#if displayDocuments.length > 0}
 			<!-- Bulk action bar -->
 			{#if hasSelection}
 				<div class="bulk-action-bar" role="toolbar" aria-label={$t('knowledge.bulkActionsLabel')}>
