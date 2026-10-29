@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
@@ -772,5 +778,63 @@ describe("ImageCardBody", () => {
 		expect(screen.getByTestId("image-card-status")).toHaveTextContent(
 			"Készül a kép…",
 		);
+	});
+});
+
+// Task 22: the card's picture still opens the panel; a button of its own on the
+// picture enlarges it to the full-screen viewer, on the full-size file.
+describe("enlarging the card's picture", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("keeps the picture's press for the panel and enlarges from its own button", async () => {
+		const onAction = vi.fn();
+		render(ImageCardBody, {
+			card: card([
+				take({ fileId: "file-a", box: { width: 1248, height: 832 } }),
+			]),
+			conversationId: "conv-1",
+			onAction,
+		});
+
+		await fireEvent.click(screen.getByTestId("image-card-picture"));
+		expect(onAction).toHaveBeenCalledWith(
+			expect.objectContaining({ type: "open" }),
+		);
+		onAction.mockClear();
+
+		const enlarge = screen.getByTestId("image-card-enlarge");
+		expect(enlarge).toHaveAccessibleName("Enlarge picture");
+		await fireEvent.click(enlarge);
+		expect(onAction).not.toHaveBeenCalled();
+
+		const viewer = await screen.findByTestId("image-lightbox");
+		const shown = within(viewer).getByTestId("image-lightbox-image");
+		expect(shown).toHaveAttribute(
+			"src",
+			"/api/images/files/file-a?conversationId=conv-1",
+		);
+		expect(shown).toHaveAttribute("alt", "Cosy room");
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await waitFor(() =>
+			expect(screen.queryByTestId("image-lightbox")).not.toBeInTheDocument(),
+		);
+	});
+
+	it("offers no Enlarge while there is no picture to enlarge", () => {
+		render(ImageCardBody, {
+			card: card([
+				take({
+					status: "running",
+					phase: "rendering",
+					fileId: null,
+					width: null,
+					height: null,
+				}),
+			]),
+		});
+		expect(screen.queryByTestId("image-card-enlarge")).not.toBeInTheDocument();
 	});
 });

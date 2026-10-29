@@ -498,6 +498,61 @@ describe("ImageBody", () => {
 	});
 });
 
+// Task 22 ("it should be possible to actually enlarge the picture"): the panel's
+// picture opens the full-screen viewer, from a button on the picture and from a
+// mouse click on it, with the full-size file and nothing drawn on it.
+describe("enlarging the panel's picture", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+		api.fetchArtifact.mockReset();
+		api.fetchArtifactHistory.mockReset();
+		api.fetchArtifactHistory.mockResolvedValue(history(2));
+	});
+
+	it("offers Enlarge on the picture, named in English and Hungarian", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		renderBody();
+		const button = await screen.findByTestId("image-body-enlarge");
+		expect(button).toHaveAccessibleName("Enlarge picture");
+		uiLanguage.set("hu");
+		await tick();
+		expect(button).toHaveAccessibleName("Kép nagyítása");
+	});
+
+	it("opens the viewer on the full-size file, on the checkerboard when it is see-through", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body({ hasAlpha: true }), 2));
+		renderBody();
+		await fireEvent.click(await screen.findByTestId("image-body-enlarge"));
+
+		const viewer = await screen.findByTestId("image-lightbox");
+		const shown = within(viewer).getByTestId("image-lightbox-image");
+		expect(shown).toHaveAttribute(
+			"src",
+			"/api/images/files/file-2?conversationId=conv-1",
+		);
+		expect(shown).toHaveAttribute("alt", "Cosy room");
+		expect(shown).toHaveAttribute("width", "1248");
+		expect(shown).toHaveClass("image-checkerboard");
+		// Looking only: no marks layer in the viewer.
+		expect(viewer.querySelector('[data-testid="mark-layer"]')).toBeNull();
+
+		await fireEvent.click(
+			within(viewer).getByRole("button", { name: "Close" }),
+		);
+		await waitFor(() =>
+			expect(screen.queryByTestId("image-lightbox")).not.toBeInTheDocument(),
+		);
+	});
+
+	it("opens the viewer on a mouse click on the picture while Mark is off", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		renderBody({ onMarksChange: vi.fn() });
+		const picture = await screen.findByTestId("image-body-picture");
+		await fireEvent.click(picture);
+		expect(await screen.findByTestId("image-lightbox")).toBeInTheDocument();
+	});
+});
+
 // Task 12 (crowding with the sidebar open): expanded, the picture filled the stage
 // to within 12 px of the header and the tools row; the body's room is the family's
 // space tokens, not literal rems.

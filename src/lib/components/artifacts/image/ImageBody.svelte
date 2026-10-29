@@ -21,6 +21,11 @@
 // holds them (`marks`, `onMarksChange`) and sends them with the next message as
 // one chip; a newer picture under them lets them go. Mark is off while Before
 // shows: the marks belong to the picture, not to the one it was made from.
+//
+// Enlarge (Task 22): a button on the picture's corner, or a mouse click on the
+// picture while Mark is off, opens the full-screen viewer (`PictureViewer`) on
+// the picture shown (After, or Before while it shows), full size, for looking.
+import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import SquareDashed from "@lucide/svelte/icons/square-dashed";
 import { untrack } from "svelte";
 import { fetchArtifact, fetchArtifactHistory } from "$lib/client/api/artifacts";
@@ -42,6 +47,7 @@ import type { ArtifactBodyProps } from "../artifact-bodies";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
 import MarkLayer from "./MarkLayer.svelte";
+import PictureViewer from "./PictureViewer.svelte";
 import { pinchZoom } from "./pinch-zoom";
 import VersionStrip from "./VersionStrip.svelte";
 
@@ -207,6 +213,33 @@ $effect(() => {
 	untrack(() => onMarksChange?.(null));
 });
 
+let enlarged = $state(false);
+/** What the viewer shows: the picture on screen, After or (while it shows) Before. */
+let enlargedPicture = $derived(
+	enlarged && picture
+		? {
+				fileId:
+					showing === "before" && picture.baseFileId
+						? picture.baseFileId
+						: picture.fileId,
+				width: picture.width,
+				height: picture.height,
+				hasAlpha: picture.hasAlpha,
+			}
+		: null,
+);
+
+/** A mouse click on the picture enlarges it; a finger's tap is the pinch's and the Mark tool's. */
+function clickPicture(event: MouseEvent): void {
+	if (marking) return;
+	const pointerType =
+		typeof PointerEvent !== "undefined" && event instanceof PointerEvent
+			? event.pointerType
+			: "mouse";
+	if (pointerType === "touch" || pointerType === "pen") return;
+	enlarged = true;
+}
+
 let markNote = $derived(
 	refused
 		? $t("artifacts.image.panel.tooManyMarks")
@@ -219,8 +252,11 @@ let markNote = $derived(
 <div class="image-body" data-testid="image-body">
 	<div class="image-body-stage" use:pinchZoom={{ enabled: isPhone, resetKey: picture?.fileId ?? null, doubleTapReset: !marking }} data-testid="image-body-stage">
 		{#if picture}
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the keyboard's way is the Enlarge button) -->
 			<div
 				class="image-body-frame"
+				class:can-enlarge={!marking}
+				onclick={clickPicture}
 				data-pinch-target
 				style:--ratio={picture.width / picture.height}
 				style:--natural-width="{picture.width}px"
@@ -250,6 +286,20 @@ let markNote = $derived(
 					</div>
 				{/if}
 			</div>
+			<!-- On the picture's top-right corner, outside the zoomed box so it never
+			     scales: placed with the frame's own container-unit size. -->
+			<button
+				type="button"
+				class="image-body-enlarge"
+				style:--ratio={picture.width / picture.height}
+				style:--natural-width="{picture.width}px"
+				aria-label={$t('artifacts.image.enlarge')}
+				title={$t('artifacts.image.enlarge')}
+				data-testid="image-body-enlarge"
+				onclick={() => (enlarged = true)}
+			>
+				<Maximize2 size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
 		{#if canMark}
 			<!-- Over the stage, outside the zoomed picture, so it never scales. -->
 			<p class="image-body-mark-note" class:is-shown={markNote !== ''} role="status" data-testid="image-body-mark-note">
@@ -299,6 +349,13 @@ let markNote = $derived(
 	</div>
 </div>
 
+<PictureViewer
+	picture={enlargedPicture}
+	{title}
+	{conversationId}
+	onClose={() => (enlarged = false)}
+/>
+
 <style>
 	.image-body {
 		display: flex;
@@ -335,6 +392,38 @@ let markNote = $derived(
 		overflow: hidden;
 		transform-origin: center;
 		will-change: transform;
+	}
+
+	.image-body-frame.can-enlarge {
+		cursor: zoom-in;
+	}
+
+	/* Enlarge sits on the picture's top-right corner: the frame's own size, worked
+	   out in the same container units, places it, so it follows the picture in
+	   every shape and never scales with a pinch. */
+	.image-body-enlarge {
+		--frame-width: min(100cqw, calc(100cqh * var(--ratio)), var(--natural-width));
+		position: absolute;
+		top: calc((100cqh - var(--frame-width) / var(--ratio)) / 2 + var(--space-sm));
+		right: calc((100cqw - var(--frame-width)) / 2 + var(--space-sm));
+		z-index: 1;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		padding: 0;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		cursor: pointer;
+	}
+
+	.image-body-enlarge:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.image-body-picture,
@@ -418,6 +507,11 @@ let markNote = $derived(
 	/* A phone's row holds the strip, Before / After and Mark at 360 px: Mark is
 	   its icon there (named for a screen reader), a 44 px target. */
 	@media (hover: none) and (pointer: coarse) {
+		.image-body-enlarge {
+			width: 44px;
+			height: 44px;
+		}
+
 		.image-body-mark {
 			min-width: 44px;
 			min-height: 44px;

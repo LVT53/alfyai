@@ -14,6 +14,10 @@
 // (Task 11, the owner's call). Before / After floats over the picture, so it
 // takes no row.
 // Everything the card shows is worked out in `image-card-view.ts`.
+//
+// The picture opens the item in the panel; an Enlarge button on its corner
+// opens the full-screen viewer (`PictureViewer`, Task 22) on the shown take's
+// full-size file.
 import {
 	Check,
 	Ellipsis,
@@ -22,6 +26,7 @@ import {
 	Download,
 	ImageOff,
 	LoaderCircle,
+	Maximize2,
 	Paperclip,
 	RefreshCw,
 	TriangleAlert,
@@ -51,6 +56,7 @@ import {
 } from "./image-card-view";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
+import PictureViewer from "./PictureViewer.svelte";
 import "./picture-tile.css";
 
 let {
@@ -236,6 +242,26 @@ function pressRetry(): void {
 	if (shown) fire({ type: "retry", takeId: shown.id });
 }
 
+/** The take the viewer shows, held while it is open (a poll never swaps it under the reader). */
+let enlarged = $state.raw<{
+	fileId: string;
+	width: number;
+	height: number;
+	hasAlpha: boolean;
+} | null>(null);
+
+function pressEnlarge(): void {
+	if (!shown?.fileId) return;
+	const fileId =
+		showing === "before" && shown.baseFileId ? shown.baseFileId : shown.fileId;
+	enlarged = {
+		fileId,
+		width: shown.width ?? box.width,
+		height: shown.height ?? box.height,
+		hasAlpha: shown.hasAlpha,
+	};
+}
+
 function pressOpen(): void {
 	if (card.artifactId) fire({ type: "open", artifactId: card.artifactId });
 }
@@ -391,6 +417,16 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 						{$t('artifacts.image.card.checkingAgain')}
 					</span>
 				{/if}
+				<button
+					type="button"
+					class="image-card-enlarge"
+					aria-label={$t('artifacts.image.enlarge')}
+					title={$t('artifacts.image.enlarge')}
+					data-testid="image-card-enlarge"
+					onclick={pressEnlarge}
+				>
+					<Maximize2 size={15} strokeWidth={2} aria-hidden="true" />
+				</button>
 				{#if canFlip}
 					<div class="image-card-flip">
 						<BeforeAfterSwitch
@@ -624,6 +660,13 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 	</AnchoredPopover>
 {/if}
 
+<PictureViewer
+	picture={enlarged}
+	title={card.title}
+	{conversationId}
+	onClose={() => (enlarged = null)}
+/>
+
 <style>
 	.image-card-body {
 		display: flex;
@@ -673,6 +716,38 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		box-shadow: 0 0 0 2px var(--focus-ring) inset;
 	}
 
+	/* Enlarge: a quiet round button on the picture's bottom-right corner. Hover
+	   feedback is instant (only transform and opacity animate in the card). */
+	.image-card-enlarge {
+		position: absolute;
+		right: 0.5rem;
+		bottom: 0.5rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		padding: 0;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		cursor: pointer;
+	}
+
+	.image-card-enlarge:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		.image-card-enlarge {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
 	/* Before / After floats over the picture's corner (BeforeAfterSwitch). */
 	.image-card-flip {
 		position: absolute;
@@ -688,7 +763,8 @@ let menuAnchorId = $derived(`image-card-more-${card.id}`);
 		display: inline-flex;
 		align-items: center;
 		gap: 0.375rem;
-		max-width: calc(100% - 1rem);
+		/* Clear of Enlarge in the opposite corner. */
+		max-width: calc(100% - 3.5rem);
 		padding: 0.25rem 0.625rem;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-full);
