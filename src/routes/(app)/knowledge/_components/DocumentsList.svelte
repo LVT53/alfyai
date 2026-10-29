@@ -96,7 +96,6 @@ import {
 	writeDocumentsView,
 } from "./documents-table";
 
-
 // The newest version of an artifact-family row says what happened last (ruling 76,
 // A1), and a save or an Alfy edit made in the panel opened from this table reaches
 // the row at once: the client API announces every version it hears of.

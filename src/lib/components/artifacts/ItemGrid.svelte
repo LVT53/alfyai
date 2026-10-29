@@ -182,7 +182,7 @@ let {
 	.item-grid-title {
 		display: -webkit-box;
 		overflow: hidden;
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		line-height: 1.3;
 		overflow-wrap: anywhere;
@@ -193,6 +193,6 @@ let {
 
 	.item-grid-meta {
 		color: var(--text-muted);
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 	}
 </style>
