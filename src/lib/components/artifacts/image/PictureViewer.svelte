@@ -20,8 +20,9 @@ let {
 	/** The picture to show, or null while the viewer is shut. */
 	picture: {
 		fileId: string;
-		width: number;
-		height: number;
+		/** Its shape when known (the box is reserved from it); a Before of another shape leaves it out. */
+		width?: number;
+		height?: number;
 		hasAlpha: boolean;
 	} | null;
 	title: string;

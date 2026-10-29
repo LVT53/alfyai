@@ -570,8 +570,50 @@ describe("enlarging the panel's picture", () => {
 		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
 		renderBody({ onMarksChange: vi.fn() });
 		const picture = await screen.findByTestId("image-body-picture");
-		await fireEvent.click(picture);
+		await fireEvent.pointerDown(picture, {
+			pointerType: "mouse",
+			clientX: 10,
+			clientY: 10,
+		});
+		await fireEvent.click(picture, { clientX: 11, clientY: 10 });
 		expect(await screen.findByTestId("image-lightbox")).toBeInTheDocument();
+	});
+
+	// Fix round 1, I3: only a press known to be a mouse's enlarges. iOS Safari's
+	// tap is a plain click; a finger's tap stays the pinch's and Mark's.
+	it("does not enlarge on a click whose press was a finger, a pen, or not seen", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		renderBody({ onMarksChange: vi.fn() });
+		const picture = await screen.findByTestId("image-body-picture");
+		await fireEvent.click(picture);
+		await fireEvent.pointerDown(picture, {
+			pointerType: "touch",
+			clientX: 10,
+			clientY: 10,
+		});
+		await fireEvent.click(picture, { clientX: 10, clientY: 10 });
+		await fireEvent.pointerDown(picture, {
+			pointerType: "pen",
+			clientX: 10,
+			clientY: 10,
+		});
+		await fireEvent.click(picture, { clientX: 10, clientY: 10 });
+		await tick();
+		expect(screen.queryByTestId("image-lightbox")).not.toBeInTheDocument();
+	});
+
+	it("does not enlarge at the end of a mouse drag", async () => {
+		api.fetchArtifact.mockResolvedValue(detail(body(), 2));
+		renderBody({ onMarksChange: vi.fn() });
+		const picture = await screen.findByTestId("image-body-picture");
+		await fireEvent.pointerDown(picture, {
+			pointerType: "mouse",
+			clientX: 10,
+			clientY: 10,
+		});
+		await fireEvent.click(picture, { clientX: 60, clientY: 10 });
+		await tick();
+		expect(screen.queryByTestId("image-lightbox")).not.toBeInTheDocument();
 	});
 });
 

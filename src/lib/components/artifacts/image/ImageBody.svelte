@@ -215,28 +215,48 @@ $effect(() => {
 
 let enlarged = $state(false);
 /** What the viewer shows: the picture on screen, After or (while it shows) Before. */
-let enlargedPicture = $derived(
-	enlarged && picture
-		? {
-				fileId:
-					showing === "before" && picture.baseFileId
-						? picture.baseFileId
-						: picture.fileId,
-				width: picture.width,
-				height: picture.height,
-				hasAlpha: picture.hasAlpha,
-			}
-		: null,
-);
+let enlargedPicture = $derived.by(() => {
+	if (!enlarged || !picture) return null;
+	// Before is the base: its own file, whose shape the body does not know (it
+	// may be an upload of another size), so the viewer reads it from the file.
+	if (showing === "before" && picture.baseFileId) {
+		return { fileId: picture.baseFileId, hasAlpha: picture.hasAlpha };
+	}
+	return {
+		fileId: picture.fileId,
+		width: picture.width,
+		height: picture.height,
+		hasAlpha: picture.hasAlpha,
+	};
+});
 
-/** A mouse click on the picture enlarges it; a finger's tap is the pinch's and the Mark tool's. */
+/**
+ * The press the next click ends: its pointer and where it came down. Only a
+ * click whose press is known to be a mouse's, and did not move, enlarges: iOS
+ * Safari ends a finger's tap with a plain click (no pointer type on it), and a
+ * finger's tap is the pinch's and Mark's (review I3); a drag that ends on the
+ * picture opens nothing (review minor 6).
+ */
+let press: { pointerType: string; x: number; y: number } | null = null;
+const CLICK_SLOP_PX = 4;
+
+function pressPicture(event: PointerEvent): void {
+	press = {
+		pointerType: event.pointerType ?? "",
+		x: event.clientX,
+		y: event.clientY,
+	};
+}
+
 function clickPicture(event: MouseEvent): void {
-	if (marking) return;
-	const pointerType =
-		typeof PointerEvent !== "undefined" && event instanceof PointerEvent
-			? event.pointerType
-			: "mouse";
-	if (pointerType === "touch" || pointerType === "pen") return;
+	const pressed = press;
+	press = null;
+	if (marking || pressed?.pointerType !== "mouse") return;
+	const moved = Math.hypot(
+		event.clientX - pressed.x,
+		event.clientY - pressed.y,
+	);
+	if (moved > CLICK_SLOP_PX) return;
 	enlarged = true;
 }
 
@@ -256,6 +276,7 @@ let markNote = $derived(
 			<div
 				class="image-body-frame"
 				class:can-enlarge={!marking}
+				onpointerdown={pressPicture}
 				onclick={clickPicture}
 				data-pinch-target
 				style:--ratio={picture.width / picture.height}

@@ -245,17 +245,20 @@ function pressRetry(): void {
 /** The take the viewer shows, held while it is open (a poll never swaps it under the reader). */
 let enlarged = $state.raw<{
 	fileId: string;
-	width: number;
-	height: number;
+	width?: number;
+	height?: number;
 	hasAlpha: boolean;
 } | null>(null);
 
 function pressEnlarge(): void {
 	if (!shown?.fileId) return;
-	const fileId =
-		showing === "before" && shown.baseFileId ? shown.baseFileId : shown.fileId;
+	// Before is the base, whose shape the card does not know: the viewer reads it from the file.
+	if (showing === "before" && shown.baseFileId) {
+		enlarged = { fileId: shown.baseFileId, hasAlpha: shown.hasAlpha };
+		return;
+	}
 	enlarged = {
-		fileId,
+		fileId: shown.fileId,
 		width: shown.width ?? box.width,
 		height: shown.height ?? box.height,
 		hasAlpha: shown.hasAlpha,
