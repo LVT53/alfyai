@@ -7,6 +7,10 @@ export type ItemGridTile = {
 	title: string;
 	/** The second line: the kind or the file's type. */
 	meta: string;
+	/** When it last changed, already in words ("2 min ago"), after the type. */
+	time?: string | null;
+	/** A short sign over the square's corner: e.g. changes waiting for review. */
+	badge?: string | null;
 	/** The item's type icon, for a tile with no picture. */
 	icon: Component;
 	/** A picture item's thumbnail (`PictureThumb`), filling the tile's square. */
@@ -33,7 +37,7 @@ export type ItemGridTile = {
 // expanded panel, the phone sheet and the library alike: as many as fit, two at
 // the narrowest. Every square is there before any picture arrives (no layout
 // shift); hover changes colours at once and nothing else moves.
-import { LoaderCircle } from "@lucide/svelte";
+import { LoaderCircle, Sparkles } from "@lucide/svelte";
 import PictureThumb from "./image/PictureThumb.svelte";
 
 let {
@@ -68,6 +72,12 @@ let {
 					onfocus={() => onPreviewIntent?.(tile.id)}
 				>
 					<span class="item-grid-picture">
+						{#if tile.badge}
+							<span class="item-grid-badge" data-testid="item-grid-badge">
+								<Sparkles size={11} strokeWidth={2} aria-hidden="true" />
+								{tile.badge}
+							</span>
+						{/if}
 						{#if tile.thumbnail}
 							<PictureThumb {...tile.thumbnail} fill testId="item-grid-thumb" />
 						{:else if tile.busy}
@@ -77,7 +87,9 @@ let {
 						{/if}
 					</span>
 					<span class="item-grid-title">{tile.title}</span>
-					<span class="item-grid-meta">{tile.meta}</span>
+					<span class="item-grid-meta">
+						{tile.meta}{#if tile.time}<span aria-hidden="true"> · </span>{tile.time}{/if}
+					</span>
 				</button>
 			</li>
 		{/each}
@@ -152,6 +164,7 @@ let {
 
 	/* The reserved square: the picture fills it, an icon sits in its middle. */
 	.item-grid-picture {
+		position: relative;
 		display: grid;
 		place-items: center;
 		width: 100%;
@@ -161,6 +174,27 @@ let {
 		background: var(--surface-page);
 		box-shadow: 0 0 0 1px var(--border-subtle);
 		color: var(--icon-muted);
+	}
+
+	/* Over the square's corner, inside it: the tile's box never changes. */
+	.item-grid-badge {
+		position: absolute;
+		top: var(--space-xs);
+		left: var(--space-xs);
+		z-index: 1;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		max-width: calc(100% - 2 * var(--space-xs));
+		padding: 0.125rem 0.5rem;
+		border-radius: var(--radius-full);
+		background: var(--accent-tint);
+		color: var(--accent-text);
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.item-grid-picture :global(.item-grid-spinner) {

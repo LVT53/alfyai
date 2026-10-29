@@ -1520,6 +1520,9 @@ function choosePanelListView(view: ListView): void {
 	writeListView(ARTIFACT_PANEL_LIST_VIEW_KEY, view);
 }
 
+/** The items as the reader chose them: the gallery or the rows (snippets below). */
+let panelListItems = $derived(panelListView === "grid" ? gridItems : rowItems);
+
 /** The gallery's tiles: an item being made again first, as its row is, then the items. */
 let panelGridTiles = $derived.by((): ItemGridTile[] => {
 	if (!list) return [];
@@ -1533,10 +1536,16 @@ let panelGridTiles = $derived.by((): ItemGridTile[] => {
 	}));
 	const items = list.items.map((item) => {
 		const kind = item.kind ?? "file";
+		// What the row says about its item, compact: changes waiting for review and when.
+		const row = artifactCardViewFor(item);
 		return {
 			id: item.id,
 			title: getDocumentTitle(item),
 			meta: $t(`artifacts.type.${kind}`),
+			time: row.updatedAtLabel ?? null,
+			badge: row.pendingReviewCount
+				? $t("artifacts.panel.pendingReview", { count: row.pendingReviewCount })
+				: null,
 			icon: ARTIFACT_KIND_ICONS[kind],
 			thumbnail: rowThumbnailFor(item),
 			current: item.id === activeDocumentId,
@@ -2307,6 +2316,77 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 }
 </script>
 
+<!-- "What this chat made" (Task 22b): its List / Grid toggle, and its items as
+     rows or as the gallery. The script picks which (`panelListItems`), so the
+     template holds no branch for it. -->
+{#snippet listTools()}
+	<div class="artifact-panel-list-tools">
+		<ListGridToggle
+			view={panelListView}
+			onChange={choosePanelListView}
+			testIdPrefix="artifact-panel-view"
+		/>
+	</div>
+{/snippet}
+{#snippet gridItems()}
+	<ItemGrid
+		tiles={panelGridTiles}
+		testId="artifact-panel-grid"
+		onOpen={selectTileFromList}
+	/>
+{/snippet}
+{#snippet rowItems()}
+	<ul class="artifact-panel-list-rows">
+		{#each list?.pending ?? [] as making (making.id)}
+			<li data-testid="artifact-row-pending">
+				<ArtifactCard
+					view={{
+						id: making.id,
+						kind: making.kind,
+						title: making.title,
+						openTargetId: null,
+						rowFacts: $t('artifacts.deleted.regenerating'),
+						working: true,
+					}}
+					chrome="row"
+				/>
+			</li>
+		{/each}
+		{#each list?.items ?? [] as item (item.id)}
+			<li>
+				{#if canDeleteItem(item)}
+					<ArtifactCard
+						view={artifactCardViewFor(item)}
+						chrome="row"
+						onOpen={() => selectFromList(item)}
+					>
+						{#snippet rowMenu()}
+							{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
+							<button
+								type="button"
+								class="btn-icon-bare artifact-row-menu-button"
+								data-testid={`artifact-row-menu-${item.id}`}
+								aria-haspopup="menu"
+								aria-label={menuLabel}
+								title={menuLabel}
+								onclick={() => (rowMenuOpenId = item.id)}
+							>
+								<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
+							</button>
+						{/snippet}
+					</ArtifactCard>
+				{:else}
+					<ArtifactCard
+						view={artifactCardViewFor(item)}
+						chrome="row"
+						onOpen={() => selectFromList(item)}
+					/>
+				{/if}
+			</li>
+		{/each}
+	</ul>
+{/snippet}
+
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:document onpointerdown={handleDocumentPointerdown} />
 
@@ -2316,70 +2396,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{#if list.items.length === 0 && !list.pending?.length}
 				<p class="artifact-panel-empty">{$t('artifacts.panel.empty')}</p>
 			{:else}
-				<div class="artifact-panel-list-tools">
-					<ListGridToggle
-						view={panelListView}
-						onChange={choosePanelListView}
-						testIdPrefix="artifact-panel-view"
-					/>
-				</div>
-				{#if panelListView === 'grid'}
-					<ItemGrid
-						tiles={panelGridTiles}
-						testId="artifact-panel-grid"
-						onOpen={selectTileFromList}
-					/>
-				{:else}
-				<ul class="artifact-panel-list-rows">
-					{#each list.pending ?? [] as making (making.id)}
-						<li data-testid="artifact-row-pending">
-							<ArtifactCard
-								view={{
-									id: making.id,
-									kind: making.kind,
-									title: making.title,
-									openTargetId: null,
-									rowFacts: $t('artifacts.deleted.regenerating'),
-									working: true,
-								}}
-								chrome="row"
-							/>
-						</li>
-					{/each}
-					{#each list.items as item (item.id)}
-						<li>
-							{#if canDeleteItem(item)}
-								<ArtifactCard
-									view={artifactCardViewFor(item)}
-									chrome="row"
-									onOpen={() => selectFromList(item)}
-								>
-									{#snippet rowMenu()}
-										{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
-										<button
-											type="button"
-											class="btn-icon-bare artifact-row-menu-button"
-											data-testid={`artifact-row-menu-${item.id}`}
-											aria-haspopup="menu"
-											aria-label={menuLabel}
-											title={menuLabel}
-											onclick={() => (rowMenuOpenId = item.id)}
-										>
-											<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
-										</button>
-									{/snippet}
-								</ArtifactCard>
-							{:else}
-								<ArtifactCard
-									view={artifactCardViewFor(item)}
-									chrome="row"
-									onOpen={() => selectFromList(item)}
-								/>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-				{/if}
+				{@render listTools()}
+				{@render panelListItems()}
 			{/if}
 		</div>
 	{/snippet}

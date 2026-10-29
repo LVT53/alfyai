@@ -2006,6 +2006,36 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 				expect(onListOpenChange).toHaveBeenCalledWith(false);
 			});
 
+			// Round 2: a tile keeps what a row says about its item (review waiting, when).
+			it("keeps a Document's changes waiting for review and its time on its tile", async () => {
+				renderWorkspace({
+					documents: [],
+					activeDocumentId: null,
+					list: {
+						open: true,
+						title: "What this chat made",
+						items: [
+							makeWorkspaceDocument({
+								id: "doc-1",
+								title: "Trip plan",
+								kind: "document",
+								pendingReviewCount: 2,
+								updatedAt: Date.now() - 120_000,
+							}),
+						],
+					},
+				});
+				const list = await screen.findByTestId("artifact-panel-list");
+				await fireEvent.click(
+					within(list).getByRole("button", { name: "Grid view" }),
+				);
+				const tile = within(list).getByTestId("artifact-panel-grid-tile");
+				expect(within(tile).getByTestId("item-grid-badge")).toHaveTextContent(
+					/2/,
+				);
+				expect(tile).toHaveTextContent(/2 min/);
+			});
+
 			it("remembers the choice for this viewer under its own key, apart from the library's", async () => {
 				renderWorkspace({
 					documents: [],
