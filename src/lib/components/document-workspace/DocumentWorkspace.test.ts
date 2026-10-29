@@ -2033,7 +2033,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 				expect(within(tile).getByTestId("item-grid-badge")).toHaveTextContent(
 					/2/,
 				);
-				expect(tile).toHaveTextContent(/2 min/);
+				expect(tile).toHaveTextContent(/Document · 2 min/);
 			});
 
 			it("remembers the choice for this viewer under its own key, apart from the library's", async () => {

@@ -88,7 +88,7 @@ let {
 					</span>
 					<span class="item-grid-title">{tile.title}</span>
 					<span class="item-grid-meta">
-						{tile.meta}{#if tile.time}<span aria-hidden="true"> · </span>{tile.time}{/if}
+						{tile.meta}{#if tile.time}<span aria-hidden="true">{" · "}</span>{tile.time}{/if}
 					</span>
 				</button>
 			</li>
