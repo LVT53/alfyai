@@ -1096,6 +1096,9 @@ const chatDict = {
 		"imageLightbox.previous": "Previous image",
 		"imageLightbox.next": "Next image",
 		"imageLightbox.counter": "{current} / {total}",
+		"imageLightbox.zoomIn": "Zoom in",
+		"imageLightbox.zoomOut": "Zoom out",
+		"imageLightbox.fit": "Fit to screen, now {percent}%",
 		"personalityProfile.concise.description":
 			"Terse, answer-first, minimal exposition. Engineer-to-engineer.",
 		"personalityProfile.concise.name": "Concise",
@@ -2287,6 +2290,9 @@ const chatDict = {
 		"imageLightbox.previous": "Előző kép",
 		"imageLightbox.next": "Következő kép",
 		"imageLightbox.counter": "{current} / {total}",
+		"imageLightbox.zoomIn": "Nagyítás",
+		"imageLightbox.zoomOut": "Kicsinyítés",
+		"imageLightbox.fit": "Képernyőhöz igazítás, most {percent}%",
 		"personalityProfile.concise.description":
 			"Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
 		"personalityProfile.concise.name": "Tömör",

@@ -1,6 +1,9 @@
 <script lang="ts">
 import { blockRenderer, type DisplayBlock } from "./block-render-registry";
-import ImageLightbox from "./ImageLightbox.svelte";
+import {
+	type ImageLightboxComponent,
+	loadImageLightbox,
+} from "./image-lightbox-loader";
 import {
 	collectSourceReferenceCandidates,
 	parseMarkdownBlocks,
@@ -75,6 +78,8 @@ let container = $state<HTMLDivElement | null>(null);
 // message, and which one (if any) is open. See openImageLightbox.
 let lightboxImages = $state<{ src: string; alt: string }[]>([]);
 let lightboxIndex = $state<number | null>(null);
+/** The viewer, loaded the first time a picture here is opened (never in the first paint). */
+let ImageLightbox = $state.raw<ImageLightboxComponent | null>(null);
 let sourceTooltipElement = $state<HTMLDivElement | null>(null);
 let sourceTooltip = $state<SourceLinkTooltip | null>(null);
 let prevWordCount = 0;
@@ -433,6 +438,17 @@ function openImageLightbox(clicked: HTMLImageElement) {
 		alt: image.alt,
 	}));
 	lightboxIndex = index;
+	if (!ImageLightbox) {
+		loadImageLightbox().then(
+			(component) => {
+				ImageLightbox = component;
+			},
+			() => {
+				// The viewer could not load: the picture stays where it is.
+				lightboxIndex = null;
+			},
+		);
+	}
 }
 
 // Graceful degradation: when an embedded image fails to load (e.g. a
@@ -799,7 +815,7 @@ $effect(() => {
     {/if}
   {/each}
 </div>
-{#if lightboxIndex !== null}
+{#if lightboxIndex !== null && ImageLightbox}
   <ImageLightbox
     images={lightboxImages}
     index={lightboxIndex}

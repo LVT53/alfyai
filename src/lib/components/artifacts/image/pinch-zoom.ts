@@ -15,20 +15,41 @@
  */
 import type { ActionReturn } from "svelte/action";
 
+type Point = { x: number; y: number };
+
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 
-/** The zoom a pinch has reached: the start's scale times how far the fingers spread, clamped to 1..4. */
+/**
+ * The zoom a pinch has reached: the start's scale times how far the fingers
+ * spread, clamped to `bounds` (the panel's 1..4 by default; the full-screen
+ * viewer, `chat/image-lightbox-zoom.ts`, passes its own, which reach past 100%
+ * of a large picture).
+ */
 export function zoomFrom(
 	start: { distance: number; scale: number },
 	now: { distance: number },
+	bounds: { min: number; max: number } = { min: MIN_ZOOM, max: MAX_ZOOM },
 ): number {
 	const raw =
 		start.distance > 0
 			? (start.scale * now.distance) / start.distance
 			: start.scale;
-	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, raw));
+	return Math.min(bounds.max, Math.max(bounds.min, raw));
 }
+
+/** Two pointers' distance and midpoint, shared with the full-screen viewer's pinch. */
+export function distanceOf(a: Point, b: Point): number {
+	return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+export function midpointOf(a: Point, b: Point): Point {
+	return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** Two taps this close in time and place are a double tap. */
+export const DOUBLE_TAP_MS = 300;
+export const DOUBLE_TAP_PX = 30;
 
 export type PinchZoomOptions = {
 	enabled: boolean;
@@ -40,20 +61,6 @@ export type PinchZoomOptions = {
 	 */
 	doubleTapReset?: boolean;
 };
-
-type Point = { x: number; y: number };
-
-/** Two taps this close in time and place are a double tap. */
-const DOUBLE_TAP_MS = 300;
-const DOUBLE_TAP_PX = 30;
-
-function distanceOf(a: Point, b: Point): number {
-	return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function midpointOf(a: Point, b: Point): Point {
-	return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
 
 export function pinchZoom(
 	node: HTMLElement,
