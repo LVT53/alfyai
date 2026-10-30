@@ -1498,7 +1498,7 @@ describe("the look at the result", () => {
 		expect(entries[0]?.images).toHaveLength(1);
 		expect(entries[0]?.images[0]?.artifactId).toMatch(/^image-file:/);
 		expect(modelPayload.note).toBe(
-			`The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${modelPayload.takeId}".`,
+			`The result follows as a picture. If pictures the user asked for are still not made, call make_image for them before you write. Then say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${modelPayload.takeId}".`,
 		);
 		expect(queue.room()).toBe(7);
 	});

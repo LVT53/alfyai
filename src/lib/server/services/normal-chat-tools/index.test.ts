@@ -5745,7 +5745,10 @@ describe("tool description hygiene", () => {
 	// 2026-10-28: the explicit-picture filter (plan 2b Task 18, asked for by
 	// the owner) adds one sentence to make_image telling the model to decline
 	// explicit pictures: 26 measured tokens, raised by exactly that. No margin.
-	const CATALOGUE_TOKEN_CEILING = 5324;
+	// 2026-10-30: make_image tells the model how to make several pictures in
+	// one turn (asked for by the owner): 33 measured tokens, raised by exactly
+	// that. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5357;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);

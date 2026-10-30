@@ -149,14 +149,16 @@ const HOLD_MS = 130_000;
 /** A clear miss is made again only when this much of the wait is left; a retry takes about as long as the take did. */
 export const RETRY_MIN_LEFT_MS = 25_000;
 
-const SUCCEEDED_NOTE =
-	"The picture is now on its card in the chat for the user. You cannot see it: say in one sentence what you made or changed, do not describe how it looks, and do not write a link.";
+// Without this the "say what you made" below ends the turn at the first picture of a set.
+const REMAINING_PICTURES =
+	"If pictures the user asked for are still not made, call make_image for them before you write.";
+const SUCCEEDED_NOTE = `The picture is now on its card in the chat for the user. You cannot see it. ${REMAINING_PICTURES} Then say in one sentence what you made or changed, do not describe how it looks, and do not write a link.`;
 const SET_ASIDE_NOTE =
 	"The picture is on its card in the chat as another take; the user can choose it there. You cannot see it: do not describe how it looks, and do not write a link.";
 const lookNote = (takeId: string, retried: boolean) =>
 	retried
-		? "The result follows as a picture: say in one or two sentences what changed. It was already made again once; do not call make_image again for it."
-		: `The result follows as a picture: say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
+		? `The result follows as a picture. ${REMAINING_PICTURES} Then say in one or two sentences what changed. It was already made again once; do not call make_image again for it.`
+		: `The result follows as a picture. ${REMAINING_PICTURES} Then say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
 

@@ -360,7 +360,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	make_image: {
 		description:
-			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call; for options, repeat the call (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
+			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
 		errorPrefix: "Making the picture failed",
 	},
 	read_generated_file: {

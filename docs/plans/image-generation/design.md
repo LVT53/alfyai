@@ -132,7 +132,7 @@ Pictures join the artifact family as a new kind, `image`, labelled Image / Kép 
 - One item, many versions. A change adds a version to the same item; an unrelated request starts a new item. Alfy decides which, as it does for Documents.
 - The person's upload is never modified. The first time they ask to change a photo, a new Image item starts with the photo as its first version.
 - **Another** asks for one more take, with a new seed, and adds it to the same turn's card. "Use this" on a take makes it the version in use. Takes not picked stay in the card and can be picked later. The version in use is what the next change starts from.
-- One take per tool call. Asked for options in words ("show me four"), Alfy makes up to four takes in the turn, one call each; takes made in one turn for one picture share one card. Each take gets the look, and a take that clearly missed is retried once (my call).
+- One take per tool call. Asked for options in words ("show me four"), Alfy makes up to four takes in the turn, one call each; takes made in one turn for one picture share one card. Asked for different pictures in one request ("three logo ideas"), Alfy counts them first and makes them all in one step, up to eight in a turn, each on its own card (owner, 2026-10-30). Each take gets the look, and a take that clearly missed is retried once (my call).
 - Restore in History makes an older version the version in use. Nothing is deleted.
 - "It" means the picture open in the panel, or else the newest picture in the chat. The person never names files or ids.
 
