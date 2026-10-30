@@ -45,7 +45,15 @@ export function wrapTransparentPrompt(prompt: string): string {
 	return `This is an RGBA format image with transparency. ${prompt} The image has an alpha channel and a transparent background.`;
 }
 
-export const QWEN_STEPS = 40;
+/**
+ * 30 steps on the installed Qwen-Image 2.1 weights (NoctQ V4, int8 convrot) at
+ * 1248x832: quality plateaus by 20 and 40 doubles the wall time for no visible
+ * gain, so 30 keeps margin above the 16-step floor while staying about a
+ * quarter under 40. CFG stays 1 — raising it cost twice as much and produced
+ * artifacts. The graph JSONs keep the installed template's own 40 and this
+ * constant overwrites it in buildPromptGraph.
+ */
+export const QWEN_STEPS = 30;
 export const QWEN_CFG = 1;
 
 export const GRAPH_TEMPLATES: Partial<Record<GraphName, GraphTemplate>> = {
