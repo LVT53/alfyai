@@ -3361,6 +3361,42 @@ describe("MessageBubble", () => {
 			expect(summary?.textContent).not.toContain("Weekend plan");
 		});
 
+		it("draws a card for each different picture of one turn", async () => {
+			const takes = ["1", "2", "3"].map((n) =>
+				imageTake({ toolCallId: `call-set-${n}` }),
+			);
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					thinkingSegments: takes.map((take, index) => ({
+						type: "tool_call" as const,
+						callId: `call-set-${index + 1}`,
+						name: "make_image",
+						input: { prompt: `picture ${index + 1}`, title: "Picture" },
+						status: "done" as const,
+						metadata: {
+							ok: true,
+							imageStatus: "succeeded",
+							imageCardId: `card-set-${index + 1}`,
+							imageTakeId: take.id,
+							imageTitle: "Picture",
+						},
+					})),
+				}),
+				conversationId: "conv-1",
+				imageCards: takes.map((take, index) =>
+					imageCard([take], { id: `card-set-${index + 1}` }),
+				),
+			});
+
+			await waitFor(() => {
+				expect(
+					container.querySelectorAll(
+						'[data-testid="message-deliverables"] [data-testid="image-card-body"]',
+					),
+				).toHaveLength(3);
+			});
+		});
+
 		it("draws one picture card per card, after the text, however many make_image calls made its takes", async () => {
 			const first = imageTake({ toolCallId: "call-pic-1" });
 			const second = imageTake({ toolCallId: "call-pic-2" });
