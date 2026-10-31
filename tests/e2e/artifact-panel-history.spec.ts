@@ -378,12 +378,12 @@ for (const mode of MODES) {
 			await openListThenItem(page, mode.touch, ITEM_TITLES.document);
 			await openHistory(page, mode.touch);
 
-			// The header's Done on a desktop, the sheet's own Escape on a phone.
+			// The header's history button on a desktop, the sheet's own Escape on a phone.
 			if (mode.touch) {
 				await page.keyboard.press("Escape");
 			} else {
 				await press(
-					page.locator('[data-testid="artifact-history-done"]:visible'),
+					page.locator('[data-testid="artifact-history-button"]:visible'),
 					false,
 				);
 			}

@@ -940,7 +940,7 @@ const artifactsDict = {
 		// to end with ("Document · 3 tabs · edited 2 min ago").
 		"artifacts.card.edited": "edited {when}",
 		"artifacts.history.regionA11y": "History of {title}",
-		"artifacts.history.done": "Done",
+		"artifacts.history.close": "Close history",
 		"artifacts.history.listA11y": "Versions",
 		"artifacts.history.filterAll": "All",
 		"artifacts.history.filterNamed": "Named",
@@ -1915,7 +1915,7 @@ const artifactsDict = {
 		// helyett ("Dokumentum · 3 lap · szerkesztve 2 perce").
 		"artifacts.card.edited": "szerkesztve {when}",
 		"artifacts.history.regionA11y": "{title} – előzmények",
-		"artifacts.history.done": "Kész",
+		"artifacts.history.close": "Előzmények bezárása",
 		"artifacts.history.listA11y": "Változatok",
 		"artifacts.history.filterAll": "Mind",
 		"artifacts.history.filterNamed": "Elnevezettek",

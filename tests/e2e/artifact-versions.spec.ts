@@ -67,7 +67,7 @@ function historyButton(page: Page): Locator {
 }
 
 function doneButton(page: Page): Locator {
-	return page.locator('[data-testid="artifact-history-done"]:visible').first();
+	return historyButton(page);
 }
 
 async function openDocumentFromPanel(page: Page): Promise<void> {
@@ -92,9 +92,7 @@ const WHEN = "(?:just now|\\d+ min ago)";
 
 /** What the surfaces say right now, read the way a person reads them. */
 async function readSurfaces(page: Page, withCard: boolean) {
-	const header = (await historyButton(page).textContent())
-		?.replace(/\s+/g, " ")
-		.trim();
+	const header = await historyButton(page).getAttribute("title");
 	const card = withCard
 		? (await page.getByTestId("artifact-card-head").last().textContent())
 				?.replace(/\s+/g, " ")
@@ -138,7 +136,8 @@ async function expectSurfaces(
 			timeout: 15_000,
 		})
 		.toBe(expected.version);
-	await expect(historyButton(page), `${label}: the header`).toContainText(
+	await expect(historyButton(page), `${label}: the header`).toHaveAttribute(
+		"title",
 		expected.header,
 		{ timeout: 15_000 },
 	);

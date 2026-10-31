@@ -1430,8 +1430,9 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// the header follows the live moment instead of the page's pre-turn
 			// `conversationArtifacts` snapshot (fixed in 9d6b1868). Ruling 76:
 			// never a version number.
-			await expect(shell.getByTestId("artifact-history-button")).toContainText(
-				"Changed by Alfy",
+			await expect(shell.getByTestId("artifact-history-button")).toHaveAttribute(
+				"title",
+				/Changed by Alfy/,
 			);
 			await expect(
 				shell.getByTestId("artifact-history-button"),

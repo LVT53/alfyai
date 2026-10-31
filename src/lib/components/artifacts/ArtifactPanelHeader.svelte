@@ -13,11 +13,13 @@
  * Replaces the old per-kind "ACTIVE DOCUMENT" eyebrow, the "Knowledge Base"
  * source pill, and the disabled History placeholder (redesign §5.1 problems
  * 1–2): there is one History entry now, and it is this header's own history
- * button. Ruling 76: the button says what happened last ("Changed by Alfy ·
- * 12 min ago"), never a version number, and pressing it turns the panel into
- * History (versioning.md §5.1).
+ * button. Ruling 76: the button says when the item last changed (a clock and
+ * "12 min ago", who did it on hover and to a screen reader), never a version
+ * number, and pressing it turns the panel into History (versioning.md §5.1).
+ * While History is open the same button says "Close history": it is the way out,
+ * in the same place the reader went in.
  */
-import { ChevronDown, ChevronLeft, ChevronUp, History } from "@lucide/svelte";
+import { ChevronLeft, Clock, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -39,7 +41,7 @@ let {
 	phrase?: MomentPhrase | null;
 	/** Turns the panel into History (and back). Given without a handler, the phrase renders as plain text instead of a button: the kind has no History yet. */
 	onHistory?: (() => void) | undefined;
-	/** History is showing: the button reads as pressed. */
+	/** History is showing: the button is the way out of it. */
 	historyOpen?: boolean;
 	/** The breadcrumb: returns to the list. A host with no list (the Knowledge page, a project's Files dialog) passes none, and the header draws no breadcrumb: it would be a button that does nothing. */
 	onBack?: (() => void) | undefined;
@@ -84,45 +86,41 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 			<KindIcon size={14} strokeWidth={2} aria-hidden="true" />
 			<span>{$t(`artifacts.type.${kind}` as I18nKey)}</span>
 		</span>
-		{#if phrase}
+		{#if onHistory && (phrase || historyOpen)}
 			<span class="artifact-panel-header-sep" aria-hidden="true">·</span>
-			{#if onHistory}
-				<!-- The old test id stays on the button's own wrapper for one release
-				     (ruling 76's build brief): the wrapper is as big as the button, so
-				     a click on it lands on it. -->
-				<span class="artifact-panel-header-history-wrap" data-testid="artifact-version-pill">
-					<button
-						type="button"
-						class="artifact-panel-header-history"
-						data-testid="artifact-history-button"
-						onclick={onHistory}
-						aria-haspopup="true"
-						aria-pressed={historyOpen}
-						aria-label={phrase.a11y}
-					>
-						<History size={13} strokeWidth={2.1} aria-hidden="true" />
-						<span class="artifact-panel-header-history-text" aria-hidden="true">
-							<span class="artifact-panel-header-history-headline">{phrase.headline}</span>
-							{#if phrase.when}
-								<span class="artifact-panel-header-history-dot">·</span>
-								<span class="artifact-panel-header-history-when">{phrase.when}</span>
-							{/if}
-						</span>
-						{#if historyOpen}
-							<ChevronUp size={12} strokeWidth={2.2} aria-hidden="true" />
-						{:else}
-							<ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
-						{/if}
-					</button>
-				</span>
-			{:else}
-				<span
-					class="artifact-panel-header-history-static"
-					data-testid="artifact-version-pill"
+			<!-- The old test id stays on the button's own wrapper for one release
+			     (ruling 76's build brief): the wrapper is as big as the button, so
+			     a click on it lands on it. -->
+			<span class="artifact-panel-header-history-wrap" data-testid="artifact-version-pill">
+				<button
+					type="button"
+					class="artifact-panel-header-history"
+					class:is-open={historyOpen}
+					data-testid="artifact-history-button"
+					onclick={onHistory}
+					aria-haspopup="true"
+					aria-label={historyOpen ? $t('artifacts.history.close') : phrase?.a11y}
+					title={historyOpen ? $t('artifacts.history.close') : phrase?.text}
 				>
-					{phrase.text}
-				</span>
-			{/if}
+					{#if historyOpen}
+						<X size={13} strokeWidth={2.2} aria-hidden="true" />
+						<span class="artifact-panel-header-history-when" aria-hidden="true">{$t('artifacts.history.close')}</span>
+					{:else}
+						<Clock size={13} strokeWidth={2.1} aria-hidden="true" />
+						<span class="artifact-panel-header-history-when" aria-hidden="true">{phrase?.when ?? phrase?.headline}</span>
+					{/if}
+				</button>
+			</span>
+		{:else if phrase}
+			<span class="artifact-panel-header-sep" aria-hidden="true">·</span>
+			<span
+				class="artifact-panel-header-history-static"
+				data-testid="artifact-version-pill"
+				title={phrase.text}
+			>
+				<Clock size={13} strokeWidth={2.1} aria-hidden="true" />
+				<span class="artifact-panel-header-history-when">{phrase.when ?? phrase.headline}</span>
+			</span>
 		{/if}
 	</div>
 </header>
@@ -223,10 +221,10 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 		opacity: 0.55;
 	}
 
-	/* The history button: a pill that says what happened last. Its visible box
-	   is 24px; the hit area is 32px on a desktop and 44px on a phone (an
-	   `::after` inset, as the breadcrumb has), and the headline is the part that
-	   gives way to a narrow header, never the time. */
+	/* The history button: a clock and a time, quiet until it is wanted. Its
+	   visible box is 24px; the hit area is 32px on a desktop and 44px on a phone
+	   (an `::after` inset, as the breadcrumb has). While History is open it takes
+	   the accent: it is the way out, and it must be found without looking for it. */
 	.artifact-panel-header-history-wrap {
 		display: inline-flex;
 		min-width: 0;
@@ -241,23 +239,19 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 		min-width: 0;
 		max-width: 100%;
 		height: 1.5rem;
-		padding: 0 0.4rem 0 0.5rem;
+		padding: 0 0.4rem;
 		border-radius: var(--radius-full);
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.02em;
+		color: var(--text-muted);
+		font-size: 0.75rem;
+		font-weight: 500;
 	}
 
 	.artifact-panel-header-history {
 		position: relative;
-		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-		background: var(--accent-tint);
-		color: var(--accent-text);
+		border: 0;
+		background: transparent;
 		font-family: var(--font-sans);
 		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.artifact-panel-header-history::after {
@@ -268,12 +262,15 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 	}
 
 	.artifact-panel-header-history:hover {
-		background: var(--accent-tint-strong);
+		background: var(--surface-elevated);
+		color: var(--text-primary);
 	}
 
-	.artifact-panel-header-history[aria-pressed="true"] {
+	.artifact-panel-header-history.is-open,
+	.artifact-panel-header-history.is-open:hover {
 		background: var(--accent-tint-strong);
-		border-color: var(--accent);
+		color: var(--accent-text);
+		font-weight: 600;
 	}
 
 	.artifact-panel-header-history:focus-visible {
@@ -281,34 +278,11 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.artifact-panel-header-history-text {
-		display: inline-flex;
-		align-items: baseline;
-		gap: 0.3rem;
-		min-width: 0;
-	}
-
-	.artifact-panel-header-history-headline {
+	.artifact-panel-header-history-when {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.artifact-panel-header-history-dot {
-		opacity: 0.6;
-	}
-
-	.artifact-panel-header-history-when {
-		flex-shrink: 0;
-		font-weight: 600;
-		white-space: nowrap;
-	}
-
-	.artifact-panel-header-history-static {
-		border: 1px solid transparent;
-		background: var(--surface-elevated);
-		color: var(--text-muted);
 	}
 
 	/* Phones: the breadcrumb (1.75rem/28px) and the history button

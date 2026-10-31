@@ -200,7 +200,7 @@ let {
 	 * one to say.
 	 */
 	historyWanted?: boolean | undefined;
-	/** History opened or closed, whoever did it (a press, Done, Escape, another item, the panel closing): the host keeps its entries in step. */
+	/** History opened or closed, whoever did it (a press, Escape, another item, the panel closing): the host keeps its entries in step. */
 	onHistoryOpenChange?: ((open: boolean) => void) | undefined;
 	/**
 	 * Wave 2.5 review (F1): bubbles the open Document body's own live
@@ -2698,16 +2698,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{/snippet}
 
 	{#snippet artifactHeaderActionsSnippet()}
-		{#if historyOpen}
-			<button
-				type="button"
-				class="btn-secondary btn-sm workspace-history-done"
-				data-testid="artifact-history-done"
-				onclick={() => closeHistory()}
-			>
-				{$t('artifacts.history.done')}
-			</button>
-		{/if}
 		{#if historyOpen}
 			<!-- Comments and Download step aside while History is open (versioning.md §5.1). -->
 		{:else if bodyPanelActions?.toggleComments}

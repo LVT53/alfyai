@@ -2,8 +2,9 @@
 /**
  * History, a MODE of the artifact panel (ruling 76, versioning.md §5.2): the
  * body gives way to a read-only preview of the selected version, and the
- * moments are a rail beside it. Done, Escape or the history button again return
- * to editing. The shell is the same for every kind; what shows one version is the
+ * moments are a rail beside it. Escape or the history button (which says "Close
+ * history" while this is open) return to editing, and a phone's sheet, which
+ * covers that button, carries a close button of its own. The shell is the same for every kind; what shows one version is the
  * kind's preview (`history-previews.ts`).
  *
  * Three layouts, by the room it has: side by side (preview, then a 300 px rail)
@@ -13,7 +14,7 @@
  * sheet (`DialogShell`). Loading, paging, selection and the live announcements
  * live here; the rail, the toolbar and the preview only draw.
  */
-import { ChevronLeft, ChevronRight, RotateCcw } from "@lucide/svelte";
+import { ChevronLeft, ChevronRight, RotateCcw, X } from "@lucide/svelte";
 import { type Component, onMount, tick, untrack } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import { cubicOut } from "svelte/easing";
@@ -1035,6 +1036,21 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	{/if}
 {/snippet}
 
+{#snippet sheetClose()}
+	<!-- The sheet covers the panel's header, so its history button: leaves History in one
+	     press from the list or a pushed preview, where the grabber and Escape peel a layer. -->
+	<button
+		type="button"
+		class="step"
+		data-testid="history-close"
+		aria-label={$t('artifacts.history.close')}
+		title={$t('artifacts.history.close')}
+		onclick={onDone}
+	>
+		<X size={18} strokeWidth={2.2} aria-hidden="true" />
+	</button>
+{/snippet}
+
 {#snippet pushHeader()}
 	<div class="push-head">
 		<button type="button" class="back" onclick={backToList}>
@@ -1043,10 +1059,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		</button>
 		<span class="grow"></span>
 		{#if isPhone}
-			<!-- A phone's stepper is the bottom bar's; the top bar says which moment this is. -->
-			{#if selected}
-				<span class="push-when">{capitalize(whenLabel(selected.at, ctx))}</span>
-			{/if}
+			<!-- A phone's stepper is the bottom bar's; the toolbar says which moment this is. -->
+			{@render sheetClose()}
 		{:else}
 			<span class="moment-stepper">
 				<button
@@ -1152,8 +1166,9 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 			     back, so the title steps aside: History is said once, not as a heading and
 			     again as a link (RV-V M-9). -->
 			{#if view === 'list'}
-				<div class="sheet-head" aria-hidden="true">
-					<span class="sheet-title">{$t('artifacts.history.title')}</span>
+				<div class="sheet-head">
+					<span class="sheet-title" aria-hidden="true">{$t('artifacts.history.title')}</span>
+					{@render sheetClose()}
 				</div>
 			{/if}
 			{@render content()}
@@ -1347,12 +1362,6 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		gap: 0.125rem;
 	}
 
-	.push-when {
-		color: var(--text-muted);
-		font-size: 0.78rem;
-		font-weight: 600;
-	}
-
 	.step,
 	.bar-step {
 		display: inline-grid;
@@ -1387,6 +1396,9 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	}
 
 	.sheet-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		padding: 0 0 0.25rem;
 	}
 
