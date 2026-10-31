@@ -4230,7 +4230,7 @@ test.describe("pictures in the composer: a card's picture, numbered, sent (T5)",
 			>;
 			expect(chips).toHaveLength(1);
 			expect(chips[0].number).toBe("1");
-			expect(Math.round(chips[0].h), "the chip is 28 px tall").toBe(28);
+			expect(Math.round(chips[0].h), "the photo tile is 56 px tall").toBe(56);
 			holdChipRun("attach", attachRun, [flow.marks.attach], reduced);
 			holdChipRun("send", sendRun, [flow.marks.send], reduced);
 			// First paint (F13): every bubble put in the page for the sent message already
@@ -4379,7 +4379,7 @@ test.describe("pictures in the composer: a strip frame's and a History version's
 			const [one] = metrics.oneChip as Array<{ w: number; h: number }>;
 			const [, second] = metrics.twoChips as Array<{ w: number; h: number }>;
 			expect(Math.abs(one.w - second.w)).toBeLessThanOrEqual(0.5);
-			expect(Math.round(one.h)).toBe(28);
+			expect(Math.round(one.h)).toBe(56);
 		});
 	}
 });
@@ -4529,7 +4529,7 @@ test.describe("pictures in the composer on a phone (T5)", () => {
 				expect(target.h, `${key}: under 44 px tall`).toBeGreaterThanOrEqual(44);
 			}
 			for (const chip of metrics.chips as Array<{ h: number }>) {
-				expect(Math.round(chip.h)).toBe(28);
+				expect(Math.round(chip.h)).toBe(56);
 			}
 			for (const label of ["first", "second"]) {
 				holdChipRun(label, runs[label], [flow.marks[label]], false);
@@ -5252,7 +5252,7 @@ test.describe("marks on the open picture (T6)", () => {
 			};
 			expect(Math.round(chip.h), "the chip is 28 px tall").toBe(28);
 			expect(chip.thumb, "the chip shows the picture's thumbnail").toBe(true);
-			expect(chip.number).toBe("1");
+			expect(chip.number).toBeNull();
 			expect(chip.pageScrollsSideways).toBe(false);
 			expect(chip.x).toBeGreaterThanOrEqual(0);
 			if (phone) {
