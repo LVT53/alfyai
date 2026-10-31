@@ -7,7 +7,7 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/server/services/knowledge/types";
-import { getContentTypeForFile } from "$lib/shared/file-types";
+import { getContentTypeForFile, resolveEntry } from "$lib/shared/file-types";
 import { withFileExtension } from "$lib/shared/file-types/download-name";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 import {
@@ -275,6 +275,37 @@ function resolveStoredTextArtifact(params: {
 	};
 }
 
+function isHeicArtifact(params: {
+	artifact: Artifact;
+	previewName: string;
+}): boolean {
+	const entry = resolveEntry(params.previewName, params.artifact.mimeType);
+	return entry?.id === "heic" || entry?.id === "heif";
+}
+
+/**
+ * Browsers other than Safari cannot draw HEIC, so a preview hands one over as a
+ * PNG; the original stays what a download gets. The converter loads only when
+ * such a photo is asked for. A file it cannot read is served as it is.
+ */
+async function heicAsPng(
+	filePath: string,
+	mimeType: string | null,
+): Promise<Buffer | null> {
+	try {
+		const { decodeImageToPng } = await import(
+			"$lib/server/services/vision/prepare-image"
+		);
+		const bytes = await readFile(filePath);
+		return (await decodeImageToPng(bytes, mimeType)).png;
+	} catch (error) {
+		console.warn("[PREVIEW] A HEIC photo could not be converted", {
+			reason: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+}
+
 async function resolveStoredArtifactFromFile(params: {
 	mode: WorkingDocumentFileServingMode;
 	userId: string;
@@ -295,6 +326,23 @@ async function resolveStoredArtifactFromFile(params: {
 	const filePath = join(process.cwd(), params.storagePath);
 
 	try {
+		if (params.mode === "preview" && isHeicArtifact(params)) {
+			const drawn = await heicAsPng(filePath, params.artifact.mimeType);
+			if (drawn) {
+				return {
+					ok: true,
+					status: 200,
+					body: drawn,
+					headers: buildFileServingResponseHeaders({
+						mode: params.mode,
+						contentLength: drawn.length,
+						contentType: "image/png",
+						filename,
+						safetyFilenames: [params.previewName, params.storagePath],
+					}),
+				};
+			}
+		}
 		const totalLength = await getStoredFileLength(filePath);
 		const partialResponse = await resolveStoredArtifactPartialRange({
 			filePath,

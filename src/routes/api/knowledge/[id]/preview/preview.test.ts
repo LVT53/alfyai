@@ -1,3 +1,6 @@
+// @vitest-environment node
+
+import { readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -414,6 +417,30 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			encodeURIComponent("document with spaces & special chars.pdf"),
 		);
 	});
+	it("draws a HEIC photo as a picture the browser can show", async () => {
+		const heic = readFileSync(
+			"src/lib/server/services/vision/__fixtures__/tiny.heic",
+		);
+		await writePreviewFile("data/knowledge/user-123/photo.heic", heic);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "photo-1",
+			name: "photo.heic",
+			storagePath: "data/knowledge/user-123/photo.heic",
+			contentText: null,
+			mimeType: "image/heic",
+			extension: "heic",
+			type: "source_document",
+		});
+
+		const response = await GET(makePreviewEvent());
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe("image/png");
+		const bytes = Buffer.from(await response.arrayBuffer());
+		expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+		expect(response.headers.get("Content-Length")).toBe(String(bytes.length));
+	});
+
 	it("resolves normalized_document to source_document for PDF preview", async () => {
 		const pdfBuffer = Buffer.from("PDF binary content");
 		await writePreviewFile("data/knowledge/user-123/source.pdf", pdfBuffer);
