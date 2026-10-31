@@ -343,6 +343,12 @@ const counter = $derived(
 		min-width: 0;
 	}
 
+	/* Pushed over the rail the title carries who did what too: a long name takes its
+	   own line instead of squeezing that to a word a line. */
+	.narrow .title-block {
+		flex-wrap: wrap;
+	}
+
 	.named {
 		display: inline-flex;
 		align-items: center;

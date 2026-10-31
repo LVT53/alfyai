@@ -306,6 +306,34 @@ test.describe("History's rows hold their shape", () => {
 	});
 });
 
+test.describe("a named version on a phone", () => {
+	test.use({
+		viewport: { width: 360, height: 780 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("the longest name takes its own line, and the time keeps its width", async ({
+		page,
+	}) => {
+		await readerWithPicture(page);
+		await page
+			.locator('[data-testid="artifact-history-button"]:visible')
+			.first()
+			.tap();
+		const history = page.getByTestId("artifact-history");
+		await history.getByTestId("history-option").nth(1).tap();
+		await history.getByTestId("history-name").tap();
+		await history.getByTestId("history-name-input").fill("n".repeat(60));
+		await page.keyboard.press("Enter");
+		await expect(history.getByTestId("history-remove-name")).toBeVisible();
+		const title = await history.getByTestId("history-title").boundingBox();
+		if (!title) throw new Error("no title on screen");
+		// Two lines at most, at the toolbar's whole width: not one word to a line.
+		expect(title.height).toBeLessThan(40);
+	});
+});
+
 test.describe("the way back from the panel on a phone", () => {
 	test.use({
 		viewport: { width: 360, height: 780 },
