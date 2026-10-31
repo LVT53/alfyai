@@ -18,7 +18,6 @@ import {
 	vi,
 } from "vitest";
 import { warmModules } from "$lib/server/testing/warm-modules";
-import { MARK_COLOURS } from "$lib/shared/artifacts/image-body";
 import { createImageFixture, type ImageFixture } from "./testing/fixture";
 import type { TurnPictureSource } from "./turn-pictures";
 

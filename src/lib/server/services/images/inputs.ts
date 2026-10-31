@@ -2,19 +2,16 @@
 // each, stored as a picture file of the chat so the take can be read again (a
 // retry, a resume after ComfyUI restarts). The picture being changed is the
 // BASE, at exactly the canvas the result will have; a reference is a picture
-// to take something from, about one megapixel in its own shape; the person's
-// marked copy is painted again on the canvas-sized base so its boxes sit where
-// the person drew them.
+// to take something from, about one megapixel in its own shape. No picture here
+// carries the person's boxes: the picture model copies boxes into its result.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { getArtifactForUser } from "$lib/server/services/knowledge";
 import { decodeImageToPng } from "$lib/server/services/vision/prepare-image";
-import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import type { CanvasSize } from "./canvas";
 import { getImageFile, readImageFileBytes, storeImageFile } from "./files";
-import { paintMarks } from "./marks";
 import type { TakeInput } from "./take-request";
 import type { TurnPictureSource } from "./turn-pictures";
 
@@ -118,29 +115,22 @@ export async function prepareTakeInputs(params: {
 		loaded.fileArtifactId === params.changing
 			? loaded.fileId
 			: null;
-	const store = async (
-		png: Uint8Array,
-		role: "input" | "marked",
-	): Promise<string> =>
-		(await storeImageFile({ userId, conversationId, role, png })).id;
+	const store = async (png: Uint8Array): Promise<string> =>
+		(await storeImageFile({ userId, conversationId, role: "input", png })).id;
 	const load = (source: TurnPictureSource) =>
 		loadPicture({ userId, conversationId, source });
 
 	const inputs: TakeInput[] = [];
-	let basePng: Uint8Array | null = null;
 
 	if (params.base) {
 		const loaded = params.loadedBase ?? (await load(params.base));
 		let fileId = reusable(loaded);
 		if (
-			fileId &&
-			loaded.width === canvas.width &&
-			loaded.height === canvas.height
+			!fileId ||
+			loaded.width !== canvas.width ||
+			loaded.height !== canvas.height
 		) {
-			basePng = loaded.png;
-		} else {
-			basePng = await resized(loaded, canvas.width, canvas.height);
-			fileId = await store(basePng, "input");
+			fileId = await store(await resized(loaded, canvas.width, canvas.height));
 		}
 		inputs.push({ fileId, role: "base", name: params.base.name });
 	}
@@ -158,7 +148,7 @@ export async function prepareTakeInputs(params: {
 							Math.max(1, Math.round(loaded.height * scale)),
 						)
 					: loaded.png;
-			fileId = await store(png, "input");
+			fileId = await store(png);
 		}
 		inputs.push({ fileId, role: "reference", name: source.name });
 	}

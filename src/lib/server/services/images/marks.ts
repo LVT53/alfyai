@@ -196,11 +196,6 @@ export async function paintMarks(
 		.toBuffer();
 }
 
-/**
- * The marked copy's label in the model's words: "Picture 3 with the user's
- * marks: A = red box, B = blue box". English whatever the person writes: it is
- * scaffolding the model reads (ruling 79).
- */
 /** Where a box lies, in words a picture model reads: never a colour, a letter or a box. */
 function placeOf(mark: ImageMark): string {
 	const across = mark.x + mark.w / 2;
@@ -224,6 +219,11 @@ export function promptWithMarks(
 	return `${prompt}\n\nMake this change only at ${places}. Keep everything else in the picture exactly as it is.`;
 }
 
+/**
+ * The marked copy's label in the model's words: "Picture 3 with the user's
+ * marks: A = red box, B = blue box". English whatever the person writes: it is
+ * scaffolding the model reads (ruling 79).
+ */
 export function marksLabel(
 	baseNumber: number,
 	marks: readonly ImageMark[],
