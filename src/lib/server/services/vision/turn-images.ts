@@ -161,7 +161,7 @@ export function buildTurnImageGuidance(params: {
 		...(referenceCap != null && turnImages.pictures.length > referenceCap
 			? [makeImageCapGuidance(referenceCap)]
 			: []),
-		...(turnImages.pictures.length > 1
+		...(turnImages.pictures.length > 0
 			? [PICTURE_NUMBERS_HIDDEN_GUIDANCE]
 			: []),
 	];

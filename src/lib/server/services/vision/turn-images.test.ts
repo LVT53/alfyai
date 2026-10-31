@@ -1038,6 +1038,7 @@ describe("pictures beside the uploads (the turn's picture index is the one numbe
 		expect(lines).toEqual([
 			"Pictures in this message: Picture 1: Cosy living room (open in the panel).",
 			"You cannot see these pictures; they can still be passed to make_image by number.",
+			"Picture numbers are for make_image only; the user does not see them. In your reply, call a picture by what it shows.",
 		]);
 		expect(lines.join(" ")).not.toContain("attached");
 		expect(lines).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
@@ -1284,5 +1285,18 @@ describe("sumTurnImageTokens", () => {
 	it("is zero for no pictures", () => {
 		expect(sumTurnImageTokens([])).toBe(0);
 		expect(sumTurnImageTokens()).toBe(0);
+	});
+});
+
+describe("the picture numbers in the guidance", () => {
+	it("tells the model the number is hidden when the message holds one picture", () => {
+		const turnImages = {
+			...noTurnImages(),
+			pictures: [{ number: 1, name: "rug.jpg" }],
+			hasImageAttachments: true,
+		};
+		expect(buildTurnImageGuidance({ canSee: true, turnImages })).toEqual([
+			"Picture numbers are for make_image only; the user does not see them. In your reply, call a picture by what it shows.",
+		]);
 	});
 });
