@@ -1103,6 +1103,63 @@ function guardReporting(reports: GuardReport[]) {
 	return { calls: () => guardState.call };
 }
 
+describe("a miss the model hears about", () => {
+	it("keeps the good take when the model's own retry changed nothing", async () => {
+		guardReporting([
+			{ miss: null, changedShare: 0.1, insideMarksShare: null },
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+		const { createTurnTakes } = await import(
+			"$lib/server/services/images/turn-takes"
+		);
+		const turnTakes = createTurnTakes();
+		const first = await run({ pictures: [artifactId] }, { turnTakes });
+		if (!first.modelPayload.ok || first.modelPayload.status !== "succeeded") {
+			throw new Error("first did not succeed");
+		}
+
+		const retry = await run(
+			{ retryOf: first.modelPayload.takeId },
+			{ turnTakes },
+		);
+
+		const { cards, takes } = await rows();
+		expect(takes[0]).toMatchObject({ hidden: 0 });
+		expect(takes[1]).toMatchObject({ hidden: 1 });
+		expect(cards[0]?.pickedTakeId).toBe(takes[0]?.id);
+		expect(retry.modelPayload).toMatchObject({
+			ok: true,
+			takeId: takes[0]?.id,
+			inUse: true,
+		});
+		if (!retry.modelPayload.ok || !("note" in retry.modelPayload)) {
+			throw new Error("no note");
+		}
+		expect(retry.modelPayload.note).toContain("earlier result stays");
+	});
+
+	it("tells the model an unmarked miss failed, with no talk of boxes", async () => {
+		guardReporting([
+			{ miss: "nothing_changed", changedShare: 0, insideMarksShare: null },
+		]);
+		await startPictureServer({ steps: 2 });
+		await startEngine();
+		const { artifactId } = await makeItem();
+		const unmarked = await run(
+			{ pictures: [artifactId] },
+			{ retryMinLeftMs: 10_000_000 },
+		);
+		if (!unmarked.modelPayload.ok || !("note" in unmarked.modelPayload)) {
+			throw new Error("no note");
+		}
+		expect(unmarked.modelPayload.note).toContain("did not work");
+		expect(unmarked.modelPayload.note).not.toContain("box");
+	});
+});
+
 describe("the automatic retry of a clear miss", () => {
 	it("makes the take again once when nothing changed: one visible take, the first hidden, retried true", async () => {
 		const guard = guardReporting([

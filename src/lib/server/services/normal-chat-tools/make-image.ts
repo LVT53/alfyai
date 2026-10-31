@@ -161,7 +161,11 @@ const lookNote = (takeId: string, retried: boolean) =>
 		: `The result follows as a picture. ${REMAINING_PICTURES} Then say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
 // Said over the others: an unchanged picture is not a result to describe.
 const UNCHANGED_NOTE =
-	"The picture came back unchanged: the edit did not work. Do not say it is done. Tell the user plainly it did not change, and suggest a clearer description or a box that fits the object more closely.";
+	"The picture came back unchanged: the edit did not work. Do not say it is done. Tell the user plainly it did not change, and suggest a clearer description.";
+const MARK_UNCHANGED_NOTE =
+	"At least one place the user marked came back unchanged: the edit did not work there. Do not say it is done. Tell the user plainly what did not change, and suggest a clearer description or a box that fits the object more closely.";
+const RETRY_UNCHANGED_NOTE =
+	"The new try changed nothing, so the earlier result stays on its card. Do not call make_image again for it. Tell the user plainly that it could not be improved.";
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
 
@@ -375,10 +379,26 @@ export async function runMakeImageTool(
 			autoRetried = outcome.autoRetried;
 		}
 
+		// The model's own retry is kept only if it is the better one: a try that
+		// changed nothing must not replace a take that did.
+		if (!stopped && winner.status === "succeeded" && plan.retryOf) {
+			const old = await call.read(plan.retryOf);
+			if (
+				old.status === "succeeded" &&
+				pickBetterTake(old, winner) === "first"
+			) {
+				await hideTake(winnerId).catch(
+					warnAbout("A worse retry could not be hidden", winnerId),
+				);
+				winnerId = plan.retryOf;
+				winner = old;
+			}
+		}
+
 		if (!stopped && winner.status === "succeeded") {
 			released.add(winnerId);
 			settled = await releaseHold(winnerId);
-			if (plan.retryOf) {
+			if (plan.retryOf && winnerId !== plan.retryOf) {
 				settled = await placeModelRetry({
 					cardId,
 					oldId: plan.retryOf,
@@ -494,7 +514,11 @@ function makeCallHelpers(input: {
 		return { snapshot, stopped };
 	};
 
-	return { params, plan, cardId, queue, waitOn, leftMs, elapsedMs };
+	/** A take as it stands now, without waiting for it. */
+	const read = (takeId: string): Promise<TakeSnapshot> =>
+		waitForTake(takeId, { budgetMs: 0, signal: params.signal });
+
+	return { params, plan, cardId, queue, waitOn, read, leftMs, elapsedMs };
 }
 
 /**
@@ -714,10 +738,14 @@ async function succeededOutcome(input: {
 			inUse,
 			retried,
 			note: snapshot.measures?.miss
-				? UNCHANGED_NOTE
-				: looked
-					? lookNote(winnerId, retried)
-					: plainNote,
+				? plan.request.marks
+					? MARK_UNCHANGED_NOTE
+					: UNCHANGED_NOTE
+				: winnerId === plan.retryOf
+					? RETRY_UNCHANGED_NOTE
+					: looked
+						? lookNote(winnerId, retried)
+						: plainNote,
 		},
 		metadata: {
 			...base,
