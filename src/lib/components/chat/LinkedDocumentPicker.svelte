@@ -66,12 +66,22 @@ function isPromptReadyDocument(document: KnowledgeDocumentItem): boolean {
 	);
 }
 
+/** An uploaded photo. A picture a chat produced has no stored upload to show a model, so it stays a link. */
 function isPicture(document: KnowledgeDocumentItem): boolean {
 	return (
 		Boolean(onAddPictures) &&
 		document.type !== "normalized_document" &&
+		document.documentOrigin !== "generated" &&
 		getCategory(document.name, document.mimeType) === "image"
 	);
+}
+
+function rowThumbnail(document: KnowledgeDocumentItem): string | null {
+	return attachmentThumbnailUrl({
+		id: document.displayArtifactId,
+		name: document.name,
+		mimeType: document.generatedFileMimeType ?? document.mimeType,
+	});
 }
 
 function isPickable(document: KnowledgeDocumentItem): boolean {
@@ -170,6 +180,10 @@ function toggleDocument(document: KnowledgeDocumentItem) {
 					(picture) => picture.displayArtifactId !== document.displayArtifactId,
 				)
 			: [...selectedPictures, document];
+		// A photo linked before this picker took pictures: the picture replaces the link.
+		selected = selected.filter(
+			(source) => !sourceMatchesDocument(source, document),
+		);
 		return;
 	}
 	if (isSelected(document)) {
@@ -297,7 +311,7 @@ $effect(() => {
 				<p class="linked-document-picker__state">{$t('linkedSources.picker.noMatches')}</p>
 			{:else}
 				{#each filteredDocuments as document (document.displayArtifactId)}
-					{@const thumbnail = isPicture(document) ? attachmentThumbnailUrl({ id: document.displayArtifactId, name: document.name, mimeType: document.mimeType }) : null}
+					{@const thumbnail = rowThumbnail(document)}
 					<label class="linked-document-picker__row" class:selected={isSelected(document)}>
 						<input
 							type="checkbox"

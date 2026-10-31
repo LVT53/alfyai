@@ -8,6 +8,7 @@ function makeDocument(
 ): KnowledgeDocumentItem {
 	return {
 		id: overrides.id ?? "display-1",
+		type: overrides.type,
 		displayArtifactId: overrides.displayArtifactId ?? "display-1",
 		promptArtifactId: overrides.promptArtifactId ?? "prompt-1",
 		familyArtifactIds: overrides.familyArtifactIds ?? ["display-1", "prompt-1"],
@@ -18,6 +19,7 @@ function makeDocument(
 		summary: overrides.summary ?? null,
 		normalizedAvailable: overrides.normalizedAvailable ?? true,
 		documentOrigin: overrides.documentOrigin ?? "uploaded",
+		generatedFileMimeType: overrides.generatedFileMimeType,
 		createdAt: overrides.createdAt ?? 1,
 		updatedAt: overrides.updatedAt ?? 2,
 	};
@@ -314,5 +316,95 @@ describe("LinkedDocumentPicker", () => {
 			});
 			expect(screen.queryByRole("checkbox", { name: "room.jpg" })).toBeNull();
 		});
+	});
+
+	describe("a picture a file produced in chat", () => {
+		function generatedPicture() {
+			return makeDocument({
+				id: "chart",
+				type: "generated_output",
+				displayArtifactId: "chart",
+				promptArtifactId: "chart",
+				familyArtifactIds: ["chart"],
+				name: "chart.png",
+				mimeType: "text/markdown",
+				generatedFileMimeType: "image/png",
+				documentOrigin: "generated",
+			});
+		}
+
+		it("stays a link: it has no stored upload a model could be shown", async () => {
+			const onApply = vi.fn();
+			const onAddPictures = vi.fn();
+			render(LinkedDocumentPicker, {
+				documents: [generatedPicture()],
+				selectedSources: [],
+				onApply,
+				onAddPictures,
+				onCancel: vi.fn(),
+			});
+
+			await fireEvent.click(
+				screen.getByRole("checkbox", { name: "chart.png" }),
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Add selected" }),
+			);
+
+			expect(onAddPictures).toHaveBeenCalledWith([]);
+			expect(onApply).toHaveBeenCalledWith([
+				expect.objectContaining({ displayArtifactId: "chart" }),
+			]);
+		});
+
+		it("still shows its thumbnail", () => {
+			render(LinkedDocumentPicker, {
+				documents: [generatedPicture()],
+				selectedSources: [],
+				onApply: vi.fn(),
+				onAddPictures: vi.fn(),
+				onCancel: vi.fn(),
+			});
+
+			expect(screen.getByTestId("library-row-thumbnail")).toHaveAttribute(
+				"src",
+				"/api/knowledge/chart/preview",
+			);
+		});
+	});
+
+	it("turns a photo already linked into a picture without listing it twice", async () => {
+		const onApply = vi.fn();
+		const onAddPictures = vi.fn();
+		const photo = makeDocument({
+			id: "photo",
+			type: "source_document",
+			displayArtifactId: "photo",
+			promptArtifactId: "photo-text",
+			familyArtifactIds: ["photo", "photo-text"],
+			name: "receipt.jpg",
+			mimeType: "image/jpeg",
+		});
+		render(LinkedDocumentPicker, {
+			documents: [photo],
+			selectedSources: [
+				{
+					displayArtifactId: "photo",
+					promptArtifactId: "photo-text",
+					familyArtifactIds: ["photo", "photo-text"],
+					name: "receipt.jpg",
+					type: "document",
+				},
+			],
+			onApply,
+			onAddPictures,
+			onCancel: vi.fn(),
+		});
+
+		await fireEvent.click(screen.getByRole("checkbox", { name: "receipt.jpg" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
+
+		expect(onAddPictures).toHaveBeenCalledWith([photo]);
+		expect(onApply).toHaveBeenCalledWith([]);
 	});
 });
