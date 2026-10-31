@@ -145,6 +145,42 @@ function upscale(plane: Plane, width: number, height: number): Float32Array {
 }
 
 /**
+ * Share of a box that differs, in the pixels that can differ: at work resolution,
+ * where the model's per-pixel noise has averaged out and a small object has not,
+ * and with no blob rule, so a box too small to hold a blob still answers.
+ */
+export function boxChangedShare(
+	before: RawImage,
+	after: RawImage,
+	box: { x: number; y: number; w: number; h: number },
+): number {
+	const { width, height } = workSize(before, GUARD.workWidth);
+	const a = downscale(before, width, height);
+	const b = downscale(after, width, height);
+	const x0 = Math.max(0, Math.floor(box.x * width));
+	const x1 = Math.min(width, Math.ceil((box.x + box.w) * width));
+	const y0 = Math.max(0, Math.floor(box.y * height));
+	const y1 = Math.min(height, Math.ceil((box.y + box.h) * height));
+	let changed = 0;
+	let counted = 0;
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
+			const o = (y * width + x) * 4;
+			// See-through on either side: nothing can be pasted there.
+			if (a.data[o + 3] === 0 || b.data[o + 3] === 0) continue;
+			counted++;
+			const colour = Math.max(
+				Math.abs(a.data[o] - b.data[o]),
+				Math.abs(a.data[o + 1] - b.data[o + 1]),
+				Math.abs(a.data[o + 2] - b.data[o + 2]),
+			);
+			if (colour > GUARD.diffThreshold) changed++;
+		}
+	}
+	return counted > 0 ? changed / counted : 0;
+}
+
+/**
  * Where two same-sized pictures differ: a soft 0..1 mask at full size and its mean.
  * Measured at work resolution so a speck of noise never counts.
  */

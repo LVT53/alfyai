@@ -6,7 +6,8 @@ import { guardEdit } from "./guard-edit";
 import { decodeRaw, type RawImage } from "./raw-image";
 import { GUARD } from "./thresholds";
 
-// Small pictures of generated rooms (Qwen renders, 320 px wide); never a photo.
+// Small pictures of generated rooms (Qwen renders, 320 px wide, or strips of a
+// full-size one); never a photo.
 const DIR = join(__dirname, "__fixtures__");
 const load = async (name: string) =>
 	decodeRaw(new Uint8Array(await readFile(join(DIR, name))));
@@ -77,6 +78,39 @@ describe("the tuned guards on real renders", () => {
 		const out = await run(base, await decodeRaw(new Uint8Array(png)));
 		expect(out.measures.miss).toBe("nothing_changed");
 	}, 60_000);
+
+	describe("a marked box on a full-size render", () => {
+		// Strips of 1248 px renders, cut at full size: the model's noise is only
+		// there at that scale. The box holds a small plant on a side table; the
+		// "untouched" render was asked to change nothing, the other to remove it.
+		const plant = {
+			letter: "A",
+			x: 564 / 1248,
+			y: 18 / 64,
+			w: 46 / 1248,
+			h: 42 / 64,
+		};
+		const marked = async (name: string) => {
+			const base = await load("room-2-strip-base.png");
+			return guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: await load(name),
+				marks: [plant],
+			});
+		};
+
+		it("does not take the model's noise for a change", async () => {
+			const out = await marked("room-2-strip-untouched.png");
+			expect(out.measures.miss).not.toBeNull();
+		}, 60_000);
+
+		it("sees a small removal", async () => {
+			const out = await marked("room-2-strip-removal.png");
+			expect(out.measures.miss).toBeNull();
+		}, 60_000);
+	});
 
 	it("a global restyle pair is global", async () => {
 		const base = await load("room-0-base.png");

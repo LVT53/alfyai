@@ -1,5 +1,5 @@
 import { applyAlignment, estimateAlignment, isNegligible } from "./align";
-import { changeMask } from "./change-mask";
+import { boxChangedShare, changeMask } from "./change-mask";
 import { compositeOnto, overBase } from "./composite";
 import { marksClamp } from "./marks-clamp";
 import { isEmptyImage, type RawImage } from "./raw-image";
@@ -92,31 +92,6 @@ function keepTransparent(
 	return { mask, changedShare: mask.length > 0 ? sum / mask.length : 0 };
 }
 
-/** Whether a box's own pixels moved, at full size: see `markedBoxChangedShare`. */
-function boxChanged(before: RawImage, after: RawImage, mark: MarkBox): boolean {
-	const { width, height } = before;
-	const x0 = Math.max(0, Math.floor(mark.x * width));
-	const x1 = Math.min(width, Math.ceil((mark.x + mark.w) * width));
-	const y0 = Math.max(0, Math.floor(mark.y * height));
-	const y1 = Math.min(height, Math.ceil((mark.y + mark.h) * height));
-	let changed = 0;
-	for (let y = y0; y < y1; y++) {
-		for (let x = x0; x < x1; x++) {
-			const o = (y * width + x) * 4;
-			if (
-				Math.abs(before.data[o] - after.data[o]) > GUARD.diffThreshold ||
-				Math.abs(before.data[o + 1] - after.data[o + 1]) >
-					GUARD.diffThreshold ||
-				Math.abs(before.data[o + 2] - after.data[o + 2]) > GUARD.diffThreshold
-			) {
-				changed++;
-			}
-		}
-	}
-	const area = (x1 - x0) * (y1 - y0);
-	return area > 0 && changed / area >= GUARD.markedBoxChangedShare;
-}
-
 function missOf(
 	changedShare: number,
 	inside: number | null,
@@ -168,7 +143,11 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		}
 	}
 	const marksChanged =
-		marked && (marks ?? []).some((mark) => boxChanged(base, painted, mark));
+		marked &&
+		(marks ?? []).some(
+			(mark) =>
+				boxChangedShare(base, painted, mark) >= GUARD.markedBoxChangedShare,
+		);
 	// A marked edit changes the picture only where the person marked (grown a
 	// little, feathered): the measures below see the model's whole change, so a
 	// change mostly outside the marks still counts as a miss, but none of it is pasted.

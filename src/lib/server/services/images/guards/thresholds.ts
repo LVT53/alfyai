@@ -19,11 +19,13 @@ export const GUARD = {
 	/** Below this share nothing counts as changed. */
 	nothingChangedShare: 0.002,
 	/**
-	 * Share of a marked box's own pixels that must differ for the box to count as
-	 * changed. Measured at full size: a small object is too few work pixels to
-	 * survive `minComponentShare`, and it is exactly what a person marks.
+	 * Share of a marked box that must differ, at work resolution, for the box to
+	 * count as changed. Not at full size: on real 1248 px renders asked to change
+	 * nothing, the model's noise moved over 2% of the pixels of most boxes. At work
+	 * resolution that noise was 3% of a box at the 90th percentile in the worst
+	 * render, and two removed small objects were 29% of theirs (2026-10-31).
 	 */
-	markedBoxChangedShare: 0.02,
+	markedBoxChangedShare: 0.05,
 	/**
 	 * Smallest blob kept on the second look at an unmarked edit that seemed to
 	 * change nothing, so a small removal is not pasted away as noise.
