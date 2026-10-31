@@ -1063,10 +1063,6 @@ _Avoid_: upload attachment, evidence row, document tab
 A modal or mobile sheet for selecting one or more existing **Library Documents** to become **Linked Context Sources**.
 _Avoid_: upload manager, document preview modal, inline tray submode
 
-**Linked Sources Popover**:
-A compact composer-adjacent surface for inspecting, removing, clearing, or adding currently selected **Linked Context Sources**.
-_Avoid_: full Knowledge Library modal, evidence manager, document preview
-
 **Setting State Chip**:
 A compact composer chip showing a temporary non-default composer setting that affects the next turn.
 _Avoid_: permanent preference display, settings form, hidden flag
@@ -1169,7 +1165,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Shift+Enter should insert a newline even when the **Command Tray** is open.
 - Arrow key tray navigation should not interfere with active text composition.
 - The **Command Tray** should expose accessible combobox or listbox-style semantics with clear active-row announcements.
-- **Document Picker Modal**, **Linked Sources Popover**, and mobile sheets should trap and restore focus appropriately.
+- **Document Picker Modal** and mobile sheets should trap and restore focus appropriately.
 - Chips should provide specific accessible remove labels.
 - Command and skill animations should respect reduced-motion preferences.
 - App-side command, source, skill, and note errors should surface locally near the tray, picker, chip, session panel, or settings editor that caused them, not as ordinary assistant text.
@@ -1210,7 +1206,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - When a command opens a modal or picker, focus should return to the composer near the removed token after that flow closes.
 - When a selected `/document` token includes a typed query, that query may initialize the **Document Picker Modal** search and be removed with the selected command token.
 - Unsent command-derived composer state should restore across navigation or refresh when it is part of the pending next turn, including pending one-turn skills and **Linked Source Chips**.
-- Transient UI state such as an open **Command Tray**, highlighted row, open **Document Picker Modal**, or open **Linked Sources Popover** should not restore.
+- Transient UI state such as an open **Command Tray**, highlighted row, or open **Document Picker Modal** should not restore.
 - `/clear` should clear pending composer state such as textarea content, pending one-turn skill selection, linked-source chips, pending upload attachments, and command tray state.
 - `/clear` should not dismiss a durable active **Skill Session** unless the user explicitly chooses that additional action.
 - `/clear` should confirm when it would remove attachments, linked sources, or a pending skill.
