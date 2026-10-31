@@ -5,6 +5,11 @@
 // carries them over.
 import X from "@lucide/svelte/icons/x";
 import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMarks.svelte";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { focusTrap } from "$lib/utils/focus-trap";
@@ -25,7 +30,24 @@ let {
 } = $props();
 
 let url = $derived(`/api/knowledge/${encodeURIComponent(artifactId)}/preview`);
-const trap = focusTrap({ onEscape: () => onClose() });
+
+// On the app's dialog stack, so Escape closes one layer: search opened over this
+// screen goes first.
+const dialogId = Symbol("photo-mark-dialog");
+$effect(() => {
+	registerDialog(dialogId);
+	return () => deregisterDialog(dialogId);
+});
+const trap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		event.preventDefault();
+		onClose();
+	},
+	focus: {},
+	restoreFocusOnCleanup: true,
+	preventScroll: true,
+});
 </script>
 
 <div class="photo-mark-dialog" role="dialog" aria-modal="true" aria-label={name} use:portalToBody {@attach trap} data-testid="photo-mark-dialog">
