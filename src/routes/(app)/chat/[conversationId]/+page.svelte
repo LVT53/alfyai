@@ -20,6 +20,7 @@ import {
 	type ComposerMarks,
 	type ComposerPictureRef,
 	marksAfterDrawing,
+	marksAfterUndo,
 	marksRequest,
 } from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
@@ -224,7 +225,6 @@ import {
 	buildPendingFileProductionJobPlaceholder,
 	composerMarksFromSend,
 	composerPicturesFromSend,
-	marksAfterUndo,
 	marksOutdated,
 	pictureOrderFromSend,
 	composerPlaceholderKey,

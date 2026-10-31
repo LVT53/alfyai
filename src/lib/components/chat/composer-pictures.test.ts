@@ -10,6 +10,7 @@ import {
 	pictureChipNames,
 	pictureKey,
 	reconcilePictureOrder,
+	marksAfterUndo,
 } from "./composer-pictures";
 
 const isPicture = (key: string) => key !== "upload:pdf";
@@ -174,5 +175,35 @@ describe("libraryPictureAttachment", () => {
 		});
 		expect(attachment.promptReady).toBe(true);
 		expect(attachment.readinessErrorCode).toBeUndefined();
+	});
+});
+
+describe("marksAfterUndo", () => {
+	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
+	const onSofa = {
+		uploadArtifactId: "sofa",
+		marks,
+		artifactId: "sofa",
+		name: "sofa.png",
+		version: null,
+	};
+	const onRoom = { ...onSofa, uploadArtifactId: "room", artifactId: "room" };
+
+	it("takes the marks back to the photo they came from", () => {
+		expect(marksAfterUndo(onRoom, onRoom, onSofa)).toBe(onSofa);
+	});
+
+	it("still undoes after more boxes were drawn on the photo they moved to", () => {
+		const onRoomAgain = { ...onRoom, marks: [...marks, { ...marks[0], letter: "B" as const }] };
+		expect(marksAfterUndo(onRoomAgain, onRoom, onSofa)).toBe(onSofa);
+	});
+
+	it("does nothing once the moved marks are gone: sent, cleared or another chat", () => {
+		expect(marksAfterUndo(null, onRoom, onSofa)).toBeNull();
+	});
+
+	it("leaves marks drawn since on yet another photo", () => {
+		const onDesk = { ...onSofa, uploadArtifactId: "desk", artifactId: "desk" };
+		expect(marksAfterUndo(onDesk, onRoom, onSofa)).toBe(onDesk);
 	});
 });

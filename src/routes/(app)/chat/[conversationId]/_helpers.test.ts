@@ -35,7 +35,6 @@ import {
 	isPendingSkillUnavailableError,
 	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
-	marksAfterUndo,
 	marksOutdated,
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
@@ -2408,30 +2407,5 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 			addedRef: true,
 			version: 2,
 		});
-	});
-});
-
-describe("marksAfterUndo", () => {
-	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
-	const onSofa = {
-		uploadArtifactId: "sofa",
-		marks,
-		artifactId: "sofa",
-		name: "sofa.png",
-		version: null,
-	};
-	const onRoom = { ...onSofa, uploadArtifactId: "room", artifactId: "room" };
-
-	it("takes the marks back to the photo they came from", () => {
-		expect(marksAfterUndo(onRoom, onRoom, onSofa)).toBe(onSofa);
-	});
-
-	it("does nothing once the moved marks are gone: sent, cleared or another chat", () => {
-		expect(marksAfterUndo(null, onRoom, onSofa)).toBeNull();
-	});
-
-	it("leaves marks drawn since on yet another photo", () => {
-		const onDesk = { ...onSofa, uploadArtifactId: "desk", artifactId: "desk" };
-		expect(marksAfterUndo(onDesk, onRoom, onSofa)).toBe(onDesk);
 	});
 });

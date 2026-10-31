@@ -192,6 +192,19 @@ export function marksAfterDrawing(
 	};
 }
 
+/**
+ * What the marks Undo leaves: the marks they moved from, while the moved ones
+ * are still held on their photo, however many boxes were drawn there since. A notice outlives a send or a switch of chat,
+ * and an Undo then must not bring back marks on a picture of that other message.
+ */
+export function marksAfterUndo(
+	current: ComposerMarks | null,
+	moved: ComposerMarks,
+	previous: ComposerMarks,
+): ComposerMarks | null {
+	return current?.artifactId === moved.artifactId ? previous : current;
+}
+
 /** The request a held mark set sends: a copy of its boxes on its one picture. */
 export function marksRequest(held: ComposerMarks): ImageMarksRequest {
 	const marks = held.marks.map((mark) => ({ ...mark }));

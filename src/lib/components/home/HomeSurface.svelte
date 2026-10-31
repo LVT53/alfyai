@@ -21,6 +21,7 @@ import { showToast } from "$lib/stores/toast";
 import {
 	type ComposerMarks,
 	marksAfterDrawing,
+	marksAfterUndo,
 } from "$lib/components/chat/composer-pictures";
 import type {
 	ImageMark,
@@ -1003,7 +1004,7 @@ function changeMarks(photo: { id: string; name: string }, marks: ImageMark[]) {
 			message: $t("artifacts.image.panel.marksMoved", { name: photo.name }),
 			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
 			onAction: () => {
-				if (heldMarks === next) heldMarks = displaced;
+				heldMarks = marksAfterUndo(heldMarks, next, displaced);
 			},
 		});
 	}
