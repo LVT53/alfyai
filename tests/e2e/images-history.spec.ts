@@ -8,6 +8,7 @@ import {
 	seedImageItem,
 	startChatAs,
 } from "./artifact-tours-helpers";
+import { waitForStableBoundingBox } from "./helpers";
 
 /**
  * History for pictures (plan 2b T4): the panel's strip and History agree.
@@ -277,6 +278,31 @@ test.describe("History for pictures", () => {
 		await expect(prompt).not.toHaveAttribute("open", "");
 		await prompt.getByText("Prompt Alfy sent").click();
 		await expect(prompt.getByText("Make the sky warmer")).toBeVisible();
+	});
+});
+
+test.describe("History's rows hold their shape", () => {
+	test("Edit this version leaves a picture the height fits where it was", async ({
+		page,
+	}) => {
+		// A window so short that the picture is sized by its height.
+		await page.setViewportSize({ width: 1440, height: 520 });
+		await readerWithPicture(page);
+		await page
+			.locator('[data-testid="artifact-history-button"]:visible')
+			.first()
+			.click();
+		const history = page.getByTestId("artifact-history");
+		await history.getByTestId("history-option").last().click();
+		const edit = history.getByTestId("image-version-edit");
+		await expect(edit).toBeEnabled();
+		const frame = history.getByTestId("image-version-frame-box");
+		await waitForStableBoundingBox(frame);
+		const before = await frame.boundingBox();
+		await edit.click();
+		await expect(history.getByTestId("image-body-mark")).toBeVisible();
+		await waitForStableBoundingBox(frame);
+		expect(await frame.boundingBox()).toEqual(before);
 	});
 });
 

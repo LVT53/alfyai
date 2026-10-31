@@ -435,6 +435,12 @@ const tags = $derived(
 		.ivp-attach {
 			min-height: 2rem;
 		}
+
+		/* The Mark button's height (it is taller than these): the row keeps it before
+		   Edit this version too, or the picture above moves when the tool arrives. */
+		.ivp-actions {
+			min-height: 2.25rem;
+		}
 	}
 
 	.ivp-attach:disabled {
