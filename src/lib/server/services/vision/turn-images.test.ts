@@ -1017,6 +1017,43 @@ describe("pictures beside the uploads (the turn's picture index is the one numbe
 		]);
 	});
 
+	it("tells a model that cannot see to take a marked photo to make_image", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [await imageItem(0, { name: "room.jpg" })],
+			collect: false,
+			numberOf: () => 1,
+			extras: [
+				{
+					...extra(2, "Picture 1 with the user's marks: A = red box"),
+					marked: true,
+				},
+			],
+		});
+
+		const lines = buildTurnImageGuidance({
+			canSee: false,
+			turnImages,
+			referenceCap: 4,
+		});
+
+		expect(lines).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+		expect(lines[0]).toContain("make_image");
+		expect(lines.join(" ")).toContain("Picture 2");
+	});
+
+	it("does not promise make_image when picture making is off", async () => {
+		const turnImages = await resolveTurnImages({
+			items: [await imageItem(0, { name: "room.jpg" })],
+			collect: false,
+			numberOf: () => 1,
+			extras: [{ ...extra(2, "marks"), marked: true }],
+		});
+
+		expect(
+			buildTurnImageGuidance({ canSee: false, turnImages, referenceCap: null })[0],
+		).toBe(CANNOT_SEE_IMAGES_GUIDANCE);
+	});
+
 	it("a message with only the open picture holds a picture to send but attached none", async () => {
 		const turnImages = await resolveTurnImages({
 			items: [],

@@ -66,6 +66,8 @@ export type TurnImages = {
 	pictureImages: LabelledPicture[];
 	/** Every picture of the message, sent or not, in number order (named, not pixels). */
 	pictures: NumberedName[];
+	/** The message holds the marked copy of the person's boxes. Set only for a model that cannot see. */
+	hasMarkedPicture?: boolean;
 	/** The pictures the per-turn limit left out. */
 	heldBack: NumberedName[];
 	/**
@@ -97,6 +99,14 @@ export function noTurnImages(): TurnImages {
  */
 export const CANNOT_SEE_IMAGES_GUIDANCE =
 	"The user attached an image, but you cannot see images; you only get any text extracted from it. Say so in one short sentence, then answer from that text.";
+
+/**
+ * Said instead to a model that cannot see when the person marked a picture and
+ * make_image can act on it: such a photo may hold no text at all, so "answer
+ * from that text" would leave it nothing to do. English (ruling 79).
+ */
+export const MARKED_PICTURE_GUIDANCE =
+	"The user marked parts of a picture with lettered boxes. You cannot see it and it may hold no text, but make_image can work from it: to change what they marked, call make_image with the marked picture's number and their instruction, without apologising for not seeing it. Only if they ask what the picture shows, say you cannot see it.";
 
 /**
  * Said to a model that cannot see when the message holds only pictures nobody
@@ -178,7 +188,9 @@ export function buildTurnImageGuidance(params: {
 				: [];
 		}
 		return [
-			CANNOT_SEE_IMAGES_GUIDANCE,
+			turnImages.hasMarkedPicture && referenceCap != null
+				? MARKED_PICTURE_GUIDANCE
+				: CANNOT_SEE_IMAGES_GUIDANCE,
 			...(turnImages.pictures.length > 0
 				? [picturesInMessageGuidance(turnImages.pictures)]
 				: []),
@@ -244,6 +256,8 @@ export function attachedImagesOf(
  */
 export type ExtraPicture = {
 	number: number;
+	/** The marked copy of the person's boxes. */
+	marked?: boolean;
 	/** A key for the log and the fallback name (never the picture). */
 	id: string;
 	/** The name the label carries; cleaned here. */
@@ -455,7 +469,14 @@ export async function resolveTurnImages(params: {
 				name: nameOrId(extra.name, extra.id, EXTRA_NAME_MAX_CHARS),
 			})),
 		].sort((a, b) => a.number - b.number);
-		return { ...noTurnImages(), pictures, hasImageAttachments };
+		return {
+			...noTurnImages(),
+			pictures,
+			hasImageAttachments,
+			...(extras.some((extra) => extra.marked === true)
+				? { hasMarkedPicture: true }
+				: {}),
+		};
 	}
 	const collected = await collectTurnImages({
 		items: params.items,

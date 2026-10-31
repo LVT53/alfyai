@@ -504,6 +504,7 @@ export function extraPicturesOf(
 				id: `image-file:${source.fileId}`,
 				name: source.name,
 				attached: source.role === "attached",
+				marked: source.role === "marked",
 				load: async () => {
 					const file = await getImageFile({
 						userId: scope.userId,
