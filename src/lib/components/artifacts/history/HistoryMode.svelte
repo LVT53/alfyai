@@ -78,7 +78,6 @@ let {
 	kind,
 	title,
 	conversationId = null,
-	currentUser = null,
 	onDone,
 	onReview = undefined,
 	onRestored = undefined,
@@ -92,11 +91,6 @@ let {
 	title: string;
 	/** The conversation the panel shows, so an incognito chat's item stays in scope (ruling 51). */
 	conversationId?: string | null;
-	currentUser?: {
-		id: string;
-		displayName: string;
-		profilePicture: string | null;
-	} | null;
 	/** Leaves History. Focus goes back to the history button (the panel's job). */
 	onDone: () => void;
 	/** Leaves History and steps the review to the change a waiting moment names. */
@@ -1017,7 +1011,6 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		artifactKind={kind}
 		{conversationId}
 		{listLabel}
-		{currentUser}
 		{filter}
 		showFilter={hasNamed}
 		{older}
@@ -1299,7 +1292,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		min-width: 0;
 		overflow: hidden;
 		min-height: 0;
-		border-left: 1px solid var(--border-default);
+		border-left: 1px solid var(--border-subtle);
 		background: var(--surface-page);
 	}
 

@@ -2679,7 +2679,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
 					{conversationId}
-					{currentUser}
 					initialVersionId={historyInitialVersionId}
 					{onAttachPicture}
 					onDone={() => closeHistory()}

@@ -82,7 +82,7 @@ describe("MomentRail thumbnails", () => {
 		);
 	});
 
-	it("reserves the thumbnail's 40 px square before the picture arrives", () => {
+	it("reserves the thumbnail's square before the picture arrives", () => {
 		renderRail("image", null);
 		const thumb = screen.getAllByTestId("history-thumb")[0];
 		expect(thumb.classList.contains("rail-thumb")).toBe(true);
@@ -96,32 +96,24 @@ describe("MomentRail thumbnails", () => {
 	});
 });
 
-// Task 12 (crowding with the sidebar open): beside the preview the rail is 300 px,
-// and an Image row's 40 px picture left its headline ~130 px next to the time, so a
-// short line ran to three. A narrow rail (its own width, a container query like the
-// card's and the review bar's) puts the time of a picture's row under its headline.
-describe("a picture's rail row in a narrow rail", () => {
+// One line per entry: the rest of a row shows on the selected one, and stays in
+// the DOM for the option's words. Sourced from the stylesheet, which jsdom does not apply.
+describe("a rail row", () => {
 	const source = readFileSync(
 		`${process.cwd()}/src/lib/components/artifacts/history/MomentRail.svelte`,
 		"utf-8",
 	);
 
-	it("makes the rail list a named inline-size container", () => {
-		const list = source.match(/\n\t\.rail-list \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
-		expect(list).toMatch(/container:\s*moment-rail\s*\/\s*inline-size/);
+	it("hides its secondary details until it is selected", () => {
+		expect(source).toMatch(/\n\t\.secondary \{\s*display: none;/);
+		expect(source).toMatch(/\.option\.selected \.secondary \{\s*display: flex;/);
 	});
 
-	it("moves the time of a row with a picture under its headline when the rail is narrow", () => {
-		const block =
-			source.match(
-				/@container moment-rail \(max-width: [\d.]+rem\) \{([\s\S]*?)\n\t\}/,
-			)?.[1] ?? "";
-		expect(block).toMatch(
-			/\.option\.with-thumb \.line1 \{[^}]*flex-wrap:\s*wrap/,
-		);
-		expect(block).toMatch(
-			/\.option\.with-thumb \.time \{[^}]*flex-basis:\s*100%/,
-		);
-		expect(block).toMatch(/var\(--space-/);
+	it("keeps one line, and moves nothing but opacity", () => {
+		expect(source).toMatch(/\.headline \{[^}]*white-space: nowrap/);
+		const keyframes =
+			source.match(/@keyframes rail-secondary-in \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+		expect(keyframes).toContain("opacity");
+		expect(keyframes).not.toMatch(/height|width|top|left/);
 	});
 });
