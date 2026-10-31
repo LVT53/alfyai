@@ -404,6 +404,47 @@ test.describe("Pictures in the composer", () => {
 			).toBe(true);
 		});
 
+		test("boxes drawn before the chat exists survive a reload, and stay gone once sent", async ({
+			page,
+		}) => {
+			videoName = "marks-landing-reload";
+			await page.goto("/", { waitUntil: "domcontentloaded" });
+			await expect(page.getByTestId("message-input")).toBeVisible();
+			const room = `room-${randomUUID().slice(0, 8)}.png`;
+			await attachPhoto(
+				page,
+				{ ...(await randomPng(600, 400)), name: room },
+				1,
+			);
+			await page
+				.locator(TILE)
+				.getByRole("button", { name: new RegExp(room) })
+				.first()
+				.click();
+			await expect(page.getByTestId("image-body-frame")).toBeVisible();
+			await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+			await page.getByTestId("mark-continue").click();
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A");
+			// The photo comes back from the saved draft, which is debounced.
+			const saved = page.waitForResponse(
+				(response) =>
+					/\/api\/conversations\/[^/]+\/draft/.test(response.url()) &&
+					response.request().method() !== "GET",
+			);
+			await page.getByTestId("message-input").fill("Put a lamp here");
+			await saved;
+
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A");
+
+			await sendMessage(page, "Put a lamp here");
+			await expect(page).toHaveURL(/\/chat\//, { timeout: 30_000 });
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.getByTestId("message-input")).toBeVisible();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+		});
+
 		test("boxes survive a reload of the chat", async ({ page }) => {
 			videoName = "marks-reload";
 			const { room } = await attachTwo(page);

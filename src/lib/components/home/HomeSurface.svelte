@@ -39,8 +39,10 @@ import {
 	createConversationDraftRecord,
 	createDraftPersistence,
 	getLandingDraftConversationId,
+	readComposerMarks,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
+	storeComposerMarks,
 	storePendingConversationMessage,
 } from "$lib/client/conversation-session";
 import {
@@ -869,6 +871,7 @@ onMount(() => {
 	const storedConversationId = getLandingDraftConversationId();
 	if (storedConversationId) {
 		preparedConversationId = storedConversationId;
+		heldMarks = readComposerMarks(storedConversationId);
 		preparedConversationValidationPromise = restorePreparedConversation(
 			storedConversationId,
 		).finally(() => {
@@ -983,6 +986,13 @@ async function createPreparedConversationForScope(): Promise<string> {
 /** The photo open for marking: the landing page has no panel, so it gets its own screen. */
 let markingPhoto = $state.raw<{ id: string; name: string } | null>(null);
 let heldMarks = $state.raw<ComposerMarks | null>(null);
+// Kept under the prepared conversation, as the chat page keeps its own: the photo
+// comes back with the draft after a reload, and its boxes come back with it.
+$effect(() => {
+	if (preparedConversationId) {
+		storeComposerMarks(preparedConversationId, heldMarks);
+	}
+});
 
 function changeMarks(photo: { id: string; name: string }, marks: ImageMark[]) {
 	if (marks.length === 0) {
@@ -1074,7 +1084,10 @@ async function handleSend(payload: MessageInputSendPayload) {
 			imageMarks: payload.imageMarks ?? null,
 			markedPicture: payload.markedPicture ?? null,
 		});
+		// Now, not from the effect: the chat page opens on this id, and would read
+		// the boxes the first message is carrying back into its composer.
 		heldMarks = null;
+		storeComposerMarks(id, null);
 		await navigateToConversationFromLanding({
 			conversationId: id,
 			goto: (href) => goto(href),
@@ -1093,14 +1106,28 @@ async function handleSend(payload: MessageInputSendPayload) {
 	}
 }
 
+function forgetRestoredMarks(conversationId: string) {
+	heldMarks = null;
+	storeComposerMarks(conversationId, null);
+}
+
 async function restorePreparedConversation(conversationId: string) {
 	try {
 		const payload = await fetchConversationDetail(conversationId);
 		if (!canReuseLandingPreparedConversation(payload)) {
+			forgetRestoredMarks(conversationId);
 			preparedConversationId = null;
 			conversationDraft = null;
 			setLandingDraftConversationId(null);
 			return;
+		}
+		// Boxes belong to a tile: a photo the draft no longer holds takes them along.
+		const markedPhoto = heldMarks?.uploadArtifactId;
+		if (
+			markedPhoto &&
+			!payload.draft?.selectedAttachmentIds.includes(markedPhoto)
+		) {
+			forgetRestoredMarks(conversationId);
 		}
 		// Incognito, one-way: the armed flag itself is page state and does not
 		// survive a reload, but the conversation it was applied to does. A
@@ -1118,6 +1145,7 @@ async function restorePreparedConversation(conversationId: string) {
 		}
 		conversationDraft = payload.draft ?? null;
 	} catch {
+		forgetRestoredMarks(conversationId);
 		preparedConversationId = null;
 		conversationDraft = null;
 		setLandingDraftConversationId(null);
