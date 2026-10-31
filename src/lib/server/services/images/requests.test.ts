@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import {
 	afterEach,
@@ -530,6 +531,64 @@ describe("what a call is made from", () => {
 		expect(result.plan.request.anchor?.chainSinceAnchor).toBe(0);
 	});
 
+	it("names the very picture that is changed, not another version of its item", async () => {
+		const { artifactId, file: newest } = await makeItem();
+		const older = await storeFile();
+		const result = await resolve(
+			{ pictures: ["2"] },
+			{
+				turnPictures: index([
+					fileSource(older.id, { artifactId }),
+					fileSource(newest.id, { artifactId, role: "open" }),
+				]),
+			},
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.baseNumber).toBe(2);
+	});
+
+	it("avoids the seed that made the older version, not the newest's", async () => {
+		const { artifactId } = await makeItem(123);
+		const older = await storeFile();
+		fixture.seedCard({ id: "card-old", userId, conversationId });
+		const { enqueueTake } = await import("./image-job");
+		const { takeId } = await enqueueTake({
+			userId,
+			conversationId,
+			cardId: "card-old",
+			toolCallId: null,
+			origin: "turn",
+			retryOf: null,
+			request: {
+				v: 1,
+				mode: "generate",
+				prompt: "a cosy room",
+				inputs: [],
+				baseFromUpload: false,
+				canvas: { width: 1248, height: 832 },
+				transparent: false,
+				avoidSeeds: [],
+				anchor: null,
+				marks: null,
+				title: "Cosy room",
+				summary: null,
+			},
+			seed: 777,
+			heldUntil: null,
+		});
+		const { db } = await import("$lib/server/db");
+		db.update(schema.imageJobs)
+			.set({ resultFileId: older.id })
+			.where(eq(schema.imageJobs.id, takeId))
+			.run();
+		const result = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([fileSource(older.id, { artifactId })]) },
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.request.avoidSeeds).toEqual([777]);
+	});
+
 	describe("marks the model did not name", () => {
 		const marks = [{ letter: "A" as const, x: 0.2, y: 0.2, w: 0.3, h: 0.3 }];
 		function marked(base: TurnPictureSource, copyId: string) {
@@ -574,6 +633,70 @@ describe("what a call is made from", () => {
 			if (!result.ok) throw new Error("not resolved");
 			expect(result.plan.request.mode).toBe("edit");
 			expect(result.plan.request.marks).toEqual(marks);
+		});
+
+		it("keeps the boxes on a separate picture made from the marked one", async () => {
+			const base = await storeFile();
+			const copy = await storeFile();
+			const result = await resolve(
+				{ pictures: ["1"], startNew: true },
+				{ turnPictures: marked(fileSource(base.id), copy.id) },
+			);
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.marks).toEqual(marks);
+		});
+
+		it("makes a new picture from words on startNew with no picture named", async () => {
+			const base = await storeFile();
+			const copy = await storeFile();
+			const result = await resolve(
+				{ startNew: true },
+				{ turnPictures: marked(fileSource(base.id), copy.id) },
+			);
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.mode).toBe("generate");
+			expect(result.plan.request.marks).toBeNull();
+		});
+
+		it("takes the copy named first as its picture, with the other as a reference", async () => {
+			const base = await storeFile();
+			const other = await storeFile();
+			const copy = await storeFile();
+			const turnPictures: TurnPictureIndex = {
+				...index([
+					fileSource(base.id),
+					fileSource(other.id),
+					fileSource(copy.id, { role: "marked", marks }),
+				]),
+				metadata: marked(fileSource(base.id), copy.id).metadata,
+			};
+			const result = await resolve({ pictures: ["3", "2"] }, { turnPictures });
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.marks).toEqual(marks);
+			expect(result.plan.baseNumber).toBe(1);
+			expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
+				"base",
+				"reference",
+			]);
+		});
+
+		it("never lays the boxes on another picture when the copy is named after it", async () => {
+			const base = await storeFile();
+			const other = await storeFile();
+			const copy = await storeFile();
+			const turnPictures: TurnPictureIndex = {
+				...index([
+					fileSource(base.id),
+					fileSource(other.id),
+					fileSource(copy.id, { role: "marked", marks }),
+				]),
+				metadata: marked(fileSource(base.id), copy.id).metadata,
+			};
+			const result = await resolve({ pictures: ["2", "3"] }, { turnPictures });
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.marks).toBeNull();
+			expect(result.plan.baseNumber).toBe(2);
+			expect(result.plan.sourceCount).toBe(2);
 		});
 
 		it("leaves the boxes off a call about another picture", async () => {
@@ -626,10 +749,17 @@ describe("what a call is made from", () => {
 		const base = await storeFile();
 		const copy = await storeFile();
 		const marks = [{ letter: "A" as const, x: 0.2, y: 0.2, w: 0.3, h: 0.3 }];
-		const turnPictures = index([
-			fileSource(base.id),
-			fileSource(copy.id, { role: "marked", marks }),
-		]);
+		const turnPictures: TurnPictureIndex = {
+			...index([
+				fileSource(base.id),
+				fileSource(copy.id, { role: "marked", marks }),
+			]),
+			metadata: {
+				refs: [],
+				open: null,
+				marks: { imageFileId: base.id, markedFileId: copy.id, letters: ["A"] },
+			},
+		};
 		const result = await resolve({ pictures: ["1", "2"] }, { turnPictures });
 		if (!result.ok) throw new Error("not resolved");
 		expect(result.plan.sourceCount).toBe(1);

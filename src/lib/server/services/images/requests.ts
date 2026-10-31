@@ -202,6 +202,23 @@ function samePicture(a: TurnPictureSource, b: TurnPictureSource): boolean {
 	);
 }
 
+function sameFile(a: TurnPictureSource, b: TurnPictureSource): boolean {
+	if (a.type === "upload") {
+		return b.type === "upload" && a.artifactId === b.artifactId;
+	}
+	return b.type === "image_file" && a.fileId === b.fileId;
+}
+
+/** The seed of the take that made a picture, if a take did (a photo's copy has none). */
+async function seedThatMade(fileId: string): Promise<number | null> {
+	const [take] = await db
+		.select({ seed: imageJobs.seed })
+		.from(imageJobs)
+		.where(eq(imageJobs.resultFileId, fileId))
+		.limit(1);
+	return take?.seed ?? null;
+}
+
 async function sourcesNamed(params: {
 	userId: string;
 	conversationId: string;
@@ -316,36 +333,29 @@ export async function resolveMakeImageRequest(params: {
 	});
 	if (!named.ok) return refuse("unknown_picture", named.message);
 
-	let marked = named.sources.find(
+	const held = heldMarksOf(params.turnPictures);
+	const copy = named.sources.find(
 		(s) => s.type === "image_file" && s.role === "marked",
 	);
-	let plain = named.sources.filter((s) => s !== marked);
-	// The person's boxes belong to this change whether or not the model named
-	// their copy: it usually names only the picture, or none, and the boxes were
-	// lost. A call about another picture, or a new one on purpose, goes without.
-	if (!marked) {
-		const held = heldMarksOf(params.turnPictures);
-		const first = plain[0];
-		if (held && !input.startNew) {
-			if (!first) {
-				plain = [held.base];
-				marked = held.marked;
-			} else if (samePicture(first, held.base)) {
-				plain = [held.base, ...plain.slice(1)];
-				marked = held.marked;
-			}
+	// Naming the copy is naming the picture it was painted from.
+	const plain: TurnPictureSource[] = [];
+	for (const source of named.sources) {
+		const picture = source === copy ? held?.base : source;
+		if (picture && !plain.some((p) => samePicture(p, picture))) {
+			plain.push(picture);
 		}
 	}
-	// Only the marked copy named: it is a copy of a picture the message holds,
-	// and that picture is the one being changed.
-	if (marked && plain.length === 0) {
-		const markedOn = params.turnPictures?.metadata?.marks;
-		const base = params.turnPictures?.pictures.find((p) =>
-			p.source.type === "upload"
-				? p.source.artifactId === markedOn?.uploadArtifactId
-				: p.source.fileId === markedOn?.imageFileId,
-		);
-		if (base) plain = [base.source];
+	// The person's boxes belong to this change whether or not the model named
+	// their copy: it usually names only the picture, or none, and the boxes were
+	// lost. A call that changes another picture, or draws a new one from words,
+	// goes without: boxes bound only the picture they were drawn on.
+	let marked: TurnPictureSource | null = null;
+	if (held) {
+		const lead = plain[0];
+		if (lead ? samePicture(lead, held.base) : !input.startNew) {
+			plain[0] = held.base;
+			marked = held.marked;
+		}
 	}
 
 	const template =
@@ -461,7 +471,8 @@ export async function resolveMakeImageRequest(params: {
 			anchor = sameCall.request.anchor;
 		} else if (olderVersion && !earlier) {
 			fileId = olderVersion;
-			if (itemHere.body.seed !== null) avoidSeeds = [itemHere.body.seed];
+			const seed = await seedThatMade(olderVersion);
+			if (seed !== null) avoidSeeds = [seed];
 			anchor = { fileId, chainSinceAnchor: 0 };
 		} else {
 			const body = earlier?.body ?? itemHere.body;
@@ -480,13 +491,13 @@ export async function resolveMakeImageRequest(params: {
 			artifactId: itemHere.artifactId,
 			role: "attached",
 		};
-	} else if (
-		item &&
-		first.type === "image_file" &&
-		item.fileId === first.fileId
-	) {
+	} else if (first.type === "image_file") {
 		// Not in place, but still never the seed that made the input.
-		if (item.body.seed !== null) avoidSeeds = [item.body.seed];
+		const seed =
+			item?.fileId === first.fileId
+				? item.body.seed
+				: await seedThatMade(first.fileId);
+		if (seed !== null) avoidSeeds = [seed];
 	}
 	const loadedBase = await loadPicture({
 		userId,
@@ -503,10 +514,7 @@ export async function resolveMakeImageRequest(params: {
 		userId,
 		conversationId,
 		base,
-		references: [
-			...plain.slice(1),
-			// A marked copy with no boxes is just another picture.
-		],
+		references: plain.slice(1),
 		canvas,
 		loadedBase,
 		changing: inPlace && itemHere ? itemHere.artifactId : null,
@@ -549,10 +557,11 @@ export async function resolveMakeImageRequest(params: {
 			request,
 			retryOf: null,
 			callKey,
+			// The very picture changed: another version of the item, or a base this
+			// turn just made, is not the message's picture and gets a Before of its own.
 			baseNumber:
-				params.turnPictures?.pictures.find(
-					(p) => identityOf(p.source) === identityOf(first),
-				)?.number ?? null,
+				params.turnPictures?.pictures.find((p) => sameFile(p.source, base))
+					?.number ?? null,
 		},
 	};
 }
