@@ -3171,9 +3171,9 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 			browser,
 			testInfo.project.use.baseURL as string,
 			{ viewport: DESKTOP },
-			// Sixteen versions, each a moment of its own: more than the rail shows.
+			// Thirty versions, each a moment of its own: more than the rail shows.
 			(user, chatId) =>
-				seedPictureHistory(user, chatId, 16, { width: 624, height: 416 }),
+				seedPictureHistory(user, chatId, 30, { width: 624, height: 416 }),
 		);
 		const { page } = flow;
 		let metrics: Record<string, unknown> = {};
@@ -3185,7 +3185,7 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 			await expectHistoryShown(page, "image");
 			await expect(
 				page.locator('[data-testid="history-thumb"] img.is-loaded'),
-			).toHaveCount(16, { timeout: 20_000 });
+			).toHaveCount(30, { timeout: 20_000 });
 			await settle(page);
 			const open = await stopRecording(page);
 			const thumbSizes = boxes(open.frames, "thumb").map(
@@ -3251,9 +3251,9 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 		expect(flow.errors).toEqual([]);
 		const open = metrics.open as HistoryMetrics;
 		holdHistoryMotion(open, false);
-		// Reserved: every frame a thumbnail was on screen it was 40 x 40.
+		// Reserved: every frame a thumbnail was on screen it was 32 x 32.
 		expect(metrics.thumbSizes).toEqual(["32x32"]);
-		expect(metrics.allThumbs).toEqual(["40x40"]);
+		expect(metrics.allThumbs).toEqual(["32x32"]);
 		// It fades in: seen part-way, and ends shown.
 		const opacity = metrics.thumbOpacity as number[];
 		expect(opacity.at(-1)).toBe(1);
