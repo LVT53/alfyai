@@ -1182,22 +1182,15 @@ export function composerMarksFromSend(
 
 /**
  * Whether the marks the page holds were left by an older picture (Review Focus
- * 4): another item is open in the panel (a closed panel keeps them: the send
- * adds their picture, F14), or their item has a newer version than the one
- * they were drawn on. A version either side does not know never drops them.
+ * 4): their item has a newer version than the one they were drawn on. A version
+ * either side does not know never drops them. Looking at another item keeps
+ * them, as the send adds their picture (F14); drawing there moves them, and says
+ * so. Silently losing boxes was the worse surprise.
  */
 export function marksOutdated(
 	held: ComposerMarks,
-	now: { openItemId: string | null; version: number | null },
+	now: { version: number | null },
 ): boolean {
-	// Several uploaded photos ride together: looking at another keeps the marks.
-	if (
-		!held.uploadArtifactId &&
-		now.openItemId !== null &&
-		now.openItemId !== held.artifactId
-	) {
-		return true;
-	}
 	return (
 		held.version !== null && now.version !== null && now.version > held.version
 	);

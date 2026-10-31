@@ -19,6 +19,7 @@ import type { ImageCardView } from "$lib/server/services/images/read-model";
 import {
 	type ComposerMarks,
 	type ComposerPictureRef,
+	marksAfterDrawing,
 	marksRequest,
 } from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
@@ -27,6 +28,8 @@ import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
 	consumePendingConversationMessage,
+	readComposerMarks,
+	storeComposerMarks,
 	createConversationDraftRecord,
 	createDraftPersistence,
 	getConversationModelSelection,
@@ -453,6 +456,13 @@ let composerPictureOrder = $state.raw<readonly string[]>([]);
 // opens, a newer version lands: Review Focus 4), on the chip's x, on a send or
 // queue, and on a switch to another chat.
 let heldMarks = $state.raw<ComposerMarks | null>(null);
+/** The chat `heldMarks` belongs to: set with them, so a chat switch never files one chat's boxes under the next. */
+let heldMarksConversationId = $state<string | null>(null);
+$effect(() => {
+	if (heldMarksConversationId) {
+		storeComposerMarks(heldMarksConversationId, heldMarks);
+	}
+});
 let composerFocusRequest = $state(0);
 let composerTypingRequest = $state(0);
 let titleGenerationTriggered = false;
@@ -1802,16 +1812,15 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 		name,
 		version: sameFile && held ? held.version : latestVersionOf(artifactId),
 	};
+	const { displaced } = marksAfterDrawing(held, moved);
 	heldMarks = moved;
-	// One message carries marks on one picture: drawing on another photo takes
-	// them over, and says so, so boxes never vanish unseen.
-	if (held && held.artifactId !== artifactId) {
+	if (displaced) {
 		showToast({
 			type: "success",
 			message: $t("artifacts.image.panel.marksMoved", { name }),
 			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
 			onAction: () => {
-				heldMarks = marksAfterUndo(heldMarks, moved, held);
+				heldMarks = marksAfterUndo(heldMarks, moved, displaced);
 			},
 		});
 	}
@@ -1843,10 +1852,7 @@ function handleMarksContinue() {
 $effect(() => {
 	const held = heldMarks;
 	if (!held) return;
-	const now = {
-		openItemId: openPanelItemId,
-		version: latestVersionOf(held.artifactId),
-	};
+	const now = { version: latestVersionOf(held.artifactId) };
 	if (marksOutdated(held, now)) untrack(() => (heldMarks = null));
 });
 
@@ -2309,7 +2315,11 @@ function maybeSendPendingInitialMessage() {
 	void (async () => {
 		const proceed = await prepareTurn();
 		if (!proceed) return;
-		handleSend({ ...pendingDraft, pendingAttachments: [] });
+		handleSend({
+			...pendingDraft,
+			markedPicture: pendingDraft.markedPicture ?? undefined,
+			pendingAttachments: [],
+		});
 	})();
 }
 
@@ -2325,7 +2335,9 @@ function resetState() {
 	isSending = false;
 	composerPictures = [];
 	composerPictureOrder = [];
-	heldMarks = null;
+	// Boxes drawn in this chat before a reload come back with its composer.
+	heldMarks = readComposerMarks(data.conversation.id);
+	heldMarksConversationId = data.conversation.id;
 	titleGenerationTriggered = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,

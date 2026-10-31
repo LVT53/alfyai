@@ -177,6 +177,21 @@ export function markedPictureNumber(
 	return numbers.get(key) ?? numbers.size + 1;
 }
 
+/**
+ * What the composer holds after boxes change on one picture (one message carries
+ * marks on one picture). `displaced` is the set this took over from another
+ * picture, for the notice that says so: boxes never vanish unseen.
+ */
+export function marksAfterDrawing(
+	held: ComposerMarks | null,
+	next: ComposerMarks,
+): { held: ComposerMarks; displaced: ComposerMarks | null } {
+	return {
+		held: next,
+		displaced: held && held.artifactId !== next.artifactId ? held : null,
+	};
+}
+
 /** The request a held mark set sends: a copy of its boxes on its one picture. */
 export function marksRequest(held: ComposerMarks): ImageMarksRequest {
 	const marks = held.marks.map((mark) => ({ ...mark }));

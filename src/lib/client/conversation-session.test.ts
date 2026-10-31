@@ -11,9 +11,11 @@ import {
 	getLandingDraftConversationId,
 	hasPendingConversationMessage,
 	markPreviousConversationId,
+	readComposerMarks,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
+	storeComposerMarks,
 	storePendingConversationMessage,
 } from "./conversation-session";
 
@@ -550,5 +552,66 @@ describe("conversation-session", () => {
 		expect(removeLocal).not.toHaveBeenCalled();
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(hasPendingConversationMessage("conv-123")).toBe(true);
+	});
+});
+
+describe("marks across the hand-off and a reload", () => {
+	const box = { letter: "A" as const, x: 0.1, y: 0.1, w: 0.3, h: 0.3 };
+
+	beforeEach(() => sessionStorage.clear());
+
+	it("carries boxes drawn on the landing page into the first message", () => {
+		storePendingConversationMessage("conv-m", {
+			message: "Put a lamp here",
+			attachmentIds: ["photo-1"],
+			attachments: [],
+			imageMarks: { uploadArtifactId: "photo-1", marks: [box] },
+			markedPicture: {
+				artifactId: "photo-1",
+				name: "room.jpg",
+				addedRef: false,
+				version: null,
+			},
+		});
+
+		const pending = consumePendingConversationMessage("conv-m");
+
+		expect(pending?.imageMarks).toEqual({
+			uploadArtifactId: "photo-1",
+			marks: [box],
+		});
+		expect(pending?.markedPicture).toEqual({
+			artifactId: "photo-1",
+			name: "room.jpg",
+			addedRef: false,
+			version: null,
+		});
+	});
+
+	it("gives a message with no marks none", () => {
+		storePendingConversationMessage("conv-n", {
+			message: "Hello",
+			attachmentIds: [],
+			attachments: [],
+		});
+		expect(
+			consumePendingConversationMessage("conv-n")?.imageMarks,
+		).toBeUndefined();
+	});
+
+	it("keeps a chat's boxes through a reload, and forgets them once let go", () => {
+		const marks = {
+			uploadArtifactId: "photo-1",
+			marks: [box],
+			artifactId: "photo-1",
+			name: "room.jpg",
+			version: null,
+		};
+		storeComposerMarks("conv-r", marks);
+		expect(readComposerMarks("conv-r")).toEqual(marks);
+		expect(readComposerMarks("other")).toBeNull();
+
+		storeComposerMarks("conv-r", null);
+		expect(readComposerMarks("conv-r")).toBeNull();
 	});
 });

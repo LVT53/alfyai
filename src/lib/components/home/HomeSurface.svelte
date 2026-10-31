@@ -16,6 +16,16 @@
  * own chats and has no weekly bars at all.
  */
 import { goto } from "$app/navigation";
+import PhotoMarkDialog from "$lib/components/chat/PhotoMarkDialog.svelte";
+import { showToast } from "$lib/stores/toast";
+import {
+	type ComposerMarks,
+	marksAfterDrawing,
+} from "$lib/components/chat/composer-pictures";
+import type {
+	ImageMark,
+	ImageMarksRequest,
+} from "$lib/shared/artifacts/image-body";
 import { Paperclip, Pencil, VenetianMask } from "@lucide/svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
@@ -381,6 +391,13 @@ type MessageInputSendPayload = {
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
 	clientAtlasTurnId?: string | null;
+	imageMarks?: ImageMarksRequest | null;
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	} | null;
 };
 
 type MessageInputDraftPayload = {
@@ -962,6 +979,36 @@ async function createPreparedConversationForScope(): Promise<string> {
 	return id;
 }
 
+/** The photo open for marking: the landing page has no panel, so it gets its own screen. */
+let markingPhoto = $state.raw<{ id: string; name: string } | null>(null);
+let heldMarks = $state.raw<ComposerMarks | null>(null);
+
+function changeMarks(photo: { id: string; name: string }, marks: ImageMark[]) {
+	if (marks.length === 0) {
+		heldMarks = null;
+		return;
+	}
+	const next: ComposerMarks = {
+		uploadArtifactId: photo.id,
+		marks,
+		artifactId: photo.id,
+		name: photo.name,
+		version: null,
+	};
+	const { displaced } = marksAfterDrawing(heldMarks, next);
+	heldMarks = next;
+	if (displaced) {
+		showToast({
+			type: "success",
+			message: $t("artifacts.image.panel.marksMoved", { name: photo.name }),
+			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
+			onAction: () => {
+				if (heldMarks === next) heldMarks = displaced;
+			},
+		});
+	}
+}
+
 async function handleSend(payload: MessageInputSendPayload) {
 	if (creating) return;
 	const text = payload.message;
@@ -1023,7 +1070,10 @@ async function handleSend(payload: MessageInputSendPayload) {
 			atlasProfile: payload.atlasProfile ?? null,
 			atlasAction: payload.atlasAction ?? "create",
 			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
+			imageMarks: payload.imageMarks ?? null,
+			markedPicture: payload.markedPicture ?? null,
 		});
+		heldMarks = null;
 		await navigateToConversationFromLanding({
 			conversationId: id,
 			goto: (href) => goto(href),
@@ -1281,6 +1331,9 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					draftVersion={conversationDraft?.updatedAt ?? 0}
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}
+					onOpenAttachment={(artifact) => (markingPhoto = artifact)}
+					imageMarks={heldMarks}
+					onClearMarks={() => (heldMarks = null)}
 					onUploadReady={handleUploadReady}
 					{personalityProfiles}
 					{selectedPersonalityId}
@@ -1376,6 +1429,17 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		onOpenReady={(openWith) => (openInstructionDialog = openWith)}
 	/>
 </div>
+
+{#if markingPhoto}
+	{@const photo = markingPhoto}
+	<PhotoMarkDialog
+		artifactId={photo.id}
+		name={photo.name}
+		marks={heldMarks?.uploadArtifactId === photo.id ? heldMarks.marks : []}
+		onChange={(marks) => changeMarks(photo, marks)}
+		onClose={() => (markingPhoto = null)}
+	/>
+{/if}
 
 <style>
 	/* HomeV4A "Compact": three groups instead of four — the greeting with the

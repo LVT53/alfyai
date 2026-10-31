@@ -2294,34 +2294,20 @@ describe("marks left from an older picture (plan 2b T6, Review Focus 4)", () => 
 	};
 
 	it("keeps the marks while their item is open on the version they were drawn on, or the panel is shut", () => {
-		expect(marksOutdated(held, { openItemId: "img-1", version: 2 })).toBe(
-			false,
-		);
-		expect(marksOutdated(held, { openItemId: null, version: 2 })).toBe(false);
-		expect(marksOutdated(held, { openItemId: null, version: null })).toBe(
-			false,
-		);
-	});
-
-	it("lets them go when another item opens", () => {
-		expect(marksOutdated(held, { openItemId: "img-2", version: 2 })).toBe(true);
-		expect(
-			marksOutdated(held, { openItemId: "generated:report.pdf", version: 2 }),
-		).toBe(true);
+		expect(marksOutdated(held, { version: 2 })).toBe(false);
+		expect(marksOutdated(held, { version: 2 })).toBe(false);
+		expect(marksOutdated(held, { version: null })).toBe(false);
 	});
 
 	it("lets them go when their item gets a newer version, open or not", () => {
-		expect(marksOutdated(held, { openItemId: "img-1", version: 3 })).toBe(true);
-		expect(marksOutdated(held, { openItemId: null, version: 3 })).toBe(true);
+		expect(marksOutdated(held, { version: 3 })).toBe(true);
+		expect(marksOutdated(held, { version: 3 })).toBe(true);
 	});
 
 	it("never lets them go on a version it cannot compare", () => {
-		expect(
-			marksOutdated(
-				{ ...held, version: null },
-				{ openItemId: "img-1", version: 5 },
-			),
-		).toBe(false);
+		expect(marksOutdated({ ...held, version: null }, { version: 5 })).toBe(
+			false,
+		);
 	});
 });
 
@@ -2341,12 +2327,8 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 		});
 		expect(restored?.version).toBe(2);
 		if (!restored) throw new Error("no marks");
-		expect(marksOutdated(restored, { openItemId: null, version: 3 })).toBe(
-			true,
-		);
-		expect(marksOutdated(restored, { openItemId: null, version: 2 })).toBe(
-			false,
-		);
+		expect(marksOutdated(restored, { version: 3 })).toBe(true);
+		expect(marksOutdated(restored, { version: 2 })).toBe(false);
 	});
 
 	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];

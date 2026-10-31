@@ -4,7 +4,7 @@
 // is, so `MarkLayer` lies on its own rectangle and every box is a fraction of it.
 // The photo is never changed: the page holds the boxes and sends them with the
 // next message.
-import type { Snippet } from "svelte";
+import { type Snippet, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { MAX_MARKS } from "$lib/shared/artifacts/image-body";
@@ -25,6 +25,8 @@ let {
 	onChange,
 	onContinue,
 	preview,
+	covering = false,
+	startMarking = false,
 }: {
 	url: string;
 	filename: string;
@@ -32,14 +34,19 @@ let {
 	onChange: (marks: ImageMark[]) => void;
 	onContinue?: (() => void) | undefined;
 	preview: Snippet;
+	/** The composer is out of sight whatever the screen: offer the way back everywhere. */
+	covering?: boolean;
+	/** Opened in order to mark: the tool starts on. */
+	startMarking?: boolean;
 } = $props();
 
-let marking = $state(false);
+let marking = $state(untrack(() => startMarking));
 let refused = $state(false);
 let size = $state.raw<{ width: number; height: number } | null>(null);
 let isPhone = $state(isPhoneViewport());
 
 $effect(() => watchPhoneViewport((phone) => (isPhone = phone)));
+let composerHidden = $derived(covering || isPhone);
 $effect(() => {
 	if (!marking || marks.length < MAX_MARKS) refused = false;
 });
@@ -61,7 +68,12 @@ function change(next: ImageMark[]): void {
 
 let showStage = $derived(marking || marks.length > 0);
 let noteKey = $derived(
-	markNoteKey({ refused, marking, count: marks.length, isPhone }),
+	markNoteKey({
+		refused,
+		marking,
+		count: marks.length,
+		isPhone: composerHidden,
+	}),
 );
 let note = $derived(
 	noteKey
@@ -101,7 +113,7 @@ let note = $derived(
 	<div class="upload-marks-foot">
 		<MarkTools
 			{marking}
-			canContinue={isPhone && marks.length > 0}
+			canContinue={composerHidden && marks.length > 0}
 			onToggle={() => (marking = !marking)}
 			{onContinue}
 		/>

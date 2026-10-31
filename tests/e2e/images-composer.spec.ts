@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
@@ -353,6 +354,98 @@ test.describe("Pictures in the composer", () => {
 
 			await tiles.first().locator(".composer-chip__remove").click();
 			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+		});
+
+		test("a new chat marks a photo before it exists, and the first message carries the boxes", async ({
+			page,
+		}) => {
+			videoName = "marks-landing";
+			await page.goto("/", { waitUntil: "domcontentloaded" });
+			await expect(page.getByTestId("message-input")).toBeVisible();
+			const room = `room-${randomUUID().slice(0, 8)}.png`;
+			await attachPhoto(
+				page,
+				{ ...(await randomPng(600, 400)), name: room },
+				1,
+			);
+
+			await page
+				.locator(TILE)
+				.getByRole("button", { name: new RegExp(room) })
+				.first()
+				.click();
+			await expect(page.getByTestId("photo-mark-dialog")).toBeVisible();
+			await expect(page.getByTestId("image-body-mark-note")).toContainText(
+				"Drag to draw a box",
+			);
+			await expect(page.getByTestId("image-body-frame")).toBeVisible();
+			await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+			await expect(page.getByTestId("mark-box")).toHaveCount(1);
+			await page.getByTestId("mark-continue").click();
+			await expect(page.getByTestId("photo-mark-dialog")).toHaveCount(0);
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A");
+
+			const question = "Put a lamp in the marked spot";
+			await sendMessage(page, question);
+			await expect(page).toHaveURL(/\/chat\//, { timeout: 30_000 });
+			await expect
+				.poll(() => lastUserParts(fakeProvider.requests(), question).length, {
+					timeout: 30_000,
+				})
+				.toBeGreaterThan(0);
+			const parts = lastUserParts(fakeProvider.requests(), question);
+			expect(
+				parts.some(
+					(part) =>
+						part.type === "text" &&
+						part.text?.includes("Picture 1 with the user's marks: A = red box"),
+				),
+				"the first message reached the model with its marks",
+			).toBe(true);
+		});
+
+		test("boxes survive a reload of the chat", async ({ page }) => {
+			videoName = "marks-reload";
+			const { room } = await attachTwo(page);
+			await page
+				.locator(TILE)
+				.nth(1)
+				.getByRole("button", { name: new RegExp(room) })
+				.first()
+				.click();
+			await page.getByTestId("image-body-mark").click();
+			await expect(page.getByTestId("image-body-frame")).toBeVisible();
+			await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A");
+		});
+
+		test("a HEIC photo shows on its tile and in the panel", async ({
+			page,
+		}) => {
+			videoName = "marks-heic";
+			await openChat(page);
+			const name = `photo-${randomUUID().slice(0, 8)}.heic`;
+			await attachPhoto(
+				page,
+				{
+					name,
+					mimeType: "image/heic",
+					buffer: readFileSync(
+						"src/lib/server/services/vision/__fixtures__/tiny.heic",
+					),
+				},
+				1,
+			);
+			const thumb = page.locator(`${TILE} img`);
+			await expect(thumb).toHaveCount(1);
+			await expect
+				.poll(() =>
+					thumb.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+				)
+				.toBeGreaterThan(0);
 		});
 
 		test.describe("on a phone", () => {

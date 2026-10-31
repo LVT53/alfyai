@@ -404,6 +404,7 @@ async function assertReadiness(
 			attachmentIds: request.attachmentIds,
 			traceId: request.attachmentTraceId,
 			exemptImages,
+			markedArtifactId: request.imageMarks?.uploadArtifactId ?? null,
 		});
 		return null;
 	} catch (error) {

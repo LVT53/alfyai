@@ -2056,7 +2056,12 @@ export async function buildConstructedContext(params: {
 	// shown is named to the model there.
 	const blockingAttachments = blockingAttachmentItems(
 		resolvedAttachments.unresolvedItems,
-		{ exemptImages: params.collectImages === true },
+		{
+			exemptImages: params.collectImages === true,
+			...(params.imageMarks?.uploadArtifactId
+				? { markedArtifactId: params.imageMarks.uploadArtifactId }
+				: {}),
+		},
 	);
 	if (blockingAttachments.length > 0) {
 		throw new AttachmentReadinessError(

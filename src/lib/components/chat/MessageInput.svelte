@@ -719,6 +719,12 @@ let pictureOptions = $derived({
 	selectedModelSupportsImages:
 		selectedModelSupportsImages && !selectedAtlasProfile,
 });
+/** The marked photo counts as a picture for any model: make_image works from its pixels, not its text. */
+function pictureOptionsFor(artifact: { id: string }) {
+	return imageMarks?.uploadArtifactId === artifact.id
+		? { selectedModelSupportsImages: true }
+		: pictureOptions;
+}
 // The ledger decides, when it has an opinion. One pure state per pending
 // attachment drives BOTH the chip and the send gate, so a chip that shows a
 // spinner and a Send button that is open cannot disagree: `busy` is "not yet"
@@ -729,7 +735,7 @@ let pendingAttachmentStates = $derived(
 		attachmentChipFailure(
 			extractionJobs[attachment.artifact.id],
 			attachment,
-			pictureOptions,
+			pictureOptionsFor(attachment.artifact),
 		),
 	),
 );
@@ -2305,7 +2311,10 @@ $effect(() => {
 							// told is what the chip says.
 							picture:
 								attachment !== undefined &&
-								isPictureForModel(attachment.artifact, pictureOptions),
+								isPictureForModel(
+									attachment.artifact,
+									pictureOptionsFor(attachment.artifact),
+								),
 						},
 					),
 				),
@@ -3935,9 +3944,9 @@ async function emitDraftChange(force = false) {
 					{@const attachment = pendingAttachments[slot.index]}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
 					{@const chip = extractionChipState(extraction, {
-						picture: isPictureForModel(attachment.artifact, pictureOptions),
+						picture: isPictureForModel(attachment.artifact, pictureOptionsFor(attachment.artifact)),
 					})}
-					{@const failure = attachmentChipFailure(extraction, attachment, pictureOptions)}
+					{@const failure = attachmentChipFailure(extraction, attachment, pictureOptionsFor(attachment.artifact))}
 					{@const attachmentBusy = failure.kind === 'busy'}
 					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
 					{@const failureDetail = attachmentFailureDetail(attachment, failure, $t)}

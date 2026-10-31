@@ -182,7 +182,7 @@ export async function randomPng(
 /** Picks the file in the composer and waits for its chip (the upload's own placeholder is gone). */
 export async function attachPhoto(
 	page: Page,
-	photo: { name: string; buffer: Buffer },
+	photo: { name: string; buffer: Buffer; mimeType?: string },
 	chipsAfter: number,
 ): Promise<string> {
 	const fileInput = page.locator('input[type="file"]').first();
@@ -194,7 +194,7 @@ export async function attachPhoto(
 	);
 	await fileInput.setInputFiles({
 		name: photo.name,
-		mimeType: "image/png",
+		mimeType: photo.mimeType ?? "image/png",
 		buffer: photo.buffer,
 	});
 	const response = await uploaded;

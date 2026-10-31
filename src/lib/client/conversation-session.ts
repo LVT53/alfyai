@@ -4,6 +4,7 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import type { FetchLike } from "$lib/client/api/http";
+import type { ComposerMarks } from "$lib/components/chat/composer-pictures";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import { parseReasoningDepth } from "$lib/reasoning-depth-types";
@@ -15,6 +16,10 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import {
+	type ImageMarksRequest,
+	parseImageMarks,
+} from "$lib/shared/artifacts/image-body";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";
@@ -22,6 +27,7 @@ const PROJECT_COMPOSER_FOCUS_PREFIX = "project-composer-focus:";
 const PENDING_MESSAGE_PREFIX = "pending-chat-message:";
 const CONVERSATION_PERSONALITY_PREFIX = "conversation-personality:";
 const CONVERSATION_MODEL_PREFIX = "conversation-model:";
+const COMPOSER_MARKS_PREFIX = "composer-marks:";
 
 export type PendingConversationMessage = {
 	message: string;
@@ -48,7 +54,80 @@ export type PendingConversationMessage = {
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
 	clientAtlasTurnId?: string | null;
+	/** Boxes drawn on a photo before the chat existed. */
+	imageMarks?: ImageMarksRequest | null;
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	} | null;
 };
+
+/** The marks a stored value holds, or null for anything else. */
+function toImageMarks(value: unknown): ImageMarksRequest | null {
+	if (typeof value !== "object" || value === null) return null;
+	const { imageFileId, uploadArtifactId, marks } = value as Record<
+		string,
+		unknown
+	>;
+	const parsed = parseImageMarks(marks);
+	if (!parsed || parsed.length === 0) return null;
+	if (typeof imageFileId === "string" && imageFileId) {
+		return { imageFileId, marks: parsed };
+	}
+	return typeof uploadArtifactId === "string" && uploadArtifactId
+		? { uploadArtifactId, marks: parsed }
+		: null;
+}
+
+function toMarkedPicture(
+	value: unknown,
+): PendingConversationMessage["markedPicture"] {
+	if (typeof value !== "object" || value === null) return null;
+	const { artifactId, name, addedRef } = value as Record<string, unknown>;
+	return typeof artifactId === "string" && typeof name === "string"
+		? { artifactId, name, addedRef: addedRef === true, version: null }
+		: null;
+}
+
+/** The boxes a chat's composer holds, kept through a reload of the tab. */
+export function storeComposerMarks(
+	conversationId: string,
+	marks: ComposerMarks | null,
+): void {
+	const key = `${COMPOSER_MARKS_PREFIX}${conversationId}`;
+	if (marks) getSessionStorage()?.setItem(key, JSON.stringify(marks));
+	else getSessionStorage()?.removeItem(key);
+}
+
+export function readComposerMarks(
+	conversationId: string,
+): ComposerMarks | null {
+	const raw =
+		getSessionStorage()?.getItem(`${COMPOSER_MARKS_PREFIX}${conversationId}`) ??
+		null;
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const request = toImageMarks(parsed);
+		if (
+			!request ||
+			typeof parsed.artifactId !== "string" ||
+			typeof parsed.name !== "string"
+		) {
+			return null;
+		}
+		return {
+			...request,
+			artifactId: parsed.artifactId,
+			name: parsed.name,
+			version: typeof parsed.version === "number" ? parsed.version : null,
+		};
+	} catch {
+		return null;
+	}
+}
 
 function getSessionStorage(): Storage | null {
 	if (typeof window === "undefined") return null;
@@ -271,6 +350,8 @@ export function storePendingConversationMessage(
 			atlasProfile: payload.atlasProfile ?? null,
 			atlasAction: payload.atlasAction ?? "create",
 			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
+			imageMarks: payload.imageMarks ?? null,
+			markedPicture: payload.markedPicture ?? null,
 		}),
 	);
 }
@@ -295,6 +376,8 @@ export function consumePendingConversationMessage(
 
 	try {
 		const parsed = JSON.parse(rawValue) as Record<string, unknown>;
+		const marks = toImageMarks(parsed.imageMarks);
+		const markedPicture = toMarkedPicture(parsed.markedPicture);
 		return {
 			message: typeof parsed.message === "string" ? parsed.message : "",
 			attachmentIds: Array.isArray(parsed.attachmentIds)
@@ -325,6 +408,7 @@ export function consumePendingConversationMessage(
 				typeof parsed.clientAtlasTurnId === "string"
 					? parsed.clientAtlasTurnId
 					: null,
+			...(marks ? { imageMarks: marks, markedPicture } : {}),
 		};
 	} catch {
 		return {
