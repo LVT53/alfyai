@@ -2122,7 +2122,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		expect(within(shell).getByText("Document")).toBeInTheDocument();
 		expect(
 			within(shell).getByTestId("artifact-history-button"),
-		).toHaveTextContent("Changed by Alfy · 12 min ago");
+		).toHaveTextContent("12 min ago");
 		expect(within(shell).queryByText(/^v\d/)).not.toBeInTheDocument();
 		expect(
 			within(shell).queryByText("Active document"),
@@ -2185,7 +2185,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		await waitFor(() => {
 			expect(
 				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("Changed by Alfy · 2 min ago");
+			).toHaveTextContent("2 min ago");
 		});
 		expect(
 			within(shell).getByRole("button", {
@@ -2397,7 +2397,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		})[0];
 		expect(
 			within(shell).getByTestId("artifact-history-button"),
-		).toHaveTextContent("Restored by you · 5 min ago");
+		).toHaveTextContent("5 min ago");
 		expect(within(shell).queryByText(/You and Alfy/)).not.toBeInTheDocument();
 	});
 

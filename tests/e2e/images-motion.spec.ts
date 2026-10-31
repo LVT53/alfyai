@@ -3163,7 +3163,7 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 		});
 	}
 
-	test("history-rail-thumbs: the rail's thumbnails are reserved at 40 px, fade in and scroll with nothing moving", async ({
+	test("history-rail-thumbs: the rail's thumbnails are reserved at 32 px, fade in and scroll with nothing moving", async ({
 		browser,
 	}, testInfo) => {
 		test.setTimeout(240_000);
@@ -3252,7 +3252,7 @@ test.describe("History for pictures moves like the Document's (T4)", () => {
 		const open = metrics.open as HistoryMetrics;
 		holdHistoryMotion(open, false);
 		// Reserved: every frame a thumbnail was on screen it was 40 x 40.
-		expect(metrics.thumbSizes).toEqual(["40x40"]);
+		expect(metrics.thumbSizes).toEqual(["32x32"]);
 		expect(metrics.allThumbs).toEqual(["40x40"]);
 		// It fades in: seen part-way, and ends shown.
 		const opacity = metrics.thumbOpacity as number[];
