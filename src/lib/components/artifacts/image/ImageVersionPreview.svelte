@@ -21,7 +21,7 @@
 // module cold, and the barrel alone costs it several seconds to transform.
 import Paperclip from "@lucide/svelte/icons/paperclip";
 import SquareDashed from "@lucide/svelte/icons/square-dashed";
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
 import { t } from "$lib/i18n";
 import { oneLineName } from "$lib/shared/one-line-name";
@@ -90,6 +90,19 @@ $effect(() => {
 	if (!marking || editMarks.length < MAX_MARKS) refused = false;
 });
 
+// The switch above asks for the wipe, which Edit this version covers: asked for, it
+// shows. The boxes stay held, and Edit this version brings them back.
+let comparedWith = untrack(() => compare);
+$effect(() => {
+	if (compare === comparedWith) return;
+	comparedWith = compare;
+	editing = false;
+	marking = false;
+});
+
+/** Boxes held on this version open it for editing once, on arriving here: later loads (a new "now", the compare switch) leave the reader's choice alone. */
+let arrived = false;
+
 function startEditing(): void {
 	editing = true;
 	marking = true;
@@ -152,10 +165,11 @@ async function load(id: string, baseId: string | null): Promise<void> {
 		base = other;
 		status = "ready";
 		// Coming back to a version with boxes on it: they are shown where they can be changed.
-		if (canEditHere && heldMarks?.imageFileId === target.fileId) {
+		if (!arrived && canEditHere && heldMarks?.imageFileId === target.fileId) {
 			editing = true;
 			marking = true;
 		}
+		arrived = true;
 		onState({ status: "ready", changeCount: 0 });
 	} catch {
 		if (mine !== token) return;

@@ -170,6 +170,38 @@ describe("ImageVersionPreview Edit this version", () => {
 		expect(screen.queryByTestId("compare-wipe")).toBeNull();
 	});
 
+	it("lets the Compare with now switch show its wipe, boxes held or not", async () => {
+		const marks = {
+			imageFileId: "file-2",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+		};
+		renderPreview({ canEdit: true, onMarksChange: vi.fn(), marks });
+		await screen.findByTestId("image-version-edit-stop");
+
+		await rerenderPreview({ compare: "now", baseVersionId: "v3" });
+
+		const wipe = await screen.findByTestId("compare-wipe-before");
+		expect(wipe).toHaveAttribute("src", expect.stringContaining("file-3"));
+		expect(screen.queryByTestId("image-version-edit-stop")).toBeNull();
+		expect(screen.getByTestId("image-version-edit")).toBeInTheDocument();
+	});
+
+	it("stays out of editing once the reader stopped, when a newer version lands", async () => {
+		const marks = {
+			imageFileId: "file-2",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+		};
+		renderPreview({ canEdit: true, onMarksChange: vi.fn(), marks });
+		await fireEvent.click(await screen.findByTestId("image-version-edit-stop"));
+		await screen.findByTestId("compare-wipe");
+
+		await rerenderPreview({ nowVersionId: "v4", nowHash: "hash-4" });
+
+		await waitFor(() => expect(bodies.versionBody).toHaveBeenCalledTimes(4));
+		await screen.findByTestId("compare-wipe");
+		expect(screen.queryByTestId("image-version-edit-stop")).toBeNull();
+	});
+
 	it("keeps Attach to chat beside it", async () => {
 		renderPreview({
 			canEdit: true,
