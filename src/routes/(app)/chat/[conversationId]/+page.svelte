@@ -221,6 +221,7 @@ import {
 	buildPendingFileProductionJobPlaceholder,
 	composerMarksFromSend,
 	composerPicturesFromSend,
+	marksAfterUndo,
 	marksOutdated,
 	pictureOrderFromSend,
 	composerPlaceholderKey,
@@ -1795,12 +1796,13 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 	const sameFile =
 		held?.artifactId === artifactId && held.imageFileId === request.imageFileId;
 	const name = active.title || active.filename || "";
-	heldMarks = {
+	const moved: ComposerMarks = {
 		...request,
 		artifactId,
 		name,
 		version: sameFile && held ? held.version : latestVersionOf(artifactId),
 	};
+	heldMarks = moved;
 	// One message carries marks on one picture: drawing on another photo takes
 	// them over, and says so, so boxes never vanish unseen.
 	if (held && held.artifactId !== artifactId) {
@@ -1809,7 +1811,7 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 			message: $t("artifacts.image.panel.marksMoved", { name }),
 			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
 			onAction: () => {
-				heldMarks = held;
+				heldMarks = marksAfterUndo(heldMarks, moved, held);
 			},
 		});
 	}

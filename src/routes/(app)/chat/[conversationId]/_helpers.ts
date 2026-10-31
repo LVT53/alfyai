@@ -1204,6 +1204,19 @@ export function marksOutdated(
 }
 
 /**
+ * What the marks Undo leaves: the marks they moved from, while the moved ones
+ * are still held on their photo. A notice outlives a send or a switch of chat,
+ * and an Undo then must not bring back marks on a picture of that other message.
+ */
+export function marksAfterUndo(
+	current: ComposerMarks | null,
+	moved: ComposerMarks,
+	previous: ComposerMarks,
+): ComposerMarks | null {
+	return current?.artifactId === moved.artifactId ? previous : current;
+}
+
+/**
  * The key order of a queued or failed turn's pictures, from the numbers it was
  * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
  * back in the composer keeps the numbers the person's own text names.
