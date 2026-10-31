@@ -201,6 +201,29 @@ export async function paintMarks(
  * marks: A = red box, B = blue box". English whatever the person writes: it is
  * scaffolding the model reads (ruling 79).
  */
+/** Where a box lies, in words a picture model reads: never a colour, a letter or a box. */
+function placeOf(mark: ImageMark): string {
+	const across = mark.x + mark.w / 2;
+	const down = mark.y + mark.h / 2;
+	const side = across < 0.34 ? "left" : across > 0.66 ? "right" : "centre";
+	const level = down < 0.34 ? "top" : down > 0.66 ? "bottom" : "middle";
+	const pct = (value: number) => Math.round(value * 100);
+	return `the ${level} ${side} of the picture, ${pct(across)}% across and ${pct(down)}% down, about ${Math.max(1, pct(mark.w))}% wide`;
+}
+
+/**
+ * The picture model's instruction for a marked change. It is told where in words
+ * and never shown the boxes: given a copy with boxes on it, Qwen drew them into
+ * its result (8 of 12 real renders). The boxes themselves bound what is pasted.
+ */
+export function promptWithMarks(
+	prompt: string,
+	marks: readonly ImageMark[],
+): string {
+	const places = marks.map(placeOf).join("; ");
+	return `${prompt}\n\nMake this change only at ${places}. Keep everything else in the picture exactly as it is.`;
+}
+
 export function marksLabel(
 	baseNumber: number,
 	marks: readonly ImageMark[],

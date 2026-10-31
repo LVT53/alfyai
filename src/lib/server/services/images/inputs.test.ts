@@ -151,7 +151,6 @@ describe("the base", () => {
 				mimeType: "image/jpeg",
 			},
 			references: [],
-			marked: null,
 			canvas: { width: 1184, height: 896 },
 		});
 
@@ -170,7 +169,6 @@ describe("the base", () => {
 			conversationId,
 			base: fileSource(file.id),
 			references: [],
-			marked: null,
 			canvas: { width: 1248, height: 832 },
 			changing: "item-own",
 		});
@@ -187,7 +185,6 @@ describe("the base", () => {
 			conversationId,
 			base: fileSource(file.id),
 			references: [],
-			marked: null,
 			canvas: { width: 1248, height: 832 },
 			changing: null,
 		});
@@ -220,7 +217,6 @@ describe("the base", () => {
 			conversationId,
 			base: { ...fileSource(file.id), artifactId: "item-a" },
 			references: [fileSource(file.id)],
-			marked: null,
 			canvas: { width: 1248, height: 832 },
 		};
 		// Another item's picture: both the base and the reference are copies.
@@ -247,7 +243,6 @@ describe("the base", () => {
 					mimeType: "image/jpeg",
 				},
 				references: [],
-				marked: null,
 				canvas: { width: 1184, height: 896 },
 			}),
 		).rejects.toBeInstanceOf(PictureUnreadableError);
@@ -263,7 +258,6 @@ describe("a reference", () => {
 			conversationId,
 			base: null,
 			references: [fileSource(big.id, "wide.png")],
-			marked: null,
 			canvas: { width: 1248, height: 832 },
 		});
 		expect(inputs[0]).toMatchObject({ role: "reference", name: "wide.png" });
@@ -285,57 +279,9 @@ describe("a reference", () => {
 			conversationId,
 			base: null,
 			references: [fileSource(small.id)],
-			marked: null,
 			canvas: { width: 1248, height: 832 },
 			changing: "item-small",
 		});
 		expect(inputs[0]?.fileId).toBe(small.id);
-	});
-});
-
-describe("the marked copy", () => {
-	it("is painted again on the canvas-sized base, boxes where they were drawn", async () => {
-		const base = await storeFile(640, 480);
-		const copy = await storeFile(640, 480);
-		const { prepareTakeInputs } = await import("./inputs");
-		const inputs = await prepareTakeInputs({
-			userId,
-			conversationId,
-			base: fileSource(base.id),
-			references: [],
-			marked: {
-				source: fileSource(
-					copy.id,
-					"Picture 1 with the user's marks: A = red box",
-				),
-				marks: [{ letter: "A", x: 0.25, y: 0.25, w: 0.5, h: 0.5 }],
-			},
-			canvas: { width: 1184, height: 896 },
-		});
-
-		expect(inputs.map((input) => input.role)).toEqual(["base", "marked"]);
-		const marked = inputs[1];
-		const { data, info } = await sharp(await bytesOf(marked?.fileId ?? ""))
-			.removeAlpha()
-			.raw()
-			.toBuffer({ resolveWithObject: true });
-		expect([info.width, info.height]).toEqual([1184, 896]);
-		const at = (x: number, y: number) => {
-			const offset = (y * info.width + x) * 3;
-			return [data[offset], data[offset + 1], data[offset + 2]];
-		};
-		// Far from the box the base is untouched; on the box's left edge the stroke is the mark's colour.
-		expect(at(20, 20)).toEqual([128, 128, 128]);
-		const hex = MARK_COLOURS.A.replace("#", "");
-		const colour = [0, 2, 4].map((i) =>
-			Number.parseInt(hex.slice(i, i + 2), 16),
-		);
-		const edgeX = Math.round(0.25 * 1184);
-		const onEdge = [-4, -2, 0, 2, 4].some((dx) =>
-			at(edgeX + dx, 448).every(
-				(value, i) => Math.abs((value ?? 0) - (colour[i] ?? 0)) < 6,
-			),
-		);
-		expect(onEdge).toBe(true);
 	});
 });

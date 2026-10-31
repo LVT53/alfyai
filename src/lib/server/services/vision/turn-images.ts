@@ -202,9 +202,14 @@ export function buildTurnImageGuidance(params: {
 			? [heldBackImagesGuidance(turnImages.heldBack)]
 			: []),
 		...turnImages.notShown.map(notShownImageGuidance),
+		...(turnImages.hasMarkedPicture ? [MARKED_CHANGE_GUIDANCE] : []),
 		...capLine,
 	];
 }
+
+/** Boxes reach the picture server without the model's help; what it names is what gets found. */
+const MARKED_CHANGE_GUIDANCE =
+	"The user marked parts of a picture with lettered boxes; make_image receives the boxes itself. In its prompt, name each marked thing by what it looks like, as you see it in the picture, not by its box or letter.";
 
 /** The person sees pictures, not their numbers: the numbers are for tool calls. */
 const PICTURE_NUMBERS_HIDDEN_GUIDANCE =

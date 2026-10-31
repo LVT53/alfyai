@@ -158,7 +158,7 @@ The pixel guards from the comparison report run inside the job and are not drawn
 
 - One Mark tool that draws boxes, nothing else (my call: Qwen also reads freehand marks, but one tool keeps it simple). Each box gets a letter and its own colour. Tapping a box removes it.
 - Marks travel with the next message as one chip; the chip's × removes them all, and sending clears them.
-- Qwen has no box control. The app paints the boxes, with their letters, onto a copy of the picture and sends that copy together with the clean picture.
+- Qwen has no box control. The app paints the boxes, with their letters, onto a copy for the chat model to see. The picture model gets only the clean picture and the place in words, because shown a boxed copy it drew the boxes into 8 of 12 real renders (2026-11-01; the same test without the copy: 12 of 12 clean). The boxes bound what is pasted back.
 - Moving objects and inserting them are Qwen's weak spots (inserts can look pasted on, with weak shadows). Another, the automatic retry and Restore are the answers to that; nothing else in the UI changes for it.
 
 ### 5.8 Transparent pictures

@@ -37,6 +37,7 @@ import {
 import { guardEdit } from "./guards/guard-edit";
 import { decodeRaw, encodePng } from "./guards/raw-image";
 import { scheduleIdleFree } from "./idle-free";
+import { promptWithMarks } from "./marks";
 import { checkFinishedPicture } from "./picture-check";
 import {
 	IMAGE_RENDER_DEADLINE_MS,
@@ -263,7 +264,9 @@ async function submitTake(
 		names.push(ref.filename);
 	}
 	const graph = buildPromptGraph(graphChoice.template, {
-		prompt: request.prompt,
+		prompt: request.marks
+			? promptWithMarks(request.prompt, request.marks)
+			: request.prompt,
 		seed: ctx.row.seed,
 		width: request.canvas.width,
 		height: request.canvas.height,

@@ -159,6 +159,9 @@ const lookNote = (takeId: string, retried: boolean) =>
 	retried
 		? `The result follows as a picture. ${REMAINING_PICTURES} Then say in one or two sentences what changed. It was already made again once; do not call make_image again for it.`
 		: `The result follows as a picture. ${REMAINING_PICTURES} Then say in one or two sentences what changed. If it clearly missed (the wrong thing changed), call make_image once with retryOf "${takeId}".`;
+// Said over the others: an unchanged picture is not a result to describe.
+const UNCHANGED_NOTE =
+	"The picture came back unchanged: the edit did not work. Do not say it is done. Tell the user plainly it did not change, and suggest a clearer description or a box that fits the object more closely.";
 const RUNNING_NOTE =
 	"The picture is still being made and will appear on its card in the chat when it is ready. Tell the user it is on its way; do not call make_image again for it.";
 
@@ -710,7 +713,11 @@ async function succeededOutcome(input: {
 			title: plan.title,
 			inUse,
 			retried,
-			note: looked ? lookNote(winnerId, retried) : plainNote,
+			note: snapshot.measures?.miss
+				? UNCHANGED_NOTE
+				: looked
+					? lookNote(winnerId, retried)
+					: plainNote,
 		},
 		metadata: {
 			...base,

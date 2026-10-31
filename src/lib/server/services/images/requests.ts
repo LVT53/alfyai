@@ -173,6 +173,35 @@ function identityOf(source: TurnPictureSource): string {
 		: `file:${source.fileId}`;
 }
 
+/** The marked copy of this message's boxes and the picture they were drawn on. */
+function heldMarksOf(
+	turnPictures: TurnPictureIndex | null,
+): { marked: TurnPictureSource; base: TurnPictureSource } | null {
+	const pictures = turnPictures?.pictures ?? [];
+	const marked = pictures.find(
+		(p) => p.source.type === "image_file" && p.source.role === "marked",
+	)?.source;
+	const on = turnPictures?.metadata?.marks;
+	if (!marked || !on) return null;
+	const base = pictures.find((p) =>
+		p.source.type === "upload"
+			? p.source.artifactId === on.uploadArtifactId
+			: p.source.fileId === on.imageFileId,
+	)?.source;
+	return base ? { marked, base } : null;
+}
+
+/** The same picture, or two versions of one item: the model names an item by its newest. */
+function samePicture(a: TurnPictureSource, b: TurnPictureSource): boolean {
+	if (identityOf(a) === identityOf(b)) return true;
+	return (
+		a.type === "image_file" &&
+		b.type === "image_file" &&
+		a.artifactId !== null &&
+		a.artifactId === b.artifactId
+	);
+}
+
 async function sourcesNamed(params: {
 	userId: string;
 	conversationId: string;
@@ -287,10 +316,26 @@ export async function resolveMakeImageRequest(params: {
 	});
 	if (!named.ok) return refuse("unknown_picture", named.message);
 
-	const marked = named.sources.find(
+	let marked = named.sources.find(
 		(s) => s.type === "image_file" && s.role === "marked",
 	);
 	let plain = named.sources.filter((s) => s !== marked);
+	// The person's boxes belong to this change whether or not the model named
+	// their copy: it usually names only the picture, or none, and the boxes were
+	// lost. A call about another picture, or a new one on purpose, goes without.
+	if (!marked) {
+		const held = heldMarksOf(params.turnPictures);
+		const first = plain[0];
+		if (held && !input.startNew) {
+			if (!first) {
+				plain = [held.base];
+				marked = held.marked;
+			} else if (samePicture(first, held.base)) {
+				plain = [held.base, ...plain.slice(1)];
+				marked = held.marked;
+			}
+		}
+	}
 	// Only the marked copy named: it is a copy of a picture the message holds,
 	// and that picture is the one being changed.
 	if (marked && plain.length === 0) {
@@ -311,7 +356,7 @@ export async function resolveMakeImageRequest(params: {
 		getImageReferenceCap(),
 		template ? imageSlotCount(template) : Number.POSITIVE_INFINITY,
 	);
-	if (plain.length + (marked ? 1 : 0) > limit) {
+	if (plain.length > limit) {
 		return refuse(
 			"too_many_pictures",
 			`make_image takes at most ${limit} pictures per call. Pass the ones the picture needs, or ask the user which.`,
@@ -403,11 +448,21 @@ export async function resolveMakeImageRequest(params: {
 			: undefined;
 		const earlier =
 			!sameCall && existingCard ? await newestFinishedTake(existingCard) : null;
+		// A version the person chose (attached, or marked in History) is what is
+		// changed; only the newest version is the item's own name for "it".
+		const olderVersion =
+			first.type === "image_file" && first.fileId !== itemHere.fileId
+				? first.fileId
+				: null;
 		let fileId = itemHere.fileId;
 		if (sameCall) {
 			fileId = sameCall.request.inputs[0]?.fileId ?? fileId;
 			avoidSeeds = sameCall.request.avoidSeeds;
 			anchor = sameCall.request.anchor;
+		} else if (olderVersion && !earlier) {
+			fileId = olderVersion;
+			if (itemHere.body.seed !== null) avoidSeeds = [itemHere.body.seed];
+			anchor = { fileId, chainSinceAnchor: 0 };
 		} else {
 			const body = earlier?.body ?? itemHere.body;
 			fileId = earlier?.file.id ?? itemHere.fileId;
@@ -451,9 +506,7 @@ export async function resolveMakeImageRequest(params: {
 		references: [
 			...plain.slice(1),
 			// A marked copy with no boxes is just another picture.
-			...(marked && !marks ? [marked] : []),
 		],
-		marked: marked && marks ? { source: marked, marks } : null,
 		canvas,
 		loadedBase,
 		changing: inPlace && itemHere ? itemHere.artifactId : null,

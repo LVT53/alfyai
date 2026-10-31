@@ -2,7 +2,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { MARK_COLOURS } from "$lib/shared/artifacts/image-body";
-import { marksLabel, paintMarks } from "./marks";
+import { marksLabel, paintMarks, promptWithMarks } from "./marks";
 
 async function grey(width: number, height: number): Promise<Buffer> {
 	return sharp({
@@ -120,5 +120,17 @@ describe("marksLabel", () => {
 				{ letter: "B", x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
 			]),
 		).toBe("Picture 3 with the user's marks: A = red box, B = blue box");
+	});
+});
+
+describe("promptWithMarks", () => {
+	it("says where in words and never mentions a box or a letter", () => {
+		const prompt = promptWithMarks("Remove the mug.", [
+			{ letter: "A", x: 0.8, y: 0.7, w: 0.1, h: 0.1 },
+		]);
+		expect(prompt).toContain("Remove the mug.");
+		expect(prompt).toContain("the bottom right of the picture");
+		expect(prompt).toContain("85% across and 75% down");
+		expect(prompt.toLowerCase()).not.toMatch(/\bbox|letter|\bred\b/);
 	});
 });

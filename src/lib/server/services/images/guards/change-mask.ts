@@ -151,6 +151,7 @@ function upscale(plane: Plane, width: number, height: number): Float32Array {
 export function changeMask(
 	before: RawImage,
 	after: RawImage,
+	minComponentShare: number = GUARD.minComponentShare,
 ): { mask: Float32Array; changedShare: number } {
 	if (before.width !== after.width || before.height !== after.height) {
 		throw new Error("changeMask needs two pictures of the same size");
@@ -164,10 +165,14 @@ export function changeMask(
 		width: diff.width,
 		height: diff.height,
 	};
-	const opened = morph(morph(binary, 1, false), 1, true);
+	// The fine look skips the opening too: it erases anything two work pixels wide.
+	const opened =
+		minComponentShare < GUARD.minComponentShare
+			? binary
+			: morph(morph(binary, 1, false), 1, true);
 	const kept = dropSmallBlobs(
 		opened,
-		Math.max(1, Math.ceil(GUARD.minComponentShare * opened.data.length)),
+		Math.max(1, Math.ceil(minComponentShare * opened.data.length)),
 	);
 	const short = Math.min(kept.width, kept.height);
 	const grown = morph(

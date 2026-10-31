@@ -1,9 +1,13 @@
 import type { MarkBox } from "./guard-edit";
-import { GUARD, MARK_CLAMP_GROW_SHARE } from "./thresholds";
+import {
+	GUARD,
+	MARK_CLAMP_GROW_SHARE,
+	MARK_CLAMP_MIN_GROW_SHARE,
+} from "./thresholds";
 
 /**
  * Where a marked edit may change the picture: the union of the mark boxes,
- * each grown by MARK_CLAMP_GROW_SHARE of the short side, with a soft edge that
+ * each grown in step with its own size (MARK_CLAMP_GROW_SHARE of the short side at most), with a soft edge that
  * ramps inwards over GUARD.featherShare of the short side. Pixels beyond the
  * grown boxes are exactly 0, so nothing outside them changes; pixels deeper
  * than the feather are exactly 1.
@@ -15,9 +19,15 @@ export function marksClamp(
 ): Float32Array {
 	const clamp = new Float32Array(width * height);
 	const short = Math.min(width, height);
-	const grow = MARK_CLAMP_GROW_SHARE * short;
 	const feather = Math.max(1, GUARD.featherShare * short);
 	for (const mark of marks) {
+		const grow = Math.min(
+			MARK_CLAMP_GROW_SHARE * short,
+			Math.max(
+				MARK_CLAMP_MIN_GROW_SHARE * short,
+				Math.min(mark.w * width, mark.h * height) / 2,
+			),
+		);
 		const x0 = mark.x * width - grow;
 		const x1 = (mark.x + mark.w) * width + grow;
 		const y0 = mark.y * height - grow;

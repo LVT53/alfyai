@@ -287,7 +287,7 @@ describe("how many pictures one call takes", () => {
 		expect(three.ok).toBe(true);
 	});
 
-	it("counts the marked copy among them", async () => {
+	it("does not count the marked copy: the picture server never gets it", async () => {
 		const { GRAPH_TEMPLATES } = await import("./comfyui/templates");
 		const edit = GRAPH_TEMPLATES.edit;
 		if (!edit) throw new Error("no edit graph");
@@ -308,7 +308,7 @@ describe("how many pictures one call takes", () => {
 			{ pictures: ["1", "2", "3"] },
 			{ turnPictures, template: twoSlots },
 		);
-		expect(result).toMatchObject({ ok: false, refusal: "too_many_pictures" });
+		expect(result).toMatchObject({ ok: true });
 	});
 });
 
@@ -516,6 +516,88 @@ describe("what a call is made from", () => {
 		]);
 	});
 
+	it("changes the older version the person chose, not the newest", async () => {
+		const { artifactId, file: newest } = await makeItem();
+		const older = await storeFile();
+		const { attachImageFilesToArtifact } = await import("./files");
+		await attachImageFilesToArtifact([older.id], artifactId);
+		const result = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([fileSource(older.id, { artifactId })]) },
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.request.inputs[0]?.fileId).not.toBe(newest.id);
+		expect(result.plan.request.anchor?.chainSinceAnchor).toBe(0);
+	});
+
+	describe("marks the model did not name", () => {
+		const marks = [{ letter: "A" as const, x: 0.2, y: 0.2, w: 0.3, h: 0.3 }];
+		function marked(base: TurnPictureSource, copyId: string) {
+			const turnPictures: TurnPictureIndex = {
+				...index([base, fileSource(copyId, { role: "marked", marks })]),
+				metadata: {
+					refs: [],
+					open: null,
+					marks: {
+						...(base.type === "upload"
+							? { uploadArtifactId: base.artifactId }
+							: { imageFileId: base.fileId }),
+						markedFileId: copyId,
+						letters: ["A"],
+					},
+				},
+			};
+			return turnPictures;
+		}
+
+		it("adds the boxes when only the marked picture is named", async () => {
+			const base = await storeFile();
+			const copy = await storeFile();
+			const result = await resolve(
+				{ pictures: ["1"] },
+				{ turnPictures: marked(fileSource(base.id), copy.id) },
+			);
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.marks).toEqual(marks);
+			expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
+				"base",
+			]);
+		});
+
+		it("edits the marked picture when no picture is named", async () => {
+			const base = await storeFile();
+			const copy = await storeFile();
+			const result = await resolve(
+				{ pictures: [] },
+				{ turnPictures: marked(fileSource(base.id), copy.id) },
+			);
+			if (!result.ok) throw new Error("not resolved");
+			expect(result.plan.request.mode).toBe("edit");
+			expect(result.plan.request.marks).toEqual(marks);
+		});
+
+		it("leaves the boxes off a call about another picture", async () => {
+			const base = await storeFile();
+			const other = await storeFile();
+			const copy = await storeFile();
+			const turnPictures = marked(fileSource(base.id), copy.id);
+			const result = await resolve(
+				{ pictures: [other.id] },
+				{
+					turnPictures: {
+						...index([
+							fileSource(base.id),
+							fileSource(copy.id, { role: "marked", marks }),
+							fileSource(other.id),
+						]),
+						metadata: turnPictures.metadata,
+					},
+				},
+			).catch(() => null);
+			if (result?.ok) expect(result.plan.request.marks).toBeNull();
+		});
+	});
+
 	it("changes the marked upload when only its marked copy is named", async () => {
 		const photo = await makeUpload(600, 400);
 		const copy = await storeFile();
@@ -540,7 +622,7 @@ describe("what a call is made from", () => {
 		expect(result.plan.request.marks).toEqual(marks);
 	});
 
-	it("paints the marked copy on the base and keeps the boxes on the request", async () => {
+	it("shows the picture server the clean picture and keeps the boxes on the request", async () => {
 		const base = await storeFile();
 		const copy = await storeFile();
 		const marks = [{ letter: "A" as const, x: 0.2, y: 0.2, w: 0.3, h: 0.3 }];
@@ -554,7 +636,6 @@ describe("what a call is made from", () => {
 		expect(result.plan.request.marks).toEqual(marks);
 		expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
 			"base",
-			"marked",
 		]);
 	});
 

@@ -19,13 +19,16 @@ export const GUARD = {
 	/** Below this share nothing counts as changed. */
 	nothingChangedShare: 0.002,
 	/**
-	 * Less than this share of the change inside the marks is a miss. Raised from
-	 * 0.5 to 0.8 on 2026-10-27 after the plan 2c re-measure (results-part-2-server.md,
-	 * "Re-measure (independent region)"): room-1's marked move had insideMarksShare
-	 * 0.77 and removed the coffee table, so a change mostly outside the marks is a
-	 * clear miss and is retried once.
+	 * Share of a marked box's own pixels that must differ for the box to count as
+	 * changed. Measured at full size: a small object is too few work pixels to
+	 * survive `minComponentShare`, and it is exactly what a person marks.
 	 */
-	marksMissShare: 0.8,
+	markedBoxChangedShare: 0.02,
+	/**
+	 * Smallest blob kept on the second look at an unmarked edit that seemed to
+	 * change nothing, so a small removal is not pasted away as noise.
+	 */
+	fineComponentShare: 0.00015,
 	/** Every this-many changes the paste goes back onto the anchor. */
 	reanchorEvery: 4,
 	/** Over an opaque base, a top pixel less opaque than this (0-255) is never pasted; the model's own alpha is 252 or more. */
@@ -40,5 +43,12 @@ export const GUARD = {
 /** The marks are grown by this share of the short side before counting. */
 export const MARK_GROW_SHARE = 0.05;
 
-/** A marked edit may change the picture only inside the marks grown by this share of the short side. */
+/**
+ * A marked edit may change the picture only inside the marks grown by this share
+ * of the short side, at most: a small box grows by half its own short side, or
+ * the model's habit of overreaching (a whole plant pot for its cactus) pastes in
+ * half an object.
+ */
 export const MARK_CLAMP_GROW_SHARE = 0.1;
+/** The least a mark grows, as a share of the short side: room for a soft edge. */
+export const MARK_CLAMP_MIN_GROW_SHARE = 0.02;

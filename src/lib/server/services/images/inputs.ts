@@ -101,7 +101,6 @@ export async function prepareTakeInputs(params: {
 	conversationId: string;
 	base: TurnPictureSource | null;
 	references: TurnPictureSource[];
-	marked: { source: TurnPictureSource; marks: ImageMark[] } | null;
 	canvas: CanvasSize;
 	/** The base when the caller already decoded it (to find the canvas), so an upload is read once. */
 	loadedBase?: LoadedPicture;
@@ -164,20 +163,5 @@ export async function prepareTakeInputs(params: {
 		inputs.push({ fileId, role: "reference", name: source.name });
 	}
 
-	if (params.marked) {
-		// Painted on the canvas-sized base so the boxes sit where they were drawn;
-		// without a base, the marked copy's own pixels are all there is.
-		let under = basePng;
-		if (!under) {
-			const loaded = await load(params.marked.source);
-			under = await resized(loaded, canvas.width, canvas.height);
-		}
-		const painted = await paintMarks(under, params.marked.marks);
-		inputs.push({
-			fileId: await store(painted, "marked"),
-			role: "marked",
-			name: params.marked.source.name,
-		});
-	}
 	return inputs;
 }

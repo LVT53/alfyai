@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { guardEdit } from "./guard-edit";
+import type { RawImage } from "./raw-image";
 import { copyOf, fillBox, sceneAt, warp } from "./test-scene";
 
 // A small canvas: the alignment search costs the same on any frame the size of
@@ -206,14 +207,10 @@ describe("guardEdit", () => {
 			expect(out.mask[edgeRow * SCENE_W + MARKED.x + 20]).toBe(1);
 		});
 
-		it("calls a change that is mostly outside the marks a miss at 0.77 and not at 0.87", async () => {
-			const miss = await run(changed(36));
-			expect(miss.measures.insideMarksShare as number).toBeGreaterThan(0.7);
-			expect(miss.measures.insideMarksShare as number).toBeLessThan(0.8);
-			expect(miss.measures.miss).toBe("outside_marks");
-			const hit = await run(changed(16));
-			expect(hit.measures.insideMarksShare as number).toBeGreaterThan(0.85);
-			expect(hit.measures.miss).toBeNull();
+		it("is no miss when the box changed, however far the model spilled: none of it is pasted", async () => {
+			const spilled = await run(changed(36));
+			expect(spilled.measures.insideMarksShare as number).toBeLessThan(0.8);
+			expect(spilled.measures.miss).toBeNull();
 		});
 
 		it("keeps an earlier change outside the marks when the fourth change goes back onto the anchor", async () => {
@@ -241,7 +238,7 @@ describe("guardEdit", () => {
 			).toEqual([250, 20, 200]);
 		});
 
-		it("treats a marked repaint over most of the frame as a miss and still changes nothing outside the marks", async () => {
+		it("keeps only the marked part of a repaint over most of the frame, changing nothing outside the marks", async () => {
 			const result = copyOf(base);
 			fillBox(
 				result,
@@ -250,7 +247,7 @@ describe("guardEdit", () => {
 			);
 			const out = await run(result);
 			expect(out.measures.global).toBe(true);
-			expect(out.measures.miss).toBe("outside_marks");
+			expect(out.measures.miss).toBeNull();
 			const x1 = MARKED.x + MARKED.w + grow;
 			const y1 = MARKED.y + MARKED.h + grow;
 			for (let y = 0; y < SCENE_H; y++) {
@@ -625,5 +622,58 @@ describe("guardEdit", () => {
 			marks: null,
 		});
 		expect(out.measures.miss).toBe("nothing_changed");
+	});
+
+	describe("a small change", () => {
+		const { base: backdrop, width, height, px } = sceneAt(624);
+		const speck = { x: px(620), y: px(420), w: px(30), h: px(24) };
+		const withSpeck = (): RawImage => {
+			const image = copyOf(backdrop);
+			fillBox(image, speck, [20, 20, 20]);
+			return image;
+		};
+		const mark = {
+			x: (speck.x - px(8)) / width,
+			y: (speck.y - px(8)) / height,
+			w: (speck.w + px(16)) / width,
+			h: (speck.h + px(16)) / height,
+		};
+
+		it("keeps a tiny removal inside the marks", async () => {
+			const out = await guardEdit({
+				base: withSpeck(),
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: backdrop,
+				marks: [mark],
+			});
+			expect(out.measures.miss).toBeNull();
+			const at = (speck.y + 5) * width + speck.x + 5;
+			expect(out.picture.data[at * 4]).toBe(backdrop.data[at * 4]);
+		});
+
+		it("keeps a tiny removal with no marks", async () => {
+			const out = await guardEdit({
+				base: withSpeck(),
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: backdrop,
+				marks: null,
+			});
+			expect(out.measures.miss).toBeNull();
+			const at = (speck.y + 5) * width + speck.x + 5;
+			expect(out.picture.data[at * 4]).toBe(backdrop.data[at * 4]);
+		});
+
+		it("still calls an untouched marked area a miss", async () => {
+			const out = await guardEdit({
+				base: withSpeck(),
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: withSpeck(),
+				marks: [mark],
+			});
+			expect(out.measures.miss).toBe("nothing_changed");
+		});
 	});
 });

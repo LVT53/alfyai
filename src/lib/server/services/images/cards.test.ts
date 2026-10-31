@@ -496,7 +496,6 @@ describe("when a take becomes the version in use", () => {
 				role: "attached",
 			},
 			references: [],
-			marked: null,
 			canvas: { width: 64, height: 64 },
 			changing: null,
 		});
@@ -538,7 +537,6 @@ describe("when a take becomes the version in use", () => {
 						role: "attached",
 					},
 				],
-				marked: null,
 				canvas: { width: 64, height: 64 },
 				changing: null,
 			});

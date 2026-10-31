@@ -92,12 +92,39 @@ function keepTransparent(
 	return { mask, changedShare: mask.length > 0 ? sum / mask.length : 0 };
 }
 
+/** Whether a box's own pixels moved, at full size: see `markedBoxChangedShare`. */
+function boxChanged(before: RawImage, after: RawImage, mark: MarkBox): boolean {
+	const { width, height } = before;
+	const x0 = Math.max(0, Math.floor(mark.x * width));
+	const x1 = Math.min(width, Math.ceil((mark.x + mark.w) * width));
+	const y0 = Math.max(0, Math.floor(mark.y * height));
+	const y1 = Math.min(height, Math.ceil((mark.y + mark.h) * height));
+	let changed = 0;
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
+			const o = (y * width + x) * 4;
+			if (
+				Math.abs(before.data[o] - after.data[o]) > GUARD.diffThreshold ||
+				Math.abs(before.data[o + 1] - after.data[o + 1]) >
+					GUARD.diffThreshold ||
+				Math.abs(before.data[o + 2] - after.data[o + 2]) > GUARD.diffThreshold
+			) {
+				changed++;
+			}
+		}
+	}
+	const area = (x1 - x0) * (y1 - y0);
+	return area > 0 && changed / area >= GUARD.markedBoxChangedShare;
+}
+
 function missOf(
 	changedShare: number,
 	inside: number | null,
+	marksChanged: boolean,
 ): GuardMeasures["miss"] {
+	if (marksChanged) return null;
 	if (changedShare < GUARD.nothingChangedShare) return "nothing_changed";
-	if (inside !== null && inside < GUARD.marksMissShare) return "outside_marks";
+	if (inside !== null) return "outside_marks";
 	return null;
 }
 
@@ -124,7 +151,24 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	// strip transparent: an opaque base stored with a see-through row.
 	const painted = overBase(base, aligned);
 
-	const against = keepTransparent(changeMask(base, aligned), base, aligned);
+	let against = keepTransparent(changeMask(base, aligned), base, aligned);
+	const marked = Boolean(marks && marks.length > 0);
+	let foundSmall = false;
+	if (!marked && against.changedShare < GUARD.nothingChangedShare) {
+		// Nothing big changed: look again for something small before calling the
+		// edit a miss, or a small removal is pasted away as noise.
+		const fine = keepTransparent(
+			changeMask(base, aligned, GUARD.fineComponentShare),
+			base,
+			aligned,
+		);
+		if (fine.changedShare > 0) {
+			against = fine;
+			foundSmall = true;
+		}
+	}
+	const marksChanged =
+		marked && (marks ?? []).some((mark) => boxChanged(base, painted, mark));
 	// A marked edit changes the picture only where the person marked (grown a
 	// little, feathered): the measures below see the model's whole change, so a
 	// change mostly outside the marks still counts as a miss, but none of it is pasted.
@@ -132,8 +176,11 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		marks && marks.length > 0
 			? marksClamp(base.width, base.height, marks)
 			: null;
+	// The person chose this area: what the model made in it is kept whole, not
+	// only the blobs big enough to survive the change mask.
 	const limit = (mask: Float32Array): Float32Array => {
 		if (!clamp) return mask;
+		if (marksChanged) return clamp;
 		const limited = new Float32Array(mask.length);
 		for (let i = 0; i < mask.length; i++) limited[i] = mask[i] * clamp[i];
 		return limited;
@@ -164,7 +211,10 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		// `global` still reported.
 		measures.global = true;
 	}
-	measures.miss = missOf(against.changedShare, measures.insideMarksShare);
+	measures.miss =
+		!marked && foundSmall
+			? null
+			: missOf(against.changedShare, measures.insideMarksShare, marksChanged);
 
 	const reanchor =
 		params.chainSinceAnchor + 1 >= GUARD.reanchorEvery &&
