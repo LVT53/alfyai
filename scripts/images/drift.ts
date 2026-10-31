@@ -43,10 +43,7 @@ import {
 	type RawImage,
 } from "../../src/lib/server/services/images/guards/raw-image";
 import { GUARD } from "../../src/lib/server/services/images/guards/thresholds";
-import {
-	marksLabel,
-	paintMarks,
-} from "../../src/lib/server/services/images/marks";
+import { promptWithMarks } from "../../src/lib/server/services/images/marks";
 import { freshSeed } from "../../src/lib/server/services/images/seeds";
 import type { ImageMark } from "../../src/lib/shared/artifacts/image-body";
 
@@ -441,8 +438,8 @@ async function main(): Promise<void> {
 	}
 
 	// Independent region (plan 2c Task 5 re-measure): LPIPS and offset outside a region the
-	// guard does not produce, plus the whole frame. Marked steps go through the app's marks
-	// painter (images/marks.ts) and the edit graph with a second, marked input picture.
+	// guard does not produce, plus the whole frame. Marked steps go the way the app sends them:
+	// the clean picture alone, the place in words (images/marks.ts), the boxes only to the guard.
 	if (args.includes("--remeasure")) {
 		const regionLines = join(outDir, "region-measures.jsonl");
 		await writeFile(regionLines, "");
@@ -484,22 +481,13 @@ async function main(): Promise<void> {
 					{ letter: "B", ...boxes.dest },
 				];
 				for (const [id, instruction, marks] of [
-					[
-						"cushion-marked",
-						"add one orange cushion inside box A",
-						cushionMarks,
-					],
-					[
-						"move-marked",
-						"move the sofa in box A to the place of box B",
-						moveMarks,
-					],
+					["cushion-marked", "add one orange cushion", cushionMarks],
+					["move-marked", "move the sofa", moveMarks],
 				] as const) {
-					const painted = new Uint8Array(await paintMarks(baseBytes, marks));
 					steps.push({
 						id,
-						prompt: `${instruction}. ${marksLabel(2, marks)}. Remove the boxes and letters from the result, ${KEEP}`,
-						inputs: [baseBytes, painted],
+						prompt: promptWithMarks(instruction, marks),
+						inputs: [baseBytes],
 						marks: [...marks],
 						region: marks.map((m) => growBox(m, 0.1)),
 					});
