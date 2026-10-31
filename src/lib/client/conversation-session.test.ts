@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import {
 	cleanupPreparedConversation,
+	clearConversationSessionState,
 	consumePendingConversationMessage,
 	consumePreviousConversationId,
 	createConversationDraftRecord,
@@ -586,6 +587,20 @@ describe("marks across the hand-off and a reload", () => {
 			addedRef: false,
 			version: null,
 		});
+	});
+
+	it("forgets every chat's boxes when the session ends", () => {
+		storeComposerMarks("conv-s", {
+			uploadArtifactId: "photo-1",
+			marks: [box],
+			artifactId: "photo-1",
+			name: "room.jpg",
+			version: null,
+		});
+
+		clearConversationSessionState();
+
+		expect(readComposerMarks("conv-s")).toBeNull();
 	});
 
 	it("gives a message with no marks none", () => {

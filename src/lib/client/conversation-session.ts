@@ -696,7 +696,10 @@ export function clearConversationSessionState(): void {
 	for (let index = 0; index < storage.length; index += 1) {
 		const key = storage.key(index);
 		if (!key) continue;
-		if (key.startsWith(PENDING_MESSAGE_PREFIX)) {
+		if (
+			key.startsWith(PENDING_MESSAGE_PREFIX) ||
+			key.startsWith(COMPOSER_MARKS_PREFIX)
+		) {
 			keysToRemove.push(key);
 		}
 	}
