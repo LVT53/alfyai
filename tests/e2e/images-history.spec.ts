@@ -98,7 +98,9 @@ test.describe("History for pictures", () => {
 
 				if (mode.touch) {
 					// The phone pushed the preview over the list; back to the list shows the row.
-					await history.getByRole("button", { name: "History" }).tap();
+					await history
+						.getByRole("button", { name: "History", exact: true })
+						.tap();
 				}
 				const selected = history.locator(
 					'[data-testid="history-option"][aria-selected="true"]',
@@ -112,6 +114,90 @@ test.describe("History for pictures", () => {
 				await expect(
 					selected.getByTestId("history-thumb").locator("img"),
 				).toHaveAttribute("src", new RegExp(`${fileIds[2]}.*variant=thumb`));
+			});
+
+			test("Edit this version sends boxes on that version's file, and a newer picture never drops them", async ({
+				page,
+			}) => {
+				const { fileIds } = await readerWithPicture(page);
+				await page
+					.locator('[data-testid="artifact-history-button"]:visible')
+					.first()
+					.click();
+				const history = page.getByTestId("artifact-history");
+				const options = history.getByTestId("history-option");
+				await expect(options.last()).toContainText("Alfy made the picture");
+				if (mode.touch) await options.last().tap();
+				else await options.last().click();
+				const edit = history.getByTestId("image-version-edit");
+				await expect(edit).toBeEnabled();
+				await expect(
+					history.getByTestId("image-version-preview-attach"),
+				).toContainText("Attach to chat");
+				if (mode.touch) await edit.tap();
+				else await edit.click();
+				await expect(history.getByTestId("compare-wipe")).toHaveCount(0);
+				await expect(history.getByTestId("image-body-mark")).toHaveAttribute(
+					"aria-pressed",
+					"true",
+				);
+
+				// A real drag on the layer: a mouse on the desktop, a finger on the phone.
+				const box = await history
+					.getByTestId("image-version-picture")
+					.boundingBox();
+				if (!box) throw new Error("no picture");
+				const from = {
+					x: box.x + box.width * 0.2,
+					y: box.y + box.height * 0.2,
+				};
+				const to = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.6 };
+				if (mode.touch) {
+					const client = await page.context().newCDPSession(page);
+					const touch = (type: string, points: { x: number; y: number }[]) =>
+						client.send("Input.dispatchTouchEvent", {
+							type,
+							touchPoints: points,
+						} as never);
+					await touch("touchStart", [from]);
+					await touch("touchMove", [to]);
+					await touch("touchEnd", []);
+				} else {
+					await page.mouse.move(from.x, from.y);
+					await page.mouse.down();
+					await page.mouse.move(to.x, to.y, { steps: 6 });
+					await page.mouse.up();
+				}
+
+				const held = () =>
+					page.evaluate(() => {
+						for (let i = 0; i < sessionStorage.length; i += 1) {
+							const key = sessionStorage.key(i);
+							if (key?.includes("marks")) {
+								return JSON.parse(sessionStorage.getItem(key) ?? "null");
+							}
+						}
+						return null;
+					});
+				await expect
+					.poll(async () => (await held())?.imageFileId)
+					.toBe(fileIds[0]);
+				expect((await held())?.version).toBeNull();
+
+				if (mode.touch) {
+					await history.getByTestId("mark-continue").tap();
+				} else {
+					await page
+						.locator('[data-testid="artifact-history-button"]:visible')
+						.first()
+						.click();
+				}
+				await expect(history).toHaveCount(0);
+				// The panel's newer picture, or a shut panel, leaves them held.
+				expect((await held())?.imageFileId).toBe(fileIds[0]);
+				await expect(page.getByTestId("composer-chip-marks")).toContainText(
+					"Marks A",
+				);
 			});
 
 			test("Restore brings an older picture back into the panel", async ({

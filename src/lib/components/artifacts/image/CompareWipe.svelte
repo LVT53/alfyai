@@ -12,6 +12,9 @@
 // to both sides' `clip-path` and the line's `transform` in an animation
 // frame (one write per frame however many inputs arrive), and neither has a CSS
 // transition: the cut follows the finger, it never eases after it.
+// The icon file itself, not the barrel: History's preview registry test loads this
+// module cold (see `ImageVersionPreview.svelte`).
+import ChevronsLeftRight from "@lucide/svelte/icons/chevrons-left-right";
 import type { Snippet } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import "./checkerboard.css";
@@ -159,7 +162,9 @@ const valueText = $derived(`${Math.round(clamp(position))}%`);
 		onload={() => (afterLoaded = true)}
 	/>
 	<span bind:this={lineElement} class="compare-wipe-line" aria-hidden="true" data-testid="compare-wipe-line">
-		<span class="compare-wipe-grip"></span>
+		<span class="compare-wipe-grip" data-testid="compare-wipe-grip">
+			<ChevronsLeftRight size={16} strokeWidth={2.2} aria-hidden="true" />
+		</span>
 	</span>
 	{#if beforeTag}
 		<span class="compare-wipe-tag compare-wipe-tag-before" aria-hidden="true">{beforeTag}</span>
@@ -253,12 +258,16 @@ const valueText = $derived(`${Math.round(clamp(position))}%`);
 		position: absolute;
 		top: 50%;
 		left: 50%;
+		display: grid;
+		place-items: center;
 		width: var(--grip);
 		height: var(--grip);
 		margin: calc(var(--grip) / -2) 0 0 calc(var(--grip) / -2);
 		border-radius: var(--radius-full);
 		background: var(--surface-page);
 		box-shadow: 0 1px 6px color-mix(in srgb, var(--text-primary) 30%, transparent);
+		/* The arrows' stroke; the line's own colour is the surface and would not show on it. */
+		color: var(--text-primary);
 	}
 
 	/* One pill for both tags, with an edge and a lift, so it reads as a pill on a

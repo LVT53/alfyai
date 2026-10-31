@@ -1393,7 +1393,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("Written by Alfy · 10 min ago");
+				).toHaveTextContent("10 min ago");
 			});
 
 			// A save, somewhere in the panel, is answered with version 4.
@@ -1413,7 +1413,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("Edited by you · just now");
+				).toHaveTextContent("just now");
 			});
 			// A late, older answer never pulls it back.
 			await saveArtifactBody(
@@ -1430,7 +1430,7 @@ describe("chat page runtime integration", () => {
 			);
 			expect(
 				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("Edited by you · just now");
+			).toHaveTextContent("just now");
 
 			// Back to the list: its row says the same time, and never a number.
 			await fireEvent.click(
@@ -1637,10 +1637,9 @@ describe("chat page runtime integration", () => {
 			const shell = await screen.findByRole("complementary", {
 				name: WORKSPACE_LANDMARK,
 			});
-			// An older server says nothing of who: the header says only that it
-			// was edited, and when.
+			// An older server says nothing of who: the header says when.
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("Edited · 3 h ago");
+				expect(shell).toHaveTextContent("3 h ago");
 			});
 
 			// A save, somewhere in the panel, is acknowledged.
@@ -1657,7 +1656,7 @@ describe("chat page runtime integration", () => {
 				),
 			);
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("Edited by you · just now");
+				expect(shell).toHaveTextContent("just now");
 			});
 
 			await fireEvent.click(

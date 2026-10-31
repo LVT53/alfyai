@@ -887,7 +887,7 @@ test.describe("Knowledge page", () => {
 				.locator('[data-testid="artifact-history-button"]:visible')
 				.first();
 			await expect(historyButton).toBeVisible({ timeout: 15_000 });
-			await expect(historyButton).toContainText("Changed by Alfy");
+			await expect(historyButton).toHaveAttribute("title", /Changed by Alfy/);
 			await historyButton.click();
 			const region = page.getByRole("region", {
 				name: `History of ${title}`,

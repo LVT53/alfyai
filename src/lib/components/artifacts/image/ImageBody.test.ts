@@ -483,6 +483,24 @@ describe("ImageBody", () => {
 			await waitFor(() => expect(onMarksChange).toHaveBeenCalledWith(null));
 		});
 
+		it("leaves alone marks put on an older version in History: they are shown there, and sent", async () => {
+			api.fetchArtifact.mockResolvedValue(
+				detail(body({ fileId: "file-3", baseFileId: "file-2" }), 3),
+			);
+			const onMarksChange = vi.fn();
+			renderBody({
+				marks: {
+					imageFileId: "file-2",
+					marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+					keepOnOtherFile: true,
+				},
+				onMarksChange,
+			});
+			await screen.findByTestId("image-body-picture");
+			expect(screen.queryByTestId("mark-box")).toBeNull();
+			expect(onMarksChange).not.toHaveBeenCalled();
+		});
+
 		it("lets the marks go when a newer picture lands in the open body", async () => {
 			const view = await renderMarking();
 			await fireEvent.click(screen.getByRole("button", { name: "Mark" }));

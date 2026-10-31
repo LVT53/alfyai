@@ -1,18 +1,30 @@
 <script lang="ts">
 /**
- * The toolbar above History's preview (ruling 76, versioning.md §5.4–§5.6): what
- * the selected moment is ("Monday 10:09 · You edited"), what it changed (with
- * the version number in fine print, the one place it is printed), the switch
- * between "This version's changes" and "Compared with now", the stepper through
- * the preview's changes, and the two things a reader does with a version: name
- * it and bring it back.
+ * The one row above History's preview (ruling 76, versioning.md §5.4–§5.6): when
+ * the selected moment was, whether it is compared with now, the stepper through
+ * the preview's changes, and the two things a reader does with a version: name it
+ * and bring it back. Beside the rail the row says only the time, since the
+ * selected rail row already says who did what; where the preview is pushed over
+ * the rail it says both. The version number is the fine print a pointer finds on
+ * hover or focus, and a screen reader always (the one place it is printed).
+ *
+ * Comparing is one switch, off by default: the preview shows what this version
+ * changed; on, it shows this version against now, which is what Restore would
+ * change. A first version has no change of its own, so its switch stays on.
  *
  * Restore turns into its own question in place (no modal): the question, any
  * extra lines that apply, and Cancel / Restore. Naming opens an inline field.
  * The toolbar is presentational: `HistoryMode.svelte` holds the state and does
  * the work.
  */
-import { Bookmark, ChevronDown, ChevronUp, RotateCcw } from "@lucide/svelte";
+import {
+	ArrowLeftRight,
+	Bookmark,
+	BookmarkX,
+	ChevronDown,
+	ChevronUp,
+	RotateCcw,
+} from "@lucide/svelte";
 import { tick } from "svelte";
 import { t } from "$lib/i18n";
 import { VERSION_LABEL_MAX_CHARS } from "$lib/shared/artifacts/history";
@@ -20,7 +32,8 @@ import { VERSION_LABEL_MAX_CHARS } from "$lib/shared/artifacts/history";
 type Compare = "step" | "now";
 
 let {
-	title,
+	when,
+	headline,
 	detail = null,
 	fine,
 	showCompare,
@@ -53,14 +66,17 @@ let {
 	onCancelName = undefined,
 	onRemoveName = undefined,
 }: {
-	title: string;
+	/** "Today 17:57". */
+	when: string;
+	/** "Alfy changed the picture": said aloud always, on screen only where the rail is not beside the preview. */
+	headline: string;
 	detail?: string | null;
 	/** "Version 7": the only place a version number is printed. */
 	fine: string;
-	/** The newest moment shows only "this version's changes"; there is nothing to compare it with. */
+	/** The newest moment has nothing to compare with: no switch. */
 	showCompare: boolean;
 	compare: Compare;
-	/** A first version has no step of its own: its preview compares with now, and the first half of the switch is disabled. */
+	/** A first version has no step of its own: its preview compares with now, and the switch stays on. */
 	stepDisabled: boolean;
 	changeCount?: number;
 	/** 0-based; -1 before the reader has stepped to one. */
@@ -82,7 +98,7 @@ let {
 	nameDraft?: string;
 	namingBusy?: boolean;
 	nameProblem?: string | null;
-	/** The narrow layouts stack the title above its actions. */
+	/** The rail is not beside the preview: the row says who did what, and what changed. */
 	narrow?: boolean;
 	onCompare: (compare: Compare) => void;
 	onPrevChange: () => void;
@@ -142,16 +158,58 @@ const counter = $derived(
 </script>
 
 <div class="toolbar" class:narrow data-testid="history-toolbar">
-	<div class="row row-title">
+	<div class="row">
 		<div class="title-block">
 			{#if label}
 				<span class="named">
 					<Bookmark size={12} strokeWidth={2.2} aria-hidden="true" />
-					{label}
+					<span class="named-text">{label}</span>
 				</span>
 			{/if}
-			<h3 class="title" data-testid="history-title">{title}</h3>
+			<h3 class="title" data-testid="history-title">
+				{when}<span class:sr-only={!narrow}><span aria-hidden="true">&nbsp;·&nbsp;</span>{headline}</span>
+			</h3>
+			<span class="fine" data-testid="history-fine">{fine}</span>
 		</div>
+		<span class="grow"></span>
+		{#if showCompare}
+			<button
+				type="button"
+				class="action compare"
+				data-testid="history-compare-now"
+				aria-pressed={compare === 'now'}
+				disabled={stepDisabled}
+				onclick={() => onCompare(compare === 'now' ? 'step' : 'now')}
+			>
+				<ArrowLeftRight size={14} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.history.compare.now')}
+			</button>
+		{/if}
+		{#if counter}
+			<span class="stepper" role="group" aria-label={$t('artifacts.history.change.countA11y', { i: Math.max(1, changeIndex + 1), n: changeCount })}>
+				<button
+					type="button"
+					class="step"
+					data-testid="history-prev-change"
+					aria-label={$t('artifacts.history.change.prev')}
+					title={$t('artifacts.history.change.prev')}
+					onclick={onPrevChange}
+				>
+					<ChevronUp size={14} strokeWidth={2.2} aria-hidden="true" />
+				</button>
+				<span class="count" data-testid="history-change-count" aria-hidden="true">{counter}</span>
+				<button
+					type="button"
+					class="step"
+					data-testid="history-next-change"
+					aria-label={$t('artifacts.history.change.next')}
+					title={$t('artifacts.history.change.next')}
+					onclick={onNextChange}
+				>
+					<ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" />
+				</button>
+			</span>
+		{/if}
 		{#if restoreQuestion === null}
 			<div class="actions">
 				{#if naming}
@@ -176,13 +234,26 @@ const counter = $derived(
 					</form>
 				{:else}
 					{#if onStartName}
-						<button type="button" class="action" data-testid="history-name" onclick={onStartName}>
+						<button
+							type="button"
+							class="action icon"
+							data-testid="history-name"
+							aria-label={label ? $t('artifacts.history.rename') : $t('artifacts.history.name')}
+							title={label ? $t('artifacts.history.rename') : $t('artifacts.history.name')}
+							onclick={onStartName}
+						>
 							<Bookmark size={14} strokeWidth={2} aria-hidden="true" />
-							{label ? $t('artifacts.history.rename') : $t('artifacts.history.name')}
 						</button>
 						{#if label && onRemoveName}
-							<button type="button" class="action" data-testid="history-remove-name" onclick={onRemoveName}>
-								{$t('artifacts.history.removeName')}
+							<button
+								type="button"
+								class="action icon"
+								data-testid="history-remove-name"
+								aria-label={$t('artifacts.history.removeName')}
+								title={$t('artifacts.history.removeName')}
+								onclick={onRemoveName}
+							>
+								<BookmarkX size={14} strokeWidth={2} aria-hidden="true" />
 							</button>
 						{/if}
 					{/if}
@@ -200,7 +271,7 @@ const counter = $derived(
 					{:else if restoreDisabledReason}
 						<span class="note" data-testid="history-restore-note">{restoreDisabledReason}</span>
 					{:else if nowLine}
-						<span class="note">{$t('artifacts.history.nowLine')}</span>
+						<span class="note">{$t('artifacts.history.now')}</span>
 					{:else if sameAsNow}
 						<span class="note">{$t('artifacts.history.sameAsNow')}</span>
 					{/if}
@@ -243,63 +314,9 @@ const counter = $derived(
 		<p class="detail">{$t('artifacts.history.nextEditsNew')}</p>
 	{/if}
 
-	<div class="row row-detail">
-		<p class="detail">
-			{#if detail}<span>{detail}</span><span class="sep" aria-hidden="true">&nbsp;·&nbsp;</span>{/if}<span class="fine" data-testid="history-fine">{fine}</span>
-		</p>
-	</div>
-
-	<div class="row row-controls">
-		{#if showCompare}
-			<div class="segmented" role="group" aria-label={$t('artifacts.history.compare.a11y')}>
-				<button
-					type="button"
-					class="seg"
-					data-testid="history-compare-step"
-					aria-pressed={compare === 'step'}
-					disabled={stepDisabled}
-					onclick={() => onCompare('step')}
-				>
-					{$t('artifacts.history.compare.step')}
-				</button>
-				<button
-					type="button"
-					class="seg"
-					data-testid="history-compare-now"
-					aria-pressed={compare === 'now'}
-					onclick={() => onCompare('now')}
-				>
-					{$t('artifacts.history.compare.now')}
-				</button>
-			</div>
-		{/if}
-		<span class="grow"></span>
-		{#if counter}
-			<span class="stepper" role="group" aria-label={$t('artifacts.history.change.countA11y', { i: Math.max(1, changeIndex + 1), n: changeCount })}>
-				<button
-					type="button"
-					class="step"
-					data-testid="history-prev-change"
-					aria-label={$t('artifacts.history.change.prev')}
-					title={$t('artifacts.history.change.prev')}
-					onclick={onPrevChange}
-				>
-					<ChevronUp size={14} strokeWidth={2.2} aria-hidden="true" />
-				</button>
-				<span class="count" data-testid="history-change-count" aria-hidden="true">{counter}</span>
-				<button
-					type="button"
-					class="step"
-					data-testid="history-next-change"
-					aria-label={$t('artifacts.history.change.next')}
-					title={$t('artifacts.history.change.next')}
-					onclick={onNextChange}
-				>
-					<ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" />
-				</button>
-			</span>
-		{/if}
-	</div>
+	{#if narrow && detail}
+		<p class="detail">{detail}</p>
+	{/if}
 </div>
 
 <style>
@@ -307,26 +324,22 @@ const counter = $derived(
 		display: flex;
 		flex-direction: column;
 		gap: 0.375rem;
-		padding: 0.75rem 1rem 0.625rem;
-		border-bottom: 1px solid var(--border-default);
+		padding: 0.75rem 1rem 0.25rem;
 	}
 
+	/* One row while it fits; a tight panel lets the controls go under the time. */
 	.row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.25rem 0.5rem;
 		min-width: 0;
-	}
-
-	.row-title {
-		align-items: flex-start;
-		justify-content: space-between;
 	}
 
 	.title-block {
 		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
+		align-items: baseline;
+		gap: 0.5rem;
 		min-width: 0;
 	}
 
@@ -334,21 +347,29 @@ const counter = $derived(
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
+		min-width: 0;
 		color: var(--text-primary);
-		font-size: 0.75rem;
-		font-weight: 700;
+		font-size: 0.8125rem;
+		font-weight: 600;
 	}
 
 	.named :global(svg) {
+		flex-shrink: 0;
 		color: var(--accent-text);
+	}
+
+	.named-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.title {
 		margin: 0;
 		color: var(--text-primary);
 		font-family: var(--font-sans);
-		font-size: 0.875rem;
-		font-weight: 700;
+		font-size: 0.8125rem;
+		font-weight: 500;
 		line-height: 1.3;
 		overflow-wrap: anywhere;
 	}
@@ -380,9 +401,25 @@ const counter = $derived(
 			color var(--duration-standard) var(--ease-out);
 	}
 
-	.action:hover {
+	.action:hover:not(:disabled) {
 		background: var(--surface-elevated);
 		color: var(--text-primary);
+	}
+
+	.action.icon {
+		justify-content: center;
+		width: 1.75rem;
+		padding: 0;
+	}
+
+	.compare[aria-pressed='true'],
+	.compare[aria-pressed='true']:hover:not(:disabled) {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.compare:disabled {
+		cursor: default;
 	}
 
 	.action-restore {
@@ -391,7 +428,7 @@ const counter = $derived(
 		color: var(--accent-text);
 	}
 
-	.action-restore:hover {
+	.action-restore:hover:not(:disabled) {
 		background: var(--accent-tint-strong);
 		color: var(--accent-text);
 	}
@@ -484,55 +521,24 @@ const counter = $derived(
 		line-height: 1.4;
 	}
 
+	/* The version number: there for a screen reader, and for a pointer on hover or
+	   focus. A touch screen has no hover, so it is out of the way there. */
 	.fine {
+		color: var(--text-muted);
 		font-size: 0.6875rem;
 		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		opacity: 0;
+		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	.row-controls {
-		flex-wrap: wrap;
+	.toolbar:hover .fine,
+	.toolbar:focus-within .fine {
+		opacity: 1;
 	}
 
 	.grow {
 		flex: 1 1 auto;
-	}
-
-	.segmented {
-		display: inline-flex;
-		padding: 2px;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-elevated);
-	}
-
-	.seg {
-		height: 1.5rem;
-		padding: 0 0.625rem;
-		border: 0;
-		border-radius: calc(var(--radius-md) - 2px);
-		background: transparent;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.75rem;
-		font-weight: 600;
-		white-space: nowrap;
-		cursor: pointer;
-	}
-
-	.seg[aria-pressed='true'] {
-		background: var(--surface-page);
-		color: var(--text-primary);
-		box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 14%, transparent);
-	}
-
-	.seg:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
-	.seg:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.stepper {
@@ -572,25 +578,21 @@ const counter = $derived(
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* The comparison switch is the widest control in Hungarian (about 290 px):
-	   below 520 px it wraps under the title rather than squeezing it. */
 	@media (max-width: 639px) {
 		.action,
 		.step {
 			min-height: 2.75rem;
 		}
 
+		.action.icon,
 		.step {
 			min-width: 2.75rem;
-		}
-
-		.seg {
-			height: 2.25rem;
 		}
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.action {
+		.action,
+		.fine {
 			transition: none;
 		}
 	}

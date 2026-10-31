@@ -319,9 +319,9 @@ $effect(() => {
 		display: flex;
 		flex: 1 1 auto;
 		flex-direction: column;
-		gap: 0.625rem;
+		gap: 0.5rem;
 		min-height: 0;
-		padding: 0.75rem 0.875rem 1.5rem;
+		padding: 0.25rem 0.375rem 1.5rem;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 	}

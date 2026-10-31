@@ -74,30 +74,20 @@ let {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.25rem 0.5rem;
-		padding: 0.75rem 0.875rem 0.625rem;
+		padding: 0.75rem 0.875rem 0.5rem;
 		background-color: var(--surface-page);
-		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.margin-panel-title {
 		margin: 0;
 		font-size: var(--text-sm);
-		font-weight: 700;
-		letter-spacing: 0.02em;
+		font-weight: 600;
 		color: var(--text-primary);
 	}
 
 	.margin-panel-count {
-		display: inline-grid;
-		place-items: center;
-		min-width: 1.0625rem;
-		height: 1.0625rem;
-		padding: 0 0.3125rem;
-		border-radius: var(--radius-full);
-		background-color: var(--comment-mark);
-		color: var(--text-primary);
-		font-size: 0.65625rem;
-		font-weight: 700;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
 		font-variant-numeric: tabular-nums;
 	}
 

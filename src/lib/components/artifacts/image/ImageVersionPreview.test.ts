@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type ImageMarksRequest,
 	type ImageVersionBody,
 	serializeImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
@@ -61,6 +62,9 @@ function renderPreview(
 		compare: "step" | "now";
 		title: string;
 		onAttachPicture: (picture: { imageFileId: string; name: string }) => void;
+		canEdit: boolean;
+		marks: ImageMarksRequest | null;
+		onMarksChange: (marks: ImageMarksRequest | null) => void;
 	}> = {},
 ) {
 	const onState = vi.fn();
@@ -132,6 +136,51 @@ describe("ImageVersionPreview Attach", () => {
 		renderPreview();
 		await screen.findByTestId("compare-wipe-before");
 		expect(screen.queryByTestId("image-version-preview-attach")).toBeNull();
+	});
+});
+
+describe("ImageVersionPreview Edit this version", () => {
+	const edit = () => screen.findByTestId("image-version-edit");
+
+	it("offers no edit on the current version, or where the host takes no marks", async () => {
+		renderPreview({ canEdit: false, onMarksChange: vi.fn() });
+		await screen.findByTestId("compare-wipe-before");
+		expect(screen.queryByTestId("image-version-edit")).toBeNull();
+	});
+
+	it("shows the version large, with the Mark tool on, in place of the wipe", async () => {
+		renderPreview({ canEdit: true, onMarksChange: vi.fn() });
+		await screen.findByTestId("compare-wipe-before");
+		await fireEvent.click(await edit());
+		expect(screen.queryByTestId("compare-wipe")).toBeNull();
+		expect(screen.getByTestId("image-version-picture")).toBeTruthy();
+		const tool = screen.getByTestId("image-body-mark");
+		expect(tool.getAttribute("aria-pressed")).toBe("true");
+		await fireEvent.click(screen.getByTestId("image-version-edit-stop"));
+		expect(await screen.findByTestId("compare-wipe")).toBeTruthy();
+	});
+
+	it("opens on the boxes already held on this version's file, and only those", async () => {
+		const held = {
+			imageFileId: "file-2",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+		};
+		renderPreview({ canEdit: true, onMarksChange: vi.fn(), marks: held });
+		expect(await screen.findByTestId("image-body-mark")).toBeTruthy();
+		expect(screen.queryByTestId("compare-wipe")).toBeNull();
+	});
+
+	it("keeps Attach to chat beside it", async () => {
+		renderPreview({
+			canEdit: true,
+			onMarksChange: vi.fn(),
+			onAttachPicture: vi.fn(),
+		});
+		await screen.findByTestId("compare-wipe-before");
+		await fireEvent.click(await edit());
+		expect(
+			screen.getByTestId("image-version-preview-attach").textContent,
+		).toContain("Attach to chat");
 	});
 });
 

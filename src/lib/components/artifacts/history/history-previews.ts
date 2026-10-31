@@ -13,8 +13,11 @@
  * Markdown renderer, a board, a sandbox frame), and must never enter the chat
  * page's first load or an editor's.
  */
+
 import type { Component } from "svelte";
+import type { PanelMarks } from "$lib/components/artifacts/artifact-bodies";
 import type { MomentAuthor } from "$lib/shared/artifacts/history";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 /** Which comparison the preview's marks show: what the selected version did to its parent, or what Restore would change. */
@@ -52,6 +55,14 @@ export interface HistoryPreviewProps {
 		name: string;
 		at?: number;
 	}) => void;
+	/** A selected version the reader may work from: not the newest, and not the same as it (the Image's Edit this version). */
+	canEdit?: boolean;
+	/** The marks the page holds; a preview shows them only on their own file. */
+	marks?: PanelMarks | null;
+	/** Marks drawn on the shown version. Absent where the host has no chat: no Edit this version. */
+	onMarksChange?: ((marks: ImageMarksRequest | null) => void) | undefined;
+	/** From History back to the composer, where the marks are sent. */
+	onMarksContinue?: (() => void) | undefined;
 	/** The version to show. */
 	versionId: string;
 	/** When that version was made (ms), handed on with an attached picture. */

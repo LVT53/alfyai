@@ -204,7 +204,8 @@ $effect(() => {
 
 // The marks belong to the file they were drawn on, and show only on it. Marks
 // on another file (a newer picture landed under them, or a restored turn's
-// marks on an older version) are never drawn here and go, chip and all.
+// marks on an older version) are never drawn here and go, chip and all, unless
+// the reader put them on that version in History (`keepOnOtherFile`).
 let shownMarks = $derived(
 	marks && picture && marks.imageFileId === picture.fileId ? marks.marks : [],
 );
@@ -212,6 +213,7 @@ $effect(() => {
 	const fileId = picture?.fileId ?? null;
 	const markedOn = marks?.imageFileId ?? null;
 	if (status !== "ready" || !fileId || !markedOn || markedOn === fileId) return;
+	if (marks?.keepOnOtherFile) return;
 	letGoHere = true;
 	untrack(() => onMarksChange?.(null));
 });

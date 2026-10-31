@@ -210,7 +210,7 @@ test.describe("What History says after a press", () => {
 		await expect(options.nth(0)).toHaveAttribute("aria-selected", "false");
 		await expect(region.getByText("Belvedere.").first()).toBeVisible();
 		await expect(
-			region.getByText("This is how it looks now", { exact: false }),
+			region.getByTestId("history-toolbar").getByText("Now", { exact: true }),
 		).toBeVisible();
 		// One Now, on the entry whose own row is the newest.
 		await expect(region.locator(".marker-now")).toHaveCount(1);

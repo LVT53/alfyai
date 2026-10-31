@@ -120,9 +120,9 @@ async function openDocumentInPanel(page: Page) {
 	await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
 }
 
-/** Done joins the header's actions in both of the panel's shells; only the showing one counts. */
+/** While History is open the header's history button is the way out. */
 function doneButton(page: Page): Locator {
-	return page.locator('[data-testid="artifact-history-done"]:visible').first();
+	return historyButton(page);
 }
 
 function historyRegion(page: Page, title: string): Locator {
@@ -156,7 +156,7 @@ test.describe("History mode", () => {
 		await login(page);
 	});
 
-	test("opens from the header's history button, selects the newest moment, and Done returns to the Document", async ({
+	test("opens from the header's history button, selects the newest moment, and the same button closes it", async ({
 		page,
 	}) => {
 		const conversationId = await createEmptyConversation(page, "History open");
@@ -165,16 +165,18 @@ test.describe("History mode", () => {
 		await openDocumentInPanel(page);
 
 		// The header says what happened last, never a number.
-		await expect(historyButton(page)).toContainText("Changed by Alfy");
+		await expect(historyButton(page)).toHaveAttribute(
+			"title",
+			/Changed by Alfy/,
+		);
 		await expect(historyButton(page)).not.toContainText(/\bv\d/);
-		await expect(historyButton(page)).toHaveAttribute("aria-pressed", "false");
 
 		await historyButton(page).click();
 		const region = historyRegion(page, "History open");
 		await expect(region).toBeVisible();
-		await expect(historyButton(page)).toHaveAttribute("aria-pressed", "true");
+		await expect(historyButton(page)).toHaveAccessibleName("Close history");
 
-		// The newest moment is selected, its words are in the preview, and Done joins the actions.
+		// The newest moment is selected, its words are in the preview, and the button says how to leave.
 		const options = region.getByRole("option");
 		await expect(options).toHaveCount(3);
 		await expect(options.first()).toHaveAttribute("aria-selected", "true");
@@ -191,7 +193,7 @@ test.describe("History mode", () => {
 
 		await doneButton(page).click();
 		await expect(region).toHaveCount(0);
-		await expect(historyButton(page)).toHaveAttribute("aria-pressed", "false");
+		await expect(historyButton(page)).toHaveAccessibleName(/^History\./);
 		await expect(historyButton(page)).toBeFocused();
 		// The Document is back, as it was.
 		await expect(
@@ -471,7 +473,7 @@ test.describe("History mode", () => {
 				);
 			}
 			// The header, too, says it in Hungarian.
-			await expect(doneButton(page)).toHaveText("Kész");
+			await expect(doneButton(page)).toHaveText("Előzmények bezárása");
 		} finally {
 			await db
 				.update(users)
@@ -582,7 +584,7 @@ test.describe("History mode: what changed, restore and names", () => {
 
 		// The first version has no step of its own: its preview compares with now.
 		await options.nth(2).click();
-		await expect(region.getByTestId("history-compare-step")).toBeDisabled();
+		await expect(region.getByTestId("history-compare-now")).toBeDisabled();
 		await expect(region.getByTestId("history-compare-now")).toHaveAttribute(
 			"aria-pressed",
 			"true",
@@ -594,7 +596,7 @@ test.describe("History mode: what changed, restore and names", () => {
 		// The newest moment shows only its own changes and says it is now.
 		await options.nth(0).click();
 		await expect(region.getByTestId("history-compare-now")).toHaveCount(0);
-		await expect(region).toContainText("This is how it looks now");
+		await expect(region.getByTestId("history-toolbar")).toContainText("Now");
 		// The number appears in the fine print and nowhere else.
 		await expect(region.getByTestId("history-fine")).toHaveText("Version 3");
 	});
@@ -636,6 +638,10 @@ test.describe("History mode: what changed, restore and names", () => {
 		await expect(
 			region.getByTestId("history-help").getByRole("button"),
 		).toBeFocused();
+		// The change stepper stands before Name in the one row.
+		await page.keyboard.press("Tab");
+		await expect(region.getByTestId("history-prev-change")).toBeFocused();
+		await page.keyboard.press("Tab");
 		await page.keyboard.press("Tab");
 		await expect(region.getByTestId("history-name")).toBeFocused();
 		await page.keyboard.press("Enter");
@@ -844,10 +850,10 @@ test.describe("History mode on a phone", () => {
 		await expect(sheet).toBeVisible();
 		const options = sheet.getByRole("option");
 		await expect(options).toHaveCount(3);
-		// Every moment is at least 56 px tall.
+		// Every moment is a 44 px target.
 		for (let i = 0; i < 3; i++) {
 			const box = await options.nth(i).boundingBox();
-			expect(box?.height ?? 0).toBeGreaterThanOrEqual(56);
+			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 		}
 
 		// Tap a moment: its preview is pushed inside the sheet, with a way back.
@@ -856,7 +862,7 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).toBeVisible();
 		await expect(preview).toContainText("then a cafe");
 		await expect(preview).not.toContainText("The museum.");
-		const back = sheet.getByRole("button", { name: "History" });
+		const back = sheet.getByRole("button", { name: "History", exact: true });
 		await expect(back).toBeVisible();
 		// The sheet's own title is the list's. Pushed, the preview names History once,
 		// by its way back (RV-V M-9): not twice, as a heading and as a link.
@@ -1116,7 +1122,7 @@ test.describe("History mode: a board", () => {
 		await expect(
 			preview.locator('[data-testid="canvas-history-layer"][data-tone="user"]'),
 		).toHaveCount(1);
-		await region.getByTestId("history-compare-step").click();
+		await region.getByTestId("history-compare-now").click();
 
 		// Restore: the question names the version by its time, never "text".
 		await region.getByTestId("history-restore").click();
@@ -1297,7 +1303,10 @@ test.describe("History mode: an App", () => {
 		await page.getByRole("button", { name: "Rebuild" }).click();
 		const toast = page.getByText("Alfy rebuilt it");
 		await expect(toast).toBeVisible();
-		await expect(historyButton(page)).toContainText("Rebuilt by Alfy");
+		await expect(historyButton(page)).toHaveAttribute(
+			"title",
+			/Rebuilt by Alfy/,
+		);
 		await expect(historyButton(page)).not.toContainText(/\bv\d/);
 
 		// History: two moments; the first version is the one that stored the hostile code.

@@ -68,7 +68,7 @@ export type ComposerMarks = ImageMarksRequest & {
 	/** The item the picture belongs to, or the uploaded photo itself. */
 	artifactId: string;
 	name: string;
-	/** The item's version the marks were drawn on: a newer one lets them go (Review Focus 4). */
+	/** The item's version the marks were drawn on: a newer one lets them go (Review Focus 4). `null` for marks drawn in History on an older version on purpose: being older is the point, so no newer one drops them. */
 	version: number | null;
 };
 
@@ -188,7 +188,12 @@ export function marksAfterDrawing(
 ): { held: ComposerMarks; displaced: ComposerMarks | null } {
 	return {
 		held: next,
-		displaced: held && held.artifactId !== next.artifactId ? held : null,
+		displaced:
+			held &&
+			(held.artifactId !== next.artifactId ||
+				held.imageFileId !== next.imageFileId)
+				? held
+				: null,
 	};
 }
 
