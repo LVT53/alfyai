@@ -2681,6 +2681,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{conversationId}
 					initialVersionId={historyInitialVersionId}
 					{onAttachPicture}
+					{marks}
+					onMarksChange={onMarksChange
+						? (request) => onMarksChange?.(request, { history: true })
+						: undefined}
+					{onMarksContinue}
 					onDone={() => closeHistory()}
 					onReview={handleHistoryReview}
 					onRestored={handleHistoryRestored}

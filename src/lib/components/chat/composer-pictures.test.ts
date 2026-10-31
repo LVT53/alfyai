@@ -7,6 +7,7 @@ import {
 	attachmentPictureOptions,
 	libraryPictureAttachment,
 	markedPictureNumber,
+	marksAfterDrawing,
 	marksAfterUndo,
 	numberPictures,
 	pictureChipNames,
@@ -236,5 +237,24 @@ describe("attachmentPictureOptions", () => {
 
 	it("keeps Atlas's text-only gate: a report makes no picture", () => {
 		expect(attachmentPictureOptions("photo-1", held, true, blind)).toBe(blind);
+	});
+});
+
+describe("marks drawn in History", () => {
+	const onOlder = {
+		imageFileId: "file-1",
+		marks: [],
+		artifactId: "img-1",
+		name: "Cosy room",
+		version: null,
+	};
+
+	it("says so when boxes on the current picture take over from boxes on an older version", () => {
+		const next = { ...onOlder, imageFileId: "file-3", version: 3 };
+		expect(marksAfterDrawing(onOlder, next).displaced).toBe(onOlder);
+	});
+
+	it("takes nothing over while the boxes stay on one picture", () => {
+		expect(marksAfterDrawing(onOlder, { ...onOlder }).displaced).toBeNull();
 	});
 });

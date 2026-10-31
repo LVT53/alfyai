@@ -57,10 +57,7 @@ describe("CompareWipe", () => {
 		expect(
 			screen.getByTestId("compare-wipe-grip").querySelector("svg"),
 		).not.toBeNull();
-		const source = readFileSync(
-			path.join(here, "CompareWipe.svelte"),
-			"utf8",
-		);
+		const source = readFileSync(path.join(here, "CompareWipe.svelte"), "utf8");
 		const grip = source.slice(source.indexOf(".compare-wipe-grip {"));
 		expect(grip.slice(0, grip.indexOf("}"))).toContain(
 			"color: var(--text-primary)",

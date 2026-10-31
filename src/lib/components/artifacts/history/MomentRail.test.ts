@@ -106,13 +106,16 @@ describe("a rail row", () => {
 
 	it("hides its secondary details until it is selected", () => {
 		expect(source).toMatch(/\n\t\.secondary \{\s*display: none;/);
-		expect(source).toMatch(/\.option\.selected \.secondary \{\s*display: flex;/);
+		expect(source).toMatch(
+			/\.option\.selected \.secondary \{\s*display: flex;/,
+		);
 	});
 
 	it("keeps one line, and moves nothing but opacity", () => {
 		expect(source).toMatch(/\.headline \{[^}]*white-space: nowrap/);
 		const keyframes =
-			source.match(/@keyframes rail-secondary-in \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			source.match(/@keyframes rail-secondary-in \{([\s\S]*?)\n\t\}/)?.[1] ??
+			"";
 		expect(keyframes).toContain("opacity");
 		expect(keyframes).not.toMatch(/height|width|top|left/);
 	});

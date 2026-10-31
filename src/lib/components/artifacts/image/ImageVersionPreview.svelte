@@ -7,6 +7,12 @@
 // colours of `MARK_COLOURS`. What Alfy was asked for is kept in a closed
 // details, below the picture.
 //
+// Edit this version (an older version the reader chose): the picture alone, large,
+// with the panel's own Mark tool. The boxes go to the page like any others and
+// become the composer's marks chip on this version's file. The page holds them
+// with no version, so what lands later never drops them. On a phone the way back to
+// the composer is the same "Tell Alfy what to change".
+//
 // A picture is not stepped through change by change: the preview always reports
 // no changes, so the shell shows no stepper. Bodies come from History's one
 // shared memory (`version-bodies.ts`); the preview loads full pictures (the rail
@@ -14,18 +20,30 @@
 // The icon file itself, not the barrel: History's preview registry test loads this
 // module cold, and the barrel alone costs it several seconds to transform.
 import Paperclip from "@lucide/svelte/icons/paperclip";
+import SquareDashed from "@lucide/svelte/icons/square-dashed";
+import { tick } from "svelte";
 import { imageFileUrl } from "$lib/client/api/images";
 import { t } from "$lib/i18n";
 import { oneLineName } from "$lib/shared/one-line-name";
 import {
+	type ImageMark,
 	type ImageVersionBody,
 	MARK_COLOURS,
+	MAX_MARKS,
 	parseImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 import type { HistoryPreviewProps } from "../history/history-previews";
 import { versionBody } from "../history/version-bodies";
 import CompareWipe from "./CompareWipe.svelte";
 import ImagePicture from "./ImagePicture.svelte";
+import { markNoteKey } from "./mark-geometry";
+import MarkLayer from "./MarkLayer.svelte";
+import MarkNote from "./MarkNote.svelte";
+import MarkTools from "./MarkTools.svelte";
 
 let {
 	artifactId,
@@ -39,6 +57,10 @@ let {
 	label,
 	title = "",
 	onAttachPicture,
+	canEdit = false,
+	marks: heldMarks = null,
+	onMarksChange,
+	onMarksContinue,
 	onState,
 }: HistoryPreviewProps = $props();
 
@@ -47,6 +69,60 @@ let shown = $state.raw<ImageVersionBody | null>(null);
 let base = $state.raw<ImageVersionBody | null>(null);
 let position = $state(50);
 let token = 0;
+
+/** Edit this version is open: the picture alone, with the Mark tool. */
+let editing = $state(false);
+let marking = $state(false);
+/** A ninth box was drawn: "Up to 8 marks" shows until a box goes. */
+let refused = $state(false);
+let root = $state<HTMLElement | null>(null);
+let editButton = $state<HTMLButtonElement | null>(null);
+let isPhone = $state(isPhoneViewport());
+$effect(() => watchPhoneViewport((phone) => (isPhone = phone)));
+
+const canEditHere = $derived(canEdit && Boolean(onMarksChange));
+/** The held boxes, on this version's own file only. */
+const editMarks = $derived(
+	shown && heldMarks?.imageFileId === shown.fileId ? heldMarks.marks : [],
+);
+
+$effect(() => {
+	if (!marking || editMarks.length < MAX_MARKS) refused = false;
+});
+
+function startEditing(): void {
+	editing = true;
+	marking = true;
+	void tick().then(() =>
+		root
+			?.querySelector<HTMLElement>('[data-testid="image-body-mark"]')
+			?.focus(),
+	);
+}
+
+function stopEditing(): void {
+	editing = false;
+	marking = false;
+	void tick().then(() => editButton?.focus());
+}
+
+function changeMarks(next: ImageMark[]): void {
+	if (!shown) return;
+	onMarksChange?.(
+		next.length > 0 ? { imageFileId: shown.fileId, marks: next } : null,
+	);
+}
+
+const markNoteI18n = $derived(
+	markNoteKey({ refused, marking, count: editMarks.length, isPhone }),
+);
+const markNote = $derived(
+	markNoteI18n
+		? $t(markNoteI18n, {
+				letters: editMarks.map((mark) => mark.letter).join(", "),
+			})
+		: "",
+);
 
 async function bodyOf(id: string): Promise<ImageVersionBody> {
 	const parsed = parseImageVersionBody(
@@ -75,6 +151,11 @@ async function load(id: string, baseId: string | null): Promise<void> {
 		shown = target;
 		base = other;
 		status = "ready";
+		// Coming back to a version with boxes on it: they are shown where they can be changed.
+		if (canEditHere && heldMarks?.imageFileId === target.fileId) {
+			editing = true;
+			marking = true;
+		}
 		onState({ status: "ready", changeCount: 0 });
 	} catch {
 		if (mine !== token) return;
@@ -93,13 +174,13 @@ $effect(() => {
 const url = (fileId: string) => imageFileUrl(fileId, { conversationId });
 
 /** The marks were drawn on the picture this version was made from: shown only when that is the picture underneath. */
-const marks = $derived(
+const versionMarks = $derived(
 	shown?.marks && base && shown.baseFileId === base.fileId ? shown.marks : [],
 );
 const marksLine = $derived(
-	marks.length > 0
+	versionMarks.length > 0
 		? $t("artifacts.image.history.marks", {
-				letters: marks.map((mark) => mark.letter).join(", "),
+				letters: versionMarks.map((mark) => mark.letter).join(", "),
 			})
 		: null,
 );
@@ -117,7 +198,7 @@ const tags = $derived(
 </script>
 
 {#snippet markLayer()}
-	{#each marks as mark (mark.letter)}
+	{#each versionMarks as mark (mark.letter)}
 		<span
 			class="ivp-mark"
 			style:left="{mark.x * 100}%"
@@ -132,7 +213,7 @@ const tags = $derived(
 	{/each}
 {/snippet}
 
-<div class="ivp" role="region" aria-label={label} data-testid="image-version-preview" data-status={status}>
+<div bind:this={root} class="ivp" role="region" aria-label={label} data-testid="image-version-preview" data-status={status}>
 	<div class="ivp-stage">
 		{#if status === 'error'}
 			<p class="ivp-error" role="alert">{$t('artifacts.image.panel.loadFailed')}</p>
@@ -143,7 +224,7 @@ const tags = $derived(
 				style:--natural-width="{shown.width}px"
 				data-testid="image-version-frame-box"
 			>
-				{#if base}
+				{#if base && !editing}
 					<CompareWipe
 						beforeUrl={url(base.fileId)}
 						afterUrl={url(shown.fileId)}
@@ -153,7 +234,7 @@ const tags = $derived(
 						label={$t('artifacts.image.history.wipe')}
 						beforeTag={tags.before}
 						afterTag={tags.after}
-						marks={marks.length > 0 ? markLayer : undefined}
+						marks={versionMarks.length > 0 ? markLayer : undefined}
 						hasAlpha={shown.hasAlpha || base.hasAlpha}
 					/>
 				{:else}
@@ -167,16 +248,53 @@ const tags = $derived(
 							{conversationId}
 							variant="original"
 						/>
+						{#if editing}
+							<div class="ivp-marks">
+								<MarkLayer
+									marks={editMarks}
+									active={marking}
+									onChange={changeMarks}
+									onRefused={() => (refused = true)}
+								/>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
+			{#if editing}
+				<MarkNote text={markNote} />
+			{/if}
 		{/if}
 	</div>
-	{#if onAttachPicture}
+	{#if onAttachPicture || canEditHere}
 		<!-- One row, there whether the version has loaded or not, so the picture
 		     above is the same size before and after it loads. -->
 		<div class="ivp-actions">
-			<button
+			{#if editing}
+				<MarkTools
+					{marking}
+					canContinue={isPhone && editMarks.length > 0 && Boolean(onMarksContinue)}
+					onToggle={() => (marking = !marking)}
+					onContinue={onMarksContinue}
+				/>
+				<button type="button" class="ivp-attach" data-testid="image-version-edit-stop" onclick={stopEditing}>
+					{$t('artifacts.image.history.editStop')}
+				</button>
+			{:else if canEditHere}
+				<button
+					bind:this={editButton}
+					type="button"
+					class="ivp-attach"
+					data-testid="image-version-edit"
+					disabled={!shown}
+					onclick={startEditing}
+				>
+					<SquareDashed size={14} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.image.history.edit')}
+				</button>
+			{/if}
+			{#if onAttachPicture}
+				<button
 				type="button"
 				class="ivp-attach"
 				data-testid="image-version-preview-attach"
@@ -185,7 +303,8 @@ const tags = $derived(
 			>
 				<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
 				{$t('artifacts.image.history.attach')}
-			</button>
+				</button>
+			{/if}
 		</div>
 	{/if}
 	{#if status !== 'error' && shown && (marksLine || shown.prompt)}
@@ -266,10 +385,19 @@ const tags = $derived(
 		line-height: calc(var(--space-md) + var(--space-xs));
 	}
 
+	/* The boxes lie on the picture's own rectangle: their numbers are fractions of it. */
+	.ivp-marks {
+		position: absolute;
+		inset: 0;
+	}
+
 	.ivp-actions {
 		display: flex;
 		flex: none;
+		flex-wrap: wrap;
+		align-items: center;
 		justify-content: flex-start;
+		gap: var(--space-sm);
 	}
 
 	.ivp-attach {

@@ -85,6 +85,9 @@ let {
 	onFromChat = undefined,
 	initialVersionId = undefined,
 	onAttachPicture = undefined,
+	marks = null,
+	onMarksChange = undefined,
+	onMarksContinue = undefined,
 }: {
 	artifactId: string;
 	kind: ArtifactKind;
@@ -110,6 +113,10 @@ let {
 	onAttachPicture?:
 		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
 		| undefined;
+	/** What the Image's Edit this version needs: the marks the page holds, and where new ones go. */
+	marks?: HistoryPreviewProps["marks"];
+	onMarksChange?: HistoryPreviewProps["onMarksChange"];
+	onMarksContinue?: HistoryPreviewProps["onMarksContinue"];
 } = $props();
 
 const WIDE_MIN_PX = 720;
@@ -986,6 +993,10 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					{conversationId}
 					{title}
 					{onAttachPicture}
+					canEdit={!selected.isNewest && !selected.sameAsNow}
+					{marks}
+					{onMarksChange}
+					{onMarksContinue}
 					versionId={selected.versionId}
 					at={selected.at}
 					baseVersionId={compareEffective === 'step' ? selected.parentVersionId : nowRow.versionId}

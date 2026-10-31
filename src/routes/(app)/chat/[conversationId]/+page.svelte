@@ -1792,7 +1792,10 @@ let openPanelItemId = $derived.by(() => {
 });
 
 /** The open Image body drew, changed or emptied its marks. */
-function handleMarksChange(request: ImageMarksRequest | null) {
+function handleMarksChange(
+	request: ImageMarksRequest | null,
+	origin?: { history: true },
+) {
 	if (!request) {
 		heldMarks = null;
 		return;
@@ -1810,7 +1813,11 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 		...request,
 		artifactId,
 		name,
-		version: sameFile && held ? held.version : latestVersionOf(artifactId),
+		version: origin?.history
+			? null
+			: sameFile && held
+				? held.version
+				: latestVersionOf(artifactId),
 	};
 	const { displaced } = marksAfterDrawing(held, moved);
 	heldMarks = moved;
@@ -1859,7 +1866,10 @@ $effect(() => {
 /** The boxes the panel shows: the held marks, on their own item only (the body matches the file). */
 let panelMarks = $derived(
 	heldMarks && openPanelItemId === heldMarks.artifactId
-		? marksRequest(heldMarks)
+		? {
+				...marksRequest(heldMarks),
+				keepOnOtherFile: heldMarks.version === null,
+			}
 		: null,
 );
 

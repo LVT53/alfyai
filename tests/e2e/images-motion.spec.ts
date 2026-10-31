@@ -3759,7 +3759,7 @@ test.describe("History for pictures on a phone (T4)", () => {
 			mark(flow, "phone-back");
 			await page
 				.getByTestId("artifact-history")
-				.getByRole("button", { name: "History" })
+				.getByRole("button", { name: "History", exact: true })
 				.tap();
 			const selected = page.locator(
 				'[data-testid="history-option"][aria-selected="true"]',

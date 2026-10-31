@@ -167,7 +167,7 @@ const counter = $derived(
 				</span>
 			{/if}
 			<h3 class="title" data-testid="history-title">
-				{when}<span class:sr-only={!narrow}><span aria-hidden="true"> · </span>{headline}</span>
+				{when}<span class:sr-only={!narrow}><span aria-hidden="true">&nbsp;·&nbsp;</span>{headline}</span>
 			</h3>
 			<span class="fine" data-testid="history-fine">{fine}</span>
 		</div>

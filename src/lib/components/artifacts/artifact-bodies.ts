@@ -19,6 +19,13 @@ import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { LocalizedText } from "$lib/shared/artifacts/tours";
 
+/**
+ * The held marks as the panel gets them. `keepOnOtherFile`: they were put on an
+ * older version on purpose (History's Edit this version), so a body showing a
+ * newer picture leaves them alone instead of letting them go.
+ */
+export type PanelMarks = ImageMarksRequest & { keepOnOtherFile?: boolean };
+
 export interface ArtifactBodyProps {
 	artifactId: string;
 	kind: ArtifactKind;
@@ -127,14 +134,18 @@ export interface ArtifactBodyProps {
 	 * as one composer chip). A body shows them only on that file. Absent or
 	 * null: none.
 	 */
-	marks?: ImageMarksRequest | null;
+	marks?: PanelMarks | null;
 	/**
 	 * The Image body hands the page the marks on its picture's file, or `null`
 	 * when the last one goes (or the picture under them changed). The panel
 	 * supplies it where there is a composer to take them; absent otherwise (the
 	 * Knowledge page), and the body then offers no Mark.
 	 */
-	onMarksChange?: (marks: ImageMarksRequest | null) => void;
+	onMarksChange?: (
+		marks: ImageMarksRequest | null,
+		/** Drawn in History, on a version the reader chose: the page holds them with no version, so a newer one never drops them. */
+		origin?: { history: true },
+	) => void;
 	/** The way from the panel back to the composer, where the marks are sent. */
 	onMarksContinue?: () => void;
 	/**

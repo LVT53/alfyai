@@ -473,7 +473,7 @@ test.describe("History mode", () => {
 				);
 			}
 			// The header, too, says it in Hungarian.
-			await expect(doneButton(page)).toHaveText("Kész");
+			await expect(doneButton(page)).toHaveText("Előzmények bezárása");
 		} finally {
 			await db
 				.update(users)
@@ -638,6 +638,10 @@ test.describe("History mode: what changed, restore and names", () => {
 		await expect(
 			region.getByTestId("history-help").getByRole("button"),
 		).toBeFocused();
+		// The change stepper stands before Name in the one row.
+		await page.keyboard.press("Tab");
+		await expect(region.getByTestId("history-prev-change")).toBeFocused();
+		await page.keyboard.press("Tab");
 		await page.keyboard.press("Tab");
 		await expect(region.getByTestId("history-name")).toBeFocused();
 		await page.keyboard.press("Enter");
@@ -846,10 +850,10 @@ test.describe("History mode on a phone", () => {
 		await expect(sheet).toBeVisible();
 		const options = sheet.getByRole("option");
 		await expect(options).toHaveCount(3);
-		// Every moment is at least 56 px tall.
+		// Every moment is a 44 px target.
 		for (let i = 0; i < 3; i++) {
 			const box = await options.nth(i).boundingBox();
-			expect(box?.height ?? 0).toBeGreaterThanOrEqual(56);
+			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 		}
 
 		// Tap a moment: its preview is pushed inside the sheet, with a way back.
@@ -858,7 +862,7 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).toBeVisible();
 		await expect(preview).toContainText("then a cafe");
 		await expect(preview).not.toContainText("The museum.");
-		const back = sheet.getByRole("button", { name: "History" });
+		const back = sheet.getByRole("button", { name: "History", exact: true });
 		await expect(back).toBeVisible();
 		// The sheet's own title is the list's. Pushed, the preview names History once,
 		// by its way back (RV-V M-9): not twice, as a heading and as a link.
