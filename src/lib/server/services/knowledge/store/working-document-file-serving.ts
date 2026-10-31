@@ -8,7 +8,10 @@ import {
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { getContentTypeForFile } from "$lib/shared/file-types";
-import { withFileExtension } from "$lib/shared/file-types/download-name";
+import {
+	ensureFilenameExtension,
+	withFileExtension,
+} from "$lib/shared/file-types/download-name";
 import {
 	HEIF_PREVIEW_CONTENT_TYPE,
 	isHeifImage,
@@ -18,6 +21,7 @@ import {
 	getArtifactForUser,
 	getSourceArtifactIdForNormalizedArtifact,
 } from "./core";
+import { heifPreviewPng } from "./heif-preview";
 
 export type WorkingDocumentFileServingMode = "preview" | "download";
 
@@ -279,27 +283,12 @@ function resolveStoredTextArtifact(params: {
 	};
 }
 
-/**
- * Browsers other than Safari cannot draw HEIC, so a preview hands one over as a
- * PNG; the original stays what a download gets. The converter loads only when
- * such a photo is asked for. A file it cannot read is served as it is.
- */
-async function heicAsPng(
-	filePath: string,
-	mimeType: string | null,
-): Promise<Buffer | null> {
-	try {
-		const { decodeImageToPng } = await import(
-			"$lib/server/services/vision/prepare-image"
-		);
-		const bytes = await readFile(filePath);
-		return (await decodeImageToPng(bytes, mimeType)).png;
-	} catch (error) {
-		console.warn("[PREVIEW] A HEIC photo could not be converted", {
-			reason: error instanceof Error ? error.message : String(error),
-		});
-		return null;
-	}
+/** The name a converted preview goes by: `photo.heic` is `photo.png` now. */
+function previewPngName(name: string): string {
+	return ensureFilenameExtension(
+		name.replace(/\.[^.]+$/, ""),
+		HEIF_PREVIEW_CONTENT_TYPE,
+	);
 }
 
 async function resolveStoredArtifactFromFile(params: {
@@ -326,18 +315,22 @@ async function resolveStoredArtifactFromFile(params: {
 			params.mode === "preview" &&
 			isHeifImage(params.previewName, params.artifact.mimeType)
 		) {
-			const drawn = await heicAsPng(filePath, params.artifact.mimeType);
+			// Browsers other than Safari cannot draw HEIC; a download still gets
+			// the original. A file that cannot be converted is served as it is.
+			const drawn = await heifPreviewPng(filePath, params.artifact.mimeType);
 			if (drawn) {
 				return {
 					ok: true,
-					status: 200,
-					body: drawn,
-					headers: buildFileServingResponseHeaders({
-						mode: params.mode,
-						contentLength: drawn.length,
-						contentType: HEIF_PREVIEW_CONTENT_TYPE,
-						filename,
-						safetyFilenames: [params.previewName, params.storagePath],
+					...applyFileServingRange({
+						body: drawn,
+						rangeHeader: params.rangeHeader,
+						headers: buildFileServingResponseHeaders({
+							mode: params.mode,
+							contentLength: drawn.length,
+							contentType: HEIF_PREVIEW_CONTENT_TYPE,
+							filename: previewPngName(filename),
+							safetyFilenames: [params.previewName, params.storagePath],
+						}),
 					}),
 				};
 			}

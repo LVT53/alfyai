@@ -51,6 +51,26 @@ async function buildMinimalXlsxBuffer(): Promise<Buffer> {
 	return Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
 }
 
+const decodeSpy = vi.hoisted(() => vi.fn());
+vi.mock(
+	"$lib/server/services/vision/prepare-image",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("$lib/server/services/vision/prepare-image")
+			>();
+		return {
+			...actual,
+			decodeImageToPng: (
+				...args: Parameters<typeof actual.decodeImageToPng>
+			) => {
+				decodeSpy(...args);
+				return actual.decodeImageToPng(...args);
+			},
+		};
+	},
+);
+
 describe("GET /api/knowledge/[id]/preview", () => {
 	const mockUser = { id: "user-123", email: "test@example.com" };
 
@@ -439,6 +459,57 @@ describe("GET /api/knowledge/[id]/preview", () => {
 		const bytes = Buffer.from(await response.arrayBuffer());
 		expect(bytes.subarray(1, 4).toString()).toBe("PNG");
 		expect(response.headers.get("Content-Length")).toBe(String(bytes.length));
+	});
+
+	describe("a converted HEIC photo", () => {
+		beforeEach(async () => {
+			await writePreviewFile(
+				"data/knowledge/user-123/photo.heic",
+				readFileSync("src/lib/server/services/vision/__fixtures__/tiny.heic"),
+			);
+			mockGetArtifactForUser.mockResolvedValue({
+				id: "photo-1",
+				name: "photo.heic",
+				storagePath: "data/knowledge/user-123/photo.heic",
+				contentText: null,
+				mimeType: "image/heic",
+				extension: "heic",
+				type: "source_document",
+			});
+		});
+
+		it("is named as the PNG it is", async () => {
+			const response = await GET(makePreviewEvent());
+			const disposition = response.headers.get("Content-Disposition");
+			expect(disposition).toContain('filename="photo.png"');
+			expect(disposition).not.toContain("heic");
+		});
+
+		it("answers a range request from the PNG, as its headers promise", async () => {
+			const whole = await GET(makePreviewEvent());
+			const length = (await whole.arrayBuffer()).byteLength;
+
+			const event = makePreviewEvent();
+			(event as { request?: Request }).request = new Request(
+				"http://localhost/preview",
+				{ headers: { range: "bytes=0-3" } },
+			);
+			const response = await GET(event);
+
+			expect(response.status).toBe(206);
+			expect(response.headers.get("Content-Range")).toBe(
+				`bytes 0-3/${length}`,
+			);
+			const bytes = Buffer.from(await response.arrayBuffer());
+			expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+		});
+
+		it("asks for a picture no longer than a preview needs", async () => {
+			await GET(makePreviewEvent());
+			expect(decodeSpy.mock.lastCall?.[2]).toEqual({
+				maxLongEdge: expect.any(Number),
+			});
+		});
 	});
 
 	it("resolves normalized_document to source_document for PDF preview", async () => {

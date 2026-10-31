@@ -43,11 +43,13 @@ export class ImagePreparationError extends Error {
  * An uploaded picture as a PNG for the picture server: upright (EXIF
  * orientation applied), first frame only, transparency kept. HEIC and HEIF take
  * the same hop through heic-convert as `prepareImageForModel`. Bytes it cannot
- * read throw `ImagePreparationError`.
+ * read throw `ImagePreparationError`. `maxLongEdge` shrinks it to fit, and never
+ * enlarges.
  */
 export async function decodeImageToPng(
 	input: Uint8Array,
 	mimeType: string | null,
+	options: { maxLongEdge?: number } = {},
 ): Promise<{
 	png: Buffer;
 	width: number;
@@ -62,8 +64,16 @@ export async function decodeImageToPng(
 					quality: HEIF_HOP_QUALITY,
 				})
 			: input;
-		const { data, info } = await sharp(source, { animated: false })
-			.rotate()
+		const upright = sharp(source, { animated: false }).rotate();
+		const fitted = options.maxLongEdge
+			? upright.resize({
+					width: options.maxLongEdge,
+					height: options.maxLongEdge,
+					fit: "inside",
+					withoutEnlargement: true,
+				})
+			: upright;
+		const { data, info } = await fitted
 			.png()
 			.toBuffer({ resolveWithObject: true });
 		return {

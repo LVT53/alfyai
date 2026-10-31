@@ -604,3 +604,23 @@ describe("decodeImageToPng", () => {
 		).rejects.toBeInstanceOf(ImagePreparationError);
 	});
 });
+
+describe("decodeImageToPng with a long-edge limit", () => {
+	it("shrinks a large picture, keeps its shape, and never enlarges a small one", async () => {
+		const wide = await sharp({
+			create: { width: 800, height: 400, channels: 3, background: "#336699" },
+		})
+			.png()
+			.toBuffer();
+
+		const shrunk = await decodeImageToPng(wide, "image/png", {
+			maxLongEdge: 200,
+		});
+		const kept = await decodeImageToPng(wide, "image/png", {
+			maxLongEdge: 2000,
+		});
+
+		expect([shrunk.width, shrunk.height]).toEqual([200, 100]);
+		expect([kept.width, kept.height]).toEqual([800, 400]);
+	});
+});
