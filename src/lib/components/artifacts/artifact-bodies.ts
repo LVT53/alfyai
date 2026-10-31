@@ -135,6 +135,8 @@ export interface ArtifactBodyProps {
 	 * Knowledge page), and the body then offers no Mark.
 	 */
 	onMarksChange?: (marks: ImageMarksRequest | null) => void;
+	/** The way from the panel back to the composer, where the marks are sent. */
+	onMarksContinue?: () => void;
 	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and

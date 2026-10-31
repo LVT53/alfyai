@@ -4348,7 +4348,7 @@ describe("MessageInput composer menu", () => {
 
 		await fireEvent.keyDown(menu, { key: "ArrowDown" });
 		await waitFor(() => {
-			expect(document.activeElement).toBe(getByTestId("composer-menu-skills"));
+			expect(document.activeElement).toBe(getByTestId("composer-menu-library"));
 		});
 
 		await fireEvent.keyDown(menu, { key: "ArrowUp" });

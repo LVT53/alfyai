@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import {
 	arrangePictureChips,
 	markedPictureNumber,
@@ -87,13 +88,18 @@ describe("arrangePictureChips", () => {
 describe("markedPictureNumber", () => {
 	it("is the number of the attached chip when the marked picture is attached", () => {
 		const numbers = numberPictures(["upload:a", "ref:f1"], () => true);
-		expect(markedPictureNumber(numbers, "f1")).toBe(2);
+		const marks: ImageMark[] = [];
+		expect(markedPictureNumber(numbers, { imageFileId: "f1", marks })).toBe(2);
+		expect(markedPictureNumber(numbers, { uploadArtifactId: "a", marks })).toBe(
+			1,
+		);
 	});
 
 	it("is the next number otherwise, the one the server gives the open picture or the added ref", () => {
 		const numbers = numberPictures(["upload:a", "ref:f1"], () => true);
-		expect(markedPictureNumber(numbers, "f9")).toBe(3);
-		expect(markedPictureNumber(new Map(), "f9")).toBe(1);
+		const marked = { imageFileId: "f9", marks: [] };
+		expect(markedPictureNumber(numbers, marked)).toBe(3);
+		expect(markedPictureNumber(new Map(), marked)).toBe(1);
 	});
 });
 

@@ -15,7 +15,12 @@ import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
-import { parseUserPictures } from "$lib/shared/artifacts/image-body";
+import {
+	type ImageMark,
+	type ImageMarksRequest,
+	parseUserPictures,
+	type UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
@@ -249,11 +254,12 @@ export async function prepareRetryChatTurn(params: {
 						})) ??
 						[],
 					marks: recordedPictures?.marks?.boxes
-						? {
-								imageFileId: recordedPictures.marks.imageFileId,
-								marks: recordedPictures.marks.boxes,
-							}
+						? recordedMarks(
+								recordedPictures.marks,
+								recordedPictures.marks.boxes,
+							)
 						: null,
+					attachmentIds: retryAttachmentIds,
 					openImageArtifactId:
 						typeof activeDocumentArtifactId === "string"
 							? activeDocumentArtifactId.trim()
@@ -556,6 +562,19 @@ function streamError(error: ChatTurnRequestError): {
 }
 
 /** The refs a browser resent, in the shape the picture helpers read; null when it sent none at all. Invalid entries are left for the request parser to refuse. */
+/** The marks a user message recorded, as the request that would paint them again. */
+function recordedMarks(
+	marks: NonNullable<UserPicturesMetadata["marks"]>,
+	boxes: ImageMark[],
+): ImageMarksRequest | null {
+	if (marks.uploadArtifactId) {
+		return { uploadArtifactId: marks.uploadArtifactId, marks: boxes };
+	}
+	return marks.imageFileId
+		? { imageFileId: marks.imageFileId, marks: boxes }
+		: null;
+}
+
 function explicitPictureRefs(
 	value: unknown,
 ): Array<{ imageFileId: string; number: number }> | null {

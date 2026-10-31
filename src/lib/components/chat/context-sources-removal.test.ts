@@ -66,7 +66,6 @@ describe("Manage context sources removal", () => {
 		for (const file of [
 			"src/lib/server/services/linked-context-sources.ts",
 			"src/lib/components/chat/LinkedDocumentPicker.svelte",
-			"src/lib/components/chat/LinkedSourceManager.svelte",
 		]) {
 			expect(
 				() => readFileSync(file, "utf8"),

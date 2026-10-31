@@ -1013,6 +1013,7 @@ describe("pictures beside the uploads (the turn's picture index is the one numbe
 		).toEqual([
 			CANNOT_SEE_IMAGES_GUIDANCE,
 			"Pictures in this message: Picture 1: rug.jpg; Picture 2: Cosy living room (open in the panel).",
+			"Picture numbers are for make_image only; the user does not see them. In your reply, call a picture by what it shows.",
 		]);
 	});
 

@@ -4,13 +4,14 @@
 // artifacts service and picture files in a temp working directory.
 
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	type ImageMark,
+	type ImageMarksRequest,
 	serializeImageVersionBody,
 } from "$lib/shared/artifacts/image-body";
 import { createImageFixture, type ImageFixture } from "./testing/fixture";
@@ -127,7 +128,7 @@ async function resolve(
 		uploads: ReturnType<typeof upload>[];
 		pictureRefs: Array<{ imageFileId: string; number: number }>;
 		openImageArtifactId: string | null;
-		marks: { imageFileId: string; marks: ImageMark[] } | null;
+		marks: ImageMarksRequest | null;
 	}> = {},
 ) {
 	const { resolveTurnPictures } = await import("./turn-pictures");
@@ -334,6 +335,81 @@ describe("resolveTurnPictures", () => {
 	});
 });
 
+describe("marks on an uploaded photo", () => {
+	async function storedPhoto() {
+		const artifactId = randomUUID();
+		const storagePath = join("data", "uploads", `${artifactId}.png`);
+		await mkdir(dirname(join(workdir, storagePath)), { recursive: true });
+		await writeFile(join(workdir, storagePath), await png("#884422"));
+		fixture.sqlite
+			.prepare(
+				"INSERT INTO artifacts (id, user_id, conversation_id, type, name, mime_type, storage_path) VALUES (?, ?, ?, 'source_document', ?, 'image/png', ?)",
+			)
+			.run(artifactId, userId, conversationId, "room.png", storagePath);
+		return artifactId;
+	}
+
+	it("paints the marked copy from the photo and leaves the photo an upload", async () => {
+		const artifactId = await storedPhoto();
+		const index = await resolve({
+			uploads: [upload(artifactId, "room.png")],
+			marks: { uploadArtifactId: artifactId, marks: [MARK_A] },
+		});
+
+		expect(index.pictures[0]?.source).toMatchObject({
+			type: "upload",
+			artifactId,
+		});
+		const marked = index.pictures[1]?.source;
+		expect(marked).toMatchObject({
+			type: "image_file",
+			role: "marked",
+			marks: [MARK_A],
+		});
+		expect(marked?.type === "image_file" && marked.name).toContain(
+			"Picture 1 with the user's marks",
+		);
+		expect(index.metadata?.marks).toMatchObject({
+			uploadArtifactId: artifactId,
+			letters: ["A"],
+			boxes: [MARK_A],
+		});
+	});
+
+	it("paints nothing for a photo the message does not carry", async () => {
+		const index = await resolve({
+			uploads: [],
+			marks: { uploadArtifactId: "gone", marks: [MARK_A] },
+		});
+		expect(index.pictures).toEqual([]);
+		expect(index.metadata).toBeNull();
+	});
+
+	it("keeps recorded marks through a regenerate while the photo still rides", async () => {
+		const { keepReadableRecordedPictures } = await import("./turn-pictures");
+		const marks = { uploadArtifactId: "photo-1", marks: [MARK_A] };
+		const base = {
+			userId,
+			conversationId,
+			refs: [],
+			marks,
+			openImageArtifactId: null,
+		};
+		expect(
+			(
+				await keepReadableRecordedPictures({
+					...base,
+					attachmentIds: ["photo-1"],
+				})
+			).imageMarks,
+		).toEqual(marks);
+		expect(
+			(await keepReadableRecordedPictures({ ...base, attachmentIds: [] }))
+				.imageMarks,
+		).toBeNull();
+	});
+});
+
 describe("uploadNumberOf", () => {
 	it("answers an upload's number and refuses one the turn does not hold", async () => {
 		const { uploadNumberOf } = await import("./turn-pictures");
@@ -379,7 +455,12 @@ describe("keepReadableRecordedPictures", () => {
 		openImageArtifactId: string | null;
 	}) {
 		const { keepReadableRecordedPictures } = await import("./turn-pictures");
-		return keepReadableRecordedPictures({ userId, conversationId, ...params });
+		return keepReadableRecordedPictures({
+			userId,
+			conversationId,
+			attachmentIds: [],
+			...params,
+		});
 	}
 
 	it("drops a recorded picture that is gone, never reading it, and keeps the rest", async () => {
@@ -449,9 +530,10 @@ describe("validatePictureRequest", () => {
 		overrides: Partial<{
 			conversationId: string;
 			pictureRefs: Array<{ imageFileId: string; number: number }>;
-			imageMarks: { imageFileId: string; marks: ImageMark[] } | null;
+			imageMarks: ImageMarksRequest | null;
 			openImageArtifactId: string | null;
 			userId: string;
+			attachmentIds: string[];
 		}> = {},
 	) {
 		const { validatePictureRequest } = await import("./turn-pictures");
@@ -461,9 +543,21 @@ describe("validatePictureRequest", () => {
 			pictureRefs: [],
 			imageMarks: null,
 			openImageArtifactId: null,
+			attachmentIds: [],
 			...overrides,
 		});
 	}
+
+	it("takes marks on a photo the message carries, and refuses one it does not", async () => {
+		const imageMarks = { uploadArtifactId: "photo-1", marks: [MARK_A] };
+		expect(
+			await validate({ imageMarks, attachmentIds: ["photo-1"] }),
+		).toBeNull();
+		expect(await validate({ imageMarks })).toMatchObject({
+			status: 400,
+			code: "invalid_image_marks",
+		});
+	});
 
 	it("accepts the person's own pictures, however many", async () => {
 		const files = await Promise.all(

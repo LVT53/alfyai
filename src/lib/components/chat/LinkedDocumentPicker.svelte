@@ -1,6 +1,9 @@
 <script lang="ts">
+import X from "@lucide/svelte/icons/x";
 import { untrack } from "svelte";
+import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
+import { getCategory } from "$lib/shared/file-types";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { portalToBody } from "$lib/utils/portal";
 import {
@@ -12,6 +15,7 @@ import {
 } from "$lib/services/working-document-identity";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import { attachmentThumbnailUrl } from "./composer-chip-presentation";
 
 let {
 	documents,
@@ -20,6 +24,7 @@ let {
 	loading = false,
 	error = "",
 	onApply,
+	onAddPictures,
 	onCancel,
 }: {
 	documents: KnowledgeDocumentItem[];
@@ -28,6 +33,8 @@ let {
 	loading?: boolean;
 	error?: string;
 	onApply: (sources: LinkedContextSource[]) => void;
+	/** The photos picked: they join the message as pictures, where documents are linked. */
+	onAddPictures?: ((documents: KnowledgeDocumentItem[]) => void) | undefined;
 	onCancel: () => void;
 } = $props();
 
@@ -37,11 +44,14 @@ let selected = $state<LinkedContextSource[]>(
 	untrack(() => canonicalizeSelectedSources(selectedSources)),
 );
 
-let promptReadyDocuments = $derived(documents.filter(isPromptReadyDocument));
+/** Photos picked: Alfy sees these, while a link gives it only a document's text. */
+let selectedPictures = $state.raw<KnowledgeDocumentItem[]>([]);
+
+let pickableDocuments = $derived(documents.filter(isPickable));
 let filteredDocuments = $derived.by(() => {
 	const normalizedQuery = query.trim().toLowerCase();
-	if (!normalizedQuery) return promptReadyDocuments;
-	return promptReadyDocuments.filter((document) =>
+	if (!normalizedQuery) return pickableDocuments;
+	return pickableDocuments.filter((document) =>
 		[document.name, document.summary ?? "", document.mimeType ?? ""]
 			.join(" ")
 			.toLowerCase()
@@ -54,6 +64,18 @@ function isPromptReadyDocument(document: KnowledgeDocumentItem): boolean {
 		document.type !== "normalized_document" &&
 		isPromptReadyWorkingDocument(document)
 	);
+}
+
+function isPicture(document: KnowledgeDocumentItem): boolean {
+	return (
+		Boolean(onAddPictures) &&
+		document.type !== "normalized_document" &&
+		getCategory(document.name, document.mimeType) === "image"
+	);
+}
+
+function isPickable(document: KnowledgeDocumentItem): boolean {
+	return isPicture(document) || isPromptReadyDocument(document);
 }
 
 function isPromptReadySource(source: LinkedContextSource): boolean {
@@ -133,10 +155,23 @@ function linkedSourcesEqual(
 }
 
 function isSelected(document: KnowledgeDocumentItem): boolean {
+	if (isPicture(document)) {
+		return selectedPictures.some(
+			(picture) => picture.displayArtifactId === document.displayArtifactId,
+		);
+	}
 	return selected.some((source) => sourceMatchesDocument(source, document));
 }
 
 function toggleDocument(document: KnowledgeDocumentItem) {
+	if (isPicture(document)) {
+		selectedPictures = isSelected(document)
+			? selectedPictures.filter(
+					(picture) => picture.displayArtifactId !== document.displayArtifactId,
+				)
+			: [...selectedPictures, document];
+		return;
+	}
 	if (isSelected(document)) {
 		selected = selected.filter(
 			(source) => !sourceMatchesDocument(source, document),
@@ -150,12 +185,16 @@ function toggleDocument(document: KnowledgeDocumentItem) {
 }
 
 function removeSelected(displayArtifactId: string) {
+	selectedPictures = selectedPictures.filter(
+		(picture) => picture.displayArtifactId !== displayArtifactId,
+	);
 	selected = selected.filter(
 		(source) => source.displayArtifactId !== displayArtifactId,
 	);
 }
 
 function applySelection() {
+	onAddPictures?.(selectedPictures);
 	onApply(canonicalizeSelectedSources(selected));
 }
 
@@ -215,7 +254,7 @@ $effect(() => {
 				aria-label={$t('linkedSources.picker.close')}
 				onclick={onCancel}
 			>
-				<span aria-hidden="true">x</span>
+				<X size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 		</header>
 
@@ -229,9 +268,9 @@ $effect(() => {
 			/>
 		</label>
 
-		{#if selected.length > 0}
+		{#if selected.length + selectedPictures.length > 0}
 			<ul class="linked-document-picker__selected" aria-label={$t('linkedSources.selectedList')}>
-				{#each selected as source (source.displayArtifactId)}
+				{#each [...selected, ...selectedPictures] as source (source.displayArtifactId)}
 					<li class="linked-document-picker__selected-chip">
 						<span>{source.name}</span>
 						<button
@@ -240,7 +279,7 @@ $effect(() => {
 							aria-label={$t('linkedSources.removeA11y', { name: source.name })}
 							onclick={() => removeSelected(source.displayArtifactId)}
 						>
-							<span aria-hidden="true">x</span>
+							<X size={12} strokeWidth={2} aria-hidden="true" />
 						</button>
 					</li>
 				{/each}
@@ -252,12 +291,13 @@ $effect(() => {
 				<p class="linked-document-picker__state" role="status">{$t('linkedSources.picker.loading')}</p>
 			{:else if error}
 				<p class="linked-document-picker__state linked-document-picker__state--error" role="alert">{error}</p>
-			{:else if promptReadyDocuments.length === 0}
+			{:else if pickableDocuments.length === 0}
 				<p class="linked-document-picker__state">{$t('linkedSources.picker.empty')}</p>
 			{:else if filteredDocuments.length === 0}
 				<p class="linked-document-picker__state">{$t('linkedSources.picker.noMatches')}</p>
 			{:else}
 				{#each filteredDocuments as document (document.displayArtifactId)}
+					{@const thumbnail = isPicture(document) ? attachmentThumbnailUrl({ id: document.displayArtifactId, name: document.name, mimeType: document.mimeType }) : null}
 					<label class="linked-document-picker__row" class:selected={isSelected(document)}>
 						<input
 							type="checkbox"
@@ -265,14 +305,25 @@ $effect(() => {
 							aria-label={document.name}
 							onchange={() => toggleDocument(document)}
 						/>
+						<span class="linked-document-picker__row-mark" aria-hidden="true">
+							{#if thumbnail}
+								<img src={thumbnail} alt="" loading="lazy" data-testid="library-row-thumbnail" />
+							{:else}
+								<FileTypeIcon category={getCategory(document.name, document.mimeType)} size={18} />
+							{/if}
+						</span>
 						<span class="linked-document-picker__row-copy">
 							<span>{document.name}</span>
 							<span>
-								{document.documentOrigin === 'generated'
-									? $t('linkedSources.type.generated')
-									: $t('linkedSources.type.uploaded')}
-								{#if document.promptArtifactId}
-									 · {$t('linkedSources.promptReady')}
+								{#if isPicture(document)}
+									{$t('linkedSources.type.picture')}
+								{:else}
+									{document.documentOrigin === 'generated'
+										? $t('linkedSources.type.generated')
+										: $t('linkedSources.type.uploaded')}
+									{#if document.promptArtifactId}
+										 · {$t('linkedSources.promptReady')}
+									{/if}
 								{/if}
 							</span>
 						</span>
@@ -509,6 +560,25 @@ $effect(() => {
 		height: 1rem;
 		margin-top: 0.1rem;
 		accent-color: var(--accent);
+	}
+
+	.linked-document-picker__row-mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		width: 40px;
+		height: 40px;
+		overflow: hidden;
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+	}
+
+	.linked-document-picker__row-mark img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 
 	.linked-document-picker__row-copy {

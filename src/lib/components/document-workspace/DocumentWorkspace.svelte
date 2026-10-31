@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { type Component, tick, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
@@ -147,6 +148,7 @@ let {
 	onAttachPicture = undefined,
 	marks = undefined,
 	onMarksChange = undefined,
+	onMarksContinue = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -249,6 +251,7 @@ let {
 	marks?: ArtifactBodyProps["marks"];
 	/** The open Image body's marks, back to the chat page that sends them as one chip. Absent for a host with no chat (the Knowledge page): the body then offers no Mark. */
 	onMarksChange?: ArtifactBodyProps["onMarksChange"];
+	onMarksContinue?: ArtifactBodyProps["onMarksContinue"];
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -421,6 +424,27 @@ function handleBodyPendingReviewCountChange(count: number): void {
 // this slice ships (the registry is empty) falls straight through to the
 // preview stack below, unchanged.
 let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
+// An uploaded photo takes marks too, where a chat can send them: its artifact is
+// the attachment the send will carry.
+let markableUploadId = $derived(
+	onMarksChange &&
+		activeDocument?.source === "knowledge_artifact" &&
+		activeArtifactKind === "file"
+		? (activeDocument.artifactId ?? null)
+		: null,
+);
+let uploadMarks = $derived(
+	marks && marks.uploadArtifactId === markableUploadId ? marks.marks : [],
+);
+let handleUploadMarks = $derived.by(() => {
+	const uploadArtifactId = markableUploadId;
+	return uploadArtifactId
+		? (next: ImageMark[]) =>
+				onMarksChange?.(
+					next.length > 0 ? { uploadArtifactId, marks: next } : null,
+				)
+		: undefined;
+});
 /**
  * The panel landmark's accessible name while an item is open: what it shows
  * ("Vienna trip plan, Document"), not one generic "Document workspace" for
@@ -2976,6 +3000,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								{onAttachPicture}
 								{marks}
 								{onMarksChange}
+								{onMarksContinue}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
@@ -3060,6 +3085,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								mimeType={activeDocument.mimeType}
 								bind:currentPage={currentPage}
 								bind:totalPages={currentTotalPages}
+								marks={uploadMarks}
+								onMarksChange={handleUploadMarks}
+								{onMarksContinue}
 							/>
 						{:catch}
 							<div class="workspace-compare-state workspace-compare-state-error">
@@ -3330,6 +3358,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						{onAttachPicture}
 						{marks}
 						{onMarksChange}
+						{onMarksContinue}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}
@@ -3411,6 +3440,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							mimeType={activeDocument.mimeType}
 							bind:currentPage={currentPage}
 							bind:totalPages={currentTotalPages}
+							marks={uploadMarks}
+							onMarksChange={handleUploadMarks}
+							{onMarksContinue}
 						/>
 					{:catch}
 						<div class="workspace-compare-state workspace-compare-state-error">

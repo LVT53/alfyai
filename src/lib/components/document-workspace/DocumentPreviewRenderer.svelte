@@ -1,4 +1,6 @@
 <script lang="ts">
+import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMarks.svelte";
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
 import { browser } from "$app/environment";
@@ -32,6 +34,9 @@ let {
 	mimeType,
 	currentPage = $bindable(1),
 	totalPages = $bindable(0),
+	marks = [],
+	onMarksChange,
+	onMarksContinue,
 }: {
 	open: boolean;
 	artifactId: string | null;
@@ -40,6 +45,10 @@ let {
 	mimeType: string | null;
 	currentPage?: number;
 	totalPages?: number;
+	/** The boxes on this photo; with `onMarksChange` an image gets the Mark tool. */
+	marks?: ImageMark[];
+	onMarksChange?: ((marks: ImageMark[]) => void) | undefined;
+	onMarksContinue?: (() => void) | undefined;
 } = $props();
 
 let content = $state<Blob | null>(null);
@@ -54,6 +63,9 @@ let missingPreviewSource = $state(false);
 let PdfPreviewComponent = $state<PdfPreviewComponentType | null>(null);
 let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
+let previewSourceForMarks = $derived(
+	resolvePreviewSourceUrl({ artifactId, previewUrl }),
+);
 
 $effect(() => {
 	const previewSourceUrl = resolvePreviewSourceUrl({ artifactId, previewUrl });
@@ -292,7 +304,23 @@ function downloadFile() {
 					{/if}
 				{:else if fileType === "image"}
 					{#if content && adapter?.kind === "image" && ImagePreviewComponent}
-						<ImagePreviewComponent blob={content} {filename} />
+						{#if onMarksChange && previewSourceForMarks}
+							<UploadPictureMarks
+								url={previewSourceForMarks}
+								{filename}
+								{marks}
+								onChange={onMarksChange}
+								onContinue={onMarksContinue}
+							>
+								{#snippet preview()}
+									{#if content && ImagePreviewComponent}
+										<ImagePreviewComponent blob={content} {filename} />
+									{/if}
+								{/snippet}
+							</UploadPictureMarks>
+						{:else}
+							<ImagePreviewComponent blob={content} {filename} />
+						{/if}
 					{/if}
 				{:else if fileType === "text"}
 					{#if textPreview}

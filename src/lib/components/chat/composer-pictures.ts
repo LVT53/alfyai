@@ -10,7 +10,7 @@
  * order list and asks these for the numbers. There is no cap here: the cap
  * limits one picture request on the server, and Alfy says so in its reply.
  */
-import type { ImageMark } from "$lib/shared/artifacts/image-body";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 
 /** A card, strip or History picture waiting in the composer. */
 export type ComposerPictureRef = {
@@ -59,9 +59,8 @@ export function pictureChipNames(
  * and shown as one `image` chip: the request the send carries, and the item the
  * picture belongs to (its title names the picture when the send adds it).
  */
-export type ComposerMarks = {
-	imageFileId: string;
-	marks: ImageMark[];
+export type ComposerMarks = ImageMarksRequest & {
+	/** The item the picture belongs to, or the uploaded photo itself. */
 	artifactId: string;
 	name: string;
 	/** The item's version the marks were drawn on: a newer one lets them go (Review Focus 4). */
@@ -164,9 +163,19 @@ export function arrangePictureChips(
  */
 export function markedPictureNumber(
 	numbers: ReadonlyMap<string, number>,
-	imageFileId: string,
+	marked: ImageMarksRequest,
 ): number {
-	return (
-		numbers.get(pictureKey({ kind: "ref", imageFileId })) ?? numbers.size + 1
-	);
+	const key =
+		marked.imageFileId !== undefined
+			? pictureKey({ kind: "ref", imageFileId: marked.imageFileId })
+			: pictureKey({ kind: "upload", artifactId: marked.uploadArtifactId });
+	return numbers.get(key) ?? numbers.size + 1;
+}
+
+/** The request a held mark set sends: a copy of its boxes on its one picture. */
+export function marksRequest(held: ComposerMarks): ImageMarksRequest {
+	const marks = held.marks.map((mark) => ({ ...mark }));
+	return held.imageFileId !== undefined
+		? { imageFileId: held.imageFileId, marks }
+		: { uploadArtifactId: held.uploadArtifactId, marks };
 }

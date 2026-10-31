@@ -16,9 +16,10 @@ import type {
 	ImageCardActionResult,
 } from "$lib/components/artifacts/image/image-card-view";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
-import type {
-	ComposerMarks,
-	ComposerPictureRef,
+import {
+	type ComposerMarks,
+	type ComposerPictureRef,
+	marksRequest,
 } from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
@@ -452,6 +453,7 @@ let composerPictureOrder = $state.raw<readonly string[]>([]);
 // queue, and on a switch to another chat.
 let heldMarks = $state.raw<ComposerMarks | null>(null);
 let composerFocusRequest = $state(0);
+let composerTypingRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
 
@@ -1789,17 +1791,51 @@ function handleMarksChange(request: ImageMarksRequest | null) {
 	);
 	const artifactId = active?.artifactId;
 	if (!active || !artifactId) return;
+	const held = heldMarks;
 	const sameFile =
-		heldMarks?.artifactId === artifactId &&
-		heldMarks.imageFileId === request.imageFileId;
+		held?.artifactId === artifactId && held.imageFileId === request.imageFileId;
+	const name = active.title || active.filename || "";
 	heldMarks = {
-		imageFileId: request.imageFileId,
-		marks: request.marks,
+		...request,
 		artifactId,
-		name: active.title || active.filename || "",
-		version:
-			sameFile && heldMarks ? heldMarks.version : latestVersionOf(artifactId),
+		name,
+		version: sameFile && held ? held.version : latestVersionOf(artifactId),
 	};
+	// One message carries marks on one picture: drawing on another photo takes
+	// them over, and says so, so boxes never vanish unseen.
+	if (held && held.artifactId !== artifactId) {
+		showToast({
+			type: "success",
+			message: $t("artifacts.image.panel.marksMoved", { name }),
+			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
+			onAction: () => {
+				heldMarks = held;
+			},
+		});
+	}
+}
+
+/** An attached photo, opened from its composer tile. */
+function openComposerAttachment(artifact: {
+	id: string;
+	name: string;
+	mimeType?: string | null;
+}) {
+	void openArtifactFromChat({
+		id: `artifact:${artifact.id}`,
+		source: "knowledge_artifact",
+		filename: artifact.name,
+		title: artifact.name,
+		mimeType: artifact.mimeType ?? null,
+		artifactId: artifact.id,
+		conversationId: data.conversation.id,
+	});
+}
+
+/** From the panel back to the composer: on a phone the panel was covering it. */
+function handleMarksContinue() {
+	closeWorkspace();
+	composerTypingRequest += 1;
 }
 
 $effect(() => {
@@ -1815,7 +1851,7 @@ $effect(() => {
 /** The boxes the panel shows: the held marks, on their own item only (the body matches the file). */
 let panelMarks = $derived(
 	heldMarks && openPanelItemId === heldMarks.artifactId
-		? { imageFileId: heldMarks.imageFileId, marks: heldMarks.marks }
+		? marksRequest(heldMarks)
 		: null,
 );
 
@@ -4339,6 +4375,8 @@ function handleDrop(event: DragEvent) {
 				imageMarks={heldMarks}
 				onClearMarks={() => (heldMarks = null)}
 				focusRequest={composerFocusRequest}
+				typingRequest={composerTypingRequest}
+				onOpenAttachment={openComposerAttachment}
 				onStop={handleStop}
 				onCompact={handleCompact}
 				onDraftChange={handleDraftChange}
@@ -4433,6 +4471,7 @@ function handleDrop(event: DragEvent) {
 			onAttachPicture={attachPicture}
 			marks={panelMarks}
 			onMarksChange={handleMarksChange}
+			onMarksContinue={handleMarksContinue}
 			currentUser={data.user}
 		/>
 	</div>

@@ -137,6 +137,7 @@ import {
 	type ComposerMarks,
 	type ComposerPictureRef,
 	markedPictureNumber,
+	marksRequest,
 	numberPictures,
 	pictureChipNames,
 	pictureKey,
@@ -160,7 +161,6 @@ import {
 	type AttachmentChipFailure,
 } from "./composer-chip-presentation";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
-import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
 	findActiveComposerCommandToken,
 	findActiveComposerCommandTokenWithArgument,
@@ -267,6 +267,8 @@ let {
 	imageMarks = null,
 	onClearMarks = undefined,
 	focusRequest = 0,
+	typingRequest = 0,
+	onOpenAttachment = undefined,
 	onSend = undefined,
 	onQueue = undefined,
 	onStop = undefined,
@@ -361,6 +363,16 @@ let {
 	onClearMarks?: (() => void) | undefined;
 	/** Rises when the page wants the box focused (a picture was just attached). */
 	focusRequest?: number;
+	/** Raised when the person chose to write: takes focus on a phone too. */
+	typingRequest?: number;
+	/** Opens an attached photo in the panel, where it can be marked. Absent where there is no panel (the landing page). */
+	onOpenAttachment?:
+		| ((artifact: {
+				id: string;
+				name: string;
+				mimeType?: string | null;
+		  }) => void)
+		| undefined;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
 	onStop?: (() => void | Promise<void>) | undefined;
@@ -515,7 +527,6 @@ const extractionAnnouncer = createExtractionAnnouncer();
 let pasteAnnouncement = $state("");
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
-let sourceManagerOpen = $state(false);
 let documentPickerInitialQuery = $state("");
 let documentPickerDocuments = $state<KnowledgeDocumentItem[]>([]);
 let documentPickerLoading = $state(false);
@@ -680,13 +691,15 @@ let pictureChipSlots = $derived(
 	arrangePictureChips(livePictureOrder, uploadPictureKeys, refPictureKeys),
 );
 let markedNumber = $derived(
-	imageMarks
-		? markedPictureNumber(pictureNumbers, imageMarks.imageFileId)
-		: null,
+	imageMarks ? markedPictureNumber(pictureNumbers, imageMarks) : null,
 );
 $effect(() => {
 	const request = focusRequest;
 	if (request > 0 && !isMobile()) untrack(() => textarea?.focus());
+});
+// The person asked to write: unlike `focusRequest`, a phone opens its keyboard.
+$effect(() => {
+	if (typingRequest > 0) untrack(() => textarea?.focus());
 });
 let effectiveLinkedSources = $derived(
 	dedupeLinkedSourcesByFamily(
@@ -1542,7 +1555,6 @@ $effect(() => {
 	if (selectedLinkedSources.length === 0 && !pendingSkill) return;
 	selectedLinkedSources = [];
 	pendingSkill = null;
-	sourceManagerOpen = false;
 	documentPickerOpen = false;
 	draftEmissionVersion += 1;
 	void emitDraftChange();
@@ -1928,10 +1940,7 @@ function marksPayload(
 	addMarkedRef: boolean,
 ): Pick<SendPayload, "imageMarks" | "markedPicture"> {
 	return {
-		imageMarks: {
-			imageFileId: marked.imageFileId,
-			marks: marked.marks.map((mark) => ({ ...mark })),
-		},
+		imageMarks: marksRequest(marked),
 		markedPicture: {
 			artifactId: marked.artifactId,
 			name: marked.name,
@@ -1966,7 +1975,7 @@ function numberedRefs(
 			? []
 			: [{ imageFileId: ref.imageFileId, number, name: ref.name }];
 	});
-	if (marked && addMarkedRef && markedNumber !== null) {
+	if (marked?.imageFileId && addMarkedRef && markedNumber !== null) {
 		refs.push({
 			imageFileId: marked.imageFileId,
 			number: markedNumber,
@@ -1987,7 +1996,7 @@ function picturePayload(): {
 	// whether or not the panel is still open on it when the turn is sent.
 	const marked = imageMarks;
 	const addMarkedRef =
-		marked !== null &&
+		marked?.imageFileId !== undefined &&
 		!pictureRefs.some((ref) => ref.imageFileId === marked.imageFileId);
 	const marksPart = marked ? marksPayload(marked, addMarkedRef) : {};
 	const uploads = numberedUploads();
@@ -2012,6 +2021,13 @@ function picturePayload(): {
 	};
 }
 
+/** The attachments the send carries: a photo of an earlier message rides again when it is the one marked. */
+function sendAttachmentIds(): string[] {
+	const ids = pendingAttachments.map((attachment) => attachment.artifact.id);
+	const markedId = imageMarks?.uploadArtifactId;
+	return markedId && !ids.includes(markedId) ? [...ids, markedId] : ids;
+}
+
 function buildSendPayload(nextMessage = message): SendPayload {
 	return {
 		// Chips redesign — quote chips expand back into the message here,
@@ -2019,9 +2035,7 @@ function buildSendPayload(nextMessage = message): SendPayload {
 		// downstream (the send gate, the page, the server) keeps seeing one
 		// plain string exactly as the old cursor-paste produced.
 		message: expandQuotesIntoMessage(nextMessage).trim(),
-		attachmentIds: pendingAttachments.map(
-			(attachment) => attachment.artifact.id,
-		),
+		attachmentIds: sendAttachmentIds(),
 		attachments: pendingAttachmentArtifacts,
 		pendingAttachments: pendingAttachments.map((attachment) => ({
 			...attachment,
@@ -2066,7 +2080,6 @@ function clearComposerAfterSubmit() {
 	extractionActionError = "";
 	queuedSendAfterProcessing = false;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	documentPickerOpen = false;
 	forceWebSearch = false;
@@ -2161,7 +2174,6 @@ function stop(): void | Promise<void> {
 	if (!canStop) return;
 	const stopped = onStop?.();
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isMobile()) {
 		textarea?.blur();
@@ -2309,7 +2321,6 @@ $effect(() => {
 function openFilePicker() {
 	if (!canAttach) return;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isPhone) {
 		attachmentSheetOpen = true;
@@ -2396,7 +2407,6 @@ function suppressLongPressMenu(event: Event) {
 function toggleToolsMenu() {
 	showToolsMenu = !showToolsMenu;
 	if (showToolsMenu) {
-		sourceManagerOpen = false;
 		showConnectionsPopover = false;
 		showIncognitoPopover = false;
 		closeCommandTray();
@@ -2425,17 +2435,6 @@ async function loadSkillCount() {
 		// "0 active" because a fetch failed is a lie.
 		skillCount = null;
 	}
-}
-
-function openSourceManager() {
-	sourceManagerOpen = true;
-	showToolsMenu = false;
-	closeCommandTray();
-}
-
-function closeSourceManager() {
-	sourceManagerOpen = false;
-	requestAnimationFrame(() => textarea?.focus());
 }
 
 // Forced web search has no switch in the "+" menu any more — the owner read
@@ -3052,9 +3051,6 @@ function selectCommand(command: CommandTrayRow) {
 		case "document":
 			openDocumentPicker(commandArgument ?? "");
 			break;
-		case "source":
-			openSourceManager();
-			break;
 		case "settings":
 			void goto("/settings");
 			break;
@@ -3153,7 +3149,6 @@ async function openDocumentPicker(initialQuery = "") {
 	documentPickerOpen = true;
 	documentPickerInitialQuery = initialQuery;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (documentPickerDocuments.length > 0 || documentPickerLoading) return;
 	documentPickerLoading = true;
@@ -3166,6 +3161,35 @@ async function openDocumentPicker(initialQuery = "") {
 	} finally {
 		documentPickerLoading = false;
 	}
+}
+
+/** Photos picked in the Library join the message as real pictures, ready to be seen and marked. */
+function addLibraryPictures(documents: KnowledgeDocumentItem[]) {
+	const known = new Set(pendingAttachments.map(({ artifact }) => artifact.id));
+	const added = documents
+		.filter((document) => !known.has(document.displayArtifactId))
+		.map(
+			(document): PendingAttachment => ({
+				artifact: {
+					id: document.displayArtifactId,
+					type: document.type ?? "source_document",
+					retrievalClass: "durable",
+					name: document.name,
+					mimeType: document.mimeType,
+					sizeBytes: document.sizeBytes,
+					conversationId: document.conversationId,
+					summary: document.summary,
+					createdAt: document.updatedAt,
+					updatedAt: document.updatedAt,
+				},
+				promptReady: Boolean(document.promptArtifactId),
+				promptArtifactId: document.promptArtifactId,
+			}),
+		);
+	if (added.length === 0) return;
+	pendingAttachments = [...pendingAttachments, ...added];
+	draftEmissionVersion += 1;
+	void emitDraftChange();
 }
 
 function closeDocumentPicker() {
@@ -3196,12 +3220,6 @@ function removeLinkedSource(displayArtifactId: string) {
 		: selectedLinkedSources.filter(
 				(source) => source.displayArtifactId !== displayArtifactId,
 			);
-	draftEmissionVersion += 1;
-	void emitDraftChange();
-}
-
-function clearLinkedSources() {
-	selectedLinkedSources = [];
 	draftEmissionVersion += 1;
 	void emitDraftChange();
 }
@@ -3508,6 +3526,8 @@ function removePendingAttachment(id: string) {
 	pendingAttachments = pendingAttachments.filter(
 		(attachment) => attachment.artifact.id !== id,
 	);
+	// The boxes go with their photo.
+	if (imageMarks?.uploadArtifactId === id) onClearMarks?.();
 	forgetExtractionJob(id);
 	readinessRefreshRequested.delete(id);
 	extractionPoller?.sync();
@@ -3917,6 +3937,7 @@ async function emitDraftChange(force = false) {
 							label={pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name}
 							thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
 							number={pictureNumbers.get(pictureKey({ kind: 'ref', imageFileId: pictureRef.imageFileId })) ?? null}
+							tile
 							removable
 							removeLabel={$t('composerChips.removePicture', { name: pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name })}
 							onRemove={() => onRemovePictureRef?.(pictureRef.imageFileId)}
@@ -3951,6 +3972,10 @@ async function emitDraftChange(force = false) {
 									detailsId={detailsId}
 									thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
 									number={pictureNumbers.get(pictureKey({ kind: 'upload', artifactId: attachment.artifact.id })) ?? null}
+									tile={attachmentChipKind(attachment.artifact) === 'image'}
+									markLetters={imageMarks?.uploadArtifactId === attachment.artifact.id ? imageMarks.marks.map((mark) => mark.letter) : null}
+									onActivate={onOpenAttachment && attachmentChipKind(attachment.artifact) === 'image' ? () => onOpenAttachment(attachment.artifact) : undefined}
+									activateLabel={$t('composerChips.openAttachment', { name: attachment.artifact.name })}
 									removable
 									removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
 									onRemove={() => removePendingAttachment(attachment.artifact.id)}
@@ -4007,8 +4032,8 @@ async function emitDraftChange(force = false) {
 						<ComposerChip
 							kind="image"
 							label={markLabel}
-							thumbnailUrl={imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
-							number={markedNumber}
+							thumbnailUrl={imageMarks.imageFileId ? imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId }) : null}
+							number={imageMarks.imageFileId ? markedNumber : null}
 							removable
 							removeLabel={$t('composerChips.removeMarks')}
 							onRemove={() => onClearMarks?.()}
@@ -4163,6 +4188,7 @@ async function emitDraftChange(force = false) {
 							{attachmentsEnabled}
 							onClose={closeToolsMenu}
 							onAttach={openFilePicker}
+							onOpenLibrary={() => void openDocumentPicker()}
 							{personalityProfiles}
 							{selectedPersonalityId}
 							{onPersonalityChange}
@@ -4409,6 +4435,7 @@ async function emitDraftChange(force = false) {
 			loading={documentPickerLoading}
 			error={documentPickerError}
 			onApply={applyLinkedSources}
+			onAddPictures={addLibraryPictures}
 			onCancel={closeDocumentPicker}
 		/>
 	{/if}
@@ -4435,15 +4462,6 @@ async function emitDraftChange(force = false) {
 		/>
 	{/if}
 
-	{#if sourceManagerOpen}
-		<LinkedSourceManager
-			sources={effectiveLinkedSources}
-			onClose={closeSourceManager}
-			onRemove={removeLinkedSource}
-			onClear={clearLinkedSources}
-			onAddDocument={() => openDocumentPicker()}
-		/>
-	{/if}
 
 </div>
 

@@ -1259,6 +1259,7 @@ function sendFollowUp(question: string) {
 								thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId })}
 								number={pictureRef.number}
 								size="message"
+								tile
 								testId="message-picture-chip"
 							/>
 							{/if}

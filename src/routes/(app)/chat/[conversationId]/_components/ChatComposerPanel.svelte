@@ -37,6 +37,8 @@ let {
 	imageMarks = null,
 	onClearMarks = undefined,
 	focusRequest = 0,
+	typingRequest = 0,
+	onOpenAttachment = undefined,
 	onStop,
 	onDraftChange,
 	onEditQueuedMessage,
@@ -103,6 +105,14 @@ let {
 	onClearMarks?: (() => void) | undefined;
 	/** Rises when a picture was just attached: the composer takes focus. */
 	focusRequest?: number;
+	typingRequest?: number;
+	onOpenAttachment?:
+		| ((artifact: {
+				id: string;
+				name: string;
+				mimeType?: string | null;
+		  }) => void)
+		| undefined;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
 	onEditQueuedMessage: () => void;
@@ -234,6 +244,8 @@ $effect(() => {
 			{imageMarks}
 			{onClearMarks}
 			{focusRequest}
+			{typingRequest}
+			{onOpenAttachment}
 			{onStop}
 			{onDraftChange}
 			{onEditQueuedMessage}

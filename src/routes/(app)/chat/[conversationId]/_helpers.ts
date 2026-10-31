@@ -1171,7 +1171,7 @@ export function composerMarksFromSend(
 		return null;
 	}
 	return {
-		imageFileId: imageMarks.imageFileId,
+		...imageMarks,
 		marks: imageMarks.marks.map((mark) => ({ ...mark })),
 		artifactId: markedPicture.artifactId,
 		name: markedPicture.name,
@@ -1190,7 +1190,12 @@ export function marksOutdated(
 	held: ComposerMarks,
 	now: { openItemId: string | null; version: number | null },
 ): boolean {
-	if (now.openItemId !== null && now.openItemId !== held.artifactId) {
+	// Several uploaded photos ride together: looking at another keeps the marks.
+	if (
+		!held.uploadArtifactId &&
+		now.openItemId !== null &&
+		now.openItemId !== held.artifactId
+	) {
 		return true;
 	}
 	return (
@@ -1250,7 +1255,7 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		pictureRefs: payload.pictureRefs?.map((ref) => ({ ...ref })),
 		imageMarks: payload.imageMarks
 			? {
-					imageFileId: payload.imageMarks.imageFileId,
+					...payload.imageMarks,
 					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
 				}
 			: payload.imageMarks,

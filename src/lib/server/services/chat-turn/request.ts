@@ -430,17 +430,23 @@ function parseImageMarksRequest(
 		},
 	};
 	if (typeof value !== "object") return invalid;
-	const { imageFileId, marks } = value as Record<string, unknown>;
-	if (typeof imageFileId !== "string" || imageFileId.trim().length === 0) {
-		return invalid;
-	}
+	const { imageFileId, uploadArtifactId, marks } = value as Record<
+		string,
+		unknown
+	>;
+	const fileId = typeof imageFileId === "string" ? imageFileId.trim() : "";
+	const uploadId =
+		typeof uploadArtifactId === "string" ? uploadArtifactId.trim() : "";
+	if (Boolean(fileId) === Boolean(uploadId)) return invalid;
 	const parsed = parseImageMarks(marks);
 	if (!parsed) return invalid;
 	// No boxes is no marks.
 	if (parsed.length === 0) return { ok: true, value: null };
 	return {
 		ok: true,
-		value: { imageFileId: imageFileId.trim(), marks: parsed },
+		value: fileId
+			? { imageFileId: fileId, marks: parsed }
+			: { uploadArtifactId: uploadId, marks: parsed },
 	};
 }
 

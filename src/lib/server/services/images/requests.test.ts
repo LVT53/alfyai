@@ -516,6 +516,30 @@ describe("what a call is made from", () => {
 		]);
 	});
 
+	it("changes the marked upload when only its marked copy is named", async () => {
+		const photo = await makeUpload(600, 400);
+		const copy = await storeFile();
+		const marks = [{ letter: "A" as const, x: 0.2, y: 0.2, w: 0.3, h: 0.3 }];
+		const turnPictures: TurnPictureIndex = {
+			...index([photo, fileSource(copy.id, { role: "marked", marks })]),
+			metadata: {
+				refs: [],
+				open: null,
+				marks: {
+					uploadArtifactId:
+						photo.type === "upload" ? photo.artifactId : undefined,
+					markedFileId: copy.id,
+					letters: ["A"],
+				},
+			},
+		};
+		const result = await resolve({ pictures: ["2"] }, { turnPictures });
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan.madeFrom).toBe("photo");
+		expect(result.plan.request.baseFromUpload).toBe(true);
+		expect(result.plan.request.marks).toEqual(marks);
+	});
+
 	it("paints the marked copy on the base and keeps the boxes on the request", async () => {
 		const base = await storeFile();
 		const copy = await storeFile();

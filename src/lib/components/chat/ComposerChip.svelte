@@ -16,6 +16,10 @@
 // chip used to carry (the Atlas notify bell) is a disclosure BESIDE it — see
 // ComposerChipRow's `after` snippet and MessageInput's Atlas chip.
 import {
+	MARK_COLOURS,
+	type MarkLetter,
+} from "$lib/shared/artifacts/image-body";
+import {
 	Clock,
 	FileText,
 	Globe,
@@ -56,6 +60,8 @@ let {
 	detailsId,
 	testId,
 	number = null,
+	tile = false,
+	markLetters = null,
 }: {
 	kind: ComposerChipKind;
 	label: string;
@@ -97,6 +103,14 @@ let {
 	 * rides on the leading mark; the chip is named "Picture 2: rug.jpg".
 	 */
 	number?: number | null;
+	/**
+	 * A photo: the picture alone, large, with its name only on hover or focus
+	 * (the owner's exception to one pill, 2026-10-31). The number stays for a
+	 * screen reader; a person goes by the picture.
+	 */
+	tile?: boolean;
+	/** The letters of the marks on this photo: a coloured edge and the first letter. */
+	markLetters?: readonly MarkLetter[] | null;
 } = $props();
 
 let tint = $derived(composerChipTint(kind));
@@ -193,6 +207,9 @@ function handleBodyKeydown(event: KeyboardEvent) {
 	class:composer-chip--dashed={dashed}
 	class:composer-chip--disabled={disabled}
 	class:composer-chip--interactive={isInteractive}
+	class:composer-chip--tile={tile}
+	class:composer-chip--marked={tile && Boolean(markLetters?.length)}
+	style:--chip-mark-colour={tile && markLetters?.length ? MARK_COLOURS[markLetters[0]] : undefined}
 	data-chip-kind={kind}
 	data-chip-tint={tint}
 	data-chip-size={size}
@@ -242,16 +259,33 @@ function handleBodyKeydown(event: KeyboardEvent) {
 				{/if}
 			</span>
 		{/if}
-		{#if number != null}
+		{#if number != null && !tile}
 			<span class="composer-chip__number" data-testid="composer-chip-number" aria-hidden="true">{number}</span>
 		{/if}
 		</span>
-		<span class="composer-chip__label">{label}</span>
-		{#if meta}
-			<span class="composer-chip__meta" data-testid="composer-chip-meta">· {meta}</span>
-		{/if}
-		{#if status}
-			<span class="composer-chip__status">{status}</span>
+		{#if tile}
+			<span class="composer-chip__name" data-testid="composer-chip-name">{label}</span>
+			<!-- Out of sight, in the DOM: the picture speaks for a person, these for a screen reader. -->
+			{#if number != null}
+				<span class="composer-chip__sr-only" data-testid="composer-chip-number">{number}</span>
+			{/if}
+			{#if meta}
+				<span class="composer-chip__sr-only" data-testid="composer-chip-meta">{meta}</span>
+			{/if}
+			{#if markLetters?.length}
+				<span class="composer-chip__mark-letter" data-testid="composer-chip-mark-letter" aria-hidden="true">{markLetters[0]}</span>
+			{/if}
+			{#if status}
+				<span class="composer-chip__tile-status">{status}</span>
+			{/if}
+		{:else}
+			<span class="composer-chip__label">{label}</span>
+			{#if meta}
+				<span class="composer-chip__meta" data-testid="composer-chip-meta">· {meta}</span>
+			{/if}
+			{#if status}
+				<span class="composer-chip__status">{status}</span>
+			{/if}
 		{/if}
 	</svelte:element>
 	{#if busy}
@@ -561,6 +595,124 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		width: 14px;
 		height: 14px;
 		border-radius: 3px;
+	}
+
+	/* A photo is its picture: no pill, no line of text. */
+	.composer-chip--tile {
+		position: relative;
+		width: 56px;
+		max-width: 56px;
+		height: 56px;
+		padding: 0;
+		border-radius: var(--radius-md);
+		background: var(--surface-elevated);
+	}
+
+	.composer-chip--tile.composer-chip--message {
+		width: 48px;
+		max-width: 48px;
+		height: 48px;
+	}
+
+	.composer-chip--tile.composer-chip--marked {
+		border: 2px solid var(--chip-mark-colour);
+	}
+
+	.composer-chip--tile .composer-chip__body {
+		position: static;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		border-radius: inherit;
+		overflow: visible;
+	}
+
+	.composer-chip--tile .composer-chip__mark {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.composer-chip--tile .composer-chip__thumb {
+		width: 100%;
+		height: 100%;
+		border-radius: calc(var(--radius-md) - 1px);
+	}
+
+	/* The name on hover or focus only: a small pill over the picture's own foot,
+	   inside the rail, which clips anything outside it on a phone. */
+	.composer-chip__name {
+		position: absolute;
+		bottom: 2px;
+		left: 2px;
+		max-width: calc(100% - 4px);
+		padding: 0 4px;
+		overflow: hidden;
+		border-radius: var(--radius-full);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		font-size: 0.625rem;
+		line-height: 1.4;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity var(--duration-fast, 120ms) var(--ease-out);
+	}
+
+	.composer-chip--tile:hover .composer-chip__name,
+	.composer-chip--tile:focus-within .composer-chip__name {
+		opacity: 1;
+	}
+
+	.composer-chip__mark-letter {
+		position: absolute;
+		top: 0;
+		left: 0;
+		padding: 0 5px;
+		border-radius: 0 0 var(--radius-sm) 0;
+		background: var(--chip-mark-colour);
+		color: #fff;
+		font-size: 0.6875rem;
+		font-weight: 700;
+		line-height: 1.4;
+	}
+
+	.composer-chip__tile-status {
+		position: absolute;
+		right: 2px;
+		bottom: 2px;
+		left: 2px;
+		overflow: hidden;
+		border-radius: var(--radius-sm);
+		background: var(--surface-overlay);
+		color: var(--danger);
+		font-size: 0.625rem;
+		text-align: center;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.composer-chip--tile .composer-chip__remove,
+	.composer-chip--tile .composer-chip__busy {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		z-index: 1;
+		width: 20px;
+		height: 20px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-sm);
 	}
 
 	/* A quote wears the serif the message body is set in, so the words read

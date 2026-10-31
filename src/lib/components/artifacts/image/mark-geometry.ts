@@ -77,3 +77,23 @@ export function hitMark(
 	}
 	return null;
 }
+
+/** The line over the picture while Mark is on: the limit, what to do next, or how to start. */
+export function markNoteKey(state: {
+	refused: boolean;
+	marking: boolean;
+	count: number;
+	isPhone: boolean;
+}):
+	| "artifacts.image.panel.tooManyMarks"
+	| "artifacts.image.panel.markHint"
+	| "artifacts.image.panel.markedPhone"
+	| "artifacts.image.panel.markedDesktop"
+	| null {
+	if (state.refused) return "artifacts.image.panel.tooManyMarks";
+	if (!state.marking) return null;
+	if (state.count === 0) return "artifacts.image.panel.markHint";
+	return state.isPhone
+		? "artifacts.image.panel.markedPhone"
+		: "artifacts.image.panel.markedDesktop";
+}

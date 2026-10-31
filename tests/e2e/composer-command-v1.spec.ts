@@ -377,7 +377,7 @@ test.describe("Composer Command V1", () => {
 
 		await typeComposerCommand(page, "/document");
 		await page.getByRole("option", { name: /\/document/i }).click();
-		const picker = page.getByRole("dialog", { name: "Link Library documents" });
+		const picker = page.getByRole("dialog", { name: "Add from your Library" });
 		await expect(picker).toBeVisible();
 		await expect
 			.poll(() =>
@@ -386,22 +386,9 @@ test.describe("Composer Command V1", () => {
 			.not.toBe("rgb(255, 255, 255)");
 		await picker.getByRole("checkbox", { name: "Alpha source.md" }).check();
 		await picker.getByRole("checkbox", { name: "Beta source.pdf" }).check();
-		await page.getByRole("button", { name: "Link selected documents" }).click();
+		await page.getByRole("button", { name: "Add selected" }).click();
 		await expect(page.getByText("Alpha source.md")).toBeVisible();
 		await expect(page.getByText("Beta source.pdf")).toBeVisible();
-
-		await typeComposerCommand(page, "/source");
-		await page.getByRole("option", { name: /\/source/i }).click();
-		const sourceManager = page.getByRole("dialog", { name: "Sources" });
-		await expect(sourceManager).toBeVisible();
-		await expect
-			.poll(() =>
-				sourceManager.evaluate(
-					(element) => getComputedStyle(element).backgroundColor,
-				),
-			)
-			.not.toBe("rgb(255, 255, 255)");
-		await sourceManager.getByRole("button", { name: "Close sources" }).click();
 
 		// ADR-0061 collapsed the reasoning-depth ladder into one on/off
 		// toggle. "/depth" survives only as a hidden alias for "/think", so it

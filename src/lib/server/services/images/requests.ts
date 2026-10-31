@@ -294,9 +294,11 @@ export async function resolveMakeImageRequest(params: {
 	// Only the marked copy named: it is a copy of a picture the message holds,
 	// and that picture is the one being changed.
 	if (marked && plain.length === 0) {
-		const baseFileId = params.turnPictures?.metadata?.marks?.imageFileId;
-		const base = params.turnPictures?.pictures.find(
-			(p) => p.source.type === "image_file" && p.source.fileId === baseFileId,
+		const markedOn = params.turnPictures?.metadata?.marks;
+		const base = params.turnPictures?.pictures.find((p) =>
+			p.source.type === "upload"
+				? p.source.artifactId === markedOn?.uploadArtifactId
+				: p.source.fileId === markedOn?.imageFileId,
 		);
 		if (base) plain = [base.source];
 	}

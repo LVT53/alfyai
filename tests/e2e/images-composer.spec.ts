@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
@@ -219,6 +220,179 @@ test.describe("Pictures in the composer", () => {
 		);
 		expect(label, "the model was told what the marks are").toBeTruthy();
 		expect(parts.some((part) => part.type === "image_url")).toBe(true);
+	});
+
+	test.describe("marks on uploaded photos", () => {
+		const TILE = '[data-testid="composer-chip-attachment"]';
+
+		// Two uploads through the extraction queue before anything is drawn.
+		test.slow();
+
+		// Two uploads through the extraction queue before anything is drawn.
+		test.slow();
+
+		/** Fresh names: the Library renames a name it already holds. */
+		async function attachTwo(page: Page) {
+			await openChat(page);
+			const sofa = `sofa-${randomUUID().slice(0, 8)}.png`;
+			const room = `room-${randomUUID().slice(0, 8)}.png`;
+			await attachPhoto(
+				page,
+				{ ...(await randomPng(600, 400)), name: sofa },
+				1,
+			);
+			await attachPhoto(
+				page,
+				{ ...(await randomPng(600, 400)), name: room },
+				2,
+			);
+			return { sofa, room };
+		}
+
+		test("a tile opens one photo, its marks ride with the message and survive a look at another", async ({
+			page,
+		}) => {
+			videoName = "marks-on-upload";
+			const { sofa, room } = await attachTwo(page);
+			const tiles = page.locator(TILE);
+			await expect(page.getByTestId("upload-picture-marks")).toHaveCount(0);
+			await expect(tiles.first().getByTestId("composer-chip-number")).toHaveCSS(
+				"position",
+				"absolute",
+			);
+			await expect(tiles.first().getByTestId("composer-chip-name")).toHaveCSS(
+				"opacity",
+				"0",
+			);
+
+			await tiles
+				.nth(1)
+				.getByRole("button", { name: new RegExp(room) })
+				.first()
+				.click();
+			await page.getByTestId("image-body-mark").click();
+			await expect(page.getByTestId("image-body-mark-note")).toContainText(
+				"Drag to draw a box",
+			);
+			await expect(page.getByTestId("image-body-frame")).toBeVisible();
+			await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+			await expect(page.getByTestId("mark-box")).toHaveCount(1);
+			await expect(page.getByTestId("image-body-mark-note")).toContainText(
+				"A marked",
+			);
+			await expect(page.locator(MARKS_CHIP)).toContainText("Marks A");
+			await expect(
+				tiles.nth(1).getByTestId("composer-chip-mark-letter"),
+			).toHaveText("A");
+			await page.screenshot({
+				path: `${process.env.MARKS_SHOTS_DIR ?? "test-results"}/desktop-marked.png`,
+			});
+
+			// Only looking at the other photo keeps the boxes.
+			await tiles
+				.first()
+				.getByRole("button", { name: new RegExp(sofa) })
+				.first()
+				.click();
+			await expect(page.getByTestId("upload-picture-marks")).toBeVisible();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+
+			const question = "Put the sofa in the marked spot";
+			await sendMessage(page, question);
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+			await expect
+				.poll(() => lastUserParts(fakeProvider.requests(), question).length, {
+					timeout: 30_000,
+				})
+				.toBeGreaterThan(0);
+			const parts = lastUserParts(fakeProvider.requests(), question);
+			expect(
+				parts.some(
+					(part) =>
+						part.type === "text" &&
+						part.text?.includes("Picture 2 with the user's marks: A = red box"),
+				),
+				"the model was told which photo is marked",
+			).toBe(true);
+		});
+
+		test("marks move to the next photo with an Undo, and go when their photo goes", async ({
+			page,
+		}) => {
+			videoName = "marks-move";
+			const { sofa, room } = await attachTwo(page);
+			const tiles = page.locator(TILE);
+			await tiles
+				.first()
+				.getByRole("button", { name: new RegExp(sofa) })
+				.first()
+				.click();
+			await page.getByTestId("image-body-mark").click();
+			await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+
+			await tiles
+				.nth(1)
+				.getByRole("button", { name: new RegExp(room) })
+				.first()
+				.click();
+			await page.getByTestId("image-body-mark").click();
+			await dragBox(page, [0.3, 0.3], [0.8, 0.8]);
+			await expect(page.getByText(`Marks moved to ${room}`)).toBeVisible();
+			await expect(
+				tiles.nth(1).getByTestId("composer-chip-mark-letter"),
+			).toHaveText("A");
+			await expect(
+				tiles.first().getByTestId("composer-chip-mark-letter"),
+			).toHaveCount(0);
+
+			await page.getByRole("button", { name: "Undo" }).click();
+			await expect(
+				tiles.first().getByTestId("composer-chip-mark-letter"),
+			).toHaveText("A");
+
+			await tiles.first().locator(".composer-chip__remove").click();
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+		});
+
+		test.describe("on a phone", () => {
+			test.use({
+				viewport: { width: 390, height: 844 },
+				hasTouch: true,
+				isMobile: true,
+			});
+
+			test("a box says what to do next and the button goes back to the composer", async ({
+				page,
+			}) => {
+				videoName = "marks-phone";
+				const { room } = await attachTwo(page);
+				await page
+					.locator(TILE)
+					.nth(1)
+					.getByRole("button", { name: new RegExp(room) })
+					.first()
+					.tap();
+				await page.getByTestId("image-body-mark").tap();
+				await expect(page.getByTestId("mark-continue")).toHaveCount(0);
+				await dragBox(page, [0.2, 0.2], [0.7, 0.7]);
+				await expect(page.getByTestId("mark-box")).toHaveCount(1);
+				await expect(page.getByTestId("image-body-mark-note")).toContainText(
+					"Add more, or continue",
+				);
+				await page.screenshot({
+					path: `${process.env.MARKS_SHOTS_DIR ?? "test-results"}/phone-marked.png`,
+				});
+				await page.getByTestId("mark-continue").tap();
+
+				await expect(page.getByTestId("upload-picture-marks")).toHaveCount(0);
+				await expect(page.locator(MARKS_CHIP)).toBeVisible();
+				await expect(page.getByTestId("message-input")).toBeFocused();
+				await page.screenshot({
+					path: `${process.env.MARKS_SHOTS_DIR ?? "test-results"}/phone-composer.png`,
+				});
+			});
+		});
 	});
 
 	test("the cap never blocks a message", async ({ page }) => {

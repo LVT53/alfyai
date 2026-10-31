@@ -1153,6 +1153,13 @@ const artifactsDict = {
 		"artifacts.image.panel.mark": "Mark",
 		"artifacts.image.enlarge": "Enlarge picture",
 		"artifacts.image.panel.markHint": "Drag to draw a box",
+		"artifacts.image.panel.markedPhone":
+			"{letters} marked. Add more, or continue.",
+		"artifacts.image.panel.markedDesktop":
+			"{letters} marked. Say what to change below.",
+		"artifacts.image.panel.markContinue": "Tell Alfy what to change",
+		"artifacts.image.panel.marksMoved": "Marks moved to {name}",
+		"artifacts.image.panel.marksMovedUndo": "Undo",
 		"artifacts.image.panel.markA11y": "Mark {letter}, tap to remove",
 		"artifacts.image.panel.tooManyMarks": "Up to 8 marks",
 		"artifacts.image.history.wipe": "Drag to compare",
@@ -2119,6 +2126,13 @@ const artifactsDict = {
 		"artifacts.image.panel.mark": "Jelölés",
 		"artifacts.image.enlarge": "Kép nagyítása",
 		"artifacts.image.panel.markHint": "Húzással rajzolj keretet",
+		"artifacts.image.panel.markedPhone":
+			"{letters} megjelölve. Jelölj még, vagy folytasd.",
+		"artifacts.image.panel.markedDesktop":
+			"{letters} megjelölve. Lent írd le, mi változzon.",
+		"artifacts.image.panel.markContinue": "Mondd el Alfynak, mi változzon",
+		"artifacts.image.panel.marksMoved": "A jelölések átkerültek ide: {name}",
+		"artifacts.image.panel.marksMovedUndo": "Visszavonás",
 		"artifacts.image.panel.markA11y": "{letter} jelölés, koppints a törléshez",
 		"artifacts.image.panel.tooManyMarks": "Legfeljebb 8 jelölés",
 		"artifacts.image.history.wipe": "Húzd az összevetéshez",

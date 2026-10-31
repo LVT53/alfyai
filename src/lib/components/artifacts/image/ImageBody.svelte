@@ -26,7 +26,6 @@
 // picture while Mark is off, opens the full-screen viewer (`PictureViewer`) on
 // the picture shown (After, or Before while it shows), full size, for looking.
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
-import SquareDashed from "@lucide/svelte/icons/square-dashed";
 import { untrack } from "svelte";
 import { fetchArtifact, fetchArtifactHistory } from "$lib/client/api/artifacts";
 import { imageFileUrl } from "$lib/client/api/images";
@@ -46,7 +45,10 @@ import {
 import type { ArtifactBodyProps } from "../artifact-bodies";
 import BeforeAfterSwitch from "./BeforeAfterSwitch.svelte";
 import ImagePicture from "./ImagePicture.svelte";
+import { markNoteKey } from "./mark-geometry";
 import MarkLayer from "./MarkLayer.svelte";
+import MarkNote from "./MarkNote.svelte";
+import MarkTools from "./MarkTools.svelte";
 import PictureViewer from "./PictureViewer.svelte";
 import { pinchZoom } from "./pinch-zoom";
 import VersionStrip from "./VersionStrip.svelte";
@@ -61,6 +63,7 @@ let {
 	onAttachPicture,
 	marks = null,
 	onMarksChange,
+	onMarksContinue,
 }: ArtifactBodyProps = $props();
 
 /** History's first page is enough for the strip: a picture is rarely changed fifty times. */
@@ -260,12 +263,15 @@ function clickPicture(event: MouseEvent): void {
 	enlarged = true;
 }
 
+let markNoteI18nKey = $derived(
+	markNoteKey({ refused, marking, count: shownMarks.length, isPhone }),
+);
 let markNote = $derived(
-	refused
-		? $t("artifacts.image.panel.tooManyMarks")
-		: marking
-			? $t("artifacts.image.panel.markHint")
-			: "",
+	markNoteI18nKey
+		? $t(markNoteI18nKey, {
+				letters: shownMarks.map((mark) => mark.letter).join(", "),
+			})
+		: "",
 );
 </script>
 
@@ -323,9 +329,7 @@ let markNote = $derived(
 			</button>
 		{#if canMark}
 			<!-- Over the stage, outside the zoomed picture, so it never scales. -->
-			<p class="image-body-mark-note" class:is-shown={markNote !== ''} role="status" data-testid="image-body-mark-note">
-				{markNote}
-			</p>
+			<MarkNote text={markNote} />
 		{/if}
 		{:else if status === 'error'}
 			<p class="image-body-error" role="alert" data-testid="image-body-error">
@@ -352,19 +356,13 @@ let markNote = $derived(
 				/>
 			{/if}
 			{#if canMark}
-				<button
-					type="button"
-					class="image-body-mark"
-					aria-pressed={marking}
-					aria-label={$t('artifacts.image.panel.mark')}
-					title={$t('artifacts.image.panel.mark')}
+				<MarkTools
+					{marking}
 					disabled={showing === 'before'}
-					data-testid="image-body-mark"
-					onclick={() => (marking = !marking)}
-				>
-					<SquareDashed size={16} strokeWidth={2} aria-hidden="true" />
-					<span class="image-body-mark-label">{$t('artifacts.image.panel.mark')}</span>
-				</button>
+					canContinue={isPhone && shownMarks.length > 0}
+					onToggle={() => (marking = !marking)}
+					onContinue={onMarksContinue}
+				/>
 			{/if}
 		</div>
 	</div>
@@ -465,83 +463,11 @@ let markNote = $derived(
 		opacity: 0;
 	}
 
-	.image-body-mark-note {
-		position: absolute;
-		top: var(--space-sm);
-		left: 50%;
-		z-index: 1;
-		margin: 0;
-		max-width: calc(100% - 2 * var(--space-md));
-		padding: var(--space-xs) var(--space-md);
-		border-radius: 999px;
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-sm);
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: 0.8125rem;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		pointer-events: none;
-		opacity: 0;
-		transform: translateX(-50%);
-		transition: opacity var(--duration-standard) var(--ease-out);
-	}
-
-	.image-body-mark-note.is-shown {
-		opacity: 1;
-	}
-
-	.image-body-mark {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-xs);
-		min-height: 2.25rem;
-		padding: 0 0.75rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-sm);
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.8125rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.image-body-mark[aria-pressed='true'] {
-		border-color: var(--text-primary);
-		background: var(--text-primary);
-		color: var(--surface-page);
-	}
-
-	.image-body-mark:disabled {
-		opacity: 0.45;
-		cursor: default;
-	}
-
-	.image-body-mark:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	/* A phone's row holds the strip, Before / After and Mark at 360 px: Mark is
-	   its icon there (named for a screen reader), a 44 px target. */
+	/* Enlarge is a 44 px target on a phone, as Mark is. */
 	@media (hover: none) and (pointer: coarse) {
 		.image-body-enlarge {
 			width: 44px;
 			height: 44px;
-		}
-
-		.image-body-mark {
-			min-width: 44px;
-			min-height: 44px;
-			justify-content: center;
-			padding: 0;
-		}
-
-		.image-body-mark-label {
-			display: none;
 		}
 	}
 

@@ -86,8 +86,10 @@ export type ImageVersionBody = {
 
 /** A picture a message or a tool call names: the file and the number the model sees it under. */
 export type PictureRef = { imageFileId: string; number: number };
-/** Marks the person drew on one picture, sent with a message. */
-export type ImageMarksRequest = { imageFileId: string; marks: ImageMark[] };
+/** Marks the person drew on one picture, sent with a message: a picture file, or an uploaded photo the message carries. */
+export type ImageMarksRequest =
+	| { imageFileId: string; uploadArtifactId?: undefined; marks: ImageMark[] }
+	| { uploadArtifactId: string; imageFileId?: undefined; marks: ImageMark[] };
 
 /**
  * What a user message keeps of the pictures it carried besides its uploads
@@ -113,7 +115,9 @@ export type UserPicturesMetadata = {
 	/** The open picture when it was not also attached. */
 	open: { imageFileId: string; name: string } | null;
 	marks: {
-		imageFileId: string;
+		/** The picture marked: `imageFileId`, or `uploadArtifactId` for an uploaded photo. */
+		imageFileId?: string;
+		uploadArtifactId?: string;
 		markedFileId: string;
 		letters: MarkLetter[];
 		/** The boxes, so a regenerated turn can paint the marked copy again. */
@@ -245,7 +249,10 @@ export function parseUserPictures(
 		const raw = value.marks;
 		if (
 			!isRecord(raw) ||
-			!isNonEmptyString(raw.imageFileId) ||
+			!(
+				isNonEmptyString(raw.imageFileId) ||
+				isNonEmptyString(raw.uploadArtifactId)
+			) ||
 			!isNonEmptyString(raw.markedFileId) ||
 			!Array.isArray(raw.letters) ||
 			!raw.letters.every(isLetter)
@@ -255,7 +262,12 @@ export function parseUserPictures(
 		const boxes =
 			raw.boxes === undefined ? undefined : parseImageMarks(raw.boxes);
 		marks = {
-			imageFileId: raw.imageFileId,
+			...(isNonEmptyString(raw.imageFileId)
+				? { imageFileId: raw.imageFileId }
+				: {}),
+			...(isNonEmptyString(raw.uploadArtifactId)
+				? { uploadArtifactId: raw.uploadArtifactId }
+				: {}),
 			markedFileId: raw.markedFileId,
 			letters: raw.letters,
 			...(boxes ? { boxes } : {}),

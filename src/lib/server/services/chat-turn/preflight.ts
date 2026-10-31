@@ -105,6 +105,7 @@ async function prepareChatTurn(params: {
 			pictureRefs: request.pictureRefs,
 			imageMarks: request.imageMarks,
 			openImageArtifactId: request.activeDocumentArtifactId,
+			attachmentIds: request.attachmentIds,
 		});
 		if (pictureError) return { ok: false, error: pictureError };
 	}

@@ -19,6 +19,7 @@ import {
 	readImageFileBytes,
 	storeImageFile,
 } from "./files";
+import { loadPicture } from "./inputs";
 import { marksLabel, paintMarks } from "./marks";
 
 export type TurnPictureSource =
@@ -156,6 +157,8 @@ export async function validatePictureRequest(params: {
 	pictureRefs: readonly PictureRef[];
 	imageMarks: ImageMarksRequest | null;
 	openImageArtifactId: string | null | undefined;
+	/** The uploads the message carries: a marked photo must be one of them. */
+	attachmentIds: readonly string[];
 }): Promise<PictureRequestError | null> {
 	const { userId, conversationId } = params;
 	for (const ref of params.pictureRefs) {
@@ -173,7 +176,15 @@ export async function validatePictureRequest(params: {
 		}
 	}
 	if (params.imageMarks) {
-		const markedId = params.imageMarks.imageFileId;
+		const refused = {
+			status: 400,
+			error: "Marks must be on the open picture or an attached one",
+			code: "invalid_image_marks",
+		};
+		const { imageFileId: markedId, uploadArtifactId } = params.imageMarks;
+		if (uploadArtifactId) {
+			return params.attachmentIds.includes(uploadArtifactId) ? null : refused;
+		}
 		const isRef = params.pictureRefs.some(
 			(ref) => ref.imageFileId === markedId,
 		);
@@ -184,13 +195,7 @@ export async function validatePictureRequest(params: {
 					conversationId,
 					openImageArtifactId: params.openImageArtifactId,
 				});
-		if (!isRef && open?.fileId !== markedId) {
-			return {
-				status: 400,
-				error: "Marks must be on the open picture or an attached one",
-				code: "invalid_image_marks",
-			};
-		}
+		if (!isRef && open?.fileId !== markedId) return refused;
 	}
 	return null;
 }
@@ -208,6 +213,8 @@ export async function keepReadableRecordedPictures(params: {
 	refs: PictureRef[];
 	marks: ImageMarksRequest | null;
 	openImageArtifactId: string | null;
+	/** The uploads the regenerated turn carries. */
+	attachmentIds: readonly string[];
 }): Promise<{
 	pictureRefs: PictureRef[];
 	imageMarks: ImageMarksRequest | null;
@@ -222,7 +229,11 @@ export async function keepReadableRecordedPictures(params: {
 		if (file) pictureRefs.push(ref);
 	}
 	let imageMarks: ImageMarksRequest | null = null;
-	if (params.marks) {
+	if (params.marks?.uploadArtifactId) {
+		if (params.attachmentIds.includes(params.marks.uploadArtifactId)) {
+			imageMarks = params.marks;
+		}
+	} else if (params.marks) {
 		const markedId = params.marks.imageFileId;
 		const open = pictureRefs.some((ref) => ref.imageFileId === markedId)
 			? null
@@ -391,17 +402,17 @@ export async function resolveTurnPictures(params: {
 
 	let markedMeta: UserPicturesMetadata["marks"] = null;
 	if (params.marks && params.marks.marks.length > 0) {
-		const baseFileId = params.marks.imageFileId;
-		const base = pictures.find(
-			(picture) =>
-				picture.source.type === "image_file" &&
-				picture.source.fileId === baseFileId,
+		const { imageFileId, uploadArtifactId } = params.marks;
+		const base = pictures.find((picture) =>
+			picture.source.type === "upload"
+				? picture.source.artifactId === uploadArtifactId
+				: picture.source.fileId === imageFileId,
 		);
 		if (base) {
 			const marked = await storeMarkedCopy({
 				userId,
 				conversationId,
-				baseFileId,
+				base: base.source,
 				marks: params.marks.marks,
 			});
 			if (marked) {
@@ -418,7 +429,7 @@ export async function resolveTurnPictures(params: {
 					},
 				});
 				markedMeta = {
-					imageFileId: baseFileId,
+					...(uploadArtifactId ? { uploadArtifactId } : { imageFileId }),
 					markedFileId: marked.id,
 					letters: params.marks.marks.map((mark) => mark.letter),
 					boxes: params.marks.marks,
@@ -448,17 +459,15 @@ export async function resolveTurnPictures(params: {
 async function storeMarkedCopy(params: {
 	userId: string;
 	conversationId: string;
-	baseFileId: string;
+	base: TurnPictureSource;
 	marks: ImageMarksRequest["marks"];
 }) {
 	try {
-		const file = await getImageFile({
+		const { png: bytes } = await loadPicture({
 			userId: params.userId,
-			fileId: params.baseFileId,
 			conversationId: params.conversationId,
+			source: params.base,
 		});
-		if (!file) return null;
-		const bytes = await readImageFileBytes(file, "full");
 		const png = await paintMarks(bytes, params.marks);
 		return await storeImageFile({
 			userId: params.userId,

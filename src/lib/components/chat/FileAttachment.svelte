@@ -120,6 +120,7 @@ function handleKeydown(event: KeyboardEvent) {
 		thumbnailUrl={attachmentThumbnailUrl(attachment)}
 		size="message"
 		{number}
+		tile={attachmentChipKind(attachment) === 'image'}
 		removable={removable}
 		removeLabel={$t('composerChips.removeAttachment', { name: attachment.name })}
 		onRemove={removable && onRemove ? handleRemove : undefined}

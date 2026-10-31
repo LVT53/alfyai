@@ -157,10 +157,14 @@ export function buildTurnImageGuidance(params: {
 	referenceCap?: number | null;
 }): string[] {
 	const { turnImages, referenceCap } = params;
-	const capLine =
-		referenceCap != null && turnImages.pictures.length > referenceCap
+	const capLine = [
+		...(referenceCap != null && turnImages.pictures.length > referenceCap
 			? [makeImageCapGuidance(referenceCap)]
-			: [];
+			: []),
+		...(turnImages.pictures.length > 1
+			? [PICTURE_NUMBERS_HIDDEN_GUIDANCE]
+			: []),
+	];
 	if (!params.canSee) {
 		if (!turnImages.hasImageAttachments) {
 			// Only the open picture / a marked copy: list them, say plainly they
@@ -189,6 +193,10 @@ export function buildTurnImageGuidance(params: {
 		...capLine,
 	];
 }
+
+/** The person sees pictures, not their numbers: the numbers are for tool calls. */
+const PICTURE_NUMBERS_HIDDEN_GUIDANCE =
+	"Picture numbers are for make_image only; the user does not see them. In your reply, call a picture by what it shows.";
 
 /** Said to a model that cannot see: the message's pictures by number. */
 function picturesInMessageGuidance(pictures: readonly NumberedName[]): string {

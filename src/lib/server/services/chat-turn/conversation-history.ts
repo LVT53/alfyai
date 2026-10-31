@@ -227,7 +227,7 @@ function pictureLines(pictures: UserPicturesMetadata | undefined): string[] {
 			: []),
 		...(pictures.marks
 			? [
-					`[marks: ${pictures.marks.letters.join(", ")} on ${nameOf(pictures.marks.imageFileId)}]`,
+					`[marks: ${pictures.marks.letters.join(", ")} on ${pictures.marks.imageFileId ? nameOf(pictures.marks.imageFileId) : "an uploaded photo"}]`,
 				]
 			: []),
 	];
