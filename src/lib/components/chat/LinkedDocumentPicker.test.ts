@@ -401,7 +401,9 @@ describe("LinkedDocumentPicker", () => {
 			onCancel: vi.fn(),
 		});
 
-		await fireEvent.click(screen.getByRole("checkbox", { name: "receipt.jpg" }));
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: "receipt.jpg" }),
+		);
 		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
 
 		expect(onAddPictures).toHaveBeenCalledWith([photo]);

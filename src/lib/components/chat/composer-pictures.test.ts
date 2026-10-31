@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { attachmentChipFailure } from "./composer-chip-presentation";
 import {
 	arrangePictureChips,

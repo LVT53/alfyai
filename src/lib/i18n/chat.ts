@@ -496,8 +496,7 @@ const chatDict = {
 		"composerCommands.compact.description":
 			"Compact older context for future turns.",
 		"composerCommands.compact.label": "Compact",
-		"composerCommands.document.description":
-			"Add a file from your Library.",
+		"composerCommands.document.description": "Add a file from your Library.",
 		"composerCommands.document.argumentPlaceholder": "Search library documents",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
@@ -1689,8 +1688,7 @@ const chatDict = {
 		"composerCommands.compact.description":
 			"Régebbi kontextus tömörítése a következő körökhöz.",
 		"composerCommands.compact.label": "Tömörítés",
-		"composerCommands.document.description":
-			"Fájl hozzáadása a Könyvtáradból.",
+		"composerCommands.document.description": "Fájl hozzáadása a Könyvtáradból.",
 		"composerCommands.document.argumentPlaceholder":
 			"Keresés a könyvtári dokumentumok között",
 		"composerCommands.document.label": "Dokumentum",
