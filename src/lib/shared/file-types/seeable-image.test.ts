@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FILE_TYPE_ENTRIES } from "./index";
-import { isSeeableImage } from "./seeable-image";
+import { isHeifImage, isSeeableImage } from "./seeable-image";
 
 // The registry ids of the images a chat model can be shown. This list is
 // pinned on purpose: the rule is "a format the server's image preparation
@@ -86,5 +86,24 @@ describe("isSeeableImage", () => {
 		["song.mp3", "audio/mpeg"],
 	])("is false for %s, which is not an image", (name, mimeType) => {
 		expect(isSeeableImage(name, mimeType)).toBe(false);
+	});
+});
+
+describe("isHeifImage", () => {
+	it.each([
+		["photo.heic", null],
+		["photo.HEIF", null],
+		["photo", "image/heic"],
+		["photo", "image/heif"],
+	])("is true of %s (%s)", (name, mimeType) => {
+		expect(isHeifImage(name, mimeType)).toBe(true);
+	});
+
+	it.each([
+		["photo.jpg", "image/jpeg"],
+		["notes.pdf", "application/pdf"],
+		["unknown", null],
+	])("is false of %s (%s)", (name, mimeType) => {
+		expect(isHeifImage(name, mimeType)).toBe(false);
 	});
 });

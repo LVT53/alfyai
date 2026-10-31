@@ -7,8 +7,12 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/server/services/knowledge/types";
-import { getContentTypeForFile, resolveEntry } from "$lib/shared/file-types";
+import { getContentTypeForFile } from "$lib/shared/file-types";
 import { withFileExtension } from "$lib/shared/file-types/download-name";
+import {
+	HEIF_PREVIEW_CONTENT_TYPE,
+	isHeifImage,
+} from "$lib/shared/file-types/seeable-image";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 import {
 	getArtifactForUser,
@@ -275,14 +279,6 @@ function resolveStoredTextArtifact(params: {
 	};
 }
 
-function isHeicArtifact(params: {
-	artifact: Artifact;
-	previewName: string;
-}): boolean {
-	const entry = resolveEntry(params.previewName, params.artifact.mimeType);
-	return entry?.id === "heic" || entry?.id === "heif";
-}
-
 /**
  * Browsers other than Safari cannot draw HEIC, so a preview hands one over as a
  * PNG; the original stays what a download gets. The converter loads only when
@@ -326,7 +322,10 @@ async function resolveStoredArtifactFromFile(params: {
 	const filePath = join(process.cwd(), params.storagePath);
 
 	try {
-		if (params.mode === "preview" && isHeicArtifact(params)) {
+		if (
+			params.mode === "preview" &&
+			isHeifImage(params.previewName, params.artifact.mimeType)
+		) {
 			const drawn = await heicAsPng(filePath, params.artifact.mimeType);
 			if (drawn) {
 				return {
@@ -336,7 +335,7 @@ async function resolveStoredArtifactFromFile(params: {
 					headers: buildFileServingResponseHeaders({
 						mode: params.mode,
 						contentLength: drawn.length,
-						contentType: "image/png",
+						contentType: HEIF_PREVIEW_CONTENT_TYPE,
 						filename,
 						safetyFilenames: [params.previewName, params.storagePath],
 					}),

@@ -46,3 +46,17 @@ export function isSeeableImage(
 	const entry = resolveEntry(name, mimeType);
 	return entry !== null && SEEABLE_IMAGE_IDS.has(entry.id);
 }
+
+const HEIF_IMAGE_IDS: ReadonlySet<string> = new Set(["heic", "heif"]);
+
+/** What a HEIC or HEIF photo is previewed as: only Safari draws the original. */
+export const HEIF_PREVIEW_CONTENT_TYPE = "image/png";
+
+/** Whether an attachment is a HEIC or HEIF photo, by the same lookup as above. */
+export function isHeifImage(
+	name: string,
+	mimeType: string | null | undefined,
+): boolean {
+	const entry = resolveEntry(name, mimeType);
+	return entry !== null && HEIF_IMAGE_IDS.has(entry.id);
+}
