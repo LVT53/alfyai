@@ -7,7 +7,8 @@
  *
  * A thread is a passage in a quiet column, not a card: no border and no shadow,
  * space between threads, and a tint on the one in hand (hovered, focused, or the
- * thread the reader's place points at). A resolved one recedes by a tone.
+ * thread the reader's place points at). A resolved one recedes by folding to
+ * one muted line, never by opacity: muted text under opacity falls below 4.5:1.
  * Scroll-margin keeps an item revealed by scrolling clear of the sticky header in
  * the phone sheet.
  */
@@ -28,11 +29,6 @@
 
 .comment-list-item.is-active {
 	background-color: var(--surface-elevated);
-}
-
-/* A resolved thread folds to one line, and reads a tone down. */
-.comment-list-item.is-resolved {
-	opacity: 0.8;
 }
 
 /* A thread whose block is gone: still readable, quieter. */

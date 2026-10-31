@@ -489,7 +489,6 @@ let foldedA11yLabel = $derived(
 	}
 
 	.comment-thread-message {
-		position: relative;
 		padding: 0.375rem 0;
 	}
 
