@@ -98,7 +98,7 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 					class:is-open={historyOpen}
 					data-testid="artifact-history-button"
 					onclick={onHistory}
-					aria-haspopup="true"
+					aria-haspopup={historyOpen ? undefined : "true"}
 					aria-label={historyOpen ? $t('artifacts.history.close') : phrase?.a11y}
 					title={historyOpen ? $t('artifacts.history.close') : phrase?.text}
 				>

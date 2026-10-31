@@ -44,6 +44,19 @@ describe("ArtifactPanelHeader", () => {
 		expect(screen.queryByTestId("artifact-history-button")).toBeNull();
 	});
 
+	it("is plainly a way out while History is open, no popup announced", () => {
+		render(ArtifactPanelHeader, {
+			kind: "document",
+			title: "Vienna trip plan",
+			phrase,
+			onHistory: vi.fn(),
+			historyOpen: true,
+			onBack: vi.fn(),
+		});
+		const button = screen.getByRole("button", { name: "Close history" });
+		expect(button).not.toHaveAttribute("aria-haspopup");
+	});
+
 	it("says the latest moment in a history button, never a version number, and opens History when pressed", async () => {
 		const onHistory = vi.fn();
 		render(ArtifactPanelHeader, {
