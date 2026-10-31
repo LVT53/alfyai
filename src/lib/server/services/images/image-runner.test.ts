@@ -388,6 +388,35 @@ describe("landing on a card", () => {
 });
 
 describe("an edit", () => {
+	it("sends a take queued with a boxed copy only the clean picture and the place in words", async () => {
+		// A take written before the deploy still holds its `marked` input. Shown
+		// the boxes, the model copied them into its result.
+		await startFake({ steps: 2 });
+		const base = await storeInput(await photo(256, 192));
+		const boxed = await storeInput(await photo(256, 192));
+		const takeId = await queueTake(
+			request({
+				mode: "edit",
+				canvas: { width: 256, height: 192 },
+				inputs: [
+					{ fileId: base, role: "base", name: "room" },
+					{ fileId: boxed, role: "marked", name: "room" },
+				],
+				anchor: { fileId: base, chainSinceAnchor: 0 },
+				marks: [{ letter: "A", x: 0.2, y: 0.2, w: 0.3, h: 0.3 }],
+			}),
+		);
+		await drainImageTakes();
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(
+			fake?.requests.filter((r) => r.path === "/upload/image"),
+		).toHaveLength(1);
+		const posted = JSON.stringify(
+			fake?.requests.find((r) => r.path === "/prompt")?.json,
+		);
+		expect(posted).toContain("Make this change only at");
+	});
+
 	it("stores an opaque edit as opaque RGB", async () => {
 		await startFake();
 		const baseId = await storeInput(await photo(640, 480));

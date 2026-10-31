@@ -255,7 +255,10 @@ async function submitTake(
 		);
 	}
 	const names: string[] = [];
-	for (const [index, input] of request.inputs.entries()) {
+	// A take queued before the picture model stopped being shown boxes still
+	// holds a `marked` input: it is left out here, or the boxes come back drawn.
+	const sent = request.inputs.filter((input) => input.role !== "marked");
+	for (const [index, input] of sent.entries()) {
 		const bytes = await readInput(ctx, input.fileId);
 		const ref = await client.uploadImage(
 			bytes,

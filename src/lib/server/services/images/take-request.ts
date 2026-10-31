@@ -20,6 +20,7 @@ export type MadeFrom = "words" | "photo" | "pictures" | "change";
 
 export type TakeInput = {
 	fileId: string;
+	/** `marked` is only read from rows written before boxed copies stopped being sent; the runner leaves it out. */
 	role: "base" | "reference" | "marked";
 	name: string;
 };
