@@ -207,7 +207,10 @@ export function marksAfterUndo(
 	moved: ComposerMarks,
 	previous: ComposerMarks,
 ): ComposerMarks | null {
-	return current?.artifactId === moved.artifactId ? previous : current;
+	return current?.artifactId === moved.artifactId &&
+		current.imageFileId === moved.imageFileId
+		? previous
+		: current;
 }
 
 /**

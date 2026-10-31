@@ -181,6 +181,18 @@ describe("libraryPictureAttachment", () => {
 });
 
 describe("marksAfterUndo", () => {
+	it("leaves boxes on a third version of the item alone (Edit this version moves them inside one item)", () => {
+		const of = (imageFileId: string) => ({
+			imageFileId,
+			marks,
+			artifactId: "room",
+			name: "Room",
+			version: null,
+		});
+		const third = of("file-3");
+		expect(marksAfterUndo(third, of("file-2"), of("file-1"))).toBe(third);
+	});
+
 	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
 	const onSofa = {
 		uploadArtifactId: "sofa",
