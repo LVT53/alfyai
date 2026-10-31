@@ -162,6 +162,86 @@ describe("guardEdit", () => {
 		const run = (result: typeof base) =>
 			guardEdit({ base, anchor: null, chainSinceAnchor: 0, result, marks });
 
+		it("calls a second box that did not change a miss, and keeps what the first one got", async () => {
+			const other = { x: 120, y: 60, w: 30, h: 30 };
+			const two = [
+				...marks,
+				{
+					x: other.x / SCENE_W,
+					y: other.y / SCENE_H,
+					w: other.w / SCENE_W,
+					h: other.h / SCENE_H,
+				},
+			];
+			const result = copyOf(base);
+			fillBox(result, MARKED, [250, 20, 200]);
+			const out = await guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result,
+				marks: two,
+			});
+			expect(out.measures.miss).not.toBeNull();
+			const at = (MARKED.y + 20) * SCENE_W + MARKED.x + 20;
+			expect(out.picture.data[at * 4]).toBe(250);
+		});
+
+		it("leaves a marked box's see-through pixels see-through", async () => {
+			const cut = copyOf(base);
+			// A cut-out: only the marked box has a picture, the rest is clear.
+			for (let i = 0; i < SCENE_W * SCENE_H; i++) {
+				const x = i % SCENE_W;
+				const y = (i - x) / SCENE_W;
+				if (
+					x < MARKED.x + 10 ||
+					x >= MARKED.x + 30 ||
+					y < MARKED.y + 10 ||
+					y >= MARKED.y + 30
+				) {
+					cut.data[i * 4 + 3] = 0;
+				}
+			}
+			const result = copyOf(base); // The model fills the background in.
+			fillBox(result, MARKED, [250, 20, 200]);
+			const out = await guardEdit({
+				base: cut,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result,
+				marks,
+			});
+			const clear = (MARKED.y + 2) * SCENE_W + MARKED.x + 2;
+			expect(out.picture.data[clear * 4 + 3]).toBe(0);
+			const object = (MARKED.y + 20) * SCENE_W + MARKED.x + 20;
+			expect(out.picture.data[object * 4]).toBe(250);
+		});
+
+		it("is a miss when the model only filled a box's see-through background", async () => {
+			const cut = copyOf(base);
+			for (let i = 0; i < SCENE_W * SCENE_H; i++) cut.data[i * 4 + 3] = 0;
+			for (let y = 0; y < 8; y++) {
+				cut.data.fill(255, y * SCENE_W * 4 + 3, y * SCENE_W * 4 + 4);
+			}
+			const result = copyOf(base);
+			fillBox(result, MARKED, [250, 20, 200]);
+			const out = await guardEdit({
+				base: cut,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result,
+				marks,
+			});
+			expect(out.measures.miss).not.toBeNull();
+		});
+
+		it("measures a small change for a marked edit too, so two misses can be compared", async () => {
+			const result = copyOf(base);
+			fillBox(result, { x: 70, y: 60, w: 3, h: 3 }, [250, 20, 200]);
+			const out = await run(result);
+			expect(out.measures.changedShare).toBeGreaterThan(0);
+		});
+
 		it("changes nothing outside the marks grown by a tenth of the short side, even when the result changed more", async () => {
 			const out = await run(changed(16));
 			const x0 = MARKED.x - grow;
@@ -657,6 +737,19 @@ describe("guardEdit", () => {
 				base: withSpeck(),
 				anchor: null,
 				chainSinceAnchor: 0,
+				result: backdrop,
+				marks: null,
+			});
+			expect(out.measures.miss).toBeNull();
+			const at = (speck.y + 5) * width + speck.x + 5;
+			expect(out.picture.data[at * 4]).toBe(backdrop.data[at * 4]);
+		});
+
+		it("keeps a tiny removal when the fourth change goes back onto the anchor", async () => {
+			const out = await guardEdit({
+				base: withSpeck(),
+				anchor: withSpeck(),
+				chainSinceAnchor: 3,
 				result: backdrop,
 				marks: null,
 			});

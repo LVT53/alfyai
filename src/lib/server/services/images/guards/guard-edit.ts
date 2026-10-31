@@ -95,9 +95,9 @@ function keepTransparent(
 function missOf(
 	changedShare: number,
 	inside: number | null,
-	marksChanged: boolean,
+	allMarksChanged: boolean,
 ): GuardMeasures["miss"] {
-	if (marksChanged) return null;
+	if (allMarksChanged) return null;
 	if (changedShare < GUARD.nothingChangedShare) return "nothing_changed";
 	if (inside !== null) return "outside_marks";
 	return null;
@@ -127,9 +127,8 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 	const painted = overBase(base, aligned);
 
 	let against = keepTransparent(changeMask(base, aligned), base, aligned);
-	const marked = Boolean(marks && marks.length > 0);
-	let foundSmall = false;
-	if (!marked && against.changedShare < GUARD.nothingChangedShare) {
+	let componentShare: number = GUARD.minComponentShare;
+	if (against.changedShare < GUARD.nothingChangedShare) {
 		// Nothing big changed: look again for something small before calling the
 		// edit a miss, or a small removal is pasted away as noise.
 		const fine = keepTransparent(
@@ -139,27 +138,33 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		);
 		if (fine.changedShare > 0) {
 			against = fine;
-			foundSmall = true;
+			componentShare = GUARD.fineComponentShare;
 		}
 	}
-	const marksChanged =
-		marked &&
-		(marks ?? []).some(
-			(mark) =>
-				boxChangedShare(base, painted, mark) >= GUARD.markedBoxChangedShare,
-		);
+	const marked = Boolean(marks && marks.length > 0);
+	const boxesChanged = (marks ?? []).map(
+		(mark) =>
+			boxChangedShare(base, painted, mark) >= GUARD.markedBoxChangedShare,
+	);
 	// A marked edit changes the picture only where the person marked (grown a
-	// little, feathered): the measures below see the model's whole change, so a
-	// change mostly outside the marks still counts as a miss, but none of it is pasted.
+	// little, feathered): the measures below see the model's whole change, but
+	// only the boxes decide a miss, and nothing beyond them is pasted.
 	const clamp =
 		marks && marks.length > 0
 			? marksClamp(base.width, base.height, marks)
 			: null;
 	// The person chose this area: what the model made in it is kept whole, not
-	// only the blobs big enough to survive the change mask.
-	const limit = (mask: Float32Array): Float32Array => {
+	// only the blobs big enough to survive the change mask. Transparency still
+	// holds: a filled-in background is not what a box asked for.
+	const limit = (mask: Float32Array, under: RawImage): Float32Array => {
 		if (!clamp) return mask;
-		if (marksChanged) return clamp;
+		if (boxesChanged.includes(true)) {
+			return keepTransparent(
+				{ mask: clamp.slice(), changedShare: 0 },
+				under,
+				aligned,
+			).mask;
+		}
 		const limited = new Float32Array(mask.length);
 		for (let i = 0; i < mask.length; i++) limited[i] = mask[i] * clamp[i];
 		return limited;
@@ -190,10 +195,15 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		// `global` still reported.
 		measures.global = true;
 	}
-	measures.miss =
-		!marked && foundSmall
+	measures.miss = marked
+		? missOf(
+				against.changedShare,
+				measures.insideMarksShare,
+				!boxesChanged.includes(false),
+			)
+		: componentShare < GUARD.minComponentShare
 			? null
-			: missOf(against.changedShare, measures.insideMarksShare, marksChanged);
+			: missOf(against.changedShare, null, false);
 
 	const reanchor =
 		params.chainSinceAnchor + 1 >= GUARD.reanchorEvery &&
@@ -201,7 +211,12 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 		sameSize(anchor, base);
 	if (reanchor) {
 		const mask = limit(
-			keepTransparent(changeMask(anchor, aligned), anchor, aligned).mask,
+			keepTransparent(
+				changeMask(anchor, aligned, componentShare),
+				anchor,
+				aligned,
+			).mask,
+			anchor,
 		);
 		// With marks, what earlier changes made outside them must survive the
 		// reset: the anchor shows only where the base never left it.
@@ -220,7 +235,7 @@ export async function guardEdit(params: GuardParams): Promise<GuardOutcome> {
 			anchorIsResult: false,
 		};
 	}
-	const mask = limit(against.mask);
+	const mask = limit(against.mask, base);
 	return {
 		picture: compositeOnto(base, painted, mask),
 		mask,
