@@ -459,8 +459,11 @@ function fromChat(entry: RailEntry): boolean {
 		object-fit: cover;
 	}
 
+	/* Half of the selection's tint, not `--surface-overlay`: that token is lighter than
+	   `--surface-elevated` in dark mode, which made a passing hover louder than the
+	   selected row. */
 	.option:hover {
-		background: var(--surface-overlay);
+		background: color-mix(in srgb, var(--surface-elevated) 50%, transparent);
 	}
 
 	.option.selected {

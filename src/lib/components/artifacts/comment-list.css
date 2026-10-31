@@ -23,8 +23,9 @@
 	cursor: pointer;
 }
 
+/* Half of the active tint: `--surface-overlay` is brighter than it in dark mode. */
 .comment-list-item:hover {
-	background-color: var(--surface-overlay);
+	background-color: color-mix(in srgb, var(--surface-elevated) 50%, transparent);
 }
 
 .comment-list-item.is-active {
