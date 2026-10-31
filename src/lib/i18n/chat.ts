@@ -497,7 +497,7 @@ const chatDict = {
 			"Compact older context for future turns.",
 		"composerCommands.compact.label": "Compact",
 		"composerCommands.document.description":
-			"Link a Library document as context.",
+			"Add a file from your Library.",
 		"composerCommands.document.argumentPlaceholder": "Search library documents",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
@@ -1127,13 +1127,6 @@ const chatDict = {
 		"personalityProfile.warm.name": "Warm",
 		"personalityProfile.warm.description":
 			"Plain words, patient, one thing at a time. For anyone who wants help, not a lecture.",
-		"sourceManager.addDocument": "Add document",
-		"sourceManager.clearAll": "Clear all",
-		"sourceManager.close": "Close sources",
-		"sourceManager.description": "{count} linked source(s) selected.",
-		"sourceManager.empty": "No linked sources selected.",
-		"sourceManager.list": "Current linked sources",
-		"sourceManager.title": "Sources",
 		// ---------------------------------------------------------------
 		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
 		// Appended as one block so the parallel redesign branches do not
@@ -1697,7 +1690,7 @@ const chatDict = {
 			"Régebbi kontextus tömörítése a következő körökhöz.",
 		"composerCommands.compact.label": "Tömörítés",
 		"composerCommands.document.description":
-			"Könyvtári dokumentum kapcsolása kontextusként.",
+			"Fájl hozzáadása a Könyvtáradból.",
 		"composerCommands.document.argumentPlaceholder":
 			"Keresés a könyvtári dokumentumok között",
 		"composerCommands.document.label": "Dokumentum",
@@ -2001,7 +1994,7 @@ const chatDict = {
 		"linkedSources.picker.apply": "Kijelöltek hozzáadása",
 		"linkedSources.picker.close": "Könyvtár bezárása",
 		"linkedSources.picker.description":
-			"A fotók az üzenetedhez kerülnek. A dokumentumokat összekapcsoljuk, hogy Alfy elolvashassa őket.",
+			"A fotók az üzenetedhez kerülnek. A dokumentumokat hozzákapcsoljuk, hogy Alfy elolvashassa őket.",
 		"linkedSources.picker.empty": "A Könyvtárad üres.",
 		"linkedSources.picker.error":
 			"Nem sikerült betölteni a könyvtári dokumentumokat.",
@@ -2320,13 +2313,6 @@ const chatDict = {
 		"personalityProfile.warm.name": "Barátságos",
 		"personalityProfile.warm.description":
 			"Egyszerű szavak, türelem, egyszerre egy dolog. Annak, aki segítséget kér, nem előadást.",
-		"sourceManager.addDocument": "Dokumentum hozzáadása",
-		"sourceManager.clearAll": "Összes törlése",
-		"sourceManager.close": "Források bezárása",
-		"sourceManager.description": "{count} kapcsolt forrás kijelölve.",
-		"sourceManager.empty": "Nincs kijelölt kapcsolt forrás.",
-		"sourceManager.list": "Jelenlegi kapcsolt források",
-		"sourceManager.title": "Források",
 		// ---------------------------------------------------------------
 		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
 		// Same block as the EN side above, in the same order.

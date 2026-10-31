@@ -1321,12 +1321,12 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - After message submission, selected **Linked Context Sources** should become active conversation **Context Sources** until removed, a clear topic shift demotes them, or another existing context-source lifecycle rule applies.
 - Pending **Linked Context Sources** should be validated during chat-turn preflight.
 - If a pending **Linked Context Source** is deleted or inaccessible before send, AlfyAI should block the send, identify the invalid source, and let the user remove it rather than silently ignoring it.
-- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, and `/clear`.
+- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/skill`, `/settings`, and `/clear`.
 - `/document` may add one or more **Linked Context Sources** in one flow.
 - Repeated `/document` selections should merge linked-source chips instead of replacing earlier selected sources.
 - `/document` should open a **Document Picker Modal** rather than keep multi-document selection inside the **Command Tray**.
 - The **Document Picker Modal** should reuse the Knowledge Library document-list language and scanning behavior while hiding management actions such as delete, download, and upload.
-- The **Document Picker Modal** should support multi-select and add selected documents as **Linked Source Chips**.
+- The **Document Picker Modal** should support multi-select and add selected documents as **Linked Source Chips**; an uploaded photo it picks joins the message as a picture attachment instead, text or no text.
 - The **Document Picker Modal** should enforce a configurable selected-document cap for UI and performance predictability.
 - The **Document Picker Modal** should support pagination or server-aware search for large Knowledge Libraries and preserve selection across pages or searches.
 - Server-backed **Document Picker Modal** search should debounce input and keep already selected sources selected across query changes.
@@ -1334,9 +1334,6 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Historical **Generated Document Versions** should be hidden by default in the **Document Picker Modal** and available only through an explicit historical filter.
 - Raw **Generated Files** that are not document-like should not appear in the **Document Picker Modal** by default.
 - Selecting many documents does not guarantee full-body **Prompt Context** for every source; **Context Selection** should preserve breadth before depth and disclose limitations when needed.
-- `/source` should open a compact **Linked Sources Popover** for currently selected **Linked Context Sources**.
-- The **Linked Sources Popover** should list linked sources with title, type, and remove controls, plus simple add-document and clear-all actions.
-- The **Linked Sources Popover** should stay visually close to existing composer UI and remain compact.
 - `$` should be the fast path for directly activating enabled **Skills**.
 - `/skill` should act as a skill command hub with actions such as pick skill, create skill, manage skills, and stop active skill when applicable.
 - `/skill` pick behavior should reuse `$` skill discovery rather than introduce a second skill picker implementation.
