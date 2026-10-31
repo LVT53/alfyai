@@ -10,6 +10,11 @@
  * order list and asks these for the numbers. There is no cap here: the cap
  * limits one picture request on the server, and Alfy says so in its reply.
  */
+import type {
+	ArtifactSummary,
+	KnowledgeDocumentItem,
+	PendingAttachment,
+} from "$lib/server/services/knowledge/types";
 import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 
 /** A card, strip or History picture waiting in the composer. */
@@ -178,4 +183,60 @@ export function marksRequest(held: ComposerMarks): ImageMarksRequest {
 	return held.imageFileId !== undefined
 		? { imageFileId: held.imageFileId, marks }
 		: { uploadArtifactId: held.uploadArtifactId, marks };
+}
+
+/**
+ * The marked photo when the composer does not hold it: a photo of an earlier
+ * message rides again with this one, so the send carries it as an attachment
+ * (the server paints the marks from it) and the bubble draws it.
+ */
+export function resentMarkedPhoto(
+	held: ComposerMarks | null,
+	attached: readonly ArtifactSummary[],
+): ArtifactSummary | null {
+	const id = held?.uploadArtifactId;
+	if (!held || !id || attached.some((artifact) => artifact.id === id)) {
+		return null;
+	}
+	const now = Date.now();
+	return {
+		id,
+		type: "source_document",
+		retrievalClass: "durable",
+		name: held.name,
+		mimeType: null,
+		sizeBytes: null,
+		conversationId: null,
+		summary: null,
+		createdAt: now,
+		updatedAt: now,
+	};
+}
+
+/**
+ * A Library photo as a picture of this message. It has no upload's job to
+ * follow, so a photo without text says so now: a model that can see never minds
+ * (the chip's gate), and one that cannot gets a reason, not a spinner.
+ */
+export function libraryPictureAttachment(
+	document: KnowledgeDocumentItem,
+): PendingAttachment {
+	const promptReady = Boolean(document.promptArtifactId);
+	return {
+		artifact: {
+			id: document.displayArtifactId,
+			type: document.type ?? "source_document",
+			retrievalClass: "durable",
+			name: document.name,
+			mimeType: document.mimeType,
+			sizeBytes: document.sizeBytes,
+			conversationId: document.conversationId,
+			summary: document.summary,
+			createdAt: document.updatedAt,
+			updatedAt: document.updatedAt,
+		},
+		promptReady,
+		promptArtifactId: document.promptArtifactId,
+		...(promptReady ? {} : { readinessErrorCode: "no_usable_text" as const }),
+	};
 }

@@ -6784,6 +6784,35 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 			});
 		});
 
+		it("sends a marked photo of an earlier message as a picture of this one", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks: {
+					uploadArtifactId: "old-photo",
+					marks,
+					artifactId: "old-photo",
+					name: "room.png",
+					version: null,
+				},
+			});
+			expect(
+				view.getByTestId("composer-chip-marks").querySelector("img"),
+			).toHaveAttribute("src", "/api/knowledge/old-photo/preview");
+
+			await fireEvent.input(view.textarea, { target: { value: "Fix A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.attachmentIds).toEqual(["old-photo"]);
+			// The bubble draws it and a regenerate resends it from this list.
+			expect(payload.attachments).toEqual([
+				expect.objectContaining({ id: "old-photo", name: "room.png" }),
+			]);
+			expect(payload.pictures.uploads).toEqual([
+				{ artifactId: "old-photo", number: 2 },
+			]);
+		});
+
 		it("adds no second ref when the marked picture is attached already", async () => {
 			const view = renderComposer({
 				pictureRefs: [{ imageFileId: "open-file", name: "Cosy room" }],

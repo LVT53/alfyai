@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import { attachmentChipFailure } from "./composer-chip-presentation";
 import {
 	arrangePictureChips,
+	libraryPictureAttachment,
 	markedPictureNumber,
 	numberPictures,
 	pictureChipNames,
@@ -130,5 +133,46 @@ describe("pictureChipNames", () => {
 		);
 		expect(names.get("a")).toBe("Sunset gradient");
 		expect(names.get("b")).toBe("Sunset gradient");
+	});
+});
+
+describe("libraryPictureAttachment", () => {
+	const photo = {
+		id: "p1",
+		type: "source_document",
+		displayArtifactId: "p1",
+		promptArtifactId: null,
+		familyArtifactIds: ["p1"],
+		name: "room.png",
+		mimeType: "image/png",
+		sizeBytes: 10,
+		conversationId: null,
+		summary: null,
+		normalizedAvailable: false,
+		updatedAt: 2,
+		createdAt: 1,
+	} as KnowledgeDocumentItem;
+
+	it("never waits on a text-free photo: a model that sees sends it, one that cannot says why", () => {
+		const attachment = libraryPictureAttachment(photo);
+		expect(
+			attachmentChipFailure(undefined, attachment, {
+				selectedModelSupportsImages: true,
+			}),
+		).toEqual({ kind: "none" });
+		expect(
+			attachmentChipFailure(undefined, attachment, {
+				selectedModelSupportsImages: false,
+			}),
+		).toEqual({ kind: "readiness", reason: "no_usable_text" });
+	});
+
+	it("is ready when the photo has text to read", () => {
+		const attachment = libraryPictureAttachment({
+			...photo,
+			promptArtifactId: "p1-text",
+		});
+		expect(attachment.promptReady).toBe(true);
+		expect(attachment.readinessErrorCode).toBeUndefined();
 	});
 });

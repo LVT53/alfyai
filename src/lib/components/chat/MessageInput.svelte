@@ -136,12 +136,14 @@ import {
 	arrangePictureChips,
 	type ComposerMarks,
 	type ComposerPictureRef,
+	libraryPictureAttachment,
 	markedPictureNumber,
 	marksRequest,
 	numberPictures,
 	pictureChipNames,
 	pictureKey,
 	reconcilePictureOrder,
+	resentMarkedPhoto,
 } from "./composer-pictures";
 import {
 	fieldTextRoom,
@@ -1952,7 +1954,7 @@ function marksPayload(
 
 /** The uploaded photos under the numbers their chips showed. */
 function numberedUploads(): { artifactId: string; number: number }[] {
-	return pendingAttachments.flatMap((attachment) => {
+	const uploads = pendingAttachments.flatMap((attachment) => {
 		const number = pictureNumbers.get(
 			pictureKey({ kind: "upload", artifactId: attachment.artifact.id }),
 		);
@@ -1960,6 +1962,10 @@ function numberedUploads(): { artifactId: string; number: number }[] {
 			? []
 			: [{ artifactId: attachment.artifact.id, number }];
 	});
+	const resent = resentMarkedPhoto(imageMarks, pendingAttachmentArtifacts);
+	return resent && markedNumber !== null
+		? [...uploads, { artifactId: resent.id, number: markedNumber }]
+		: uploads;
 }
 
 /** The card pictures under the numbers their chips showed, the marked one added when it is not attached. */
@@ -2021,22 +2027,19 @@ function picturePayload(): {
 	};
 }
 
-/** The attachments the send carries: a photo of an earlier message rides again when it is the one marked. */
-function sendAttachmentIds(): string[] {
-	const ids = pendingAttachments.map((attachment) => attachment.artifact.id);
-	const markedId = imageMarks?.uploadArtifactId;
-	return markedId && !ids.includes(markedId) ? [...ids, markedId] : ids;
-}
-
 function buildSendPayload(nextMessage = message): SendPayload {
+	const resent = resentMarkedPhoto(imageMarks, pendingAttachmentArtifacts);
+	const sentArtifacts = resent
+		? [...pendingAttachmentArtifacts, resent]
+		: pendingAttachmentArtifacts;
 	return {
 		// Chips redesign — quote chips expand back into the message here,
 		// at the last moment before it leaves the composer, so everything
 		// downstream (the send gate, the page, the server) keeps seeing one
 		// plain string exactly as the old cursor-paste produced.
 		message: expandQuotesIntoMessage(nextMessage).trim(),
-		attachmentIds: sendAttachmentIds(),
-		attachments: pendingAttachmentArtifacts,
+		attachmentIds: sentArtifacts.map((artifact) => artifact.id),
+		attachments: sentArtifacts,
 		pendingAttachments: pendingAttachments.map((attachment) => ({
 			...attachment,
 		})),
@@ -3168,26 +3171,10 @@ function addLibraryPictures(documents: KnowledgeDocumentItem[]) {
 	const known = new Set(pendingAttachments.map(({ artifact }) => artifact.id));
 	const added = documents
 		.filter((document) => !known.has(document.displayArtifactId))
-		.map(
-			(document): PendingAttachment => ({
-				artifact: {
-					id: document.displayArtifactId,
-					type: document.type ?? "source_document",
-					retrievalClass: "durable",
-					name: document.name,
-					mimeType: document.mimeType,
-					sizeBytes: document.sizeBytes,
-					conversationId: document.conversationId,
-					summary: document.summary,
-					createdAt: document.updatedAt,
-					updatedAt: document.updatedAt,
-				},
-				promptReady: Boolean(document.promptArtifactId),
-				promptArtifactId: document.promptArtifactId,
-			}),
-		);
+		.map(libraryPictureAttachment);
 	if (added.length === 0) return;
 	pendingAttachments = [...pendingAttachments, ...added];
+	extractionPoller?.sync();
 	draftEmissionVersion += 1;
 	void emitDraftChange();
 }
@@ -4032,7 +4019,7 @@ async function emitDraftChange(force = false) {
 						<ComposerChip
 							kind="image"
 							label={markLabel}
-							thumbnailUrl={imageMarks.imageFileId ? imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId }) : null}
+							thumbnailUrl={imageMarks.imageFileId ? imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId }) : attachmentThumbnailUrl({ id: imageMarks.uploadArtifactId, name: imageMarks.name })}
 							number={imageMarks.imageFileId ? markedNumber : null}
 							removable
 							removeLabel={$t('composerChips.removeMarks')}
