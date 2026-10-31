@@ -3,6 +3,14 @@ import { GUARD } from "./thresholds";
 
 type Plane = { data: Float32Array; width: number; height: number };
 
+function colourDifference(a: RawImage, b: RawImage, o: number): number {
+	return Math.max(
+		Math.abs(a.data[o] - b.data[o]),
+		Math.abs(a.data[o + 1] - b.data[o + 1]),
+		Math.abs(a.data[o + 2] - b.data[o + 2]),
+	);
+}
+
 /** Largest channel difference, colour weighted by the less opaque of the two pixels. */
 function differencePlane(before: RawImage, after: RawImage): Plane {
 	const { width, height } = workSize(before, GUARD.workWidth);
@@ -12,11 +20,7 @@ function differencePlane(before: RawImage, after: RawImage): Plane {
 	for (let i = 0; i < data.length; i++) {
 		const o = i * 4;
 		const alpha = Math.min(a.data[o + 3], b.data[o + 3]) / 255;
-		const colour = Math.max(
-			Math.abs(a.data[o] - b.data[o]),
-			Math.abs(a.data[o + 1] - b.data[o + 1]),
-			Math.abs(a.data[o + 2] - b.data[o + 2]),
-		);
+		const colour = colourDifference(a, b, o);
 		// Edges that alignment exposed are transparent in `after`; that is not an edit.
 		const filled = Math.max(0, b.data[o + 3] - a.data[o + 3]);
 		data[i] = Math.max(filled, colour * alpha);
@@ -169,12 +173,7 @@ export function boxChangedShare(
 			// See-through on either side: nothing can be pasted there.
 			if (a.data[o + 3] === 0 || b.data[o + 3] === 0) continue;
 			counted++;
-			const colour = Math.max(
-				Math.abs(a.data[o] - b.data[o]),
-				Math.abs(a.data[o + 1] - b.data[o + 1]),
-				Math.abs(a.data[o + 2] - b.data[o + 2]),
-			);
-			if (colour > GUARD.diffThreshold) changed++;
+			if (colourDifference(a, b, o) > GUARD.diffThreshold) changed++;
 		}
 	}
 	return counted > 0 ? changed / counted : 0;
