@@ -4020,7 +4020,7 @@ async function emitDraftChange(force = false) {
 							kind="image"
 							label={markLabel}
 							thumbnailUrl={imageMarks.imageFileId ? imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId }) : attachmentThumbnailUrl({ id: imageMarks.uploadArtifactId, name: imageMarks.name })}
-							number={imageMarks.imageFileId ? markedNumber : null}
+							number={null}
 							removable
 							removeLabel={$t('composerChips.removeMarks')}
 							onRemove={() => onClearMarks?.()}

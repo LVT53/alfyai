@@ -6730,14 +6730,11 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 			const chips = view.getAllByTestId("composer-chip-marks");
 			expect(chips).toHaveLength(1);
 			expect(chips[0]).toHaveTextContent("Marks A, B");
-			expect(
-				within(chips[0]).getByTestId("composer-chip-number"),
-			).toHaveTextContent("2");
+			expect(within(chips[0]).queryByTestId("composer-chip-number")).toBeNull();
 			const thumb = chips[0].querySelector("img");
 			expect(thumb?.getAttribute("src")).toBe(
 				"/api/images/files/open-file?variant=thumb&conversationId=conv-1",
 			);
-			expect(view.getByLabelText("Picture 2: Marks A, B")).toBeTruthy();
 		});
 
 		it("names the chip in Hungarian", () => {
@@ -6818,11 +6815,6 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 				pictureRefs: [{ imageFileId: "open-file", name: "Cosy room" }],
 				imageMarks,
 			});
-			expect(
-				within(view.getByTestId("composer-chip-marks")).getByTestId(
-					"composer-chip-number",
-				),
-			).toHaveTextContent("1");
 			await fireEvent.input(view.textarea, { target: { value: "Move A" } });
 			await fireEvent.click(view.getByTestId("send-button"));
 			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
