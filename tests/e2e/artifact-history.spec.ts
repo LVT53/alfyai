@@ -584,7 +584,7 @@ test.describe("History mode: what changed, restore and names", () => {
 
 		// The first version has no step of its own: its preview compares with now.
 		await options.nth(2).click();
-		await expect(region.getByTestId("history-compare-step")).toBeDisabled();
+		await expect(region.getByTestId("history-compare-now")).toBeDisabled();
 		await expect(region.getByTestId("history-compare-now")).toHaveAttribute(
 			"aria-pressed",
 			"true",
@@ -596,7 +596,7 @@ test.describe("History mode: what changed, restore and names", () => {
 		// The newest moment shows only its own changes and says it is now.
 		await options.nth(0).click();
 		await expect(region.getByTestId("history-compare-now")).toHaveCount(0);
-		await expect(region).toContainText("This is how it looks now");
+		await expect(region.getByTestId("history-toolbar")).toContainText("Now");
 		// The number appears in the fine print and nowhere else.
 		await expect(region.getByTestId("history-fine")).toHaveText("Version 3");
 	});
@@ -1118,7 +1118,7 @@ test.describe("History mode: a board", () => {
 		await expect(
 			preview.locator('[data-testid="canvas-history-layer"][data-tone="user"]'),
 		).toHaveCount(1);
-		await region.getByTestId("history-compare-step").click();
+		await region.getByTestId("history-compare-now").click();
 
 		// Restore: the question names the version by its time, never "text".
 		await region.getByTestId("history-restore").click();

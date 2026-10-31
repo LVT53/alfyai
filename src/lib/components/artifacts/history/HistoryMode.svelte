@@ -944,7 +944,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 {#snippet toolbar()}
 	{#if selected}
 		<MomentPreviewToolbar
-			title={selectedTitle}
+			when={selected ? capitalize(whenLabel(selected.at, ctx)) : ''}
+			headline={selected ? entryHeadline(selected, ctx, kind) : ''}
 			detail={selectedDetail}
 			{fine}
 			showCompare={showCompare}
@@ -1222,7 +1223,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					{:else if restoreDisabledReason}
 						<span class="same-note">{restoreDisabledReason}</span>
 					{:else if selected.isNewest}
-						<span class="same-note">{$t('artifacts.history.nowLine')}</span>
+						<span class="same-note">{$t('artifacts.history.now')}</span>
 					{:else if selected.sameAsNow}
 						<span class="same-note">{$t('artifacts.history.sameAsNow')}</span>
 					{/if}

@@ -184,7 +184,7 @@ const tags = $derived(
 				onclick={() => shown && onAttachPicture({ imageFileId: shown.fileId, name: oneLineName(title || label), at })}
 			>
 				<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
-				{$t('artifacts.image.card.attach')}
+				{$t('artifacts.image.history.attach')}
 			</button>
 		</div>
 	{/if}
