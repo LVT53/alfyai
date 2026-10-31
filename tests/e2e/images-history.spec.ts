@@ -193,3 +193,46 @@ test.describe("History for pictures", () => {
 		await expect(prompt.getByText("Make the sky warmer")).toBeVisible();
 	});
 });
+
+test.describe("the way back from the panel on a phone", () => {
+	test.use({
+		viewport: { width: 360, height: 780 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("a changed picture's row holds Before / After, Mark and the longest button", async ({
+		page,
+	}) => {
+		const user = await createTourUser("hu");
+		await markToursSeen(user);
+		const chatId = await startChatAs(page, user);
+		await seedImageItem(user, chatId, { versions: 2 });
+		await reopenChat(page, chatId);
+		await openItem(page, IMAGE_ITEM_TITLE);
+		await expect(
+			page
+				.locator(
+					'[data-testid="image-body-picture"] [data-testid="image-picture-after"].is-loaded',
+				)
+				.first(),
+		).toBeVisible({ timeout: 20_000 });
+
+		await page.getByTestId("image-body-mark").tap();
+		const box = await page.getByTestId("image-body-frame").boundingBox();
+		if (!box) throw new Error("no picture frame on screen");
+		await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.7, {
+			steps: 8,
+		});
+		await page.mouse.up();
+
+		for (const testId of ["mark-continue", "image-body-mark"]) {
+			const control = await page.getByTestId(testId).boundingBox();
+			if (!control) throw new Error(`${testId} is not on screen`);
+			expect(control.x).toBeGreaterThanOrEqual(0);
+			expect(control.x + control.width).toBeLessThanOrEqual(360);
+		}
+	});
+});

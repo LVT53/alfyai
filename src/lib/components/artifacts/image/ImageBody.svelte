@@ -263,6 +263,9 @@ function clickPicture(event: MouseEvent): void {
 	enlarged = true;
 }
 
+let canContinue = $derived(
+	isPhone && shownMarks.length > 0 && Boolean(onMarksContinue),
+);
 let markNoteI18nKey = $derived(
 	markNoteKey({ refused, marking, count: shownMarks.length, isPhone }),
 );
@@ -341,7 +344,7 @@ let markNote = $derived(
 	<!-- One row under the picture: the strip, then the tools (Before / After; T6's
 	     Mark). Reserved whatever it holds, so a version landing moves nothing, and
 	     the only row, so the picture has the rest of the height in every shape. -->
-	<div class="image-body-foot" data-testid="image-body-foot">
+	<div class="image-body-foot" class:has-continue={canContinue} data-testid="image-body-foot">
 		<div class="image-body-strip">
 			<VersionStrip {moments} {conversationId} {title} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} {onAttachPicture} />
 		</div>
@@ -359,7 +362,7 @@ let markNote = $derived(
 				<MarkTools
 					{marking}
 					disabled={showing === 'before'}
-					canContinue={isPhone && shownMarks.length > 0}
+					{canContinue}
 					onToggle={() => (marking = !marking)}
 					onContinue={onMarksContinue}
 				/>
@@ -496,5 +499,25 @@ let markNote = $derived(
 		align-items: center;
 		gap: var(--space-sm);
 		flex: none;
+	}
+
+	/* A phone's row has no room for the way back beside Before / After and Mark:
+	   it takes a row of its own under them. */
+	.image-body-foot.has-continue {
+		flex-wrap: wrap;
+		row-gap: var(--space-sm);
+	}
+
+	.has-continue .image-body-strip {
+		flex-basis: 0;
+	}
+
+	.has-continue .image-body-toolbar {
+		display: contents;
+	}
+
+	.has-continue :global(.mark-continue) {
+		order: 1;
+		flex: 1 1 100%;
 	}
 </style>
