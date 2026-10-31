@@ -52,24 +52,19 @@ async function buildMinimalXlsxBuffer(): Promise<Buffer> {
 }
 
 const decodeSpy = vi.hoisted(() => vi.fn());
-vi.mock(
-	"$lib/server/services/vision/prepare-image",
-	async (importOriginal) => {
-		const actual =
-			await importOriginal<
-				typeof import("$lib/server/services/vision/prepare-image")
-			>();
-		return {
-			...actual,
-			decodeImageToPng: (
-				...args: Parameters<typeof actual.decodeImageToPng>
-			) => {
-				decodeSpy(...args);
-				return actual.decodeImageToPng(...args);
-			},
-		};
-	},
-);
+vi.mock("$lib/server/services/vision/prepare-image", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/vision/prepare-image")
+		>();
+	return {
+		...actual,
+		decodeImageToPng: (...args: Parameters<typeof actual.decodeImageToPng>) => {
+			decodeSpy(...args);
+			return actual.decodeImageToPng(...args);
+		},
+	};
+});
 
 describe("GET /api/knowledge/[id]/preview", () => {
 	const mockUser = { id: "user-123", email: "test@example.com" };
@@ -497,9 +492,7 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			const response = await GET(event);
 
 			expect(response.status).toBe(206);
-			expect(response.headers.get("Content-Range")).toBe(
-				`bytes 0-3/${length}`,
-			);
+			expect(response.headers.get("Content-Range")).toBe(`bytes 0-3/${length}`);
 			const bytes = Buffer.from(await response.arrayBuffer());
 			expect(bytes.subarray(1, 4).toString()).toBe("PNG");
 		});

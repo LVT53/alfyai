@@ -1050,7 +1050,11 @@ describe("pictures beside the uploads (the turn's picture index is the one numbe
 		});
 
 		expect(
-			buildTurnImageGuidance({ canSee: false, turnImages, referenceCap: null })[0],
+			buildTurnImageGuidance({
+				canSee: false,
+				turnImages,
+				referenceCap: null,
+			})[0],
 		).toBe(CANNOT_SEE_IMAGES_GUIDANCE);
 	});
 

@@ -31,7 +31,9 @@ describe("PhotoMarkDialog", () => {
 
 		await waitFor(() =>
 			expect(
-				screen.getByTestId("photo-mark-dialog").contains(document.activeElement),
+				screen
+					.getByTestId("photo-mark-dialog")
+					.contains(document.activeElement),
 			).toBe(true),
 		);
 	});

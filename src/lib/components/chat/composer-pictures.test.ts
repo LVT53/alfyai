@@ -4,14 +4,14 @@ import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { attachmentChipFailure } from "./composer-chip-presentation";
 import {
 	arrangePictureChips,
+	attachmentPictureOptions,
 	libraryPictureAttachment,
 	markedPictureNumber,
+	marksAfterUndo,
 	numberPictures,
 	pictureChipNames,
 	pictureKey,
 	reconcilePictureOrder,
-	marksAfterUndo,
-	attachmentPictureOptions,
 } from "./composer-pictures";
 
 const isPicture = (key: string) => key !== "upload:pdf";
@@ -195,7 +195,10 @@ describe("marksAfterUndo", () => {
 	});
 
 	it("still undoes after more boxes were drawn on the photo they moved to", () => {
-		const onRoomAgain = { ...onRoom, marks: [...marks, { ...marks[0], letter: "B" as const }] };
+		const onRoomAgain = {
+			...onRoom,
+			marks: [...marks, { ...marks[0], letter: "B" as const }],
+		};
 		expect(marksAfterUndo(onRoomAgain, onRoom, onSofa)).toBe(onSofa);
 	});
 
