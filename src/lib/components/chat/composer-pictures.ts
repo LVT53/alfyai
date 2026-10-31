@@ -205,6 +205,24 @@ export function marksAfterUndo(
 	return current?.artifactId === moved.artifactId ? previous : current;
 }
 
+/**
+ * The send gate's picture rule for one attachment. The marked photo counts as a
+ * picture for any model, since make_image works from its pixels, not its text.
+ * Not for an Atlas report, which makes no picture and reads text only.
+ */
+export function attachmentPictureOptions<
+	Options extends { selectedModelSupportsImages: boolean },
+>(
+	artifactId: string,
+	held: ComposerMarks | null,
+	atlasSelected: boolean,
+	options: Options,
+): Options | { selectedModelSupportsImages: true } {
+	return held?.uploadArtifactId === artifactId && !atlasSelected
+		? { selectedModelSupportsImages: true }
+		: options;
+}
+
 /** The request a held mark set sends: a copy of its boxes on its one picture. */
 export function marksRequest(held: ComposerMarks): ImageMarksRequest {
 	const marks = held.marks.map((mark) => ({ ...mark }));

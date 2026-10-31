@@ -11,6 +11,7 @@ import {
 	pictureKey,
 	reconcilePictureOrder,
 	marksAfterUndo,
+	attachmentPictureOptions,
 } from "./composer-pictures";
 
 const isPicture = (key: string) => key !== "upload:pdf";
@@ -205,5 +206,32 @@ describe("marksAfterUndo", () => {
 	it("leaves marks drawn since on yet another photo", () => {
 		const onDesk = { ...onSofa, uploadArtifactId: "desk", artifactId: "desk" };
 		expect(marksAfterUndo(onDesk, onRoom, onSofa)).toBe(onDesk);
+	});
+});
+
+describe("attachmentPictureOptions", () => {
+	const held = {
+		uploadArtifactId: "photo-1",
+		marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+		artifactId: "photo-1",
+		name: "room.jpg",
+		version: null,
+	};
+	const blind = { selectedModelSupportsImages: false };
+
+	it("lets the marked photo through for a model that cannot see", () => {
+		expect(
+			attachmentPictureOptions("photo-1", held, false, blind)
+				.selectedModelSupportsImages,
+		).toBe(true);
+	});
+
+	it("leaves every other attachment to the model", () => {
+		expect(attachmentPictureOptions("other", held, false, blind)).toBe(blind);
+		expect(attachmentPictureOptions("photo-1", null, false, blind)).toBe(blind);
+	});
+
+	it("keeps Atlas's text-only gate: a report makes no picture", () => {
+		expect(attachmentPictureOptions("photo-1", held, true, blind)).toBe(blind);
 	});
 });

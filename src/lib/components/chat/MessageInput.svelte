@@ -137,6 +137,7 @@ import {
 	type ComposerMarks,
 	type ComposerPictureRef,
 	libraryPictureAttachment,
+	attachmentPictureOptions,
 	markedPictureNumber,
 	marksRequest,
 	numberPictures,
@@ -719,11 +720,13 @@ let pictureOptions = $derived({
 	selectedModelSupportsImages:
 		selectedModelSupportsImages && !selectedAtlasProfile,
 });
-/** The marked photo counts as a picture for any model: make_image works from its pixels, not its text. */
 function pictureOptionsFor(artifact: { id: string }) {
-	return imageMarks?.uploadArtifactId === artifact.id
-		? { selectedModelSupportsImages: true }
-		: pictureOptions;
+	return attachmentPictureOptions(
+		artifact.id,
+		imageMarks,
+		Boolean(selectedAtlasProfile),
+		pictureOptions,
+	);
 }
 // The ledger decides, when it has an opinion. One pure state per pending
 // attachment drives BOTH the chip and the send gate, so a chip that shows a
