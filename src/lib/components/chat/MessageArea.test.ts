@@ -37,9 +37,8 @@ Object.defineProperty(window, "matchMedia", {
 	}),
 });
 
-// The Chat Scroller measures the message area (`bind:clientWidth`), which jsdom
-// never lays out, and jsdom has no ResizeObserver for the binding to watch it.
-// A test sets `surfaceWidth` before it renders: 800 and up draws the ruler,
+// The Chat Scroller measures the message area, which jsdom never lays out. A
+// test sets `surfaceWidth` before it renders: 800 and up draws the ruler,
 // anything narrower the capsule, and 0 (the default) means "not measured yet",
 // which draws neither.
 let surfaceWidth = 0;
@@ -49,11 +48,6 @@ Object.defineProperty(HTMLElement.prototype, "clientWidth", {
 		return this.classList.contains("message-area-surface") ? surfaceWidth : 0;
 	},
 });
-globalThis.ResizeObserver = class {
-	observe() {}
-	unobserve() {}
-	disconnect() {}
-};
 
 /** Which tick of the ruler the orange mark sits on. */
 function needleOf(container: HTMLElement): number {
@@ -2219,9 +2213,6 @@ describe("MessageArea", () => {
 			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1200));
 			scrollContainer.scrollTop = 800;
 			await fireEvent.scroll(scrollContainer);
-			// The opening jump also holds the view at the bottom (a browser has the
-			// ResizeObserver that needs); a press inside the thread hands it over.
-			await fireEvent.pointerDown(scrollContainer);
 
 			// A reply the thread does not follow grows far below the reader, who
 			// scrolls down to read on and stops short of its end.

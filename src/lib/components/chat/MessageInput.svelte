@@ -6,6 +6,7 @@ import {
 	Brain,
 	Clock,
 	Paperclip,
+	Pencil,
 	Plug,
 	Plus,
 	RotateCw,
@@ -281,6 +282,9 @@ let {
 	hasQueuedMessage = false,
 	queuedMessagePreview = "",
 	onDraftChange = undefined,
+	editing = null,
+	onEditSubmit = undefined,
+	onEditCancel = undefined,
 	onUploadReady = undefined,
 	onUploadFiles = undefined,
 	totalCostUsd = 0,
@@ -385,6 +389,19 @@ let {
 	hasQueuedMessage?: boolean;
 	queuedMessagePreview?: string;
 	onDraftChange?: ((payload: DraftPayload) => void) | undefined;
+	/**
+	 * Editing a sent message happens here, in the real composer. The page owns
+	 * the state and passes the message's text and how many later replies the
+	 * edit would delete. While it is set the composer shows that text (the
+	 * draft is put aside and comes back after), emits no draft, offers no
+	 * commands, hides its chips and turns the attach, connections and tools
+	 * faces off, since the resend keeps the message's own attachments.
+	 */
+	editing?: { text: string; laterReplies: number } | null;
+	/** Send (or Cmd/Ctrl+Enter) while editing, with the trimmed text. */
+	onEditSubmit?: ((text: string) => void) | undefined;
+	/** Cancel, Esc, or sending the text unchanged. */
+	onEditCancel?: (() => void) | undefined;
 	onUploadReady?:
 		| ((uploadFn: (files: FileList | null) => Promise<void>) => void)
 		| undefined;
@@ -703,6 +720,38 @@ $effect(() => {
 // The person asked to write: unlike `focusRequest`, a phone opens its keyboard.
 $effect(() => {
 	if (typingRequest > 0) untrack(() => textarea?.focus());
+});
+// Editing a sent message: the draft the person had is put aside while the
+// message's text is here, and put back when editing ends, however it ends. The
+// edit itself never reaches the draft (`emitDraftChange` stays quiet), so a
+// reload in the middle of an edit finds the draft as it was.
+let keptDraft: string | null = null;
+$effect(() => {
+	const active = editing;
+	untrack(() => {
+		if (active) {
+			if (keptDraft === null) keptDraft = message;
+			message = active.text;
+			showToolsMenu = false;
+			showConnectionsPopover = false;
+			closeCommandTray();
+			void tick().then(() => {
+				if (!textarea) return;
+				adjustHeight();
+				textarea.focus();
+				textarea.setSelectionRange(message.length, message.length);
+			});
+		} else if (keptDraft !== null) {
+			message = keptDraft;
+			keptDraft = null;
+			// The page may have cleared its copy of the draft while the edit went
+			// out; say what is on screen so a reload finds the same thing.
+			lastEmittedDraftKey = "";
+			draftEmissionVersion += 1;
+			void emitDraftChange(true);
+			void tick().then(adjustHeight);
+		}
+	});
 });
 let effectiveLinkedSources = $derived(
 	dedupeLinkedSourcesByFamily(
@@ -1685,7 +1734,7 @@ function handlePaste(event: ClipboardEvent) {
 	// NOT gated on `canAttach`: that goes false while an upload is in flight,
 	// and pasting during an upload is exactly the case the batch counter in
 	// `uploadFiles` was fixed to survive.
-	if (isComposerDisabled || !attachmentsEnabled) return;
+	if (isComposerDisabled || !attachmentsEnabled || editing) return;
 
 	const decision = decideClipboardAttachment(event.clipboardData, {
 		disabledEntryIds: $disabledFileTypeIds,
@@ -1862,6 +1911,21 @@ function dismissSlashHint() {
 function handleKeydown(event: KeyboardEvent) {
 	if (isComposerDisabled) return;
 	if (event.isComposing) return;
+	if (editing) {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			cancelEdit();
+			return;
+		}
+		// The composer's own Enter rule: Enter writes a new line, Cmd/Ctrl+Enter sends.
+		if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault();
+			submitEdit(textarea?.value ?? message);
+			return;
+		}
+		scheduleTextareaValueSync();
+		return;
+	}
 	updateCommandTrayFromTextarea();
 	if (showCommandTray && event.key === "Escape") {
 		event.preventDefault();
@@ -2138,6 +2202,32 @@ async function attemptDispatch(nextMessage: string) {
 	} finally {
 		sendPending = false;
 	}
+}
+
+// Sending an edit: the same text, trimmed, is what the page resends. Empty (or
+// over the limit) cannot be sent; unchanged is the same as cancelling, since a
+// resend of the same words would only delete the replies that follow.
+let canEditSubmit = $derived(
+	Boolean(editing) &&
+		!isComposerDisabled &&
+		message.trim().length > 0 &&
+		message.length <= maxLength,
+);
+
+function submitEdit(text: string = message) {
+	if (!editing || isComposerDisabled) return;
+	const trimmed = text.trim();
+	if (!trimmed || text.length > maxLength) return;
+	if (trimmed === editing.text.trim()) {
+		onEditCancel?.();
+		return;
+	}
+	onEditSubmit?.(trimmed);
+}
+
+function cancelEdit() {
+	if (!editing) return;
+	onEditCancel?.();
 }
 
 function send(nextMessage: string = message) {
@@ -2706,7 +2796,7 @@ function updateCommandTrayFromTextarea() {
 }
 
 function updateCommandTrayFromText(text: string, cursor: number) {
-	if (!composerCommandRegistryEnabled) {
+	if (!composerCommandRegistryEnabled || editing) {
 		closeCommandTray();
 		return;
 	}
@@ -3255,7 +3345,8 @@ function uploadTypeRefusal(file: File): string | null {
 }
 
 async function uploadFiles(files: FileList | readonly File[] | null) {
-	if (!files) return;
+	// Nothing is attached to an edit: the resend keeps the message's own files.
+	if (!files || editing) return;
 	const selectedFiles = Array.from(files);
 	if (selectedFiles.length === 0) return;
 	uploadState = "uploading";
@@ -3663,6 +3754,8 @@ function getDraftTextForPersistence(): string {
 }
 
 async function emitDraftChange(force = false) {
+	// An edit in progress is not a draft.
+	if (editing) return;
 	const emissionVersion = draftEmissionVersion;
 	const nextMessage = getDraftTextForPersistence();
 	const nextPendingAttachments = pendingAttachments.map((attachment) => ({
@@ -3784,6 +3877,31 @@ async function emitDraftChange(force = false) {
 	{/if}
 
 	<div bind:this={composerBox} class="message-composer relative z-[2] flex min-h-[70px] flex-col rounded-[1.25rem] border border-border px-[8px] pt-[8px] pb-0 transition-all duration-150 focus-within:border-focus-ring md:min-h-[78px] md:px-[10px] md:pt-[10px]">
+		{#if editing}
+			<!-- Editing a sent message: one quiet line at the top of the box. With
+			     later replies the label becomes the one thing worth reading. -->
+			<div class="composer-edit-strip" data-testid="composer-edit-strip">
+				<Pencil size={14} strokeWidth={2} aria-hidden="true" />
+				<span
+					class="composer-edit-strip__label"
+					class:composer-edit-strip__label--warning={editing.laterReplies > 0}
+					role="status"
+					data-testid="composer-edit-label"
+				>
+					{editing.laterReplies > 0
+						? $t('chat.editLaterReplies', { count: editing.laterReplies })
+						: $t('messageBubble.editMessage')}
+				</span>
+				<button
+					type="button"
+					class="composer-edit-strip__cancel"
+					data-testid="composer-edit-cancel"
+					onclick={cancelEdit}
+				>
+					{$t('common.cancel')}
+				</button>
+			</div>
+		{/if}
 		<input
 			bind:this={fileInput}
 			type="file"
@@ -3854,13 +3972,14 @@ async function emitDraftChange(force = false) {
 	     Each chip carries exactly one control, its ×. The Atlas notify bell,
 	     which used to be a second, identical-looking button INSIDE the chip,
 	     is now a disclosure beside it; so is a document's outline. -->
-	{#if hasComposerChips || isOverMaxLength}
+	{#if (hasComposerChips && !editing) || isOverMaxLength}
 		<ComposerChipRow
 			label={$t('composerChips.rowLabel')}
 			scrollOnPhone={isPhone}
 			focusFallback={() => textarea?.focus()}
 		>
 			{#snippet children()}
+				{#if !editing}
 				{#if composerCommandRegistryEnabled && pendingSkill}
 					<li class="composer-chip-item">
 						<ComposerChip
@@ -4086,6 +4205,7 @@ async function emitDraftChange(force = false) {
 						</li>
 					{/each}
 				{/if}
+				{/if}
 			{/snippet}
 			{#snippet counter()}
 				{#if isOverMaxLength}
@@ -4172,7 +4292,7 @@ async function emitDraftChange(force = false) {
 						class="composer-face composer-face--plus"
 						class:composer-face--on={showToolsMenu}
 						onclick={toggleToolsMenu}
-						disabled={isComposerDisabled}
+						disabled={isComposerDisabled || Boolean(editing)}
 						aria-label={$t('chat.openComposerTools')}
 						aria-haspopup="menu"
 						aria-expanded={showToolsMenu}
@@ -4212,7 +4332,7 @@ async function emitDraftChange(force = false) {
 					class="composer-face"
 					class:composer-face--on={attachOn}
 					onclick={openFilePicker}
-					disabled={isComposerDisabled || !canAttach}
+					disabled={isComposerDisabled || !canAttach || Boolean(editing)}
 					aria-pressed={attachOn}
 					aria-label={attachLabel}
 					title={attachLabel}
@@ -4236,6 +4356,7 @@ async function emitDraftChange(force = false) {
 						class:composer-face--on={accountsOn}
 						class:composer-face--muted={!hasConnections}
 						onclick={openConnectionsPopover}
+						disabled={Boolean(editing)}
 						aria-disabled={!hasConnections}
 						aria-pressed={accountsOn}
 						aria-expanded={hasConnections ? showConnectionsPopover : undefined}
@@ -4377,8 +4498,9 @@ async function emitDraftChange(force = false) {
 					<button
 						data-testid="send-button"
 						type="button"
-						onclick={() => send()}
-						disabled={!canSend || isComposerDisabled}
+						onclick={() => (editing ? submitEdit() : send())}
+						disabled={editing ? !canEditSubmit : !canSend || isComposerDisabled}
+						class:composer-send--destructive={Boolean(editing && editing.laterReplies > 0)}
 						aria-label={$t('chat.sendMessage')}
 						class="btn-primary composer-send flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-elevated disabled:text-icon-muted animate-in"
 					>
@@ -5068,6 +5190,79 @@ async function emitDraftChange(force = false) {
 		aspect-ratio: 1 / 1;
 		align-self: center;
 		overflow: hidden;
+	}
+
+	/* Sending an edit that deletes later replies: the same tint as a danger
+	   button, so the press reads as the destructive thing it is. */
+	.composer-send--destructive,
+	.composer-send--destructive:hover:not(:disabled) {
+		background-color: color-mix(in srgb, var(--danger) 12%, transparent);
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+	}
+
+	.composer-send--destructive:hover:not(:disabled) {
+		border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+	}
+
+	/* The edit strip: no box and no dashed line, just a line of the box it
+	   sits in. */
+	.composer-edit-strip {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 2px 6px 6px;
+		min-height: 30px;
+		padding-left: 10px;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.composer-edit-strip :global(svg) {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.composer-edit-strip__label {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	/* Later replies are about to go: one plain red line, not a bold label. */
+	.composer-edit-strip__label--warning {
+		font-weight: 400;
+		color: var(--danger);
+	}
+
+	.composer-edit-strip__cancel {
+		flex: 0 0 auto;
+		height: 28px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-muted);
+		font: inherit;
+		font-weight: 500;
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.composer-edit-strip__cancel:hover {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.composer-edit-strip__cancel:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.action-button-container {

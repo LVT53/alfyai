@@ -238,6 +238,7 @@ import {
 	filesWaitingForTheList,
 	hasActiveAtlasJobs,
 	liveDocumentAlfyActivityExcluding,
+	countLaterReplies,
 	hasActiveFileProductionJobs,
 	mergeFileProductionJob,
 	removeMessageById,
@@ -429,6 +430,14 @@ const draftPersistence = createDraftPersistence();
 let sendError = $state<string | null>(null);
 let isSending = $state(false);
 let isEditResendPending = $state(false);
+// A sent message being edited in the composer (the pencil on its bubble). The
+// composer shows `text`, the bubble dims, and `laterReplies` is how many other
+// replies the resend deletes. Null when nothing is being edited.
+let editingMessage = $state<{
+	id: string;
+	text: string;
+	laterReplies: number;
+} | null>(null);
 let normalChatRuntimeActive = $state(false);
 let normalChatRuntimePhase = $state<NormalChatRuntimePhase>("idle");
 // R1 (ADR-0060) — canRetry crosses the seam now: the runtime already
@@ -2344,6 +2353,7 @@ function resetState() {
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
 	sendError = null;
 	isSending = false;
+	editingMessage = null;
 	composerPictures = [];
 	composerPictureOrder = [];
 	// Boxes drawn in this chat before a reload come back with its composer.
@@ -3867,6 +3877,30 @@ async function handleRegenerate(
 	);
 }
 
+// The pencil on a message: edit it in the composer. Not on a sealed chat, and
+// not while a turn is running or an earlier edit is still going out.
+function handleStartEdit(payload: { messageId: string }) {
+	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	const list = $messages;
+	const target = list.find((m) => m.id === payload.messageId);
+	if (!target || target.role !== "user") return;
+	editingMessage = {
+		id: target.id,
+		text: target.content,
+		laterReplies: countLaterReplies(list, target.id),
+	};
+}
+
+function handleEditCancel() {
+	editingMessage = null;
+}
+
+// The composer's send while editing: the same path the inline box used.
+function handleEditSubmit(newText: string) {
+	if (!editingMessage) return;
+	void handleEdit({ messageId: editingMessage.id, newText });
+}
+
 async function handleEdit(
 	payload: MessageEditPayload,
 	confirmForkedSourceHistoryMutation = false,
@@ -3910,6 +3944,11 @@ async function handleEdit(
 		return;
 	}
 
+	// Every gate that can send the person back to their edit has passed (the
+	// privacy check, the fork confirmation): from here the edit is going out, so
+	// the composer lets go of it and takes its own draft back.
+	editingMessage = null;
+
 	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
 
 	// Remove all messages from the edited one onwards
@@ -3941,15 +3980,22 @@ async function handleEdit(
 	}
 
 	isEditResendPending = false;
-	handleSend({
-		message: newText,
-		attachmentIds: editAttachmentIds,
-		attachments: editAttachments,
-		pendingAttachments: [],
-		// Gap 2 — server-side telemetry signal only (activity_events
-		// "edit_resend"); does not change how this turn is otherwise sent.
-		isEditResend: true,
-	});
+	// `clearDraft` false: the composer has just taken the person's own draft
+	// back, and a resend of an older message is not what that draft was for.
+	handleSend(
+		{
+			message: newText,
+			attachmentIds: editAttachmentIds,
+			attachments: editAttachments,
+			pendingAttachments: [],
+			// Gap 2 — server-side telemetry signal only (activity_events
+			// "edit_resend"); does not change how this turn is otherwise sent.
+			isEditResend: true,
+		},
+		false,
+		false,
+		false,
+	);
 }
 
 // Async so callers that must not race the dying turn can await it — the
@@ -4388,7 +4434,8 @@ function handleDrop(event: DragEvent) {
 						onImageAction={handleImageAction}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
-						onEdit={handleEdit}
+						onStartEdit={handleStartEdit}
+						editingMessageId={editingMessage?.id ?? null}
 						onFork={handleFork}
 						onKeepAsDocument={handleKeepAsDocument}
 						{skillDraftActionState}
@@ -4462,6 +4509,9 @@ function handleDrop(event: DragEvent) {
 				draftAtlasProfile={conversationDraft?.atlasProfile ?? null}
 				draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
+				editing={editingMessage}
+				onEditSubmit={handleEditSubmit}
+				onEditCancel={handleEditCancel}
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
 				bind:activeCapabilities={composerActiveCapabilities}

@@ -48,6 +48,8 @@ const chatDict = {
 		"chat.degradedBanner.tool.make_image": "making pictures",
 		"chat.degradedBanner.tool.research_web": "web research",
 		"chat.edit": "Edit",
+		"chat.editLaterReplies":
+			"{count} later {count, plural, one {reply} other {replies}} will be deleted.",
 		"chat.emptyConversation": "Start a conversation",
 		"chat.emptyHeadline": "How can I help?",
 		"chat.emptyHint": "Type below to start the conversation.",
@@ -1293,6 +1295,7 @@ const chatDict = {
 		"chat.degradedBanner.tool.make_image": "képkészítés",
 		"chat.degradedBanner.tool.research_web": "webes kutatás",
 		"chat.edit": "Szerkesztés",
+		"chat.editLaterReplies": "{count} későbbi válasz törlődik.",
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.emptyHeadline": "Miben segíthetek?",
 		"chat.emptyHint": "Kezdd a beszélgetést az alábbi írómezőben.",

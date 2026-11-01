@@ -77,7 +77,7 @@ import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import AtlasActivityRow from "./AtlasActivityRow.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
-import { onDestroy, tick } from "svelte";
+import { onDestroy } from "svelte";
 import {
 	AlertTriangle,
 	Brain,
@@ -88,7 +88,6 @@ import {
 	Info,
 	Pencil,
 	RefreshCw,
-	X,
 } from "@lucide/svelte";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 
@@ -106,7 +105,8 @@ let {
 	readOnly = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
-	onEdit = undefined,
+	onStartEdit = undefined,
+	beingEdited = false,
 	onFork = undefined,
 	forkBusy = false,
 	onKeepAsDocument = undefined,
@@ -148,15 +148,17 @@ let {
 		  }) => void)
 		| undefined;
 	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
-	onEdit?:
-		| ((payload: { messageId: string; newText: string }) => void)
-		| undefined;
+	// Editing happens in the composer, not here: the pencil only asks the page
+	// to start it, and `beingEdited` dims this message while the composer holds
+	// its text.
+	onStartEdit?: ((payload: { messageId: string }) => void) | undefined;
+	beingEdited?: boolean;
 	onFork?:
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
 	forkBusy?: boolean;
 	// "Open as document" (Feature 2 · Artifacts, Slice 1): the parent does the
-	// actual get-or-create call and the panel open (mirroring onFork/onEdit —
+	// actual get-or-create call and the panel open (mirroring onFork —
 	// this component stays a delegate, not a fetcher), and returns a promise
 	// this button awaits so it can show its own busy state without a second
 	// parent-threaded prop for it.
@@ -221,9 +223,6 @@ let {
 
 let copied = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
-let isEditing = $state(false);
-let editText = $state("");
-let editTextarea: HTMLTextAreaElement | null = $state(null);
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
 // ADR-0043: the audit-info popover is hover-driven on desktop; on touch
@@ -503,7 +502,7 @@ let provenanceEntries = $derived(
 // It disappears entirely on a turn where the user chose none of them, and
 // stays out of the way while the turn is still running.
 let showProvenanceLine = $derived(
-	!isUser && !isStreaming && !isEditing && provenanceEntries.length > 0,
+	!isUser && !isStreaming && provenanceEntries.length > 0,
 );
 // Thinking is definitively done once visible response text has started streaming
 // OR the whole message is complete. This keeps the label as "Thinking" between
@@ -855,29 +854,6 @@ async function handleKeepAsDocument() {
 	}
 }
 
-async function startEdit() {
-	editText = message.content;
-	isEditing = true;
-	await tick();
-	editTextarea?.focus();
-}
-
-function cancelEdit() {
-	isEditing = false;
-	editText = "";
-}
-
-function submitEdit() {
-	const trimmed = editText.trim();
-	if (!trimmed || trimmed === message.content) {
-		cancelEdit();
-		return;
-	}
-	onEdit?.({ messageId: message.id, newText: trimmed });
-	isEditing = false;
-	editText = "";
-}
-
 // The date half of a message timestamp follows the interface language, not
 // a pinned en-GB. It is also handed to Intl WHOLE rather than assembled from
 // a day number and a month name: "17" + "szept." would come out as "17
@@ -995,16 +971,6 @@ let forkButtonId = $derived(`fork-button-${message.id}`);
 let keepAsDocumentButtonId = $derived(`keep-as-document-button-${message.id}`);
 let editButtonId = $derived(`edit-button-${message.id}`);
 let copyButtonId = $derived(`copy-button-${message.id}`);
-
-function handleEditKeydown(e: KeyboardEvent) {
-	if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-		e.preventDefault();
-		submitEdit();
-	}
-	if (e.key === "Escape") {
-		cancelEdit();
-	}
-}
 
 $effect(() => {
 	if (!showTimestampTooltip) return;
@@ -1137,17 +1103,16 @@ function sendFollowUp(question: string) {
 }
 </script>
 
-<div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
+<div class="group flex w-full flex-col {isUser ? 'items-end' : 'items-start'} gap-md py-md fade-in">
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
-		class="relative flex min-w-0 flex-col font-sans
-		{isUser && !isEditing
+		class="message-body relative flex min-w-0 flex-col font-sans
+		{isUser
 			? 'max-w-[85%] min-w-0 rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
-			: isUser
-				? 'w-full min-w-0 max-w-full rounded-md bg-[var(--surface-message-user)] p-md text-text-primary'
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
+		class:being-edited={beingEdited}
 	>
 		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasDeliverables)}
 			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
@@ -1194,107 +1159,76 @@ function sendFollowUp(question: string) {
 		/>
 		{/if}
 		{#if isUser}
-			{#if isEditing}
-				<div class="flex flex-col gap-3">
-					<textarea
-						bind:this={editTextarea}
-						class="w-full resize-none rounded-md border-none bg-[var(--surface-message-user)] p-md font-sans text-[0.875rem] leading-[1.6] text-text-primary focus:outline-none focus:ring-2 focus:ring-focus-ring"
-						bind:value={editText}
-						onkeydown={handleEditKeydown}
-						rows={Math.min(10, Math.max(3, editText.split('\n').length))}
-					></textarea>
-					<div class="flex items-center gap-0.5 justify-end">
-						<button
-							type="button"
-							class="btn-icon-bare"
-							onclick={cancelEdit}
-							aria-label={$t('common.cancel')}
-						>
-							<X size={16} strokeWidth={2} aria-hidden="true" />
-						</button>
-						<button
-							type="button"
-							class="btn-icon-bare"
-							onclick={submitEdit}
-							disabled={!editText.trim()}
-							aria-label={$t('chat.sendMessage')}
-						>
-							<Check size={16} strokeWidth={2} aria-hidden="true" />
-						</button>
-					</div>
-				</div>
-			{:else}
-				<!-- Chips redesign — what you sent with the message, in the same
-				     pills the composer drew a second earlier: same icons, same
-				     order, 22px instead of 28px, and no × (a sent turn is a
-				     record, not a promise). An attachment chip stays clickable
-				     and opens the document workspace, as the compact chip did. -->
-				{#if hasAttachments || sentPictureRefs.length > 0 || userQuoteSplit.quoteLabels.length > 0}
-					<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
-						{#each sentChipSlots as slot (slot.type === 'ref' ? `ref:${sentPictureRefs[slot.index].imageFileId}` : `att:${(message.attachments ?? [])[slot.index].id}`)}
-							{#if slot.type === 'attachment'}
-								{@const attachment = (message.attachments ?? [])[slot.index]}
-								<span class="user-bubble-chip">
-									<FileAttachment
-										attachment={toArtifactSummary(attachment)}
-										variant="chip"
-										number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
-										viewable={Boolean(onOpenDocument)}
-										onView={handleViewAttachment}
+			<!-- Chips redesign — what you sent with the message, in the same
+			     pills the composer drew a second earlier: same icons, same
+			     order, 22px instead of 28px, and no × (a sent turn is a
+			     record, not a promise). An attachment chip stays clickable
+			     and opens the document workspace, as the compact chip did. -->
+			{#if hasAttachments || sentPictureRefs.length > 0 || userQuoteSplit.quoteLabels.length > 0}
+				<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
+					{#each sentChipSlots as slot (slot.type === 'ref' ? `ref:${sentPictureRefs[slot.index].imageFileId}` : `att:${(message.attachments ?? [])[slot.index].id}`)}
+						{#if slot.type === 'attachment'}
+							{@const attachment = (message.attachments ?? [])[slot.index]}
+							<span class="user-bubble-chip">
+								<FileAttachment
+									attachment={toArtifactSummary(attachment)}
+									variant="chip"
+									number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
+									viewable={Boolean(onOpenDocument)}
+									onView={handleViewAttachment}
+								/>
+								{#if attachment.outline && attachment.outline.length > 0}
+									<AttachmentOutline
+										outline={attachment.outline}
+										onQuote={requestComposerQuote}
+										variant="disclosure"
+										disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
 									/>
-									{#if attachment.outline && attachment.outline.length > 0}
-										<AttachmentOutline
-											outline={attachment.outline}
-											onQuote={requestComposerQuote}
-											variant="disclosure"
-											disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
-										/>
-									{/if}
-								</span>
-							{:else}
-								{@const pictureRef = sentPictureRefs[slot.index]}
-							<ComposerChip
-								kind="image"
-								label={pictureRef.name}
-								thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId })}
-								number={pictureRef.number}
-								size="message"
-								tile
-								testId="message-picture-chip"
-							/>
-							{/if}
-						{/each}
-						{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
-							<ComposerChip
-								kind="quote"
-								label={quoteLabel}
-								size="message"
-								testId="user-bubble-quote-chip"
-							/>
-						{/each}
-					</div>
-				{/if}
-				<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6] max-md:text-[0.9375rem]">
-					{#if userMessageSegments.length > 0}
-						{#each userMessageSegments as segment}
-							{#if segment.kind === 'link'}
-								<a
-									class="user-message-link"
-									href={segment.href}
-									target="_blank"
-									rel="noopener noreferrer external"
-								>
-									{segment.text}
-								</a>
-							{:else}
-								<span>{segment.text}</span>
-							{/if}
-						{/each}
-					{:else}
-						{userQuoteSplit.body}
-					{/if}
+								{/if}
+							</span>
+						{:else}
+							{@const pictureRef = sentPictureRefs[slot.index]}
+						<ComposerChip
+							kind="image"
+							label={pictureRef.name}
+							thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId })}
+							number={pictureRef.number}
+							size="message"
+							tile
+							testId="message-picture-chip"
+						/>
+						{/if}
+					{/each}
+					{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
+						<ComposerChip
+							kind="quote"
+							label={quoteLabel}
+							size="message"
+							testId="user-bubble-quote-chip"
+						/>
+					{/each}
 				</div>
 			{/if}
+			<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6] max-md:text-[0.9375rem]">
+				{#if userMessageSegments.length > 0}
+					{#each userMessageSegments as segment}
+						{#if segment.kind === 'link'}
+							<a
+								class="user-message-link"
+								href={segment.href}
+								target="_blank"
+								rel="noopener noreferrer external"
+							>
+								{segment.text}
+							</a>
+						{:else}
+							<span>{segment.text}</span>
+						{/if}
+					{/each}
+				{:else}
+					{userQuoteSplit.body}
+				{/if}
+			</div>
 		{:else}
 			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]">
 			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
@@ -1504,7 +1438,7 @@ function sendFollowUp(question: string) {
 	<!-- Atlas no longer suppresses the action row: an Atlas turn is a normal
 	     assistant message with a report attached, so copy / feedback /
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
-	{#if !message.isStreaming && !isEditing}
+	{#if !message.isStreaming && !beingEdited}
 		<!-- Two rows, one reveal. The action row (copy, regenerate, ...) and the
 		     follow-up chips under it wait for the pointer on a device that can
 		     hover, revealed together by ONE rule on the block that holds both
@@ -1662,7 +1596,7 @@ function sendFollowUp(question: string) {
 								id={editButtonId}
 								type="button"
 								class="btn-icon-bare action-icon-btn"
-								onclick={startEdit}
+								onclick={() => onStartEdit?.({ messageId: message.id })}
 								aria-label={$t('messageBubble.editMessage')}
 								aria-describedby={`${editButtonId}-tooltip`}
 							>
@@ -1971,6 +1905,15 @@ function sendFollowUp(question: string) {
 	}
 	.fade-in {
 		animation: fadeIn var(--duration-micro) var(--ease-out) forwards;
+	}
+	/* The message the composer is editing: quiet while its text is up there.
+	   On the body, not the row around it, because the row's fade-in animation
+	   holds opacity at 1 once it has run. */
+	.message-body {
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+	.message-body.being-edited {
+		opacity: 0.45;
 	}
 	/* The action row wraps at ANY width: its icon buttons never shrink, and a
 	   long list of them (info, regenerate, fork, keep, copy, ...) must have

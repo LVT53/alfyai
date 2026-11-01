@@ -6836,3 +6836,290 @@ describe("MessageInput pictures (numbers and Attach)", () => {
 		});
 	});
 });
+
+describe("MessageInput editing a sent message", () => {
+	function renderComposer(props: Record<string, unknown> = {}) {
+		const onSend = vi.fn();
+		const onDraftChange = vi.fn();
+		const onEditSubmit = vi.fn();
+		const onEditCancel = vi.fn();
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend,
+			onDraftChange,
+			onEditSubmit,
+			onEditCancel,
+			...props,
+		});
+		return {
+			...rendered,
+			onSend,
+			onDraftChange,
+			onEditSubmit,
+			onEditCancel,
+			textarea: rendered.container.querySelector(
+				"textarea",
+			) as HTMLTextAreaElement,
+		};
+	}
+
+	const sentMessage = { text: "Plan a weekend by the lake.", laterReplies: 0 };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		resetMaxFileUploadSize();
+		resetDisabledFileTypeIds();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionStatusMock.mockResolvedValue({ jobs: [], readiness: [] });
+	});
+
+	it("shows the message's text, puts the caret at its end and shows the strip", async () => {
+		const view = renderComposer();
+
+		await view.rerender({ editing: sentMessage });
+
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("Plan a weekend by the lake.");
+		});
+		await waitFor(() => {
+			expect(document.activeElement).toBe(view.textarea);
+			expect(view.textarea.selectionStart).toBe(sentMessage.text.length);
+			expect(view.textarea.selectionEnd).toBe(sentMessage.text.length);
+		});
+		const strip = view.getByTestId("composer-edit-strip");
+		expect(within(strip).getByText("Edit message")).toBeInTheDocument();
+		expect(
+			within(strip).getByRole("button", { name: "Cancel" }),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the draft aside and gives it back after a cancel", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, {
+			target: { value: "a half-written thought" },
+		});
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await fireEvent.click(view.getByTestId("composer-edit-cancel"));
+		expect(view.onEditCancel).toHaveBeenCalledTimes(1);
+		// The page answers a cancel by clearing `editing`.
+		await view.rerender({ editing: null });
+
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("a half-written thought");
+		});
+		expect(view.queryByTestId("composer-edit-strip")).not.toBeInTheDocument();
+	});
+
+	it("gives the draft back after a submit too, and sends nothing as a new message", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "my draft" } });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		await fireEvent.input(view.textarea, {
+			target: { value: "  Plan a weekend by the sea.  " },
+		});
+
+		await fireEvent.click(view.getByTestId("send-button"));
+
+		expect(view.onEditSubmit).toHaveBeenCalledTimes(1);
+		expect(view.onEditSubmit).toHaveBeenCalledWith(
+			"Plan a weekend by the sea.",
+		);
+		expect(view.onSend).not.toHaveBeenCalled();
+		await view.rerender({ editing: null });
+		await waitFor(() => expect(view.textarea.value).toBe("my draft"));
+	});
+
+	it("emits no draft while editing, and says what is on screen once it ends", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "my draft" } });
+		await waitFor(() => expect(view.onDraftChange).toHaveBeenCalled());
+		view.onDraftChange.mockClear();
+
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		await fireEvent.input(view.textarea, { target: { value: "edited words" } });
+		await fireEvent.keyDown(view.textarea, { key: "a" });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+
+		await view.rerender({ editing: null });
+		await waitFor(() => {
+			expect(view.onDraftChange).toHaveBeenCalledWith(
+				expect.objectContaining({ draftText: "my draft" }),
+			);
+		});
+		for (const call of view.onDraftChange.mock.calls) {
+			expect(call[0].draftText).not.toContain("edited words");
+			expect(call[0].draftText).not.toContain("Plan a weekend");
+		}
+	});
+
+	it("cancels on Esc and sends on Cmd+Enter, and Enter alone is a new line", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await fireEvent.keyDown(view.textarea, { key: "Enter" });
+		expect(view.onEditSubmit).not.toHaveBeenCalled();
+
+		await fireEvent.input(view.textarea, {
+			target: { value: "Plan it again" },
+		});
+		await fireEvent.keyDown(view.textarea, { key: "Enter", metaKey: true });
+		expect(view.onEditSubmit).toHaveBeenCalledWith("Plan it again");
+
+		await fireEvent.keyDown(view.textarea, { key: "Escape" });
+		expect(view.onEditCancel).toHaveBeenCalledTimes(1);
+	});
+
+	it("turns send off for an empty edit, and treats an unchanged one as a cancel", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await fireEvent.input(view.textarea, { target: { value: "   " } });
+		expect(view.getByTestId("send-button")).toBeDisabled();
+		await fireEvent.keyDown(view.textarea, { key: "Enter", metaKey: true });
+		expect(view.onEditSubmit).not.toHaveBeenCalled();
+		expect(view.onEditCancel).not.toHaveBeenCalled();
+
+		await fireEvent.input(view.textarea, {
+			target: { value: "Plan a weekend by the lake." },
+		});
+		expect(view.getByTestId("send-button")).toBeEnabled();
+		await fireEvent.click(view.getByTestId("send-button"));
+		expect(view.onEditSubmit).not.toHaveBeenCalled();
+		expect(view.onEditCancel).toHaveBeenCalledTimes(1);
+	});
+
+	it("offers no command tray while editing", async () => {
+		const view = renderComposer({ composerCommandRegistryEnabled: true });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await fireEvent.input(view.textarea, { target: { value: "/" } });
+		view.textarea.setSelectionRange(1, 1);
+		await fireEvent.keyUp(view.textarea, { key: "/" });
+
+		expect(view.queryByRole("listbox")).not.toBeInTheDocument();
+	});
+
+	it("hides the chips and turns the attach, connections and tools faces off", async () => {
+		const view = renderComposer({
+			draftAttachments: [],
+			draftPendingSkill: null,
+		});
+		await fireEvent.input(view.textarea, { target: { value: "x" } });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		expect(
+			view.queryByRole("list", { name: "Attached to this message" }),
+		).toBeNull();
+		expect(view.getByTestId("attach-toggle")).toBeDisabled();
+		expect(view.getByTestId("connections-toggle")).toBeDisabled();
+		expect(view.getByTestId("composer-tools-trigger")).toBeDisabled();
+
+		await view.rerender({ editing: null });
+		await waitFor(() => {
+			expect(view.getByTestId("attach-toggle")).toBeEnabled();
+			expect(view.getByTestId("composer-tools-trigger")).toBeEnabled();
+		});
+	});
+
+	it("keeps pasted files out of an edit", async () => {
+		const onUploadFiles = vi.fn();
+		const view = renderComposer({ onUploadFiles });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		const event = new Event("paste", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "clipboardData", {
+			value: {
+				types: ["Files"],
+				files: [new File(["png"], "shot.png", { type: "image/png" })],
+			},
+		});
+		view.textarea.dispatchEvent(event);
+
+		expect(onUploadFiles).not.toHaveBeenCalled();
+	});
+
+	it("says nothing of later replies when there are none", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: { text: "Hi", laterReplies: 0 } });
+
+		expect(view.getByTestId("composer-edit-label")).toHaveTextContent(
+			"Edit message",
+		);
+		expect(view.getByTestId("send-button")).not.toHaveClass(
+			"composer-send--destructive",
+		);
+	});
+
+	it("turns the label into one red line, and the send button destructive, when later replies go", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: { text: "Hi", laterReplies: 3 } });
+
+		const label = view.getByTestId("composer-edit-label");
+		expect(label).toHaveTextContent("3 later replies will be deleted.");
+		expect(label).toHaveClass("composer-edit-strip__label--warning");
+		expect(view.getByTestId("send-button")).toHaveClass(
+			"composer-send--destructive",
+		);
+	});
+
+	it("says '1 later reply' for one", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: { text: "Hi", laterReplies: 1 } });
+
+		expect(view.getByTestId("composer-edit-label")).toHaveTextContent(
+			"1 later reply will be deleted.",
+		);
+	});
+
+	it("says it in Hungarian", async () => {
+		uiLanguage.set("hu");
+		const view = renderComposer();
+		await view.rerender({ editing: { text: "Szia", laterReplies: 2 } });
+
+		expect(view.getByTestId("composer-edit-label")).toHaveTextContent(
+			"2 későbbi válasz törlődik.",
+		);
+		expect(
+			within(view.getByTestId("composer-edit-strip")).getByRole("button", {
+				name: "Mégse",
+			}),
+		).toBeInTheDocument();
+	});
+
+	it("goes straight from one edit to another without losing the draft", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "my draft" } });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await view.rerender({
+			editing: { text: "Another message", laterReplies: 2 },
+		});
+		await waitFor(() => expect(view.textarea.value).toBe("Another message"));
+		await view.rerender({ editing: null });
+
+		await waitFor(() => expect(view.textarea.value).toBe("my draft"));
+	});
+});

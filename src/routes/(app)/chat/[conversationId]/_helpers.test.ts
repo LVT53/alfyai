@@ -22,6 +22,7 @@ import {
 	composerMarksFromSend,
 	composerPicturesFromSend,
 	composerPlaceholderKey,
+	countLaterReplies,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
 	FILE_LIST_RETRY_DELAYS_MS,
@@ -481,6 +482,48 @@ describe("Skill Draft message helpers", () => {
 				skillDrafts: [updatedDraft],
 			},
 		]);
+	});
+});
+
+describe("countLaterReplies", () => {
+	const turn = (n: number) => [
+		{ id: `u${n}`, role: "user" as const },
+		{ id: `a${n}`, role: "assistant" as const },
+	];
+
+	it("counts the replies after the edited message's own", () => {
+		const list = [...turn(1), ...turn(2), ...turn(3), ...turn(4)];
+
+		expect(countLaterReplies(list, "u1")).toBe(3);
+		expect(countLaterReplies(list, "u2")).toBe(2);
+		expect(countLaterReplies(list, "u3")).toBe(1);
+	});
+
+	it("is 0 for the last turn: only its own reply goes, and that one comes back", () => {
+		const list = [...turn(1), ...turn(2)];
+
+		expect(countLaterReplies(list, "u2")).toBe(0);
+	});
+
+	it("is never below 0 when the edited message has no reply yet", () => {
+		const list = [...turn(1), { id: "u2", role: "user" as const }];
+
+		expect(countLaterReplies(list, "u2")).toBe(0);
+	});
+
+	it("does not count the person's own later messages, only replies", () => {
+		const list = [
+			...turn(1),
+			{ id: "u2", role: "user" as const },
+			{ id: "u3", role: "user" as const },
+			{ id: "a3", role: "assistant" as const },
+		];
+
+		expect(countLaterReplies(list, "u1")).toBe(1);
+	});
+
+	it("is 0 for a message the list does not hold", () => {
+		expect(countLaterReplies([...turn(1), ...turn(2)], "missing")).toBe(0);
 	});
 });
 

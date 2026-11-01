@@ -4017,19 +4017,19 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		const userMessage = screen.getByTestId("user-message");
 		// The hover action row (Edit/timestamp) is a DOM sibling of the
 		// data-testid="user-message" node, not a child of it — scope to their
-		// shared ".group" wrapper for those two queries. The edit textarea
-		// itself IS inside the data-testid node once editing starts.
+		// shared ".group" wrapper. The edit itself happens in the composer.
 		const userMessageGroup = userMessage.parentElement as HTMLElement;
 		await fireEvent.click(
 			within(userMessageGroup).getByRole("button", { name: "Edit message" }),
 		);
-		const editTextarea = within(userMessage).getByRole("textbox");
-		await fireEvent.input(editTextarea, {
+		const composer = screen.getByTestId("message-input");
+		await waitFor(() => {
+			expect(composer).toHaveValue("What's on my calendar?");
+		});
+		await fireEvent.input(composer, {
 			target: { value: "What's on my calendar tomorrow?" },
 		});
-		await fireEvent.click(
-			within(userMessageGroup).getByRole("button", { name: "Send message" }),
-		);
+		await fireEvent.click(screen.getByTestId("send-button"));
 
 		await waitFor(() => {
 			expect(checkCloudWarningMock).toHaveBeenCalledWith(CLOUD_MODEL_ID, [
@@ -4058,6 +4058,82 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		expect(runtimeHarness.streamInvocations[0].message).toBe(
 			"What's on my calendar tomorrow?",
 		);
+	});
+
+	it("Edit-then-resend: backing out of the warning leaves the edit open in the composer", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		const { deleteConversationMessages } = await import(
+			"$lib/client/api/conversations"
+		);
+		vi.mocked(deleteConversationMessages).mockClear();
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+		const composer = screen.getByTestId("message-input");
+		await fireEvent.input(composer, {
+			target: { value: "What's on my calendar tomorrow?" },
+		});
+		await fireEvent.click(screen.getByTestId("send-button"));
+		await screen.findByTestId("cloud-connector-warning");
+		await fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+
+		expect(deleteConversationMessages).not.toHaveBeenCalled();
+		expect(screen.getByTestId("composer-edit-strip")).toBeInTheDocument();
+		expect(screen.getByTestId("message-input")).toHaveValue(
+			"What's on my calendar tomorrow?",
+		);
+		expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+	});
+
+	it("Edit-then-resend: the composer gives the earlier draft back once the edit goes out", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const { deleteConversationMessages } = await import(
+			"$lib/client/api/conversations"
+		);
+		vi.mocked(deleteConversationMessages).mockResolvedValue(2);
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "a half-written thought" },
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+		await waitFor(() => {
+			expect(screen.getByTestId("message-input")).toHaveValue(
+				"What's on my calendar?",
+			);
+		});
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "What's on my calendar tomorrow?" },
+		});
+		await fireEvent.click(screen.getByTestId("send-button"));
+		await screen.findByTestId("cloud-connector-warning");
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"What's on my calendar tomorrow?",
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByTestId("composer-edit-strip"),
+			).not.toBeInTheDocument();
+			expect(screen.getByTestId("message-input")).toHaveValue(
+				"a half-written thought",
+			);
+		});
 	});
 
 	it("gates Retry: shows the warning, replays the last user message only after acknowledgement", async () => {

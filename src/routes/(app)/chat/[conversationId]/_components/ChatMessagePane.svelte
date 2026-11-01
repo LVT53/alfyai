@@ -18,7 +18,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
-import type { MessageEditPayload, MessageRegeneratePayload } from "../_helpers";
+import type { MessageRegeneratePayload } from "../_helpers";
 
 let {
 	messages,
@@ -40,7 +40,8 @@ let {
 	onOpenDocument,
 	onRegenerate,
 	onSendFollowUp,
-	onEdit,
+	onStartEdit,
+	editingMessageId = null,
 	onFork,
 	onKeepAsDocument,
 	skillDraftActionState = {},
@@ -87,7 +88,9 @@ let {
 	onOpenDocument: (document: DocumentWorkspaceItem) => void;
 	onRegenerate: (payload: MessageRegeneratePayload) => void;
 	onSendFollowUp?: (payload: { text: string }) => void;
-	onEdit: (payload: MessageEditPayload) => void;
+	onStartEdit: (payload: { messageId: string }) => void;
+	/** The message the composer is editing, if any. */
+	editingMessageId?: string | null;
 	onFork?: (payload: { messageId: string }) => void | Promise<void>;
 	onKeepAsDocument?: (payload: { messageId: string }) => void | Promise<void>;
 	skillDraftActionState?: Record<
@@ -170,7 +173,8 @@ let {
 		{onOpenDocument}
 		{onRegenerate}
 		{onSendFollowUp}
-		{onEdit}
+		{onStartEdit}
+		{editingMessageId}
 		{onFork}
 		{onKeepAsDocument}
 		{skillDraftActionState}

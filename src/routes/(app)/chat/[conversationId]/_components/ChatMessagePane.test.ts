@@ -64,7 +64,7 @@ describe("ChatMessagePane", () => {
 			isThinkingActive: false,
 			onOpenDocument: vi.fn<(document: DocumentWorkspaceItem) => void>(),
 			onRegenerate: vi.fn(),
-			onEdit: vi.fn(),
+			onStartEdit: vi.fn(),
 			onSaveSkillDraft,
 			onDismissSkillDraft,
 		});

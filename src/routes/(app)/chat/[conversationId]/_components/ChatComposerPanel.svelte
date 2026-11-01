@@ -41,6 +41,9 @@ let {
 	onOpenAttachment = undefined,
 	onStop,
 	onDraftChange,
+	editing = null,
+	onEditSubmit = undefined,
+	onEditCancel = undefined,
 	onEditQueuedMessage,
 	onDeleteQueuedMessage,
 	onCompact,
@@ -115,6 +118,10 @@ let {
 		| undefined;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
+	/** A sent message being edited in the composer (MessageInput's `editing`). */
+	editing?: { text: string; laterReplies: number } | null;
+	onEditSubmit?: ((text: string) => void) | undefined;
+	onEditCancel?: (() => void) | undefined;
 	onEditQueuedMessage: () => void;
 	onDeleteQueuedMessage: () => void;
 	onCompact: () => void;
@@ -248,6 +255,9 @@ $effect(() => {
 			{onOpenAttachment}
 			{onStop}
 			{onDraftChange}
+			{editing}
+			{onEditSubmit}
+			{onEditCancel}
 			{onEditQueuedMessage}
 			{onDeleteQueuedMessage}
 			{onCompact}

@@ -61,7 +61,8 @@ let {
 	readOnly = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
-	onEdit = undefined,
+	onStartEdit = undefined,
+	editingMessageId = null,
 	onFork = undefined,
 	onKeepAsDocument = undefined,
 	onOpenDocument = undefined,
@@ -118,9 +119,10 @@ let {
 	readOnly?: boolean;
 	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
 	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
-	onEdit?:
-		| ((payload: { messageId: string; newText: string }) => void)
-		| undefined;
+	/** The pencil on a message: the page starts editing it in the composer. */
+	onStartEdit?: ((payload: { messageId: string }) => void) | undefined;
+	/** The message the composer is editing, dimmed while it is. */
+	editingMessageId?: string | null;
 	onFork?:
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
@@ -818,6 +820,18 @@ let showJumpToLatestButton = $derived(
 // but layout containment moves `position: fixed` children, so it is a width.
 const RULER_MIN_WIDTH_PX = 800;
 let surfaceWidth = $state(0);
+// Like `bind:clientWidth`, but without a hard need for a ResizeObserver: where
+// there is none (a test environment) the width is what it was at mount, as the
+// hold above does without one. Always has one in a browser.
+function measureSurfaceWidth(node: HTMLElement) {
+	surfaceWidth = node.clientWidth;
+	if (typeof ResizeObserver === "undefined") return;
+	const observer = new ResizeObserver(() => {
+		surfaceWidth = node.clientWidth;
+	});
+	observer.observe(node);
+	return () => observer.disconnect();
+}
 // 0 means "not measured yet": draw neither presentation rather than guess.
 let railCompact = $derived(
 	surfaceWidth > 0 && surfaceWidth < RULER_MIN_WIDTH_PX,
@@ -1138,7 +1152,7 @@ async function scrollToMessage(messageId: string) {
 
 <div
 	class="message-area-surface"
-	bind:clientWidth={surfaceWidth}
+	{@attach measureSurfaceWidth}
 	style:--composer-layer-height={composerHeight > 0
 		? `${composerHeight}px`
 		: null}
@@ -1199,7 +1213,8 @@ async function scrollToMessage(messageId: string) {
 					{readOnly}
 					{onRegenerate}
 					{onSendFollowUp}
-					{onEdit}
+					{onStartEdit}
+					beingEdited={editingMessageId === message.id}
 					{onFork}
 					forkBusy={forkingMessageId === message.id}
 					{onKeepAsDocument}

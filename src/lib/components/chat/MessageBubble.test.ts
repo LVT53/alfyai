@@ -2509,7 +2509,7 @@ describe("MessageBubble", () => {
 
 		const { container: userContainer } = render(MessageBubble, {
 			message: userMessage,
-			onEdit: vi.fn(),
+			onStartEdit: vi.fn(),
 		});
 
 		expect(
@@ -2521,6 +2521,61 @@ describe("MessageBubble", () => {
 		expect(
 			within(userContainer).getByRole("tooltip", { name: "Copy" }),
 		).toBeInTheDocument();
+	});
+
+	describe("editing a sent message happens in the composer", () => {
+		const sent: ChatMessage = {
+			id: "user-edit-1",
+			role: "user",
+			content: "Plan a weekend by the lake.",
+			timestamp: Date.now(),
+		};
+
+		it("asks the page to start the edit with the message id, and opens no box of its own", async () => {
+			const onStartEdit = vi.fn();
+			const { container } = render(MessageBubble, {
+				message: sent,
+				onStartEdit,
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Edit message" }),
+			);
+
+			expect(onStartEdit).toHaveBeenCalledTimes(1);
+			expect(onStartEdit).toHaveBeenCalledWith({ messageId: "user-edit-1" });
+			expect(within(container).queryByRole("textbox")).not.toBeInTheDocument();
+			expect(
+				screen.getByText("Plan a weekend by the lake."),
+			).toBeInTheDocument();
+		});
+
+		it("dims the message and hides its action row while the composer holds it", () => {
+			const { container } = render(MessageBubble, {
+				message: sent,
+				onStartEdit: vi.fn(),
+				beingEdited: true,
+			});
+
+			expect(screen.getByTestId("user-message")).toHaveClass("being-edited");
+			expect(
+				screen.queryByRole("button", { name: "Edit message" }),
+			).not.toBeInTheDocument();
+			expect(
+				within(container).queryByRole("button", { name: "Copy message" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("is not dimmed, and keeps its action row, when it is not the one being edited", () => {
+			render(MessageBubble, { message: sent, onStartEdit: vi.fn() });
+
+			expect(screen.getByTestId("user-message")).not.toHaveClass(
+				"being-edited",
+			);
+			expect(
+				screen.getByRole("button", { name: "Edit message" }),
+			).toBeInTheDocument();
+		});
 	});
 
 	it("shows a source fork marker with a direct link when one child fork exists", () => {
