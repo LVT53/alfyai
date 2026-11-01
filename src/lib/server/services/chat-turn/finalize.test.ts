@@ -28,6 +28,7 @@ const {
 	mockRecordToolCallActivityEvents,
 	mockRecordSkillUseActivityEvent,
 	mockRecordTurnOriginActivityEvent,
+	mockNameConversationAfterTurn,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -80,6 +81,7 @@ const {
 	mockRecordToolCallActivityEvents: vi.fn(async () => undefined),
 	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
 	mockRecordTurnOriginActivityEvent: vi.fn(async () => undefined),
+	mockNameConversationAfterTurn: vi.fn(),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -92,6 +94,7 @@ vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
 	persistAssistantEvidence: mockPersistAssistantEvidence,
 	runPostTurnTasks: mockRunPostTurnTasks,
 	recordAssistantTurnAnalytics: mockRecordAssistantTurnAnalytics,
+	nameConversationAfterTurn: mockNameConversationAfterTurn,
 }));
 
 vi.mock("$lib/server/services/chat-files", () => ({
@@ -746,6 +749,50 @@ describe("finalizeChatTurn", () => {
 			}),
 		);
 	});
+
+	// The page that started a turn may be long gone when it ends: naming the
+	// conversation cannot wait for it, nor for any other post-turn step.
+	it.each([
+		["a stream turn", "stream", true],
+		["a send turn", "send", true],
+		["a stopped stream turn, which skips the turn state", "stream", false],
+	] as const)(
+		"names the conversation after %s, before the slower steps finish",
+		async (_label, turnKind, persistTurnState) => {
+			mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
+			const { finalizeChatTurn } = await import("./finalize");
+
+			void finalizeChatTurn({
+				turnKind,
+				responseLanguage: "en",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: { evidenceStatus: "pending" },
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: null,
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_stream",
+				persistTurnState,
+			});
+			await flushMicrotasks();
+
+			expect(mockNameConversationAfterTurn).toHaveBeenCalledTimes(1);
+			expect(mockNameConversationAfterTurn).toHaveBeenCalledWith({
+				turnKind,
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+		},
+	);
 
 	it("passes the turn's resolved language from finalizeChatTurn to the post-turn tail", async () => {
 		const { finalizeChatTurn } = await import("./finalize");

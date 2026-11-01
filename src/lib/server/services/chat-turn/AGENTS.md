@@ -39,6 +39,7 @@ failures → retry-cleanup.ts
 | Reconnect replay and live stream subscription | `stream-reconnect.ts` |
 | Post-turn persistence fan-out orchestration (one ordered sequence) | `finalize.ts` |
 | Post-turn side-effect steps (turn-state, evidence, attachments, memory tasks) | `finalize-steps.ts` |
+| A conversation's first title, written when its turn ends | `conversation-title.ts` (`ensureConversationTitle`; `finalizeChatTurn` starts it after every turn, the title route answers from the same call; one model call per conversation, and a rename made meanwhile stays) |
 | The language the person writes in, named after the reply, for what follows it (chips, rail headline, title, the message's `conversationLanguage` and `replyLanguage`, the `[LANGUAGE]` line and its counters) | `reply-language.ts` (asks `conversation-language.ts`, one small control-model call; falls back to `../language.ts`'s `afterReplyLanguage`; nothing decides a reply's language before the reply) |
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |

@@ -35,6 +35,7 @@ import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import { artifactCallOf } from "$lib/shared/artifacts/artifact-calls";
 import { isShippedArtifactKind } from "$lib/shared/artifacts/kinds";
+import { ensureConversationTitle } from "./conversation-title";
 import { persistAssistantRailSummary } from "./rail-summary";
 import {
 	type PersistAssistantEvidenceParams,
@@ -45,6 +46,25 @@ import {
 	type WorkCapsuleSummary,
 	type WorkingSetItem,
 } from "./types";
+
+/**
+ * Names a conversation that has no title yet. Started, not awaited: a turn must
+ * not wait for a small model call, nor fail with one, and a title that cannot be
+ * made leaves the next turn to try.
+ */
+export function nameConversationAfterTurn(params: {
+	turnKind: PersistAssistantEvidenceParams["turnKind"];
+	userId: string;
+	conversationId: string;
+}): void {
+	const { turnKind, userId, conversationId } = params;
+	void ensureConversationTitle({ userId, conversationId }).catch((error) => {
+		console.error(`${turnLogPrefix(turnKind)} Conversation title failed`, {
+			conversationId,
+			error,
+		});
+	});
+}
 
 async function refreshWorkingSetWithAttachments(params: {
 	userId: string;

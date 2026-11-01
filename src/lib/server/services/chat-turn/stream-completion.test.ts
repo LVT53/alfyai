@@ -100,6 +100,7 @@ vi.mock("$lib/server/services/messages", () => ({
 }));
 
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	nameConversationAfterTurn: vi.fn(),
 	persistUserTurnAttachments: mockPersistUserTurnAttachments,
 	persistAssistantTurnState: mockPersistAssistantTurnState,
 	persistAssistantEvidence: mockPersistAssistantEvidence,

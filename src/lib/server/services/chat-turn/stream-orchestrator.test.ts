@@ -130,6 +130,7 @@ vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
 }));
 
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	nameConversationAfterTurn: vi.fn(),
 	persistAssistantEvidence: vi.fn(() => Promise.resolve()),
 	persistAssistantTurnState: vi.fn(() =>
 		Promise.resolve({

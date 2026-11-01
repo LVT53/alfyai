@@ -259,21 +259,43 @@ async function updateOwnedConversationFields(
 	return toConversation(conversation);
 }
 
-// Renaming a conversation (manual rename, or the automatic post-turn title
-// generation call in api/conversations/[id]/title) is a label change, not
-// conversation activity — it must not bump `updatedAt`, for the same reason
-// a project-folder move must not (see moveConversationToProject below).
-// Automatic title generation always runs after the turn that produced it has
-// already called `touchConversation` (send/stream call it at real turn
-// completion, before the browser's post-stream title request lands), so
-// skipping the bump here does not hide a brand-new chat from the sidebar or
-// the home "recent" rail — the turn's own touch already surfaced it.
+// Renaming a conversation (manual rename, or the automatic title written after
+// a turn, nameUntitledConversation below) is a label change, not conversation
+// activity — it must not bump `updatedAt`, for the same reason a project-folder
+// move must not (see moveConversationToProject below). Automatic title
+// generation always runs after the turn that produced it has already called
+// `touchConversation` (send/stream call it at real turn completion), so skipping
+// the bump here does not hide a brand-new chat from the sidebar or the home
+// "recent" rail — the turn's own touch already surfaced it.
 export async function updateConversationTitle(
 	userId: string,
 	conversationId: string,
 	title: string,
 ): Promise<Conversation | null> {
 	return updateOwnedConversationFields(userId, conversationId, { title });
+}
+
+// A generated title takes a few seconds to arrive. Written with the check in
+// the same statement, so a rename made in between stays: null means the
+// conversation is not this person's, or something has already named it. Like
+// a rename, it does not bump `updatedAt`.
+export async function nameUntitledConversation(
+	userId: string,
+	conversationId: string,
+	title: string,
+): Promise<Conversation | null> {
+	const [conversation] = await db
+		.update(conversations)
+		.set({ title })
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+				inArray(conversations.title, [DEFAULT_CONVERSATION_TITLE, ""]),
+			),
+		)
+		.returning();
+	return conversation ? toConversation(conversation) : null;
 }
 
 export async function deleteConversation(

@@ -36,7 +36,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 **Mocking**: Use `page.route()` to intercept API calls in E2E. Mock servers live in `tests/mocks/`.
 
-**Test mode**: Playwright sets `PLAYWRIGHT_TEST=1`. Title endpoint returns `null` in this mode to avoid external service deps.
+**Test mode**: Playwright sets `PLAYWRIGHT_TEST=1`. No conversation is named in this mode (`ensureConversationTitle` returns `null`), to avoid external service deps.
 
 **Global setup**: `tests/e2e/global-setup.ts` makes one freshly migrated, freshly seeded SQLite file and one server (the production build) per worker slot, then checks that the build hydrates. A worker keeps its database from one spec file to the next, so a spec that changes shared state (an admin override, a language, a provider) puts it back in its own cleanup. A spec that only needs a conversation uses `createEmptyConversation`. The whole story: AGENTS.md, "Mandatory Verification".
 
@@ -60,7 +60,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 Playwright note:
 
 - E2E runs set `PLAYWRIGHT_TEST=1` and `HOME_SUMMARY_CACHE_TTL_MS=0` on every server.
-- In that mode, [`src/routes/api/conversations/[id]/title/+server.ts`](../src/routes/api/conversations/[id]/title/+server.ts) short-circuits and returns `title: null` so browser tests do not depend on a live title-generator service.
+- In that mode, [`src/lib/server/services/chat-turn/conversation-title.ts`](../src/lib/server/services/chat-turn/conversation-title.ts) short-circuits, so neither the end of a turn nor the title route calls a title model, and the route answers `title: null`: browser tests do not depend on a live title-generator service.
 - Each server's log is `data/e2e-servers/slot-N.log`, every line with the seconds since that server started: a failing spec's server-side story is there. `PLAYWRIGHT_REUSE_EXISTING_SERVER=true` uses a server already listening on a slot's port (its database is reset in place); without it a busy port is an error. A SIGTERM or SIGHUP to the runner stops its servers and frees the run lock.
 - The spec's own process seeds rows through the app's services into the file its server also writes, so both load `tests/e2e/sqlite-immediate.cjs` (transactions take their write lock at BEGIN): a deferred read-then-write transaction that meets the other process's commit fails at once with "database is locked", and the busy timeout does not help (one whole-suite run in ten).
 - A spec that matches a request for a lazily loaded module by its source path (`vite dev` serves `/src/lib/...`) must ask `moduleUrlPattern` in `tests/e2e/build-assets.ts`: the build serves hashed chunks, which its manifest names.

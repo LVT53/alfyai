@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 
 let dbPath: string;
 
@@ -823,9 +824,9 @@ describe("conversation recency ordering is unaffected by folder moves", () => {
 	});
 });
 
-// Owner-reported bug: a manual rename (and the automatic post-turn title
-// generation call, which reuses the same `updateConversationTitle`) bumped
-// `updatedAt`, so renaming an old chat jumped it to the top of the sidebar
+// Owner-reported bug: a manual rename (and the automatic post-turn title, then
+// written through the same `updateConversationTitle`) bumped `updatedAt`, so
+// renaming an old chat jumped it to the top of the sidebar
 // and the home page's "recent" rail even though nothing was actually said in
 // it. `touchConversation` (called at real turn completion in send/stream) is
 // the sole intentional activity bump; a rename must not duplicate it.
@@ -979,6 +980,55 @@ describe("conversation recency ordering is unaffected by renames", () => {
 
 		expect(generated?.title).toBe("Generated title");
 		expect(listed[0]?.id).toBe("brand-new");
+	});
+
+	// A generated title arrives seconds after it was asked for. Whatever named
+	// the conversation in between (the person, most of all) stays.
+	it("writes a generated title only over the untitled default, owner-scoped, without bumping updatedAt", async () => {
+		const { today } = seedRenameRecencyScenario();
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "untitled",
+					userId: "rename-user",
+					title: DEFAULT_CONVERSATION_TITLE,
+					createdAt: today,
+					updatedAt: today,
+				},
+				{
+					id: "blank",
+					userId: "rename-user",
+					title: "",
+					createdAt: today,
+					updatedAt: today,
+				},
+			])
+			.run();
+		sqlite.close();
+		const { nameUntitledConversation } = await import("./conversations");
+
+		await expect(
+			nameUntitledConversation("someone-else", "untitled", "Hijacked"),
+		).resolves.toBeNull();
+		await expect(
+			nameUntitledConversation("rename-user", "genuinely-recent", "Generated"),
+		).resolves.toBeNull();
+
+		const named = await nameUntitledConversation(
+			"rename-user",
+			"untitled",
+			"Generated",
+		);
+		expect(named?.title).toBe("Generated");
+		expect(named?.updatedAt).toBe(today.getTime() / 1000);
+
+		const blank = await nameUntitledConversation(
+			"rename-user",
+			"blank",
+			"Generated",
+		);
+		expect(blank?.title).toBe("Generated");
 	});
 
 	// Both callers share one owned-update helper; pin that the touch still

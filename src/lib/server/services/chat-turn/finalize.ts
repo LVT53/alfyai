@@ -32,6 +32,7 @@ import {
 // calls them in one fixed sequence; tests seam by mocking ./finalize-steps
 // rather than injecting overrides through the public params.
 import {
+	nameConversationAfterTurn,
 	persistAssistantEvidence,
 	persistAssistantTurnState,
 	persistUserTurnAttachments,
@@ -549,6 +550,16 @@ export async function finalizeChatTurn(
 		resolvedAttachedArtifacts: WorkingSetItem[] | undefined;
 		generatedFiles: ChatGeneratedFile[];
 	}> => {
+		// First, so no slower step can hold it up or take it down with it, and
+		// before the branch below, so a stopped turn gets its title too.
+		if (assistantMessage) {
+			nameConversationAfterTurn({
+				turnKind: params.turnKind,
+				userId: params.userId,
+				conversationId: params.conversationId,
+			});
+		}
+
 		let turnState: PersistAssistantTurnStateResult | null = null;
 		if (assistantMessage && shouldPersistTurnState) {
 			turnState = await persistAssistantTurnState({
