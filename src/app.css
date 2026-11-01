@@ -548,6 +548,13 @@ body {
 		font-size: 0.875em;
 	}
 
+	/* The typography plugin draws literal backticks around inline code; the
+	   chip's own background already marks it. */
+	.prose code::before,
+	.prose code::after {
+		content: none;
+	}
+
 	.prose pre code {
 		background-color: transparent;
 		padding: 0;
@@ -824,13 +831,13 @@ body {
 
 /* Mobile font scale-up overrides (Task 2.1-2.6) */
 @media (max-width: 767px) {
-	/* Task 2.1: Message content - 16px minimum for readability */
+	/* Task 2.1: Message content - 15px on a phone (14px on desktop), 1.6 apart */
 	.prose-container .prose,
 	.prose-container .prose p,
 	.prose-container .prose li,
 	.prose-container .prose blockquote {
-		font-size: 16px !important;
-		line-height: 1.5;
+		font-size: 15px !important;
+		line-height: 1.6;
 	}
 
 	/* Task 2.2: Input/composer - 16px to prevent zoom on iOS */
@@ -863,12 +870,16 @@ body {
 		font-size: 13px !important;
 	}
 
-	/* Task 2.6: Code blocks - 14px minimum for readability */
+	/* Task 2.6: Code blocks - 14px minimum for readability. Inline code in a
+	   reply is 13px, a notch under the 15px text around it. */
 	.prose pre code,
 	.prose code,
 	pre code,
 	code {
 		font-size: 14px !important;
+	}
+	.prose-container .prose :not(pre) > code {
+		font-size: 13px !important;
 	}
 
 	/* Task 2.9: Mobile touch targets - 48px for primary buttons */

@@ -178,8 +178,8 @@ Do not:
 - Token categories already defined:
   - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
 - Font ownership:
-  - UI chrome uses `Nimbus Sans L`
-  - long-form message content uses `Libre Baskerville`
+  - UI chrome and chat messages (the reply, the person's message, the composer) use `Nimbus Sans L`: 14px with a 1.6 line height on desktop, 15px on a phone (the composer stays 16px there, or iOS zooms on focus)
+  - Documents and the Home headline use `Libre Baskerville`
   - code uses the mono stack defined in `tailwind.config.ts`
 
 

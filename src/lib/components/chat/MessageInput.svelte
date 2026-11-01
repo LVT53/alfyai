@@ -3814,7 +3814,7 @@ async function emitDraftChange(force = false) {
 				aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
 				aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
 				placeholder={fittedPlaceholder ?? composerPlaceholder}
-				class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
+				class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[14px] leading-[1.5] font-sans text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px]"
 				class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
 				rows="1"
 			></textarea>
@@ -5024,9 +5024,9 @@ async function emitDraftChange(force = false) {
 		pointer-events: none;
 		white-space: pre-wrap;
 		text-align: left;
-		font-family: var(--font-serif);
-		font-size: 15px;
-		line-height: 1.42;
+		font-family: var(--font-sans);
+		font-size: 14px;
+		line-height: 1.5;
 		color: var(--text-primary);
 	}
 
@@ -5057,7 +5057,6 @@ async function emitDraftChange(force = false) {
 	@media (min-width: 768px) {
 		.composer-link-highlights {
 			padding: 8px 16px;
-			line-height: 1.35;
 		}
 	}
 

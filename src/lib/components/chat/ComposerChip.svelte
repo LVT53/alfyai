@@ -715,10 +715,9 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		box-shadow: var(--shadow-sm);
 	}
 
-	/* A quote wears the serif the message body is set in, so the words read
-	   as the document's rather than the app's. */
+	/* A quoted passage is words from the message, not a name or a command, so
+	   its label stays at regular weight where the other chips are heavier. */
 	.composer-chip--quote .composer-chip__label {
-		font-family: var(--font-serif);
 		font-weight: 400;
 	}
 

@@ -1455,7 +1455,7 @@ async function scrollToMessage(messageId: string) {
 
 	.conversation-empty-headline {
 		margin: 0;
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: var(--text-lg);
 		font-weight: 600;
 		line-height: 1.2;
@@ -1722,7 +1722,7 @@ async function scrollToMessage(messageId: string) {
 
 	.context-compression-kept-body {
 		margin: 0;
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		line-height: 1.55;
 		color: var(--text-primary);

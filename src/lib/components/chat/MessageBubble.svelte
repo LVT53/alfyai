@@ -1142,7 +1142,7 @@ function sendFollowUp(question: string) {
 		id={`message-${message.id}`}
 		data-message-id={message.id}
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
-		class="relative flex min-w-0 flex-col font-serif
+		class="relative flex min-w-0 flex-col font-sans
 		{isUser && !isEditing
 			? 'max-w-[85%] min-w-0 rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
 			: isUser
@@ -1198,7 +1198,7 @@ function sendFollowUp(question: string) {
 				<div class="flex flex-col gap-3">
 					<textarea
 						bind:this={editTextarea}
-						class="w-full resize-none rounded-md border-none bg-[var(--surface-message-user)] p-md font-serif text-[0.875rem] leading-[1.6] text-text-primary focus:outline-none focus:ring-2 focus:ring-focus-ring"
+						class="w-full resize-none rounded-md border-none bg-[var(--surface-message-user)] p-md font-sans text-[0.875rem] leading-[1.6] text-text-primary focus:outline-none focus:ring-2 focus:ring-focus-ring"
 						bind:value={editText}
 						onkeydown={handleEditKeydown}
 						rows={Math.min(10, Math.max(3, editText.split('\n').length))}
@@ -1274,7 +1274,7 @@ function sendFollowUp(question: string) {
 						{/each}
 					</div>
 				{/if}
-				<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.5] md:leading-[1.55]">
+				<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6] max-md:text-[0.9375rem]">
 					{#if userMessageSegments.length > 0}
 						{#each userMessageSegments as segment}
 							{#if segment.kind === 'link'}
@@ -1296,7 +1296,7 @@ function sendFollowUp(question: string) {
 				</div>
 			{/if}
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
+			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]">
 			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
 			     report's executive summary as the assistant message, so it renders
 			     here like any other answer (the row below carries the document). -->
@@ -1822,13 +1822,68 @@ function sendFollowUp(question: string) {
 
 	.prose-container :global(.prose) {
 		font-size: var(--text-md);
-		line-height: 1.5;
+		line-height: 1.6;
+		/* A reply reads in the normal text colour, not the typography plugin's
+		   greys: the body, headings, bold and quotes in --text-primary, the list
+		   markers quieter, the rules between cells quieter still. */
+		--tw-prose-body: var(--text-primary);
+		--tw-prose-headings: var(--text-primary);
+		--tw-prose-bold: var(--text-primary);
+		--tw-prose-quotes: var(--text-primary);
+		--tw-prose-counters: var(--text-muted);
+		--tw-prose-bullets: var(--text-muted);
+		--tw-prose-quote-borders: var(--border-default);
+		--tw-prose-th-borders: var(--border-default);
+		--tw-prose-td-borders: var(--border-subtle);
+		--tw-prose-invert-body: var(--text-primary);
+		--tw-prose-invert-headings: var(--text-primary);
+		--tw-prose-invert-bold: var(--text-primary);
+		--tw-prose-invert-quotes: var(--text-primary);
+		--tw-prose-invert-counters: var(--text-muted);
+		--tw-prose-invert-bullets: var(--text-muted);
+		--tw-prose-invert-quote-borders: var(--border-default);
+		--tw-prose-invert-th-borders: var(--border-default);
+		--tw-prose-invert-td-borders: var(--border-subtle);
 	}
-	@media (min-width: 768px) {
-		.prose-container :global(.prose) {
-			font-size: var(--text-md);
-			line-height: 1.55;
-		}
+	/* Headings sit close to the body size: weight and spacing make the
+	   hierarchy, not a larger face. */
+	.prose-container :global(.prose h1) {
+		font-size: 1.36em;
+		line-height: 1.3;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		margin: 0 0 0.6em;
+	}
+	.prose-container :global(.prose h2) {
+		font-size: 1.18em;
+		line-height: 1.35;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		margin: 1.5em 0 0.5em;
+	}
+	.prose-container :global(.prose h3),
+	.prose-container :global(.prose h4) {
+		font-size: 1em;
+		line-height: 1.4;
+		font-weight: 700;
+		margin: 1.3em 0 0.4em;
+	}
+	/* A quote is set off by its rule alone: upright, regular weight, no
+	   generated quotation marks. */
+	.prose-container :global(.prose blockquote) {
+		font-style: normal;
+		font-weight: 400;
+	}
+	.prose-container :global(.prose blockquote p::before),
+	.prose-container :global(.prose blockquote p::after) {
+		content: none;
+	}
+	.prose-container :global(.prose table) {
+		font-size: 0.93em;
+	}
+	.prose-container :global(.prose :not(pre) > code) {
+		font-size: 0.86em;
+		font-weight: 500;
 	}
 	.prose-container :global(img) {
 		max-width: 100%;
