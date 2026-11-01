@@ -50,20 +50,25 @@ async function seedChat(page: Page): Promise<string> {
 async function open(page: Page, conversationId: string) {
 	await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
 	await expect(page.getByTestId("assistant-message").first()).toBeVisible();
-	await expect(page.locator(".prose-container .prose code").first()).toBeVisible();
+	await expect(
+		page.locator(".prose-container .prose code").first(),
+	).toBeVisible();
 }
 
 type Style = { family: string; size: string; leading: string };
 
 function styleOf(page: Page, selector: string): Promise<Style> {
-	return page.locator(selector).first().evaluate((node) => {
-		const style = getComputedStyle(node);
-		return {
-			family: style.fontFamily,
-			size: style.fontSize,
-			leading: style.lineHeight,
-		};
-	});
+	return page
+		.locator(selector)
+		.first()
+		.evaluate((node) => {
+			const style = getComputedStyle(node);
+			return {
+				family: style.fontFamily,
+				size: style.fontSize,
+				leading: style.lineHeight,
+			};
+		});
 }
 
 test.describe("Chat type", () => {

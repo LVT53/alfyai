@@ -122,7 +122,9 @@ describe("ConversationJumpRail", () => {
 			});
 
 			expect(
-				screen.getByTestId("jump-rail-needle").parentElement?.getAttribute("style"),
+				screen
+					.getByTestId("jump-rail-needle")
+					.parentElement?.getAttribute("style"),
 			).toContain("--needle: 12");
 		});
 
@@ -137,7 +139,9 @@ describe("ConversationJumpRail", () => {
 			});
 
 			expect(
-				screen.getByTestId("jump-rail-needle").parentElement?.getAttribute("style"),
+				screen
+					.getByTestId("jump-rail-needle")
+					.parentElement?.getAttribute("style"),
 			).toContain("--needle: 6");
 		});
 
@@ -151,7 +155,9 @@ describe("ConversationJumpRail", () => {
 			});
 
 			expect(
-				screen.getByTestId("jump-rail-needle").parentElement?.getAttribute("style"),
+				screen
+					.getByTestId("jump-rail-needle")
+					.parentElement?.getAttribute("style"),
 			).toContain("--needle: 0");
 		});
 
@@ -166,7 +172,9 @@ describe("ConversationJumpRail", () => {
 			});
 
 			expect(
-				screen.getByTestId("jump-rail-needle").parentElement?.getAttribute("style"),
+				screen
+					.getByTestId("jump-rail-needle")
+					.parentElement?.getAttribute("style"),
 			).toContain("--needle: 2");
 		});
 	});
@@ -270,7 +278,12 @@ describe("ConversationJumpRail", () => {
 
 		it("lists every turn by its label, the current one marked", async () => {
 			const messages = conversation(8);
-			messages[1] = msg("a1", "assistant", "Long answer", "Summary of the first");
+			messages[1] = msg(
+				"a1",
+				"assistant",
+				"Long answer",
+				"Summary of the first",
+			);
 			render(ConversationJumpRail, {
 				props: { messages, scrollToMessage: vi.fn(), activeTurnId: "a3" },
 			});
@@ -352,17 +365,29 @@ describe("ConversationJumpRail", () => {
 			await fireEvent.click(trigger(), { detail: 0 });
 			await tick();
 
-			await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "ArrowDown",
+			});
 			expect(document.activeElement).toBe(rows()[4]);
-			await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowUp" });
-			await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowUp" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "ArrowUp",
+			});
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "ArrowUp",
+			});
 			expect(document.activeElement).toBe(rows()[2]);
-			await fireEvent.keyDown(document.activeElement as Element, { key: "End" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "End",
+			});
 			expect(document.activeElement).toBe(rows()[7]);
-			await fireEvent.keyDown(document.activeElement as Element, { key: "Home" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "Home",
+			});
 			expect(document.activeElement).toBe(rows()[0]);
 			// It stops at the ends.
-			await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowUp" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "ArrowUp",
+			});
 			expect(document.activeElement).toBe(rows()[0]);
 		});
 
@@ -373,7 +398,9 @@ describe("ConversationJumpRail", () => {
 			await fireEvent.click(trigger(), { detail: 0 });
 			await tick();
 
-			await fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+			await fireEvent.keyDown(document.activeElement as Element, {
+				key: "Escape",
+			});
 
 			expect(screen.queryByTestId("jump-rail-list")).not.toBeInTheDocument();
 			expect(document.activeElement).toBe(trigger());
@@ -417,7 +444,9 @@ describe("ConversationJumpRail", () => {
 				},
 			});
 
-			expect(screen.queryByTestId("conversation-jump-rail")).not.toBeInTheDocument();
+			expect(
+				screen.queryByTestId("conversation-jump-rail"),
+			).not.toBeInTheDocument();
 			const capsule = screen.getByTestId("jump-rail-capsule");
 			expect(capsule).toHaveTextContent("11 / 30");
 		});
@@ -436,9 +465,9 @@ describe("ConversationJumpRail", () => {
 
 			await fireEvent.click(screen.getByTestId("jump-rail-capsule-latest"));
 
-			expect(screen.getByTestId("jump-rail-capsule-latest")).toHaveAccessibleName(
-				"Jump to latest",
-			);
+			expect(
+				screen.getByTestId("jump-rail-capsule-latest"),
+			).toHaveAccessibleName("Jump to latest");
 			expect(onLatest).toHaveBeenCalledTimes(1);
 		});
 

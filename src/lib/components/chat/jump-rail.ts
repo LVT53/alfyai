@@ -44,7 +44,10 @@ export function buildJumpRailTurns(messages: ChatMessage[]): JumpRailTurn[] {
 	for (let i = 0; i < messages.length; i += 1) {
 		const message = messages[i];
 		if (message.role !== "assistant") continue;
-		turns.push({ id: message.id, label: railTurnLabel(message, messages[i - 1]) });
+		turns.push({
+			id: message.id,
+			label: railTurnLabel(message, messages[i - 1]),
+		});
 	}
 	return turns;
 }

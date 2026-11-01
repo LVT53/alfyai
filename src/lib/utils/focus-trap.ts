@@ -142,8 +142,8 @@ export interface FocusTrapFocusOptions {
 	 * Defer moving focus to a `setTimeout(0)` so content mounted alongside the
 	 * container (e.g. a snippet's own focusable children, or a child
 	 * component's own mount effect) has settled first. Default true, which
-	 * matches every current call site except ConversationJumpRail's
-	 * synchronous mobile-sheet focus.
+	 * matches every current call site except a dialog that moves focus
+	 * synchronously on open.
 	 */
 	defer?: boolean;
 	/**

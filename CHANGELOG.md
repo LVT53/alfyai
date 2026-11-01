@@ -28,6 +28,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ### Changed
 
+- Moving around a long chat is calmer: a short ruler on the left with one orange
+  mark for where you are replaces the row of tiny marks, and hovering or
+  pressing it lists every turn so you can jump to one. In a narrow chat, such as
+  a phone, a small "11 / 30" pill appears once you scroll up and opens the same
+  list.
 - Chat text is now set in the app's sans-serif face, 14px on a desktop and 15px
   on a phone, with smaller headings, the normal text colour and no backticks
   around inline code; Documents and the Home page keep the serif.

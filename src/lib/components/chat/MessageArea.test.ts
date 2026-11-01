@@ -462,7 +462,9 @@ describe("MessageArea", () => {
 		await fireEvent.scroll(scrollContainer);
 
 		await waitFor(() => {
-			expect(container.querySelectorAll('[data-testid="jump-rail-tick"]')).toHaveLength(6);
+			expect(
+				container.querySelectorAll('[data-testid="jump-rail-tick"]'),
+			).toHaveLength(6);
 			// assistant-3 is the third turn (index 2), the third of six ticks.
 			expect(needleOf(container)).toBe(2);
 		});

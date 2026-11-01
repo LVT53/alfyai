@@ -64,7 +64,10 @@ describe("buildJumpRailTurns", () => {
 	});
 
 	it("labels an opening reply with no question before it by the start of the reply", () => {
-		const messages = [msg("a0", "assistant", "Welcome back."), ...conversation(5)];
+		const messages = [
+			msg("a0", "assistant", "Welcome back."),
+			...conversation(5),
+		];
 
 		const turns = buildJumpRailTurns(messages);
 
@@ -72,7 +75,10 @@ describe("buildJumpRailTurns", () => {
 	});
 
 	it("does not borrow the question of an earlier turn for an assistant message that follows another", () => {
-		const messages = [...conversation(5), msg("a-extra", "assistant", "More to say.")];
+		const messages = [
+			...conversation(5),
+			msg("a-extra", "assistant", "More to say."),
+		];
 
 		const turns = buildJumpRailTurns(messages);
 
@@ -81,7 +87,12 @@ describe("buildJumpRailTurns", () => {
 
 	it("prefers the persisted railSummary over the question", () => {
 		const messages = conversation(6);
-		messages[1] = msg("a1", "assistant", "Answer 1", "Plans a weekend at Balaton");
+		messages[1] = msg(
+			"a1",
+			"assistant",
+			"Answer 1",
+			"Plans a weekend at Balaton",
+		);
 
 		const turns = buildJumpRailTurns(messages);
 
@@ -141,7 +152,10 @@ describe("railTurnLabel", () => {
 
 	it("falls back to the start of the reply when there is no question", () => {
 		expect(
-			railTurnLabel({ railSummary: undefined, content: "The reply starts here." }),
+			railTurnLabel({
+				railSummary: undefined,
+				content: "The reply starts here.",
+			}),
 		).toBe("The reply starts here.");
 	});
 
