@@ -44,6 +44,25 @@ export type WritePreview = {
 	warnings: string[]; // e.g. "outside your allowed folder", "not reversible"
 };
 
+// The warnings a preview can carry. They reach the model as they are, and the
+// permission card names each one by code (write-card.ts), so a write stored
+// yesterday still reads in the person's own language: change a sentence here
+// and the old rows stop matching, which leaves them on the plain fallback.
+export const WRITE_WARNING = {
+	unrecoverable: "This will overwrite/delete and may not be recoverable",
+	outsideArea: "Outside your allowed area",
+	unverifiedArea:
+		"Allowlist status could not be verified for this destination.",
+	noVersionHistory:
+		"Nextcloud version history is off on this server, so this overwrite cannot be recovered.",
+	versionHistoryUnknown:
+		"Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
+	wholeSeries:
+		"This deletes the ENTIRE recurring series, not a single occurrence.",
+	publicLink:
+		"This creates a PUBLIC link that anyone with the URL can open — no Nextcloud login required.",
+} as const;
+
 const DEFAULT_AREA = "/AlfyAI";
 
 // Normalizes a caller-supplied path against a trusted (already-normalized)
@@ -154,15 +173,13 @@ export function buildWritePreview(op: WriteOperation): WritePreview {
 
 	const warnings: string[] = [];
 	if (op.destructive && !op.reversible) {
-		warnings.push("This will overwrite/delete and may not be recoverable");
+		warnings.push(WRITE_WARNING.unrecoverable);
 	}
 	if (withinAllowlist === false) {
-		warnings.push("Outside your allowed area");
+		warnings.push(WRITE_WARNING.outsideArea);
 	}
 	if (hasPath && explicitFlag === undefined) {
-		warnings.push(
-			"Allowlist status could not be verified for this destination.",
-		);
+		warnings.push(WRITE_WARNING.unverifiedArea);
 	}
 
 	return {

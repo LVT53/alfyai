@@ -33,6 +33,7 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
 	buildWritePreview,
 	idempotencyKey,
+	WRITE_WARNING,
 	type WriteOperation,
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
@@ -1197,10 +1198,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 	};
 	const rawPreview = buildWritePreview(op);
 	if (!isUpdate && recurring) {
-		rawPreview.warnings = [
-			...rawPreview.warnings,
-			"This deletes the ENTIRE recurring series, not a single occurrence.",
-		];
+		rawPreview.warnings = [...rawPreview.warnings, WRITE_WARNING.wholeSeries];
 	}
 
 	const content = {

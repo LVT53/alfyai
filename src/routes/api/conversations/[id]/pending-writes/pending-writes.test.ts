@@ -20,14 +20,20 @@ vi.mock("$lib/server/services/connections/pending-writes", () => ({
 		expiresAt !== null && expiresAt * 1000 <= now,
 }));
 
+vi.mock("$lib/server/services/connections/store", () => ({
+	listConnectionsForUser: vi.fn(async () => []),
+}));
+
 import { requireAuth } from "$lib/server/auth/hooks";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
+import { listConnectionsForUser } from "$lib/server/services/connections/store";
 import { getConversation } from "$lib/server/services/conversations";
 import { GET } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockList = listPendingWritesForConversation as ReturnType<typeof vi.fn>;
+const mockConnections = listConnectionsForUser as ReturnType<typeof vi.fn>;
 
 type PendingWritesEvent = Parameters<typeof GET>[0];
 
@@ -62,6 +68,7 @@ describe("GET /api/conversations/[id]/pending-writes", () => {
 		vi.clearAllMocks();
 		mockRequireAuth.mockReturnValue(undefined);
 		mockGetConversation.mockResolvedValue({ id: "conv-1" });
+		mockConnections.mockResolvedValue([]);
 	});
 
 	it("returns 404 when the conversation doesn't belong to the caller", async () => {
@@ -72,7 +79,7 @@ describe("GET /api/conversations/[id]/pending-writes", () => {
 		expect(mockList).not.toHaveBeenCalled();
 	});
 
-	it("returns the safe projection: id/assistantMessageId/status/preview/provider/createdAt — no secrets", async () => {
+	it("returns the safe projection: what the card shows, no raw payload and no secrets", async () => {
 		mockList.mockResolvedValue([
 			{
 				id: "pw-1",
@@ -102,6 +109,8 @@ describe("GET /api/conversations/[id]/pending-writes", () => {
 				conversationId: "conv-1",
 				status: "pending",
 				preview: PREVIEW,
+				card: null,
+				account: null,
 				provider: "nextcloud",
 				// Converted from PendingWriteRecord's UNIX-seconds createdAt to
 				// epoch ms, matching every other client-facing timestamp.
@@ -112,6 +121,70 @@ describe("GET /api/conversations/[id]/pending-writes", () => {
 		const raw = JSON.stringify(data);
 		expect(raw).not.toContain("raw file content");
 		expect(raw).not.toContain("idempotencyKey");
+	});
+
+	it("names the account a write lands in, under the caller's own connections", async () => {
+		mockConnections.mockResolvedValue([
+			{ id: "conn-1", accountIdentifier: "me@example.com" },
+		]);
+		mockList.mockResolvedValue([
+			{
+				id: "pw-1",
+				connectionId: "conn-1",
+				provider: "imap",
+				op: { action: "email.send" },
+				content: JSON.stringify({
+					to: "anna@example.com",
+					subject: "Q3",
+					body: "Hi",
+				}),
+				status: "pending",
+				preview: PREVIEW,
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				createdAt: 1700000000,
+				expiresAt: null,
+			},
+		]);
+
+		const response = await GET(makeEvent());
+		const { pendingWrites } = await response.json();
+
+		expect(mockConnections).toHaveBeenCalledWith("user-1");
+		expect(pendingWrites[0].account).toBe("me@example.com");
+		expect(pendingWrites[0].card.subject).toBe("Q3");
+	});
+
+	it("still answers when the account names cannot be read: they cost the card one word", async () => {
+		mockConnections.mockRejectedValue(new Error("db busy"));
+		mockList.mockResolvedValue([
+			{
+				id: "pw-1",
+				connectionId: "conn-1",
+				provider: "imap",
+				op: { action: "email.flag" },
+				content: "{}",
+				status: "pending",
+				preview: PREVIEW,
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				createdAt: 1700000000,
+				expiresAt: null,
+			},
+		]);
+
+		const response = await GET(makeEvent());
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).pendingWrites[0].account).toBeNull();
+	});
+
+	it("spends no lookup on a conversation with no pending writes", async () => {
+		mockList.mockResolvedValue([]);
+
+		await GET(makeEvent());
+
+		expect(mockConnections).not.toHaveBeenCalled();
 	});
 
 	it("calls listPendingWritesForConversation scoped to the caller and this conversation", async () => {

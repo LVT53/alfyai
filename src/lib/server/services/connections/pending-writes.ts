@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { connectionPendingWrites } from "$lib/server/db/schema";
 
@@ -194,7 +194,7 @@ export async function createPendingWrite(
 // User+conversation-scoped listing for the GET pending-writes endpoint
 // (Issue 7.5) — mirrors listConversationFileProductionJobs. Only rows that
 // belong to BOTH the caller and the given conversation are ever returned,
-// newest first.
+// oldest first.
 export async function listPendingWritesForConversation(
 	userId: string,
 	conversationId: string,
@@ -208,7 +208,9 @@ export async function listPendingWritesForConversation(
 				eq(connectionPendingWrites.conversationId, conversationId),
 			),
 		)
-		.orderBy(desc(connectionPendingWrites.createdAt));
+		// In the order they were proposed, which is the order a reply lists them.
+		// A turn makes several in the same second, so the insert order settles it.
+		.orderBy(asc(connectionPendingWrites.createdAt), sql`rowid`);
 	return rows.map(toRecord);
 }
 

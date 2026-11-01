@@ -575,7 +575,7 @@ describe("claimPendingWrite (atomic claim-before-execute)", () => {
 // backfill that stamps a turn's pending writes with the just-created
 // assistant message id (mirrors assignFileProductionJobsToAssistantMessage).
 describe("listPendingWritesForConversation", () => {
-	it("returns only the caller's rows for that conversation, newest first", async () => {
+	it("returns only the caller's rows for that conversation, in the order they were proposed", async () => {
 		const { createPendingWrite, listPendingWritesForConversation } =
 			await import("./pending-writes");
 		const connectionId = await seedConnection("user-1");
@@ -612,9 +612,7 @@ describe("listPendingWritesForConversation", () => {
 		});
 
 		const rows = await listPendingWritesForConversation("user-1", "conv-1");
-		expect(rows.map((row) => row.id).sort()).toEqual(
-			[first.id, second.id].sort(),
-		);
+		expect(rows.map((row) => row.id)).toEqual([first.id, second.id]);
 		expect(rows.every((row) => row.conversationId === "conv-1")).toBe(true);
 	});
 

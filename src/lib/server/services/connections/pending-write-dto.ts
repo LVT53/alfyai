@@ -32,12 +32,75 @@ export interface WritePreview {
 	warnings: string[];
 }
 
+/** What the permission card asks. Finer than the operation: replacing a file and saving a new one are the same `files.put`. */
+export type WriteCardKind =
+	| "email.send"
+	| "email.trash"
+	| "email.mark_read"
+	| "email.mark_unread"
+	| "email.flag"
+	| "email.unflag"
+	| "calendar.create_event"
+	| "calendar.update_event"
+	| "calendar.delete_event"
+	| "files.save"
+	| "files.replace"
+	| "files.move"
+	| "files.rename"
+	| "files.delete"
+	| "files.create_folder"
+	| "files.share_link"
+	| "photos.add_to_album";
+
+export type WriteCardFactKey =
+	| "to"
+	| "cc"
+	| "when"
+	| "where"
+	| "folder"
+	| "new_name"
+	| "photos";
+
+/** A small line under the name. A `when` holds machine dates, for the reader's own language and clock to format. */
+export interface WriteCardFact {
+	key: WriteCardFactKey;
+	value: string;
+	end?: string;
+}
+
+/** A consequence worth a sentence on the card, named by code so the sentence is in the reader's language. */
+export type WriteCardRisk =
+	| "replaces_file_for_good"
+	| "replaces_file_unchecked"
+	| "deletes_whole_series"
+	| "changes_whole_series"
+	| "cannot_undo"
+	| "public_link"
+	| "outside_allowed_folders"
+	| "unchecked_folder";
+
+export interface WriteCard {
+	kind: WriteCardKind;
+	/** The name of the thing this is about, which the card draws large. Empty when it has none: marking an email as read knows only its number. */
+	subject: string;
+	facts: WriteCardFact[];
+	/** The text going out or being stored, when there is one. */
+	message: string | null;
+	risks: WriteCardRisk[];
+	/** The reader loses something: the red confirm button. */
+	danger: boolean;
+}
+
 export interface PendingWrite {
 	id: string;
 	conversationId: string | null;
 	assistantMessageId: string | null;
 	status: PendingWriteStatus;
 	preview: WritePreview;
+	/** Absent or null for a write this version cannot read: the card then shows `preview`. */
+	card?: WriteCard | null;
+	/** The account this lands in, when its connection still exists. */
+	account?: string | null;
 	provider: string;
 	createdAt: number;
 	etag?: string | null;

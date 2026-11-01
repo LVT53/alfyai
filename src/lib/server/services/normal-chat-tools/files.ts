@@ -24,6 +24,7 @@ import {
 	buildWritePreview,
 	idempotencyKey,
 	resolveWriteTarget,
+	WRITE_WARNING,
 	type WriteOperation,
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
@@ -633,8 +634,8 @@ async function saveOutcome(
 	if (destructive && !reversible) {
 		preview.warnings.push(
 			versioningStatus === false
-				? "Nextcloud version history is off on this server, so this overwrite cannot be recovered."
-				: "Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
+				? WRITE_WARNING.noVersionHistory
+				: WRITE_WARNING.versionHistoryUnknown,
 		);
 	}
 
@@ -955,8 +956,7 @@ async function createFolderOutcome(
 // is the load-bearing invariant for this SENSITIVE write: it must be the FIRST
 // warning the user sees, so a public link is never created without an explicit,
 // prominent heads-up.
-const PUBLIC_SHARE_WARNING =
-	"This creates a PUBLIC link that anyone with the URL can open — no Nextcloud login required.";
+const PUBLIC_SHARE_WARNING = WRITE_WARNING.publicLink;
 
 // GAP B9b — the tool's share_link action (OCS Shares API, public link). This
 // is a SENSITIVE write: it creates PUBLIC exposure of a file, so the confirm
