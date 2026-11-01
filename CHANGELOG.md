@@ -28,6 +28,10 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ### Changed
 
+- Editing a message you sent now happens in the message box at the bottom, not
+  in a box inside the message: the pencil puts the text there, the original
+  steps back, and what you were writing comes back when you send or cancel. If
+  replies after it will be deleted, the box says how many.
 - Moving around a long chat is calmer: a short ruler on the left with one orange
   mark for where you are replaces the row of tiny marks, and hovering or
   pressing it lists every turn so you can jump to one. In a narrow chat, such as

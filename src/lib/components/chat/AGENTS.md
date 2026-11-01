@@ -27,6 +27,16 @@ How a person moves around a long chat: `ConversationJumpRail.svelte` (ADR-0043, 
 - Reduced motion: no transition on the mark or the list (the duration tokens collapse; the capsule's fade goes through `reducedMotionAware`).
 - A chat loads only its last 100 messages, so the list stops at 50 turns. That is a known limit with its own card.
 
+## Editing A Message
+
+A sent message is edited in the real composer, never in a box inside the bubble (owner, 2026-11-01; the box grew wide, left the bubble's edge and was cut off on a phone).
+
+- **The page owns the state, the pieces only emit.** `+page.svelte` holds `editingMessage: { id, text, laterReplies } | null`. The pencil in `MessageBubble` calls `onStartEdit({ messageId })` (the bubble keeps no edit state) and `MessageInput` emits `onEditSubmit(text)` / `onEditCancel()`. The page starts an edit only on a user message, and not on a sealed chat or while a turn is running or an earlier edit is going out; it clears the state when the conversation changes. `handleEdit` stays the submit path and clears `editingMessage` only after its gates pass (the privacy check, the fork confirmation), so an edit the person backs out of stays open. The resend passes `clearDraft = false`: the person's saved draft is not what an edit is for.
+- `laterReplies` is `countLaterReplies` in the page's `_helpers.ts`: the assistant messages after the edited one, minus its own reply, never below 0. An edit deletes everything from that message on, so they really go.
+- **`MessageInput` with `editing` set.** The draft is put aside and the message's text shows (focus, caret at the end); when `editing` goes away, however it ends, the draft comes back and is emitted again. `emitDraftChange` stays quiet in between, so an edit is never saved as the chat's draft. There is no command tray. Send and Cmd/Ctrl+Enter (Enter alone is a new line, as always) call `onEditSubmit` with the trimmed text; an empty text turns send off, an unchanged one is the same as cancelling, Esc cancels. The chip row hides (the over-length counter excepted) and the attach, connections and tools faces are off, as are pasting and dropping files: the resend keeps the message's original attachments, and anything added here would be lost. Pending composer attachments stay as they were and come back with the draft.
+- **The strip** is the first line inside the composer box: no box, no dashed line, a muted `Pencil`, the label (`messageBubble.editMessage`, bold) and a quiet Cancel. With later replies the label becomes one plain `--danger` line (`chat.editLaterReplies`, Hungarian included) and the send button takes the destructive tint. It must stay one line at 360 px in both languages (`tests/e2e/chat-edit.spec.ts` measures it).
+- The edited bubble fades to 0.45 and loses its action row while the composer holds it. The fade is on the message body, not the row around it: the row's fade-in animation holds `opacity: 1` once it has run.
+
 ## Composer And Message List
 
 Important component boundaries:
