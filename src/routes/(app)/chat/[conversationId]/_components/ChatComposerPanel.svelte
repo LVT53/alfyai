@@ -1,6 +1,10 @@
 <script lang='ts'>
 import type { Snippet } from "svelte";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
+import type {
+	ComposerMarks,
+	ComposerPictureRef,
+} from "$lib/components/chat/composer-pictures";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -27,6 +31,14 @@ let {
 	onErrorClose,
 	onSend,
 	onQueue,
+	pictureRefs = [],
+	onRemovePictureRef = undefined,
+	draftPictureOrder = [],
+	imageMarks = null,
+	onClearMarks = undefined,
+	focusRequest = 0,
+	typingRequest = 0,
+	onOpenAttachment = undefined,
 	onStop,
 	onDraftChange,
 	onEditQueuedMessage,
@@ -83,6 +95,24 @@ let {
 	onErrorClose: () => void;
 	onSend: (payload: SendPayload) => void;
 	onQueue: (payload: SendPayload) => void;
+	/** Card, strip and History pictures waiting in the message (Attach), numbered by the composer. */
+	pictureRefs?: readonly ComposerPictureRef[];
+	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
+	/** The numbering order of a restored turn's pictures, applied with the draft. */
+	draftPictureOrder?: readonly string[];
+	/** The marks drawn on one picture in the panel (plan 2b T6): one chip, cleared by its x. */
+	imageMarks?: ComposerMarks | null;
+	onClearMarks?: (() => void) | undefined;
+	/** Rises when a picture was just attached: the composer takes focus. */
+	focusRequest?: number;
+	typingRequest?: number;
+	onOpenAttachment?:
+		| ((artifact: {
+				id: string;
+				name: string;
+				mimeType?: string | null;
+		  }) => void)
+		| undefined;
 	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
 	onEditQueuedMessage: () => void;
@@ -208,6 +238,14 @@ $effect(() => {
 		<MessageInput
 			{onSend}
 			{onQueue}
+			{pictureRefs}
+			{onRemovePictureRef}
+			{draftPictureOrder}
+			{imageMarks}
+			{onClearMarks}
+			{focusRequest}
+			{typingRequest}
+			{onOpenAttachment}
 			{onStop}
 			{onDraftChange}
 			{onEditQueuedMessage}

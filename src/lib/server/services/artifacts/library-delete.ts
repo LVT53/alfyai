@@ -14,12 +14,18 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
+import { listImageFileIdsForArtifact } from "$lib/server/services/images/files";
 import {
 	buildArtifactVisibilityCondition,
 	deleteArtifactForUser,
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge";
-import { deleteFilesOfDeletedBoard, FAMILY_ROW_TYPES } from "./record";
+import {
+	deleteFilesOfDeletedBoard,
+	deletePicturesOfDeletedImage,
+	FAMILY_ROW_TYPES,
+	kindForArtifactRow,
+} from "./record";
 
 /**
  * `deleteArtifactForUser`, and then the files a deleted board leaves behind. The
@@ -48,9 +54,14 @@ export async function deleteLibraryArtifact(
 			),
 		)
 		.limit(1);
+	const pictureIds =
+		row && kindForArtifactRow(row) === "image"
+			? await listImageFileIdsForArtifact(row.id)
+			: [];
 	const result = await deleteArtifactForUser(userId, artifactId);
 	if (row && result?.deletedArtifactIds.includes(row.id)) {
 		await deleteFilesOfDeletedBoard(row);
+		await deletePicturesOfDeletedImage(row, pictureIds);
 	}
 	return result;
 }

@@ -6,11 +6,12 @@ import {
 } from "./tours";
 
 describe("the kinds whose tour ships (ruling 69)", () => {
-	it("is Document, App and Canvas, in that order, and nothing else", () => {
+	it("is Document, App, Canvas and Image, in that order, and nothing else", () => {
 		expect([...SHIPPED_ARTIFACT_TOUR_TYPES]).toEqual([
 			"document",
 			"app",
 			"canvas",
+			"image",
 		]);
 	});
 

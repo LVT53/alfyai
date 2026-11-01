@@ -50,6 +50,7 @@ const TOOL_LABEL_KEYS: Record<string, I18nKey> = {
 	map_route: "chat.degradedBanner.tool.map_route",
 	produce_file: "chat.degradedBanner.tool.produce_file",
 	location: "chat.degradedBanner.tool.location",
+	make_image: "chat.degradedBanner.tool.make_image",
 };
 
 // Unique, ordered, human labels for the banner sentence. Tools without a

@@ -247,7 +247,9 @@ export function defineSteps(args) {
 			parse: parseBuildLog,
 		},
 		chunks: {
-			cmd: ["npm", "run", "check:artifact-chunks"],
+			// The Canvas editor's guard and the picture card's (plan 2b F6): both print
+			// `[artifact-chunks]` lines, so one parse reads them.
+			cmd: ["npm", "run", "check:chunks"],
 			after: ["build"],
 			parse: parseChunksLog,
 		},

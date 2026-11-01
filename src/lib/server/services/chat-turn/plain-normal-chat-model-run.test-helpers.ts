@@ -41,6 +41,8 @@ const basePreparedContext: PreparedContext = {
 	turnGuidance: "",
 	historyMessages: [],
 	currentImages: [],
+	turnPictureImages: [],
+	turnPictures: { pictures: [], byNumber: () => null, metadata: null },
 	systemPrompt: "Prepared system prompt",
 	contextStatus: undefined,
 	taskState: null,

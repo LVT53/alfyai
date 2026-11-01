@@ -5,6 +5,7 @@ import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -13,6 +14,10 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import { renderHistoryTurn } from "./conversation-history";
 
 export interface NonStreamFallbackSendParams {
@@ -22,6 +27,10 @@ export interface NonStreamFallbackSendParams {
 	modelId: ModelId | undefined;
 	attachmentIds: string[];
 	activeDocumentArtifactId: string | undefined;
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
+	/** The turn's make_image bookkeeping, so a rerun does not make the same picture a second time. */
+	turnTakes?: TurnTakes;
 	attachmentTraceId: string | undefined;
 	thinkingMode: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -54,6 +63,9 @@ export interface NonStreamFallbackDeps {
 		user?: { id: string; displayName: string | null; email: string | null };
 		attachmentIds?: string[];
 		activeDocumentArtifactId?: string;
+		pictureRefs?: PictureRef[];
+		imageMarks?: ImageMarksRequest | null;
+		turnTakes?: TurnTakes;
 		attachmentTraceId?: string;
 		systemPromptAppendix?: string;
 		pendingSkillInstructions?: string;
@@ -214,6 +226,9 @@ function buildFallbackAttemptParams(
 		modelId: sendParams.modelId,
 		attachmentIds: sendParams.attachmentIds,
 		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
+		pictureRefs: sendParams.pictureRefs,
+		imageMarks: sendParams.imageMarks,
+		turnTakes: sendParams.turnTakes,
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
 		pendingSkillInstructions: context.pendingSkillInstructions,

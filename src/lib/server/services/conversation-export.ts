@@ -3,6 +3,7 @@
 // Tool-call activity is summarized from each assistant turn's persisted
 // Interim Thought Step rail (ADR-0056) — the only durable record of what a
 // turn actually did that survives a page reload.
+import { buildContentDisposition } from "$lib/server/services/file-serving-response-policy";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 
 function formatTimestamp(timestamp: number): string {
@@ -65,23 +66,6 @@ export function conversationExportFilename(conversationTitle: string): string {
 }
 
 /**
- * An ASCII-only spelling of the same filename, for the Content-Disposition
- * `filename=` parameter that clients too old for RFC 5987 fall back to.
- * Accents are folded rather than dropped (Árvíztűrő -> Arvizturo) so the
- * fallback stays recognizable.
- */
-function asciiExportFilename(filename: string): string {
-	const stem =
-		filename
-			.slice(0, -".md".length)
-			.normalize("NFD")
-			.replace(/\p{M}+/gu, "")
-			.replace(/[^A-Za-z0-9]+/g, "-")
-			.replace(/^-+|-+$/g, "") || "conversation";
-	return `${stem}.md`;
-}
-
-/**
  * The full Content-Disposition value for a Markdown export: the RFC 5987
  * `filename*=UTF-8''…` form carries the real (possibly non-ASCII) filename,
  * preceded by a plain ASCII `filename=` fallback.
@@ -90,5 +74,5 @@ export function conversationExportContentDisposition(
 	conversationTitle: string,
 ): string {
 	const filename = conversationExportFilename(conversationTitle);
-	return `attachment; filename="${asciiExportFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+	return buildContentDisposition("attachment", filename);
 }

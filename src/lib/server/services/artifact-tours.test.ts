@@ -898,33 +898,34 @@ describe("seedArtifactTourDrafts", () => {
 		sqlite.close();
 	});
 
-	it("seeds three drafts, one per shipped kind, and seeds nothing on a second call", async () => {
+	it("seeds four drafts, one per shipped kind, and seeds nothing on a second call", async () => {
 		const first = await seedArtifactTourDrafts("admin-user", { db });
-		expect(first).toEqual({ created: 3, existing: 0 });
+		expect(first).toEqual({ created: 4, existing: 0 });
 
 		const rows = db
 			.select()
 			.from(schema.announcementCampaigns)
 			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
 			.all();
-		expect(rows).toHaveLength(3);
+		expect(rows).toHaveLength(4);
 		// Ruling 69: Slides is shelved, so no Slides draft is seeded — its copy
 		// waits in the defaults table and nobody is offered it.
 		expect(rows.map((row) => row.releaseVersion).sort()).toEqual([
 			"app",
 			"canvas",
 			"document",
+			"image",
 		]);
 
 		const second = await seedArtifactTourDrafts("admin-user", { db });
-		expect(second).toEqual({ created: 0, existing: 3 });
+		expect(second).toEqual({ created: 0, existing: 4 });
 		expect(
 			db
 				.select()
 				.from(schema.announcementCampaigns)
 				.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
 				.all(),
-		).toHaveLength(3);
+		).toHaveLength(4);
 	});
 
 	it("gives each seeded draft a distinct identity key", async () => {
@@ -940,8 +941,9 @@ describe("seedArtifactTourDrafts", () => {
 			"artifact_tour:app:r1",
 			"artifact_tour:canvas:r1",
 			"artifact_tour:document:r1",
+			"artifact_tour:image:r1",
 		]);
-		expect(new Set(keys).size).toBe(3);
+		expect(new Set(keys).size).toBe(4);
 	});
 
 	it("leaves a seeded draft unpublished", async () => {
@@ -1015,6 +1017,7 @@ describe("seedArtifactTourDrafts", () => {
 			document: "Document tour",
 			app: "App tour",
 			canvas: "Canvas tour",
+			image: "Image tour",
 		});
 	});
 
@@ -1024,6 +1027,7 @@ describe("seedArtifactTourDrafts", () => {
 			document: "Document tour",
 			app: "App tour",
 			canvas: "Canvas tour",
+			image: "Image tour",
 		});
 	});
 
@@ -1034,10 +1038,11 @@ describe("seedArtifactTourDrafts", () => {
 			document: "Dokumentum bemutatója",
 			app: "Alkalmazás bemutatója",
 			canvas: "Tábla bemutatója",
+			image: "Kép bemutatója",
 		});
 		// The kind is the interface's word for it (artifacts.type.*), never a
 		// second translation of it.
-		for (const kind of ["document", "app", "canvas"] as const) {
+		for (const kind of ["document", "app", "canvas", "image"] as const) {
 			expect(names[kind]).toContain(artifactsDict.hu[`artifacts.type.${kind}`]);
 		}
 	});
@@ -1063,7 +1068,7 @@ describe("seedArtifactTourDrafts", () => {
 			.from(schema.announcementCampaignSlides)
 			.where(eq(schema.announcementCampaignSlides.layoutType, "summary"))
 			.all();
-		expect(summaries).toHaveLength(3);
+		expect(summaries).toHaveLength(4);
 		for (const slide of summaries) {
 			expect([slide.bodyEn, slide.bodyHu]).toEqual(["", ""]);
 			expect(slide.titleEn).not.toBe("");

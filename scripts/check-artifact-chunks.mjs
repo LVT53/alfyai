@@ -46,6 +46,9 @@
 //   7. `--forbid PACKAGE` names a package that must NOT be in any chunk the editor
 //      loads when it opens (Chart.js, MapLibre and Mermaid load on demand, in the
 //      chat's own chunks or a block's, and must stay out of the editor's first paint).
+//   7b. `--no-confine` holds no package to the target: for a lazy part with no library
+//      of its own (the picture card, `check:image-chunks`), what is held is that it is
+//      lazy (not in the chat route's first paint) and loads nothing `--forbid` names.
 //   8. `--chat-route ID` holds the chat page's own FIRST PAINT: what its root layout,
 //      layouts and page load with everything they import statically (never a lazy
 //      chunk, so never an open editor). `--chat-forbid PACKAGE` (repeated) names a
@@ -504,8 +507,10 @@ export function chunkReader(clientDir) {
 	};
 }
 
-function parseArgs(argv) {
+/** Reads the command line. Exported for its test: a typo must never switch a guard off. */
+export function parseArgs(argv) {
 	const args = {
+		noConfine: false,
 		name: "CanvasEditor",
 		confine: [],
 		allowEntries: [],
@@ -520,6 +525,12 @@ function parseArgs(argv) {
 	for (let i = 0; i < argv.length; i += 1) {
 		const flag = argv[i];
 		const value = argv[i + 1];
+		// A target that owns no library of its own (the picture card): only what it
+		// must not load (`--forbid`) and the chat route's first paint are held.
+		if (flag === "--no-confine") {
+			args.noConfine = true;
+			continue;
+		}
 		if (flag === "--name") args.name = value;
 		else if (flag === "--confine") args.confine.push(value);
 		else if (flag === "--allow-entry") args.allowEntries.push(value);
@@ -536,7 +547,12 @@ function parseArgs(argv) {
 			);
 		i += 1;
 	}
-	if (args.confine.length === 0) args.confine = DEFAULT_CONFINE;
+	if (args.noConfine && args.confine.length > 0) {
+		throw new Error("--no-confine and --confine say opposite things");
+	}
+	if (args.confine.length === 0 && !args.noConfine) {
+		args.confine = DEFAULT_CONFINE;
+	}
 	return args;
 }
 

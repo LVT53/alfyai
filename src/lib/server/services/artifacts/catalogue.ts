@@ -39,6 +39,7 @@ const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
 	canvas: "Canvas",
 	slides: "Slides",
 	file: "File",
+	image: "Image",
 };
 
 export interface ArtifactCatalogueEntry {

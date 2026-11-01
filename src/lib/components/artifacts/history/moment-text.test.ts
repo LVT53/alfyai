@@ -640,3 +640,86 @@ describe("statusLabel and the option's accessible name", () => {
 		);
 	});
 });
+
+describe("an Image's moments", () => {
+	const entry = (overrides: Parameters<typeof makeMoment>[0]) =>
+		momentEntry(makeMoment(overrides));
+
+	it("words the photo and the picked take in both languages", () => {
+		const photo = entry({ versionNumber: 1, kind: "user_photo" });
+		const take = entry({ versionNumber: 3, kind: "picked_take" });
+		expect(entryHeadline(photo, ctx("en"))).toBe("Your photo");
+		expect(entryHeadline(take, ctx("en"))).toBe("You picked another take");
+		expect(entryHeadline(photo, ctx("hu"))).toBe("A fot\u00f3d");
+		expect(entryHeadline(take, ctx("hu"))).toBe(
+			"M\u00e1sik v\u00e1ltozatot v\u00e1lasztott\u00e1l",
+		);
+	});
+
+	it("says how many pictures went into a version, and nothing for one", () => {
+		const from = (sourceCount: number) =>
+			entry({
+				versionNumber: 2,
+				detail: { type: "image", fileId: "f1", sourceCount },
+			});
+		expect(entryDetail(from(3), ctx("en"))).toBe("from 3 pictures");
+		expect(entryDetail(from(3), ctx("hu"))).toBe("3 k\u00e9pb\u0151l");
+		expect(entryDetail(from(1), ctx("en"))).toBeNull();
+		expect(entryDetail(from(0), ctx("en"))).toBeNull();
+	});
+});
+
+describe("an Image's own words (plan 2b T4)", () => {
+	const entry = (overrides: Parameters<typeof makeMoment>[0]) =>
+		momentEntry(makeMoment(overrides));
+
+	it("says Alfy made the picture, never that it wrote a draft", () => {
+		const first = entry({
+			versionNumber: 1,
+			kind: "first_draft",
+			author: "alfy",
+		});
+		expect(entryHeadline(first, ctx("en"), "image")).toBe(
+			"Alfy made the picture",
+		);
+		expect(entryHeadline(first, ctx("hu"), "image")).toBe(
+			"Alfy elkészítette a képet",
+		);
+		// The Document keeps its own words.
+		expect(entryHeadline(first, ctx("en"), "document")).toBe(
+			"Alfy wrote the first draft",
+		);
+	});
+
+	it("says Alfy changed the picture when its change has no words of its own", () => {
+		const change = entry({
+			versionNumber: 2,
+			kind: "alfy_edit",
+			author: "alfy",
+		});
+		expect(entryHeadline(change, ctx("en"), "image")).toBe(
+			"Alfy changed the picture",
+		);
+		expect(entryHeadline(change, ctx("hu"), "image")).toBe(
+			"Alfy módosította a képet",
+		);
+	});
+
+	it("keeps the photo the person brought as their photo, in the rail and the strip", () => {
+		const photo = entry({ versionNumber: 1, kind: "user_photo" });
+		expect(entryHeadline(photo, ctx("en"), "image")).toBe("Your photo");
+		expect(entryHeadline(photo, ctx("hu"), "image")).toBe("A fotód");
+	});
+
+	it("gives the header's phrase the picture's own words", () => {
+		expect(momentPhraseKey("image", "alfy", "first_draft")).toBe(
+			"artifacts.history.phrase.alfyMade",
+		);
+		expect(momentPhraseKey("image", "user", "user_photo")).toBe(
+			"artifacts.history.phrase.yourPhoto",
+		);
+		expect(momentPhraseKey("image", "user", "picked_take")).toBe(
+			"artifacts.history.phrase.youPicked",
+		);
+	});
+});

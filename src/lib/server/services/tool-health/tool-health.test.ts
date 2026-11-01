@@ -29,6 +29,8 @@ function fullConfig(
 		owntracksRecorderPass: "secret",
 		mineruApiUrl: "http://mineru:8001",
 		mineruApiKey: "",
+		comfyuiUrl: "http://comfy:8188",
+		imageExplicitFilterEnabled: true,
 		...overrides,
 	};
 }
@@ -45,6 +47,7 @@ function emptyConfig(): ToolHealthConfig {
 		routingOnDemandEnabled: false,
 		owntracksRecorderUrl: "",
 		mineruApiUrl: "",
+		comfyuiUrl: "",
 	});
 }
 
@@ -75,6 +78,7 @@ function makeDeps(
 		listTransitRegions: vi.fn(async () => [
 			{ name: "Hungary", transitStatus: "ready" },
 		]),
+		pictureCheckReady: vi.fn(async () => {}),
 		countConnectedConnections: vi.fn(async () => ({ files: 2, calendar: 1 })),
 		now: Date.now,
 		timeoutMs: 50,
@@ -97,6 +101,69 @@ function byId(snapshot: Awaited<ReturnType<typeof checkToolHealth>>) {
 afterEach(() => {
 	resetToolHealthCacheForTests();
 	vi.useRealTimers();
+});
+
+describe("make_image health", () => {
+	it("is healthy when /system_stats answers 200", async () => {
+		const deps = makeDeps((url) =>
+			url === "http://comfy:8188/system_stats"
+				? jsonResponse({ system: {} })
+				: healthyHandler(url),
+		);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image.status).toBe("healthy");
+		expect(tools.make_image.backend).toBe("ComfyUI");
+	});
+
+	it("is degraded with a detail when the connection is refused", async () => {
+		const deps = makeDeps((url) => {
+			if (url.includes("comfy:8188")) throw new Error("connect ECONNREFUSED");
+			return healthyHandler(url);
+		});
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools.make_image.status).toBe("degraded");
+		expect(tools.make_image.detail).toBeTruthy();
+	});
+});
+
+describe("the explicit-picture check's health", () => {
+	const ID = "make_image:picture_check";
+
+	it("sits beside make_image and is healthy when the pinned model file is in place", async () => {
+		const deps = makeDeps(healthyHandler);
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools[ID]).toMatchObject({
+			tool: "make_image",
+			status: "healthy",
+			probed: true,
+		});
+		expect(tools[ID].backend).toMatch(/picture check/i);
+		expect(deps.pictureCheckReady).toHaveBeenCalledTimes(1);
+	});
+
+	it("is degraded, with why, when the check cannot run (pictures are then not shown)", async () => {
+		const deps = makeDeps(healthyHandler, {
+			pictureCheckReady: vi.fn(async () => {
+				throw new Error("The picture check's model file is missing");
+			}),
+		});
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools[ID].status).toBe("degraded");
+		expect(tools[ID].detail).toMatch(/model file is missing/);
+	});
+
+	it("is not configured when there is no picture server or the filter is off", async () => {
+		for (const config of [
+			fullConfig({ comfyuiUrl: "" }),
+			fullConfig({ imageExplicitFilterEnabled: false }),
+		]) {
+			resetToolHealthCacheForTests();
+			const deps = makeDeps(healthyHandler, { getConfig: () => config });
+			const tools = byId(await checkToolHealth(deps));
+			expect(tools[ID].status).toBe("unconfigured");
+			expect(deps.pictureCheckReady).not.toHaveBeenCalled();
+		}
+	});
 });
 
 describe("tool health registry", () => {
@@ -419,6 +486,7 @@ describe("tool health registry", () => {
 			"map_route",
 			"map_route:geocoder",
 			"location",
+			"make_image",
 		]) {
 			expect(tools[id].status).toBe("unconfigured");
 			expect(tools[id].probed).toBe(false);

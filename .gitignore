@@ -45,6 +45,7 @@ data/test.db.bak
 
 # Runtime data directories (generated files, knowledge uploads)
 data/chat-files/
+data/image-files/
 data/campaign-assets/
 data/knowledge/
 

@@ -258,6 +258,21 @@ describe("app version metadata", () => {
 		).resolves.toEqual({ full: "2.2.0", compact: "v2.2.0" });
 	});
 
+	it("reads 2.3.0 from the shipped package.json, and the 2.3 campaign agrees with it (Task 20)", async () => {
+		// No packageVersion passed: this is the real package.json the badge reads.
+		await expect(getAppVersionMetadata({ db })).resolves.toEqual({
+			full: "2.3.0",
+			compact: "v2.3.0",
+		});
+		// The 2.3 release campaign is published with releaseVersion "2.3" or
+		// "2.3.0"; either spelling is the same version, so the badge stays v2.3.0.
+		insertReleaseCampaign("2.3", { id: "release-2-3" });
+		await expect(getAppVersionMetadata({ db })).resolves.toEqual({
+			full: "2.3.0",
+			compact: "v2.3.0",
+		});
+	});
+
 	it("compares version components numerically, not as strings", async () => {
 		insertReleaseCampaign("2.10.0");
 

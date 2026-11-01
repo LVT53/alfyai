@@ -350,7 +350,7 @@ describe("File Production journey gate", () => {
 			await expectResponseStatus(download, 200, "download");
 			expect(download.headers.get("Content-Type")).toBe("text/html");
 			expect(download.headers.get("Content-Disposition")).toContain(
-				"attachment; filename*=UTF-8''journey-report.html",
+				"attachment; filename=\"journey-report.html\"; filename*=UTF-8''journey-report.html",
 			);
 			expect(await download.text()).toContain("Journey Report");
 		},
@@ -476,7 +476,7 @@ describe("File Production journey gate", () => {
 			);
 			await expectResponseStatus(download, 200, "download");
 			expect(download.headers.get("Content-Disposition")).toContain(
-				"attachment; filename*=UTF-8''journey-notes.md",
+				"attachment; filename=\"journey-notes.md\"; filename*=UTF-8''journey-notes.md",
 			);
 			// The D8 no-reformatting guarantee, asserted on the bytes the user
 			// actually downloads: the pipe table and the fenced block survive exactly
@@ -593,7 +593,7 @@ describe("File Production journey gate", () => {
 			);
 			await expectResponseStatus(download, 200, "download");
 			expect(download.headers.get("Content-Disposition")).toContain(
-				"attachment; filename*=UTF-8''program-report.csv",
+				"attachment; filename=\"program-report.csv\"; filename*=UTF-8''program-report.csv",
 			);
 			expect(await download.text()).toContain("download,served");
 		},

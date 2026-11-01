@@ -36,6 +36,10 @@ import type {
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
 import { artifactCallsFromSegments } from "$lib/shared/artifacts/artifact-calls";
+import {
+	parseUserPictures,
+	type UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import type {
 	InstructionScopeApplication,
 	InstructionSuggestion,
@@ -110,6 +114,11 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// `parseMessageUserIntent` in projectMessageMetadata below, so a malformed
 	// record degrades to "chose nothing" rather than reaching the client.
 	userIntent?: MessageUserIntent;
+	// On a USER message: the pictures it carried beside its uploads (card
+	// pictures attached, the picture open in the panel, marks and their marked
+	// copy), ids and names only. Written by finalize; projected as
+	// `ChatMessage.pictures`. Pixels are never stored here.
+	pictures?: UserPicturesMetadata;
 	// Which instruction scopes shaped this turn — see `instructionsApplied` on
 	// ChatMessage and $lib/shared/instructions.ts. Written into
 	// assistantMetadata by the send route and stream-completion.ts from the
@@ -371,6 +380,7 @@ function projectMessageMetadata(
 	| "railSummary"
 	| "followUps"
 	| "userIntent"
+	| "pictures"
 	| "instructionsApplied"
 	| "instructionSuggestions"
 	| "projectFilesRead"
@@ -423,6 +433,7 @@ function projectMessageMetadata(
 		// Validated, not passed through: absent (every message from before the
 		// record existed) and malformed both read as `undefined`.
 		userIntent: parseMessageUserIntent(metadata?.userIntent),
+		pictures: parseUserPictures(metadata?.pictures),
 		// Workspaces Slice E — the same count the evidence read projects, from
 		// the same rule; see `readProjectFilesReadFromMetadata`.
 		projectFilesRead: readProjectFilesReadFromMetadata(metadata),

@@ -138,7 +138,8 @@ function handleKeydown(event: KeyboardEvent): void {
 		flex-direction: column;
 		gap: 0.5rem;
 		padding: 0.625rem 0.75rem 0.75rem;
-		border-color: color-mix(in srgb, var(--accent) 55%, var(--border-default));
+		/* Where the reader is writing: the one thread in the list with an edge. */
+		border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border-default));
 	}
 
 	.comment-composer-header {

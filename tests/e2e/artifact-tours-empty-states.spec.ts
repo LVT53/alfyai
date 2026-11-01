@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ARTIFACT_TOUR_DEFAULTS } from "../../src/lib/server/artifact-tour-defaults";
+import { SHIPPED_ARTIFACT_TOUR_TYPES } from "../../src/lib/shared/artifacts/tours";
 import {
 	adminApi,
 	archiveTour,
@@ -168,7 +169,10 @@ test.describe("the empty states say what the tour says", () => {
 		await expect(card).toHaveCount(0);
 
 		expect(requests.posts()).toHaveLength(0);
-		expect(await tourRows(user.id)).toHaveLength(3); // the three seen at the start
+		// The rows written at the start (one per shipped kind), and no more.
+		expect(await tourRows(user.id)).toHaveLength(
+			SHIPPED_ARTIFACT_TOUR_TYPES.length,
+		);
 		// The empty state is still there, and so is its link.
 		await expect(page.getByTestId("canvas-empty-replay")).toBeVisible();
 	});

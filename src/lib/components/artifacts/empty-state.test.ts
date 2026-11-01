@@ -3,7 +3,11 @@ import type { I18nKey } from "$lib/i18n";
 import artifactsDict from "$lib/i18n/artifacts";
 import { ARTIFACT_TOUR_DEFAULTS } from "$lib/server/artifact-tour-defaults";
 import { SHIPPED_ARTIFACT_TOUR_TYPES } from "$lib/shared/artifacts/tours";
-import { EMPTY_STATE_FALLBACK_KEYS, emptyStateLine } from "./empty-state";
+import {
+	EMPTY_STATE_FALLBACK_KEYS,
+	EMPTY_STATE_KINDS,
+	emptyStateLine,
+} from "./empty-state";
 
 // The empty state says what the tour says (Slice 6 T6): the resolved tour's
 // summary when there is one in the reader's language, the dictionary's line when
@@ -60,7 +64,7 @@ describe("emptyStateLine", () => {
 	});
 
 	it("never returns a bare key, for any kind in either language", () => {
-		for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
+		for (const kind of EMPTY_STATE_KINDS) {
 			for (const language of ["en", "hu"] as const) {
 				const line = emptyStateLine(null, language, translator(language), kind);
 				expect(line.length).toBeGreaterThan(10);
@@ -76,7 +80,7 @@ describe("emptyStateLine", () => {
 // dictionary), so this reads both.
 describe("the shipped default summary and its fallback", () => {
 	it("are the same sentence, per kind and per language", () => {
-		for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
+		for (const kind of EMPTY_STATE_KINDS) {
 			const key = EMPTY_STATE_FALLBACK_KEYS[kind];
 			for (const language of ["en", "hu"] as const) {
 				expect(
@@ -87,11 +91,23 @@ describe("the shipped default summary and its fallback", () => {
 		}
 	});
 
-	it("name a fallback for every kind that ships, and only for those", () => {
+	it("name a fallback for every kind with a tour that can be empty, and only for those", () => {
 		expect(Object.keys(EMPTY_STATE_FALLBACK_KEYS).sort()).toEqual(
-			[...SHIPPED_ARTIFACT_TOUR_TYPES].sort(),
+			[...EMPTY_STATE_KINDS].sort(),
 		);
 		expect(EMPTY_STATE_FALLBACK_KEYS).not.toHaveProperty("slides");
+	});
+
+	// Plan 2b T16: the Image has a tour, but an Image item always holds a
+	// picture, so it has no empty state, no fallback line and no replay link
+	// under one: its tour is replayed from the list row's menu.
+	it("leave the Image out: it has a tour and is never empty", () => {
+		expect(SHIPPED_ARTIFACT_TOUR_TYPES).toContain("image");
+		expect(EMPTY_STATE_KINDS).not.toContain("image");
+		expect(EMPTY_STATE_FALLBACK_KEYS).not.toHaveProperty("image");
+		expect([...EMPTY_STATE_KINDS, "image"].sort()).toEqual(
+			[...SHIPPED_ARTIFACT_TOUR_TYPES].sort(),
+		);
 	});
 
 	it("say the ratified words for the kind in Hungarian", () => {

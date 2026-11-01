@@ -16,6 +16,19 @@ import {
 	AI_SMOKE_LATE_CARD_WRITING_MS,
 } from "../../fixtures/ai/late-card-scenario";
 import {
+	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+	AI_SMOKE_CHANGE_PICTURE_PROMPT,
+	AI_SMOKE_EDIT_PHOTO_MARKER,
+	AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+	AI_SMOKE_LATE_PICTURE_INTRO,
+	AI_SMOKE_LATE_PICTURE_MARKER,
+	AI_SMOKE_LATE_PICTURE_PROMPT,
+	AI_SMOKE_LATE_PICTURE_TITLE,
+	AI_SMOKE_TRANSPARENT_PICTURE_MARKER,
+	AI_SMOKE_TRANSPARENT_PICTURE_TITLE,
+	changePictureIdFrom,
+} from "../../fixtures/ai/late-picture-scenario";
+import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
 	AI_SMOKE_CANVAS_EDIT_MARKER,
@@ -30,6 +43,10 @@ import {
 	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_FINAL_TEXT,
 	AI_SMOKE_EDIT_DOCUMENT_SLOWLY_MARKER,
+	AI_SMOKE_MAKE_IMAGE_BLOCKED_TEXT,
+	AI_SMOKE_MAKE_IMAGE_FINAL_TEXT,
+	AI_SMOKE_MAKE_IMAGE_MARKER,
+	AI_SMOKE_MAKE_IMAGE_PROMPT,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
@@ -124,6 +141,34 @@ function hasToolResultMessage(body: Record<string, unknown>): boolean {
 				typeof message.tool_call_id === "string",
 		)
 	);
+}
+
+/**
+ * Whether the request answers THIS call in THIS turn: its tool result comes
+ * after the turn's own message (the bundle that carries "## Current User
+ * Message"). A later turn's request may carry an earlier turn's tool results,
+ * which come before its own message, so it is never taken for an answer.
+ */
+function hasToolResultFor(
+	body: Record<string, unknown>,
+	callId: string,
+): boolean {
+	const messages = Array.isArray(body.messages) ? body.messages : [];
+	let turnStart = -1;
+	let answer = -1;
+	messages.forEach((message, index) => {
+		if (!isJsonObject(message)) return;
+		if (
+			message.role === "user" &&
+			JSON.stringify(message.content ?? "").includes("## Current User Message")
+		) {
+			turnStart = index;
+		}
+		if (message.role === "tool" && message.tool_call_id === callId) {
+			answer = index;
+		}
+	});
+	return answer > turnStart;
 }
 
 function delay(ms: number): Promise<void> {
@@ -505,7 +550,7 @@ function buildToolCallWithoutIdStreamResponse(): Response {
  * no way to send one (see the marker's comment in the fixtures).
  */
 function bodyAsksForStandingInstruction(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_STANDING_INSTRUCTION_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_STANDING_INSTRUCTION_MARKER);
 }
 
 function buildSuggestInstructionToolCallStreamResponse(): Response {
@@ -603,11 +648,11 @@ function buildSuggestInstructionFinalStreamResponse(): Response {
  * them back out and forwards them verbatim as the tool call's arguments.
  */
 function bodyAsksForEditArtifact(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_EDIT_ARTIFACT_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_EDIT_ARTIFACT_MARKER);
 }
 
 function findEditArtifactPayload(body: unknown) {
-	return decodeEditArtifactScenarioPayload(JSON.stringify(body));
+	return decodeEditArtifactScenarioPayload(thisTurnUserText(body));
 }
 
 function buildEditArtifactToolCallStreamResponse(
@@ -809,14 +854,63 @@ function lastUserMessageText(body: unknown): string | null {
 		.join("\n");
 }
 
-function currentTurnText(body: unknown): string | null {
-	const text = lastUserMessageText(body);
-	if (text === null) return null;
+/**
+ * Everything the user said in THIS turn: the turn's own message (its section of
+ * the bundle) and any user message the app adds after it, such as its look at a
+ * picture a tool made. Never the system prompt, the memory or earlier turns: a
+ * worker's user profile and history carry other specs' markers and payloads.
+ */
+function thisTurnUserText(body: unknown): string {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return "";
+	const users = body.messages.filter(
+		(message) => isJsonObject(message) && message.role === "user",
+	);
+	let start = users.length - 1;
+	for (let i = users.length - 1; i >= 0; i--) {
+		const message = users[i];
+		if (
+			isJsonObject(message) &&
+			JSON.stringify(message.content ?? "").includes(
+				CURRENT_USER_MESSAGE_HEADING.trim(),
+			)
+		) {
+			start = i;
+			break;
+		}
+	}
+	const parts: string[] = [];
+	for (let i = Math.max(start, 0); i < users.length; i++) {
+		const message = users[i];
+		if (!isJsonObject(message)) continue;
+		const { content } = message;
+		const text =
+			typeof content === "string"
+				? content
+				: Array.isArray(content)
+					? content
+							.map((part) =>
+								isJsonObject(part) && typeof part.text === "string"
+									? part.text
+									: "",
+							)
+							.join("\n")
+					: "";
+		parts.push(i === start ? sliceCurrentTurn(text) : text);
+	}
+	return parts.join("\n");
+}
+
+function sliceCurrentTurn(text: string): string {
 	const start = text.lastIndexOf(CURRENT_USER_MESSAGE_HEADING);
 	if (start === -1) return text;
 	const section = text.slice(start + CURRENT_USER_MESSAGE_HEADING.length);
 	const end = section.indexOf("\n\n## ");
 	return end === -1 ? section : section.slice(0, end);
+}
+
+function currentTurnText(body: unknown): string | null {
+	const text = lastUserMessageText(body);
+	return text === null ? null : sliceCurrentTurn(text);
 }
 
 function bodyAsksForCanvasEdit(body: unknown): boolean {
@@ -1028,7 +1122,7 @@ function buildEditAppFinalStreamResponse(): Response {
  * nothing here depends on ids or hashes the test's own setup resolved first.
  */
 function bodyAsksForCreateArtifact(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_CREATE_ARTIFACT_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_CREATE_ARTIFACT_MARKER);
 }
 
 function buildCreateArtifactToolCallStreamResponse(): Response {
@@ -1113,13 +1207,126 @@ function bodyAsksForLateCard(body: unknown): boolean {
 	return currentTurnText(body)?.includes(AI_SMOKE_LATE_CARD_MARKER) === true;
 }
 
+/** What a late scenario says and calls: the late card's by default. */
+type LateTurnScript = {
+	id: string;
+	intro: readonly string[];
+	writingMs: number;
+	call: { id: string; name: string; args: Record<string, unknown> };
+	finalText: string;
+};
+
+const LATE_CARD_SCRIPT: LateTurnScript = {
+	id: "late_card",
+	intro: AI_SMOKE_LATE_CARD_INTRO,
+	writingMs: AI_SMOKE_LATE_CARD_WRITING_MS,
+	call: {
+		id: CREATE_ARTIFACT_CALL_ID,
+		name: "create_artifact",
+		args: {
+			artifactType: "document",
+			title: AI_SMOKE_LATE_CARD_TITLE,
+			body: AI_SMOKE_LATE_CARD_MARKDOWN,
+		},
+	},
+	finalText: AI_SMOKE_LATE_CARD_FINAL_TEXT,
+};
+
+/**
+ * Plan 2b T2: the picture card's late turn (a few sentences, then `make_image`),
+ * and a change of an Image named in the message, so a card has a Before.
+ */
+function latePictureScript(
+	body: Record<string, unknown>,
+): LateTurnScript | null {
+	// The request that carries the tool result may end in the app's own look at
+	// the picture, so its marker is read from the whole body then (as make_image's).
+	const text =
+		hasToolResultFor(body, "call_fake_change_picture") ||
+		hasToolResultFor(body, "call_fake_edit_photo") ||
+		hasToolResultFor(body, "call_fake_cut_out") ||
+		hasToolResultFor(body, "call_fake_late_picture")
+			? thisTurnUserText(body)
+			: (currentTurnText(body) ?? "");
+	if (text.includes(AI_SMOKE_EDIT_PHOTO_MARKER)) {
+		return {
+			id: "edit_photo",
+			intro: ["Changing only the lighthouse. "],
+			writingMs: 200,
+			call: {
+				id: "call_fake_edit_photo",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_CHANGE_PICTURE_PROMPT,
+					pictures: ["1"],
+					summary: "Made the lighthouse blue",
+				},
+			},
+			finalText: AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+		};
+	}
+	if (text.includes(AI_SMOKE_TRANSPARENT_PICTURE_MARKER)) {
+		return {
+			id: "cut_out",
+			intro: AI_SMOKE_LATE_PICTURE_INTRO,
+			writingMs: 300,
+			call: {
+				id: "call_fake_cut_out",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_LATE_PICTURE_PROMPT,
+					title: AI_SMOKE_TRANSPARENT_PICTURE_TITLE,
+					transparent: true,
+				},
+			},
+			finalText: AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+		};
+	}
+	const imageId = changePictureIdFrom(text);
+	if (imageId) {
+		return {
+			id: "change_picture",
+			intro: ["Changing only the lighthouse. "],
+			writingMs: 200,
+			call: {
+				id: "call_fake_change_picture",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_CHANGE_PICTURE_PROMPT,
+					pictures: [imageId],
+					summary: "Made the lighthouse blue",
+				},
+			},
+			finalText: AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+		};
+	}
+	if (text.includes(AI_SMOKE_LATE_PICTURE_MARKER)) {
+		return {
+			id: "late_picture",
+			intro: AI_SMOKE_LATE_PICTURE_INTRO,
+			writingMs: 300,
+			call: {
+				id: "call_fake_late_picture",
+				name: "make_image",
+				args: {
+					prompt: AI_SMOKE_LATE_PICTURE_PROMPT,
+					title: AI_SMOKE_LATE_PICTURE_TITLE,
+				},
+			},
+			finalText: AI_SMOKE_LATE_PICTURE_FINAL_TEXT,
+		};
+	}
+	return null;
+}
+
 function lateCardStreamResponse(
 	phase: "call" | "final",
 	signal: AbortSignal,
+	script: LateTurnScript = LATE_CARD_SCRIPT,
 ): Response {
 	const encoder = new TextEncoder();
 	const chunkBase = {
-		id: `chatcmpl_fake_late_card_${phase}`,
+		id: `chatcmpl_fake_${script.id}_${phase}`,
 		object: "chat.completion.chunk",
 		created: 1_700_000_013,
 		model: AI_SMOKE_MODEL_ID,
@@ -1151,11 +1358,11 @@ function lateCardStreamResponse(
 					],
 				});
 				if (phase === "call") {
-					for (const piece of AI_SMOKE_LATE_CARD_INTRO) {
+					for (const piece of script.intro) {
 						await delay(AI_SMOKE_LATE_CARD_PIECE_DELAY_MS);
 						text(piece);
 					}
-					await delay(AI_SMOKE_LATE_CARD_WRITING_MS);
+					await delay(script.writingMs);
 					write({
 						...chunkBase,
 						choices: [
@@ -1165,15 +1372,11 @@ function lateCardStreamResponse(
 									tool_calls: [
 										{
 											index: 0,
-											id: CREATE_ARTIFACT_CALL_ID,
+											id: script.call.id,
 											type: "function",
 											function: {
-												name: "create_artifact",
-												arguments: JSON.stringify({
-													artifactType: "document",
-													title: AI_SMOKE_LATE_CARD_TITLE,
-													body: AI_SMOKE_LATE_CARD_MARKDOWN,
-												}),
+												name: script.call.name,
+												arguments: JSON.stringify(script.call.args),
 											},
 										},
 									],
@@ -1194,7 +1397,7 @@ function lateCardStreamResponse(
 				} else {
 					await delay(AI_SMOKE_LATE_CARD_FINAL_DELAY_MS);
 					// A new paragraph, as a model starts its answer after a tool.
-					text(`\n\n${AI_SMOKE_LATE_CARD_FINAL_TEXT}`);
+					text(`\n\n${script.finalText}`);
 					write({
 						...chunkBase,
 						choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
@@ -1224,13 +1427,16 @@ function lateCardStreamResponse(
  * hanging.
  */
 function bodyAsksToReadProjectFile(body: unknown): boolean {
-	return JSON.stringify(body).includes(AI_SMOKE_READ_PROJECT_FILE_MARKER);
+	return thisTurnUserText(body).includes(AI_SMOKE_READ_PROJECT_FILE_MARKER);
 }
 
 const PROJECT_FILE_PROBE_NAME_RE = new RegExp(
 	`${AI_SMOKE_PROJECT_FILE_PROBE_PREFIX}[0-9a-f]{8}\\.txt`,
 );
 
+// The one deliberate read of the whole request: the probe file's name reaches
+// the model through the prompt's "Project Files" listing, not through the user's
+// message. The marker (which asks for this scenario) is still this turn's only.
 function findProjectFileProbeName(body: unknown): string | null {
 	return JSON.stringify(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
 }
@@ -1283,6 +1489,56 @@ function buildReadProjectFileStreamResponse(
 			usage: { prompt_tokens: 15, completion_tokens: 6, total_tokens: 21 },
 		},
 	]);
+}
+
+const MAKE_IMAGE_CALL_ID = "call_fake_make_image";
+
+/** Whether make_image's result in this request says the filter blocked the picture. */
+function makeImageWasBlocked(body: Record<string, unknown>): boolean {
+	const messages = Array.isArray(body.messages) ? body.messages : [];
+	return messages.some(
+		(message) =>
+			isJsonObject(message) &&
+			message.role === "tool" &&
+			message.tool_call_id === MAKE_IMAGE_CALL_ID &&
+			JSON.stringify(message.content ?? "").includes("image_blocked"),
+	);
+}
+
+function buildMakeImageStreamResponse(body: Record<string, unknown>): Response {
+	if (hasToolResultMessage(body)) {
+		const chunkBase = {
+			id: "chatcmpl_fake_make_image_final",
+			object: "chat.completion.chunk",
+			created: 1_700_000_015,
+			model: AI_SMOKE_MODEL_ID,
+		};
+		return streamResponse([
+			{
+				...chunkBase,
+				choices: [
+					{
+						index: 0,
+						delta: {
+							content: makeImageWasBlocked(body)
+								? AI_SMOKE_MAKE_IMAGE_BLOCKED_TEXT
+								: AI_SMOKE_MAKE_IMAGE_FINAL_TEXT,
+						},
+						finish_reason: null,
+					},
+				],
+			},
+			{
+				...chunkBase,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+				usage: { prompt_tokens: 21, completion_tokens: 6, total_tokens: 27 },
+			},
+		]);
+	}
+	return buildSingleToolCallStreamResponse(MAKE_IMAGE_CALL_ID, "make_image", {
+		prompt: AI_SMOKE_MAKE_IMAGE_PROMPT,
+		title: "Lighthouse",
+	});
 }
 
 function buildToolFinalStreamResponse(): Response {
@@ -1487,6 +1743,29 @@ export function createOpenAICompatibleProviderHarness(
 				if (scripted) {
 					if (scripted.delayMs) await delay(scripted.delayMs);
 					return streamResponse(scripted.frames);
+				}
+				// The picture scripts read this turn's own message (the bundle's evidence
+				// holds the user's other finished tasks, request text included), so they
+				// run before the scenarios below that search the whole body for their
+				// marker: a worker that ran such a spec earlier answered a photo edit
+				// with the default text.
+				const latePicture = latePictureScript(body);
+				if (latePicture) {
+					return lateCardStreamResponse(
+						hasToolResultFor(body, latePicture.call.id) ? "final" : "call",
+						request.signal ?? new AbortController().signal,
+						latePicture,
+					);
+				}
+				if (
+					// The request that carries the tool result may end in the app's own
+					// look at the picture, so the marker is read from the whole body then.
+					hasToolResultMessage(body)
+						? thisTurnUserText(body).includes(AI_SMOKE_MAKE_IMAGE_MARKER)
+						: currentTurnText(body)?.includes(AI_SMOKE_MAKE_IMAGE_MARKER) ===
+							true
+				) {
+					return buildMakeImageStreamResponse(body);
 				}
 				if (bodyAsksToReadProjectFile(body)) {
 					return buildReadProjectFileStreamResponse(body);

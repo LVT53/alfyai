@@ -30,6 +30,7 @@ function user(
 		twoStepEnabled: false,
 		twoStepSince: null,
 		backupCodesLeft: 0,
+		explicitPictureFilterExempt: false,
 		...overrides,
 	} as AdminManagedUserSummary;
 }
@@ -81,6 +82,7 @@ function renderPane(props: Record<string, unknown> = {}) {
 			onDemoteUser: vi.fn(),
 			onDeleteUser: vi.fn(),
 			onRevokeSessions: vi.fn(),
+			onSetExplicitPictureFilterExempt: vi.fn(),
 			adminHasTwoStep: false,
 			onResetTwoStep: vi.fn().mockResolvedValue(undefined),
 			...props,
@@ -179,6 +181,39 @@ describe("SettingsAdminUsersPane", () => {
 			screen.getByRole("button", { name: /Revoke Sessions/ }),
 		);
 		expect(onRevokeSessions).toHaveBeenCalledWith("kata");
+	});
+
+	it("shows the explicit-picture filter as on and exempts the person from the detail row", async () => {
+		const onSetExplicitPictureFilterExempt = vi.fn();
+		renderPane({ onSetExplicitPictureFilterExempt });
+
+		expect(
+			screen.getByTestId("admin-user-picture-filter").textContent,
+		).toContain("On");
+		await fireEvent.click(screen.getByRole("button", { name: "Exempt" }));
+		expect(onSetExplicitPictureFilterExempt).toHaveBeenCalledWith("kata", true);
+	});
+
+	it("turns the filter back on for an exempt person, the admin's own account included", async () => {
+		const onSetExplicitPictureFilterExempt = vi.fn();
+		renderPane({
+			onSetExplicitPictureFilterExempt,
+			selectedUserId: "levente",
+			users: users.map((person) =>
+				person.id === "levente"
+					? { ...person, explicitPictureFilterExempt: true }
+					: person,
+			),
+		});
+
+		expect(
+			screen.getByTestId("admin-user-picture-filter").textContent,
+		).toContain("Exempt");
+		await fireEvent.click(screen.getByRole("button", { name: "Filter again" }));
+		expect(onSetExplicitPictureFilterExempt).toHaveBeenCalledWith(
+			"levente",
+			false,
+		);
 	});
 
 	it("disables every action on your own account", () => {

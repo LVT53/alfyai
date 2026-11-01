@@ -15,8 +15,16 @@
 import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { LocalizedText } from "$lib/shared/artifacts/tours";
+
+/**
+ * The held marks as the panel gets them. `keepOnOtherFile`: they were put on an
+ * older version on purpose (History's Edit this version), so a body showing a
+ * newer picture leaves them alone instead of letting them go.
+ */
+export type PanelMarks = ImageMarksRequest & { keepOnOtherFile?: boolean };
 
 export interface ArtifactBodyProps {
 	artifactId: string;
@@ -25,6 +33,14 @@ export interface ArtifactBodyProps {
 	body: string | null;
 	/** The conversation the panel is showing; bodies pass it to `fetchArtifact` and any other artifact route so an incognito conversation's artifacts resolve, and it is null outside a conversation. */
 	conversationId?: string | null;
+	/**
+	 * The open item's newest version as the page knows it (`artifact-versions.ts`:
+	 * every version any response reported, the conversation poll's rows included).
+	 * A body that shows what is stored and has no live call of its own to follow
+	 * loads the item again when this rises (the Image: a late take, Use this or a
+	 * restore lands outside the stream, F23). `null`/absent when unknown.
+	 */
+	versionNumber?: number | null;
 	/**
 	 * The latest Alfy tool-call activity (`create_artifact`/`edit_artifact`)
 	 * the chat page knows about, derived from the stream's own tool-call
@@ -96,9 +112,42 @@ export interface ArtifactBodyProps {
 	 * Opens History on this item (ruling 76): where a body that tells the reader to
 	 * go back to an earlier version points ("Alfy's change can't be undone here
 	 * because the board has changed since. Open History."). The panel supplies it;
-	 * absent where there is no panel History to open.
+	 * absent where there is no panel History to open. A body may name the version
+	 * History opens on (the Image's strip of versions, plan 2b T3); without one it
+	 * opens on the newest.
 	 */
-	onOpenHistory?: () => void;
+	onOpenHistory?: (versionId?: string) => void;
+	/**
+	 * Puts a picture of this item in the chat's composer (plan 2b T5, F12): the
+	 * Image's strip of versions offers it on every frame. The panel supplies it
+	 * where there is a composer to put it in; absent otherwise (the Knowledge
+	 * page), and the strip then draws no Attach.
+	 */
+	onAttachPicture?: (picture: {
+		imageFileId: string;
+		name: string;
+		at?: number;
+	}) => void;
+	/**
+	 * The marks the person drew on this item's picture (plan 2b T6), with the
+	 * file they were drawn on, held by the chat page (they ride the next message
+	 * as one composer chip). A body shows them only on that file. Absent or
+	 * null: none.
+	 */
+	marks?: PanelMarks | null;
+	/**
+	 * The Image body hands the page the marks on its picture's file, or `null`
+	 * when the last one goes (or the picture under them changed). The panel
+	 * supplies it where there is a composer to take them; absent otherwise (the
+	 * Knowledge page), and the body then offers no Mark.
+	 */
+	onMarksChange?: (
+		marks: ImageMarksRequest | null,
+		/** Drawn in History, on a version the reader chose: the page holds them with no version, so a newer one never drops them. */
+		origin?: { history: true },
+	) => void;
+	/** The way from the panel back to the composer, where the marks are sent. */
+	onMarksContinue?: () => void;
 	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and
@@ -171,4 +220,5 @@ export const ARTIFACT_BODIES: Partial<
 	document: () => import("./document/DocumentBody.svelte"),
 	app: () => import("./app/AppBody.svelte"),
 	canvas: () => import("./canvas/CanvasEditor.svelte"),
+	image: () => import("./image/ImageBody.svelte"),
 };

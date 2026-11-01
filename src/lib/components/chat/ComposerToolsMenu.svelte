@@ -54,6 +54,7 @@ import {
 	Brain,
 	ChevronDown,
 	ChevronRight,
+	Library,
 	Orbit,
 	Paperclip,
 	Sparkles,
@@ -109,6 +110,7 @@ let {
 	maxUploadMb = undefined,
 	onClose,
 	onAttach,
+	onOpenLibrary,
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
@@ -134,6 +136,7 @@ let {
 	maxUploadMb?: number;
 	onClose?: () => void;
 	onAttach?: () => void;
+	onOpenLibrary?: () => void;
 	personalityProfiles?: Array<{
 		id: string;
 		name: string;
@@ -541,6 +544,24 @@ onMount(() => {
 				<span class="menu-row__value">{$t('composerMenu.attachHint', { max: maxUploadMb ?? $maxFileUploadSizeMb })}</span>
 			</button>
 
+		{:else if row.id === 'library'}
+			<button
+				type="button"
+				class="menu-row"
+				role="menuitem"
+				tabindex={focusedIndex === index ? 0 : -1}
+				use:registerRow={row.id}
+				data-testid="composer-menu-library"
+				onfocus={() => (focusedIndex = index)}
+				onclick={() => {
+					onClose?.();
+					onOpenLibrary?.();
+				}}
+			>
+				<span class="menu-row__icon" aria-hidden="true"><Library size={16} strokeWidth={2} /></span>
+				<span class="menu-row__label">{$t('composerTools.fromLibrary')}</span>
+			</button>
+
 		{:else if row.id === 'skills'}
 			<button
 				type="button"
@@ -561,7 +582,7 @@ onMount(() => {
 							? ''
 							: skillCount === 0
 								? $t('composerMenu.skillsNone')
-								: $t('composerMenu.skillsActive', { count: skillCount }))}
+								: $t('composerMenu.skillsAvailable', { count: skillCount }))}
 				</span>
 				<span class="menu-row__chevron" aria-hidden="true"><ChevronRight size={15} strokeWidth={2} /></span>
 			</button>

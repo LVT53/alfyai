@@ -32,6 +32,10 @@ import ArtifactCard, {
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import {
+	cardSubtitle,
+	type ImageCardActionHandler,
+} from "$lib/components/artifacts/image/image-card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
@@ -63,6 +67,7 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	onImageAction = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -120,6 +125,8 @@ let {
 	 * one whose item is in `unreachableIds` says it was made in the original chat.
 	 */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** A make_image row's picture card: what its buttons ask the chat page for (plan 2b T2). */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -142,10 +149,27 @@ type ArtifactFailedBody = Extract<
  * their slices add previews" means for Slides today (a Canvas gets its block
  * count, `canvasPreview`).
  */
+/**
+ * What happened to the item a card is about, if anything: still there but out
+ * of this chat's reach (the security review's M1: made in another chat; wins
+ * over deleted), or deleted (polish G2-A). One answer for every kind's card.
+ */
+function goneState(
+	artifactId: string | null,
+): "unreachable" | "deleted" | null {
+	if (!artifactId) return null;
+	if (deletedArtifacts?.unreachableIds.includes(artifactId)) {
+		return "unreachable";
+	}
+	if (deletedArtifacts?.deletedIds.includes(artifactId)) return "deleted";
+	return null;
+}
+
 function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
+	const gone = goneState(body.artifactId);
 	// The security review's M1: the item exists but this chat cannot reach it
 	// (made in another chat). Not deleted — and not regenerable, not openable.
-	if (deletedArtifacts?.unreachableIds.includes(body.artifactId)) {
+	if (gone === "unreachable") {
 		return {
 			id: body.artifactId,
 			kind: body.artifactKind,
@@ -155,7 +179,7 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	}
 	// Polish G2-A: the item is gone — nothing else about it (preview, pending
 	// review, version) is true any more, and there is nothing to open.
-	if (deletedArtifacts?.deletedIds.includes(body.artifactId)) {
+	if (gone === "deleted" && deletedArtifacts) {
 		return {
 			id: body.artifactId,
 			kind: body.artifactKind,
@@ -263,6 +287,42 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	};
 }
 
+type ImageCardActivityBody = Extract<ToolActivityBody, { kind: "image-card" }>;
+
+/**
+ * A picture card's head (plan 2b T2): the Image kind's tile, the card's title,
+ * what it was made from or how many takes it holds, and Open › once the
+ * picture is an item. No "edited … ago": an older card keeps its own turn's
+ * picture (preflight F33).
+ */
+function imageCardView(
+	body: ImageCardActivityBody & {
+		card: NonNullable<ImageCardActivityBody["card"]>;
+	},
+): ArtifactCardView {
+	const card = body.card;
+	// The same answer the other kinds' cards read. A picture is never made
+	// again (no Regenerate); its card keeps its box and says so (ImageCardBody).
+	const gone = goneState(card.artifactId);
+	return {
+		id: card.artifactId ?? `image-card:${card.id}`,
+		kind: "image",
+		title: card.title || body.title,
+		subtitle:
+			gone === "unreachable"
+				? $t("artifacts.madeInOriginalChat")
+				: gone === "deleted"
+					? $t("artifacts.deleted.image")
+					: cardSubtitle(card, $t),
+		openTargetId: gone ? null : card.artifactId,
+		current:
+			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,
+		deleted: gone === "deleted",
+		unreachable: gone === "unreachable",
+		editedLabel: null,
+	};
+}
+
 /** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
 function artifactCreatingCardView(
 	body: ArtifactCreatingBody,
@@ -347,7 +407,8 @@ const isInteractive = $derived(hasBody && !item.alwaysOpen);
 const isStandaloneCard = $derived(
 	item.body?.kind === "artifact" ||
 		item.body?.kind === "artifact-creating" ||
-		item.body?.kind === "artifact-failed",
+		item.body?.kind === "artifact-failed" ||
+		item.body?.kind === "image-card",
 );
 const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 
@@ -540,7 +601,24 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed'}
+	{#if isOpen && item.body?.kind === 'image-card' && item.body.card}
+		{@const body = item.body}
+		{@const card = item.body.card}
+		<!-- The picture card (plan 2b T2): the same standalone card as an item's,
+		     drawn once the chat's cards hold it; until then the row stands alone. -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard
+				view={imageCardView({ ...body, card })}
+				chrome="full"
+				imageCard={card}
+				{onImageAction}
+				onOpen={(artifactId) =>
+					void onImageAction?.({ type: "open", artifactId })?.catch(() => undefined)}
+			/>
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if body.kind === 'sources'}

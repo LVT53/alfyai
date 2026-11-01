@@ -1441,6 +1441,50 @@ describe("DocumentsList", () => {
 	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row
 	// (`type: "artifact"`, `KnowledgeDocumentItem.kind`) joins the same table.
 	describe("artifact-family rows (kind-bearing)", () => {
+		it("lists an image row with the Image icon and the kind label Image", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-img-1",
+							displayArtifactId: "art-img-1",
+							name: "Harbour at dusk",
+							kind: "image",
+						}),
+					],
+				},
+			});
+
+			const typeCell = document.querySelector(
+				".documents-table tbody .col-type",
+			);
+			expect(typeCell?.textContent?.trim()).toBe("Image");
+			const row = screen.getByText("Harbour at dusk").closest("tr");
+			expect(row?.querySelector("svg")?.getAttribute("class")).toContain(
+				"lucide-image",
+			);
+		});
+
+		it("offers an Images chip with its count", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 0,
+						app: 0,
+						canvas: 0,
+						slides: 0,
+						image: 4,
+						uploaded: 0,
+					},
+				},
+			});
+
+			expect(
+				screen.getByTestId("documents-filter-chip-image").textContent?.trim(),
+			).toBe("Images 4");
+		});
+
 		it("shows the kind pill, and says what changed last in the Version cell instead of a number (ruling 76, A1)", () => {
 			render(DocumentsList, {
 				props: {
@@ -1791,6 +1835,7 @@ describe("DocumentsList", () => {
 						app: 2,
 						canvas: 3,
 						slides: 1,
+						image: 0,
 						uploaded: 12,
 					},
 				},
@@ -1836,6 +1881,7 @@ describe("DocumentsList", () => {
 						app: 2,
 						canvas: 3,
 						slides: 1,
+						image: 0,
 						uploaded: 12,
 					},
 				},
@@ -1863,6 +1909,7 @@ describe("DocumentsList", () => {
 						app: 0,
 						canvas: 0,
 						slides: 0,
+						image: 0,
 						uploaded: 0,
 					},
 				},
@@ -1894,6 +1941,7 @@ describe("DocumentsList", () => {
 						app: 0,
 						canvas: 0,
 						slides: 0,
+						image: 0,
 						uploaded: 0,
 					},
 					onTypeFilterChange,
@@ -1918,6 +1966,7 @@ describe("DocumentsList", () => {
 						// wiring, not that behaviour.
 						canvas: 2,
 						slides: 0,
+						image: 0,
 						uploaded: 1,
 					},
 					onTypeFilterChange,
@@ -1957,6 +2006,7 @@ describe("DocumentsList", () => {
 			app: 0,
 			canvas: 0,
 			slides: 0,
+			image: 0,
 			uploaded: 13,
 		};
 
@@ -2228,6 +2278,7 @@ describe("DocumentsList", () => {
 						app: 2,
 						canvas: 3,
 						slides: 1,
+						image: 0,
 						uploaded: 12,
 					},
 				},
@@ -2247,6 +2298,7 @@ describe("DocumentsList", () => {
 						app: 0,
 						canvas: 1,
 						slides: 0,
+						image: 0,
 						uploaded: 5,
 					},
 				},
@@ -2271,6 +2323,7 @@ describe("DocumentsList", () => {
 						app: 1,
 						canvas: 0,
 						slides: 0,
+						image: 0,
 						uploaded: 1,
 					},
 				},
@@ -2295,6 +2348,7 @@ describe("DocumentsList", () => {
 						app: 2,
 						canvas: 3,
 						slides: 1,
+						image: 0,
 						uploaded: 12,
 					},
 					countsByFileFamily: {
@@ -3057,5 +3111,189 @@ describe("DocumentsList", () => {
 			});
 			expect(onSortChange).toHaveBeenCalledWith("name", "asc");
 		});
+	});
+});
+
+// Plan 2b Task 22: "in the list of images there should be [a] preview present,
+// and also an alternative view that shows the images as a gallery grid."
+describe("pictures in the library", () => {
+	const picture = (): KnowledgeDocumentItem => ({
+		...makeArtifactDocument({
+			id: "img-1",
+			displayArtifactId: "img-1",
+			name: "Harbour at dusk",
+			kind: "image",
+			conversationId: "conv-1",
+		}),
+		imagePreview: {
+			fileId: "file-1",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+		},
+	});
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+		localStorage.clear();
+	});
+
+	it("shows an Image row's thumbnail, not the kind's icon, read in its chat's scope", () => {
+		render(DocumentsList, {
+			props: { documents: [picture(), mockUploadedDocument] },
+		});
+
+		const row = screen.getByText("Harbour at dusk").closest("tr");
+		const thumb = row?.querySelector('[data-testid="document-thumb"]');
+		expect(thumb).not.toBeNull();
+		expect(thumb?.querySelector("img")?.getAttribute("src")).toBe(
+			"/api/images/files/file-1?variant=thumb&conversationId=conv-1",
+		);
+		expect(row?.querySelector(".lucide-image")).toBeNull();
+		// A file row is as it was.
+		const fileRow = screen.getByText("Budget.pdf").closest("tr");
+		expect(fileRow?.querySelector('[data-testid="document-thumb"]')).toBeNull();
+	});
+
+	it("offers List and Grid, List first, and says which is on", () => {
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
+
+		const list = screen.getByRole("button", { name: "List view" });
+		const grid = screen.getByRole("button", { name: "Grid view" });
+		expect(list).toHaveAttribute("aria-pressed", "true");
+		expect(grid).toHaveAttribute("aria-pressed", "false");
+		expect(screen.queryByTestId("documents-grid")).not.toBeInTheDocument();
+	});
+
+	it("shows a gallery of tiles in Grid: the picture, its title under it, and a press opens it", async () => {
+		const onSelect = vi.fn();
+		const image = picture();
+		render(DocumentsList, {
+			props: {
+				documents: [image, mockUploadedDocument],
+				onSelect,
+				typeFilter: "image",
+			},
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+
+		const grid = screen.getByTestId("documents-grid");
+		expect(document.querySelector(".documents-table")).toBeNull();
+		const tiles = within(grid).getAllByTestId("documents-grid-tile");
+		expect(tiles).toHaveLength(2);
+		const pictureTile = tiles.find((tile) =>
+			tile.textContent?.includes("Harbour at dusk"),
+		);
+		const fileTile = tiles.find((tile) =>
+			tile.textContent?.includes("Budget.pdf"),
+		);
+		if (!pictureTile || !fileTile) throw new Error("missing tile");
+		expect(pictureTile).toHaveTextContent("Image");
+		expect(
+			pictureTile
+				.querySelector('[data-testid="item-grid-thumb"] img')
+				?.getAttribute("src"),
+		).toBe("/api/images/files/file-1?variant=thumb&conversationId=conv-1");
+		// A file keeps its type's icon on its tile.
+		expect(
+			fileTile.querySelector('[data-testid="item-grid-thumb"]'),
+		).toBeNull();
+		expect(fileTile.querySelector("svg")).not.toBeNull();
+
+		await fireEvent.click(pictureTile);
+		expect(onSelect).toHaveBeenCalledWith(image);
+	});
+
+	it("remembers the reader's choice for the next visit", async () => {
+		const { unmount } = render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+		unmount();
+
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
+		expect(screen.getByTestId("documents-grid")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	it("still draws the list when storage cannot be read or written", async () => {
+		const getItem = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementation(() => {
+				throw new Error("blocked");
+			});
+		const setItem = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(() => {
+				throw new Error("blocked");
+			});
+		try {
+			render(DocumentsList, {
+				props: { documents: [picture()], typeFilter: "image" },
+			});
+			expect(document.querySelector(".documents-table")).not.toBeNull();
+			await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+			expect(screen.getByTestId("documents-grid")).toBeInTheDocument();
+		} finally {
+			getItem.mockRestore();
+			setItem.mockRestore();
+		}
+	});
+
+	it("names the views in Hungarian", () => {
+		uiLanguage.set("hu");
+		render(DocumentsList, {
+			props: { documents: [picture()], typeFilter: "image" },
+		});
+		expect(
+			screen.getByRole("button", { name: "Listanézet" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Rácsnézet" }),
+		).toBeInTheDocument();
+	});
+
+	// Fix round 1, controller ruling: the gallery is the Images filter's.
+	it("offers no grid on another filter, and draws the list there though the grid was chosen", () => {
+		localStorage.setItem("knowledgeDocumentsView", "grid");
+		render(DocumentsList, {
+			props: {
+				documents: [picture(), mockUploadedDocument],
+				typeFilter: "all",
+			},
+		});
+		expect(
+			screen.queryByRole("button", { name: "Grid view" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByTestId("documents-grid")).not.toBeInTheDocument();
+		expect(document.querySelector(".documents-table")).not.toBeNull();
+	});
+
+	it("lets a selection go when the grid is chosen, so no Delete bar is left under it", async () => {
+		render(DocumentsList, {
+			props: {
+				documents: [picture()],
+				typeFilter: "image",
+				onBulkDelete: vi.fn(),
+			},
+		});
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: /Harbour at dusk/ }),
+		);
+		expect(document.querySelector(".bulk-action-bar")).not.toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+		expect(document.querySelector(".bulk-action-bar")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "List view" }));
+		expect(
+			screen.getByRole("checkbox", { name: /Harbour at dusk/ }),
+		).not.toBeChecked();
 	});
 });

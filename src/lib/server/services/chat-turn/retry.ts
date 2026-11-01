@@ -9,11 +9,18 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
+import { keepReadableRecordedPictures } from "$lib/server/services/images/turn-pictures";
 import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import {
+	type ImageMark,
+	type ImageMarksRequest,
+	parseUserPictures,
+	type UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
@@ -33,6 +40,10 @@ type RetryRequestBody = {
 	userMessage?: unknown;
 	activeDocumentArtifactId?: unknown;
 	attachmentIds?: unknown;
+	// The card pictures and marks of the turn being retried, sent by the
+	// browser like a fresh send's; parsed by parseChatTurnRequest.
+	pictureRefs?: unknown;
+	imageMarks?: unknown;
 	streamId?: unknown;
 	model?: unknown;
 	reasoningDepth?: unknown;
@@ -90,6 +101,8 @@ export async function prepareRetryChatTurn(params: {
 		userMessage,
 		activeDocumentArtifactId,
 		attachmentIds,
+		pictureRefs,
+		imageMarks,
 		streamId,
 		model,
 		reasoningDepth,
@@ -218,6 +231,46 @@ export async function prepareRetryChatTurn(params: {
 		requestedAttachmentIds: attachmentIds,
 	});
 
+	// A regenerated turn keeps the pictures the person sent: when the browser
+	// does not resend them, they come back from the user message's record, under
+	// the numbers the person saw. Decided before anything is deleted, and only
+	// with what the person can still read: a picture deleted since, or marks on
+	// a picture that is no longer open, are left out and the reply is still
+	// regenerated.
+	const recordedPictures = readRecordedPictures(precedingUserMsg.metadataJson);
+	const rebuilt =
+		pictureRefs === undefined || imageMarks === undefined
+			? await keepReadableRecordedPictures({
+					userId,
+					conversationId,
+					// Recorded marks must be judged against the refs this regenerate will
+					// really carry: the browser's when it resent them (maybe only some of
+					// the recorded ones), else the recorded ones.
+					refs:
+						explicitPictureRefs(pictureRefs) ??
+						recordedPictures?.refs.map(({ imageFileId, number }) => ({
+							imageFileId,
+							number,
+						})) ??
+						[],
+					marks: recordedPictures?.marks?.boxes
+						? recordedMarks(
+								recordedPictures.marks,
+								recordedPictures.marks.boxes,
+							)
+						: null,
+					attachmentIds: retryAttachmentIds,
+					openImageArtifactId:
+						typeof activeDocumentArtifactId === "string"
+							? activeDocumentArtifactId.trim()
+							: null,
+				})
+			: null;
+	const retryPictureRefs =
+		pictureRefs ??
+		(rebuilt?.pictureRefs.length ? rebuilt.pictureRefs : undefined);
+	const retryImageMarks = imageMarks ?? rebuilt?.imageMarks ?? undefined;
+
 	try {
 		const cleanupResult = await cleanupFailedTurn({
 			userId,
@@ -254,6 +307,8 @@ export async function prepareRetryChatTurn(params: {
 		message: precedingUserMsg.content,
 		activeDocumentArtifactId,
 		attachmentIds: retryAttachmentIds,
+		pictureRefs: retryPictureRefs,
+		imageMarks: retryImageMarks,
 		streamId,
 		model,
 		reasoningDepth,
@@ -413,11 +468,24 @@ async function resolveRetryPendingSkill(params: {
 	return null;
 }
 
+function readRecordedPictures(metadataJson: string | null) {
+	if (!metadataJson) return undefined;
+	try {
+		return parseUserPictures(
+			(JSON.parse(metadataJson) as { pictures?: unknown }).pictures,
+		);
+	} catch {
+		return undefined;
+	}
+}
+
 function buildSyntheticRetryBody(params: {
 	conversationId: string;
 	message: string;
 	activeDocumentArtifactId: unknown;
 	attachmentIds: unknown;
+	pictureRefs: unknown;
+	imageMarks: unknown;
 	streamId: unknown;
 	model: unknown;
 	reasoningDepth: unknown;
@@ -443,6 +511,8 @@ function buildSyntheticRetryBody(params: {
 			params.activeDocumentArtifactId.trim()
 				? params.activeDocumentArtifactId.trim()
 				: undefined,
+		pictureRefs: params.pictureRefs ?? undefined,
+		imageMarks: params.imageMarks ?? undefined,
 		streamId:
 			typeof params.streamId === "string" && params.streamId.trim()
 				? params.streamId.trim()
@@ -489,4 +559,31 @@ function streamError(error: ChatTurnRequestError): {
 			responseShape: "stream-json",
 		},
 	};
+}
+
+/** The refs a browser resent, in the shape the picture helpers read; null when it sent none at all. Invalid entries are left for the request parser to refuse. */
+/** The marks a user message recorded, as the request that would paint them again. */
+function recordedMarks(
+	marks: NonNullable<UserPicturesMetadata["marks"]>,
+	boxes: ImageMark[],
+): ImageMarksRequest | null {
+	if (marks.uploadArtifactId) {
+		return { uploadArtifactId: marks.uploadArtifactId, marks: boxes };
+	}
+	return marks.imageFileId
+		? { imageFileId: marks.imageFileId, marks: boxes }
+		: null;
+}
+
+function explicitPictureRefs(
+	value: unknown,
+): Array<{ imageFileId: string; number: number }> | null {
+	if (!Array.isArray(value)) return null;
+	return value.flatMap((entry) => {
+		if (typeof entry !== "object" || entry === null) return [];
+		const { imageFileId, number } = entry as Record<string, unknown>;
+		return typeof imageFileId === "string" && typeof number === "number"
+			? [{ imageFileId, number }]
+			: [];
+	});
 }

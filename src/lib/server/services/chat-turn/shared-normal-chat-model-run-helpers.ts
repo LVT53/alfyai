@@ -1,7 +1,11 @@
 import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
+import {
+	getConfig,
+	isImageMakingConfigured,
+	type RuntimeConfig,
+} from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { resolveArtifactCatalogueBlock } from "$lib/server/services/artifacts";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
@@ -9,6 +13,9 @@ import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
+import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
+import type { TurnPictureIndex } from "$lib/server/services/images/turn-pictures";
+import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
 import {
 	isConversationIncognito,
@@ -45,6 +52,10 @@ import {
 	type StepImageQueue,
 } from "$lib/server/services/vision/step-images";
 import { sumTurnImageTokens } from "$lib/server/services/vision/turn-images";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+} from "$lib/shared/artifacts/image-body";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -136,7 +147,7 @@ export function estimateTurnPromptTokens(params: {
 			params.prepared.historyMessages ?? [],
 			estimateTokenCount,
 		) +
-		sumTurnImageTokens(params.prepared.currentImages)
+		sumTurnImageTokens(params.prepared.turnPictureImages)
 	);
 }
 
@@ -165,6 +176,16 @@ export type NormalChatSendModelBaseParams = {
 	user?: AuthenticatedPromptUser;
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string;
+	// The card pictures attached to this message and the marks drawn on one
+	// picture (see chat-turn/request.ts).
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
+	/**
+	 * What this turn has made with `make_image`, shared by every model run of the
+	 * turn (the stream and its non-stream rerun), so a rerun finds the cards and
+	 * takes already made instead of making the picture again.
+	 */
+	turnTakes?: TurnTakes;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	// An explicit `$` composer selection's full instructions, resolved during
@@ -193,6 +214,11 @@ export type NormalChatSendModelBaseParams = {
 	onResponseActivity?: (
 		entry: import("$lib/response-activity-types").ResponseActivityEntry,
 	) => void;
+	/**
+	 * A tool that waits on slow work (a picture being made) calls this about once
+	 * a second so the stream's idle watchdog counts the wait as activity.
+	 */
+	onToolActivity?: () => void;
 };
 
 export type DepthEffort = Awaited<
@@ -380,6 +406,8 @@ export async function prepareOutboundContext(
 		user: params.user,
 		attachmentIds: params.attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
+		pictureRefs: params.pictureRefs,
+		imageMarks: params.imageMarks,
 		attachmentTraceId: params.attachmentTraceId,
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
@@ -406,8 +434,9 @@ export async function prepareOutboundContext(
 	});
 	// The pictures this turn sends are described once, in the background, so the
 	// turns after it carry a few words instead of the pixels (vision/AGENTS.md).
-	// `currentImages` is empty unless the model can see; nothing here waits for
-	// the descriptions or can fail the turn.
+	// `currentImages` is the UPLOADED pictures alone (R15: an image file is never
+	// described) and is empty unless the model can see; nothing here waits for the
+	// descriptions or can fail the turn.
 	if (prepared.currentImages.length > 0) {
 		scheduleImageDescriptions({
 			userId: params.userId,
@@ -465,12 +494,18 @@ export async function createToolPack(
 	activeDepthEffort: ActiveDepthEffort | null,
 	modelId: ModelId,
 	enabledConnectionCapabilities: Set<Capability>,
+	turnPictures: TurnPictureIndex,
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
 	// One queue for the turn, shared by the tools that fill it and the model run
 	// that empties it (every attempt of the run, failover included).
 	const stepImages = createStepImageQueue();
+	// Whether make_image's description tells the model to decline explicit
+	// pictures; only read when there is a make_image to describe.
+	const explicitPictureFilter = isImageMakingConfigured(getConfig())
+		? await isExplicitFilterOnFor(params.userId)
+		: null;
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -479,6 +514,10 @@ export async function createToolPack(
 		enabledConnectionCapabilities,
 		modelId,
 		stepImages,
+		turnPictures,
+		...(explicitPictureFilter === null ? {} : { explicitPictureFilter }),
+		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
+		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import { createTurnTakes } from "$lib/server/services/images/turn-takes";
 import { runNonStreamFallback } from "./stream-fallback";
 
 describe("runNonStreamFallback", () => {
@@ -102,6 +103,16 @@ describe("runNonStreamFallback", () => {
 				activeDocumentArtifactId: "doc-1",
 				attachmentTraceId: "trace-1",
 			}),
+		);
+	});
+
+	it("hands the turn's make_image bookkeeping to the rerun so it does not make a picture twice", async () => {
+		const turnTakes = createTurnTakes();
+		await callFallback({
+			sendParams: { ...defaultSendParams, turnTakes },
+		});
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({ turnTakes }),
 		);
 	});
 

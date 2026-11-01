@@ -3,12 +3,34 @@ import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
+import {
+	anotherImageTake,
+	imageFileUrl,
+	retryImageTake,
+	stopImageTake,
+	useImageTake,
+} from "$lib/client/api/images";
+import { startAuthenticatedDownload } from "$lib/client/downloads";
+import type {
+	ImageCardAction,
+	ImageCardActionResult,
+} from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
+import {
+	type ComposerMarks,
+	type ComposerPictureRef,
+	marksAfterDrawing,
+	marksAfterUndo,
+	marksRequest,
+} from "$lib/components/chat/composer-pictures";
 import { page } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
 	consumePendingConversationMessage,
+	readComposerMarks,
+	storeComposerMarks,
 	createConversationDraftRecord,
 	createDraftPersistence,
 	getConversationModelSelection,
@@ -76,6 +98,7 @@ import {
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import {
 	conversationDisplayTitle,
@@ -197,9 +220,15 @@ import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
+	addComposerPicture,
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
+	composerMarksFromSend,
+	composerPicturesFromSend,
+	marksOutdated,
+	pictureOrderFromSend,
+	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
@@ -222,6 +251,7 @@ import {
 	markPendingSkillUnavailable,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldPollImageCards,
 	type DraftChangePayload,
 	type MessageEditPayload,
 	type MessageRegeneratePayload,
@@ -286,6 +316,7 @@ const initialArtifacts = getData().artifacts ?? [];
 const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
 const initialUnreachableArtifactIds = getData().unreachableArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
+const initialImageCards = getData().imageCards ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
@@ -411,6 +442,30 @@ let normalChatRuntimeCanStop = $derived(
 			normalChatRuntimePhase === "generating"),
 );
 let queuedTurn = $state<SendPayload | null>(null);
+// Pictures waiting in the composer (plan 2b T5): a card's, a strip frame's or a
+// History version's Attach puts one here; the composer numbers them with the
+// uploaded photos and the send carries them. Cleared by a send, a queue and a
+// switch to another chat; not kept in the draft.
+let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
+// The order a restored turn's pictures were numbered in (travels with the draft
+// it restores). Let go with the pictures (a send, a queue, another chat), so a
+// later draft apply never brings back a stale order.
+let composerPictureOrder = $state.raw<readonly string[]>([]);
+// The marks drawn on the open picture (plan 2b T6): one composer chip, and the
+// boxes in the panel. Held with the version of their item they were drawn on,
+// and let go when they would be left from an older picture (another item
+// opens, a newer version lands: Review Focus 4), on the chip's x, on a send or
+// queue, and on a switch to another chat.
+let heldMarks = $state.raw<ComposerMarks | null>(null);
+/** The chat `heldMarks` belongs to: set with them, so a chat switch never files one chat's boxes under the next. */
+let heldMarksConversationId = $state<string | null>(null);
+$effect(() => {
+	if (heldMarksConversationId) {
+		storeComposerMarks(heldMarksConversationId, heldMarks);
+	}
+});
+let composerFocusRequest = $state(0);
+let composerTypingRequest = $state(0);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
 
@@ -608,6 +663,9 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // alongside generatedFiles/fileProductionJobs everywhere they are, never a
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
+// The chat's picture cards (plan 2b T2): the detail's `imageCards`, kept from
+// the load and every read of the detail; the stream carries none.
+let imageCards = $state<ImageCardView[]>(initialImageCards);
 // Ruling 76, amendment A1 (one latest moment everywhere): the newest version
 // the server has told this browser about, per artifact, with its time, author
 // and kind — fed by every save, fetch, restore and History read
@@ -1162,15 +1220,12 @@ let activeWorkspaceDocument = $derived(
  * card's `body.artifactId` carries.
  */
 let activeArtifactId = $derived(activeWorkspaceDocument?.artifactId ?? null);
-/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App gets its own phrasing ("ask to CHANGE it"), every other kind keeps the generic "ask ABOUT it". */
+/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App and Image get "ask to CHANGE it" (plan 2b T3), every other kind keeps the generic "ask ABOUT it". */
 let composerPlaceholder = $derived(
 	activeWorkspaceDocument
-		? $t(
-				activeWorkspaceDocument.kind === "app"
-					? "artifacts.chat.composerPlaceholderApp"
-					: "artifacts.chat.composerPlaceholder",
-				{ title: activeWorkspaceDocument.title },
-			)
+		? $t(composerPlaceholderKey(activeWorkspaceDocument.kind), {
+				title: activeWorkspaceDocument.title,
+			})
 		: null,
 );
 
@@ -1269,6 +1324,7 @@ function artifactToWorkspaceItem(
 		lastKind: summary.lastKind ?? null,
 		documentPreview: summary.documentPreview,
 		pendingReviewCount: summary.pendingReviewCount,
+		imagePreview: summary.imagePreview,
 	};
 }
 
@@ -1393,38 +1449,19 @@ function openArtifactList() {
 }
 
 /**
- * The count button's own click (Wave 2.5 Step 4): opens the list, or — if
- * the panel is already open, showing the list or an item — closes the whole
- * panel. Matches the mockup's own `madeBtn` handler
- * (`panelIsOpen() ? closePanel() : openPanel("list")`); the button's pressed
- * state (`isArtifactPanelOpen`) is exactly the condition this checks.
+ * The count button's own click (Wave 2.5 Step 4): opens this chat's list
+ * ("This chat"), or — if the panel is already open, showing the list or an
+ * item — closes the whole panel. The button is the neutral entry: it never
+ * opens an item, not the one the panel was last closed on and not the latest
+ * one (Task 14, the owner's call); opening one item is the card's and the
+ * row's job.
  */
 function handleArtifactCountButtonClick() {
 	if (isArtifactPanelOpen) {
 		closeWorkspace();
 		return;
 	}
-	// A panel closed on an item is brought back on that item, if it is still
-	// there; otherwise (it was the list, or the item has been deleted since) it
-	// is the list that comes back (FB-3, F26).
-	const closedItem = lastClosedItem;
-	lastClosedItem = null;
-	if (closedItem && isWorkspaceItemStillThere(closedItem)) {
-		openWorkspaceDocument(closedItem, { preservePresentation: true });
-		return;
-	}
 	openArtifactList();
-}
-
-/** The item the panel showed when it was last closed, which the count button brings back. In memory only: a new visit starts from the list. */
-let lastClosedItem = $state.raw<DocumentWorkspaceItem | null>(null);
-
-function isWorkspaceItemStillThere(item: DocumentWorkspaceItem): boolean {
-	return item.artifactId
-		? liveArtifacts.some((row) => row.id === item.artifactId)
-		: availableWorkspaceDocumentsWithArtifacts.some(
-				(candidate) => candidate.id === item.id,
-			);
 }
 
 /** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
@@ -1461,7 +1498,6 @@ function triggerForkOpeningTransition() {
 
 function restorePersistedWorkspaceState() {
 	workspaceConversation = getWorkspaceConversation();
-	lastClosedItem = null;
 	artifactHistoryOpen = false;
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
@@ -1640,7 +1676,6 @@ function handleArtifactDeleted(artifactId: string) {
 	)) {
 		closeWorkspaceDocument(document.id);
 	}
-	if (lastClosedItem?.artifactId === artifactId) lastClosedItem = null;
 	// Deleting the open item shows what is left, in the same breath: the panel
 	// does not close and open again around a frame of a full-width chat. Only
 	// when nothing is left is there nothing to list, and the panel goes.
@@ -1697,6 +1732,222 @@ function handleArtifactUnreachable(artifactId: string) {
 	deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);
 	if (!unreachableArtifactIds.includes(artifactId)) {
 		unreachableArtifactIds = [...unreachableArtifactIds, artifactId];
+	}
+}
+
+/**
+ * Attach, from a card, a strip frame or History (plan 2b T5): the picture
+ * becomes a numbered chip in the composer and the box takes focus. The panel
+ * can be in the way: on a phone it is the whole screen and an expanded panel
+ * covers the chat, so it gives way (a docked panel stays, composer beside it).
+ */
+function attachPicture(picture: ComposerPictureRef) {
+	composerPictures = addComposerPicture(composerPictures, picture);
+	composerFocusRequest += 1;
+	if (window.matchMedia("(max-width: 767.98px)").matches) {
+		closeWorkspace();
+	} else if (workspaceOpen && workspacePresentation === "expanded") {
+		workspacePresentation = "docked";
+	}
+}
+
+function removeComposerPicture(imageFileId: string) {
+	composerPictures = composerPictures.filter(
+		(picture) => picture.imageFileId !== imageFileId,
+	);
+}
+
+// The pictures and the marks leave the composer with the message, sent or queued.
+function handleComposerSend(payload: SendPayload) {
+	composerPictures = [];
+	composerPictureOrder = [];
+	heldMarks = null;
+	return handleSend(payload);
+}
+
+function handleComposerQueue(payload: SendPayload) {
+	composerPictures = [];
+	composerPictureOrder = [];
+	heldMarks = null;
+	handleQueue(payload);
+}
+
+/** The newest version the page knows of an item: its list row's, or its open panel item's. */
+function latestVersionOf(artifactId: string): number | null {
+	const row = currentArtifactMomentById.get(artifactId)?.version ?? null;
+	const open =
+		liveWorkspaceDocuments.find(
+			(document) => document.artifactId === artifactId,
+		)?.versionNumber ?? null;
+	if (row === null) return open;
+	return open === null ? row : Math.max(row, open);
+}
+
+/** The open panel item, by its artifact (or its own id when it is not one); null while the panel is shut or shows its list. */
+let openPanelItemId = $derived.by(() => {
+	if (!workspaceOpen || !activeWorkspaceDocumentId) return null;
+	const active = liveWorkspaceDocuments.find(
+		(document) => document.id === activeWorkspaceDocumentId,
+	);
+	return active?.artifactId ?? activeWorkspaceDocumentId;
+});
+
+/** The open Image body drew, changed or emptied its marks. */
+function handleMarksChange(
+	request: ImageMarksRequest | null,
+	origin?: { history: true },
+) {
+	if (!request) {
+		heldMarks = null;
+		return;
+	}
+	const active = liveWorkspaceDocuments.find(
+		(document) => document.id === activeWorkspaceDocumentId,
+	);
+	const artifactId = active?.artifactId;
+	if (!active || !artifactId) return;
+	const held = heldMarks;
+	const sameFile =
+		held?.artifactId === artifactId && held.imageFileId === request.imageFileId;
+	const name = active.title || active.filename || "";
+	const moved: ComposerMarks = {
+		...request,
+		artifactId,
+		name,
+		version: origin?.history
+			? null
+			: sameFile && held
+				? held.version
+				: latestVersionOf(artifactId),
+	};
+	const { displaced } = marksAfterDrawing(held, moved);
+	heldMarks = moved;
+	if (displaced) {
+		showToast({
+			type: "success",
+			message: $t("artifacts.image.panel.marksMoved", { name }),
+			actionLabel: $t("artifacts.image.panel.marksMovedUndo"),
+			onAction: () => {
+				heldMarks = marksAfterUndo(heldMarks, moved, displaced);
+			},
+		});
+	}
+}
+
+/** An attached photo, opened from its composer tile. */
+function openComposerAttachment(artifact: {
+	id: string;
+	name: string;
+	mimeType?: string | null;
+}) {
+	void openArtifactFromChat({
+		id: `artifact:${artifact.id}`,
+		source: "knowledge_artifact",
+		filename: artifact.name,
+		title: artifact.name,
+		mimeType: artifact.mimeType ?? null,
+		artifactId: artifact.id,
+		conversationId: data.conversation.id,
+	});
+}
+
+/** From the panel back to the composer: on a phone the panel was covering it. */
+function handleMarksContinue() {
+	closeWorkspace();
+	composerTypingRequest += 1;
+}
+
+$effect(() => {
+	const held = heldMarks;
+	if (!held) return;
+	const now = { version: latestVersionOf(held.artifactId) };
+	if (marksOutdated(held, now)) untrack(() => (heldMarks = null));
+});
+
+/** The boxes the panel shows: the held marks, on their own item only (the body matches the file). */
+let panelMarks = $derived(
+	heldMarks && openPanelItemId === heldMarks.artifactId
+		? {
+				...marksRequest(heldMarks),
+				keepOnOtherFile: heldMarks.version === null,
+			}
+		: null,
+);
+
+/**
+ * What a picture card's buttons ask for (plan 2b T2). Each goes through
+ * `client/api/images.ts` and reads the detail back, so the card shows what
+ * the server did; a failure says so in a toast and rejects, so the card can
+ * take back what it showed at once (Another's tile).
+ */
+async function handleImageAction(
+	action: ImageCardAction,
+): Promise<ImageCardActionResult> {
+	const conversationId = data.conversation.id;
+	const card = (artifactId: string) =>
+		imageCards.find((candidate) => candidate.artifactId === artifactId);
+	const openImage = (artifactId: string, history: boolean) => {
+		const title = card(artifactId)?.title ?? "";
+		void openArtifactFromChat({
+			id: `artifact:${artifactId}`,
+			source: "knowledge_artifact",
+			filename: title,
+			title,
+			mimeType: null,
+			artifactId,
+			conversationId,
+			kind: "image",
+		}).then(() => {
+			if (history) artifactHistoryOpen = true;
+		});
+	};
+	try {
+		switch (action.type) {
+			case "another": {
+				const { takeId } = await anotherImageTake(
+					action.cardId,
+					conversationId,
+				);
+				void refreshConversationFiles();
+				return { takeId };
+			}
+			case "use":
+				await useImageTake(action.takeId, conversationId);
+				break;
+			case "stop":
+				await stopImageTake(action.takeId, conversationId);
+				break;
+			case "retry":
+				await retryImageTake(action.takeId, conversationId);
+				break;
+			case "download":
+				await startAuthenticatedDownload(
+					imageFileUrl(action.fileId, { download: true, conversationId }),
+				);
+				return undefined;
+			case "history":
+				openImage(action.artifactId, true);
+				return undefined;
+			case "open":
+				openImage(action.artifactId, false);
+				return undefined;
+			case "attach":
+				attachPicture({
+					imageFileId: action.fileId,
+					name: action.name,
+					at: action.at,
+				});
+				return undefined;
+		}
+		// Read back whatever the poll is doing: Use this on a settled card has no poll.
+		void refreshConversationFiles();
+		return undefined;
+	} catch (error) {
+		showToast({
+			type: "error",
+			message: get(t)("artifacts.image.card.actionFailed"),
+		});
+		throw error;
 	}
 }
 
@@ -1811,7 +2062,6 @@ async function handleRegenerateArtifact(artifactId: string) {
 }
 
 function closeWorkspace() {
-	lastClosedItem = activeWorkspaceDocument;
 	const result = reduceWorkspaceClose(
 		workspaceDocuments,
 		activeWorkspaceDocumentId,
@@ -2076,7 +2326,11 @@ function maybeSendPendingInitialMessage() {
 	void (async () => {
 		const proceed = await prepareTurn();
 		if (!proceed) return;
-		handleSend({ ...pendingDraft, pendingAttachments: [] });
+		handleSend({
+			...pendingDraft,
+			markedPicture: pendingDraft.markedPicture ?? undefined,
+			pendingAttachments: [],
+		});
 	})();
 }
 
@@ -2090,6 +2344,11 @@ function resetState() {
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
 	sendError = null;
 	isSending = false;
+	composerPictures = [];
+	composerPictureOrder = [];
+	// Boxes drawn in this chat before a reload come back with its composer.
+	heldMarks = readComposerMarks(data.conversation.id);
+	heldMarksConversationId = data.conversation.id;
 	titleGenerationTriggered = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,
@@ -2113,6 +2372,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
+	imageCards = data.imageCards ?? [];
 	deletedArtifactIds = data.deletedArtifactIds ?? [];
 	unreachableArtifactIds = data.unreachableArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
@@ -2248,6 +2508,9 @@ function applyConversationDetailMetadata(
 	if (detail.artifacts) {
 		artifacts = [...detail.artifacts];
 	}
+	if (detail.imageCards) {
+		imageCards = [...detail.imageCards];
+	}
 	if (detail.deletedArtifactIds) {
 		deletedArtifactIds = [...detail.deletedArtifactIds];
 	}
@@ -2277,10 +2540,21 @@ function applyConversationDetailMetadata(
  * reply it hangs from show it at once instead of at the next read of the chat.
  */
 async function refreshConversationFiles() {
-	const detail = await fetchConversationDetail(data.conversation.id).catch(
+	const conversationId = data.conversation.id;
+	const detail = await fetchConversationDetail(conversationId).catch(
 		() => null,
 	);
-	if (detail) applyConversationDetailMetadata(detail);
+	// The person may have opened another chat while this was read (a picture
+	// card's button, then a sidebar click): its answer belongs to the chat it
+	// was asked for, never to the one now shown (hydrateConversationDetail's rule).
+	if (
+		!detail ||
+		conversationId !== data.conversation.id ||
+		detail.conversation?.id !== conversationId
+	) {
+		return;
+	}
+	applyConversationDetailMetadata(detail);
 }
 
 let pendingWritesReads = 0;
@@ -2576,6 +2850,10 @@ async function hydrateConversationDetail(conversationId: string) {
 		// browser deleted while the answer was in flight stays deleted (the ids
 		// are added to, never replaced).
 		artifacts = payload.artifacts ?? artifacts;
+		// The picture cards too (plan 2b F4): a take's state only moves forward on
+		// the server, and a mid-turn poll is exactly what moves the boundary, so a
+		// card's first take would otherwise wait for the next poll.
+		imageCards = payload.imageCards ?? imageCards;
 		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
 			markArtifactDeleted,
 			deletedArtifactIds,
@@ -2763,11 +3041,29 @@ async function handleAtlasLifecycleAction(payload: {
 	});
 }
 
+/** The tool calls of the reply being streamed: a make_image call running before its card exists keeps the poll on. */
+let streamingToolCalls = $derived.by(() => {
+	const calls: { name: string; status: string }[] = [];
+	for (const message of $messages) {
+		if (message.role !== "assistant" || !message.isStreaming) continue;
+		for (const segment of message.thinkingSegments ?? []) {
+			if (segment.type === "tool_call") {
+				calls.push({ name: segment.name, status: segment.status });
+			}
+		}
+	}
+	return calls;
+});
+let pollForImageCards = $derived(
+	shouldPollImageCards(imageCards, streamingToolCalls),
+);
+
 $effect(() => {
 	const conversationId = data.conversation?.id;
 	const shouldPollConversation =
 		hasActiveFileProductionJobs(fileProductionJobs) ||
-		hasActiveAtlasJobs(atlasJobs);
+		hasActiveAtlasJobs(atlasJobs) ||
+		pollForImageCards;
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
@@ -2885,6 +3181,19 @@ $effect(() => {
 });
 
 function restorePayloadToDraft(payload: SendPayload) {
+	// The queued turn's card pictures come back as chips, and its marks as the
+	// marks chip (the marked picture the send added itself is that chip, not a
+	// picture chip of its own).
+	// With the version they were drawn on, so marks from an older picture (a
+	// version landed while the turn was queued) go at once (Review Focus 4).
+	heldMarks = composerMarksFromSend(payload);
+	composerPictures = composerPicturesFromSend(
+		payload.pictures,
+		payload.markedPicture?.addedRef
+			? (payload.imageMarks?.imageFileId ?? null)
+			: null,
+	);
+	composerPictureOrder = pictureOrderFromSend(payload.pictures);
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
 	conversationDraft = createConversationDraftRecord({
 		conversationId: nextConversationId,
@@ -4075,6 +4384,8 @@ function handleDrop(event: DragEvent) {
 						alfyActivity={liveDocumentAlfyActivity}
 						{activeArtifactId}
 						deletedArtifacts={deletedArtifactsForCards}
+						{imageCards}
+						onImageAction={handleImageAction}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
@@ -4103,8 +4414,16 @@ function handleDrop(event: DragEvent) {
 				canRetry={normalChatRuntimeCanRetry}
 				onRetry={handleRetry}
 				onErrorClose={handleErrorClose}
-				onSend={handleSend}
-				onQueue={handleQueue}
+				onSend={handleComposerSend}
+				onQueue={handleComposerQueue}
+				pictureRefs={composerPictures}
+				onRemovePictureRef={removeComposerPicture}
+				draftPictureOrder={composerPictureOrder}
+				imageMarks={heldMarks}
+				onClearMarks={() => (heldMarks = null)}
+				focusRequest={composerFocusRequest}
+				typingRequest={composerTypingRequest}
+				onOpenAttachment={openComposerAttachment}
 				onStop={handleStop}
 				onCompact={handleCompact}
 				onDraftChange={handleDraftChange}
@@ -4196,6 +4515,10 @@ function handleDrop(event: DragEvent) {
 			onFlushReady={handleFlushReady}
 			{artifactVersionMessages}
 			onShowChatMessage={handleShowChatMessage}
+			onAttachPicture={attachPicture}
+			marks={panelMarks}
+			onMarksChange={handleMarksChange}
+			onMarksContinue={handleMarksContinue}
 			currentUser={data.user}
 		/>
 	</div>

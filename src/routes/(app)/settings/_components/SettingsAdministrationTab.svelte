@@ -9,6 +9,7 @@ import {
 	revokeAdminUserSessions,
 	updateAdminUserRole,
 } from "$lib/client/api/settings";
+import { updateAdminUserExplicitPictureFilter } from "$lib/client/api/admin";
 import { t } from "$lib/i18n";
 import CreateUserModal from "./CreateUserModal.svelte";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
@@ -228,6 +229,19 @@ async function handleRevokeSessions(userId: string) {
 	);
 }
 
+async function handleSetExplicitPictureFilterExempt(
+	userId: string,
+	exempt: boolean,
+) {
+	await runUserAction(
+		userId,
+		() => updateAdminUserExplicitPictureFilter(userId, exempt),
+		exempt
+			? $t("admin.users.messages.pictureFilterExempted")
+			: $t("admin.users.messages.pictureFilterRestored"),
+	);
+}
+
 /**
  * The admin reset: the dialog keeps itself open on a refusal, so this throws
  * after recording the message rather than swallowing it like `runUserAction`.
@@ -325,6 +339,7 @@ async function handleDeleteUser(userId: string) {
 		onDemoteUser={handleDemoteUser}
 		onDeleteUser={handleDeleteUser}
 		onRevokeSessions={handleRevokeSessions}
+		onSetExplicitPictureFilterExempt={handleSetExplicitPictureFilterExempt}
 		{adminHasTwoStep}
 		onResetTwoStep={handleResetTwoStep}
 	/>

@@ -153,6 +153,24 @@ describe("restart-vs-live map", () => {
 });
 
 describe("validateAdminConfigValue", () => {
+	it("bounds the source-picture cap to 1..10 and accepts a picture server address", () => {
+		expect(validateAdminConfigValue(spec("IMAGE_REFERENCE_CAP"), "11")).toEqual(
+			{ ok: false, reason: "above-max", limit: 10 },
+		);
+		expect(validateAdminConfigValue(spec("IMAGE_REFERENCE_CAP"), "0")).toEqual({
+			ok: false,
+			reason: "below-min",
+			limit: 1,
+		});
+		expect(validateAdminConfigValue(spec("IMAGE_REFERENCE_CAP"), "7")).toEqual({
+			ok: true,
+			value: "7",
+		});
+		expect(
+			validateAdminConfigValue(spec("COMFYUI_URL"), "http://127.0.0.1:8188"),
+		).toMatchObject({ ok: true });
+	});
+
 	it("treats the empty string as a reset, never as an error", () => {
 		expect(
 			validateAdminConfigValue(spec("FILE_PRODUCTION_MAX_OUTPUTS"), "  "),

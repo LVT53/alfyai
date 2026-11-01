@@ -38,7 +38,10 @@ import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ImageCardActionHandler } from "./image/image-card-view";
+import PictureThumb from "./image/PictureThumb.svelte";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
 
 export interface ArtifactCardTickableItem {
@@ -77,6 +80,17 @@ export interface ArtifactCardView {
 	 * mockup's own complaints (§5.1 problem 4). `null`/omitted renders no time.
 	 */
 	updatedAtLabel?: string | null;
+	/**
+	 * `chrome="row"`, `kind: "image"` (plan 2b Task 22): the picture the row
+	 * shows in place of the kind's icon, its 320 px thumbnail in a reserved
+	 * 40 px square (it fades in, nothing moves), read in its chat's scope.
+	 * `null`/omitted draws the kind's icon, as for every other kind.
+	 */
+	thumbnail?: {
+		fileId: string;
+		hasAlpha: boolean;
+		conversationId: string | null;
+	} | null;
 	/**
 	 * `chrome="row"` only (FB-5, F9): what tells this row from another of the same
 	 * name, already localised — a produced file's "PDF · 363.1 KB", and the time
@@ -200,6 +214,8 @@ let {
 	onDismiss = undefined,
 	onRegenerate = undefined,
 	rowMenu = undefined,
+	imageCard = null,
+	onImageAction = undefined,
 }: {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
@@ -232,6 +248,15 @@ let {
 	 * touch; the host owns what it opens.
 	 */
 	rowMenu?: Snippet | undefined;
+	/**
+	 * `kind: "image"`, `chrome="full"` (plan 2b T2): the picture card the head
+	 * is for, drawn under it by the lazily loaded `ImageCardBody`. The card is
+	 * drawn once its body has loaded, head and body together, so nothing under
+	 * it is pushed twice.
+	 */
+	imageCard?: ImageCardView | null;
+	/** What the picture card's buttons ask for; the chat page answers. */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 const TICKABLE_VISIBLE_LIMIT = 5;
@@ -325,6 +350,29 @@ $effect(() => {
 	};
 });
 
+// The picture card's body is lazy for the same reason: a chat with no picture
+// never loads it, and none of it is in the chat route's first load
+// (`npm run check:image-chunks`).
+let ImageCardBody = $state<
+	typeof import("./image/ImageCardBody.svelte").default | null
+>(null);
+$effect(() => {
+	if (view.kind !== "image" || !imageCard || ImageCardBody) return;
+	let cancelled = false;
+	void import("./image/ImageCardBody.svelte").then((module) => {
+		if (!cancelled) ImageCardBody = module.default;
+	});
+	return () => {
+		cancelled = true;
+	};
+});
+let waitingForImageBody = $derived(
+	chrome === "full" &&
+		view.kind === "image" &&
+		imageCard != null &&
+		!ImageCardBody,
+);
+
 function handleOpen(): void {
 	if (view.openTargetId) onOpen?.(view.openTargetId);
 }
@@ -334,6 +382,8 @@ function handleOpen(): void {
 	{#if job && FileProductionBody}
 		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 	{/if}
+{:else if waitingForImageBody}
+	<!-- The picture card's body is on its way: the card is drawn whole once it is here. -->
 {:else if chrome === 'row'}
 	<div class="artifact-row-wrap" class:artifact-row-has-menu={Boolean(rowMenu)}>
 	<button
@@ -347,6 +397,14 @@ function handleOpen(): void {
 		disabled={!view.openTargetId}
 		onclick={handleOpen}
 	>
+		{#if view.thumbnail && !view.working}
+			<PictureThumb
+				fileId={view.thumbnail.fileId}
+				hasAlpha={view.thumbnail.hasAlpha}
+				conversationId={view.thumbnail.conversationId}
+				testId="artifact-row-thumb"
+			/>
+		{:else}
 		<span class="artifact-row-icon" aria-hidden="true">
 			{#if view.working}
 				<LoaderCircle class="artifact-row-spinner" size={18} strokeWidth={1.75} aria-hidden="true" />
@@ -354,6 +412,7 @@ function handleOpen(): void {
 				<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
 			{/if}
 		</span>
+		{/if}
 		<span class="artifact-row-main">
 			<span class="artifact-row-title">{view.title}</span>
 			<span class="artifact-row-sub">
@@ -441,7 +500,7 @@ function handleOpen(): void {
 				? 'deleted'
 				: undefined}
 	>
-		{#if chrome === 'full' && (view.deleted || view.unreachable)}
+		{#if chrome === 'full' && (view.deleted || view.unreachable) && !(view.kind === 'image' && imageCard)}
 			<!-- Polish G2-A: the item is gone. Not a button — there is nothing to
 			     open — but a plain head: the kind tile, the title, what happened
 			     and, where it can be made again, Regenerate. The security review's
@@ -546,8 +605,16 @@ function handleOpen(): void {
 						{/if}
 					</span>
 				</span>
-				{#if view.openTargetId}
-					<span class="artifact-card-cta">
+				{#if view.openTargetId || (view.kind === 'image' && imageCard)}
+					<!-- A picture card holds the place of its Open › while the picture is
+					     still being made (it becomes an item when it lands): on a narrow
+					     card the action is a row of its own, and drawing it late would
+					     push the picture down. It fades in, nothing moves. -->
+					<span
+						class="artifact-card-cta"
+						class:artifact-card-cta-pending={!view.openTargetId}
+						aria-hidden={view.openTargetId ? undefined : 'true'}
+					>
 						{#if view.pendingReviewCount || view.refusedCount}
 							{$t('artifacts.card.review')}
 						{:else if view.current}
@@ -575,6 +642,15 @@ function handleOpen(): void {
 					<p class="artifact-card-failed-title">{$t('artifacts.card.failedTitle')}</p>
 					<p class="artifact-card-failed-reason">{view.failedReason}</p>
 				</div>
+			{:else if view.kind === 'image' && imageCard && ImageCardBody}
+				<!-- A picture card whose Image is gone keeps its head and box (no
+				     height change, F9): the head says so, the body says so in the box. -->
+				<ImageCardBody
+					card={imageCard}
+					conversationId={imageCard.conversationId}
+					onAction={onImageAction}
+					gone={view.unreachable ? 'unreachable' : view.deleted ? 'deleted' : null}
+				/>
 			{:else}
 				{#if view.factCheckLine}
 					<div class="artifact-card-body artifact-card-factcheck">
@@ -745,7 +821,9 @@ function handleOpen(): void {
 		text-align: left;
 		font-family: var(--font-sans);
 		cursor: pointer;
-		transition: background-color var(--duration-standard) var(--ease-out);
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			opacity var(--duration-standard) var(--ease-out);
 	}
 
 	.artifact-card-head:hover:not(:disabled) {
@@ -899,6 +977,14 @@ function handleOpen(): void {
 
 	.artifact-card-head:hover:not(:disabled) .artifact-card-cta {
 		background: var(--accent-tint);
+	}
+
+	.artifact-card-cta {
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-card-cta-pending {
+		opacity: 0;
 	}
 
 	/* A narrow card puts its action on a row of its own, under the text. The
@@ -1102,7 +1188,9 @@ function handleOpen(): void {
 
 	.artifact-row {
 		display: grid;
-		grid-template-columns: 34px minmax(0, 1fr) auto;
+		/* The first column is a picture's 40 px thumbnail wide (Task 22); a kind's
+		   34 px icon sits centred in it, so every title starts in one place. */
+		grid-template-columns: 40px minmax(0, 1fr) auto;
 		align-items: center;
 		gap: 0.75rem;
 		width: 100%;
@@ -1154,6 +1242,7 @@ function handleOpen(): void {
 	.artifact-row-icon {
 		display: grid;
 		place-items: center;
+		justify-self: center;
 		width: 34px;
 		height: 34px;
 		flex: 0 0 auto;

@@ -31,8 +31,9 @@ import {
 } from "$lib/client/connections/composer-selection";
 import ConnectionsPopover from "./ConnectionsPopover.svelte";
 import {
+	type AvailableModelsResponse,
 	fetchAvailableModels,
-	type ModelProvider,
+	findAvailableModel,
 } from "$lib/client/api/models";
 import {
 	fetchConversationMarkdownExport,
@@ -42,7 +43,8 @@ import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
 import { startNewChat } from "$lib/client/new-chat";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
-import { selectedModel } from "$lib/stores/settings";
+import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { whenLabel } from "$lib/components/artifacts/history/moment-text";
 import { showToast } from "$lib/stores/toast";
 import {
 	cancelExtraction,
@@ -121,9 +123,29 @@ import {
 	attachmentReadinessReasonKey,
 	type AttachmentReadinessSnapshot,
 } from "$lib/shared/attachment-readiness";
+import { imageFileUrl } from "$lib/client/api/images";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import ComposerChip from "./ComposerChip.svelte";
 import ComposerChipFailureDetails from "./ComposerChipFailureDetails.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
+import {
+	arrangePictureChips,
+	type ComposerMarks,
+	type ComposerPictureRef,
+	libraryPictureAttachment,
+	attachmentPictureOptions,
+	markedPictureNumber,
+	marksRequest,
+	numberPictures,
+	pictureChipNames,
+	pictureKey,
+	reconcilePictureOrder,
+	resentMarkedPhoto,
+} from "./composer-pictures";
 import {
 	fieldTextRoom,
 	fitPlaceholder,
@@ -142,7 +164,6 @@ import {
 	type AttachmentChipFailure,
 } from "./composer-chip-presentation";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
-import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
 	findActiveComposerCommandToken,
 	findActiveComposerCommandTokenWithArgument,
@@ -175,6 +196,20 @@ type SendPayload = {
 	attachmentIds: string[];
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
+	// Card pictures attached to this message, under the numbers the chips showed,
+	// and the same pictures with their names for the sent bubble (plan 2b T5).
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
+	// The marks drawn on one picture (plan 2b T6), and, client-only, the item
+	// they were drawn on and whether the send added that picture as a ref, so a
+	// turn put back in the composer gets its marks chip back (never on the wire).
+	imageMarks?: ImageMarksRequest;
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
@@ -229,6 +264,14 @@ let {
 	draftAtlasProfile = null,
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
+	pictureRefs = [],
+	draftPictureOrder = [],
+	onRemovePictureRef = undefined,
+	imageMarks = null,
+	onClearMarks = undefined,
+	focusRequest = 0,
+	typingRequest = 0,
+	onOpenAttachment = undefined,
 	onSend = undefined,
 	onQueue = undefined,
 	onStop = undefined,
@@ -298,6 +341,41 @@ let {
 	draftAtlasProfile?: AtlasProfile | null;
 	draftClientAtlasTurnId?: string | null;
 	draftVersion?: number;
+	/**
+	 * Card, strip and History pictures waiting in this message (Attach), held by
+	 * the page. They are numbered with the uploaded photos in the order they
+	 * were added; the send carries them as `pictureRefs`. Optional: a composer
+	 * with none (the landing page) draws and sends exactly as before.
+	 */
+	pictureRefs?: readonly ComposerPictureRef[];
+	/**
+	 * The order a restored turn's pictures were numbered in (keys from
+	 * `pictureKey`), applied together with the draft so the numbers the person's
+	 * own text names come back unchanged. Empty: the order is the order added.
+	 */
+	draftPictureOrder?: readonly string[];
+	onRemovePictureRef?: ((imageFileId: string) => void) | undefined;
+	/**
+	 * The marks drawn on one picture in the panel (plan 2b T6), held by the
+	 * page: one `image` chip ("Marks A, B") under the number the marked picture
+	 * goes by. The send carries them as `imageMarks` and adds the picture as a
+	 * ref when it is not attached already (F14).
+	 */
+	imageMarks?: ComposerMarks | null;
+	/** The marks chip's x: the page lets the marks go (and the panel's boxes with them). */
+	onClearMarks?: (() => void) | undefined;
+	/** Rises when the page wants the box focused (a picture was just attached). */
+	focusRequest?: number;
+	/** Raised when the person chose to write: takes focus on a phone too. */
+	typingRequest?: number;
+	/** Opens an attached photo in the panel, where it can be marked. Absent where there is no panel (the landing page). */
+	onOpenAttachment?:
+		| ((artifact: {
+				id: string;
+				name: string;
+				mimeType?: string | null;
+		  }) => void)
+		| undefined;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
 	onStop?: (() => void | Promise<void>) | undefined;
@@ -452,7 +530,6 @@ const extractionAnnouncer = createExtractionAnnouncer();
 let pasteAnnouncement = $state("");
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
-let sourceManagerOpen = $state(false);
 let documentPickerInitialQuery = $state("");
 let documentPickerDocuments = $state<KnowledgeDocumentItem[]>([]);
 let documentPickerLoading = $state(false);
@@ -497,31 +574,29 @@ let forceWebSearch = $state(false);
 // ADR-0061 — the thinking toggle hides itself for a model whose recorded
 // capabilities explicitly mark reasoning controls unsupported. Loaded once
 // on mount (same models list ModelSelector fetches independently) and
-// looked up by the currently selected model id from the settings store.
-let modelProviders = $state<ModelProvider[]>([]);
-let currentModelSupportsReasoningControls = $derived.by(() => {
-	const currentModelId = $selectedModel;
-	for (const provider of modelProviders) {
-		const found = provider.models.find((model) => model.id === currentModelId);
-		if (found) return found.supportsReasoningControls;
-	}
-	// Not loaded yet (or not found): default to showing the toggle rather
-	// than hiding it on every cold load.
-	return true;
+// looked up by the currently selected model id from the settings store — a
+// legacy id ("model1", the system default) through the server's alias for it,
+// so the composer reads the row the server will run.
+let availableModels = $state<AvailableModelsResponse>({
+	providers: [],
+	modelAliases: {},
 });
+let selectedListedModel = $derived(
+	findAvailableModel(availableModels, $selectedModel),
+);
+// Not loaded yet (or not found): default to showing the toggle rather than
+// hiding it on every cold load.
+let currentModelSupportsReasoningControls = $derived(
+	selectedListedModel?.supportsReasoningControls ?? true,
+);
 // A model the admin marked "Can see images" needs no extracted text to be shown
 // a picture, so with one selected a photo the reader found no text in does not
 // hold Send (the server's send gate lets it through the same way). Read from
 // the same list, for the same selected model. The cautious default is the
 // opposite of the toggle's: until the list says the model can see, it cannot.
-let selectedModelSupportsImages = $derived.by(() => {
-	const currentModelId = $selectedModel;
-	for (const provider of modelProviders) {
-		const found = provider.models.find((model) => model.id === currentModelId);
-		if (found) return found.supportsImages === true;
-	}
-	return false;
-});
+let selectedModelSupportsImages = $derived(
+	selectedListedModel?.supportsImages === true,
+);
 // ADR 0044 Decision 1 — the composer's Connections master toggle.
 // `availableCapabilities` (served) and `defaultOnCapabilities` come from a
 // single fetch on mount. `connectionsEnabled` is the per-conversation
@@ -577,6 +652,58 @@ let isComposerDisabled = $derived(disabled || !isHydrated);
 let pendingAttachmentArtifacts = $derived(
 	pendingAttachments.map((attachment) => attachment.artifact),
 );
+// Plan 2b T5 — one numbering for the uploaded photos and the card pictures,
+// in the order they were added (the server numbers the same way). `pictureOrder`
+// remembers the order; the live list is worked out in the same pass as the
+// chips, so a new chip never draws without its number and a removal renumbers
+// the rest in the frame it happens.
+let pictureOrder = $state.raw<readonly string[]>([]);
+let uploadPictureKeys = $derived(
+	pendingAttachments.map((attachment) =>
+		attachmentChipKind(attachment.artifact) === "image"
+			? pictureKey({ kind: "upload", artifactId: attachment.artifact.id })
+			: null,
+	),
+);
+let refPictureKeys = $derived(
+	pictureRefs.map((ref) =>
+		pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+	),
+);
+let livePictureOrder = $derived(
+	reconcilePictureOrder(pictureOrder, [
+		...uploadPictureKeys.filter((key): key is string => key !== null),
+		...refPictureKeys,
+	]),
+);
+$effect(() => {
+	if (livePictureOrder !== pictureOrder) pictureOrder = livePictureOrder;
+});
+let pictureNumbers = $derived(numberPictures(livePictureOrder, () => true));
+// Two versions of one item would read alike: the older says when it was made.
+let pictureRefNames = $derived(
+	pictureChipNames(pictureRefs, (at) =>
+		whenLabel(at, {
+			t: $t,
+			lang: $uiLanguage === "hu" ? "hu" : "en",
+			now: Date.now(),
+		}),
+	),
+);
+let pictureChipSlots = $derived(
+	arrangePictureChips(livePictureOrder, uploadPictureKeys, refPictureKeys),
+);
+let markedNumber = $derived(
+	imageMarks ? markedPictureNumber(pictureNumbers, imageMarks) : null,
+);
+$effect(() => {
+	const request = focusRequest;
+	if (request > 0 && !isMobile()) untrack(() => textarea?.focus());
+});
+// The person asked to write: unlike `focusRequest`, a phone opens its keyboard.
+$effect(() => {
+	if (typingRequest > 0) untrack(() => textarea?.focus());
+});
 let effectiveLinkedSources = $derived(
 	dedupeLinkedSourcesByFamily(
 		selectedLinkedSources.filter(
@@ -593,6 +720,14 @@ let pictureOptions = $derived({
 	selectedModelSupportsImages:
 		selectedModelSupportsImages && !selectedAtlasProfile,
 });
+function pictureOptionsFor(artifact: { id: string }) {
+	return attachmentPictureOptions(
+		artifact.id,
+		imageMarks,
+		Boolean(selectedAtlasProfile),
+		pictureOptions,
+	);
+}
 // The ledger decides, when it has an opinion. One pure state per pending
 // attachment drives BOTH the chip and the send gate, so a chip that shows a
 // spinner and a Send button that is open cannot disagree: `busy` is "not yet"
@@ -603,7 +738,7 @@ let pendingAttachmentStates = $derived(
 		attachmentChipFailure(
 			extractionJobs[attachment.artifact.id],
 			attachment,
-			pictureOptions,
+			pictureOptionsFor(attachment.artifact),
 		),
 	),
 );
@@ -811,6 +946,8 @@ let hasComposerChips = $derived(
 		(forceWebSearch && !selectedAtlasProfile) ||
 		Boolean(selectedAtlasProfile) ||
 		pendingAttachments.length > 0 ||
+		pictureRefs.length > 0 ||
+		Boolean(imageMarks) ||
 		optimisticUploads.length > 0 ||
 		pendingQuotes.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0),
@@ -1374,6 +1511,7 @@ $effect(() => {
 		}
 
 		pendingAttachments = Array.from(merged.values());
+		if (draftPictureOrder.length > 0) pictureOrder = [...draftPictureOrder];
 		// A restored draft can carry a terminal success whose content verdict
 		// never travelled with it. The poller will not ask again for a finished
 		// job, so this is the moment to fetch that verdict once. Untracked: the
@@ -1428,7 +1566,6 @@ $effect(() => {
 	if (selectedLinkedSources.length === 0 && !pendingSkill) return;
 	selectedLinkedSources = [];
 	pendingSkill = null;
-	sourceManagerOpen = false;
 	documentPickerOpen = false;
 	draftEmissionVersion += 1;
 	void emitDraftChange();
@@ -1803,20 +1940,119 @@ function canSubmitMessageText(text: string): boolean {
 	);
 }
 
+// What the message carries of its pictures: the card pictures under the numbers
+// the chips showed (the server keeps them), and the same numbers for the bubble
+// so its thumbnails exist from its first paint (F13). Uploaded photos alone
+// carry their numbers too (Task 17): the server records them, so the bubble it
+// sends back looks the same. Nothing without a picture.
+/** The marks the send carries, and the picture they were drawn on (F14). */
+function marksPayload(
+	marked: ComposerMarks,
+	addMarkedRef: boolean,
+): Pick<SendPayload, "imageMarks" | "markedPicture"> {
+	return {
+		imageMarks: marksRequest(marked),
+		markedPicture: {
+			artifactId: marked.artifactId,
+			name: marked.name,
+			addedRef: addMarkedRef,
+			version: marked.version,
+		},
+	};
+}
+
+/** The uploaded photos under the numbers their chips showed. */
+function numberedUploads(): { artifactId: string; number: number }[] {
+	const uploads = pendingAttachments.flatMap((attachment) => {
+		const number = pictureNumbers.get(
+			pictureKey({ kind: "upload", artifactId: attachment.artifact.id }),
+		);
+		return number === undefined
+			? []
+			: [{ artifactId: attachment.artifact.id, number }];
+	});
+	const resent = resentMarkedPhoto(imageMarks, pendingAttachmentArtifacts);
+	return resent && markedNumber !== null
+		? [...uploads, { artifactId: resent.id, number: markedNumber }]
+		: uploads;
+}
+
+/** The card pictures under the numbers their chips showed, the marked one added when it is not attached. */
+function numberedRefs(
+	marked: ComposerMarks | null,
+	addMarkedRef: boolean,
+): UserPicturesMetadata["refs"] {
+	const refs = pictureRefs.flatMap((ref) => {
+		const number = pictureNumbers.get(
+			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+		);
+		return number === undefined
+			? []
+			: [{ imageFileId: ref.imageFileId, number, name: ref.name }];
+	});
+	if (marked?.imageFileId && addMarkedRef && markedNumber !== null) {
+		refs.push({
+			imageFileId: marked.imageFileId,
+			number: markedNumber,
+			name: marked.name,
+		});
+	}
+	return refs.sort((a, b) => a.number - b.number);
+}
+
+function picturePayload(): {
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
+	imageMarks?: ImageMarksRequest;
+	markedPicture?: SendPayload["markedPicture"];
+} {
+	// The marks ride with their picture: one not attached already is added as a
+	// ref under the number its chip showed (F14), so the server paints the marks
+	// whether or not the panel is still open on it when the turn is sent.
+	const marked = imageMarks;
+	const addMarkedRef =
+		marked?.imageFileId !== undefined &&
+		!pictureRefs.some((ref) => ref.imageFileId === marked.imageFileId);
+	const marksPart = marked ? marksPayload(marked, addMarkedRef) : {};
+	const uploads = numberedUploads();
+	const refs = numberedRefs(marked, addMarkedRef);
+	if (refs.length === 0 && uploads.length === 0) return marksPart;
+	return {
+		...marksPart,
+		...(refs.length > 0
+			? {
+					pictureRefs: refs.map(({ imageFileId, number }) => ({
+						imageFileId,
+						number,
+					})),
+				}
+			: {}),
+		pictures: {
+			refs,
+			...(uploads.length > 0 ? { uploads } : {}),
+			open: null,
+			marks: null,
+		},
+	};
+}
+
 function buildSendPayload(nextMessage = message): SendPayload {
+	const resent = resentMarkedPhoto(imageMarks, pendingAttachmentArtifacts);
+	const sentArtifacts = resent
+		? [...pendingAttachmentArtifacts, resent]
+		: pendingAttachmentArtifacts;
 	return {
 		// Chips redesign — quote chips expand back into the message here,
 		// at the last moment before it leaves the composer, so everything
 		// downstream (the send gate, the page, the server) keeps seeing one
 		// plain string exactly as the old cursor-paste produced.
 		message: expandQuotesIntoMessage(nextMessage).trim(),
-		attachmentIds: pendingAttachments.map(
-			(attachment) => attachment.artifact.id,
-		),
-		attachments: pendingAttachmentArtifacts,
+		attachmentIds: sentArtifacts.map((artifact) => artifact.id),
+		attachments: sentArtifacts,
 		pendingAttachments: pendingAttachments.map((attachment) => ({
 			...attachment,
 		})),
+		...picturePayload(),
 		linkedSources: composerCommandRegistryEnabled
 			? effectiveLinkedSources.map((source) => ({
 					...source,
@@ -1856,7 +2092,6 @@ function clearComposerAfterSubmit() {
 	extractionActionError = "";
 	queuedSendAfterProcessing = false;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	documentPickerOpen = false;
 	forceWebSearch = false;
@@ -1951,7 +2186,6 @@ function stop(): void | Promise<void> {
 	if (!canStop) return;
 	const stopped = onStop?.();
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isMobile()) {
 		textarea?.blur();
@@ -2014,7 +2248,7 @@ onMount(() => {
 	void ensureCapabilitiesLoaded();
 	void fetchAvailableModels()
 		.then((response) => {
-			modelProviders = response.providers;
+			availableModels = response;
 		})
 		.catch(() => {
 			// Non-fatal: the thinking toggle just stays visible by default.
@@ -2080,7 +2314,10 @@ $effect(() => {
 							// told is what the chip says.
 							picture:
 								attachment !== undefined &&
-								isPictureForModel(attachment.artifact, pictureOptions),
+								isPictureForModel(
+									attachment.artifact,
+									pictureOptionsFor(attachment.artifact),
+								),
 						},
 					),
 				),
@@ -2099,7 +2336,6 @@ $effect(() => {
 function openFilePicker() {
 	if (!canAttach) return;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isPhone) {
 		attachmentSheetOpen = true;
@@ -2186,7 +2422,6 @@ function suppressLongPressMenu(event: Event) {
 function toggleToolsMenu() {
 	showToolsMenu = !showToolsMenu;
 	if (showToolsMenu) {
-		sourceManagerOpen = false;
 		showConnectionsPopover = false;
 		showIncognitoPopover = false;
 		closeCommandTray();
@@ -2215,17 +2450,6 @@ async function loadSkillCount() {
 		// "0 active" because a fetch failed is a lie.
 		skillCount = null;
 	}
-}
-
-function openSourceManager() {
-	sourceManagerOpen = true;
-	showToolsMenu = false;
-	closeCommandTray();
-}
-
-function closeSourceManager() {
-	sourceManagerOpen = false;
-	requestAnimationFrame(() => textarea?.focus());
 }
 
 // Forced web search has no switch in the "+" menu any more — the owner read
@@ -2842,9 +3066,6 @@ function selectCommand(command: CommandTrayRow) {
 		case "document":
 			openDocumentPicker(commandArgument ?? "");
 			break;
-		case "source":
-			openSourceManager();
-			break;
 		case "settings":
 			void goto("/settings");
 			break;
@@ -2943,7 +3164,6 @@ async function openDocumentPicker(initialQuery = "") {
 	documentPickerOpen = true;
 	documentPickerInitialQuery = initialQuery;
 	showToolsMenu = false;
-	sourceManagerOpen = false;
 	closeCommandTray();
 	if (documentPickerDocuments.length > 0 || documentPickerLoading) return;
 	documentPickerLoading = true;
@@ -2956,6 +3176,19 @@ async function openDocumentPicker(initialQuery = "") {
 	} finally {
 		documentPickerLoading = false;
 	}
+}
+
+/** Photos picked in the Library join the message as real pictures, ready to be seen and marked. */
+function addLibraryPictures(documents: KnowledgeDocumentItem[]) {
+	const known = new Set(pendingAttachments.map(({ artifact }) => artifact.id));
+	const added = documents
+		.filter((document) => !known.has(document.displayArtifactId))
+		.map(libraryPictureAttachment);
+	if (added.length === 0) return;
+	pendingAttachments = [...pendingAttachments, ...added];
+	extractionPoller?.sync();
+	draftEmissionVersion += 1;
+	void emitDraftChange();
 }
 
 function closeDocumentPicker() {
@@ -2986,12 +3219,6 @@ function removeLinkedSource(displayArtifactId: string) {
 		: selectedLinkedSources.filter(
 				(source) => source.displayArtifactId !== displayArtifactId,
 			);
-	draftEmissionVersion += 1;
-	void emitDraftChange();
-}
-
-function clearLinkedSources() {
-	selectedLinkedSources = [];
 	draftEmissionVersion += 1;
 	void emitDraftChange();
 }
@@ -3298,6 +3525,8 @@ function removePendingAttachment(id: string) {
 	pendingAttachments = pendingAttachments.filter(
 		(attachment) => attachment.artifact.id !== id,
 	);
+	// The boxes go with their photo.
+	if (imageMarks?.uploadArtifactId === id) onClearMarks?.();
 	forgetExtractionJob(id);
 	readinessRefreshRequested.delete(id);
 	extractionPoller?.sync();
@@ -3698,12 +3927,29 @@ async function emitDraftChange(force = false) {
 				     there is nothing useful to remove. A failed chip keeps its
 				     ×, wears a short danger clause, and reveals the full
 				     explanation on hover/focus. -->
-				{#each pendingAttachments as attachment (attachment.artifact.id)}
+				{#each pictureChipSlots as slot (slot.type === 'ref' ? `ref:${pictureRefs[slot.index].imageFileId}` : `att:${pendingAttachments[slot.index].artifact.id}`)}
+				{#if slot.type === 'ref'}
+					{@const pictureRef = pictureRefs[slot.index]}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="image"
+							label={pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name}
+							thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId })}
+							number={pictureNumbers.get(pictureKey({ kind: 'ref', imageFileId: pictureRef.imageFileId })) ?? null}
+							tile
+							removable
+							removeLabel={$t('composerChips.removePicture', { name: pictureRefNames.get(pictureRef.imageFileId) ?? pictureRef.name })}
+							onRemove={() => onRemovePictureRef?.(pictureRef.imageFileId)}
+							testId="composer-chip-picture"
+						/>
+					</li>
+				{:else}
+					{@const attachment = pendingAttachments[slot.index]}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
 					{@const chip = extractionChipState(extraction, {
-						picture: isPictureForModel(attachment.artifact, pictureOptions),
+						picture: isPictureForModel(attachment.artifact, pictureOptionsFor(attachment.artifact)),
 					})}
-					{@const failure = attachmentChipFailure(extraction, attachment, pictureOptions)}
+					{@const failure = attachmentChipFailure(extraction, attachment, pictureOptionsFor(attachment.artifact))}
 					{@const attachmentBusy = failure.kind === 'busy'}
 					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
 					{@const failureDetail = attachmentFailureDetail(attachment, failure, $t)}
@@ -3724,6 +3970,11 @@ async function emitDraftChange(force = false) {
 										: ''}
 									detailsId={detailsId}
 									thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
+									number={pictureNumbers.get(pictureKey({ kind: 'upload', artifactId: attachment.artifact.id })) ?? null}
+									tile={attachmentChipKind(attachment.artifact) === 'image'}
+									markLetters={imageMarks?.uploadArtifactId === attachment.artifact.id ? imageMarks.marks.map((mark) => mark.letter) : null}
+									onActivate={onOpenAttachment && attachmentChipKind(attachment.artifact) === 'image' ? () => onOpenAttachment(attachment.artifact) : undefined}
+									activateLabel={$t('composerChips.openAttachment', { name: attachment.artifact.name })}
 									removable
 									removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
 									onRemove={() => removePendingAttachment(attachment.artifact.id)}
@@ -3768,7 +4019,27 @@ async function emitDraftChange(force = false) {
 							/>
 						{/if}
 					</li>
+				{/if}
 				{/each}
+
+				<!-- Plan 2b T6 — the marks drawn on one picture: ONE image chip,
+				     named by its letters, with the picture's thumbnail and the
+				     number the picture goes by in this message. -->
+				{#if imageMarks}
+					{@const markLabel = $t('composerChips.marks', { letters: imageMarks.marks.map((mark) => mark.letter).join(', ') })}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="image"
+							label={markLabel}
+							thumbnailUrl={imageMarks.imageFileId ? imageFileUrl(imageMarks.imageFileId, { variant: 'thumb', conversationId: resolvedConversationId }) : attachmentThumbnailUrl({ id: imageMarks.uploadArtifactId, name: imageMarks.name })}
+							number={null}
+							removable
+							removeLabel={$t('composerChips.removeMarks')}
+							onRemove={() => onClearMarks?.()}
+							testId="composer-chip-marks"
+						/>
+					</li>
+				{/if}
 
 				<!-- OQ6 — a file whose bytes are still moving. No artifact id
 				     exists yet, so it cannot be removed or cancelled; it is a
@@ -3916,6 +4187,7 @@ async function emitDraftChange(force = false) {
 							{attachmentsEnabled}
 							onClose={closeToolsMenu}
 							onAttach={openFilePicker}
+							onOpenLibrary={() => void openDocumentPicker()}
 							{personalityProfiles}
 							{selectedPersonalityId}
 							{onPersonalityChange}
@@ -4162,6 +4434,7 @@ async function emitDraftChange(force = false) {
 			loading={documentPickerLoading}
 			error={documentPickerError}
 			onApply={applyLinkedSources}
+			onAddPictures={addLibraryPictures}
 			onCancel={closeDocumentPicker}
 		/>
 	{/if}
@@ -4188,15 +4461,6 @@ async function emitDraftChange(force = false) {
 		/>
 	{/if}
 
-	{#if sourceManagerOpen}
-		<LinkedSourceManager
-			sources={effectiveLinkedSources}
-			onClose={closeSourceManager}
-			onRemove={removeLinkedSource}
-			onClear={clearLinkedSources}
-			onAddDocument={() => openDocumentPicker()}
-		/>
-	{/if}
 
 </div>
 

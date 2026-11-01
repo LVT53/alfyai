@@ -32,6 +32,11 @@ import {
 	type StreamTimingSnapshot,
 	streamChat,
 } from "$lib/services/streaming";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import {
 	isFileProductionToolName,
 	toolCallInputKey,
@@ -47,6 +52,30 @@ export type NormalChatSendPayload = {
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
 	linkedSources?: LinkedContextSource[];
+	// Card pictures attached to this message (Attach) under the numbers the
+	// person saw, and the marks drawn on one picture. Sent in the stream body;
+	// the server numbers them with the uploads and the open picture.
+	pictureRefs?: PictureRef[];
+	// The same pictures with their names, and the numbers the uploads went by
+	// (the composer's numbering): the optimistic user message draws its numbered
+	// thumbnails from it from the first paint (F13), and a queued turn put back
+	// in the composer gets its chips and their names from it. The server's
+	// record replaces it with the same numbers. CLIENT-ONLY: it is never sent on
+	// the wire (`streamChat` builds the request body field by field and only
+	// `pictureRefs` goes out); the server takes the numbers from `pictureRefs` and
+	// the uploads, never from this.
+	pictures?: UserPicturesMetadata;
+	imageMarks?: ImageMarksRequest | null;
+	// The item the marks were drawn on and whether the send added its picture as
+	// a ref (plan 2b T6): a queued or failed turn put back in the composer gets
+	// its marks chip back, and only the pictures the person attached as chips.
+	// CLIENT-ONLY, like `pictures`: `streamChat` never sends it.
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -493,12 +522,14 @@ export function createNormalChatClientTurnRuntime(
 		text: string;
 		attachmentIds: string[];
 		attachedArtifacts: ArtifactSummary[];
+		pictures?: UserPicturesMetadata;
 	}): ChatMessage {
 		return {
 			id: params.id,
 			renderKey: params.id,
 			role: "user",
 			content: params.text,
+			...(params.pictures ? { pictures: params.pictures } : {}),
 			attachments: params.attachedArtifacts
 				.filter((artifact) => params.attachmentIds.includes(artifact.id))
 				.map((artifact) => ({
@@ -1260,6 +1291,7 @@ export function createNormalChatClientTurnRuntime(
 					text,
 					attachmentIds: payload.attachmentIds ?? [],
 					attachedArtifacts: sentAttachments,
+					pictures: payload.pictures,
 				}),
 			});
 		}
@@ -1302,6 +1334,8 @@ export function createNormalChatClientTurnRuntime(
 				forceWebSearch: payload.forceWebSearch === true,
 				enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+				pictureRefs: payload.pictureRefs,
+				imageMarks: payload.imageMarks ?? null,
 				personalityProfileId: personalityProfileIdForTurn,
 				retryAssistantMessageId: options.retryAssistantMessageId,
 				retryUserMessageId: options.retryUserMessageId,
@@ -1600,6 +1634,31 @@ function cloneSendPayload(
 					unavailable: payload.pendingSkill.unavailable === true,
 				}
 			: null,
+		pictureRefs: payload.pictureRefs
+			? payload.pictureRefs.map((ref) => ({ ...ref }))
+			: undefined,
+		pictures: payload.pictures
+			? {
+					...payload.pictures,
+					refs: payload.pictures.refs.map((ref) => ({ ...ref })),
+					...(payload.pictures.uploads
+						? {
+								uploads: payload.pictures.uploads.map((upload) => ({
+									...upload,
+								})),
+							}
+						: {}),
+				}
+			: undefined,
+		imageMarks: payload.imageMarks
+			? {
+					...payload.imageMarks,
+					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
+				}
+			: null,
+		markedPicture: payload.markedPicture
+			? { ...payload.markedPicture }
+			: undefined,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		personalityProfileId: payload.personalityProfileId ?? null,

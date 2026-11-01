@@ -370,6 +370,7 @@ describe("listLogicalDocumentsPage totals", () => {
 			canvas: 1,
 			app: 0,
 			slides: 0,
+			image: 0,
 		});
 
 		const canvasOnly = await listLogicalDocumentsPage("owner", {

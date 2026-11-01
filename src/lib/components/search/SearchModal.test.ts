@@ -661,7 +661,7 @@ describe("SearchModal", () => {
 			overrides: Partial<{
 				id: string;
 				name: string;
-				kind: "document" | "app" | "canvas" | "slides";
+				kind: "document" | "app" | "canvas" | "slides" | "image";
 			}>,
 		) {
 			const id = overrides.id ?? "art-1";
@@ -762,6 +762,57 @@ describe("SearchModal", () => {
 			expect(iconFor("Trip recap")?.getAttribute("class")).toContain(
 				"lucide-presentation",
 			);
+		});
+
+		it("shows an image result with the Image icon and the kind word Image", async () => {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "default",
+				query: "",
+				conversations: [],
+				documents: [
+					makeArtifactFamilyDocument({
+						id: "art-img",
+						kind: "image",
+						name: "Harbour at dusk",
+					}),
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Harbour at dusk");
+			const row = screen
+				.getByText("Harbour at dusk")
+				.closest(".search-result-document");
+			expect(
+				row?.querySelector(".search-result-icon svg")?.getAttribute("class"),
+			).toContain("lucide-image");
+			expect(screen.getByText("Image")).toBeInTheDocument();
+		});
+
+		it("choosing an image result hands it to the knowledge page's panel", async () => {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "default",
+				query: "",
+				conversations: [],
+				documents: [
+					makeArtifactFamilyDocument({
+						id: "art-img",
+						kind: "image",
+						name: "Harbour at dusk",
+					}),
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+
+			render(SearchModal, { props: { isOpen: true } });
+
+			await fireEvent.click(await screen.findByText("Harbour at dusk"));
+
+			expect(goto).toHaveBeenCalledWith("/knowledge?open_artifact=art-img");
 		});
 
 		it("is reachable and keyboard-activatable like every other result row", async () => {

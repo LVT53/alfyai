@@ -7,6 +7,7 @@ import {
 } from "$lib/model-capabilities";
 import { setModelImageInput } from "$lib/model-image-input";
 import type { ModelId } from "$lib/model-types";
+import { resultLookLabel } from "$lib/server/services/images/result-look";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,
@@ -18,6 +19,7 @@ import {
 } from "../vision/step-images";
 import {
 	buildCurrentUserMessage,
+	type LabelledPicture,
 	STRIPPED_IMAGE_NOTE,
 	type TurnImage,
 } from "../vision/turn-images";
@@ -4874,8 +4876,8 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		warn.mockRestore();
 	});
 
-	const photo: TurnImage = {
-		artifactId: "artifact-1",
+	const photo: LabelledPicture = {
+		number: 1,
 		name: "room.jpg",
 		image: {
 			base64: "/9j/4AAQSkZJRgABAQ==",
@@ -4926,6 +4928,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		);
 		expect(user?.content).toEqual([
 			{ type: "text", text: "What is in this photo?" },
+			{ type: "text", text: "Picture 1: room.jpg" },
 			{
 				type: "image_url",
 				image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
@@ -4939,9 +4942,9 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 				message: { role: "assistant", content: "Two rooms." },
 			}),
 		);
-		const second: TurnImage = {
+		const second: LabelledPicture = {
 			...photo,
-			artifactId: "artifact-2",
+			number: 2,
 			name: "kitchen.jpg",
 			image: { ...photo.image, base64: "/9j/AAAA" },
 		};
@@ -4958,11 +4961,56 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 		}>;
 		expect(content.map((part) => part.type)).toEqual([
 			"text",
+			"text",
 			"image_url",
+			"text",
 			"image_url",
 		]);
-		expect(content[1]?.image_url?.url).toContain("/9j/4AAQ");
-		expect(content[2]?.image_url?.url).toContain("/9j/AAAA");
+		expect(content.map((part) => (part as { text?: string }).text)).toEqual([
+			"Compare them",
+			"Picture 1: room.jpg",
+			undefined,
+			"Picture 2: kitchen.jpg",
+			undefined,
+		]);
+		expect(content[2]?.image_url?.url).toContain("/9j/4AAQ");
+		expect(content[4]?.image_url?.url).toContain("/9j/AAAA");
+	});
+
+	it("sends the open picture and the marked copy like any other picture, each under its Picture N line", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Done." },
+			}),
+		);
+		const open: LabelledPicture = {
+			...photo,
+			number: 4,
+			name: "Cosy living room (open in the panel)",
+		};
+		const marked: LabelledPicture = {
+			...photo,
+			number: 5,
+			name: "Picture 4 with the user's marks: A = red box",
+		};
+
+		await runPlainNormalChatModelRun({
+			provider: seeingProvider,
+			messages: [buildCurrentUserMessage("Make it warmer", [open, marked])],
+			fetch,
+		});
+
+		const content = lastUserMessage(parseRequestBody(fetch))?.content as Array<{
+			type: string;
+			text?: string;
+		}>;
+		expect(content.map((part) => part.text ?? part.type)).toEqual([
+			"Make it warmer",
+			"Picture 4: Cosy living room (open in the panel)",
+			"image_url",
+			"Picture 5: Picture 4 with the user's marks: A = red box",
+			"image_url",
+		]);
 	});
 
 	it("sends a picture to a streaming run the same way", async () => {
@@ -5135,6 +5183,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 			expect(JSON.stringify(secondBody)).not.toContain("image_url");
 			expect(second?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{ type: "text", text: STRIPPED_IMAGE_NOTE },
 			]);
 		});
@@ -5183,6 +5232,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 			expect(JSON.stringify(body)).not.toContain("image_url");
 			expect(lastUserMessage(body)?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{ type: "text", text: STRIPPED_IMAGE_NOTE },
 			]);
 		});
@@ -5200,6 +5250,7 @@ describe("Normal Chat Model Run pictures in the user message", () => {
 
 			expect(lastUserMessage(parseRequestBody(fetch))?.content).toEqual([
 				{ type: "text", text: question },
+				{ type: "text", text: "Picture 1: room.jpg" },
 				{
 					type: "image_url",
 					image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==" },
@@ -5463,6 +5514,83 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 				role: "user",
 				content: [
 					{ type: "text", text: LABEL },
+					{ type: "text", text: STRIPPED_IMAGE_NOTE },
+				],
+			});
+		});
+
+		/** A tool that, like make_image, queues the look at a picture it made. */
+		function createPictureTool(queue: StepImageQueue) {
+			return tool({
+				description: "Make a picture.",
+				inputSchema: photosSchema,
+				execute: async () => {
+					queue.reserve(1);
+					queue.push({
+						label: resultLookLabel("take-1", 2),
+						images: [
+							{
+								artifactId: "image-file:file-1",
+								name: "make_image result",
+								image: thumbnails[0].image,
+							},
+						],
+					});
+					return { ok: true, status: "succeeded" };
+				},
+			});
+		}
+
+		it("hands the model a made picture under its label, as one picture, in the step after the tool result", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: seeingProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPictureTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(second.messages.at(-2)?.role).toBe("tool");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "Result of make_image (takeId take-1), changed from picture 2:",
+					},
+					{
+						type: "image_url",
+						image_url: { url: "data:image/jpeg;base64,QUFBQQ==" },
+					},
+				],
+			});
+		});
+
+		it("gives an attempt on a model that cannot see a made picture the label and the note, no pixels", async () => {
+			const queue = createStepImageQueue();
+			const fetch = toolThenAnswer();
+
+			await run({
+				provider: blindProvider,
+				messages: [buildCurrentUserMessage(question, [])],
+				tools: { photos: createPictureTool(queue) },
+				stepImages: queue,
+				fetch,
+			});
+
+			const second = parseRequestBody(fetch, 1) as Body;
+			expect(JSON.stringify(second)).not.toContain("image_url");
+			expect(second.messages.at(-1)).toEqual({
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "Result of make_image (takeId take-1), changed from picture 2:",
+					},
 					{ type: "text", text: STRIPPED_IMAGE_NOTE },
 				],
 			});

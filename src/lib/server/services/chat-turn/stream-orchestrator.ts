@@ -69,6 +69,7 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
+import { createTurnTakes } from "$lib/server/services/images/turn-takes";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -95,6 +96,7 @@ import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
+import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
@@ -323,6 +325,8 @@ export function runChatStreamOrchestrator(
 	const safeAttachmentIds = turn.attachmentIds;
 	const activeDocumentArtifactId = turn.activeDocumentArtifactId;
 	const attachmentTraceId = turn.attachmentTraceId;
+	// What this turn has made with make_image, shared by the stream and its rerun.
+	const turnTakes = createTurnTakes();
 	const personalityProfileId = turn.personalityProfileId;
 	const thinkingMode = turn.thinkingMode;
 	const skillControlEnabled = getConfig().composerCommandRegistryEnabled;
@@ -797,6 +801,7 @@ export function runChatStreamOrchestrator(
 				| undefined;
 			let latestEstimatedPromptTokens: number | undefined;
 			let latestInstructionsApplied: InstructionScopeApplication | undefined;
+			let latestUserPictures: UserPicturesMetadata | undefined;
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
@@ -886,6 +891,7 @@ export function runChatStreamOrchestrator(
 						contextTraceSections: latestContextTraceSections,
 						estimatedPromptTokens: latestEstimatedPromptTokens,
 						instructionsApplied: latestInstructionsApplied,
+						userPictures: latestUserPictures,
 					},
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
@@ -1045,6 +1051,9 @@ export function runChatStreamOrchestrator(
 						modelId: (fallbackModelId ?? undefined) as ModelId | undefined,
 						attachmentIds: safeAttachmentIds,
 						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+						pictureRefs: turn.pictureRefs,
+						imageMarks: turn.imageMarks,
+						turnTakes,
 						attachmentTraceId: attachmentTraceId ?? undefined,
 						thinkingMode,
 						depthMetadata: latestDepthMetadata,
@@ -1182,6 +1191,9 @@ export function runChatStreamOrchestrator(
 					},
 					attachmentIds: safeAttachmentIds,
 					activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+					pictureRefs: turn.pictureRefs,
+					imageMarks: turn.imageMarks,
+					turnTakes,
 					attachmentTraceId: attachmentTraceId ?? undefined,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					pendingSkillInstructions: currentPendingSkillInstructions(),
@@ -1192,6 +1204,10 @@ export function runChatStreamOrchestrator(
 					enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
 					signal: upstreamAbortController.signal,
 					onResponseActivity: emitResponseActivity,
+					// A tool waiting on a job (a picture) is activity, so a long wait
+					// never reads as a silent stream. `touch` never revives a stream
+					// that has ended.
+					onToolActivity: () => idleTimeout.touch(latestUpstreamAttempt),
 				};
 				let modelRun: Awaited<
 					ReturnType<typeof runStreamingNormalChatSendModel>
@@ -1242,6 +1258,7 @@ export function runChatStreamOrchestrator(
 				latestContextStatus = prepared.contextStatus;
 				latestEstimatedPromptTokens = prepared.estimatedPromptTokens;
 				latestInstructionsApplied = prepared.instructionsApplied;
+				latestUserPictures = prepared.userPictures;
 				latestTaskState =
 					prepared.taskState ??
 					(await getConversationTaskState(user.id, conversationId).catch(

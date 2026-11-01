@@ -21,6 +21,8 @@ export type ToolHealthConfig = Pick<
 	| "owntracksRecorderPass"
 	| "mineruApiUrl"
 	| "mineruApiKey"
+	| "comfyuiUrl"
+	| "imageExplicitFilterEnabled"
 >;
 
 // Per-region public-transport readiness, as the map_route health entry reports
@@ -43,6 +45,9 @@ export interface ToolProbeContext {
 	signal: AbortSignal;
 	dockerPing: (signal: AbortSignal) => Promise<void>;
 	listTransitRegions: () => Promise<TransitRegionHealth[]>;
+	// Resolves when the explicit-picture check's pinned model file is in place
+	// (present and hashing to the pin); rejects with why not. Never loads it.
+	pictureCheckReady: () => Promise<void>;
 }
 
 // One registry entry per (tool, backend) pair. A new tool is one object here.
@@ -104,6 +109,7 @@ export interface ToolHealthDeps {
 	getConfig: () => ToolHealthConfig;
 	dockerPing: (signal: AbortSignal) => Promise<void>;
 	listTransitRegions: () => Promise<TransitRegionHealth[]>;
+	pictureCheckReady: () => Promise<void>;
 	countConnectedConnections: () => Promise<ConnectedConnectionCounts>;
 	now: () => number;
 	timeoutMs: number;

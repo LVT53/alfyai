@@ -146,6 +146,52 @@ describe("runReadArtifactTool", () => {
 		});
 	});
 
+	it("answers a picture with its size, version count and the tool that changes it, never the JSON body", async () => {
+		const body = JSON.stringify({
+			v: 1,
+			fileId: "secret-file-id",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+			baseFileId: null,
+			sources: [],
+			marks: null,
+			prompt: "a very private prompt",
+			takeId: null,
+			seed: 5,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		});
+		getArtifactMock.mockResolvedValue(
+			detail({
+				id: "img-1",
+				kind: "image",
+				title: "Cosy room",
+				versionNumber: 3,
+				body,
+			}),
+		);
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "img-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			artifactType: "image",
+			title: "Cosy room",
+		});
+		const text = JSON.stringify(result.modelPayload);
+		expect(text).toContain("1248x832");
+		expect(text).toContain("3 versions");
+		expect(text).toContain('make_image (pictures: [\\"img-1\\"])');
+		expect(text).not.toContain("secret-file-id");
+		expect(text).not.toContain("private prompt");
+	});
+
 	it("reads an App through the same generic fallback — no dedicated reader is registered for it (Task A7)", async () => {
 		// An App has no addressable "blocks" (it is not edited in place — see
 		// edit.ts's App refusal), so there is nothing a per-kind reader would

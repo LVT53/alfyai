@@ -38,6 +38,7 @@ const fetchAvailableModelsMock = vi.hoisted(() =>
 					],
 				},
 			],
+			modelAliases: {},
 		}),
 	),
 );

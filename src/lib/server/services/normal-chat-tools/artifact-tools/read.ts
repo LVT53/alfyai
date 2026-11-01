@@ -14,6 +14,7 @@ import {
 	boardJson,
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
+import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
@@ -335,6 +336,33 @@ export async function runReadArtifactTool(params: {
 				found: true,
 				artifactId: record.id,
 				artifactKind: "file",
+				artifactTitle: record.title,
+			},
+		};
+	}
+
+	if (record.kind === "image") {
+		// A picture's body is JSON that points at its files (ids, the prompt, marks):
+		// the model is told what the item is and which tool changes it, never the
+		// JSON. Pictures are make_image's.
+		const image = parseImageVersionBody(record.body);
+		const size = image ? `${image.width}x${image.height}` : "unknown size";
+		const versions = Math.max(1, record.versionNumber);
+		const note = `Picture "${record.title}", ${size}, ${versions} ${versions === 1 ? "version" : "versions"}. It has no text to read. Change it with make_image (pictures: ["${record.id}"]).`;
+		return {
+			modelPayload: {
+				success: true,
+				artifactId: record.id,
+				artifactType: "image",
+				title: record.title,
+				body: note,
+			},
+			outputSummary: `Read image "${record.title}"`,
+			metadata: {
+				ok: true,
+				found: true,
+				artifactId: record.id,
+				artifactKind: "image",
 				artifactTitle: record.title,
 			},
 		};

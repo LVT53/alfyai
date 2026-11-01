@@ -18,7 +18,10 @@ import {
 	messageRenderResourcesFromKey,
 	messageRenderResourcesKey,
 } from "$lib/utils/message-render-resources";
-import { buildToolActivityItem } from "$lib/utils/tool-activity";
+import {
+	buildToolActivityItem,
+	type ToolActivityItem,
+} from "$lib/utils/tool-activity";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { intlLocale } from "$lib/utils/locale";
@@ -42,6 +45,8 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -61,6 +66,8 @@ import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
+import { imageFileUrl } from "$lib/client/api/images";
+import { arrangePictureChips, pictureKey } from "./composer-pictures";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerChip from "./ComposerChip.svelte";
@@ -120,6 +127,8 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	imageCards = [],
+	onImageAction = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -204,6 +213,10 @@ let {
 	activeArtifactId?: string | null;
 	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** The chat's picture cards (`ConversationDetail.imageCards`): a make_image row draws its own. */
+	imageCards?: ImageCardView[];
+	/** What a picture card's buttons ask the chat page for. */
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 let copied = $state(false);
@@ -272,6 +285,49 @@ let atlasJobCostUsdMicros = $derived(
 );
 let isUser = $derived(message.role === "user");
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
+// The card pictures a user message carried, in their numbers, and the number
+// each uploaded photo went by (plan 2b T5). Both come with the message from its
+// first paint (the composer's numbers, then the server's, the same).
+let sentPictureRefs = $derived(
+	[...(message.pictures?.refs ?? [])].sort((a, b) => a.number - b.number),
+);
+// Drawn in number order, as the composer drew them: a card picture sent as 1 is
+// never drawn after a photo sent as 2.
+let sentChipSlots = $derived(
+	arrangePictureChips(
+		[
+			...sentPictureRefs.map((ref) => ({
+				key: pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+				number: ref.number,
+			})),
+			...(message.pictures?.uploads ?? []).map((upload) => ({
+				key: pictureKey({ kind: "upload", artifactId: upload.artifactId }),
+				number: upload.number,
+			})),
+		]
+			.sort((a, b) => a.number - b.number)
+			.map((entry) => entry.key),
+		(message.attachments ?? []).map((attachment) =>
+			sentUploadNumbers.has(attachment.artifactId ?? attachment.id)
+				? pictureKey({
+						kind: "upload",
+						artifactId: attachment.artifactId ?? attachment.id,
+					})
+				: null,
+		),
+		sentPictureRefs.map((ref) =>
+			pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+		),
+	),
+);
+let sentUploadNumbers = $derived(
+	new Map(
+		(message.pictures?.uploads ?? []).map((upload) => [
+			upload.artifactId,
+			upload.number,
+		]),
+	),
+);
 let hasThinking = $derived(Boolean(message.thinking?.trim()));
 let isFinalizing = $derived(message.runtimePhase === "finalizing");
 const isStreaming = $derived(
@@ -314,15 +370,34 @@ let foldedDeliverables = $derived(
 	foldArtifactDeliverables(
 		deliverableSegments.map((segment, index) => ({
 			segment,
-			item: buildToolActivityItem(
-				segment,
-				segment.callId ??
-					`${segment.name + JSON.stringify(segment.input)}-${index}`,
-				$t,
+			item: withResolvedImageCard(
+				buildToolActivityItem(
+					segment,
+					segment.callId ??
+						`${segment.name + JSON.stringify(segment.input)}-${index}`,
+					$t,
+				),
+				segment.callId,
 			),
 		})),
 	),
 );
+/**
+ * A make_image row whose call has not named its card yet finds it by the take
+ * made for the call (plan 2b preflight F5), so the card can be drawn, and folded
+ * with the other calls of the same card, before the call ends.
+ */
+function withResolvedImageCard(
+	item: ToolActivityItem,
+	callId: string | undefined,
+): ToolActivityItem {
+	const body = item.body;
+	if (body?.kind !== "image-card" || body.cardId || !callId) return item;
+	const card = imageCards.find((candidate) =>
+		candidate.takes.some((take) => take.toolCallId === callId),
+	);
+	return card ? { ...item, body: { ...body, cardId: card.id } } : item;
+}
 let retriedAttempts = $derived(new Set(foldedDeliverables.retried));
 let thinkingSegmentsForDisplay = $derived(
 	rawThinkingSegments.filter(
@@ -334,6 +409,12 @@ let thinkingSegmentsForDisplay = $derived(
 let deliverableItems = $derived(
 	foldedDeliverables.shown.map((item) => {
 		const body = item.body;
+		if (body?.kind === "image-card") {
+			const card = body.cardId
+				? (imageCards.find((candidate) => candidate.id === body.cardId) ?? null)
+				: null;
+			return card ? { ...item, body: { ...body, card } } : item;
+		}
 		if (body?.kind !== "artifact") return item;
 		const preview = conversationArtifacts.find(
 			(candidate) => candidate.id === body.artifactId,
@@ -455,8 +536,14 @@ let hasAtlasCards = $derived(atlasJobs.length > 0);
 let hasFileProductionCards = $derived(
 	fileProductionJobs.length > 0 && Boolean(conversationId) && !hasAtlasCards,
 );
+// A reply that made a picture says what it made on its card; the server lists
+// sources for it only when it drew on some, and they arrive with the poll, so
+// no "Evidence is loading…" under the card (Task 17).
+let madePicture = $derived(
+	deliverableSegments.some((segment) => segment.name === "make_image"),
+);
 let showEvidencePending = $derived(
-	Boolean(message.evidencePending) && isDone && !hasAtlasCards,
+	Boolean(message.evidencePending) && isDone && !hasAtlasCards && !madePicture,
 );
 // P3c (ADR-0056) — reverse-scan-latest-match, gated identically to
 // markdownIsStreaming so it (like every other live activity) disappears once
@@ -1142,25 +1229,40 @@ function sendFollowUp(question: string) {
 				     order, 22px instead of 28px, and no × (a sent turn is a
 				     record, not a promise). An attachment chip stays clickable
 				     and opens the document workspace, as the compact chip did. -->
-				{#if hasAttachments || userQuoteSplit.quoteLabels.length > 0}
+				{#if hasAttachments || sentPictureRefs.length > 0 || userQuoteSplit.quoteLabels.length > 0}
 					<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
-						{#each message.attachments ?? [] as attachment (attachment.id)}
-							<span class="user-bubble-chip">
-								<FileAttachment
-									attachment={toArtifactSummary(attachment)}
-									variant="chip"
-									viewable={Boolean(onOpenDocument)}
-									onView={handleViewAttachment}
-								/>
-								{#if attachment.outline && attachment.outline.length > 0}
-									<AttachmentOutline
-										outline={attachment.outline}
-										onQuote={requestComposerQuote}
-										variant="disclosure"
-										disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
+						{#each sentChipSlots as slot (slot.type === 'ref' ? `ref:${sentPictureRefs[slot.index].imageFileId}` : `att:${(message.attachments ?? [])[slot.index].id}`)}
+							{#if slot.type === 'attachment'}
+								{@const attachment = (message.attachments ?? [])[slot.index]}
+								<span class="user-bubble-chip">
+									<FileAttachment
+										attachment={toArtifactSummary(attachment)}
+										variant="chip"
+										number={sentUploadNumbers.get(attachment.artifactId ?? attachment.id) ?? null}
+										viewable={Boolean(onOpenDocument)}
+										onView={handleViewAttachment}
 									/>
-								{/if}
-							</span>
+									{#if attachment.outline && attachment.outline.length > 0}
+										<AttachmentOutline
+											outline={attachment.outline}
+											onQuote={requestComposerQuote}
+											variant="disclosure"
+											disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
+										/>
+									{/if}
+								</span>
+							{:else}
+								{@const pictureRef = sentPictureRefs[slot.index]}
+							<ComposerChip
+								kind="image"
+								label={pictureRef.name}
+								thumbnailUrl={imageFileUrl(pictureRef.imageFileId, { variant: 'thumb', conversationId })}
+								number={pictureRef.number}
+								size="message"
+								tile
+								testId="message-picture-chip"
+							/>
+							{/if}
 						{/each}
 						{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
 							<ComposerChip
@@ -1223,6 +1325,7 @@ function sendFollowUp(question: string) {
 						{alfyActivity}
 						{activeArtifactId}
 						{deletedArtifacts}
+						{onImageAction}
 					/>
 				</div>
 			{/if}
@@ -1402,223 +1505,227 @@ function sendFollowUp(question: string) {
 	     assistant message with a report attached, so copy / feedback /
 	     regenerate and the follow-up chips work exactly as anywhere else. -->
 	{#if !message.isStreaming && !isEditing}
-		<!-- Two rows with two rules. The action row (copy, regenerate, ...) is
-		     hover-only on a wide screen: it is reference, not an invitation. The
-		     follow-up chips are the way to the next question, so they live in a
-		     row of their own that is never hidden (F17); they used to be children
-		     of the action row and went invisible with it on every desktop. -->
+		<!-- Two rows, one reveal. The action row (copy, regenerate, ...) and the
+		     follow-up chips under it wait for the pointer on a device that can
+		     hover, revealed together by ONE rule on the block that holds both
+		     (Task 15, the owner's call; it reverses F17's always-shown chips): a
+		     hover over the message, or keyboard focus anywhere in either row
+		     (focus-within). Keyed to hover capability, not width (fix round 1): a
+		     touch screen of any width (a phone, an iPad in landscape) shows both
+		     at rest. Opacity only, so the rows keep their space and the reveal
+		     moves nothing. Reduced motion: the app's global rule. -->
 		<div class="message-actions">
-		<div
-			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
-			class:justify-end={isUser}
-			class:justify-start={!isUser}
-		>
-			{#if !isUser && hasResponseAuditInfo}
-				<div class="info-container" use:releaseInfoForcedClose>
-					<button
-						type="button"
-						class="btn-icon-bare action-icon-btn info-button"
-						aria-label={$t('messageBubble.info')}
-						aria-describedby={auditDetailsId}
-						aria-expanded={infoPopoverTouched || undefined}
-						onclick={toggleInfoPopoverOnTouch}
-					>
-						<Info size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<div
-						id={auditDetailsId}
-						class="info-popover"
-						data-open={infoPopoverTouched ? "true" : "false"}
-						class:info-popover-open={infoPopoverTouched}
-						class:info-popover-forced-closed={infoForcedClosed}
-					>
-					<ResponseAuditDetails
-						{message}
-						modelIconUrl={messageModelIconUrl}
-						atlasCostUsdMicros={atlasJobCostUsdMicros}
-						onOpenSources={openSourcesFromInfo}
-					/>
-					</div>
-				</div>
-			{/if}
-
-		{#if !isUser && !readOnly}
-			<!-- Regenerate button -->
-				<div class="action-tooltip-container">
-					<button
-						id={regenerateButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={() => onRegenerate?.({ messageId: message.id })}
-						aria-label={$t('messageBubble.regenerate')}
-						aria-describedby={`${regenerateButtonId}-tooltip`}
-					>
-						<RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<div
-						id={`${regenerateButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{$t('messageBubble.actionRegenerate')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if canFork}
-				<div class="action-tooltip-container">
-					<button
-						id={forkButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={() => onFork?.({ messageId: message.id })}
-						disabled={forkBusy}
-						aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
-						aria-describedby={`${forkButtonId}-tooltip`}
-					>
-						{#if forkBusy}
-							<span class="mini-spinner" aria-hidden="true"></span>
-						{:else}
-							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
-						{/if}
-					</button>
-					<div
-						id={`${forkButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if canKeepAsDocument}
-				<div class="action-tooltip-container">
-					<button
-						id={keepAsDocumentButtonId}
-						type="button"
-						class="btn-icon-bare action-icon-btn"
-						onclick={handleKeepAsDocument}
-						disabled={keepingAsDocumentBusy}
-						aria-label={keepingAsDocumentBusy
-							? $t('chat.artifacts.keepAsDocumentBusy')
-							: $t('chat.artifacts.keepAsDocument')}
-						aria-describedby={`${keepAsDocumentButtonId}-tooltip`}
-					>
-						{#if keepingAsDocumentBusy}
-							<span class="mini-spinner" aria-hidden="true"></span>
-						{:else}
-							<FileText size={15} strokeWidth={2} aria-hidden="true" />
-						{/if}
-					</button>
-					<div
-						id={`${keepAsDocumentButtonId}-tooltip`}
-						class="action-tooltip"
-						role="tooltip"
-					>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{keepingAsDocumentBusy ? $t('chat.artifacts.keepAsDocumentBusy') : $t('chat.artifacts.keepAsDocument')}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if isUser}
-				<div class="timestamp-container">
-					<button
-						type="button"
-						class="timestamp-label font-mono tabular-nums"
-						onclick={toggleTimestampTooltip}
-					>{timestampLabel}</button>
-					<div class="timestamp-tooltip" class:visible={showTimestampTooltip}>
-						<div class="tooltip-content">
-							<div class="tooltip-row">
-								<span class="tooltip-value">{fullTimestampLabel}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-				{#if !readOnly}
-					<!-- Edit button -->
-					<div class="action-tooltip-container">
+			<div
+				class="copy-action-row flex w-full items-center gap-0.5"
+				class:justify-end={isUser}
+				class:justify-start={!isUser}
+			>
+				{#if !isUser && hasResponseAuditInfo}
+					<div class="info-container" use:releaseInfoForcedClose>
 						<button
-							id={editButtonId}
 							type="button"
-							class="btn-icon-bare action-icon-btn"
-							onclick={startEdit}
-							aria-label={$t('messageBubble.editMessage')}
-							aria-describedby={`${editButtonId}-tooltip`}
+							class="btn-icon-bare action-icon-btn info-button"
+							aria-label={$t('messageBubble.info')}
+							aria-describedby={auditDetailsId}
+							aria-expanded={infoPopoverTouched || undefined}
+							onclick={toggleInfoPopoverOnTouch}
 						>
-							<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+							<Info size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<div
-							id={`${editButtonId}-tooltip`}
+							id={auditDetailsId}
+							class="info-popover"
+							data-open={infoPopoverTouched ? "true" : "false"}
+							class:info-popover-open={infoPopoverTouched}
+							class:info-popover-forced-closed={infoForcedClosed}
+						>
+						<ResponseAuditDetails
+							{message}
+							modelIconUrl={messageModelIconUrl}
+							atlasCostUsdMicros={atlasJobCostUsdMicros}
+							onOpenSources={openSourcesFromInfo}
+						/>
+						</div>
+					</div>
+				{/if}
+
+			{#if !isUser && !readOnly}
+				<!-- Regenerate button -->
+					<div class="action-tooltip-container">
+						<button
+							id={regenerateButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={() => onRegenerate?.({ messageId: message.id })}
+							aria-label={$t('messageBubble.regenerate')}
+							aria-describedby={`${regenerateButtonId}-tooltip`}
+						>
+							<RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<div
+							id={`${regenerateButtonId}-tooltip`}
 							class="action-tooltip"
 							role="tooltip"
 						>
 							<div class="tooltip-content">
 								<div class="tooltip-row">
-									<span class="tooltip-value">{$t('messageBubble.actionEdit')}</span>
+									<span class="tooltip-value">{$t('messageBubble.actionRegenerate')}</span>
 								</div>
 							</div>
 						</div>
 					</div>
 				{/if}
-			{/if}
 
-			<div class="action-tooltip-container">
-				<button
-					id={copyButtonId}
-					type="button"
-					class="btn-icon-bare action-icon-btn"
-					onclick={copyToClipboard}
-					aria-label={$t('messageBubble.copyMessage')}
-					aria-describedby={`${copyButtonId}-tooltip`}
-				>
-					{#if copied}
-						<Check size={15} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
-					{:else}
-						<Copy size={15} strokeWidth={2} aria-hidden="true" />
+				{#if canFork}
+					<div class="action-tooltip-container">
+						<button
+							id={forkButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={() => onFork?.({ messageId: message.id })}
+							disabled={forkBusy}
+							aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
+							aria-describedby={`${forkButtonId}-tooltip`}
+						>
+							{#if forkBusy}
+								<span class="mini-spinner" aria-hidden="true"></span>
+							{:else}
+								<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+						<div
+							id={`${forkButtonId}-tooltip`}
+							class="action-tooltip"
+							role="tooltip"
+						>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if canKeepAsDocument}
+					<div class="action-tooltip-container">
+						<button
+							id={keepAsDocumentButtonId}
+							type="button"
+							class="btn-icon-bare action-icon-btn"
+							onclick={handleKeepAsDocument}
+							disabled={keepingAsDocumentBusy}
+							aria-label={keepingAsDocumentBusy
+								? $t('chat.artifacts.keepAsDocumentBusy')
+								: $t('chat.artifacts.keepAsDocument')}
+							aria-describedby={`${keepAsDocumentButtonId}-tooltip`}
+						>
+							{#if keepingAsDocumentBusy}
+								<span class="mini-spinner" aria-hidden="true"></span>
+							{:else}
+								<FileText size={15} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+						<div
+							id={`${keepAsDocumentButtonId}-tooltip`}
+							class="action-tooltip"
+							role="tooltip"
+						>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{keepingAsDocumentBusy ? $t('chat.artifacts.keepAsDocumentBusy') : $t('chat.artifacts.keepAsDocument')}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if isUser}
+					<div class="timestamp-container">
+						<button
+							type="button"
+							class="timestamp-label font-mono tabular-nums"
+							onclick={toggleTimestampTooltip}
+						>{timestampLabel}</button>
+						<div class="timestamp-tooltip" class:visible={showTimestampTooltip}>
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{fullTimestampLabel}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+					{#if !readOnly}
+						<!-- Edit button -->
+						<div class="action-tooltip-container">
+							<button
+								id={editButtonId}
+								type="button"
+								class="btn-icon-bare action-icon-btn"
+								onclick={startEdit}
+								aria-label={$t('messageBubble.editMessage')}
+								aria-describedby={`${editButtonId}-tooltip`}
+							>
+								<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+							</button>
+							<div
+								id={`${editButtonId}-tooltip`}
+								class="action-tooltip"
+								role="tooltip"
+							>
+								<div class="tooltip-content">
+									<div class="tooltip-row">
+										<span class="tooltip-value">{$t('messageBubble.actionEdit')}</span>
+									</div>
+								</div>
+							</div>
+						</div>
 					{/if}
-				</button>
-				<div
-					id={`${copyButtonId}-tooltip`}
-					class="action-tooltip"
-					role="tooltip"
-				>
-					<div class="tooltip-content">
-						<div class="tooltip-row">
-							<span class="tooltip-value">{$t('messageBubble.actionCopy')}</span>
+				{/if}
+
+				<div class="action-tooltip-container">
+					<button
+						id={copyButtonId}
+						type="button"
+						class="btn-icon-bare action-icon-btn"
+						onclick={copyToClipboard}
+						aria-label={$t('messageBubble.copyMessage')}
+						aria-describedby={`${copyButtonId}-tooltip`}
+					>
+						{#if copied}
+							<Check size={15} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
+						{:else}
+							<Copy size={15} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+					<div
+						id={`${copyButtonId}-tooltip`}
+						class="action-tooltip"
+						role="tooltip"
+					>
+						<div class="tooltip-content">
+							<div class="tooltip-row">
+								<span class="tooltip-value">{$t('messageBubble.actionCopy')}</span>
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
 
-		</div>
-		{#if followUpChips.length > 0}
-			<div class="follow-up-row" data-testid="follow-up-chips">
-				{#each followUpChips as question (question)}
-					<button
-						type="button"
-						class="follow-up-chip"
-						onclick={() => sendFollowUp(question)}
-						aria-label={$t('messageBubble.followUpAriaLabel', { question })}
-					>
-						{question}
-					</button>
-				{/each}
 			</div>
-		{/if}
+			{#if followUpChips.length > 0}
+				<div class="follow-up-row" data-testid="follow-up-chips">
+					{#each followUpChips as question (question)}
+						<button
+							type="button"
+							class="follow-up-chip"
+							onclick={() => sendFollowUp(question)}
+							aria-label={$t('messageBubble.followUpAriaLabel', { question })}
+						>
+							{question}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -1813,8 +1920,8 @@ function sendFollowUp(question: string) {
 	/* The action row wraps at ANY width: its icon buttons never shrink, and a
 	   long list of them (info, regenerate, fork, keep, copy, ...) must have
 	   somewhere to go. The hover-reveal (`md:opacity-0
-	   md:group-hover:opacity-100` in the class list) is on this element alone:
-	   the follow-up chips are not in it (see `.follow-up-row`). */
+	   md:group-hover:opacity-100`) is on `.message-actions`, which holds this
+	   row and the follow-up chips, so the two are revealed together. */
 	/* Chips redesign — what the message was sent with, and what the answer
 	   was made with. Both are chip rows; they differ only in where they sit. */
 	.user-bubble-chips {
@@ -1870,6 +1977,18 @@ function sendFollowUp(question: string) {
 		width: 100%;
 		margin-top: var(--space-sm);
 		row-gap: var(--space-xs);
+		transition: opacity var(--duration-micro) var(--ease-out);
+	}
+
+	@media (hover: hover) {
+		.message-actions {
+			opacity: 0;
+		}
+
+		:global(.group:hover) .message-actions,
+		.message-actions:focus-within {
+			opacity: 1;
+		}
 	}
 
 	.copy-action-row {
@@ -2194,10 +2313,11 @@ function sendFollowUp(question: string) {
 	/* Owner idea (variant A) — the follow-up chips. Each chip is a quiet,
 	   pill-shaped outline button (never filled) that only picks up
 	   surface/text color on hover, matching the mockup exactly. They have a row
-	   of their own under the action row, and that row is always drawn: at rest
-	   on a desktop too, where the action row above it waits for the pointer
-	   (F17, ruling 77). */
+	   of their own under the action row and are revealed with it (Task 15, the
+	   `.message-actions` reveal). A little more room above them than the gap
+	   the rows share, so the chips read as their own row. */
 	.follow-up-row {
+		padding-top: var(--space-xs);
 		display: flex;
 		flex-wrap: wrap;
 		align-items: flex-start;

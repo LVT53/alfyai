@@ -1,3 +1,5 @@
+import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
+
 export type FileServingMode = "preview" | "download";
 
 export interface FileServingResponsePolicyParams {
@@ -36,6 +38,34 @@ const STANDARD_REPORT_PREVIEW_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 export type FileServingPreviewProfile = "standard-report";
+
+/** `encodeURIComponent` leaves ' ( ) * alone, which RFC 5987 does not allow in `filename*`. */
+export function encodeRfc5987(value: string): string {
+	return encodeURIComponent(value).replace(
+		/['()*]/g,
+		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+}
+
+/**
+ * The one Content-Disposition every file route sends: an ASCII `filename=` fallback
+ * (accents folded, quotes, slashes and control characters replaced) for readers
+ * that ignore RFC 5987, and `filename*=UTF-8''...` carrying the real name.
+ */
+export function buildContentDisposition(
+	disposition: "attachment" | "inline",
+	filename: string,
+): string {
+	const ascii =
+		filename
+			.normalize("NFD")
+			.replace(/\p{M}+/gu, "")
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: strips control characters from a header value
+			.replace(/[\u0000-\u001f\u007f"\\/*?:<>|]/g, "_")
+			.replace(/[^\x20-\x7e]/g, "_")
+			.trim() || "download";
+	return `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeRfc5987(filename)}`;
+}
 
 function hasSvgFilename(filename: string): boolean {
 	return filename.toLowerCase().endsWith(".svg");
@@ -83,10 +113,12 @@ export function buildFileServingResponseHeaders(
 		"Content-Type": contentType,
 		"Content-Length": params.contentLength.toString(),
 		"Accept-Ranges": "bytes",
-		"Content-Disposition":
+		"Content-Disposition": buildContentDisposition(
+			params.mode === "preview" ? "inline" : "attachment",
 			params.mode === "preview"
-				? `inline; filename="${encodeURIComponent(params.filename)}"`
-				: `attachment; filename*=UTF-8''${encodeURIComponent(params.filename)}`,
+				? params.filename
+				: ensureFilenameExtension(params.filename, contentType),
+		),
 		"Cache-Control":
 			params.mode === "preview" ? "private, max-age=3600" : "private, no-store",
 	};

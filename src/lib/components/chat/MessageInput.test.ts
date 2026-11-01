@@ -96,7 +96,12 @@ const recordComposerCommandUsedMock = vi.hoisted(() => vi.fn());
 // vi.clearAllMocks() clears call history but not a mockImplementation set at
 // creation, so this survives across the whole file's describe blocks.
 const fetchAvailableModelsMock = vi.hoisted(() =>
-	vi.fn(async (): Promise<AvailableModelsResponse> => ({ providers: [] })),
+	vi.fn(
+		async (): Promise<AvailableModelsResponse> => ({
+			providers: [],
+			modelAliases: {},
+		}),
+	),
 );
 
 const fetchExtractionStatusMock = vi.hoisted(() =>
@@ -123,7 +128,8 @@ vi.mock("$lib/client/api/knowledge", () => ({
 // `supportsReasoningControls` flag through this same fetch ModelSelector
 // uses. Defaults to an empty provider list (so the toggle defaults to
 // visible); individual tests override this to exercise the hidden case.
-vi.mock("$lib/client/api/models", () => ({
+vi.mock("$lib/client/api/models", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/models")>()),
 	fetchAvailableModels: fetchAvailableModelsMock,
 }));
 
@@ -1462,6 +1468,7 @@ describe("MessageInput", () => {
 					],
 				},
 			],
+			modelAliases: {},
 		});
 
 		const { queryByTestId } = render(MessageInput, {
@@ -4341,7 +4348,7 @@ describe("MessageInput composer menu", () => {
 
 		await fireEvent.keyDown(menu, { key: "ArrowDown" });
 		await waitFor(() => {
-			expect(document.activeElement).toBe(getByTestId("composer-menu-skills"));
+			expect(document.activeElement).toBe(getByTestId("composer-menu-library"));
 		});
 
 		await fireEvent.keyDown(menu, { key: "ArrowUp" });
@@ -4437,7 +4444,7 @@ describe("MessageInput composer menu", () => {
 		expect(queryByRole("menuitemcheckbox", { name: "Web search" })).toBeNull();
 	});
 
-	it("says how many skills are active once the menu has asked", async () => {
+	it("says how many skills are available once the menu has asked", async () => {
 		discoverSkillsMock.mockResolvedValue([
 			{
 				id: "s1",
@@ -4458,7 +4465,9 @@ describe("MessageInput composer menu", () => {
 		await openComposerMenu(getByTestId);
 
 		await waitFor(() => {
-			expect(getByTestId("composer-menu-skills")).toHaveTextContent("2 active");
+			expect(getByTestId("composer-menu-skills")).toHaveTextContent(
+				"2 available",
+			);
 		});
 	});
 
@@ -4782,6 +4791,7 @@ describe("MessageInput extraction chips", () => {
 						],
 					},
 				],
+				modelAliases: {},
 			};
 		}
 
@@ -4866,6 +4876,30 @@ describe("MessageInput extraction chips", () => {
 			} finally {
 				uiLanguage.set("en");
 			}
+		});
+
+		// Task 20, live on ai.dev: the system default is the legacy id "model1",
+		// which the server runs on the provider row named after it. The list
+		// names that row by its own id, so the composer must read "model1"
+		// through the server's alias for it, as the send gate does.
+		it("reads a legacy default id through the server's alias for it", async () => {
+			selectedModel.set("model1");
+			fetchAvailableModelsMock.mockResolvedValueOnce({
+				...modelList(true),
+				modelAliases: { model1: "provider:p1:seer" },
+			});
+			const { getByLabelText, getByTestId } = await attach(
+				"photo.jpg",
+				"image/jpeg",
+				noTextJob("photo.jpg"),
+			);
+
+			await waitFor(() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"No text in this image",
+				);
+			});
+			expect(getByLabelText("Send message")).not.toBeDisabled();
 		});
 
 		it("keeps the failure and the closed Send when the selected model cannot see", async () => {
@@ -6392,5 +6426,413 @@ describe("MessageInput paste-to-attach", () => {
 		// words in the textarea stay the user's own.
 		expect(queryByTestId("composer-chip-quote")).toBeTruthy();
 		expect(textarea.value).toBe("");
+	});
+});
+
+// Plan 2b T5 — pictures in the composer: one numbering for uploaded photos and
+// card pictures (Attach), in the order they were added, and no words about a
+// limit (the cap is the server's, for one picture request).
+describe("MessageInput pictures (numbers and Attach)", () => {
+	function upload(name: string, mimeType: string, id: string) {
+		return {
+			success: true as const,
+			attachment: {
+				artifact: {
+					id,
+					type: "source_document",
+					retrievalClass: "durable",
+					name,
+					mimeType,
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				} as PendingAttachment["artifact"],
+				promptReady: true,
+				promptArtifactId: id,
+				readinessError: null,
+			},
+		};
+	}
+
+	function renderComposer(props: Record<string, unknown> = {}) {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const onSend = vi.fn();
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+			...props,
+		});
+		const textarea = rendered.container.querySelector(
+			"textarea",
+		) as HTMLTextAreaElement;
+		async function attach(name: string, mimeType: string, id: string) {
+			const fileInput = rendered.container.querySelector(
+				'input[type="file"]',
+			) as HTMLInputElement;
+			await fireEvent.change(fileInput, {
+				target: { files: [new File(["x"], name, { type: mimeType })] },
+			});
+			completeUpload(doneCallback, upload(name, mimeType, id));
+			await tick();
+		}
+		return { ...rendered, onSend, textarea, attach };
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionStatusMock.mockResolvedValue({ jobs: [], readiness: [] });
+	});
+
+	it("numbers a photo 1 and a card picture 2, and gives the PDF no number", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.attach("notes.pdf", "application/pdf", "pdf-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+
+		const chips = view.getAllByTestId("composer-chip-attachment");
+		expect(
+			within(chips[0]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("1");
+		expect(within(chips[1]).queryByTestId("composer-chip-number")).toBeNull();
+		const ref = view.getByTestId("composer-chip-picture");
+		expect(within(ref).getByTestId("composer-chip-number")).toHaveTextContent(
+			"2",
+		);
+		expect(view.getByLabelText("Picture 2: Red rug")).toBeTruthy();
+		expect(view.getByLabelText("Picture 1: rug.jpg")).toBeTruthy();
+	});
+
+	it("tells two versions of one picture apart by when the older was made", async () => {
+		const today = new Date();
+		today.setHours(9, 5, 0, 0);
+		const view = renderComposer({
+			pictureRefs: [
+				{
+					imageFileId: "f2",
+					name: "Sunset gradient",
+					at: today.getTime() + 60_000,
+				},
+				{ imageFileId: "f1", name: "Sunset gradient", at: today.getTime() },
+			],
+		});
+		const labels = view
+			.getAllByTestId("composer-chip-picture")
+			.map((chip) => chip.textContent ?? "");
+		expect(
+			labels.some((text) => text.includes("Sunset gradient · today")),
+		).toBe(true);
+		expect(
+			labels.filter((text) => text.includes("Sunset gradient")),
+		).toHaveLength(2);
+	});
+
+	it("names a numbered chip in Hungarian", async () => {
+		uiLanguage.set("hu");
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Piros szonyeg" }],
+		});
+		expect(view.getByLabelText("1. kép: Piros szonyeg")).toBeTruthy();
+		expect(view.getByLabelText("Piros szonyeg eltávolítása")).toBeTruthy();
+	});
+
+	it("moves the card picture up to 1 when the photo is removed", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.click(view.getByLabelText("Remove rug.jpg"));
+		await waitFor(() => {
+			const ref = view.getByTestId("composer-chip-picture");
+			expect(within(ref).getByTestId("composer-chip-number")).toHaveTextContent(
+				"1",
+			);
+		});
+	});
+
+	it("draws a card picture added before a photo in front of it, so 1 comes first", async () => {
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		const numbers = view
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2"]);
+	});
+
+	it("numbers nine pictures 1 to 9, keeps Send open and says nothing about a limit", async () => {
+		const view = renderComposer();
+		for (let index = 0; index < 8; index += 1) {
+			await view.attach(`p${index}.jpg`, "image/jpeg", `photo-${index}`);
+		}
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f9", name: "Ninth" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Make it red" } });
+		const numbers = view
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+		const send = view.getByTestId("send-button") as HTMLButtonElement;
+		expect(send.disabled).toBe(false);
+		expect(view.container.textContent ?? "").not.toMatch(
+			/limit|at most|too many/i,
+		);
+	});
+
+	it("sends pictureRefs under their numbers and the numbered pictures for the bubble", async () => {
+		const view = renderComposer();
+		await view.attach("rug.jpg", "image/jpeg", "photo-1");
+		await view.rerender({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Blend them" } });
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		const payload = view.onSend.mock.calls[0][0];
+		expect(payload.pictureRefs).toEqual([{ imageFileId: "f1", number: 2 }]);
+		expect(payload.pictures).toEqual({
+			refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: null,
+		});
+	});
+
+	// Task 17 (rehearsal): two uploaded photos and no card picture went with no
+	// numbers, so the sent bubble drew "living-room.jpg · 5 tok" where the
+	// composer had shown "1 living-room.jpg". The numbers ride with uploads too.
+	it("sends the numbered uploads for the bubble when there is no card picture", async () => {
+		const view = renderComposer();
+		await view.attach("room.jpg", "image/jpeg", "photo-1");
+		await view.attach("sofa.jpg", "image/jpeg", "photo-2");
+		await fireEvent.input(view.textarea, {
+			target: { value: "Put the sofa in the room" },
+		});
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		const payload = view.onSend.mock.calls[0][0];
+		expect(payload.pictureRefs).toBeUndefined();
+		expect(payload.pictures).toEqual({
+			refs: [],
+			uploads: [
+				{ artifactId: "photo-1", number: 1 },
+				{ artifactId: "photo-2", number: 2 },
+			],
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("hands a removed card picture back to the page", async () => {
+		const onRemovePictureRef = vi.fn();
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+			onRemovePictureRef,
+		});
+		await fireEvent.click(view.getByLabelText("Remove Red rug"));
+		expect(onRemovePictureRef).toHaveBeenCalledWith("f1");
+	});
+
+	it("focuses the box when the page asks (a picture was attached)", async () => {
+		const view = renderComposer();
+		view.textarea.blur();
+		await view.rerender({ focusRequest: 1 });
+		await waitFor(() => expect(document.activeElement).toBe(view.textarea));
+	});
+
+	it("keeps Send open for a card picture with the words typed, and lets one send with only a card picture and words", async () => {
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "Make it blue" } });
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		expect(view.onSend.mock.calls[0][0].pictureRefs).toEqual([
+			{ imageFileId: "f1", number: 1 },
+		]);
+	});
+
+	// Fix round 1 (I1): a turn put back in the composer keeps the numbers the
+	// person's own text names ("put 2 into 1"), whichever was added first.
+	for (const order of [
+		["ref:f1", "upload:photo-1"],
+		["upload:photo-1", "ref:f1"],
+	]) {
+		it(`restores a draft's pictures in the saved order ${order.join(" then ")}`, async () => {
+			const view = renderComposer({
+				draftVersion: 1,
+				draftText: "put 2 into 1",
+				draftAttachments: [
+					upload("rug.jpg", "image/jpeg", "photo-1").attachment,
+				],
+				draftPictureOrder: order,
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+			});
+			await waitFor(() =>
+				expect(view.getAllByTestId("composer-chip-number")).toHaveLength(2),
+			);
+			const refNumber = Number(
+				within(view.getByTestId("composer-chip-picture")).getByTestId(
+					"composer-chip-number",
+				).textContent,
+			);
+			expect(refNumber).toBe(order[0] === "ref:f1" ? 1 : 2);
+			await fireEvent.input(view.textarea, {
+				target: { value: "put 2 into 1" },
+			});
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			expect(view.onSend.mock.calls[0][0].pictureRefs).toEqual([
+				{ imageFileId: "f1", number: refNumber },
+			]);
+		});
+	}
+
+	describe("marks (T6)", () => {
+		const marks = [
+			{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 },
+			{ letter: "B" as const, x: 0.55, y: 0.2, w: 0.4, h: 0.7 },
+		];
+		const imageMarks = {
+			imageFileId: "open-file",
+			marks,
+			artifactId: "img-1",
+			name: "Cosy room",
+			version: 4,
+		};
+
+		it("shows one chip for the marks, with the picture's thumbnail and the next number", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks,
+			});
+			const chips = view.getAllByTestId("composer-chip-marks");
+			expect(chips).toHaveLength(1);
+			expect(chips[0]).toHaveTextContent("Marks A, B");
+			expect(within(chips[0]).queryByTestId("composer-chip-number")).toBeNull();
+			const thumb = chips[0].querySelector("img");
+			expect(thumb?.getAttribute("src")).toBe(
+				"/api/images/files/open-file?variant=thumb&conversationId=conv-1",
+			);
+		});
+
+		it("names the chip in Hungarian", () => {
+			uiLanguage.set("hu");
+			const view = renderComposer({ imageMarks });
+			expect(view.getByTestId("composer-chip-marks")).toHaveTextContent(
+				"A, B jelölés",
+			);
+			expect(view.getByLabelText("Jelölések törlése")).toBeTruthy();
+		});
+
+		it("hands the page the chip's x", async () => {
+			const onClearMarks = vi.fn();
+			const view = renderComposer({ imageMarks, onClearMarks });
+			await fireEvent.click(view.getByLabelText("Remove the marks"));
+			expect(onClearMarks).toHaveBeenCalledTimes(1);
+		});
+
+		it("sends the marks in fractions, adding the marked picture as a ref under its number (F14)", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks,
+			});
+			await fireEvent.input(view.textarea, {
+				target: { value: "Move A to B" },
+			});
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.imageMarks).toEqual({ imageFileId: "open-file", marks });
+			expect(payload.pictureRefs).toEqual([
+				{ imageFileId: "f1", number: 1 },
+				{ imageFileId: "open-file", number: 2 },
+			]);
+			expect(payload.pictures.refs).toEqual([
+				{ imageFileId: "f1", number: 1, name: "Red rug" },
+				{ imageFileId: "open-file", number: 2, name: "Cosy room" },
+			]);
+			expect(payload.markedPicture).toEqual({
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 4,
+			});
+		});
+
+		it("sends a marked photo of an earlier message as a picture of this one", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+				imageMarks: {
+					uploadArtifactId: "old-photo",
+					marks,
+					artifactId: "old-photo",
+					name: "room.png",
+					version: null,
+				},
+			});
+			expect(
+				view.getByTestId("composer-chip-marks").querySelector("img"),
+			).toHaveAttribute("src", "/api/knowledge/old-photo/preview");
+
+			await fireEvent.input(view.textarea, { target: { value: "Fix A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.attachmentIds).toEqual(["old-photo"]);
+			// The bubble draws it and a regenerate resends it from this list.
+			expect(payload.attachments).toEqual([
+				expect.objectContaining({ id: "old-photo", name: "room.png" }),
+			]);
+			expect(payload.pictures.uploads).toEqual([
+				{ artifactId: "old-photo", number: 2 },
+			]);
+		});
+
+		it("adds no second ref when the marked picture is attached already", async () => {
+			const view = renderComposer({
+				pictureRefs: [{ imageFileId: "open-file", name: "Cosy room" }],
+				imageMarks,
+			});
+			await fireEvent.input(view.textarea, { target: { value: "Move A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.pictureRefs).toEqual([
+				{ imageFileId: "open-file", number: 1 },
+			]);
+			expect(payload.markedPicture.addedRef).toBe(false);
+		});
+
+		it("sends no marks without the chip", async () => {
+			const view = renderComposer();
+			await fireEvent.input(view.textarea, { target: { value: "Hello" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			const payload = view.onSend.mock.calls[0][0];
+			expect(payload.imageMarks).toBeUndefined();
+			expect(payload.markedPicture).toBeUndefined();
+		});
 	});
 });

@@ -16,6 +16,7 @@ import {
 	FileText,
 	FileUp,
 	Folder,
+	Image,
 	LayoutDashboard,
 	Library,
 	MessageSquare,
@@ -867,6 +868,8 @@ onDestroy(() => {
 															<AppWindow size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
 														{:else if row.document.kind === 'canvas'}
 															<LayoutDashboard size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.kind === 'image'}
+															<Image size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
 														{:else if row.document.kind === 'slides'}
 															<Presentation size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
 														{:else if row.document.kind === 'document'}

@@ -1,3 +1,6 @@
+// @vitest-environment node
+
+import { readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +50,21 @@ async function buildMinimalXlsxBuffer(): Promise<Buffer> {
 	zip.file("xl/worksheets/sheet1.xml", "<worksheet></worksheet>");
 	return Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
 }
+
+const decodeSpy = vi.hoisted(() => vi.fn());
+vi.mock("$lib/server/services/vision/prepare-image", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/vision/prepare-image")
+		>();
+	return {
+		...actual,
+		decodeImageToPng: (...args: Parameters<typeof actual.decodeImageToPng>) => {
+			decodeSpy(...args);
+			return actual.decodeImageToPng(...args);
+		},
+	};
+});
 
 describe("GET /api/knowledge/[id]/preview", () => {
 	const mockUser = { id: "user-123", email: "test@example.com" };
@@ -381,7 +399,7 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			"text/html; charset=utf-8",
 		);
 		expect(response.headers.get("Content-Disposition")).toBe(
-			'inline; filename="report.html"',
+			`inline; filename="report.html"; filename*=UTF-8''report.html`,
 		);
 		expect(response.headers.get("Cache-Control")).toBe("private, max-age=3600");
 		expect(response.headers.get("Content-Security-Policy")).toBe(
@@ -414,6 +432,79 @@ describe("GET /api/knowledge/[id]/preview", () => {
 			encodeURIComponent("document with spaces & special chars.pdf"),
 		);
 	});
+	it("draws a HEIC photo as a picture the browser can show", async () => {
+		const heic = readFileSync(
+			"src/lib/server/services/vision/__fixtures__/tiny.heic",
+		);
+		await writePreviewFile("data/knowledge/user-123/photo.heic", heic);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "photo-1",
+			name: "photo.heic",
+			storagePath: "data/knowledge/user-123/photo.heic",
+			contentText: null,
+			mimeType: "image/heic",
+			extension: "heic",
+			type: "source_document",
+		});
+
+		const response = await GET(makePreviewEvent());
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe("image/png");
+		const bytes = Buffer.from(await response.arrayBuffer());
+		expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+		expect(response.headers.get("Content-Length")).toBe(String(bytes.length));
+	});
+
+	describe("a converted HEIC photo", () => {
+		beforeEach(async () => {
+			await writePreviewFile(
+				"data/knowledge/user-123/photo.heic",
+				readFileSync("src/lib/server/services/vision/__fixtures__/tiny.heic"),
+			);
+			mockGetArtifactForUser.mockResolvedValue({
+				id: "photo-1",
+				name: "photo.heic",
+				storagePath: "data/knowledge/user-123/photo.heic",
+				contentText: null,
+				mimeType: "image/heic",
+				extension: "heic",
+				type: "source_document",
+			});
+		});
+
+		it("is named as the PNG it is", async () => {
+			const response = await GET(makePreviewEvent());
+			const disposition = response.headers.get("Content-Disposition");
+			expect(disposition).toContain('filename="photo.png"');
+			expect(disposition).not.toContain("heic");
+		});
+
+		it("answers a range request from the PNG, as its headers promise", async () => {
+			const whole = await GET(makePreviewEvent());
+			const length = (await whole.arrayBuffer()).byteLength;
+
+			const event = makePreviewEvent();
+			(event as { request?: Request }).request = new Request(
+				"http://localhost/preview",
+				{ headers: { range: "bytes=0-3" } },
+			);
+			const response = await GET(event);
+
+			expect(response.status).toBe(206);
+			expect(response.headers.get("Content-Range")).toBe(`bytes 0-3/${length}`);
+			const bytes = Buffer.from(await response.arrayBuffer());
+			expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+		});
+
+		it("asks for a picture no longer than a preview needs", async () => {
+			await GET(makePreviewEvent());
+			expect(decodeSpy.mock.lastCall?.[2]).toEqual({
+				maxLongEdge: expect.any(Number),
+			});
+		});
+	});
+
 	it("resolves normalized_document to source_document for PDF preview", async () => {
 		const pdfBuffer = Buffer.from("PDF binary content");
 		await writePreviewFile("data/knowledge/user-123/source.pdf", pdfBuffer);

@@ -100,6 +100,11 @@ const CHIP_COUNT_KEYS = {
 export function attachmentChipMeta(
 	source: AttachmentChipSource,
 ): AttachmentChipMeta {
+	// A picture is seen, not read as text: its chip is its number and its name,
+	// never "5 tok" (Task 17).
+	if (getFileType(source.mimeType ?? null, source.name) === "image") {
+		return null;
+	}
 	const unit = displayablePageCountUnit(
 		source.pageCount ?? null,
 		source.pageCountKind ?? null,

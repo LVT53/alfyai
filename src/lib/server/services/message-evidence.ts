@@ -157,6 +157,13 @@ function mergeChannels(
 	return Array.from(new Set([...(left ?? []), ...(right ?? [])]));
 }
 
+/**
+ * The canonical-id prefix of an ambient profile fact: one the Baseline Memory
+ * Profile put in the prompt, as it does on every turn. A fact a tool looked up
+ * (memory_context) is keyed `memory:item:…` instead, so the two stay apart.
+ */
+const AMBIENT_PERSONA_FACT_CANONICAL_PREFIX = "memory:fact:";
+
 function buildAmbientPersonaFactItems(
 	contextTraceSections: LegacyContextTraceSectionInput[] | undefined,
 ): MessageEvidenceItem[] {
@@ -179,7 +186,7 @@ function buildAmbientPersonaFactItems(
 			const title = itemTitles[index]?.trim() || "Remembered detail";
 			items.push({
 				id: `memory-fact:${itemId}`,
-				canonicalId: `memory:fact:${itemId}`,
+				canonicalId: `${AMBIENT_PERSONA_FACT_CANONICAL_PREFIX}${itemId}`,
 				title,
 				sourceType: "memory",
 				status: "reference",
@@ -191,6 +198,13 @@ function buildAmbientPersonaFactItems(
 	}
 	return items;
 }
+
+/** The memory rows every turn of a chat carries: its continuity, not a source the reply drew on (one name each, read by the builder and the picture-reply rule). */
+const CONTINUITY_MEMORY_ID = {
+	taskState: "task-state",
+	recentTurns: "recent-turns",
+	sessionMemory: "session-memory",
+} as const;
 
 function buildMemoryGroup(params: {
 	contextStatus: ConversationContextStatus | null | undefined;
@@ -210,7 +224,7 @@ function buildMemoryGroup(params: {
 
 	if (contextStatus?.taskStateApplied) {
 		items.push({
-			id: "task-state",
+			id: CONTINUITY_MEMORY_ID.taskState,
 			title: "Task state",
 			sourceType: "memory",
 			status: "reference",
@@ -221,7 +235,7 @@ function buildMemoryGroup(params: {
 
 	if ((contextStatus?.recentTurnCount ?? 0) > 0) {
 		items.push({
-			id: "recent-turns",
+			id: CONTINUITY_MEMORY_ID.recentTurns,
 			title: `Recent turns (${contextStatus?.recentTurnCount ?? 0})`,
 			sourceType: "memory",
 			status: "reference",
@@ -236,7 +250,7 @@ function buildMemoryGroup(params: {
 		items.push(...personaFactItems);
 	} else if (contextStatus?.layersUsed.includes("session")) {
 		items.push({
-			id: "session-memory",
+			id: CONTINUITY_MEMORY_ID.sessionMemory,
 			title: "Session memory",
 			sourceType: "memory",
 			status: "reference",
@@ -743,6 +757,24 @@ function buildTurnArtifactsGroup(
 	};
 }
 
+const MAKE_IMAGE_TOOL_NAME = "make_image";
+const CONTINUITY_MEMORY_IDS: ReadonlySet<string> = new Set(
+	Object.values(CONTINUITY_MEMORY_ID),
+);
+
+/**
+ * A row every turn of the chat carries — its continuity (task state, recent
+ * turns, session memory) or the ambient profile facts that stand in for the
+ * session memory row — rather than a source the reply drew on.
+ */
+function isContinuity(item: MessageEvidenceItem): boolean {
+	return (
+		CONTINUITY_MEMORY_IDS.has(item.id) ||
+		(item.canonicalId?.startsWith(AMBIENT_PERSONA_FACT_CANONICAL_PREFIX) ??
+			false)
+	);
+}
+
 export async function buildAssistantEvidenceSummary(params: {
 	userId?: string;
 	message: string;
@@ -775,7 +807,13 @@ export async function buildAssistantEvidenceSummary(params: {
 	const madeIds = new Set(
 		(params.turnArtifacts ?? []).map((made) => made.artifactId),
 	);
+	// make_image's picture is told by its card, as an item's own row tells a
+	// create_artifact: never a tool source (Task 17).
+	const madePicture = completedToolCalls.some(
+		(tool) => tool.name === MAKE_IMAGE_TOOL_NAME,
+	);
 	const toolOutputCalls = completedToolCalls.filter((tool) => {
+		if (tool.name === MAKE_IMAGE_TOOL_NAME) return false;
 		const made = artifactCallOf(tool);
 		return !made || !madeIds.has(made.artifactId);
 	});
@@ -811,6 +849,13 @@ export async function buildAssistantEvidenceSummary(params: {
 	);
 
 	if (groups.length === 0) return null;
+	// A reply that made a picture and used nothing but the chat's own continuity
+	// (task state, recent turns, session memory, the ambient profile facts) has
+	// no sources: no Sources section under it (the rehearsal's empty one, Task
+	// 17; the profile facts kept it on ai.dev, Task 20).
+	if (madePicture && groups.every((group) => group.items.every(isContinuity))) {
+		return null;
+	}
 
 	groups.sort(
 		(a, b) =>

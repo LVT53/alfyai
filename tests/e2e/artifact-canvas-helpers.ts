@@ -138,8 +138,8 @@ export async function openCanvasPanel(page: Page) {
 	const list = page.getByTestId(
 		isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
 	);
-	// A panel that was closed on the board brings the board back (FB-3, F26);
-	// otherwise it opens on the list, and the first row is the board.
+	// A panel already showing the board stays on it; the count button opens the
+	// list (never an item: Task 14), and the first row is the board.
 	const first = await Promise.race([
 		editor
 			.waitFor({ state: "visible", timeout: 20_000 })

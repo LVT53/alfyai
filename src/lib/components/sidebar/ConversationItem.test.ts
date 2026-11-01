@@ -1018,17 +1018,49 @@ describe("ConversationItem Component", () => {
 				expect(onSelectionToggle).not.toHaveBeenCalled();
 			});
 
-			it("cannot be dragged, even where dragging is on", async () => {
+			it("can still be dragged where dragging is on: a selected row carries the selection", async () => {
+				const onDragStart = vi.fn();
 				render(ConversationItemWrapper, {
 					conversation: mockConversation,
 					selecting: true,
+					selected: true,
 					dragEnabled: true,
+					onDragStart,
 				});
 				const item = screen.getByTestId("conversation-item");
 
-				expect(item).toHaveAttribute("draggable", "false");
-				// A drag that starts anyway is cancelled.
-				expect(await fireEvent.dragStart(item)).toBe(false);
+				expect(item).toHaveAttribute("draggable", "true");
+				expect(await fireEvent.dragStart(item)).toBe(true);
+				expect(onDragStart).toHaveBeenCalledWith({ id: mockConversation.id });
+			});
+
+			it("shows the drag image it is given under the pointer", async () => {
+				const preview = document.createElement("div");
+				document.body.append(preview);
+				render(ConversationItemWrapper, {
+					conversation: mockConversation,
+					selecting: true,
+					selected: true,
+					dragEnabled: true,
+					dragImage: preview,
+				});
+				const setDragImage = vi.fn();
+				const dataTransfer = {
+					setData: vi.fn(),
+					setDragImage,
+					effectAllowed: "none",
+				};
+
+				await fireEvent.dragStart(screen.getByTestId("conversation-item"), {
+					dataTransfer,
+				});
+
+				expect(setDragImage).toHaveBeenCalledWith(
+					preview,
+					expect.any(Number),
+					expect.any(Number),
+				);
+				preview.remove();
 			});
 
 			it("draws a box, hidden from assistive tech, before the title", () => {

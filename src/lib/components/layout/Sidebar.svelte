@@ -15,6 +15,10 @@ import {
 	currentConversationId,
 	searchModalOpenRequested,
 } from "$lib/stores/ui";
+import {
+	conversations,
+	markConversationAtlasBadgeSeen,
+} from "$lib/stores/conversations";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
@@ -74,23 +78,34 @@ const isCollapsed = $derived(
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
-// Collapsed-rail active-conversation indicator (ADR-0043 #3): a previous
-// version read as a left border on the New Chat button and was removed. This
-// one is anchored on the LogoMark/expand-toggle button instead — the
-// sidebar-identity element, away from New Chat — as a small corner dot.
-// `currentConversationId` is the same store ConversationList already reads
-// to highlight the active row, so this stays in sync for free.
-const hasActiveConversation = $derived($currentConversationId !== null);
+// Collapsed-rail unseen-activity indicator (ADR-0043 #3, revised): the dot on
+// the LogoMark/expand-toggle button means "the sidebar holds something unseen",
+// not "a chat is open" (that read as a notification badge on every chat). It is
+// derived from the same store state the conversation rows use: a row shows its
+// completed-Atlas badge when `atlasBadge.status === "succeeded"` and it is not
+// the open conversation, and `markConversationAtlasBadgeSeen` clears both the
+// row and this dot. No second notion of "seen".
+const hasUnseenActivity = $derived(
+	$conversations.some(
+		(c) =>
+			c.atlasBadge?.status === "succeeded" && c.id !== $currentConversationId,
+	),
+);
 
-// The dot itself is decorative (aria-hidden) — it's re-mounted on every
-// `hasActiveConversation` toggle, which would make a live region (role, now
-// removed) fire spurious announcements on ordinary chat navigation. The
-// state is instead conveyed on this stable parent button's label, composed
-// with the button's normal expand-sidebar label so it's still announced on
-// focus/hover without a live region.
+// ConversationList (which normally marks the open conversation's badge seen)
+// is not mounted while collapsed, so apply the same store transition here.
+$effect(() => {
+	const openId = $currentConversationId;
+	const open = $conversations.find((c) => c.id === openId);
+	if (open?.atlasBadge) markConversationAtlasBadgeSeen(open.id);
+});
+
+// The dot is decorative (aria-hidden, no live region); the stable parent
+// button's label carries the state. The "a chat is open" meaning is dropped:
+// the sidebar already highlights the active row and the header shows the title.
 const logoButtonLabel = $derived(
-	hasActiveConversation
-		? `${$t("sidebar.expandSidebar")} — ${$t("sidebar.activeConversationIndicator")}`
+	hasUnseenActivity
+		? `${$t("sidebar.expandSidebar")} — ${$t("sidebar.newActivityIndicator")}`
 		: $t("sidebar.expandSidebar"),
 );
 
@@ -295,10 +310,10 @@ onMount(() => {
 				title={logoButtonLabel}
 			>
 				<LogoMark size={20} />
-				{#if hasActiveConversation}
+				{#if hasUnseenActivity}
 					<span
-						class="active-conversation-dot"
-						data-testid="active-conversation-indicator"
+						class="unseen-activity-dot"
+						data-testid="unseen-activity-indicator"
 						aria-hidden="true"
 					></span>
 				{/if}
@@ -369,17 +384,21 @@ onMount(() => {
 	{:else}
 		<!-- Expanded: search pill + compose icon in a single row -->
 		<div class="flex items-center gap-2">
-			<!-- Search pill -->
+			<!-- Search pill. It gives way, not the icons beside it: `min-w-0` lets it shrink
+			     below its label and shortcut chip (a flex item will not go below its content
+			     otherwise, and at the sidebar's narrowest it pushed Knowledge Base past the
+			     sidebar's edge, under the page), and as a size container it drops the chip
+			     when there is no room for it (Task 9b). -->
 			<button
 				type="button"
-				class="search-pill flex flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				class="search-pill @container flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-text-muted transition-colors duration-150 hover:border-border-focus hover:bg-surface-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 				onclick={openSearchModal}
 				aria-label={$t('sidebar.searchConversations')}
 			>
 				<Search size={15} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
 					<span class="flex-1 truncate">{$t('sidebar.search')}</span>
 					<kbd
-						class="search-shortcut-hint shrink-0 rounded border border-border px-1.5 py-0.5 font-sans text-[11px] text-text-muted"
+						class="search-shortcut-hint shrink-0 @max-[7.5rem]:hidden rounded border border-border px-1.5 py-0.5 font-sans text-[11px] text-text-muted"
 						data-testid="search-shortcut-hint"
 						aria-hidden="true"
 					>{searchShortcutHint}</kbd>
@@ -600,7 +619,7 @@ onMount(() => {
 	/* Collapsed-rail active-conversation indicator (ADR-0043 #3): a small
 	   corner dot on the LogoMark/expand-toggle button — distinct from a
 	   border/strip so it never reads as an accent on New Chat. */
-	.active-conversation-dot {
+	.unseen-activity-dot {
 		position: absolute;
 		top: 4px;
 		right: 4px;

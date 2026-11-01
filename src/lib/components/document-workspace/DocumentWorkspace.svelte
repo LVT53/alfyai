@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { type Component, tick, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
@@ -38,6 +39,16 @@ import { focusTrap } from "$lib/utils/focus-trap";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import ItemGrid, {
+	type ItemGridTile,
+} from "$lib/components/artifacts/ItemGrid.svelte";
+import { ARTIFACT_KIND_ICONS } from "$lib/components/artifacts/kind-icons";
+import ListGridToggle from "$lib/components/ui/ListGridToggle.svelte";
+import {
+	type ListView,
+	readListView,
+	writeListView,
+} from "$lib/utils/list-view-preference";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
@@ -134,6 +145,10 @@ let {
 	onFlushReady = undefined,
 	artifactVersionMessages = undefined,
 	onShowChatMessage = undefined,
+	onAttachPicture = undefined,
+	marks = undefined,
+	onMarksChange = undefined,
+	onMarksContinue = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -185,7 +200,7 @@ let {
 	 * one to say.
 	 */
 	historyWanted?: boolean | undefined;
-	/** History opened or closed, whoever did it (a press, Done, Escape, another item, the panel closing): the host keeps its entries in step. */
+	/** History opened or closed, whoever did it (a press, Escape, another item, the panel closing): the host keeps its entries in step. */
 	onHistoryOpenChange?: ((open: boolean) => void) | undefined;
 	/**
 	 * Wave 2.5 review (F1): bubbles the open Document body's own live
@@ -228,6 +243,15 @@ let {
 		| undefined;
 	/** Scrolls the chat to a message and flashes it ("From the chat"); the page closes this panel first where it covers the chat (a phone). */
 	onShowChatMessage?: ((messageId: string) => void) | undefined;
+	/** Puts a picture of the open Image (a strip frame, a History version) in the chat's composer (plan 2b T5, F12). Absent for a host with no chat (the Knowledge page). */
+	onAttachPicture?:
+		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
+		| undefined;
+	/** The marks drawn on the open Image's picture, held by the chat page (plan 2b T6); handed to the open body. */
+	marks?: ArtifactBodyProps["marks"];
+	/** The open Image body's marks, back to the chat page that sends them as one chip. Absent for a host with no chat (the Knowledge page): the body then offers no Mark. */
+	onMarksChange?: ArtifactBodyProps["onMarksChange"];
+	onMarksContinue?: ArtifactBodyProps["onMarksContinue"];
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -400,6 +424,27 @@ function handleBodyPendingReviewCountChange(count: number): void {
 // this slice ships (the registry is empty) falls straight through to the
 // preview stack below, unchanged.
 let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
+// An uploaded photo takes marks too, where a chat can send them: its artifact is
+// the attachment the send will carry.
+let markableUploadId = $derived(
+	onMarksChange &&
+		activeDocument?.source === "knowledge_artifact" &&
+		activeArtifactKind === "file"
+		? (activeDocument.artifactId ?? null)
+		: null,
+);
+let uploadMarks = $derived(
+	marks && marks.uploadArtifactId === markableUploadId ? marks.marks : [],
+);
+let handleUploadMarks = $derived.by(() => {
+	const uploadArtifactId = markableUploadId;
+	return uploadArtifactId
+		? (next: ImageMark[]) =>
+				onMarksChange?.(
+					next.length > 0 ? { uploadArtifactId, marks: next } : null,
+				)
+		: undefined;
+});
 /**
  * The panel landmark's accessible name while an item is open: what it shows
  * ("Vienna trip plan, Document"), not one generic "Document workspace" for
@@ -469,9 +514,17 @@ async function ensureHistoryMode(): Promise<void> {
 	HistoryModeComponent = module.HistoryMode;
 }
 
-async function openHistory(): Promise<void> {
+/**
+ * The version History opens on (a picture strip's frame names one, plan 2b T3);
+ * `undefined` opens on the newest. Set by each open, so the header's button never
+ * reopens on a version a body asked for earlier.
+ */
+let historyInitialVersionId = $state<string | undefined>(undefined);
+
+async function openHistory(versionId?: string): Promise<void> {
 	if (historyOpening || historyOpen) return;
 	if (!activeDocument || !kindHasHistory(activeArtifactKind)) return;
+	historyInitialVersionId = versionId;
 	historyOpening = true;
 	try {
 		const loading = ensureHistoryMode();
@@ -847,7 +900,7 @@ let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
 
 // ---- First-open tours (Feature 2 · Slice 6; rulings 4, 32, 33, 69) ----
 //
-// The first time a user opens a Document, App or Canvas the panel shows a
+// The first time a user opens a Document, App, Canvas or Image the panel shows a
 // three-slide card about that kind, above the item, in the panel's flow: it
 // makes room for itself and covers nothing (ruling 77, FX-2). Which kinds have a
 // tour is the shared list (`isShippedArtifactTourType`: File and Slides never
@@ -1476,6 +1529,73 @@ function rowFactsFor(item: DocumentWorkspaceItem): string | null {
  * older cached list) falls back to the plain card this list has always
  * shown.
  */
+/**
+ * "What this chat made" as a list or a gallery (Task 22b), remembered per viewer
+ * under its own key: the panel is narrow and holds one chat's few items, the
+ * library holds everything, so each keeps the reader's own choice.
+ */
+const ARTIFACT_PANEL_LIST_VIEW_KEY = "artifactPanelListView";
+let panelListView = $state<ListView>(
+	readListView(ARTIFACT_PANEL_LIST_VIEW_KEY),
+);
+
+function choosePanelListView(view: ListView): void {
+	panelListView = view;
+	writeListView(ARTIFACT_PANEL_LIST_VIEW_KEY, view);
+}
+
+/** The items as the reader chose them: the gallery or the rows (snippets below). */
+let panelListItems = $derived(panelListView === "grid" ? gridItems : rowItems);
+
+/** The gallery's tiles: an item being made again first, as its row is, then the items. */
+let panelGridTiles = $derived.by((): ItemGridTile[] => {
+	if (!list) return [];
+	const making = (list.pending ?? []).map((item) => ({
+		id: item.id,
+		title: item.title,
+		meta: $t("artifacts.deleted.regenerating"),
+		icon: ARTIFACT_KIND_ICONS[item.kind],
+		disabled: true,
+		busy: true,
+	}));
+	const items = list.items.map((item) => {
+		const kind = item.kind ?? "file";
+		// What the row says about its item, compact: changes waiting for review and when.
+		const row = artifactCardViewFor(item);
+		return {
+			id: item.id,
+			title: getDocumentTitle(item),
+			meta: $t(`artifacts.type.${kind}`),
+			time: row.updatedAtLabel ?? null,
+			badge: row.pendingReviewCount
+				? $t("artifacts.panel.pendingReview", { count: row.pendingReviewCount })
+				: null,
+			icon: ARTIFACT_KIND_ICONS[kind],
+			thumbnail: rowThumbnailFor(item),
+			current: item.id === activeDocumentId,
+		};
+	});
+	return [...making, ...items];
+});
+
+/** A tile opens its item exactly as its row does. */
+function selectTileFromList(id: string): void {
+	const item = list?.items.find((entry) => entry.id === id);
+	if (item) selectFromList(item);
+}
+
+/** A picture's row shows the picture (plan 2b Task 22), read in its chat's scope. */
+function rowThumbnailFor(
+	item: DocumentWorkspaceItem,
+): ArtifactCardView["thumbnail"] {
+	if (item.kind !== "image" || !item.imagePreview) return null;
+	return {
+		fileId: item.imagePreview.fileId,
+		hasAlpha: item.imagePreview.hasAlpha,
+		conversationId: item.conversationId ?? conversationId,
+	};
+}
+
 function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 	const madeBy =
 		item.updatedAt != null
@@ -1539,6 +1659,7 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		title: getDocumentTitle(item),
 		openTargetId: item.id,
 		madeBy,
+		thumbnail: rowThumbnailFor(item),
 		...rowExtras,
 	};
 }
@@ -1761,9 +1882,35 @@ function insetsOf(rect: DOMRect): Keyframe {
 }
 
 /**
+ * What the panel holds, held at the size it will have when the shape change
+ * ends (plan 2b T3b), as the docked column already holds it while the panel
+ * opens (`dockContentWidth`): the shell's edges move, and the editor, the board,
+ * the App and the picture are laid out once, at the end size, and shown through
+ * the moving shell from its right edge. `null` while no shape change runs.
+ */
+type HeldContent = {
+	width: number;
+	height: number;
+	/** Where the held box stands against the shell's padding edge (top, right): the dock's is past the overlay's border. */
+	top?: number;
+	right?: number;
+};
+let heldContentSize = $state.raw<HeldContent | null>(null);
+
+/** Holds the content at `size` until `release` is called (only if no later hold replaced it). */
+async function holdContent(size: HeldContent): Promise<() => void> {
+	heldContentSize = size;
+	await tick();
+	return () => {
+		if (heldContentSize === size) heldContentSize = null;
+	};
+}
+
+/**
  * Expand grows the panel from where its column stands to the whole window, in
  * the same motion every layout change here has (FB-3, F26): the old rect is the
- * first keyframe, and the overlay's own insets are the last.
+ * first keyframe, and the overlay's own insets are the last. The content is laid
+ * out at the overlay's size from the first frame.
  */
 async function requestExpandedPresentation(): Promise<void> {
 	const shell = desktopShellElement;
@@ -1772,10 +1919,45 @@ async function requestExpandedPresentation(): Promise<void> {
 	if (!shell || !from || prefersReducedMotion()) return;
 	await tick();
 	if (desktopShellElement !== shell) return;
-	shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
-		duration: MOTION_DURATION.emphasis,
-		easing: MOTION_EASING.emphasis,
-	});
+	// The overlay stands at its own insets now (no keyframe applied yet): what the
+	// content will measure there is the size to hold it at.
+	const end = desktopContentElement?.getBoundingClientRect();
+	const animate = () =>
+		shell.animate([{ offset: 0, ...insetsOf(from), borderRadius: "0px" }], {
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+		});
+	if (!end || end.width <= 0 || end.height <= 0) {
+		animate();
+		return;
+	}
+	const release = await holdContent({ width: end.width, height: end.height });
+	await animate()
+		.finished.catch(() => undefined)
+		.then(release);
+}
+
+/**
+ * What the content is held at while the overlay docks: the docked column's own
+ * content, `dockContentWidth` wide and as tall as the column (it has no top or
+ * bottom border), so it is already what the dock shows when the shape flips back.
+ * The column has no top or right border and the overlay has both: the held box
+ * stands over the overlay's border, where the column's content will stand, so
+ * nothing moves by a pixel at the flip. `null` when there is nothing to measure.
+ */
+function dockedContentHold(
+	shell: HTMLElement,
+	target: DOMRect,
+): HeldContent | null {
+	const width = dockContentWidth ?? target.width;
+	if (width <= 0 || target.height <= 0) return null;
+	const border = getComputedStyle(shell);
+	return {
+		width,
+		height: target.height,
+		top: -Number.parseFloat(border.borderTopWidth || "0"),
+		right: -Number.parseFloat(border.borderRightWidth || "0"),
+	};
 }
 
 /**
@@ -1789,14 +1971,11 @@ async function requestDockedPresentation(): Promise<void> {
 		onPresentationChange?.("docked");
 		return;
 	}
+	const target = slot.getBoundingClientRect();
+	const hold = dockedContentHold(shell, target);
+	const release = hold ? await holdContent(hold) : () => undefined;
 	const animation = shell.animate(
-		[
-			{
-				offset: 1,
-				...insetsOf(slot.getBoundingClientRect()),
-				borderRadius: "0px",
-			},
-		],
+		[{ offset: 1, ...insetsOf(target), borderRadius: "0px" }],
 		{
 			duration: MOTION_DURATION.emphasis,
 			easing: MOTION_EASING.emphasis,
@@ -1806,6 +1985,8 @@ async function requestDockedPresentation(): Promise<void> {
 	await animation.finished.catch(() => undefined);
 	onPresentationChange?.("docked");
 	await tick();
+	// Docked now: the column's own rule holds the same size, so letting go moves nothing.
+	release();
 	animation.cancel();
 }
 
@@ -2159,6 +2340,77 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 }
 </script>
 
+<!-- "What this chat made" (Task 22b): its List / Grid toggle, and its items as
+     rows or as the gallery. The script picks which (`panelListItems`), so the
+     template holds no branch for it. -->
+{#snippet listTools()}
+	<div class="artifact-panel-list-tools">
+		<ListGridToggle
+			view={panelListView}
+			onChange={choosePanelListView}
+			testIdPrefix="artifact-panel-view"
+		/>
+	</div>
+{/snippet}
+{#snippet gridItems()}
+	<ItemGrid
+		tiles={panelGridTiles}
+		testId="artifact-panel-grid"
+		onOpen={selectTileFromList}
+	/>
+{/snippet}
+{#snippet rowItems()}
+	<ul class="artifact-panel-list-rows">
+		{#each list?.pending ?? [] as making (making.id)}
+			<li data-testid="artifact-row-pending">
+				<ArtifactCard
+					view={{
+						id: making.id,
+						kind: making.kind,
+						title: making.title,
+						openTargetId: null,
+						rowFacts: $t('artifacts.deleted.regenerating'),
+						working: true,
+					}}
+					chrome="row"
+				/>
+			</li>
+		{/each}
+		{#each list?.items ?? [] as item (item.id)}
+			<li>
+				{#if canDeleteItem(item)}
+					<ArtifactCard
+						view={artifactCardViewFor(item)}
+						chrome="row"
+						onOpen={() => selectFromList(item)}
+					>
+						{#snippet rowMenu()}
+							{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
+							<button
+								type="button"
+								class="btn-icon-bare artifact-row-menu-button"
+								data-testid={`artifact-row-menu-${item.id}`}
+								aria-haspopup="menu"
+								aria-label={menuLabel}
+								title={menuLabel}
+								onclick={() => (rowMenuOpenId = item.id)}
+							>
+								<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
+							</button>
+						{/snippet}
+					</ArtifactCard>
+				{:else}
+					<ArtifactCard
+						view={artifactCardViewFor(item)}
+						chrome="row"
+						onOpen={() => selectFromList(item)}
+					/>
+				{/if}
+			</li>
+		{/each}
+	</ul>
+{/snippet}
+
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:document onpointerdown={handleDocumentPointerdown} />
 
@@ -2168,55 +2420,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{#if list.items.length === 0 && !list.pending?.length}
 				<p class="artifact-panel-empty">{$t('artifacts.panel.empty')}</p>
 			{:else}
-				<ul class="artifact-panel-list-rows">
-					{#each list.pending ?? [] as making (making.id)}
-						<li data-testid="artifact-row-pending">
-							<ArtifactCard
-								view={{
-									id: making.id,
-									kind: making.kind,
-									title: making.title,
-									openTargetId: null,
-									rowFacts: $t('artifacts.deleted.regenerating'),
-									working: true,
-								}}
-								chrome="row"
-							/>
-						</li>
-					{/each}
-					{#each list.items as item (item.id)}
-						<li>
-							{#if canDeleteItem(item)}
-								<ArtifactCard
-									view={artifactCardViewFor(item)}
-									chrome="row"
-									onOpen={() => selectFromList(item)}
-								>
-									{#snippet rowMenu()}
-										{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
-										<button
-											type="button"
-											class="btn-icon-bare artifact-row-menu-button"
-											data-testid={`artifact-row-menu-${item.id}`}
-											aria-haspopup="menu"
-											aria-label={menuLabel}
-											title={menuLabel}
-											onclick={() => (rowMenuOpenId = item.id)}
-										>
-											<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
-										</button>
-									{/snippet}
-								</ArtifactCard>
-							{:else}
-								<ArtifactCard
-									view={artifactCardViewFor(item)}
-									chrome="row"
-									onOpen={() => selectFromList(item)}
-								/>
-							{/if}
-						</li>
-					{/each}
-				</ul>
+				{@render listTools()}
+				{@render panelListItems()}
 			{/if}
 		</div>
 	{/snippet}
@@ -2474,7 +2679,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
 					{conversationId}
-					{currentUser}
+					initialVersionId={historyInitialVersionId}
+					{onAttachPicture}
+					{marks}
+					onMarksChange={onMarksChange
+						? (request) => onMarksChange?.(request, { history: true })
+						: undefined}
+					{onMarksContinue}
 					onDone={() => closeHistory()}
 					onReview={handleHistoryReview}
 					onRestored={handleHistoryRestored}
@@ -2491,16 +2702,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{/snippet}
 
 	{#snippet artifactHeaderActionsSnippet()}
-		{#if historyOpen}
-			<button
-				type="button"
-				class="btn-secondary btn-sm workspace-history-done"
-				data-testid="artifact-history-done"
-				onclick={() => closeHistory()}
-			>
-				{$t('artifacts.history.done')}
-			</button>
-		{/if}
 		{#if historyOpen}
 			<!-- Comments and Download step aside while History is open (versioning.md §5.1). -->
 		{:else if bodyPanelActions?.toggleComments}
@@ -2783,12 +2984,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								title={getDocumentTitle(activeDocument)}
 								body={null}
 								{conversationId}
+								versionNumber={activeDocument.versionNumber ?? null}
 								alfyActivity={bodyAlfyActivity}
 								registerPanelActions={(actions) => reportFromBody({ actions })}
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
-								onOpenHistory={() => void openHistory()}
+								onOpenHistory={(versionId) => void openHistory(versionId)}
+								{onAttachPicture}
+								{marks}
+								{onMarksChange}
+								{onMarksContinue}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
@@ -2873,6 +3079,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								mimeType={activeDocument.mimeType}
 								bind:currentPage={currentPage}
 								bind:totalPages={currentTotalPages}
+								marks={uploadMarks}
+								onMarksChange={handleUploadMarks}
+								{onMarksContinue}
 							/>
 						{:catch}
 							<div class="workspace-compare-state workspace-compare-state-error">
@@ -2934,8 +3143,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		></div>
 		<div
 			class="workspace-content"
+			class:workspace-content-held={heldContentSize !== null}
 			bind:this={desktopContentElement}
-			style:width={shellPresentation === 'docked' && dockContentWidth !== null ? `${dockContentWidth}px` : undefined}
+			style:width={heldContentSize
+				? `${heldContentSize.width}px`
+				: shellPresentation === 'docked' && dockContentWidth !== null
+					? `${dockContentWidth}px`
+					: undefined}
+			style:height={heldContentSize ? `${heldContentSize.height}px` : undefined}
+			style:top={heldContentSize?.top ? `${heldContentSize.top}px` : undefined}
+			style:right={heldContentSize?.right ? `${heldContentSize.right}px` : undefined}
 		>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
@@ -3125,12 +3342,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						title={getDocumentTitle(activeDocument)}
 						body={null}
 						{conversationId}
+						versionNumber={activeDocument.versionNumber ?? null}
 						alfyActivity={bodyAlfyActivity}
 						registerPanelActions={(actions) => reportFromBody({ actions })}
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
-						onOpenHistory={() => void openHistory()}
+						onOpenHistory={(versionId) => void openHistory(versionId)}
+						{onAttachPicture}
+						{marks}
+						{onMarksChange}
+						{onMarksContinue}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}
@@ -3212,6 +3434,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							mimeType={activeDocument.mimeType}
 							bind:currentPage={currentPage}
 							bind:totalPages={currentTotalPages}
+							marks={uploadMarks}
+							onMarksChange={handleUploadMarks}
+							{onMarksContinue}
 						/>
 					{:catch}
 						<div class="workspace-compare-state workspace-compare-state-error">
@@ -4023,6 +4248,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			transition: width var(--duration-emphasis) var(--ease-emphasis);
 		}
 
+		/* While the panel changes shape (expand, dock) its content is held at the
+		   size it ends at and shown through the moving shell from its right edge,
+		   the docked column's own way (heldContentSize). */
+		.workspace-shell-desktop > .workspace-content-held {
+			position: absolute;
+			top: 0;
+			right: 0;
+			flex: none;
+		}
+
 		/* The content of a docked column stays at the width the column is
 		   growing to and is shown through it from the right edge. */
 		.workspace-shell-docked > .workspace-content {
@@ -4199,6 +4434,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		color: var(--text-muted);
 		font-size: var(--text-sm);
 		text-align: center;
+	}
+
+	/* The list / grid choice, over the items, at the right. */
+	.artifact-panel-list-tools {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: var(--space-sm);
 	}
 
 	.artifact-panel-list-rows {

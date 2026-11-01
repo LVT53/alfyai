@@ -164,6 +164,7 @@ export function buildComposerMenuRows(
 	const rows: ComposerMenuRow[] = [];
 
 	rows.push({ id: "attach", kind: "action", section: "message" });
+	rows.push({ id: "library", kind: "action", section: "message" });
 	if (input.skillsEnabled) {
 		rows.push({ id: "skills", kind: "nav", section: "message" });
 	}

@@ -82,7 +82,7 @@ describe("resolveGeneratedFileServing", () => {
 			"Content-Type": "text/plain",
 			"Content-Length": "11",
 			"Accept-Ranges": "bytes",
-			"Content-Disposition": 'inline; filename="notes.txt"',
+			"Content-Disposition": `inline; filename="notes.txt"; filename*=UTF-8''notes.txt`,
 			"Cache-Control": "private, max-age=3600",
 		});
 		expect(mockGetChatFileByUser).toHaveBeenCalledWith("file-1", "user-1");
@@ -112,7 +112,7 @@ describe("resolveGeneratedFileServing", () => {
 			"Content-Type": "text/plain",
 		});
 		expect(result.headers["Content-Disposition"]).toBe(
-			'inline; filename="notes.txt"',
+			`inline; filename="notes.txt"; filename*=UTF-8''notes.txt`,
 		);
 	});
 
@@ -271,7 +271,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(result.headers["Content-Type"]).toBe("text/plain");
 		expect(result.headers["Content-Disposition"]).toBe(
-			'inline; filename="Diagram"',
+			`inline; filename="Diagram"; filename*=UTF-8''Diagram`,
 		);
 		expect(result.headers["Content-Security-Policy"]).toBe(
 			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
@@ -327,7 +327,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(result.headers["Content-Type"]).toBe("application/x-sh");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''install.sh",
+			`attachment; filename="install.sh"; filename*=UTF-8''install.sh`,
 		);
 		expect(Buffer.from(result.body).toString()).toBe(
 			"#!/usr/bin/env bash\necho ok\n",
@@ -452,7 +452,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(Buffer.from(result.body).toString()).toBe("job output");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''notes.txt",
+			`attachment; filename="notes.txt"; filename*=UTF-8''notes.txt`,
 		);
 		expect(mockGetSucceededFileProductionJobForChatFile).toHaveBeenCalledWith({
 			userId: "user-1",
@@ -506,7 +506,7 @@ describe("resolveGeneratedFileServing", () => {
 		expect(Buffer.from(result.body).toString()).toBe("hello");
 		expect(result.headers["Content-Type"]).toBe("application/pdf");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''legacy.pdf",
+			`attachment; filename="legacy.pdf"; filename*=UTF-8''legacy.pdf`,
 		);
 		expect(mockGetChatFileByConversationOwner).toHaveBeenCalledWith(
 			"file-1",
@@ -592,7 +592,7 @@ describe("resolveGeneratedFileServing", () => {
 		expect(result.headers["Content-Type"]).toBe("application/json");
 		expect(result.headers["Content-Length"]).toBe("2");
 		expect(result.headers["Content-Disposition"]).toBe(
-			"attachment; filename*=UTF-8''Final%20Report.json",
+			`attachment; filename="Final Report.json"; filename*=UTF-8''Final%20Report.json`,
 		);
 		expect(result.headers["Cache-Control"]).toBe("private, no-store");
 		expect(result.headers["Content-Security-Policy"]).toBeUndefined();

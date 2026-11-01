@@ -814,6 +814,85 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	it("puts the pictures of a send on the optimistic user message, from its first paint", async () => {
+		const { adapters, messageListEvents } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		const pictures = {
+			refs: [{ imageFileId: "file-1", number: 2, name: "Red rug" }],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: null,
+		};
+
+		await runtime.send({
+			message: "Blend them",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 2 }],
+			pictures,
+		});
+
+		expect(messageListEvents.appendUserMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ role: "user", pictures }),
+		);
+	});
+
+	it("keeps the pictures' names through a queued turn's copy and its restore", async () => {
+		const pictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Red rug" }],
+			open: null,
+			marks: null,
+		};
+		const { adapters } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			pictures,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.pictures).toEqual(pictures);
+		expect(queued?.pictures).not.toBe(pictures);
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ pictures }),
+		);
+	});
+
+	it("hands the card pictures and the marks of a send to the stream", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		const pictureRefs = [{ imageFileId: "file-1", number: 1 }];
+		const imageMarks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "B" as const, x: 0, y: 0, w: 0.5, h: 0.5 }],
+		};
+
+		await runtime.send({
+			message: "Make the marked part blue",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs,
+			imageMarks,
+		});
+
+		expect(streamInvocations[0].options).toMatchObject({
+			pictureRefs,
+			imageMarks,
+		});
+	});
+
 	// The composer's chips are gone once the turn is sent, so what the user
 	// chose is stamped on the optimistic assistant placeholder for its
 	// provenance line (see $lib/message-user-intent.ts). The server's own
@@ -1263,6 +1342,110 @@ describe("Normal Chat Client Turn Runtime", () => {
 			isSending: true,
 			queuedTurn: null,
 			queuedContextCompression: false,
+		});
+	});
+
+	it("keeps a queued follow-up's card pictures and marks through the queue, the snapshot, the restore and the drain", async () => {
+		const marks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+		};
+		const pictureRefs = [{ imageFileId: "file-1", number: 2 }];
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs,
+			imageMarks: marks,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.pictureRefs).toEqual(pictureRefs);
+		expect(queued?.imageMarks).toEqual(marks);
+		// A copy: the person's later edits do not reach the queued turn.
+		expect(queued?.pictureRefs).not.toBe(pictureRefs);
+		expect(queued?.imageMarks?.marks).not.toBe(marks.marks);
+
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ pictureRefs, imageMarks: marks }),
+		);
+		expect(streamInvocations).toHaveLength(1);
+	});
+
+	it("keeps the marked item through a queued turn's copy and its restore, and never sends it (T6)", async () => {
+		const markedPicture = {
+			artifactId: "img-1",
+			name: "Cosy room",
+			addedRef: true,
+			version: 2,
+		};
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			markedPicture,
+		});
+		expect(JSON.stringify(streamInvocations[0]?.options ?? {})).not.toContain(
+			"markedPicture",
+		);
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			markedPicture,
+		});
+		const queued = runtime.snapshot().queuedTurn;
+		expect(queued?.markedPicture).toEqual(markedPicture);
+		expect(queued?.markedPicture).not.toBe(markedPicture);
+		runtime.editQueuedTurn();
+		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+			expect.objectContaining({ markedPicture }),
+		);
+	});
+
+	it("sends a drained follow-up with its pictures and marks", async () => {
+		const marks = {
+			imageFileId: "file-1",
+			marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+		};
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Second",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			imageMarks: marks,
+		});
+		streamInvocations[0].callbacks.onEnd("Done", {
+			assistantMessageId: "assistant-1",
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(streamInvocations).toHaveLength(2);
+		expect(streamInvocations[1].options).toMatchObject({
+			pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			imageMarks: marks,
 		});
 	});
 

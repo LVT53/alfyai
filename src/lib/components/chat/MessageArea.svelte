@@ -1,7 +1,12 @@
 <script lang="ts">
 import { tick, untrack } from "svelte";
 import { fade, fly } from "svelte/transition";
-import { reducedMotionAware } from "$lib/utils/motion";
+import {
+	MOTION_DURATION,
+	MOTION_EASE,
+	prefersReducedMotion,
+	reducedMotionAware,
+} from "$lib/utils/motion";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import {
@@ -23,6 +28,8 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
+import type { ImageCardActionHandler } from "$lib/components/artifacts/image/image-card-view";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -78,6 +85,8 @@ let {
 	alfyActivity = null,
 	activeArtifactId = null,
 	deletedArtifacts = undefined,
+	imageCards = [],
+	onImageAction = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -187,6 +196,9 @@ let {
 	activeArtifactId?: string | null;
 	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	/** The chat's picture cards, for each reply's make_image cards (plan 2b T2). */
+	imageCards?: ImageCardView[];
+	onImageAction?: ImageCardActionHandler | undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -210,6 +222,7 @@ let shouldAutoScroll = $state(true);
 let distanceToBottomPx = $state(0);
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
+let lastImageCardCount = 0;
 let lastAtlasJobUpdateKey = "";
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
@@ -293,7 +306,7 @@ function noteScrollPosition(scrollTop: number, distanceToBottom: number) {
 
 function applyHeldPosition() {
 	const container = scrollContainer;
-	if (!container || heldPosition === null) return;
+	if (!container || heldPosition === null || glideFrame !== null) return;
 	if (currentStreamingAssistantMessageId !== null) {
 		releaseHeldPosition();
 		return;
@@ -328,10 +341,21 @@ $effect(() => {
 	// nothing interactive.
 	container.addEventListener("pointerdown", releaseHeldPosition);
 	container.addEventListener("keydown", releaseHeldPosition);
+	// The reader's own move ends a glide where it is.
+	const readerTakesOver = () => stopGlide();
+	container.addEventListener("pointerdown", readerTakesOver);
+	container.addEventListener("keydown", readerTakesOver);
+	container.addEventListener("wheel", readerTakesOver, { passive: true });
+	container.addEventListener("touchstart", readerTakesOver, { passive: true });
 	return () => {
+		stopGlide();
 		observer.disconnect();
 		container.removeEventListener("pointerdown", releaseHeldPosition);
 		container.removeEventListener("keydown", releaseHeldPosition);
+		container.removeEventListener("pointerdown", readerTakesOver);
+		container.removeEventListener("keydown", readerTakesOver);
+		container.removeEventListener("wheel", readerTakesOver);
+		container.removeEventListener("touchstart", readerTakesOver);
 	};
 });
 
@@ -503,6 +527,7 @@ $effect.pre(() => {
 	scrollContainer;
 	isThinkingActive;
 	fileProductionJobs.length;
+	imageCards.length;
 	atlasJobs;
 	contextCompressionMarkers.length;
 
@@ -515,12 +540,14 @@ $effect.pre(() => {
 	if (conversationId && conversationId !== lastConversationId) {
 		lastConversationId = conversationId;
 		shouldAutoScroll = true;
+		stopGlide();
 		// A hold belongs to the conversation it was set in.
 		releaseHeldPosition();
 		lastStreamingAssistantMessageId = null;
 		followingStreamingReply = false;
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
+		lastImageCardCount = 0;
 		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
 		// A restore belongs to the conversation it was scheduled for. Clear any
@@ -568,6 +595,7 @@ $effect.pre(() => {
 		// existing messages as "new" and override restored position.
 		lastMessageCount = dedupedMessages.length;
 		lastFileProductionJobCount = fileProductionJobs.length;
+		lastImageCardCount = imageCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -579,6 +607,7 @@ $effect.pre(() => {
 		}
 		lastMessageCount = 0;
 		lastFileProductionJobCount = fileProductionJobs.length;
+		lastImageCardCount = imageCards.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -586,6 +615,8 @@ $effect.pre(() => {
 	const isNewMessage = hasNewMessage(dedupedMessages);
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
+	// A picture card arrives under the reply it belongs to, like a file card.
+	const hasNewImageCards = imageCards.length > lastImageCardCount;
 	const currentAtlasJobUpdateKey = atlasJobs
 		.map((job) => `${job.id}:${job.status}:${job.updatedAt}`)
 		.join("|");
@@ -619,9 +650,13 @@ $effect.pre(() => {
 		// that end in view while they land, held like a newly opened thread.
 		holdPosition("bottom");
 		void alignToBottomAfterRender();
-	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
-		// File-production cards render inside the latest assistant message; keep that expanded area visible.
-		void alignToBottomAfterRender();
+	} else if (
+		(hasNewFileProductionJobs || hasNewImageCards) &&
+		shouldAutoScroll
+	) {
+		// File-production and picture cards render inside the latest assistant
+		// message; keep that expanded area visible, gliding to it (B-I1).
+		void followToBottomAfterRender();
 	} else if (hasAtlasJobUpdates && shouldAutoScroll) {
 		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
@@ -632,19 +667,107 @@ $effect.pre(() => {
 		!pageShowsLinkedMessage()
 	) {
 		// Only follow during thinking phase; stop once content streaming begins.
-		instantScrollToBottom();
+		// A card mounting meanwhile glides rather than cuts (B-I1).
+		followToBottom();
 	}
 
 	lastMessageCount = dedupedMessages.length;
 	lastFileProductionJobCount = fileProductionJobs.length;
+	lastImageCardCount = imageCards.length;
 	lastAtlasJobUpdateKey = currentAtlasJobUpdateKey;
 	lastContextCompressionMarkerCount = contextCompressionMarkers.length;
+});
+
+/**
+ * The picture card's body is a lazy chunk, and the card draws nothing until it
+ * is here; the reveal above lands two frames after the card arrives. So the
+ * chunk is fetched as soon as the chat has a picture card, or a make_image
+ * call starts (seconds before its card exists), and the card then has its
+ * height in the frame the reveal measures.
+ */
+let imageCardBodyWarmed = false;
+$effect(() => {
+	if (imageCardBodyWarmed) return;
+	const wanted =
+		imageCards.length > 0 ||
+		messages.some((message) =>
+			message.thinkingSegments?.some(
+				(segment) =>
+					segment.type === "tool_call" && segment.name === "make_image",
+			),
+		);
+	if (!wanted) return;
+	imageCardBodyWarmed = true;
+	void import("$lib/components/artifacts/image/ImageCardBody.svelte");
 });
 
 function instantScrollToBottom() {
 	if (!scrollContainer) return;
 	scrollContainer.scrollTop = scrollContainer.scrollHeight;
 	lastKnownScrollTop = scrollContainer.scrollTop;
+}
+
+/**
+ * A follow longer than this glides instead of cutting (final review B-I1): a
+ * picture card (or any tall deliverable) arriving under a reply moved the
+ * thread ~400 px in one frame, and the reader lost their place in the prose.
+ * A streamed line or two stays an instant follow, as before.
+ */
+const GLIDE_FROM_PX = 96;
+let glideFrame: number | null = null;
+
+function stopGlide() {
+	if (glideFrame !== null) cancelAnimationFrame(glideFrame);
+	glideFrame = null;
+}
+
+/**
+ * Moves the view to the latest content over `--duration-emphasis` on
+ * `--ease-out`, aiming every frame at the live bottom (the card may still be
+ * growing). The reader's own scroll, press or key ends it where it is.
+ */
+function glideToBottom() {
+	const container = scrollContainer;
+	if (!container) return;
+	stopGlide();
+	const from = container.scrollTop;
+	const started = performance.now();
+	// A frame callback run at once, inside the request (no real frames to
+	// glide over), lands at the bottom instead of asking again forever.
+	let requesting = false;
+	let landed = false;
+	const step = () => {
+		const progress = requesting
+			? 1
+			: Math.min(1, (performance.now() - started) / MOTION_DURATION.emphasis);
+		const target = container.scrollHeight - container.clientHeight;
+		container.scrollTop = from + (target - from) * MOTION_EASE.out(progress);
+		lastKnownScrollTop = container.scrollTop;
+		landed = progress >= 1;
+		glideFrame = landed ? null : requestFrame();
+	};
+	const requestFrame = (): number | null => {
+		requesting = true;
+		const id = requestAnimationFrame(step);
+		requesting = false;
+		return landed ? null : id;
+	};
+	glideFrame = requestFrame();
+}
+
+/**
+ * Keeps the latest content in view while the reader follows a reply: a short
+ * way is an instant follow, a long one (a card landing) glides, and under
+ * reduced motion every follow is instant. A glide in flight already aims at
+ * the live bottom, so a follow asked for meanwhile leaves it to finish.
+ */
+function followToBottom() {
+	const container = scrollContainer;
+	if (!container || glideFrame !== null) return;
+	const distance =
+		container.scrollHeight - container.clientHeight - container.scrollTop;
+	if (distance > GLIDE_FROM_PX && !prefersReducedMotion()) glideToBottom();
+	else instantScrollToBottom();
 }
 
 function isNearLiveEdge(): boolean {
@@ -925,6 +1048,20 @@ async function alignToBottomAfterRender() {
 	});
 }
 
+/** `alignToBottomAfterRender`'s two frames, through `followToBottom`: a tall card glides into view. */
+async function followToBottomAfterRender() {
+	if (!scrollContainer) return;
+	await tick();
+	requestAnimationFrame(() => {
+		if (pageShowsLinkedMessage()) return;
+		followToBottom();
+		requestAnimationFrame(() => {
+			if (pageShowsLinkedMessage()) return;
+			followToBottom();
+		});
+	});
+}
+
 async function alignForkBoundaryAfterRender(messageId: string) {
 	if (!scrollContainer) return;
 	await tick();
@@ -1065,6 +1202,8 @@ async function scrollToMessage(messageId: string) {
 					{alfyActivity}
 					{activeArtifactId}
 					{deletedArtifacts}
+					{imageCards}
+					{onImageAction}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the

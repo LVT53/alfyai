@@ -72,6 +72,7 @@ function withTimeout(
 			signal: controller.signal,
 			dockerPing: deps.dockerPing,
 			listTransitRegions: deps.listTransitRegions,
+			pictureCheckReady: deps.pictureCheckReady,
 		}).then(
 			(result) => finish({ ...result, timedOut: false }),
 			(error: unknown) =>
@@ -135,6 +136,8 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			owntracksRecorderPass: "",
 			mineruApiUrl: "",
 			mineruApiKey: "",
+			comfyuiUrl: "",
+			imageExplicitFilterEnabled: false,
 		};
 	}
 }

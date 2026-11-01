@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
+import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	type AtlasActivityJob,
@@ -1802,5 +1803,412 @@ describe("a source that came from a call's input, not from its result", () => {
 				toolCall({ name: "research_web", input: { query: REFUSED } }),
 			),
 		).toEqual([]);
+	});
+});
+
+describe("make_image rows", () => {
+	function makeImageCall(overrides: Partial<ToolCallSegment>) {
+		return toolCall({
+			name: "make_image",
+			input: { prompt: "a red door", title: "Red door" },
+			...overrides,
+		});
+	}
+
+	it("carries the picture's card, by the ids in its metadata, as an open deliverable", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageCardId: "card-9",
+					imageTakeId: "take-3",
+					imageTitle: "Red door",
+				},
+			}),
+			"card-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "image-card",
+			cardId: "card-9",
+			takeId: "take-3",
+			title: "Red door",
+		});
+		expect(item).toMatchObject({ pinned: true, alwaysOpen: true });
+	});
+
+	it("carries a card body while the call runs, before it names its card", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({ status: "running" }),
+			"running-row",
+			translate,
+		);
+
+		expect(item.body).toEqual({
+			kind: "image-card",
+			cardId: null,
+			takeId: null,
+			title: "Red door",
+		});
+	});
+
+	it("keeps a failed take's card, and a refusal with no card its own body", () => {
+		const failedTake = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_server_unreachable",
+					imageCardId: "card-1",
+					imageTakeId: "take-1",
+				},
+			}),
+			"failed-take",
+			translate,
+		);
+		expect(failedTake.body).toMatchObject({
+			kind: "image-card",
+			cardId: "card-1",
+		});
+		const refusal = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "not_configured" },
+			}),
+			"refused",
+			translate,
+		);
+		expect(refusal.body).toEqual({
+			kind: "error",
+			reason: "No picture server is set up.",
+		});
+	});
+
+	it("reads a finished new picture as 'Made' and its title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: false,
+					imageTitle: "Red door",
+					imageRetried: false,
+				},
+			}),
+			"k1",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			verb: "Made",
+			object: "Red door",
+			meta: "",
+			iconType: "artifact",
+			status: "done",
+		});
+	});
+
+	it("reads a finished change as 'Changed' and its title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				input: { prompt: "make the door blue", pictures: ["1"] },
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: true,
+					imageTitle: "Cosy room",
+				},
+			}),
+			"k2",
+			translate,
+		);
+
+		expect(item).toMatchObject({ verb: "Changed", object: "Cosy room" });
+	});
+
+	it("reads a running call, and a take still being made, as 'Making a picture'", () => {
+		const running = buildToolActivityItem(
+			makeImageCall({ status: "running" }),
+			"k3",
+			translate,
+		);
+		const late = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: true, imageStatus: "running", imageTitle: "Red door" },
+			}),
+			"k4",
+			translate,
+		);
+
+		expect(running).toMatchObject({
+			verb: "Making a picture",
+			status: "running",
+		});
+		expect(late).toMatchObject({ verb: "Making a picture", status: "done" });
+	});
+
+	it("says a retried take was retried once", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageEdit: false,
+					imageTitle: "Red door",
+					imageRetried: true,
+				},
+			}),
+			"k5",
+			translate,
+		);
+
+		expect(item.meta).toBe("retried once");
+	});
+
+	it("says in Hungarian that a retried take was retried once, and names the verbs", () => {
+		expect(chatDict.hu["toolActivity.retriedOnce"]).toBe(
+			"egyszer újrapróbálva",
+		);
+		expect(chatDict.hu["toolActivity.madePicture"]).toBe("Elkészült:");
+		expect(chatDict.hu["toolActivity.changedPicture"]).toBe("Módosult:");
+		expect(chatDict.hu["toolActivity.makingPicture"]).toBe("Kép készül");
+		expect(chatDict.hu["toolCalls.makeImage"]).toBe("Képkészítés");
+	});
+
+	it("marks a failed call as failed and keeps the title", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageTitle: "Red door",
+				},
+			}),
+			"k6",
+			translate,
+		);
+
+		expect(item).toMatchObject({
+			status: "failed",
+			verb: "Could not make the picture",
+			object: "Red door",
+		});
+	});
+
+	it("words a failure for the person from its code, never from the model's English", () => {
+		const modelText = "Do not call it again now; tell the user what you made.";
+		const refused = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: { ok: false, imageRefusal: "too_many_takes" },
+			}),
+			"k7",
+			translate,
+		);
+		// A refusal is a correction for the model: the person is told nothing about it.
+		expect(refused.body).toBeNull();
+		expect(JSON.stringify(refused)).not.toContain(modelText);
+		for (const code of [
+			"too_many_calls",
+			"retry_twice",
+			"retry_unknown",
+			"unknown_picture",
+		]) {
+			const other = buildToolActivityItem(
+				makeImageCall({ metadata: { ok: false, imageRefusal: code } }),
+				`refusal-${code}`,
+				translate,
+			);
+			expect(other.body).toBeNull();
+		}
+		const noServer = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "not_configured" },
+			}),
+			"k7b",
+			translate,
+		);
+		expect(noServer.body).toEqual({
+			kind: "error",
+			reason: "No picture server is set up.",
+		});
+		const unreachable = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_server_unreachable",
+				},
+			}),
+			"k8",
+			translate,
+		);
+		expect(unreachable.body).toEqual({
+			kind: "error",
+			reason: "The picture server could not be reached.",
+		});
+		// Even when the call itself is marked failed, the model's text stays out.
+		const failedStatus = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				outputSummary: modelText,
+				metadata: { ok: false, imageError: "image_tool_timeout" },
+			}),
+			"k9",
+			translate,
+		);
+		expect(JSON.stringify(failedStatus)).not.toContain(modelText);
+		// The envelope gave up waiting, but the take is still being made: not a failure.
+		expect(failedStatus).toMatchObject({
+			status: "done",
+			verb: "Still being made, it will appear on its card",
+			body: null,
+		});
+	});
+
+	it("shows a model-only refusal as a neutral row, and an unreadable upload of the person as a failure", () => {
+		const neutral = buildToolActivityItem(
+			makeImageCall({
+				metadata: { ok: false, imageRefusal: "too_many_takes" },
+			}),
+			"neutral",
+			translate,
+		);
+		expect(neutral).toMatchObject({
+			status: "done",
+			verb: "Adjusting the picture request",
+			body: null,
+		});
+		const unreadable = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageRefusal: "unknown_picture",
+					imageUnreadable: true,
+				},
+			}),
+			"unreadable",
+			translate,
+		);
+		expect(unreadable).toMatchObject({
+			status: "failed",
+			body: { kind: "error", reason: "This picture could not be read." },
+		});
+	});
+
+	it("says a picture the filter stopped plainly, from the code, never the model's words", () => {
+		const modelText = "Tell the user plainly that it was blocked.";
+		const blocked = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_blocked",
+				},
+			}),
+			"blocked",
+			translate,
+		);
+		expect(blocked).toMatchObject({
+			verb: "Picture blocked",
+			body: {
+				kind: "error",
+				reason: "It looked explicit, so it was not shown or kept.",
+			},
+		});
+		expect(JSON.stringify(blocked)).not.toContain(modelText);
+
+		const unchecked = buildToolActivityItem(
+			makeImageCall({
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageError: "image_unchecked",
+				},
+			}),
+			"unchecked",
+			translate,
+		);
+		expect(unchecked).toMatchObject({
+			verb: "Picture blocked",
+			body: {
+				kind: "error",
+				reason: "The picture could not be checked, so it was not shown.",
+			},
+		});
+
+		const request = buildToolActivityItem(
+			makeImageCall({
+				outputSummary: modelText,
+				metadata: { ok: false, imageRefusal: "explicit_request" },
+			}),
+			"explicit-request",
+			translate,
+		);
+		expect(request).toMatchObject({
+			verb: "Picture not made",
+			body: { kind: "error", reason: "Explicit pictures are not made here." },
+		});
+		expect(chatDict.hu["toolActivity.pictureBlocked"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureNotMade"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureReason.blocked"]).toBeTruthy();
+		expect(chatDict.hu["toolActivity.pictureReason.unchecked"]).toBeTruthy();
+		expect(
+			chatDict.hu["toolActivity.pictureReason.explicitRequest"],
+		).toBeTruthy();
+	});
+
+	it("says a timeout that made no take failed plainly", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				metadata: { ok: false, imageError: "image_error" },
+			}),
+			"prep-timeout",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "failed",
+			body: { kind: "error", reason: "The picture could not be made." },
+		});
+		expect(JSON.stringify(item)).not.toContain("appear on its card");
+	});
+
+	it("reads a Stop as stopped, not as a failure", () => {
+		const item = buildToolActivityItem(
+			makeImageCall({
+				outputSummary:
+					"The user stopped the turn before this picture started, so it was not made.",
+				metadata: {
+					ok: false,
+					imageStatus: "failed",
+					imageStopped: true,
+					imageTitle: "Red door",
+				},
+			}),
+			"k10",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "done",
+			verb: "Picture stopped",
+			object: "Red door",
+			body: null,
+		});
+	});
+
+	it("has every reason in Hungarian too", () => {
+		const keys = Object.keys(chatDict.en).filter((key) =>
+			key.startsWith("toolActivity.pictureReason."),
+		);
+		expect(keys.length).toBeGreaterThanOrEqual(9);
+		for (const key of keys) {
+			expect(chatDict.hu[key as keyof typeof chatDict.hu]).toBeTruthy();
+		}
+		expect(chatDict.hu["toolActivity.pictureStopped"]).toBe("Kép leállítva");
+		expect(chatDict.hu["toolActivity.pictureStillMaking"]).toBeTruthy();
 	});
 });

@@ -7,11 +7,21 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import { getContentTypeForFile } from "$lib/shared/file-types";
+import {
+	ensureFilenameExtension,
+	withFileExtension,
+} from "$lib/shared/file-types/download-name";
+import {
+	HEIF_PREVIEW_CONTENT_TYPE,
+	isHeifImage,
+} from "$lib/shared/file-types/seeable-image";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 import {
 	getArtifactForUser,
 	getSourceArtifactIdForNormalizedArtifact,
 } from "./core";
+import { heifPreviewPng } from "./heif-preview";
 
 export type WorkingDocumentFileServingMode = "preview" | "download";
 
@@ -219,20 +229,28 @@ function resolveStoredArtifactFilenames(params: {
 	filenameArtifact: Artifact;
 }): { safeName: string; downloadName: string; previewContentName: string } {
 	const safeName = params.filenameArtifact.name || "document";
-	const downloadName =
-		safeName.includes(".") || !params.filenameArtifact.extension
-			? safeName
-			: `${safeName}.${params.filenameArtifact.extension}`;
-	const previewContentName =
-		safeName.includes(".") || !params.artifact.extension
-			? safeName
-			: `${safeName}.${params.artifact.extension}`;
+	const downloadName = withFileExtension(
+		safeName,
+		params.filenameArtifact.extension,
+	);
+	const previewContentName = withFileExtension(
+		safeName,
+		params.artifact.extension,
+	);
 
 	return { safeName, downloadName, previewContentName };
 }
 
 function isUnsafeStoredArtifactPath(storagePath: string): boolean {
 	return storagePath.includes("..") || storagePath.startsWith("/");
+}
+
+/** A text download is typed by its name: a `.md` note is `text/markdown`, not `text/plain`. */
+function textDownloadContentType(name: string): string {
+	const byName = getContentTypeForFile(name, null);
+	return byName.startsWith("text/")
+		? `${byName}; charset=utf-8`
+		: "text/plain; charset=utf-8";
 }
 
 function resolveStoredTextArtifact(params: {
@@ -246,7 +264,10 @@ function resolveStoredTextArtifact(params: {
 	const headers = buildFileServingResponseHeaders({
 		mode: params.mode,
 		contentLength: textBuffer.length,
-		contentType: "text/plain; charset=utf-8",
+		contentType:
+			params.mode === "download"
+				? textDownloadContentType(params.downloadName)
+				: "text/plain; charset=utf-8",
 		filename: params.mode === "preview" ? params.safeName : params.downloadName,
 		safetyFilenames: [params.downloadName],
 	});
@@ -260,6 +281,14 @@ function resolveStoredTextArtifact(params: {
 		ok: true,
 		...rangedResponse,
 	};
+}
+
+/** The name a converted preview goes by: `photo.heic` is `photo.png` now. */
+function previewPngName(name: string): string {
+	return ensureFilenameExtension(
+		name.replace(/\.[^.]+$/, ""),
+		HEIF_PREVIEW_CONTENT_TYPE,
+	);
 }
 
 async function resolveStoredArtifactFromFile(params: {
@@ -282,6 +311,30 @@ async function resolveStoredArtifactFromFile(params: {
 	const filePath = join(process.cwd(), params.storagePath);
 
 	try {
+		if (
+			params.mode === "preview" &&
+			isHeifImage(params.previewName, params.artifact.mimeType)
+		) {
+			// Browsers other than Safari cannot draw HEIC; a download still gets
+			// the original. A file that cannot be converted is served as it is.
+			const drawn = await heifPreviewPng(filePath, params.artifact.mimeType);
+			if (drawn) {
+				return {
+					ok: true,
+					...applyFileServingRange({
+						body: drawn,
+						rangeHeader: params.rangeHeader,
+						headers: buildFileServingResponseHeaders({
+							mode: params.mode,
+							contentLength: drawn.length,
+							contentType: HEIF_PREVIEW_CONTENT_TYPE,
+							filename: previewPngName(filename),
+							safetyFilenames: [params.previewName, params.storagePath],
+						}),
+					}),
+				};
+			}
+		}
 		const totalLength = await getStoredFileLength(filePath);
 		const partialResponse = await resolveStoredArtifactPartialRange({
 			filePath,

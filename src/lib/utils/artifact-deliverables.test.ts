@@ -186,3 +186,51 @@ describe("foldArtifactDeliverables", () => {
 		expect(shown[0].key).toBe("create_artifact-doc-1-A");
 	});
 });
+
+describe("picture cards", () => {
+	const picture = (
+		callId: string,
+		cardId: string | null,
+		status: "running" | "done" = "done",
+	) => {
+		const segment = call({
+			name: "make_image",
+			callId,
+			status,
+			input: { prompt: "a red door", title: "Red door" },
+			metadata: cardId
+				? {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: cardId,
+						imageTakeId: `${callId}-take`,
+					}
+				: undefined,
+		});
+		return { segment, item: buildToolActivityItem(segment, callId, translate) };
+	};
+
+	it("draws one card per picture card however many calls made its takes, in the first one's place", () => {
+		const { shown } = foldArtifactDeliverables([
+			picture("a", "card-1"),
+			picture("b", "card-2"),
+			picture("c", "card-1"),
+		]);
+
+		expect(shown.map((item) => item.key)).toEqual(["a", "b"]);
+		expect(shown[0].body).toMatchObject({
+			kind: "image-card",
+			cardId: "card-1",
+			takeId: "c-take",
+		});
+	});
+
+	it("leaves a running call whose card is not known yet as its own row", () => {
+		const { shown } = foldArtifactDeliverables([
+			picture("a", "card-1"),
+			picture("b", null, "running"),
+		]);
+
+		expect(shown.map((item) => item.key)).toEqual(["a", "b"]);
+	});
+});

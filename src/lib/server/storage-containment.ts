@@ -30,6 +30,7 @@ export function storageRoots(): string[] {
 	return [
 		resolve(process.cwd(), "data", "knowledge"),
 		resolve(process.cwd(), "data", "chat-files"),
+		resolve(process.cwd(), "data", "image-files"),
 	];
 }
 

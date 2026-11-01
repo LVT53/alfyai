@@ -211,6 +211,52 @@ describe("the new vocabulary", () => {
 	});
 });
 
+describe("picture summaries", () => {
+	it("reads the reader's photo and the take they picked", () => {
+		expect(
+			classifyVersionSummary({
+				author: "user",
+				summary: "The user's photo",
+				versionNumber: 1,
+			}),
+		).toMatchObject({ kind: "user_photo", actor: "user" });
+		expect(
+			classifyVersionSummary({
+				author: "user",
+				summary: "Picked another take",
+				versionNumber: 3,
+			}),
+		).toMatchObject({ kind: "picked_take", actor: "user" });
+	});
+
+	it("reads Alfy's picture rows as its first draft and its edit, with no words of their own", () => {
+		expect(
+			classifyVersionSummary({
+				author: "alfy",
+				summary: "Alfy made the picture",
+				versionNumber: 1,
+			}),
+		).toMatchObject({ kind: "first_draft", actor: "alfy", text: null });
+		expect(
+			classifyVersionSummary({
+				author: "alfy",
+				summary: "Alfy changed the picture",
+				versionNumber: 2,
+			}),
+		).toMatchObject({ kind: "alfy_edit", actor: "alfy", text: null });
+	});
+
+	it("never lets Alfy's row pass for the reader's photo", () => {
+		expect(
+			classifyVersionSummary({
+				author: "alfy",
+				summary: "The user's photo",
+				versionNumber: 2,
+			}).kind,
+		).toBe("alfy_edit");
+	});
+});
+
 describe("classifying a row's summary into a moment kind", () => {
 	const classify = (
 		author: "user" | "alfy",

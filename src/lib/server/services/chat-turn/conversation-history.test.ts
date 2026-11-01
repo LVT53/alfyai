@@ -69,11 +69,15 @@ describe("renderHistoryTurn", () => {
 			}),
 			"native",
 		);
-		expect(out).toHaveLength(3);
+		// The answer follows the tool's result, as it was written: replayed before
+		// the call, it taught the model to answer first and call after (Task 11:
+		// "Added - a slim brass floor lamp..." said before make_image, then again
+		// after its result).
+		expect(out).toHaveLength(4);
+		expect(out[3]).toEqual({ role: "assistant", content: "It is 15°C." });
 		expect(out[1]).toEqual({
 			role: "assistant",
 			content: [
-				{ type: "text", text: "It is 15°C." },
 				{
 					type: "tool-call",
 					toolCallId: "call_1",
@@ -278,6 +282,115 @@ describe("renderHistoryTurn", () => {
 					"What do you think of this kitchen?\n[image: kitchen.jpg: A small white kitchen with a window.]",
 			},
 		]);
+	});
+
+	it("says the pictures beside the uploads as short lines, never pixels", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Make the sofa blue",
+						pictures: {
+							refs: [
+								{ imageFileId: "f1", number: 1, name: "Cosy living room" },
+							],
+							open: { imageFileId: "f2", name: "Garden\nview" },
+							marks: {
+								imageFileId: "f1",
+								markedFileId: "f3",
+								letters: ["A", "B"],
+							},
+						},
+					},
+				],
+			},
+			"native",
+		);
+		expect(out).toEqual([
+			{
+				role: "user",
+				content:
+					"Make the sofa blue\n[picture: Cosy living room]\n[open picture: Garden view]\n[marks: A, B on Cosy living room]",
+			},
+		]);
+		expect(JSON.stringify(out)).not.toContain("f3");
+	});
+
+	it("says a picture that was attached and also open once, as the open picture", () => {
+		const out = renderHistoryTurn(
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Use this",
+						pictures: {
+							refs: [
+								{
+									imageFileId: "f1",
+									number: 1,
+									name: "Cosy living room",
+									open: true,
+								},
+							],
+							open: null,
+							marks: null,
+						},
+					},
+				],
+			},
+			"native",
+		);
+		expect(out[0].content).toBe("Use this\n[open picture: Cosy living room]");
+	});
+
+	it("names marks on the open picture, and a marked picture it cannot find as a picture", () => {
+		const base = {
+			role: "user" as const,
+			content: "Here",
+		};
+		expect(
+			renderHistoryTurn(
+				{
+					messages: [
+						{
+							...base,
+							pictures: {
+								refs: [],
+								open: { imageFileId: "f2", name: "Garden view" },
+								marks: {
+									imageFileId: "f2",
+									markedFileId: "f3",
+									letters: ["C"],
+								},
+							},
+						},
+					],
+				},
+				"native",
+			)[0].content,
+		).toBe("Here\n[open picture: Garden view]\n[marks: C on Garden view]");
+		expect(
+			renderHistoryTurn(
+				{
+					messages: [
+						{
+							...base,
+							pictures: {
+								refs: [],
+								open: null,
+								marks: {
+									imageFileId: "gone",
+									markedFileId: "f3",
+									letters: ["A"],
+								},
+							},
+						},
+					],
+				},
+				"native",
+			)[0].content,
+		).toBe("Here\n[marks: A on a picture]");
 	});
 
 	it("falls back to the name for a picture with no description yet, and for any other file", () => {

@@ -72,6 +72,9 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_MODEL",
 	"TEI_RERANKER_MAX_TEXTS",
 	"MINERU_API_URL",
+	"COMFYUI_URL",
+	"IMAGE_REFERENCE_CAP",
+	"IMAGE_EXPLICIT_FILTER_ENABLED",
 	"MINERU_API_KEY",
 	"MINERU_DEFAULT_TIER",
 	"MINERU_OCR_MODE",
@@ -271,6 +274,9 @@ export interface RuntimeConfig {
 	model2Enabled: boolean;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
+	comfyuiUrl: string;
+	imageReferenceCap: number;
+	imageExplicitFilterEnabled: boolean;
 	mineruApiKey: string;
 	mineruDefaultTier: string;
 	mineruOcrMode: string;
@@ -796,6 +802,17 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	MINERU_API_URL: (config, value) => {
 		config.mineruApiUrl = value;
+	},
+	COMFYUI_URL: (config, value) => {
+		config.comfyuiUrl = value.trim();
+	},
+	IMAGE_REFERENCE_CAP: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.imageReferenceCap = Math.max(1, Math.min(10, parsed));
+	},
+	IMAGE_EXPLICIT_FILTER_ENABLED: (config, value) => {
+		config.imageExplicitFilterEnabled = value !== "false";
 	},
 	MINERU_API_KEY: (config, value) => {
 		config.mineruApiKey = value.trim();
@@ -1374,6 +1391,18 @@ export function getConfig(): RuntimeConfig {
 	return runtimeConfig;
 }
 
+/** Source pictures one make_image call gives the picture server (1..10). */
+export function getImageReferenceCap(): number {
+	return runtimeConfig.imageReferenceCap;
+}
+
+/** Picture making is on only when an admin points COMFYUI_URL at a server. */
+export function isImageMakingConfigured(
+	config: Pick<RuntimeConfig, "comfyuiUrl">,
+): boolean {
+	return config.comfyuiUrl.trim() !== "";
+}
+
 export function getDocumentTokenBudget(): number {
 	return runtimeConfig.workingSetDocumentTokenBudget;
 }
@@ -1633,6 +1662,9 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_MODEL: config.teiRerankerModel,
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
 		MINERU_API_URL: config.mineruApiUrl,
+		COMFYUI_URL: config.comfyuiUrl,
+		IMAGE_REFERENCE_CAP: String(config.imageReferenceCap),
+		IMAGE_EXPLICIT_FILTER_ENABLED: String(config.imageExplicitFilterEnabled),
 		// Masked from day one. The four older API-key rows above return their
 		// value in cleartext from GET /api/admin/config; that is the pattern this
 		// key deliberately does NOT copy.

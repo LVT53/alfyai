@@ -528,6 +528,13 @@ export type StreamChatOptions = {
 	// to the user's defaultOn set.
 	enabledConnectionCapabilities?: string[];
 	activeDocumentArtifactId?: string;
+	// The card pictures attached to this message (under the numbers the person
+	// saw) and the marks drawn on one picture; the server numbers them with the
+	// uploads and the open picture (images/turn-pictures.ts).
+	pictureRefs?: import("$lib/shared/artifacts/image-body").PictureRef[];
+	imageMarks?:
+		| import("$lib/shared/artifacts/image-body").ImageMarksRequest
+		| null;
 	personalityProfileId?: string | null;
 	retryAssistantMessageId?: string;
 	retryUserMessageId?: string;
@@ -562,6 +569,8 @@ export function streamChat(
 		forceWebSearch,
 		enabledConnectionCapabilities,
 		activeDocumentArtifactId,
+		pictureRefs,
+		imageMarks,
 		personalityProfileId,
 		retryAssistantMessageId,
 		retryUserMessageId,
@@ -769,6 +778,8 @@ export function streamChat(
 						reasoningDepth,
 						attachmentIds,
 						activeDocumentArtifactId,
+						pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
+						imageMarks: imageMarks ?? undefined,
 						personalityProfileId,
 						confirmForkedSourceHistoryMutation:
 							confirmForkedSourceHistoryMutation === true ? true : undefined,
@@ -787,6 +798,8 @@ export function streamChat(
 						forceWebSearch: forceWebSearch === true ? true : undefined,
 						enabledConnectionCapabilities,
 						activeDocumentArtifactId,
+						pictureRefs: pictureRefs?.length ? pictureRefs : undefined,
+						imageMarks: imageMarks ?? undefined,
 						personalityProfileId,
 						reconnectToStreamId,
 						userMessage: reconnectUserMessage,

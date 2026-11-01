@@ -159,6 +159,45 @@ describe("deleteConversationWithCleanup", () => {
 		);
 	});
 
+	it("removes the chat's picture files from disk and table", async () => {
+		seedConversation();
+		const { mkdtemp, rm, readdir } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const sharp = (await import("sharp")).default;
+		const workdir = await mkdtemp(join(tmpdir(), "cleanup-images-"));
+		vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		try {
+			const png = await sharp({
+				create: { width: 16, height: 16, channels: 3, background: "#fff" },
+			})
+				.png()
+				.toBuffer();
+			const { storeImageFile } = await import("../images/files");
+			await storeImageFile({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				role: "take",
+				png: new Uint8Array(png),
+			});
+			expect(await readdir(join(workdir, "data", "image-files"))).toEqual([
+				"conversation-1",
+			]);
+
+			const { deleteConversationWithCleanup } = await import(
+				"./conversation-cleanup"
+			);
+			await deleteConversationWithCleanup("user-1", "conversation-1");
+
+			expect(await readdir(join(workdir, "data", "image-files"))).toEqual([]);
+			const { db } = await import("$lib/server/db");
+			expect(await db.select().from(schema.imageFiles)).toEqual([]);
+		} finally {
+			vi.restoreAllMocks();
+			await rm(workdir, { recursive: true, force: true });
+		}
+	});
+
 	it("deletes conversation-scoped Atlas jobs, checkpoints, and generated outputs", async () => {
 		seedConversation();
 		{
@@ -318,6 +357,32 @@ describe("deleteConversationWithCleanup", () => {
 				(call) => call[1],
 			),
 		).toEqual(["source-1"]);
+	});
+
+	it("deletes an Image item with its chat even when another chat links to it", async () => {
+		seedConversation();
+
+		mockListConversationOwnedArtifacts.mockResolvedValue([
+			{
+				id: "image-1",
+				type: "artifact",
+				metadata: { artifactType: "image", title: "Cosy room" },
+			},
+		]);
+		mockArtifactHasReferencesOutsideConversation.mockResolvedValue(true);
+
+		const { deleteConversationWithCleanup } = await import(
+			"./conversation-cleanup"
+		);
+
+		const result = await deleteConversationWithCleanup(
+			"user-1",
+			"conversation-1",
+		);
+
+		expect(result?.deletedArtifactIds).toEqual(["image-1"]);
+		expect(result?.preservedArtifactIds).toEqual([]);
+		expect(mockArtifactHasReferencesOutsideConversation).not.toHaveBeenCalled();
 	});
 
 	it("removes a normal chat's artifact-family row (with no outside references) and never even asks about another chat's", async () => {

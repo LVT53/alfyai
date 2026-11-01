@@ -26,7 +26,10 @@ import {
 	conversationWorkingSetItems,
 	documentExtractionJobs,
 	fileProductionJobs,
+	imageCards,
 	imageDescriptions,
+	imageFiles,
+	imageJobs,
 	importJobs,
 	memoryConsolidationReports,
 	memoryDirtyLedger,
@@ -332,6 +335,35 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "image_descriptions",
 		table: imageDescriptions,
 		userColumn: imageDescriptions.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// A picture's PNG on disk and the row that names it. Rows cascade with the
+	// chat and with the person; the files on disk are removed by
+	// `deleteImageFilesForUser` inside `purgeUserData` (Clear Workspace and
+	// erasure). Clear Memory keeps chats, so it keeps their pictures.
+	{
+		name: "image_files",
+		table: imageFiles,
+		userColumn: imageFiles.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// A card (one ask for pictures) and its takes (the image job kind's rows).
+	// They belong to a chat and cascade with it and with the person; the takes
+	// still running are cancelled by `quiesceUserWorkspace`, and the pictures'
+	// files are removed with `deleteImageFilesForUser`.
+	{
+		name: "image_cards",
+		table: imageCards,
+		userColumn: imageCards.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "image_jobs",
+		table: imageJobs,
+		userColumn: imageJobs.userId,
 		erasure: "cascade",
 		resets: [],
 	},

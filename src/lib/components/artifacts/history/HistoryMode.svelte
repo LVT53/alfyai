@@ -1,10 +1,10 @@
 <script lang="ts">
-// fallow-ignore-file unrendered-component -- rendered as <HistoryView> in DocumentWorkspace.svelte, after import("./history-parts")
 /**
  * History, a MODE of the artifact panel (ruling 76, versioning.md §5.2): the
  * body gives way to a read-only preview of the selected version, and the
- * moments are a rail beside it. Done, Escape or the history button again return
- * to editing. The shell is the same for every kind; what shows one version is the
+ * moments are a rail beside it. Escape or the history button (which says "Close
+ * history" while this is open) return to editing, and a phone's sheet, which
+ * covers that button, carries a close button of its own. The shell is the same for every kind; what shows one version is the
  * kind's preview (`history-previews.ts`).
  *
  * Three layouts, by the room it has: side by side (preview, then a 300 px rail)
@@ -14,7 +14,7 @@
  * sheet (`DialogShell`). Loading, paging, selection and the live announcements
  * live here; the rail, the toolbar and the preview only draw.
  */
-import { ChevronLeft, ChevronRight, RotateCcw } from "@lucide/svelte";
+import { ChevronLeft, ChevronRight, RotateCcw, X } from "@lucide/svelte";
 import { type Component, onMount, tick, untrack } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import { cubicOut } from "svelte/easing";
@@ -62,6 +62,7 @@ import {
 } from "./moment-text";
 import {
 	buildRailGroups,
+	entryKeyForVersion,
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
@@ -77,23 +78,22 @@ let {
 	kind,
 	title,
 	conversationId = null,
-	currentUser = null,
 	onDone,
 	onReview = undefined,
 	onRestored = undefined,
 	chatVersionIds = null,
 	onFromChat = undefined,
+	initialVersionId = undefined,
+	onAttachPicture = undefined,
+	marks = null,
+	onMarksChange = undefined,
+	onMarksContinue = undefined,
 }: {
 	artifactId: string;
 	kind: ArtifactKind;
 	title: string;
 	/** The conversation the panel shows, so an incognito chat's item stays in scope (ruling 51). */
 	conversationId?: string | null;
-	currentUser?: {
-		id: string;
-		displayName: string;
-		profilePicture: string | null;
-	} | null;
 	/** Leaves History. Focus goes back to the history button (the panel's job). */
 	onDone: () => void;
 	/** Leaves History and steps the review to the change a waiting moment names. */
@@ -103,6 +103,20 @@ let {
 	/** The versions whose chat message this chat holds ("From the chat"). */
 	chatVersionIds?: ReadonlySet<string> | null;
 	onFromChat?: ((entry: RailEntry) => void) | undefined;
+	/**
+	 * Opens on this version instead of the newest (a picture strip's frame, plan 2b
+	 * T3): the rail selects the entry that holds it (F11), and a narrow panel or a
+	 * phone shows its preview at once. A version the rail does not hold is ignored.
+	 */
+	initialVersionId?: string | undefined;
+	/** Puts a version's picture in the chat's composer (the Image's Attach, plan 2b T5). */
+	onAttachPicture?:
+		| ((picture: { imageFileId: string; name: string; at?: number }) => void)
+		| undefined;
+	/** What the Image's Edit this version needs: the marks the page holds, and where new ones go. */
+	marks?: HistoryPreviewProps["marks"];
+	onMarksChange?: HistoryPreviewProps["onMarksChange"];
+	onMarksContinue?: HistoryPreviewProps["onMarksContinue"];
 } = $props();
 
 const WIDE_MIN_PX = 720;
@@ -284,13 +298,23 @@ const checkingRunnable = $derived(
 		(previewVersionId !== selected.versionId ||
 			previewState.checking !== false),
 );
+/**
+ * The selected version's preview could not show it (a body or a picture that
+ * did not load): nothing is offered to bring back that the reader has not seen.
+ */
+const previewFailed = $derived(
+	selected !== null &&
+		previewVersionId === selected.versionId &&
+		previewState.status === "error",
+);
 const canRestore = $derived(
 	selected !== null &&
 		!selected.isNewest &&
 		!selected.sameAsNow &&
 		online &&
 		!codeOnly &&
-		!checkingRunnable,
+		!checkingRunnable &&
+		!previewFailed,
 );
 const restoreDisabledReason = $derived(
 	selected === null || selected.isNewest || selected.sameAsNow
@@ -301,7 +325,9 @@ const restoreDisabledReason = $derived(
 				? $t("artifacts.history.restoreNotRunnable")
 				: checkingRunnable
 					? $t("artifacts.history.restoreChecking")
-					: null,
+					: previewFailed
+						? $t("artifacts.history.restoreNotShown")
+						: null,
 );
 // A question that stood open when Restore stopped being offered (the connection
 // went, or the version turned out not to run) is closed: its button would press
@@ -360,12 +386,15 @@ const restoreLines = $derived.by(() => {
 // A touch screen has no chord to press: the hint keeps what Undo and Restore mean
 // and leaves out the keyboard part (the owner, 2026-10-12).
 const touchScreen = isTouchDevice();
+// A picture has no undo steps and no Undo on Alfy's change: its tip names Restore only.
 const help = $derived(
 	$artifactHistoryHelpDismissed || moments.length < 2
 		? null
-		: touchScreen
-			? $t("artifacts.history.helpTouch")
-			: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
+		: kind === "image"
+			? $t("artifacts.history.helpImage")
+			: touchScreen
+				? $t("artifacts.history.helpTouch")
+				: $t("artifacts.history.help", { keys: historyShortcutLabel("undo") }),
 );
 
 // ---- the preview ---------------------------------------------------------------
@@ -455,10 +484,10 @@ async function load(): Promise<void> {
 		nextBefore = result.nextBefore;
 		newestVersion = result.newestVersion;
 		newestHash = result.newestHash ?? null;
-		selectedKey = reconcileSelection(
-			buildRailGroups(result.moments, filter),
-			null,
-		);
+		const loadedGroups = buildRailGroups(result.moments, filter);
+		const asked = entryKeyForVersion(loadedGroups, initialVersionId);
+		selectedKey = asked ?? reconcileSelection(loadedGroups, null);
+		if (asked) view = "preview";
 		status = "ready";
 		await tick();
 		focusSelected();
@@ -916,7 +945,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 {#snippet toolbar()}
 	{#if selected}
 		<MomentPreviewToolbar
-			title={selectedTitle}
+			when={selected ? capitalize(whenLabel(selected.at, ctx)) : ''}
+			headline={selected ? entryHeadline(selected, ctx, kind) : ''}
 			detail={selectedDetail}
 			{fine}
 			showCompare={showCompare}
@@ -961,7 +991,14 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 				<Preview
 					{artifactId}
 					{conversationId}
+					{title}
+					{onAttachPicture}
+					canEdit={!selected.isNewest && !selected.sameAsNow}
+					{marks}
+					{onMarksChange}
+					{onMarksContinue}
 					versionId={selected.versionId}
+					at={selected.at}
 					baseVersionId={compareEffective === 'step' ? selected.parentVersionId : nowRow.versionId}
 					compare={compareEffective}
 					author={selected.author}
@@ -983,8 +1020,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		{selectedKey}
 		{ctx}
 		artifactKind={kind}
+		{conversationId}
 		{listLabel}
-		{currentUser}
 		{filter}
 		showFilter={hasNamed}
 		{older}
@@ -1004,6 +1041,21 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	{/if}
 {/snippet}
 
+{#snippet sheetClose()}
+	<!-- The sheet covers the panel's header, so its history button: leaves History in one
+	     press from the list or a pushed preview, where the grabber and Escape peel a layer. -->
+	<button
+		type="button"
+		class="step"
+		data-testid="history-close"
+		aria-label={$t('artifacts.history.close')}
+		title={$t('artifacts.history.close')}
+		onclick={onDone}
+	>
+		<X size={18} strokeWidth={2.2} aria-hidden="true" />
+	</button>
+{/snippet}
+
 {#snippet pushHeader()}
 	<div class="push-head">
 		<button type="button" class="back" onclick={backToList}>
@@ -1012,10 +1064,8 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		</button>
 		<span class="grow"></span>
 		{#if isPhone}
-			<!-- A phone's stepper is the bottom bar's; the top bar says which moment this is. -->
-			{#if selected}
-				<span class="push-when">{capitalize(whenLabel(selected.at, ctx))}</span>
-			{/if}
+			<!-- A phone's stepper is the bottom bar's; the toolbar says which moment this is. -->
+			{@render sheetClose()}
 		{:else}
 			<span class="moment-stepper">
 				<button
@@ -1121,8 +1171,9 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 			     back, so the title steps aside: History is said once, not as a heading and
 			     again as a link (RV-V M-9). -->
 			{#if view === 'list'}
-				<div class="sheet-head" aria-hidden="true">
-					<span class="sheet-title">{$t('artifacts.history.title')}</span>
+				<div class="sheet-head">
+					<span class="sheet-title" aria-hidden="true">{$t('artifacts.history.title')}</span>
+					{@render sheetClose()}
 				</div>
 			{/if}
 			{@render content()}
@@ -1176,7 +1227,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					{:else if restoreDisabledReason}
 						<span class="same-note">{restoreDisabledReason}</span>
 					{:else if selected.isNewest}
-						<span class="same-note">{$t('artifacts.history.nowLine')}</span>
+						<span class="same-note">{$t('artifacts.history.now')}</span>
 					{:else if selected.sameAsNow}
 						<span class="same-note">{$t('artifacts.history.sameAsNow')}</span>
 					{/if}
@@ -1252,7 +1303,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		min-width: 0;
 		overflow: hidden;
 		min-height: 0;
-		border-left: 1px solid var(--border-default);
+		border-left: 1px solid var(--border-subtle);
 		background: var(--surface-page);
 	}
 
@@ -1316,12 +1367,6 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		gap: 0.125rem;
 	}
 
-	.push-when {
-		color: var(--text-muted);
-		font-size: 0.78rem;
-		font-weight: 600;
-	}
-
 	.step,
 	.bar-step {
 		display: inline-grid;
@@ -1356,6 +1401,9 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	}
 
 	.sheet-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		padding: 0 0 0.25rem;
 	}
 

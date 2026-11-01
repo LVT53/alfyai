@@ -638,7 +638,7 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 		expect(screen.getByTestId("skills-summary-card")).toBeInTheDocument();
 	});
 
-	it("derives the active/disabled counts from the skills data", async () => {
+	it("derives the enabled/disabled counts from the skills data", async () => {
 		const skill = (id: string, enabled: boolean) => ({
 			id,
 			ownership: "user",
@@ -664,7 +664,7 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 		renderTab();
 
 		await waitFor(() =>
-			expect(screen.getByText("1 active")).toBeInTheDocument(),
+			expect(screen.getByText("1 enabled")).toBeInTheDocument(),
 		);
 		expect(screen.getByText("1 disabled")).toBeInTheDocument();
 	});

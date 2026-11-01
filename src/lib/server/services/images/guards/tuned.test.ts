@@ -1,0 +1,121 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import sharp from "sharp";
+import { describe, expect, it } from "vitest";
+import { guardEdit } from "./guard-edit";
+import { decodeRaw, type RawImage } from "./raw-image";
+import { GUARD } from "./thresholds";
+
+// Small pictures of generated rooms (Qwen renders, 320 px wide, or strips of a
+// full-size one); never a photo.
+const DIR = join(__dirname, "__fixtures__");
+const load = async (name: string) =>
+	decodeRaw(new Uint8Array(await readFile(join(DIR, name))));
+
+async function run(base: RawImage, result: RawImage) {
+	return guardEdit({
+		base,
+		anchor: null,
+		chainSinceAnchor: 0,
+		result,
+		marks: null,
+	});
+}
+
+describe("the tuned guards on real renders", () => {
+	it("a recolour pair: every pixel outside the dilated change is the base's", async () => {
+		const base = await load("room-1-base.png");
+		const result = await load("room-1-recolour.png");
+		const out = await run(base, result);
+		expect(out.measures.global).toBe(false);
+		expect(out.measures.miss).toBeNull();
+		let inside = 0;
+		for (let i = 0; i < out.mask.length; i++) {
+			if (out.mask[i] > 0) {
+				inside++;
+				continue;
+			}
+			for (let c = 0; c < 4; c++)
+				expect(out.picture.data[i * 4 + c]).toBe(base.data[i * 4 + c]);
+		}
+		expect(inside).toBeGreaterThan(0);
+		// Independent of the paste: where the render really changed, the mask is on
+		// and the output carries the render's pixels (a loop that skipped them fails).
+		let changed = 0;
+		let carried = 0;
+		for (let i = 0; i < out.mask.length; i++) {
+			const o = i * 4;
+			const diff = Math.max(
+				Math.abs(base.data[o] - result.data[o]),
+				Math.abs(base.data[o + 1] - result.data[o + 1]),
+				Math.abs(base.data[o + 2] - result.data[o + 2]),
+			);
+			if (diff <= GUARD.diffThreshold * 2) continue;
+			changed++;
+			expect(out.mask[i]).toBeGreaterThan(0);
+			if (
+				out.mask[i] >= 1 &&
+				out.picture.data[o] === result.data[o] &&
+				out.picture.data[o + 1] === result.data[o + 1] &&
+				out.picture.data[o + 2] === result.data[o + 2]
+			)
+				carried++;
+		}
+		expect(changed).toBeGreaterThan(500);
+		expect(carried / changed).toBeGreaterThan(0.9);
+		expect(inside / out.mask.length).toBeLessThan(0.5);
+	}, 60_000);
+
+	it("a pair where nothing changed is a nothing_changed miss", async () => {
+		const base = await load("room-1-base.png");
+		const png = await sharp(
+			Buffer.from(base.data.buffer, base.data.byteOffset, base.data.length),
+			{ raw: { width: base.width, height: base.height, channels: 4 } },
+		)
+			.blur(0.6)
+			.png()
+			.toBuffer();
+		const out = await run(base, await decodeRaw(new Uint8Array(png)));
+		expect(out.measures.miss).toBe("nothing_changed");
+	}, 60_000);
+
+	describe("a marked box on a full-size render", () => {
+		// Strips of 1248 px renders, cut at full size: the model's noise is only
+		// there at that scale. The box holds a small plant on a side table; the
+		// "untouched" render was asked to change nothing, the other to remove it.
+		const plant = {
+			letter: "A",
+			x: 564 / 1248,
+			y: 18 / 64,
+			w: 46 / 1248,
+			h: 42 / 64,
+		};
+		const marked = async (name: string) => {
+			const base = await load("room-2-strip-base.png");
+			return guardEdit({
+				base,
+				anchor: null,
+				chainSinceAnchor: 0,
+				result: await load(name),
+				marks: [plant],
+			});
+		};
+
+		it("does not take the model's noise for a change", async () => {
+			const out = await marked("room-2-strip-untouched.png");
+			expect(out.measures.miss).not.toBeNull();
+		}, 60_000);
+
+		it("sees a small removal", async () => {
+			const out = await marked("room-2-strip-removal.png");
+			expect(out.measures.miss).toBeNull();
+		}, 60_000);
+	});
+
+	it("a global restyle pair is global", async () => {
+		const base = await load("room-0-base.png");
+		const result = await load("room-0-move.png");
+		const out = await run(base, result);
+		expect(out.measures.global).toBe(true);
+	}, 60_000);
+});

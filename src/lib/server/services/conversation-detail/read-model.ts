@@ -23,6 +23,7 @@ import {
 	listConversationGeneratedFiles,
 } from "$lib/server/services/file-production/read-model";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { listConversationImageCards } from "$lib/server/services/images/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -167,6 +168,7 @@ export async function getConversationDetail({
 			contextDebug: null,
 			draft,
 			fileProductionJobs: [],
+			imageCards: [],
 			atlasJobs: [],
 			atlasAvailability,
 			contextCompressionSnapshots: [],
@@ -191,6 +193,7 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
+		imageCards,
 		atlasJobs,
 		contextCompressionSnapshots,
 		costSummary,
@@ -209,6 +212,7 @@ export async function getConversationDetail({
 		listConversationFileProductionJobs(userId, conversationId, {
 			includeDismissed: false,
 		}),
+		listConversationImageCards(userId, conversationId),
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
@@ -247,6 +251,7 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
+		imageCards,
 		atlasJobs,
 		atlasAvailability,
 		contextCompressionSnapshots: contextCompressionSnapshots.map(

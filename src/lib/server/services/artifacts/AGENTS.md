@@ -1,6 +1,6 @@
 # Artifacts Service
 
-Feature 2 (ADR-0066): a family of five kinds — Document, App, Canvas, Slides, File — that live beside the conversation, behind one card and one panel. A new family on the *existing* `artifacts` backbone, never a parallel document store: the family's own rows are written with `type: "artifact"`, its kind carried in `metadata_json.artifactType`; produced files keep `type: "generated_output"` (ruling 18) and are read as the family's `file` kind — this is the one place the family spans two `type` values, and it is deliberate.
+Feature 2 (ADR-0066): a family of six kinds — Document, App, Canvas, Slides, File, Image — that live beside the conversation, behind one card and one panel. A new family on the *existing* `artifacts` backbone, never a parallel document store: the family's own rows are written with `type: "artifact"`, its kind carried in `metadata_json.artifactType`; produced files keep `type: "generated_output"` (ruling 18) and are read as the family's `file` kind — this is the one place the family spans two `type` values, and it is deliberate.
 
 - [`src/lib/server/services/artifacts/`](./) — the service boundary. `index.ts` is the facade; callers import only from it, mirroring the chat-turn facade rule. Internally: `types.ts`, `limits.ts`, `hash.ts`, `record.ts` (artifact CRUD, the kind↔row-type mapping, version append), `versions.ts`, `comments.ts`, `kv.ts` (per-App key-value state, every accessor scope-checked since the table has no user column), `serialize/`, `read-model.ts` (the panel list's and the header count's one source).
 - Three child tables hang off the `artifacts` row: `artifact_versions`, `artifact_comments`, `artifact_kv`.
@@ -29,3 +29,8 @@ Do not:
 - A board (Canvas): body, ops, what Alfy may add, placement, review, comments, exports: `src/lib/components/artifacts/canvas/AGENTS.md`.
 - The panel and the family's components: `src/lib/components/document-workspace/AGENTS.md` and `src/lib/components/artifacts/AGENTS.md`, whose `document/`, `history/` and `tour/` folders have their own.
 - Produced files and exports as jobs: `../file-production/AGENTS.md`.
+
+## The Image kind
+
+- An Image item is a `type: "artifact"` row whose version body is a small JSON (`shared/artifacts/image-body.ts`, `serialize/image.ts`) that points at its picture file; the bytes are never in the row. It is a `RowArtifactKind` (`createArtifact` takes it) but not a `CreatableArtifactKind`: pictures are `make_image`'s, so `create_artifact` / `edit_artifact` never take one, and `read_artifact` / `edit_artifact` answer an image with a pointer to `make_image`, never the JSON.
+- Its JSON is not prose: Workspace Search, Knowledge Base search and the embedding source text match it by title (and at most the latest prompt), never by body. Regenerate is never offered for an image. A chat's delete always takes its Image items.

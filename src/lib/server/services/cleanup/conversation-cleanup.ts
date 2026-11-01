@@ -11,6 +11,8 @@ import {
 	getOrphanedStream,
 	requestActiveChatStreamStop,
 } from "../chat-turn/active-streams";
+import { deleteImageFilesForConversation } from "../images/files";
+import { cancelImageTakesForConversation } from "../images/image-job";
 import {
 	artifactHasReferencesOutsideConversation,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -55,6 +57,9 @@ export async function deleteConversationWithCleanup(
 	}
 
 	await cancelActiveAtlasJobsForConversation({ userId, conversationId });
+	// Takes stop before any picture file is removed below: a take that finishes
+	// after the files are gone would store its picture into a chat that is going.
+	await cancelImageTakesForConversation(userId, conversationId);
 
 	const ownedArtifacts = await listConversationOwnedArtifacts(
 		userId,
@@ -81,6 +86,16 @@ export async function deleteConversationWithCleanup(
 		if (
 			artifact.type === "generated_output" ||
 			artifact.type === "work_capsule"
+		) {
+			deletedArtifactIds.push(artifact.id);
+			continue;
+		}
+
+		// An Image item always goes with its chat: its pictures live under the
+		// chat's own folder, so another chat's link to it could not keep them.
+		if (
+			artifact.type === "artifact" &&
+			artifact.metadata?.artifactType === "image"
 		) {
 			deletedArtifactIds.push(artifact.id);
 			continue;
@@ -119,6 +134,7 @@ export async function deleteConversationWithCleanup(
 
 	await hardDeleteArtifactsForUser(userId, deletedArtifactIds);
 	await deleteAllChatFilesForConversation(conversationId);
+	await deleteImageFilesForConversation(conversationId);
 	await deleteAtlasJobsForConversation({ userId, conversationId });
 
 	await db

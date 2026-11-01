@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -5,6 +6,7 @@ import {
 	hasOpenDialog,
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
+import { uiLanguage } from "$lib/stores/settings";
 import ImageLightbox from "./ImageLightbox.svelte";
 
 const IMAGES = [
@@ -280,20 +282,22 @@ describe("ImageLightbox as a modal dialog", () => {
 		expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
 	});
 
-	it("with a single image has one control, and Tab stays on it", async () => {
+	it("with a single image keeps Tab between Close and the zoom controls", async () => {
 		renderOpen({ images: [IMAGES[0]], index: 0 });
 		await waitFor(() =>
 			expect(screen.getByTestId("image-lightbox")).toHaveFocus(),
 		);
 		const close = screen.getByRole("button", { name: "Close" });
-		close.focus();
+		const zoomIn = screen.getByRole("button", { name: "Zoom in" });
+		zoomIn.focus();
 
 		const forward = pressKey("Tab");
-		const backward = pressKey("Tab", { shiftKey: true });
-
 		expect(forward.defaultPrevented).toBe(true);
-		expect(backward.defaultPrevented).toBe(true);
 		expect(close).toHaveFocus();
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(backward.defaultPrevented).toBe(true);
+		expect(zoomIn).toHaveFocus();
 	});
 
 	it("closes on Escape and cancels the key", () => {
@@ -361,5 +365,196 @@ describe("ImageLightbox as a modal dialog", () => {
 		expect(onNavigate).toHaveBeenCalledWith(2);
 		pressKey("Escape");
 		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Enlarging (plan 2b Task 22): the viewer zooms and pans the one picture. The
+// arithmetic is `image-lightbox-zoom.ts`'s (tested there); here, that the
+// controls and keys reach it, and the picture's own shape and see-through look.
+// ---------------------------------------------------------------------------
+
+describe("ImageLightbox zoom", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	const picture = () => {
+		const image = screen
+			.getByTestId("image-lightbox")
+			.querySelector<HTMLImageElement>("[data-zoom-target]");
+		if (!image) throw new Error("missing zoom target");
+		return image;
+	};
+
+	it("names its zoom controls", () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+
+		expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Zoom out" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /Fit to screen/ }),
+		).toBeInTheDocument();
+	});
+
+	it("zooms in on + and =, out on -, and back to fit on 0", async () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		await waitFor(() =>
+			expect(screen.getByTestId("image-lightbox")).toHaveFocus(),
+		);
+
+		expect(pressKey("+").defaultPrevented).toBe(true);
+		expect(picture().style.transform).toContain("scale(1.25)");
+		pressKey("=");
+		expect(picture().style.transform).toContain("scale(1.5625)");
+		pressKey("-");
+		expect(picture().style.transform).toContain("scale(1.25)");
+		pressKey("0");
+		expect(picture().style.transform).toBe("");
+	});
+
+	it("leaves Ctrl and Cmd with + to the browser's own zoom", async () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		await waitFor(() =>
+			expect(screen.getByTestId("image-lightbox")).toHaveFocus(),
+		);
+		const event = new KeyboardEvent("keydown", {
+			key: "+",
+			ctrlKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		document.activeElement?.dispatchEvent(event);
+
+		expect(event.defaultPrevented).toBe(false);
+		expect(picture().style.transform).toBe("");
+	});
+
+	it("zooms from its buttons", async () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+		expect(picture().style.transform).toContain("scale(1.25)");
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Fit to screen/ }),
+		);
+		expect(picture().style.transform).toBe("");
+	});
+
+	it("starts a picture it pages to at fit", async () => {
+		const { rerender } = renderOpen({ images: IMAGES, index: 0 });
+		await fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+		expect(picture().style.transform).toContain("scale(1.25)");
+
+		await rerender({ index: 1 });
+
+		expect(picture().style.transform).toBe("");
+	});
+
+	it("reserves the picture's shape when it is known, and lays a see-through one on the checkerboard", () => {
+		renderOpen({
+			images: [
+				{
+					src: "/api/images/files/f1",
+					alt: "Logo",
+					width: 1024,
+					height: 512,
+					checkerboard: true,
+				},
+			],
+			index: 0,
+		});
+
+		expect(picture()).toHaveAttribute("width", "1024");
+		expect(picture()).toHaveAttribute("height", "512");
+		expect(picture()).toHaveClass("image-checkerboard");
+	});
+
+	it("closes on a click beside the picture on the stage", async () => {
+		const { onClose } = renderOpen({ images: [IMAGES[0]], index: 0 });
+
+		await fireEvent.click(picture());
+		expect(onClose).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByTestId("image-lightbox-stage"));
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+// Fix round 1, I2 (MOTION-PARITY 4): the full-size file can take seconds on a
+// phone; its box is there from the first frame, and it fades in once loaded.
+describe("ImageLightbox reserves the picture's box and fades it in", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	const shown = () =>
+		screen.getByTestId("image-lightbox-image") as HTMLImageElement;
+
+	it("sizes the box from the picture's known shape before a byte arrives", () => {
+		renderOpen({
+			images: [
+				{ src: "/api/images/files/f1", alt: "Logo", width: 1248, height: 832 },
+			],
+			index: 0,
+		});
+		const image = shown();
+		expect(image).toHaveClass("has-size");
+		expect(image.style.getPropertyValue("--picture-ratio")).toBe("1.5");
+		expect(image.style.getPropertyValue("--picture-width")).toBe("1248px");
+		expect(image).not.toHaveClass("is-loaded");
+	});
+
+	it("shows the picture once it has loaded, and a picture paged to waits for its own load", async () => {
+		const { rerender, onNavigate } = renderOpen({ images: IMAGES, index: 0 });
+		const first = shown();
+		expect(first).not.toHaveClass("is-loaded");
+		await fireEvent.load(first);
+		expect(shown()).toHaveClass("is-loaded");
+
+		await fireEvent.click(screen.getByRole("button", { name: "Next image" }));
+		expect(onNavigate).toHaveBeenLastCalledWith(1);
+		// The host pages: the next picture is hidden until its own file loads.
+		await rerender({ index: 1 });
+		expect(shown()).toHaveAttribute("src", IMAGES[1].src);
+		expect(shown()).not.toHaveClass("is-loaded");
+		await fireEvent.load(shown());
+		expect(shown()).toHaveClass("is-loaded");
+	});
+
+	// Round 2, N1: a file that cannot be read leaves no blank, endless wait.
+	it("says so, calmly, when the picture cannot be loaded, in English and Hungarian", async () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		expect(
+			screen.queryByTestId("image-lightbox-error"),
+		).not.toBeInTheDocument();
+		await fireEvent.error(shown());
+		const note = screen.getByTestId("image-lightbox-error");
+		expect(note).toHaveAttribute("role", "status");
+		expect(note).toHaveTextContent("This picture couldn't be loaded.");
+		uiLanguage.set("hu");
+		await waitFor(() =>
+			expect(note).toHaveTextContent("Ezt a képet nem sikerült betölteni."),
+		);
+		uiLanguage.set("en");
+	});
+
+	// Round 2, N2: a stated shape that differs from the file's never distorts it.
+	it("contains the picture in its reserved box, never stretches it", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/ImageLightbox.svelte`,
+			"utf-8",
+		);
+		const rule =
+			source.match(/\.image-lightbox-image\.has-size \{([\s\S]*?)\}/)?.[1] ??
+			"";
+		expect(rule).toMatch(/object-fit:\s*contain/);
+	});
+
+	it("leaves a picture of unknown size to its own shape", () => {
+		renderOpen({ images: [IMAGES[0]], index: 0 });
+		expect(shown()).not.toHaveClass("has-size");
 	});
 });

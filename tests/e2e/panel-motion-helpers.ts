@@ -40,15 +40,57 @@ export type TrackedBox = {
 	w: number;
 	h: number;
 	transform: string;
+	/** The element's own computed opacity (not its ancestors'). */
+	opacity: number;
 };
 
-export type ShiftEntry = { t: number; value: number; hadRecentInput: boolean };
+export type ShiftEntry = {
+	t: number;
+	value: number;
+	hadRecentInput: boolean;
+	/** What moved (the nearest `data-testid`, else the first class), when the browser says. */
+	sources?: string[];
+};
+
+/** A frame the main thread held longer than 50 ms (`long-animation-frame`). */
+export type LongFrame = { t: number; duration: number };
+
+/**
+ * A CSS transition that ran while recording: the property it animated and what it
+ * ran on (the nearest `data-testid`, else the element's first class), so a spec can
+ * hold "only transform and opacity animate" (MOTION-PARITY 3).
+ */
+export type SeenTransition = {
+	t: number;
+	property: string;
+	target: string;
+	/** ms: under reduced motion the app's global rule makes every transition 0.01 ms. */
+	duration: number;
+	/** The timing function the transition runs on (its keyframe's, where the browser keeps it there). */
+	easing: string;
+};
+
+/**
+ * A script-driven animation (`element.animate`, the dock's expand and dock insets)
+ * that ran while recording: what it animated, on what, for how long and on which
+ * curve, so a spec can put one kind's timing beside another's.
+ */
+export type SeenAnimation = {
+	t: number;
+	target: string;
+	properties: string[];
+	duration: number;
+	easing: string;
+};
 
 export type MotionRun = {
 	frames: MotionFrame[];
 	shifts: ShiftEntry[];
 	/** ms since `start()` of the last pointer or key press, or null. */
 	inputAt: number | null;
+	longFrames: LongFrame[];
+	transitions: SeenTransition[];
+	animations: SeenAnimation[];
 };
 
 export async function installMotionRecorder(page: Page): Promise<void> {
@@ -76,12 +118,25 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 				startTime: number;
 				value: number;
 				hadRecentInput: boolean;
+				sources?: Array<{ node?: Node | null }>;
 			}>) {
 				if (!running) continue;
 				shifts.push({
 					t: entry.startTime - t0,
 					value: entry.value,
 					hadRecentInput: entry.hadRecentInput,
+					sources: (entry.sources ?? []).map((source) => {
+						const node = source.node;
+						const element =
+							node instanceof Element ? node : (node?.parentElement ?? null);
+						const named = element?.closest("[data-testid]");
+						return (
+							named?.getAttribute("data-testid") ??
+							element?.classList?.[0] ??
+							element?.tagName.toLowerCase() ??
+							"?"
+						);
+					}),
 				});
 			}
 		};
@@ -91,6 +146,84 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 		} catch {
 			observer = null;
 		}
+		const longFrames: LongFrame[] = [];
+		let loafObserver: PerformanceObserver | null = null;
+		const collectLong = (entries: PerformanceEntryList) => {
+			for (const entry of entries) {
+				if (!running || entry.duration <= 50) continue;
+				longFrames.push({ t: entry.startTime - t0, duration: entry.duration });
+			}
+		};
+		try {
+			loafObserver = new PerformanceObserver((list) =>
+				collectLong(list.getEntries()),
+			);
+			loafObserver.observe({ type: "long-animation-frame", buffered: false });
+		} catch {
+			loafObserver = null;
+		}
+		const transitions: SeenTransition[] = [];
+		const animations: SeenAnimation[] = [];
+		const seenTransitions = new WeakSet<Animation>();
+		const easingOf = (effect: KeyframeEffect | null): string => {
+			const timing = effect?.getTiming().easing ?? "linear";
+			if (timing !== "linear") return timing;
+			const keyframes = effect?.getKeyframes() ?? [];
+			return String(keyframes[0]?.easing ?? timing);
+		};
+		const describe = (node: Element | null): string => {
+			const named = node?.closest("[data-testid]");
+			if (named) return named.getAttribute("data-testid") ?? "";
+			return node?.classList?.[0] ?? node?.tagName.toLowerCase() ?? "";
+		};
+		const noteTransitions = () => {
+			for (const animation of document.getAnimations()) {
+				if (seenTransitions.has(animation)) continue;
+				const property = (
+					animation as Animation & { transitionProperty?: string }
+				).transitionProperty;
+				const effect = animation.effect as KeyframeEffect | null;
+				seenTransitions.add(animation);
+				if (!property) {
+					// A CSS @keyframes animation names itself; only script-driven ones are recorded.
+					if (
+						(animation as Animation & { animationName?: string }).animationName
+					) {
+						continue;
+					}
+					const keyframes = effect?.getKeyframes() ?? [];
+					animations.push({
+						t: performance.now() - t0,
+						target: describe(effect?.target ?? null),
+						properties: [
+							...new Set(
+								keyframes.flatMap((frame) =>
+									Object.keys(frame).filter(
+										(key) =>
+											![
+												"offset",
+												"computedOffset",
+												"easing",
+												"composite",
+											].includes(key),
+									),
+								),
+							),
+						],
+						duration: Number(effect?.getTiming().duration ?? 0),
+						easing: easingOf(effect),
+					});
+					continue;
+				}
+				transitions.push({
+					t: performance.now() - t0,
+					property,
+					target: describe(effect?.target ?? null),
+					duration: Number(effect?.getTiming().duration ?? 0),
+					easing: easingOf(effect),
+				});
+			}
+		};
 		const remember = (event: Event) => {
 			if (running) inputAt = event.timeStamp - t0;
 		};
@@ -98,6 +231,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 		window.addEventListener("keydown", remember, true);
 		const sample = () => {
 			if (!running) return;
+			noteTransitions();
 			const stage = box(".chat-stage");
 			const chat = box(".chat-main");
 			const panel = box("aside.workspace-shell-desktop");
@@ -115,6 +249,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 								w: rect.width,
 								h: rect.height,
 								transform: getComputedStyle(element).transform,
+								opacity: Number(getComputedStyle(element).opacity),
 							}
 						: null;
 			}
@@ -140,6 +275,9 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 				tracks = follow ?? {};
 				frames = [];
 				shifts.length = 0;
+				longFrames.length = 0;
+				transitions.length = 0;
+				animations.length = 0;
 				inputAt = null;
 				t0 = performance.now();
 				running = true;
@@ -147,8 +285,17 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 			},
 			stop(): MotionRun {
 				if (observer) collect(observer.takeRecords());
+				if (loafObserver) collectLong(loafObserver.takeRecords());
+				noteTransitions();
 				running = false;
-				return { frames: frames.slice(), shifts: shifts.slice(), inputAt };
+				return {
+					frames: frames.slice(),
+					shifts: shifts.slice(),
+					inputAt,
+					longFrames: longFrames.slice(),
+					transitions: transitions.slice(),
+					animations: animations.slice(),
+				};
 			},
 		};
 		w.__panelMotion = api;

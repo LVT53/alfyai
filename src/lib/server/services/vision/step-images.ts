@@ -1,6 +1,6 @@
 import type { PrepareStepFunction, ToolSet } from "ai";
 import {
-	buildCurrentUserMessage,
+	buildStepImagesMessage,
 	STRIPPED_IMAGE_NOTE,
 	type TurnImage,
 } from "./turn-images";
@@ -141,7 +141,7 @@ export function buildVisionPrepareStep(params: {
 						);
 					}
 					return providerCanSee
-						? buildCurrentUserMessage(entry.label, entry.images)
+						? buildStepImagesMessage(entry.label, entry.images)
 						: textMessage(entry.label, STRIPPED_IMAGE_NOTE);
 				}),
 			],

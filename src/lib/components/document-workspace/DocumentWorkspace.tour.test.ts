@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import {
 	afterEach,
+	beforeAll,
 	beforeEach,
 	describe,
 	expect,
@@ -94,6 +95,15 @@ const appItem = () =>
 		mimeType: null,
 	});
 
+const imageItem = () =>
+	makeWorkspaceDocument({
+		id: "image-1",
+		artifactId: "image-1",
+		kind: "image",
+		title: "Sunset gradient",
+		mimeType: null,
+	});
+
 function openDocument(extra: Parameters<typeof renderWorkspace>[0] = {}) {
 	return renderWorkspace({
 		documents: [documentItem()],
@@ -101,6 +111,21 @@ function openDocument(extra: Parameters<typeof renderWorkspace>[0] = {}) {
 		...extra,
 	});
 }
+
+// The panel draws two things through `import()` when an item opens: the item's body
+// (here the fixture every kind is given) and the tour card's chunk (the card and its
+// four drawings, `tour/tour-card.ts`). The first test in a worker paid for evaluating
+// both cold inside `findBy`'s one second, and under a loaded folder-wide run that did
+// not fit while the file passed alone. Load them once here, the client-side analogue
+// of the server's `warmModules` (as `block-forms.test.ts` does): the module cache is
+// warm, `tour-card.ts`'s own `loaded` is untouched (a test below holds the panel to
+// bringing the card in), and `findBy` waits only for the panel's own update.
+beforeAll(async () => {
+	await Promise.all([
+		import("./__fixtures__/FakeReplayBody.svelte"),
+		import("$lib/components/artifacts/tour/ArtifactTour.svelte"),
+	]);
+});
 
 let warn: ReturnType<typeof vi.spyOn>;
 
@@ -125,6 +150,7 @@ beforeEach(() => {
 	ARTIFACT_BODIES.document = () =>
 		import("./__fixtures__/FakeReplayBody.svelte");
 	ARTIFACT_BODIES.app = () => import("./__fixtures__/FakeReplayBody.svelte");
+	ARTIFACT_BODIES.image = () => import("./__fixtures__/FakeReplayBody.svelte");
 	warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
 
@@ -133,6 +159,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 	delete ARTIFACT_BODIES.document;
 	delete ARTIFACT_BODIES.app;
+	delete ARTIFACT_BODIES.image;
 	warn.mockRestore();
 	uiLanguage.set("en");
 });
@@ -211,6 +238,26 @@ describe("DocumentWorkspace: the first-open tour", () => {
 			screen.getByTestId("page-scroll-container"),
 		);
 		// Showing it wrote nothing.
+		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
+	});
+
+	// Plan 2b T16: the Image is a kind with a first-open tour like the others, on
+	// the same card in the same row of the stage, ahead of the picture.
+	it("asks for an Image's tour and shows its card ahead of the picture, writing nothing", async () => {
+		renderWorkspace({ documents: [imageItem()], activeDocumentId: "image-1" });
+
+		const tour = await card();
+		expect(tourClient.getArtifactTour.mock.calls.map(([kind]) => kind)).toEqual(
+			["image"],
+		);
+		expect(tour).toHaveAttribute("data-kind", "image");
+		const body = await screen.findByTestId("fake-replay-body");
+		expect(
+			tour.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(tour.closest(".workspace-tour-slot")?.parentElement).toHaveClass(
+			"workspace-stage",
+		);
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
 	});
 
@@ -637,6 +684,25 @@ describe("DocumentWorkspace: replaying a tour", () => {
 		tourClient.getArtifactTour.mockImplementation(seen);
 		tourClient.refreshArtifactTour.mockImplementation(seen);
 	}
+
+	it("offers an Image's tour again from its list row's menu", async () => {
+		everyTourSeen();
+		renderWorkspace({
+			documents: [imageItem()],
+			activeDocumentId: "image-1",
+			list: listWith([imageItem()]),
+			onDeleteArtifact: vi.fn(async () => {}),
+		});
+		await fireEvent.click(
+			await within(await screen.findByTestId("artifact-panel-list")).findByRole(
+				"button",
+				{ name: "More actions for Sunset gradient" },
+			),
+		);
+		expect(
+			await screen.findByRole("menuitem", { name: "How this kind works" }),
+		).toBeInTheDocument();
+	});
 
 	it("hands a body the replay, which shows the tour again whether or not it was seen, and writes nothing", async () => {
 		everyTourSeen();

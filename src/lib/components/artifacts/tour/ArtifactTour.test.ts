@@ -7,7 +7,10 @@ import {
 } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ResolvedArtifactTour } from "$lib/shared/artifacts/tours";
+import {
+	type ResolvedArtifactTour,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+} from "$lib/shared/artifacts/tours";
 import { uiLanguage } from "$lib/stores/settings";
 import ArtifactTour from "./ArtifactTour.svelte";
 
@@ -423,7 +426,9 @@ describe("ArtifactTour", () => {
 	});
 
 	it("draws the illustration of the kind it explains, hidden from assistive tech", () => {
-		for (const artifactType of ["document", "app", "canvas"] as const) {
+		// Every kind whose tour ships has its own drawing, the Image's included.
+		expect(SHIPPED_ARTIFACT_TOUR_TYPES).toContain("image");
+		for (const artifactType of SHIPPED_ARTIFACT_TOUR_TYPES) {
 			renderTour({ tour: makeTour({ artifactType }) });
 			const art = screen.getByTestId("artifact-tour-illustration");
 			expect(art).toHaveAttribute("aria-hidden", "true");
@@ -441,7 +446,7 @@ describe("ArtifactTour", () => {
 	it("gives the drawing no words of its own, in either language", () => {
 		for (const language of ["en", "hu"] as const) {
 			uiLanguage.set(language);
-			for (const artifactType of ["document", "app", "canvas"] as const) {
+			for (const artifactType of SHIPPED_ARTIFACT_TOUR_TYPES) {
 				renderTour({ tour: makeTour({ artifactType }) });
 				const art = screen.getByTestId("artifact-tour-illustration");
 				expect(art.textContent?.trim()).toBe("");

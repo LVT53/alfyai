@@ -7,6 +7,7 @@
 
 import type { DocumentCardPreview } from "$lib/server/services/artifacts/types";
 import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
+import type { ImagePreview } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
@@ -164,6 +165,12 @@ export interface KnowledgeDocumentItem {
 	 */
 	lastAuthor?: MomentAuthor;
 	lastKind?: MomentKind;
+	/**
+	 * `kind: "image"` only, on the library page's rows: the newest version's
+	 * picture (file and shape), so the row and the gallery tile show its
+	 * thumbnail (plan 2b Task 22). Never the stored JSON.
+	 */
+	imagePreview?: ImagePreview;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -354,4 +361,10 @@ export interface DocumentWorkspaceItem {
 	 * means "reviewed").
 	 */
 	pendingReviewCount?: number;
+	/**
+	 * `ArtifactCardSummary.imagePreview`, carried through so the panel list's row
+	 * shows the picture's thumbnail (plan 2b Task 22). Only ever set for a `kind:
+	 * "image"` item.
+	 */
+	imagePreview?: ImagePreview;
 }

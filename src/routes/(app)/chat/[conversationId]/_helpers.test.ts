@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -6,6 +10,7 @@ import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
+	addComposerPicture,
 	appendTokenChunkToMessageList,
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
@@ -14,6 +19,9 @@ import {
 	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
+	composerMarksFromSend,
+	composerPicturesFromSend,
+	composerPlaceholderKey,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
 	FILE_LIST_RETRY_DELAYS_MS,
@@ -27,11 +35,14 @@ import {
 	isPendingSkillUnavailableError,
 	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
+	marksOutdated,
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
+	pictureOrderFromSend,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldPollImageCards,
 	toFriendlySendError,
 } from "./_helpers";
 
@@ -662,6 +673,13 @@ describe("file production chat helpers", () => {
 	// went stale after a live edit because nothing hydrated `artifacts` on a
 	// create_artifact/edit_artifact call — see shouldHydrateArtifactsOnToolCall's
 	// own doc comment.
+	it("hydrates on a concluded make_image call, so its card shows the landed picture as the reply says so", () => {
+		expect(shouldHydrateArtifactsOnToolCall("make_image", "done")).toBe(true);
+		expect(shouldHydrateArtifactsOnToolCall("make_image", "running")).toBe(
+			false,
+		);
+	});
+
 	it("hydrates on a concluded create_artifact/edit_artifact call, and no other tool", () => {
 		expect(shouldHydrateArtifactsOnToolCall("create_artifact", "done")).toBe(
 			true,
@@ -2117,5 +2135,277 @@ describe("awaitOpenStepSave", () => {
 				throw new Error("the body is gone");
 			}, 2000),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("shouldPollImageCards", () => {
+	it("polls while a take is queued or running", () => {
+		expect(
+			shouldPollImageCards([imageCard([imageTake({ status: "queued" })])], []),
+		).toBe(true);
+		expect(
+			shouldPollImageCards([imageCard([imageTake({ status: "running" })])], []),
+		).toBe(true);
+	});
+
+	it("polls for a make_image call still running in the streaming reply before its card exists", () => {
+		expect(
+			shouldPollImageCards([], [{ name: "make_image", status: "running" }]),
+		).toBe(true);
+	});
+
+	it("keeps polling while a settled take is still held, so the card re-reads when the hold runs out", () => {
+		// A turn that died with its automatic retry held: every take has settled,
+		// but "checking again" and a disabled Use this must not stick until a reload.
+		expect(
+			shouldPollImageCards(
+				[imageCard([imageTake({ status: "succeeded", held: true })])],
+				[],
+			),
+		).toBe(true);
+	});
+
+	it("stops once every take has settled and no picture call runs", () => {
+		expect(
+			shouldPollImageCards(
+				[imageCard([imageTake({ status: "succeeded" })])],
+				[
+					{ name: "make_image", status: "done" },
+					{ name: "research_web", status: "running" },
+				],
+			),
+		).toBe(false);
+	});
+});
+
+describe("composerPlaceholderKey", () => {
+	it("asks to change an open App or Image, and about anything else", async () => {
+		const { get } = await import("svelte/store");
+		const { t } = await import("$lib/i18n");
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("en");
+		expect(
+			get(t)(composerPlaceholderKey("image"), { title: "Cosy room" }),
+		).toBe("Ask Alfy to change Cosy room…");
+		expect(composerPlaceholderKey("image")).toBe(
+			"artifacts.chat.composerPlaceholderApp",
+		);
+		expect(composerPlaceholderKey("app")).toBe(
+			"artifacts.chat.composerPlaceholderApp",
+		);
+		expect(composerPlaceholderKey("document")).toBe(
+			"artifacts.chat.composerPlaceholder",
+		);
+		expect(composerPlaceholderKey(null)).toBe(
+			"artifacts.chat.composerPlaceholder",
+		);
+	});
+});
+
+describe("composer pictures (plan 2b T5)", () => {
+	it("adds a picture once: attaching the same file again changes nothing", () => {
+		const first = addComposerPicture([], {
+			imageFileId: "f1",
+			name: "Red rug",
+		});
+		expect(first).toEqual([{ imageFileId: "f1", name: "Red rug" }]);
+		expect(
+			addComposerPicture(first, { imageFileId: "f1", name: "Red rug" }),
+		).toBe(first);
+		expect(
+			addComposerPicture(first, { imageFileId: "f2", name: "Mug" }),
+		).toEqual([
+			{ imageFileId: "f1", name: "Red rug" },
+			{ imageFileId: "f2", name: "Mug" },
+		]);
+	});
+
+	it("keeps when a picture was made, so two versions of one item can be told apart", () => {
+		expect(
+			addComposerPicture([], { imageFileId: "f1", name: "Sunset", at: 100 }),
+		).toEqual([{ imageFileId: "f1", name: "Sunset", at: 100 }]);
+	});
+
+	it("takes a queued turn's pictures back into the composer in their number order", () => {
+		expect(
+			composerPicturesFromSend({
+				refs: [
+					{ imageFileId: "f2", number: 2, name: "Mug" },
+					{ imageFileId: "f1", number: 1, name: "Red rug" },
+				],
+				open: null,
+				marks: null,
+			}),
+		).toEqual([
+			{ imageFileId: "f1", name: "Red rug" },
+			{ imageFileId: "f2", name: "Mug" },
+		]);
+		expect(composerPicturesFromSend(undefined)).toEqual([]);
+	});
+
+	it("keeps the pictures when a send payload is copied", () => {
+		const cloned = cloneSendPayload({
+			message: "Blend",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pictureRefs: [{ imageFileId: "f1", number: 1 }],
+			pictures: {
+				refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+				open: null,
+				marks: null,
+			},
+		});
+		expect(cloned.pictureRefs).toEqual([{ imageFileId: "f1", number: 1 }]);
+		expect(cloned.pictures?.refs[0].name).toBe("Red rug");
+	});
+});
+
+describe("restoring a turn's picture order (plan 2b T5 fix round 1)", () => {
+	it("reads the order from the saved numbers, refs and uploads together", () => {
+		expect(
+			pictureOrderFromSend({
+				refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+				uploads: [{ artifactId: "photo-1", number: 2 }],
+				open: null,
+				marks: null,
+			}),
+		).toEqual(["ref:f1", "upload:photo-1"]);
+		expect(
+			pictureOrderFromSend({
+				refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+				uploads: [{ artifactId: "photo-1", number: 1 }],
+				open: null,
+				marks: null,
+			}),
+		).toEqual(["upload:photo-1", "ref:f1"]);
+		expect(pictureOrderFromSend(undefined)).toEqual([]);
+	});
+});
+
+describe("marks left from an older picture (plan 2b T6, Review Focus 4)", () => {
+	const held = {
+		imageFileId: "file-2",
+		marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+		artifactId: "img-1",
+		name: "Cosy room",
+		version: 2,
+	};
+
+	it("keeps the marks while their item is open on the version they were drawn on, or the panel is shut", () => {
+		expect(marksOutdated(held, { version: 2 })).toBe(false);
+		expect(marksOutdated(held, { version: 2 })).toBe(false);
+		expect(marksOutdated(held, { version: null })).toBe(false);
+	});
+
+	it("lets them go when their item gets a newer version, open or not", () => {
+		expect(marksOutdated(held, { version: 3 })).toBe(true);
+		expect(marksOutdated(held, { version: 3 })).toBe(true);
+	});
+
+	it("never lets them go on a version it cannot compare", () => {
+		expect(marksOutdated({ ...held, version: null }, { version: 5 })).toBe(
+			false,
+		);
+	});
+});
+
+describe("restoring a turn's marks (plan 2b T6)", () => {
+	it("restores the marks with the version they were drawn on, so a newer one drops them (fix round 1, I2)", () => {
+		const restored = composerMarksFromSend({
+			imageMarks: {
+				imageFileId: "file-2",
+				marks: [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }],
+			},
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
+		});
+		expect(restored?.version).toBe(2);
+		if (!restored) throw new Error("no marks");
+		expect(marksOutdated(restored, { version: 3 })).toBe(true);
+		expect(marksOutdated(restored, { version: 2 })).toBe(false);
+	});
+
+	const marks = [{ letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 }];
+	const pictures = {
+		refs: [
+			{ imageFileId: "f1", number: 1, name: "Red rug" },
+			{ imageFileId: "file-2", number: 2, name: "Cosy room" },
+		],
+		open: null,
+		marks: null,
+	};
+
+	it("brings the marks chip back from the turn, and only the attached pictures as picture chips", () => {
+		const payload = {
+			pictures,
+			imageMarks: { imageFileId: "file-2", marks },
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
+		};
+		expect(composerMarksFromSend(payload)).toEqual({
+			imageFileId: "file-2",
+			marks,
+			artifactId: "img-1",
+			name: "Cosy room",
+			version: 2,
+		});
+		expect(
+			composerPicturesFromSend(
+				pictures,
+				payload.markedPicture.addedRef ? "file-2" : null,
+			),
+		).toEqual([{ imageFileId: "f1", name: "Red rug" }]);
+	});
+
+	it("keeps a marked picture that was attached as its own chip", () => {
+		expect(composerPicturesFromSend(pictures, null)).toHaveLength(2);
+	});
+
+	it("brings no marks back from a turn that had none", () => {
+		expect(composerMarksFromSend({})).toBeNull();
+		expect(
+			composerMarksFromSend({
+				imageMarks: { imageFileId: "file-2", marks: [] },
+				markedPicture: {
+					artifactId: "img-1",
+					name: "Cosy room",
+					addedRef: true,
+					version: 2,
+				},
+			}),
+		).toBeNull();
+	});
+
+	it("keeps the marks when a send payload is copied", () => {
+		const cloned = cloneSendPayload({
+			message: "Move A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			imageMarks: { imageFileId: "file-2", marks },
+			markedPicture: {
+				artifactId: "img-1",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
+		});
+		expect(cloned.imageMarks).toEqual({ imageFileId: "file-2", marks });
+		expect(cloned.imageMarks?.marks[0]).not.toBe(marks[0]);
+		expect(cloned.markedPicture).toEqual({
+			artifactId: "img-1",
+			name: "Cosy room",
+			addedRef: true,
+			version: 2,
+		});
 	});
 });

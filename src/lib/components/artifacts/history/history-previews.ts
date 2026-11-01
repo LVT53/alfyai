@@ -6,14 +6,18 @@
  * here and a component that takes `HistoryPreviewProps`: the Document's is
  * `DocumentVersionPreview.svelte`; the Canvas's is the lazy entry
  * `canvas/history-parts.ts`, reached through the editor module (it draws a board
- * with the editor's own board); the App's is `AppVersionPreview.svelte`.
+ * with the editor's own board); the App's is `AppVersionPreview.svelte`; the
+ * Image's is `image/ImageVersionPreview.svelte` (the picture, and a wipe to compare).
  *
  * Loaders, never static imports: a preview carries what only History needs (a
  * Markdown renderer, a board, a sandbox frame), and must never enter the chat
  * page's first load or an editor's.
  */
+
 import type { Component } from "svelte";
+import type { PanelMarks } from "$lib/components/artifacts/artifact-bodies";
 import type { MomentAuthor } from "$lib/shared/artifacts/history";
+import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 /** Which comparison the preview's marks show: what the selected version did to its parent, or what Restore would change. */
@@ -43,8 +47,26 @@ export interface HistoryPreviewProps {
 	artifactId: string;
 	/** The conversation the panel shows, so an incognito chat's item stays in scope. */
 	conversationId: string | null;
+	/** The item's name, for a kind that offers to attach a version's picture to the chat (the Image, plan 2b T5). */
+	title?: string;
+	/** Puts the shown version's picture in the chat's composer. Absent where the host has none, and the preview draws no Attach. */
+	onAttachPicture?: (picture: {
+		imageFileId: string;
+		name: string;
+		at?: number;
+	}) => void;
+	/** A selected version the reader may work from: not the newest, and not the same as it (the Image's Edit this version). */
+	canEdit?: boolean;
+	/** The marks the page holds; a preview shows them only on their own file. */
+	marks?: PanelMarks | null;
+	/** Marks drawn on the shown version. Absent where the host has no chat: no Edit this version. */
+	onMarksChange?: ((marks: ImageMarksRequest | null) => void) | undefined;
+	/** From History back to the composer, where the marks are sent. */
+	onMarksContinue?: (() => void) | undefined;
 	/** The version to show. */
 	versionId: string;
+	/** When that version was made (ms), handed on with an attached picture. */
+	at?: number;
 	/** What its changes are measured against, or `null` when there is nothing to compare (a first version). */
 	baseVersionId: string | null;
 	compare: HistoryCompare;
@@ -74,6 +96,7 @@ export const HISTORY_PREVIEWS: Partial<
 		import("../canvas/CanvasEditor.svelte").then((editor) =>
 			editor.loadHistoryPreview(),
 		),
+	image: () => import("../image/ImageVersionPreview.svelte"),
 };
 
 /**

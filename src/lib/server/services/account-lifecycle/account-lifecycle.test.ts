@@ -586,6 +586,44 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.imageFiles)
+		.values({
+			id: p("picture"),
+			userId,
+			conversationId: p("conv"),
+			role: "take",
+			width: 16,
+			height: 16,
+			sizeBytes: 100,
+			storagePath: `data/image-files/${p("conv")}/${p("picture")}.png`,
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.imageCards)
+		.values({
+			id: p("image-card"),
+			userId,
+			conversationId: p("conv"),
+			turnId: p("turn"),
+			title: "Cosy room",
+			madeFrom: "words",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.imageJobs)
+		.values({
+			id: p("image-take"),
+			userId,
+			cardId: p("image-card"),
+			conversationId: p("conv"),
+			origin: "turn",
+			requestJson: "{}",
+			seed: 7,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.fileProductionJobs)
 		.values({
 			id: p("file-job"),
@@ -821,6 +859,9 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"document_extraction_jobs",
 				"file_production_jobs",
 				"image_descriptions",
+				"image_cards",
+				"image_files",
+				"image_jobs",
 				"import_jobs",
 				"memory_consolidation_reports",
 				"memory_dirty_ledger",
@@ -1204,6 +1245,32 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(
 			attempts.find((row) => row.id === "keep-me-extraction-attempt")?.status,
 		).toBe("running");
+	});
+
+	// Picture takes (the image kind) are on the engine too: a take rendering when
+	// erasure started must stop, not store a picture into the account.
+	it("cancels the user's picture takes before deletion, sparing another user's", async () => {
+		seedEveryUserScopedTable("quiesce-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { sqlite } = openMigratedDb();
+		sqlite.prepare("UPDATE image_jobs SET status = 'queued'").run();
+		sqlite.close();
+
+		const { quiesceUserWorkspace } = await import("./index");
+		await quiesceUserWorkspace("quiesce-me");
+
+		const { db: appDb } = await import("$lib/server/db");
+		const jobs = await appDb
+			.select({
+				userId: schema.imageJobs.userId,
+				status: schema.imageJobs.status,
+			})
+			.from(schema.imageJobs);
+		expect(jobs.find((row) => row.userId === "quiesce-me")?.status).toBe(
+			"cancelled",
+		);
+		expect(jobs.find((row) => row.userId === "keep-me")?.status).toBe("queued");
 	});
 
 	// File production is on the job engine as well: the quiesce used to write the
@@ -1876,5 +1943,93 @@ describe("a picture's description follows its picture", () => {
 			"keep-me-garden",
 			"keep-me-kitchen",
 		]);
+	});
+
+	describe("picture files", () => {
+		let workdir: string;
+
+		beforeEach(async () => {
+			const { mkdtemp } = await import("node:fs/promises");
+			const { tmpdir } = await import("node:os");
+			const { join } = await import("node:path");
+			workdir = await mkdtemp(join(tmpdir(), "lifecycle-images-"));
+			vi.spyOn(process, "cwd").mockReturnValue(workdir);
+		});
+
+		afterEach(async () => {
+			const { rm } = await import("node:fs/promises");
+			await rm(workdir, { recursive: true, force: true });
+		});
+
+		async function seedPictureFile(userId: string): Promise<string> {
+			const sharp = (await import("sharp")).default;
+			const { sqlite, db } = openMigratedDb();
+			const now = new Date("2026-10-26T10:00:00.000Z");
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: `${userId}@example.com`,
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(schema.conversations)
+				.values({
+					id: `${userId}-chat`,
+					userId,
+					title: "Chat",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			sqlite.close();
+			const png = await sharp({
+				create: { width: 16, height: 16, channels: 3, background: "#fff" },
+			})
+				.png()
+				.toBuffer();
+			const { storeImageFile } = await import("../images/files");
+			const file = await storeImageFile({
+				userId,
+				conversationId: `${userId}-chat`,
+				role: "take",
+				png: new Uint8Array(png),
+			});
+			return file.id;
+		}
+
+		async function pictureDirs(): Promise<string[]> {
+			const { readdir } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			try {
+				return (await readdir(join(workdir, "data", "image-files"))).sort();
+			} catch {
+				return [];
+			}
+		}
+
+		it("Clear Workspace removes the person's picture files and spares another's", async () => {
+			await seedPictureFile("purge-me");
+			await seedPictureFile("keep-me");
+			const { purgeUserData } = await import("./index");
+			await purgeUserData("purge-me");
+			expect(await pictureDirs()).toEqual(["keep-me-chat"]);
+		});
+
+		it("erasure removes the person's picture files and spares another's", async () => {
+			await seedPictureFile("erase-me");
+			await seedPictureFile("keep-me");
+			const { eraseUserAccountData } = await import("./index");
+			await eraseUserAccountData("erase-me");
+			expect(await pictureDirs()).toEqual(["keep-me-chat"]);
+		});
+
+		it("Clear Memory keeps the pictures of chats that stay", async () => {
+			await seedPictureFile("clear-me");
+			const { clearMemoryAndKnowledgeForUser } = await import("./index");
+			await clearMemoryAndKnowledgeForUser("clear-me");
+			expect(await pictureDirs()).toEqual(["clear-me-chat"]);
+		});
 	});
 });

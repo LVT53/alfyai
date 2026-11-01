@@ -37,10 +37,16 @@ import { createModelCapabilitySet } from "../../src/lib/model-capabilities";
 import { getConfig } from "../../src/lib/server/config-store";
 import { db } from "../../src/lib/server/db";
 import { imageDescriptions, users } from "../../src/lib/server/db/schema";
+import { createArtifact as createItem } from "../../src/lib/server/services/artifacts";
 import { buildConstructedContext } from "../../src/lib/server/services/chat-turn/context-selection";
 import { buildBaselineDepthMetadata } from "../../src/lib/server/services/chat-turn/depth-metadata";
 import { runPlainNormalChatSendModel } from "../../src/lib/server/services/chat-turn/plain-normal-chat-model-run";
 import { createConversation } from "../../src/lib/server/services/conversations";
+import {
+	attachImageFilesToArtifact,
+	deleteImageFilesForConversation,
+	storeImageFile,
+} from "../../src/lib/server/services/images/files";
 import { attachArtifactsToMessage } from "../../src/lib/server/services/knowledge/store/attachments";
 import { createArtifact } from "../../src/lib/server/services/knowledge/store/core";
 import type { Artifact } from "../../src/lib/server/services/knowledge/types";
@@ -48,6 +54,11 @@ import { createMessage } from "../../src/lib/server/services/messages";
 import { IMAGE_DESCRIPTION_PROMPT } from "../../src/lib/server/services/vision/describe";
 import { getImageDescriptions } from "../../src/lib/server/services/vision/descriptions-store";
 import { CANNOT_SEE_IMAGES_GUIDANCE } from "../../src/lib/server/services/vision/turn-images";
+import {
+	type ImageMarksRequest,
+	type PictureRef,
+	serializeImageVersionBody,
+} from "../../src/lib/shared/artifacts/image-body";
 import {
 	capture,
 	captures,
@@ -187,6 +198,10 @@ async function ask(params: {
 	message: string;
 	attachments?: Artifact[];
 	canSee: boolean;
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
+	activeDocumentArtifactId?: string;
+	/** The seeing model's cap on one make_image call is the admin's; not set here. */
 }): Promise<ChatBody> {
 	const requests = await capture("vision turn", () =>
 		runPlainNormalChatSendModel({
@@ -197,6 +212,9 @@ async function ask(params: {
 			modelId: "model1",
 			user: { id: userId, displayName: "Alex Morgan", email },
 			attachmentIds: params.attachments?.map((artifact) => artifact.id),
+			pictureRefs: params.pictureRefs,
+			imageMarks: params.imageMarks,
+			activeDocumentArtifactId: params.activeDocumentArtifactId,
 			depthMetadata: buildBaselineDepthMetadata({ reasoningDepth: "thorough" }),
 			enabledConnectionCapabilities: [],
 			overrideProvider: provider(params.canSee),
@@ -249,6 +267,233 @@ async function decode(url: string) {
 	return sharp(Buffer.from(url.split(",")[1] ?? "", "base64")).metadata();
 }
 
+/** An Image item whose newest version points at a stored picture file. */
+async function imageItem(conversationId: string, title: string) {
+	const file = await storeImageFile({
+		userId,
+		conversationId,
+		role: "take",
+		png: new Uint8Array(await photoBytes(640, 480)),
+	});
+	const created = await createItem({
+		userId,
+		conversationId,
+		kind: "image",
+		title,
+		body: serializeImageVersionBody({
+			v: 1,
+			fileId: file.id,
+			width: file.width,
+			height: file.height,
+			hasAlpha: false,
+			baseFileId: null,
+			sources: [],
+			marks: null,
+			prompt: null,
+			takeId: null,
+			seed: null,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		}),
+		author: "alfy",
+		versionSummary: "Alfy made the picture",
+	});
+	if (!created.ok) throw new Error("item not created");
+	await attachImageFilesToArtifact([file.id], created.artifact.id);
+	return { file, artifactId: created.artifact.id };
+}
+
+describe("the open picture, pictures attached from cards and the person's marks", () => {
+	const labelsOf = (body: ChatBody) => {
+		const content = lastUser(body).content as Part[];
+		return content.flatMap((part, index) =>
+			part.type === "text" && part.text?.startsWith("Picture ")
+				? [[part.text, content[index + 1]?.type]]
+				: [],
+		);
+	};
+
+	it("numbers every picture once, in one list: the attached card picture first, the uploads after it, then the open picture and the marked copy", async () => {
+		const conversationId = await newConversation();
+		try {
+			const card = await imageItem(conversationId, "Rug");
+			const open = await imageItem(conversationId, "Cosy living room");
+			const attachments = [
+				await readyImage(conversationId, "a.png"),
+				await readyImage(conversationId, "b.png"),
+			];
+
+			const body = await ask({
+				conversationId,
+				message: "Make the sofa in the open picture match the rug",
+				attachments,
+				canSee: true,
+				pictureRefs: [{ imageFileId: card.file.id, number: 1 }],
+				activeDocumentArtifactId: open.artifactId,
+				imageMarks: {
+					imageFileId: open.file.id,
+					marks: [{ letter: "A", x: 0.1, y: 0.1, w: 0.3, h: 0.3 }],
+				},
+			});
+
+			expect(labelsOf(body)).toEqual([
+				["Picture 1: Rug", "image_url"],
+				["Picture 2: a.png", "image_url"],
+				["Picture 3: b.png", "image_url"],
+				["Picture 4: Cosy living room (open in the panel)", "image_url"],
+				[
+					"Picture 5: Picture 4 with the user's marks: A = red box",
+					"image_url",
+				],
+			]);
+			expect(imageUrls(body)).toHaveLength(5);
+		} finally {
+			await deleteImageFilesForConversation(conversationId);
+		}
+	});
+
+	it("sends an attached card picture even when it is all the message has: a short message with nothing else is still a picture turn", async () => {
+		const conversationId = await newConversation();
+		try {
+			const card = await imageItem(conversationId, "Rug");
+
+			const body = await ask({
+				conversationId,
+				message: "ok",
+				canSee: true,
+				pictureRefs: [{ imageFileId: card.file.id, number: 1 }],
+			});
+
+			expect(labelsOf(body)).toEqual([["Picture 1: Rug", "image_url"]]);
+		} finally {
+			await deleteImageFilesForConversation(conversationId);
+		}
+	});
+
+	it("refuses to fetch a card picture the person does not own: it is left out and never sent", async () => {
+		const conversationId = await newConversation();
+		const otherUser = randomUUID();
+		await db.insert(users).values({
+			id: otherUser,
+			email: `other-${randomUUID().slice(0, 6)}@example.com`,
+			passwordHash: "not-a-real-hash",
+			name: "Other",
+			role: "user",
+		});
+		const otherConversation = (await createConversation(otherUser, "Theirs"))
+			.id;
+		try {
+			const theirs = await storeImageFile({
+				userId: otherUser,
+				conversationId: otherConversation,
+				role: "take",
+				png: new Uint8Array(await photoBytes(320, 240)),
+			});
+
+			const body = await ask({
+				conversationId,
+				message: "Describe the attached picture please",
+				canSee: true,
+				pictureRefs: [{ imageFileId: theirs.id, number: 1 }],
+			});
+
+			expect(imageUrls(body)).toHaveLength(0);
+			expect(userText(body)).not.toContain("Picture 1");
+		} finally {
+			await deleteImageFilesForConversation(otherConversation);
+		}
+	});
+
+	it("sends a picture once and numbers it once when it is attached and also open, and when the same upload comes twice", async () => {
+		const conversationId = await newConversation();
+		try {
+			const open = await imageItem(conversationId, "Cosy living room");
+			const upload = await readyImage(conversationId, "a.png");
+
+			const body = await ask({
+				conversationId,
+				message: "Use this",
+				attachments: [upload, upload],
+				canSee: true,
+				pictureRefs: [{ imageFileId: open.file.id, number: 1 }],
+				activeDocumentArtifactId: open.artifactId,
+			});
+
+			expect(labelsOf(body)).toEqual([
+				["Picture 1: Cosy living room (open in the panel)", "image_url"],
+				["Picture 2: a.png", "image_url"],
+			]);
+			expect(imageUrls(body)).toHaveLength(2);
+		} finally {
+			await deleteImageFilesForConversation(conversationId);
+		}
+	});
+
+	it("shows at most eight as pixels, however many the message holds, and names the rest; a card picture is never described into image_descriptions", async () => {
+		const conversationId = await newConversation();
+		try {
+			const card = await imageItem(conversationId, "Rug");
+			const uploads = await Promise.all(
+				Array.from({ length: 8 }, (_, index) =>
+					readyImage(conversationId, `u${index + 1}.png`),
+				),
+			);
+
+			const body = await ask({
+				conversationId,
+				message: "Look at all of them",
+				attachments: uploads,
+				canSee: true,
+				pictureRefs: [{ imageFileId: card.file.id, number: 1 }],
+			});
+
+			expect(imageUrls(body)).toHaveLength(8);
+			expect(userText(body)).toContain(
+				"Not sent as pictures because of the limit: Picture 9: u8.png.",
+			);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			const described = await getImageDescriptions(
+				userId,
+				uploads.map((upload) => upload.id),
+			);
+			// Only uploaded artifacts can ever have a row; the card picture has no
+			// artifact of its own to key one on.
+			expect(
+				[...described.keys()].every((id) => uploads.some((u) => u.id === id)),
+			).toBe(true);
+		} finally {
+			await deleteImageFilesForConversation(conversationId);
+		}
+	});
+
+	it("tells a model that cannot see each picture by number, and sends it no picture", async () => {
+		const conversationId = await newConversation();
+		try {
+			const open = await imageItem(conversationId, "Cosy living room");
+			const upload = await readyImage(conversationId, "rug.jpg", {
+				mimeType: "image/jpeg",
+			});
+
+			const body = await ask({
+				conversationId,
+				message: "Make it warmer",
+				attachments: [upload],
+				canSee: false,
+				activeDocumentArtifactId: open.artifactId,
+			});
+
+			expect(imageUrls(body)).toHaveLength(0);
+			const text = userText(body);
+			expect(text).toContain(CANNOT_SEE_IMAGES_GUIDANCE);
+			expect(text).toContain(
+				"Pictures in this message: Picture 1: rug.jpg; Picture 2: Cosy living room (open in the panel).",
+			);
+		} finally {
+			await deleteImageFilesForConversation(conversationId);
+		}
+	});
+});
+
 describe("a model that can see", () => {
 	it("is sent the pictures of the message, prepared, beside the text it was sent before", async () => {
 		const conversationId = await newConversation();
@@ -267,7 +512,9 @@ describe("a model that can see", () => {
 		const content = lastUser(body).content as Part[];
 		expect(content.map((part) => part.type)).toEqual([
 			"text",
+			"text",
 			"image_url",
+			"text",
 			"image_url",
 		]);
 		const text = userText(body);
@@ -287,6 +534,32 @@ describe("a model that can see", () => {
 				600,
 			]);
 		}
+	});
+
+	it("labels each picture with its number, right before it, in the order they were attached", async () => {
+		const conversationId = await newConversation();
+		const attachments = [
+			await readyImage(conversationId, "b.png"),
+			await readyImage(conversationId, "a.jpg", { mimeType: "image/jpeg" }),
+		];
+
+		const body = await ask({
+			conversationId,
+			message: "Compare them",
+			attachments,
+			canSee: true,
+		});
+
+		const content = lastUser(body).content as Part[];
+		const labels = content.flatMap((part, index) =>
+			part.type === "text" && part.text?.startsWith("Picture ")
+				? [[part.text, content[index + 1]?.type]]
+				: [],
+		);
+		expect(labels).toEqual([
+			["Picture 1: b.png", "image_url"],
+			["Picture 2: a.jpg", "image_url"],
+		]);
 	});
 
 	it("is sent a photo shrunk to the budget, not the stored original", async () => {
@@ -333,7 +606,7 @@ describe("a model that can see", () => {
 
 		expect(imageUrls(body)).toHaveLength(8);
 		expect(userText(body)).toContain(
-			"2 more attached images were not sent as pictures because of the limit: photo-8.png, photo-9.png.",
+			"Not sent as pictures because of the limit: Picture 9: photo-8.png; Picture 10: photo-9.png.",
 		);
 	});
 
@@ -360,9 +633,9 @@ describe("a model that can see", () => {
 		);
 		// The model is told which one it was not shown, and only that one.
 		expect(userText(body)).toContain(
-			"The user attached broken.png, but it could not be shown to you.",
+			"Picture 1: broken.png was attached, but it could not be shown to you.",
 		);
-		expect(userText(body)).not.toContain("fine.png, but it could not");
+		expect(userText(body)).not.toContain("fine.png was attached");
 	});
 
 	it("is sent no picture for a BMP, which cannot be decoded, and is not told it cannot see", async () => {
@@ -385,7 +658,7 @@ describe("a model that can see", () => {
 		expect(userText(body)).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
 		// It was attached and it could not be shown: the model is told so, once.
 		expect(userText(body)).toContain(
-			"The user attached scan.bmp, but it could not be shown to you.",
+			"Picture 1: scan.bmp was attached, but it could not be shown to you.",
 		);
 	});
 
@@ -452,9 +725,9 @@ describe("a model that can see", () => {
 
 			expect(imageUrls(body)).toHaveLength(1);
 			expect(userText(body)).toContain(
-				"The user attached lost.png, but it could not be shown to you.",
+				"Picture 1: lost.png was attached, but it could not be shown to you.",
 			);
-			expect(userText(body)).not.toContain("kept.png, but it could not");
+			expect(userText(body)).not.toContain("kept.png was attached");
 		});
 
 		it("still stops the turn for a BMP with no text: the model can never be shown one", async () => {

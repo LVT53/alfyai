@@ -1084,7 +1084,7 @@ describe("createServerChunkRuntime", () => {
 		]);
 	});
 
-	it("aliases duplicate tool starts with different marker ids so either end completes immediately", () => {
+	it("keeps every parallel call of one tool, finishing in any order", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -1093,49 +1093,71 @@ describe("createServerChunkRuntime", () => {
 			},
 		});
 
-		runtime.emitToolCallEvent(
-			"research_web",
-			{ query: "SvelteKit streaming docs" },
-			"running",
-			{ callId: "langchain-run-1" },
-		);
-		runtime.emitToolCallEvent(
-			"research_web",
-			{ query: "SvelteKit streaming docs" },
-			"running",
-			{ callId: "native-marker-1" },
-		);
-		runtime.emitToolCallEvent("research_web", {}, "done", {
-			callId: "native-marker-1",
-			sourceType: "web",
-			outputSummary: "Found sources",
-		});
-		runtime.emitToolCallEvent("research_web", {}, "done", {
-			callId: "langchain-run-1",
-			sourceType: "web",
-			outputSummary: "Found sources",
-		});
+		for (const [callId, prompt] of [
+			["call-1", "a beach"],
+			["call-2", "a mountain"],
+			["call-3", "a forest"],
+		]) {
+			runtime.emitToolCallEvent("make_image", { prompt }, "running", {
+				callId,
+			});
+		}
+		for (const callId of ["call-2", "call-3", "call-1"]) {
+			runtime.emitToolCallEvent("make_image", {}, "done", {
+				callId,
+				outputSummary: `made by ${callId}`,
+			});
+		}
 
-		expect(toolCallEvents(chunks)).toHaveLength(2);
-		expect(runtime.toolCallRecords).toEqual([
-			expect.objectContaining({
-				callId: "langchain-run-1",
-				name: "research_web",
-				status: "done",
-				outputSummary: "Found sources",
-			}),
-		]);
-		expect(runtime.serverSegments).toEqual([
-			expect.objectContaining({
-				callId: "langchain-run-1",
-				name: "research_web",
-				status: "done",
-				outputSummary: "Found sources",
-			}),
-		]);
+		expect(toolCallEvents(chunks)).toHaveLength(6);
+		expect(runtime.serverSegments).toEqual(
+			["call-1", "call-2", "call-3"].map((callId) =>
+				expect.objectContaining({
+					callId,
+					name: "make_image",
+					status: "done",
+					outputSummary: `made by ${callId}`,
+				}),
+			),
+		);
+		expect(runtime.toolCallRecords).toEqual(
+			["call-1", "call-2", "call-3"].map((callId) =>
+				expect.objectContaining({ callId, status: "done" }),
+			),
+		);
 	});
 
-	it("suppresses delayed duplicate native markers after the callback marker completed", () => {
+	it("keeps identical calls apart when their ids differ, at once or in turn", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+		const input = { prompt: "a birthday card with a fox" };
+
+		runtime.emitToolCallEvent("make_image", input, "running", {
+			callId: "call-1",
+		});
+		runtime.emitToolCallEvent("make_image", input, "running", {
+			callId: "call-2",
+		});
+		runtime.emitToolCallEvent("make_image", {}, "done", { callId: "call-1" });
+		runtime.emitToolCallEvent("make_image", {}, "done", { callId: "call-2" });
+		runtime.emitToolCallEvent("make_image", input, "running", {
+			callId: "call-3",
+		});
+		runtime.emitToolCallEvent("make_image", {}, "done", { callId: "call-3" });
+
+		expect(runtime.serverSegments).toEqual(
+			["call-1", "call-2", "call-3"].map((callId) =>
+				expect.objectContaining({ callId, status: "done" }),
+			),
+		);
+	});
+
+	it("still coalesces a repeated start that carries no call id", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -1144,46 +1166,12 @@ describe("createServerChunkRuntime", () => {
 			},
 		});
 
-		runtime.emitToolCallEvent(
-			"research_web",
-			{ query: "SvelteKit streaming docs" },
-			"running",
-			{ callId: "langchain-run-1" },
-		);
-		runtime.emitToolCallEvent("research_web", {}, "done", {
-			callId: "langchain-run-1",
-			sourceType: "web",
-			outputSummary: "Found sources",
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "running", {
+			callId: "call-1",
 		});
-		runtime.emitToolCallEvent(
-			"research_web",
-			{ query: "SvelteKit streaming docs" },
-			"running",
-			{ callId: "native-marker-1" },
-		);
-		runtime.emitToolCallEvent("research_web", {}, "done", {
-			callId: "native-marker-1",
-			sourceType: "web",
-			outputSummary: "Found sources",
-		});
+		runtime.emitToolCallEvent("research_web", { query: "docs" }, "running");
 
-		expect(toolCallEvents(chunks)).toHaveLength(2);
-		expect(runtime.toolCallRecords).toEqual([
-			expect.objectContaining({
-				callId: "langchain-run-1",
-				name: "research_web",
-				status: "done",
-				outputSummary: "Found sources",
-			}),
-		]);
-		expect(runtime.serverSegments).toEqual([
-			expect.objectContaining({
-				callId: "langchain-run-1",
-				name: "research_web",
-				status: "done",
-				outputSummary: "Found sources",
-			}),
-		]);
+		expect(runtime.serverSegments).toHaveLength(1);
 	});
 
 	it("emits buffered thinking as visible output after 2000 chars when no clear boundary is sent", () => {

@@ -7,6 +7,7 @@ import { createProject } from "../../src/lib/server/services/projects";
 import {
 	createTourUser,
 	finishTour,
+	IMAGE_ITEM_TITLE,
 	ITEM_TITLES,
 	markToursSeen,
 	openItem,
@@ -49,7 +50,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 async function readerWithItems(
 	page: Page,
-	kinds: Array<"document" | "app" | "canvas"> = ["document", "app"],
+	kinds: Array<"document" | "app" | "canvas" | "image"> = ["document", "app"],
 ): Promise<{ user: TourUser; chatId: string }> {
 	await installMotionRecorder(page);
 	const user = await createTourUser("en");
@@ -59,6 +60,33 @@ async function readerWithItems(
 	await reopenChat(page, chatId);
 	await expect(page.getByTestId("artifact-count-button")).toBeVisible();
 	return { user, chatId };
+}
+
+/**
+ * The kinds whose open item runs the panel's item assertions (plan 2b T3): the
+ * Image opens in the same shell as the Document and is held to the same numbers.
+ * Each reader also has the Document and the App, so a delete leaves a list.
+ */
+const OPEN_ITEMS = [
+	{ kind: "document", title: "Trip notes", seed: ["document", "app"] },
+	{
+		kind: "image",
+		title: IMAGE_ITEM_TITLE,
+		seed: ["document", "app", "image"],
+	},
+] as const;
+
+/** The open item's body is drawn: the Document's text, or the Image's picture loaded full size. */
+async function expectItemBody(page: Page, kind: "document" | "image") {
+	await expect(
+		page
+			.locator(
+				kind === "image"
+					? '[data-testid="image-body-picture"] [data-testid="image-picture-after"].is-loaded'
+					: ".workspace-stage .ProseMirror",
+			)
+			.first(),
+	).toBeVisible({ timeout: 20_000 });
 }
 
 /** The panel's title is on screen once: the desktop shell (the phone's twin is hidden). */
@@ -188,51 +216,54 @@ test.describe("the panel and the chat move together", () => {
 		}
 	});
 
-	test("reloading with the panel open does not cut the chat to a stub and back", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await waitForMotionToSettle(page);
-		await page.waitForTimeout(300);
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: reloading with the panel open does not cut the chat to a stub and back`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
 
-		await recordNextLoad(page);
-		await page.reload({ waitUntil: "domcontentloaded" });
-		await expect(visibleTitle(page)).toBeVisible({
-			timeout: 20_000,
-		});
-		const run = await settleAndStop(page);
-		const chat = profile(
-			run.frames.filter((frame) => frame.chatW > 0),
-			"chatW",
-		);
-		noteNumbers("reload", {
-			chatFirst: chat.first,
-			chatLast: chat.last,
-			chatMaxStepFraction: chat.maxStepFraction,
-			chatMinWidth: Math.min(
-				...run.frames.filter((f) => f.chatW > 0).map((f) => f.chatW),
-			),
-			shiftAll: shiftSum(run),
-			shiftMaxEntry: shiftMax(run),
-		});
-		// The panel arrives the way it does on any open: the chat narrows in step with it,
-		// and is not cut from the page's full width to its docked one in a frame.
-		expect(
-			chat.maxStepFraction,
-			"the chat column went to its docked width in one frame",
-		).toBeLessThan(0.5);
-		// The chat is never narrower than where it ends up: no stub first, no overshoot.
-		const final = chat.last;
-		for (const frame of run.frames) {
-			if (frame.chatW === 0) continue;
+			await recordNextLoad(page);
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await expect(visibleTitle(page)).toBeVisible({
+				timeout: 20_000,
+			});
+			const run = await settleAndStop(page);
+			const chat = profile(
+				run.frames.filter((frame) => frame.chatW > 0),
+				"chatW",
+			);
+			noteNumbers("reload", {
+				chatFirst: chat.first,
+				chatLast: chat.last,
+				chatMaxStepFraction: chat.maxStepFraction,
+				chatMinWidth: Math.min(
+					...run.frames.filter((f) => f.chatW > 0).map((f) => f.chatW),
+				),
+				shiftAll: shiftSum(run),
+				shiftMaxEntry: shiftMax(run),
+			});
+			// The panel arrives the way it does on any open: the chat narrows in step with it,
+			// and is not cut from the page's full width to its docked one in a frame.
 			expect(
-				frame.chatW,
-				"the chat column was squeezed below its final width on the way",
-			).toBeGreaterThanOrEqual(final - 2);
-		}
-	});
+				chat.maxStepFraction,
+				"the chat column went to its docked width in one frame",
+			).toBeLessThan(0.5);
+			// The chat is never narrower than where it ends up: no stub first, no overshoot.
+			const final = chat.last;
+			for (const frame of run.frames) {
+				if (frame.chatW === 0) continue;
+				expect(
+					frame.chatW,
+					"the chat column was squeezed below its final width on the way",
+				).toBeGreaterThanOrEqual(final - 2);
+			}
+		});
+	}
 });
 
 test.describe("the docked column and what it holds", () => {
@@ -255,227 +286,438 @@ test.describe("the docked column and what it holds", () => {
 		});
 	}
 
-	test("what the column holds fills it at rest, after a window resize and after a drag of its edge", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await waitForMotionToSettle(page);
-		await page.waitForTimeout(400);
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: what the column holds fills it at rest, after a window resize and after a drag of its edge`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(400);
 
-		const fills = async (when: string) => {
-			const box = await columnAndContent(page);
-			expect(box, `${when}: no column`).not.toBeNull();
-			// The shell has a 1 px border on its left edge; the content stands on the right.
-			expect(
-				Math.abs((box?.column ?? 0) - 1 - (box?.content ?? 0)),
-				`${when}: the content does not fill the column`,
-			).toBeLessThanOrEqual(1.5);
-			expect(
-				Math.abs((box?.contentRight ?? 0) - (box?.columnRight ?? 0)),
-			).toBeLessThanOrEqual(1);
-			return box?.column ?? 0;
-		};
-		const wide = await fills("at 1440");
+			const fills = async (when: string) => {
+				const box = await columnAndContent(page);
+				expect(box, `${when}: no column`).not.toBeNull();
+				// The shell has a 1 px border on its left edge; the content stands on the right.
+				expect(
+					Math.abs((box?.column ?? 0) - 1 - (box?.content ?? 0)),
+					`${when}: the content does not fill the column`,
+				).toBeLessThanOrEqual(1.5);
+				expect(
+					Math.abs((box?.contentRight ?? 0) - (box?.columnRight ?? 0)),
+				).toBeLessThanOrEqual(1);
+				return box?.column ?? 0;
+			};
+			const wide = await fills("at 1440");
 
-		// The window gets narrower: the column follows the stage, and so does what it holds.
-		await page.setViewportSize({ width: 1100, height: 900 });
-		await page.waitForTimeout(300);
-		const narrow = await fills("at 1100");
-		expect(narrow).toBeLessThan(wide);
+			// The window gets narrower: the column follows the stage, and so does what it holds.
+			await page.setViewportSize({ width: 1100, height: 900 });
+			await page.waitForTimeout(300);
+			const narrow = await fills("at 1100");
+			expect(narrow).toBeLessThan(wide);
 
-		// A drag of the column's edge.
-		await page.setViewportSize({ width: 1440, height: 900 });
-		await page.waitForTimeout(300);
-		const handle = await boxOf(page.getByTestId("resize-handle"));
-		const y = handle.y + handle.height / 2;
-		await page.mouse.move(handle.x + 2, y);
-		await page.mouse.down();
-		await page.mouse.move(handle.x + 2 + 120, y, { steps: 6 });
-		await page.mouse.up();
-		await page.waitForTimeout(200);
-		const dragged = await fills("after the drag");
-		expect(dragged, "the drag did not make the column narrower").toBeLessThan(
-			wide - 100,
-		);
-	});
+			// A drag of the column's edge.
+			await page.setViewportSize({ width: 1440, height: 900 });
+			await page.waitForTimeout(300);
+			const handle = await boxOf(page.getByTestId("resize-handle"));
+			const y = handle.y + handle.height / 2;
+			await page.mouse.move(handle.x + 2, y);
+			await page.mouse.down();
+			await page.mouse.move(handle.x + 2 + 120, y, { steps: 6 });
+			await page.mouse.up();
+			await page.waitForTimeout(200);
+			const dragged = await fills("after the drag");
+			expect(dragged, "the drag did not make the column narrower").toBeLessThan(
+				wide - 100,
+			);
+		});
+	}
 });
 
 test.describe("a reader who asked for reduced motion", () => {
-	test("sees the chat and the panel change at once, on open, expand and close", async ({
-		page,
-	}) => {
-		await page.emulateMedia({ reducedMotion: "reduce" });
-		await readerWithItems(page);
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: sees the chat and the panel change at once, on open, expand and close`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ reducedMotion: "reduce" });
+			await readerWithItems(page, [...item.seed]);
 
-		await startRecording(page);
-		await page.getByTestId("artifact-count-button").click();
-		await expect(panelList(page)).toBeVisible();
-		const opened = await settleAndStop(page);
-		const open = profile(opened.frames, "chatW");
-		expect(open.total, "the chat did not make room").toBeGreaterThan(300);
-		expect(open.between, "the chat was seen part-way").toBeLessThanOrEqual(1);
+			await startRecording(page);
+			await page.getByTestId("artifact-count-button").click();
+			await expect(panelList(page)).toBeVisible();
+			const opened = await settleAndStop(page);
+			const open = profile(opened.frames, "chatW");
+			expect(open.total, "the chat did not make room").toBeGreaterThan(300);
+			expect(open.between, "the chat was seen part-way").toBeLessThanOrEqual(1);
 
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await page.waitForTimeout(300);
-		await startRecording(page);
-		await page.locator(".workspace-expand-button:visible").first().click();
-		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
-			1,
-		);
-		const expanded = await settleAndStop(page);
-		const expand = profile(expanded.frames, "panelW");
-		expect(expand.total).toBeGreaterThan(300);
-		expect(expand.between, "the panel was seen growing").toBeLessThanOrEqual(1);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await page.waitForTimeout(300);
+			await startRecording(page);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			const expanded = await settleAndStop(page);
+			const expand = profile(expanded.frames, "panelW");
+			expect(expand.total).toBeGreaterThan(300);
+			expect(expand.between, "the panel was seen growing").toBeLessThanOrEqual(
+				1,
+			);
 
-		await startRecording(page);
-		await page
-			.locator(".workspace-shell-expanded:visible")
-			.getByRole("button", { name: "Close document workspace" })
-			.click();
-		await expect(
-			page.locator("aside.workspace-shell-desktop:visible"),
-		).toHaveCount(0);
-		const closed = await settleAndStop(page);
-		const close = profile(closed.frames, "chatW");
-		expect(close.between, "the chat was seen part-way").toBeLessThanOrEqual(1);
-	});
+			await startRecording(page);
+			await page
+				.locator(".workspace-shell-expanded:visible")
+				.getByRole("button", { name: "Close document workspace" })
+				.click();
+			await expect(
+				page.locator("aside.workspace-shell-desktop:visible"),
+			).toHaveCount(0);
+			const closed = await settleAndStop(page);
+			const close = profile(closed.frames, "chatW");
+			expect(close.between, "the chat was seen part-way").toBeLessThanOrEqual(
+				1,
+			);
+		});
+	}
 });
 
 test.describe("deleting, expanding and closing the open item", () => {
-	test("deleting the open item shows the list without closing the panel", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await waitForMotionToSettle(page);
-		await page.waitForTimeout(300);
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: deleting the open item shows the list without closing the panel`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
 
-		await page
-			.locator('[data-testid="artifact-delete-button"]:visible')
-			.click();
-		const popover = page.getByTestId("artifact-delete-popover");
-		await expect(popover).toBeVisible();
-		await startRecording(page);
-		await popover.getByRole("button", { name: "Delete", exact: true }).click();
-		await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
-		const run = await settleAndStop(page);
+			await page
+				.locator('[data-testid="artifact-delete-button"]:visible')
+				.click();
+			const popover = page.getByTestId("artifact-delete-popover");
+			await expect(popover).toBeVisible();
+			await startRecording(page);
+			await popover
+				.getByRole("button", { name: "Delete", exact: true })
+				.click();
+			await expect(panelList(page)).toBeVisible({ timeout: 15_000 });
+			const run = await settleAndStop(page);
 
-		const settled = run.frames.at(-1);
-		const docked = settled?.chatW ?? 0;
-		noteNumbers("delete", {
-			shiftAll: shiftSum(run),
-			shiftMaxEntry: shiftMax(run),
-			framesWithNoPanel: run.frames.filter((frame) => frame.panelW === 0)
-				.length,
-			widestChat: Math.max(...run.frames.map((frame) => frame.chatW)),
-			dockedChat: docked,
+			const settled = run.frames.at(-1);
+			const docked = settled?.chatW ?? 0;
+			noteNumbers("delete", {
+				shiftAll: shiftSum(run),
+				shiftMaxEntry: shiftMax(run),
+				framesWithNoPanel: run.frames.filter((frame) => frame.panelW === 0)
+					.length,
+				widestChat: Math.max(...run.frames.map((frame) => frame.chatW)),
+				dockedChat: docked,
+			});
+			// There is no frame of a chat at full width: the panel stays up from the click to the list.
+			for (const frame of run.frames) {
+				expect(frame.panelW, "a frame has no panel").toBeGreaterThan(200);
+				expect(
+					frame.chatW,
+					"a frame shows the chat wider than it is beside the panel",
+				).toBeLessThanOrEqual(docked + 2);
+			}
+			await expect(
+				panelList(page)
+					.getByTestId("artifact-row")
+					.filter({ hasText: "Tip calculator" }),
+			).toBeVisible();
 		});
-		// There is no frame of a chat at full width: the panel stays up from the click to the list.
-		for (const frame of run.frames) {
-			expect(frame.panelW, "a frame has no panel").toBeGreaterThan(200);
+
+		test(`${item.kind}: expanding animates the panel and leaves the chat where it is`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await startRecording(page);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			const run = await settleAndStop(page);
+
+			const panel = profile(run.frames, "panelW");
+			const chat = profile(run.frames, "chatW");
+			noteNumbers("expand", {
+				panelTravel: panel.total,
+				panelMaxStepFraction: panel.maxStepFraction,
+				panelBetween: panel.between,
+				chatTravel: chat.total,
+				shiftAll: shiftSum(run),
+				shiftMaxEntry: shiftMax(run),
+			});
+			expect(panel.total).toBeGreaterThan(300);
 			expect(
-				frame.chatW,
-				"a frame shows the chat wider than it is beside the panel",
-			).toBeLessThanOrEqual(docked + 2);
-		}
-		await expect(
-			panelList(page)
-				.getByTestId("artifact-row")
-				.filter({ hasText: "Tip calculator" }),
-		).toBeVisible();
-	});
-
-	test("expanding animates the panel and leaves the chat where it is", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await waitForMotionToSettle(page);
-		await page.waitForTimeout(300);
-
-		await startRecording(page);
-		await page.locator(".workspace-expand-button:visible").first().click();
-		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
-			1,
-		);
-		const run = await settleAndStop(page);
-
-		const panel = profile(run.frames, "panelW");
-		const chat = profile(run.frames, "chatW");
-		noteNumbers("expand", {
-			panelTravel: panel.total,
-			panelMaxStepFraction: panel.maxStepFraction,
-			panelBetween: panel.between,
-			chatTravel: chat.total,
-			shiftAll: shiftSum(run),
-			shiftMaxEntry: shiftMax(run),
+				panel.maxStepFraction,
+				"the panel went to full size in one frame",
+			).toBeLessThan(0.5);
+			expect(
+				panel.between,
+				"the panel was never seen growing",
+			).toBeGreaterThanOrEqual(4);
+			// The chat is behind it and is not asked to re-wrap for a panel that floats over it.
+			expect(
+				chat.total,
+				"the chat re-flowed behind the expanding panel",
+			).toBeLessThanOrEqual(2);
 		});
-		expect(panel.total).toBeGreaterThan(300);
-		expect(
-			panel.maxStepFraction,
-			"the panel went to full size in one frame",
-		).toBeLessThan(0.5);
-		expect(
-			panel.between,
-			"the panel was never seen growing",
-		).toBeGreaterThanOrEqual(4);
-		// The chat is behind it and is not asked to re-wrap for a panel that floats over it.
-		expect(
-			chat.total,
-			"the chat re-flowed behind the expanding panel",
-		).toBeLessThanOrEqual(2);
-	});
 
-	test("the X of an expanded panel closes it, and the count button brings the item back", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await expect(visibleTitle(page)).toBeVisible();
-		await page.locator(".workspace-expand-button:visible").first().click();
-		await expect(page.locator(".workspace-shell-expanded:visible")).toHaveCount(
-			1,
+		test(`${item.kind}: the X of an expanded panel closes it, and the count button opens the list`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await expect(visibleTitle(page)).toBeVisible();
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await page
+				.locator(".workspace-shell-expanded:visible")
+				.getByRole("button", { name: "Close document workspace" })
+				.click();
+			// Closed, not docked: no panel of either shape is left.
+			await expect(
+				page.locator("aside.workspace-shell-desktop:visible"),
+			).toHaveCount(0);
+
+			// The count button opens this chat's list, never the item (Task 14).
+			await page.getByTestId("artifact-count-button").click();
+			await expect(panelList(page)).toBeVisible();
+			await expect(visibleTitle(page)).toHaveCount(0);
+		});
+
+		test(`${item.kind}: an expanded panel can be docked again, by its own button`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			const expanded = page.locator(".workspace-shell-expanded:visible");
+			await expect(expanded).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await expanded
+				.getByRole("button", { name: /to the docked workspace/ })
+				.click();
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			await expect(visibleTitle(page)).toHaveText(item.title);
+			await expect(
+				page.locator("aside.workspace-shell-desktop:visible"),
+			).toHaveCount(1);
+		});
+	}
+});
+
+/**
+ * Plan 2b T3b: the shell holds its content at the size a shape change ends at.
+ * Shape changes that overlap, and a window that changes under a hold, must still
+ * end with the content at the shape's own size and the hold let go; a hold that
+ * an older animation lets go of too early would re-flow the content mid-motion.
+ */
+const SHELL_CONTENT = "aside.workspace-shell-desktop > .workspace-content";
+
+/** How many frames changed the shell content's width or height. */
+function contentSizeChanges(frames: MotionFrame[]) {
+	const seen = frames
+		.map((frame) => frame.tracked.content)
+		.filter((box) => box !== null);
+	let width = 0;
+	let height = 0;
+	for (let index = 1; index < seen.length; index++) {
+		if (Math.abs(seen[index].w - seen[index - 1].w) > 0.5) width += 1;
+		if (Math.abs(seen[index].h - seen[index - 1].h) > 0.5) height += 1;
+	}
+	return { width, height, frames: seen.length };
+}
+
+/** The content at rest fills the shell's shape: the dock's column, or the overlay inside its border. */
+async function contentFitsShell(page: Page) {
+	return page.evaluate((selector) => {
+		const content = document.querySelector<HTMLElement>(selector);
+		const shell = content?.parentElement;
+		if (!content || !shell) return null;
+		const box = content.getBoundingClientRect();
+		const style = getComputedStyle(shell);
+		const inner = {
+			right:
+				shell.getBoundingClientRect().right -
+				Number.parseFloat(style.borderRightWidth),
+			height:
+				shell.getBoundingClientRect().height -
+				Number.parseFloat(style.borderTopWidth) -
+				Number.parseFloat(style.borderBottomWidth),
+		};
+		return {
+			held: content.classList.contains("workspace-content-held"),
+			inlineHeight: content.style.height,
+			rightGap: Math.abs(box.right - inner.right),
+			heightGap: Math.abs(box.height - inner.height),
+		};
+	}, SHELL_CONTENT);
+}
+
+/** Presses the expanded panel's button named `name` now, wherever it is in its motion. */
+async function pressMidMotion(page: Page, name: RegExp) {
+	await page.evaluate((source) => {
+		const pattern = new RegExp(source);
+		const button = [
+			...document.querySelectorAll<HTMLButtonElement>(
+				".workspace-shell-expanded button",
+			),
+		].find((candidate) =>
+			pattern.test(
+				candidate.getAttribute("aria-label") ?? candidate.textContent ?? "",
+			),
 		);
-		await waitForMotionToSettle(page);
-		await page.waitForTimeout(300);
+		if (!button) throw new Error(`no button ${source}`);
+		button.click();
+	}, name.source);
+}
 
-		await page
-			.locator(".workspace-shell-expanded:visible")
-			.getByRole("button", { name: "Close document workspace" })
-			.click();
-		// Closed, not docked: no panel of either shape is left.
-		await expect(
-			page.locator("aside.workspace-shell-desktop:visible"),
-		).toHaveCount(0);
+/**
+ * Waits until the shell's own shape animation (expand's or dock's insets) is
+ * running and has drawn at least one frame, with the content held: the moment a
+ * reader's press lands "mid-motion". It waits on the animation the shell started
+ * (`getAnimations()`), never on a clock, so a slow frame cannot make the press
+ * land before the motion or after it.
+ */
+async function waitForShellMidMotion(page: Page) {
+	await page.waitForFunction(
+		(selector) => {
+			const content = document.querySelector<HTMLElement>(selector);
+			const shell = content?.parentElement;
+			if (!content || !shell) return false;
+			if (!content.classList.contains("workspace-content-held")) return false;
+			return shell.getAnimations().some((animation) => {
+				const time = Number(animation.currentTime ?? 0);
+				const duration = Number(animation.effect?.getTiming().duration ?? 0);
+				return animation.playState === "running" && time > 0 && time < duration;
+			});
+		},
+		SHELL_CONTENT,
+		{ polling: "raf" },
+	);
+}
 
-		await page.getByTestId("artifact-count-button").click();
-		await expect(visibleTitle(page)).toHaveText("Trip notes");
-		await expect(panelList(page)).toHaveCount(0);
-	});
+function expectAtRest(fit: Awaited<ReturnType<typeof contentFitsShell>>) {
+	expect(fit, "no content").not.toBeNull();
+	expect(fit?.held, "the hold was never let go").toBe(false);
+	expect(fit?.inlineHeight, "a held height was left behind").toBe("");
+	expect(
+		fit?.rightGap ?? 99,
+		"the content does not reach the shell's edge",
+	).toBeLessThanOrEqual(1);
+	expect(
+		fit?.heightGap ?? 99,
+		"the content is not the shell's height",
+	).toBeLessThanOrEqual(1);
+}
 
-	test("an expanded panel can be docked again, by its own button", async ({
-		page,
-	}) => {
-		await readerWithItems(page);
-		await openItem(page, "Trip notes");
-		await page.locator(".workspace-expand-button:visible").first().click();
-		const expanded = page.locator(".workspace-shell-expanded:visible");
-		await expect(expanded).toHaveCount(1);
-		await waitForMotionToSettle(page);
-		await expanded
-			.getByRole("button", { name: /to the docked workspace/ })
-			.click();
-		await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
-		await expect(visibleTitle(page)).toHaveText("Trip notes");
-		await expect(
-			page.locator("aside.workspace-shell-desktop:visible"),
-		).toHaveCount(1);
-	});
+test.describe("shape changes that overlap, and a window that changes under them", () => {
+	for (const item of OPEN_ITEMS) {
+		test(`${item.kind}: dock pressed while it expands docks it, the content held throughout`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await startRecording(page, { content: SHELL_CONTENT });
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await waitForShellMidMotion(page);
+			// Pressed while the overlay still grows. Playwright's click waits for a
+			// button that stops moving, which would be after the expand: this press
+			// lands mid-motion, as a reader's does.
+			await pressMidMotion(page, /to the docked workspace/);
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			const run = await settleAndStop(page);
+			const changes = contentSizeChanges(run.frames);
+			noteNumbers(`dock-mid-expand-${item.kind}`, changes);
+			// Once when the expand's hold starts, once when the dock's does: the
+			// expand's own end, mid-dock, must not let go of the dock's hold.
+			expect(
+				changes.width,
+				"the content re-flowed while it docked",
+			).toBeLessThanOrEqual(2);
+			expect(changes.height).toBeLessThanOrEqual(2);
+			expectAtRest(await contentFitsShell(page));
+		});
+
+		test(`${item.kind}: Escape pressed while it docks still docks it once, the content held throughout`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await startRecording(page, { content: SHELL_CONTENT });
+			await page
+				.locator(".workspace-shell-expanded:visible")
+				.getByRole("button", { name: /to the docked workspace/ })
+				.click();
+			await waitForShellMidMotion(page);
+			await page.keyboard.press("Escape");
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			const run = await settleAndStop(page);
+			const changes = contentSizeChanges(run.frames);
+			noteNumbers(`escape-mid-dock-${item.kind}`, changes);
+			await expect(visibleTitle(page)).toHaveText(item.title);
+			expect(
+				changes.width,
+				"the content re-flowed while it docked",
+			).toBeLessThanOrEqual(1);
+			expect(changes.height).toBeLessThanOrEqual(1);
+			expectAtRest(await contentFitsShell(page));
+		});
+
+		test(`${item.kind}: a window resized right after expand leaves the content at the overlay's new size`, async ({
+			page,
+		}) => {
+			await readerWithItems(page, [...item.seed]);
+			await openItem(page, item.title);
+			await expectItemBody(page, item.kind);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await waitForShellMidMotion(page);
+			await page.setViewportSize({ width: 1280, height: 860 });
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(300);
+			expectAtRest(await contentFitsShell(page));
+		});
+	}
 });
 
 /**
@@ -575,7 +817,8 @@ test.describe("the chat keeps its room beside a docked panel", () => {
 });
 
 /**
- * F15 (ruling 77): the first time a reader opens a Document, an App or a Canvas the tour
+ * F15 (ruling 77): the first time a reader opens a Document, an App, a Canvas or (plan 2b
+ * T16) an Image the tour
  * card arrived ~230 ms after the item had painted and was put in the flow above it, so the
  * Document moved 120-190 px, the board re-fitted (100% -> 87%) and, when the card left,
  * moved back. FB-3 laid the card over the item (nothing moved, but the card covered the
@@ -591,6 +834,8 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		document: ".workspace-stage .ProseMirror",
 		app: ".workspace-stage iframe",
 		canvas: ".workspace-stage .svelte-flow__viewport",
+		// Plan 2b T16: the Image's body, the row the picture and its strip sit in.
+		image: '.workspace-stage [data-testid="image-body"]',
 	} as const;
 
 	async function freshReader(
@@ -661,7 +906,7 @@ test.describe("the tour card arrives without moving what the reader just saw", (
 		return (top + bottom) / 2 - (pane.y + pane.height / 2);
 	}
 
-	for (const kind of ["document", "app", "canvas"] as const) {
+	for (const kind of ["document", "app", "canvas", "image"] as const) {
 		test(`a ${kind} stays where it painted when its card arrives, and gets the card's room back as a glide when the card is dismissed`, async ({
 			page,
 		}) => {

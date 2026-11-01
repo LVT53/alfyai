@@ -59,6 +59,7 @@ Server:
 - `src/lib/server/services/` — every service and its role: Normal Chat prompt assembly, model runs and sampling, tools, web grounding, embeddings, titles; where each memory, tour and campaign rule lives.
 - `src/lib/server/services/chat-turn/` — the Normal Chat turn (send, stream, retry); the reply-language rule (ruling 79); follow-up chips; short-text cleanup.
 - `src/lib/server/services/artifacts/` — the artifact family (Document, App, Canvas, Slides, File): facade, tables, History derivation, the App audit and WebRTC guard, delete and Regenerate.
+- `src/lib/server/services/images/` — making and changing pictures: the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job.
 - `src/lib/server/services/file-production/` — durable file jobs, exports, renderers, report pictures.
 - `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
 - `src/lib/server/services/memory-profile/` — all profile memory (every `memory-*/` folder and `memory*.ts`): the intake judge, consolidation, recall, user-protected facts.
@@ -74,7 +75,7 @@ Browser and shared:
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
-- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/` and `tour/` each keep their own file.
+- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/` and `tour/` each keep their own file.
 
 Routes and tests:
 
@@ -198,6 +199,8 @@ Name the specs that cover what you changed (they run in full; the `@smoke` set c
 - login/search/shell regressions: `tests/e2e/login.test.ts tests/e2e/search-modal.spec.ts`
 - an artifact kind: its `tests/e2e/artifact*.spec.ts` files (the Document, App and Canvas ones are named by kind)
 - seeing images (image attachments, the "Can see images" tick, what the model is sent of a picture): `tests/e2e/vision.spec.ts`
+- making pictures (the `make_image` tool, the picture job, the card and the Image item, against the fake ComfyUI): `tests/e2e/images-pipeline.spec.ts`
+- an Image (the picture card, the panel, History, Attach and marks in the composer, the Knowledge Base's Images chip): `tests/e2e/images*.spec.ts`
 
 Playwright runs against the **production build** (`npm run build` first, about 15 s alone; a build older than `src/` is refused before any server starts, and a build that does not hydrate stops the run in two seconds), with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. **Never run `npm run check` or `npm test` while `npm run build` runs** (both run `svelte-kit sync`, which rewrites `.svelte-kit/` under the build: it still exits 0 and the app it made does not hydrate); `scripts/gates.sh` orders them for you.
 

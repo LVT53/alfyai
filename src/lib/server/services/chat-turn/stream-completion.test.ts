@@ -62,9 +62,12 @@ const {
 // post-turn steps in this file (finalize-steps etc.): the glue tests below
 // assert what completeStreamTurn hands this seam and what it does with the
 // result, never the real control model.
-vi.mock("./follow-up-suggestions", () => ({
+vi.mock("./follow-up-suggestions", async (importOriginal) => ({
 	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
 	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
+	goneMarkLettersOf: (
+		await importOriginal<typeof import("./follow-up-suggestions")>()
+	).goneMarkLettersOf,
 }));
 
 // The language of the conversation for the person, named after the reply
@@ -902,6 +905,31 @@ describe("completeStreamTurn", () => {
 		expect(assistantCall?.[5]).toMatchObject({
 			instructionsApplied: { personal: true, projectId: "project-1" },
 		});
+	});
+
+	// The pictures a user message carried beside its uploads come from the same
+	// snapshot, and ride the USER message's metadata (the assistant's has no use
+	// for them).
+	it("persists the pictures the user message carried into that message's metadata", async () => {
+		const userPictures = {
+			refs: [{ imageFileId: "file-1", number: 1, name: "Rug" }],
+			open: null,
+			marks: null,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			preparedContext: { ...defaultParams.preparedContext, userPictures },
+		});
+
+		const userCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "user",
+		);
+		expect(userCall?.[5]).toEqual({ pictures: userPictures });
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[5]).not.toHaveProperty("pictures");
 	});
 
 	it("omits instructionsApplied from persisted metadata when no scope applied", async () => {
@@ -2597,6 +2625,7 @@ describe("completeStreamTurn", () => {
 				assistantResponse: "response text",
 				recentHistory: [],
 				responseLanguage: "en",
+				goneMarkLetters: [],
 			});
 			expect(getLatestEndPayload()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
@@ -2680,6 +2709,40 @@ describe("completeStreamTurn", () => {
 						{ role: "assistant", content: "earlier answer" },
 					],
 				}),
+			);
+		});
+
+		// Task 17 fix round 1: only a chat that had marks is checked for them.
+		it("hands the suggester the letters of the marks the window and this turn carried", async () => {
+			mockListMessageWindow.mockResolvedValue({
+				// The window's rows carry their pictures record (ChatMessage.pictures).
+				messages: [
+					{
+						role: "user",
+						content: "Move the sofa from box A to box B.",
+						pictures: {
+							refs: [],
+							open: null,
+							marks: { letters: ["A", "B"] },
+						},
+					},
+					{ role: "assistant", content: "Moved." },
+				] as never,
+				hasMoreBefore: false,
+			});
+			await completeStreamTurn({
+				...defaultParams,
+				preparedContext: {
+					...defaultParams.preparedContext,
+					userPictures: {
+						refs: [],
+						open: null,
+						marks: { letters: ["C"] },
+					} as never,
+				},
+			});
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ goneMarkLetters: ["A", "B", "C"] }),
 			);
 		});
 

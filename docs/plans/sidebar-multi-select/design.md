@@ -17,7 +17,7 @@ Select several chats in the sidebar, then in one action delete them, move them i
 ### D2. While a selection is open
 
 - Every chat row shows a checkbox at its start. A click or tap adds or removes the row instead of opening the chat; Shift-click extends from the anchor; Enter or Space toggles the focused row. Assistive tech meets the row as a toggle button: it stays a `button` and gets `aria-pressed` (a role that changes at runtime fails the build's accessibility check).
-- Row menus, rename and dragging (into a project, pinned reorder) are off. Project folders still open and close, so the chats inside can be reached.
+- Row menus, rename and pinned reorder are off. Dragging a chat row stays on (added later, Task 10 of plan 2b): a selected row drags the whole selection onto a folder, Chats, Pinned or the bin; an unselected row drags itself. Project folders still open and close, so the chats inside can be reached.
 - The fork, Atlas and incognito marks stay where they are. None of them changes a bulk action: a selection may mix pinned, project, fork and incognito chats.
 
 ### D3. Ending a selection
@@ -53,7 +53,7 @@ The rest of the action stands. The chats that failed stay selected, and an error
 
 ### Not in this build
 
-Archive (dropped by the owner). Running and unread dots: their own item, which backlog item 6 needs. Bulk rename, export or fork. Selecting project folders. Dragging a selection. Undo. Cmd+A or a Delete-key shortcut. Keeping a selection across reloads.
+Archive (dropped by the owner). Running and unread dots: their own item, which backlog item 6 needs. Bulk rename, export or fork. Selecting project folders. Undo. Cmd+A or a Delete-key shortcut. Keeping a selection across reloads.
 
 ## Copy
 

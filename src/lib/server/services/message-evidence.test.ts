@@ -1016,3 +1016,129 @@ describe("toolReadArtifactIdsMetadata", () => {
 		).toBe(2);
 	});
 });
+
+// Task 17 (rehearsal P5): a reply that only made a picture showed a "Sources"
+// section holding nothing but its own make_image call and the chat's continuity
+// (recent turns, session memory). The picture's card tells what the call made, as
+// an item's own row does for create_artifact; with nothing else, there are no
+// sources, and the reply shows no Sources section.
+describe("a reply that made a picture", () => {
+	const makeImage: ToolCallEntry = {
+		name: "make_image",
+		input: { prompt: "a sofa" },
+		status: "done",
+		outputSummary: "Picture made",
+	} as ToolCallEntry;
+	const continuity = {
+		layersUsed: ["session"],
+		summary: "Session summary text.",
+		taskStateApplied: true,
+		recentTurnCount: 2,
+	} as never;
+
+	it("has no sources when it made a picture and used only the chat's continuity", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Put this sofa into the room photo",
+			taskState: null,
+			contextStatus: continuity,
+			toolCalls: [makeImage],
+		});
+		expect(summary).toBeNull();
+	});
+
+	// Task 20, live on ai.dev a72ea77: a picture-only reply still showed a
+	// Sources row. Its evidence held only the Baseline Memory Profile facts the
+	// prompt carries on every turn — ambient profile memory replaces the
+	// aggregate "Session memory" row, so it is the same continuity, not a
+	// source the reply drew on.
+	it("has no sources when it made a picture and used only the ambient profile facts", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Make a picture of a bright living room",
+			taskState: null,
+			contextStatus: {
+				layersUsed: ["session"],
+				summary: "Session summary text.",
+				taskStateApplied: true,
+				recentTurnCount: 2,
+			} as never,
+			contextTraceSections: [
+				{
+					name: "Baseline Memory Profile",
+					source: "memory",
+					body: "Facts:\n- Prefers concise answers.\n- Lives in Budapest.",
+					inclusionLevel: "legacy_full",
+					itemIds: ["fact-a", "fact-b"],
+					itemTitles: ["Prefers concise answers.", "Lives in Budapest."],
+				},
+			],
+			toolCalls: [makeImage],
+		});
+		expect(summary).toBeNull();
+	});
+
+	it("keeps a profile fact the reply looked up with memory_context", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Make a picture of my favourite room",
+			taskState: null,
+			contextTraceSections: [
+				{
+					name: "Baseline Memory Profile",
+					source: "memory",
+					body: "Facts:\n- Prefers concise answers.",
+					inclusionLevel: "legacy_full",
+					itemIds: ["fact-a"],
+					itemTitles: ["Prefers concise answers."],
+				},
+			],
+			toolCalls: [
+				makeImage,
+				{
+					name: "memory_context",
+					input: { mode: "facts", query: "favourite room" },
+					status: "done",
+					sourceType: "memory",
+					candidates: [
+						{
+							id: "memory-fact:fact-room",
+							title: "Favourite room is the sage living room.",
+							sourceType: "memory",
+							metadata: { memoryItemId: "fact-room", selected: true },
+						},
+					],
+				} as ToolCallEntry,
+			],
+		});
+		const ids = (summary?.groups ?? []).flatMap((group) =>
+			group.items.map((item) => item.id),
+		);
+		expect(ids).toContain("memory-fact:fact-room");
+	});
+
+	it("never lists its make_image call as a tool source", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "Put this sofa into the room photo",
+			taskState: null,
+			toolCalls: [makeImage],
+		});
+		const titles = (summary?.groups ?? []).flatMap((group) =>
+			group.items.map((item) => item.title),
+		);
+		expect(titles).not.toContain("make_image");
+	});
+
+	it("keeps the continuity of a reply that made no picture", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "What floor is in my photo?",
+			taskState: null,
+			contextStatus: continuity,
+		});
+		expect(summary?.groups.map((group) => group.sourceType)).toEqual([
+			"memory",
+		]);
+	});
+});

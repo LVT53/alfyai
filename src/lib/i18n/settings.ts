@@ -141,7 +141,7 @@ const settingsDict = {
 			"{count} step{count, plural, one {} other {s}} + empty-state line",
 		"admin.campaigns.tour.stepNumber": "Step {number}",
 		"admin.campaigns.tour.summaryHint":
-			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.",
+			"The title is the line an empty Document, App or Canvas shows; an Image is never empty. Nothing else on this slide is shown.",
 		"admin.campaigns.tour.summarySlide": "Empty-state line",
 		"admin.campaigns.type": "Type",
 		"admin.campaigns.type.feature": "Feature",
@@ -190,7 +190,7 @@ const settingsDict = {
 		"admin.campaigns.validation.sortOrderInvalid":
 			"Slide order must use unique positive integers.",
 		"admin.campaigns.validation.tourKindInvalid":
-			"A tour must belong to a Document, App or Canvas, or no one will ever see it.",
+			"A tour must belong to a Document, App, Canvas or Image, or no one will ever see it.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A tour needs exactly one summary slide first, followed by exactly three standard slides.",
 		"admin.campaigns.validation.typeInvalid":
@@ -831,7 +831,7 @@ const settingsDict = {
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Back to settings",
 		settings_skillsManagerOpenA11y: "Open skills manager",
-		settings_skillsManagerStatus: "{active} active · {disabled} disabled",
+		settings_skillsManagerStatus: "{active} enabled · {disabled} disabled",
 		settings_skillsManagerSummaryLabel: "Skills",
 		settings_skillsManagerTitle: "Skills",
 		settings_uploadPhotoA11y: "Upload photo",
@@ -940,6 +940,11 @@ const settingsDict = {
 		"admin.users.twoStepOn": "On",
 		"admin.users.twoStepOff": "Off",
 		"admin.users.twoStepSignIn": "Two-step sign-in",
+		"admin.users.pictureFilter": "Explicit picture filter",
+		"admin.users.pictureFilterOn": "On",
+		"admin.users.pictureFilterExempt": "Exempt",
+		"admin.users.pictureFilterExemptAction": "Exempt",
+		"admin.users.pictureFilterRestoreAction": "Filter again",
 		"admin.users.twoStepOnSince": "On since {date} · {count} backup codes left",
 		"admin.users.twoStepOffDetail": "Off",
 		"admin.users.twoStepResetAction": "Reset two-step sign-in",
@@ -979,6 +984,10 @@ const settingsDict = {
 		"admin.users.messages.demoted": "Admin access removed.",
 		"admin.users.messages.promoted": "Admin access granted.",
 		"admin.users.messages.sessionsRevoked": "Active sessions revoked.",
+		"admin.users.messages.pictureFilterExempted":
+			"The explicit picture filter is off for this person.",
+		"admin.users.messages.pictureFilterRestored":
+			"The explicit picture filter is on again for this person.",
 		"admin.users.promoteMessage":
 			"An admin can change the models and system prompt for every user, read account-level analytics for everyone, create and delete accounts, and promote other admins. You can demote {name} again at any time.",
 		"admin.users.promoteTitle": "Make {name} an admin?",
@@ -1033,7 +1042,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
 		"admin.campaigns.checklist.fail.tourKind":
-			"Tour kind: Document, App or Canvas",
+			"Tour kind: Document, App, Canvas or Image",
 		"admin.campaigns.checklist.fail.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
@@ -1062,7 +1071,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.rule.slides": "At least one slide",
 		"admin.campaigns.checklist.rule.tourKind":
-			"Tour belongs to a Document, App or Canvas",
+			"Tour belongs to a Document, App, Canvas or Image",
 		"admin.campaigns.checklist.rule.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.rule.type": "Campaign type",
@@ -1356,6 +1365,7 @@ const settingsDict = {
 			"Every secret in the product, in one place and one idiom.",
 		"admin.system.integrations.webResearch": "Web research",
 		"admin.system.integrations.documentExtraction": "Document extraction",
+		"admin.system.integrations.pictures": "Pictures",
 		"admin.system.integrations.webPush": "Web push notifications",
 		"admin.mineruStatus.title": "MinerU status",
 		"admin.mineruStatus.description":
@@ -1765,6 +1775,16 @@ const settingsDict = {
 		"admin.system.keys.MINERU_API_URL.label": "MinerU endpoint",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Where uploaded documents are parsed. Must be reachable from this server.",
+		"admin.system.keys.COMFYUI_URL.label": "Picture server",
+		"admin.system.keys.COMFYUI_URL.meaning":
+			"The ComfyUI server that makes pictures. Leave empty to turn picture making off.",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Source pictures per image",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
+			"How many pictures Alfy may use to make or change one image, from 1 to 10. Each extra picture costs the picture server about 2 GiB. A message itself may hold more.",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label":
+			"Explicit picture filter",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.meaning":
+			"Alfy declines explicit picture requests, and every finished picture is checked on this server before anyone sees it; a picture that looks explicit is not shown or kept. On for everyone unless turned off here. You can also exempt one person in Users.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API key",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Empty means anonymous access, which a local MinerU allows.",
@@ -2004,7 +2024,7 @@ const settingsDict = {
 		"profileTab.skillsHelp":
 			"Short instructions AlfyAI follows for a kind of task. Opens the full manager.",
 		"profileTab.manageSkills": "Manage skills",
-		"profileTab.skillsCountActive": "{count} active",
+		"profileTab.skillsCountEnabled": "{count} enabled",
 		"profileTab.skillsCountDisabled": "{count} disabled",
 		"profileTab.memoryProfile": "Memory profile",
 		"profileTab.memoryProfileHelp":
@@ -2200,7 +2220,7 @@ const settingsDict = {
 		"admin.campaigns.tour.stepCount": "{count} lépés + üres állapot sora",
 		"admin.campaigns.tour.stepNumber": "{number}. lépés",
 		"admin.campaigns.tour.summaryHint":
-			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat; egy kép sosem üres. Ezen a dián más nem jelenik meg.",
 		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
@@ -2248,7 +2268,7 @@ const settingsDict = {
 		"admin.campaigns.validation.sortOrderInvalid":
 			"A diasorrendnek egyedi pozitív egész számokat kell használnia.",
 		"admin.campaigns.validation.tourKindInvalid":
-			"A bemutatónak egy dokumentumhoz, alkalmazáshoz vagy táblához kell tartoznia, különben senki nem látja soha.",
+			"A bemutatónak egy dokumentumhoz, alkalmazáshoz, táblához vagy képhez kell tartoznia, különben senki nem látja soha.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A bemutatóhoz pontosan egy összegző dia szükséges elsőként, amit pontosan három általános dia követ.",
 		"admin.campaigns.validation.typeInvalid":
@@ -2279,7 +2299,7 @@ const settingsDict = {
 		"admin.completionTokens": "Befejezési tokenek",
 		"admin.composerCommandRegistry": "Beviteli parancsregiszter",
 		"admin.composerCommandRegistryDescription":
-			"Megjeleníti a normál chat parancsregiszterének vázát. A skill futtatási viselkedés a későbbi szeletekig inaktív marad.",
+			"Megjeleníti a normál chat parancsregiszterének vázát. A készségek futtatási viselkedése a későbbi szeletekig inaktív marad.",
 		"admin.composerCommandRegistryEnabled":
 			"Beviteli parancsregiszter engedélyezése",
 		"admin.connected": "Kapcsolódva",
@@ -2593,31 +2613,31 @@ const settingsDict = {
 		"admin.systemPrompt": "Rendszerprompt",
 		"admin.systemPromptDescription": `Állítsd be az összes modellhez használt rendszerpromptot. Beilleszthetsz egy teljes rendszerpromptot, vagy megadhatsz egy referenciakulcsot, például \`alfyai-nemotron\`. Hagyd üresen a modellenkénti alapértelmezésekhez.`,
 		"admin.systemPromptLabel": "Rendszerprompt",
-		"admin.systemSkills.createTitle": "Skill létrehozása",
-		"admin.systemSkills.created": "Skill létrehozva.",
-		"admin.systemSkills.description": `Admin által meghatározott skillek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.`,
+		"admin.systemSkills.createTitle": "Készség létrehozása",
+		"admin.systemSkills.created": "Készség létrehozva.",
+		"admin.systemSkills.description": `Admin által meghatározott készségek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.`,
 		"admin.systemSkills.descriptionPlaceholder":
 			"Felhasználóknak megjelenő rövid cél",
 		// An example skill NAME, not a label — it has to be a plausible thing a
 		// Hungarian admin would type into the field, so it is translated like
 		// the description placeholder next to it rather than left in English.
 		"admin.systemSkills.displayNamePlaceholder": "Értékelő partner",
-		"admin.systemSkills.editTitle": "Skill szerkesztése",
-		"admin.systemSkills.empty": "Még nincsenek skillek.",
-		"admin.systemSkills.errors.load": "Nem sikerült betölteni a skilleket.",
-		"admin.systemSkills.errors.save": "Nem sikerült menteni a skillt.",
+		"admin.systemSkills.editTitle": "Készség szerkesztése",
+		"admin.systemSkills.empty": "Még nincsenek készségek.",
+		"admin.systemSkills.errors.load": "Nem sikerült betölteni a készségeket.",
+		"admin.systemSkills.errors.save": "Nem sikerült menteni a készséget.",
 		"admin.systemSkills.instructionsPlaceholder":
-			"Csak adminoknak látható utasítások ehhez a skillhez",
-		"admin.systemSkills.loading": "Skillek betöltése...",
-		"admin.systemSkills.new": "Új skill",
+			"Csak adminoknak látható utasítások ehhez a készséghez",
+		"admin.systemSkills.loading": "Készségek betöltése...",
+		"admin.systemSkills.new": "Új készség",
 		"admin.systemSkills.publish": "Közzététel",
 		"admin.systemSkills.publishA11y": "{name} közzététele",
 		"admin.systemSkills.published": "Közzétéve",
-		"admin.systemSkills.save": "Skill mentése",
+		"admin.systemSkills.save": "Készség mentése",
 		"admin.systemSkills.status.draft": "Vázlat",
 		"admin.systemSkills.status.published": "Közzétéve",
-		"admin.systemSkills.title": "Skillek",
-		"admin.systemSkills.updated": "Skill frissítve.",
+		"admin.systemSkills.title": "Készségek",
+		"admin.systemSkills.updated": "Készség frissítve.",
 		"admin.targetConstructedContext": "Célkontextus (token)",
 		"admin.thinkingType": "thinking.type",
 		"admin.thirdPartyDescription": `A külső modellek ugyanazt az OpenAI-kompatibilis chat futtatást és csatlakoztatott eszközöket használják, mint a beépített modellek.`,
@@ -2909,10 +2929,10 @@ const settingsDict = {
 		settings_systemAnalyticsTab: "Rendszerstatisztika",
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Vissza a beállításokhoz",
-		settings_skillsManagerOpenA11y: "Skill-kezelő megnyitása",
-		settings_skillsManagerStatus: "{active} aktív · {disabled} letiltva",
-		settings_skillsManagerSummaryLabel: "Skillek",
-		settings_skillsManagerTitle: "Skillek",
+		settings_skillsManagerOpenA11y: "Készségkezelő megnyitása",
+		settings_skillsManagerStatus: "{active} engedélyezve · {disabled} letiltva",
+		settings_skillsManagerSummaryLabel: "Készségek",
+		settings_skillsManagerTitle: "Készségek",
 		settings_uploadPhotoA11y: "Kép feltöltése",
 		settings_campaignsTab: "Kampányok",
 		settings_changePassword: "Jelszó módosítása",
@@ -3019,6 +3039,11 @@ const settingsDict = {
 		"admin.users.twoStepOn": "Be",
 		"admin.users.twoStepOff": "Ki",
 		"admin.users.twoStepSignIn": "Kétlépcsős bejelentkezés",
+		"admin.users.pictureFilter": "Szűrő a szexuális tartalmú képekre",
+		"admin.users.pictureFilterOn": "Bekapcsolva",
+		"admin.users.pictureFilterExempt": "Kivéve",
+		"admin.users.pictureFilterExemptAction": "Kivétel",
+		"admin.users.pictureFilterRestoreAction": "Szűrés újra",
 		"admin.users.twoStepOnSince":
 			"Bekapcsolva: {date} · {count} tartalékkód maradt",
 		"admin.users.twoStepOffDetail": "Kikapcsolva",
@@ -3062,6 +3087,10 @@ const settingsDict = {
 		"admin.users.messages.promoted": "Az admin hozzáférés megadva.",
 		"admin.users.messages.sessionsRevoked":
 			"Az aktív munkamenetek visszavonva.",
+		"admin.users.messages.pictureFilterExempted":
+			"Ennél a személynél kikapcsolva a szűrő a szexuális tartalmú képekre.",
+		"admin.users.messages.pictureFilterRestored":
+			"Ennél a személynél újra be van kapcsolva a szűrő a szexuális tartalmú képekre.",
 		"admin.users.promoteMessage":
 			"Az adminisztrátor mindenkinek módosíthatja a modelleket és a rendszerpromptot, láthatja mindenki fiókszintű analitikáját, fiókokat hozhat létre és törölhet, és más adminisztrátorokat is kinevezhet. {name} bármikor visszaminősíthető.",
 		"admin.users.promoteTitle": "Legyen {name} adminisztrátor?",
@@ -3118,7 +3147,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.fail.slides": "Legalább egy dia",
 		"admin.campaigns.checklist.fail.tourKind":
-			"A bemutató típusa: dokumentum, alkalmazás vagy tábla",
+			"A bemutató típusa: dokumentum, alkalmazás, tábla vagy kép",
 		"admin.campaigns.checklist.fail.tourShape":
 			"Egy összegző, utána három általános dia",
 		"admin.campaigns.checklist.fail.type": "Kampány típusa",
@@ -3145,7 +3174,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.rule.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.rule.slides": "Legalább egy dia",
 		"admin.campaigns.checklist.rule.tourKind":
-			"A bemutató dokumentumhoz, alkalmazáshoz vagy táblához tartozik",
+			"A bemutató dokumentumhoz, alkalmazáshoz, táblához vagy képhez tartozik",
 		"admin.campaigns.checklist.rule.tourShape":
 			"Egy összegző dia, utána három általános dia",
 		"admin.campaigns.checklist.rule.type": "Kampány típusa",
@@ -3253,7 +3282,7 @@ const settingsDict = {
 		"admin.system.pages.aiTasks": "AI-feladatok",
 		"admin.system.pages.integrations": "Integrációk és kulcsok",
 		"admin.system.pages.limits": "Korlátok",
-		"admin.system.pages.skills": "Képességek",
+		"admin.system.pages.skills": "Készségek",
 		"admin.system.pages.advanced": "Haladó",
 		"admin.system.pages.diagnostics": "Diagnosztika",
 		"admin.system.search.placeholder":
@@ -3447,6 +3476,7 @@ const settingsDict = {
 			"A termék összes titkos kulcsa egy helyen, egyféle módon.",
 		"admin.system.integrations.webResearch": "Webes kutatás",
 		"admin.system.integrations.documentExtraction": "Dokumentumkivonatolás",
+		"admin.system.integrations.pictures": "Képek",
 		"admin.system.integrations.webPush": "Webes push-értesítések",
 		"admin.mineruStatus.title": "MinerU állapota",
 		"admin.mineruStatus.description":
@@ -3472,18 +3502,18 @@ const settingsDict = {
 		"admin.system.limits.title": "Korlátok",
 		"admin.system.limits.description":
 			"Kemény korlátok. Mindegyiket elutasításként éli meg a felhasználó, ezért mindegyiknél leírjuk, hogyan néz ki az elutasítás.",
-		"admin.system.skills.title": "Képességek",
+		"admin.system.skills.title": "Készségek",
 		"admin.system.skills.description":
-			"A képesség szerkesztése párbeszédablakot nyit, nem a listán belül növő űrlapot, így a lista sosem mozdul el alattad.",
-		"admin.system.skills.new": "Új képesség",
-		"admin.system.skills.editTitle": "Képesség szerkesztése",
-		"admin.system.skills.createTitle": "Új képesség",
+			"A készség szerkesztése párbeszédablakot nyit, nem a listán belül növő űrlapot, így a lista sosem mozdul el alattad.",
+		"admin.system.skills.new": "Új készség",
+		"admin.system.skills.editTitle": "Készség szerkesztése",
+		"admin.system.skills.createTitle": "Új készség",
 		"admin.system.skills.dialogHint":
 			"Az itteni módosításokat ez a párbeszédablak menti, nem az oldal mentősávja.",
 		"admin.system.skills.menu": "További műveletek: {name}",
 		"admin.system.skills.unpublish": "Publikálás visszavonása",
 		"admin.system.skills.policyNote":
-			"Ez a négy minden létrehozott képességnél létezik — eddig néma alapértékként kerültek mentésre, bárhol elérhető vezérlő nélkül.",
+			"Ez a négy minden létrehozott készségnél létezik — eddig néma alapértékként kerültek mentésre, bárhol elérhető vezérlő nélkül.",
 		"admin.system.skills.durationPolicy": "Időtartam-szabály",
 		"admin.system.skills.questionPolicy": "Kérdezési szabály",
 		"admin.system.skills.notesPolicy": "Jegyzetelési szabály",
@@ -3872,6 +3902,16 @@ const settingsDict = {
 		"admin.system.keys.MINERU_API_URL.label": "MinerU végpont",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Itt elemződnek a feltöltött dokumentumok. Elérhetőnek kell lennie erről a szerverről.",
+		"admin.system.keys.COMFYUI_URL.label": "Képszerver",
+		"admin.system.keys.COMFYUI_URL.meaning":
+			"A képeket készítő ComfyUI-szerver. Üresen hagyva nincs képkészítés.",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.label": "Forrásképek egy képhez",
+		"admin.system.keys.IMAGE_REFERENCE_CAP.meaning":
+			"Egy kép elkészítéséhez vagy módosításához legfeljebb ennyi képet használhat Alfy (1–10). Minden további kép kb. 2 GiB-ot kér a képszervertől. Egy üzenetben ennél több kép is lehet.",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label":
+			"Szűrő a szexuális tartalmú képekre",
+		"admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.meaning":
+			"Alfy nem teljesíti a szexuális tartalmú képkéréseket, és minden elkészült képet ez a szerver ellenőriz, mielőtt bárki látná; ami szexuális tartalmúnak tűnik, azt nem mutatja meg és nem őrzi meg. Mindenkinél be van kapcsolva, hacsak itt ki nem kapcsolod. A Felhasználóknál egy-egy embert külön is kivehetsz alóla.",
 		"admin.system.keys.MINERU_API_KEY.label": "MinerU API-kulcs",
 		"admin.system.keys.MINERU_API_KEY.meaning":
 			"Üresen névtelen hozzáférést jelent, amit a helyi MinerU megenged.",
@@ -4105,8 +4145,8 @@ const settingsDict = {
 		"profileTab.skillsHelp":
 			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
 		"profileTab.manageSkills": "Készségek kezelése",
-		"profileTab.skillsCountActive": "{count} aktív",
-		"profileTab.skillsCountDisabled": "{count} kikapcsolva",
+		"profileTab.skillsCountEnabled": "{count} engedélyezve",
+		"profileTab.skillsCountDisabled": "{count} letiltva",
 		"profileTab.memoryProfile": "Memóriaprofil",
 		"profileTab.memoryProfileHelp":
 			"Olvasd és szerkeszd a rólad őrzött képet, kategóriánként.",

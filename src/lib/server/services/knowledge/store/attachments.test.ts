@@ -745,6 +745,19 @@ describe("blockingAttachmentItems", () => {
 		};
 	}
 
+	it("never lets the marked photo block a model that cannot see, and only that photo", () => {
+		const marked = unready("room.jpg", "image/jpeg");
+		const other = unready("other.jpg", "image/jpeg");
+		const pdf = unready("a.pdf", "application/pdf");
+
+		expect(
+			blockingAttachmentItems([marked, other, pdf], {
+				exemptImages: false,
+				markedArtifactId: "room.jpg",
+			}),
+		).toEqual([other, pdf]);
+	});
+
 	it("is every item as it came when the pictures are not exempt", () => {
 		const items = [
 			unready("photo.jpg", "image/jpeg"),

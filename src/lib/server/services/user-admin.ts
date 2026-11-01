@@ -268,6 +268,7 @@ export async function listManagedUsers(
 				twoStepEnabled: twoStepByUser.get(row.id)?.enabled ?? false,
 				twoStepSince: twoStepByUser.get(row.id)?.since?.getTime() ?? null,
 				backupCodesLeft: twoStepByUser.get(row.id)?.backupCodesLeft ?? 0,
+				explicitPictureFilterExempt: row.explicitPictureFilterExempt === true,
 				lastActiveAt: row.lastSeenAt
 					? Number(row.lastSeenAt)
 					: Number(row.createdAt),
@@ -377,6 +378,33 @@ export async function updateManagedUserRole(
 	return updated;
 }
 
+/** Exempts one person from the explicit-picture filter, or puts it back on for them. */
+export async function setManagedUserExplicitPictureFilterExempt(
+	params: { targetUserId: string; exempt: boolean },
+	executor: QueryExecutor = queryExecutor,
+): Promise<AdminManagedUserSummary> {
+	const target = await getUserById(executor, params.targetUserId);
+	if (!target) {
+		throw new Error("User not found.");
+	}
+	await executor.run("userAdmin.updateExplicitPictureFilter", (db) =>
+		db
+			.update(users)
+			.set({
+				explicitPictureFilterExempt: params.exempt,
+				updatedAt: new Date(),
+			})
+			.where(eq(users.id, params.targetUserId)),
+	);
+	const updated = (await listManagedUsers(executor)).find(
+		(user) => user.id === params.targetUserId,
+	);
+	if (!updated) {
+		throw new Error("User was updated but could not be reloaded.");
+	}
+	return updated;
+}
+
 export async function revokeManagedUserSessions(
 	targetUserId: string,
 	executor: QueryExecutor = queryExecutor,
@@ -445,5 +473,7 @@ export interface AdminManagedUserSummary {
 	twoStepSince: number | null;
 	/** Unspent one-time backup codes; 0 when it is off. */
 	backupCodesLeft: number;
+	/** An admin exempted the person from the explicit-picture filter. */
+	explicitPictureFilterExempt: boolean;
 	lastActiveAt: number | null;
 }

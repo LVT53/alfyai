@@ -19,6 +19,10 @@ import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "../artifacts/image/image-card-fixtures.test-helpers";
 import MessageBubble from "./MessageBubble.svelte";
 
 const markdownLoaderMock = vi.hoisted(() => ({
@@ -736,6 +740,41 @@ describe("MessageBubble", () => {
 			},
 		});
 		expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
+	});
+
+	// Task 17 (rehearsal P5): a reply that made a picture showed "Evidence is
+	// loading…" under its card. Its picture is on the card; the server lists
+	// sources for it only when it drew on some, and they arrive with the poll.
+	it("does not show pending Evidence loading on a reply that made a picture", () => {
+		const message: ChatMessage = {
+			id: "assistant-picture",
+			renderKey: "assistant-picture",
+			role: "assistant",
+			content: "Here is the room with the new sofa.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			evidencePending: true,
+			thinkingSegments: [
+				{
+					type: "tool_call",
+					callId: "call-pic",
+					name: "make_image",
+					input: { prompt: "a sofa in the room", title: "Room" },
+					status: "done",
+					metadata: {
+						ok: true,
+						imageStatus: "succeeded",
+						imageCardId: "card-1",
+						imageTitle: "Room",
+					},
+				},
+			],
+		} as ChatMessage;
+
+		render(MessageBubble, { message, conversationId: "conv-1" });
+
+		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
 	});
 
 	it("does not show pending Evidence loading on Atlas messages", () => {
@@ -2159,7 +2198,9 @@ describe("MessageBubble", () => {
 
 		const actionRow = container.querySelector(".copy-action-row");
 		expect(actionRow).not.toBeNull();
-		expect(actionRow?.className).toContain("md:focus-within:opacity-100");
+		// The reveal (hover or focus-within, on a device that can hover) is the
+		// block's that holds the row: follow-up-chips.spec.ts drives it.
+		expect(actionRow?.closest(".message-actions")).not.toBeNull();
 	});
 
 	it("sizes every action-row icon button with the compact 28px class, keeping the touch target in CSS", () => {
@@ -3324,6 +3365,176 @@ describe("MessageBubble", () => {
 			expect(summary?.textContent).not.toContain("Weekend plan");
 		});
 
+		it("draws a card for each different picture of one turn", async () => {
+			const takes = ["1", "2", "3"].map((n) =>
+				imageTake({ toolCallId: `call-set-${n}` }),
+			);
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					thinkingSegments: takes.map((take, index) => ({
+						type: "tool_call" as const,
+						callId: `call-set-${index + 1}`,
+						name: "make_image",
+						input: { prompt: `picture ${index + 1}`, title: "Picture" },
+						status: "done" as const,
+						metadata: {
+							ok: true,
+							imageStatus: "succeeded",
+							imageCardId: `card-set-${index + 1}`,
+							imageTakeId: take.id,
+							imageTitle: "Picture",
+						},
+					})),
+				}),
+				conversationId: "conv-1",
+				imageCards: takes.map((take, index) =>
+					imageCard([take], { id: `card-set-${index + 1}` }),
+				),
+			});
+
+			await waitFor(() => {
+				expect(
+					container.querySelectorAll(
+						'[data-testid="message-deliverables"] [data-testid="image-card-body"]',
+					),
+				).toHaveLength(3);
+			});
+		});
+
+		it("draws one picture card per card, after the text, however many make_image calls made its takes", async () => {
+			const first = imageTake({ toolCallId: "call-pic-1" });
+			const second = imageTake({ toolCallId: "call-pic-2" });
+			const pictureCall = (callId: string, takeId: string) => ({
+				type: "tool_call" as const,
+				callId,
+				name: "make_image",
+				input: { prompt: "a cosy room", title: "Cosy room" },
+				status: "done" as const,
+				metadata: {
+					ok: true,
+					imageStatus: "succeeded",
+					imageCardId: "card-1",
+					imageTakeId: takeId,
+					imageTitle: "Cosy room",
+				},
+			});
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					thinkingSegments: [
+						pictureCall("call-pic-1", first.id),
+						pictureCall("call-pic-2", second.id),
+					],
+				}),
+				conversationId: "conv-1",
+				imageCards: [imageCard([first, second])],
+			});
+
+			const made = container.querySelector(
+				'[data-testid="message-deliverables"]',
+			);
+			await waitFor(() => {
+				expect(
+					made?.querySelectorAll('[data-testid="image-card-body"]'),
+				).toHaveLength(1);
+			});
+			expect(
+				made?.querySelectorAll('[data-testid="tool-activity-standalone-card"]'),
+			).toHaveLength(1);
+			const prose = container.querySelector(".prose-container");
+			expect(
+				(prose?.compareDocumentPosition(made as Node) ?? 0) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		});
+
+		it("finds a running make_image call's card by the take made for it", async () => {
+			const running = imageTake({
+				toolCallId: "call-pic-run",
+				status: "running",
+				phase: "rendering",
+				fileId: null,
+			});
+			const { container } = render(MessageBubble, {
+				message: buildArtifactMessage({
+					isStreaming: true,
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							callId: "call-pic-run",
+							name: "make_image",
+							input: { prompt: "a cosy room", title: "Cosy room" },
+							status: "running",
+						},
+					],
+				}),
+				conversationId: "conv-1",
+				imageCards: [imageCard([running], { pickedTakeId: null })],
+			});
+
+			await waitFor(() => {
+				expect(
+					container.querySelector(
+						'[data-testid="message-deliverables"] [data-testid="image-card-body"]',
+					),
+				).not.toBeNull();
+			});
+		});
+
+		it("follows the chat's picture cards as they change while the call still runs", async () => {
+			const first = imageTake({
+				toolCallId: "call-pic-live",
+				status: "running",
+				phase: "rendering",
+				fileId: null,
+			});
+			const message = buildArtifactMessage({
+				isStreaming: true,
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call-pic-live",
+						name: "make_image",
+						input: { prompt: "a cosy room", title: "Cosy room" },
+						status: "running",
+					},
+				],
+			});
+			const { container, rerender } = render(MessageBubble, {
+				message,
+				conversationId: "conv-1",
+				imageCards: [imageCard([first], { pickedTakeId: null })],
+			});
+			await waitFor(() =>
+				expect(
+					container.querySelector('[data-testid="image-card-body"]'),
+				).toHaveAttribute("data-state", "making"),
+			);
+			await rerender({
+				message,
+				conversationId: "conv-1",
+				imageCards: [
+					imageCard(
+						[
+							{ ...first, status: "succeeded", phase: null, fileId: "landed" },
+							imageTake({
+								origin: "auto_retry",
+								held: true,
+								retryOf: first.id,
+								status: "running",
+								fileId: null,
+							}),
+						],
+						{ pickedTakeId: null },
+					),
+				],
+			});
+			await waitFor(() =>
+				expect(
+					container.querySelector('[data-testid="image-card-body"]'),
+				).toHaveAttribute("data-state", "ready"),
+			);
+		});
+
 		it("has no block for a message that made nothing", () => {
 			const { container } = render(MessageBubble, {
 				message: buildArtifactMessage({ thinkingSegments: [] }),
@@ -3461,24 +3672,37 @@ describe("MessageBubble", () => {
 			expect(container.querySelector(".follow-up-row")).toBeNull();
 		});
 
-		// F17: the action row is hover-only on a wide screen, and a chip inside
-		// it went invisible with it. The chips have a row of their own, which
-		// carries no hover rule at all.
-		it("keeps the chips out of the hover-only action row", () => {
+		// Task 15 (the owner's call, reversing F17): the chips show only on hover,
+		// like the icon row above them, and with it. One reveal rule on the block
+		// that holds both rows, so they are revealed together (a hover, or keyboard
+		// focus in either row) and hidden on opacity alone, the space kept: the
+		// reveal moves nothing. Below md (the touch rule of the icon row) both stay
+		// visible.
+		it("reveals the chips with the icon row: one hover/focus-within rule on the block that holds both", () => {
 			const { container } = render(MessageBubble, {
 				message: buildFollowUpMessage(),
 				isLast: true,
 			});
 
 			const chip = container.querySelector(".follow-up-chip");
-			expect(chip).not.toBeNull();
-			expect(chip?.closest(".copy-action-row")).toBeNull();
-			const row = chip?.closest(".follow-up-row");
-			expect(row).not.toBeNull();
-			expect(row?.className).not.toMatch(/opacity/);
-			expect(container.querySelector(".copy-action-row")?.className).toContain(
-				"md:opacity-0",
+			const block = chip?.closest(".message-actions");
+			expect(block).not.toBeNull();
+			// The reveal itself (hover capability, focus-within, opacity only) is
+			// driven for real in follow-up-chips.spec.ts.
+			expect(block?.querySelector(".copy-action-row")).not.toBeNull();
+			// Neither row has a reveal of its own, which could let them drift apart.
+			expect(
+				container.querySelector(".copy-action-row")?.className,
+			).not.toMatch(/opacity/);
+			expect(chip?.closest(".follow-up-row")?.className).not.toMatch(/opacity/);
+
+			const source = readFileSync(
+				`${process.cwd()}/src/lib/components/chat/MessageBubble.svelte`,
+				"utf-8",
 			);
+			const rowRule =
+				source.match(/\n\t\.follow-up-row \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			expect(rowRule).toMatch(/padding-top:\s*var\(--space-/);
 		});
 
 		it("renders a single chip when the control model repeats a suggestion", () => {
@@ -3772,5 +3996,118 @@ describe("MessageBubble: what the reply may show of the web is what its own tool
 		expect(lastOptions().toolImages).toEqual([
 			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
 		]);
+	});
+});
+
+// Plan 2b T5 — a sent message's pictures: each card picture a numbered
+// thumbnail, the uploaded photos under their numbers too.
+describe("MessageBubble pictures the message carried", () => {
+	function userMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+		return {
+			id: "user-pics",
+			renderKey: "user-pics",
+			role: "user",
+			content: "Blend them",
+			timestamp: Date.now(),
+			...overrides,
+		};
+	}
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("shows each card picture as a numbered thumbnail from the picture route", () => {
+		render(MessageBubble, {
+			conversationId: "conv-1",
+			message: userMessage({
+				pictures: {
+					refs: [
+						{ imageFileId: "f2", number: 2, name: "Blue mug" },
+						{ imageFileId: "f1", number: 1, name: "Red rug" },
+					],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const chips = screen.getAllByTestId("message-picture-chip");
+		expect(chips).toHaveLength(2);
+		expect(
+			within(chips[0]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("1");
+		expect(
+			within(chips[1]).getByTestId("composer-chip-number"),
+		).toHaveTextContent("2");
+		expect(screen.getByLabelText("Picture 1: Red rug")).toBeTruthy();
+		const thumb = chips[0].querySelector("img") as HTMLImageElement;
+		expect(thumb.getAttribute("src")).toBe(
+			"/api/images/files/f1?variant=thumb&conversationId=conv-1",
+		);
+		expect(chips[0].dataset.chipSize).toBe("message");
+	});
+
+	it("numbers an uploaded photo under the number the server gave it", () => {
+		render(MessageBubble, {
+			message: userMessage({
+				attachments: [
+					{
+						id: "att-1",
+						artifactId: "photo-1",
+						name: "rug.jpg",
+						type: "source_document",
+						mimeType: "image/jpeg",
+						sizeBytes: 100,
+						conversationId: "conv-1",
+						createdAt: Date.now(),
+					},
+				] as ChatMessage["attachments"],
+				pictures: {
+					refs: [{ imageFileId: "f1", number: 2, name: "Red rug" }],
+					uploads: [{ artifactId: "photo-1", number: 1 }],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const photo = screen.getByTestId("message-attachment-chip");
+		expect(within(photo).getByTestId("composer-chip-number")).toHaveTextContent(
+			"1",
+		);
+		expect(screen.getByLabelText("Picture 2: Red rug")).toBeTruthy();
+	});
+
+	it("draws no picture chips for a message that carried none", () => {
+		render(MessageBubble, { message: userMessage() });
+		expect(screen.queryByTestId("message-picture-chip")).toBeNull();
+	});
+
+	it("draws the pictures in number order, a card picture added first before the photo", () => {
+		render(MessageBubble, {
+			message: userMessage({
+				attachments: [
+					{
+						id: "att-1",
+						artifactId: "photo-1",
+						name: "rug.jpg",
+						type: "source_document",
+						mimeType: "image/jpeg",
+						sizeBytes: 100,
+						conversationId: "conv-1",
+						createdAt: Date.now(),
+					},
+				] as ChatMessage["attachments"],
+				pictures: {
+					refs: [{ imageFileId: "f1", number: 1, name: "Red rug" }],
+					uploads: [{ artifactId: "photo-1", number: 2 }],
+					open: null,
+					marks: null,
+				},
+			}),
+		});
+		const numbers = screen
+			.getAllByTestId("composer-chip-number")
+			.map((node) => node.textContent);
+		expect(numbers).toEqual(["1", "2"]);
 	});
 });

@@ -288,3 +288,70 @@ describe("a chip is the next message the person would send to Alfy", () => {
 		});
 	});
 });
+
+// Task 17 (rehearsal P5), fix round 1: after a turn whose message carried marks,
+// a chip offered "Move the new sofa to the spot in box B". Marks belong to the
+// one message they were drawn for and are let go when it is sent, so in a chat
+// that had marks a chip that names one of ITS mark letters in a mark context is
+// stale. Only there: a chat that never had marks keeps every chip, and words like
+// "Area C", "box B" or "jelölésű" stay what they mean.
+const MARKS_GONE = ["A", "B", "C"];
+
+function rejectionInMarkedChat(
+	text: string,
+	language: "en" | "hu",
+	letters: string[] = MARKS_GONE,
+): FollowUpChipRejection | null {
+	const result = checkFollowUpChip(text, {
+		language,
+		maxWords: 12,
+		goneMarkLetters: letters,
+	});
+	return result.ok ? null : result.reason;
+}
+
+describe("a chip never names a mark that is gone", () => {
+	it.each([
+		["Move the new sofa to the spot in box B", "en"],
+		["Make box A a little brighter", "en"],
+		["Fill boxes A and B with plants", "en"],
+		["Put a lamp in mark C", "en"],
+		["Tedd a kanapét a B keretbe", "hu"],
+		["Színezd át az A jelölésen belüli részt", "hu"],
+		["Tegyél növényt a C dobozba", "hu"],
+	] as const)("rejects %j in a chat whose marks are gone", (text, language) => {
+		expect(rejectionInMarkedChat(text, language)).toBe("stale_mark");
+	});
+
+	// The review's false positives: everyday chips in a chat that never had marks.
+	it.each([
+		["Explain the legal status of Area C in the West Bank", "en"],
+		["Work out the odds of drawing red from box B", "en"],
+		["Compare frames A and B of the animation", "en"],
+		["Mark A as the default option", "en"],
+		["Hasonlítsd össze az A és B jelölésű hűtőket", "hu"],
+		["Számold ki a valószínűséget a B dobozra", "hu"],
+		["Move the new sofa to the spot in box B", "en"],
+	] as const)("keeps %j in a chat that never had marks", (text, language) => {
+		expect(rejectionOf(text, language)).not.toBe("stale_mark");
+	});
+
+	it.each([
+		["Explain the legal status of Area C in the West Bank", "en"],
+		["Compare frames A and B of the animation", "en"],
+		["Mark A as the default option", "en"],
+		["Hasonlítsd össze az A és B jelölésű hűtőket", "hu"],
+		["Pack the books into a box for the move", "en"],
+		["Compare plan A and plan B in a table", "en"],
+		["Készíts listát a dobozokba pakoláshoz", "hu"],
+		["A keretszerződést foglald össze röviden", "hu"],
+	] as const)("keeps %j in a chat with marks, where it names no mark", (text, language) => {
+		expect(rejectionInMarkedChat(text, language)).not.toBe("stale_mark");
+	});
+
+	it("keeps a box whose letter was never drawn in this chat", () => {
+		expect(
+			rejectionInMarkedChat("Make box D a little brighter", "en", ["A"]),
+		).not.toBe("stale_mark");
+	});
+});

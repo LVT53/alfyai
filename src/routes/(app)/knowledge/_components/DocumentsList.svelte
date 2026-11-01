@@ -70,6 +70,9 @@ import type { Component } from "svelte";
 import type { KnowledgeDocumentKindFilter } from "$lib/server/services/knowledge";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import Spinner from "$lib/components/ui/Spinner.svelte";
+import PictureThumb from "$lib/components/artifacts/image/PictureThumb.svelte";
+import ItemGrid from "$lib/components/artifacts/ItemGrid.svelte";
+import ListGridToggle from "$lib/components/ui/ListGridToggle.svelte";
 import {
 	canCancelExtraction,
 	canOpenDocument,
@@ -79,7 +82,9 @@ import {
 	DOCUMENT_TYPE_FILTER_ORDER,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
+	type DocumentsView,
 	type DocumentTypeFilter,
+	documentThumbnail,
 	extractionDetailKey,
 	extractionRowStatusKey,
 	getDocumentKind,
@@ -87,6 +92,8 @@ import {
 	isExtractionInProgress,
 	isImageWithNoText,
 	nextSortDirection,
+	readDocumentsView,
+	writeDocumentsView,
 } from "./documents-table";
 
 // The newest version of an artifact-family row says what happened last (ruling 76,
@@ -125,6 +132,7 @@ const ARTIFACT_KIND_ICONS: Partial<Record<ArtifactKind, Component>> = {
 	app: AppWindow,
 	canvas: LayoutDashboard,
 	slides: Presentation,
+	image: Image,
 };
 
 /** The top-row filter chip's own icon (redesign §6.2, Wave 2.5 review F2):
@@ -248,6 +256,30 @@ let {
 	countsByFileFamily,
 }: DocumentsListProps = $props();
 
+// The table or a gallery of tiles (plan 2b Task 22: "an alternative view that
+// shows the images as a gallery grid"). Offered on the Images chip only
+// (controller ruling, fix round 1): elsewhere a tile is a big icon and the table
+// holds what a tile cannot (status, retry, download, delete, selection), so the
+// other chips always draw the list. The choice is remembered and comes back on
+// Images. Read at once in the browser so a reader who chose the grid gets it on
+// the first client frame (the server draws the list: an `{#if}` that differs at
+// hydration is redrawn by Svelte, never warned about).
+let documentsView = $state<DocumentsView>(readDocumentsView());
+const gridOffered = $derived(typeFilter === "image");
+const shownView = $derived<DocumentsView>(gridOffered ? documentsView : "list");
+
+function chooseView(view: DocumentsView): void {
+	documentsView = view;
+	writeDocumentsView(view);
+}
+
+// The grid shows no selection, so none may stand under it: a Delete bar for rows
+// the reader cannot see. Entering the grid, by the toggle or by the Images chip
+// with the grid remembered, lets the selection go.
+$effect(() => {
+	if (shownView === "grid" && selectedIds.size > 0) selectedIds = new Set();
+});
+
 /**
  * The projects that know one document. Names rather than a count, because the
  * count is the visible words and the names are the only thing that can say
@@ -339,6 +371,7 @@ const SUMMARY_BUCKET_ORDER: readonly KnowledgeDocumentKindFilter[] = [
 	"document",
 	"canvas",
 	"app",
+	"image",
 	"slides",
 ];
 
@@ -932,6 +965,53 @@ function formatFileType(mimeType: string | null, filename: string): string {
 	}
 	if (getEntryByFilename(filename)?.preview.kind === "html") return "HTML";
 	return extension.toUpperCase();
+}
+
+/** The gallery's tiles for this page (Task 22): `ItemGrid` draws them. */
+const gridTiles = $derived(
+	paginatedDocuments.map((document) => ({
+		id: document.id,
+		title: document.name,
+		meta: documentTypeLabel(document),
+		icon: documentIcon(document),
+		thumbnail: documentThumbnail(document),
+		disabled: !canOpenDocument(document),
+	})),
+);
+
+function documentById(id: string): KnowledgeDocumentItem | undefined {
+	return paginatedDocuments.find((document) => document.id === id);
+}
+
+function openDocumentById(id: string): void {
+	const document = documentById(id);
+	if (document) openDocument(document);
+}
+
+/** A row's or tile's icon: its kind's, or its file type's. */
+function documentIcon(document: KnowledgeDocumentItem): Component {
+	return (
+		(document.kind ? ARTIFACT_KIND_ICONS[document.kind] : undefined) ??
+		getFileIcon(document.mimeType, document.name)
+	);
+}
+
+/** A tile's second line: the kind, or the file's type (the row's Type pill, in words). */
+function documentTypeLabel(document: KnowledgeDocumentItem): string {
+	if (document.kind) return $t(`artifacts.type.${document.kind}`);
+	if (
+		document.documentOrigin === "skill_note" ||
+		document.type === "skill_note"
+	) {
+		return $t("knowledge.skillNote");
+	}
+	if (
+		document.documentOrigin === "generated" ||
+		document.type === "generated_output"
+	) {
+		return $t("knowledge.generated");
+	}
+	return formatFileType(document.mimeType, document.name);
 }
 
 /**
@@ -1776,6 +1856,10 @@ async function handleBulkDelete(): Promise<boolean> {
 						<ArrowDown size={13} strokeWidth={2.2} aria-hidden="true" />
 					{/if}
 				</button>
+				<!-- List or grid (Task 22): two pressed-state buttons, one group. -->
+				{#if gridOffered}
+					<ListGridToggle view={documentsView} onChange={chooseView} testIdPrefix="documents-view" />
+				{/if}
 			</div>
 
 			<!-- Last in the row, beside Sort: the toolbar reads search · sort ·
@@ -1818,6 +1902,18 @@ async function handleBulkDelete(): Promise<boolean> {
 			<p class="empty-title">
 				{$t('knowledge.noDocumentsAvailable')}
 				</p>
+			</div>
+		{:else if shownView === 'grid'}
+			<div class="documents-grid-wrap">
+				<ItemGrid
+					tiles={gridTiles}
+					testId="documents-grid"
+					onOpen={(id) => openDocumentById(id)}
+					onPreviewIntent={(id) => {
+						const document = documentById(id);
+						if (document) handleDocumentPreviewIntent(document);
+					}}
+				/>
 			</div>
 		{:else}
 			<div class="table-container">
@@ -1907,6 +2003,7 @@ async function handleBulkDelete(): Promise<boolean> {
 							{@const aiVersionAvailable = hasNormalisedVersion(document)}
 							{@const extracting = isExtractionInProgress(document)}
 							{@const extractionBusy = extractionActionIds.has(document.displayArtifactId)}
+							{@const thumb = documentThumbnail(document)}
 							<tr
 								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
@@ -1935,8 +2032,10 @@ async function handleBulkDelete(): Promise<boolean> {
 									</label>
 								</td>
 								<td class="col-icon">
-									<div class="file-icon" data-testid="file-icon">
-										{#if ArtifactIcon}
+									<div class="file-icon" class:has-thumb={thumb !== null} data-testid="file-icon">
+										{#if thumb}
+											<PictureThumb {...thumb} testId="document-thumb" />
+										{:else if ArtifactIcon}
 											<ArtifactIcon size={18} strokeWidth={1.5} aria-hidden="true" />
 										{:else}
 											<Icon size={18} strokeWidth={1.5} aria-hidden="true" />
@@ -2134,7 +2233,9 @@ async function handleBulkDelete(): Promise<boolean> {
 					</tbody>
 				</table>
 			</div>
+		{/if}
 
+		{#if displayDocuments.length > 0}
 			<!-- Bulk action bar -->
 			{#if hasSelection}
 				<div class="bulk-action-bar" role="toolbar" aria-label={$t('knowledge.bulkActionsLabel')}>
@@ -2673,6 +2774,11 @@ async function handleBulkDelete(): Promise<boolean> {
 			background-color var(--duration-standard) var(--ease-out);
 	}
 
+	/* The gallery stands where the table does, with its room above and below. */
+	.documents-grid-wrap {
+		padding: var(--space-md) 0;
+	}
+
 	.sort-direction:hover,
 	.sort-direction:focus-visible {
 		border-color: var(--accent);
@@ -2861,8 +2967,9 @@ async function handleBulkDelete(): Promise<boolean> {
 		vertical-align: middle;
 	}
 
+	/* Wide enough for a picture's 40 px thumbnail (Task 22); icons sit left in it. */
 	.documents-table .col-icon {
-		width: 2.5rem;
+		width: calc(40px + 0.75rem + var(--space-sm));
 		padding-left: 0.75rem;
 		padding-right: var(--space-sm);
 		vertical-align: middle;
@@ -3690,7 +3797,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		.sort-controls {
 			order: 2;
 			display: grid;
-			grid-template-columns: minmax(0, 1fr) 44px;
+			grid-template-columns: minmax(0, 1fr) 44px auto;
 			flex: 1 0 100%;
 			gap: var(--space-xs);
 			min-width: 0;
@@ -3730,6 +3837,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			padding: 0;
 		}
 
+
 		.table-container {
 			max-height: none;
 			overflow: visible;
@@ -3756,7 +3864,7 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .document-list-item {
 			display: grid;
-			grid-template-columns: 44px 34px minmax(0, 1fr);
+			grid-template-columns: 44px 40px minmax(0, 1fr);
 			grid-template-areas:
 				"check icon name"
 				"actions actions actions";
@@ -3786,7 +3894,7 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .col-icon {
 			grid-area: icon;
-			width: 34px;
+			width: 40px;
 			min-height: 34px;
 			padding: 0;
 			justify-self: center;
@@ -3802,6 +3910,14 @@ async function handleBulkDelete(): Promise<boolean> {
 			background: var(--surface-page);
 			border: 1px solid var(--border-subtle);
 			color: var(--icon-primary);
+		}
+
+		/* A picture's card shows its thumbnail, which brings its own edge. */
+		.documents-table .col-icon .file-icon.has-thumb {
+			width: 40px;
+			height: 40px;
+			border: 0;
+			background: none;
 		}
 
 		.documents-table .col-name {

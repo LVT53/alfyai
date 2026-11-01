@@ -375,6 +375,40 @@ describe("DocumentPreviewRenderer", () => {
 		expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-url");
 	});
 
+	it("saves the local download fallback under its type's extension", async () => {
+		const names: string[] = [];
+		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+			this: HTMLAnchorElement,
+		) {
+			names.push(this.download);
+		});
+		mockFetchBlob(new Blob(["content"], { type: "application/zip" }));
+
+		openPreview({ filename: "Q3 bundle v1.2", mimeType: "application/zip" });
+
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /download file/i }),
+		);
+		expect(names).toEqual(["Q3 bundle v1.2.zip"]);
+	});
+
+	it("prefers the specific mimeType over a generic blob type for the download name", async () => {
+		const names: string[] = [];
+		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+			this: HTMLAnchorElement,
+		) {
+			names.push(this.download);
+		});
+		mockFetchBlob(new Blob(["content"], { type: "application/octet-stream" }));
+
+		openPreview({ filename: "Q3 bundle v1.2", mimeType: "application/zip" });
+
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /download file/i }),
+		);
+		expect(names).toEqual(["Q3 bundle v1.2.zip"]);
+	});
+
 	it("leaves supported-file downloads to the workspace shell", async () => {
 		mockFetchBlob(new Blob(["PDF content"], { type: "application/pdf" }));
 

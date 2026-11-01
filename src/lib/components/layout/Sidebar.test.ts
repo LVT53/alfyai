@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { readable } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	conversations,
+	markConversationAtlasBadgeSeen,
+} from "$lib/stores/conversations";
 import { currentConversationId, sidebarCollapsed } from "$lib/stores/ui";
 import Sidebar from "./Sidebar.svelte";
 
@@ -32,6 +37,17 @@ vi.mock("$lib/client/api/workspace-search", () => ({
 		documents: [],
 	}),
 }));
+
+function conv(id: string, unseen = false) {
+	return {
+		id,
+		title: id,
+		updatedAt: 1,
+		atlasBadge: unseen
+			? { jobId: `job-${id}`, status: "succeeded", completedAt: 5 }
+			: undefined,
+	} as never;
+}
 
 describe("Sidebar — Cmd/Ctrl+K Workspace Search shortcut (Task 6 / A3)", () => {
 	beforeEach(() => {
@@ -157,52 +173,66 @@ describe("Sidebar — collapsed-rail active-conversation indicator (Task 11 / A4
 		currentConversationId.set(null);
 	});
 
-	it("shows a decorative corner dot on the LogoMark/expand-toggle when collapsed with an active conversation", () => {
+	it("shows no dot when collapsed with a chat open but nothing unseen", () => {
 		sidebarCollapsed.set(true);
 		currentConversationId.set("conversation-123");
-
-		render(Sidebar, { open: true });
-
-		const indicator = screen.getByTestId("active-conversation-indicator");
-		expect(indicator).toBeInTheDocument();
-		// The dot is decorative: no live region, no separate label. It gets
-		// re-mounted on every hasActiveConversation toggle, so a role="status"
-		// here would fire spurious announcements on ordinary navigation.
-		expect(indicator).toHaveAttribute("aria-hidden", "true");
-		expect(indicator).not.toHaveAttribute("role");
-		expect(indicator).not.toHaveAttribute("aria-label");
-
-		// Anchored on the logo/expand-toggle button — the sidebar-identity
-		// element — not on New Chat. The button itself (a stable node, not
-		// remounted on toggle) conveys the active-conversation state via its
-		// label instead.
-		const logoButton = screen.getByTestId("sidebar-logo");
-		expect(logoButton.tagName).toBe("BUTTON");
-		expect(logoButton).toContainElement(indicator);
-		expect(logoButton).toHaveAttribute(
-			"aria-label",
-			"Expand sidebar — Active conversation open",
-		);
-		expect(logoButton).toHaveAttribute(
-			"title",
-			"Expand sidebar — Active conversation open",
-		);
-	});
-
-	it("does not show the indicator when collapsed with no active conversation", () => {
-		sidebarCollapsed.set(true);
-		currentConversationId.set(null);
+		conversations.set([conv("conversation-123")]);
 
 		render(Sidebar, { open: true });
 
 		expect(
-			screen.queryByTestId("active-conversation-indicator"),
+			screen.queryByTestId("unseen-activity-indicator"),
 		).not.toBeInTheDocument();
-		// No active conversation: the logo/expand-toggle button keeps its
-		// plain expand-sidebar label.
 		const logoButton = screen.getByTestId("sidebar-logo");
 		expect(logoButton).toHaveAttribute("aria-label", "Expand sidebar");
 		expect(logoButton).toHaveAttribute("title", "Expand sidebar");
+	});
+
+	it("shows a decorative dot on the logo button when another conversation has an unseen badge", () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set("conversation-123");
+		conversations.set([conv("conversation-123"), conv("other", true)]);
+
+		render(Sidebar, { open: true });
+
+		const indicator = screen.getByTestId("unseen-activity-indicator");
+		expect(indicator).toHaveAttribute("aria-hidden", "true");
+		expect(indicator).not.toHaveAttribute("role");
+		expect(indicator).not.toHaveAttribute("aria-label");
+		const logoButton = screen.getByTestId("sidebar-logo");
+		expect(logoButton).toContainElement(indicator);
+		expect(logoButton).toHaveAttribute(
+			"aria-label",
+			"Expand sidebar — new activity",
+		);
+	});
+
+	it("drops the dot once the badge is seen", async () => {
+		sidebarCollapsed.set(true);
+		conversations.set([conv("other", true)]);
+
+		render(Sidebar, { open: true });
+		expect(screen.getByTestId("unseen-activity-indicator")).toBeInTheDocument();
+
+		markConversationAtlasBadgeSeen("other");
+		await tick();
+
+		expect(
+			screen.queryByTestId("unseen-activity-indicator"),
+		).not.toBeInTheDocument();
+	});
+
+	it("does not count a badge on the conversation being viewed", async () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set("other");
+		conversations.set([conv("other", true)]);
+
+		render(Sidebar, { open: true });
+		await tick();
+
+		expect(
+			screen.queryByTestId("unseen-activity-indicator"),
+		).not.toBeInTheDocument();
 	});
 
 	it("does not show the indicator (or reintroduce it as a border) on the New Chat button", () => {
@@ -213,7 +243,7 @@ describe("Sidebar — collapsed-rail active-conversation indicator (Task 11 / A4
 
 		const newChatButton = screen.getByTestId("new-conversation");
 		expect(
-			within(newChatButton).queryByTestId("active-conversation-indicator"),
+			within(newChatButton).queryByTestId("unseen-activity-indicator"),
 		).not.toBeInTheDocument();
 		expect(newChatButton).not.toHaveClass("active-conversation-dot");
 	});
@@ -230,14 +260,15 @@ describe("Sidebar — collapsed-rail active-conversation indicator (Task 11 / A4
 		expect(screen.queryByText("Chats")).not.toBeInTheDocument();
 	});
 
-	it("does not show the corner dot when expanded, even with an active conversation", () => {
+	it("does not show the corner dot when expanded, even with an unseen badge", () => {
 		sidebarCollapsed.set(false);
 		currentConversationId.set("conversation-123");
+		conversations.set([conv("other", true)]);
 
 		render(Sidebar, { open: true });
 
 		expect(
-			screen.queryByTestId("active-conversation-indicator"),
+			screen.queryByTestId("unseen-activity-indicator"),
 		).not.toBeInTheDocument();
 	});
 });

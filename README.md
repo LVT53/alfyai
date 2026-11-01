@@ -33,6 +33,25 @@ SQLite persistence — all in a single Node deployment.
   and expose their data to chat tools. See [docs/architecture.md](docs/architecture.md#connections).
 - **Knowledge base and working documents** — file-backed uploads, a shared rich previewer, and
   version history. Uploads are extracted through MinerU; see [docs/uploads.md](docs/uploads.md).
+- **Picture server** — `COMFYUI_URL` points Alfy at a ComfyUI server that makes and changes
+  pictures. Leave it empty and picture making is off; Tool Health reports it as unconfigured when
+  empty and degraded when the server stops answering `/system_stats`. `IMAGE_REFERENCE_CAP`
+  (default 4, 1 to 10) is how many source pictures Alfy may hand the server for one image; each
+  extra one costs the server about 2 GiB. Both are live settings on the admin System page. A
+  picture's wait inside a chat turn is up to 100 s, and the turn's stream-wide cap is
+  `max(60 s, REQUEST_TIMEOUT_MS)` (default 300 s), so an admin `REQUEST_TIMEOUT_MS` under about
+  130 s can end a picture's wait early.
+- **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
+  setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
+  Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks
+  for one, and every finished picture (generate, edit, Another, retries) is checked on this server
+  by a local classifier before it is stored: a picture that looks explicit is never shown or kept.
+  The classifier is Falconsai/nsfw_image_detection (fp32 ONNX, 343 MB, run in-process on the CPU
+  through onnxruntime-node, about 150 ms a picture; loaded on the first check and released after
+  15 minutes without one). Its model file is pinned by SHA-256 and fetched into
+  `data/models/picture-check/` by `npm run models:fetch` (the deploy scripts run it). Without the
+  file the filter fails closed: pictures are held back as "could not be checked", and Tool Health
+  reports `make_image:picture_check` as degraded.
 - **Maps and routing** — inline map cards and self-hosted OpenRouteService routing with optional
   on-demand regions and GTFS transit. See [docs/routing.md](docs/routing.md).
 
@@ -41,9 +60,13 @@ SQLite persistence — all in a single Node deployment.
 Requires **Node.js 22.x** (see `.nvmrc`).
 
 ```bash
+# onnxruntime-node's install script would otherwise download 272 MB of CUDA
+# libraries on linux-x64; the picture check runs on the CPU, which ships in the package.
+export ONNXRUNTIME_NODE_INSTALL=skip
 npm install
 cp .env.example .env
 # edit .env — at minimum set SESSION_SECRET and your MODEL_1_* endpoint
+npm run models:fetch   # the explicit-picture check's model (343 MB, pinned by SHA-256)
 npm run dev
 ```
 

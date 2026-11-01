@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+	type ImageVersionBody,
+	serializeImageVersionBody,
+} from "$lib/shared/artifacts/image-body";
 import { deriveRowDetail } from "./detail";
 
 const doc = (...blocks: Array<[string, string]>) =>
@@ -286,5 +290,48 @@ describe("deriveRowDetail — other kinds", () => {
 				tabs: NO_TABS,
 			}).detail,
 		).toEqual({ type: "none" });
+	});
+});
+
+describe("deriveRowDetail - an Image", () => {
+	const body = (sources: ImageVersionBody["sources"]) =>
+		serializeImageVersionBody({
+			v: 1,
+			fileId: "file-9",
+			width: 1248,
+			height: 832,
+			hasAlpha: false,
+			baseFileId: null,
+			sources,
+			marks: null,
+			prompt: null,
+			takeId: null,
+			seed: null,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+		});
+
+	it("says which picture the version holds and how many pictures went into it", () => {
+		const sources = [
+			{ fileId: "a", name: "a.png" },
+			{ fileId: "b", name: "b.png" },
+		];
+		const { detail } = deriveRowDetail({
+			kind: "image",
+			before: body([]),
+			after: body(sources),
+			tabs: NO_TABS,
+		});
+		expect(detail).toEqual({ type: "image", fileId: "file-9", sourceCount: 2 });
+	});
+
+	it("says nothing it cannot read from a body that is not an image body", () => {
+		const { detail } = deriveRowDetail({
+			kind: "image",
+			before: null,
+			after: "not json",
+			tabs: NO_TABS,
+		});
+		expect(detail).toEqual({ type: "none" });
 	});
 });

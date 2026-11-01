@@ -218,6 +218,7 @@ task-state.ts (facade — 1,535 lines)
 
 ## Service Ownership
 
+- `src/lib/server/services/images/` — making and changing pictures: the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job.
 - TEI embedder/reranker transport belongs in thin server services. Do not bury retrieval authority or semantic tie-break logic inside the raw TEI clients.
 - TEI embedding persistence belongs in the shared `semantic_embeddings` store, not in per-feature side tables. Keep artifact and task semantic storage on the same substrate; legacy `persona_cluster` embedding rows may exist, but do not revive a local persona-cluster pipeline around them.
 - `src/lib/server/services/semantic-embedding-refresh.ts` owns async embedding refresh/backfill orchestration. Mutation boundaries may queue refresh work there, and maintenance may run the slower backfill sweep there, but routes should not open-code subject hashing, TEI embedding calls, or per-domain refresh loops.
@@ -287,6 +288,7 @@ Other services in active use:
 - Prompt text, the reply language and any new model call: `chat-turn/AGENTS.md` (ruling 79), which also governs `normal-chat-context.ts`, `language.ts` and `title-generator.ts`.
 - Memory, in every `memory-*/` folder and in `memory.ts`, `memory-maintenance.ts`, `memory-behavior-log.ts` and `memory-recuration.ts`: `memory-profile/AGENTS.md`.
 - `chat-files.ts` and produced files: `file-production/AGENTS.md`.
+- `images/` (the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job): `images/AGENTS.md`.
 - Background jobs (the lifecycle of Atlas, extraction and file-production jobs: claim, lease, retry, cancel, recovery, scheduling, waiting for a verdict): `jobs/AGENTS.md` (ADR-0069). Nothing outside `jobs/` changes a job's lifecycle columns.
 - `normal-chat-tools/artifact-tools/` and anything else that writes an artifact: `artifacts/AGENTS.md`; a board's ops, placement and stale-read rules: `src/lib/components/artifacts/canvas/AGENTS.md`.
 - An address fetched or embedded without a click (tools, `web-grounding.ts`, favicons, thumbnails): `url-provenance/AGENTS.md` (ADR-0068).

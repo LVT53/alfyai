@@ -421,6 +421,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		generatedFiles: [],
 		fileProductionJobs: [],
 		artifacts: [],
+		imageCards: [],
 		deletedArtifactIds: [] as string[],
 		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],
@@ -1407,7 +1408,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("Written by Alfy · 10 min ago");
+				).toHaveTextContent("10 min ago");
 			});
 
 			// A save, somewhere in the panel, is answered with version 4.
@@ -1427,7 +1428,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("Edited by you · just now");
+				).toHaveTextContent("just now");
 			});
 			// A late, older answer never pulls it back.
 			await saveArtifactBody(
@@ -1444,7 +1445,7 @@ describe("chat page runtime integration", () => {
 			);
 			expect(
 				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("Edited by you · just now");
+			).toHaveTextContent("just now");
 
 			// Back to the list: its row says the same time, and never a number.
 			await fireEvent.click(
@@ -1651,10 +1652,9 @@ describe("chat page runtime integration", () => {
 			const shell = await screen.findByRole("complementary", {
 				name: WORKSPACE_LANDMARK,
 			});
-			// An older server says nothing of who: the header says only that it
-			// was edited, and when.
+			// An older server says nothing of who: the header says when.
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("Edited · 3 h ago");
+				expect(shell).toHaveTextContent("3 h ago");
 			});
 
 			// A save, somewhere in the panel, is acknowledged.
@@ -1671,7 +1671,7 @@ describe("chat page runtime integration", () => {
 				),
 			);
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("Edited by you · just now");
+				expect(shell).toHaveTextContent("just now");
 			});
 
 			await fireEvent.click(
@@ -3033,6 +3033,63 @@ describe("chat page runtime integration", () => {
 
 		expect(
 			screen.queryByText("Wrong conversation sidecar"),
+		).not.toBeInTheDocument();
+	});
+
+	it("drops a files read-back for the chat the person left: the chat now shown keeps its own state", async () => {
+		// A picture card's Another / Use this / Stop / Retry (and a board's
+		// kept picture) read the chat's detail back through one function; its
+		// answer for chat A must not land in chat B, opened meanwhile.
+		const { announceChatFilesChanged } = await import(
+			"$lib/client/api/artifacts"
+		);
+		const view = renderPage(pageData());
+		let resolveDetail: (
+			value: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveDetail = resolve;
+			}),
+		);
+		announceChatFilesChanged("conv-1");
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		});
+
+		await view.rerender({
+			data: pageData({
+				conversation: conversationFixture("conv-2", {
+					title: "Second chat",
+					createdAt: 2,
+					updatedAt: 2,
+				}),
+			}),
+			params: { conversationId: "conv-2" },
+		});
+		resolveDetail({
+			...conversationDetailFixture(),
+			conversation: conversationFixture("conv-1"),
+			artifacts: [
+				{
+					id: "artifact-a",
+					kind: "image",
+					title: "Chat A's picture",
+					conversationId: "conv-1",
+					versionNumber: 1,
+					commentCount: 0,
+					updatedAt: Date.now(),
+				},
+			],
+			totalCostUsdMicros: 990_000,
+			totalTokens: 99,
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(
+			screen.queryByTestId("artifact-count-button"),
 		).not.toBeInTheDocument();
 	});
 

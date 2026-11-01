@@ -8,6 +8,7 @@ function makeDocument(
 ): KnowledgeDocumentItem {
 	return {
 		id: overrides.id ?? "display-1",
+		type: overrides.type,
 		displayArtifactId: overrides.displayArtifactId ?? "display-1",
 		promptArtifactId: overrides.promptArtifactId ?? "prompt-1",
 		familyArtifactIds: overrides.familyArtifactIds ?? ["display-1", "prompt-1"],
@@ -18,6 +19,7 @@ function makeDocument(
 		summary: overrides.summary ?? null,
 		normalizedAvailable: overrides.normalizedAvailable ?? true,
 		documentOrigin: overrides.documentOrigin ?? "uploaded",
+		generatedFileMimeType: overrides.generatedFileMimeType,
 		createdAt: overrides.createdAt ?? 1,
 		updatedAt: overrides.updatedAt ?? 2,
 	};
@@ -48,9 +50,7 @@ describe("LinkedDocumentPicker", () => {
 		const option = screen.getByRole("checkbox", { name: /Budget notes.md/i });
 		await fireEvent.click(option);
 		expect(option.closest("label")).toHaveClass("selected");
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Link selected documents" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
 
 		expect(apply).toHaveBeenCalledWith([
 			expect.objectContaining({
@@ -127,9 +127,7 @@ describe("LinkedDocumentPicker", () => {
 		});
 		expect(option).toBeChecked();
 
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Link selected documents" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
 
 		expect(apply).toHaveBeenCalledWith([
 			expect.objectContaining({
@@ -169,9 +167,7 @@ describe("LinkedDocumentPicker", () => {
 				name: "Remove Annual report.pdf",
 			}),
 		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Link selected documents" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
 
 		expect(apply).toHaveBeenCalledWith([]);
 	});
@@ -211,10 +207,10 @@ describe("LinkedDocumentPicker", () => {
 		});
 
 		const closeButton = screen.getByRole("button", {
-			name: "Close document picker",
+			name: "Close Library",
 		});
 		const applyButton = screen.getByRole("button", {
-			name: "Link selected documents",
+			name: "Add selected",
 		});
 
 		applyButton.focus();
@@ -251,5 +247,166 @@ describe("LinkedDocumentPicker", () => {
 		});
 
 		expect(screen.queryByText("Uploaded file.md")).toBeNull();
+	});
+
+	describe("photos", () => {
+		const photo = makeDocument({
+			id: "photo-1",
+			displayArtifactId: "photo-1",
+			promptArtifactId: null,
+			familyArtifactIds: ["photo-1"],
+			name: "room.jpg",
+			mimeType: "image/jpeg",
+			normalizedAvailable: false,
+		});
+
+		it("lists a photo with no text under its thumbnail and a document under its icon", () => {
+			render(LinkedDocumentPicker, {
+				documents: [photo, makeDocument()],
+				selectedSources: [],
+				onApply: vi.fn(),
+				onAddPictures: vi.fn(),
+				onCancel: vi.fn(),
+			});
+
+			expect(screen.getByRole("checkbox", { name: "room.jpg" })).toBeTruthy();
+			const thumbnails = screen.getAllByTestId("library-row-thumbnail");
+			expect(thumbnails).toHaveLength(1);
+			expect(thumbnails[0]).toHaveAttribute(
+				"src",
+				expect.stringContaining("/api/knowledge/photo-1/preview"),
+			);
+			expect(
+				// The dialog is portalled to <body>.
+				document.querySelectorAll(".linked-document-picker__row-mark svg"),
+			).toHaveLength(1);
+		});
+
+		it("hands a picked photo over as a picture and links only the documents", async () => {
+			const apply = vi.fn();
+			const addPictures = vi.fn();
+			render(LinkedDocumentPicker, {
+				documents: [photo, makeDocument()],
+				selectedSources: [],
+				onApply: apply,
+				onAddPictures: addPictures,
+				onCancel: vi.fn(),
+			});
+
+			await fireEvent.click(screen.getByRole("checkbox", { name: "room.jpg" }));
+			await fireEvent.click(
+				screen.getByRole("checkbox", { name: "Annual report.pdf" }),
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Add selected" }),
+			);
+
+			expect(addPictures).toHaveBeenCalledWith([photo]);
+			expect(apply.mock.calls[0]?.[0]).toEqual([
+				expect.objectContaining({ displayArtifactId: "display-1" }),
+			]);
+		});
+
+		it("keeps a text-free photo out where pictures cannot be added", () => {
+			render(LinkedDocumentPicker, {
+				documents: [photo],
+				selectedSources: [],
+				onApply: vi.fn(),
+				onCancel: vi.fn(),
+			});
+			expect(screen.queryByRole("checkbox", { name: "room.jpg" })).toBeNull();
+		});
+	});
+
+	describe("a picture a file produced in chat", () => {
+		function generatedPicture() {
+			return makeDocument({
+				id: "chart",
+				type: "generated_output",
+				displayArtifactId: "chart",
+				promptArtifactId: "chart",
+				familyArtifactIds: ["chart"],
+				name: "chart.png",
+				mimeType: "text/markdown",
+				generatedFileMimeType: "image/png",
+				documentOrigin: "generated",
+			});
+		}
+
+		it("stays a link: it has no stored upload a model could be shown", async () => {
+			const onApply = vi.fn();
+			const onAddPictures = vi.fn();
+			render(LinkedDocumentPicker, {
+				documents: [generatedPicture()],
+				selectedSources: [],
+				onApply,
+				onAddPictures,
+				onCancel: vi.fn(),
+			});
+
+			await fireEvent.click(
+				screen.getByRole("checkbox", { name: "chart.png" }),
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Add selected" }),
+			);
+
+			expect(onAddPictures).toHaveBeenCalledWith([]);
+			expect(onApply).toHaveBeenCalledWith([
+				expect.objectContaining({ displayArtifactId: "chart" }),
+			]);
+		});
+
+		it("still shows its thumbnail", () => {
+			render(LinkedDocumentPicker, {
+				documents: [generatedPicture()],
+				selectedSources: [],
+				onApply: vi.fn(),
+				onAddPictures: vi.fn(),
+				onCancel: vi.fn(),
+			});
+
+			expect(screen.getByTestId("library-row-thumbnail")).toHaveAttribute(
+				"src",
+				"/api/knowledge/chart/preview",
+			);
+		});
+	});
+
+	it("turns a photo already linked into a picture without listing it twice", async () => {
+		const onApply = vi.fn();
+		const onAddPictures = vi.fn();
+		const photo = makeDocument({
+			id: "photo",
+			type: "source_document",
+			displayArtifactId: "photo",
+			promptArtifactId: "photo-text",
+			familyArtifactIds: ["photo", "photo-text"],
+			name: "receipt.jpg",
+			mimeType: "image/jpeg",
+		});
+		render(LinkedDocumentPicker, {
+			documents: [photo],
+			selectedSources: [
+				{
+					displayArtifactId: "photo",
+					promptArtifactId: "photo-text",
+					familyArtifactIds: ["photo", "photo-text"],
+					name: "receipt.jpg",
+					type: "document",
+				},
+			],
+			onApply,
+			onAddPictures,
+			onCancel: vi.fn(),
+		});
+
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: "receipt.jpg" }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add selected" }));
+
+		expect(onAddPictures).toHaveBeenCalledWith([photo]);
+		expect(onApply).toHaveBeenCalledWith([]);
 	});
 });

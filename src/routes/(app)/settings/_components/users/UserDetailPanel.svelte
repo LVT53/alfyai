@@ -34,6 +34,7 @@ let {
 	onDemote,
 	onRevokeSessions,
 	onResetTwoStep,
+	onSetExplicitPictureFilterExempt,
 	onDelete,
 }: {
 	user: AdminManagedUserSummary | null;
@@ -48,6 +49,8 @@ let {
 	onRevokeSessions: (userId: string) => void;
 	/** Opens the reset dialog; never offered on the admin's own account. */
 	onResetTwoStep: (userId: string) => void;
+	/** Exempts the person from the explicit-picture filter (true) or filters them again (false); offered on the admin's own account too. */
+	onSetExplicitPictureFilterExempt: (userId: string, exempt: boolean) => void;
 	onDelete: (userId: string) => void;
 } = $props();
 
@@ -194,6 +197,29 @@ function formatDateTime(timestamp: number | null | undefined): string {
 					{:else}
 						{$t('admin.users.twoStepOffDetail')}
 					{/if}
+				</dd>
+			</div>
+			<div class="meta-row">
+				<dt>{$t('admin.users.pictureFilter')}</dt>
+				<dd class="sessions-cell" data-testid="admin-user-picture-filter">
+					<span>
+						{user.explicitPictureFilterExempt
+							? $t('admin.users.pictureFilterExempt')
+							: $t('admin.users.pictureFilterOn')}
+					</span>
+					<button
+						type="button"
+						class="mini-btn"
+						disabled={busy}
+						onclick={() =>
+							onSetExplicitPictureFilterExempt(user.id, !user.explicitPictureFilterExempt)}
+					>
+						{busy
+							? $t('admin.working')
+							: user.explicitPictureFilterExempt
+								? $t('admin.users.pictureFilterRestoreAction')
+								: $t('admin.users.pictureFilterExemptAction')}
+					</button>
 				</dd>
 			</div>
 			<div class="meta-row">

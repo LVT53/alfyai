@@ -9,6 +9,7 @@
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { canvasSerializer } from "./canvas";
 import { documentSerializer } from "./document";
+import { imageSerializer } from "./image";
 
 export interface ArtifactSerializer<TBody> {
 	readonly kind: ArtifactKind;
@@ -86,6 +87,7 @@ const SERIALIZERS: Partial<Record<ArtifactKind, ArtifactSerializer<unknown>>> =
 		file: fileArtifactSerializer as ArtifactSerializer<unknown>,
 		document: documentSerializer as ArtifactSerializer<unknown>,
 		canvas: canvasSerializer as ArtifactSerializer<unknown>,
+		image: imageSerializer as ArtifactSerializer<unknown>,
 	};
 
 export function getArtifactSerializer(

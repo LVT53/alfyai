@@ -163,16 +163,18 @@ export function createdArtifactOf(
  * the very array it was given when nothing changes, so a caller re-deriving it
  * hands its own dependents no new references.
  */
-export function markRegenerable<T extends { id: string; regenerable?: true }>(
-	rows: T[],
-	ids: ReadonlySet<string>,
-): T[] {
-	if (!rows.some((row) => ids.has(row.id) && row.regenerable !== true)) {
+export function markRegenerable<
+	T extends { id: string; kind?: string; regenerable?: true },
+>(rows: T[], ids: ReadonlySet<string>): T[] {
+	// A picture is never regenerable: Regenerate remakes an item from the model's
+	// own arguments, and a picture's take cannot be reproduced (the seed is fresh
+	// each time), so the delete confirm keeps "can't be undone" for it.
+	const canMark = (row: T) =>
+		ids.has(row.id) && row.regenerable !== true && row.kind !== "image";
+	if (!rows.some(canMark)) {
 		return rows;
 	}
 	return rows.map((row) =>
-		ids.has(row.id) && row.regenerable !== true
-			? { ...row, regenerable: true as const }
-			: row,
+		canMark(row) ? { ...row, regenerable: true as const } : row,
 	);
 }

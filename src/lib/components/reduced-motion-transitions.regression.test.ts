@@ -72,8 +72,14 @@ const CASES: Case[] = [
 	},
 	{
 		file: "src/lib/components/sidebar/ConversationList.svelte",
-		wrappedNames: ["sectionSlide", "rowFade"],
-		bannedDirectives: [/transition:slide=/, /in:fade=/, /out:fade=/],
+		wrappedNames: ["sectionSlide", "rowFade", "binFly"],
+		bannedDirectives: [
+			/transition:slide=/,
+			/in:fade=/,
+			/out:fade=/,
+			/in:fly=/,
+			/out:fly=/,
+		],
 	},
 	{
 		file: "src/lib/components/chat/CodeBlock.svelte",
@@ -198,9 +204,9 @@ describe("Svelte transition directives are routed through reducedMotionAware", (
 		// At least one directive actually references each wrapped name —
 		// guards against an unused wrapper that never made it into markup.
 		for (const name of wrappedNames) {
-			const usedAsDirective = new RegExp(`(transition|in|out):${name}=`).test(
-				source,
-			);
+			const usedAsDirective = new RegExp(
+				`(transition|in|out):${name}(\\|(global|local))?=`,
+			).test(source);
 			expect(usedAsDirective).toBe(true);
 		}
 	});

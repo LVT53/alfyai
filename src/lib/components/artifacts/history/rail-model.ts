@@ -299,3 +299,26 @@ export function mergeFirstPage(
 	const kept = loaded.filter((moment) => newestRow(moment) < floor);
 	return [...fresh, ...kept];
 }
+
+/**
+ * The key of the entry History opens on when it is asked for one version (a
+ * picture strip's frame, plan 2b T3, F11): the entry that shows that version, a
+ * moment or a step folded under one; else, where the step is not drawn (the
+ * Named filter), the entry of the moment whose steps hold it. `null` when the
+ * rail holds no such version: the caller keeps its own selection.
+ */
+export function entryKeyForVersion(
+	groups: readonly RailGroup[],
+	versionId: string | null | undefined,
+): string | null {
+	if (!versionId) return null;
+	const entries = flattenRailGroups(groups);
+	const shown = entries.find((entry) => entry.versionId === versionId);
+	if (shown) return shown.key;
+	const holder = entries.find(
+		(entry) =>
+			entry.type === "moment" &&
+			entry.moment.steps.some((step) => step.versionId === versionId),
+	);
+	return holder?.key ?? null;
+}

@@ -34,7 +34,11 @@ vi.mock("$lib/server/config-store", async (importOriginal) => {
 
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
 import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
-import { modelIdCanSeeImages, providerCanSeeImages } from "./model-vision";
+import {
+	legacyModelIdAliases,
+	modelIdCanSeeImages,
+	providerCanSeeImages,
+} from "./model-vision";
 
 const PROVIDER_MODEL_ID = "provider:provider-1:model-1" as ModelId;
 
@@ -324,5 +328,31 @@ describe("modelIdCanSeeImages", () => {
 		});
 
 		await expect(modelIdCanSeeImages(undefined)).resolves.toBe(false);
+	});
+});
+
+// Task 20, live on ai.dev: the default model id is the legacy "model1", which
+// the run resolves to the provider row named "model1". The model list names
+// that row "provider:<id>:<model>", so the composer could not find "model1"
+// in it and held Send on a photo the server would have let through.
+describe("legacyModelIdAliases", () => {
+	it("maps a legacy id to the provider model the run resolves it to", async () => {
+		mocks.getProviderByName.mockImplementation(async (name: string) =>
+			name === "model1" ? { ...providerWithSecrets, name: "model1" } : null,
+		);
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			modelRow(setModelImageInput("{}", true)),
+		]);
+
+		const aliases = await legacyModelIdAliases();
+
+		expect(aliases).toEqual({ model1: PROVIDER_MODEL_ID });
+		// The alias names the row whose answer the send gate gives for "model1".
+		await expect(modelIdCanSeeImages("model1")).resolves.toBe(true);
+		await expect(modelIdCanSeeImages(aliases.model1)).resolves.toBe(true);
+	});
+
+	it("has no alias for a built-in model with no provider row: the list names it itself", async () => {
+		await expect(legacyModelIdAliases()).resolves.toEqual({});
 	});
 });

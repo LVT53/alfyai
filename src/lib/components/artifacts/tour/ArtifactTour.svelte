@@ -53,6 +53,7 @@ import {
 import TourArtApp from "./illustrations/TourArtApp.svelte";
 import TourArtCanvas from "./illustrations/TourArtCanvas.svelte";
 import TourArtDocument from "./illustrations/TourArtDocument.svelte";
+import TourArtImage from "./illustrations/TourArtImage.svelte";
 
 let {
 	tour,
@@ -88,6 +89,7 @@ const ILLUSTRATIONS: Record<
 	document: TourArtDocument,
 	app: TourArtApp,
 	canvas: TourArtCanvas,
+	image: TourArtImage,
 };
 
 let slides = $derived(tour.slides);

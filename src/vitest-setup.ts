@@ -4,6 +4,11 @@ import { afterEach, inject, vi } from "vitest";
 import "@testing-library/jest-dom";
 
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-secret";
+// The explicit-picture filter's classifier is a stub in tests: it flags one
+// marker colour and cannot check another (images/picture-check/classifier.ts),
+// so no test needs the real model file or an explicit picture.
+process.env.IMAGE_CHECK_CLASSIFIER =
+	process.env.IMAGE_CHECK_CLASSIFIER || "stub";
 
 // Some components kick off a dynamic import() from inside an effect (e.g.
 // ArtifactCard's lazy FileProductionCard body). Testing Library's own
@@ -47,7 +52,7 @@ if (!existsSync(workerDatabasePath)) {
 }
 process.env.DATABASE_PATH = workerDatabasePath;
 
-if (!Element.prototype.animate) {
+if (typeof Element !== "undefined" && !Element.prototype.animate) {
 	Object.defineProperty(Element.prototype, "animate", {
 		writable: true,
 		value: vi.fn(() => ({
@@ -64,24 +69,26 @@ if (!Element.prototype.animate) {
 	});
 }
 
-Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
-	writable: true,
-	value: vi.fn(() => ({
-		clearRect: vi.fn(),
-		drawImage: vi.fn(),
-		fillRect: vi.fn(),
-		fillText: vi.fn(),
-		getImageData: vi.fn(),
-		putImageData: vi.fn(),
-		measureText: vi.fn(() => ({ width: 0 })),
-		restore: vi.fn(),
-		save: vi.fn(),
-		scale: vi.fn(),
-		setTransform: vi.fn(),
-		stroke: vi.fn(),
-		translate: vi.fn(),
-	})),
-});
+if (typeof HTMLCanvasElement !== "undefined") {
+	Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+		writable: true,
+		value: vi.fn(() => ({
+			clearRect: vi.fn(),
+			drawImage: vi.fn(),
+			fillRect: vi.fn(),
+			fillText: vi.fn(),
+			getImageData: vi.fn(),
+			putImageData: vi.fn(),
+			measureText: vi.fn(() => ({ width: 0 })),
+			restore: vi.fn(),
+			save: vi.fn(),
+			scale: vi.fn(),
+			setTransform: vi.fn(),
+			stroke: vi.fn(),
+			translate: vi.fn(),
+		})),
+	});
+}
 
 if (!URL.createObjectURL) {
 	Object.defineProperty(URL, "createObjectURL", {

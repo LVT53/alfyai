@@ -5,7 +5,16 @@ import {
 	buildDocumentReadActivity,
 	type DocumentAlfyActivity,
 } from "$lib/components/artifacts/document/alfy-activity";
+import {
+	hasActiveImageTakes,
+	hasHeldImageTakes,
+} from "$lib/components/artifacts/image/image-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
+import {
+	type ComposerMarks,
+	type ComposerPictureRef,
+	pictureKey,
+} from "$lib/components/chat/composer-pictures";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
@@ -18,6 +27,7 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type {
 	ArtifactSummary,
 	PendingAttachment,
@@ -37,6 +47,11 @@ import type {
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import {
 	attachmentReadinessReasonKey,
 	isAttachmentReadinessReason,
@@ -57,6 +72,19 @@ export type SendPayload = {
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
 	linkedSources?: LinkedContextSource[];
+	// Card pictures attached under their numbers, and the same with their names
+	// (plan 2b T5). See normal-chat-client-turn-runtime.ts's NormalChatSendPayload.
+	pictureRefs?: PictureRef[];
+	pictures?: UserPicturesMetadata;
+	// The marks drawn on one picture, and (client-only) the item they were drawn
+	// on (plan 2b T6). See NormalChatSendPayload.
+	imageMarks?: ImageMarksRequest | null;
+	markedPicture?: {
+		artifactId: string;
+		name: string;
+		addedRef: boolean;
+		version: number | null;
+	};
 	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
@@ -391,6 +419,25 @@ export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	);
 }
 
+/**
+ * Whether the chat page reads its detail again on its 2.5 s poll for the
+ * picture cards (plan 2b T2, F4): a take is still being made, or a make_image
+ * call of the reply being streamed runs before its card exists (the stream
+ * carries no card; only the detail does).
+ */
+export function shouldPollImageCards(
+	cards: readonly ImageCardView[],
+	streamingToolCalls: readonly { name: string; status: string }[],
+): boolean {
+	return (
+		hasActiveImageTakes(cards) ||
+		hasHeldImageTakes(cards) ||
+		streamingToolCalls.some(
+			(call) => call.name === "make_image" && call.status === "running",
+		)
+	);
+}
+
 export function isConversationReadOnly(conversation: {
 	status?: "open" | "sealed" | null;
 }): boolean {
@@ -436,9 +483,14 @@ export function shouldHydrateArtifactsOnToolCall(
 	name: string,
 	status: "running" | "done" | "failed",
 ): boolean {
+	// make_image (plan 2b T2): the picture's card would otherwise wait for the
+	// next 2.5 s poll and still say "Making the picture…" under a reply that
+	// already says it is made.
 	return (
 		status !== "running" &&
-		(name === "create_artifact" || name === "edit_artifact")
+		(name === "create_artifact" ||
+			name === "edit_artifact" ||
+			name === "make_image")
 	);
 }
 
@@ -1077,6 +1129,96 @@ export function removeMessageById(
 	return list.filter((message) => message.id !== messageId);
 }
 
+/** A card, strip or History picture put in the composer: each file once, in the order added. */
+export function addComposerPicture(
+	list: readonly ComposerPictureRef[],
+	picture: ComposerPictureRef,
+): readonly ComposerPictureRef[] {
+	if (list.some((entry) => entry.imageFileId === picture.imageFileId)) {
+		return list;
+	}
+	return [
+		...list,
+		{
+			imageFileId: picture.imageFileId,
+			name: picture.name,
+			...(picture.at === undefined ? {} : { at: picture.at }),
+		},
+	];
+}
+
+/** The chips of a queued turn put back in the composer (in their number order). */
+export function composerPicturesFromSend(
+	pictures: UserPicturesMetadata | undefined,
+	/** The marked picture the send added as a ref itself (T6): it comes back as the marks chip, not as a picture chip. */
+	exceptFileId: string | null = null,
+): ComposerPictureRef[] {
+	return [...(pictures?.refs ?? [])]
+		.filter((ref) => ref.imageFileId !== exceptFileId)
+		.sort((a, b) => a.number - b.number)
+		.map((ref) => ({ imageFileId: ref.imageFileId, name: ref.name }));
+}
+
+/**
+ * The marks chip a queued or failed turn had (plan 2b T6), or `null`: its
+ * request, the item and the item's version it was drawn on.
+ */
+export function composerMarksFromSend(
+	payload: Pick<SendPayload, "imageMarks" | "markedPicture">,
+): ComposerMarks | null {
+	const { imageMarks, markedPicture } = payload;
+	if (!imageMarks || !markedPicture || imageMarks.marks.length === 0) {
+		return null;
+	}
+	return {
+		...imageMarks,
+		marks: imageMarks.marks.map((mark) => ({ ...mark })),
+		artifactId: markedPicture.artifactId,
+		name: markedPicture.name,
+		// The version they were drawn on, never today's: a newer one drops them.
+		version: markedPicture.version ?? null,
+	};
+}
+
+/**
+ * Whether the marks the page holds were left by an older picture (Review Focus
+ * 4): their item has a newer version than the one they were drawn on. A version
+ * either side does not know never drops them. Looking at another item keeps
+ * them, as the send adds their picture (F14); drawing there moves them, and says
+ * so. Silently losing boxes was the worse surprise.
+ */
+export function marksOutdated(
+	held: ComposerMarks,
+	now: { version: number | null },
+): boolean {
+	return (
+		held.version !== null && now.version !== null && now.version > held.version
+	);
+}
+
+/**
+ * The key order of a queued or failed turn's pictures, from the numbers it was
+ * sent under (refs as `ref:<id>`, uploads as `upload:<artifactId>`), so a turn put
+ * back in the composer keeps the numbers the person's own text names.
+ */
+export function pictureOrderFromSend(
+	pictures: UserPicturesMetadata | undefined,
+): string[] {
+	if (!pictures) return [];
+	return [
+		...pictures.refs.map((ref) => ({
+			key: pictureKey({ kind: "ref", imageFileId: ref.imageFileId }),
+			number: ref.number,
+		})),
+		...(pictures.uploads ?? []).map((upload) => ({
+			key: pictureKey({ kind: "upload", artifactId: upload.artifactId }),
+			number: upload.number,
+		})),
+	]
+		.sort((a, b) => a.number - b.number)
+		.map((entry) => entry.key);
+}
+
 export function cloneSendPayload(payload: SendPayload): SendPayload {
 	return {
 		message: payload.message,
@@ -1103,6 +1245,29 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 					unavailable: payload.pendingSkill.unavailable === true,
 				}
 			: null,
+		pictureRefs: payload.pictureRefs?.map((ref) => ({ ...ref })),
+		imageMarks: payload.imageMarks
+			? {
+					...payload.imageMarks,
+					marks: payload.imageMarks.marks.map((mark) => ({ ...mark })),
+				}
+			: payload.imageMarks,
+		markedPicture: payload.markedPicture
+			? { ...payload.markedPicture }
+			: undefined,
+		pictures: payload.pictures
+			? {
+					...payload.pictures,
+					refs: payload.pictures.refs.map((ref) => ({ ...ref })),
+					...(payload.pictures.uploads
+						? {
+								uploads: payload.pictures.uploads.map((upload) => ({
+									...upload,
+								})),
+							}
+						: {}),
+				}
+			: undefined,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		reasoningDepth: payload.reasoningDepth,
@@ -1215,4 +1380,17 @@ export function liveDocumentAlfyActivityExcluding(
 		return null;
 	}
 	return activity;
+}
+
+/**
+ * The composer's placeholder while an item is open (redesign §9.2): an App and
+ * an Image are asked to be CHANGED ("Ask Alfy to change {title}…"), every
+ * other kind is asked ABOUT.
+ */
+export function composerPlaceholderKey(
+	kind: string | null | undefined,
+): I18nKey {
+	return kind === "app" || kind === "image"
+		? "artifacts.chat.composerPlaceholderApp"
+		: "artifacts.chat.composerPlaceholder";
 }

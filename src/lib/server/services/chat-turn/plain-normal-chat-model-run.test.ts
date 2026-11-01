@@ -412,7 +412,7 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
-	it("sends the prepared pictures as image parts after the text of the current user message", async () => {
+	it("sends every picture of the message as a labelled image part after the text: an upload, the open picture and the marked copy", async () => {
 		const image = {
 			base64: "QUJD",
 			mediaType: "image/jpeg" as const,
@@ -424,8 +424,16 @@ describe("runPlainNormalChatSendModel", () => {
 			createPlainNormalChatPreparedContext({
 				turnGuidance: "## Turn Guidance\nBe brief.",
 				currentImages: [
-					{ artifactId: "a-1", name: "room.jpg", image },
-					{ artifactId: "a-2", name: "sofa.jpg", image },
+					{ number: 1, artifactId: "a-1", name: "room.jpg", image },
+				],
+				turnPictureImages: [
+					{ number: 1, name: "room.jpg", image },
+					{ number: 2, name: "Cosy living room (open in the panel)", image },
+					{
+						number: 3,
+						name: "Picture 2 with the user's marks: A = red box",
+						image,
+					},
 				],
 			}),
 		);
@@ -442,7 +450,17 @@ describe("runPlainNormalChatSendModel", () => {
 								type: "text",
 								text: "Prepared user prompt\n\n## Turn Guidance\nBe brief.",
 							},
+							{ type: "text", text: "Picture 1: room.jpg" },
 							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{
+								type: "text",
+								text: "Picture 2: Cosy living room (open in the panel)",
+							},
+							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
+							{
+								type: "text",
+								text: "Picture 3: Picture 2 with the user's marks: A = red box",
+							},
 							{ type: "image", image: "QUJD", mediaType: "image/jpeg" },
 						],
 					},
@@ -746,6 +764,7 @@ describe("runPlainNormalChatSendModel", () => {
 			enabledConnectionCapabilities: new Set(),
 			modelId: "model1",
 			// The turn's queue of pictures a tool wants the model to see.
+			turnPictures: expect.objectContaining({ byNumber: expect.any(Function) }),
 			stepImages: expect.objectContaining({
 				push: expect.any(Function),
 				drain: expect.any(Function),

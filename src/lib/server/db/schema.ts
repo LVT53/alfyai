@@ -64,6 +64,14 @@ export const users = sqliteTable("users", {
 	// src/lib/shared/instructions.ts, checked in the dialog and on the server
 	// through the same function.
 	personalInstructions: text("personal_instructions"),
+	// An admin exempted this person from the explicit-picture filter (Users
+	// pane). False for everyone by default: the filter is on unless an admin
+	// turns it off for the install (IMAGE_EXPLICIT_FILTER_ENABLED) or here.
+	explicitPictureFilterExempt: integer("explicit_picture_filter_exempt", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	// When set, the home-screen "memories need review" notice is hidden until a
 	// newer open review item appears (created after this timestamp). Null means
 	// never dismissed. See home-summary.ts.
@@ -571,6 +579,143 @@ export const imageDescriptions = sqliteTable(
 			.default(sql`(unixepoch())`),
 	},
 	(table) => [index("image_descriptions_user_idx").on(table.userId)],
+);
+
+/**
+ * A picture file Alfy keeps for a chat (docs/plans/image-generation, part 2):
+ * the uploaded picture a change started from, a take a render produced, or a
+ * marked copy the person drew on. One PNG per row on disk under
+ * `data/image-files/<conversation_id>/`, with a thumbnail beside it.
+ * `created_at` is unix seconds, like every table. `artifact_id` is the Image
+ * item the file belongs to once a take is kept, and clears (not deletes) when
+ * that item goes; the file then goes with its chat. The rows leave with the
+ * chat and with the person; the files on disk are removed by
+ * `services/images/files.ts`.
+ */
+export const imageFiles = sqliteTable(
+	"image_files",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		artifactId: text("artifact_id").references(() => artifacts.id, {
+			onDelete: "set null",
+		}),
+		role: text("role").notNull(),
+		width: integer("width").notNull(),
+		height: integer("height").notNull(),
+		hasAlpha: integer("has_alpha").notNull().default(0),
+		sizeBytes: integer("size_bytes").notNull(),
+		storagePath: text("storage_path").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("image_files_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+		index("image_files_artifact_idx").on(table.artifactId),
+		index("image_files_user_idx").on(table.userId),
+	],
+);
+
+/**
+ * A card: one ask for pictures in one turn (design 5.1). It groups the takes
+ * that answer it; its timestamps are unix seconds like every table's.
+ * `picked_take_id` has no foreign key (the take points back at the card).
+ */
+export const imageCards = sqliteTable(
+	"image_cards",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		turnId: text("turn_id").notNull(),
+		artifactId: text("artifact_id").references(() => artifacts.id, {
+			onDelete: "set null",
+		}),
+		title: text("title").notNull(),
+		// words | photo | pictures | change
+		madeFrom: text("made_from").notNull(),
+		sourceCount: integer("source_count").notNull().default(0),
+		pickedTakeId: text("picked_take_id"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("image_cards_conversation_created_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * A take: one render of a card, a job of the image kind on the job engine
+ * (services/jobs). The engine's lifecycle columns come from `jobColumns`;
+ * everything below is the image kind's own. `held_until` and `phase_at` are
+ * milliseconds (a take's own clock for display); every `mode: "timestamp"`
+ * column is unix seconds.
+ */
+export const imageJobs = sqliteTable(
+	"image_jobs",
+	{
+		...jobColumns({ userId: () => users.id }),
+		cardId: text("card_id")
+			.notNull()
+			.references(() => imageCards.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		toolCallId: text("tool_call_id"),
+		// turn | retry | auto_retry | another (auto_retry: the server's own held
+		// retry of a clear miss, folded into its first take's slot on the card)
+		origin: text("origin").notNull(),
+		retryOf: text("retry_of"),
+		requestJson: text("request_json").notNull(),
+		seed: integer("seed").notNull(),
+		heldUntil: integer("held_until"),
+		hidden: integer("hidden").notNull().default(0),
+		phaseAt: integer("phase_at"),
+		queueAhead: integer("queue_ahead"),
+		progressPercent: integer("progress_percent"),
+		etaSeconds: integer("eta_seconds"),
+		resultFileId: text("result_file_id").references(() => imageFiles.id, {
+			onDelete: "set null",
+		}),
+		measuresJson: text("measures_json"),
+		retried: integer("retried").notNull().default(0),
+		versionNumber: integer("version_number"),
+		// 1 = a cancel may interrupt our own running prompt (the card's Stop);
+		// 0 = it may only delete a pending one (the composer's Stop).
+		cancelInterrupt: integer("cancel_interrupt").notNull().default(1),
+	},
+	(table) => [
+		liveClaimIndex("image_jobs_live_claim_idx", table),
+		index("image_jobs_card_created_idx").on(table.cardId, table.createdAt),
+	],
+);
+
+export const imageJobAttempts = sqliteTable(
+	"image_job_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => imageJobs.id }),
+	},
+	(table) => ({ ...jobAttemptIndexes("image_job_attempts", table) }),
 );
 
 /**

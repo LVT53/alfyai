@@ -9,7 +9,51 @@ import {
 	ARTIFACT_TOUR_DEFAULTS,
 } from "./artifact-tour-defaults";
 
-const KINDS: ArtifactTourType[] = ["document", "app", "canvas", "slides"];
+const KINDS: ArtifactTourType[] = [
+	"document",
+	"app",
+	"canvas",
+	"slides",
+	"image",
+];
+
+/** The Image tour as shipped (plan 2b T16): the picture and its versions, Before / After and Mark, then History and Attach. */
+const IMAGE_TOUR = {
+	artifactType: "image",
+	summary: {
+		en: "A picture Alfy made. Ask for a change and it becomes a new version.",
+		hu: "Egy kép, amit Alfy készített. Kérj rajta változtatást, és új verzió lesz belőle.",
+	},
+	slides: [
+		{
+			title: { en: "Your picture, in versions", hu: "A képed, verziókban" },
+			body: {
+				en: "This is the picture Alfy made for you. Ask for a change in the chat and you get a new version; the earlier ones are kept.",
+				hu: "Ezt a képet Alfy készítette neked. Kérj rajta változtatást a chatben, és új verziót kapsz; a korábbiak megmaradnak.",
+			},
+		},
+		{
+			title: {
+				en: "Before / After, and Mark",
+				hu: "Előtte / Utána, és Jelölés",
+			},
+			body: {
+				en: "When a picture was made from another, Before / After shows what changed. With Mark, draw lettered boxes on it: they go with your next message, so Alfy knows where to change it.",
+				hu: "Ha a kép egy másikból készült, az Előtte / Utána megmutatja, mi változott. A Jelöléssel betűs kereteket rajzolhatsz rá: a következő üzeneteddel mennek, így Alfy tudja, hol változtasson.",
+			},
+		},
+		{
+			title: {
+				en: "Earlier pictures, and Attach",
+				hu: "Korábbi képek és Csatolás",
+			},
+			body: {
+				en: "An earlier picture opens History: drag to compare two versions, and Restore the one you want. Attach puts this picture into your next message.",
+				hu: "Egy korábbi kép megnyitja az Előzményeket: húzással összevetheted a két verziót, és a Visszaállítással visszahozhatod, amelyiket szeretnéd. A Csatolás a következő üzenetedbe teszi ezt a képet.",
+			},
+		},
+	],
+};
 
 describe("ARTIFACT_TOUR_DEFAULTS", () => {
 	it("has a default for every tour type, and file is not one of them", () => {
@@ -19,8 +63,8 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 		expect(Object.keys(ARTIFACT_TOUR_DEFAULTS)).not.toContain("file");
 	});
 
-	it("keeps the derived union honest: ArtifactTourType has exactly four members", () => {
-		// A compile-time exhaustiveness check: if `ArtifactKind` grows a sixth
+	it("keeps the derived union honest: ArtifactTourType has exactly five members", () => {
+		// A compile-time exhaustiveness check: if `ArtifactKind` grows a seventh
 		// kind, `ArtifactTourType` widens and this object literal stops
 		// type-checking until the new kind gets copy in ARTIFACT_TOUR_DEFAULTS.
 		const exhaustive: Record<ArtifactTourType, true> = {
@@ -28,8 +72,9 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 			app: true,
 			canvas: true,
 			slides: true,
+			image: true,
 		};
-		expect(Object.keys(exhaustive)).toHaveLength(4);
+		expect(Object.keys(exhaustive)).toHaveLength(5);
 	});
 
 	it("gives every default exactly three slides", () => {
@@ -95,6 +140,7 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 			app: "alkalmazás",
 			canvas: "tábla",
 			slides: "diasor",
+			image: "kép",
 		} as const;
 		for (const kind of KINDS) {
 			// The ratified name is the artifacts.type.* row, which is the source…
@@ -111,7 +157,8 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 
 	it("never names a kind in Hungarian by an English word or an invented one", () => {
 		// "vászon" is what "canvas" becomes when someone translates it as a noun.
-		const foreign = /\b(canvas|document|slides?|deck|apps?)\b|vászon/i;
+		const foreign =
+			/\b(canvas|document|slides?|deck|apps?|images?|pictures?)\b|vászon/i;
 		for (const kind of KINDS) {
 			for (const value of strings(kind, ["hu"])) {
 				expect(value, `${kind}: ${value}`).not.toMatch(foreign);
@@ -261,6 +308,32 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 				},
 			],
 		});
+	});
+
+	it("uses the Image tour's shipped copy verbatim (plan 2b T16)", () => {
+		expect(ARTIFACT_TOUR_DEFAULTS.image).toEqual(IMAGE_TOUR);
+	});
+
+	// The Image tour sends the reader to the panel's controls by name, so it
+	// must call them what the panel and History call them, in each language.
+	it("names the Image's controls by their real labels, in both languages", () => {
+		const said = (language: "en" | "hu") =>
+			ARTIFACT_TOUR_DEFAULTS.image.slides
+				.map((slide) => `${slide.title[language]} ${slide.body[language]}`)
+				.join(" ");
+		for (const language of ["en", "hu"] as const) {
+			for (const key of [
+				"artifacts.image.card.before",
+				"artifacts.image.card.after",
+				"artifacts.image.panel.mark",
+				"artifacts.image.card.attach",
+				"artifacts.history.restore",
+			] as const) {
+				const label = artifactsDict[language][key];
+				expect(label, `${language} ${key}`).toBeTruthy();
+				expect(said(language), `${language} names "${label}"`).toContain(label);
+			}
+		}
 	});
 
 	it("names the type the way the UI does, per language", () => {

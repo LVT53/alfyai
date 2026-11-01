@@ -317,6 +317,52 @@ function allowanceFieldValue(): string {
 	</div>
 
 	<hr class="sys-hr" />
+	<span class="sys-eyebrow">{$t('admin.system.integrations.pictures')}</span>
+	<div class="sys-rows">
+		<SettingRow
+			label={$t('admin.system.keys.COMFYUI_URL.label')}
+			meaning={$t('admin.system.keys.COMFYUI_URL.meaning')}
+			configKey="COMFYUI_URL"
+			controlId="COMFYUI_URL"
+			dirty={isDirty('COMFYUI_URL')}
+			highlighted={highlightKey === 'COMFYUI_URL'}
+			onReset={() => resetValue('COMFYUI_URL')}
+			canReset={canResetKey('COMFYUI_URL')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="COMFYUI_URL"
+					mono
+					value={adminConfig.COMFYUI_URL ?? ''}
+					placeholder={envDefaults.COMFYUI_URL ?? ''}
+					onchange={(next) => setValue('COMFYUI_URL', next)}
+				/>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
+			label={$t('admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label')}
+			meaning={$t('admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.meaning')}
+			configKey="IMAGE_EXPLICIT_FILTER_ENABLED"
+			dirty={isDirty('IMAGE_EXPLICIT_FILTER_ENABLED')}
+			highlighted={highlightKey === 'IMAGE_EXPLICIT_FILTER_ENABLED'}
+			onReset={() => resetValue('IMAGE_EXPLICIT_FILTER_ENABLED')}
+			canReset={canResetKey('IMAGE_EXPLICIT_FILTER_ENABLED')}
+		>
+			{#snippet control()}
+				<SystemToggle
+					id="IMAGE_EXPLICIT_FILTER_ENABLED"
+					label={$t('admin.system.keys.IMAGE_EXPLICIT_FILTER_ENABLED.label')}
+					checked={(adminConfig.IMAGE_EXPLICIT_FILTER_ENABLED ??
+						envDefaults.IMAGE_EXPLICIT_FILTER_ENABLED) !== 'false'}
+					onchange={(next) =>
+						setValue('IMAGE_EXPLICIT_FILTER_ENABLED', next ? 'true' : 'false')}
+				/>
+			{/snippet}
+		</SettingRow>
+	</div>
+
+	<hr class="sys-hr" />
 	<span class="sys-eyebrow">{$t('admin.system.integrations.webPush')}</span>
 	<p class="sys-help">{$t('admin.atlasWebPushDescription')}</p>
 	<div class="sys-rows">

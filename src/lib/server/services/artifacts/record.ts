@@ -20,6 +20,10 @@ import {
 import { deleteChatFile } from "$lib/server/services/chat-files";
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
 import {
+	deleteImageFilesById,
+	listImageFileIdsForArtifact,
+} from "$lib/server/services/images/files";
+import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge/store/core";
@@ -42,8 +46,8 @@ import type {
 	ArtifactMetadata,
 	ArtifactRecord,
 	ArtifactScopeOptions,
-	CreatableArtifactKind,
 	CreateArtifactInput,
+	RowArtifactKind,
 } from "./types";
 
 export type ArtifactRow = typeof artifacts.$inferSelect;
@@ -75,30 +79,31 @@ const KNOWN_KINDS: Record<ArtifactKind, true> = {
 	canvas: true,
 	slides: true,
 	file: true,
+	image: true,
 };
 
 function isArtifactKind(value: unknown): value is ArtifactKind {
 	return typeof value === "string" && Object.hasOwn(KNOWN_KINDS, value);
 }
 
-const CREATABLE_KINDS: Record<CreatableArtifactKind, true> = {
+const ROW_KINDS: Record<RowArtifactKind, true> = {
 	document: true,
 	app: true,
 	canvas: true,
 	slides: true,
+	image: true,
 };
 
 /**
- * The runtime half of `CreatableArtifactKind`. The type alone only protects a
+ * The runtime half of `RowArtifactKind` (an Image is a row of the family; the
+ * model-facing tools are kept off it by `CreatableArtifactKind`, not here). The type alone only protects a
  * caller that goes through TypeScript; slice 5's tools hand this a
  * model-supplied string, so "file" (a produced file stays `generated_output`
  * — ruling 18, never a second representation of the same row) and anything
  * else unrecognised must be refused here too.
  */
-function isCreatableArtifactKind(
-	value: unknown,
-): value is CreatableArtifactKind {
-	return typeof value === "string" && Object.hasOwn(CREATABLE_KINDS, value);
+function isRowArtifactKind(value: unknown): value is RowArtifactKind {
+	return typeof value === "string" && Object.hasOwn(ROW_KINDS, value);
 }
 
 /**
@@ -312,7 +317,7 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 	// kind or title never went through TypeScript (a model-supplied tool call,
 	// slice 5) gets refused without spending a conversation-ownership query on
 	// input that was never going to be written anyway.
-	if (!isCreatableArtifactKind(input.kind)) {
+	if (!isRowArtifactKind(input.kind)) {
 		return { ok: false, reason: "invalid_kind" };
 	}
 	const title = clampChars(input.title.trim(), ARTIFACT_TITLE_MAX_CHARS);
@@ -720,6 +725,29 @@ export async function deleteFilesOfDeletedBoard(
 	}
 }
 
+/**
+ * The pictures of a deleted Image item leave the disk with it; the other
+ * pictures of its chat stay. Like the poster files, never allowed to undo the
+ * delete: a failure leaves files that go with the chat.
+ */
+export async function deletePicturesOfDeletedImage(
+	row: ArtifactRow,
+	pictureIds: readonly string[],
+): Promise<void> {
+	if (pictureIds.length === 0) return;
+	try {
+		await deleteImageFilesById(pictureIds);
+	} catch (error) {
+		console.warn(
+			"[ARTIFACTS] Deleted an image item but not its picture files",
+			{
+				artifactId: row.id,
+				error,
+			},
+		);
+	}
+}
+
 type DeleteArtifactResult =
 	| { ok: true }
 	| {
@@ -766,12 +794,19 @@ export async function deleteArtifact(
 	} else if (!isEditableArtifactRow(row)) {
 		return { ok: false, reason: "not_found" };
 	}
+	// An Image item's pictures: named now, because the row's delete clears
+	// their `artifact_id`. They go once the row is really gone.
+	const pictureIds =
+		kindForArtifactRow(row) === "image"
+			? await listImageFileIdsForArtifact(row.id)
+			: [];
 	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
 	if (!removed) return { ok: false, reason: "not_found" };
 	await deleteFilesOfDeletedBoard(row);
+	await deletePicturesOfDeletedImage(row, pictureIds);
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,

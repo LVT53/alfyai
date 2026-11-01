@@ -459,7 +459,6 @@ export function createServerChunkRuntime({
 	const leakedToolDiagnosticsState = createLeakedToolDiagnosticsState();
 	const serverSegments: ServerStreamSegment[] = [];
 	const toolCallRecords: ToolCallEntry[] = [];
-	const toolCallAliases = new Map<string, string>();
 	const nativeToolCallAccumulators = new Map<
 		string,
 		NativeToolCallAccumulator
@@ -663,18 +662,22 @@ export function createServerChunkRuntime({
 		// through `isVisibleThinkingToolCall`, which drops file-production
 		// calls by name. The recorded input is already the SANITIZED one
 		// (`sanitizeProduceFileInput`) — shapes and hashes, never the bytes.
-		const rawCallId = details?.callId;
-		const callId = rawCallId
-			? (toolCallAliases.get(rawCallId) ?? rawCallId)
-			: undefined;
+		const callId = details?.callId;
 		const inputKey = toolCallInputKey(input);
+		// Each call of a step has its own id, so two ids are two calls even with
+		// the same tool and input ("show me four"): only a side with no id can
+		// be matched by name or input.
+		const isAnotherCall = (record: ToolCallEntry) =>
+			Boolean(callId && record.callId && record.callId !== callId);
 		const runningRecordMatchesInput = (record: ToolCallEntry) =>
 			record.status === "running" &&
 			record.name === name &&
+			!isAnotherCall(record) &&
 			toolCallInputKey(record.input) === inputKey;
 		const completedRecordMatchesInput = (record: ToolCallEntry) =>
 			record.status === "done" &&
 			record.name === name &&
+			!isAnotherCall(record) &&
 			toolCallInputKey(record.input) === inputKey;
 		const runningRecordMatchesCallId = (record: ToolCallEntry) =>
 			Boolean(callId) &&
@@ -703,16 +706,15 @@ export function createServerChunkRuntime({
 				if (inputIndex !== -1) return inputIndex;
 			}
 			return findLastToolCallRecordIndex((record) => {
-				if (record.status !== "running" || record.name !== name) return false;
-				return true;
+				return (
+					record.status === "running" &&
+					record.name === name &&
+					!isAnotherCall(record)
+				);
 			});
 		};
 		const findCompletedRecordIndexByInput = () =>
 			findLastToolCallRecordIndex(completedRecordMatchesInput);
-		const rememberAlias = (record: ToolCallEntry | undefined) => {
-			if (!rawCallId || !record?.callId || rawCallId === record.callId) return;
-			toolCallAliases.set(rawCallId, record.callId);
-		};
 		const matchesCompletedRecord = (record: ToolCallEntry) =>
 			Boolean(callId) &&
 			record.status !== "running" &&
@@ -722,15 +724,8 @@ export function createServerChunkRuntime({
 			const duplicateRunningIndex = findRunningRecordIndex({
 				matchInput: true,
 			});
-			if (duplicateRunningIndex !== -1) {
-				rememberAlias(toolCallRecords[duplicateRunningIndex]);
-				return;
-			}
-			const completedDuplicateIndex = findCompletedRecordIndexByInput();
-			if (completedDuplicateIndex !== -1) {
-				rememberAlias(toolCallRecords[completedDuplicateIndex]);
-				return;
-			}
+			if (duplicateRunningIndex !== -1) return;
+			if (findCompletedRecordIndexByInput() !== -1) return;
 		} else if (toolCallRecords.some(matchesCompletedRecord)) {
 			return;
 		} else if (

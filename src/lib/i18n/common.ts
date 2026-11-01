@@ -7,6 +7,9 @@ const commonDict = {
 		cachedInput: "Cached input",
 		"common.cancel": "Cancel",
 		"common.close": "Close",
+		"common.view.label": "View",
+		"common.view.list": "List view",
+		"common.view.grid": "Grid view",
 		"common.confirm": "Confirm",
 		"common.create": "Create",
 		"common.created": "Created",
@@ -206,7 +209,7 @@ const commonDict = {
 		settingsAnalytics: "Analytics",
 		settingsConnections: "Connections",
 		settingsProfile: "Profile",
-		"sidebar.activeConversationIndicator": "Active conversation open",
+		"sidebar.newActivityIndicator": "new activity",
 		"sidebar.bulkDeleteFailed":
 			"Couldn't delete {count} {count, plural, one {chat} other {chats}}. Try again.",
 		"sidebar.bulkMoveFailed":
@@ -227,11 +230,14 @@ const commonDict = {
 		"sidebar.createChatInProject": "Create chat in {name}",
 		"sidebar.createNewProject": "Create new project",
 		"sidebar.delete": "Delete",
+		"sidebar.dragChatCount":
+			"{count} {count, plural, one {chat} other {chats}}",
+		"sidebar.dropToDelete": "Drop to delete",
 		"sidebar.deleteConversationMessage":
 			"Are you sure you want to delete this conversation? This action cannot be undone.",
 		"sidebar.deleteConversationTitle": "Delete this conversation?",
 		"sidebar.deleteConversationsMessage":
-			"Their messages, files, reports and the Documents made in them are deleted too. This can't be undone.",
+			"Their messages, files, reports, and the Documents and pictures made in them are deleted too. This can't be undone.",
 		"sidebar.deleteConversationsTitle":
 			"Delete {count} {count, plural, one {chat} other {chats}}?",
 		"sidebar.deleteProjectMessage":
@@ -264,6 +270,8 @@ const commonDict = {
 			"End your session? You can sign back in anytime.",
 		"sidebar.logoutConfirmTitle": "Log out?",
 		"sidebar.moveToProject": "Move to project",
+		"sidebar.movedChats":
+			"Moved {count} {count, plural, one {chat} other {chats}} to {name}",
 		"sidebar.newChat": "New chat",
 		"sidebar.newChatInProject": "New chat",
 		"sidebar.newProject": "New project",
@@ -273,6 +281,8 @@ const commonDict = {
 		"sidebar.openSettings": "Open settings",
 		"sidebar.pinToSidebar": "Pin to sidebar",
 		"sidebar.pinned": "Pinned",
+		"sidebar.pinnedChats":
+			"Pinned {count} {count, plural, one {chat} other {chats}}",
 		"sidebar.profile": "Profile",
 		"sidebar.projectDropArea": "{name} project drop area",
 		"sidebar.projectName": "Project name",
@@ -346,6 +356,9 @@ const commonDict = {
 		cachedInput: "Gyorsítótárazott bemenet",
 		"common.cancel": "Mégse",
 		"common.close": "Bezárás",
+		"common.view.label": "Nézet",
+		"common.view.list": "Listanézet",
+		"common.view.grid": "Rácsnézet",
 		"common.confirm": "Megerősítés",
 		"common.create": "Létrehozás",
 		"common.created": "Létrehozva",
@@ -540,7 +553,7 @@ const commonDict = {
 		settingsAnalytics: "Analitika",
 		settingsConnections: "Kapcsolatok",
 		settingsProfile: "Profil",
-		"sidebar.activeConversationIndicator": "Aktív beszélgetés nyitva",
+		"sidebar.newActivityIndicator": "új tevékenység",
 		"sidebar.bulkDeleteFailed":
 			"{count} beszélgetést nem sikerült törölni. Próbáld újra.",
 		"sidebar.bulkMoveFailed":
@@ -561,11 +574,13 @@ const commonDict = {
 		"sidebar.createChatInProject": "Új beszélgetés létrehozása itt: {name}",
 		"sidebar.createNewProject": "Új projekt létrehozása",
 		"sidebar.delete": "Törlés",
+		"sidebar.dragChatCount": "{count} beszélgetés",
+		"sidebar.dropToDelete": "Engedd el a törléshez",
 		"sidebar.deleteConversationMessage":
 			"Biztosan törlöd ezt a beszélgetést? Ez a művelet nem vonható vissza.",
 		"sidebar.deleteConversationTitle": "Törlöd ezt a beszélgetést?",
 		"sidebar.deleteConversationsMessage":
-			"Az üzeneteik, fájljaik, jelentéseik és a bennük készült dokumentumok is törlődnek. Ez nem vonható vissza.",
+			"Az üzeneteik, fájljaik, jelentéseik, valamint a bennük készült dokumentumok és képek is törlődnek. Ez nem vonható vissza.",
 		"sidebar.deleteConversationsTitle": "Törölsz {count} beszélgetést?",
 		"sidebar.deleteProjectMessage":
 			"A projekt törlődik. A benne lévő beszélgetések rendezetlenek lesznek.",
@@ -599,6 +614,7 @@ const commonDict = {
 			"Bontod a munkamenetet? Bármikor visszajelentkezhetsz.",
 		"sidebar.logoutConfirmTitle": "Kijelentkezel?",
 		"sidebar.moveToProject": "Áthelyezés projektbe",
+		"sidebar.movedChats": "{count} beszélgetés áthelyezve ide: {name}",
 		"sidebar.newChat": "Új beszélgetés",
 		"sidebar.newChatInProject": "Új beszélgetés",
 		"sidebar.newProject": "Új projekt",
@@ -608,6 +624,7 @@ const commonDict = {
 		"sidebar.openSettings": "Beállítások megnyitása",
 		"sidebar.pinToSidebar": "Rögzítés",
 		"sidebar.pinned": "Rögzítve",
+		"sidebar.pinnedChats": "{count} beszélgetés rögzítve",
 		"sidebar.profile": "Profil",
 		"sidebar.projectDropArea": "{name} projekt célterülete",
 		"sidebar.projectName": "Projekt neve",
@@ -627,7 +644,7 @@ const commonDict = {
 		"searchModal.badgeCurrent": "Aktuális",
 		"searchModal.badgeGenerated": "Létrehozott",
 		"searchModal.badgeHistorical": "Előzmény",
-		"searchModal.badgeSkillNote": "Skill jegyzet",
+		"searchModal.badgeSkillNote": "Készségjegyzet",
 		"searchModal.badgeUploaded": "Feltöltött",
 		"searchModal.conversations": "Beszélgetések",
 		"searchModal.currentConversation": "Aktuális beszélgetés",

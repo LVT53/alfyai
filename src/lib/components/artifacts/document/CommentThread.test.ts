@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
@@ -362,5 +365,18 @@ describe("CommentThread", () => {
 			await fireEvent.click(screen.getByRole("button", { name: "See change" }));
 			expect(onSeeChange).toHaveBeenCalledWith("root-1");
 		});
+	});
+});
+
+describe("the list's resolved thread", () => {
+	it("stays readable: its muted words at any lower opacity fall under 4.5:1 on the light page", () => {
+		const css = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"../comment-list.css",
+			),
+			"utf8",
+		);
+		expect(css).not.toMatch(/\.is-resolved\s*\{[^}]*opacity/);
 	});
 });

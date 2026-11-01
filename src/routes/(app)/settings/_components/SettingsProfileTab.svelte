@@ -788,7 +788,7 @@ function handlePersonalitySelect(event: Event) {
 					{#if skillsEnabled}
 						<div class="settings-row-control">
 							<span class="settings-pill settings-pill-active">
-								{$t('profileTab.skillsCountActive', { count: skillsSummary.active })}
+								{$t('profileTab.skillsCountEnabled', { count: skillsSummary.active })}
 							</span>
 							<span class="settings-pill">
 								{$t('profileTab.skillsCountDisabled', { count: skillsSummary.disabled })}

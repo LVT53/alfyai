@@ -19,6 +19,7 @@ import type { I18nKey } from "$lib/i18n";
 // crosses this same boundary the same way).
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -130,7 +131,18 @@ export type ToolActivityBody =
 	| { kind: "atlas" }
 	// And for a connection write once it is settled: what it was, threaded in
 	// by WriteConfirmCard.svelte.
-	| { kind: "write" };
+	| { kind: "write" }
+	// A make_image call's picture card (plan 2b T2): the card itself is found
+	// by the chat page's image cards, by `cardId`, or while the call still runs
+	// by the take whose tool call this is (`cardId` null until the call names it).
+	| {
+			kind: "image-card";
+			cardId: string | null;
+			takeId: string | null;
+			title: string;
+			/** The card, attached by the message from the chat's image cards (never computed here). */
+			card?: ImageCardView | null;
+	  };
 
 export type ToolActivityItem = {
 	key: string;
@@ -187,6 +199,15 @@ const VERB_KEYS = {
 	journey: "toolActivity.journey",
 	planningJourney: "toolActivity.planningJourney",
 	created: "toolActivity.created",
+	makingPicture: "toolActivity.makingPicture",
+	madePicture: "toolActivity.madePicture",
+	changedPicture: "toolActivity.changedPicture",
+	pictureFailed: "toolActivity.pictureFailed",
+	pictureStopped: "toolActivity.pictureStopped",
+	pictureStillMaking: "toolActivity.pictureStillMaking",
+	pictureRequestAdjusted: "toolActivity.pictureRequestAdjusted",
+	pictureBlocked: "toolActivity.pictureBlocked",
+	pictureNotMade: "toolActivity.pictureNotMade",
 	creating: "toolActivity.creating",
 	edited: "toolActivity.edited",
 	editing: "toolActivity.editing",
@@ -289,6 +310,7 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.output",
 	"toolActivity.expandActivity",
 	"toolActivity.failureDetails",
+	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
 	// they ride the same resolution test rather than a second one of their own.
 	"routeItinerary.directions",
@@ -388,6 +410,51 @@ function citedCount(sources: FetchedSource[]): number {
 
 function firstStringInput(input: Record<string, unknown>): string {
 	return String(Object.values(input ?? {})[0] ?? "").trim();
+}
+
+const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
+	image_server_unreachable: "toolActivity.pictureReason.unreachable",
+	image_graph_rejected: "toolActivity.pictureReason.rejected",
+	image_render_failed: "toolActivity.pictureReason.renderFailed",
+	image_render_timeout: "toolActivity.pictureReason.renderTimeout",
+	image_result_missing: "toolActivity.pictureReason.resultMissing",
+	image_input_missing: "toolActivity.pictureReason.inputMissing",
+	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
+	not_configured: "toolActivity.pictureReason.notConfigured",
+	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
+	image_blocked: "toolActivity.pictureReason.blocked",
+	image_unchecked: "toolActivity.pictureReason.unchecked",
+};
+
+/** The explicit-picture filter's codes: the row says the picture was blocked, not that making it failed. */
+const IMAGE_FILTER_ERRORS = new Set(["image_blocked", "image_unchecked"]);
+
+/**
+ * The localized reason for a make_image row that did not make its picture; null
+ * when the person has nothing to act on. A refusal (too many takes, a repeated
+ * retry, an unknown picture name...) is a correction for the model, which
+ * recovers by itself, so only "no picture server" is worth saying.
+ */
+function imageReasonKey(
+	metadata: Record<string, string | number | boolean | null> | undefined,
+): I18nKey | null {
+	const code = metadata?.imageError;
+	if (typeof code === "string" && IMAGE_REASON_KEYS[code]) {
+		return IMAGE_REASON_KEYS[code];
+	}
+	const refusal = metadata?.imageRefusal;
+	if (typeof refusal === "string") {
+		if (refusal === "not_configured") {
+			return "toolActivity.pictureReason.notConfigured";
+		}
+		if (refusal === "explicit_request") {
+			return "toolActivity.pictureReason.explicitRequest";
+		}
+		return metadata?.imageUnreadable === true
+			? "toolActivity.pictureReason.unreadable"
+			: null;
+	}
+	return "toolActivity.pictureReason.generic";
 }
 
 /** The failure reason a failed row's body carries — never invented. */
@@ -554,6 +621,8 @@ export function buildToolActivityItem(
 	// A failed create/edit names what it tried and keeps the model's words behind
 	// "Details" (its own item below); nothing else is added to it.
 	if (segment.status !== "failed" || item.artifact?.failed) return item;
+	// make_image words its own failure from a code, in the person's language.
+	if (segment.name === "make_image") return item;
 	const failedMeta = translate("toolCalls.failed");
 	const reason = toolFailureReason(segment);
 	return {
@@ -566,6 +635,159 @@ export function buildToolActivityItem(
 		pinned: false,
 		alwaysOpen: false,
 		body: reason ? { kind: "error", reason } : null,
+	};
+}
+
+type RowBase = Pick<
+	ToolActivityItem,
+	"key" | "status" | "iconType" | "pinned" | "alwaysOpen"
+>;
+
+/** A make_image call's row: its verb, title and failure words. */
+function makeImageRow(
+	segment: ToolCallSegment,
+	base: RowBase,
+	translate: Translate,
+): ToolActivityItem {
+	const status = segment.status;
+	const metadata = segment.metadata;
+	const inputTitle =
+		typeof segment.input?.title === "string" ? segment.input.title : "";
+	const title =
+		typeof metadata?.imageTitle === "string" && metadata.imageTitle
+			? metadata.imageTitle
+			: inputTitle;
+	const picturesAreStillComing =
+		status === "running" || metadata?.imageStatus === "running";
+	if (picturesAreStillComing) {
+		const makingVerb = translate(VERB_KEYS.makingPicture);
+		return {
+			...base,
+			verb: makingVerb,
+			object: title,
+			meta: "",
+			summaryLabel: makingVerb,
+			title: title || makingVerb,
+			body: null,
+		};
+	}
+	// A Stop is not a failure: the person asked for it.
+	if (metadata?.imageStopped === true) {
+		const stoppedVerb = translate(VERB_KEYS.pictureStopped);
+		return {
+			...base,
+			status: "done",
+			verb: stoppedVerb,
+			object: title,
+			meta: "",
+			summaryLabel: stoppedVerb,
+			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
+			body: null,
+		};
+	}
+	// The tool's envelope gave up waiting, but the take is still rendering and
+	// lands on its card: that is not a failure.
+	if (metadata?.imageError === "image_tool_timeout") {
+		const stillVerb = translate(VERB_KEYS.pictureStillMaking);
+		return {
+			...base,
+			status: "done",
+			verb: stillVerb,
+			object: title,
+			meta: "",
+			summaryLabel: stillVerb,
+			title: title ? `${stillVerb}: ${title}` : stillVerb,
+			body: null,
+		};
+	}
+	// A refusal meant only for the model (too many takes, a repeated retry, an
+	// unknown picture name): the model corrects itself, so the person sees a
+	// neutral row, not a failure.
+	if (
+		typeof metadata?.imageRefusal === "string" &&
+		metadata.imageRefusal !== "not_configured" &&
+		metadata.imageRefusal !== "explicit_request" &&
+		metadata.imageUnreadable !== true
+	) {
+		const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
+		return {
+			...base,
+			status: "done",
+			verb: adjustedVerb,
+			object: title,
+			meta: "",
+			summaryLabel: adjustedVerb,
+			title: title ? `${adjustedVerb}: ${title}` : adjustedVerb,
+			body: null,
+		};
+	}
+	if (status === "failed" || metadata?.ok === false) {
+		const failedVerb = translate(
+			metadata?.imageRefusal === "explicit_request"
+				? VERB_KEYS.pictureNotMade
+				: typeof metadata?.imageError === "string" &&
+						IMAGE_FILTER_ERRORS.has(metadata.imageError)
+					? VERB_KEYS.pictureBlocked
+					: VERB_KEYS.pictureFailed,
+		);
+		// Words for the person come from the code, never from what the model was told.
+		const reasonKey = imageReasonKey(metadata);
+		const reason = reasonKey ? translate(reasonKey) : "";
+		return {
+			...base,
+			status: "failed",
+			verb: failedVerb,
+			object: title,
+			meta: reason ? translate("toolActivity.failureDetails") : "",
+			summaryLabel: failedVerb,
+			title: title ? `${failedVerb}: ${title}` : failedVerb,
+			body: reason ? { kind: "error", reason } : null,
+		};
+	}
+	const doneVerb = translate(
+		VERB_KEYS[metadata?.imageEdit === true ? "changedPicture" : "madePicture"],
+	);
+	return {
+		...base,
+		verb: doneVerb,
+		object: title,
+		meta:
+			metadata?.imageRetried === true
+				? translate("toolActivity.retriedOnce")
+				: "",
+		summaryLabel: `${doneVerb} ${title}`.trim(),
+		title,
+		body: null,
+	};
+}
+
+/**
+ * A make_image row carries the picture's card under it (plan 2b T2): when the
+ * call names its card, or while it still runs (the card is then found by the
+ * take made for this call). A refusal names no card and keeps its own body
+ * (preflight F28). The card is a deliverable, so the row stays open.
+ */
+function withImageCard(
+	item: ToolActivityItem,
+	segment: ToolCallSegment,
+): ToolActivityItem {
+	const metadata = segment.metadata;
+	const cardId =
+		typeof metadata?.imageCardId === "string" && metadata.imageCardId
+			? metadata.imageCardId
+			: null;
+	if (!cardId && segment.status !== "running") return item;
+	const takeId =
+		typeof metadata?.imageTakeId === "string" && metadata.imageTakeId
+			? metadata.imageTakeId
+			: null;
+	const title =
+		typeof segment.input?.title === "string" ? segment.input.title : "";
+	return {
+		...item,
+		pinned: true,
+		alwaysOpen: true,
+		body: { kind: "image-card", cardId, takeId, title: item.object || title },
 	};
 }
 
@@ -752,6 +974,12 @@ function buildSettledToolActivityItem(
 			title: displayName,
 			body: description ? { kind: "text", text: description } : null,
 		};
+	}
+
+	// make_image: the picture itself is drawn by its own card in the chat, after
+	// the row; the row says what the call did, and for how many tries.
+	if (segment.name === "make_image") {
+		return withImageCard(makeImageRow(segment, base, translate), segment);
 	}
 
 	if (iconType === "artifact") {

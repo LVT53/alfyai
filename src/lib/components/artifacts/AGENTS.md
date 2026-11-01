@@ -19,5 +19,5 @@ Do not:
 
 ## Rules In Other Files
 
-- `canvas/`, `document/`, `history/` and `tour/` each have their own AGENTS.md.
+- `canvas/`, `document/`, `history/`, `image/` and `tour/` each have their own AGENTS.md.
 - The panel shell (`DocumentWorkspace.svelte`): `../document-workspace/AGENTS.md`. The server side of the family: `src/lib/server/services/artifacts/AGENTS.md`.

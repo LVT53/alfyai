@@ -4,9 +4,17 @@
 	real thing — do not import this outside test files.
 -->
 <script lang="ts">
-let { onDone, title }: { onDone: () => void; title: string } = $props();
+let {
+	onDone,
+	title,
+	initialVersionId = undefined,
+}: { onDone: () => void; title: string; initialVersionId?: string } = $props();
 </script>
 
-<section data-testid="fake-history" aria-label={`History of ${title}`}>
+<section
+	data-testid="fake-history"
+	data-initial-version={initialVersionId ?? ''}
+	aria-label={`History of ${title}`}
+>
 	<button type="button" data-testid="fake-history-done" onclick={() => onDone()}>Done</button>
 </section>

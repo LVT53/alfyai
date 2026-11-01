@@ -625,6 +625,26 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		key: "COMFYUI_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
+		key: "IMAGE_REFERENCE_CAP",
+		group: "limits",
+		control: int(1, 10, "count"),
+		effect: "live",
+	},
+	{
+		// The explicit-picture filter, on for everyone unless turned off here; a
+		// person can also be exempted on their own in the Users pane.
+		key: "IMAGE_EXPLICIT_FILTER_ENABLED",
+		group: "integrations",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+	{
 		key: "MINERU_API_KEY",
 		group: "integrations",
 		control: { kind: "secret" },

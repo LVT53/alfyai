@@ -86,6 +86,7 @@ describe("buildComposerMenuRows", () => {
 	it("draws the board's order: actions, switches, conversation", () => {
 		expect(buildComposerMenuRows(fullMenu).map((row) => row.id)).toEqual([
 			"attach",
+			"library",
 			"skills",
 			"atlas",
 			"thinking",

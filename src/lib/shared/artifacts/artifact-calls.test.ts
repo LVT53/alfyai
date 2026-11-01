@@ -33,6 +33,47 @@ describe("markRegenerable", () => {
 	});
 });
 
+describe("an Image in the chat's artifact bookkeeping", () => {
+	it("is never marked regenerable, even when its id is in the set", () => {
+		const rows = [
+			{ id: "img-1", kind: "image" },
+			{ id: "doc-1", kind: "document" },
+		];
+		const marked = markRegenerable(rows, new Set(["img-1", "doc-1"]));
+		expect(marked).toEqual([
+			{ id: "img-1", kind: "image" },
+			{ id: "doc-1", kind: "document", regenerable: true },
+		]);
+		const onlyImage = [{ id: "img-1", kind: "image" }];
+		expect(markRegenerable(onlyImage, new Set(["img-1"]))).toBe(onlyImage);
+	});
+
+	it("draws no evidence row from a read or a refused edit of a picture", () => {
+		const metadata = {
+			ok: false,
+			artifactId: "img-1",
+			artifactKind: "image",
+			artifactTitle: "Cosy room",
+		};
+		expect(
+			artifactCallOf({
+				name: "edit_artifact",
+				input: { artifactId: "img-1" },
+				status: "done",
+				metadata,
+			}),
+		).toBeNull();
+		expect(
+			artifactCallOf({
+				name: "read_artifact",
+				input: { artifactId: "img-1" },
+				status: "done",
+				metadata: { ...metadata, ok: true },
+			}),
+		).toBeNull();
+	});
+});
+
 describe("artifactCallOf", () => {
 	const created: ToolCallEntry = {
 		callId: "call-1",

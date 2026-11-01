@@ -91,4 +91,50 @@ describe("createUpstreamIdleTimeout", () => {
 		expect(fsm.lastActivityAt).toBeGreaterThan(before);
 		fsm.clear();
 	});
+
+	describe("touch", () => {
+		it("moves the firing out from the touch: a touch at 50 s of a 60 s idle fires at 110 s", () => {
+			const onIdleTimeout = vi.fn();
+			const fsm = createUpstreamIdleTimeout({
+				idleTimeoutMs: 60_000,
+				log: { conversationId: "c1", streamId: "s1", modelId: "m1" },
+				snapshot: () => ({
+					responseLength: 0,
+					thinkingLength: 0,
+					toolCallCount: 1,
+				}),
+				hasVisibleAssistantAnswerOutput: () => false,
+				onIdleTimeout,
+			});
+			fsm.schedule(1);
+			vi.advanceTimersByTime(50_000);
+			fsm.touch(1);
+			vi.advanceTimersByTime(59_999); // 109.999 s
+			expect(onIdleTimeout).not.toHaveBeenCalled();
+			vi.advanceTimersByTime(1); // 110 s
+			expect(onIdleTimeout).toHaveBeenCalledTimes(1);
+		});
+
+		it("arms nothing after clear()", () => {
+			const { fsm, onIdleTimeout } = createHarness();
+			fsm.schedule(1);
+			fsm.clear();
+			fsm.touch(1);
+			vi.advanceTimersByTime(5000);
+			expect(onIdleTimeout).not.toHaveBeenCalled();
+		});
+
+		it("arms nothing before the first schedule or after the timer has fired", () => {
+			const { fsm, onIdleTimeout } = createHarness();
+			fsm.touch(1);
+			vi.advanceTimersByTime(5000);
+			expect(onIdleTimeout).not.toHaveBeenCalled();
+			fsm.schedule(1);
+			vi.advanceTimersByTime(1000);
+			expect(onIdleTimeout).toHaveBeenCalledTimes(1);
+			fsm.touch(1);
+			vi.advanceTimersByTime(5000);
+			expect(onIdleTimeout).toHaveBeenCalledTimes(1);
+		});
+	});
 });

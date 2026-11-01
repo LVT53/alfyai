@@ -248,7 +248,7 @@ test.describe("Admin Campaigns screen", () => {
 		await page.getByTestId("campaign-menu").click();
 		await page.getByRole("menuitem", { name: /Seed tour drafts/ }).click();
 
-		// Ruling 69: Document, App and Canvas ship; Slides is shelved. (A rerun
+		// Ruling 69: Document, App, Canvas and Image ship; Slides is shelved. (A rerun
 		// against the same database seeds nothing new and reports the existing
 		// three, so the count in the message is not asserted.)
 		await expect(
@@ -257,7 +257,12 @@ test.describe("Admin Campaigns screen", () => {
 			),
 		).toBeVisible();
 		const rows = page.locator('[data-testid="admin-campaign-row"]');
-		for (const name of ["Document tour", "App tour", "Canvas tour"]) {
+		for (const name of [
+			"Document tour",
+			"App tour",
+			"Canvas tour",
+			"Image tour",
+		]) {
 			await expect(rows.filter({ hasText: name }).first()).toBeVisible();
 		}
 		await expect(rows.filter({ hasText: "Slides tour" })).toHaveCount(0);
@@ -320,7 +325,7 @@ test.describe("Admin Campaigns screen", () => {
 			const checklist = page.getByTestId("campaign-checklist");
 			await expect(checklist.getByText("1 check failing")).toBeVisible();
 			await expect(
-				checklist.getByText("Tour kind: Document, App or Canvas"),
+				checklist.getByText("Tour kind: Document, App, Canvas or Image"),
 			).toBeVisible();
 			await expect(
 				page.getByRole("button", { name: "Publish", exact: true }),
@@ -334,7 +339,7 @@ test.describe("Admin Campaigns screen", () => {
 			expect(await refused.json()).toMatchObject({
 				fieldErrors: {
 					tourKind:
-						"A tour campaign's release must be the kind it introduces: document, app or canvas.",
+						"A tour campaign's release must be the kind it introduces: document, app, canvas or image.",
 				},
 			});
 

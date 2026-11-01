@@ -100,6 +100,16 @@ describe("the name a produced file is stored under", () => {
 		expect(names(storeGeneratedFile)).toEqual(["Q3-Q4 plan.pdf"]);
 	});
 
+	it("does not double the extension when the title already ends in it", async () => {
+		const { storeGeneratedFile } = await run({
+			origin: "artifact_export",
+			title: "Plan.docx",
+			files: [{ filename: "plan.docx", mimeType: "application/octet-stream" }],
+		});
+
+		expect(names(storeGeneratedFile)).toEqual(["Plan.docx"]);
+	});
+
 	it("falls back to 'document' for a title with nothing to name a file by", async () => {
 		const { storeGeneratedFile } = await run({
 			origin: "artifact_export",

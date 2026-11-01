@@ -1063,10 +1063,6 @@ _Avoid_: upload attachment, evidence row, document tab
 A modal or mobile sheet for selecting one or more existing **Library Documents** to become **Linked Context Sources**.
 _Avoid_: upload manager, document preview modal, inline tray submode
 
-**Linked Sources Popover**:
-A compact composer-adjacent surface for inspecting, removing, clearing, or adding currently selected **Linked Context Sources**.
-_Avoid_: full Knowledge Library modal, evidence manager, document preview
-
 **Setting State Chip**:
 A compact composer chip showing a temporary non-default composer setting that affects the next turn.
 _Avoid_: permanent preference display, settings form, hidden flag
@@ -1169,7 +1165,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Shift+Enter should insert a newline even when the **Command Tray** is open.
 - Arrow key tray navigation should not interfere with active text composition.
 - The **Command Tray** should expose accessible combobox or listbox-style semantics with clear active-row announcements.
-- **Document Picker Modal**, **Linked Sources Popover**, and mobile sheets should trap and restore focus appropriately.
+- **Document Picker Modal** and mobile sheets should trap and restore focus appropriately.
 - Chips should provide specific accessible remove labels.
 - Command and skill animations should respect reduced-motion preferences.
 - App-side command, source, skill, and note errors should surface locally near the tray, picker, chip, session panel, or settings editor that caused them, not as ordinary assistant text.
@@ -1210,7 +1206,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - When a command opens a modal or picker, focus should return to the composer near the removed token after that flow closes.
 - When a selected `/document` token includes a typed query, that query may initialize the **Document Picker Modal** search and be removed with the selected command token.
 - Unsent command-derived composer state should restore across navigation or refresh when it is part of the pending next turn, including pending one-turn skills and **Linked Source Chips**.
-- Transient UI state such as an open **Command Tray**, highlighted row, open **Document Picker Modal**, or open **Linked Sources Popover** should not restore.
+- Transient UI state such as an open **Command Tray**, highlighted row, or open **Document Picker Modal** should not restore.
 - `/clear` should clear pending composer state such as textarea content, pending one-turn skill selection, linked-source chips, pending upload attachments, and command tray state.
 - `/clear` should not dismiss a durable active **Skill Session** unless the user explicitly chooses that additional action.
 - `/clear` should confirm when it would remove attachments, linked sources, or a pending skill.
@@ -1321,12 +1317,12 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - After message submission, selected **Linked Context Sources** should become active conversation **Context Sources** until removed, a clear topic shift demotes them, or another existing context-source lifecycle rule applies.
 - Pending **Linked Context Sources** should be validated during chat-turn preflight.
 - If a pending **Linked Context Source** is deleted or inaccessible before send, AlfyAI should block the send, identify the invalid source, and let the user remove it rather than silently ignoring it.
-- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, and `/clear`.
+- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/skill`, `/settings`, and `/clear`.
 - `/document` may add one or more **Linked Context Sources** in one flow.
 - Repeated `/document` selections should merge linked-source chips instead of replacing earlier selected sources.
 - `/document` should open a **Document Picker Modal** rather than keep multi-document selection inside the **Command Tray**.
 - The **Document Picker Modal** should reuse the Knowledge Library document-list language and scanning behavior while hiding management actions such as delete, download, and upload.
-- The **Document Picker Modal** should support multi-select and add selected documents as **Linked Source Chips**.
+- The **Document Picker Modal** should support multi-select and add selected documents as **Linked Source Chips**; an uploaded photo it picks joins the message as a picture attachment instead, text or no text.
 - The **Document Picker Modal** should enforce a configurable selected-document cap for UI and performance predictability.
 - The **Document Picker Modal** should support pagination or server-aware search for large Knowledge Libraries and preserve selection across pages or searches.
 - Server-backed **Document Picker Modal** search should debounce input and keep already selected sources selected across query changes.
@@ -1334,9 +1330,6 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Historical **Generated Document Versions** should be hidden by default in the **Document Picker Modal** and available only through an explicit historical filter.
 - Raw **Generated Files** that are not document-like should not appear in the **Document Picker Modal** by default.
 - Selecting many documents does not guarantee full-body **Prompt Context** for every source; **Context Selection** should preserve breadth before depth and disclose limitations when needed.
-- `/source` should open a compact **Linked Sources Popover** for currently selected **Linked Context Sources**.
-- The **Linked Sources Popover** should list linked sources with title, type, and remove controls, plus simple add-document and clear-all actions.
-- The **Linked Sources Popover** should stay visually close to existing composer UI and remain compact.
 - `$` should be the fast path for directly activating enabled **Skills**.
 - `/skill` should act as a skill command hub with actions such as pick skill, create skill, manage skills, and stop active skill when applicable.
 - `/skill` pick behavior should reuse `$` skill discovery rather than introduce a second skill picker implementation.

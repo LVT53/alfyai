@@ -446,8 +446,7 @@ let foldedA11yLabel = $derived(
 		min-width: 0;
 	}
 
-	/* The card around a resolved thread is already dashed; the fold line is
-	   the card's whole content, so it carries no border of its own. */
+	/* The fold line is a resolved thread's whole content. */
 	.comment-thread-folded-line {
 		display: flex;
 		align-items: center;
@@ -456,8 +455,8 @@ let foldedA11yLabel = $derived(
 		border: none;
 		border-radius: var(--radius-lg);
 		background: none;
-		padding: 0.5625rem 0.75rem;
-		color: var(--success-text);
+		padding: 0.4375rem 0.75rem;
+		color: var(--text-muted);
 		font-family: var(--font-sans);
 		font-size: 0.78125rem;
 		cursor: pointer;
@@ -489,21 +488,8 @@ let foldedA11yLabel = $derived(
 		padding: 0.5rem 0.75rem 0.25rem;
 	}
 
-	/* The thin line that joins one message's avatar to the next
-	   (redesign §3.2: "thread line joins avatars"). */
 	.comment-thread-message {
-		position: relative;
 		padding: 0.375rem 0;
-	}
-
-	.comment-thread-message + .comment-thread-message::before {
-		content: '';
-		position: absolute;
-		top: -0.25rem;
-		left: 10.5px;
-		width: 1px;
-		height: 0.75rem;
-		background-color: var(--border-default);
 	}
 
 	/* Reply / Resolve sit under the words, not under the avatar. */
@@ -511,12 +497,34 @@ let foldedA11yLabel = $derived(
 		display: flex;
 		align-items: center;
 		gap: 0.125rem;
-		padding: 0 0.5rem 0.5rem 2.25rem;
+		padding: 0 0.5rem 0.25rem 2.25rem;
 	}
 
 	.comment-thread-actions :global(.btn-ghost) {
 		color: var(--text-muted);
 		gap: 0.25rem;
+	}
+
+	/* With a pointer they wait for the thread in hand, and keep their room so the
+	   list does not move as they come. Opacity leaves them in the tab order, and a
+	   focus inside the thread shows them. A touch screen has no hover: always there. */
+	@media (hover: hover) {
+		.comment-thread-actions {
+			opacity: 0;
+			transition: opacity var(--duration-standard) var(--ease-out);
+		}
+
+		:global(.comment-list-item:hover) .comment-thread-actions,
+		:global(.comment-list-item:focus-within) .comment-thread-actions,
+		:global(.comment-list-item.is-active) .comment-thread-actions {
+			opacity: 1;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.comment-thread-actions {
+			transition: none;
+		}
 	}
 
 	.comment-thread-composer {

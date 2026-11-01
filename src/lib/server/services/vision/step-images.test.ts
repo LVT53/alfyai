@@ -6,7 +6,7 @@ import {
 	STEP_IMAGE_TURN_BUDGET,
 } from "./step-images";
 import {
-	buildCurrentUserMessage,
+	buildStepImagesMessage,
 	STRIPPED_IMAGE_NOTE,
 	stripImageParts,
 	type TurnImage,
@@ -211,6 +211,23 @@ describe("buildVisionPrepareStep", () => {
 		});
 	});
 
+	it("keeps a step's thumbnails under their own label, without picture numbers", async () => {
+		const queue = createStepImageQueue();
+		queue.push({
+			label: LABEL,
+			images: [thumb("a.jpg", "QUFB"), thumb("b.jpg", "QkJC")],
+		});
+		const step = buildVisionPrepareStep({ queue, providerCanSee: true });
+
+		const appended = (await step(stepOptions(afterPhotosResult())))?.messages;
+
+		expect(appended?.at(-1)?.content).toEqual([
+			{ type: "text", text: LABEL },
+			{ type: "image", image: "QUFB", mediaType: "image/jpeg" },
+			{ type: "image", image: "QkJC", mediaType: "image/jpeg" },
+		]);
+	});
+
 	it("builds the picture parts the way the current message does, so one guard recognises both", async () => {
 		const queue = createStepImageQueue();
 		const images = [thumb("a.jpg"), thumb("b.jpg")];
@@ -219,7 +236,7 @@ describe("buildVisionPrepareStep", () => {
 
 		const appended = (await step(stepOptions(afterPhotosResult())))?.messages;
 
-		expect(appended?.at(-1)).toEqual(buildCurrentUserMessage(LABEL, images));
+		expect(appended?.at(-1)).toEqual(buildStepImagesMessage(LABEL, images));
 		// Task 4's guard turns a message built this way into text: the shape is
 		// the one it knows.
 		const guarded = stripImageParts(appended ?? []);

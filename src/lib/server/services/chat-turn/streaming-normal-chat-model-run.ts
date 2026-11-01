@@ -37,6 +37,11 @@ import {
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import type {
+	ImageMarksRequest,
+	PictureRef,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
@@ -49,6 +54,8 @@ export type StreamingNormalChatSendModelParams = {
 	user?: AuthenticatedPromptUser;
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string;
+	pictureRefs?: PictureRef[];
+	imageMarks?: ImageMarksRequest | null;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	pendingSkillInstructions?: string | null;
@@ -66,6 +73,7 @@ export type StreamingNormalChatSendModelParams = {
 		typeof prepareOutboundContext
 	>[0]["onContextPreparationActivity"];
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
+	onToolActivity?: () => void;
 };
 
 export type StreamingNormalChatPreparedContext = {
@@ -82,6 +90,8 @@ export type StreamingNormalChatPreparedContext = {
 	// to describe the prompt the model got, and the orchestrator's completion
 	// step runs long after context preparation.
 	instructionsApplied?: InstructionScopeApplication;
+	// What the user message keeps of the pictures beside its uploads.
+	userPictures?: UserPicturesMetadata;
 };
 
 export type StreamingNormalChatSendModelResult = {
@@ -143,6 +153,7 @@ export async function runStreamingNormalChatSendModel(
 		activeDepthEffort,
 		runtime.modelId,
 		enabledConnectionCapabilities,
+		prepared.turnPictures,
 	);
 
 	const prefetchedToolCalls = prepared.prefetchedToolCalls ?? [];
@@ -153,7 +164,7 @@ export async function runStreamingNormalChatSendModel(
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
-		buildCurrentUserMessage(finalInputValue, prepared.currentImages),
+		buildCurrentUserMessage(finalInputValue, prepared.turnPictureImages),
 		...(prepared.prefetchedToolMessages ?? []),
 	];
 	logOutboundMessageShape({
@@ -167,16 +178,16 @@ export async function runStreamingNormalChatSendModel(
 	// of the wait the person would otherwise not be told about. One entry on the
 	// response-activity channel with the number of pictures it is sent (the
 	// pictures that made it into the request, not the ones attached), nothing
-	// else: no name, no description. `currentImages` is empty unless the model can
+	// else: no name, no description. `turnPictureImages` is empty unless the model can
 	// see, so a turn without pictures says nothing. The browser shows it only while
 	// the reply streams (MessageBubble), and the stream is lazy: the model call
 	// below starts when the orchestrator reads it, after this.
-	if (prepared.currentImages.length > 0) {
+	if (prepared.turnPictureImages.length > 0) {
 		params.onResponseActivity?.({
 			id: RESPONSE_ACTIVITY_IDS.VIEWING_IMAGES,
 			kind: "viewing_images",
 			status: "running",
-			count: prepared.currentImages.length,
+			count: prepared.turnPictureImages.length,
 		});
 	}
 
@@ -223,6 +234,7 @@ export async function runStreamingNormalChatSendModel(
 				tools: toolPack.tools,
 			}),
 			instructionsApplied: prepared.instructionsApplied,
+			userPictures: prepared.turnPictures.metadata ?? undefined,
 		},
 		modelId: runtime.modelId,
 		modelDisplayName: runtime.provider.displayName,

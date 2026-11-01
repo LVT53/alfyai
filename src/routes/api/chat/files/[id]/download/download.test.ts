@@ -36,7 +36,7 @@ function serviceSuccess(
 	headers: Record<string, string> = {
 		"Content-Type": "application/pdf",
 		"Content-Length": "11",
-		"Content-Disposition": "attachment; filename*=UTF-8''report.pdf",
+		"Content-Disposition": `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`,
 		"Cache-Control": "private, no-store",
 	},
 ) {
@@ -114,7 +114,7 @@ describe("GET /api/chat/files/[id]/download", () => {
 		expect(response.headers.get("Content-Type")).toBe("application/pdf");
 		expect(response.headers.get("Content-Length")).toBe("11");
 		expect(response.headers.get("Content-Disposition")).toContain(
-			"attachment; filename*=UTF-8''report.pdf",
+			`attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`,
 		);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(Buffer.from(await response.arrayBuffer()).toString()).toBe(
@@ -132,7 +132,7 @@ describe("GET /api/chat/files/[id]/download", () => {
 				"Content-Length": "0",
 				"Content-Range": "bytes */11",
 				"Accept-Ranges": "bytes",
-				"Content-Disposition": "attachment; filename*=UTF-8''report.pdf",
+				"Content-Disposition": `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`,
 				"Cache-Control": "private, no-store",
 			},
 		});

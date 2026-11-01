@@ -10,6 +10,7 @@ import {
 	formatChatReport,
 	formatReport,
 	PACKAGE_FINGERPRINTS,
+	parseArgs,
 	parseRouteNodes,
 	staticClosure,
 	// @ts-expect-error — plain .mjs build script, no type declarations
@@ -1064,5 +1065,19 @@ describe("chunkReader", () => {
 		});
 		expect(text).toContain("js-part");
 		expect(text).toContain("css-part");
+	});
+});
+
+describe("parseArgs", () => {
+	it("holds no package to a target with --no-confine, and the canvas ones by default", () => {
+		expect(
+			parseArgs(["--name", "ImageCardBody", "--no-confine"]).confine,
+		).toEqual([]);
+		expect(parseArgs(["--name", "CanvasEditor"]).confine).toContain("@xyflow");
+	});
+
+	it("refuses --no-confine beside --confine, and an unknown flag", () => {
+		expect(() => parseArgs(["--no-confine", "--confine", "@xyflow"])).toThrow();
+		expect(() => parseArgs(["--no-confin"])).toThrow(/unknown option/);
 	});
 });

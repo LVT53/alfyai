@@ -4,7 +4,6 @@ export type ComposerCommandId =
 	| "think"
 	| "attach"
 	| "document"
-	| "source"
 	| "skill"
 	| "settings"
 	| "clear"
@@ -80,13 +79,6 @@ export const STATIC_COMPOSER_COMMANDS: readonly ComposerCommandDefinition[] = [
 		argument: {
 			placeholderKey: "composerCommands.document.argumentPlaceholder",
 		},
-	},
-	{
-		id: "source",
-		token: "/source",
-		labelKey: "composerCommands.source.label",
-		descriptionKey: "composerCommands.source.description",
-		availability: "available",
 	},
 	{
 		id: "skill",

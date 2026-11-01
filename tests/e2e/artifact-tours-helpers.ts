@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "../../src/lib/server/artifact-tour-defaults";
 import { db } from "../../src/lib/server/db";
 import {
@@ -17,9 +18,21 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createArtifact,
+	createDocumentArtifact,
+	updateArtifactBody,
+} from "../../src/lib/server/services/artifacts";
+import {
+	attachImageFilesToArtifact,
+	storeImageFile,
+} from "../../src/lib/server/services/images/files";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
+import {
+	type ImageVersionBody,
+	serializeImageVersionBody,
+} from "../../src/lib/shared/artifacts/image-body";
 import {
 	SHIPPED_ARTIFACT_TOUR_TYPES,
 	type ShippedArtifactTourType,
@@ -41,6 +54,7 @@ export const ITEM_TITLES: Record<TourKind, string> = {
 	document: "Trip notes",
 	app: "Tip calculator",
 	canvas: "Weekend board",
+	image: "Sunset gradient",
 };
 
 export function isMobile(page: Page): boolean {
@@ -165,6 +179,10 @@ export async function seedItem(
 	options: { empty?: boolean; title?: string; board?: CanvasBody } = {},
 ): Promise<string> {
 	const title = options.title ?? ITEM_TITLES[kind];
+	if (kind === "image") {
+		// A picture is never empty: an Image item always holds one.
+		return (await seedImageItem(user, conversationId, { title })).artifactId;
+	}
 	if (kind === "document") {
 		const document = await createDocumentArtifact({
 			userId: user.id,
@@ -458,4 +476,136 @@ async function rewordSummary(
 export async function archiveTour(api: APIRequestContext, campaignId: string) {
 	const archived = await api.post(`/api/admin/campaigns/${campaignId}/archive`);
 	expect(archived.ok(), "archiving the tour").toBe(true);
+}
+
+/** The title a seeded Image carries. */
+export const IMAGE_ITEM_TITLE = ITEM_TITLES.image;
+
+/**
+ * A gradient PNG made here, never a photo of anyone: `shade` moves the hues, so
+ * each version of a seeded Image is a picture of its own.
+ */
+export async function gradientPng(
+	width: number,
+	height: number,
+	shade = 0,
+	/** See-through right of 55 % of the width (plan 2b T4: a transparent picture in the wipe). */
+	seeThrough = false,
+): Promise<Uint8Array> {
+	const channels = seeThrough ? 4 : 3;
+	const pixels = Buffer.alloc(width * height * channels);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const i = (y * width + x) * channels;
+			pixels[i] = Math.round((255 * x) / width + shade * 60) % 256;
+			pixels[i + 1] = Math.round((200 * y) / height + shade * 25) % 256;
+			pixels[i + 2] = (150 + shade * 40) % 256;
+			if (seeThrough) pixels[i + 3] = x > width * 0.55 ? 0 : 255;
+		}
+	}
+	return sharp(pixels, { raw: { width, height, channels } }).png().toBuffer();
+}
+
+/**
+ * An Image item in the user's chat (plan 2b T3), with `versions` pictures: the
+ * first made by Alfy, each later one a change of the one before it (its Before).
+ * Its pictures are gradients stored the way the picture pipeline stores them.
+ */
+export async function seedImageItem(
+	user: TourUser,
+	conversationId: string,
+	options: {
+		title?: string;
+		versions?: number;
+		width?: number;
+		height?: number;
+		/**
+		 * How each later version was written (plan 2b T4): `alfy`, a change of Alfy's
+		 * (changes written in a row fold into one History moment), or `picked`, a
+		 * take the reader chose (a moment of its own). Alfy's by default.
+		 */
+		authorOf?: (index: number) => "alfy" | "picked";
+		/** Which versions' pictures are see-through (right of 55 % of the width). */
+		seeThroughOf?: (index: number) => boolean;
+		/** More of a version's body: a prompt, marks. */
+		decorate?: (index: number) => Partial<ImageVersionBody>;
+	} = {},
+): Promise<{ artifactId: string; fileIds: string[] }> {
+	const width = options.width ?? 1248;
+	const height = options.height ?? 832;
+	const count = options.versions ?? 1;
+	const fileIds: string[] = [];
+	for (let index = 0; index < count; index++) {
+		const file = await storeImageFile({
+			userId: user.id,
+			conversationId,
+			role: "take",
+			png: await gradientPng(
+				width,
+				height,
+				index,
+				options.seeThroughOf?.(index) ?? false,
+			),
+		});
+		fileIds.push(file.id);
+	}
+	const bodyOf = (index: number) =>
+		serializeImageVersionBody({
+			v: 1,
+			fileId: fileIds[index],
+			width,
+			height,
+			hasAlpha: options.seeThroughOf?.(index) ?? false,
+			baseFileId: index > 0 ? fileIds[index - 1] : null,
+			sources: [],
+			marks: null,
+			prompt: null,
+			takeId: null,
+			seed: null,
+			anchorFileId: null,
+			chainSinceAnchor: 0,
+			...options.decorate?.(index),
+		});
+	const created = await createArtifact({
+		userId: user.id,
+		conversationId,
+		kind: "image",
+		title: options.title ?? IMAGE_ITEM_TITLE,
+		body: bodyOf(0),
+		author: "alfy",
+		versionSummary: "Alfy made the picture",
+	});
+	if (!created.ok) throw new Error(`seedImageItem: ${created.reason}`);
+	const artifactId = created.artifact.id;
+	for (let index = 1; index < count; index++) {
+		await addImageVersion(
+			user,
+			artifactId,
+			bodyOf(index),
+			conversationId,
+			options.authorOf?.(index) ?? "alfy",
+		);
+	}
+	await attachImageFilesToArtifact(fileIds, artifactId);
+	return { artifactId, fileIds };
+}
+
+/** A new version of a seeded Image, written the way a picked take is (outside any stream). */
+export async function addImageVersion(
+	user: TourUser,
+	artifactId: string,
+	body: string,
+	conversationId: string,
+	as: "alfy" | "picked" = "alfy",
+): Promise<void> {
+	const written = await updateArtifactBody({
+		userId: user.id,
+		artifactId,
+		body,
+		author: as === "picked" ? "user" : "alfy",
+		summary:
+			as === "picked" ? "Picked another take" : "Alfy changed the picture",
+		conversationId,
+	});
+	if (!written.ok) throw new Error(`addImageVersion: ${written.reason}`);
 }

@@ -168,9 +168,13 @@ export function entryHeadline(
 	const text = entry.text?.trim() ? entry.text.trim() : null;
 	switch (entry.kind) {
 		case "first_draft":
+			// Each kind's first version in its own words: a board is made, a picture
+			// is made (the photo a person brought is `user_photo`), a text is written.
 			return artifactKind === "canvas"
 				? t("artifacts.history.moment.firstDraftBoard")
-				: t("artifacts.history.moment.firstDraft");
+				: artifactKind === "image"
+					? t("artifacts.history.moment.firstPicture")
+					: t("artifacts.history.moment.firstDraft");
 		case "app_made":
 			return t("artifacts.history.moment.appMade");
 		case "kept_from_chat":
@@ -179,6 +183,10 @@ export function entryHeadline(
 			return t("artifacts.history.moment.savedAsCopy");
 		case "made_again":
 			return t("artifacts.history.moment.madeAgain");
+		case "user_photo":
+			return t("artifacts.history.moment.userPhoto");
+		case "picked_take":
+			return t("artifacts.history.moment.pickedTake");
 		case "user_edit":
 			return artifactKind === "canvas"
 				? t("artifacts.history.moment.youChangedBoard")
@@ -196,7 +204,9 @@ export function entryHeadline(
 		case "alfy_edit":
 			return text
 				? t("artifacts.history.moment.alfyEdit", { text })
-				: t("artifacts.history.moment.alfyEditFallback");
+				: artifactKind === "image"
+					? t("artifacts.history.moment.alfyChangedPicture")
+					: t("artifacts.history.moment.alfyEditFallback");
 		case "alfy_reply_edit":
 			return t("artifacts.history.moment.alfyReplyEdit");
 		case "app_rebuilt":
@@ -326,6 +336,13 @@ export function entryDetail(
 			}
 			return parts.length > 0 ? parts.join(", ") : null;
 		}
+		case "image":
+			// One picture in says nothing; several says how many went in.
+			return detail.sourceCount > 1
+				? t("artifacts.history.detail.fromPictures", {
+						count: detail.sourceCount,
+					})
+				: null;
 	}
 }
 

@@ -8,8 +8,23 @@ import { SHIPPED_ARTIFACT_TOUR_TYPES } from "./tours";
 // "Made in this chat" rows without a word. The kinds have their own list; the
 // tours' list is checked against it.
 describe("SHIPPED_ARTIFACT_KINDS", () => {
-	it("is Document, App and Canvas — the kinds the artifact tools make and that ship", () => {
-		expect([...SHIPPED_ARTIFACT_KINDS]).toEqual(["document", "app", "canvas"]);
+	it("is Document, App, Canvas and Image — the kinds of the family that ship", () => {
+		expect([...SHIPPED_ARTIFACT_KINDS]).toEqual([
+			"document",
+			"app",
+			"canvas",
+			"image",
+		]);
+	});
+
+	it("includes Image, and gives it a tour like the other kinds (plan 2b T16)", () => {
+		expect(isShippedArtifactKind("image")).toBe(true);
+		expect([...SHIPPED_ARTIFACT_TOUR_TYPES]).toEqual([
+			"document",
+			"app",
+			"canvas",
+			"image",
+		]);
 	});
 
 	it("leaves out Slides (shelved, ruling 69) and File (a produced file, ruling 18)", () => {

@@ -18,6 +18,19 @@ import type {
 } from "$lib/shared/artifacts/tours";
 
 /**
+ * The kinds with a tour that can be empty: every shipped tour kind but the
+ * Image (plan 2b T16), whose item always holds a picture, so it draws no empty
+ * state and its tour is replayed from the list row's menu alone.
+ */
+export const EMPTY_STATE_KINDS = [
+	"document",
+	"app",
+	"canvas",
+] as const satisfies readonly Exclude<ShippedArtifactTourType, "image">[];
+
+export type EmptyStateKind = (typeof EMPTY_STATE_KINDS)[number];
+
+/**
  * The dictionary line each kind's empty state falls back to. The Canvas's key
  * was there before the tours; the Document's and the App's are new with them.
  */
@@ -25,7 +38,7 @@ export const EMPTY_STATE_FALLBACK_KEYS = {
 	document: "artifacts.document.emptyState",
 	app: "artifacts.app.emptyState",
 	canvas: "artifacts.canvas.emptyBoard",
-} as const satisfies Record<ShippedArtifactTourType, I18nKey>;
+} as const satisfies Record<EmptyStateKind, I18nKey>;
 
 /**
  * The kind's empty-state line in the reader's language: the tour's summary when
@@ -38,7 +51,7 @@ export function emptyStateLine(
 	summary: LocalizedText | null | undefined,
 	language: keyof LocalizedText,
 	t: (key: I18nKey) => string,
-	kind: ShippedArtifactTourType,
+	kind: EmptyStateKind,
 ): string {
 	const own = summary?.[language];
 	if (typeof own === "string" && own.trim().length > 0) return own;

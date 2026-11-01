@@ -27,7 +27,16 @@ import {
 	isExtractionWaitingForBackend,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
-import { getCategory } from "$lib/shared/file-types";
+import {
+	FILE_FAMILY_ORDER,
+	type FileFamily,
+	getCategory,
+} from "$lib/shared/file-types";
+import {
+	type ListView,
+	readListView,
+	writeListView,
+} from "$lib/utils/list-view-preference";
 
 /**
  * Every row of this table is a library row, so the extraction verdict the
@@ -217,8 +226,44 @@ export type DocumentKind =
  */
 export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
 
+/**
+ * Every `?type=` value the Knowledge page accepts — the ONE list, read by the
+ * page's server load and by the page itself. Two hand-kept copies drifted
+ * (the page's lacked "image", so `?type=image` silently fell back to All).
+ * Slides stays accepted though its chip is shelved (ruling 69, see below).
+ */
+const KNOWLEDGE_KIND_FILTERS: ReadonlySet<string> =
+	new Set<KnowledgeDocumentKindFilter>([
+		"document",
+		"canvas",
+		"app",
+		"slides",
+		"image",
+		"uploaded",
+	]);
+
+/** A `?type=` value as a kind filter; anything unrecognised is ignored
+ *  (`null`), same rule as sort/dir. */
+export function parseKnowledgeKindFilter(
+	value: string | null,
+): KnowledgeDocumentKindFilter | null {
+	return value && KNOWLEDGE_KIND_FILTERS.has(value)
+		? (value as KnowledgeDocumentKindFilter)
+		: null;
+}
+
+const FILE_FAMILY_FILTERS: ReadonlySet<string> = new Set<FileFamily>(
+	FILE_FAMILY_ORDER,
+);
+
+/** Ruling 60's second-tier `?family=` filter, read the same way: an
+ *  allowlist check, unrecognised values ignored. */
+export function parseFileFamilyFilter(value: string | null): FileFamily | null {
+	return value && FILE_FAMILY_FILTERS.has(value) ? (value as FileFamily) : null;
+}
+
 /** Chip order, the mockup's left-to-right reading order less Slides:
- *  All · Documents · Canvas · Apps · Uploaded (shown as Files).
+ *  All · Documents · Canvas · Apps · Images · Uploaded (shown as Files).
  *
  *  Ruling 69: Slides is shelved, so production shows no filter for a kind it
  *  cannot make. Only the chip row hides: `DocumentTypeFilter`, the server's
@@ -229,6 +274,7 @@ export const DOCUMENT_TYPE_FILTER_ORDER: readonly DocumentTypeFilter[] = [
 	"document",
 	"canvas",
 	"app",
+	"image",
 	"uploaded",
 ];
 
@@ -433,4 +479,49 @@ export function nextSortDirection(
 		return activeSortDirection === "asc" ? "desc" : "asc";
 	}
 	return nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
+}
+
+// ── Pictures, and the list/grid choice (plan 2b Task 22) ──────────────────
+
+/**
+ * The thumbnail a row or a gallery tile shows: an Image item's newest picture
+ * (`imagePreview`, from the library page's load), read in the chat it was made
+ * in. `null` for every other row, which keeps its icon.
+ */
+export function documentThumbnail(document: KnowledgeDocumentItem): {
+	fileId: string;
+	hasAlpha: boolean;
+	conversationId: string | null;
+} | null {
+	if (document.kind !== "image" || !document.imagePreview) return null;
+	return {
+		fileId: document.imagePreview.fileId,
+		hasAlpha: document.imagePreview.hasAlpha,
+		conversationId: document.conversationId,
+	};
+}
+
+/** The Documents tab's two views: the table, or a gallery of tiles. */
+export type DocumentsView = ListView;
+
+/**
+ * Per viewer, in this browser. The library keeps its own choice, apart from the
+ * chat panel's list (`artifactPanelListView`): a reader may browse the library
+ * as a gallery and keep the narrow panel a list.
+ */
+export const DOCUMENTS_VIEW_STORAGE_KEY = "knowledgeDocumentsView";
+
+type ViewStorage = Pick<Storage, "getItem" | "setItem">;
+
+/** The reader's last view, or the list. A blocked or missing storage is the list, never an error. */
+export function readDocumentsView(storage?: ViewStorage | null): DocumentsView {
+	return readListView(DOCUMENTS_VIEW_STORAGE_KEY, storage);
+}
+
+/** Keeps the choice; a storage that refuses it (a private window) is left alone. */
+export function writeDocumentsView(
+	view: DocumentsView,
+	storage?: ViewStorage | null,
+): void {
+	writeListView(DOCUMENTS_VIEW_STORAGE_KEY, view, storage);
 }

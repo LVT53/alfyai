@@ -500,12 +500,19 @@ export async function resolvePromptAttachmentArtifacts(
  */
 export function blockingAttachmentItems(
 	items: PromptAttachmentResolutionItem[],
-	options: { exemptImages: boolean },
+	options: {
+		exemptImages: boolean;
+		/** The photo the person marked: make_image works from its pixels, so its text never matters. */
+		markedArtifactId?: string | null;
+	},
 ): PromptAttachmentResolutionItem[] {
-	if (!options.exemptImages) return items;
+	if (!options.exemptImages && !options.markedArtifactId) return items;
 	return items.filter((item) => {
 		const artifact = item.displayArtifact;
-		return !(artifact && isSeeableImage(artifact.name, artifact.mimeType));
+		if (!artifact || !isSeeableImage(artifact.name, artifact.mimeType)) {
+			return true;
+		}
+		return !options.exemptImages && artifact.id !== options.markedArtifactId;
 	});
 }
 
@@ -519,6 +526,7 @@ export async function assertPromptReadyAttachments(params: {
 	 * can be shown never blocks the send. See `blockingAttachmentItems`.
 	 */
 	exemptImages?: boolean;
+	markedArtifactId?: string | null;
 }): Promise<{
 	displayArtifacts: Artifact[];
 	promptArtifacts: Artifact[];
@@ -529,6 +537,7 @@ export async function assertPromptReadyAttachments(params: {
 	);
 	const blocking = blockingAttachmentItems(resolved.unresolvedItems, {
 		exemptImages: params.exemptImages === true,
+		markedArtifactId: params.markedArtifactId,
 	});
 
 	if (params.attachmentIds.length > 0) {

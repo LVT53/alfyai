@@ -56,9 +56,7 @@ let {
 		display: flex;
 		flex-direction: column;
 		flex: 0 0 auto;
-		margin-top: 0.5rem;
-		padding-top: 0.5rem;
-		border-top: 1px solid var(--border-subtle);
+		margin-top: 0.75rem;
 	}
 
 	.margin-panel-orphaned-toggle {
@@ -121,8 +119,8 @@ let {
 	.margin-panel-orphaned-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.625rem;
-		padding: 0.5rem 0.375rem 0.5rem;
+		gap: 0.5rem;
+		padding: 0.25rem 0;
 	}
 
 	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4). */

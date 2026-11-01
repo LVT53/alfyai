@@ -7,13 +7,21 @@
  * who did what, what changed, where it stands) and holds no interactive content:
  * the Review and From-the-chat links are buttons beside it, reached with Tab.
  *
+ * One line per entry, for every kind: what happened and when, a picture's thumbnail
+ * beside it. What changed, the status and the "same as" notes stay in the DOM and
+ * show on the selected entry, which also lets its headline wrap, so reading the
+ * list stays reading a list. A hover only adds the tooltip: growing a row under
+ * the pointer would move the row the pointer is heading for. What still waits for
+ * the reader keeps its dot and its Review link on every row.
+ *
  * The rail owns no data. It draws the groups it is given and reports what the
  * reader chose; `HistoryMode.svelte` loads, pages and previews.
  */
-import { Bookmark, CornerDownRight, Info, Sparkles } from "@lucide/svelte";
+import { Bookmark } from "@lucide/svelte";
 import { tick } from "svelte";
-import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
+import ImagePicture from "$lib/components/artifacts/image/ImagePicture.svelte";
 import { t } from "$lib/i18n";
+import { IMAGE_THUMB_LONG_EDGE } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	dayLabel,
@@ -41,8 +49,8 @@ let {
 	selectedKey,
 	ctx,
 	artifactKind,
+	conversationId = null,
 	listLabel,
-	currentUser = null,
 	filter,
 	showFilter,
 	older,
@@ -61,12 +69,9 @@ let {
 	selectedKey: string | null;
 	ctx: TextContext;
 	artifactKind: ArtifactKind;
+	/** The chat the panel shows: a picture's thumbnail is read in its scope, so an incognito chat's load (F25). */
+	conversationId?: string | null;
 	listLabel: string;
-	currentUser?: {
-		id: string;
-		displayName: string;
-		profilePicture: string | null;
-	} | null;
 	filter: RailFilter;
 	/** The chips show once any version is named. */
 	showFilter: boolean;
@@ -154,6 +159,13 @@ function momentCanReview(entry: RailEntry): boolean {
 	return entry.type === "moment" && entry.moment.status === "waiting";
 }
 
+/** An Image moment's picture: its rail row carries the thumbnail (plan 2b T4). A folded step has none of its own. */
+function thumbOf(entry: RailEntry): string | null {
+	return entry.type === "moment" && entry.moment.detail.type === "image"
+		? entry.moment.detail.fileId
+		: null;
+}
+
 function fromChat(entry: RailEntry): boolean {
 	return (
 		entry.type === "moment" &&
@@ -206,10 +218,12 @@ function fromChat(entry: RailEntry): boolean {
 					{@const headline = entryHeadline(entry, ctx, artifactKind)}
 					{@const detail = entryDetail(entry, ctx, artifactKind)}
 					{@const span = entry.type === 'moment' ? entrySpanLabel(entry.startedAt, entry.at, ctx) : null}
+					{@const thumb = thumbOf(entry)}
 					<div
 						class="entry"
 						class:entry-step={entry.type === 'step'}
 						class:entry-quiet={entry.type === 'moment' && entry.moment.quiet}
+						class:is-selected={selected}
 						role="presentation"
 					>
 						<div
@@ -219,6 +233,7 @@ function fromChat(entry: RailEntry): boolean {
 							role="option"
 							aria-selected={selected}
 							aria-label={entryA11yName(entry, ctx, artifactKind)}
+							title={entryA11yName(entry, ctx, artifactKind)}
 							tabindex={entry.key === tabStopKey ? 0 : -1}
 							data-testid="history-option"
 							data-key={entry.key}
@@ -230,63 +245,72 @@ function fromChat(entry: RailEntry): boolean {
 								onActivate(entry.key);
 							}}
 						>
-							{#if entry.label}
-								<span class="named">
-									<Bookmark size={12} strokeWidth={2.2} aria-hidden="true" />
-									<span class="named-text">{entry.label}</span>
+							{#if thumb}
+								<!-- Reserved before the picture loads; it fades in (ImagePicture). -->
+								<span class="rail-thumb" aria-hidden="true" data-testid="history-thumb">
+									<ImagePicture
+										fileId={thumb}
+										width={IMAGE_THUMB_LONG_EDGE}
+										height={IMAGE_THUMB_LONG_EDGE}
+										alt=""
+										{conversationId}
+										variant="thumb"
+									/>
 								</span>
 							{/if}
-							<span class="line1">
-								{#if entry.type === 'step'}
-									<CornerDownRight size={13} strokeWidth={2} class="step-icon" aria-hidden="true" />
-								{:else}
-									<span class="avatar" aria-hidden="true">
-										{#if entry.author === 'alfy'}
-											<span class="alfy-avatar"><Sparkles size={12} strokeWidth={2} /></span>
-										{:else}
-											<AvatarCircle
-												userId={currentUser?.id ?? 'user'}
-												name={currentUser?.displayName ?? null}
-												profilePicture={currentUser?.profilePicture ?? null}
-												size={22}
-											/>
+							<span class="option-body">
+								<span class="line1">
+									{#if momentCanReview(entry)}
+										<span class="waiting-dot" aria-hidden="true"></span>
+									{/if}
+									{#if entry.label}
+										<span class="headline named">
+											<Bookmark size={12} strokeWidth={2.2} aria-hidden="true" />
+											<span class="named-text">{entry.label}</span>
+										</span>
+									{:else}
+										<span class="headline">{headline}</span>
+									{/if}
+									{#if entryIsNow(entry)}
+										<span class="time marker-now">{$t('artifacts.history.now')}</span>
+									{:else}
+										<span class="time">{span ?? entryTimeLabel(entry.at, ctx)}</span>
+									{/if}
+								</span>
+								<span class="secondary">
+									{#if entry.label}
+										<span class="detail">{headline}</span>
+									{/if}
+									{#if detail}
+										<span class="detail">{detail}</span>
+									{/if}
+									<span class="markers">
+										{#if entry.type === 'moment' && entry.moment.status}
+											<span class="pill pill-{entry.moment.status}">{statusLabel(entry.moment.status, ctx.t)}</span>
+										{/if}
+										{#if entry.sameAsNow}
+											<span class="marker">{$t('artifacts.history.sameAsNow')}</span>
+										{:else if entry.sameAs}
+											<span class="marker">{$t('artifacts.history.sameAs', { when: whenLabel(entry.sameAs.at, ctx) })}</span>
+										{/if}
+										{#if entry.type === 'moment' && entry.moment.restoredHere[0]}
+											<span class="marker">{$t('artifacts.history.restoredFromHere', { when: whenLabel(entry.moment.restoredHere[0].at, ctx) })}</span>
+										{/if}
+										{#if entry.type === 'moment' && entry.moment.undoneBy && !entry.moment.fold}
+											<span class="marker">{$t('artifacts.history.undoneLater', { when: whenLabel(entry.moment.undoneBy.at, ctx) })}</span>
 										{/if}
 									</span>
-								{/if}
-								<span class="headline">{headline}</span>
-								<span class="time">{span ?? entryTimeLabel(entry.at, ctx)}</span>
-							</span>
-							{#if detail}
-								<span class="detail">{detail}</span>
-							{/if}
-							<span class="markers">
-								{#if entry.type === 'moment' && entry.moment.status}
-									<span class="pill pill-{entry.moment.status}">{statusLabel(entry.moment.status, ctx.t)}</span>
-								{/if}
-								{#if entryIsNow(entry)}
-									<span class="marker marker-now">{$t('artifacts.history.now')}</span>
-								{/if}
-								{#if entry.sameAsNow}
-									<span class="marker">{$t('artifacts.history.sameAsNow')}</span>
-								{:else if entry.sameAs}
-									<span class="marker">{$t('artifacts.history.sameAs', { when: whenLabel(entry.sameAs.at, ctx) })}</span>
-								{/if}
-								{#if entry.type === 'moment' && entry.moment.restoredHere[0]}
-									<span class="marker">{$t('artifacts.history.restoredFromHere', { when: whenLabel(entry.moment.restoredHere[0].at, ctx) })}</span>
-								{/if}
-								{#if entry.type === 'moment' && entry.moment.undoneBy && !entry.moment.fold}
-									<span class="marker">{$t('artifacts.history.undoneLater', { when: whenLabel(entry.moment.undoneBy.at, ctx) })}</span>
-								{/if}
+								</span>
 							</span>
 						</div>
-						{#if (momentCanReview(entry) && onReview) || (fromChat(entry) && onFromChat)}
+						{#if (momentCanReview(entry) && onReview) || (fromChat(entry) && onFromChat && selected)}
 							<span class="links">
 								{#if momentCanReview(entry) && onReview}
 									<button type="button" class="link link-review" data-testid="history-review" onclick={() => onReview(entry)}>
 										{$t('artifacts.history.review')} ›
 									</button>
 								{/if}
-								{#if fromChat(entry) && onFromChat}
+								{#if fromChat(entry) && onFromChat && selected}
 									<button type="button" class="link" data-testid="history-from-chat" onclick={() => onFromChat(entry)}>
 										{$t('artifacts.history.fromChat')} ›
 									</button>
@@ -317,7 +341,6 @@ function fromChat(entry: RailEntry): boolean {
 
 	{#if help}
 		<div class="help" data-testid="history-help">
-			<Info size={13} strokeWidth={2} aria-hidden="true" />
 			<span class="help-text">{help}</span>
 			{#if onDismissHelp}
 				<button type="button" class="help-dismiss" onclick={onDismissHelp}>
@@ -339,8 +362,8 @@ function fromChat(entry: RailEntry): boolean {
 
 	.rail-filter {
 		display: flex;
-		gap: 0.375rem;
-		padding: 0.625rem 0.875rem 0.25rem;
+		gap: 0.25rem;
+		padding: 0.75rem 0.75rem 0;
 	}
 
 	.chip {
@@ -348,24 +371,20 @@ function fromChat(entry: RailEntry): boolean {
 		align-items: center;
 		gap: 0.25rem;
 		height: 1.5rem;
-		padding: 0 0.625rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-full);
+		padding: 0 0.5rem;
+		border: 0;
+		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--text-muted);
 		font-family: var(--font-sans);
-		font-size: 0.72rem;
-		font-weight: 600;
+		font-size: 0.75rem;
+		font-weight: 500;
 		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
 	}
 
 	.chip[aria-pressed='true'] {
-		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-		background: var(--accent-tint);
-		color: var(--accent-text);
+		background: var(--surface-elevated);
+		color: var(--text-primary);
 	}
 
 	.chip:focus-visible {
@@ -378,55 +397,77 @@ function fromChat(entry: RailEntry): boolean {
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		padding: 0.25rem 0.5rem 0.75rem;
+		padding: 0.25rem 0.5rem 1rem;
 		outline: none;
 	}
 
 	.day-heading {
-		padding: 0.75rem 0.5rem 0.25rem;
+		padding: 1rem 0.5rem 0.375rem;
 		color: var(--text-muted);
-		font-size: 0.6875rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
+		font-size: 0.75rem;
+		font-weight: 500;
 	}
 
 	.entry {
 		position: relative;
-		margin-bottom: 0.125rem;
 	}
 
+	/* A step of a fold: the same one line, set in under its moment and a tone down. */
 	.entry-step {
-		margin-left: 2.125rem;
+		margin-left: 0.75rem;
 	}
 
 	.option {
 		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
-		position: relative;
-		padding: 0.5rem 0.625rem;
+		align-items: flex-start;
+		gap: 0.625rem;
+		padding: 0.4375rem 0.5rem;
 		border-radius: var(--radius-md);
 		cursor: pointer;
 		outline: none;
-		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
-	.option:hover {
+	.option-body {
+		display: flex;
+		flex: 1 1 0;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+		/* The line sits centred on a thumbnail. */
+		min-height: 1.25rem;
+		justify-content: center;
+	}
+
+	.option:has(.rail-thumb) .option-body {
+		min-height: 2rem;
+	}
+
+	.rail-thumb {
+		flex: 0 0 2rem;
+		width: 2rem;
+		height: 2rem;
+		overflow: hidden;
+		border-radius: var(--radius-sm);
 		background: var(--surface-elevated);
 	}
 
-	.option.selected {
-		background: var(--accent-tint);
+	.rail-thumb :global(.image-picture) {
+		height: 100%;
 	}
 
-	.option.selected::before {
-		content: '';
-		position: absolute;
-		inset: 0.375rem auto 0.375rem 0;
-		width: 2px;
-		border-radius: 2px;
-		background: var(--accent);
+	.rail-thumb :global(.image-picture-img) {
+		object-fit: cover;
+	}
+
+	/* Half of the selection's tint, not `--surface-overlay`: that token is lighter than
+	   `--surface-elevated` in dark mode, which made a passing hover louder than the
+	   selected row. */
+	.option:hover {
+		background: color-mix(in srgb, var(--surface-elevated) 50%, transparent);
+	}
+
+	.option.selected {
+		background: var(--surface-elevated);
 	}
 
 	.option:focus-visible {
@@ -437,104 +478,107 @@ function fromChat(entry: RailEntry): boolean {
 		opacity: 0.72;
 	}
 
-	.named {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		color: var(--text-primary);
-		font-size: 0.75rem;
-		font-weight: 700;
-	}
-
-	.named :global(svg) {
-		color: var(--accent-text);
-		flex-shrink: 0;
-	}
-
-	.named-text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.line1 {
 		display: flex;
-		align-items: flex-start;
+		align-items: baseline;
 		gap: 0.5rem;
 		min-width: 0;
 	}
 
-	.line1 :global(.step-icon) {
-		flex-shrink: 0;
-		margin-top: 0.1875rem;
-		color: var(--text-muted);
-	}
-
-	.avatar {
-		display: inline-flex;
-		flex-shrink: 0;
-		margin-top: 0.0625rem;
-	}
-
-	.alfy-avatar {
-		display: inline-grid;
-		place-items: center;
-		width: 22px;
-		height: 22px;
+	.waiting-dot {
+		flex: 0 0 auto;
+		align-self: center;
+		width: 0.375rem;
+		height: 0.375rem;
 		border-radius: var(--radius-full);
-		background: var(--accent-tint-strong);
-		color: var(--accent-text);
+		background: var(--accent);
 	}
 
 	.headline {
 		flex: 1 1 auto;
 		min-width: 0;
+		overflow: hidden;
 		color: var(--text-primary);
 		font-size: 0.8125rem;
-		font-weight: 600;
-		line-height: 1.3;
+		font-weight: 400;
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.option.selected .headline {
+		font-weight: 500;
+		white-space: normal;
 		overflow-wrap: anywhere;
 	}
 
 	.entry-step .headline {
-		font-size: 0.78rem;
-		font-weight: 500;
-		color: var(--text-muted);
-	}
-
-	.time {
-		flex: 0 0 auto;
-		min-width: 2.75rem;
-		color: var(--text-muted);
-		font-size: 0.72rem;
-		font-variant-numeric: tabular-nums;
-		text-align: right;
-		white-space: nowrap;
-	}
-
-	.detail {
-		padding-left: 1.875rem;
 		color: var(--text-muted);
 		font-size: 0.78rem;
-		line-height: 1.35;
+	}
+
+	.named {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.named :global(svg) {
+		flex-shrink: 0;
+		color: var(--accent-text);
+	}
+
+	.named-text {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.entry-step .detail {
-		padding-left: 1.4rem;
+	.time {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+		font-size: 0.72rem;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+
+	.marker-now {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	/* Off the page for every row but the selected one; a phrase in a row's text is
+	   still its accessible name. Opacity alone brings it in: the height is at once. */
+	.secondary {
+		display: none;
+	}
+
+	.option.selected .secondary {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+		animation: rail-secondary-in var(--duration-standard) var(--ease-out);
+	}
+
+	@keyframes rail-secondary-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	.detail {
+		color: var(--text-muted);
+		font-size: 0.75rem;
+		line-height: 1.35;
+		overflow-wrap: anywhere;
 	}
 
 	.markers {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.25rem 0.375rem;
-		padding-left: 1.875rem;
-	}
-
-	.entry-step .markers {
-		padding-left: 1.4rem;
+		gap: 0.25rem 0.5rem;
 	}
 
 	.markers:empty {
@@ -543,49 +587,24 @@ function fromChat(entry: RailEntry): boolean {
 
 	.pill,
 	.marker {
-		display: inline-flex;
-		align-items: center;
-		height: 1.125rem;
-		padding: 0 0.4rem;
-		border-radius: var(--radius-full);
-		font-size: 0.66rem;
-		font-weight: 700;
-		letter-spacing: 0.02em;
+		color: var(--text-muted);
+		font-size: 0.72rem;
 		white-space: nowrap;
 	}
 
 	.pill-waiting {
-		background: var(--accent-tint-strong);
 		color: var(--accent-text);
-	}
-
-	.pill-kept {
-		background: var(--success-tint);
-		color: var(--success);
-	}
-
-	.pill-undone,
-	.pill-partly_kept {
-		background: var(--surface-elevated);
-		color: var(--text-muted);
-	}
-
-	.marker {
-		padding: 0;
-		height: auto;
-		color: var(--text-muted);
 		font-weight: 600;
 	}
 
-	.marker-now {
-		color: var(--text-primary);
-		font-weight: 800;
+	.pill-kept {
+		color: var(--success);
 	}
 
 	.links {
 		display: flex;
 		gap: 0.75rem;
-		padding: 0 0.625rem 0.375rem 2.5rem;
+		padding: 0 0.5rem 0.25rem;
 	}
 
 	.link {
@@ -619,13 +638,13 @@ function fromChat(entry: RailEntry): boolean {
 		width: 100%;
 		margin-top: 0.5rem;
 		min-height: 2rem;
-		border: 1px solid var(--border-default);
+		border: 0;
 		border-radius: var(--radius-md);
 		background: transparent;
-		color: var(--text-primary);
+		color: var(--text-muted);
 		font-family: var(--font-sans);
 		font-size: 0.78rem;
-		font-weight: 600;
+		font-weight: 500;
 		cursor: pointer;
 	}
 
@@ -645,19 +664,13 @@ function fromChat(entry: RailEntry): boolean {
 
 	.help {
 		display: flex;
-		align-items: flex-start;
-		gap: 0.4rem;
+		align-items: baseline;
+		gap: 0.5rem;
 		margin: 0;
-		padding: 0.625rem 0.875rem;
-		border-top: 1px solid var(--border-default);
+		padding: 0.625rem 1rem;
 		color: var(--text-muted);
 		font-size: 0.72rem;
 		line-height: 1.4;
-	}
-
-	.help :global(svg) {
-		flex-shrink: 0;
-		margin-top: 0.125rem;
 	}
 
 	.help-text {
@@ -673,7 +686,7 @@ function fromChat(entry: RailEntry): boolean {
 		color: var(--text-primary);
 		font-family: var(--font-sans);
 		font-size: 0.72rem;
-		font-weight: 700;
+		font-weight: 500;
 		cursor: pointer;
 	}
 
@@ -685,8 +698,9 @@ function fromChat(entry: RailEntry): boolean {
 
 	@media (max-width: 639px) {
 		.option {
-			min-height: 3.5rem;
-			padding: 0.625rem 0.75rem;
+			min-height: 2.75rem;
+			align-items: center;
+			padding: 0.5rem 0.75rem;
 		}
 
 		.link {
@@ -708,9 +722,8 @@ function fromChat(entry: RailEntry): boolean {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.option,
-		.chip {
-			transition: none;
+		.option.selected .secondary {
+			animation: none;
 		}
 	}
 </style>

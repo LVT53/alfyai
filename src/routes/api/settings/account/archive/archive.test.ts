@@ -77,7 +77,7 @@ describe("POST /api/settings/account/archive", () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("application/zip");
 		expect(response.headers.get("Content-Disposition")).toBe(
-			'attachment; filename="AlfyAI Data Archive 2026-06-15.zip"',
+			`attachment; filename="AlfyAI Data Archive 2026-06-15.zip"; filename*=UTF-8''AlfyAI%20Data%20Archive%202026-06-15.zip`,
 		);
 		expect(response.headers.get("Cache-Control")).toBe("no-store");
 		expect(Buffer.from(await response.arrayBuffer())).toEqual(zipBytes);

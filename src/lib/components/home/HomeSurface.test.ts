@@ -28,7 +28,7 @@ import HomeSurface from "./HomeSurface.svelte";
 
 const gotoMock = vi.hoisted(() => vi.fn());
 const fetchAvailableModelsMock = vi.hoisted(() =>
-	vi.fn(async () => ({ providers: [] })),
+	vi.fn(async () => ({ providers: [], modelAliases: {} })),
 );
 const fetchKnowledgeLibraryMock = vi.hoisted(() =>
 	vi.fn(async () => ({ documents: [], results: [], workflows: [] })),
@@ -49,7 +49,8 @@ const fetchSystemCapabilitiesMock = vi.hoisted(() =>
 );
 
 vi.mock("$app/navigation", () => ({ goto: gotoMock }));
-vi.mock("$lib/client/api/models", () => ({
+vi.mock("$lib/client/api/models", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/models")>()),
 	fetchAvailableModels: fetchAvailableModelsMock,
 }));
 vi.mock("$lib/client/api/knowledge", async (importOriginal) => ({

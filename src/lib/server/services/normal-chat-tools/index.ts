@@ -1,8 +1,9 @@
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
+import type { ModelId } from "$lib/model-types";
 
-import { getConfig } from "$lib/server/config-store";
+import { getConfig, isImageMakingConfigured } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
@@ -37,6 +38,7 @@ import {
 	logRefusedAddresses,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
+import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 import {
 	buildGroundedWebModelPayload,
@@ -45,6 +47,8 @@ import {
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import type { TurnPictureIndex } from "../images/turn-pictures";
+import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
 import {
 	advertisedArtifactKinds,
@@ -111,6 +115,12 @@ import {
 	runLocationTool,
 	sanitizeLocationToolInput,
 } from "./location";
+import {
+	type MakeImageInput,
+	type MakeImagePayload,
+	makeImageInputSchema,
+	runMakeImageTool,
+} from "./make-image";
 import {
 	mediaToolInputSchema,
 	runMediaTool,
@@ -190,6 +200,7 @@ import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	isToolTimeoutError,
 	modelSafeToolError,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
@@ -270,6 +281,21 @@ export interface CreateNormalChatToolsContext {
 	// is given (createToolPack makes one and returns it). Without one a look can
 	// still be described by a local model, but nothing is shown to the model.
 	stepImages?: StepImageQueue;
+	// The turn's numbered pictures (images/turn-pictures.ts): the one numbering
+	// authority a picture-making tool resolves "Picture 2" against. Server-owned,
+	// never a model input.
+	turnPictures?: TurnPictureIndex;
+	// What the turn has made with make_image, when a caller runs the turn more than
+	// once (a stream and its non-stream rerun) and wants the reruns to share it.
+	turnTakes?: TurnTakes;
+	// Whether the explicit-picture filter applies to this person (images/
+	// picture-check/policy.ts). Computed upstream (createToolPack) because tool
+	// construction is synchronous. Omitted means filtered: the make_image
+	// description then tells the model to decline explicit pictures.
+	explicitPictureFilter?: boolean;
+	// Called about once a second while a tool waits on slow work (make_image),
+	// so the stream's idle watchdog counts the wait as activity.
+	onToolActivity?: () => void;
 	// Names of the routing regions currently ready (on-demand coverage), used
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.
@@ -288,6 +314,11 @@ export interface CreateNormalChatToolsContext {
 	// already says, do not wait").
 	fileProductionVerdictWaitMs?: number;
 }
+
+// Added to make_image's description while the explicit-picture filter applies
+// to the person: the model's own judgement is the filter's first line.
+const MAKE_IMAGE_EXPLICIT_LINE =
+	"No explicit, sexual or nude pictures: decline such a request in your reply, without calling make_image.";
 
 // ── Tool text ──────────────────────────────────────────────────
 //
@@ -326,6 +357,11 @@ const TOOL_TEXT: ToolText = {
 		description:
 			"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. A request for a document with no file format named is a Document: create_artifact, not a file. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend it in full or send `patches` [{oldText, newText}] with each oldText an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write into `/output` (e.g. `/output/report.xlsx`) — a bare filename is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 		errorPrefix: "File production intake failed",
+	},
+	make_image: {
+		description:
+			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
+		errorPrefix: "Making the picture failed",
 	},
 	read_generated_file: {
 		description:
@@ -664,6 +700,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				}`
 			: i18n.map_route.description
 	}${transitCoverageSuffix}`;
+	// make_image exists only when an admin has pointed COMFYUI_URL at a picture
+	// server; without one the tool is not offered at all.
+	const includeMakeImageTool = isImageMakingConfigured(registrationConfig);
+	// What this turn has made with it: its cards, takes and call count.
+	const turnTakes = ctx.turnTakes ?? createTurnTakes();
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);
@@ -2172,6 +2213,101 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeMakeImageTool
+			? {
+					make_image: asExecutableTool(
+						tool({
+							description:
+								ctx.explicitPictureFilter === false
+									? i18n.make_image.description
+									: `${i18n.make_image.description} ${MAKE_IMAGE_EXPLICIT_LINE}`,
+							inputSchema: makeImageInputSchema,
+							execute: async (
+								input: MakeImageInput,
+								options: ToolExecutionOptions,
+							) => {
+								return executeToolWithEnvelope<MakeImagePayload>({
+									toolName: "make_image",
+									timeoutMs: TOOL_TIMEOUTS_MS.make_image,
+									options,
+									recorder,
+									run: async (abortSignal) => {
+										const result = await runMakeImageTool({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											turnId: ctx.turnId,
+											toolCallId: options.toolCallId,
+											input,
+											turnPictures: ctx.turnPictures ?? null,
+											turnTakes,
+											requestText: ctx.requestText ?? "",
+											signal: abortSignal,
+											onTick: ctx.onToolActivity,
+											stepImages: ctx.stepImages,
+											modelCanSee: await modelIdCanSeeImages(
+												ctx.modelId as ModelId | undefined,
+											),
+										});
+										const ok = result.modelPayload.ok;
+										return {
+											modelPayload: result.modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "make_image",
+												input,
+												status: "done",
+												outputSummary: !ok
+													? result.modelPayload.message
+													: result.modelPayload.status === "running"
+														? "Picture still being made"
+														: result.modelPayload.retried
+															? "Picture made (retried once)"
+															: "Picture made",
+												sourceType: "tool",
+												metadata: result.metadata,
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.make_image.errorPrefix,
+										);
+										return {
+											modelPayload: {
+												ok: false,
+												errorCode: "image_error",
+												message,
+											},
+											entry: {
+												callId: options.toolCallId,
+												name: "make_image",
+												input,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												// The row is made from the code, never from the model's words;
+												// a timeout may still land its picture on the card.
+												metadata: {
+													ok: false,
+													// Only a call that already queued a take can say the
+													// picture is still coming; a timeout while the inputs were
+													// prepared made nothing.
+													imageError:
+														isToolTimeoutError(error) &&
+														turnTakes.hasTakeForCall(options.toolCallId)
+															? "image_tool_timeout"
+															: "image_error",
 												},
 											},
 										};

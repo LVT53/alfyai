@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../config-store", () => ({
 	getConfig: mocks.getConfig,
+	// The picture server is off in these tests unless one sets an address.
+	isImageMakingConfigured: (config: { comfyuiUrl?: string }) =>
+		(config.comfyuiUrl ?? "").trim() !== "",
+	getImageReferenceCap: () => 4,
 }));
 
 vi.mock("../prompts", async (importOriginal) => {
@@ -90,8 +94,8 @@ import {
 } from "./url-provenance";
 import {
 	CANNOT_SEE_IMAGES_GUIDANCE,
+	type NumberedTurnImage,
 	noTurnImages,
-	type TurnImage,
 	type TurnImages,
 } from "./vision/turn-images";
 
@@ -130,8 +134,13 @@ type ConstructedContextTestResult = {
 };
 
 /** A prepared picture of the current message, as big as its token cost says. */
-function pictureOf(name: string, estimatedTokens: number): TurnImage {
+function pictureOf(
+	name: string,
+	estimatedTokens: number,
+	number = 1,
+): NumberedTurnImage {
 	return {
+		number,
 		artifactId: `artifact-${name}`,
 		name,
 		image: {
@@ -141,6 +150,40 @@ function pictureOf(name: string, estimatedTokens: number): TurnImage {
 			height: 48,
 			estimatedTokens,
 		},
+	};
+}
+
+/** A partial TurnImages with its picture lists derived from its uploads. */
+function derivedTurnImages(partial: Partial<TurnImages>): TurnImages {
+	const base = { ...noTurnImages(), ...partial };
+	return {
+		...base,
+		pictureImages:
+			partial.pictureImages ??
+			base.images.map(({ number, name, image }) => ({ number, name, image })),
+		pictures:
+			partial.pictures ??
+			base.images.map(({ number, name }) => ({ number, name })),
+	};
+}
+
+/** The turn's pictures as the context build reports them: uploads only. */
+function turnImagesOf(
+	images: NumberedTurnImage[],
+	rest: Partial<TurnImages> = {},
+): TurnImages {
+	return {
+		images,
+		pictureImages: images.map(({ number, name, image }) => ({
+			number,
+			name,
+			image,
+		})),
+		pictures: images.map(({ number, name }) => ({ number, name })),
+		heldBack: [],
+		notShown: [],
+		hasImageAttachments: true,
+		...rest,
 	};
 }
 
@@ -2312,15 +2355,10 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		it("counts the pictures of the current message, each by its own size", async () => {
-			const turnImages: TurnImages = {
-				images: [
-					pictureOf("wide.jpg", 11_000),
-					pictureOf("square.jpg", 12_000),
-				],
-				heldBack: [],
-				notShown: [],
-				hasImageAttachments: true,
-			};
+			const turnImages = turnImagesOf([
+				pictureOf("wide.jpg", 11_000),
+				pictureOf("square.jpg", 12_000),
+			]);
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("## Current User Message\nUse them.", {
 					turnImages,
@@ -2361,12 +2399,7 @@ describe("prepareOutboundChatContext", () => {
 		it("does not compress for pictures that fit", async () => {
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("## Current User Message\nUse them.", {
-					turnImages: {
-						images: [pictureOf("wide.jpg", 1_900)],
-						heldBack: [],
-						notShown: [],
-						hasImageAttachments: true,
-					},
+					turnImages: turnImagesOf([pictureOf("wide.jpg", 1_900)]),
 				}),
 			);
 
@@ -2790,7 +2823,7 @@ describe("prepareOutboundChatContext", () => {
 			createConstructedContextResult(
 				"## Current User Message\nWhat are these?",
 				{
-					turnImages: { ...noTurnImages(), ...turnImages },
+					turnImages: derivedTurnImages(turnImages),
 				},
 			);
 
@@ -2911,7 +2944,10 @@ describe("prepareOutboundChatContext", () => {
 				mocks.buildConstructedContext.mockResolvedValueOnce(
 					withPictures({
 						images: [pictureOf("a.jpg", 100)],
-						heldBack: ["b.jpg", "c.jpg"],
+						heldBack: [
+							{ number: 2, name: "b.jpg" },
+							{ number: 3, name: "c.jpg" },
+						],
 						hasImageAttachments: true,
 					}),
 				);
@@ -2921,7 +2957,7 @@ describe("prepareOutboundChatContext", () => {
 				);
 
 				expect(prepared.turnGuidance).toContain(
-					"2 more attached images were not sent as pictures because of the limit: b.jpg, c.jpg.",
+					"Not sent as pictures because of the limit: Picture 2: b.jpg; Picture 3: c.jpg.",
 				);
 				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
 			});
@@ -2930,7 +2966,10 @@ describe("prepareOutboundChatContext", () => {
 				mocks.buildConstructedContext.mockResolvedValueOnce(
 					withPictures({
 						images: [pictureOf("a.jpg", 100)],
-						notShown: ["scan.bmp", "broken.png"],
+						notShown: [
+							{ number: 1, name: "scan.bmp" },
+							{ number: 2, name: "broken.png" },
+						],
 						hasImageAttachments: true,
 					}),
 				);
@@ -2940,10 +2979,10 @@ describe("prepareOutboundChatContext", () => {
 				);
 
 				expect(prepared.turnGuidance).toContain(
-					"The user attached scan.bmp, but it could not be shown to you.",
+					"Picture 1: scan.bmp was attached, but it could not be shown to you.",
 				);
 				expect(prepared.turnGuidance).toContain(
-					"The user attached broken.png, but it could not be shown to you.",
+					"Picture 2: broken.png was attached, but it could not be shown to you.",
 				);
 				expect(prepared.turnGuidance).not.toContain(CANNOT_SEE_IMAGES_GUIDANCE);
 				expect(prepared.systemPrompt).not.toContain(
@@ -2953,7 +2992,10 @@ describe("prepareOutboundChatContext", () => {
 
 			it("only the cannot-see line, when it cannot see", async () => {
 				mocks.buildConstructedContext.mockResolvedValueOnce(
-					withPictures({ notShown: ["scan.bmp"], hasImageAttachments: true }),
+					withPictures({
+						notShown: [{ number: 1, name: "scan.bmp" }],
+						hasImageAttachments: true,
+					}),
 				);
 
 				const prepared = await prepareOutboundChatContext(turn());
@@ -3017,7 +3059,7 @@ describe("prepareOutboundChatContext", () => {
 			const squeeze = (turnImages: Partial<TurnImages>) => {
 				mocks.buildConstructedContext.mockResolvedValueOnce(
 					createConstructedContextResult(packet, {
-						turnImages: { ...noTurnImages(), ...turnImages },
+						turnImages: derivedTurnImages(turnImages),
 					}),
 				);
 				return prepareOutboundChatContext(

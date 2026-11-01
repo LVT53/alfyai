@@ -2,10 +2,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { uiLanguage } from "$lib/stores/settings";
 import ArtifactCard, { type ArtifactCardView } from "./ArtifactCard.svelte";
+import {
+	card as imageCard,
+	take as imageTake,
+} from "./image/image-card-fixtures.test-helpers";
 
 function makeJob(
 	overrides: Partial<FileProductionJob> = {},
@@ -415,6 +419,41 @@ describe("ArtifactCard", () => {
 
 	// chrome="row": the panel list's one-line-per-item row (redesign §5.2).
 	describe("chrome=row", () => {
+		// Plan 2b Task 22: a picture's row shows the picture, never just the kind's icon.
+		it("shows an Image row's thumbnail in a reserved 40 px box, read in the chat's scope", () => {
+			render(ArtifactCard, {
+				view: view({
+					kind: "image",
+					title: "Cosy room",
+					openTargetId: "artifact-1",
+					thumbnail: {
+						fileId: "file-9",
+						hasAlpha: true,
+						conversationId: "conv-1",
+					},
+				}),
+				chrome: "row",
+			});
+
+			const box = screen.getByTestId("artifact-row-thumb");
+			expect(box).toHaveAttribute("aria-hidden", "true");
+			const img = box.querySelector("img");
+			expect(img?.getAttribute("src")).toBe(
+				"/api/images/files/file-9?variant=thumb&conversationId=conv-1",
+			);
+			expect(box.querySelector(".image-checkerboard")).not.toBeNull();
+		});
+
+		it("keeps the kind's icon for a row with no picture", () => {
+			render(ArtifactCard, {
+				view: view({ openTargetId: "artifact-1" }),
+				chrome: "row",
+			});
+			expect(
+				screen.queryByTestId("artifact-row-thumb"),
+			).not.toBeInTheDocument();
+		});
+
 		it("renders the whole row as one button: icon, title, kind/facts, and time (no version number: ruling 76)", () => {
 			render(ArtifactCard, {
 				view: view({
@@ -924,5 +963,59 @@ describe("ArtifactCard — a Canvas", () => {
 			"utf8",
 		);
 		expect(source).not.toMatch(/@xyflow|\/canvas\//);
+	});
+});
+
+describe("ArtifactCard, the picture card (plan 2b T2)", () => {
+	// The card draws its picture body through `import()` (it is kept out of the chat
+	// route's first load). The first test here paid for evaluating that module graph
+	// cold inside `findBy`'s one second, which a loaded folder-wide run overran while
+	// the file passed alone. Load it once here, as `block-forms.test.ts` does with its
+	// lazy blocks, so the tests wait only for the card's own update.
+	beforeAll(async () => {
+		await import("./image/ImageCardBody.svelte");
+	});
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("draws the full head and the picture body together once the body has loaded", async () => {
+		const ready = imageTake({ fileId: "file-1" });
+		const onImageAction = vi.fn();
+		render(ArtifactCard, {
+			view: view({
+				id: "artifact-9",
+				kind: "image",
+				title: "Cosy room",
+				subtitle: "Image · 2 takes",
+				openTargetId: "artifact-9",
+			}),
+			imageCard: imageCard([ready]),
+			onImageAction,
+		});
+
+		const body = await screen.findByTestId("image-card-body");
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).toHaveTextContent("Cosy room");
+		expect(head).toHaveTextContent("Image · 2 takes");
+		expect(head).toHaveTextContent("Open");
+		expect(screen.getByTestId("artifact-card")).toContainElement(body);
+		await fireEvent.click(screen.getByRole("button", { name: /Another/ }));
+		expect(onImageAction).toHaveBeenCalledWith({
+			type: "another",
+			cardId: "card-1",
+		});
+	});
+
+	it("never says Artifact on the picture card", async () => {
+		render(ArtifactCard, {
+			view: view({ kind: "image", title: "Cosy room" }),
+			imageCard: imageCard([imageTake()]),
+		});
+		await screen.findByTestId("image-card-body");
+		expect(screen.getByTestId("artifact-card").textContent).not.toMatch(
+			/artifact/i,
+		);
 	});
 });

@@ -5,9 +5,18 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
+import { lazyNodeLoader } from "../_lib/lazy-nodes";
 import { stubLayout } from "../_test/layout-stub";
 import WithChat from "../_test/WithChat.svelte";
 import { flowSpies } from "../_test/xyflow-mock";
@@ -140,6 +149,17 @@ function mount(entry: Case, selected = true) {
 		},
 	});
 }
+
+// `LazyNode` imports a block's content the first time a block of its kind is drawn.
+// The first evaluation of each of those module graphs (the diagram's, the chart's,
+// the map's, the App's) is what the first test of a kind would otherwise pay inside
+// `findByTestId`'s one second: under a loaded folder-wide run it did not fit, and the
+// first case to need a cold chunk failed while the file passed alone. Load them once
+// here, as the server-side tests do with `warmModules`; the tests then only draw
+// cached modules and `findBy` waits for what it is for, the board's own update.
+beforeAll(async () => {
+	await Promise.all(CASES.map((entry) => lazyNodeLoader(entry.kind)?.()));
+});
 
 // A diagram draws what fits its own width, so every block here is in a laid-out box.
 let undoLayout: () => void = () => {};
