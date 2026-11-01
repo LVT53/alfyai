@@ -4055,6 +4055,7 @@ function handleDrop(event: DragEvent) {
 						isIncognito={data.conversation.memoryIncognito ?? false}
 						composerHeight={composerLayerHeight}
 						{isThinkingActive}
+						turnRunning={isSending || normalChatRuntimeActive}
 						{modelIcons}
 						{fileProductionJobs}
 						{atlasJobs}

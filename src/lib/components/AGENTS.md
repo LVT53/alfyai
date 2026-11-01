@@ -24,6 +24,7 @@ chat/
     ├── chat/FileProductionCard.svelte  ← generated-file preview, retry/cancel, and download actions
     ├── chat/DocumentWorkspace.svelte   ← route-driven working-document pane using shared preview
     └── chat/MessageBubble.svelte       ← individual message (attachment open handoff)
+          ├── chat/WriteConfirmCard.svelte    ← permission card for a connector write; a settled one folds into a ToolActivityRow
           ├── chat/MarkdownRenderer.svelte    ← markdown + Shiki highlighting
           ├── chat/CodeBlock.svelte           ← fenced code block
           ├── chat/ThinkingBlock.svelte       ← <thinking> content

@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type {
+	PendingWrite,
+	WriteCard,
+} from "$lib/server/services/connections/pending-write-dto";
 import { uiLanguage } from "$lib/stores/settings";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
 
@@ -13,282 +16,359 @@ function makeWrite(overrides: Partial<PendingWrite> = {}): PendingWrite {
 		provider: "nextcloud",
 		createdAt: 1_700_000_000,
 		preview: {
-			title: "Save note.txt to /AlfyAI",
+			title: "Save note.txt to /AlfyAI/note.txt",
 			detail: "files.put — /AlfyAI/note.txt",
 			reversible: true,
 			destructive: false,
 			withinAllowlist: true,
 			warnings: [],
 		},
+		card: {
+			kind: "files.save",
+			subject: "note.txt",
+			facts: [{ key: "folder", value: "/AlfyAI" }],
+			message: null,
+			risks: [],
+			danger: false,
+		},
 		...overrides,
 	};
 }
 
-describe("WriteConfirmCard", () => {
+function card(overrides: Partial<WriteCard>): WriteCard {
+	return {
+		kind: "files.save",
+		subject: "note.txt",
+		facts: [],
+		message: null,
+		risks: [],
+		danger: false,
+		...overrides,
+	};
+}
+
+describe("WriteConfirmCard while it asks", () => {
 	beforeEach(() => {
 		uiLanguage.set("en");
 	});
 
-	it("renders the preview title/detail and Confirm/Cancel actions, wiring callbacks by id", async () => {
+	it("asks in words and names the file large, with its location in a line of its own", () => {
+		render(WriteConfirmCard, { write: makeWrite() });
+
+		expect(
+			screen.getByRole("heading", { name: "Save this file?" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("note.txt")).toHaveClass("write-content__name");
+		expect(screen.getByText("/AlfyAI")).toBeInTheDocument();
+	});
+
+	it("never prints a whole path, an internal action id or a confirmation reference", () => {
+		const { container } = render(WriteConfirmCard, { write: makeWrite() });
+
+		expect(container.textContent).not.toContain("/AlfyAI/note.txt");
+		expect(container.textContent).not.toContain("files.put");
+		expect(container.textContent).not.toMatch(/confirmation ref/i);
+	});
+
+	it("wires both answers to the write's id", async () => {
 		const onConfirm = vi.fn();
 		const onCancel = vi.fn();
-
 		render(WriteConfirmCard, { write: makeWrite(), onConfirm, onCancel });
 
-		expect(
-			screen.getByRole("article", {
-				name: "Pending write: Save note.txt to /AlfyAI",
-			}),
-		).toBeInTheDocument();
-		expect(screen.getByText("Save note.txt to /AlfyAI")).toBeInTheDocument();
-		expect(
-			screen.getByText("files.put — /AlfyAI/note.txt"),
-		).toBeInTheDocument();
-
-		const confirmButton = screen.getByRole("button", {
-			name: "Confirm: Save note.txt to /AlfyAI",
-		});
-		const cancelButton = screen.getByRole("button", {
-			name: "Cancel: Save note.txt to /AlfyAI",
-		});
-		expect(confirmButton).toBeInTheDocument();
-		expect(cancelButton).toBeInTheDocument();
-
-		await fireEvent.click(confirmButton);
-		await fireEvent.click(cancelButton);
+		await fireEvent.click(screen.getByRole("button", { name: "Save: note.txt" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Cancel: note.txt" }),
+		);
 
 		expect(onConfirm).toHaveBeenCalledWith("pw-1");
 		expect(onCancel).toHaveBeenCalledWith("pw-1");
 	});
 
-	it("renders warnings prominently and applies destructive treatment", () => {
-		render(WriteConfirmCard, {
-			write: makeWrite({
-				preview: {
-					title: "Delete a calendar event",
-					detail: "calendar.delete_event — calendar event",
-					reversible: false,
-					destructive: true,
-					withinAllowlist: null,
-					warnings: [
-						"This will overwrite/delete and may not be recoverable",
-						"This deletes the ENTIRE recurring series, not a single occurrence.",
-					],
-				},
-			}),
-		});
-
-		expect(
-			screen.getByText("This will overwrite/delete and may not be recoverable"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				"This deletes the ENTIRE recurring series, not a single occurrence.",
-			),
-		).toBeInTheDocument();
-		expect(screen.getByText("Destructive")).toBeInTheDocument();
-		expect(screen.getByText("Not reversible")).toBeInTheDocument();
-		// Warnings are announced via a live region.
-		expect(screen.getByRole("status")).toHaveTextContent(
-			"This will overwrite/delete and may not be recoverable",
-		);
-	});
-
-	it("moves to the confirmed state when status is 'executed' (incl. after alreadyExecuted) and hides the action buttons", () => {
-		render(WriteConfirmCard, {
-			write: makeWrite({ status: "executed", etag: '"e-42"' }),
-		});
-
-		expect(screen.getByText("Done — this was saved.")).toBeInTheDocument();
-		expect(screen.getByText('Confirmation ref: "e-42"')).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /Confirm/ }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /Cancel/ }),
-		).not.toBeInTheDocument();
-	});
-
-	it("moves to the cancelled state and hides the action buttons", () => {
-		render(WriteConfirmCard, { write: makeWrite({ status: "cancelled" }) });
-
-		expect(
-			screen.getByText("Cancelled — this was not saved."),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /Confirm/ }),
-		).not.toBeInTheDocument();
-	});
-
-	it("a card fetched already-executed (e.g. after reload) renders terminal, not actionable", () => {
-		// Simulates GET pending-writes returning a write that was confirmed in
-		// a prior session — the card must never show as actionable just
-		// because it was freshly fetched into the client.
-		render(WriteConfirmCard, {
-			write: makeWrite({ status: "executed", etag: null }),
-		});
-
-		expect(screen.getByText("Done — this was saved.")).toBeInTheDocument();
-		expect(screen.queryByRole("button")).not.toBeInTheDocument();
-	});
-
-	it("shows an inline error and disables the buttons while busy", () => {
-		render(WriteConfirmCard, {
-			write: makeWrite(),
-			busy: true,
-			error: "Failed to confirm the write.",
-			onConfirm: vi.fn(),
-			onCancel: vi.fn(),
-		});
-
-		expect(screen.getByRole("alert")).toHaveTextContent(
-			"Failed to confirm the write.",
-		);
-		const confirmButton = screen.getByRole("button", {
-			name: "Confirm: Save note.txt to /AlfyAI",
-		});
-		expect(confirmButton).toBeDisabled();
-		expect(confirmButton).toHaveTextContent("Working…");
-		expect(
-			screen.getByRole("button", { name: "Cancel: Save note.txt to /AlfyAI" }),
-		).toBeDisabled();
-	});
-
-	it("uses Hungarian labels", () => {
-		uiLanguage.set("hu");
-
-		render(WriteConfirmCard, {
-			write: makeWrite(),
-			onConfirm: vi.fn(),
-			onCancel: vi.fn(),
-		});
-
-		expect(
-			screen.getByRole("button", { name: /Jóváhagyás/ }),
-		).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: /Mégse/ })).toBeInTheDocument();
-	});
-});
-
-// ── Everyday redesign: the approved dialog chassis ───────────────────
-describe("WriteConfirmCard on the dialog chassis", () => {
-	beforeEach(() => {
-		uiLanguage.set("en");
-		vi.unstubAllGlobals();
-	});
-
-	function setViewportWidth(width: number) {
-		vi.stubGlobal("innerWidth", width);
-	}
-
 	it("puts the negative on the left and the positive on the right", () => {
 		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
-		const decline = getByTestId("write-confirm-decline");
-		const approve = getByTestId("write-confirm-approve");
-		// The old card drew Confirm first, which is where the accidental
-		// confirm came from.
+
 		expect(
-			decline.compareDocumentPosition(approve) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
+			getByTestId("write-confirm-decline").compareDocumentPosition(
+				getByTestId("write-confirm-approve"),
+			) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});
 
-	it("names what the positive button does rather than saying Confirm", () => {
-		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
-		expect(getByTestId("write-confirm-approve")).toHaveTextContent("Save it");
-		expect(getByTestId("write-confirm-decline")).toHaveTextContent("Don't");
+	// The button used to say "Save it" on an email and on a calendar event.
+	it.each([
+		["email.send", "Send this email?", "Send"],
+		["calendar.create_event", "Add this event?", "Add event"],
+		["calendar.delete_event", "Delete this event?", "Delete"],
+		["files.replace", "Replace this file?", "Replace"],
+		["files.rename", "Rename this file?", "Rename"],
+		["photos.add_to_album", "Add these photos to the album?", "Add"],
+	] as const)("says what %s does", (kind, question, approve) => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ card: card({ kind, subject: "Q3" }) }),
+		});
+
+		expect(screen.getByRole("heading", { name: question })).toBeInTheDocument();
+		expect(getByTestId("write-confirm-approve")).toHaveTextContent(approve);
 	});
 
-	it("turns the positive red — and changes what it says — only when destructive", () => {
+	it("turns the positive red only when the reader loses something by it", () => {
+		const benign = render(WriteConfirmCard, { write: makeWrite() });
+		expect(benign.getByTestId("write-confirm-approve")).toHaveClass(
+			"dialog-btn--positive",
+		);
+		benign.unmount();
+
 		const { getByTestId } = render(WriteConfirmCard, {
 			write: makeWrite({
-				preview: {
-					title: "Delete 3 photos from Immich",
-					detail: "photos.delete — IMG_2291, IMG_2292, IMG_2294",
-					reversible: false,
-					destructive: true,
-					withinAllowlist: true,
-					warnings: ["Immich has no trash on this server."],
-				},
+				card: card({ kind: "files.replace", danger: true }),
 			}),
 		});
 		const approve = getByTestId("write-confirm-approve");
 		expect(approve).toHaveClass("dialog-btn--destructive");
 		expect(approve).not.toHaveClass("dialog-btn--positive");
-		expect(approve).toHaveTextContent("Yes, go ahead");
 	});
 
-	it("keeps the benign save on the tinted-outline positive", () => {
-		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
-		const approve = getByTestId("write-confirm-approve");
-		expect(approve).toHaveClass("dialog-btn--positive");
-		expect(approve).not.toHaveClass("dialog-btn--destructive");
-	});
-
-	it("says where the confirmation ref will appear, before it exists", () => {
-		const { getByText } = render(WriteConfirmCard, { write: makeWrite() });
-		expect(
-			getByText("Confirmation ref appears here once it is written."),
-		).toBeInTheDocument();
-	});
-
-	it("raises a pending write as a bottom sheet on a phone", () => {
-		setViewportWidth(390);
-		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
-		expect(getByTestId("write-confirm-sheet")).toBeInTheDocument();
-		expect(getByTestId("dialog-sheet-grabber")).toBeInTheDocument();
-	});
-
-	it("stays an inline card on a phone once the write is terminal", () => {
-		setViewportWidth(390);
-		const { queryByTestId, getByRole } = render(WriteConfirmCard, {
-			write: makeWrite({ status: "executed", etag: "abc123" }),
+	it("says what a risk means, in a sentence, announced as it appears", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				card: card({
+					kind: "files.replace",
+					danger: true,
+					risks: ["replaces_file_for_good"],
+				}),
+			}),
 		});
-		expect(queryByTestId("write-confirm-sheet")).toBeNull();
-		expect(
-			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
-		).toBeInTheDocument();
+
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"This replaces the existing file. This Nextcloud keeps no earlier versions, so the old one can't be brought back.",
+		);
 	});
 
-	it("backing out of the sheet is not a decision — the card stays pending", async () => {
-		setViewportWidth(390);
-		const onCancel = vi.fn();
-		const { getByTestId, getByRole } = render(WriteConfirmCard, {
+	it("draws no risk block when there is no risk", () => {
+		render(WriteConfirmCard, { write: makeWrite() });
+
+		expect(screen.queryByRole("status")).toBeNull();
+	});
+
+	it("shows the text going out, and folds a long one behind a press", async () => {
+		const body = `Hi Anna,\n\n${"The numbers are in. ".repeat(40)}`;
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({
+				card: card({ kind: "email.send", subject: "Q3", message: body }),
+			}),
+		});
+
+		const message = getByTestId("write-confirm-message");
+		expect(message).toHaveTextContent("The numbers are in.");
+		expect(message.querySelector("p")).toHaveClass("is-folded");
+
+		await fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+
+		expect(message.querySelector("p")).not.toHaveClass("is-folded");
+		expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+	});
+
+	it("does not fold a message that fits", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({ card: card({ message: "Short and sweet." }) }),
+		});
+
+		expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();
+	});
+
+	it("shows an error beside the answers and holds them while busy", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
 			write: makeWrite(),
-			onCancel,
+			busy: true,
+			error: "That didn't work. Try again.",
+			onConfirm: vi.fn(),
+			onCancel: vi.fn(),
 		});
 
-		await fireEvent.click(getByTestId("dialog-sheet-grabber"));
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"That didn't work. Try again.",
+		);
+		expect(getByTestId("write-confirm-approve")).toBeDisabled();
+		expect(getByTestId("write-confirm-approve")).toHaveTextContent("Working…");
+		expect(getByTestId("write-confirm-decline")).toBeDisabled();
+	});
 
-		// Nothing was cancelled server-side, and the decision is still in the
-		// conversation where it was raised.
-		expect(onCancel).not.toHaveBeenCalled();
+	it("holds its answers while a confirm claimed elsewhere is running", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "executing" }),
+		});
+
+		expect(getByTestId("write-confirm-approve")).toBeDisabled();
+		expect(getByTestId("write-confirm-decline")).toBeDisabled();
+	});
+
+	it("asks in Hungarian", () => {
+		uiLanguage.set("hu");
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ card: card({ kind: "email.send", subject: "Q3" }) }),
+		});
+
 		expect(
-			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
+			screen.getByRole("heading", { name: "Elküldjem ezt az e-mailt?" }),
+		).toBeInTheDocument();
+		expect(getByTestId("write-confirm-approve")).toHaveTextContent("Küldés");
+		expect(getByTestId("write-confirm-decline")).toHaveTextContent("Mégse");
+	});
+
+	it("makes the question the headline when the write names nothing", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "imap",
+				card: card({ kind: "email.mark_read", subject: "" }),
+			}),
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Mark this email as read?" }),
+		).toHaveClass("write-content__name");
+	});
+
+	it("falls back to the proposed sentence for a write it cannot read", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({
+				card: null,
+				preview: {
+					title: "Do something new",
+					detail: "something.new — target",
+					reversible: false,
+					destructive: true,
+					withinAllowlist: null,
+					warnings: ["This may not be recoverable"],
+				},
+			}),
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Do something new" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"This may not be recoverable",
+		);
+		expect(getByTestId("write-confirm-approve")).toHaveTextContent("Confirm");
+		expect(getByTestId("write-confirm-approve")).toHaveClass(
+			"dialog-btn--destructive",
+		);
+	});
+});
+
+// Once decided it is a record of what happened, drawn as every tool call is.
+describe("WriteConfirmCard once it is settled", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("folds a done write into an activity row, with no answers left", () => {
+		const { getByTestId, queryByRole } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "executed", etag: '"e-42"' }),
+		});
+
+		expect(getByTestId("write-confirm-settled")).toHaveAttribute(
+			"data-status",
+			"executed",
+		);
+		expect(getByTestId("tool-activity-row")).toHaveTextContent("Saved");
+		expect(getByTestId("tool-activity-row")).toHaveTextContent("note.txt");
+		expect(getByTestId("tool-activity-row")).toHaveAttribute(
+			"data-status",
+			"done",
+		);
+		expect(queryByRole("article")).toBeNull();
+		expect(screen.queryByTestId("write-confirm-approve")).toBeNull();
+		expect(screen.queryByTestId("write-confirm-decline")).toBeNull();
+	});
+
+	it("says what was done in the words of the action", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({
+				status: "executed",
+				provider: "imap",
+				card: card({ kind: "email.send", subject: "Q3 numbers" }),
+			}),
+		});
+
+		expect(getByTestId("tool-activity-row")).toHaveTextContent("Sent");
+	});
+
+	it("keeps a done write's details one press away", async () => {
+		const { getByTestId, queryByText } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "executed" }),
+		});
+
+		expect(queryByText("/AlfyAI")).toBeNull();
+
+		await fireEvent.click(getByTestId("tool-activity-row"));
+
+		expect(queryByText("/AlfyAI")).toBeInTheDocument();
+	});
+
+	it("marks a cancelled write as neither done nor failed", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "cancelled" }),
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row).toHaveTextContent("Cancelled");
+		expect(row).toHaveAttribute("data-status", "skipped");
+		expect(row.querySelector(".act-status")).toHaveClass("skipped");
+	});
+
+	it("opens a failed write by itself and says nothing changed", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "failed" }),
+		});
+
+		expect(getByTestId("tool-activity-row")).toHaveAttribute(
+			"data-status",
+			"failed",
+		);
+		expect(
+			screen.getByText("This didn't go through, and nothing was changed."),
 		).toBeInTheDocument();
 	});
 
-	it("stays a centred inline card above the breakpoint", () => {
-		setViewportWidth(1200);
-		const { queryByTestId } = render(WriteConfirmCard, { write: makeWrite() });
-		expect(queryByTestId("write-confirm-sheet")).toBeNull();
+	it("does not repeat a risk that is behind us", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				status: "failed",
+				card: card({
+					kind: "files.replace",
+					danger: true,
+					risks: ["replaces_file_for_good"],
+				}),
+			}),
+		});
+
+		expect(screen.queryByRole("status")).toBeNull();
+	});
+
+	it("a write fetched already settled, after a reload, is never a question again", () => {
+		const { queryByRole } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "executed", etag: null }),
+		});
+
+		expect(queryByRole("article")).toBeNull();
+		expect(screen.queryByTestId("write-confirm-approve")).toBeNull();
 	});
 });
 
 // ── The expired state ────────────────────────────────────────────────
-// A proposal has a 30-minute TTL. Past it the server refuses the confirm,
-// but the card had no label for that status at all: it fell through to an
-// empty status line while still offering Confirm and Cancel, so the user
-// got a live-looking card whose buttons could only ever produce an error.
+// A proposal has a 30-minute TTL. Past it the server refuses the confirm, so a
+// live-looking card could only ever produce an error. The person came back to a
+// choice they were offered and did not make: the row says it is too late, keeps
+// what was proposed in sight, and names the one move left.
 describe("WriteConfirmCard when the write has expired", () => {
 	beforeEach(() => {
 		uiLanguage.set("en");
 		vi.unstubAllGlobals();
 	});
-
-	function setViewportWidth(width: number) {
-		vi.stubGlobal("innerWidth", width);
-	}
 
 	it("says the request expired and how to get it back", () => {
 		render(WriteConfirmCard, { write: makeWrite({ status: "expired" }) });
@@ -298,71 +378,29 @@ describe("WriteConfirmCard when the write has expired", () => {
 		).toBeInTheDocument();
 	});
 
-	it("keeps the summary of what was proposed", () => {
-		// The point of coming back to an expired card is to see what it was
-		// going to do, so the title, the detail and the warnings all stay.
+	it("keeps what was proposed in sight", () => {
 		render(WriteConfirmCard, {
 			write: makeWrite({
 				status: "expired",
-				preview: {
-					title: "Delete 3 photos from Immich",
-					detail: "photos.delete — IMG_2291, IMG_2292, IMG_2294",
-					reversible: false,
-					destructive: true,
-					withinAllowlist: true,
-					warnings: ["Immich has no trash on this server."],
-				},
+				card: card({
+					kind: "email.send",
+					subject: "Q3 numbers",
+					facts: [{ key: "to", value: "anna@example.com" }],
+					message: "Hi Anna",
+				}),
 			}),
 		});
 
-		expect(screen.getByText("Delete 3 photos from Immich")).toBeInTheDocument();
-		expect(
-			screen.getByText("photos.delete — IMG_2291, IMG_2292, IMG_2294"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("Immich has no trash on this server."),
-		).toBeInTheDocument();
+		expect(screen.getByText("Q3 numbers")).toBeInTheDocument();
+		expect(screen.getByText("anna@example.com")).toBeInTheDocument();
+		expect(screen.getByText("Hi Anna")).toBeInTheDocument();
 	});
 
-	it("shows both decisions, disabled, and fires neither", async () => {
-		const onConfirm = vi.fn();
-		const onCancel = vi.fn();
-		const { getByTestId } = render(WriteConfirmCard, {
-			write: makeWrite({ status: "expired" }),
-			onConfirm,
-			onCancel,
-		});
-
-		const approve = getByTestId("write-confirm-approve");
-		const decline = getByTestId("write-confirm-decline");
-		expect(approve).toBeDisabled();
-		expect(decline).toBeDisabled();
-
-		await fireEvent.click(approve);
-		await fireEvent.click(decline);
-		expect(onConfirm).not.toHaveBeenCalled();
-		expect(onCancel).not.toHaveBeenCalled();
-	});
-
-	it("never raises an expired write as a phone sheet", () => {
-		// A sheet is a demand for a decision. There is no decision left.
-		setViewportWidth(390);
-		const { queryByTestId, getByRole } = render(WriteConfirmCard, {
-			write: makeWrite({ status: "expired" }),
-		});
-
-		expect(queryByTestId("write-confirm-sheet")).toBeNull();
-		expect(
-			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
-		).toBeInTheDocument();
-	});
-
-	it("does not promise a confirmation ref that will never arrive", () => {
+	it("offers neither answer: nothing here could still reach the server", () => {
 		render(WriteConfirmCard, { write: makeWrite({ status: "expired" }) });
 
-		expect(
-			screen.queryByText("Confirmation ref appears here once it is written."),
-		).toBeNull();
+		expect(screen.queryByTestId("write-confirm-approve")).toBeNull();
+		expect(screen.queryByTestId("write-confirm-decline")).toBeNull();
 	});
 
 	it("says it in Hungarian too", () => {

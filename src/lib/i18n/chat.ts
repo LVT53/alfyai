@@ -1176,11 +1176,6 @@ const chatDict = {
 		"modelPicker.useNone": "Use this model",
 		"atlasDownload.title": "Download the report",
 		"composerSheet.close": "Close",
-		"writeConfirm.approve": "Save it",
-		"writeConfirm.approveDestructive": "Yes, go ahead",
-		"writeConfirm.decline": "Don't",
-		"writeConfirm.etagPending":
-			"Confirmation ref appears here once it is written.",
 
 		// ── Chat chips redesign ──────────────────────────────────────
 		// One pill for every promise about the next turn, and the line in
@@ -2327,11 +2322,6 @@ const chatDict = {
 		"modelPicker.useNone": "Ez a modell",
 		"atlasDownload.title": "A jelentés letöltése",
 		"composerSheet.close": "Bezárás",
-		"writeConfirm.approve": "Mentés",
-		"writeConfirm.approveDestructive": "Igen, mehet",
-		"writeConfirm.decline": "Ne",
-		"writeConfirm.etagPending":
-			"A visszaigazolási azonosító itt jelenik meg, ha megtörtént.",
 
 		// ── Csevegés-címkék újratervezés ─────────────────────────────
 		// Egy pirula minden ígéretre a következő fordulóról, és egy sor a

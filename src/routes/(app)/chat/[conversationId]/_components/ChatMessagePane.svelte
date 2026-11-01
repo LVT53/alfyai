@@ -1,5 +1,6 @@
 <script lang="ts">
 import MessageArea from "$lib/components/chat/MessageArea.svelte";
+import WriteConfirmSheet from "$lib/components/chat/WriteConfirmSheet.svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
@@ -23,6 +24,7 @@ let {
 	composerHeight = 0,
 	isIncognito = false,
 	isThinkingActive,
+	turnRunning = false,
 	modelIcons = {},
 	fileProductionJobs = [],
 	atlasJobs = [],
@@ -66,6 +68,7 @@ let {
 	/** Renders the one-time "Off the record from here" opening mark. */
 	isIncognito?: boolean;
 	isThinkingActive: boolean;
+	turnRunning?: boolean;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
@@ -184,6 +187,14 @@ let {
 		{deletedArtifacts}
 	/>
 </div>
+
+<WriteConfirmSheet
+	writes={pendingWrites}
+	held={turnRunning}
+	actionState={writeActionState}
+	onConfirm={onConfirmWrite}
+	onCancel={onCancelWrite}
+/>
 
 <style>
 	.message-layer {

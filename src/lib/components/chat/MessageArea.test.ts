@@ -1625,11 +1625,11 @@ describe("MessageArea", () => {
 
 			expect(
 				getByRole("article", {
-					name: "Pending write: Save note.txt to /AlfyAI",
+					name: "Needs your OK: Save note.txt to /AlfyAI",
 				}),
 			).toBeInTheDocument();
 			// Only one card total — never duplicated onto the second message.
-			expect(queryAllByRole("article", { name: /Pending write/ })).toHaveLength(
+			expect(queryAllByRole("article", { name: /Needs your OK/ })).toHaveLength(
 				1,
 			);
 		});
@@ -1655,7 +1655,7 @@ describe("MessageArea", () => {
 
 			expect(
 				getByRole("article", {
-					name: "Pending write: Save note.txt to /AlfyAI",
+					name: "Needs your OK: Save note.txt to /AlfyAI",
 				}),
 			).toBeInTheDocument();
 		});

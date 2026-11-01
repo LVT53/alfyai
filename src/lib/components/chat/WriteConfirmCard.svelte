@@ -1,37 +1,28 @@
 <script lang="ts">
-import { AlertTriangle, Check, Trash2 } from "@lucide/svelte";
-import { onMount } from "svelte";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
-import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
-import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
-import {
-	isPhoneViewport,
-	watchPhoneViewport,
-} from "$lib/utils/viewport.svelte";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import { uiLanguage } from "$lib/stores/settings";
+import ToolActivityRow from "./ToolActivityRow.svelte";
+import WriteConfirmActions from "./WriteConfirmActions.svelte";
+import WriteConfirmContent from "./WriteConfirmContent.svelte";
+import WriteConfirmDetails from "./WriteConfirmDetails.svelte";
+import {
+	buildSettledWriteItem,
+	buildWriteCardView,
+	settledWriteNote,
+} from "./write-card-view";
 
-// Issue 7.5 — inline write-confirm card. Mirrors SkillDraftCard's
-// prop/busy/error shape: {busy,error} is OWNED by the caller (keyed per
-// write id, e.g. `writeActionState[write.id]` in +page.svelte), not
-// internal component state — the same "who owns busy/error" split as
-// skillDraftActionState. `write` itself always reflects the server's
-// authoritative status (fetched via GET .../pending-writes or returned by
-// confirm/cancel), so a card for an already-executed/cancelled write
-// (e.g. after a reload) renders straight into its terminal state without
-// ever showing Confirm/Cancel — never a stale "still pending" view.
+// Issue 7.5 — the permission card in the reply: Alfy asks before it changes
+// anything in a connected account. It wears ArtifactCard's shell, because it
+// sits in the same column as one. {busy,error} is OWNED by the caller (keyed per
+// write id, e.g. `writeActionState[write.id]` in +page.svelte), not internal
+// state, the same split as skillDraftActionState, and `write` always reflects
+// the server's authoritative status, so a write settled before a reload never
+// shows its buttons again.
 //
-// Everyday redesign: the card now wears the approved dialog chassis — a
-// provider mark, the title, one muted qualifier line, and the decision below
-// a hairline with the negative on the LEFT and the positive on the RIGHT.
-// The old layout put Confirm first, which is the accidental-confirm the
-// MobileSheets board calls out by name.
-//
-// On a phone a pending write is ALSO raised as a bottom sheet, so the
-// decision starts at the thumb and the conversation stays readable behind
-// it. Backing out of the sheet (the grabber, or a tap on the page) is not a
-// decision: it leaves the write pending and the card in the conversation
-// where it was. Only "Don't" cancels.
+// Once decided it stops being a question: it folds into the row every tool call
+// draws, with what it was one press away. On a phone a pending write is also
+// raised in WriteConfirmSheet, one at a time; this card stays where it is.
 let {
 	write,
 	busy = false,
@@ -46,364 +37,83 @@ let {
 	onCancel?: ((id: string) => void | Promise<void>) | undefined;
 } = $props();
 
-// "pending" is the only actionable state — everything else (executing,
-// already claimed by a confirm in flight; executed/cancelled/expired/failed,
-// all terminal) renders read-only.
-let isActionable = $derived(write.status === "pending");
-// Expired is terminal, but unlike the other three it is the one the user
-// never chose. They came back to a decision they had already been offered,
-// so the decision row stays on screen — DISABLED — instead of vanishing:
-// a card that silently loses its buttons reads as a rendering bug, while a
-// greyed-out pair plus the expired line reads as "too late, ask again".
-let isExpired = $derived(write.status === "expired");
-let isTerminal = $derived(
-	write.status === "executed" ||
-		write.status === "cancelled" ||
-		write.status === "expired" ||
-		write.status === "failed",
+const view = $derived(buildWriteCardView(write, $t, $uiLanguage));
+// "executing" is claimed by a confirm in flight: still this card, not answerable.
+const isSettled = $derived(
+	write.status !== "pending" && write.status !== "executing",
 );
+const note = $derived(settledWriteNote(write, $t));
+const item = $derived(buildSettledWriteItem(write, view, $t));
 
-let isPhone = $state(isPhoneViewport());
-let sheetDismissed = $state(false);
-let asSheet = $derived(isPhone && isActionable && !sheetDismissed);
-
-onMount(() => watchPhoneViewport((phone) => (isPhone = phone)));
-
-let statusLabel = $derived(
-	write.status === "executed"
-		? $t("connections.writeConfirm.status.executed")
-		: write.status === "cancelled"
-			? $t("connections.writeConfirm.status.cancelled")
-			: write.status === "expired"
-				? $t("connections.writeConfirm.status.expired")
-				: write.status === "failed"
-					? $t("connections.writeConfirm.status.failed")
-					: write.status === "executing"
-						? $t("connections.writeConfirm.status.executing")
-						: "",
-);
-
-let providerName = $derived(
-	getProviderCatalogEntry(write.provider).displayName,
-);
-
-// `disabled` stops a pointer, not a dispatched event, and this card's two
-// callbacks both hit the network. An expired write is terminal server-side —
-// confirm is refused and cancel only moves rows out of "pending" — so both
-// decisions are gated here as well, and nothing leaves the page.
-function requestConfirm() {
-	if (isExpired) return;
-	onConfirm?.(write.id);
-}
-
-function requestCancel() {
-	if (isExpired) return;
-	onCancel?.(write.id);
-}
+// What went wrong stays in sight, so a failed or expired write opens by itself.
+// The person can fold it away; a settled row that is only a record stays folded.
+let userOpen = $state<boolean | null>(null);
+const open = $derived(userOpen ?? note !== null);
 </script>
 
-{#snippet body()}
-	<!-- Connections redesign — the account the change lands in is named by its
-	     own mark rather than a generic "PENDING WRITE" eyebrow: which account
-	     this touches is the first thing worth knowing. The eyebrow survives as
-	     the card's accessible label. -->
-	<header class="dialog-head write-confirm-card__header">
-		<span class="dialog-head__mark" aria-hidden="true">
-			<BrandIcon provider={write.provider} size={13} ariaHidden />
-		</span>
-		<span class="write-confirm-card__heading">
-			<h3 class="dialog-head__title">{write.preview.title}</h3>
-			<p class="dialog-head__qualifier">{providerName}</p>
-		</span>
-		{#if statusLabel}
-			<span class="write-confirm-card__status">{statusLabel}</span>
-		{/if}
-	</header>
-
-	<p class="write-confirm-card__detail">{write.preview.detail}</p>
-
-	<!-- Badges only when they are true, and in the colour they deserve:
-	     saving a new file is not irreversible and must not wear the same red
-	     as deleting three photos. -->
-	{#if write.preview.destructive || !write.preview.reversible}
-		<div class="write-confirm-card__badges">
-			{#if write.preview.destructive}
-				<span class="write-confirm-card__badge write-confirm-card__badge--destructive">
-					<AlertTriangle size={10} strokeWidth={2.4} aria-hidden="true" />
-					{$t('connections.writeConfirm.destructiveBadge')}
-				</span>
-			{/if}
-			{#if !write.preview.reversible}
-				<span
-					class="write-confirm-card__badge"
-					class:write-confirm-card__badge--destructive={write.preview.destructive}
-					class:write-confirm-card__badge--caution={!write.preview.destructive}
-				>
-					{$t('connections.writeConfirm.notReversibleBadge')}
-				</span>
-			{/if}
-		</div>
-	{/if}
-
-	{#if write.preview.warnings.length > 0}
-		<ul class="write-confirm-card__warnings" role="status" aria-live="polite">
-			{#each write.preview.warnings as warning}
-				<li>{warning}</li>
-			{/each}
-		</ul>
-	{/if}
-
-	{#if write.status === "executed" && write.etag}
-		<p class="write-confirm-card__etag">
-			{$t('connections.writeConfirm.etag', { etag: write.etag })}
-		</p>
-	{:else if isActionable}
-		<p class="write-confirm-card__etag">{$t('writeConfirm.etagPending')}</p>
-	{/if}
-
-	{#if isActionable && error}
-		<p class="write-confirm-card__error" role="alert">{error}</p>
-	{/if}
-{/snippet}
-
-{#snippet actions()}
-	<!-- Negative left, positive right — one rule, every dialog. The negative
-	     is a real word, never an X. -->
-	<button
-		type="button"
-		class="dialog-btn"
-		disabled={busy || isExpired}
-		data-testid="write-confirm-decline"
-		aria-label={$t('connections.writeConfirm.cancelA11y', { title: write.preview.title })}
-		onclick={requestCancel}
-	>
-		{$t('writeConfirm.decline')}
-	</button>
-	<button
-		type="button"
-		class="dialog-btn"
-		class:dialog-btn--positive={!write.preview.destructive}
-		class:dialog-btn--destructive={write.preview.destructive}
-		disabled={busy || isExpired}
-		data-testid="write-confirm-approve"
-		aria-label={$t('connections.writeConfirm.confirmA11y', { title: write.preview.title })}
-		onclick={requestConfirm}
-	>
-		{#if write.preview.destructive}
-			<Trash2 size={13} strokeWidth={2} aria-hidden="true" />
-		{:else}
-			<Check size={13} strokeWidth={2.2} aria-hidden="true" />
-		{/if}
-		{busy
-			? $t('connections.writeConfirm.busy')
-			: write.preview.destructive
-				? $t('writeConfirm.approveDestructive')
-				: $t('writeConfirm.approve')}
-	</button>
-{/snippet}
-
-{#if asSheet}
-	<DialogShell
-		title={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
-		onClose={() => (sheetDismissed = true)}
-		phonePresentation="sheet"
-		titleVisuallyHidden
-		footer={actions}
-	>
-		<div
-			class="write-confirm-card write-confirm-card--sheet"
-			class:write-confirm-card--destructive={write.preview.destructive}
-			data-testid="write-confirm-sheet"
-		>
-			{@render body()}
-		</div>
-	</DialogShell>
+{#if isSettled}
+	<div class="write-settled" data-testid="write-confirm-settled" data-status={write.status}>
+		<ToolActivityRow {item} {open} onToggle={() => (userOpen = !open)}>
+			{#snippet bodyContent()}
+				<WriteConfirmDetails {view} {note} settled />
+			{/snippet}
+		</ToolActivityRow>
+	</div>
 {:else}
 	<article
-		class="write-confirm-card"
-		class:write-confirm-card--destructive={write.preview.destructive}
-		class:write-confirm-card--terminal={isTerminal}
-		aria-label={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
+		class="write-card"
+		aria-label={$t('connections.writeConfirm.cardLabel', { title: view.subject })}
 	>
-		{@render body()}
-		<!-- Expired keeps the decision row, disabled: the user is coming back
-		     to a choice they were offered and did not make, and the greyed
-		     pair under the expired line says "too late" far more plainly than
-		     an empty space where two buttons used to be. The three terminal
-		     states that DID come from a decision (executed, cancelled, failed)
-		     keep dropping their buttons — there is nothing left to explain. -->
-		{#if isActionable || isExpired}
-			<div class="write-confirm-card__actions">
-				{@render actions()}
-			</div>
-		{/if}
+		<div class="write-card__content">
+			<WriteConfirmContent {view} provider={write.provider} error={error ?? null} />
+		</div>
+		<footer class="write-card__actions">
+			<WriteConfirmActions
+				{view}
+				busy={busy || write.status === "executing"}
+				onApprove={() => onConfirm?.(write.id)}
+				onDecline={() => onCancel?.(write.id)}
+			/>
+		</footer>
 	</article>
 {/if}
 
 <style>
-	.write-confirm-card {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		margin-top: 0.75rem;
+	/* ArtifactCard's shell. */
+	.write-card {
 		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		background: var(--surface-elevated);
-		padding: 0.9rem;
-		font-family: var(--font-sans);
-		color: var(--text-primary);
-	}
-
-	/* Inside a sheet the shell already owns the ground, the radius and the
-	   padding — the card is only the content. */
-	.write-confirm-card--sheet {
-		margin-top: 0;
-		border: 0;
-		border-radius: 0;
-		background: transparent;
-		padding: 0;
-	}
-
-	/* Only a genuinely destructive write wears the danger border. A benign
-	   save keeps the neutral card. */
-	.write-confirm-card--destructive {
-		border-color: color-mix(in srgb, var(--danger) 42%, var(--border-default) 58%);
-		background: color-mix(in srgb, var(--danger) 4%, var(--surface-elevated));
-	}
-
-	.write-confirm-card--sheet.write-confirm-card--destructive {
-		background: transparent;
-	}
-
-	.write-confirm-card--terminal {
-		opacity: 0.9;
-	}
-
-	.write-confirm-card__header {
-		margin-bottom: 0;
-	}
-
-	.write-confirm-card__heading {
-		flex: 1 1 auto;
-		min-width: 0;
-	}
-
-	h3,
-	p,
-	ul {
-		margin: 0;
-	}
-
-	.write-confirm-card__detail {
-		color: var(--text-secondary);
-		font-size: var(--text-md);
-		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-
-	.write-confirm-card__status {
-		flex-shrink: 0;
-		border: 1px solid var(--border-default);
-		border-radius: 999px;
+		border-radius: var(--radius-lg, 12px);
 		background: var(--surface-page);
-		padding: 0.2rem 0.5rem;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
+		box-shadow: var(--shadow-sm);
+		overflow: hidden;
+		font-family: var(--font-sans);
 	}
 
-	.write-confirm-card__badges {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
+	.write-card__content {
+		padding: 0.75rem 0.875rem;
 	}
 
-	.write-confirm-card__badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		border-radius: 999px;
-		padding: 0.2rem 0.5rem;
-		font-size: var(--text-xs);
-		font-weight: 600;
-	}
-
-	.write-confirm-card__badge--destructive {
-		border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent 55%);
-		background: color-mix(in srgb, var(--danger) 12%, var(--surface-page) 88%);
-		color: var(--danger);
-	}
-
-	/* Irreversible but not destructive — worth flagging, not worth alarming. */
-	.write-confirm-card__badge--caution {
-		border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent 45%);
-		background: color-mix(in srgb, var(--warning) 14%, var(--surface-page) 86%);
-		color: var(--warning);
-	}
-
-	/* A warning the provider itself cannot undo gets a block, not a bullet:
-	   "Immich has no trash on this server" is the whole reason to slow down. */
-	.write-confirm-card__warnings {
-		display: grid;
-		gap: 0.35rem;
-		margin: 0;
-		border: 1px solid color-mix(in srgb, var(--warning) 42%, transparent 58%);
-		border-radius: 6px;
-		background: color-mix(in srgb, var(--warning) 10%, var(--surface-page) 90%);
-		padding: 0.5rem 0.6rem 0.5rem 1.5rem;
-		color: var(--warning);
-		font-size: var(--text-sm);
-		line-height: 1.4;
-		font-weight: 600;
-	}
-
-	.write-confirm-card__etag {
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-		overflow-wrap: anywhere;
-	}
-
-	/* The inline card's own hairline + footer. In a sheet the shell draws
-	   this instead, with both buttons at 44px. */
-	.write-confirm-card__actions {
+	.write-card__actions {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
-		margin-top: 0.15rem;
-		padding-top: 0.75rem;
+		padding: 0.625rem 0.875rem;
 		border-top: 1px solid var(--border-subtle);
 	}
 
-	.write-confirm-card__error {
-		border: 1px solid var(--danger);
-		border-radius: 8px;
-		background: var(--danger-surface, rgba(180, 35, 24, 0.08));
-		padding: 0.45rem 0.6rem;
-		color: var(--danger);
-		font-size: var(--text-sm);
-		line-height: 1.4;
+	.write-settled {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		min-width: 0;
+		overflow: visible;
 	}
 
+	/* Still side by side, still negative-left: the single stacked column is
+	   where the accidental confirm came from. */
 	@media (max-width: 520px) {
-		.write-confirm-card {
-			gap: 0.65rem;
-			margin-top: 0.6rem;
-			padding: 0.75rem;
-		}
-
-		.write-confirm-card--sheet {
-			margin-top: 0;
-			padding: 0;
-		}
-
-		.write-confirm-card__status {
-			align-self: flex-start;
-		}
-
-		/* Still side by side, still negative-left: the single stacked column
-		   is where the accidental confirm came from. */
-		.write-confirm-card__actions :global(.dialog-btn) {
+		.write-card__actions :global(.dialog-btn) {
 			flex: 1 1 0;
 			min-height: 44px;
 		}

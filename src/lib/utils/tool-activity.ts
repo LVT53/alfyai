@@ -44,7 +44,8 @@ import {
 	type Translate,
 } from "$lib/utils/tool-evidence-presentation";
 
-export type ToolActivityStatus = "running" | "done" | "failed";
+/** `skipped`: it ended with nothing done and nothing wrong, as a declined write does. */
+export type ToolActivityStatus = "running" | "done" | "failed" | "skipped";
 
 /**
  * A runtime mirror of `ArtifactKind` (`$lib/shared/artifacts/kinds`, a
@@ -126,7 +127,10 @@ export type ToolActivityBody =
 	// Same arrangement for an Atlas report: AtlasActivityBody.svelte renders the
 	// panel (stage line + plan while running, Report/Evidence/Plan tabs when
 	// done), threaded in as a snippet by AtlasActivityRow.svelte.
-	| { kind: "atlas" };
+	| { kind: "atlas" }
+	// And for a connection write once it is settled: what it was, threaded in
+	// by WriteConfirmCard.svelte.
+	| { kind: "write" };
 
 export type ToolActivityItem = {
 	key: string;

@@ -76,7 +76,7 @@ const AUDITED_PREFIXES = [
 	// would show a Hungarian reader the raw key.
 	"projects.",
 	"skillsPicker.",
-	"writeConfirm.",
+	"connections.writeConfirm.",
 	"linkedSources.",
 	"messageBubble.",
 	"fork.",

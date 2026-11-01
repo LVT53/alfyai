@@ -15,7 +15,14 @@
 // bottom corners square off, the body's top corners do too), and the body
 // slides open AND closed with the app's standard reduced-motion-aware
 // transition.
-import { Check, ChevronDown, Globe, LoaderCircle, X } from "@lucide/svelte";
+import {
+	Check,
+	ChevronDown,
+	Globe,
+	LoaderCircle,
+	Minus,
+	X,
+} from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
@@ -36,6 +43,7 @@ import {
 import type {
 	ToolActivityBody,
 	ToolActivityItem,
+	ToolActivityStatus,
 } from "$lib/utils/tool-activity";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
@@ -65,11 +73,11 @@ let {
 	onCancelJob?: ((jobId: string) => void) | undefined;
 	onDismissJob?: ((jobId: string) => void) | undefined;
 	/**
-	 * The panel for a body kind this component does not own — today only
-	 * `atlas`, whose body (AtlasActivityBody) needs the Atlas job and its
-	 * lifecycle callbacks. Passing it in as a snippet keeps this row free of
-	 * Atlas-specific props while the row chrome (status glyph, verb, meta,
-	 * chevron, open/close slide) stays shared.
+	 * The panel for a body kind this component does not own: `atlas`, whose
+	 * body (AtlasActivityBody) needs the Atlas job and its lifecycle callbacks,
+	 * and `write`, what a settled connection write was. Passing it in as a
+	 * snippet keeps this row free of their props while the row chrome (status
+	 * glyph, verb, meta, chevron, open/close slide) stays shared.
 	 */
 	bodyContent?: Snippet | undefined;
 	/**
@@ -383,12 +391,14 @@ function handleToggle() {
 	const slideTransition = reducedMotionAware(slide);
 </script>
 
-{#snippet statusGlyph(status: 'running' | 'done' | 'failed')}
-	<span class="act-status" class:running={status === 'running'} class:failed={status === 'failed'} aria-hidden="true">
+{#snippet statusGlyph(status: ToolActivityStatus)}
+	<span class="act-status" class:running={status === 'running'} class:failed={status === 'failed'} class:skipped={status === 'skipped'} aria-hidden="true">
 		{#if status === 'running'}
 			<LoaderCircle size={14} strokeWidth={2.4} aria-hidden="true" />
 		{:else if status === 'failed'}
 			<X size={13} strokeWidth={2.2} aria-hidden="true" />
+		{:else if status === 'skipped'}
+			<Minus size={13} strokeWidth={2.2} aria-hidden="true" />
 		{:else}
 			<Check size={13} strokeWidth={2.2} aria-hidden="true" />
 		{/if}
@@ -582,7 +592,7 @@ function handleToggle() {
 						onDismiss={onDismissJob}
 					/>
 				{/if}
-			{:else if body.kind === 'atlas'}
+			{:else if body.kind === 'atlas' || body.kind === 'write'}
 				{@render bodyContent?.()}
 			{:else if body.kind === 'text'}
 				<div class="act-excerpt">{body.text}</div>
@@ -703,6 +713,10 @@ function handleToggle() {
 
 	.act-status.failed {
 		color: var(--danger);
+	}
+
+	.act-status.skipped {
+		color: var(--text-muted);
 	}
 
 	.act-label {

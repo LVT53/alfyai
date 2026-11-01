@@ -1926,7 +1926,8 @@ function sendFollowUp(question: string) {
 	.write-confirm-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--space-sm);
+		margin-top: var(--space-md);
 	}
 
 	.preparing-status {

@@ -216,34 +216,117 @@ const connectionsDict = {
 		"connections.locality.fidelityNote":
 			"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
 
-		// Issue 7.5 — inline write-confirm card (WriteConfirmCard.svelte). The
-		// write's title/detail/warnings text itself comes straight from the
-		// server (write-guard.ts's buildWritePreview) and is not localized
-		// here — only this card's static chrome is.
-		"connections.writeConfirm.eyebrow": "Pending write",
-		"connections.writeConfirm.cardLabel": "Pending write: {title}",
+		// The permission card (WriteConfirmCard.svelte): Alfy asks before it
+		// changes anything in a connected account. write-card.ts on the server
+		// names what is being done, these say it. The question and the button
+		// are per action, because "Save it" on an email is a wrong promise.
+		"connections.writeConfirm.cardLabel": "Needs your OK: {title}",
 		"connections.writeConfirm.confirm": "Confirm",
-		"connections.writeConfirm.confirmA11y": "Confirm: {title}",
 		"connections.writeConfirm.cancel": "Cancel",
-		"connections.writeConfirm.cancelA11y": "Cancel: {title}",
+		"connections.writeConfirm.actionA11y": "{action}: {title}",
 		"connections.writeConfirm.busy": "Working…",
-		"connections.writeConfirm.destructiveBadge": "Destructive",
-		"connections.writeConfirm.notReversibleBadge": "Not reversible",
-		"connections.writeConfirm.etag": "Confirmation ref: {etag}",
-		"connections.writeConfirm.status.executing": "This write is being applied…",
-		"connections.writeConfirm.status.executed": "Done — this was saved.",
-		"connections.writeConfirm.status.cancelled":
-			"Cancelled — this was not saved.",
-		"connections.writeConfirm.status.failed":
-			"This write failed and was not applied.",
+		"connections.writeConfirm.moreWaiting": "{count} more waiting",
+		"connections.writeConfirm.showAll": "Show all",
+		"connections.writeConfirm.showLess": "Show less",
+		"connections.writeConfirm.confirmError": "That didn't work. Try again.",
+		"connections.writeConfirm.cancelError":
+			"Couldn't cancel this. Try again.",
+
+		"connections.writeConfirm.question.emailSend": "Send this email?",
+		"connections.writeConfirm.question.emailTrash":
+			"Move this email to Trash?",
+		"connections.writeConfirm.question.emailMarkRead":
+			"Mark this email as read?",
+		"connections.writeConfirm.question.emailMarkUnread":
+			"Mark this email as unread?",
+		"connections.writeConfirm.question.emailFlag": "Flag this email?",
+		"connections.writeConfirm.question.emailUnflag":
+			"Remove the flag from this email?",
+		"connections.writeConfirm.question.calendarCreate": "Add this event?",
+		"connections.writeConfirm.question.calendarUpdate": "Change this event?",
+		"connections.writeConfirm.question.calendarDelete": "Delete this event?",
+		"connections.writeConfirm.question.filesSave": "Save this file?",
+		"connections.writeConfirm.question.filesReplace": "Replace this file?",
+		"connections.writeConfirm.question.filesMove": "Move this file?",
+		"connections.writeConfirm.question.filesRename": "Rename this file?",
+		"connections.writeConfirm.question.filesDelete":
+			"Move this file to the trash?",
+		"connections.writeConfirm.question.filesCreateFolder":
+			"Create this folder?",
+		"connections.writeConfirm.question.filesShareLink":
+			"Create a public link?",
+		"connections.writeConfirm.question.photosAddToAlbum":
+			"Add these photos to the album?",
+
+		"connections.writeConfirm.approve.emailSend": "Send",
+		"connections.writeConfirm.approve.emailTrash": "Move to Trash",
+		"connections.writeConfirm.approve.emailMarkRead": "Mark as read",
+		"connections.writeConfirm.approve.emailMarkUnread": "Mark as unread",
+		"connections.writeConfirm.approve.emailFlag": "Flag",
+		"connections.writeConfirm.approve.emailUnflag": "Remove flag",
+		"connections.writeConfirm.approve.calendarCreate": "Add event",
+		"connections.writeConfirm.approve.calendarUpdate": "Save changes",
+		"connections.writeConfirm.approve.calendarDelete": "Delete",
+		"connections.writeConfirm.approve.filesSave": "Save",
+		"connections.writeConfirm.approve.filesReplace": "Replace",
+		"connections.writeConfirm.approve.filesMove": "Move",
+		"connections.writeConfirm.approve.filesRename": "Rename",
+		"connections.writeConfirm.approve.filesDelete": "Move to trash",
+		"connections.writeConfirm.approve.filesCreateFolder": "Create",
+		"connections.writeConfirm.approve.filesShareLink": "Create link",
+		"connections.writeConfirm.approve.photosAddToAlbum": "Add",
+
+		// What a settled card says in the activity row it folds into.
+		"connections.writeConfirm.done.generic": "Done",
+		"connections.writeConfirm.done.emailSend": "Sent",
+		"connections.writeConfirm.done.emailTrash": "Moved to Trash",
+		"connections.writeConfirm.done.emailMarkRead": "Marked as read",
+		"connections.writeConfirm.done.emailMarkUnread": "Marked as unread",
+		"connections.writeConfirm.done.emailFlag": "Flagged",
+		"connections.writeConfirm.done.emailUnflag": "Flag removed",
+		"connections.writeConfirm.done.calendarCreate": "Added",
+		"connections.writeConfirm.done.calendarUpdate": "Changed",
+		"connections.writeConfirm.done.calendarDelete": "Deleted",
+		"connections.writeConfirm.done.filesSave": "Saved",
+		"connections.writeConfirm.done.filesReplace": "Replaced",
+		"connections.writeConfirm.done.filesMove": "Moved",
+		"connections.writeConfirm.done.filesRename": "Renamed",
+		"connections.writeConfirm.done.filesDelete": "Moved to trash",
+		"connections.writeConfirm.done.filesCreateFolder": "Created",
+		"connections.writeConfirm.done.filesShareLink": "Link created",
+		"connections.writeConfirm.done.photosAddToAlbum": "Added",
+		"connections.writeConfirm.status.cancelled": "Cancelled",
+		"connections.writeConfirm.status.failed": "Failed",
+		"connections.writeConfirm.status.expired": "Expired",
 		// Deliberately NOT phrased as a failure: nothing was attempted and
 		// nothing went wrong, the proposal just went stale. The second
 		// sentence is the whole point of the line — it names the one move
 		// left, which is to ask again.
-		"connections.writeConfirm.status.expired":
+		"connections.writeConfirm.note.expired":
 			"This request expired. Ask again to redo it.",
-		"connections.writeConfirm.confirmError": "Failed to confirm the write.",
-		"connections.writeConfirm.cancelError": "Failed to cancel the write.",
+		"connections.writeConfirm.note.failed":
+			"This didn't go through, and nothing was changed.",
+
+		"connections.writeConfirm.fact.to": "To",
+		"connections.writeConfirm.fact.cc": "Cc",
+		"connections.writeConfirm.fact.newName": "New name",
+		"connections.writeConfirm.fact.photos": "Photos",
+
+		"connections.writeConfirm.risk.replacesFileForGood":
+			"This replaces the existing file. This Nextcloud keeps no earlier versions, so the old one can't be brought back.",
+		"connections.writeConfirm.risk.replacesFileUnchecked":
+			"This replaces the existing file, and Alfy couldn't check whether the old one can be brought back.",
+		"connections.writeConfirm.risk.deletesWholeSeries":
+			"This deletes every event in the series, not just one.",
+		"connections.writeConfirm.risk.changesWholeSeries":
+			"This changes every event in the series, not just one.",
+		"connections.writeConfirm.risk.cannotUndo": "This can't be undone.",
+		"connections.writeConfirm.risk.publicLink":
+			"Anyone with the link can open this, without signing in.",
+		"connections.writeConfirm.risk.outsideAllowedFolders":
+			"This is outside the folders you allowed for Alfy.",
+		"connections.writeConfirm.risk.uncheckedFolder":
+			"Alfy couldn't check whether this is a folder you allowed.",
 
 		// ─────────────────────────────────────────────────────────────────
 		// CONNECTIONS REDESIGN — everything below this line is new copy for
@@ -751,30 +834,118 @@ const connectionsDict = {
 		"connections.locality.fidelityNote":
 			"A helyi összegzés a kérdésed szempontjából releváns részleteket próbálja megőrizni, bár a nyers adatküldéshez képest némi árnyaltság elveszhet.",
 
-		// Issue 7.5 — inline write-confirm card (WriteConfirmCard.svelte).
-		"connections.writeConfirm.eyebrow": "Függőben lévő írás",
-		"connections.writeConfirm.cardLabel": "Függőben lévő írás: {title}",
+		// Az engedélykártya (WriteConfirmCard.svelte): Alfy megkérdez, mielőtt
+		// bármit módosítana egy csatlakoztatott fiókban.
+		"connections.writeConfirm.cardLabel": "Jóváhagyásra vár: {title}",
 		"connections.writeConfirm.confirm": "Jóváhagyás",
-		"connections.writeConfirm.confirmA11y": "Jóváhagyás: {title}",
 		"connections.writeConfirm.cancel": "Mégse",
-		"connections.writeConfirm.cancelA11y": "Mégse: {title}",
+		"connections.writeConfirm.actionA11y": "{action}: {title}",
 		"connections.writeConfirm.busy": "Feldolgozás…",
-		"connections.writeConfirm.destructiveBadge": "Visszavonhatatlan hatású",
-		"connections.writeConfirm.notReversibleBadge": "Nem vonható vissza",
-		"connections.writeConfirm.etag": "Visszaigazolási azonosító: {etag}",
-		"connections.writeConfirm.status.executing":
-			"Ez az írás most kerül végrehajtásra…",
-		"connections.writeConfirm.status.executed": "Kész — ez elmentve.",
-		"connections.writeConfirm.status.cancelled":
-			"Megszakítva — ez nem lett elmentve.",
-		"connections.writeConfirm.status.failed":
-			"Ez az írás nem sikerült, és nem lett alkalmazva.",
-		"connections.writeConfirm.status.expired":
-			"Ez a kérés lejárt. Kérd újra, ha még kell.",
+		"connections.writeConfirm.moreWaiting": "Még {count} vár",
+		"connections.writeConfirm.showAll": "Mutasd mind",
+		"connections.writeConfirm.showLess": "Kevesebb",
 		"connections.writeConfirm.confirmError":
-			"Nem sikerült jóváhagyni az írást.",
+			"Nem sikerült. Próbáld újra.",
 		"connections.writeConfirm.cancelError":
-			"Nem sikerült megszakítani az írást.",
+			"Nem sikerült megszakítani. Próbáld újra.",
+
+		"connections.writeConfirm.question.emailSend":
+			"Elküldjem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailTrash":
+			"A kukába tegyem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailMarkRead":
+			"Olvasottnak jelöljem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailMarkUnread":
+			"Olvasatlannak jelöljem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailFlag":
+			"Megjelöljem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailUnflag":
+			"Levegyem a jelölést erről az e-mailről?",
+		"connections.writeConfirm.question.calendarCreate":
+			"Felvegyem ezt az eseményt?",
+		"connections.writeConfirm.question.calendarUpdate":
+			"Módosítsam ezt az eseményt?",
+		"connections.writeConfirm.question.calendarDelete":
+			"Töröljem ezt az eseményt?",
+		"connections.writeConfirm.question.filesSave": "Elmentsem ezt a fájlt?",
+		"connections.writeConfirm.question.filesReplace":
+			"Felülírjam ezt a fájlt?",
+		"connections.writeConfirm.question.filesMove": "Áthelyezzem ezt a fájlt?",
+		"connections.writeConfirm.question.filesRename":
+			"Átnevezzem ezt a fájlt?",
+		"connections.writeConfirm.question.filesDelete":
+			"A kukába tegyem ezt a fájlt?",
+		"connections.writeConfirm.question.filesCreateFolder":
+			"Létrehozzam ezt a mappát?",
+		"connections.writeConfirm.question.filesShareLink":
+			"Létrehozzak nyilvános linket?",
+		"connections.writeConfirm.question.photosAddToAlbum":
+			"Hozzáadjam a fotókat az albumhoz?",
+
+		"connections.writeConfirm.approve.emailSend": "Küldés",
+		"connections.writeConfirm.approve.emailTrash": "Kukába",
+		"connections.writeConfirm.approve.emailMarkRead": "Olvasott",
+		"connections.writeConfirm.approve.emailMarkUnread": "Olvasatlan",
+		"connections.writeConfirm.approve.emailFlag": "Megjelölés",
+		"connections.writeConfirm.approve.emailUnflag": "Jelölés levétele",
+		"connections.writeConfirm.approve.calendarCreate": "Felvétel",
+		"connections.writeConfirm.approve.calendarUpdate": "Módosítás",
+		"connections.writeConfirm.approve.calendarDelete": "Törlés",
+		"connections.writeConfirm.approve.filesSave": "Mentés",
+		"connections.writeConfirm.approve.filesReplace": "Felülírás",
+		"connections.writeConfirm.approve.filesMove": "Áthelyezés",
+		"connections.writeConfirm.approve.filesRename": "Átnevezés",
+		"connections.writeConfirm.approve.filesDelete": "Kukába",
+		"connections.writeConfirm.approve.filesCreateFolder": "Létrehozás",
+		"connections.writeConfirm.approve.filesShareLink": "Link létrehozása",
+		"connections.writeConfirm.approve.photosAddToAlbum": "Hozzáadás",
+
+		"connections.writeConfirm.done.generic": "Kész",
+		"connections.writeConfirm.done.emailSend": "Elküldve",
+		"connections.writeConfirm.done.emailTrash": "A kukában",
+		"connections.writeConfirm.done.emailMarkRead": "Olvasottnak jelölve",
+		"connections.writeConfirm.done.emailMarkUnread": "Olvasatlannak jelölve",
+		"connections.writeConfirm.done.emailFlag": "Megjelölve",
+		"connections.writeConfirm.done.emailUnflag": "Jelölés levéve",
+		"connections.writeConfirm.done.calendarCreate": "Felvéve",
+		"connections.writeConfirm.done.calendarUpdate": "Módosítva",
+		"connections.writeConfirm.done.calendarDelete": "Törölve",
+		"connections.writeConfirm.done.filesSave": "Elmentve",
+		"connections.writeConfirm.done.filesReplace": "Felülírva",
+		"connections.writeConfirm.done.filesMove": "Áthelyezve",
+		"connections.writeConfirm.done.filesRename": "Átnevezve",
+		"connections.writeConfirm.done.filesDelete": "A kukában",
+		"connections.writeConfirm.done.filesCreateFolder": "Létrehozva",
+		"connections.writeConfirm.done.filesShareLink": "Link létrehozva",
+		"connections.writeConfirm.done.photosAddToAlbum": "Hozzáadva",
+		"connections.writeConfirm.status.cancelled": "Megszakítva",
+		"connections.writeConfirm.status.failed": "Nem sikerült",
+		"connections.writeConfirm.status.expired": "Lejárt",
+		"connections.writeConfirm.note.expired":
+			"Ez a kérés lejárt. Kérd újra, ha még kell.",
+		"connections.writeConfirm.note.failed":
+			"Ez nem sikerült, és nem változott semmi.",
+
+		"connections.writeConfirm.fact.to": "Címzett",
+		"connections.writeConfirm.fact.cc": "Másolat",
+		"connections.writeConfirm.fact.newName": "Új név",
+		"connections.writeConfirm.fact.photos": "Fotók",
+
+		"connections.writeConfirm.risk.replacesFileForGood":
+			"Ez felülírja a meglévő fájlt. Ez a Nextcloud nem őriz korábbi verziókat, így a régi nem hozható vissza.",
+		"connections.writeConfirm.risk.replacesFileUnchecked":
+			"Ez felülírja a meglévő fájlt, és Alfy nem tudta ellenőrizni, hogy a régi visszahozható-e.",
+		"connections.writeConfirm.risk.deletesWholeSeries":
+			"Ez a sorozat minden eseményét törli, nem csak egyet.",
+		"connections.writeConfirm.risk.changesWholeSeries":
+			"Ez a sorozat minden eseményét módosítja, nem csak egyet.",
+		"connections.writeConfirm.risk.cannotUndo": "Ez nem vonható vissza.",
+		"connections.writeConfirm.risk.publicLink":
+			"A linkkel bárki megnyithatja, bejelentkezés nélkül.",
+		"connections.writeConfirm.risk.outsideAllowedFolders":
+			"Ez kívül esik az Alfynak engedélyezett mappákon.",
+		"connections.writeConfirm.risk.uncheckedFolder":
+			"Alfy nem tudta ellenőrizni, hogy ez engedélyezett mappa-e.",
 
 		// ─────────────────────────────────────────────────────────────────
 		// KAPCSOLATOK ÚJRATERVEZÉS — az alábbi kulcsok mind az újratervezett

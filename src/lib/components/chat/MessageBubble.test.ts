@@ -1531,7 +1531,7 @@ describe("MessageBubble", () => {
 
 		expect(
 			screen.getByRole("article", {
-				name: "Pending write: Save note.txt to /AlfyAI",
+				name: "Needs your OK: Save note.txt to /AlfyAI",
 			}),
 		).toBeInTheDocument();
 
@@ -1625,7 +1625,11 @@ describe("MessageBubble", () => {
 			],
 		});
 
-		expect(screen.getByText("Done — this was saved.")).toBeInTheDocument();
+		expect(screen.getByText("Save note.txt to /AlfyAI")).toBeInTheDocument();
+		expect(screen.getByTestId("write-confirm-settled")).toHaveAttribute(
+			"data-status",
+			"executed",
+		);
 		expect(
 			screen.queryByRole("button", { name: /Confirm|Cancel/ }),
 		).not.toBeInTheDocument();
