@@ -2283,9 +2283,20 @@ async function refreshConversationFiles() {
 	if (detail) applyConversationDetailMetadata(detail);
 }
 
+let pendingWritesReads = 0;
+
 async function refreshPendingWrites() {
+	// The latest read wins. A hydrate started mid-turn can answer after the read
+	// the turn's end started, and its older rows have no message id yet: laid
+	// over the newer ones they would take the card off its message.
+	pendingWritesReads += 1;
+	const read = pendingWritesReads;
+	const conversationId = data.conversation.id;
 	try {
-		pendingWrites = await fetchConversationPendingWrites(data.conversation.id);
+		const writes = await fetchConversationPendingWrites(conversationId);
+		if (read === pendingWritesReads && conversationId === data.conversation.id) {
+			pendingWrites = writes;
+		}
 	} catch {
 		// Best-effort — the page still functions with a stale/empty list; the
 		// next successful refresh (turn completion, tool-call hydrate, or a

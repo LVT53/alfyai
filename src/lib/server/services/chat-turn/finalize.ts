@@ -295,8 +295,6 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 			)
 		).map(toPublicGeneratedFile);
 
-		await reconcilePendingWritesForAssistantMessage(params);
-
 		return generatedFiles;
 	} catch (error) {
 		console.error(`${logPrefix} Failed to reconcile generated outputs`, {
@@ -309,9 +307,11 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 }
 
 // Issue 7.5 — sibling reconciliation to the file-production one above,
-// applied to connection_pending_writes. Deliberately its own try/catch so a
-// failure here (or above) never suppresses the other's result — this is a
-// best-effort backfill for card UI, not a correctness-critical write path
+// applied to connection_pending_writes. Its own step, run before the turn's
+// receipt goes out and not with the projection: the page reads its pending
+// writes the moment the turn ends, and a row still unstamped then belongs to no
+// message, so its card is drawn nowhere until a reload. Best-effort all the
+// same: this is a backfill for card UI, not a correctness-critical write path
 // (the write itself, and its confirm/cancel state, lives entirely in
 // connection_pending_writes independent of whether this stamp ever lands).
 async function reconcilePendingWritesForAssistantMessage(params: {
@@ -520,6 +520,16 @@ export async function finalizeChatTurn(
 		mode,
 		createMessage,
 	);
+
+	if (assistantMessage && params.generatedOutputReconciliation) {
+		await reconcilePendingWritesForAssistantMessage({
+			turnKind: params.turnKind,
+			userId: params.userId,
+			conversationId: params.conversationId,
+			assistantMessageId: assistantMessage.id,
+			reconciliation: params.generatedOutputReconciliation,
+		});
+	}
 
 	if (
 		!persistUserAttachmentsBeforeAssistantMessage &&

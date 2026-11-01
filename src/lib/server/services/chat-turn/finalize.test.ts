@@ -901,6 +901,97 @@ describe("finalizeChatTurn", () => {
 		]);
 	});
 
+	// A write proposed mid-turn has no message id until the turn knows it, and
+	// the page reads its pending writes the moment the terminal frame lands. A
+	// row still unstamped then belongs to no message: its card disappears until
+	// a reload. So the stamp goes out before the frame, ahead of the slow steps.
+	it("stamps this turn's pending writes before the terminal receipt, without waiting for the turn state", async () => {
+		const calls: string[] = [];
+		const assignPendingWrites = vi.fn(async () => {
+			calls.push("stamped");
+		});
+		mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			turnKind: "stream",
+			responseLanguage: "en",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			persistUserMessage: true,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: { evidenceStatus: "pending" },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_stream",
+			generatedOutputReconciliation: {
+				fileProductionJobIdsAtStart: new Set<string>(),
+				pendingWriteIdsAtStart: new Set(["pw-existing"]),
+				getPendingWrites: vi.fn(async () => [
+					{ id: "pw-existing" },
+					{ id: "pw-new" },
+				]) as never,
+				assignPendingWritesToAssistantMessage: assignPendingWrites,
+			},
+			onDurableReceiptReady: () => {
+				calls.push("receipt");
+			},
+		});
+
+		expect(calls).toEqual(["stamped", "receipt"]);
+		expect(assignPendingWrites).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"assistant-message",
+			["pw-new"],
+		);
+	});
+
+	it("still stamps the pending writes when the file reconciliation fails", async () => {
+		const assignPendingWrites = vi.fn(async () => undefined);
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			turnKind: "send",
+			responseLanguage: "en",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			persistUserMessage: true,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: { evidenceStatus: "pending" },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_send",
+			generatedOutputReconciliation: {
+				fileProductionJobIdsAtStart: new Set<string>(),
+				getFileProductionJobs: vi.fn(async () => {
+					throw new Error("job ledger down");
+				}),
+				pendingWriteIdsAtStart: new Set<string>(),
+				getPendingWrites: vi.fn(async () => [{ id: "pw-new" }]) as never,
+				assignPendingWritesToAssistantMessage: assignPendingWrites,
+			},
+		});
+
+		expect(assignPendingWrites).toHaveBeenCalledTimes(1);
+	});
+
 	it("reconciles new pending writes during turn completion, stamping only the new ids", async () => {
 		const assignPendingWrites = vi.fn(async () => undefined);
 		const getPendingWrites = vi.fn(async () => [

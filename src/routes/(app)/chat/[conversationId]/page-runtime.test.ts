@@ -305,6 +305,12 @@ vi.mock("$lib/client/api/skills", () => ({
 	saveSkillDraft: vi.fn(),
 }));
 
+vi.mock("$lib/client/api/connection-writes", () => ({
+	cancelWrite: vi.fn(),
+	confirmWrite: vi.fn(),
+	fetchConversationPendingWrites: vi.fn(async () => []),
+}));
+
 vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
 	checkCloudWarning: checkCloudWarningMock,
@@ -380,6 +386,7 @@ vi.mock("$lib/stores/conversations", async (importOriginal) => ({
 }));
 
 import { goto } from "$app/navigation";
+import { fetchConversationPendingWrites } from "$lib/client/api/connection-writes";
 import {
 	fetchConversationDetail,
 	fetchMessageEvidence,
@@ -4361,6 +4368,68 @@ describe("chat page regenerate — later-turns confirm integration (B1)", () => 
 		expect(confirmSpy).toHaveBeenCalledWith(
 			"Regenerating this response will replace source history that already has forks. Existing forks stay unchanged. Continue?",
 		);
+	});
+
+	describe("pending write cards", () => {
+		function proposedWrite(assistantMessageId: string | null) {
+			return {
+				id: "pw-1",
+				conversationId: "conv-1",
+				assistantMessageId,
+				status: "pending" as const,
+				provider: "google",
+				createdAt: Date.now(),
+				preview: {
+					title: 'Create "Dentist" on your Google Calendar',
+					detail: "calendar.create_event — Dentist",
+					reversible: true,
+					destructive: false,
+					withinAllowlist: null,
+					warnings: [],
+				},
+			};
+		}
+
+		// A read started mid-turn answers with the row as it was then, before the
+		// turn knew its message. Laid over the turn's own read, it took the card
+		// off its message, and only a reload brought it back.
+		it("keeps a card on its message when an older read answers last", async () => {
+			let finishOlderRead: (writes: never[]) => void = () => {};
+			vi.mocked(fetchConversationPendingWrites)
+				.mockReset()
+				.mockReturnValueOnce(
+					new Promise((resolve) => {
+						finishOlderRead = resolve;
+					}),
+				)
+				.mockResolvedValue([proposedWrite("assistant-1")]);
+			renderPage();
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "Put the dentist in my calendar" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			const { callbacks } = runtimeHarness.streamInvocations[0];
+
+			callbacks.onToolCall?.("calendar", { action: "create_event" }, "done", {
+				callId: "call-1",
+			});
+			await waitFor(() => {
+				expect(fetchConversationPendingWrites).toHaveBeenCalledTimes(1);
+			});
+			callbacks.onEnd("It is ready for you.", {
+				assistantMessageId: "assistant-1",
+			});
+			expect(await screen.findByTestId("message-pending-writes")).toBeVisible();
+
+			finishOlderRead([proposedWrite(null)] as never[]);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			expect(screen.getByTestId("message-pending-writes")).toBeVisible();
+			vi.mocked(fetchConversationPendingWrites).mockReset();
+			vi.mocked(fetchConversationPendingWrites).mockResolvedValue([]);
+		});
 	});
 
 	describe("conversation title", () => {
