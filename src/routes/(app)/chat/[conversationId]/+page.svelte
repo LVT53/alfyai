@@ -172,6 +172,7 @@ import {
 	removeConversationLocal,
 	updateConversationMemoryIncognitoLocal,
 	updateConversationTitleLocal,
+	watchConversationTitle,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
 import {
@@ -2159,6 +2160,7 @@ $effect(() => {
 		return;
 	}
 	if (data.conversation.id !== prevConversationId) {
+		if (prevConversationId) watchTitleOfUnfinishedTurn(prevConversationId);
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
@@ -2303,6 +2305,7 @@ async function pollForCompletion(
 		console.info("[CHAT] Polling timeout - checking final state");
 		normalChatRuntime.completePollingRecovery();
 		void loadPersistedData();
+		watchConversationTitle(data.conversation.id);
 		return;
 	}
 
@@ -2384,6 +2387,7 @@ async function pollForCompletion(
 
 		applyConversationDetailMetadata(detail);
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
+		maybeTriggerTitleGeneration();
 
 		// Poll for evidence
 		if (newAssistant.id) {
@@ -2505,6 +2509,7 @@ onDestroy(() => {
 	}
 	evidencePollControllers.clear();
 
+	watchTitleOfUnfinishedTurn(data.conversation.id);
 	normalChatRuntime.detach();
 
 	void draftPersistence.flush();
@@ -2906,10 +2911,7 @@ function clearQueuedTurn() {
 	normalChatRuntime.clearQueuedTurn();
 }
 
-function maybeTriggerTitleGeneration(
-	userMessage: string,
-	assistantResponse: string,
-) {
+function maybeTriggerTitleGeneration() {
 	if (
 		titleGenerationTriggered ||
 		effectiveConversationTitle !== DEFAULT_CONVERSATION_TITLE
@@ -2919,10 +2921,7 @@ function maybeTriggerTitleGeneration(
 
 	titleGenerationTriggered = true;
 	const conversationIdForTitle = data.conversation.id;
-	generateConversationTitle(conversationIdForTitle, {
-		userMessage,
-		assistantResponse,
-	})
+	generateConversationTitle(conversationIdForTitle)
 		.then((title) => {
 			if (title) {
 				updateConversationTitleLocal(conversationIdForTitle, title);
@@ -2931,6 +2930,15 @@ function maybeTriggerTitleGeneration(
 		.catch(() => {
 			// Ignore errors, title remains 'New conversation'
 		});
+}
+
+// Leaving a chat detaches this page from its turn, and the turn goes on: the
+// server names the conversation when it ends, and from then on only the sidebar
+// is left to hear of it.
+function watchTitleOfUnfinishedTurn(conversationId: string) {
+	if (isSending || normalChatRuntimeActive) {
+		watchConversationTitle(conversationId);
+	}
 }
 
 async function pollMessageEvidence(messageId: string) {

@@ -372,6 +372,13 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 	};
 });
 
+// A page that goes away with a turn running starts this, and every test ends by
+// taking its page away: the real one would poll into the tests after it.
+vi.mock("$lib/stores/conversations", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/stores/conversations")>()),
+	watchConversationTitle: vi.fn(),
+}));
+
 import { goto } from "$app/navigation";
 import {
 	fetchConversationDetail,
@@ -381,6 +388,7 @@ import {
 import {
 	conversations as conversationsStore,
 	renameConversation,
+	watchConversationTitle,
 } from "$lib/stores/conversations";
 import Page from "./+page.svelte";
 
@@ -4362,6 +4370,77 @@ describe("chat page regenerate — later-turns confirm integration (B1)", () => 
 		beforeEach(() => {
 			conversationsStore.set([]);
 			vi.mocked(generateConversationTitle).mockReset();
+			vi.mocked(watchConversationTitle).mockClear();
+		});
+
+		async function startFirstTurn() {
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "How does tidal energy work?" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		}
+
+		// The turn goes on without the page, and the server names the chat when
+		// it ends. Only the sidebar is left to hear of it.
+		it("leaves the title to the sidebar when the person moves to another chat mid-turn", async () => {
+			const view = renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
+				}),
+			);
+			await startFirstTurn();
+
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-2", {
+						title: "Second chat",
+						createdAt: 2,
+						updatedAt: 2,
+					}),
+				}),
+				params: { conversationId: "conv-2" },
+			});
+
+			await waitFor(() => {
+				expect(watchConversationTitle).toHaveBeenCalledWith("conv-1");
+			});
+			expect(watchConversationTitle).toHaveBeenCalledTimes(1);
+		});
+
+		it("leaves the title to the sidebar when the page goes away mid-turn", async () => {
+			const view = renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
+				}),
+			);
+			await startFirstTurn();
+
+			view.unmount();
+
+			expect(watchConversationTitle).toHaveBeenCalledWith("conv-1");
+		});
+
+		it("watches nothing when the page leaves after the turn has ended", async () => {
+			vi.mocked(generateConversationTitle).mockResolvedValue(null);
+			const view = renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
+				}),
+			);
+			await finishFirstTurn();
+
+			view.unmount();
+
+			expect(watchConversationTitle).not.toHaveBeenCalled();
 		});
 
 		async function finishFirstTurn() {

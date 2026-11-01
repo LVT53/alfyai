@@ -564,17 +564,10 @@ export async function keepMessageAsDocument(
 
 export async function generateConversationTitle(
 	conversationId: string,
-	params: { userMessage: string; assistantResponse: string },
 ): Promise<string | null> {
 	const payload = await requestJson<TitleGenerationResponse>(
 		`/api/conversations/${conversationId}/title`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(params),
-		},
+		{ method: "POST" },
 		"Failed to generate conversation title",
 	);
 

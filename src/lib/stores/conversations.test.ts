@@ -29,6 +29,7 @@ import {
 	toggleConversationSidebarPin,
 	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
+	watchConversationTitle,
 } from "./conversations";
 
 let localStorageMock: Record<string, string> = {};
@@ -969,6 +970,127 @@ describe("conversations store", () => {
 
 		expect(get(conversations)).toEqual([]);
 		expect(vi.mocked(window.dispatchEvent)).toHaveBeenCalled();
+	});
+
+	// The server names a conversation when its turn ends, whether or not a page
+	// is still following that turn. A person who left has only the sidebar, and
+	// nothing else tells it, so it looks until the name is there.
+	describe("watchConversationTitle", () => {
+		const POLL_MS = 5000;
+
+		function serverSays(...items: ConversationListItem[]) {
+			vi.mocked(fetch).mockImplementation(async () =>
+				jsonResponse({ conversations: items }),
+			);
+		}
+
+		function titleOf(id: string) {
+			return get(conversations).find((item) => item.id === id)?.title;
+		}
+
+		beforeEach(() => {
+			vi.useFakeTimers();
+			upsertConversationLocal("conv-left", "New Conversation", 100);
+		});
+
+		it("picks the title up once the server has it, then stops asking", async () => {
+			serverSays(conversationItem("conv-left", "New Conversation", 100));
+			watchConversationTitle("conv-left");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(titleOf("conv-left")).toBe("New Conversation");
+
+			serverSays(conversationItem("conv-left", "Dentist on Tuesday", 100));
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(titleOf("conv-left")).toBe("Dentist on Tuesday");
+
+			vi.mocked(fetch).mockClear();
+			await vi.advanceTimersByTimeAsync(POLL_MS * 4);
+			expect(fetch).not.toHaveBeenCalled();
+		});
+
+		it("asks for nothing when the conversation already has a name", async () => {
+			upsertConversationLocal("conv-named", "Already named", 100);
+			watchConversationTitle("conv-named");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+
+			expect(fetch).not.toHaveBeenCalled();
+		});
+
+		it("keeps one poll for several conversations", async () => {
+			upsertConversationLocal("conv-other", "New Conversation", 90);
+			serverSays(
+				conversationItem("conv-left", "New Conversation", 100),
+				conversationItem("conv-other", "New Conversation", 90),
+			);
+			watchConversationTitle("conv-left");
+			watchConversationTitle("conv-other");
+			watchConversationTitle("conv-left");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+
+			expect(fetch).toHaveBeenCalledTimes(1);
+		});
+
+		it("gives up on a turn that never ends rather than polling for ever", async () => {
+			serverSays(conversationItem("conv-left", "New Conversation", 100));
+			watchConversationTitle("conv-left");
+
+			await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + POLL_MS);
+			vi.mocked(fetch).mockClear();
+			await vi.advanceTimersByTimeAsync(POLL_MS * 4);
+
+			expect(fetch).not.toHaveBeenCalled();
+		});
+
+		it("waits for a first turn's row, which the list may not hold yet", async () => {
+			removeConversationLocal("conv-left");
+			clearConversationStore();
+			serverSays();
+			watchConversationTitle("conv-first");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+			serverSays(conversationItem("conv-first", "Named at last", 100));
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+
+			expect(titleOf("conv-first")).toBe("Named at last");
+		});
+
+		it("stops at once for a conversation deleted meanwhile", async () => {
+			serverSays();
+			watchConversationTitle("conv-left");
+			removeConversationLocal("conv-left");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			vi.mocked(fetch).mockClear();
+			await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+
+			expect(fetch).not.toHaveBeenCalled();
+		});
+
+		it("does not ask while the tab is hidden: coming back refreshes the list anyway", async () => {
+			vi.stubGlobal("document", { hidden: true });
+			serverSays(conversationItem("conv-left", "New Conversation", 100));
+			watchConversationTitle("conv-left");
+
+			await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+			expect(fetch).not.toHaveBeenCalled();
+
+			vi.stubGlobal("document", { hidden: false });
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(fetch).toHaveBeenCalledTimes(1);
+		});
+
+		it("forgets every watch when the store is cleared for another person", async () => {
+			serverSays(conversationItem("conv-left", "New Conversation", 100));
+			watchConversationTitle("conv-left");
+			clearConversationStore();
+
+			await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+
+			expect(fetch).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("bulk actions", () => {

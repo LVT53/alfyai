@@ -20,7 +20,10 @@ import type {
 	ConversationListItem,
 } from "$lib/server/services/conversations";
 import type { ConversationBatchResult } from "$lib/shared/conversation-batch";
-import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
+import {
+	DEFAULT_CONVERSATION_TITLE,
+	isUntitledConversationTitle,
+} from "$lib/shared/conversation-title";
 
 export const conversations = writable<ConversationListItem[]>([]);
 
@@ -351,6 +354,7 @@ export function clearConversationStore(): void {
 	// localStorage when they differ.  conversationSnapshotUserId is kept so the
 	// next reconcile can detect an actual owner change via ownerChanged.
 	lastSuccessfulConversationSnapshotAt = 0;
+	stopTitleWatches();
 	conversations.set([]);
 }
 
@@ -394,6 +398,56 @@ export async function loadConversations(
 		}
 		return { refreshed: false };
 	}
+}
+
+// The server names a conversation when its turn ends, and tells nobody. A page
+// that is following the turn asks for the title; a person who has left has only
+// the sidebar, so it watches the list until the name lands. Bounded twice: by
+// how long a turn can be expected to run, and by the name arriving.
+const TITLE_WATCH_POLL_MS = 5000;
+const TITLE_WATCH_LIMIT_MS = 10 * 60 * 1000;
+const titleWatchDeadlines = new Map<string, number>();
+let titleWatchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopTitleWatches(): void {
+	titleWatchDeadlines.clear();
+	if (titleWatchTimer !== null) clearTimeout(titleWatchTimer);
+	titleWatchTimer = null;
+}
+
+/**
+ * Keeps the sidebar looking for a conversation's title after a page stopped
+ * following its turn. Safe to call for any conversation: one that has a name,
+ * or is already watched, costs nothing.
+ */
+export function watchConversationTitle(id: string): void {
+	if (typeof window === "undefined") return;
+	const row = get(conversations).find((item) => item.id === id);
+	if (row && !isUntitledConversationTitle(row.title)) return;
+	titleWatchDeadlines.set(id, Date.now() + TITLE_WATCH_LIMIT_MS);
+	titleWatchTimer ??= setTimeout(pollWatchedTitles, TITLE_WATCH_POLL_MS);
+}
+
+async function pollWatchedTitles(): Promise<void> {
+	// A hidden tab asks for nothing: coming back to it refreshes the list.
+	if (typeof document === "undefined" || !document.hidden) {
+		await loadConversations({ force: true });
+	}
+	const now = Date.now();
+	const rows = get(conversations);
+	for (const [id, deadline] of titleWatchDeadlines) {
+		// No row is not the end of it: a first turn's chat can be missing from the
+		// list until the turn is stored. A row that was removed here is.
+		const row = rows.find((item) => item.id === id);
+		const named = row && !isUntitledConversationTitle(row.title);
+		if (named || deletedConversationIds.has(id) || now >= deadline) {
+			titleWatchDeadlines.delete(id);
+		}
+	}
+	titleWatchTimer =
+		titleWatchDeadlines.size > 0
+			? setTimeout(pollWatchedTitles, TITLE_WATCH_POLL_MS)
+			: null;
 }
 
 let isCreating = false;

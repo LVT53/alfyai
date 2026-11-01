@@ -475,10 +475,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 		expect(adapters.pollMessageEvidence).toHaveBeenCalledWith("assistant-1");
 		expect(adapters.refreshMessageCost).not.toHaveBeenCalled();
-		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledWith(
-			"Hello",
-			"Hi",
-		);
+		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledTimes(1);
 		expect(runtime.snapshot()).toMatchObject({
 			active: false,
 			isSending: false,
@@ -1339,10 +1336,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			wasStopped: true,
 		});
 
-		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledWith(
-			"First",
-			"Stopped",
-		);
+		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledTimes(1);
 		expect(streamInvocations).toHaveLength(1);
 		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
 			expect.objectContaining({

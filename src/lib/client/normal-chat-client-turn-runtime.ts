@@ -214,10 +214,7 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	setContextCompressionMarkers?: (
 		markers: NonNullable<StreamMetadata["contextCompressionSnapshots"]>,
 	) => void;
-	maybeTriggerTitleGeneration: (
-		userMessage: string,
-		assistantResponse: string,
-	) => void;
+	maybeTriggerTitleGeneration: () => void;
 	runManualContextCompression: () => Promise<void> | void;
 	restorePayloadToDraft: (payload: NormalChatSendPayload) => void;
 	markPendingSkillUnavailable: (
@@ -265,7 +262,6 @@ type StartStreamParams = {
 	clientUserMessageId: string | null;
 	payload?: NormalChatSendPayload;
 	streamOptions: StreamChatOptions;
-	completedUserMessage: string;
 	// R1 (ADR-0060, defect 2) — the conversation this turn was started
 	// against, captured once from `adapters.getConversationId()` at the
 	// moment the turn began (send/retry/reconnect). Every subsequent write
@@ -841,10 +837,7 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 
-				adapters.maybeTriggerTitleGeneration(
-					params.completedUserMessage,
-					finalText,
-				);
+				adapters.maybeTriggerTitleGeneration();
 
 				if (metadata?.wasStopped) {
 					if (takeQueuedContextCompression()) {
@@ -1137,7 +1130,6 @@ export function createNormalChatClientTurnRuntime(
 		payload: NormalChatSendPayload;
 		placeholderId: string;
 		clientUserMessageId: string | null;
-		completedUserMessage: string;
 		turnConversationId: string;
 	}) {
 		const clientAtlasTurnId =
@@ -1180,10 +1172,7 @@ export function createNormalChatClientTurnRuntime(
 			canRetry = false;
 			completeTurn();
 			adapters.hydrateConversationDetail();
-			adapters.maybeTriggerTitleGeneration(
-				params.completedUserMessage,
-				result.message,
-			);
+			adapters.maybeTriggerTitleGeneration();
 			void drainPostTurnQueue();
 		} catch (error) {
 			if (!isTurnConversationActive(params.turnConversationId)) {
@@ -1290,7 +1279,6 @@ export function createNormalChatClientTurnRuntime(
 				payload,
 				placeholderId,
 				clientUserMessageId,
-				completedUserMessage: text,
 				turnConversationId,
 			});
 			return;
@@ -1301,7 +1289,6 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId,
 			clientUserMessageId,
 			payload,
-			completedUserMessage: text,
 			turnConversationId,
 			onForkedSourceHistoryConfirmationRequired:
 				options.onForkedSourceHistoryConfirmationRequired,
@@ -1376,7 +1363,6 @@ export function createNormalChatClientTurnRuntime(
 			message: lastUserMessage,
 			placeholderId,
 			clientUserMessageId: null,
-			completedUserMessage: lastUserMessage,
 			turnConversationId,
 			streamOptions: {
 				modelId: lastAssistantMsg?.modelId ?? adapters.getSelectedModel(),
@@ -1510,7 +1496,6 @@ export function createNormalChatClientTurnRuntime(
 			message: userMessage || "",
 			placeholderId,
 			clientUserMessageId,
-			completedUserMessage: userMessage,
 			turnConversationId,
 			isReconnect: true,
 			reconnectStreamId: streamId,
