@@ -2,11 +2,13 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	buildAiSdkUiStreamBody,
 	createConversation,
+	createEmptyConversation,
 	ensureSidebarExpanded,
 	login,
 	openConversationComposer,
 	renameConversationInSidebar,
 	renameProjectInSidebar,
+	waitForHydration,
 } from "./helpers";
 
 async function createConversationTransfer(page: Page, conversationId: string) {
@@ -85,6 +87,58 @@ test.describe("Conversation CRUD operations", () => {
 		await expect(page.getByTestId("conversation-item").first()).toBeVisible({
 			timeout: 10000,
 		});
+	});
+
+	// The server names a chat when its turn ends, whoever is watching. A person
+	// who left has only the sidebar, and nothing tells it, so it looks: this used
+	// to stay "New Conversation" for good. There is no title model here, so the
+	// list answering with the name stands in for the turn that wrote it.
+	test("shows the title of a chat left in the middle of its first turn", async ({
+		page,
+	}) => {
+		const left = await createEmptyConversation(page);
+		await page.route("**/api/chat/stream", () => {
+			// The reply never reaches this page: the turn goes on without it.
+		});
+		await page.route("**/api/conversations", async (route) => {
+			if (route.request().method() !== "GET") {
+				await route.fallback();
+				return;
+			}
+			const response = await route.fetch();
+			const body = (await response.json()) as { conversations: unknown[] };
+			await route.fulfill({
+				response,
+				json: {
+					...body,
+					conversations: [
+						{
+							id: left,
+							title: "Tidal Energy Basics",
+							updatedAt: Date.now() / 1000,
+							projectId: null,
+						},
+						...body.conversations,
+					],
+				},
+			});
+		});
+
+		await page.goto(`/chat/${left}`);
+		await waitForHydration(page);
+		await page.getByTestId("message-input").fill("How does tidal energy work?");
+		await page.getByTestId("send-button").click();
+		await expect(page.getByTestId("message-input")).toHaveValue("");
+
+		await ensureSidebarExpanded(page);
+		await page.getByRole("button", { name: "New chat" }).click();
+		await page.waitForURL("**/");
+
+		await expect(
+			page.getByTestId("conversation-item").filter({
+				hasText: "Tidal Energy Basics",
+			}),
+		).toBeVisible({ timeout: 15000 });
 	});
 
 	test("renames a conversation", { tag: "@smoke" }, async ({ page }) => {

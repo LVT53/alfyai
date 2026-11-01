@@ -429,6 +429,7 @@ export function watchConversationTitle(id: string): void {
 }
 
 async function pollWatchedTitles(): Promise<void> {
+	titleWatchTimer = null;
 	// A hidden tab asks for nothing: coming back to it refreshes the list.
 	if (typeof document === "undefined" || !document.hidden) {
 		await loadConversations({ force: true });
@@ -444,10 +445,9 @@ async function pollWatchedTitles(): Promise<void> {
 			titleWatchDeadlines.delete(id);
 		}
 	}
-	titleWatchTimer =
-		titleWatchDeadlines.size > 0
-			? setTimeout(pollWatchedTitles, TITLE_WATCH_POLL_MS)
-			: null;
+	if (titleWatchDeadlines.size > 0) {
+		titleWatchTimer ??= setTimeout(pollWatchedTitles, TITLE_WATCH_POLL_MS);
+	}
 }
 
 let isCreating = false;
