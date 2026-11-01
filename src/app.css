@@ -549,10 +549,12 @@ body {
 	}
 
 	/* The typography plugin draws literal backticks around inline code; the
-	   chip's own background already marks it. */
+	   chip's own background already marks it. The plugin's rules live in a
+	   later layer than this one, so only an important declaration outranks
+	   them. */
 	.prose code::before,
 	.prose code::after {
-		content: none;
+		content: none !important;
 	}
 
 	.prose pre code {
