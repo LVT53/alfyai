@@ -37,6 +37,33 @@ Object.defineProperty(window, "matchMedia", {
 	}),
 });
 
+// The Chat Scroller measures the message area (`bind:clientWidth`), which jsdom
+// never lays out, and jsdom has no ResizeObserver for the binding to watch it.
+// A test sets `surfaceWidth` before it renders: 800 and up draws the ruler,
+// anything narrower the capsule, and 0 (the default) means "not measured yet",
+// which draws neither.
+let surfaceWidth = 0;
+Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+	configurable: true,
+	get(this: HTMLElement) {
+		return this.classList.contains("message-area-surface") ? surfaceWidth : 0;
+	},
+});
+globalThis.ResizeObserver = class {
+	observe() {}
+	unobserve() {}
+	disconnect() {}
+};
+
+/** Which tick of the ruler the orange mark sits on. */
+function needleOf(container: HTMLElement): number {
+	const style =
+		container
+			.querySelector('[data-testid="jump-rail-needle"]')
+			?.parentElement?.getAttribute("style") ?? "";
+	return Number(/--needle:\s*(\d+)/.exec(style)?.[1]);
+}
+
 Object.defineProperty(HTMLElement.prototype, "animate", {
 	writable: true,
 	value: () => ({
@@ -48,6 +75,7 @@ Object.defineProperty(HTMLElement.prototype, "animate", {
 
 describe("MessageArea", () => {
 	beforeEach(() => {
+		surfaceWidth = 0;
 		vi.spyOn(window, "requestAnimationFrame").mockImplementation(
 			(callback: FrameRequestCallback) => {
 				callback(0);
@@ -361,7 +389,8 @@ describe("MessageArea", () => {
 		);
 	});
 
-	it("marks the jump-rail turn nearest the viewport center as active on scroll", async () => {
+	it("moves the Chat Scroller's mark to the turn nearest the viewport center on scroll", async () => {
+		surfaceWidth = 1200;
 		const messages: ChatMessage[] = [];
 		for (let i = 1; i <= 6; i += 1) {
 			messages.push({
@@ -433,18 +462,14 @@ describe("MessageArea", () => {
 		await fireEvent.scroll(scrollContainer);
 
 		await waitFor(() => {
-			const marks = container.querySelectorAll(
-				'[data-testid="jump-rail-mark"]',
-			);
-			expect(marks).toHaveLength(6);
-			// assistant-3 is the third turn (index 2).
-			expect(marks[2]).toHaveAttribute("data-active");
-			expect(marks[0]).not.toHaveAttribute("data-active");
-			expect(marks[5]).not.toHaveAttribute("data-active");
+			expect(container.querySelectorAll('[data-testid="jump-rail-tick"]')).toHaveLength(6);
+			// assistant-3 is the third turn (index 2), the third of six ticks.
+			expect(needleOf(container)).toBe(2);
 		});
 	});
 
-	it("pins the jump-rail active mark to the first/last turn at the scroll extremes", async () => {
+	it("pins the Chat Scroller's mark to the first/last turn at the scroll extremes", async () => {
+		surfaceWidth = 1200;
 		const messages: ChatMessage[] = [];
 		for (let i = 1; i <= 6; i += 1) {
 			messages.push({
@@ -527,25 +552,18 @@ describe("MessageArea", () => {
 		scrollContainer.scrollTop = 0;
 		await fireEvent.scroll(scrollContainer);
 		await waitFor(() => {
-			const marks = container.querySelectorAll(
-				'[data-testid="jump-rail-mark"]',
-			);
-			expect(marks[0]).toHaveAttribute("data-active");
-			expect(marks[2]).not.toHaveAttribute("data-active");
+			expect(needleOf(container)).toBe(0);
 		});
 
 		scrollContainer.scrollTop = 3000 - 600;
 		await fireEvent.scroll(scrollContainer);
 		await waitFor(() => {
-			const marks = container.querySelectorAll(
-				'[data-testid="jump-rail-mark"]',
-			);
-			expect(marks[5]).toHaveAttribute("data-active");
-			expect(marks[2]).not.toHaveAttribute("data-active");
+			expect(needleOf(container)).toBe(5);
 		});
 	});
 
-	it("smooth-scrolls to a message when its jump-rail mark is clicked", async () => {
+	it("smooth-scrolls to a message when its row in the Chat Scroller's list is chosen", async () => {
+		surfaceWidth = 1200;
 		const messages: ChatMessage[] = [];
 		for (let i = 1; i <= 6; i += 1) {
 			messages.push({
@@ -616,8 +634,11 @@ describe("MessageArea", () => {
 		const scrollBySpy = vi.fn();
 		scrollContainer.scrollBy = scrollBySpy;
 
-		const marks = container.querySelectorAll('[data-testid="jump-rail-mark"]');
-		await fireEvent.click(marks[1]);
+		await fireEvent.click(
+			container.querySelector('[data-testid="jump-rail-trigger"]') as Element,
+		);
+		const rows = container.querySelectorAll('[data-testid="jump-rail-row"]');
+		await fireEvent.click(rows[1]);
 
 		await waitFor(() => {
 			expect(scrollBySpy).toHaveBeenCalledWith(
@@ -1794,6 +1815,109 @@ describe("MessageArea", () => {
 	// B2 — floating "jump to latest" control, shown only once the user has
 	// scrolled away from the live edge AND there is actually content below the
 	// viewport to jump back to.
+	describe("Chat Scroller presentation", () => {
+		function turns(count: number): ChatMessage[] {
+			const messages: ChatMessage[] = [];
+			for (let i = 1; i <= count; i += 1) {
+				messages.push({
+					id: `user-${i}`,
+					role: "user",
+					content: `Question ${i}`,
+					timestamp: Date.now(),
+				});
+				messages.push({
+					id: `assistant-${i}`,
+					role: "assistant",
+					content: `Answer ${i}`,
+					timestamp: Date.now(),
+					isStreaming: false,
+					isThinkingStreaming: false,
+				});
+			}
+			return messages;
+		}
+
+		/** The reader at the live edge, then scrolled up with content below. */
+		async function scrollAway(container: HTMLElement) {
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+			Object.defineProperty(scrollContainer, "clientHeight", {
+				configurable: true,
+				value: 400,
+			});
+			Object.defineProperty(scrollContainer, "scrollHeight", {
+				configurable: true,
+				value: 1200,
+			});
+			scrollContainer.scrollTop = 800;
+			await fireEvent.scroll(scrollContainer);
+			scrollContainer.scrollTop = 0;
+			await fireEvent.scroll(scrollContainer);
+		}
+
+		it("draws neither the ruler nor the capsule until the message area has a width", async () => {
+			const { container, queryByTestId } = render(MessageArea, {
+				messages: turns(8),
+				conversationId: "conv-scroller-unmeasured",
+			});
+			await scrollAway(container);
+
+			expect(queryByTestId("conversation-jump-rail")).not.toBeInTheDocument();
+			expect(queryByTestId("jump-rail-capsule")).not.toBeInTheDocument();
+		});
+
+		it("draws the ruler on a wide chat, beside the round jump-to-latest button", async () => {
+			surfaceWidth = 1200;
+			const { container, getByTestId, queryByTestId } = render(MessageArea, {
+				messages: turns(8),
+				conversationId: "conv-scroller-wide",
+			});
+			await scrollAway(container);
+
+			expect(getByTestId("conversation-jump-rail")).toBeInTheDocument();
+			expect(queryByTestId("jump-rail-capsule")).not.toBeInTheDocument();
+			await waitFor(() => getByTestId("jump-to-latest-button"));
+		});
+
+		it("draws no ruler, and a capsule in place of the round button, on a narrow chat once the reader has left the bottom", async () => {
+			surfaceWidth = 390;
+			const { container, getByTestId, queryByTestId } = render(MessageArea, {
+				messages: turns(8),
+				conversationId: "conv-scroller-narrow",
+			});
+			await scrollAway(container);
+
+			const capsule = await waitFor(() => getByTestId("jump-rail-capsule"));
+			expect(capsule).toHaveTextContent("/ 8");
+			expect(queryByTestId("conversation-jump-rail")).not.toBeInTheDocument();
+			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
+		});
+
+		it("draws no capsule on a narrow chat while the reader is at the bottom", () => {
+			surfaceWidth = 390;
+			const { queryByTestId } = render(MessageArea, {
+				messages: turns(8),
+				conversationId: "conv-scroller-narrow-bottom",
+			});
+
+			expect(queryByTestId("jump-rail-capsule")).not.toBeInTheDocument();
+			expect(queryByTestId("conversation-jump-rail")).not.toBeInTheDocument();
+		});
+
+		it("keeps the round jump-to-latest button on a narrow chat too short for a scroller", async () => {
+			surfaceWidth = 390;
+			const { container, getByTestId, queryByTestId } = render(MessageArea, {
+				messages: turns(3),
+				conversationId: "conv-scroller-narrow-short",
+			});
+			await scrollAway(container);
+
+			await waitFor(() => getByTestId("jump-to-latest-button"));
+			expect(queryByTestId("jump-rail-capsule")).not.toBeInTheDocument();
+		});
+	});
+
 	describe('"jump to latest" control (B2)', () => {
 		function twoTurnMessages(): ChatMessage[] {
 			return [
@@ -2093,6 +2217,9 @@ describe("MessageArea", () => {
 			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1200));
 			scrollContainer.scrollTop = 800;
 			await fireEvent.scroll(scrollContainer);
+			// The opening jump also holds the view at the bottom (a browser has the
+			// ResizeObserver that needs); a press inside the thread hands it over.
+			await fireEvent.pointerDown(scrollContainer);
 
 			// A reply the thread does not follow grows far below the reader, who
 			// scrolls down to read on and stops short of its end.

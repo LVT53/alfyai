@@ -1,594 +1,518 @@
 <script lang="ts">
 /**
- * Conversation jump-rail (ADR-0043 Slice 17).
+ * Chat Scroller: how a person moves around a long conversation.
  *
- * A floating, vertically-centered vertical rail on the chat's left edge that
- * gives long-conversation navigation. It:
- *  - mounts only once there are ≥6 assistant turns,
- *  - renders one thin mark per turn (height encodes content length),
- *  - marks the active turn thicker + terracotta,
- *  - reveals a serif snippet of the assistant reply (with a muted, quoted
- *    user-question eyebrow) on hover, accompanied by a cursor-relative
- *    scale + color-sweep wave,
- *  - scrolls to a turn on click,
- *  - hides on the phone tier (reactively on resize),
- *  - honors prefers-reduced-motion (instant mount, no wave/breath).
+ * Wide chat (`compact` false): a ruler of at most 13 ticks on the left edge,
+ * with one orange mark that says where in the chat the reader is. Hovering it,
+ * or pressing it (or Enter), opens a list of every turn; the current one is in
+ * the middle and a press on any row jumps there.
  *
- * The rail is decorative-ish: the container carries an accessible name and the
- * individual marks are buttons so keyboard/screen-reader users can jump to a
- * turn. No new store — props come from MessageArea.
+ * Narrow chat (`compact` true): nothing until the reader has left the bottom
+ * (`showLatest`), then one capsule, "11 / 30" and a chevron. The number opens
+ * the same list as a sheet, the chevron goes back to the latest message.
+ *
+ * It appears only once the conversation has enough turns (jump-rail.ts), and
+ * adds one Tab stop to the page, however many turns there are. The rules live
+ * in AGENTS.md ("Chat Scroller") and ADR-0043.
  */
+import { ChevronDown } from "@lucide/svelte";
+import { tick } from "svelte";
+import { fade } from "svelte/transition";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
-import { focusTrap } from "$lib/utils/focus-trap";
-import { viewportStore } from "$lib/utils/viewport.svelte";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import { buildJumpRailTurns, type JumpRailTurn } from "./jump-rail";
-import { List, X } from "@lucide/svelte";
-import { fade, fly } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
+import { buildJumpRailTurns } from "./jump-rail";
 
 let {
 	messages,
 	scrollToMessage,
 	activeTurnId = null,
+	compact = false,
+	showLatest = false,
+	onLatest = () => {},
 }: {
 	messages: ChatMessage[];
 	scrollToMessage: (messageId: string) => void;
 	/**
-	 * Optional override for the active turn. When null (default) the rail
-	 * treats the nearest-to-center assistant turn — or, before any scroll
-	 * tracking is available, the last turn — as active. MessageArea may pass
-	 * the turn id closest to the viewport center.
+	 * The turn the reader is on. When null the last turn counts, which keeps a
+	 * sensible mark before any scroll tracking has run.
 	 */
 	activeTurnId?: string | null;
+	/** The chat is too narrow for the ruler: draw the capsule and a sheet. */
+	compact?: boolean;
+	/** The reader has left the bottom: the capsule is worth showing. */
+	showLatest?: boolean;
+	/** The capsule's chevron: go back to the latest message. */
+	onLatest?: () => void;
 } = $props();
 
+/** The ruler never grows past this many ticks, however long the chat is. */
+const MAX_TICKS = 13;
+/** The pointer has to rest on the ruler this long before the list opens. */
+const OPEN_DELAY_MS = 120;
+/** ...and leave it this long before the list closes, so crossing it does nothing. */
+const CLOSE_DELAY_MS = 180;
+
+const fadeAware = reducedMotionAware(fade);
+
 const turns = $derived(buildJumpRailTurns(messages));
-
-// Default-active turn = the last assistant turn. Falls back to this when no
-// explicit activeTurnId is supplied, which keeps a sensible highlight before
-// the user scrolls and on initial mount (no scroll math needed).
-const fallbackActiveId = $derived(
-	turns.length > 0 ? turns[turns.length - 1].id : null,
+const activeId = $derived(activeTurnId ?? turns.at(-1)?.id ?? null);
+const activeIndex = $derived(
+	Math.max(
+		0,
+		turns.findIndex((turn) => turn.id === activeId),
+	),
 );
-const activeId = $derived(activeTurnId ?? fallbackActiveId);
+const tickCount = $derived(Math.min(turns.length, MAX_TICKS));
+/** Which tick the orange mark sits on: the reader's place, scaled to the ruler. */
+const needle = $derived(
+	turns.length <= 1
+		? 0
+		: Math.round((activeIndex / (turns.length - 1)) * (tickCount - 1)),
+);
 
-// Phone tier hides the rail (reactive via viewportStore — updates on resize).
-const isPhone = $derived(viewportStore.tier === "phone");
+let open = $state(false);
+/** Opened by a press or the keyboard, so it stays until closed; hover alone is not pinned. */
+let pinned = $state(false);
+let sheetOpen = $state(false);
+let navRef = $state<HTMLElement | null>(null);
+let triggerRef = $state<HTMLButtonElement | null>(null);
+let listRef = $state<HTMLElement | null>(null);
+let openTimer: ReturnType<typeof setTimeout> | null = null;
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Reduced-motion detection. The global app.css override collapses CSS
-// animation durations, but the hover wave is JS-driven pointer math that the
-// override cannot catch — so we read matchMedia explicitly and gate the wave.
-let reducedMotion = $state(false);
+function clearTimers() {
+	if (openTimer) clearTimeout(openTimer);
+	if (closeTimer) clearTimeout(closeTimer);
+	openTimer = null;
+	closeTimer = null;
+}
+
+$effect(() => clearTimers);
+
+// The chat changed width under an open list: the other presentation starts closed.
 $effect(() => {
-	if (
-		typeof window === "undefined" ||
-		typeof window.matchMedia !== "function"
-	) {
-		reducedMotion = false;
+	if (compact) {
+		open = false;
+		pinned = false;
+	} else {
+		sheetOpen = false;
+	}
+});
+
+// A list opens with the current row in the middle of it.
+$effect(() => {
+	const list = listRef;
+	if (!list) return;
+	void tick().then(() => centreCurrentRow(list));
+});
+
+function centreCurrentRow(list: HTMLElement) {
+	const row = list.querySelector<HTMLElement>("[data-current]");
+	if (!row) return;
+	const listBox = list.getBoundingClientRect();
+	const rowBox = row.getBoundingClientRect();
+	list.scrollTop +=
+		rowBox.top - listBox.top - (list.clientHeight - rowBox.height) / 2;
+}
+
+function isHoverPointer(event: PointerEvent): boolean {
+	// A finger or pen has no hover: its tap ends in a leave that would close the
+	// list it just opened. Only a mouse (or an event that does not say) hovers.
+	return event.pointerType !== "touch" && event.pointerType !== "pen";
+}
+
+function handlePointerEnter(event: PointerEvent) {
+	if (!isHoverPointer(event)) return;
+	clearTimers();
+	if (open) return;
+	openTimer = setTimeout(() => {
+		open = true;
+	}, OPEN_DELAY_MS);
+}
+
+function handlePointerLeave(event: PointerEvent) {
+	if (!isHoverPointer(event)) return;
+	clearTimers();
+	if (!open || pinned) return;
+	closeTimer = setTimeout(() => {
+		open = false;
+	}, CLOSE_DELAY_MS);
+}
+
+function closeList(returnFocus: boolean) {
+	clearTimers();
+	open = false;
+	pinned = false;
+	if (returnFocus) triggerRef?.focus();
+}
+
+async function handleTriggerClick(event: MouseEvent) {
+	clearTimers();
+	// A click that came from Enter or Space has no pointer position.
+	const fromKeyboard = event.detail === 0;
+	if (open && pinned) {
+		closeList(fromKeyboard);
 		return;
 	}
-	const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-	reducedMotion = mql.matches;
-	const onChange = () => {
-		reducedMotion = mql.matches;
-	};
-	mql.addEventListener("change", onChange);
-	return () => mql.removeEventListener("change", onChange);
-});
-
-// Hover state: which mark is currently hovered (by turn id), plus the pointer's
-// vertical position within the rail so the wave can originate from it.
-let hoveredId = $state<string | null>(null);
-let hoverY = $state<number | null>(null);
-
-function handlePointerMove(event: PointerEvent, index: number) {
-	if (reducedMotion) return; // skip the wave under reduced-motion
-	hoverY = index;
-	// mouseX is read for the color-sweep direction; cheap and ignored if null.
-	void event;
+	open = true;
+	pinned = true;
+	if (fromKeyboard) {
+		await tick();
+		listRef
+			?.querySelector<HTMLElement>("[data-current]")
+			?.focus({ preventScroll: true });
+	}
 }
 
-function handleEnter(id: string, index: number) {
-	hoveredId = id;
-	if (!reducedMotion) hoverY = index;
+function handleWindowPointerDown(event: PointerEvent) {
+	if (!open) return;
+	if (navRef && event.target instanceof Node && navRef.contains(event.target)) {
+		return;
+	}
+	closeList(false);
 }
 
-function handleLeave() {
-	hoveredId = null;
-	hoverY = null;
-}
-
-// Per-mark height encodes content length somewhat (mockup varies 1.5/2px).
-function markHeight(contentLength: number): "short" | "tall" {
-	// Long replies get the slightly taller mark.
-	return contentLength > 240 ? "tall" : "short";
-}
-
-// Distinct accessible name per mark so screen-reader users can tell turns
-// apart when tabbing through the rail. Falls back to the reply snippet when
-// there is no preceding user question.
-function jumpMarkLabel(turn: JumpRailTurn): string {
-	const label = turn.questionEyebrow ?? turn.snippet.slice(0, 60);
-	return $t("chat.jumpRailMarkLabel", { label });
-}
-
-// Wave intensity for a mark given its distance from the hovered index.
-// Decays with distance; 0 when there is no hover or under reduced-motion.
-function waveScale(index: number): number {
-	if (reducedMotion || hoverY === null) return 1;
-	const distance = Math.abs(index - hoverY);
-	if (distance > 3) return 1;
-	// 0 → +0.5, 1 → +0.35, 2 → +0.2, 3 → +0.08
-	const boost = [0.5, 0.35, 0.2, 0.08][distance] ?? 0;
-	return 1 + boost;
-}
-
-// --- Mobile "jump to turn" affordance (C5, ADR-0043 O-6) ---
-// The desktop wave-rail is hidden on the phone tier (no room for a floating
-// left rail). In its place, phones get a compact floating button that opens a
-// bottom sheet listing the same turns (reusing buildJumpRailTurns + the snippet
-// text), tappable to scroll to a turn. Desktop is untouched.
-let mobileSheetOpen = $state(false);
-
-// Refs for focus management on the aria-modal sheet. The FAB is the trigger we
-// return focus to on close; the sheet container is focused on open (it carries
-// tabindex="-1") and scoped for the Tab trap.
-let mobileFabRef = $state<HTMLButtonElement | null>(null);
-let mobileSheetRef = $state<HTMLDivElement | null>(null);
-
-function openMobileSheet() {
-	mobileSheetOpen = true;
-}
-
-function closeMobileSheet() {
-	mobileSheetOpen = false;
-	// Return focus to the trigger FAB on every close path (Escape, backdrop
-	// tap, the close button, or an entry tap) so focus is never left on the
-	// now-removed dialog.
-	mobileFabRef?.focus();
-}
-
-function jumpFromMobile(id: string) {
-	scrollToMessage(id);
-	closeMobileSheet();
-}
-
-// Escape-to-close, plus the shared Tab trap. Focus goes to the sheet div itself
-// on open (see `focus` below), not to a focusable child, so Shift+Tab pressed
-// right away has to wrap to the last element or it would escape the sheet; the
-// shared `trapTabKey` treats the container as "before the first element" for
-// exactly that reason, so this needs no Tab rule of its own.
-const mobileSheetFocusTrap = focusTrap({
-	onEscape: (event) => {
+function handleWindowKeydown(event: KeyboardEvent) {
+	if (!open) return;
+	if (event.key === "Escape") {
 		event.preventDefault();
-		closeMobileSheet();
-	},
-	// Focus-in on open: move focus INTO the dialog once the sheet mounts,
-	// synchronously (not the utility's default deferred timing) — paired with
-	// the return-focus in closeMobileSheet, this is the aria-modal focus
-	// contract this sheet has always used.
-	focus: { target: () => mobileSheetRef, defer: false },
-});
+		closeList(!!navRef?.contains(document.activeElement));
+		return;
+	}
+	if (event.target instanceof Node && listRef?.contains(event.target)) {
+		moveRowFocus(event);
+	}
+}
+
+function handleFocusOut(event: FocusEvent) {
+	// Tab out of the list: it should not stay open behind the next control.
+	if (!open) return;
+	if (
+		event.relatedTarget instanceof Node &&
+		navRef &&
+		!navRef.contains(event.relatedTarget)
+	) {
+		closeList(false);
+	}
+}
+
+function moveRowFocus(event: KeyboardEvent) {
+	const rows = Array.from(
+		listRef?.querySelectorAll<HTMLElement>("[data-jump-row]") ?? [],
+	);
+	if (rows.length === 0) return;
+	const at = rows.indexOf(document.activeElement as HTMLElement);
+	let next = -1;
+	if (event.key === "ArrowDown") next = Math.min(rows.length - 1, at + 1);
+	else if (event.key === "ArrowUp") next = Math.max(0, at - 1);
+	else if (event.key === "Home") next = 0;
+	else if (event.key === "End") next = rows.length - 1;
+	if (next < 0) return;
+	event.preventDefault();
+	rows[next].focus();
+}
+
+function jump(id: string) {
+	scrollToMessage(id);
+	closeList(true);
+	sheetOpen = false;
+}
 </script>
 
-{#if turns.length >= 6}
-	<nav
-		data-testid="conversation-jump-rail"
-		class="jr-rail"
-		class:is-phone={isPhone}
-		class:is-reduced={reducedMotion}
-		aria-label={$t("chat.jumpRailA11yLabel")}
-		aria-hidden={isPhone}
-		onpointerleave={handleLeave}
-	>
-		{#each turns as turn, i (turn.id)}
-			<div class="jr-mark-wrap">
-				<button
-					type="button"
-					data-testid="jump-rail-mark"
-					data-active={turn.id === activeId ? "" : undefined}
-					class="jr-mark-hit"
-					aria-label={jumpMarkLabel(turn)}
-					tabindex={isPhone ? -1 : 0}
-					onpointerenter={() => handleEnter(turn.id, i)}
-					onpointermove={(e) => handlePointerMove(e, i)}
-					onclick={() => scrollToMessage(turn.id)}
-				></button>
-				<span
-					class="jr-mark"
-					class:jr-mark--active={turn.id === activeId}
-					class:jr-mark--short={markHeight(turn.contentLength) === "short"}
-					class:jr-mark--tall={markHeight(turn.contentLength) === "tall"}
-					style="--jr-scale: {waveScale(i)};"
-					aria-hidden="true"
-				></span>
+<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
-				{#if hoveredId === turn.id}
-					<div class="jr-snippet" role="tooltip">
-						{#if turn.questionEyebrow}
-							<div class="jr-snippet-eyebrow">{turn.questionEyebrow}</div>
-						{/if}
-						<div class="jr-snippet-body">{turn.snippet}</div>
-					</div>
-				{/if}
-			</div>
-		{/each}
-	</nav>
-{/if}
-
-<!-- Mobile jump-to-turn affordance (C5): only on the phone tier, in place of
-     the hidden desktop rail. A floating button opens a bottom sheet of turns. -->
-{#if turns.length >= 6 && isPhone}
-	<button
-		type="button"
-		data-testid="jump-rail-mobile-button"
-		class="jr-mobile-fab"
-		bind:this={mobileFabRef}
-		aria-label={$t("chat.jumpRailMobileOpen")}
-		aria-haspopup="dialog"
-		aria-expanded={mobileSheetOpen}
-		onclick={openMobileSheet}
-	>
-		<List size={20} strokeWidth={2} aria-hidden="true" />
-	</button>
-
-	{#if mobileSheetOpen}
-		<div
-			class="jr-mobile-backdrop"
-			data-testid="jump-rail-mobile-backdrop"
-			transition:fade={{ duration: reducedMotion ? 0 : 150 }}
-			onclick={closeMobileSheet}
-			role="presentation"
-		></div>
-		<div
-			class="jr-mobile-sheet"
-			data-testid="jump-rail-mobile-sheet"
-			bind:this={mobileSheetRef}
-			{@attach mobileSheetFocusTrap}
-			role="dialog"
-			aria-modal="true"
-			aria-label={$t("chat.jumpRailMobileTitle")}
-			tabindex="-1"
-			transition:fly={{
-				y: reducedMotion ? 0 : 240,
-				duration: reducedMotion ? 0 : 220,
-			}}
+{#if turns.length > 0}
+	{#if !compact}
+		<nav
+			class="jr"
+			data-testid="conversation-jump-rail"
+			aria-label={$t("chat.jumpRailA11yLabel")}
+			bind:this={navRef}
+			onpointerenter={handlePointerEnter}
+			onpointerleave={handlePointerLeave}
+			onfocusout={handleFocusOut}
 		>
-			<div class="jr-mobile-sheet-header">
-				<span class="jr-mobile-sheet-title">{$t("chat.jumpRailMobileTitle")}</span>
-				<button
-					type="button"
-					class="jr-mobile-sheet-close"
-					aria-label={$t("common.close")}
-					onclick={closeMobileSheet}
-				>
-					<X size={18} strokeWidth={2} aria-hidden="true" />
-				</button>
-			</div>
-			<ul class="jr-mobile-list">
-				{#each turns as turn (turn.id)}
-					<li>
-						<button
-							type="button"
-							data-testid="jump-rail-mobile-entry"
-							class="jr-mobile-entry"
-							class:jr-mobile-entry--active={turn.id === activeId}
-							onclick={() => jumpFromMobile(turn.id)}
-						>
-							{#if turn.questionEyebrow}
-								<span class="jr-mobile-entry-eyebrow">{turn.questionEyebrow}</span>
-							{/if}
-							<span class="jr-mobile-entry-body">{turn.snippet}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
+			<button
+				type="button"
+				class="jr-trigger"
+				data-testid="jump-rail-trigger"
+				bind:this={triggerRef}
+				aria-expanded={open}
+				aria-label={$t("chat.jumpRailMobileOpen")}
+				onclick={handleTriggerClick}
+			>
+				<span class="jr-ruler" style="--needle: {needle};">
+					{#each { length: tickCount } as _, i (i)}
+						<span class="jr-tick" data-testid="jump-rail-tick"></span>
+					{/each}
+					<span class="jr-needle" data-testid="jump-rail-needle"></span>
+				</span>
+			</button>
+
+			{#if open}
+				<div class="jr-card" data-testid="jump-rail-list" bind:this={listRef}>
+					{@render rows(false)}
+				</div>
+			{/if}
+		</nav>
+	{:else if showLatest}
+		<div
+			class="jr-capsule"
+			data-testid="jump-rail-capsule"
+			transition:fadeAware={{ duration: 150 }}
+		>
+			<button
+				type="button"
+				class="jr-capsule__where"
+				data-testid="jump-rail-capsule-where"
+				aria-label={$t("chat.jumpRailMobileOpen")}
+				aria-haspopup="dialog"
+				aria-expanded={sheetOpen}
+				onclick={() => (sheetOpen = true)}
+			>
+				<span class="jr-capsule__now">{activeIndex + 1}</span>
+				<span class="jr-capsule__of">/ {turns.length}</span>
+			</button>
+			<button
+				type="button"
+				class="jr-capsule__latest"
+				data-testid="jump-rail-capsule-latest"
+				aria-label={$t("chat.jumpToLatest")}
+				onclick={onLatest}
+			>
+				<ChevronDown size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
 		</div>
+	{/if}
+
+	{#if compact && sheetOpen}
+		<DialogShell
+			title={$t("chat.jumpRailMobileTitle")}
+			onClose={() => (sheetOpen = false)}
+			phonePresentation="sheet"
+		>
+			<div class="jr-sheet-list" data-testid="jump-rail-sheet" bind:this={listRef}>
+				{@render rows(true)}
+			</div>
+		</DialogShell>
 	{/if}
 {/if}
 
+{#snippet rows(inSheet: boolean)}
+	{#each turns as turn, i (turn.id)}
+		<button
+			type="button"
+			class="jr-row"
+			data-testid="jump-rail-row"
+			data-jump-row=""
+			data-current={turn.id === activeId ? "" : undefined}
+			aria-current={turn.id === activeId ? "true" : undefined}
+			tabindex={inSheet ? undefined : -1}
+			onclick={() => jump(turn.id)}
+		>
+			{turn.label || i + 1}
+		</button>
+	{/each}
+{/snippet}
+
 <style>
-	.jr-rail {
+	/* The whole height above the composer, so the ruler and its list sit in the
+	   middle of what can actually be seen and the list never slides under the
+	   composer. Only the trigger and the list take the pointer. */
+	.jr {
 		position: absolute;
-		left: var(--space-md);
-		top: 50%;
-		transform: translateY(-50%);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 7px;
-		padding: 10px 4px;
+		left: var(--space-sm);
+		top: 0;
+		bottom: var(--composer-layer-height, 0px);
 		z-index: 5;
+		display: flex;
+		align-items: center;
+		pointer-events: none;
+	}
+
+	.jr-trigger {
+		display: block;
+		padding: var(--space-sm);
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		cursor: pointer;
 		pointer-events: auto;
-		/* Fade-in: 0.6s ease-out, 6px slide from the left. A short delay keeps
-		   it from feeling laggy (the mockup's 1.2s is too slow in-product). */
-		animation: jr-fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
 	}
 
-	/* Phone tier: hidden entirely (no floating-left collision on narrow
-	   viewports). Reactive via viewportStore, so the rail appears/disappears
-	   as the viewport crosses the phone/tablet boundary. */
-	.jr-rail.is-phone {
-		display: none;
+	.jr-trigger:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* Reduced-motion: instant mount. The global app.css override already
-	   collapses animation durations, but we also gate the JS wave above; this
-	   rule is belt-and-suspenders and stops the slide offset. */
-	.jr-rail.is-reduced {
-		animation: none;
-	}
-
-	.jr-mark-wrap {
+	/* The same size at every length; only the orange mark moves. */
+	.jr-ruler {
 		position: relative;
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		flex-direction: column;
+		gap: 6px;
+		width: 18px;
 	}
 
-	/* Invisible hit target, sized well beyond the visible mark and centered
-	   on it via absolute positioning — so it doesn't add to the wrap's own
-	   flex-layout height and can't shift the marks' spacing (the rendered
-	   rail looks identical to before). It's this box, not the thin visible
-	   bar, that owns the click/hover/pointer handling, and it overlaps into
-	   the gap on either side so the pointer never lands in dead space
-	   between two marks. */
-	.jr-mark-hit {
+	.jr-tick {
+		display: block;
+		width: 11px;
+		height: 1.5px;
+		border-radius: 1px;
+		background: color-mix(in srgb, var(--text-primary) 20%, transparent);
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.jr:hover .jr-tick {
+		background: color-mix(in srgb, var(--text-primary) 34%, transparent);
+	}
+
+	/* One step is a tick (1.5px) plus its gap (6px). */
+	.jr-needle {
 		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 28px;
-		height: 13px;
-		border: none;
-		padding: 0;
-		margin: 0;
-		background: transparent;
-		cursor: pointer;
-	}
-
-	.jr-mark {
-		width: 14px;
-		border: none;
-		padding: 0;
-		margin: 0;
-		border-radius: 1.5px;
-		background: color-mix(in srgb, var(--text-primary) 16%, transparent);
-		/* height encodes content length somewhat; kept thick enough to be an
-		   easy mouse target (was 1.5–2px, too thin to reliably click). */
-		pointer-events: none;
-		transform: scaleX(var(--jr-scale, 1));
-		transition: transform 0.18s ease-out, background-color 0.18s ease-out;
-	}
-
-	.jr-mark--short {
-		height: 3px;
-	}
-
-	.jr-mark--tall {
-		height: 4px;
-	}
-
-	/* Hover: the hovered mark scales up + shifts toward the accent color. This
-	   is a hover affordance (state), kept in BOTH motion modes so a hovered
-	   mark is always visibly highlighted. The scaleX stacks with the JS wave
-	   boost (--jr-scale, 1 under reduced-motion), so under reduced-motion a
-	   hovered mark still scales to 1.4 and snaps with no transition. The
-	   cursor-relative WAVE (decay to nearby marks via JS) is gated separately
-	   in script. The hit target (not the mark itself, which ignores pointer
-	   events) is what actually receives :hover; it's the mark's preceding
-	   sibling in markup, so the adjacent-sibling combinator reaches it. */
-	.jr-mark-hit:hover + .jr-mark {
-		background: color-mix(in srgb, var(--accent) 60%, var(--text-primary) 40%);
-		transform: scaleX(calc(var(--jr-scale, 1) * 1.4));
-	}
-
-	.jr-rail.is-reduced .jr-mark {
-		transition: none;
-	}
-
-	/* Active line: thicker (5px) + terracotta. This is STATE, not motion — it
-	   stays colored/thicker under reduced-motion; only the breath pauses. */
-	.jr-mark--active {
-		width: 17px;
-		height: 6px;
+		left: 0;
+		top: 0;
+		width: 18px;
+		height: 2.5px;
+		border-radius: 1.25px;
 		background: var(--accent);
-		animation: jr-breath 3s ease-in-out infinite;
+		transform: translateY(calc(var(--needle) * 7.5px - 0.5px));
+		transition: transform var(--duration-emphasis) var(--ease-out);
 	}
 
-	.jr-rail.is-reduced .jr-mark--active {
-		animation: none;
-	}
-
-	/* Hover snippet card: small, serif, with a muted quoted user-question
-	   eyebrow. */
-	.jr-snippet {
+	.jr-card {
 		position: absolute;
-		left: 22px;
+		left: calc(100% + 4px);
 		top: 50%;
 		transform: translateY(-50%);
-		width: 200px;
-		max-width: max-content;
-		background: var(--surface-elevated, #f4f3ee);
+		width: 300px;
+		max-height: min(420px, calc(100% - var(--space-md)));
+		overflow: hidden auto;
+		padding: 5px;
+		pointer-events: auto;
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		padding: var(--space-sm) 11px;
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		color: var(--text-primary);
-		box-shadow: var(--shadow-md);
-		line-height: 1.4;
-		pointer-events: none;
-		z-index: 10;
-	}
-
-	.jr-snippet-eyebrow {
-		font-weight: 600;
-		font-size: var(--text-2xs);
-		color: var(--text-secondary);
-		letter-spacing: 0.02em;
-		margin-bottom: 3px;
-	}
-
-	.jr-snippet-body {
-		font-family: var(--font-serif);
-		color: var(--text-secondary);
-	}
-
-	@keyframes jr-fade-in {
-		0% {
-			opacity: 0;
-			transform: translate(-6px, -50%);
-		}
-		100% {
-			opacity: 1;
-			transform: translate(0, -50%);
-		}
-	}
-
-	@keyframes jr-breath {
-		0%,
-		100% {
-			opacity: 0.85;
-		}
-		50% {
-			opacity: 1;
-		}
-	}
-
-	/* --- Mobile jump-to-turn affordance (C5) --- */
-	.jr-mobile-fab {
-		position: fixed;
-		right: var(--space-md);
-		bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + 4.75rem);
-		z-index: 40;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 44px;
-		height: 44px;
-		border: 1px solid var(--border-default);
-		border-radius: 999px;
-		background: var(--surface-elevated);
-		color: var(--text-secondary);
-		box-shadow: var(--shadow-md);
-		cursor: pointer;
-	}
-
-	.jr-mobile-fab:active {
+		border-radius: var(--radius-lg);
 		background: var(--surface-page);
-	}
-
-	.jr-mobile-fab:focus-visible {
-		outline: none;
-		box-shadow:
-			var(--shadow-md),
-			0 0 0 2px var(--focus-ring);
-	}
-
-	.jr-mobile-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 50;
-		background: color-mix(in srgb, var(--text-primary) 45%, transparent);
-	}
-
-	.jr-mobile-sheet {
-		position: fixed;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		z-index: 51;
-		display: flex;
-		flex-direction: column;
-		max-height: 70vh;
-		padding: var(--space-sm) var(--space-md)
-			calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
-		border-top-left-radius: var(--radius-lg, 1rem);
-		border-top-right-radius: var(--radius-lg, 1rem);
-		background: var(--surface-elevated);
 		box-shadow: var(--shadow-lg);
+		overscroll-behavior: contain;
+		animation: jr-card-in var(--duration-micro) var(--ease-out);
 	}
 
-	.jr-mobile-sheet-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-xs) 0 var(--space-sm);
+	@keyframes jr-card-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
-	.jr-mobile-sheet-title {
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.jr-mobile-sheet-close {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		border: none;
-		border-radius: 999px;
+	/* A row reads as a ToolActivityRow: one quiet line that fills on hover. */
+	.jr-row {
+		display: block;
+		width: 100%;
+		min-height: 30px;
+		padding: 5px 9px;
+		border: 0;
+		border-radius: 6px;
 		background: transparent;
 		color: var(--text-muted);
-		cursor: pointer;
-	}
-
-	.jr-mobile-sheet-close:active {
-		background: var(--surface-page);
-	}
-
-	.jr-mobile-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
-	}
-
-	.jr-mobile-entry {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		width: 100%;
-		min-height: 44px;
-		padding: var(--space-sm) var(--space-xs);
-		border: none;
-		border-bottom: 1px solid var(--border-subtle, var(--border-default));
-		background: transparent;
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.jr-mobile-entry:active {
-		background: var(--surface-page);
-	}
-
-	.jr-mobile-entry--active {
-		box-shadow: inset 3px 0 0 var(--accent);
-	}
-
-	.jr-mobile-entry-eyebrow {
 		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		font-weight: 600;
-		color: var(--text-secondary);
+		font-size: var(--text-sm);
+		line-height: 20px;
+		text-align: left;
+		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.jr-mobile-entry-body {
-		font-family: var(--font-serif);
-		font-size: var(--text-sm);
+	.jr-row:hover {
+		background: var(--surface-elevated);
 		color: var(--text-primary);
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		-webkit-box-orient: vertical;
+	}
+
+	.jr-row:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	.jr-row[aria-current="true"],
+	.jr-row[aria-current="true"]:hover {
+		color: var(--accent-text);
+		font-weight: 700;
+	}
+
+	/* Narrow chat: one capsule, only once the reader has left the bottom. */
+	.jr-capsule {
+		position: absolute;
+		right: var(--space-md);
+		bottom: max(8rem, calc(var(--composer-layer-height, 0px) + var(--space-sm)));
+		z-index: 6;
+		display: inline-flex;
+		align-items: stretch;
+		height: 40px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--surface-elevated);
+		box-shadow: var(--shadow-md);
 		overflow: hidden;
+	}
+
+	.jr-capsule button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.jr-capsule button:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	.jr-capsule__where {
+		gap: 3px;
+		min-width: 44px;
+		padding: 0 6px 0 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		letter-spacing: 0;
+	}
+
+	.jr-capsule__now {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.jr-capsule__of {
+		color: var(--text-muted);
+	}
+
+	.jr-capsule__latest {
+		width: 44px;
+		color: var(--text-secondary);
+	}
+
+	.jr-sheet-list {
+		max-height: 60dvh;
+		overflow-y: auto;
+		margin: 0 calc(var(--space-sm) * -1);
+		padding-bottom: var(--space-sm);
+		overscroll-behavior: contain;
+	}
+
+	.jr-sheet-list .jr-row {
+		min-height: 44px;
+		padding: 12px var(--space-sm);
+		font-size: var(--text-base);
+		line-height: 20px;
 	}
 </style>
