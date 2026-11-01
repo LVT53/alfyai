@@ -135,18 +135,16 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 // A line either speaks for itself (a time, a place, a folder) or needs its word
 // ("To anna@example.com"). The ones a person checks before saying yes stay in
 // the reading colour; a location is a footnote to the name above it.
-const FACT_LINE: Record<
-	WriteCardFactKey,
-	{ label?: I18nKey; quiet: boolean }
-> = {
-	to: { label: "connections.writeConfirm.fact.to", quiet: false },
-	cc: { label: "connections.writeConfirm.fact.cc", quiet: false },
-	when: { quiet: false },
-	where: { quiet: true },
-	folder: { quiet: true },
-	new_name: { label: "connections.writeConfirm.fact.newName", quiet: false },
-	photos: { label: "connections.writeConfirm.fact.photos", quiet: false },
-};
+const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
+	{
+		to: { label: "connections.writeConfirm.fact.to", quiet: false },
+		cc: { label: "connections.writeConfirm.fact.cc", quiet: false },
+		when: { quiet: false },
+		where: { quiet: true },
+		folder: { quiet: true },
+		new_name: { label: "connections.writeConfirm.fact.newName", quiet: false },
+		photos: { label: "connections.writeConfirm.fact.photos", quiet: false },
+	};
 
 export type WriteRiskTone = "danger" | "caution";
 

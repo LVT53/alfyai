@@ -11,7 +11,15 @@ import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 
@@ -47,7 +55,9 @@ process.env.DATABASE_PATH = dbPath;
 const NOW = new Date("2026-11-01T10:00:00.000Z");
 const OWNER = "user-owner";
 
-function withDb<T>(use: (db: ReturnType<typeof drizzle<typeof schema>>) => T): T {
+function withDb<T>(
+	use: (db: ReturnType<typeof drizzle<typeof schema>>) => T,
+): T {
 	const sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	try {

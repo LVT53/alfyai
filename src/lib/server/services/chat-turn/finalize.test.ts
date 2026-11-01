@@ -756,43 +756,40 @@ describe("finalizeChatTurn", () => {
 		["a stream turn", "stream", true],
 		["a send turn", "send", true],
 		["a stopped stream turn, which skips the turn state", "stream", false],
-	] as const)(
-		"names the conversation after %s, before the slower steps finish",
-		async (_label, turnKind, persistTurnState) => {
-			mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
-			const { finalizeChatTurn } = await import("./finalize");
+	] as const)("names the conversation after %s, before the slower steps finish", async (_label, turnKind, persistTurnState) => {
+		mockPersistAssistantTurnState.mockReturnValue(new Promise(() => {}));
+		const { finalizeChatTurn } = await import("./finalize");
 
-			void finalizeChatTurn({
-				turnKind,
-				responseLanguage: "en",
-				userId: "user-1",
-				conversationId: "conv-1",
-				userMessageContent: "user message",
-				persistUserMessage: true,
-				normalizedMessage: "user message",
-				upstreamMessage: "upstream message",
-				assistantResponse: "assistant response",
-				assistantMetadata: { evidenceStatus: "pending" },
-				attachmentIds: [],
-				activeDocumentArtifactId: null,
-				contextStatus: null,
-				initialTaskState: null,
-				initialContextDebug: null,
-				analytics: null,
-				assistantMirrorContent: "assistant response",
-				maintenanceReason: "chat_stream",
-				persistTurnState,
-			});
-			await flushMicrotasks();
+		void finalizeChatTurn({
+			turnKind,
+			responseLanguage: "en",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			persistUserMessage: true,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: { evidenceStatus: "pending" },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_stream",
+			persistTurnState,
+		});
+		await flushMicrotasks();
 
-			expect(mockNameConversationAfterTurn).toHaveBeenCalledTimes(1);
-			expect(mockNameConversationAfterTurn).toHaveBeenCalledWith({
-				turnKind,
-				userId: "user-1",
-				conversationId: "conv-1",
-			});
-		},
-	);
+		expect(mockNameConversationAfterTurn).toHaveBeenCalledTimes(1);
+		expect(mockNameConversationAfterTurn).toHaveBeenCalledWith({
+			turnKind,
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+	});
 
 	it("passes the turn's resolved language from finalizeChatTurn to the post-turn tail", async () => {
 		const { finalizeChatTurn } = await import("./finalize");

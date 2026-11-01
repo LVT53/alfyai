@@ -2294,7 +2294,10 @@ async function refreshPendingWrites() {
 	const conversationId = data.conversation.id;
 	try {
 		const writes = await fetchConversationPendingWrites(conversationId);
-		if (read === pendingWritesReads && conversationId === data.conversation.id) {
+		if (
+			read === pendingWritesReads &&
+			conversationId === data.conversation.id
+		) {
 			pendingWrites = writes;
 		}
 	} catch {

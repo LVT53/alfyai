@@ -75,7 +75,9 @@ describe("WriteConfirmCard while it asks", () => {
 		const onCancel = vi.fn();
 		render(WriteConfirmCard, { write: makeWrite(), onConfirm, onCancel });
 
-		await fireEvent.click(screen.getByRole("button", { name: "Save: note.txt" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Save: note.txt" }),
+		);
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Cancel: note.txt" }),
 		);

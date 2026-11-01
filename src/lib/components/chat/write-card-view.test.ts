@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
 import type {
 	PendingWrite,
+	WriteCard,
 	WriteCardFact,
 	WriteCardKind,
 	WriteCardRisk,
@@ -24,6 +25,15 @@ function translatorFor(language: "en" | "hu"): Translate {
 const hu = translatorFor("hu");
 const en = translatorFor("en");
 
+const CARD: WriteCard = {
+	kind: "calendar.create_event",
+	subject: "Dentist",
+	facts: [],
+	message: null,
+	risks: [],
+	danger: false,
+};
+
 function write(overrides: Partial<PendingWrite> = {}): PendingWrite {
 	return {
 		id: "pw-1",
@@ -40,14 +50,7 @@ function write(overrides: Partial<PendingWrite> = {}): PendingWrite {
 			withinAllowlist: null,
 			warnings: [],
 		},
-		card: {
-			kind: "calendar.create_event",
-			subject: "Dentist",
-			facts: [],
-			message: null,
-			risks: [],
-			danger: false,
-		},
+		card: CARD,
 		...overrides,
 	};
 }
@@ -76,7 +79,7 @@ describe("buildWriteCardView", () => {
 			{ key: "folder", value: "/AlfyAI" },
 		];
 		const view = buildWriteCardView(
-			write({ card: { ...write().card!, facts } }),
+			write({ card: { ...CARD, facts } }),
 			en,
 			"en",
 		);
@@ -125,7 +128,7 @@ describe("buildWriteCardView", () => {
 		for (const translate of [en, hu]) {
 			for (const kind of kinds) {
 				const view = buildWriteCardView(
-					write({ card: { ...write().card!, kind, risks } }),
+					write({ card: { ...CARD, kind, risks } }),
 					translate,
 					"en",
 				);
@@ -147,7 +150,7 @@ describe("buildWriteCardView", () => {
 			write({
 				provider: "imap",
 				card: {
-					...write().card!,
+					...CARD,
 					kind: "email.mark_read",
 					subject: "",
 				},
@@ -218,9 +221,9 @@ describe("formatEventWhen", () => {
 	});
 
 	it("says the year only when it is not this one", () => {
-		expect(formatEventWhen("2026-11-03T09:00:00", undefined, "en")).not.toContain(
-			"2026",
-		);
+		expect(
+			formatEventWhen("2026-11-03T09:00:00", undefined, "en"),
+		).not.toContain("2026");
 		expect(formatEventWhen("2027-01-05T09:00:00", undefined, "en")).toContain(
 			"2027",
 		);
@@ -275,13 +278,16 @@ describe("buildSettledWriteItem", () => {
 		const detailed = write({
 			status: "executed",
 			card: {
-				...write().card!,
+				...CARD,
 				facts: [{ key: "folder", value: "/AlfyAI" }],
 			},
 		});
 		expect(
-			buildSettledWriteItem(detailed, buildWriteCardView(detailed, en, "en"), en)
-				.body,
+			buildSettledWriteItem(
+				detailed,
+				buildWriteCardView(detailed, en, "en"),
+				en,
+			).body,
 		).toEqual({ kind: "write" });
 	});
 

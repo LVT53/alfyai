@@ -229,12 +229,10 @@ const connectionsDict = {
 		"connections.writeConfirm.showAll": "Show all",
 		"connections.writeConfirm.showLess": "Show less",
 		"connections.writeConfirm.confirmError": "That didn't work. Try again.",
-		"connections.writeConfirm.cancelError":
-			"Couldn't cancel this. Try again.",
+		"connections.writeConfirm.cancelError": "Couldn't cancel this. Try again.",
 
 		"connections.writeConfirm.question.emailSend": "Send this email?",
-		"connections.writeConfirm.question.emailTrash":
-			"Move this email to Trash?",
+		"connections.writeConfirm.question.emailTrash": "Move this email to Trash?",
 		"connections.writeConfirm.question.emailMarkRead":
 			"Mark this email as read?",
 		"connections.writeConfirm.question.emailMarkUnread":
@@ -253,8 +251,7 @@ const connectionsDict = {
 			"Move this file to the trash?",
 		"connections.writeConfirm.question.filesCreateFolder":
 			"Create this folder?",
-		"connections.writeConfirm.question.filesShareLink":
-			"Create a public link?",
+		"connections.writeConfirm.question.filesShareLink": "Create a public link?",
 		"connections.writeConfirm.question.photosAddToAlbum":
 			"Add these photos to the album?",
 
@@ -844,13 +841,11 @@ const connectionsDict = {
 		"connections.writeConfirm.moreWaiting": "Még {count} vár",
 		"connections.writeConfirm.showAll": "Mutasd mind",
 		"connections.writeConfirm.showLess": "Kevesebb",
-		"connections.writeConfirm.confirmError":
-			"Nem sikerült. Próbáld újra.",
+		"connections.writeConfirm.confirmError": "Nem sikerült. Próbáld újra.",
 		"connections.writeConfirm.cancelError":
 			"Nem sikerült megszakítani. Próbáld újra.",
 
-		"connections.writeConfirm.question.emailSend":
-			"Elküldjem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailSend": "Elküldjem ezt az e-mailt?",
 		"connections.writeConfirm.question.emailTrash":
 			"A kukába tegyem ezt az e-mailt?",
 		"connections.writeConfirm.question.emailMarkRead":
@@ -868,11 +863,9 @@ const connectionsDict = {
 		"connections.writeConfirm.question.calendarDelete":
 			"Töröljem ezt az eseményt?",
 		"connections.writeConfirm.question.filesSave": "Elmentsem ezt a fájlt?",
-		"connections.writeConfirm.question.filesReplace":
-			"Felülírjam ezt a fájlt?",
+		"connections.writeConfirm.question.filesReplace": "Felülírjam ezt a fájlt?",
 		"connections.writeConfirm.question.filesMove": "Áthelyezzem ezt a fájlt?",
-		"connections.writeConfirm.question.filesRename":
-			"Átnevezzem ezt a fájlt?",
+		"connections.writeConfirm.question.filesRename": "Átnevezzem ezt a fájlt?",
 		"connections.writeConfirm.question.filesDelete":
 			"A kukába tegyem ezt a fájlt?",
 		"connections.writeConfirm.question.filesCreateFolder":
