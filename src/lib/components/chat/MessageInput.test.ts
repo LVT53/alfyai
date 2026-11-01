@@ -7042,6 +7042,20 @@ describe("MessageInput editing a sent message", () => {
 		});
 	});
 
+	it("does not offer to queue an edit behind a running turn", async () => {
+		const view = renderComposer({ isGenerating: true });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		expect(view.queryByTestId("queue-button")).not.toBeInTheDocument();
+
+		await view.rerender({ editing: null });
+		await fireEvent.input(view.textarea, { target: { value: "queue me" } });
+		await waitFor(() => {
+			expect(view.getByTestId("queue-button")).toBeInTheDocument();
+		});
+	});
+
 	it("keeps pasted files out of an edit", async () => {
 		const onUploadFiles = vi.fn();
 		const view = renderComposer({ onUploadFiles });

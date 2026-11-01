@@ -849,7 +849,11 @@ let sendDisabledHint = $derived(
 				: null
 		: null,
 );
-let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
+// An edit is not a message to line up behind the running turn (a reply being
+// regenerated can be running while a message is open for editing).
+let canQueue = $derived(
+	canSend && isGenerating && !hasQueuedMessage && !editing,
+);
 let canStop = $derived(isGenerating && (canStopStreaming ?? true));
 let canAttach = $derived(
 	attachmentsEnabled &&
