@@ -18,7 +18,7 @@ import { WRITE_WARNING, type WriteOperation } from "./write-guard";
 // write, with connector-read text redacted for a cloud model; this is built on
 // read, for the person's own screen, from a row only they can load.
 
-/** A body or a file past this is cut for the card. The write itself is not. */
+/** An email's text past this is cut for the card. The email itself is not. */
 const MESSAGE_LIMIT = 8_000;
 
 function parseObject(content: string): Record<string, unknown> | null {
@@ -119,7 +119,7 @@ function calendarCard(
 		kind,
 		subject: label,
 		facts: [...eventWhen(event), ...fact("where", event.location)],
-		message: cutMessage(event.description),
+		message: null,
 	};
 }
 
@@ -142,7 +142,7 @@ function filesCard(
 				kind: op.destructive ? "files.replace" : "files.save",
 				subject: name,
 				facts: inFolder,
-				message: cutMessage(content),
+				message: null,
 			};
 		case "files.delete":
 			return {
@@ -209,15 +209,15 @@ function photosCard(
 	};
 }
 
-// The warnings a write's preview can carry, as the card names them. Everything
-// here stands alone as a sentence the reader can act on, and the generic
-// "may not be recoverable" gives way to whatever says why.
+// The warnings a write's preview can carry, as the card names them. Only what a
+// person would want to know before saying yes: that a check could not run is a
+// matter for the model and the logs, and the generic "may not be recoverable"
+// gives way to the one that says what is lost.
 const RISK_BY_WARNING = new Map<string, WriteCardRisk>([
 	[WRITE_WARNING.noVersionHistory, "replaces_file_for_good"],
 	[WRITE_WARNING.versionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.publicLink, "public_link"],
 	[WRITE_WARNING.outsideArea, "outside_allowed_folders"],
-	[WRITE_WARNING.unverifiedArea, "unchecked_folder"],
 ]);
 
 function risksOf(

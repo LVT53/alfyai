@@ -124,7 +124,7 @@ describe("buildWriteCard: calendar", () => {
 				},
 				{ key: "where", value: "Kossuth tér 1" },
 			],
-			message: "Bring the referral",
+			message: null,
 			risks: [],
 			danger: false,
 		});
@@ -232,7 +232,15 @@ describe("buildWriteCard: files", () => {
 		expect(card?.subject).toBe("report.pdf");
 		expect(card?.facts).toEqual([{ key: "folder", value: "/AlfyAI/Reports" }]);
 		expect(JSON.stringify(card)).not.toContain("/AlfyAI/Reports/report.pdf");
-		expect(card?.message).toBe("Atlas report");
+	});
+
+	it("does not carry a file's contents: the name and the place are what a person answers on", () => {
+		const card = cardFor(
+			operation({ action: "files.put", target: AT_REPORT }),
+			"The whole of the report.",
+		);
+
+		expect(card?.message).toBeNull();
 	});
 
 	it("gives a file at the top of the drive the root as its folder", () => {
@@ -278,10 +286,14 @@ describe("buildWriteCard: files", () => {
 		expect(card?.risks).toEqual(["replaces_file_unchecked"]);
 	});
 
-	it("cuts a very long file for the card, and says it was cut", () => {
+	it("cuts a very long email for the card, and shows it was cut", () => {
 		const card = cardFor(
-			operation({ action: "files.put", target: AT_REPORT }),
-			"x".repeat(20_000),
+			operation({ action: "email.send", reversible: false }),
+			JSON.stringify({
+				to: "anna@example.com",
+				subject: "Q3",
+				body: "x".repeat(20_000),
+			}),
 		);
 
 		expect(card?.message?.length).toBeLessThan(8_100);
@@ -369,12 +381,12 @@ describe("buildWriteCard: files", () => {
 		expect(card?.risks).toEqual(["outside_allowed_folders"]);
 	});
 
-	it("says when it could not check the folder", () => {
+	it("keeps a check it could not run to itself: that is for the logs, not the person", () => {
 		const card = cardFor(
 			operation({ action: "files.delete", target: { path: "/x.txt" } }),
 		);
 
-		expect(card?.risks).toEqual(["unchecked_folder"]);
+		expect(card?.risks).toEqual([]);
 	});
 
 	it.each([

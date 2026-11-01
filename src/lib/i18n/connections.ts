@@ -310,20 +310,18 @@ const connectionsDict = {
 		"connections.writeConfirm.fact.photos": "Photos",
 
 		"connections.writeConfirm.risk.replacesFileForGood":
-			"This replaces the existing file. This Nextcloud keeps no earlier versions, so the old one can't be brought back.",
+			"The current file will be gone for good.",
 		"connections.writeConfirm.risk.replacesFileUnchecked":
-			"This replaces the existing file, and Alfy couldn't check whether the old one can be brought back.",
+			"The current file may not be recoverable.",
 		"connections.writeConfirm.risk.deletesWholeSeries":
-			"This deletes every event in the series, not just one.",
+			"This deletes every event in the series.",
 		"connections.writeConfirm.risk.changesWholeSeries":
-			"This changes every event in the series, not just one.",
+			"This changes every event in the series.",
 		"connections.writeConfirm.risk.cannotUndo": "This can't be undone.",
 		"connections.writeConfirm.risk.publicLink":
-			"Anyone with the link can open this, without signing in.",
+			"Anyone with the link can open this.",
 		"connections.writeConfirm.risk.outsideAllowedFolders":
-			"This is outside the folders you allowed for Alfy.",
-		"connections.writeConfirm.risk.uncheckedFolder":
-			"Alfy couldn't check whether this is a folder you allowed.",
+			"This is outside the folders you chose for Alfy.",
 
 		// ─────────────────────────────────────────────────────────────────
 		// CONNECTIONS REDESIGN — everything below this line is new copy for
@@ -925,20 +923,17 @@ const connectionsDict = {
 		"connections.writeConfirm.fact.photos": "Fotók",
 
 		"connections.writeConfirm.risk.replacesFileForGood":
-			"Ez felülírja a meglévő fájlt. Ez a Nextcloud nem őriz korábbi verziókat, így a régi nem hozható vissza.",
+			"A jelenlegi fájl végleg elvész.",
 		"connections.writeConfirm.risk.replacesFileUnchecked":
-			"Ez felülírja a meglévő fájlt, és Alfy nem tudta ellenőrizni, hogy a régi visszahozható-e.",
+			"A jelenlegi fájl lehet, hogy nem hozható vissza.",
 		"connections.writeConfirm.risk.deletesWholeSeries":
-			"Ez a sorozat minden eseményét törli, nem csak egyet.",
+			"Ez a sorozat minden eseményét törli.",
 		"connections.writeConfirm.risk.changesWholeSeries":
-			"Ez a sorozat minden eseményét módosítja, nem csak egyet.",
+			"Ez a sorozat minden eseményét módosítja.",
 		"connections.writeConfirm.risk.cannotUndo": "Ez nem vonható vissza.",
-		"connections.writeConfirm.risk.publicLink":
-			"A linkkel bárki megnyithatja, bejelentkezés nélkül.",
+		"connections.writeConfirm.risk.publicLink": "A linkkel bárki megnyithatja.",
 		"connections.writeConfirm.risk.outsideAllowedFolders":
-			"Ez kívül esik az Alfynak engedélyezett mappákon.",
-		"connections.writeConfirm.risk.uncheckedFolder":
-			"Alfy nem tudta ellenőrizni, hogy ez engedélyezett mappa-e.",
+			"Ez kívül esik az Alfynak kijelölt mappákon.",
 
 		// ─────────────────────────────────────────────────────────────────
 		// KAPCSOLATOK ÚJRATERVEZÉS — az alábbi kulcsok mind az újratervezett

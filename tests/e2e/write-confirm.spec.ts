@@ -168,9 +168,17 @@ test.describe("the permission card in a reply", () => {
 		await expect(card).not.toContainText("/AlfyAI/Reports/atlas-report.pdf");
 		await expect(card).not.toContainText("files.put");
 		await expect(card).not.toContainText("Proposed in English");
-		await expect(card.getByRole("status")).toContainText(
-			"keeps no earlier versions",
+		await expect(card).not.toContainText("The new report.");
+		await expect(card).not.toContainText(/confirmation ref/i);
+
+		// One warning, as one plain line: no pills, no second box.
+		const warning = card.getByRole("status");
+		await expect(warning).toHaveCount(1);
+		await expect(warning).toHaveText("The current file will be gone for good.");
+		const ground = await warning.evaluate(
+			(node) => getComputedStyle(node).backgroundColor,
 		);
+		expect(ground).toBe("rgba(0, 0, 0, 0)");
 	});
 
 	test("lists a reply's writes in the order they were proposed", async ({

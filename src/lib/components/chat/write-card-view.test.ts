@@ -56,12 +56,58 @@ function write(overrides: Partial<PendingWrite> = {}): PendingWrite {
 }
 
 describe("buildWriteCardView", () => {
-	it("names the account a write lands in, when it is known", () => {
+	it("names the account a write lands in, when it is one a person knows by name", () => {
 		expect(
 			buildWriteCardView(write({ account: "me@example.com" }), en, "en")
 				.qualifier,
 		).toBe("Google · me@example.com");
 		expect(buildWriteCardView(write(), en, "en").qualifier).toBe("Google");
+		expect(
+			buildWriteCardView(
+				write({ provider: "nextcloud", account: "cloud.alfy.hu" }),
+				en,
+				"en",
+			).qualifier,
+		).toBe("Nextcloud");
+	});
+
+	it("keeps the gravest risk and drops the rest", () => {
+		const view = (risks: WriteCardRisk[]) =>
+			buildWriteCardView(write({ card: { ...CARD, risks } }), en, "en").risk;
+
+		expect(view([])).toBeNull();
+		expect(view(["public_link"])).toEqual({
+			tone: "caution",
+			text: "Anyone with the link can open this.",
+		});
+		expect(view(["outside_allowed_folders", "cannot_undo"])).toEqual({
+			tone: "danger",
+			text: "This can't be undone.",
+		});
+	});
+
+	it("uses no word a person would have to look up", () => {
+		const risks: WriteCardRisk[] = [
+			"replaces_file_for_good",
+			"replaces_file_unchecked",
+			"deletes_whole_series",
+			"changes_whole_series",
+			"cannot_undo",
+			"public_link",
+			"outside_allowed_folders",
+		];
+		for (const risk of risks) {
+			const text =
+				buildWriteCardView(
+					write({ card: { ...CARD, risks: [risk] } }),
+					en,
+					"en",
+				).risk?.text ?? "";
+			expect(text).not.toMatch(
+				/allowlist|version|recurring|verif|server|Nextcloud|write\b/i,
+			);
+			expect(text.length).toBeLessThan(60);
+		}
 	});
 
 	it("speaks the reader's language, not the sentence the write was proposed with", () => {
@@ -123,24 +169,25 @@ describe("buildWriteCardView", () => {
 			"cannot_undo",
 			"public_link",
 			"outside_allowed_folders",
-			"unchecked_folder",
 		];
 		for (const translate of [en, hu]) {
 			for (const kind of kinds) {
 				const view = buildWriteCardView(
-					write({ card: { ...CARD, kind, risks } }),
+					write({ card: { ...CARD, kind } }),
 					translate,
 					"en",
 				);
-				const words = [
-					view.question,
-					view.approveLabel,
-					view.doneLabel,
-					...view.risks.map((risk) => risk.text),
-				];
-				for (const word of words) {
+				for (const word of [view.question, view.approveLabel, view.doneLabel]) {
 					expect(word).not.toContain("connections.writeConfirm");
 				}
+			}
+			for (const risk of risks) {
+				const view = buildWriteCardView(
+					write({ card: { ...CARD, risks: [risk] } }),
+					translate,
+					"en",
+				);
+				expect(view.risk?.text).not.toContain("connections.writeConfirm");
 			}
 		}
 	});

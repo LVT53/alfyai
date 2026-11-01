@@ -1,8 +1,8 @@
 <script lang="ts">
-// What goes with the name of a pending write: the text going out, and what it
-// costs. The same block on the card, in the phone sheet, and under the row a
-// settled write folds into, which adds the small lines the card keeps by the
-// name.
+// What goes with the name of a pending write, if anything: the text of an email,
+// and the one sentence a person should read before answering. The same block on
+// the card, in the phone sheet, and under the row a settled write folds into,
+// which adds the small lines the card keeps by the name.
 import { AlertTriangle } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import WriteConfirmFacts from "./WriteConfirmFacts.svelte";
@@ -32,7 +32,7 @@ const isLong = $derived(
 		(view.message.length > FOLD_CHARACTERS ||
 			view.message.split("\n").length > FOLD_LINES),
 );
-const risks = $derived(settled ? [] : view.risks);
+const risk = $derived(settled ? null : view.risk);
 </script>
 
 <div class="write-details" class:write-details--settled={settled}>
@@ -63,15 +63,11 @@ const risks = $derived(settled ? [] : view.risks);
 		</div>
 	{/if}
 
-	{#if risks.length > 0}
-		<ul class="write-details__risks" role="status" aria-live="polite">
-			{#each risks as risk (risk.key)}
-				<li class="write-details__risk write-details__risk--{risk.tone}">
-					<AlertTriangle size={14} strokeWidth={2} aria-hidden="true" />
-					<span>{risk.text}</span>
-				</li>
-			{/each}
-		</ul>
+	{#if risk}
+		<p class="write-details__risk write-details__risk--{risk.tone}" role="status">
+			<AlertTriangle size={14} strokeWidth={2} aria-hidden="true" />
+			<span>{risk.text}</span>
+		</p>
 	{/if}
 </div>
 
@@ -79,7 +75,7 @@ const risks = $derived(settled ? [] : view.risks);
 	.write-details {
 		display: flex;
 		flex-direction: column;
-		gap: 0.625rem;
+		gap: 0.5rem;
 		min-width: 0;
 		font-family: var(--font-sans);
 		font-size: var(--text-sm);
@@ -88,12 +84,10 @@ const risks = $derived(settled ? [] : view.risks);
 	}
 
 	.write-details--settled {
-		gap: 0.5rem;
 		font-size: var(--text-xs);
 	}
 
-	p,
-	ul {
+	p {
 		margin: 0;
 	}
 
@@ -150,42 +144,24 @@ const risks = $derived(settled ? [] : view.risks);
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* The text stays in the reading colour on a soft ground, and only the mark
-	   carries the tone: this sentence is the one on the card to read twice. */
-	.write-details__risks {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-		padding: 0;
-		list-style: none;
-	}
-
+	/* One plain line, no box: a warning that needs a coloured block around it
+	   is a warning that has too much else to compete with. */
 	.write-details__risk {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.5rem;
-		padding: 0.5rem 0.625rem;
-		border-radius: var(--radius-md);
+		gap: 0.4rem;
 	}
 
 	.write-details__risk :global(svg) {
 		flex: 0 0 auto;
-		margin-top: 0.1rem;
+		margin-top: 0.15rem;
 	}
 
 	.write-details__risk--danger {
-		background: color-mix(in srgb, var(--danger) 8%, transparent);
-	}
-
-	.write-details__risk--danger :global(svg) {
 		color: var(--danger);
 	}
 
 	.write-details__risk--caution {
-		background: var(--warning-tint);
-	}
-
-	.write-details__risk--caution :global(svg) {
 		color: var(--warning-text);
 	}
 </style>

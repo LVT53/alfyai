@@ -178,10 +178,6 @@ const RISK_COPY: Record<WriteCardRisk, { text: I18nKey; tone: WriteRiskTone }> =
 			text: "connections.writeConfirm.risk.outsideAllowedFolders",
 			tone: "caution",
 		},
-		unchecked_folder: {
-			text: "connections.writeConfirm.risk.uncheckedFolder",
-			tone: "caution",
-		},
 	};
 
 export type WriteCardFactLine = {
@@ -202,7 +198,8 @@ export type WriteCardView = {
 	subject: string;
 	facts: WriteCardFactLine[];
 	message: string | null;
-	risks: { key: string; tone: WriteRiskTone; text: string }[];
+	/** One sentence at most: a second warning only makes the first one easier to skip. */
+	risk: { tone: WriteRiskTone; text: string } | null;
 	approveLabel: string;
 	doneLabel: string;
 	danger: boolean;
@@ -251,13 +248,28 @@ function factValue(fact: WriteCardFact, language: string): string {
 		: fact.value;
 }
 
+function gravestRisk(
+	risks: WriteCardRisk[],
+	t: Translate,
+): WriteCardView["risk"] {
+	const risk =
+		risks.find((candidate) => RISK_COPY[candidate].tone === "danger") ??
+		risks[0];
+	if (!risk) return null;
+	return { tone: RISK_COPY[risk].tone, text: t(RISK_COPY[risk].text) };
+}
+
 export function buildWriteCardView(
 	write: PendingWrite,
 	t: Translate,
 	language: string,
 ): WriteCardView {
 	const provider = getProviderCatalogEntry(write.provider).displayName;
-	const qualifier = write.account ? `${provider} · ${write.account}` : provider;
+	// An email address tells a person which of their accounts this is. A
+	// server's host name tells them nothing the mark has not.
+	const qualifier = write.account?.includes("@")
+		? `${provider} · ${write.account}`
+		: provider;
 	const card = write.card;
 	if (!card) {
 		return {
@@ -267,11 +279,12 @@ export function buildWriteCardView(
 			subject: write.preview.title,
 			facts: [],
 			message: null,
-			risks: write.preview.warnings.map((warning) => ({
-				key: warning,
-				tone: write.preview.destructive ? "danger" : "caution",
-				text: warning,
-			})),
+			risk: write.preview.warnings[0]
+				? {
+						tone: write.preview.destructive ? "danger" : "caution",
+						text: write.preview.warnings[0],
+					}
+				: null,
 			approveLabel: t("connections.writeConfirm.confirm"),
 			doneLabel: t("connections.writeConfirm.done.generic"),
 			danger: write.preview.destructive,
@@ -297,11 +310,7 @@ export function buildWriteCardView(
 			};
 		}),
 		message: card.message,
-		risks: card.risks.map((risk) => ({
-			key: risk,
-			tone: RISK_COPY[risk].tone,
-			text: t(RISK_COPY[risk].text),
-		})),
+		risk: gravestRisk(card.risks, t),
 		approveLabel,
 		doneLabel: t(copy.done),
 		danger: card.danger,

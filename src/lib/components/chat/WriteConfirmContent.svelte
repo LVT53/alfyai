@@ -23,7 +23,7 @@ let {
 } = $props();
 </script>
 
-<div class="write-content" class:write-content--danger={view.danger}>
+<div class="write-content">
 	{#if view.name}
 		<div class="write-content__ask">
 			<h3>{view.question}</h3>
@@ -46,7 +46,7 @@ let {
 		</div>
 	</div>
 
-	{#if view.message || view.risks.length > 0 || error}
+	{#if view.message || view.risk || error}
 		<div class="write-content__body">
 			<WriteConfirmDetails {view} />
 			{#if error}
@@ -90,10 +90,6 @@ let {
 		color: var(--accent-text);
 	}
 
-	.write-content--danger .write-content__ask h3 {
-		color: var(--danger);
-	}
-
 	.write-content__account {
 		min-width: 0;
 		margin: 0;
@@ -123,11 +119,6 @@ let {
 		color: var(--accent-text);
 	}
 
-	.write-content--danger .write-content__tile {
-		background: color-mix(in srgb, var(--danger) 10%, transparent);
-		color: var(--danger);
-	}
-
 	.write-content__named {
 		display: flex;
 		flex-direction: column;
@@ -149,8 +140,8 @@ let {
 	.write-content__body {
 		display: flex;
 		flex-direction: column;
-		gap: 0.625rem;
-		margin-top: 0.75rem;
+		gap: 0.5rem;
+		margin-top: 0.625rem;
 		padding-left: calc(36px + 0.75rem);
 	}
 

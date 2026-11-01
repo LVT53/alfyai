@@ -130,7 +130,7 @@ describe("WriteConfirmCard while it asks", () => {
 		expect(approve).not.toHaveClass("dialog-btn--positive");
 	});
 
-	it("says what a risk means, in a sentence, announced as it appears", () => {
+	it("says what a risk means in plain words, announced as it appears", () => {
 		render(WriteConfirmCard, {
 			write: makeWrite({
 				card: card({
@@ -142,7 +142,25 @@ describe("WriteConfirmCard while it asks", () => {
 		});
 
 		expect(screen.getByRole("status")).toHaveTextContent(
-			"This replaces the existing file. This Nextcloud keeps no earlier versions, so the old one can't be brought back.",
+			"The current file will be gone for good.",
+		);
+	});
+
+	// Pills, a warning box and a red card said the same thing four times.
+	it("says one warning, the gravest, however many apply", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				card: card({
+					kind: "files.replace",
+					danger: true,
+					risks: ["outside_allowed_folders", "replaces_file_for_good"],
+				}),
+			}),
+		});
+
+		expect(screen.getAllByRole("status")).toHaveLength(1);
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"The current file will be gone for good.",
 		);
 	});
 
@@ -175,7 +193,9 @@ describe("WriteConfirmCard while it asks", () => {
 
 	it("does not fold a message that fits", () => {
 		render(WriteConfirmCard, {
-			write: makeWrite({ card: card({ message: "Short and sweet." }) }),
+			write: makeWrite({
+				card: card({ kind: "email.send", message: "Short and sweet." }),
+			}),
 		});
 
 		expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();

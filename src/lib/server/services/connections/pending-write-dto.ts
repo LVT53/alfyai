@@ -76,15 +76,14 @@ export type WriteCardRisk =
 	| "changes_whole_series"
 	| "cannot_undo"
 	| "public_link"
-	| "outside_allowed_folders"
-	| "unchecked_folder";
+	| "outside_allowed_folders";
 
 export interface WriteCard {
 	kind: WriteCardKind;
 	/** The name of the thing this is about, which the card draws large. Empty when it has none: marking an email as read knows only its number. */
 	subject: string;
 	facts: WriteCardFact[];
-	/** The text going out or being stored, when there is one. */
+	/** The text of an email: it leaves the account, so it is what the person is agreeing to. */
 	message: string | null;
 	risks: WriteCardRisk[];
 	/** The reader loses something: the red confirm button. */
