@@ -2537,9 +2537,11 @@ $effect(() => {
 		if (prevConversationId) {
 			watchTitleOfUnfinishedTurn(prevConversationId);
 			// What the composer holds was typed in the chat that is left, and stays
-			// with it: a save still waiting out its 400 ms goes now, for that chat
-			// (it names its chat; `resetState` is about to drop whatever is waiting),
-			// and then the composer empties for the next one.
+			// with it. A message queued behind a running reply joins that chat's draft
+			// first (`resetState` drops the queue), then a save still waiting out its
+			// 400 ms goes now, for that chat (it names its chat; `resetState` is about
+			// to drop whatever is waiting), and then the composer empties for the next.
+			saveQueuedTurnInDraftOf(prevConversationId);
 			void draftPersistence.flush();
 			composerResetRequest += 1;
 		}
@@ -2922,6 +2924,8 @@ onDestroy(() => {
 	watchTitleOfUnfinishedTurn(data.conversation.id);
 	normalChatRuntime.detach();
 
+	// Leaving the chat page (Home, Settings) takes the queue along too.
+	saveQueuedTurnInDraftOf(data.conversation.id);
 	void draftPersistence.flush();
 
 	if (
@@ -3350,16 +3354,45 @@ function restorePayloadToDraft(payload: SendPayload) {
 	heldDraft = restored.draft;
 	composerDraftTakeoverVersion = restored.draft?.updatedAt ?? 0;
 	void draftPersistence.persist(
-		{
-			conversationId: data.conversation.id,
-			draftText: restored.draft?.draftText ?? "",
-			selectedAttachmentIds: restored.draft?.selectedAttachmentIds ?? [],
-			selectedLinkedSources: restored.draft?.selectedLinkedSources ?? [],
-			pendingSkill: restored.draft?.pendingSkill ?? null,
-			atlasMode: restored.draft?.atlasMode === true,
-			atlasProfile: restored.draft?.atlasProfile ?? null,
-			clientAtlasTurnId: restored.draft?.clientAtlasTurnId ?? null,
-		},
+		draftSaveOf(data.conversation.id, restored.draft),
+		true,
+	);
+}
+
+/** What `draftPersistence` saves for a chat's draft (none: the save deletes it). */
+function draftSaveOf(conversationId: string, draft: ConversationDraft | null) {
+	return {
+		conversationId,
+		draftText: draft?.draftText ?? "",
+		selectedAttachmentIds: draft?.selectedAttachmentIds ?? [],
+		selectedLinkedSources: draft?.selectedLinkedSources ?? [],
+		pendingSkill: draft?.pendingSkill ?? null,
+		atlasMode: draft?.atlasMode === true,
+		atlasProfile: draft?.atlasProfile ?? null,
+		clientAtlasTurnId: draft?.clientAtlasTurnId ?? null,
+	};
+}
+
+/**
+ * A message queued behind a running reply is the person's words in that chat, and
+ * the queue goes with the chat: a switch resets the runtime and a page that is left
+ * is destroyed. So first its words join the draft of the chat they were queued in
+ * and are saved for it, and come back when the person returns; nothing is sent.
+ * `restorePayloadToDraft` cannot do this: it reads `data.conversation.id`, which is
+ * already the next chat's when a switch is seen.
+ */
+function saveQueuedTurnInDraftOf(conversationId: string) {
+	const queued = normalChatRuntime.takeQueuedTurn();
+	if (!queued) return;
+	const joined = joinRestoredPayload(
+		{ draft: heldDraft, pictures: composerPictures, marks: heldMarks },
+		queued,
+		{ conversationId, updatedAt: Date.now() },
+	);
+	// Saved at once: it replaces the save of the words typed since that is still
+	// waiting, which the joined draft holds, and the flush after finds nothing.
+	void draftPersistence.persist(
+		draftSaveOf(conversationId, joined.draft),
 		true,
 	);
 }

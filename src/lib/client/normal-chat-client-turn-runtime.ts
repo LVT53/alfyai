@@ -1717,6 +1717,20 @@ export function createNormalChatClientTurnRuntime(
 		emitState();
 	}
 
+	/**
+	 * Hands the queued turn to the caller and empties the queue: nothing is sent and
+	 * nothing is put back in the composer. For a page that is being left, where the
+	 * words would go with the queue (`reset`, a page that is destroyed), and the
+	 * caller saves them in the draft of the chat they were queued in.
+	 */
+	function takeQueuedTurn(): NormalChatSendPayload | null {
+		if (!queuedTurn) return null;
+		const taken = cloneSendPayload(queuedTurn);
+		queuedTurn = null;
+		emitState();
+		return taken;
+	}
+
 	function editQueuedTurn() {
 		restoreQueuedTurnToDraft();
 		adapters.setSendError(null);
@@ -1875,6 +1889,7 @@ export function createNormalChatClientTurnRuntime(
 		retry,
 		queue,
 		clearQueuedTurn,
+		takeQueuedTurn,
 		editQueuedTurn,
 		compact,
 		stop,

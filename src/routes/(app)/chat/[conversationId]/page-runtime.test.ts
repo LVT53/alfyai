@@ -2220,6 +2220,119 @@ describe("chat page runtime integration", () => {
 				expect.anything(),
 			);
 		});
+
+		// A message queued behind a running reply is the person's words in that
+		// chat. The queue is dropped with the chat, so they are saved in its draft
+		// first, and nothing is sent.
+		describe("a message queued behind a running reply", () => {
+			/** A reply is running in the chat, B is waiting behind it and, when given, C is typed. */
+			async function runningWithBQueued(typedSince?: string) {
+				const view = renderPage(chat("conv-1").data);
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "A question" } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				await fireEvent.input(composer, { target: { value: "B queued" } });
+				await fireEvent.click(screen.getByTestId("queue-button"));
+				expect(screen.getByTestId("queued-message-banner")).toHaveTextContent(
+					"B queued",
+				);
+				if (typedSince) {
+					await fireEvent.input(composer, { target: { value: typedSince } });
+				}
+				return { view, composer };
+			}
+
+			it("is saved as the draft of the chat it was queued in when the person moves to another, and sent nowhere", async () => {
+				const { view, composer } = await runningWithBQueued();
+
+				await view.rerender(chat("conv-2", "B's own draft"));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("B's own draft");
+				});
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: "B queued" }),
+					expect.anything(),
+				);
+				expect(persistConversationDraft).not.toHaveBeenCalledWith(
+					"conv-2",
+					expect.anything(),
+					expect.anything(),
+				);
+				expect(
+					screen.queryByTestId("queued-message-banner"),
+				).not.toBeInTheDocument();
+				// The first reply ending finds nothing queued, here or anywhere.
+				runtimeHarness.streamInvocations[0].callbacks.onEnd("Done", {
+					assistantMessageId: "assistant-1",
+				});
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("joins the words typed since, which are saved with it in one save", async () => {
+				const { view } = await runningWithBQueued("C typed since");
+
+				await view.rerender(chat("conv-2"));
+
+				const saves = vi
+					.mocked(persistConversationDraft)
+					.mock.calls.filter(([conversationId]) => conversationId === "conv-1");
+				expect(saves.at(-1)?.[1]).toMatchObject({
+					draftText: "C typed since\n\nB queued",
+				});
+			});
+
+			it("comes back in the composer when the person returns to the chat", async () => {
+				const { view, composer } = await runningWithBQueued();
+				await view.rerender(chat("conv-2"));
+				await waitFor(() => {
+					expect(composer).toHaveValue("");
+				});
+				const saved = vi
+					.mocked(persistConversationDraft)
+					.mock.calls.findLast(
+						([conversationId]) => conversationId === "conv-1",
+					);
+
+				// What a load of the chat finds: the draft the move saved.
+				await view.rerender(chat("conv-1", saved?.[1].draftText));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("B queued");
+				});
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("is saved the same way when the person leaves the chat page", async () => {
+				const { view } = await runningWithBQueued();
+
+				view.unmount();
+
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: "B queued" }),
+					expect.anything(),
+				);
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("joins the words typed since when the person leaves the chat page", async () => {
+				const { view } = await runningWithBQueued("C typed since");
+
+				view.unmount();
+
+				const saves = vi
+					.mocked(persistConversationDraft)
+					.mock.calls.filter(([conversationId]) => conversationId === "conv-1");
+				expect(saves.at(-1)?.[1]).toMatchObject({
+					draftText: "C typed since\n\nB queued",
+				});
+			});
+		});
 	});
 
 	it("hides Stop while polling after the stream closes for recovery", async () => {

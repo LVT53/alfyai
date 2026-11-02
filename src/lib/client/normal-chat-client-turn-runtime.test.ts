@@ -695,6 +695,92 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(streamInvocations).toHaveLength(1);
 	});
 
+	// A person leaving the chat takes their queued words with them: the page asks
+	// for the turn to save its words in the chat's draft. Nothing is sent and
+	// nothing is put back in a composer.
+	describe("handing the queued turn over", () => {
+		const queuedPayload = {
+			message: "Second",
+			attachmentIds: ["file-1"],
+			attachments: [],
+			pendingAttachments: [],
+			conversationId: "conv-1",
+		};
+
+		it("gives the turn back and empties the queue, sending and restoring nothing", async () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send({
+				message: "First",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			runtime.queue(queuedPayload);
+
+			const taken = runtime.takeQueuedTurn();
+
+			expect(taken).toMatchObject({
+				message: "Second",
+				attachmentIds: ["file-1"],
+				conversationId: "conv-1",
+			});
+			expect(runtime.snapshot().queuedTurn).toBeNull();
+			expect(adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+
+			// The first turn ending finds nothing queued to send.
+			streamInvocations[0].callbacks.onEnd("Done", {
+				assistantMessageId: "assistant-1",
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("hands over a copy, not the runtime's own", async () => {
+			const { adapters } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send({
+				message: "First",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			runtime.queue(queuedPayload);
+
+			const taken = runtime.takeQueuedTurn();
+
+			expect(taken).not.toBe(queuedPayload);
+			expect(taken?.attachmentIds).not.toBe(queuedPayload.attachmentIds);
+		});
+
+		it("tells the state listeners the queue is empty", async () => {
+			const { adapters } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send({
+				message: "First",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			runtime.queue(queuedPayload);
+			vi.mocked(adapters.onStateChange as (s: unknown) => void).mockClear();
+
+			runtime.takeQueuedTurn();
+
+			expect(adapters.onStateChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({ queuedTurn: null }),
+			);
+		});
+
+		it("answers null when nothing is queued", async () => {
+			const { adapters } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			expect(runtime.takeQueuedTurn()).toBeNull();
+		});
+	});
+
 	it("forwards response activity stream callbacks to the active assistant placeholder", () => {
 		const applyResponseActivityUpdate = vi.fn();
 		const { adapters, streamInvocations } = makeAdapters(
