@@ -313,6 +313,28 @@ test.describe("Editing a message in the composer", () => {
 		await expect(page.getByTestId("composer-edit-strip")).toHaveCount(0);
 	});
 
+	test("while an edit is open the replies offer no way to start another turn", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		const { conversationId, userIds } = await seedTurns(page, 2);
+		await open(page, conversationId);
+		const regenerate = page.getByRole("button", { name: "Regenerate" });
+		const pencils = page.getByRole("button", { name: "Edit message" });
+		await expect(regenerate).toHaveCount(2);
+
+		await pressPencil(page, userIds[0]);
+		await expect(page.getByTestId("composer-edit-strip")).toBeVisible();
+
+		await expect(regenerate).toHaveCount(0);
+		await expect(pencils).toHaveCount(0);
+
+		await page.getByTestId("composer-edit-cancel").click();
+
+		await expect(regenerate).toHaveCount(2);
+		await expect(pencils).toHaveCount(2);
+	});
+
 	test.describe("with a model that answers", () => {
 		const fakeProvider = createOpenAICompatibleProviderHarness();
 

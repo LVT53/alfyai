@@ -121,7 +121,11 @@ let {
 	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
 	/** The pencil on a message: the page starts editing it in the composer. */
 	onStartEdit?: ((payload: { messageId: string }) => void) | undefined;
-	/** The message the composer is editing, dimmed while it is. */
+	/**
+	 * The message the composer is editing, dimmed while it is. The others are
+	 * read-only meanwhile: a regenerate, a fork or a follow-up would change what
+	 * the edit is about to delete, and a second pencil would drop what was typed.
+	 */
 	editingMessageId?: string | null;
 	onFork?:
 		| ((payload: { messageId: string }) => void | Promise<void>)
@@ -1210,7 +1214,7 @@ async function scrollToMessage(messageId: string) {
 					atlasJobs={getAtlasJobsForMessage(message)}
 					pendingWrites={getPendingWritesForMessage(message)}
 					{conversationId}
-					{readOnly}
+					readOnly={readOnly || editingMessageId !== null}
 					{onRegenerate}
 					{onSendFollowUp}
 					{onStartEdit}

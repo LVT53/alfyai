@@ -3035,12 +3035,12 @@ async function handleAtlasLifecycleAction(payload: {
 	message: string;
 	profile: AtlasProfile;
 }) {
-	if (isConversationReadOnlyForChat) return;
+	if (isConversationReadOnlyForChat || editingMessage) return;
 	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
 	// that bypassed MessageInput's send() entirely (found while centralizing
 	// the cloud-warning gate; not one of the three previously-known leaks).
 	const proceed = await prepareTurn();
-	if (!proceed) return;
+	if (!proceed || editingMessage) return;
 	void normalChatRuntime.send({
 		message: payload.message,
 		attachmentIds: [],
@@ -3702,7 +3702,8 @@ async function handleSend(
 		!text.trim() ||
 		isConversationReadOnlyForChat ||
 		isSending ||
-		isEditResendPending
+		isEditResendPending ||
+		editingMessage
 	)
 		return;
 
@@ -3720,13 +3721,14 @@ async function handleSend(
 }
 
 async function handleRetry() {
+	if (editingMessage) return;
 	// Issue 7.4 fix pass — retry() is a runtime path entirely separate from
 	// handleSend/normalChatRuntime.send() (it replays the last user message
 	// via its own startStream call), so it never went through MessageInput's
 	// send() and, before this pass, never went through any cloud-warning
 	// check at all.
 	const proceed = await prepareTurn();
-	if (!proceed) return;
+	if (!proceed || editingMessage) return;
 	normalChatRuntime.retry();
 }
 
@@ -3757,7 +3759,9 @@ async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
-	if (isConversationReadOnlyForChat || isEditResendPending) return;
+	if (isConversationReadOnlyForChat || isEditResendPending || editingMessage) {
+		return;
+	}
 	if (isSending) {
 		// Only the "Answer now" quick-answer button (ThinkingBlock's header,
 		// wired through MessageBubble's existing onRegenerate prop — see
@@ -3781,7 +3785,7 @@ async function handleRegenerate(
 	// (e.g. after "Turn on local mode", which doesn't ack — see
 	// shouldWarnCloudConnector) for a single regenerate action.
 	const proceed = await prepareTurn();
-	if (!proceed) return;
+	if (!proceed || editingMessage) return;
 	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
 	// A still-streaming assistant message is keyed by the CLIENT placeholder
@@ -4487,7 +4491,7 @@ function handleDrop(event: DragEvent) {
 
 			<ChatComposerPanel
 				{sendError}
-				canRetry={normalChatRuntimeCanRetry}
+				canRetry={normalChatRuntimeCanRetry && !editingMessage}
 				onRetry={handleRetry}
 				onErrorClose={handleErrorClose}
 				onSend={handleComposerSend}

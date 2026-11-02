@@ -4311,6 +4311,49 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		});
 	});
 
+	it("offers no other way to start a turn while an edit is open", async () => {
+		renderPage(
+			cloudModelPageData({
+				messages: [
+					...conversationTurnFixture(),
+					{
+						id: "user-2",
+						role: "user" as const,
+						content: "And tomorrow?",
+						timestamp: 3,
+					},
+					{
+						id: "assistant-2",
+						role: "assistant" as const,
+						content: "Nothing yet.",
+						timestamp: 4,
+						followUps: ["Book a slot?"],
+					},
+				],
+			}),
+		);
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		expect(
+			screen.getAllByRole("button", { name: "Regenerate response" }),
+		).toHaveLength(2);
+		expect(screen.getByText("Book a slot?")).toBeInTheDocument();
+
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Edit message" })[0],
+		);
+		await screen.findByTestId("composer-edit-strip");
+
+		expect(
+			screen.queryByRole("button", { name: "Regenerate response" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText("Book a slot?")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Edit message" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("gates Retry: shows the warning, replays the last user message only after acknowledgement", async () => {
 		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
 		ackCloudConnectorMock.mockResolvedValue(undefined);
