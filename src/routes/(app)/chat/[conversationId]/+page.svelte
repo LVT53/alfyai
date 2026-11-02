@@ -2951,6 +2951,10 @@ async function hydrateConversationDetail(conversationId: string) {
 		// page changed the draft since, it says nothing about it (`draftEpoch`).
 		if (requestDraftEpoch === draftEpoch && payload.draft) {
 			conversationDraft = payload.draft;
+			// The composer takes a draft only while it holds no words of its own, and then
+			// this is what it holds: a restore joins it instead of replacing a draft that
+			// another device saved.
+			if (!heldDraft?.draftText.trim()) heldDraft = payload.draft;
 		}
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
@@ -4169,7 +4173,9 @@ async function handleEdit(
 		editingMessage = null;
 		return;
 	}
-	const draftSetAside = conversationDraft;
+	// What the composer holds, not the page's copy of the draft: a load of the chat
+	// empties that, and the composer still holds the words that were set aside.
+	const draftSetAside = heldDraft;
 	const idsToDelete = liveMessages.slice(liveIdx).map((m) => m.id);
 
 	sendError = null;

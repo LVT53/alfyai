@@ -62,6 +62,7 @@ const runtimeHarness = vi.hoisted(() => ({
 			conversationId?: string | null;
 		}) => void;
 		hydrateConversationDetail: () => void;
+		loadPersistedData: () => Promise<void> | void;
 	} | null,
 }));
 
@@ -1867,6 +1868,41 @@ describe("chat page runtime integration", () => {
 
 				await waitFor(() => {
 					expect(composer).toHaveValue("typed, not saved yet\n\nB queued");
+				});
+			});
+
+			it("when a read brought in a draft another device saved, which the empty composer took", async () => {
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				// The page's own first read, if it makes one, is over before this one is asked.
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+					conversationDetailFixture({
+						draft: {
+							conversationId: "conv-1",
+							draftText: "from the phone",
+							selectedAttachmentIds: [],
+							selectedAttachments: [],
+							selectedLinkedSources: [],
+							pendingSkill: null,
+							updatedAt: Date.now(),
+						},
+					}),
+				);
+				runtimeHarness.adapters?.hydrateConversationDetail();
+				await waitFor(() => {
+					expect(composer).toHaveValue("from the phone");
+				});
+
+				runtimeHarness.adapters?.restorePayloadToDraft({
+					message: "B queued",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("from the phone\n\nB queued");
 				});
 			});
 
@@ -5925,6 +5961,59 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			});
 			expect(runtimeHarness.streamInvocations[1].message).toBe(
 				"Summarise this",
+			);
+		});
+
+		it("keeps the draft the composer held, not the page's copy of it, when the person leaves during the delete", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+			const { deleteConversationMessages, persistConversationDraft } =
+				await import("$lib/client/api/conversations");
+			vi.mocked(persistConversationDraft).mockClear();
+			let finishDelete: (count: number) => void = () => {};
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockReturnValue(
+					new Promise((resolve) => {
+						finishDelete = resolve;
+					}),
+				);
+			const first = cloudModelPageData({
+				messages: conversationTurnFixture(),
+			});
+			const view = renderPage(first);
+			await waitFor(() => {
+				expect(screen.getByTestId("message-input")).toBeEnabled();
+			});
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "a draft set aside" },
+			});
+			// A load of the chat empties the page's copy of the draft, and the composer
+			// still holds the words.
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({ messages: first.messages }),
+			);
+			await runtimeHarness.adapters?.loadPersistedData();
+			await sendEditOfFirstMessage();
+			await waitFor(() => {
+				expect(deleteConversationMessages).toHaveBeenCalledTimes(1);
+			});
+
+			const next = cloudModelPageData({
+				conversation: { ...first.conversation, id: "conversation-next" },
+				messages: [],
+			});
+			await view.rerender({
+				data: next,
+				params: { conversationId: "conversation-next" },
+			});
+			finishDelete(2);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				first.conversation.id,
+				expect.objectContaining({
+					draftText: `a draft set aside\n\n${editedText}`,
+				}),
 			);
 		});
 
