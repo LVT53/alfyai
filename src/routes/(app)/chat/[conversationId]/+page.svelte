@@ -226,6 +226,7 @@ import {
 	addComposerPicture,
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
+	withinOrNull,
 	buildPendingFileProductionJobPlaceholder,
 	composerMarksFromSend,
 	composerPicturesFromSend,
@@ -3925,20 +3926,24 @@ function handleEditSubmit(newText: string) {
 	void handleEdit({ messageId: editingMessage.id, newText });
 }
 
+/** A read that has not answered by now is left: a stalled connection never holds a resend back. */
+const MESSAGE_RECORD_READ_MAX_MS = 2000;
+
 /**
  * What the server recorded of a message's pictures, which an edit's resend must
- * carry (the edit deletes the message). The page's own copy of a message sent in
- * this tab is the one the composer drew for its bubble: the card pictures and the
- * photos, and none of the marks, which only the server's record keeps. So a
- * message with pictures is read again, and the page's copy (`held`) is what goes
- * when the server cannot be read.
+ * carry (the edit deletes the message). The page's own copy cannot say: a message
+ * sent in this tab holds what the composer drew for its bubble, with none of the
+ * marks, and the landing page's first message and a reconnected one hold no
+ * pictures at all. So every edit reads the record, and the page's copy (`held`) is
+ * what goes when the server cannot be read in time.
  */
 async function recordedPicturesOf(
 	messageId: string,
-	held: UserPicturesMetadata,
-): Promise<UserPicturesMetadata> {
-	const detail = await fetchConversationDetail(data.conversation.id).catch(
-		() => null,
+	held: UserPicturesMetadata | undefined,
+): Promise<UserPicturesMetadata | undefined> {
+	const detail = await withinOrNull(
+		fetchConversationDetail(data.conversation.id),
+		MESSAGE_RECORD_READ_MAX_MS,
 	);
 	return (
 		detail?.messages?.find((candidate) => candidate.id === messageId)
@@ -3952,20 +3957,18 @@ async function handleEdit(
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
 	const edit = editingMessage;
-	// A message with pictures has its record read beside the gate below, so the
-	// read costs the send no wait of its own; one without has nothing to read.
-	const heldPictures = $messages.find(
-		(m) => m.id === payload.messageId,
-	)?.pictures;
-	const reading = heldPictures
-		? recordedPicturesOf(payload.messageId, heldPictures)
-		: null;
+	// The message's record is read beside the gate below, so the read costs the
+	// send no wait of its own.
+	const reading = recordedPicturesOf(
+		payload.messageId,
+		$messages.find((m) => m.id === payload.messageId)?.pictures,
+	);
 	// Issue 7.4 fix pass — gate BEFORE deleting the edited-and-onward messages
 	// below, so a cancelled edit leaves the conversation untouched. handleSend()
 	// at the end of this function is intentionally NOT gated again — see the
 	// matching note in handleRegenerate.
 	const proceed = await prepareTurn();
-	const recordedPictures = reading ? await reading : undefined;
+	const recordedPictures = await reading;
 	if (!proceed) return;
 	const { messageId, newText } = payload;
 	// That wait can last seconds and the composer stays live through it. A

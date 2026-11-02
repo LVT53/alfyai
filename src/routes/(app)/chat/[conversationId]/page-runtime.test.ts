@@ -4680,7 +4680,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		}
 
 		/** Presses the pencil on the first message, rewords it and sends: what the stream was asked for. */
-		async function editAndSend() {
+		async function editAndSend(sendsWithinMs = 1000) {
 			vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
 			await waitFor(() => {
 				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
@@ -4694,9 +4694,12 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			});
 			await fireEvent.input(composer, { target: { value: editedText } });
 			await fireEvent.click(screen.getByTestId("send-button"));
-			await waitFor(() => {
-				expect(runtimeHarness.streamInvocations).toHaveLength(1);
-			});
+			await waitFor(
+				() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				},
+				{ timeout: sendsWithinMs },
+			);
 			return runtimeHarness.streamInvocations[0].options;
 		}
 
@@ -4804,8 +4807,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(options?.imageMarks).toBeNull();
 		});
 
-		it("sends no pictures for a message that carried none, and asks the server for none", async () => {
-			vi.mocked(fetchConversationDetail).mockClear();
+		it("sends no pictures for a message that carried none", async () => {
 			renderPage(pageData({ messages: turnWith() }));
 
 			const options = await editAndSend();
@@ -4813,7 +4815,33 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(options?.pictureRefs).toBeUndefined();
 			expect(options?.imageMarks).toBeNull();
 			expect(screen.queryByTestId("message-picture-chip")).toBeNull();
-			expect(fetchConversationDetail).not.toHaveBeenCalled();
+		});
+
+		it("reads the record even when the page's copy of the message has no pictures at all", async () => {
+			// The landing page's first message, and a message a reconnect appended,
+			// carry pictures on the server that the page's copy does not show.
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({
+					messages: [
+						userMessage({
+							refs: [cottage],
+							open: null,
+							marks: marksOnCottage,
+						}),
+					],
+				}),
+			);
+			renderPage(pageData({ messages: turnWith() }));
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			expect(options?.imageMarks).toEqual({
+				imageFileId: "file-cottage",
+				marks: [box],
+			});
 		});
 
 		it("takes the marks from what the server recorded when the page only holds the composer's copy of the message", async () => {
@@ -4846,6 +4874,23 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				marks: [box],
 			});
 		});
+
+		it("does not wait for a record that never answers: the pictures the page holds go", async () => {
+			vi.mocked(fetchConversationDetail).mockReturnValue(
+				new Promise(() => undefined),
+			);
+			renderPage(
+				pageData({
+					messages: turnWith({ refs: [cottage], open: null, marks: null }),
+				}),
+			);
+
+			const options = await editAndSend(4000);
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+		}, 10_000);
 
 		it("still sends the pictures the page holds when the server cannot be read", async () => {
 			vi.mocked(fetchConversationDetail).mockRejectedValue(

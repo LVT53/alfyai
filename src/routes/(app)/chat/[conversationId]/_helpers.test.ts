@@ -46,6 +46,7 @@ import {
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
 	toFriendlySendError,
+	withinOrNull,
 } from "./_helpers";
 
 function makeJob(
@@ -2124,6 +2125,25 @@ describe("liveDocumentAlfyActivityExcluding", () => {
 
 // RV-3 I2: what the chat page waits for before a turn starts, so the reader's last
 // step on an open board is saved before Alfy may change the board.
+describe("withinOrNull", () => {
+	it("gives what the work gave", async () => {
+		await expect(withinOrNull(Promise.resolve("read"), 2000)).resolves.toBe(
+			"read",
+		);
+	});
+
+	it("gives up with null when the work takes too long", async () => {
+		vi.useFakeTimers();
+		try {
+			const waiting = withinOrNull(new Promise(() => {}), 2000);
+			await vi.advanceTimersByTimeAsync(2000);
+			await expect(waiting).resolves.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe("awaitOpenStepSave", () => {
 	it("goes straight on when the open item has nothing to save", async () => {
 		await expect(awaitOpenStepSave(null, 2000)).resolves.toBeUndefined();

@@ -347,14 +347,24 @@ export async function awaitOpenStepSave(
 	maxMs: number,
 ): Promise<void> {
 	if (!save) return;
+	await withinOrNull(Promise.resolve().then(save), maxMs);
+}
+
+/**
+ * What `work` gave, or null when it failed or has not answered within `maxMs`: for
+ * work a message can go without, so a stalled connection never holds one back.
+ * The work itself is left to finish.
+ */
+export async function withinOrNull<T>(
+	work: Promise<T>,
+	maxMs: number,
+): Promise<T | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
-		await Promise.race([
-			Promise.resolve()
-				.then(save)
-				.catch(() => undefined),
-			new Promise<void>((resolve) => {
-				timer = setTimeout(resolve, maxMs);
+		return await Promise.race([
+			work.catch(() => null),
+			new Promise<null>((resolve) => {
+				timer = setTimeout(() => resolve(null), maxMs);
 			}),
 		]);
 	} finally {
