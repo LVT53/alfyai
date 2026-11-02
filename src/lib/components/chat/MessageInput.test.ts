@@ -7250,7 +7250,9 @@ describe("MessageInput editing a sent message", () => {
 				}),
 		);
 		const view = renderComposer({ beforeSend });
-		await fireEvent.input(view.textarea, { target: { value: "a new message" } });
+		await fireEvent.input(view.textarea, {
+			target: { value: "a new message" },
+		});
 		await fireEvent.click(view.getByTestId("send-button"));
 		await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
 

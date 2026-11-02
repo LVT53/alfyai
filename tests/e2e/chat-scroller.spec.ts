@@ -155,7 +155,9 @@ test.describe("Chat Scroller", () => {
 		);
 		await expect(current).toBeFocused();
 		await expect(current).toBeInViewport({ ratio: 1 });
-		await expect(panel.getByTestId("jump-rail-row").first()).not.toBeInViewport();
+		await expect(
+			panel.getByTestId("jump-rail-row").first(),
+		).not.toBeInViewport();
 	});
 
 	test.describe("a phone", () => {
