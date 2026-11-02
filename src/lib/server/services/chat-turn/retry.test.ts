@@ -858,6 +858,162 @@ describe("prepareRetryChatTurn", () => {
 		});
 	});
 
+	// A reply that is gone took its record with it: the skill and the forced web
+	// search the person chose for the turn were on it. The browser still knows them
+	// (it sent them), so it says them in the retry body, and the server reads them
+	// as it reads a recorded one: only when the reply is gone, never over a record.
+	describe("the intent the browser remembers of a turn whose reply is gone", () => {
+		const remembered = {
+			skill: { id: "skill-1", displayName: "Planning reviewer" },
+			webSearch: true,
+		};
+
+		function ask(extra: Record<string, unknown> = {}) {
+			return prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: {
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-3",
+					userMessageId: "user-3",
+					userMessage: "latest prompt",
+					retryOrigin: "error_retry",
+					...extra,
+				},
+			});
+		}
+
+		function resolvesSkill(displayName: string) {
+			(resolveAppliedSkill as ReturnType<typeof vi.fn>).mockImplementation(
+				async ({ pendingSkill }) => ({
+					ok: true,
+					value: {
+						skillId: pendingSkill.id,
+						skillOwnership: pendingSkill.ownership,
+						skillKind: "user_skill",
+						skillDisplayName: displayName,
+						instructionsEnvelope: `Skill "${displayName}" was selected by the user.`,
+					},
+				}),
+			);
+		}
+
+		beforeEach(() => {
+			// The skill is gone unless a test says otherwise.
+			(resolveAppliedSkill as ReturnType<typeof vi.fn>).mockImplementation(
+				async () => ({
+					ok: false,
+					error: {
+						status: 409,
+						error: "Selected skill is no longer available.",
+						code: "pending_skill_unavailable",
+					},
+				}),
+			);
+		});
+
+		describe("when the reply is gone", () => {
+			beforeEach(() => {
+				const at = mockConversationMessages.findIndex(
+					(message) => message.id === "assistant-3",
+				);
+				mockConversationMessages.splice(at, 1);
+			});
+
+			it("re-applies the skill and the forced web search, through the probe a recorded one gets", async () => {
+				resolvesSkill("Planning reviewer");
+
+				const result = await ask({ userIntent: remembered });
+
+				expect(result.ok).toBe(true);
+				if (!result.ok) return;
+				expect(resolveAppliedSkill).toHaveBeenCalledWith({
+					userId: "user-1",
+					pendingSkill: expect.objectContaining({
+						id: "skill-1",
+						ownership: "user",
+						displayName: "Planning reviewer",
+					}),
+					requestText: "latest prompt",
+				});
+				expect(capturedSyntheticBodies[0]).toEqual(
+					expect.objectContaining({
+						pendingSkill: expect.objectContaining({ id: "skill-1" }),
+						forceWebSearch: true,
+					}),
+				);
+				expect(result.value.orchestratorInput.turn.appliedSkill).toEqual(
+					expect.objectContaining({ skillId: "skill-1" }),
+				);
+			});
+
+			it("still drops a skill deleted or disabled since, and keeps the web search", async () => {
+				const result = await ask({ userIntent: remembered });
+
+				expect(result.ok).toBe(true);
+				if (!result.ok) return;
+				expect(resolveAppliedSkill).toHaveBeenCalledTimes(2);
+				expect(capturedSyntheticBodies[0]?.pendingSkill).toBeUndefined();
+				expect(result.value.orchestratorInput.turn.appliedSkill).toBeNull();
+				expect(capturedSyntheticBodies[0]?.forceWebSearch).toBe(true);
+			});
+
+			it("reads an intent that is not an intent as none", async () => {
+				for (const userIntent of [
+					"web",
+					42,
+					null,
+					["skill"],
+					{ skill: 5 },
+					{ skill: { id: "" } },
+				]) {
+					capturedSyntheticBodies.length = 0;
+					const result = await ask({ userIntent });
+					expect(result.ok).toBe(true);
+					expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+					expect(capturedSyntheticBodies[0]).not.toHaveProperty(
+						"forceWebSearch",
+					);
+				}
+				expect(resolveAppliedSkill).not.toHaveBeenCalled();
+			});
+		});
+
+		describe("when the reply is there", () => {
+			function recordOn(messageId: string, userIntent: unknown) {
+				const target = mockConversationMessages.find(
+					(message) => message.id === messageId,
+				);
+				if (!target) throw new Error(`no fixture message ${messageId}`);
+				target.metadataJson = JSON.stringify({ wasStopped: false, userIntent });
+			}
+
+			it("lets a recorded intent win, and reads nothing the browser says beside it", async () => {
+				recordOn("assistant-3", { webSearch: true });
+				resolvesSkill("Planning reviewer");
+
+				const result = await ask({ userIntent: remembered });
+
+				expect(result.ok).toBe(true);
+				// The record has the web search and no skill: the browser's skill is not used.
+				expect(resolveAppliedSkill).not.toHaveBeenCalled();
+				expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+				expect(capturedSyntheticBodies[0]?.forceWebSearch).toBe(true);
+			});
+
+			it("reads nothing the browser says for a reply that is there, whether or not that reply has a record", async () => {
+				resolvesSkill("Planning reviewer");
+
+				const result = await ask({ userIntent: remembered });
+
+				expect(result.ok).toBe(true);
+				expect(resolveAppliedSkill).not.toHaveBeenCalled();
+				expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+				expect(capturedSyntheticBodies[0]).not.toHaveProperty("forceWebSearch");
+			});
+		});
+	});
+
 	it("requires explicit confirmation before mutating source history with child forks", async () => {
 		(
 			listChildForksBySourceMessages as ReturnType<typeof vi.fn>

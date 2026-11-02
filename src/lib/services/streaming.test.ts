@@ -1174,6 +1174,40 @@ describe("streamChat", () => {
 		expect(parsedBody.retryOrigin).toBe("answer_now");
 	});
 
+	it("says the skill and the web search of the turn in a retry request", async () => {
+		const intent = {
+			skill: { id: "skill-1", displayName: "Planning reviewer" },
+			webSearch: true,
+		};
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				retryUserIntent: intent,
+			},
+		});
+		await done;
+
+		expect(parseLastStreamRequestBody(mockFetch).userIntent).toEqual(intent);
+	});
+
+	it("leaves the intent out of a request that is not a retry", async () => {
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: {
+				retryUserIntent: { webSearch: true },
+			},
+		});
+		await done;
+
+		expect(parseLastStreamRequestBody(mockFetch)).not.toHaveProperty(
+			"userIntent",
+		);
+	});
+
 	it("threads Reasoning depth into retry requests", async () => {
 		const { mockFetch, done } = runStreamWithMockedResponse({
 			message: "ignored",

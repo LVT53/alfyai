@@ -50,6 +50,10 @@ type RetryRequestBody = {
 	// Which retry-route caller this is (see $lib/chat-turn-origin.ts);
 	// anything unrecognized is a plain regenerate.
 	retryOrigin?: unknown;
+	// The skill and the forced web search the browser remembers of the turn. Read
+	// only when the reply this retry replaces is already gone and its record with
+	// it; a recorded intent always wins.
+	userIntent?: unknown;
 };
 
 export type RetryPreparationError = ChatTurnRequestError & {
@@ -107,6 +111,7 @@ export async function prepareRetryChatTurn(params: {
 		personalityProfileId,
 		confirmForkedSourceHistoryMutation,
 		retryOrigin,
+		userIntent,
 	} = body;
 
 	if (typeof conversationId !== "string" || !conversationId.trim()) {
@@ -161,11 +166,13 @@ export async function prepareRetryChatTurn(params: {
 	// (`getConversation` above) filtered to `conversationId`, so a record
 	// belonging to another user or another conversation is never in reach.
 	// Absent (a message persisted before the record existed) and malformed both
-	// read as "the user chose nothing" — a plain retry. So does a reply that is
-	// already gone: there is no record left to read.
+	// read as "the user chose nothing" — a plain retry. A reply that is already
+	// gone took its record with it: then the browser's own memory of the turn is
+	// read instead, by the same reader, so a skill deleted since is still dropped
+	// below. A reply that is there never lets the browser say what the user chose.
 	const recordedUserIntent = assistantMsg
 		? readRecordedUserIntent(assistantMsg.metadataJson)
-		: undefined;
+		: parseMessageUserIntent(userIntent);
 
 	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
 	// resolves: a fresh send with an unavailable `pendingSkill` is rightly

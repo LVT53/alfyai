@@ -2132,6 +2132,59 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(messageListEvents.appendUserMessage).not.toHaveBeenCalled();
 		});
 
+		it("says the skill and the web search of the turn in a regenerate's request, and in its Retry's", async () => {
+			const { adapters, streamInvocations, messages } = makeAdapters();
+			messages.push(...earlierTurn(), {
+				id: "user-2",
+				role: "user",
+				content: "Second question",
+				timestamp: 3,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			const intent = {
+				skill: { id: "skill-1", displayName: "Planning reviewer" },
+				webSearch: true,
+			};
+
+			await runtime.send(
+				{
+					message: "Second question",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				},
+				{
+					skipUserMessage: true,
+					skipPersistUserMessage: true,
+					retryAssistantMessageId: "assistant-2",
+					retryUserMessageId: "user-2",
+					retryUserIntent: intent,
+				},
+			);
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			runtime.retry();
+
+			// The reply a regenerate replaces carries the record; once it is gone the
+			// server has only this to know what the person chose.
+			expect(streamInvocations[0].options?.retryUserIntent).toEqual(intent);
+			expect(streamInvocations[1].options?.retryUserIntent).toEqual(intent);
+		});
+
+		it("leaves the intent out of a request that is not a regenerate", async () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Second question",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+				forceWebSearch: true,
+			});
+
+			expect(streamInvocations[0].options?.retryUserIntent).toBeUndefined();
+		});
+
 		it("sends only the text for a turn that failed after a reload, and touches no earlier reply", async () => {
 			const { adapters, streamInvocations, messages, messageListEvents } =
 				makeAdapters({

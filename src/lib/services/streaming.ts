@@ -552,6 +552,10 @@ export type StreamChatOptions = {
 	// $lib/chat-turn-origin.ts), so the server counts only a plain Regenerate
 	// as the "answer was wrong" signal.
 	retryOrigin?: import("$lib/chat-turn-origin").RetryOrigin;
+	// The skill and the forced web search of the turn being retried (retry
+	// requests only). The server reads them off the reply it replaces; when that
+	// reply is already gone it has no record, and this is what it has.
+	retryUserIntent?: import("$lib/message-user-intent").MessageUserIntent;
 };
 
 export function streamChat(
@@ -581,6 +585,7 @@ export function streamChat(
 		reconnectUserMessage,
 		isEditResend,
 		retryOrigin,
+		retryUserIntent,
 	} = options ?? {};
 	const controller = new AbortController();
 	const streamId = reconnectToStreamId ?? crypto.randomUUID();
@@ -785,6 +790,7 @@ export function streamChat(
 						confirmForkedSourceHistoryMutation:
 							confirmForkedSourceHistoryMutation === true ? true : undefined,
 						retryOrigin,
+						userIntent: retryUserIntent,
 					})
 				: JSON.stringify({
 						message,

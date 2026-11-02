@@ -578,6 +578,12 @@ export function createNormalChatClientTurnRuntime(
 			retryOrigin: options.retryAssistantMessageId
 				? (options.retryOrigin ?? "regenerate")
 				: undefined,
+			// What the person chose for the turn (a skill, a forced web search): the
+			// server reads it off the reply it replaces, and says it from here only
+			// when that reply is already gone.
+			retryUserIntent: options.retryAssistantMessageId
+				? options.retryUserIntent
+				: undefined,
 		};
 	}
 
