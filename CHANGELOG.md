@@ -97,6 +97,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   Regenerate now gets the reply instead of failing again; and an edit is checked
   before anything is deleted, so a message that cannot be sent no longer takes
   the original and its replies with it.
+- The words in the message box now stay with the chat you typed them in: moving
+  to another chat no longer carries them along or loses them, a message put
+  back after Stop or a failure joins what you have typed since instead of
+  replacing it, and words you have already sent no longer come back while a
+  file, picture or report is being made.
 
 ### Removed
 
