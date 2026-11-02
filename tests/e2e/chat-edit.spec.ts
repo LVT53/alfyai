@@ -22,7 +22,8 @@ import {
 
 async function seedTurns(page: Page, turns: number, title = "Edit") {
 	const conversationId = await createEmptyConversation(page, title);
-	const base = Date.now() - turns * 120_000;
+	// All of it in the past: a turn sent into the chat afterwards comes after it.
+	const base = Date.now() - (turns + 1) * 120_000;
 	const userIds: string[] = [];
 	const rows = [];
 	for (let i = 1; i <= turns; i += 1) {
@@ -195,6 +196,78 @@ async function turnHasSettled(conversationId: string) {
 				.evidenceStatus
 		: undefined;
 	return status === "ready" || status === "none" || status === "failed";
+}
+
+/**
+ * A text file picked in the composer and uploaded through the real routes: the
+ * library item's id, once its chip is up and no longer busy. Text is read in the
+ * server's own process, so the e2e build (which has no document service) can
+ * send it.
+ */
+async function attachTextFile(
+	page: Page,
+	name: string,
+	text: string,
+): Promise<string> {
+	const fileInput = page.locator('input[type="file"]').first();
+	// The composer is rendered on the server with its input disabled until it
+	// hydrates; a disabled input takes no files.
+	await expect(fileInput).toBeEnabled({ timeout: 20_000 });
+	const uploaded = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			response.url().endsWith("/api/knowledge/upload/raw"),
+	);
+	await fileInput.setInputFiles({
+		name,
+		mimeType: "text/plain",
+		buffer: Buffer.from(text),
+	});
+	const response = await uploaded;
+	expect(response.ok(), `upload -> ${response.status()}`).toBe(true);
+	const { artifact } = (await response.json()) as { artifact: { id: string } };
+	const chip = page
+		.getByTestId("composer-chip-attachment")
+		.filter({ hasText: name });
+	await expect(chip).toBeVisible();
+	await expect(chip).not.toHaveAttribute("aria-busy", "true", {
+		timeout: 15_000,
+	});
+	return artifact.id;
+}
+
+type SavedMessage = {
+	id: string;
+	role: string;
+	content: string;
+	attachments?: Array<{ artifactId: string; name: string }>;
+};
+
+/** What the server holds of the chat, in order: what a reload would show. */
+async function savedMessages(
+	page: Page,
+	conversationId: string,
+): Promise<SavedMessage[]> {
+	return page.evaluate(async (id) => {
+		const response = await fetch(`/api/conversations/${id}`);
+		const detail = (await response.json()) as { messages?: SavedMessage[] };
+		return detail.messages ?? [];
+	}, conversationId);
+}
+
+/** Every request the page makes to the chat routes and the message delete, in order, as "METHOD /path". */
+function watchChatRequests(page: Page): string[] {
+	const seen: string[] = [];
+	page.on("request", (request) => {
+		const { pathname } = new URL(request.url());
+		if (
+			pathname.startsWith("/api/chat/") ||
+			/^\/api\/conversations\/[^/]+\/messages$/.test(pathname)
+		) {
+			seen.push(`${request.method()} ${pathname}`);
+		}
+	});
+	return seen;
 }
 
 test.describe("Editing a message in the composer", () => {
@@ -491,6 +564,199 @@ test.describe("Editing a message in the composer", () => {
 				await expect(
 					page.getByText("Answer number 2 about the lake."),
 				).toHaveCount(0);
+			} finally {
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		// The server keeps nothing of a turn that fails, so after one the page's list
+		// ends in a message the server does not have. Retry sends that message again,
+		// with its file, and leaves every reply above it where it is: it used to take
+		// the last reply of the list, the turn before's, regenerate it and remove it.
+		test("Retry after a failed turn keeps the earlier reply and sends the message again with its file", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const { conversationId } = await seedTurns(page, 1);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const requests = watchChatRequests(page);
+			const question = "And what is the lake called?";
+			const lakeName = `Lake-${randomUUID().slice(0, 8)}`;
+			try {
+				await open(page, conversationId);
+				const fileId = await attachTextFile(
+					page,
+					`notes-${lakeName}.txt`,
+					`The lake in these notes is called ${lakeName}.`,
+				);
+
+				// The first try fails before it reaches the model: the server keeps
+				// nothing of it, as of a turn that failed in the model.
+				await page.route("**/api/chat/stream", (route) =>
+					route.fulfill({
+						status: 500,
+						json: { error: "The model provider failed." },
+					}),
+				);
+				await page.getByTestId("message-input").fill(question);
+				await page.getByTestId("send-button").click();
+				const retry = page.getByRole("button", { name: "Retry" });
+				await expect(retry).toBeVisible();
+				await page.unroute("**/api/chat/stream");
+
+				// The message is on screen, the turn before still has its reply.
+				await expect(page.getByTestId("user-message")).toHaveCount(2);
+				await expect(
+					page.getByText("Answer number 1 about the lake."),
+				).toBeVisible();
+
+				const retried = page.waitForRequest(
+					(request) =>
+						request.method() === "POST" &&
+						new URL(request.url()).pathname === "/api/chat/stream",
+					{ timeout: 10_000 },
+				);
+				await retry.click();
+
+				// It is the same message with the file it went with, to the stream.
+				expect((await retried).postDataJSON()).toMatchObject({
+					message: question,
+					conversationId,
+					attachmentIds: [fileId],
+				});
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(
+					page.getByText("Answer number 1 about the lake."),
+				).toBeVisible();
+				await expect(page.getByTestId("user-message")).toHaveCount(2);
+				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+				expect(requests).not.toContain("POST /api/chat/retry");
+				expect(
+					requests.filter((r) => r === "POST /api/chat/stream"),
+				).toHaveLength(2);
+
+				// The file reached the model, and the server saved one message with it
+				// (the file is linked to its message a moment after the reply).
+				await expect
+					.poll(() =>
+						fakeProvider
+							.requests()
+							.some((request) =>
+								(JSON.stringify(request.body) ?? "").includes(lakeName),
+							),
+					)
+					.toBe(true);
+				await expect
+					.poll(async () =>
+						(await savedMessages(page, conversationId))
+							.at(2)
+							?.attachments?.map((attachment) => attachment.artifactId),
+					)
+					.toEqual([fileId]);
+				const saved = await savedMessages(page, conversationId);
+				expect(saved.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+					"user",
+					"assistant",
+				]);
+				const sentMessage = saved[2];
+				expect(sentMessage.content).toBe(question);
+				// The bubble that was on screen is the one the server has: under its id,
+				// with its pencil (a client id would leave edits nothing to find).
+				const bubble = page.locator(`[data-message-id="${sentMessage.id}"]`);
+				await expect(bubble).toBeVisible();
+				await bubble.hover();
+				await expect(
+					page.locator(`#edit-button-${sentMessage.id}`),
+				).toBeVisible();
+			} finally {
+				await page.unroute("**/api/chat/stream").catch(() => undefined);
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		// The resend of an edit meets the turn's gate only after the delete. A file
+		// deleted since (a page that is not up to date, or a model that cannot see the
+		// photo) is refused there, and a reload showed the message and every reply
+		// after it gone. The gate is asked first, and a refusal leaves the edit open.
+		test("an edit the turn's gate refuses deletes nothing, keeps the edit and what was typed open, and a reload finds every message", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const conversationId = await createEmptyConversation(
+				page,
+				"A refused edit",
+			);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const requests = watchChatRequests(page);
+			const question = "What does this file say about the lake?";
+			try {
+				await openEmptyChat(page, conversationId);
+				const fileId = await attachTextFile(
+					page,
+					"lake-notes.txt",
+					"The lake is deep and cold.",
+				);
+				await page.getByTestId("message-input").fill(question);
+				await page.getByTestId("send-button").click();
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
+				const before = await savedMessages(page, conversationId);
+				expect(before.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+				]);
+				const userMessageId = before[0].id;
+
+				// The file is deleted while this page still shows it with the message.
+				const removed = await page.request.delete(`/api/knowledge/${fileId}`);
+				expect(removed.ok(), `file delete -> ${removed.status()}`).toBe(true);
+
+				await pressPencil(page, userMessageId);
+				const composer = page.getByTestId("message-input");
+				await expect(composer).toHaveValue(question);
+				const reworded = "What does this file say about the river?";
+				await composer.fill(reworded);
+				const deletesBefore = requests.filter((r) => r.startsWith("DELETE"));
+				await page.getByTestId("send-button").click();
+
+				// The gate's own sentence for it, on a page that has lost nothing.
+				await expect(
+					page.getByText("Attached file is no longer available."),
+				).toBeVisible();
+				await expect(page.getByTestId("composer-edit-strip")).toBeVisible();
+				await expect(composer).toHaveValue(reworded);
+				await expect(page.getByText(question)).toBeVisible();
+				await expect(page.getByText(/fake provider response/i)).toBeVisible();
+				expect(requests.filter((r) => r.startsWith("DELETE"))).toEqual(
+					deletesBefore,
+				);
+				expect(requests).toContain("POST /api/chat/turn-check");
+				expect(
+					requests.filter((r) => r === "POST /api/chat/stream"),
+				).toHaveLength(1);
+				expect(await savedMessages(page, conversationId)).toHaveLength(2);
+
+				// A reload finds the message and its reply, as they were.
+				await page.reload();
+				await expect(page.getByTestId("assistant-message")).toHaveCount(1);
+				await expect(page.getByText(question)).toBeVisible();
+				await expect(page.getByText(/fake provider response/i)).toBeVisible();
+				const after = await savedMessages(page, conversationId);
+				expect(after.map((message) => message.id)).toEqual(
+					before.map((message) => message.id),
+				);
 			} finally {
 				await restoreTheUsersModel(page, providerId);
 			}
