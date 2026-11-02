@@ -3913,6 +3913,7 @@ async function handleEdit(
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	const edit = editingMessage;
 	// Issue 7.4 fix pass — gate BEFORE deleting the edited-and-onward messages
 	// below, so a cancelled edit leaves the conversation untouched. handleSend()
 	// at the end of this function is intentionally NOT gated again — see the
@@ -3920,10 +3921,10 @@ async function handleEdit(
 	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, newText } = payload;
-	// That wait can last seconds and the composer stays live through it, so a
-	// second press may have got here first, or a Cancel or Esc may have ended
-	// the edit: then nothing goes.
-	if (isEditResendPending || editingMessage?.id !== messageId) return;
+	// That wait can last seconds and the composer stays live through it. A
+	// second press that got here first goes alone; after a Cancel or Esc nothing
+	// goes, even if the same pencil was pressed again since: that is a new edit.
+	if (isEditResendPending || !edit || editingMessage !== edit) return;
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
 	if (editIdx === -1) {
@@ -3961,6 +3962,7 @@ async function handleEdit(
 	}
 
 	const conversationId = data.conversation.id;
+	const draftSetAside = conversationDraft;
 	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
 
 	sendError = null;
@@ -3978,11 +3980,19 @@ async function handleEdit(
 
 	// The person left the chat while the delete ran. The turn must not start in
 	// the chat they are in now, and this text exists nowhere else, so it waits
-	// in the chat it belongs to, in the place of any draft saved there.
+	// as that chat's draft, after the draft that was set aside for it.
 	if (data.conversation.id !== conversationId) {
 		void persistConversationDraft(conversationId, {
-			draftText: newText,
-			selectedAttachmentIds: editAttachmentIds,
+			...draftSetAside,
+			draftText: draftSetAside?.draftText.trim()
+				? `${draftSetAside.draftText}\n\n${newText}`
+				: newText,
+			selectedAttachmentIds: [
+				...new Set([
+					...(draftSetAside?.selectedAttachmentIds ?? []),
+					...editAttachmentIds,
+				]),
+			],
 		}).catch(() => undefined);
 		return;
 	}
@@ -4012,6 +4022,10 @@ async function handleEdit(
 	const deletedIds = new Set(idsToDelete);
 	messages.update((m) => m.filter((message) => !deletedIds.has(message.id)));
 	editingMessage = null;
+	// The rows leaving and the new turn arriving must reach the message list as
+	// two updates: seen as one the list has not grown, and it would not take the
+	// reader to the new turn.
+	await tick();
 
 	// `clearDraft` false: the composer has just taken the person's own draft
 	// back, and a resend of an older message is not what that draft was for.

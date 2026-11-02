@@ -4270,6 +4270,34 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
 		});
 
+		it("a Cancel and the same pencil again during the gate still stop the first send", async () => {
+			let answerGate: (answer: { shouldWarn: boolean }) => void = () => {};
+			checkCloudWarningMock.mockReturnValue(
+				new Promise((resolve) => {
+					answerGate = resolve;
+				}),
+			);
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
+			renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+			await sendEditOfFirstMessage();
+			await waitFor(() => expect(checkCloudWarningMock).toHaveBeenCalled());
+			await fireEvent.click(screen.getByTestId("composer-edit-cancel"));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Edit message" }),
+			);
+			await screen.findByTestId("composer-edit-strip");
+
+			answerGate({ shouldWarn: false });
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(deleteConversationMessages).not.toHaveBeenCalled();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+
 		it("sends nothing to the next chat when the person leaves during the delete, and keeps the text in the chat they left", async () => {
 			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
 			const { deleteConversationMessages, persistConversationDraft } =
@@ -4287,6 +4315,12 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				messages: conversationTurnFixture(),
 			});
 			const view = renderPage(first);
+			await waitFor(() => {
+				expect(screen.getByTestId("message-input")).toBeEnabled();
+			});
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "a draft set aside" },
+			});
 			await sendEditOfFirstMessage();
 			await waitFor(() => {
 				expect(deleteConversationMessages).toHaveBeenCalledTimes(1);
@@ -4304,9 +4338,12 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			await new Promise((resolve) => setTimeout(resolve, 30));
 
 			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			// Both texts are the person's, and this is the only place left for either.
 			expect(persistConversationDraft).toHaveBeenCalledWith(
 				first.conversation.id,
-				expect.objectContaining({ draftText: editedText }),
+				expect.objectContaining({
+					draftText: `a draft set aside\n\n${editedText}`,
+				}),
 			);
 		});
 	});

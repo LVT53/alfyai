@@ -309,6 +309,29 @@ test.describe("Editing a message in the composer", () => {
 		});
 	}
 
+	test("sending an edit takes the reader to the new turn, wherever they had scrolled", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		const { conversationId, userIds } = await seedTurns(page, 10);
+		await open(page, conversationId);
+		await pressPencil(page, userIds[8]);
+		await page.getByTestId("message-input").fill("Question 9, asked again");
+
+		await page.evaluate(() => {
+			const scroller = document.querySelector<HTMLElement>(".scroll-container");
+			if (scroller) scroller.scrollTop = 0;
+		});
+		await expect(
+			page.locator(`[data-message-id="${userIds[0]}"]`),
+		).toBeInViewport();
+		await page.getByTestId("send-button").click();
+
+		await expect(page.getByText("Question 9, asked again")).toBeInViewport({
+			timeout: 10_000,
+		});
+	});
+
 	test("a delete that fails keeps the edit, what was typed and the messages; sending again works", async ({
 		page,
 	}) => {
