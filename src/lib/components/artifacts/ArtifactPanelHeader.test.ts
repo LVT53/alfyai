@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { createRawSnippet } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -204,5 +207,51 @@ describe("ArtifactPanelHeader", () => {
 			onBack: vi.fn(),
 		});
 		expect(screen.getByText("App")).toBeInTheDocument();
+	});
+
+	// A button that steps aside (Comments and Download while History is open) must not
+	// move the box that holds the others. A box as wide as its buttons, behind a spacer,
+	// loses its left edge when one goes, and the browser counts that as a layout shift
+	// (the strip frame in the Image panel, images-motion.spec.ts "move nothing").
+	describe("the box the actions sit in stays where it is when a button steps aside", () => {
+		const style = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"ArtifactPanelHeader.svelte",
+			),
+			"utf8",
+		).split("<style>")[1];
+
+		function rule(selector: string): string {
+			const match = new RegExp(
+				`${selector.replaceAll(".", "\\.")}\\s*\\{([^}]*)\\}`,
+			).exec(style);
+			if (!match) throw new Error(`no rule for ${selector}`);
+			return match[1];
+		}
+
+		it("takes the room beside the breadcrumb itself, so no spacer behind it can shrink it from the left", () => {
+			render(ArtifactPanelHeader, {
+				kind: "image",
+				title: "Sunset gradient",
+				onBack: vi.fn(),
+				actions: actionsWith("<button>Close</button>"),
+			});
+			const top = document.querySelector(".artifact-panel-header-top");
+			expect(
+				[...(top?.children ?? [])].map((child) => child.className),
+				"the row holds the breadcrumb and the actions, nothing between them",
+			).toEqual([
+				expect.stringContaining("artifact-panel-header-crumb"),
+				expect.stringContaining("artifact-panel-header-actions"),
+			]);
+			expect(rule(".artifact-panel-header-actions")).toMatch(/flex:\s*1\b/);
+		});
+
+		it("keeps its buttons at its right edge", () => {
+			expect(rule(".artifact-panel-header-actions")).toMatch(
+				/justify-content:\s*flex-end/,
+			);
+		});
 	});
 });

@@ -65,7 +65,6 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 				<span>{$t('artifacts.panel.crumb')}</span>
 			</button>
 		{/if}
-		<span class="artifact-panel-header-grow"></span>
 		{#if actions}
 			<div class="artifact-panel-header-actions">
 				{@render actions()}
@@ -176,13 +175,16 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.artifact-panel-header-grow {
-		flex: 1;
-	}
-
+	/* The actions' box takes the room beside the breadcrumb itself and keeps the buttons
+	   to its right edge, rather than being as wide as its buttons behind a spacer: a
+	   button that steps aside (Comments and Download while History is open) then leaves
+	   this box where it is, and the ones that stay do not move. A box as wide as its buttons
+	   would lose its left edge instead, which the browser counts as a layout shift. */
 	.artifact-panel-header-actions {
 		display: flex;
+		flex: 1 1 auto;
 		align-items: center;
+		justify-content: flex-end;
 		gap: 0.125rem;
 	}
 
