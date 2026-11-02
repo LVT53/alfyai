@@ -4050,8 +4050,19 @@ async function handleEdit(
 		return;
 	}
 
+	// The check can wait for seconds with the page live, and the chat can change
+	// under an open edit (a recovered stream lands, a turn that finished in the
+	// background is read back). What is deleted is what is there now, from the
+	// message on, so the ids come from the list as it stands, and a message that
+	// has left it is a closed edit, as above.
+	const liveMessages = $messages;
+	const liveIdx = liveMessages.findIndex((m) => m.id === messageId);
+	if (liveIdx === -1) {
+		editingMessage = null;
+		return;
+	}
 	const draftSetAside = conversationDraft;
-	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
+	const idsToDelete = liveMessages.slice(liveIdx).map((m) => m.id);
 
 	sendError = null;
 	isEditResendPending = true;

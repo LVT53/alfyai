@@ -5036,6 +5036,153 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				expect(deleteMessages).toHaveBeenCalledTimes(1);
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
 			});
+
+			// The check can wait for seconds with the page live, and the chat can change
+			// under an open edit: a turn that finished while the tab was in the background
+			// is read back when it returns. What the edit deletes is what is there when the
+			// check has answered, not what was there when send was pressed.
+			describe("when the chat changes while the check is out", () => {
+				/** A message sent, its connection lost in the background: the page will read the chat back when it is seen again. */
+				async function loseAConnectionInTheBackground() {
+					await fireEvent.input(screen.getByTestId("message-input"), {
+						target: { value: "And tomorrow?" },
+					});
+					await fireEvent.click(
+						screen.getByRole("button", { name: "Send message" }),
+					);
+					await waitFor(() => {
+						expect(runtimeHarness.streamInvocations).toHaveLength(1);
+					});
+					Object.defineProperty(document, "visibilityState", {
+						configurable: true,
+						value: "hidden",
+					});
+					runtimeHarness.streamInvocations[0].callbacks.onError(
+						Object.assign(new Error("The operation was aborted."), {
+							name: "AbortError",
+						}),
+					);
+					Object.defineProperty(document, "visibilityState", {
+						configurable: true,
+						value: "visible",
+					});
+				}
+
+				/** The tab is seen again: the page reads the chat back from the server. */
+				function returnToTheTab(serverMessages: ChatMessage[]) {
+					vi.mocked(fetchConversationDetail).mockResolvedValue(
+						conversationDetailFixture({ messages: serverMessages }),
+					);
+					document.dispatchEvent(new Event("visibilitychange"));
+				}
+
+				const turnThatFinishedMeanwhile: ChatMessage[] = [
+					...conversationTurnFixture(),
+					{
+						id: "user-2",
+						role: "user",
+						content: "And tomorrow?",
+						timestamp: 3,
+					},
+					{
+						id: "assistant-2",
+						role: "assistant",
+						content: "Tomorrow is busy.",
+						timestamp: 4,
+					},
+				];
+
+				it("deletes what has landed since, taking the ids from the list as it stands", async () => {
+					const deleteMessages = await withDeletesThatWork();
+					let answer: (check: ChatTurnCheck) => void = () => {};
+					checkChatTurnMock.mockReturnValue(
+						new Promise((resolve) => {
+							answer = resolve;
+						}),
+					);
+					renderPage(
+						cloudModelPageData({ messages: conversationTurnFixture() }),
+					);
+					await waitFor(() =>
+						expect(fetchActiveCapabilitiesMock).toHaveBeenCalled(),
+					);
+					await loseAConnectionInTheBackground();
+
+					await sendEditOfFirstMessage();
+					await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+					returnToTheTab(turnThatFinishedMeanwhile);
+					expect(
+						await screen.findByText("Tomorrow is busy."),
+					).toBeInTheDocument();
+					answer({ ok: true });
+
+					await waitFor(() => {
+						expect(deleteMessages).toHaveBeenCalledTimes(1);
+					});
+					// The message it began with, the reply, and the turn that landed after
+					// them: the server's ids, not the bubble the page had drawn.
+					expect(deleteMessages).toHaveBeenCalledWith(
+						"conv-1",
+						["user-1", "assistant-1", "user-2", "assistant-2"],
+						expect.anything(),
+					);
+					await waitFor(() => {
+						expect(runtimeHarness.streamInvocations).toHaveLength(2);
+					});
+					expect(
+						screen.queryByText("Tomorrow is busy."),
+					).not.toBeInTheDocument();
+				});
+
+				it("closes the edit and deletes nothing when the message has left the chat", async () => {
+					const deleteMessages = await withDeletesThatWork();
+					let answer: (check: ChatTurnCheck) => void = () => {};
+					checkChatTurnMock.mockReturnValue(
+						new Promise((resolve) => {
+							answer = resolve;
+						}),
+					);
+					renderPage(
+						cloudModelPageData({ messages: conversationTurnFixture() }),
+					);
+					await waitFor(() =>
+						expect(fetchActiveCapabilitiesMock).toHaveBeenCalled(),
+					);
+					await loseAConnectionInTheBackground();
+
+					await sendEditOfFirstMessage();
+					await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+					// The chat as the server has it now has no such message any more.
+					returnToTheTab([
+						{
+							id: "user-9",
+							role: "user",
+							content: "Another question",
+							timestamp: 1,
+						},
+						{
+							id: "assistant-9",
+							role: "assistant",
+							content: "Another answer.",
+							timestamp: 2,
+						},
+					]);
+					expect(
+						await screen.findByText("Another answer."),
+					).toBeInTheDocument();
+					answer({ ok: true });
+
+					await waitFor(() => {
+						expect(
+							screen.queryByTestId("composer-edit-strip"),
+						).not.toBeInTheDocument();
+					});
+					await new Promise((resolve) => setTimeout(resolve, 30));
+					expect(deleteMessages).not.toHaveBeenCalled();
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+					expect(screen.getByText("Another answer.")).toBeInTheDocument();
+				});
+			});
 		});
 	});
 
