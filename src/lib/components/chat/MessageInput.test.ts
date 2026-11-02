@@ -7113,6 +7113,35 @@ describe("MessageInput editing a sent message", () => {
 		);
 	});
 
+	it("emits nothing when an edit ends over an empty composer", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		view.onDraftChange.mockClear();
+
+		await view.rerender({ editing: null });
+
+		await waitFor(() => expect(view.textarea.value).toBe(""));
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		// An empty emission deletes the saved draft, and a draft this composer
+		// never showed (a file with no text, after a switch) is still saved.
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+
+	it("turns Cancel off while the edit is going out, and only then", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		const cancel = view.getByTestId("composer-edit-cancel");
+		expect(cancel).toBeEnabled();
+
+		await view.rerender({ disabled: true, isGenerating: true });
+		expect(cancel).toBeDisabled();
+
+		// A chat sealed under an open edit must not trap it.
+		await view.rerender({ disabled: true, isGenerating: false });
+		expect(cancel).toBeEnabled();
+	});
+
 	it("keeps what was typed when the count of later replies changes", async () => {
 		const view = renderComposer();
 		await view.rerender({ editing: sentMessage });

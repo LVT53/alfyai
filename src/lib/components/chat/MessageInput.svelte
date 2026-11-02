@@ -749,19 +749,20 @@ $effect(() => {
 			const kept = keptDraft;
 			keptDraft = null;
 			// The chat changed under the edit. What was set aside belongs to the
-			// chat that was left, which still has it saved, so none of it may reach
-			// this one, not even as an empty draft that would delete this chat's
-			// own. The draft effect below brings that one in.
+			// chat that was left, where its saved copy waits, so none of it may
+			// reach this one, not even as an empty draft that would delete this
+			// chat's own. The draft effect below brings that one in.
 			if (kept.conversationId !== conversationId) {
 				clearComposerForNewConversation();
 				return;
 			}
 			message = kept.text;
-			// The page may have cleared its copy of the draft while the edit went
-			// out; say what is on screen so a reload finds the same thing.
+			// Say what is on screen, a file that landed during the edit included, so
+			// a reload finds the same thing. An empty composer says nothing: that
+			// would delete a draft it never showed, or one that came in meanwhile.
 			lastEmittedDraftKey = "";
 			draftEmissionVersion += 1;
-			void emitDraftChange(true);
+			void emitDraftChange(true, true);
 			void tick().then(adjustHeight);
 		}
 	});
@@ -2335,9 +2336,10 @@ onMount(() => {
 		}
 		adjustHeight();
 	}
-	// Text typed before the page hydrated. An empty box is not that: it is only
-	// the server's markup, which has not caught up with a draft applied a moment
-	// ago, and taking it for the person's words deletes that draft on every reload.
+	// Text the browser put back into the box on a reload. An empty box is not
+	// that: it is only the server's markup, which has not caught up with a draft
+	// applied a moment ago, and taking it for the person's words deletes that
+	// draft on every reload.
 	if (textarea?.value) syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
@@ -3783,7 +3785,7 @@ function getDraftTextForPersistence(): string {
 	return message.slice(0, activeToken.start) + message.slice(activeToken.end);
 }
 
-async function emitDraftChange(force = false) {
+async function emitDraftChange(force = false, onlyIfSomethingToSay = false) {
 	// An edit in progress is not a draft.
 	if (editing) return;
 	const emissionVersion = draftEmissionVersion;
@@ -3815,6 +3817,7 @@ async function emitDraftChange(force = false) {
 		nextLinkedSources.length > 0 ||
 		Boolean(nextPendingSkill) ||
 		Boolean(selectedAtlasProfile);
+	if (onlyIfSomethingToSay && !hasMeaningfulDraft) return;
 	let draftConversationId: string | null = resolvedConversationId;
 	if (hasMeaningfulDraft) {
 		try {
@@ -3926,6 +3929,7 @@ async function emitDraftChange(force = false) {
 					type="button"
 					class="composer-edit-strip__cancel"
 					data-testid="composer-edit-cancel"
+					disabled={disabled && isGenerating}
 					onclick={cancelEdit}
 				>
 					{$t('common.cancel')}
@@ -5287,9 +5291,15 @@ async function emitDraftChange(force = false) {
 
 	/* The composer box already is --surface-elevated, so that fill would not
 	   show: a wash of the text colour reads on it in both themes. */
-	.composer-edit-strip__cancel:hover {
+	.composer-edit-strip__cancel:hover:not(:disabled) {
 		background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 		color: var(--text-primary);
+	}
+
+	/* The edit is going out: the delete has started, so there is no way back. */
+	.composer-edit-strip__cancel:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.composer-edit-strip__cancel:focus-visible {
