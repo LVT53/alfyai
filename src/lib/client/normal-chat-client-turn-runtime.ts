@@ -408,6 +408,9 @@ export function createBrowserNormalChatClientTurnRuntime(
 	});
 }
 
+/** How long Retry waits for the server to say whether it still runs the turn before it goes on without an answer. */
+const STREAM_QUESTION_MAX_MS = 5000;
+
 export function createNormalChatClientTurnRuntime(
 	adapters: NormalChatClientTurnRuntimeAdapters,
 ) {
@@ -1615,7 +1618,10 @@ export function createNormalChatClientTurnRuntime(
 		let running: Awaited<ReturnType<typeof findRunningStream>> = null;
 		retryReading = true;
 		try {
-			running = await findRunningStream(turnConversationId);
+			running = await findRunningStream(
+				turnConversationId,
+				STREAM_QUESTION_MAX_MS,
+			);
 			if (!running && adapters.readChatMessages) {
 				outcome = await askWhatTheServerHolds(
 					text,
@@ -1883,13 +1889,36 @@ export function createNormalChatClientTurnRuntime(
 	 */
 	async function findRunningStream(
 		conversationId: string,
+		maxMs?: number,
 	): Promise<{ streamId: string; bufferInfo: StreamBufferInfo | null } | null> {
-		const streamId = await adapters.checkForOrphanedStream(conversationId);
+		// With `maxMs` each question is bounded, and no answer is no answer: no stream,
+		// or, once a stream is known, no word about its message.
+		const ask = <T>(question: Promise<T>) =>
+			maxMs === undefined ? question : answerWithin(question, maxMs);
+		const streamId = await ask(adapters.checkForOrphanedStream(conversationId));
 		if (!streamId) return null;
 		return {
 			streamId,
-			bufferInfo: await adapters.getStreamBufferInfo(streamId, conversationId),
+			bufferInfo: await ask(
+				adapters.getStreamBufferInfo(streamId, conversationId),
+			),
 		};
+	}
+
+	/**
+	 * What `question` answers, or null when it fails or has not answered within
+	 * `maxMs`: a stalled connection must not hold a press for as long as the browser
+	 * takes to give up. The clock is the runtime's own (`adapters.schedule`), and the
+	 * question is left to finish.
+	 */
+	function answerWithin<T>(
+		question: Promise<T>,
+		maxMs: number,
+	): Promise<T | null> {
+		return new Promise<T | null>((resolve) => {
+			adapters.schedule(() => resolve(null), maxMs);
+			question.then(resolve, () => resolve(null));
+		});
 	}
 
 	/** Joins a running stream: its replay goes into a placeholder, under the bubble that is on screen. */

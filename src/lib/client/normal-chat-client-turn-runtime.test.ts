@@ -3101,7 +3101,11 @@ describe("Normal Chat Client Turn Runtime", () => {
 		// unregisters its stream, so a turn that ends between the two questions is
 		// answered by the second, where asked the other way round it got two noes.
 		describe("a turn the server is still running", () => {
+			/** A clock that never runs out: the stream questions are bounded on `schedule`, which the adapters' default fires at once. */
+			const patientClock = () =>
+				vi.fn(() => 1 as unknown as ReturnType<typeof setTimeout>);
 			const runningTurn = () => ({
+				schedule: patientClock(),
 				checkForOrphanedStream: vi.fn(async () => "stream-1"),
 				getStreamBufferInfo: vi.fn(async () => ({
 					exists: true,
@@ -3148,6 +3152,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				let ended = false;
 				const asked: string[] = [];
 				const { streamInvocations, runtime } = await failedSend({
+					schedule: patientClock(),
 					checkForOrphanedStream: vi.fn(async () => {
 						asked.push("stream");
 						const answer = ended ? null : "stream-1";
@@ -3217,6 +3222,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			it("is asked once for two presses while the question is out", async () => {
 				let found: (streamId: string | null) => void = () => {};
 				const running = {
+					schedule: patientClock(),
 					checkForOrphanedStream: vi.fn(
 						() =>
 							new Promise<string | null>((resolve) => {
@@ -3237,6 +3243,102 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
 					"stream-1",
 				);
+			});
+
+			// A stalled connection must not hold Retry for as long as the browser takes
+			// to give up: the questions about the stream are bounded, on the clock the
+			// runtime already uses (`schedule`), and no answer is no stream. The press
+			// comes down either way, or every later press would do nothing.
+			describe("when the server does not answer", () => {
+				/** A clock the test runs by hand. */
+				const clock = () => {
+					const timers: Array<{ callback: () => void; delay: number }> = [];
+					const schedule = vi.fn((callback: () => void, delay: number) => {
+						timers.push({ callback, delay });
+						return 1 as unknown as ReturnType<typeof setTimeout>;
+					});
+					return { timers, schedule };
+				};
+				const neverAnswers = <T>() => new Promise<T>(() => {});
+
+				it("takes a stream question that has not answered in 5 s for no stream, and sends the message as before", async () => {
+					const { timers, schedule } = clock();
+					const { streamInvocations, runtime } = await failedSend({
+						schedule,
+						checkForOrphanedStream: vi.fn(() => neverAnswers<string | null>()),
+						readChatMessages: vi.fn(async () => earlierTurn()),
+					});
+
+					const pressed = runtime.retry();
+					await vi.waitFor(() => expect(timers).toHaveLength(1));
+					expect(timers[0].delay).toBe(5000);
+					timers[0].callback();
+					await pressed;
+
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].message).toBe(askedWords);
+					expect(
+						streamInvocations[1].options?.reconnectToStreamId,
+					).toBeUndefined();
+				});
+
+				it("takes a stream question that fails for no stream, and the press comes down", async () => {
+					const { streamInvocations, runtime } = await failedSend({
+						schedule: patientClock(),
+						checkForOrphanedStream: vi.fn(async () => {
+							throw new Error("Network failed");
+						}),
+					});
+
+					await runtime.retry();
+					expect(streamInvocations).toHaveLength(2);
+
+					// The next press is not swallowed by a flag that stayed up.
+					streamInvocations[1].callbacks.onError(new Error("Network failed"));
+					await runtime.retry();
+					expect(streamInvocations).toHaveLength(3);
+				});
+
+				it("brings the press down when the question never answers and the clock does", async () => {
+					const { timers, schedule } = clock();
+					const { streamInvocations, runtime } = await failedSend({
+						schedule,
+						checkForOrphanedStream: vi.fn(() => neverAnswers<string | null>()),
+					});
+
+					const first = runtime.retry();
+					await vi.waitFor(() => expect(timers).toHaveLength(1));
+					timers[0].callback();
+					await first;
+					streamInvocations[1].callbacks.onError(new Error("Network failed"));
+
+					// A second press asks again, and is not swallowed.
+					const second = runtime.retry();
+					await vi.waitFor(() => expect(timers).toHaveLength(2));
+					timers[1].callback();
+					await second;
+					expect(streamInvocations).toHaveLength(3);
+				});
+
+				it("joins a stream whose buffer cannot be read in time, with what the page knows of the message", async () => {
+					const { timers, schedule } = clock();
+					const { streamInvocations, runtime } = await failedSend({
+						schedule,
+						checkForOrphanedStream: vi.fn(async () => "stream-1"),
+						getStreamBufferInfo: vi.fn(() => neverAnswers<null>()),
+					});
+
+					const pressed = runtime.retry();
+					await vi.waitFor(() => expect(timers).toHaveLength(2));
+					timers[1].callback();
+					await pressed;
+
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].options).toMatchObject({
+						reconnectToStreamId: "stream-1",
+						reconnectUserMessage: askedWords,
+					});
+				});
 			});
 		});
 	});
