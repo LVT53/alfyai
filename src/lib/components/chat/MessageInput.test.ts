@@ -7113,6 +7113,157 @@ describe("MessageInput editing a sent message", () => {
 		);
 	});
 
+	it("keeps what was typed when the count of later replies changes", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		await fireEvent.input(view.textarea, { target: { value: "edited words" } });
+
+		// The page counts from the list as it stands, so a change there reaches
+		// the composer as a new object with the same message.
+		await view.rerender({ editing: { ...sentMessage, laterReplies: 4 } });
+
+		await waitFor(() => {
+			expect(view.getByTestId("composer-edit-label")).toHaveTextContent(
+				"4 later replies will be deleted.",
+			);
+		});
+		expect(view.textarea.value).toBe("edited words");
+	});
+
+	// The page's `resetState` clears the edit one flush after the conversation id
+	// reaches the composer, so these change them one after the other, as a real
+	// switch does: changed together, the effects run in another order.
+	it("deletes no draft when the chat changes under an edit with nothing set aside", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		view.onDraftChange.mockClear();
+
+		await view.rerender({ conversationId: "conv-2" });
+		await view.rerender({
+			editing: null,
+			draftText: "the other chat's draft",
+			draftVersion: 5,
+		});
+
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("the other chat's draft");
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+
+	it("does not carry a set-aside draft into the chat the person moved to", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for chat one" } });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		view.onDraftChange.mockClear();
+
+		await view.rerender({ conversationId: "conv-2" });
+		await view.rerender({ editing: null });
+
+		await waitFor(() => expect(view.textarea.value).toBe(""));
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+
+	it("does not let a draft update fill an emptied edit", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		await fireEvent.input(view.textarea, { target: { value: "" } });
+
+		await view.rerender({ draftText: "a saved draft", draftVersion: 5 });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.textarea.value).toBe("");
+	});
+
+	it("holds a send queued behind a file until the edit ends, then sends the draft", async () => {
+		let uploadDone: ((result: UploadDoneResult) => void) | null = null;
+		const onUploadFiles = vi.fn((payload: UploadFilesPayload) => {
+			uploadDone = payload.done;
+		});
+		const view = renderComposer({ onUploadFiles });
+		await fireEvent.input(view.textarea, {
+			target: { value: "Summarise this" },
+		});
+		const fileInput = view.container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
+			},
+		});
+		await waitFor(() => expect(onUploadFiles).toHaveBeenCalled());
+		await fireEvent.keyDown(view.textarea, { key: "Enter", ctrlKey: true });
+		await waitFor(() => {
+			expect(
+				view.getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined();
+		});
+
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		completeUpload(uploadDone, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-queued-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "OCR me",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-queued-1",
+				readinessError: null,
+			},
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(view.onSend).not.toHaveBeenCalled();
+
+		await view.rerender({ editing: null });
+
+		await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+		expect(view.onSend).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "Summarise this" }),
+		);
+	});
+
+	it("holds back a send still at its gate when the pencil is pressed", async () => {
+		let openGate: (proceed: boolean) => void = () => {};
+		const beforeSend = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					openGate = resolve;
+				}),
+		);
+		const view = renderComposer({ beforeSend });
+		await fireEvent.input(view.textarea, { target: { value: "a new message" } });
+		await fireEvent.click(view.getByTestId("send-button"));
+		await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
+
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+		openGate(true);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onSend).not.toHaveBeenCalled();
+		await view.rerender({ editing: null });
+		await waitFor(() => expect(view.textarea.value).toBe("a new message"));
+	});
+
 	it("drops the destructive tint while the send button is off", async () => {
 		const view = renderComposer();
 		await view.rerender({ editing: { text: "Hi", laterReplies: 3 } });

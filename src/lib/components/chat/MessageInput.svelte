@@ -725,13 +725,17 @@ $effect(() => {
 // message's text is here, and put back when editing ends, however it ends. The
 // edit itself never reaches the draft (`emitDraftChange` stays quiet), so a
 // reload in the middle of an edit finds the draft as it was.
-let keptDraft: string | null = null;
+let keptDraft: { text: string; conversationId: string | null } | null = null;
+// Keyed on the text, not on the object: the page sends a new object whenever
+// the number of later replies changes, and that must not put the message back
+// over what the person has typed.
+const editingText = $derived(editing ? editing.text : null);
 $effect(() => {
-	const active = editing;
+	const text = editingText;
 	untrack(() => {
-		if (active) {
-			if (keptDraft === null) keptDraft = message;
-			message = active.text;
+		if (text !== null) {
+			keptDraft ??= { text: message, conversationId };
+			message = text;
 			showToolsMenu = false;
 			showConnectionsPopover = false;
 			closeCommandTray();
@@ -742,8 +746,17 @@ $effect(() => {
 				textarea.setSelectionRange(message.length, message.length);
 			});
 		} else if (keptDraft !== null) {
-			message = keptDraft;
+			const kept = keptDraft;
 			keptDraft = null;
+			// The chat changed under the edit. What was set aside belongs to the
+			// chat that was left, which still has it saved, so none of it may reach
+			// this one, not even as an empty draft that would delete this chat's
+			// own. The draft effect below brings that one in.
+			if (kept.conversationId !== conversationId) {
+				clearComposerForNewConversation();
+				return;
+			}
+			message = kept.text;
 			// The page may have cleared its copy of the draft while the edit went
 			// out; say what is on screen so a reload finds the same thing.
 			lastEmittedDraftKey = "";
@@ -1531,6 +1544,8 @@ $effect(() => {
 
 $effect(() => {
 	if (draftVersion === appliedDraftVersion) return;
+	// Not into an edit, even an emptied one. It is looked at again when the edit ends.
+	if (editing) return;
 
 	const shouldApplyDraft =
 		appliedDraftVersion === -1 ||
@@ -1632,7 +1647,9 @@ $effect(() => {
 // double-Enter race fixed as C1) to dispatch a connector-enabled message to
 // a cloud model with no warning.
 $effect(() => {
-	if (isGenerating || !queuedSendAfterProcessing || !canSend) return;
+	// While an edit is open `message` is the edit, not what was queued: it waits
+	// for the edit to end, and goes out then with the draft it was queued for.
+	if (isGenerating || editing || !queuedSendAfterProcessing || !canSend) return;
 	queuedSendAfterProcessing = false;
 	void attemptDispatch(message);
 });
@@ -1676,32 +1693,36 @@ $effect(() => {
 	lastConversationId = activeConversationId;
 	// Only clear if we actually switched conversations, not on initial load if it already has text.
 	if (!message) {
-		message = "";
-		pendingAttachments = [];
-		extractionJobs = {};
-		// The next conversation gets a fresh one-shot guard: an artifact the
-		// caller re-adds later must be allowed to ask for its verdict again.
-		readinessRefreshRequested.clear();
-		optimisticUploads = [];
-		selectedLinkedSources = [];
-		pendingSkill = null;
-		pendingQuotes = [];
-		attachmentError = "";
-		extractionActionError = "";
-		uploadState = "idle";
-		queuedSendAfterProcessing = false;
-		showToolsMenu = false;
-		selectedAtlasProfile = null;
-		clientAtlasTurnId = null;
-		closeCommandTray();
-		lastEmittedDraftKey = "";
-		draftEmissionVersion += 1;
-		adjustHeight();
+		clearComposerForNewConversation();
 		if (!isMobile()) {
 			setTimeout(() => textarea?.focus(), 0);
 		}
 	}
 });
+
+function clearComposerForNewConversation() {
+	message = "";
+	pendingAttachments = [];
+	extractionJobs = {};
+	// The next conversation gets a fresh one-shot guard: an artifact the
+	// caller re-adds later must be allowed to ask for its verdict again.
+	readinessRefreshRequested.clear();
+	optimisticUploads = [];
+	selectedLinkedSources = [];
+	pendingSkill = null;
+	pendingQuotes = [];
+	attachmentError = "";
+	extractionActionError = "";
+	uploadState = "idle";
+	queuedSendAfterProcessing = false;
+	showToolsMenu = false;
+	selectedAtlasProfile = null;
+	clientAtlasTurnId = null;
+	closeCommandTray();
+	lastEmittedDraftKey = "";
+	draftEmissionVersion += 1;
+	adjustHeight();
+}
 
 function adjustHeight() {
 	if (!textarea) return;
@@ -2201,7 +2222,9 @@ async function attemptDispatch(nextMessage: string) {
 	sendPending = true;
 	try {
 		const proceed = await beforeSend();
-		if (!proceed) return;
+		// A pencil pressed during the wait: this text is the set-aside draft now,
+		// and sending it would empty the edit and bring it back as a draft after.
+		if (!proceed || editing) return;
 		dispatchSend(nextMessage);
 	} finally {
 		sendPending = false;
