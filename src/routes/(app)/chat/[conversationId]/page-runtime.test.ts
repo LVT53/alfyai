@@ -18,6 +18,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import type {
 	StreamCallbacks,
 	StreamChatOptions,
@@ -391,6 +392,7 @@ import { goto } from "$app/navigation";
 import { fetchConversationPendingWrites } from "$lib/client/api/connection-writes";
 import {
 	deleteConversationDraft,
+	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	generateConversationTitle,
@@ -4629,6 +4631,218 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				expect.objectContaining({
 					draftText: `a draft set aside\n\n${editedText}`,
 				}),
+			);
+		});
+	});
+
+	describe("an edit's resend carries the pictures its message carried", () => {
+		const question = "What colour is the roof in picture 1?";
+		const editedText = "What colour is the door in picture 1?";
+		const box = { letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.4 };
+		const cottage = { imageFileId: "file-cottage", number: 1, name: "Cottage" };
+		const marksOnCottage = {
+			imageFileId: "file-cottage",
+			markedFileId: "file-marked",
+			letters: ["A" as const],
+			boxes: [box],
+		};
+
+		function userMessage(pictures?: ChatMessage["pictures"]): ChatMessage {
+			return {
+				id: "user-1",
+				role: "user",
+				content: question,
+				timestamp: 1,
+				...(pictures ? { pictures } : {}),
+			};
+		}
+
+		function turnWith(pictures?: ChatMessage["pictures"]) {
+			return [
+				userMessage(pictures),
+				{
+					id: "assistant-1",
+					role: "assistant" as const,
+					content: "The roof is red.",
+					timestamp: 2,
+				},
+			];
+		}
+
+		/** Presses the pencil on the first message, rewords it and sends: what the stream was asked for. */
+		async function editAndSend() {
+			vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Edit message" })[0],
+			);
+			const composer = screen.getByTestId("message-input");
+			await waitFor(() => {
+				expect(composer).toHaveValue(question);
+			});
+			await fireEvent.input(composer, { target: { value: editedText } });
+			await fireEvent.click(screen.getByTestId("send-button"));
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			return runtimeHarness.streamInvocations[0].options;
+		}
+
+		it("sends the card pictures the message was sent with, under their numbers, and draws them on the new message", async () => {
+			renderPage(
+				pageData({
+					messages: turnWith({ refs: [cottage], open: null, marks: null }),
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			expect(options?.imageMarks).toBeNull();
+			// The old message has left the list; the new one is drawn with its picture.
+			expect(screen.getByTestId("user-message")).toHaveTextContent(editedText);
+			expect(screen.getAllByTestId("message-picture-chip")).toHaveLength(1);
+		});
+
+		it("sends the marks the message was sent with, on the same picture", async () => {
+			renderPage(
+				pageData({
+					messages: turnWith({
+						refs: [cottage],
+						open: null,
+						marks: marksOnCottage,
+					}),
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			expect(options?.imageMarks).toEqual({
+				imageFileId: "file-cottage",
+				marks: [box],
+			});
+		});
+
+		it("gives up marks on a picture that does not go along, as a regenerate does, and sends the rest", async () => {
+			renderPage(
+				pageData({
+					messages: turnWith({
+						refs: [cottage],
+						open: { imageFileId: "file-old-open", name: "Old" },
+						marks: { ...marksOnCottage, imageFileId: "file-old-open" },
+					}),
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			expect(options?.imageMarks).toBeNull();
+		});
+
+		it("sends no pictures for a message that carried none, and asks the server for none", async () => {
+			vi.mocked(fetchConversationDetail).mockClear();
+			renderPage(pageData({ messages: turnWith() }));
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toBeUndefined();
+			expect(options?.imageMarks).toBeNull();
+			expect(screen.queryByTestId("message-picture-chip")).toBeNull();
+			expect(fetchConversationDetail).not.toHaveBeenCalled();
+		});
+
+		it("takes the marks from what the server recorded when the page only holds the composer's copy of the message", async () => {
+			// A message sent in this tab keeps the pictures the composer drew for its
+			// bubble (refs and photos); the boxes are only in the server's record.
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({
+					messages: [
+						userMessage({
+							refs: [cottage],
+							open: null,
+							marks: marksOnCottage,
+						}),
+					],
+				}),
+			);
+			renderPage(
+				pageData({
+					messages: turnWith({ refs: [cottage], open: null, marks: null }),
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			expect(options?.imageMarks).toEqual({
+				imageFileId: "file-cottage",
+				marks: [box],
+			});
+		});
+
+		it("still sends the pictures the page holds when the server cannot be read", async () => {
+			vi.mocked(fetchConversationDetail).mockRejectedValue(
+				new Error("Network down"),
+			);
+			renderPage(
+				pageData({
+					messages: turnWith({ refs: [cottage], open: null, marks: null }),
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+		});
+
+		it("leaves the marks waiting in the composer alone: the draft set aside gets them back", async () => {
+			window.sessionStorage.setItem(
+				"composer-marks:conv-1",
+				JSON.stringify({
+					imageFileId: "file-other",
+					marks: [{ letter: "B", x: 0.5, y: 0.5, w: 0.3, h: 0.3 }],
+					artifactId: "item-other",
+					name: "Other picture",
+					version: null,
+				}),
+			);
+			renderPage(
+				pageData({
+					messages: turnWith({ refs: [cottage], open: null, marks: null }),
+				}),
+			);
+			expect(
+				await screen.findByTestId("composer-chip-marks"),
+			).toBeInTheDocument();
+
+			const options = await editAndSend();
+
+			// The resend is the message's own: none of the composer's boxes in it...
+			expect(options?.imageMarks).toBeNull();
+			expect(options?.pictureRefs).toEqual([
+				{ imageFileId: "file-cottage", number: 1 },
+			]);
+			// ...and once the edit is out they are waiting where they were.
+			await waitFor(() => {
+				expect(screen.queryByTestId("composer-edit-strip")).toBeNull();
+				expect(screen.getByTestId("composer-chip-marks")).toBeInTheDocument();
+			});
+			expect(window.sessionStorage.getItem("composer-marks:conv-1")).toContain(
+				"file-other",
 			);
 		});
 	});

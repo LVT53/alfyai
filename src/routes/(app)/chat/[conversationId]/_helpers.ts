@@ -47,10 +47,12 @@ import type {
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
-import type {
-	ImageMarksRequest,
-	PictureRef,
-	UserPicturesMetadata,
+import {
+	type ImageMarksRequest,
+	marksRideWith,
+	type PictureRef,
+	recordedPictureRequest,
+	type UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import {
 	attachmentReadinessReasonKey,
@@ -1240,6 +1242,55 @@ export function pictureOrderFromSend(
 	]
 		.sort((a, b) => a.number - b.number)
 		.map((entry) => entry.key);
+}
+
+/**
+ * The pictures an edit's resend carries. An edit deletes the message and sends it
+ * again, so what it carried has to go with it. They come from the message's
+ * record, read as a regenerate reads it (`recordedPictureRequest`): its card
+ * pictures under the numbers they had, and its marks rebuilt from the recorded
+ * boxes, kept while their picture goes along (`marksRideWith`: a regenerate also
+ * keeps marks on the picture open at that moment, which the page cannot tell).
+ * Its photos ride as attachments and the open picture is the one open when the
+ * resend goes, as in every send. `pictures` is what the new bubble draws from its
+ * first paint; there is no `markedPicture` because the record does not say which
+ * item the marks were drawn on.
+ */
+export function editResendPictures(
+	recorded: UserPicturesMetadata | undefined,
+	attachmentIds: readonly string[],
+): Pick<SendPayload, "pictureRefs" | "pictures" | "imageMarks"> {
+	if (!recorded) return {};
+	const { pictureRefs, imageMarks } = recordedPictureRequest(recorded);
+	const marks =
+		imageMarks &&
+		marksRideWith(imageMarks, {
+			imageFileIds: pictureRefs.map((ref) => ref.imageFileId),
+			attachmentIds,
+		})
+			? { ...imageMarks, marks: imageMarks.marks.map((box) => ({ ...box })) }
+			: null;
+	const uploads = (recorded.uploads ?? [])
+		.filter((upload) => attachmentIds.includes(upload.artifactId))
+		.map((upload) => ({ ...upload }));
+	return {
+		...(pictureRefs.length > 0 ? { pictureRefs } : {}),
+		...(recorded.refs.length > 0 || uploads.length > 0
+			? {
+					pictures: {
+						refs: recorded.refs.map(({ imageFileId, number, name }) => ({
+							imageFileId,
+							number,
+							name,
+						})),
+						...(uploads.length > 0 ? { uploads } : {}),
+						open: null,
+						marks: null,
+					},
+				}
+			: {}),
+		...(marks ? { imageMarks: marks } : {}),
+	};
 }
 
 export function cloneSendPayload(payload: SendPayload): SendPayload {

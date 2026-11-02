@@ -25,6 +25,7 @@ import {
 	countLaterReplies,
 	createAssistantPlaceholder,
 	dropPendingFileProductionJobs,
+	editResendPictures,
 	FILE_LIST_RETRY_DELAYS_MS,
 	failPendingFileProductionJobPlaceholder,
 	filesWaitingForTheList,
@@ -2458,5 +2459,138 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 			addedRef: true,
 			version: 2,
 		});
+	});
+});
+
+describe("the pictures an edit's resend carries", () => {
+	const box = { letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 };
+	const rug = { imageFileId: "f1", number: 1, name: "Red rug" };
+	const room = { imageFileId: "f2", number: 2, name: "Cosy room" };
+
+	it("carries the card pictures under the numbers they had, and draws them in the new bubble", () => {
+		const recorded = {
+			refs: [room, { ...rug, open: true as const }],
+			open: null,
+			marks: null,
+		};
+		const sent = editResendPictures(recorded, []);
+		expect(sent.pictureRefs).toEqual([
+			{ imageFileId: "f2", number: 2 },
+			{ imageFileId: "f1", number: 1 },
+		]);
+		// What the bubble draws from its first paint: the names and numbers, as the
+		// composer's own send gives them (nothing of the panel or the marks).
+		expect(sent.pictures).toEqual({
+			refs: [room, rug],
+			open: null,
+			marks: null,
+		});
+		expect(sent.imageMarks).toBeUndefined();
+	});
+
+	it("shares nothing with the message's own record", () => {
+		const recorded = { refs: [{ ...rug }], open: null, marks: null };
+		const sent = editResendPictures(recorded, []);
+		expect(sent.pictures?.refs[0]).not.toBe(recorded.refs[0]);
+		expect(sent.pictureRefs?.[0]).not.toBe(recorded.refs[0]);
+	});
+
+	it("keeps the numbers of the photos it still carries, and leaves out those it does not", () => {
+		const recorded = {
+			refs: [rug],
+			uploads: [
+				{ artifactId: "photo-1", number: 2 },
+				{ artifactId: "photo-gone", number: 3 },
+			],
+			open: null,
+			marks: null,
+		};
+		expect(editResendPictures(recorded, ["photo-1"]).pictures).toEqual({
+			refs: [rug],
+			uploads: [{ artifactId: "photo-1", number: 2 }],
+			open: null,
+			marks: null,
+		});
+	});
+
+	it("carries the photos' numbers of a message that had no card picture", () => {
+		const recorded = {
+			refs: [],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: null,
+		};
+		const sent = editResendPictures(recorded, ["photo-1"]);
+		expect(sent.pictureRefs).toBeUndefined();
+		expect(sent.pictures?.uploads).toEqual([
+			{ artifactId: "photo-1", number: 1 },
+		]);
+	});
+
+	it("carries the marks, rebuilt from their recorded boxes, with their card picture", () => {
+		const recorded = {
+			refs: [rug],
+			open: null,
+			marks: {
+				imageFileId: "f1",
+				markedFileId: "marked-1",
+				letters: ["A" as const],
+				boxes: [box],
+			},
+		};
+		const sent = editResendPictures(recorded, []);
+		expect(sent.imageMarks).toEqual({ imageFileId: "f1", marks: [box] });
+		expect(sent.imageMarks?.marks[0]).not.toBe(box);
+		// A client-only record of the marked item cannot be made from this one.
+		expect(sent).not.toHaveProperty("markedPicture");
+	});
+
+	it("gives up marks on a picture that does not go along, as a regenerate does, and sends the rest", () => {
+		const recorded = {
+			refs: [rug],
+			open: { imageFileId: "f-old-open", name: "Old" },
+			marks: {
+				imageFileId: "f-old-open",
+				markedFileId: "marked-1",
+				letters: ["A" as const],
+				boxes: [box],
+			},
+		};
+		const sent = editResendPictures(recorded, []);
+		expect(sent.imageMarks).toBeUndefined();
+		expect(sent.pictureRefs).toEqual([{ imageFileId: "f1", number: 1 }]);
+	});
+
+	it("carries marks on an uploaded photo while the message still carries the photo", () => {
+		const recorded = {
+			refs: [],
+			uploads: [{ artifactId: "photo-1", number: 1 }],
+			open: null,
+			marks: {
+				uploadArtifactId: "photo-1",
+				markedFileId: "marked-1",
+				letters: ["A" as const],
+				boxes: [box],
+			},
+		};
+		expect(editResendPictures(recorded, ["photo-1"]).imageMarks).toEqual({
+			uploadArtifactId: "photo-1",
+			marks: [box],
+		});
+		expect(editResendPictures(recorded, []).imageMarks).toBeUndefined();
+	});
+
+	it("carries nothing for a message that carried no pictures, or only the one open in the panel", () => {
+		expect(editResendPictures(undefined, ["doc-1"])).toEqual({});
+		expect(
+			editResendPictures(
+				{
+					refs: [],
+					open: { imageFileId: "f9", name: "Open one" },
+					marks: null,
+				},
+				[],
+			),
+		).toEqual({});
 	});
 });

@@ -99,7 +99,10 @@ import {
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
-import type { ImageMarksRequest } from "$lib/shared/artifacts/image-body";
+import type {
+	ImageMarksRequest,
+	UserPicturesMetadata,
+} from "$lib/shared/artifacts/image-body";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import {
 	conversationDisplayTitle,
@@ -231,6 +234,7 @@ import {
 	pictureOrderFromSend,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
+	editResendPictures,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
@@ -3922,17 +3926,47 @@ function handleEditSubmit(newText: string) {
 	void handleEdit({ messageId: editingMessage.id, newText });
 }
 
+/**
+ * What the server recorded of a message's pictures, which an edit's resend must
+ * carry (the edit deletes the message). The page's own copy of a message sent in
+ * this tab is the one the composer drew for its bubble: the card pictures and the
+ * photos, and none of the marks, which only the server's record keeps. So a
+ * message with pictures is read again, and the page's copy (`held`) is what goes
+ * when the server cannot be read.
+ */
+async function recordedPicturesOf(
+	messageId: string,
+	held: UserPicturesMetadata,
+): Promise<UserPicturesMetadata> {
+	const detail = await fetchConversationDetail(data.conversation.id).catch(
+		() => null,
+	);
+	return (
+		detail?.messages?.find((candidate) => candidate.id === messageId)
+			?.pictures ?? held
+	);
+}
+
 async function handleEdit(
 	payload: MessageEditPayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
 	const edit = editingMessage;
+	// A message with pictures has its record read beside the gate below, so the
+	// read costs the send no wait of its own; one without has nothing to read.
+	const heldPictures = $messages.find(
+		(m) => m.id === payload.messageId,
+	)?.pictures;
+	const reading = heldPictures
+		? recordedPicturesOf(payload.messageId, heldPictures)
+		: null;
 	// Issue 7.4 fix pass — gate BEFORE deleting the edited-and-onward messages
 	// below, so a cancelled edit leaves the conversation untouched. handleSend()
 	// at the end of this function is intentionally NOT gated again — see the
 	// matching note in handleRegenerate.
 	const proceed = await prepareTurn();
+	const recordedPictures = reading ? await reading : undefined;
 	if (!proceed) return;
 	const { messageId, newText } = payload;
 	// That wait can last seconds and the composer stays live through it. A
@@ -4053,6 +4087,9 @@ async function handleEdit(
 			attachmentIds: editAttachmentIds,
 			attachments: editAttachments,
 			pendingAttachments: [],
+			// The message's own pictures go again; the composer's (`composerPictures`,
+			// `heldMarks`) are the draft's, and stay where they are.
+			...editResendPictures(recordedPictures, editAttachmentIds),
 			// Gap 2 — server-side telemetry signal only (activity_events
 			// "edit_resend"); does not change how this turn is otherwise sent.
 			isEditResend: true,
