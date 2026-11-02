@@ -54,6 +54,7 @@ import {
 	cancelAtlasJob as cancelAtlasJobRequest,
 	submitAtlasTurn,
 } from "$lib/client/api/atlas";
+import { checkChatTurn } from "$lib/client/api/chat-turn";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	chatFileStillExists,
@@ -3929,6 +3930,9 @@ function handleEditSubmit(newText: string) {
 /** A read that has not answered by now is left: a stalled connection never holds a resend back. */
 const MESSAGE_RECORD_READ_MAX_MS = 2000;
 
+/** The turn's gate, asked before an edit deletes: an answer that has not come by now is no answer, and the edit stays open. */
+const EDIT_CHECK_MAX_MS = 10_000;
+
 /**
  * What the server recorded of a message's pictures, which an edit's resend must
  * carry (the edit deletes the message). The page's own copy cannot say: a message
@@ -4011,6 +4015,41 @@ async function handleEdit(
 	}
 
 	const conversationId = data.conversation.id;
+	const resendPictures = editResendPictures(
+		recordedPictures,
+		editAttachmentIds,
+	);
+
+	// The resend meets the turn's gate only after the delete below, and a refusal
+	// there (a photo the chosen model cannot see, a file deleted since) would leave
+	// the person with neither the message nor a reply. So the gate is asked now, for
+	// the resend this edit is going to send, and what it refuses is a failed delete:
+	// the edit stays open with what was typed, on messages that never left the
+	// screen. The same goes for a check that fails or does not answer in time.
+	const verdict = await withinOrNull(
+		checkChatTurn({
+			conversationId,
+			message: newText,
+			model: $selectedModel,
+			attachmentIds: editAttachmentIds,
+			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
+			pictureRefs: resendPictures.pictureRefs,
+			imageMarks: resendPictures.imageMarks,
+			isEditResend: true,
+		}),
+		EDIT_CHECK_MAX_MS,
+	);
+	// The composer stayed live through that wait: look again, as after the gate above.
+	if (isEditResendPending || !edit || editingMessage !== edit) return;
+	if (!verdict) {
+		sendError = $t("chat.editCheckFailed");
+		return;
+	}
+	if (!verdict.ok) {
+		sendError = toFriendlySendError(verdict.error, $t);
+		return;
+	}
+
 	const draftSetAside = conversationDraft;
 	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
 
@@ -4090,7 +4129,7 @@ async function handleEdit(
 			pendingAttachments: [],
 			// The message's own pictures go again; the composer's (`composerPictures`,
 			// `heldMarks`) are the draft's, and stay where they are.
-			...editResendPictures(recordedPictures, editAttachmentIds),
+			...resendPictures,
 			// Gap 2 — the server records it (activity_events "edit_resend") and
 			// drops a picture deleted since instead of refusing it: the message
 			// is gone by now, so a refusal would leave the person with neither.

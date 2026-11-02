@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatTurnCheck } from "$lib/client/api/chat-turn";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -53,6 +54,17 @@ const runtimeHarness = vi.hoisted(() => ({
 // never touched MessageInput's now-removed local gate at all — are exercised
 // here against the real page rather than in MessageInput.test.ts.
 const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
+// The turn's gate, asked before an edit deletes anything: it takes the message
+// unless a test says otherwise (reset after every test, below).
+const checkChatTurnMock = vi.hoisted(() =>
+	vi.fn(
+		async (
+			_request: import("$lib/client/api/chat-turn").ChatTurnCheckRequest,
+		): Promise<import("$lib/client/api/chat-turn").ChatTurnCheck> => ({
+			ok: true,
+		}),
+	),
+);
 const checkCloudWarningMock = vi.hoisted(() => vi.fn());
 const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
 const setLocalDistillMock = vi.hoisted(() => vi.fn());
@@ -314,6 +326,10 @@ vi.mock("$lib/client/api/connection-writes", () => ({
 	fetchConversationPendingWrites: vi.fn(async () => []),
 }));
 
+vi.mock("$lib/client/api/chat-turn", () => ({
+	checkChatTurn: checkChatTurnMock,
+}));
+
 vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
 	checkCloudWarning: checkCloudWarningMock,
@@ -398,12 +414,18 @@ import {
 	generateConversationTitle,
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
+import { ApiError } from "$lib/client/api/http";
 import {
 	conversations as conversationsStore,
 	renameConversation,
 	watchConversationTitle,
 } from "$lib/stores/conversations";
 import Page from "./+page.svelte";
+
+// Every test starts with a gate that takes the message, whatever the one before it said.
+afterEach(() => {
+	checkChatTurnMock.mockReset();
+});
 
 /** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
 const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
@@ -4814,6 +4836,201 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				}),
 			);
 		});
+
+		// The resend meets the turn's gate only after the delete, so a refusal there
+		// (a photo the chosen model cannot see, a file deleted since) left the person
+		// with neither the message nor a reply, and a reload showed it. The gate is
+		// asked first, and a refusal is the same as a failed delete: the edit stays.
+		describe("when the turn's gate would refuse the resend", () => {
+			const photoRefusal = () =>
+				new ApiError("Photo.png does not contain enough readable text.", {
+					status: 422,
+					code: "attachment_not_ready",
+					attachmentReadiness: [
+						{
+							artifactId: "attachment-1",
+							name: "Photo.png",
+							reason: "not_text_readable",
+						},
+					],
+				});
+			const CHECK_FAILED =
+				"Couldn't check this edit. Nothing has changed, try again.";
+
+			async function withDeletesThatWork() {
+				checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+				const { deleteConversationMessages } = await import(
+					"$lib/client/api/conversations"
+				);
+				vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
+				return vi.mocked(deleteConversationMessages);
+			}
+
+			it("asks the gate before it deletes anything, about the resend it is going to send", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+
+				expect(checkChatTurnMock).toHaveBeenCalledTimes(1);
+				expect(checkChatTurnMock).toHaveBeenCalledWith(
+					expect.objectContaining({
+						conversationId: "conv-1",
+						message: editedText,
+						model: CLOUD_MODEL_ID,
+						attachmentIds: [],
+						isEditResend: true,
+					}),
+				);
+				expect(checkChatTurnMock.mock.invocationCallOrder[0]).toBeLessThan(
+					deleteMessages.mock.invocationCallOrder[0],
+				);
+			});
+
+			it("changes nothing on a refusal: the edit stays open with what was typed, and the sentence is the one a refused send shows", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockResolvedValue({
+					ok: false,
+					error: photoRefusal(),
+				});
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+
+				expect(
+					await screen.findByText(
+						/Photo\.png: This attachment does not contain enough readable text to use in chat\./,
+					),
+				).toBeInTheDocument();
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+
+				// Once it is put right the same edit goes out.
+				checkChatTurnMock.mockResolvedValue({ ok: true });
+				await fireEvent.click(screen.getByTestId("send-button"));
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+				expect(deleteMessages).toHaveBeenCalledTimes(1);
+				expect(runtimeHarness.streamInvocations[0].message).toBe(editedText);
+				expect(
+					screen.queryByText(/does not contain enough readable text/),
+				).not.toBeInTheDocument();
+			});
+
+			it("leaves the edit open and deletes nothing when the check fails", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockRejectedValue(new Error("Network down"));
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+
+				expect(await screen.findByText(CHECK_FAILED)).toBeInTheDocument();
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+			});
+
+			it("leaves the edit open and deletes nothing when the check does not answer in ten seconds", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockReturnValue(new Promise(() => undefined));
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+				try {
+					await sendEditOfFirstMessage();
+					await waitFor(() => {
+						expect(checkChatTurnMock).toHaveBeenCalledTimes(1);
+					});
+					await vi.advanceTimersByTimeAsync(9_000);
+					expect(screen.queryByText(CHECK_FAILED)).not.toBeInTheDocument();
+
+					await vi.advanceTimersByTimeAsync(1_500);
+					expect(await screen.findByText(CHECK_FAILED)).toBeInTheDocument();
+				} finally {
+					vi.useRealTimers();
+				}
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+			});
+
+			it("lets Cancel through while the check is out: nothing was deleted and a late refusal is not shown", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				let answer: (check: ChatTurnCheck) => void = () => {};
+				checkChatTurnMock.mockReturnValue(
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
+				);
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+				await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+				await fireEvent.click(screen.getByTestId("composer-edit-cancel"));
+				expect(
+					screen.queryByTestId("composer-edit-strip"),
+				).not.toBeInTheDocument();
+
+				answer({ ok: false, error: photoRefusal() });
+				await new Promise((resolve) => setTimeout(resolve, 30));
+
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expect(runtimeHarness.streamInvocations).toHaveLength(0);
+				expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+				expect(
+					screen.queryByText(/does not contain enough readable text/),
+				).not.toBeInTheDocument();
+			});
+
+			it("deletes nothing for a Cancel and the same pencil again during the check", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				let answer: (check: ChatTurnCheck) => void = () => {};
+				checkChatTurnMock.mockReturnValue(
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
+				);
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+				await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+				await fireEvent.click(screen.getByTestId("composer-edit-cancel"));
+				await fireEvent.click(
+					await screen.findByRole("button", { name: "Edit message" }),
+				);
+				await screen.findByTestId("composer-edit-strip");
+
+				answer({ ok: true });
+				await new Promise((resolve) => setTimeout(resolve, 30));
+
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			});
+
+			it("sends one resend when send is pressed twice while the check is out", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				let answer: (check: ChatTurnCheck) => void = () => {};
+				checkChatTurnMock.mockReturnValue(
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
+				);
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+				await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+				await fireEvent.click(screen.getByTestId("send-button"));
+				answer({ ok: true });
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+				await new Promise((resolve) => setTimeout(resolve, 30));
+				expect(deleteMessages).toHaveBeenCalledTimes(1);
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+		});
 	});
 
 	describe("an edit's resend carries the pictures its message carried", () => {
@@ -4912,6 +5129,32 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				imageFileId: "file-cottage",
 				marks: [box],
 			});
+		});
+
+		it("asks the turn's gate about the same pictures, before anything goes", async () => {
+			renderPage(
+				pageData({
+					messages: turnWith({
+						refs: [cottage],
+						open: null,
+						marks: marksOnCottage,
+					}),
+				}),
+			);
+
+			await editAndSend();
+
+			expect(checkChatTurnMock).toHaveBeenCalledTimes(1);
+			expect(checkChatTurnMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conv-1",
+					message: editedText,
+					attachmentIds: [],
+					pictureRefs: [{ imageFileId: "file-cottage", number: 1 }],
+					imageMarks: { imageFileId: "file-cottage", marks: [box] },
+					isEditResend: true,
+				}),
+			);
 		});
 
 		it("sends marks on an uploaded photo along with the photo the message carries", async () => {

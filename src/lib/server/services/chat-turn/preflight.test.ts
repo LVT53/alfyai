@@ -1299,13 +1299,15 @@ describe("checkChatTurn", () => {
 		const seeing = await checkChatTurn({
 			userId: "user-1",
 			request: makeRequest({
-				modelId: "seeing-model",
+				modelId: "provider:p1:seeing",
 				attachmentIds: ["attachment-1"],
 			}),
 		});
 		expect(seeing).toEqual({ ok: true });
 		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledTimes(1);
-		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledWith("seeing-model");
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledWith(
+			"provider:p1:seeing",
+		);
 
 		// The same message on a model that cannot see is refused: the case an edit
 		// used to meet only after its message was deleted.
@@ -1313,7 +1315,7 @@ describe("checkChatTurn", () => {
 		const blind = await checkChatTurn({
 			userId: "user-1",
 			request: makeRequest({
-				modelId: "blind-model",
+				modelId: "provider:p1:blind",
 				attachmentIds: ["attachment-1"],
 			}),
 		});

@@ -48,6 +48,10 @@ const chatDict = {
 		"chat.degradedBanner.tool.make_image": "making pictures",
 		"chat.degradedBanner.tool.research_web": "web research",
 		"chat.edit": "Edit",
+		// The turn's gate is asked before an edit deletes anything; when that
+		// check cannot be made the edit stays as it was (page `handleEdit`).
+		"chat.editCheckFailed":
+			"Couldn't check this edit. Nothing has changed, try again.",
 		"chat.editLaterReplies":
 			"{count} later {count, plural, one {reply} other {replies}} will be deleted.",
 		"chat.emptyConversation": "Start a conversation",
@@ -1295,6 +1299,8 @@ const chatDict = {
 		"chat.degradedBanner.tool.make_image": "képkészítés",
 		"chat.degradedBanner.tool.research_web": "webes kutatás",
 		"chat.edit": "Szerkesztés",
+		"chat.editCheckFailed":
+			"Nem sikerült ellenőrizni a szerkesztést. Nem változott semmi, próbáld újra.",
 		"chat.editLaterReplies": "{count} későbbi válasz törlődik.",
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.emptyHeadline": "Miben segíthetek?",
