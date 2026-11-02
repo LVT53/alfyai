@@ -73,6 +73,7 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ### Fixed
 
+- Bullet and numbered lists in a Document now show their bullets and numbers.
 - Alfy no longer answers an English message in Hungarian because a word list
   guessed the language wrong: the model reads the message and replies in its
   language, and a request for a particular language, in the message or in your

@@ -3000,7 +3000,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		left: 1.25rem;
 		right: 1.25rem;
 		z-index: 1;
-		max-width: 62ch;
+		max-width: 70ch;
 		pointer-events: none;
 		align-items: flex-start;
 		text-align: start;
@@ -3021,12 +3021,14 @@ function saveNoticeText(notice: SaveNotice): string {
 	   that point (h2, p, table, …) is Tiptap-injected markup that never
 	   carries this component's own Svelte scoping hash — a bare descendant
 	   combinator outside `:global(...)` would silently match nothing. */
+	/* `ch` follows the font: 70ch of Nimbus is the line 62ch of the serif was, about
+	   79 characters of Hungarian. */
 	.document-editor-host :global(.document-content) {
 		font-family: var(--font-sans);
 		font-size: 16px;
 		line-height: 1.72;
 		color: var(--text-primary);
-		max-width: 62ch;
+		max-width: 70ch;
 	}
 
 	.document-editor-host :global(.document-content h1),
@@ -3080,6 +3082,15 @@ function saveNoticeText(notice: SaveNotice): string {
 	.document-editor-host :global(.document-content ol) {
 		margin: 0 0 12px;
 		padding-left: 1.375rem;
+	}
+
+	/* The app's CSS reset takes the markers away; a checklist has its boxes instead. */
+	.document-editor-host :global(.document-content ul) {
+		list-style: disc;
+	}
+
+	.document-editor-host :global(.document-content ol) {
+		list-style: decimal;
 	}
 
 	.document-editor-host :global(.document-content li) {

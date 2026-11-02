@@ -383,6 +383,15 @@ const tone = $derived(
 		padding-left: 1.4rem;
 	}
 
+	/* As in the Document: the reset takes the markers away, and a checklist has boxes. */
+	.block :global(ul:not(:has(input[type='checkbox']))) {
+		list-style: disc;
+	}
+
+	.block :global(ol) {
+		list-style: decimal;
+	}
+
 	.block :global(blockquote) {
 		padding-left: 0.875rem;
 		border-left: 3px solid var(--border-default);

@@ -15,9 +15,9 @@ import { createEmptyConversation, login } from "./helpers";
 // The app's type: only a page's own top title wears the serif (the Home and
 // project greeting, and the titles of Settings, Knowledge, the login page and the
 // error page). Everything else is Nimbus Sans L, the Document, its panel and a
-// Version preview included. Changing the family changed no size: the Document's
-// column is still 62ch, and `ch` follows the font, so it is narrower in pixels and
-// holds about the same number of characters.
+// Version preview included. Changing the family changed no size. The column is
+// 70ch, because `ch` follows the font: that is the line 62ch of the serif was,
+// about 79 characters of Hungarian.
 //
 // The family is read from the browser's computed style: the first name of the
 // list is the one it tries first, and the serif is the one the @font-face rules
@@ -130,9 +130,9 @@ test.describe("Document type", () => {
 			"nothing inside the Document panel may be set in the serif",
 		).toEqual([]);
 
-		// The family changed and nothing else: the same 16px at 1.72, and the
-		// column is still 62 of its own font's zeros, not a width in pixels (a
-		// zero is measured in 1/64 px steps, so 62 of them agree to about a pixel).
+		// The family changed and nothing else: the same 16px at 1.72, and a column
+		// of 70 of its own font's zeros, not a width in pixels (a zero is measured
+		// in 1/64 px steps, so 70 of them agree to about a pixel).
 		const column = await content.evaluate((el) => {
 			const probe = document.createElement("span");
 			probe.style.cssText =
@@ -150,7 +150,46 @@ test.describe("Document type", () => {
 		});
 		expect(column.fontSize).toBe("16px");
 		expect(column.lineHeight).toBe("27.52px");
-		expect(Math.abs(column.maxWidth - column.zero * 62)).toBeLessThan(1.5);
+		expect(Math.abs(column.maxWidth - column.zero * 70)).toBeLessThan(1.5);
+	});
+
+	test("a list shows its markers, and a checklist its boxes", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"Document lists",
+		);
+		await createDocumentArtifact({
+			userId: await testUserId(),
+			conversationId,
+			title: "Document lists",
+			markdown: [
+				"Csomagolás:",
+				"",
+				"- Útlevél",
+				"- Töltő",
+				"",
+				"1. Foglalás",
+				"2. Fizetés",
+				"",
+				"- [ ] Esőkabát",
+			].join("\n"),
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+
+		const shell = await openDocument(page, conversationId);
+		const content = shell.locator(".document-editor-host .document-content");
+		await expect(content).toContainText("Fizetés");
+		const marker = (locator: Locator) =>
+			locator.first().evaluate((el) => getComputedStyle(el).listStyleType);
+
+		expect(await marker(content.locator("ul:not([data-type])"))).toBe("disc");
+		expect(await marker(content.locator("ol"))).toBe("decimal");
+		expect(await marker(content.locator("ul[data-type='taskList']"))).toBe(
+			"none",
+		);
 	});
 
 	test("a Version preview is sans too", async ({ page }) => {
