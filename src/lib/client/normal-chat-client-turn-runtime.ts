@@ -91,7 +91,8 @@ export type NormalChatSendPayload = {
 	clientAtlasTurnId?: string | null;
 	// Gap 2 — set by handleEdit's edit-and-resend flow (chat/[conversationId]/
 	// +page.svelte) so the server can record an activity_events "edit_resend"
-	// row at turn completion. Never set by a plain composer send.
+	// row at turn completion and drop a picture deleted since instead of
+	// refusing it (preflight.ts). Never set by a plain composer send.
 	isEditResend?: boolean;
 };
 

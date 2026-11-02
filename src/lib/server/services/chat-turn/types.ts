@@ -113,10 +113,11 @@ export type ParsedChatTurnRequest = {
 	// only ever yields "send" or "edit_resend" (the client's edit-and-resend
 	// flow); chat-turn/retry.ts overwrites it with the regenerate family.
 	// chat-turn/finalize.ts records the activity_events "regenerate" /
-	// "edit_resend" rows from it. Otherwise unused by turn processing itself —
-	// an edit-resend is, and remains, an ordinary send. Deliberately NOT
-	// derived from skipPersistUserMessage: /api/chat/stream accepts that flag
-	// straight from the client body.
+	// "edit_resend" rows from it, and preflight.ts lets an edit-resend drop a
+	// picture deleted since instead of refusing it. Otherwise unused by turn
+	// processing itself — an edit-resend is, and remains, an ordinary send.
+	// Deliberately NOT derived from skipPersistUserMessage: /api/chat/stream
+	// accepts that flag straight from the client body.
 	turnOrigin: ChatTurnOrigin;
 	attachmentTraceId?: string;
 	atlasMode: boolean;

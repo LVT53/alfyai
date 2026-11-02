@@ -543,9 +543,10 @@ export type StreamChatOptions = {
 	reconnectToStreamId?: string;
 	reconnectUserMessage?: string;
 	// Gap 2 — an edit-and-resend turn, carried to the server so
-	// chat-turn/finalize.ts can record an activity_events "edit_resend" row.
-	// Only ever true for the plain (non-retry) request below; regenerate
-	// turns go through the retryAssistantMessageId branch instead.
+	// chat-turn/finalize.ts can record an activity_events "edit_resend" row and
+	// chat-turn/preflight.ts can drop a picture deleted since. Only ever true
+	// for the plain (non-retry) request below; regenerate turns go through the
+	// retryAssistantMessageId branch instead.
 	isEditResend?: boolean;
 	// Gap 2 — which retry-route caller this is (retry requests only; see
 	// $lib/chat-turn-origin.ts), so the server counts only a plain Regenerate

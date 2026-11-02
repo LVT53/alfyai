@@ -4092,8 +4092,9 @@ async function handleEdit(
 			// The message's own pictures go again; the composer's (`composerPictures`,
 			// `heldMarks`) are the draft's, and stay where they are.
 			...editResendPictures(recordedPictures, editAttachmentIds),
-			// Gap 2 — server-side telemetry signal only (activity_events
-			// "edit_resend"); does not change how this turn is otherwise sent.
+			// Gap 2 — the server records it (activity_events "edit_resend") and
+			// drops a picture deleted since instead of refusing it: the message
+			// is gone by now, so a refusal would leave the person with neither.
 			isEditResend: true,
 		},
 		false,

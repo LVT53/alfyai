@@ -202,11 +202,12 @@ export async function validatePictureRequest(params: {
 }
 
 /**
- * The pictures a regenerated turn takes back from its user message's record,
- * kept only when the person can still read them: a ref whose file is gone is
- * dropped without being read, and marks stay only when their picture is a
- * surviving ref or the one open now. Never an error: a regenerate without the
- * pictures is what it was before they existed.
+ * The pictures a regenerated turn takes back from its user message's record, or
+ * an edit's resend carries from it, kept only when the person can still read
+ * them: a ref whose file is gone is dropped without being read, and marks stay
+ * only when their picture is a surviving ref or the one open now. Never an
+ * error: a regenerate without the pictures is what it was before they existed,
+ * and an edit's message is gone by the time its resend arrives.
  */
 export async function keepReadableRecordedPictures(params: {
 	userId: string;
