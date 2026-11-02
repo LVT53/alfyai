@@ -96,7 +96,9 @@ async function admitChatTurn(params: {
  * The pictures the resend of an edit may take along. They are its message's own,
  * and that message is already deleted when the resend gets here, so a picture
  * gone since is dropped, as a regenerate drops it: refusing the turn now would
- * leave the person with neither the message nor the reply.
+ * leave the person with neither the message nor the reply. The edit's check
+ * (`checkChatTurn`) asks the same question before the delete, and the resend asks
+ * it again for what changed in between.
  */
 async function withEditResendPictures(
 	userId: string,

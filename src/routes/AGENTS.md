@@ -25,7 +25,7 @@ Routes are thin adapters. Page routes render UI; API routes expose endpoints. Du
 api/                   # API endpoints
   auth/                # Login, logout
   avatar/              # User avatar
-  chat/                # Send, stream, retry, stop, file production
+  chat/                # Send, stream, retry, turn-check, stop, file production
   conversations/       # CRUD, title, draft, messages, evidence, context-status
   knowledge/           # Upload, search, documents, memory, actions
   admin/               # Config, users, sessions
@@ -51,6 +51,7 @@ logout/                # Logout page
 | `api/chat/stream/buffer/+server.ts` | Stream buffer replay for reconnection |
 | `api/chat/stream/status/+server.ts` | Stream capacity/status check |
 | `api/chat/retry/+server.ts` | Retry failed turns |
+| `api/chat/turn-check/+server.ts` | Ask the turn's gate whether it would take a request, without starting a turn (an edit asks before it deletes its message); a refusal is the stream route's |
 | `api/chat/stream/stop/+server.ts` | Explicit user stop |
 | `api/chat/files/produce/+server.ts` | File-production intake |
 | `api/chat/files/jobs/[id]/retry/+server.ts` | Retry file-production job |

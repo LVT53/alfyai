@@ -12,6 +12,7 @@ api/
   admin.ts         - Admin user management CRUD (list/create/update/delete/revoke-sessions)
   auth.ts          - Login/logout calls
   http.ts          - Base fetch wrapper, error handling
+  chat-turn.ts     - Ask the turn's gate whether it would take a request (an edit asks before it deletes)
   conversations.ts - Conversation detail, evidence, titles, drafts
   knowledge.ts     - Uploads, library, memory
   workspace-search.ts - Global shell Workspace Search
@@ -28,6 +29,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
 | Auth flows | `api/auth.ts` |
 | HTTP errors, base fetch | `api/http.ts` |
 | Admin user management | `api/admin.ts` |
+| The turn's gate, asked without a turn | `api/chat-turn.ts` |
 | Conversation detail, drafts | `api/conversations.ts` |
 | Knowledge uploads, library, memory | `api/knowledge.ts` |
 | Global shell Workspace Search | `api/workspace-search.ts` |
@@ -65,6 +67,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
   - [`src/lib/client/api/admin.ts`](api/admin.ts) — reusable admin-side user management browser calls
   - [`src/lib/client/api/auth.ts`](api/auth.ts)
   - [`src/lib/client/api/http.ts`](api/http.ts)
+  - [`src/lib/client/api/chat-turn.ts`](api/chat-turn.ts)
   - [`src/lib/client/api/conversations.ts`](api/conversations.ts)
   - [`src/lib/client/api/knowledge.ts`](api/knowledge.ts)
   - [`src/lib/client/api/workspace-search.ts`](api/workspace-search.ts)

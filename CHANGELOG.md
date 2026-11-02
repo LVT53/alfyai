@@ -92,6 +92,10 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   was gone after a reload or a switch to another chat.
 - Editing a message that had pictures attached, or boxes drawn on a picture, now
   sends them again with the new words; before, the edited message lost them.
+- Retry after a message fails now sends that message again, with its files and
+  pictures, and leaves every earlier reply alone; and an edit is checked before
+  anything is deleted, so a message that cannot be sent no longer takes the
+  original and its replies with it.
 
 ### Removed
 
