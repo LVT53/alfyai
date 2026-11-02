@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import { getArtifactsForUser } from "$lib/server/services/knowledge";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
@@ -139,6 +140,7 @@ vi.mock("./short-local-text", () => ({
 
 vi.mock("$lib/server/services/conversation-drafts", () => ({
 	clearConversationDraft: vi.fn(async () => undefined),
+	getConversationDraft: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/conversation-summaries", () => ({
@@ -1971,15 +1973,12 @@ describe("finalizeChatTurn", () => {
 		);
 	});
 
-	it("clears the conversation's draft when a turn lands, unless the turn asks to keep it", async () => {
-		const { clearConversationDraft } = await import(
-			"$lib/server/services/conversation-drafts"
-		);
-		const { persistAssistantTurnState } =
-			await vi.importActual<typeof import("./finalize-steps")>(
-				"./finalize-steps",
-			);
-		const turn = {
+	// A landed turn clears the conversation's saved draft only when that draft is
+	// the text the turn sent. The browser deletes the draft itself when the
+	// composer sends; this is the backstop for a draft save that lands just after
+	// that delete. Anything else saved is words typed while the reply was coming.
+	describe("the draft a landed turn clears", () => {
+		const landedTurn = {
 			userId: "user-1",
 			conversationId: "conv-1",
 			normalizedMessage: "A question.",
@@ -1994,12 +1993,101 @@ describe("finalizeChatTurn", () => {
 			analytics: null,
 		};
 
-		vi.mocked(clearConversationDraft).mockClear();
-		await persistAssistantTurnState({ ...turn, keepConversationDraft: true });
-		expect(clearConversationDraft).not.toHaveBeenCalled();
+		function savedDraft(draftText: string): ConversationDraft {
+			return {
+				conversationId: "conv-1",
+				draftText,
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+				updatedAt: 1,
+			};
+		}
 
-		await persistAssistantTurnState(turn);
-		expect(clearConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+		/** The turn lands while `saved` is what the server holds as the draft. */
+		async function land(
+			saved: ConversationDraft | null | Error,
+			options: { sent?: string; clearFails?: boolean } = {},
+		) {
+			const drafts = await import("$lib/server/services/conversation-drafts");
+			vi.mocked(drafts.getConversationDraft).mockReset();
+			if (saved instanceof Error) {
+				vi.mocked(drafts.getConversationDraft).mockRejectedValue(saved);
+			} else {
+				vi.mocked(drafts.getConversationDraft).mockResolvedValue(saved);
+			}
+			vi.mocked(drafts.clearConversationDraft).mockReset();
+			if (options.clearFails) {
+				vi.mocked(drafts.clearConversationDraft).mockRejectedValue(
+					new Error("database is locked"),
+				);
+			} else {
+				vi.mocked(drafts.clearConversationDraft).mockResolvedValue(undefined);
+			}
+			const { persistAssistantTurnState } =
+				await vi.importActual<typeof import("./finalize-steps")>(
+					"./finalize-steps",
+				);
+			// A rejection here is the turn failing, which is what these must not do.
+			const result = await persistAssistantTurnState({
+				...landedTurn,
+				normalizedMessage: options.sent ?? landedTurn.normalizedMessage,
+			});
+			return { ...drafts, result };
+		}
+
+		it("clears the saved draft when it is the text the turn sent, whitespace aside", async () => {
+			const { clearConversationDraft, getConversationDraft } = await land(
+				savedDraft("  A question.\n"),
+			);
+
+			expect(getConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(clearConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+		});
+
+		it("keeps a saved draft that is not the text the turn sent", async () => {
+			const { clearConversationDraft, getConversationDraft } = await land(
+				savedDraft("typed while the reply was coming"),
+			);
+
+			expect(clearConversationDraft).not.toHaveBeenCalled();
+			expect(getConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+		});
+
+		it("never takes an empty message for the text of a draft that holds only files", async () => {
+			const { clearConversationDraft } = await land(savedDraft(""), {
+				sent: "  ",
+			});
+
+			expect(clearConversationDraft).not.toHaveBeenCalled();
+		});
+
+		it("has nothing to clear when no draft is saved", async () => {
+			const { clearConversationDraft, getConversationDraft } = await land(null);
+
+			expect(clearConversationDraft).not.toHaveBeenCalled();
+			expect(getConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+		});
+
+		it("lands the turn all the same when the draft cannot be read", async () => {
+			const { clearConversationDraft, getConversationDraft, result } =
+				await land(new Error("database is locked"));
+
+			expect(clearConversationDraft).not.toHaveBeenCalled();
+			expect(getConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(result).toBeDefined();
+		});
+
+		it("lands the turn all the same when the draft cannot be cleared", async () => {
+			const { clearConversationDraft, result } = await land(
+				savedDraft("A question."),
+				{ clearFails: true },
+			);
+
+			expect(clearConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(result).toBeDefined();
+		});
 	});
 
 	it("does not record document refinement when Working Document Selection ignores a stale active document", async () => {
@@ -2518,32 +2606,6 @@ describe("finalizeChatTurn", () => {
 				modelId: "model-1",
 				kind: "edit_resend",
 			});
-		});
-
-		it("keeps the conversation's draft through the resend of an edit, and only then", async () => {
-			const { finalizeChatTurn } = await import("./finalize");
-
-			await finalizeChatTurn({
-				...turnOriginBaseParams,
-				turnKind: "stream",
-				responseLanguage: "en",
-				persistUserMessage: true,
-				turnOrigin: "edit_resend",
-			});
-			expect(mockPersistAssistantTurnState).toHaveBeenLastCalledWith(
-				expect.objectContaining({ keepConversationDraft: true }),
-			);
-
-			await finalizeChatTurn({
-				...turnOriginBaseParams,
-				turnKind: "stream",
-				responseLanguage: "en",
-				persistUserMessage: true,
-				turnOrigin: "send",
-			});
-			expect(mockPersistAssistantTurnState).toHaveBeenLastCalledWith(
-				expect.objectContaining({ keepConversationDraft: false }),
-			);
 		});
 
 		it("does not count an Answer-now or an error Retry as a regenerate", async () => {

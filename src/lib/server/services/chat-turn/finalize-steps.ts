@@ -1,5 +1,8 @@
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
-import { clearConversationDraft } from "$lib/server/services/conversation-drafts";
+import {
+	clearConversationDraft,
+	getConversationDraft,
+} from "$lib/server/services/conversation-drafts";
 import { refreshConversationSummary } from "$lib/server/services/conversation-summaries";
 import {
 	attachArtifactsToMessage,
@@ -142,6 +145,34 @@ export async function recordAssistantTurnAnalytics(params: {
 	});
 }
 
+/**
+ * A landed turn clears the conversation's saved draft only when that draft is
+ * the text the turn sent. The browser deletes the draft itself when the composer
+ * sends; this is the backstop for a draft save that lands just after that
+ * delete, which a reload would bring back as the message already sent. Any other
+ * saved text is what the person typed while the reply was coming, and stays.
+ * A draft that cannot be read or cleared never fails the turn.
+ */
+async function clearDraftTheTurnSent(params: {
+	userId: string;
+	conversationId: string;
+	sentMessage: string;
+}): Promise<void> {
+	// No text is no match: a draft that holds only files has an empty text too.
+	const sent = params.sentMessage.trim();
+	if (!sent) return;
+	try {
+		const draft = await getConversationDraft(
+			params.userId,
+			params.conversationId,
+		);
+		if (draft?.draftText.trim() !== sent) return;
+		await clearConversationDraft(params.userId, params.conversationId);
+	} catch {
+		// The turn has landed whatever happened here: the draft is left as it was.
+	}
+}
+
 export async function persistAssistantTurnState(
 	params: PersistAssistantTurnStateParams,
 ): Promise<PersistAssistantTurnStateResult> {
@@ -256,11 +287,11 @@ export async function persistAssistantTurnState(
 		params.userId,
 		params.conversationId,
 	).catch(() => null);
-	if (!params.keepConversationDraft) {
-		await clearConversationDraft(params.userId, params.conversationId).catch(
-			() => undefined,
-		);
-	}
+	await clearDraftTheTurnSent({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		sentMessage: params.normalizedMessage,
+	});
 
 	return {
 		activeWorkingSet,
