@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactLinks,
@@ -1432,8 +1432,14 @@ async function selectArtifactSearchCandidates(params: {
 					eq(artifacts.retrievalClass, "durable"),
 				)
 			: undefined,
+		// `or(...)` puts its own parentheses around itself; a raw `a OR b` inside `and(...)`
+		// does not, and reads as `(everything above AND a) OR b`: any row in another
+		// conversation then passes the type and the owner above it.
 		params.excludeConversationId
-			? sql`${artifacts.conversationId} IS NULL OR ${artifacts.conversationId} <> ${params.excludeConversationId}`
+			? or(
+					isNull(artifacts.conversationId),
+					ne(artifacts.conversationId, params.excludeConversationId),
+				)
 			: undefined,
 	];
 
