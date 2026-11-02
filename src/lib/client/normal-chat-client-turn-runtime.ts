@@ -25,6 +25,7 @@ import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
+	type StreamBufferInfo,
 	type StreamCallbacks,
 	type StreamChatOptions,
 	type StreamHandle,
@@ -1559,27 +1560,34 @@ export function createNormalChatClientTurnRuntime(
 		const text = lastUserMessage;
 		const turnConversationId = adapters.getConversationId();
 
-		// Before the message is sent again the server is asked whether it has it: a
-		// dropped connection does not mean the turn failed. Without the adapter, or
-		// when the read fails, nothing is known and Retry goes on as it always did.
+		// Before the message is sent again the server is asked two things. Whether it
+		// has the turn: a dropped connection does not mean the turn failed. And, when
+		// it does not, whether it is still running it: it saves the message at the
+		// end, and a resend then is turned away for the person's one reply at a time
+		// and tried again by the backoff, so a turn that ends meanwhile runs twice. An
+		// answer that does not come says nothing, and Retry goes on as it always did.
 		let outcome: ServerOutcome = { kind: "unknown" };
-		if (adapters.readChatMessages) {
-			retryReading = true;
-			try {
+		let running: Awaited<ReturnType<typeof findRunningStream>> = null;
+		retryReading = true;
+		try {
+			if (adapters.readChatMessages) {
 				outcome = await askWhatTheServerHolds(text);
-			} finally {
-				retryReading = false;
 			}
-			// A turn can have started, or the chat changed, while the page asked.
-			if (
-				adapters.isReadOnly() ||
-				isSending ||
-				!canRetry ||
-				lastUserMessage !== text ||
-				!isTurnConversationActive(turnConversationId)
-			) {
-				return;
+			if (outcome.kind !== "landed") {
+				running = await findRunningStream(turnConversationId);
 			}
+		} finally {
+			retryReading = false;
+		}
+		// A turn can have started, or the chat changed, while the page asked.
+		if (
+			adapters.isReadOnly() ||
+			isSending ||
+			!canRetry ||
+			lastUserMessage !== text ||
+			!isTurnConversationActive(turnConversationId)
+		) {
+			return;
 		}
 		if (outcome.kind === "landed") {
 			// The server finished the turn: the chat it holds is the page's now, and
@@ -1589,6 +1597,14 @@ export function createNormalChatClientTurnRuntime(
 			adapters.setSendError(null);
 			emitState();
 			await adapters.loadPersistedData();
+			return;
+		}
+		if (running) {
+			// The turn is still running on the server: Retry joins it and sends nothing,
+			// the way a reload and a tab back from the background do.
+			if (await joinRunningStream(running, text, turnConversationId)) {
+				adapters.setSendError(null);
+			}
 			return;
 		}
 		const tail = adapters.getMessages().at(-1);
@@ -1810,25 +1826,47 @@ export function createNormalChatClientTurnRuntime(
 		return existingUserMessage?.id ?? null;
 	}
 
+	/**
+	 * The stream the server is still running for a chat (`checkForOrphanedStream`: a
+	 * generation goes on after the connection that asked for it dropped), with what
+	 * it says of it. A reload, a tab that was in the background and Retry all find it
+	 * this way.
+	 */
+	async function findRunningStream(
+		conversationId: string,
+	): Promise<{ streamId: string; bufferInfo: StreamBufferInfo | null } | null> {
+		const streamId = await adapters.checkForOrphanedStream(conversationId);
+		if (!streamId) return null;
+		return {
+			streamId,
+			bufferInfo: await adapters.getStreamBufferInfo(streamId, conversationId),
+		};
+	}
+
+	/** Joins a running stream: its replay goes into a placeholder, under the bubble that is on screen. */
+	function joinRunningStream(
+		running: { streamId: string; bufferInfo: StreamBufferInfo | null },
+		fallbackMessage: string,
+		turnConversationId: string = adapters.getConversationId(),
+	) {
+		const { streamId, bufferInfo } = running;
+		return reconnectToOrphanedStream(
+			streamId,
+			bufferInfo?.userMessage ?? fallbackMessage,
+			0,
+			bufferInfo?.reasoningDepth,
+			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
+			turnConversationId,
+		);
+	}
+
 	async function checkForOrphanedStreamOnMount() {
 		if (isSending || activeStream) {
 			return false;
 		}
-		const streamId = await adapters.checkForOrphanedStream(
-			adapters.getConversationId(),
-		);
-		if (!streamId) return false;
-		const bufferInfo = await adapters.getStreamBufferInfo(
-			streamId,
-			adapters.getConversationId(),
-		);
-		return reconnectToOrphanedStream(
-			streamId,
-			bufferInfo?.userMessage ?? "",
-			0,
-			bufferInfo?.reasoningDepth,
-			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
-		);
+		const running = await findRunningStream(adapters.getConversationId());
+		if (!running) return false;
+		return joinRunningStream(running, "");
 	}
 
 	async function recoverBackgroundInterruptedStream() {

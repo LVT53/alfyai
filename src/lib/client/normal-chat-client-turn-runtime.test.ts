@@ -1923,7 +1923,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 		vi.mocked(adapters.setSendError).mockClear();
 
-		runtime.retry();
+		await runtime.retry();
 
 		expect(messageListEvents.removeMessage).toHaveBeenCalledWith(
 			"assistant-old",
@@ -1988,7 +1988,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 		messageListEvents.appendAssistantPlaceholder.mockClear();
 
-		runtime.retry();
+		await runtime.retry();
 
 		expect(messageListEvents.appendAssistantPlaceholder).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -2061,7 +2061,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				"id-1",
 			]);
 
-			runtime.retry();
+			await runtime.retry();
 
 			// Nothing above the failed message left the list, and no second bubble.
 			expect(removedIds(messageListEvents)).toEqual(["id-2"]);
@@ -2116,7 +2116,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				pendingAttachments: [],
 			});
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
-			runtime.retry();
+			await runtime.retry();
 
 			const metadata: StreamMetadata = {
 				assistantMessageId: "assistant-2",
@@ -2150,7 +2150,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				isEditResend: true,
 			});
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
-			runtime.retry();
+			await runtime.retry();
 
 			expect(removedIds(messageListEvents)).toEqual(["id-2"]);
 			// A picture gone since is dropped by the server, not refused, as for the
@@ -2194,7 +2194,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				},
 			);
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
-			runtime.retry();
+			await runtime.retry();
 
 			expect(removedIds(messageListEvents)).toEqual(["id-1"]);
 			expect(messages.map((message) => message.id)).toEqual([
@@ -2248,7 +2248,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				},
 			);
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
-			runtime.retry();
+			await runtime.retry();
 
 			// The reply a regenerate replaces carries the record; once it is gone the
 			// server has only this to know what the person chose.
@@ -2304,7 +2304,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			]);
 			messageListEvents.removeMessage.mockClear();
 
-			runtime.retry();
+			await runtime.retry();
 
 			expect(removedIds(messageListEvents)).toEqual([]);
 			expect(streamInvocations).toHaveLength(3);
@@ -2361,8 +2361,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 				"Second question",
 			]);
 			messageListEvents.removeMessage.mockClear();
+			// The turn has failed, so the server runs nothing for the chat now.
+			vi.mocked(adapters.checkForOrphanedStream).mockResolvedValue(null);
 
-			runtime.retry();
+			await runtime.retry();
 
 			// The message the page itself sent, so it goes again as it went: with its
 			// files, its pictures and its choices.
@@ -2407,7 +2409,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(messages.at(-1)?.content).toBe("Another message"),
 			);
 
-			runtime.retry();
+			await runtime.retry();
 
 			expect(streamInvocations[2].message).toBe("Another message");
 			expect(streamInvocations[2].options?.attachmentIds ?? []).toEqual([]);
@@ -2431,10 +2433,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 				{ clearDraft: true },
 			);
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
-			runtime.retry();
+			await runtime.retry();
 			streamInvocations[1].callbacks.onError(new Error("Network failed again"));
 			expect(runtime.snapshot().canRetry).toBe(true);
-			runtime.retry();
+			await runtime.retry();
 
 			expect(streamInvocations).toHaveLength(3);
 			expect(streamInvocations[2].message).toBe("Second question");
@@ -2483,13 +2485,13 @@ describe("Normal Chat Client Turn Runtime", () => {
 				content: "Second question",
 				timestamp: 1,
 			});
-			runtime.retry();
+			await runtime.retry();
 			expect(streamInvocations).toHaveLength(1);
 
 			// And a reset, which the page does on every switch, ends it for good.
 			conversationId = "conv-1";
 			runtime.reset();
-			runtime.retry();
+			await runtime.retry();
 			expect(streamInvocations).toHaveLength(1);
 			expect(runtime.snapshot()).toMatchObject({
 				canRetry: false,
@@ -2526,7 +2528,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				},
 			);
 
-			runtime.retry();
+			await runtime.retry();
 
 			expect(removedIds(messageListEvents)).toContain("assistant-saved");
 			expect(streamInvocations[1].options).toMatchObject({
@@ -2537,43 +2539,41 @@ describe("Normal Chat Client Turn Runtime", () => {
 			});
 		});
 
+		const askedWords = "Second question";
+		const serverUser = (id = "user-2", text = askedWords): ChatMessage => ({
+			id,
+			role: "user",
+			content: text,
+			timestamp: 5,
+		});
+		const serverReply = (id = "assistant-2"): ChatMessage => ({
+			id,
+			role: "assistant",
+			content: "Done",
+			timestamp: 6,
+		});
+
+		/** Words sent from the composer to a server that is reachable, with the first try failed. */
+		async function failedSend(
+			overrides: Parameters<typeof makeAdapters>[0] = {},
+		) {
+			const made = makeAdapters(overrides);
+			made.messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send({
+				message: askedWords,
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			made.streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			return { ...made, runtime };
+		}
+
 		// A dropped connection never reads the chat, and the server keeps running the
 		// turn: it can save the message and its reply while the page shows an error and
 		// a Retry. The page asks the server before it believes the message failed.
 		describe("a turn the server finished", () => {
-			const askedWords = "Second question";
-			const serverUser = (id = "user-2", text = askedWords): ChatMessage => ({
-				id,
-				role: "user",
-				content: text,
-				timestamp: 5,
-			});
-			const serverReply = (id = "assistant-2"): ChatMessage => ({
-				id,
-				role: "assistant",
-				content: "Done",
-				timestamp: 6,
-			});
-
-			/** Words sent from the composer to a server that is reachable, with the first try failed. */
-			async function failedSend(
-				overrides: Parameters<typeof makeAdapters>[0] = {},
-			) {
-				const made = makeAdapters(overrides);
-				made.messages.push(...earlierTurn());
-				const runtime = createNormalChatClientTurnRuntime(made.adapters);
-				await runtime.send({
-					message: askedWords,
-					attachmentIds: ["photo-1"],
-					attachments: [],
-					pendingAttachments: [],
-				});
-				made.streamInvocations[0].callbacks.onError(
-					new Error("Network failed"),
-				);
-				return { ...made, runtime };
-			}
-
 			it("is not sent again: Retry loads the chat the server holds, clears the error and sends nothing", async () => {
 				const readChatMessages = vi.fn(async () => [
 					...earlierTurn(),
@@ -2890,8 +2890,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 				const { streamInvocations, messageListEvents, runtime } =
 					await failedSend();
 
-				void runtime.retry();
-				void runtime.retry();
+				const first = runtime.retry();
+				const second = runtime.retry();
+				await Promise.all([first, second]);
 
 				expect(streamInvocations).toHaveLength(2);
 				// Only the first try's placeholder was ever removed.
@@ -2953,6 +2954,147 @@ describe("Normal Chat Client Turn Runtime", () => {
 				answer(null);
 				await second;
 				expect(streamInvocations).toHaveLength(2);
+			});
+		});
+
+		// The server saves a turn's message at its end, so while it still runs a turn
+		// whose connection dropped, the chat does not hold the message. A resend then is
+		// turned away for the person's one reply at a time and tried again by the backoff
+		// for 3.5 seconds without asking: a turn that ends in that window ran twice.
+		// Retry asks whether a stream is running for the chat first, and joins it.
+		describe("a turn the server is still running", () => {
+			const runningTurn = () => ({
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+				getStreamBufferInfo: vi.fn(async () => ({
+					exists: true,
+					userMessage: askedWords,
+					reasoningDepth: "quick" as ReasoningDepth,
+					createdAt: Date.now() - 2000,
+				})),
+			});
+
+			it("is joined, not sent again: Retry reconnects to its stream and sends nothing", async () => {
+				const running = runningTurn();
+				const { adapters, streamInvocations, messages, runtime } =
+					await failedSend({
+						...running,
+						readChatMessages: vi.fn(async () => earlierTurn()),
+					});
+				vi.mocked(adapters.setSendError).mockClear();
+
+				await runtime.retry();
+
+				expect(running.checkForOrphanedStream).toHaveBeenCalledWith("conv-1");
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].options).toMatchObject({
+					reconnectToStreamId: "stream-1",
+					reconnectUserMessage: askedWords,
+					reasoningDepth: "quick",
+				});
+				expect(
+					streamInvocations[1].options?.retryAssistantMessageId,
+				).toBeUndefined();
+				// The bubble on screen is the message, once, and the error is gone.
+				expect(
+					messages.filter(
+						(message) =>
+							message.role === "user" && message.content === askedWords,
+					),
+				).toHaveLength(1);
+				expect(adapters.setSendError).toHaveBeenCalledWith(null);
+				expect(runtime.snapshot().isSending).toBe(true);
+			});
+
+			it("is joined when the chat could not be read", async () => {
+				const running = runningTurn();
+				const { streamInvocations, runtime } = await failedSend({
+					...running,
+					readChatMessages: vi.fn(async () => null),
+				});
+
+				await runtime.retry();
+
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
+					"stream-1",
+				);
+			});
+
+			it("is joined when the server holds the message without a reply: a regenerate in flight looks so", async () => {
+				const running = runningTurn();
+				const { streamInvocations, runtime } = await failedSend({
+					...running,
+					readChatMessages: vi.fn(async () => [...earlierTurn(), serverUser()]),
+				});
+
+				await runtime.retry();
+
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
+					"stream-1",
+				);
+				expect(
+					streamInvocations[1].options?.retryAssistantMessageId,
+				).toBeUndefined();
+			});
+
+			it("is not looked for when the server already finished the turn", async () => {
+				const running = runningTurn();
+				const { adapters, streamInvocations, runtime } = await failedSend({
+					...running,
+					readChatMessages: vi.fn(async () => [
+						...earlierTurn(),
+						serverUser(),
+						serverReply(),
+					]),
+				});
+
+				await runtime.retry();
+
+				expect(running.checkForOrphanedStream).not.toHaveBeenCalled();
+				expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("sends the message as before when no stream is running", async () => {
+				const { adapters, streamInvocations, runtime } = await failedSend({
+					checkForOrphanedStream: vi.fn(async () => null),
+					readChatMessages: vi.fn(async () => earlierTurn()),
+				});
+
+				await runtime.retry();
+
+				expect(adapters.getStreamBufferInfo).not.toHaveBeenCalled();
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].message).toBe(askedWords);
+				expect(
+					streamInvocations[1].options?.reconnectToStreamId,
+				).toBeUndefined();
+			});
+
+			it("is asked once for two presses while the question is out", async () => {
+				let found: (streamId: string | null) => void = () => {};
+				const running = {
+					checkForOrphanedStream: vi.fn(
+						() =>
+							new Promise<string | null>((resolve) => {
+								found = resolve;
+							}),
+					),
+					getStreamBufferInfo: vi.fn(async () => null),
+				};
+				const { streamInvocations, runtime } = await failedSend(running);
+
+				const first = runtime.retry();
+				const second = runtime.retry();
+				found("stream-1");
+				await Promise.all([first, second]);
+
+				expect(running.checkForOrphanedStream).toHaveBeenCalledTimes(1);
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
+					"stream-1",
+				);
 			});
 		});
 	});
@@ -3585,7 +3727,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
 			streamInvocations[0].callbacks.onError(new Error("The model refused."));
 			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
-			runtime.retry();
+			await runtime.retry();
 
 			expect(streamInvocations).toHaveLength(2);
 			expect(streamInvocations[1].message).toBe("Resume me");

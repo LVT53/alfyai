@@ -1099,6 +1099,27 @@ describe("chat page runtime integration", () => {
 				expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
 			});
 
+			it("joins a turn the server is still running and sends nothing", async () => {
+				const retryButton = await failASend();
+				// The server saves the message at the end of its turn, so while it runs the
+				// chat does not hold it; the stream is what says the turn is still going.
+				runtimeHarness.orphanedStream = {
+					streamId: "stream-running",
+					userMessage: askedWords,
+				};
+				await fireEvent.click(retryButton);
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				const joined = runtimeHarness.streamInvocations[1];
+				expect(joined.options?.reconnectToStreamId).toBe("stream-running");
+				expect(joined.options?.retryAssistantMessageId).toBeUndefined();
+				// The message on screen is still the one bubble, and the error is gone.
+				expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+				expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+			});
+
 			it("sends the message as it always did when the server cannot be read", async () => {
 				const retryButton = await failASend();
 				vi.mocked(fetchConversationDetail).mockRejectedValue(
