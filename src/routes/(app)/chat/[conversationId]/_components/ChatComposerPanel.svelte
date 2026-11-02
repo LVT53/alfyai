@@ -65,6 +65,7 @@ let {
 	draftAtlasProfile = null,
 	draftClientAtlasTurnId = null,
 	draftVersion,
+	draftTakeoverVersion = 0,
 	onUploadReady,
 	onUploadFiles,
 	totalCostUsd,
@@ -143,6 +144,8 @@ let {
 	draftAtlasProfile?: AtlasProfile | null;
 	draftClientAtlasTurnId?: string | null;
 	draftVersion: number;
+	/** The draft version the composer takes though it holds something (MessageInput's `draftTakeoverVersion`). */
+	draftTakeoverVersion?: number;
 	onUploadReady?:
 		| ((uploadFn: (files: FileList | null) => Promise<void>) => void)
 		| undefined;
@@ -279,6 +282,7 @@ $effect(() => {
 			{draftAtlasProfile}
 			{draftClientAtlasTurnId}
 			{draftVersion}
+			{draftTakeoverVersion}
 			attachmentsEnabled={true}
 			{onUploadReady}
 			{onUploadFiles}

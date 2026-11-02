@@ -1,3 +1,4 @@
+import { createConversationDraftRecord } from "$lib/client/conversation-session";
 import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebuild-activity";
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
@@ -26,6 +27,7 @@ import type {
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type {
@@ -47,6 +49,7 @@ import type {
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
+import { linkedContextSourcesOverlap } from "$lib/services/working-document-identity";
 import {
 	type ImageMarksRequest,
 	marksRideWith,
@@ -1252,6 +1255,111 @@ export function pictureOrderFromSend(
 	]
 		.sort((a, b) => a.number - b.number)
 		.map((entry) => entry.key);
+}
+
+/**
+ * Held text, a blank line, then the added text: the join an edit that leaves the
+ * chat makes. Nothing is added to an empty composer, and nothing is joined when
+ * the two are the same words once trimmed.
+ */
+export function joinDraftText(held: string, added: string): string {
+	if (!added.trim()) return held;
+	if (!held.trim()) return added;
+	if (held.trim() === added.trim()) return held;
+	return `${held}\n\n${added}`;
+}
+
+/** What the composer holds, as far as the page knows: its last draft, the card pictures waiting in it and the marks. */
+export type HeldComposer = {
+	draft: ConversationDraft | null;
+	pictures: readonly ComposerPictureRef[];
+	marks: ComposerMarks | null;
+};
+
+export type RestoredComposer = HeldComposer & {
+	/** The order the restored turn's pictures were numbered in: the composer puts it behind its own. */
+	pictureOrder: readonly string[];
+};
+
+/**
+ * A turn that stopped, failed or was taken back from the queue puts its words
+ * back, and what the composer holds meanwhile is the person's own: a restore
+ * never replaces it, it joins it.
+ *
+ * - The words: the held ones, a blank line, then the restored ones (`joinDraftText`).
+ * - Files and linked sources: the held ones stay, the restored ones join, none twice.
+ * - Card pictures: the held ones stay, the restored ones join.
+ * - Marks: the held ones stay. The restored turn's come in only if none are held, and
+ *   then the picture its send added by itself comes back as their chip; when they are
+ *   let go that picture comes back as a plain picture instead.
+ * - The skill and the Atlas mode: the held draft's while it holds words, the restored
+ *   turn's when it does not (as a restore into an empty composer always did).
+ */
+export function joinRestoredPayload(
+	held: HeldComposer,
+	payload: SendPayload,
+	draft: { conversationId: string; updatedAt: number },
+): RestoredComposer {
+	const heldDraft = held.draft;
+	const wordsHeld = (heldDraft?.draftText.trim().length ?? 0) > 0;
+	const marksComeIn = held.marks === null;
+	const pictures = composerPicturesFromSend(
+		payload.pictures,
+		marksComeIn && payload.markedPicture?.addedRef
+			? (payload.imageMarks?.imageFileId ?? null)
+			: null,
+	).reduce(addComposerPicture, held.pictures);
+
+	const heldAttachments = heldDraft?.selectedAttachments ?? [];
+	const restoredAttachments = payload.pendingAttachments ?? [];
+	const heldSources = heldDraft?.selectedLinkedSources ?? [];
+	const restoredSources = (payload.linkedSources ?? []).filter(
+		(source) =>
+			!heldSources.some((heldSource) =>
+				linkedContextSourcesOverlap(heldSource, source),
+			),
+	);
+	const keepsHeldMode = wordsHeld && heldDraft !== null;
+
+	return {
+		draft: createConversationDraftRecord({
+			conversationId: draft.conversationId,
+			draftText: joinDraftText(heldDraft?.draftText ?? "", payload.message),
+			selectedAttachmentIds: [
+				...new Set([
+					...(heldDraft?.selectedAttachmentIds ?? []),
+					...payload.attachmentIds,
+				]),
+			],
+			selectedAttachments: [
+				...heldAttachments,
+				...restoredAttachments.filter(
+					(attachment) =>
+						!heldAttachments.some(
+							(heldAttachment) =>
+								heldAttachment.artifact.id === attachment.artifact.id,
+						),
+				),
+			],
+			selectedLinkedSources: [...heldSources, ...restoredSources],
+			pendingSkill: keepsHeldMode
+				? heldDraft.pendingSkill
+				: (payload.pendingSkill ?? null),
+			atlasMode: keepsHeldMode
+				? heldDraft.atlasMode === true
+				: payload.atlasMode === true,
+			atlasProfile: keepsHeldMode
+				? (heldDraft.atlasProfile ?? null)
+				: (payload.atlasProfile ?? null),
+			clientAtlasTurnId: keepsHeldMode
+				? (heldDraft.clientAtlasTurnId ?? null)
+				: (payload.clientAtlasTurnId ?? null),
+			updatedAt: draft.updatedAt,
+		}),
+		pictures,
+		pictureOrder: pictureOrderFromSend(payload.pictures),
+		marks: held.marks ?? composerMarksFromSend(payload),
+	};
 }
 
 /**

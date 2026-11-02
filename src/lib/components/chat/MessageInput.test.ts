@@ -7346,3 +7346,293 @@ describe("MessageInput editing a sent message", () => {
 		await waitFor(() => expect(view.textarea.value).toBe("my draft"));
 	});
 });
+
+// A turn that stopped or failed puts its words back, joined behind the ones the
+// person typed meanwhile. The page works the joined draft out and tells the
+// composer which draft version to take even though it is not empty.
+describe("MessageInput taking a restored draft over what it holds", () => {
+	function artifactOf(id: string, name: string): PendingAttachment["artifact"] {
+		return {
+			id,
+			type: "source_document",
+			retrievalClass: "durable",
+			name,
+			mimeType: "application/pdf",
+			sizeBytes: 12,
+			conversationId: "conv-1",
+			summary: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+		};
+	}
+
+	function attachmentOf(id: string, name: string): PendingAttachment {
+		return {
+			artifact: artifactOf(id, name),
+			promptReady: true,
+			promptArtifactId: id,
+			readinessError: null,
+		};
+	}
+
+	function renderComposer(props: Record<string, unknown> = {}) {
+		let uploadDone: ((result: UploadDoneResult) => void) | null = null;
+		const onSend = vi.fn();
+		const onDraftChange = vi.fn();
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend,
+			onDraftChange,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				uploadDone = payload.done;
+			},
+			...props,
+		});
+		const textarea = rendered.container.querySelector(
+			"textarea",
+		) as HTMLTextAreaElement;
+		async function pickFile(name: string) {
+			const fileInput = rendered.container.querySelector(
+				'input[type="file"]',
+			) as HTMLInputElement;
+			await fireEvent.change(fileInput, {
+				target: {
+					files: [new File(["x"], name, { type: "application/pdf" })],
+				},
+			});
+		}
+		return {
+			...rendered,
+			onSend,
+			onDraftChange,
+			textarea,
+			pickFile,
+			finishUpload: (result: UploadDoneResult) =>
+				completeUpload(uploadDone, result),
+		};
+	}
+
+	const sentMessage = { text: "Plan a weekend by the lake.", laterReplies: 0 };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		resetMaxFileUploadSize();
+		resetDisabledFileTypeIds();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionStatusMock.mockResolvedValue({ jobs: [], readiness: [] });
+	});
+
+	it("never lets an ordinary draft update replace the words being typed", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+
+		await view.rerender({ draftText: "C typed\n\nB queued", draftVersion: 5 });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.textarea.value).toBe("C typed");
+	});
+
+	it("takes the draft whose version it is told to take, though it holds words", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+	});
+
+	it("is an ordinary composer again for the next update", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+		await fireEvent.input(view.textarea, {
+			target: { value: "C typed\n\nB queued, and more" },
+		});
+
+		await view.rerender({ draftText: "an older save", draftVersion: 6 });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.textarea.value).toBe("C typed\n\nB queued, and more");
+	});
+
+	it("emits nothing for the draft it took: the page already saved it", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await waitFor(() => expect(view.onDraftChange).toHaveBeenCalled());
+		view.onDraftChange.mockClear();
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+
+	it("waits for an open edit to end, and takes the draft then", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(view.textarea.value).toBe(sentMessage.text));
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(view.textarea.value).toBe(sentMessage.text);
+
+		await view.rerender({ editing: null });
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+	});
+
+	it("keeps the files it holds and adds the restored ones", async () => {
+		const view = renderComposer();
+		await view.pickFile("held.pdf");
+		view.finishUpload({
+			success: true,
+			attachment: attachmentOf("held-1", "held.pdf"),
+		});
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await waitFor(() => expect(view.getByText("held.pdf")).toBeTruthy());
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftAttachments: [
+				attachmentOf("held-1", "held.pdf"),
+				attachmentOf("restored-1", "restored.pdf"),
+			],
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+
+		await waitFor(() => expect(view.getByText("restored.pdf")).toBeTruthy());
+		expect(view.getAllByText("held.pdf")).toHaveLength(1);
+	});
+
+	it("numbers the pictures it holds first, the restored ones after them", async () => {
+		const view = renderComposer({
+			pictureRefs: [{ imageFileId: "f1", name: "Red rug" }],
+		});
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+
+		await view.rerender({
+			pictureRefs: [
+				{ imageFileId: "f1", name: "Red rug" },
+				{ imageFileId: "f2", name: "Mug" },
+			],
+			draftPictureOrder: ["ref:f2"],
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+		expect(
+			view
+				.getAllByTestId("composer-chip-number")
+				.map((node) => node.textContent),
+		).toEqual(["1", "2"]);
+		expect(view.getByLabelText("Picture 1: Red rug")).toBeTruthy();
+		expect(view.getByLabelText("Picture 2: Mug")).toBeTruthy();
+	});
+
+	it("leaves an upload in flight alone", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await view.pickFile("slow.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+		expect(view.getByTestId("composer-chip-upload")).toHaveTextContent(
+			"slow.pdf",
+		);
+
+		view.finishUpload({
+			success: true,
+			attachment: attachmentOf("slow-1", "slow.pdf"),
+		});
+		await waitFor(() => {
+			expect(view.getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"slow.pdf",
+			);
+		});
+	});
+
+	it("does not send, behind a file, words the person has not seen", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "C typed" } });
+		await view.pickFile("slow.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+		await fireEvent.keyDown(view.textarea, { key: "Enter", ctrlKey: true });
+		await waitFor(() => {
+			expect(
+				view.getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeTruthy();
+		});
+
+		await view.rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await waitFor(() => {
+			expect(view.textarea.value).toBe("C typed\n\nB queued");
+		});
+		view.finishUpload({
+			success: true,
+			attachment: attachmentOf("slow-1", "slow.pdf"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onSend).not.toHaveBeenCalled();
+		expect(view.textarea.value).toBe("C typed\n\nB queued");
+	});
+});

@@ -46,6 +46,18 @@ const runtimeHarness = vi.hoisted(() => ({
 		action: string;
 		parentAtlasJobId: string | null | undefined;
 	}>,
+	/** When set, Atlas submissions fail with it. */
+	atlasFailure: null as Error | null,
+	/** What the page handed the runtime, for the tests that speak to the page the way the runtime does. */
+	adapters: null as {
+		restorePayloadToDraft: (payload: {
+			message: string;
+			attachmentIds: string[];
+			attachments: unknown[];
+			pendingAttachments: unknown[];
+			conversationId?: string | null;
+		}) => void;
+	} | null,
 }));
 
 // Issue 7.4 fix pass — the cloud-warning gate (check + modal) now lives at
@@ -358,8 +370,9 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 	);
 	return {
 		...actual,
-		createBrowserNormalChatClientTurnRuntime: vi.fn((adapters) =>
-			actual.createNormalChatClientTurnRuntime({
+		createBrowserNormalChatClientTurnRuntime: vi.fn((adapters) => {
+			runtimeHarness.adapters = adapters;
+			return actual.createNormalChatClientTurnRuntime({
 				...adapters,
 				streamChat: vi.fn((message, _conversationId, callbacks, options) => {
 					const handle = { stop: vi.fn(), detach: vi.fn() };
@@ -380,6 +393,7 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 						action: payload.action,
 						parentAtlasJobId: payload.parentAtlasJobId,
 					});
+					if (runtimeHarness.atlasFailure) throw runtimeHarness.atlasFailure;
 					return {
 						message: "Atlas is queued.",
 						atlasJob: atlasJobFixture({
@@ -392,8 +406,8 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 						}),
 					};
 				}),
-			}),
-		),
+			});
+		}),
 	};
 });
 
@@ -515,6 +529,7 @@ function clearAnimationFrameMockTimers() {
 describe("chat page runtime integration", () => {
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
+		runtimeHarness.atlasFailure = null;
 		vi.restoreAllMocks();
 	});
 
@@ -1253,6 +1268,229 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(composer).toHaveValue(SAVED_WORDS);
 			});
+		});
+	});
+
+	// A turn that stopped, failed or was taken back from the queue puts its words
+	// back in the composer, and a restore never replaces the words the composer
+	// holds by then: it adds to them, the held ones first.
+	describe("a turn that puts its words back", () => {
+		const JOINED = "C typed since\n\nB queued";
+		const atlasMessage = {
+			id: "assistant-atlas-1",
+			role: "assistant" as const,
+			content: "Atlas is complete.",
+			timestamp: 1,
+		};
+		const finishedAtlasJob = () =>
+			atlasJobFixture({
+				status: "succeeded",
+				completedAt: 121,
+				progress: { percent: 100, stage: "audit", details: { queries: [] } },
+			});
+
+		beforeEach(() => {
+			vi.mocked(persistConversationDraft).mockClear();
+		});
+
+		/** A turn is running, "B queued" waits behind it and "C typed since" is in the composer. */
+		async function runningWithBQueuedAndCTyped(typedSince = "C typed since") {
+			renderPage();
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "A" } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await fireEvent.input(composer, { target: { value: "B queued" } });
+			await fireEvent.click(screen.getByTestId("queue-button"));
+			if (typedSince) {
+				await fireEvent.input(composer, { target: { value: typedSince } });
+			}
+			return composer;
+		}
+
+		async function stopTheTurn() {
+			await fireEvent.click(screen.getByTestId("stop-button"));
+			runtimeHarness.streamInvocations[0].callbacks.onEnd("", {
+				wasStopped: true,
+			});
+		}
+
+		it("Stop puts the queued message behind the words typed since, saves both and sends both", async () => {
+			const composer = await runningWithBQueuedAndCTyped();
+
+			await stopTheTurn();
+
+			await waitFor(() => {
+				expect(composer).toHaveValue(JOINED);
+			});
+			expect(
+				screen.queryByTestId("queued-message-banner"),
+			).not.toBeInTheDocument();
+			await waitFor(() => {
+				expect(persistConversationDraft).toHaveBeenLastCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: JOINED }),
+					expect.anything(),
+				);
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations[1].message).toBe(JOINED);
+		});
+
+		it("Edit on the queued banner does the same", async () => {
+			const composer = await runningWithBQueuedAndCTyped();
+
+			await fireEvent.click(screen.getByTestId("edit-queued-button"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue(JOINED);
+			});
+			expect(
+				screen.queryByTestId("queued-message-banner"),
+			).not.toBeInTheDocument();
+		});
+
+		it("a turn that fails does the same", async () => {
+			const composer = await runningWithBQueuedAndCTyped();
+
+			runtimeHarness.streamInvocations[0].callbacks.onError(
+				new Error("The model is down"),
+			);
+
+			await waitFor(() => {
+				expect(composer).toHaveValue(JOINED);
+			});
+			expect(
+				screen.queryByTestId("queued-message-banner"),
+			).not.toBeInTheDocument();
+		});
+
+		it("adds nothing to an empty composer", async () => {
+			const composer = await runningWithBQueuedAndCTyped("");
+
+			await stopTheTurn();
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("B queued");
+			});
+		});
+
+		it("joins nothing when the held words are the queued ones again", async () => {
+			const composer = await runningWithBQueuedAndCTyped("B queued ");
+
+			await stopTheTurn();
+
+			await waitFor(() => {
+				expect(
+					screen.queryByTestId("queued-message-banner"),
+				).not.toBeInTheDocument();
+			});
+			expect(composer).toHaveValue("B queued ");
+		});
+
+		it("a Continue Atlas that fails puts the panel's words behind the held ones, and the held draft's mode stays", async () => {
+			runtimeHarness.atlasFailure = new Error("Atlas is busy");
+			renderPage(
+				pageData({
+					messages: [atlasMessage],
+					atlasJobs: [finishedAtlasJob()],
+				}),
+			);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "held words" } });
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue Atlas" }),
+			);
+			const panel = screen.getByRole("region", { name: "Continue Atlas" });
+			await fireEvent.input(within(panel).getByRole("textbox"), {
+				target: { value: "Extend the report with deployment risks" },
+			});
+			await fireEvent.click(
+				within(panel).getByRole("button", { name: "Continue Atlas" }),
+			);
+
+			await waitFor(() => {
+				expect(composer).toHaveValue(
+					"held words\n\nExtend the report with deployment risks",
+				);
+			});
+			// The held draft was not in Atlas mode, so the joined words are not either:
+			// they go to the model, not to Atlas.
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.atlasSubmissions).toHaveLength(1);
+		});
+
+		it("a Continue Atlas that fails brings its words back in Atlas mode when the composer is empty", async () => {
+			runtimeHarness.atlasFailure = new Error("Atlas is busy");
+			renderPage(
+				pageData({
+					messages: [atlasMessage],
+					atlasJobs: [finishedAtlasJob()],
+				}),
+			);
+			const composer = screen.getByTestId("message-input");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue Atlas" }),
+			);
+			const panel = screen.getByRole("region", { name: "Continue Atlas" });
+			await fireEvent.input(within(panel).getByRole("textbox"), {
+				target: { value: "Extend the report with deployment risks" },
+			});
+			await fireEvent.click(
+				within(panel).getByRole("button", { name: "Continue Atlas" }),
+			);
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("Extend the report with deployment risks");
+			});
+			runtimeHarness.atlasFailure = null;
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.atlasSubmissions).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+
+		it("never puts another chat's words into this chat's composer or saved draft", async () => {
+			renderPage();
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "held words" } });
+			await waitFor(() => {
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: "held words" }),
+					expect.anything(),
+				);
+			});
+			vi.mocked(persistConversationDraft).mockClear();
+
+			runtimeHarness.adapters?.restorePayloadToDraft({
+				message: "words of another chat",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+				conversationId: "conv-2",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			expect(composer).toHaveValue("held words");
+			expect(persistConversationDraft).not.toHaveBeenCalled();
 		});
 	});
 
@@ -4171,6 +4409,7 @@ describe("chat page runtime integration", () => {
 describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
+		runtimeHarness.atlasFailure = null;
 		vi.restoreAllMocks();
 	});
 
@@ -5878,6 +6117,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 describe("chat page regenerate — later-turns confirm integration (B1)", () => {
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
+		runtimeHarness.atlasFailure = null;
 		vi.restoreAllMocks();
 	});
 

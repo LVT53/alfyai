@@ -265,6 +265,7 @@ let {
 	draftAtlasProfile = null,
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
+	draftTakeoverVersion = 0,
 	pictureRefs = [],
 	draftPictureOrder = [],
 	onRemovePictureRef = undefined,
@@ -345,6 +346,17 @@ let {
 	draftAtlasProfile?: AtlasProfile | null;
 	draftClientAtlasTurnId?: string | null;
 	draftVersion?: number;
+	/**
+	 * The one `draftVersion` the composer takes even though it holds something. A
+	 * turn that stopped or failed puts its words back; the page joins them behind
+	 * the words typed since (its draft is what the composer last said, plus what
+	 * comes back) and names that draft's version here, so the composer shows both.
+	 * Only that version: the next update, the composer's own included, is an
+	 * ordinary one again and never overwrites what is being typed. 0 is none. It
+	 * waits for an open edit like any draft update, and does not touch an upload
+	 * in flight.
+	 */
+	draftTakeoverVersion?: number;
 	/**
 	 * Card, strip and History pictures waiting in this message (Attach), held by
 	 * the page. They are numbered with the uploaded photos in the order they
@@ -1548,7 +1560,10 @@ $effect(() => {
 	// Not into an edit, even an emptied one. It is looked at again when the edit ends.
 	if (editing) return;
 
+	const takesOver =
+		draftTakeoverVersion !== 0 && draftTakeoverVersion === draftVersion;
 	const shouldApplyDraft =
+		takesOver ||
 		appliedDraftVersion === -1 ||
 		(draftVersion === 0 && draftText.trim().length > 0) ||
 		(message.trim().length === 0 &&
@@ -1580,7 +1595,15 @@ $effect(() => {
 		}
 
 		pendingAttachments = Array.from(merged.values());
-		if (draftPictureOrder.length > 0) pictureOrder = [...draftPictureOrder];
+		if (draftPictureOrder.length > 0) {
+			// Restored pictures are numbered after the ones already here.
+			pictureOrder = takesOver
+				? [
+						...pictureOrder,
+						...draftPictureOrder.filter((key) => !pictureOrder.includes(key)),
+					]
+				: [...draftPictureOrder];
+		}
 		// A restored draft can carry a terminal success whose content verdict
 		// never travelled with it. The poller will not ask again for a finished
 		// job, so this is the moment to fetch that verdict once. Untracked: the
@@ -1605,10 +1628,15 @@ $effect(() => {
 						unavailable: draftPendingSkill.unavailable === true,
 					}
 				: null;
-		attachmentError = "";
-		extractionActionError = "";
-		uploadState = "idle";
-		optimisticUploads = [];
+		// A draft taken over the composer's own state leaves an upload in flight and
+		// the lines about files as they are; any other draft replaces an empty box.
+		if (!takesOver) {
+			attachmentError = "";
+			extractionActionError = "";
+			uploadState = "idle";
+			optimisticUploads = [];
+		}
+		// A send queued behind a file would send words the person has not seen.
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
 		selectedAtlasProfile = draftAtlasMode

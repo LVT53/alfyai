@@ -3,9 +3,13 @@ import {
 	card as imageCard,
 	take as imageTake,
 } from "$lib/components/artifacts/image/image-card-fixtures.test-helpers";
+import type { ComposerMarks } from "$lib/components/chat/composer-pictures";
 import type { I18nKey } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { PendingAttachment } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
@@ -32,9 +36,12 @@ import {
 	finalizeStreamingMessageList,
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
+	type HeldComposer,
 	hasActiveFileProductionJobs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
+	joinDraftText,
+	joinRestoredPayload,
 	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
 	marksOutdated,
@@ -42,6 +49,7 @@ import {
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
 	pictureOrderFromSend,
+	type SendPayload,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
@@ -2478,6 +2486,280 @@ describe("restoring a turn's marks (plan 2b T6)", () => {
 			name: "Cosy room",
 			addedRef: true,
 			version: 2,
+		});
+	});
+});
+
+describe("joining a restored turn into the draft the composer holds", () => {
+	const chat = "conv-1";
+	const facts = { conversationId: chat, updatedAt: 11 };
+	const box = { letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.5 };
+	const attachment = (id: string): PendingAttachment => ({
+		artifact: {
+			id,
+			type: "source_document",
+			retrievalClass: "durable",
+			name: `${id}.pdf`,
+			mimeType: "application/pdf",
+			sizeBytes: 1,
+			conversationId: chat,
+			summary: null,
+			createdAt: 1,
+			updatedAt: 1,
+		},
+		promptReady: true,
+	});
+	const source = (id: string): LinkedContextSource => ({
+		displayArtifactId: id,
+		promptArtifactId: `${id}-prompt`,
+		familyArtifactIds: [id, `${id}-prompt`],
+		name: `${id}.pdf`,
+		type: "document",
+	});
+	const skill = (id: string) => ({
+		id,
+		ownership: "user" as const,
+		displayName: id,
+	});
+	const heldDraft = (
+		overrides: Partial<ConversationDraft> = {},
+	): ConversationDraft => ({
+		conversationId: chat,
+		draftText: "C typed since",
+		selectedAttachmentIds: [],
+		selectedAttachments: [],
+		selectedLinkedSources: [],
+		pendingSkill: null,
+		updatedAt: 10,
+		...overrides,
+	});
+	const payloadOf = (overrides: Partial<SendPayload> = {}): SendPayload => ({
+		message: "B queued",
+		attachmentIds: [],
+		attachments: [],
+		pendingAttachments: [],
+		...overrides,
+	});
+	const nothingHeld: HeldComposer = { draft: null, pictures: [], marks: null };
+	const holding = (
+		draft: ConversationDraft | null,
+		rest: Partial<HeldComposer> = {},
+	): HeldComposer => ({ ...nothingHeld, draft, ...rest });
+
+	describe("the words", () => {
+		it("puts the restored words behind the held ones, with a blank line between", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft()),
+				payloadOf(),
+				facts,
+			);
+			expect(joined.draft?.draftText).toBe("C typed since\n\nB queued");
+		});
+
+		it("adds nothing when the composer is empty", () => {
+			for (const held of [
+				nothingHeld,
+				holding(heldDraft({ draftText: "" })),
+				holding(heldDraft({ draftText: "  \n " })),
+			]) {
+				expect(
+					joinRestoredPayload(held, payloadOf(), facts).draft?.draftText,
+				).toBe("B queued");
+			}
+		});
+
+		it("joins nothing when the two are the same words once trimmed", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft({ draftText: "the same words " })),
+				payloadOf({ message: "the same words" }),
+				facts,
+			);
+			expect(joined.draft?.draftText).toBe("the same words ");
+		});
+
+		it("is the join an edit that leaves the chat makes", () => {
+			expect(joinDraftText("held", "added")).toBe("held\n\nadded");
+			expect(joinDraftText("", "added")).toBe("added");
+			expect(joinDraftText("held", "")).toBe("held");
+		});
+
+		it("lands in the chat on screen, as a newer draft", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft()),
+				payloadOf(),
+				facts,
+			);
+			expect(joined.draft?.conversationId).toBe(chat);
+			expect(joined.draft?.updatedAt).toBe(11);
+		});
+	});
+
+	describe("files and linked sources", () => {
+		it("keeps the held files and adds the restored ones, each once", () => {
+			const joined = joinRestoredPayload(
+				holding(
+					heldDraft({
+						selectedAttachmentIds: ["a1"],
+						selectedAttachments: [attachment("a1")],
+					}),
+				),
+				payloadOf({
+					attachmentIds: ["a1", "a2"],
+					pendingAttachments: [attachment("a1"), attachment("a2")],
+				}),
+				facts,
+			);
+			expect(joined.draft?.selectedAttachmentIds).toEqual(["a1", "a2"]);
+			expect(
+				joined.draft?.selectedAttachments.map((entry) => entry.artifact.id),
+			).toEqual(["a1", "a2"]);
+		});
+
+		it("keeps the held linked sources and adds the restored ones, none twice", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft({ selectedLinkedSources: [source("s1")] })),
+				payloadOf({ linkedSources: [source("s1"), source("s2")] }),
+				facts,
+			);
+			expect(
+				joined.draft?.selectedLinkedSources.map(
+					(entry) => entry.displayArtifactId,
+				),
+			).toEqual(["s1", "s2"]);
+		});
+
+		it("keeps a held file with no words, the restored words joining it", () => {
+			const joined = joinRestoredPayload(
+				holding(
+					heldDraft({
+						draftText: "",
+						selectedAttachmentIds: ["a1"],
+						selectedAttachments: [attachment("a1")],
+					}),
+				),
+				payloadOf(),
+				facts,
+			);
+			expect(joined.draft?.draftText).toBe("B queued");
+			expect(joined.draft?.selectedAttachmentIds).toEqual(["a1"]);
+		});
+	});
+
+	describe("the skill and the Atlas mode", () => {
+		const atlasPayload = payloadOf({
+			pendingSkill: skill("restored"),
+			atlasMode: true,
+			atlasProfile: "in-depth",
+			clientAtlasTurnId: "restored-turn",
+		});
+
+		it("stay the held draft's while it holds words", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft({ pendingSkill: skill("held") })),
+				atlasPayload,
+				facts,
+			);
+			expect(joined.draft?.pendingSkill?.id).toBe("held");
+			expect(joined.draft?.atlasMode).toBeUndefined();
+
+			const heldAtlas = joinRestoredPayload(
+				holding(
+					heldDraft({
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "held-turn",
+					}),
+				),
+				atlasPayload,
+				facts,
+			);
+			expect(heldAtlas.draft?.atlasProfile).toBe("overview");
+			expect(heldAtlas.draft?.clientAtlasTurnId).toBe("held-turn");
+		});
+
+		it("come back from the restored turn when the composer is empty, as they always did", () => {
+			const joined = joinRestoredPayload(nothingHeld, atlasPayload, facts);
+			expect(joined.draft?.pendingSkill?.id).toBe("restored");
+			expect(joined.draft?.atlasMode).toBe(true);
+			expect(joined.draft?.atlasProfile).toBe("in-depth");
+			expect(joined.draft?.clientAtlasTurnId).toBe("restored-turn");
+		});
+	});
+
+	describe("the pictures", () => {
+		const rug = { imageFileId: "f1", name: "Red rug" };
+		const mug = { imageFileId: "f2", name: "Mug" };
+		const pictures = {
+			refs: [
+				{ imageFileId: "f1", number: 1, name: "Red rug" },
+				{ imageFileId: "f2", number: 2, name: "Mug" },
+			],
+			open: null,
+			marks: null,
+		};
+
+		it("keep the held card pictures first and add the restored ones, each once", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft(), { pictures: [mug] }),
+				payloadOf({ pictures }),
+				facts,
+			);
+			expect(joined.pictures).toEqual([mug, rug]);
+		});
+
+		it("hand over the order the restored turn numbered its pictures in", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft(), { pictures: [mug] }),
+				payloadOf({ pictures }),
+				facts,
+			);
+			expect(joined.pictureOrder).toEqual(["ref:f1", "ref:f2"]);
+		});
+	});
+
+	describe("the marks", () => {
+		const marked = {
+			imageMarks: { imageFileId: "f9", marks: [box] },
+			markedPicture: {
+				artifactId: "img-9",
+				name: "Cosy room",
+				addedRef: true,
+				version: 2,
+			},
+			pictures: {
+				refs: [{ imageFileId: "f9", number: 1, name: "Cosy room" }],
+				open: null,
+				marks: null,
+			},
+		};
+		const heldMarks: ComposerMarks = {
+			imageFileId: "f5",
+			marks: [{ ...box, letter: "B" as const }],
+			artifactId: "img-5",
+			name: "Held room",
+			version: 1,
+		};
+
+		it("come back from the restored turn when none are held, the picture as their chip", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft()),
+				payloadOf(marked),
+				facts,
+			);
+			expect(joined.marks?.imageFileId).toBe("f9");
+			expect(joined.pictures).toEqual([]);
+		});
+
+		it("stay the held ones when there are any: the restored turn's boxes are let go, its picture comes back as a picture", () => {
+			const joined = joinRestoredPayload(
+				holding(heldDraft(), { marks: heldMarks }),
+				payloadOf(marked),
+				facts,
+			);
+			expect(joined.marks).toBe(heldMarks);
+			expect(joined.pictures).toEqual([
+				{ imageFileId: "f9", name: "Cosy room" },
+			]);
 		});
 	});
 });

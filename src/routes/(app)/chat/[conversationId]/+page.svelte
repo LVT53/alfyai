@@ -229,10 +229,8 @@ import {
 	awaitOpenStepSave,
 	withinOrNull,
 	buildPendingFileProductionJobPlaceholder,
-	composerMarksFromSend,
-	composerPicturesFromSend,
+	joinRestoredPayload,
 	marksOutdated,
-	pictureOrderFromSend,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
 	editResendPictures,
@@ -471,6 +469,10 @@ let composerPictures = $state.raw<readonly ComposerPictureRef[]>([]);
 // it restores). Let go with the pictures (a send, a queue, another chat), so a
 // later draft apply never brings back a stale order.
 let composerPictureOrder = $state.raw<readonly string[]>([]);
+// The draft version the composer takes though it holds something: a restore joins
+// its words behind the ones typed since (`restorePayloadToDraft`). It names one
+// draft and is let go with the chat.
+let composerDraftTakeoverVersion = $state(0);
 // The marks drawn on the open picture (plan 2b T6): one composer chip, and the
 // boxes in the panel. Held with the version of their item they were drawn on,
 // and let go when they would be left from an older picture (another item
@@ -2382,6 +2384,7 @@ function resetState() {
 	editingMessage = null;
 	composerPictures = [];
 	composerPictureOrder = [];
+	composerDraftTakeoverVersion = 0;
 	// Boxes drawn in this chat before a reload come back with its composer.
 	heldMarks = readComposerMarks(data.conversation.id);
 	heldMarksConversationId = data.conversation.id;
@@ -3225,44 +3228,48 @@ $effect(() => {
 	conversationStatus = data.conversation.status ?? "open";
 });
 
+/**
+ * A turn that stopped, failed or came back from the queue puts its words back, and
+ * a restore never replaces what the composer holds: it joins it (`joinRestoredPayload`
+ * says how), the composer is told to take the joined draft (`draftTakeoverVersion`,
+ * since it is not empty) and it is saved. An empty composer gets the turn's words and
+ * nothing else, as it always did.
+ */
 function restorePayloadToDraft(payload: SendPayload) {
-	// The queued turn's card pictures come back as chips, and its marks as the
-	// marks chip (the marked picture the send added itself is that chip, not a
-	// picture chip of its own).
-	// With the version they were drawn on, so marks from an older picture (a
-	// version landed while the turn was queued) go at once (Review Focus 4).
-	heldMarks = composerMarksFromSend(payload);
-	composerPictures = composerPicturesFromSend(
-		payload.pictures,
-		payload.markedPicture?.addedRef
-			? (payload.imageMarks?.imageFileId ?? null)
-			: null,
+	// A turn of another chat never joins this chat's draft. The runtime drops the
+	// writes of an abandoned turn the same way (`isTurnConversationActive`); a
+	// payload that still names another chat holds that chat's words, not this one's.
+	if (
+		payload.conversationId &&
+		payload.conversationId !== data.conversation.id
+	) {
+		return;
+	}
+	const restored = joinRestoredPayload(
+		{ draft: conversationDraft, pictures: composerPictures, marks: heldMarks },
+		payload,
+		{
+			conversationId: data.conversation.id,
+			// The composer takes a draft by its version, so this is newer than the
+			// draft it joins even when the two are made in the same millisecond.
+			updatedAt: Math.max(Date.now(), (conversationDraft?.updatedAt ?? 0) + 1),
+		},
 	);
-	composerPictureOrder = pictureOrderFromSend(payload.pictures);
-	const nextConversationId = payload.conversationId ?? data.conversation.id;
-	const restoredDraft = createConversationDraftRecord({
-		conversationId: nextConversationId,
-		fallbackConversationId: data.conversation.id,
-		draftText: payload.message,
-		selectedAttachmentIds: payload.attachmentIds,
-		selectedAttachments: payload.pendingAttachments ?? [],
-		selectedLinkedSources: payload.linkedSources ?? [],
-		pendingSkill: payload.pendingSkill ?? null,
-		atlasMode: payload.atlasMode === true,
-		atlasProfile: payload.atlasProfile ?? null,
-		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
-	});
-	setConversationDraft(restoredDraft);
+	heldMarks = restored.marks;
+	composerPictures = restored.pictures;
+	composerPictureOrder = restored.pictureOrder;
+	setConversationDraft(restored.draft);
+	composerDraftTakeoverVersion = restored.draft?.updatedAt ?? 0;
 	void draftPersistence.persist(
 		{
-			conversationId: nextConversationId,
-			draftText: payload.message,
-			selectedAttachmentIds: payload.attachmentIds,
-			selectedLinkedSources: payload.linkedSources ?? [],
-			pendingSkill: payload.pendingSkill ?? null,
-			atlasMode: payload.atlasMode === true,
-			atlasProfile: payload.atlasProfile ?? null,
-			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
+			conversationId: data.conversation.id,
+			draftText: restored.draft?.draftText ?? "",
+			selectedAttachmentIds: restored.draft?.selectedAttachmentIds ?? [],
+			selectedLinkedSources: restored.draft?.selectedLinkedSources ?? [],
+			pendingSkill: restored.draft?.pendingSkill ?? null,
+			atlasMode: restored.draft?.atlasMode === true,
+			atlasProfile: restored.draft?.atlasProfile ?? null,
+			clientAtlasTurnId: restored.draft?.clientAtlasTurnId ?? null,
 		},
 		true,
 	);
@@ -4680,6 +4687,7 @@ function handleDrop(event: DragEvent) {
 				draftAtlasProfile={conversationDraft?.atlasProfile ?? null}
 				draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
+				draftTakeoverVersion={composerDraftTakeoverVersion}
 				editing={composerEditing}
 				onEditSubmit={handleEditSubmit}
 				onEditCancel={handleEditCancel}
