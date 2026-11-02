@@ -138,6 +138,26 @@ test.describe("Chat Scroller", () => {
 		).toBeInViewport({ timeout: 10_000 });
 	});
 
+	test("a narrow window: the number opens a centred panel at the current row, not at the first", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 760, height: 760 });
+		const { conversationId } = await seedThirtyTurns(page);
+		await open(page, conversationId);
+		await scrollThreadTo(page, 0.5);
+
+		await page.getByTestId("jump-rail-capsule-where").click();
+
+		const panel = page.getByRole("dialog");
+		await expect(panel).toBeVisible();
+		const current = panel.locator(
+			'[data-testid="jump-rail-row"][aria-current="true"]',
+		);
+		await expect(current).toBeFocused();
+		await expect(current).toBeInViewport({ ratio: 1 });
+		await expect(panel.getByTestId("jump-rail-row").first()).not.toBeInViewport();
+	});
+
 	test.describe("a phone", () => {
 		test.use({
 			viewport: { width: 390, height: 844 },

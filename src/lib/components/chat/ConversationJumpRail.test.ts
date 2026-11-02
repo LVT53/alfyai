@@ -492,6 +492,9 @@ describe("ConversationJumpRail", () => {
 				.filter((row) => row.hasAttribute("aria-current"));
 			expect(current).toHaveLength(1);
 			expect(current[0]).toHaveTextContent("Question 11");
+			// The dialog puts the focus on its first control unless it is already
+			// inside, and on the first row that scrolls the list back to the top.
+			await waitFor(() => expect(current[0]).toHaveFocus());
 		});
 
 		it("jumps and closes the sheet when a row is chosen", async () => {

@@ -101,11 +101,21 @@ $effect(() => {
 	}
 });
 
-// A list opens with the current row in the middle of it.
+// A list opens with the current row in the middle of it. The dialog also takes
+// the focus there: it would otherwise give it to its first control, and where
+// that is the first row (no grabber above the list) the list scrolls back to
+// the top under the person's eyes.
 $effect(() => {
 	const list = listRef;
 	if (!list) return;
-	void tick().then(() => centreCurrentRow(list));
+	void tick().then(() => {
+		centreCurrentRow(list);
+		if (sheetOpen) {
+			list
+				.querySelector<HTMLElement>("[data-current]")
+				?.focus({ preventScroll: true });
+		}
+	});
 });
 
 function centreCurrentRow(list: HTMLElement) {
