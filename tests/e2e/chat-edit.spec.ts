@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { messages, users } from "../../src/lib/server/db/schema";
+import {
+	fileProductionJobs,
+	messages,
+	users,
+} from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
@@ -183,7 +187,8 @@ async function holdTheNextTurn(page: Page) {
 	});
 	await page.route("**/api/chat/stream", async (route) => {
 		await held;
-		await route.continue();
+		// A turn the page stopped while it was held has been dealt with already.
+		await route.continue().catch(() => undefined);
 	});
 	return release;
 }
@@ -1088,5 +1093,244 @@ test.describe("Editing a message in the composer", () => {
 				}
 			});
 		}
+	});
+});
+
+// The chat page, and its composer, are reused when the person moves to another
+// chat, and the page reads the chat again while a job runs. What the composer
+// holds is the person's, and stays with the chat it was typed in.
+test.describe("The words in the composer stay with their chat", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("moving to another chat at once: it shows its own draft, the words wait in the chat they were typed in, nothing is sent", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		const chatA = await seedTurns(page, 1, "Chat A");
+		const chatB = await seedTurns(page, 1, "Chat B");
+		await saveDraft(page, chatB.conversationId, "a draft of chat B");
+		await open(page, chatA.conversationId);
+		await ensureSidebarExpanded(page);
+		const composer = page.getByTestId("message-input");
+		const sidebarItem = (conversationId: string) =>
+			page.locator(
+				`[data-testid="conversation-item"][data-conversation-id="${conversationId}"]`,
+			);
+
+		// Typed and left within the page's draft debounce.
+		await composer.fill("for A");
+		await sidebarItem(chatB.conversationId).click();
+
+		await expect(page).toHaveURL(new RegExp(chatB.conversationId));
+		await expect(composer).toHaveValue("a draft of chat B");
+		await expect
+			.poll(() => savedDraft(page, chatA.conversationId))
+			.toBe("for A");
+
+		await sidebarItem(chatA.conversationId).click();
+
+		await expect(page).toHaveURL(new RegExp(chatA.conversationId));
+		await expect(composer).toHaveValue("for A");
+		// Past the page's draft debounce, so anything wrongly emitted has landed.
+		await page.waitForTimeout(600);
+		expect(await savedDraft(page, chatB.conversationId)).toBe(
+			"a draft of chat B",
+		);
+		expect(await savedDraft(page, chatA.conversationId)).toBe("for A");
+
+		await page.reload();
+		await expect(composer).toHaveValue("for A");
+		// Nothing was sent: each chat still holds its one seeded turn.
+		const stored = await db
+			.select({ id: messages.id })
+			.from(messages)
+			.where(
+				inArray(messages.conversationId, [
+					chatA.conversationId,
+					chatB.conversationId,
+				]),
+			);
+		expect(stored).toHaveLength(4);
+	});
+
+	test.describe("with a model that answers", () => {
+		const fakeProvider = createOpenAICompatibleProviderHarness();
+
+		test.beforeAll(async () => {
+			await fakeProvider.start();
+		});
+
+		test.afterAll(async () => {
+			await fakeProvider.stop();
+		});
+
+		test.beforeEach(async () => {
+			await fakeProvider.reset();
+		});
+
+		test("a turn that is stopped puts its queued message behind the words typed since: the composer, a reload and the send hold both", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const conversationId = await createEmptyConversation(
+				page,
+				"A restore that joins",
+			);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const releaseTheReply = await holdTheNextTurn(page);
+			const both = "C: typed since\n\nB: queued behind the reply";
+			try {
+				await openEmptyChat(page, conversationId);
+				const composer = page.getByTestId("message-input");
+				await composer.fill("A: the first question");
+				await page.getByTestId("send-button").click();
+
+				// The reply is on its way: B waits behind it and C is typed.
+				await composer.fill("B: queued behind the reply");
+				await page.getByTestId("queue-button").click();
+				await expect(page.getByTestId("queued-message-banner")).toContainText(
+					"B: queued behind the reply",
+				);
+				await composer.fill("C: typed since");
+
+				await page.getByTestId("stop-button").click();
+
+				await expect(composer).toHaveValue(both);
+				await expect(page.getByTestId("queued-message-banner")).toHaveCount(0);
+				await expect.poll(() => savedDraft(page, conversationId)).toBe(both);
+
+				await page.reload();
+				await expect(composer).toHaveValue(both);
+
+				releaseTheReply();
+				await page.getByTestId("send-button").click();
+				const sent = page.getByTestId("user-message").last();
+				await expect(sent).toContainText("C: typed since");
+				await expect(sent).toContainText("B: queued behind the reply");
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(composer).toHaveValue("");
+			} finally {
+				releaseTheReply();
+				await page.unroute("**/api/chat/stream");
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		test("a read of the chat that was out across a send does not bring the sent words back", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const conversationId = await createEmptyConversation(
+				page,
+				"A read in flight",
+			);
+			const [admin] = await db
+				.select({ id: users.id })
+				.from(users)
+				.where(eq(users.email, "admin@local"));
+			// A file that is still being made: while it is, the page reads the chat
+			// every 2.5 s.
+			const jobId = randomUUID();
+			const now = new Date();
+			await db.insert(fileProductionJobs).values({
+				id: jobId,
+				conversationId,
+				assistantMessageId: null,
+				userId: admin.id,
+				title: "A file that is still being made",
+				status: "running",
+				startedAt: now,
+				createdAt: now,
+				updatedAt: now,
+			});
+			const sent = "What is the plan for the weekend?";
+			await saveDraft(page, conversationId, sent);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			// The answer to the first read made once the test arms it is held in the
+			// page: the server answers at once, with the draft as it stands, and the
+			// page is handed that answer later. Held in the page and not with
+			// page.route, which would hold the request itself and so the draft it
+			// finds, which would be the one after the send.
+			await page.addInitScript(() => {
+				const real = window.fetch;
+				const holding = window as unknown as {
+					holdTheNextRead?: boolean;
+					readsHeld?: number;
+					releaseTheRead?: () => void;
+				};
+				window.fetch = (input, init) => {
+					const answer = real(input, init);
+					const path = new URL(
+						input instanceof Request ? input.url : String(input),
+						location.href,
+					).pathname;
+					const isTheChatRead =
+						(init?.method ?? "GET") === "GET" &&
+						/^\/api\/conversations\/[^/]+$/.test(path);
+					if (!isTheChatRead || !holding.holdTheNextRead) return answer;
+					holding.holdTheNextRead = false;
+					holding.readsHeld = (holding.readsHeld ?? 0) + 1;
+					return new Promise((resolve, reject) => {
+						holding.releaseTheRead = () => {
+							answer.then(resolve, reject);
+						};
+					});
+				};
+			});
+			try {
+				await openEmptyChat(page, conversationId);
+				const composer = page.getByTestId("message-input");
+				await expect(composer).toHaveValue(sent);
+
+				await page.evaluate(() => {
+					(window as unknown as { holdTheNextRead: boolean }).holdTheNextRead =
+						true;
+				});
+				await page.waitForFunction(
+					() =>
+						((window as unknown as { readsHeld?: number }).readsHeld ?? 0) > 0,
+					null,
+					{ timeout: 15_000 },
+				);
+				await page.getByTestId("send-button").click();
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
+				await expect(composer).toHaveValue("");
+
+				// The read is answered now, with the draft from before the send. Its
+				// follow-up request says the page has finished with the answer.
+				const finishedWithTheRead = page.waitForRequest((request) =>
+					request
+						.url()
+						.endsWith(`/api/conversations/${conversationId}/pending-writes`),
+				);
+				await page.evaluate(() => {
+					(
+						window as unknown as { releaseTheRead: () => void }
+					).releaseTheRead();
+				});
+				await finishedWithTheRead;
+
+				await expect(composer).toHaveValue("");
+				expect(await savedDraft(page, conversationId)).toBeNull();
+			} finally {
+				await db
+					.delete(fileProductionJobs)
+					.where(eq(fileProductionJobs.id, jobId));
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
 	});
 });
