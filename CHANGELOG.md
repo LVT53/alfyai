@@ -99,9 +99,14 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   sends them again with the new words; before, the edited message lost them.
 - Retry after a message fails now sends that message again, with its files and
   pictures, and leaves every earlier reply alone; Retry after a failed
-  Regenerate now gets the reply instead of failing again; and an edit is checked
-  before anything is deleted, so a message that cannot be sent no longer takes
+  Regenerate now gets the reply instead of failing again, with its skill and
+  web search; and an edit is checked before anything is deleted (including
+  another reply still running), so a message that cannot be sent no longer takes
   the original and its replies with it.
+- Retry no longer sends a message twice after a dropped connection: when the
+  server had already finished the turn, Retry loads it instead, and the words of
+  a message that failed for good are kept as the chat's draft, so a reload
+  brings them back.
 - The words in the message box now stay with the chat you typed them in: moving
   to another chat no longer carries them along or loses them, a message put
   back after Stop or a failure joins what you have typed since instead of
