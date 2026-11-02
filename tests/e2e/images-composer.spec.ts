@@ -6,6 +6,7 @@ import {
 	AI_SMOKE_LATE_PICTURE_MARKER,
 	AI_SMOKE_LATE_PICTURE_TITLE,
 } from "../fixtures/ai/late-picture-scenario";
+import { AI_SMOKE_STREAM_TEXT } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	clearAdminConfig,
@@ -58,6 +59,27 @@ async function makePicture(page: Page) {
 	await expect(page.getByText(AI_SMOKE_LATE_PICTURE_FINAL_TEXT)).toBeVisible({
 		timeout: 30_000,
 	});
+}
+
+/** The reply to a plain question is whole: its words are there and nothing is being generated any more. */
+async function waitForTheReply(page: Page) {
+	await expect(page.getByText(AI_SMOKE_STREAM_TEXT)).toHaveCount(1, {
+		timeout: 30_000,
+	});
+	await expect(page.getByTestId("stop-button")).toHaveCount(0);
+}
+
+/** The pencil on the sent message that says `text`: its words go to the composer, reworded, and are sent again. */
+async function editMessage(page: Page, text: string, reworded: string) {
+	const sent = page.getByTestId("user-message").filter({ hasText: text });
+	const messageId = await sent.getAttribute("data-message-id");
+	await sent.hover();
+	await page.locator(`#edit-button-${messageId}`).click();
+	await expect(page.getByTestId("composer-edit-strip")).toBeVisible();
+	const composer = page.getByTestId("message-input");
+	await expect(composer).toHaveValue(text);
+	await composer.fill(reworded);
+	await page.getByTestId("send-button").click();
 }
 
 /** The next frame the page paints: a drag is one move per frame, as a hand makes it. */
@@ -175,6 +197,130 @@ test.describe("Pictures in the composer", () => {
 		expect(picture, "the picture is a part of the message").toBeGreaterThan(
 			label,
 		);
+	});
+
+	test("an edit keeps the picture the message was sent with, and leaves the one waiting in the composer", async ({
+		page,
+	}) => {
+		videoName = "edit-keeps-picture";
+		await openChat(page);
+		await makePicture(page);
+		const attach = async () => {
+			await page
+				.locator(CARD)
+				.last()
+				.getByRole("button", { name: "More" })
+				.click();
+			await page.getByTestId("image-card-attach").click();
+			await expect(page.locator(CHIP)).toHaveCount(1);
+		};
+
+		await attach();
+		const question = "What colour is the roof in picture 1?";
+		await sendMessage(page, question);
+		await waitForTheReply(page);
+		await expect(page.locator(CHIP)).toHaveCount(0);
+		await expect(
+			page
+				.getByTestId("user-message")
+				.filter({ hasText: question })
+				.getByTestId("message-picture-chip"),
+		).toHaveCount(1);
+
+		// A picture put in the composer meanwhile belongs to the draft, not the edit.
+		await attach();
+		const reworded = "What colour is the door in picture 1?";
+		await editMessage(page, question, reworded);
+
+		// The new message is drawn with the picture the old one had...
+		const resent = page.getByTestId("user-message").filter({
+			hasText: reworded,
+		});
+		await expect(resent.getByTestId("message-picture-chip")).toHaveCount(1);
+		await expect(
+			page.getByTestId("user-message").filter({ hasText: question }),
+		).toHaveCount(0);
+		// ...and the model was sent it, under its number, as it was the first time.
+		await expect
+			.poll(() => lastUserParts(fakeProvider.requests(), reworded).length, {
+				message: "the model was asked the reworded question",
+				timeout: 30_000,
+			})
+			.toBeGreaterThan(0);
+		const parts = lastUserParts(fakeProvider.requests(), reworded);
+		const label = parts.findIndex(
+			(part) =>
+				part.type === "text" &&
+				part.text === `Picture 1: ${AI_SMOKE_LATE_PICTURE_TITLE}`,
+		);
+		expect(label, "the label is a part of the message").toBeGreaterThanOrEqual(
+			0,
+		);
+		expect(
+			parts.findIndex((part) => part.type === "image_url"),
+			"the picture is a part of the message",
+		).toBeGreaterThan(label);
+
+		// The composer's own picture is where it was, and the server kept the one sent.
+		await waitForTheReply(page);
+		await expect(page.getByTestId("composer-edit-strip")).toHaveCount(0);
+		await expect(page.locator(CHIP)).toHaveCount(1);
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await expect(
+			page
+				.getByTestId("user-message")
+				.filter({ hasText: reworded })
+				.getByTestId("message-picture-chip"),
+		).toHaveCount(1);
+	});
+
+	test("an edit keeps the marks the message was sent with, without a reload in between", async ({
+		page,
+	}) => {
+		videoName = "edit-keeps-marks";
+		await openChat(page);
+		await makePicture(page);
+		await page.locator(CARD).last().getByTestId("artifact-card-head").click();
+		await expect(
+			page
+				.locator(
+					'[data-testid="image-body-picture"] [data-testid="image-picture-after"].is-loaded',
+				)
+				.first(),
+		).toBeVisible({ timeout: 20_000 });
+		await page.getByTestId("image-body-mark").click();
+		await dragBox(page, [0.1, 0.15], [0.4, 0.55]);
+		await dragBox(page, [0.55, 0.3], [0.9, 0.8]);
+		await expect(page.locator(MARKS_CHIP)).toContainText("Marks A, B");
+
+		const question = "Is the lighthouse inside my boxes?";
+		await sendMessage(page, question);
+		await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+		await waitForTheReply(page);
+
+		// Sent from this tab, the message is the composer's copy: the boxes are in
+		// the server's record, which the edit has to read.
+		const reworded = "Is the lighthouse inside my two boxes?";
+		await editMessage(page, question, reworded);
+
+		await expect
+			.poll(() => lastUserParts(fakeProvider.requests(), reworded).length, {
+				message: "the model was asked the reworded question",
+				timeout: 30_000,
+			})
+			.toBeGreaterThan(0);
+		const parts = lastUserParts(fakeProvider.requests(), reworded);
+		expect(
+			parts.some(
+				(part) =>
+					part.type === "text" &&
+					part.text?.includes(
+						"with the user's marks: A = red box, B = blue box",
+					),
+			),
+			"the model was told what the marks are, as the first time",
+		).toBe(true);
+		expect(parts.some((part) => part.type === "image_url")).toBe(true);
 	});
 
 	test("marks travel as one chip", async ({ page }) => {
