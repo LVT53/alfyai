@@ -4730,6 +4730,51 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			});
 		});
 
+		it("sends marks on an uploaded photo along with the photo the message carries", async () => {
+			renderPage(
+				pageData({
+					messages: [
+						{
+							...userMessage({
+								refs: [],
+								uploads: [{ artifactId: "photo-1", number: 1 }],
+								open: null,
+								marks: {
+									uploadArtifactId: "photo-1",
+									markedFileId: "file-marked",
+									letters: ["A" as const],
+									boxes: [box],
+								},
+							}),
+							attachments: [
+								{
+									id: "photo-1",
+									artifactId: "photo-1",
+									name: "room.png",
+									type: "source_document" as const,
+									mimeType: "image/png",
+									sizeBytes: 10,
+									conversationId: "conv-1",
+									messageId: "user-1",
+									createdAt: 1,
+								},
+							],
+						},
+						...turnWith().slice(1),
+					],
+				}),
+			);
+
+			const options = await editAndSend();
+
+			expect(options?.attachmentIds).toEqual(["photo-1"]);
+			expect(options?.imageMarks).toEqual({
+				uploadArtifactId: "photo-1",
+				marks: [box],
+			});
+			expect(options?.pictureRefs).toBeUndefined();
+		});
+
 		it("gives up marks on a picture that does not go along, as a regenerate does, and sends the rest", async () => {
 			renderPage(
 				pageData({
