@@ -87,6 +87,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   the Profile page.
 - Answers based on a web search link their sources again. Since late September
   about half of them linked none, because nothing told the model how to cite.
+- A draft you type while a reply is coming now survives: it was deleted when the
+  reply landed, or when you pressed Regenerate or a follow-up suggestion, and
+  was gone after a reload or a switch to another chat.
 
 ### Removed
 
