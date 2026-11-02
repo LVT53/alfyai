@@ -277,6 +277,12 @@ test.describe("RC-A #7: the board's thread card keeps every line inside itself i
 
 		const report = await card.evaluate((root) => {
 			const box = root.getBoundingClientRect();
+			// What the card holds ends at its own edge, inside its border if it has one. The card
+			// had a 1 px border when this was written, and a line that fills the card ended 1 px
+			// short of `box.right`; it has none now (a thread is a passage in a quiet column),
+			// so a line that fills it ends exactly at `box.right` and is not past it.
+			const inner =
+				box.right - parseFloat(getComputedStyle(root).borderRightWidth);
 			const offenders: string[] = [];
 			for (const element of root.querySelectorAll("*")) {
 				const rect = element.getBoundingClientRect();
@@ -285,7 +291,7 @@ test.describe("RC-A #7: the board's thread card keeps every line inside itself i
 				// runs past its card, or is wider than the box that holds it, is clipped.
 				const ellipsis = getComputedStyle(element).textOverflow === "ellipsis";
 				if (
-					rect.right > box.right - 1 ||
+					rect.right > inner ||
 					(!ellipsis && element.scrollWidth > element.clientWidth + 1)
 				) {
 					offenders.push(
