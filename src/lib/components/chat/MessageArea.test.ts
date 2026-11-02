@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -2101,15 +2102,26 @@ describe("MessageArea", () => {
 
 			async function followedThread() {
 				// Real frames, one every 16 ms, so a glide has frames to move over.
+				let framesPending = 0;
 				vi.mocked(window.requestAnimationFrame).mockImplementation(
-					(callback: FrameRequestCallback) =>
-						window.setTimeout(() => callback(performance.now()), 16),
+					(callback: FrameRequestCallback) => {
+						framesPending += 1;
+						return window.setTimeout(() => {
+							framesPending -= 1;
+							callback(performance.now());
+						}, 16);
+					},
 				);
 				const view = render(MessageArea, {
 					messages: streamingReply("One"),
 					conversationId: "conv-glide",
 					isThinkingActive: true,
 				});
+				// Opening a chat jumps to the bottom on frames of its own. On a busy
+				// machine they fell after the sizes below were set, in the middle of
+				// the glide being measured, so they have to be over first.
+				await tick();
+				await waitFor(() => expect(framesPending).toBe(0));
 				const scrollContainer = view.container.querySelector(
 					".scroll-container",
 				) as HTMLDivElement;
