@@ -1164,6 +1164,98 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// While a job runs the page reads the chat every 2.5 s, and the answer to a
+	// read holds the draft as the server had it when it was asked. A read that
+	// was out when the draft changed says nothing about it.
+	describe("a read of the chat that was out while the draft changed", () => {
+		const SAVED_WORDS = "Words saved before the read was asked";
+
+		/** The draft a read answers with: what the server held when it was asked. */
+		function savedDraftOf(draftText: string): ConversationDetail["draft"] {
+			return {
+				conversationId: "conv-1",
+				draftText,
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+				updatedAt: Date.now(),
+			};
+		}
+
+		/**
+		 * Sends a first turn and ends it, which asks the page to read the chat
+		 * again. The read is held; `answer` is the server's reply to it, whenever
+		 * the test wants it to arrive.
+		 */
+		async function endATurnWithAReadOut() {
+			renderPage();
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "First question" } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			const turn = runtimeHarness.streamInvocations[0];
+			let answer: (detail: ConversationDetail) => void = () => {};
+			vi.mocked(fetchConversationDetail).mockClear();
+			vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+				new Promise((resolve) => {
+					answer = resolve;
+				}),
+			);
+			turn.callbacks.onToken("A reply");
+			turn.callbacks.onEnd("A reply", { assistantMessageId: "assistant-1" });
+			await waitFor(() => {
+				expect(fetchConversationDetail).toHaveBeenCalledTimes(1);
+			});
+			return { composer, answer };
+		}
+
+		/** The answer is applied in the microtasks and the flush after it. */
+		async function untilTheAnswerHasBeenApplied() {
+			for (let step = 0; step < 5; step += 1) await Promise.resolve();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+
+		it("does not bring back the words that were sent while it was out", async () => {
+			const { composer, answer } = await endATurnWithAReadOut();
+			await fireEvent.input(composer, { target: { value: SAVED_WORDS } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(composer).toHaveValue("");
+
+			answer(conversationDetailFixture({ draft: savedDraftOf(SAVED_WORDS) }));
+			await untilTheAnswerHasBeenApplied();
+
+			expect(composer).toHaveValue("");
+		});
+
+		it("does not refill a composer the person emptied while it was out", async () => {
+			const { composer, answer } = await endATurnWithAReadOut();
+			await fireEvent.input(composer, { target: { value: "half a thought" } });
+			await fireEvent.input(composer, { target: { value: "" } });
+
+			answer(conversationDetailFixture({ draft: savedDraftOf(SAVED_WORDS) }));
+			await untilTheAnswerHasBeenApplied();
+
+			expect(composer).toHaveValue("");
+		});
+
+		it("still brings the saved draft in when nothing changed while it was out", async () => {
+			const { composer, answer } = await endATurnWithAReadOut();
+
+			answer(conversationDetailFixture({ draft: savedDraftOf(SAVED_WORDS) }));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue(SAVED_WORDS);
+			});
+		});
+	});
+
 	it("hides Stop while polling after the stream closes for recovery", async () => {
 		let resolveDetail: (
 			value:

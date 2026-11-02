@@ -675,6 +675,16 @@ let contextDebug = $state<ContextDebugState | null>(initialContextDebug);
 let conversationDraft = $state<ConversationDraft | null>(
 	initialConversationDraft,
 );
+// Counts the changes the page itself makes to `conversationDraft`. A read of the
+// chat carries the draft as the server had it when the read was asked, so a read
+// that was out while the draft changed (a send deleted it, the person typed or
+// emptied it, a turn put words back) must not set it: that would bring back what
+// the person has since let go of. Every write goes through `setConversationDraft`.
+let draftEpoch = 0;
+function setConversationDraft(next: ConversationDraft | null) {
+	conversationDraft = next;
+	draftEpoch += 1;
+}
 let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
@@ -913,7 +923,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		hasPersistedMessages = true;
 	},
 	clearDraft: () => {
-		conversationDraft = null;
+		setConversationDraft(null);
 		draftPersistence.clear();
 	},
 	deleteDraft: () => {
@@ -2392,7 +2402,7 @@ function resetState() {
 	attachedArtifacts = data.attachedArtifacts ?? [];
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
-	conversationDraft = data.draft ?? null;
+	setConversationDraft(data.draft ?? null);
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
@@ -2731,7 +2741,7 @@ async function loadPersistedData() {
 		applyConversationDetailMetadata(detail);
 		forkOrigin = detail.forkOrigin ?? forkOrigin;
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
-		conversationDraft = null;
+		setConversationDraft(null);
 		const pending = consumePendingConversationMessage(data.conversation.id);
 		void pending;
 	}
@@ -2850,6 +2860,7 @@ async function hydrateConversationDetail(conversationId: string) {
 	if (hydratingConversation) return;
 	hydratingConversation = true;
 	const requestMetadataEpoch = detailMetadataEpoch;
+	const requestDraftEpoch = draftEpoch;
 
 	try {
 		const payload = await fetchConversationDetail(conversationId);
@@ -2898,7 +2909,11 @@ async function hydrateConversationDetail(conversationId: string) {
 			totalCostUsdMicros = payload.totalCostUsdMicros ?? totalCostUsdMicros;
 			totalTokens = payload.totalTokens ?? totalTokens;
 		}
-		conversationDraft = payload.draft ?? conversationDraft;
+		// The draft the read carries is the one from when it was asked: if this
+		// page changed the draft since, it says nothing about it (`draftEpoch`).
+		if (requestDraftEpoch === draftEpoch && payload.draft) {
+			conversationDraft = payload.draft;
+		}
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
@@ -3225,7 +3240,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 	);
 	composerPictureOrder = pictureOrderFromSend(payload.pictures);
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
-	conversationDraft = createConversationDraftRecord({
+	const restoredDraft = createConversationDraftRecord({
 		conversationId: nextConversationId,
 		fallbackConversationId: data.conversation.id,
 		draftText: payload.message,
@@ -3237,6 +3252,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 		atlasProfile: payload.atlasProfile ?? null,
 		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
+	setConversationDraft(restoredDraft);
 	void draftPersistence.persist(
 		{
 			conversationId: nextConversationId,
@@ -3680,7 +3696,7 @@ async function handleFork(payload: { messageId: string }) {
 			result.conversation.projectId ?? null,
 			result.conversation.memoryIncognito ?? false,
 		);
-		conversationDraft = null;
+		setConversationDraft(null);
 		queuedTurn = null;
 		draftPersistence.clear();
 		currentConversationId.set(result.conversation.id);
@@ -4286,7 +4302,7 @@ function handleErrorClose() {
 
 function handleDraftChange(payload: DraftChangePayload) {
 	const nextConversationId = payload.conversationId ?? data.conversation.id;
-	conversationDraft = createConversationDraftRecord({
+	const nextDraft = createConversationDraftRecord({
 		conversationId: nextConversationId,
 		draftText: payload.draftText,
 		selectedAttachmentIds: payload.selectedAttachmentIds,
@@ -4297,6 +4313,7 @@ function handleDraftChange(payload: DraftChangePayload) {
 		atlasProfile: payload.atlasProfile ?? null,
 		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
+	setConversationDraft(nextDraft);
 	void draftPersistence.persist({
 		conversationId: nextConversationId,
 		draftText: payload.draftText,
