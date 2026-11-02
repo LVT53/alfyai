@@ -829,7 +829,7 @@ describe("chat page runtime integration", () => {
 			const { uploadKnowledgeAttachment } = await import(
 				"$lib/client/api/knowledge"
 			);
-			vi.mocked(uploadKnowledgeAttachment).mockResolvedValue({
+			vi.mocked(uploadKnowledgeAttachment).mockResolvedValueOnce({
 				artifact: {
 					id: "artifact-retry-1",
 					type: "source_document",
@@ -890,6 +890,10 @@ describe("chat page runtime integration", () => {
 			).toEqual(["artifact-retry-1"]);
 
 			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+			// Words typed since the failure are the next message's: Retry leaves them.
+			await fireEvent.input(composer, {
+				target: { value: "a thought for later" },
+			});
 			await fireEvent.click(
 				await screen.findByRole("button", { name: "Retry" }),
 			);
@@ -904,6 +908,7 @@ describe("chat page runtime integration", () => {
 			expect(retried.options?.retryAssistantMessageId).toBeUndefined();
 			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
 			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+			expect(composer).toHaveValue("a thought for later");
 
 			retried.callbacks.onToken("Tomorrow is free.");
 			retried.callbacks.onEnd("Tomorrow is free.", {
@@ -920,9 +925,10 @@ describe("chat page runtime integration", () => {
 			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
 			expect(await screen.findByText("Tomorrow is free.")).toBeInTheDocument();
 			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
-			// The file waiting in the composer for the next message was not touched
-			// and nothing was sent a third time.
+			// Nothing was sent a third time, and the words typed since the failure
+			// are still in the composer.
 			expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			expect(composer).toHaveValue("a thought for later");
 		});
 
 		it("aims a failed regenerate's Retry at the reply it was regenerating", async () => {
@@ -5129,6 +5135,40 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				imageFileId: "file-cottage",
 				marks: [box],
 			});
+		});
+
+		it("sends the resend of an edit that failed as an edit's resend again, with the same pictures, when Retry is pressed", async () => {
+			renderPage(
+				pageData({
+					messages: turnWith({
+						refs: [cottage],
+						open: null,
+						marks: marksOnCottage,
+					}),
+				}),
+			);
+			await editAndSend();
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Retry" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			const retried = runtimeHarness.streamInvocations[1];
+			expect(retried.message).toBe(editedText);
+			expect(retried.options).toMatchObject({
+				isEditResend: true,
+				pictureRefs: [{ imageFileId: "file-cottage", number: 1 }],
+				imageMarks: { imageFileId: "file-cottage", marks: [box] },
+			});
+			// The edited message is not on the server any more: there is no reply
+			// of the turn before to regenerate, and the bubble is still one.
+			expect(retried.options?.retryAssistantMessageId).toBeUndefined();
+			expect(screen.getAllByTestId("user-message")).toHaveLength(1);
+			expect(screen.getAllByTestId("message-picture-chip")).toHaveLength(1);
 		});
 
 		it("asks the turn's gate about the same pictures, before anything goes", async () => {
