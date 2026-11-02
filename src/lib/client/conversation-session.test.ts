@@ -440,6 +440,123 @@ describe("conversation-session", () => {
 		);
 	});
 
+	describe("a delete and the saves on their way", () => {
+		const draftUrl = (id: string) => `/api/conversations/${id}/draft`;
+
+		/** A fetch whose saves wait to be answered; a delete is answered at once. */
+		function heldSaves() {
+			const answers: Array<() => void> = [];
+			const fetchMock = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					init?.method === "DELETE"
+						? Promise.resolve(new Response(null, { status: 200 }))
+						: new Promise<Response>((resolve) => {
+								answers.push(() =>
+									resolve(new Response(null, { status: 200 })),
+								);
+							}),
+			);
+			const deletes = () =>
+				fetchMock.mock.calls
+					.filter(([, init]) => init?.method === "DELETE")
+					.map(([input]) => input);
+			const answerAll = async () => {
+				for (const answer of answers.splice(0)) answer();
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			};
+			return { fetchMock, deletes, answerAll };
+		}
+
+		const save = (conversationId: string, draftText: string) => ({
+			conversationId,
+			draftText,
+			selectedAttachmentIds: [],
+		});
+
+		it("deletes only after a save on its way has been answered", async () => {
+			const { fetchMock, deletes, answerAll } = heldSaves();
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-123", "an earlier version"), true);
+
+			void persistence.deleteDraft("conv-123");
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(deletes()).toEqual([]);
+
+			await answerAll();
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
+		});
+
+		it("holds the delete of an emptied draft back the same way", async () => {
+			const { fetchMock, deletes, answerAll } = heldSaves();
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-123", "an earlier version"), true);
+
+			void persistence.persist(save("conv-123", ""));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(deletes()).toEqual([]);
+
+			await answerAll();
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
+		});
+
+		it("deletes behind a save that failed", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockRejectedValueOnce(new Error("offline"))
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-123", "an earlier version"), true);
+
+			await persistence.deleteDraft("conv-123");
+
+			expect(fetchMock).toHaveBeenLastCalledWith(draftUrl("conv-123"), {
+				method: "DELETE",
+			});
+		});
+
+		it("leaves alone what this chat saved while the delete waited", async () => {
+			const { fetchMock, deletes, answerAll } = heldSaves();
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-123", "an earlier version"), true);
+			void persistence.deleteDraft("conv-123");
+
+			void persistence.persist(save("conv-123", "typed since"), true);
+
+			await answerAll();
+			expect(deletes()).toEqual([]);
+		});
+
+		it("does not take another chat's save for words typed in this one", async () => {
+			const { fetchMock, deletes, answerAll } = heldSaves();
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-123", "an earlier version"), true);
+			void persistence.deleteDraft("conv-123");
+
+			void persistence.persist(save("conv-456", "another chat"), true);
+
+			await answerAll();
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
+		});
+
+		it("goes straight on when no save is on its way", async () => {
+			const { fetchMock, deletes } = heldSaves();
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			await persistence.deleteDraft("conv-123");
+
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
+		});
+
+		it("never rejects, so a failed delete cannot surface in the page", async () => {
+			const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			await expect(
+				persistence.deleteDraft("conv-123"),
+			).resolves.toBeUndefined();
+		});
+	});
+
 	it("deletes empty drafts instead of persisting them", async () => {
 		const fetchMock = vi
 			.fn()

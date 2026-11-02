@@ -41,7 +41,6 @@ import {
 } from "$lib/client/conversation-session";
 import {
 	deleteConversation,
-	deleteConversationDraft,
 	persistConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
@@ -916,7 +915,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		draftPersistence.clear();
 	},
 	deleteDraft: () => {
-		void deleteConversationDraft(data.conversation.id);
+		void draftPersistence.deleteDraft(data.conversation.id);
 	},
 	clearAttachedArtifacts: () => {
 		const currentAttachedArtifacts = attachedArtifacts;

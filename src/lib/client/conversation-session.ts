@@ -523,6 +523,39 @@ export function createDraftPersistence(
 		atlasProfile?: AtlasProfile | null;
 		clientAtlasTurnId?: string | null;
 	} | null = null;
+	// The saves sent and not yet answered, and the last one each chat sent.
+	const saving = new Set<Promise<void>>();
+	const lastSave = new Map<string, Promise<void>>();
+
+	function onItsWay(conversationId: string, save: Promise<void>) {
+		const answered = save
+			.catch(() => {
+				// Ignore transient persistence failures in the composer.
+			})
+			.finally(() => {
+				saving.delete(answered);
+			});
+		saving.add(answered);
+		lastSave.set(conversationId, answered);
+		return answered;
+	}
+
+	/**
+	 * A delete goes behind the saves already on their way: one that landed after it
+	 * would bring back words the person sent, and the turn's own clear catches only
+	 * the exact text it sent, not an earlier version of it. A save this chat sends
+	 * while the delete waits holds words typed since, so it stands.
+	 */
+	async function deleteAfterSaves(conversationId: string): Promise<void> {
+		const last = lastSave.get(conversationId);
+		await Promise.all(saving);
+		if (lastSave.get(conversationId) !== last) return;
+		try {
+			await deleteConversationDraft(conversationId, fetchImpl);
+		} catch {
+			// Ignore transient persistence failures in the composer.
+		}
+	}
 
 	async function runPersist(request: {
 		conversationId: string;
@@ -534,43 +567,38 @@ export function createDraftPersistence(
 		atlasProfile?: AtlasProfile | null;
 		clientAtlasTurnId?: string | null;
 	}): Promise<void> {
-		try {
-			const selectedLinkedSources = request.selectedLinkedSources ?? [];
-			const pendingSkill = request.pendingSkill ?? null;
-			if (
-				!hasMeaningfulDraft(
-					request.draftText,
-					request.selectedAttachmentIds,
-					selectedLinkedSources,
-					pendingSkill,
-					request.atlasMode === true,
-				)
-			) {
-				await deleteConversationDraft(request.conversationId, fetchImpl);
-				return;
-			}
-
-			const payload = {
-				draftText: request.draftText,
-				selectedAttachmentIds: request.selectedAttachmentIds,
+		const selectedLinkedSources = request.selectedLinkedSources ?? [];
+		const pendingSkill = request.pendingSkill ?? null;
+		if (
+			!hasMeaningfulDraft(
+				request.draftText,
+				request.selectedAttachmentIds,
 				selectedLinkedSources,
 				pendingSkill,
-				...(request.atlasMode === true
-					? {
-							atlasMode: true,
-							atlasProfile: request.atlasProfile ?? null,
-							clientAtlasTurnId: request.clientAtlasTurnId ?? null,
-						}
-					: {}),
-			};
-			await persistConversationDraft(
-				request.conversationId,
-				payload,
-				fetchImpl,
-			);
-		} catch {
-			// Ignore transient persistence failures in the composer.
+				request.atlasMode === true,
+			)
+		) {
+			await deleteAfterSaves(request.conversationId);
+			return;
 		}
+
+		const payload = {
+			draftText: request.draftText,
+			selectedAttachmentIds: request.selectedAttachmentIds,
+			selectedLinkedSources,
+			pendingSkill,
+			...(request.atlasMode === true
+				? {
+						atlasMode: true,
+						atlasProfile: request.atlasProfile ?? null,
+						clientAtlasTurnId: request.clientAtlasTurnId ?? null,
+					}
+				: {}),
+		};
+		await onItsWay(
+			request.conversationId,
+			persistConversationDraft(request.conversationId, payload, fetchImpl),
+		);
 	}
 
 	async function doFlush(): Promise<void> {
@@ -652,6 +680,8 @@ export function createDraftPersistence(
 		async flush(): Promise<void> {
 			await doFlush();
 		},
+
+		deleteDraft: deleteAfterSaves,
 
 		clear(): void {
 			// Cancel any pending timer and discard the pending request.

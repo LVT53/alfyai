@@ -930,7 +930,12 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
 			});
-			expect(deleteConversationDraft).toHaveBeenCalledWith("conv-1");
+			await waitFor(() => {
+				expect(deleteConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.any(Function),
+				);
+			});
 		});
 
 		it("the landing page's first message clears it too", async () => {
@@ -951,7 +956,12 @@ describe("chat page runtime integration", () => {
 			expect(runtimeHarness.streamInvocations[0].message).toBe(
 				"First message ever",
 			);
-			expect(deleteConversationDraft).toHaveBeenCalledWith("conv-1");
+			await waitFor(() => {
+				expect(deleteConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.any(Function),
+				);
+			});
 		});
 	});
 
