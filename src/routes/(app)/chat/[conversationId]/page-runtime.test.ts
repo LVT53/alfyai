@@ -48,6 +48,8 @@ const runtimeHarness = vi.hoisted(() => ({
 	}>,
 	/** When set, Atlas submissions fail with it. */
 	atlasFailure: null as Error | null,
+	/** The stream the server is still running for the chat, when a test says it is: what a page that lost its connection finds when it looks for the turn. */
+	orphanedStreamId: null as string | null,
 	/** What the page handed the runtime, for the tests that speak to the page the way the runtime does. */
 	adapters: null as {
 		restorePayloadToDraft: (payload: {
@@ -384,7 +386,9 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 					});
 					return handle;
 				}),
-				checkForOrphanedStream: vi.fn(async () => null),
+				checkForOrphanedStream: vi.fn(
+					async () => runtimeHarness.orphanedStreamId,
+				),
 				getStreamBufferInfo: vi.fn(async () => null),
 				submitAtlasTurn: vi.fn(async (payload) => {
 					runtimeHarness.atlasSubmissions.push({
@@ -439,6 +443,7 @@ import Page from "./+page.svelte";
 // Every test starts with a gate that takes the message, whatever the one before it said.
 afterEach(() => {
 	checkChatTurnMock.mockReset();
+	runtimeHarness.orphanedStreamId = null;
 });
 
 /** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
@@ -5604,6 +5609,110 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				await new Promise((resolve) => setTimeout(resolve, 30));
 				expect(deleteMessages).toHaveBeenCalledTimes(1);
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			// The connection drops in the middle of a reply, so no turn is running while
+			// the page waits to look for it, and the person edits. Then the page finds the
+			// turn the server is still running and reconnects to it: a turn is running
+			// under the open edit. The resend would be refused (handleSend returns
+			// silently), and the delete before it would have taken the words with it.
+			describe("when a turn starts under the open edit", () => {
+				/** A message whose connection dropped after words had come: the page will look for the turn in half a second. */
+				async function dropAConnectionMidReply() {
+					await fireEvent.input(screen.getByTestId("message-input"), {
+						target: { value: "And tomorrow?" },
+					});
+					await fireEvent.click(
+						screen.getByRole("button", { name: "Send message" }),
+					);
+					await waitFor(() => {
+						expect(runtimeHarness.streamInvocations).toHaveLength(1);
+					});
+					runtimeHarness.streamInvocations[0].callbacks.onToken("Tomorrow");
+					runtimeHarness.orphanedStreamId = "stream-still-running";
+					runtimeHarness.streamInvocations[0].callbacks.onError(
+						new Error("Network failed"),
+					);
+				}
+
+				it("leaves the edit open and deletes nothing when a turn is running as the check answers", async () => {
+					const deleteMessages = await withDeletesThatWork();
+					let answer: (check: ChatTurnCheck) => void = () => {};
+					checkChatTurnMock.mockReturnValue(
+						new Promise((resolve) => {
+							answer = resolve;
+						}),
+					);
+					renderPage(
+						cloudModelPageData({ messages: conversationTurnFixture() }),
+					);
+					await waitFor(() =>
+						expect(fetchActiveCapabilitiesMock).toHaveBeenCalled(),
+					);
+					await dropAConnectionMidReply();
+
+					await sendEditOfFirstMessage();
+					await waitFor(() => expect(checkChatTurnMock).toHaveBeenCalled());
+					// The page finds the turn and reconnects to it.
+					await waitFor(() => {
+						expect(runtimeHarness.streamInvocations).toHaveLength(2);
+					});
+					answer({ ok: true });
+
+					expect(
+						await screen.findByText(
+							"Another reply is still running. Wait for it, then send this edit again.",
+						),
+					).toBeInTheDocument();
+					expect(deleteMessages).not.toHaveBeenCalled();
+					expect(screen.getByTestId("composer-edit-strip")).toBeInTheDocument();
+					expect(screen.getByTestId("message-input")).toHaveValue(editedText);
+					expect(
+						screen.getByText("You have a 2pm meeting."),
+					).toBeInTheDocument();
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+
+				it("puts the words back in the composer when a turn starts while the delete is out", async () => {
+					const deleteMessages = await withDeletesThatWork();
+					let finishDelete: (count: number) => void = () => {};
+					deleteMessages.mockReturnValue(
+						new Promise((resolve) => {
+							finishDelete = resolve;
+						}),
+					);
+					renderPage(
+						cloudModelPageData({ messages: conversationTurnFixture() }),
+					);
+					await waitFor(() =>
+						expect(fetchActiveCapabilitiesMock).toHaveBeenCalled(),
+					);
+					await dropAConnectionMidReply();
+
+					await sendEditOfFirstMessage();
+					await waitFor(() => expect(deleteMessages).toHaveBeenCalledTimes(1));
+					await waitFor(() => {
+						expect(runtimeHarness.streamInvocations).toHaveLength(2);
+					});
+					finishDelete(2);
+
+					// The edit is over (its message went with the delete); handleSend refuses
+					// while a turn runs, and the edited words are not lost with the message:
+					// they wait in the composer.
+					await waitFor(() => {
+						expect(
+							screen.queryByTestId("composer-edit-strip"),
+						).not.toBeInTheDocument();
+					});
+					await new Promise((resolve) => setTimeout(resolve, 30));
+					expect(screen.getByTestId("message-input")).toHaveValue(editedText);
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+					expect(
+						runtimeHarness.streamInvocations.some(
+							(invocation) => invocation.message === editedText,
+						),
+					).toBe(false);
+				});
 			});
 
 			// The check can wait for seconds with the page live, and the chat can change

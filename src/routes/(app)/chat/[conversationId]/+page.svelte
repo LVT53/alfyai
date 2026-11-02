@@ -4091,6 +4091,14 @@ async function handleEdit(
 			: toFriendlySendError(verdict.error, $t);
 		return;
 	}
+	// A turn can have started under the open edit while the check was out (the page
+	// found the turn the server was still running after a dropped connection, say).
+	// The resend would be refused for it, and the delete before it would take the
+	// message and the words with it: the edit stays open until that reply is over.
+	if (isSending) {
+		sendError = $t("chat.editReplyRunning");
+		return;
+	}
 
 	// The check can wait for seconds with the page live, and the chat can change
 	// under an open edit (a recovered stream lands, a turn that finished in the
@@ -4172,26 +4180,30 @@ async function handleEdit(
 	await tick();
 	isEditResendPending = false;
 
+	const resend: SendPayload = {
+		message: newText,
+		attachmentIds: editAttachmentIds,
+		attachments: editAttachments,
+		pendingAttachments: [],
+		// The message's own pictures go again; the composer's (`composerPictures`,
+		// `heldMarks`) are the draft's, and stay where they are.
+		...resendPictures,
+		// Gap 2 — the server records it (activity_events "edit_resend") and
+		// drops a picture deleted since instead of refusing it: the message
+		// is gone by now, so a refusal would leave the person with neither.
+		isEditResend: true,
+	};
+	// The delete and the tick above are awaits too: a turn can have started in
+	// them (a recovered stream reconnecting), or the chat been sealed. handleSend
+	// returns silently then, and the words would be gone with the message they were
+	// typed over. They go back to the composer instead, behind whatever it holds.
+	if (isSending || isConversationReadOnlyForChat) {
+		restorePayloadToDraft(resend);
+		return;
+	}
 	// `clearDraft` false: the composer has just taken the person's own draft
 	// back, and a resend of an older message is not what that draft was for.
-	handleSend(
-		{
-			message: newText,
-			attachmentIds: editAttachmentIds,
-			attachments: editAttachments,
-			pendingAttachments: [],
-			// The message's own pictures go again; the composer's (`composerPictures`,
-			// `heldMarks`) are the draft's, and stay where they are.
-			...resendPictures,
-			// Gap 2 — the server records it (activity_events "edit_resend") and
-			// drops a picture deleted since instead of refusing it: the message
-			// is gone by now, so a refusal would leave the person with neither.
-			isEditResend: true,
-		},
-		false,
-		false,
-		false,
-	);
+	handleSend(resend, false, false, false);
 }
 
 // Async so callers that must not race the dying turn can await it — the
