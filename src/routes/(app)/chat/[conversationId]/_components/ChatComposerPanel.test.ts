@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChatComposerPanel from "./ChatComposerPanel.svelte";
 
@@ -128,6 +128,32 @@ describe("ChatComposerPanel", () => {
 		expect(
 			getByRole("button", { name: "Remove pending skill Wrapper Skill" }),
 		).toBeInTheDocument();
+	});
+
+	it("forwards a restored draft and a chat switch into the composer", async () => {
+		const { getByPlaceholderText, rerender } = renderComposerPanel();
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "C typed" } });
+
+		// A turn put its words back behind the ones typed since.
+		await rerender({
+			draftText: "C typed\n\nB queued",
+			draftVersion: 5,
+			draftTakeoverVersion: 5,
+		});
+		await waitFor(() => expect(input.value).toBe("C typed\n\nB queued"));
+
+		// Another chat replaced this one.
+		await rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "B's own draft",
+			draftVersion: 9,
+			draftTakeoverVersion: 0,
+		});
+		await waitFor(() => expect(input.value).toBe("B's own draft"));
 	});
 
 	it("sends normal chat payloads without removed research fields", async () => {

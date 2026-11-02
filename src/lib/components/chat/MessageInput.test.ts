@@ -7636,3 +7636,320 @@ describe("MessageInput taking a restored draft over what it holds", () => {
 		expect(view.textarea.value).toBe("C typed\n\nB queued");
 	});
 });
+
+// The chat page is reused when the person moves to another chat, and so is its
+// composer. What was typed belongs to the chat it was typed in, so on a real
+// switch the page asks (`resetRequest`) and the composer empties, then shows the
+// next chat's own saved draft. A composer is never emptied by its conversation
+// id changing: the landing page's gets one when its prepared conversation is
+// made, while the person is typing.
+describe("MessageInput when another chat replaces the one on screen", () => {
+	function attachmentOf(id: string, name: string): PendingAttachment {
+		return {
+			artifact: {
+				id,
+				type: "source_document",
+				retrievalClass: "durable",
+				name,
+				mimeType: "application/pdf",
+				sizeBytes: 12,
+				conversationId: "conv-1",
+				summary: null,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			},
+			promptReady: true,
+			promptArtifactId: id,
+			readinessError: null,
+		};
+	}
+
+	const linkedSource = {
+		displayArtifactId: "source-a",
+		promptArtifactId: "source-a-prompt",
+		familyArtifactIds: ["source-a", "source-a-prompt"],
+		name: "Source of A.pdf",
+		type: "document" as const,
+	};
+
+	function renderComposer(props: Record<string, unknown> = {}) {
+		const uploads: Array<(result: UploadDoneResult) => void> = [];
+		const onSend = vi.fn();
+		const onDraftChange = vi.fn();
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			composerCommandRegistryEnabled: true,
+			onSend,
+			onDraftChange,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				uploads.push(payload.done);
+			},
+			...props,
+		});
+		const textarea = rendered.container.querySelector(
+			"textarea",
+		) as HTMLTextAreaElement;
+		async function pickFile(name: string) {
+			const fileInput = rendered.container.querySelector(
+				'input[type="file"]',
+			) as HTMLInputElement;
+			await fireEvent.change(fileInput, {
+				target: {
+					files: [new File(["x"], name, { type: "application/pdf" })],
+				},
+			});
+		}
+		return {
+			...rendered,
+			onSend,
+			onDraftChange,
+			textarea,
+			pickFile,
+			finishUpload: (index: number, result: UploadDoneResult) =>
+				completeUpload(uploads[index] ?? null, result),
+		};
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		resetMaxFileUploadSize();
+		resetDisabledFileTypeIds();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionStatusMock.mockResolvedValue({ jobs: [], readiness: [] });
+	});
+
+	it("is not emptied by its conversation id changing under the words being typed", async () => {
+		const view = renderComposer({
+			conversationId: null,
+			ensureConversation: async () => "prepared-1",
+		});
+		await fireEvent.input(view.textarea, {
+			target: { value: "typed on the landing page" },
+		});
+		await waitFor(() => expect(view.onDraftChange).toHaveBeenCalled());
+		view.onDraftChange.mockClear();
+
+		await view.rerender({ conversationId: "prepared-1" });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.textarea.value).toBe("typed on the landing page");
+		// Nothing was cleared, so nothing says the draft is gone.
+		expect(view.onDraftChange).not.toHaveBeenCalledWith(
+			expect.objectContaining({ draftText: "" }),
+		);
+	});
+
+	it("empties for the next chat when the page asks, and shows that chat's draft", async () => {
+		const view = renderComposer({
+			draftText: "for A",
+			draftAttachments: [attachmentOf("a-file", "a-file.pdf")],
+			draftLinkedSources: [linkedSource],
+			draftPendingSkill: {
+				id: "skill-a",
+				ownership: "user",
+				displayName: "Skill of A",
+			},
+			draftAtlasMode: true,
+			draftAtlasProfile: "in-depth",
+			draftVersion: 1,
+		});
+		await waitFor(() => expect(view.textarea.value).toBe("for A"));
+		await waitFor(() => expect(view.getByText("a-file.pdf")).toBeTruthy());
+		expect(view.getByText("Skill of A")).toBeTruthy();
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "B's own draft",
+			draftAttachments: [],
+			draftLinkedSources: [],
+			draftPendingSkill: null,
+			draftAtlasMode: false,
+			draftAtlasProfile: null,
+			draftVersion: 7,
+		});
+
+		await waitFor(() => expect(view.textarea.value).toBe("B's own draft"));
+		expect(view.queryByText("a-file.pdf")).toBeNull();
+		expect(view.queryByText("Source of A.pdf")).toBeNull();
+		expect(view.queryByText("Skill of A")).toBeNull();
+		expect(view.queryByTestId("composer-chip-atlas")).toBeNull();
+	});
+
+	it("empties for a chat with no draft", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for A" } });
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftVersion: 0,
+		});
+
+		await waitFor(() => expect(view.textarea.value).toBe(""));
+	});
+
+	it("shows a draft that holds a file and no words", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for A" } });
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftAttachments: [attachmentOf("b-file", "b-file.pdf")],
+			draftVersion: 7,
+		});
+
+		await waitFor(() => expect(view.getByText("b-file.pdf")).toBeTruthy());
+		expect(view.textarea.value).toBe("");
+	});
+
+	it("empties once per request: words typed in the next chat stay", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for A" } });
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftVersion: 0,
+		});
+		await waitFor(() => expect(view.textarea.value).toBe(""));
+		await fireEvent.input(view.textarea, { target: { value: "for B" } });
+
+		await view.rerender({ draftText: "a save of B", draftVersion: 8 });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.textarea.value).toBe("for B");
+	});
+
+	it("drops the answer of an upload still going: the file belonged to the chat that was left", async () => {
+		const view = renderComposer();
+		await view.pickFile("slow.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftVersion: 0,
+		});
+		await waitFor(() =>
+			expect(view.queryByTestId("composer-chip-upload")).toBeNull(),
+		);
+		view.finishUpload(0, {
+			success: true,
+			attachment: attachmentOf("slow-1", "slow.pdf"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.queryByText("slow.pdf")).toBeNull();
+	});
+
+	it("keeps counting right for the next chat's own uploads", async () => {
+		const view = renderComposer();
+		await view.pickFile("slow.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftVersion: 0,
+		});
+		await waitFor(() =>
+			expect(view.queryByTestId("composer-chip-upload")).toBeNull(),
+		);
+
+		await view.pickFile("fresh.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+		// The old chat's upload answers while the new chat's is still going.
+		view.finishUpload(0, {
+			success: true,
+			attachment: attachmentOf("slow-1", "slow.pdf"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(view.getByTestId("composer-chip-upload")).toHaveTextContent(
+			"fresh.pdf",
+		);
+
+		view.finishUpload(1, {
+			success: true,
+			attachment: attachmentOf("fresh-1", "fresh.pdf"),
+		});
+		await waitFor(() => {
+			expect(view.getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"fresh.pdf",
+			);
+		});
+		await fireEvent.input(view.textarea, { target: { value: "for B" } });
+		expect(view.getByTestId("send-button")).toBeEnabled();
+	});
+
+	it("sends nothing queued behind a file for the chat that was left", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for A" } });
+		await view.pickFile("slow.pdf");
+		await waitFor(() =>
+			expect(view.getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+		await fireEvent.keyDown(view.textarea, { key: "Enter", ctrlKey: true });
+		await waitFor(() => {
+			expect(
+				view.getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeTruthy();
+		});
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "",
+			draftVersion: 0,
+		});
+		await waitFor(() => expect(view.textarea.value).toBe(""));
+		view.finishUpload(0, {
+			success: true,
+			attachment: attachmentOf("slow-1", "slow.pdf"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onSend).not.toHaveBeenCalled();
+	});
+
+	it("emits nothing of its own when it empties: the page saved the chat's words first", async () => {
+		const view = renderComposer();
+		await fireEvent.input(view.textarea, { target: { value: "for A" } });
+		await waitFor(() => expect(view.onDraftChange).toHaveBeenCalled());
+		view.onDraftChange.mockClear();
+
+		await view.rerender({
+			conversationId: "conv-2",
+			resetRequest: 1,
+			draftText: "B's own draft",
+			draftVersion: 7,
+		});
+		await waitFor(() => expect(view.textarea.value).toBe("B's own draft"));
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+});

@@ -1494,6 +1494,220 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// The page, and its composer, are reused when the person moves to another
+	// chat. What was typed belongs to the chat it was typed in: it is saved there
+	// first, then the composer empties and shows the next chat's own draft.
+	describe("moving to another chat with words in the composer", () => {
+		const turn = [
+			{
+				id: "user-1",
+				role: "user" as const,
+				content: "What's on my calendar?",
+				timestamp: 1,
+			},
+			{
+				id: "assistant-1",
+				role: "assistant" as const,
+				content: "You have a 2pm meeting.",
+				timestamp: 2,
+			},
+		];
+
+		function savedDraftOf(
+			conversationId: string,
+			draftText: string,
+		): ConversationDetail["draft"] {
+			return {
+				conversationId,
+				draftText,
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+				updatedAt: Date.now() - 1000,
+			};
+		}
+
+		/** What the page is given for a chat: its own id, and its saved draft when it has one. */
+		function chat(conversationId: string, draft?: string) {
+			return {
+				data: pageData({
+					conversation: conversationFixture(conversationId, {
+						title: conversationId,
+						createdAt: conversationId === "conv-1" ? 1 : 2,
+						updatedAt: conversationId === "conv-1" ? 1 : 2,
+					}),
+					messages: conversationId === "conv-1" ? turn : [],
+					draft:
+						draft === undefined ? null : savedDraftOf(conversationId, draft),
+				}),
+				params: { conversationId },
+			};
+		}
+
+		beforeEach(() => {
+			vi.mocked(persistConversationDraft).mockClear();
+		});
+
+		it("saves the words as the draft of the chat they were typed in, and shows the next chat's own draft", async () => {
+			const view = renderPage(chat("conv-1").data);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "for A" } });
+
+			await view.rerender(chat("conv-2", "B's own draft"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("B's own draft");
+			});
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				"conv-1",
+				expect.objectContaining({ draftText: "for A" }),
+				expect.anything(),
+			);
+			expect(persistConversationDraft).not.toHaveBeenCalledWith(
+				"conv-2",
+				expect.anything(),
+				expect.anything(),
+			);
+		});
+
+		it("leaves a chat with no draft with an empty composer", async () => {
+			const view = renderPage(chat("conv-1").data);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "for A" } });
+
+			await view.rerender(chat("conv-2"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("");
+			});
+		});
+
+		it("sends only the next chat's own words", async () => {
+			const view = renderPage(chat("conv-1").data);
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "for A" },
+			});
+			await view.rerender(chat("conv-2", "B's own draft"));
+			await waitFor(() => {
+				expect(screen.getByTestId("message-input")).toHaveValue(
+					"B's own draft",
+				);
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe("B's own draft");
+		});
+
+		it("gives the words back when the person returns to the chat", async () => {
+			const view = renderPage(chat("conv-1").data);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "for A" } });
+			await view.rerender(chat("conv-2"));
+			await waitFor(() => {
+				expect(composer).toHaveValue("");
+			});
+			await fireEvent.input(composer, { target: { value: "for B" } });
+
+			// What a load of the chat finds: the draft the move saved.
+			await view.rerender(chat("conv-1", "for A"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("for A");
+			});
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				"conv-2",
+				expect.objectContaining({ draftText: "for B" }),
+				expect.anything(),
+			);
+		});
+
+		it("keeps the words typed while a reply was coming with their chat", async () => {
+			const view = renderPage(chat("conv-1").data);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "A question" } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await fireEvent.input(composer, {
+				target: { value: "an idea for later" },
+			});
+
+			await view.rerender(chat("conv-2"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("");
+			});
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				"conv-1",
+				expect.objectContaining({ draftText: "an idea for later" }),
+				expect.anything(),
+			);
+		});
+
+		it("saves the draft set aside by an open edit, and never the edit", async () => {
+			const view = renderPage(chat("conv-1").data);
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "set aside" } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Edit message" }),
+			);
+			await waitFor(() => {
+				expect(composer).toHaveValue("What's on my calendar?");
+			});
+			await fireEvent.input(composer, { target: { value: "edited words" } });
+
+			await view.rerender(chat("conv-2", "B's own draft"));
+
+			await waitFor(() => {
+				expect(composer).toHaveValue("B's own draft");
+			});
+			expect(
+				screen.queryByTestId("composer-edit-strip"),
+			).not.toBeInTheDocument();
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				"conv-1",
+				expect.objectContaining({ draftText: "set aside" }),
+				expect.anything(),
+			);
+			for (const call of vi.mocked(persistConversationDraft).mock.calls) {
+				expect(JSON.stringify(call)).not.toContain("edited words");
+			}
+		});
+
+		it("saves the words typed just before a fork with the chat they were typed in", async () => {
+			const { createConversationFork } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(createConversationFork).mockResolvedValue({
+				conversation: conversationFixture("conv-fork", { title: "Fork" }),
+			} as Awaited<ReturnType<typeof createConversationFork>>);
+			renderPage(chat("conv-1").data);
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "typed just before the fork" },
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Fork from here" }),
+			);
+
+			await waitFor(() => {
+				expect(goto).toHaveBeenCalledWith("/chat/conv-fork");
+			});
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				"conv-1",
+				expect.objectContaining({ draftText: "typed just before the fork" }),
+				expect.anything(),
+			);
+		});
+	});
+
 	it("hides Stop while polling after the stream closes for recovery", async () => {
 		let resolveDetail: (
 			value:

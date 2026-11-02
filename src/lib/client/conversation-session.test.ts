@@ -440,6 +440,103 @@ describe("conversation-session", () => {
 		);
 	});
 
+	// The chat page is reused when the person moves to another chat: it saves what
+	// was typed in the chat it leaves, then drops whatever else is waiting.
+	describe("leaving a chat with a save still waiting out its delay", () => {
+		const draftUrl = (id: string) => `/api/conversations/${id}/draft`;
+		const save = (conversationId: string, draftText: string) => ({
+			conversationId,
+			draftText,
+			selectedAttachmentIds: [],
+		});
+		const puts = (fetchMock: ReturnType<typeof vi.fn>) =>
+			fetchMock.mock.calls
+				.filter(([, init]) => init?.method === "PUT")
+				.map(([input, init]) => [
+					input,
+					JSON.parse(String(init.body)).draftText,
+				]);
+
+		it("loses the save when the pending one is only cleared", async () => {
+			vi.useFakeTimers();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-a", "for A"));
+
+			persistence.clear();
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(fetchMock).not.toHaveBeenCalled();
+		});
+
+		it("sends the save to the chat it was typed in when it is flushed before the clear, and nothing twice", async () => {
+			vi.useFakeTimers();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-a", "for A"));
+
+			void persistence.flush();
+			persistence.clear();
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(puts(fetchMock)).toEqual([[draftUrl("conv-a"), "for A"]]);
+		});
+
+		it("sends the flush before the clear can drop it, in the same turn of the event loop", () => {
+			vi.useFakeTimers();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-a", "for A"));
+
+			void persistence.flush();
+
+			// Without awaiting anything: the page clears straight after.
+			expect(puts(fetchMock)).toEqual([[draftUrl("conv-a"), "for A"]]);
+		});
+
+		it("leaves a save that was already sent standing", async () => {
+			vi.useFakeTimers();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-a", "for A"));
+			await vi.advanceTimersByTimeAsync(400);
+			expect(puts(fetchMock)).toHaveLength(1);
+
+			await persistence.flush();
+			persistence.clear();
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(puts(fetchMock)).toEqual([[draftUrl("conv-a"), "for A"]]);
+		});
+
+		it("saves the next chat's words under the next chat", async () => {
+			vi.useFakeTimers();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persist(save("conv-a", "for A"));
+			void persistence.flush();
+			persistence.clear();
+
+			void persistence.persist(save("conv-b", "for B"));
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(puts(fetchMock)).toEqual([
+				[draftUrl("conv-a"), "for A"],
+				[draftUrl("conv-b"), "for B"],
+			]);
+		});
+	});
+
 	describe("a delete and the saves on their way", () => {
 		const draftUrl = (id: string) => `/api/conversations/${id}/draft`;
 

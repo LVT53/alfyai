@@ -473,6 +473,10 @@ let composerPictureOrder = $state.raw<readonly string[]>([]);
 // its words behind the ones typed since (`restorePayloadToDraft`). It names one
 // draft and is let go with the chat.
 let composerDraftTakeoverVersion = $state(0);
+// Rises when another chat replaces this one on the same page, which reuses its
+// composer: whatever the composer holds was typed in the chat that was left, so
+// it empties and shows the new chat's own draft (MessageInput's `resetRequest`).
+let composerResetRequest = $state(0);
 // The marks drawn on the open picture (plan 2b T6): one composer chip, and the
 // boxes in the panel. Held with the version of their item they were drawn on,
 // and let go when they would be left from an older picture (another item
@@ -2459,7 +2463,15 @@ $effect(() => {
 		return;
 	}
 	if (data.conversation.id !== prevConversationId) {
-		if (prevConversationId) watchTitleOfUnfinishedTurn(prevConversationId);
+		if (prevConversationId) {
+			watchTitleOfUnfinishedTurn(prevConversationId);
+			// What the composer holds was typed in the chat that is left, and stays
+			// with it: a save still waiting out its 400 ms goes now, for that chat
+			// (it names its chat; `resetState` is about to drop whatever is waiting),
+			// and then the composer empties for the next one.
+			void draftPersistence.flush();
+			composerResetRequest += 1;
+		}
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
@@ -3705,7 +3717,9 @@ async function handleFork(payload: { messageId: string }) {
 		);
 		setConversationDraft(null);
 		queuedTurn = null;
-		draftPersistence.clear();
+		// The words typed here stay with this chat: saved now, not dropped. The
+		// composer empties for the fork when the page moves to it.
+		void draftPersistence.flush();
 		currentConversationId.set(result.conversation.id);
 		await goto(`/chat/${result.conversation.id}`);
 	} catch (error) {
@@ -4688,6 +4702,7 @@ function handleDrop(event: DragEvent) {
 				draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
 				draftTakeoverVersion={composerDraftTakeoverVersion}
+				resetRequest={composerResetRequest}
 				editing={composerEditing}
 				onEditSubmit={handleEditSubmit}
 				onEditCancel={handleEditCancel}

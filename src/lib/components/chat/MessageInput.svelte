@@ -266,6 +266,7 @@ let {
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
 	draftTakeoverVersion = 0,
+	resetRequest = 0,
 	pictureRefs = [],
 	draftPictureOrder = [],
 	onRemovePictureRef = undefined,
@@ -357,6 +358,16 @@ let {
 	 * in flight.
 	 */
 	draftTakeoverVersion?: number;
+	/**
+	 * Rises when another chat has replaced the one on screen and this composer is
+	 * reused for it: what is here was typed in the chat that was left (the page has
+	 * already saved it there), so it all goes, files still uploading included, and
+	 * the draft passed in with it is the new chat's own. Only the host that knows
+	 * a chat was replaced can say so: the landing page's `conversationId` appears
+	 * while the person is typing and must clear nothing, which is why this is not
+	 * worked out from that prop here.
+	 */
+	resetRequest?: number;
 	/**
 	 * Card, strip and History pictures waiting in this message (Attach), held by
 	 * the page. They are numbered with the uploaded photos in the order they
@@ -666,6 +677,8 @@ let atlasPushStatus = $state<
 let queuedSendAfterProcessing = $state(false);
 let linkHighlightScrollTop = $state(0);
 let appliedDraftVersion = -1;
+// The request this composer was made under has been met by its being new.
+let appliedResetRequest = untrack(() => resetRequest);
 let lastEmittedDraftKey = "";
 let ensureDraftConversationPromise: Promise<string> | null = null;
 let draftEmissionVersion = 0;
@@ -1556,9 +1569,18 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (draftVersion === appliedDraftVersion) return;
+	const resetting = resetRequest !== appliedResetRequest;
+	if (!resetting && draftVersion === appliedDraftVersion) return;
 	// Not into an edit, even an emptied one. It is looked at again when the edit ends.
 	if (editing) return;
+
+	if (resetting) {
+		appliedResetRequest = resetRequest;
+		// Emptied first and then given the new chat's draft, as a new composer is:
+		// words or no words, a file with none included.
+		appliedDraftVersion = -1;
+		untrack(resetComposerForOtherChat);
+	}
 
 	const takesOver =
 		draftTakeoverVersion !== 0 && draftTakeoverVersion === draftVersion;
@@ -1751,6 +1773,16 @@ function clearComposerForNewConversation() {
 	lastEmittedDraftKey = "";
 	draftEmissionVersion += 1;
 	adjustHeight();
+}
+
+/** Another chat has replaced the one on screen: nothing here belongs to the new one. */
+function resetComposerForOtherChat() {
+	clearComposerForNewConversation();
+	// A file still on its way was meant for the chat that was left. Its answer is
+	// dropped when it comes (`uploadFiles`), and the count starts again for the
+	// new chat's own files.
+	uploadEpoch += 1;
+	pendingUploadCount = 0;
 }
 
 function adjustHeight() {
@@ -3489,10 +3521,15 @@ async function uploadFiles(files: FileList | readonly File[] | null) {
 		// three callbacks then drove to -1, retiring the "Uploading…" line and
 		// opening the send gate while the second batch was still in flight.
 		pendingUploadCount += validFiles.length;
+		const epoch = uploadEpoch;
 		onUploadFiles({
 			files: validFiles,
 			conversationId: targetConversationId,
-			done: addUploadedAttachment,
+			done: (result) => {
+				// The chat these files were meant for has been replaced (`resetRequest`):
+				// they belong to it, not to the one on screen.
+				if (epoch === uploadEpoch) addUploadedAttachment(result);
+			},
 		});
 	} catch (error) {
 		dropOptimisticUploads(optimisticIds);
@@ -3510,6 +3547,9 @@ async function uploadFiles(files: FileList | readonly File[] | null) {
 }
 
 let pendingUploadCount = $state(0);
+// Counts the chats this composer has been reset for. An upload's answer is taken
+// only if it is still the epoch the upload began in.
+let uploadEpoch = 0;
 
 function dropOptimisticUploads(ids: string[]) {
 	if (ids.length === 0) return;
