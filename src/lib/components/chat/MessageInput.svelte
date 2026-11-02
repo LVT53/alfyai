@@ -5259,8 +5259,10 @@ async function emitDraftChange(force = false) {
 			color var(--duration-standard) var(--ease-out);
 	}
 
+	/* The composer box already is --surface-elevated, so that fill would not
+	   show: a wash of the text colour reads on it in both themes. */
 	.composer-edit-strip__cancel:hover {
-		background: var(--surface-elevated);
+		background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 		color: var(--text-primary);
 	}
 
