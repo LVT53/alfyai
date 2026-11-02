@@ -447,10 +447,10 @@ export function isConversationReadOnly(conversation: {
 /**
  * How many replies, besides the one being redone, an edit of this message
  * deletes. Editing a message deletes it and everything after it, then asks the
- * model again; the message's own reply is the one that comes back, so only the
- * assistant messages after that are "later replies". Never below 0 (the last
- * message of a chat, or one with no reply yet, deletes none), and 0 for an id
- * the list does not hold.
+ * model again; the message's own reply, the row right after it, is the one that
+ * comes back, so only the assistant messages after that are "later replies". A
+ * message whose turn failed has no reply of its own, so every reply after it
+ * counts. 0 for an id the list does not hold.
  */
 export function countLaterReplies(
 	messages: readonly Pick<ChatMessage, "id" | "role">[],
@@ -460,10 +460,11 @@ export function countLaterReplies(
 		(message) => message.id === editedMessageId,
 	);
 	if (editedIndex === -1) return 0;
-	const repliesAfter = messages
-		.slice(editedIndex + 1)
-		.filter((message) => message.role === "assistant").length;
-	return Math.max(0, repliesAfter - 1);
+	const after = messages.slice(editedIndex + 1);
+	const repliesAfter = after.filter(
+		(message) => message.role === "assistant",
+	).length;
+	return after[0]?.role === "assistant" ? repliesAfter - 1 : repliesAfter;
 }
 
 export function shouldHydrateFileProductionJobsOnToolCall(

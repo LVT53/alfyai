@@ -522,6 +522,14 @@ describe("countLaterReplies", () => {
 		expect(countLaterReplies(list, "u1")).toBe(1);
 	});
 
+	it("counts every reply after a message that never got one of its own", () => {
+		// A failed turn leaves its message without a reply, and the person asks
+		// again: editing the failed one deletes that next answer too.
+		const list = [{ id: "u1", role: "user" as const }, ...turn(2)];
+
+		expect(countLaterReplies(list, "u1")).toBe(1);
+	});
+
 	it("is 0 for a message the list does not hold", () => {
 		expect(countLaterReplies([...turn(1), ...turn(2)], "missing")).toBe(0);
 	});
