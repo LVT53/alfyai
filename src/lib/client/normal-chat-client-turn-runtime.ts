@@ -1602,24 +1602,25 @@ export function createNormalChatClientTurnRuntime(
 		const text = lastUserMessage;
 		const turnConversationId = adapters.getConversationId();
 
-		// Before the message is sent again the server is asked two things. Whether it
-		// has the turn: a dropped connection does not mean the turn failed. And, when
-		// it does not, whether it is still running it: it saves the message at the
-		// end, and a resend then is turned away for the person's one reply at a time
-		// and tried again by the backoff, so a turn that ends meanwhile runs twice. An
-		// answer that does not come says nothing, and Retry goes on as it always did.
+		// Before the message is sent again the server is asked two things, the stream
+		// first. Whether it is still running the turn: it saves the message at the end,
+		// and a resend then is turned away for the person's one reply at a time and
+		// tried again by the backoff, so a turn that ends meanwhile runs twice. And,
+		// when it is not, whether the chat has the turn: a dropped connection does not
+		// mean the turn failed. That order is the one that cannot miss: the server
+		// saves a turn's message before it unregisters its stream, so a turn that ends
+		// between the two questions is found by the second. An answer that does not
+		// come says nothing, and Retry goes on as it always did.
 		let outcome: ServerOutcome = { kind: "unknown" };
 		let running: Awaited<ReturnType<typeof findRunningStream>> = null;
 		retryReading = true;
 		try {
-			if (adapters.readChatMessages) {
+			running = await findRunningStream(turnConversationId);
+			if (!running && adapters.readChatMessages) {
 				outcome = await askWhatTheServerHolds(
 					text,
 					lastSend?.options.retryAssistantMessageId,
 				);
-			}
-			if (outcome.kind !== "landed") {
-				running = await findRunningStream(turnConversationId);
 			}
 		} finally {
 			retryReading = false;

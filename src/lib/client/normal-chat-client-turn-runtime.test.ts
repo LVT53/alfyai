@@ -2945,21 +2945,40 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(removedIds(messageListEvents)).toEqual(["id-2"]);
 			});
 
-			it("does not run twice either while the chat is being read", async () => {
-				let answer: (messages: ChatMessage[] | null) => void = () => {};
+			/**
+			 * A read of the chat that answers when the test says so. The chat is read after
+			 * the stream question, so `answer` waits until the read has been asked.
+			 */
+			function aChatReadThatWaits() {
+				let resolveIt: (messages: ChatMessage[] | null) => void = () => {};
+				let answered = 0;
 				const readChatMessages = vi.fn(
 					() =>
 						new Promise<ChatMessage[] | null>((resolve) => {
-							answer = resolve;
+							resolveIt = resolve;
 						}),
 				);
+				async function answer(messages: ChatMessage[] | null) {
+					await vi.waitFor(() =>
+						expect(readChatMessages.mock.calls.length).toBeGreaterThan(
+							answered,
+						),
+					);
+					answered += 1;
+					resolveIt(messages);
+				}
+				return { readChatMessages, answer };
+			}
+
+			it("does not run twice either while the chat is being read", async () => {
+				const { readChatMessages, answer } = aChatReadThatWaits();
 				const { streamInvocations, runtime } = await failedSend({
 					readChatMessages,
 				});
 
 				const first = runtime.retry();
 				const second = runtime.retry();
-				answer(null);
+				await answer(null);
 				await Promise.all([first, second]);
 
 				expect(readChatMessages).toHaveBeenCalledTimes(1);
@@ -2976,46 +2995,32 @@ describe("Normal Chat Client Turn Runtime", () => {
 					answerWith: ChatMessage[] | null,
 				) {
 					let editOpen = false;
-					let answer: (messages: ChatMessage[] | null) => void = () => {};
 					const state = await failedSend({
 						isEditOpen: vi.fn(() => editOpen),
-						readChatMessages: vi.fn(
-							() =>
-								new Promise<ChatMessage[] | null>((resolve) => {
-									answer = resolve;
-								}),
-						),
+						readChatMessages: vi.fn(async () => answerWith),
 						...overrides,
 					});
 					const pressed = state.runtime.retry();
+					// Opened before any answer to the page's questions has come back.
 					editOpen = true;
-					answer(answerWith);
 					await pressed;
 					return {
 						...state,
 						closeTheEdit: () => {
 							editOpen = false;
 						},
-						answerTheNextRead: (messages: ChatMessage[] | null) =>
-							answer(messages),
 					};
 				}
 
 				it("sends nothing, and the message can still be retried once the edit is over", async () => {
-					const {
-						streamInvocations,
-						runtime,
-						closeTheEdit,
-						answerTheNextRead,
-					} = await pressedWithAnEditOpenedMeanwhile({}, null);
+					const { streamInvocations, runtime, closeTheEdit } =
+						await pressedWithAnEditOpenedMeanwhile({}, null);
 
 					expect(streamInvocations).toHaveLength(1);
 					expect(runtime.snapshot().canRetry).toBe(true);
 
 					closeTheEdit();
-					const again = runtime.retry();
-					answerTheNextRead(null);
-					await again;
+					await runtime.retry();
 					expect(streamInvocations).toHaveLength(2);
 				});
 
@@ -3057,14 +3062,8 @@ describe("Normal Chat Client Turn Runtime", () => {
 			});
 
 			it("sends nothing when a turn has started, or the chat has changed, while the chat was being read", async () => {
-				let answer: (messages: ChatMessage[] | null) => void = () => {};
 				let conversationId = "conv-1";
-				const readChatMessages = vi.fn(
-					() =>
-						new Promise<ChatMessage[] | null>((resolve) => {
-							answer = resolve;
-						}),
-				);
+				const { readChatMessages, answer } = aChatReadThatWaits();
 				const { streamInvocations, runtime } = await failedSend({
 					readChatMessages,
 					getConversationId: vi.fn(() => conversationId),
@@ -3078,7 +3077,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 					attachments: [],
 					pendingAttachments: [],
 				});
-				answer(null);
+				await answer(null);
 				await first;
 				expect(streamInvocations).toHaveLength(2);
 				expect(streamInvocations[1].message).toBe("Something else");
@@ -3087,7 +3086,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				streamInvocations[1].callbacks.onError(new Error("Network failed"));
 				const second = runtime.retry();
 				conversationId = "conv-2";
-				answer(null);
+				await answer(null);
 				await second;
 				expect(streamInvocations).toHaveLength(2);
 			});
@@ -3097,7 +3096,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 		// whose connection dropped, the chat does not hold the message. A resend then is
 		// turned away for the person's one reply at a time and tried again by the backoff
 		// for 3.5 seconds without asking: a turn that ends in that window ran twice.
-		// Retry asks whether a stream is running for the chat first, and joins it.
+		// Retry asks whether a stream is running for the chat first, and joins it. The
+		// stream is asked before the chat: the server saves a turn's message before it
+		// unregisters its stream, so a turn that ends between the two questions is
+		// answered by the second, where asked the other way round it got two noes.
 		describe("a turn the server is still running", () => {
 			const runningTurn = () => ({
 				checkForOrphanedStream: vi.fn(async () => "stream-1"),
@@ -3111,16 +3113,16 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 			it("is joined, not sent again: Retry reconnects to its stream and sends nothing", async () => {
 				const running = runningTurn();
+				const readChatMessages = vi.fn(async () => earlierTurn());
 				const { adapters, streamInvocations, messages, runtime } =
-					await failedSend({
-						...running,
-						readChatMessages: vi.fn(async () => earlierTurn()),
-					});
+					await failedSend({ ...running, readChatMessages });
 				vi.mocked(adapters.setSendError).mockClear();
 
 				await runtime.retry();
 
 				expect(running.checkForOrphanedStream).toHaveBeenCalledWith("conv-1");
+				// The stream says the turn is going; the chat is not read for it.
+				expect(readChatMessages).not.toHaveBeenCalled();
 				expect(streamInvocations).toHaveLength(2);
 				expect(streamInvocations[1].options).toMatchObject({
 					reconnectToStreamId: "stream-1",
@@ -3141,53 +3143,57 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(runtime.snapshot().isSending).toBe(true);
 			});
 
-			it("is joined when the chat could not be read", async () => {
-				const running = runningTurn();
+			it("asks the stream first and the chat after, so a turn that ends between the two is not missed by both", async () => {
+				// The turn ends right after the first question, whichever it is.
+				let ended = false;
+				const asked: string[] = [];
 				const { streamInvocations, runtime } = await failedSend({
-					...running,
-					readChatMessages: vi.fn(async () => null),
+					checkForOrphanedStream: vi.fn(async () => {
+						asked.push("stream");
+						const answer = ended ? null : "stream-1";
+						ended = true;
+						return answer;
+					}),
+					getStreamBufferInfo: vi.fn(async () => ({
+						exists: true,
+						userMessage: askedWords,
+					})),
+					readChatMessages: vi.fn(async () => {
+						asked.push("chat");
+						const answer = ended
+							? [...earlierTurn(), serverUser(), serverReply()]
+							: earlierTurn();
+						ended = true;
+						return answer;
+					}),
 				});
 
 				await runtime.retry();
 
+				// Joined while it ran, not sent again after it had ended.
+				expect(asked[0]).toBe("stream");
 				expect(streamInvocations).toHaveLength(2);
 				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
 					"stream-1",
 				);
 			});
 
-			it("is joined when the server holds the message without a reply: a regenerate in flight looks so", async () => {
-				const running = runningTurn();
-				const { streamInvocations, runtime } = await failedSend({
-					...running,
-					readChatMessages: vi.fn(async () => [...earlierTurn(), serverUser()]),
-				});
-
-				await runtime.retry();
-
-				expect(streamInvocations).toHaveLength(2);
-				expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
-					"stream-1",
-				);
-				expect(
-					streamInvocations[1].options?.retryAssistantMessageId,
-				).toBeUndefined();
-			});
-
-			it("is not looked for when the server already finished the turn", async () => {
-				const running = runningTurn();
+			it("reads the chat when no stream is running, and loads the turn it holds", async () => {
+				const asked: string[] = [];
 				const { adapters, streamInvocations, runtime } = await failedSend({
-					...running,
-					readChatMessages: vi.fn(async () => [
-						...earlierTurn(),
-						serverUser(),
-						serverReply(),
-					]),
+					checkForOrphanedStream: vi.fn(async () => {
+						asked.push("stream");
+						return null;
+					}),
+					readChatMessages: vi.fn(async () => {
+						asked.push("chat");
+						return [...earlierTurn(), serverUser(), serverReply()];
+					}),
 				});
 
 				await runtime.retry();
 
-				expect(running.checkForOrphanedStream).not.toHaveBeenCalled();
+				expect(asked).toEqual(["stream", "chat"]);
 				expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1);
 				expect(streamInvocations).toHaveLength(1);
 			});
