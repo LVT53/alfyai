@@ -591,6 +591,65 @@ test.describe("Editing a message in the composer", () => {
 				}
 			});
 		}
+
+		test("a first message sent from the landing page while a save of it is on its way does not come back in the composer", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			// Held in the page and not with page.route, which would slow the delete
+			// that has to reach the server ahead of the chat page's own read.
+			await page.addInitScript(() => {
+				const real = window.fetch;
+				const holding = window as unknown as {
+					holdDraftSaves?: boolean;
+					draftSavesHeld?: number;
+				};
+				window.fetch = (input, init) => {
+					const isSave =
+						init?.method === "PUT" && String(input).endsWith("/draft");
+					if (!isSave || !holding.holdDraftSaves) return real(input, init);
+					holding.draftSavesHeld = (holding.draftSavesHeld ?? 0) + 1;
+					return new Promise(() => undefined);
+				};
+			});
+			try {
+				await page.goto("/", { waitUntil: "domcontentloaded" });
+				await waitForHydration(page);
+				const composer = page.getByTestId("message-input");
+				const firstSave = page.waitForResponse(
+					(response) =>
+						response.url().endsWith("/draft") &&
+						response.request().method() === "PUT",
+				);
+				await composer.fill("What is the plan");
+				await firstSave;
+
+				await page.evaluate(() => {
+					(window as unknown as { holdDraftSaves: boolean }).holdDraftSaves =
+						true;
+				});
+				await composer.fill("What is the plan for the weekend?");
+				await page.waitForFunction(
+					() =>
+						((window as unknown as { draftSavesHeld?: number })
+							.draftSavesHeld ?? 0) > 0,
+				);
+				await page.getByTestId("send-button").click();
+
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(composer).toHaveValue("");
+				await page.reload();
+				await expect(composer).toHaveValue("");
+			} finally {
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
 	});
 
 	test.describe("a 360 px phone", () => {

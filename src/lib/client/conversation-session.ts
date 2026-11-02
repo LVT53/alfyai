@@ -540,20 +540,30 @@ export function createDraftPersistence(
 		return answered;
 	}
 
-	/**
-	 * A delete goes behind the saves already on their way: one that landed after it
-	 * would bring back words the person sent, and the turn's own clear catches only
-	 * the exact text it sent, not an earlier version of it. A save this chat sends
-	 * while the delete waits holds words typed since, so it stands.
-	 */
-	async function deleteAfterSaves(conversationId: string): Promise<void> {
-		const last = lastSave.get(conversationId);
-		await Promise.all(saving);
-		if (lastSave.get(conversationId) !== last) return;
+	async function deleteQuietly(conversationId: string): Promise<void> {
 		try {
 			await deleteConversationDraft(conversationId, fetchImpl);
 		} catch {
 			// Ignore transient persistence failures in the composer.
+		}
+	}
+
+	/**
+	 * Deletes a chat's saved draft now, and again once the saves already on their way
+	 * have been answered: one that landed behind the first delete would bring back
+	 * words the person sent, and the turn's own clear catches only the exact text it
+	 * sent, not an earlier version of it. The first delete never waits: the landing
+	 * page navigates straight after it, and the chat page's read must find the draft
+	 * gone. A save this chat sends meanwhile holds words typed since, so it stands.
+	 */
+	async function deleteDraft(conversationId: string): Promise<void> {
+		const last = lastSave.get(conversationId);
+		const onTheirWay = [...saving];
+		await deleteQuietly(conversationId);
+		if (onTheirWay.length === 0) return;
+		await Promise.all(onTheirWay);
+		if (lastSave.get(conversationId) === last) {
+			await deleteQuietly(conversationId);
 		}
 	}
 
@@ -578,7 +588,7 @@ export function createDraftPersistence(
 				request.atlasMode === true,
 			)
 		) {
-			await deleteAfterSaves(request.conversationId);
+			await deleteDraft(request.conversationId);
 			return;
 		}
 
@@ -681,7 +691,7 @@ export function createDraftPersistence(
 			await doFlush();
 		},
 
-		deleteDraft: deleteAfterSaves,
+		deleteDraft,
 
 		clear(): void {
 			// Cancel any pending timer and discard the pending request.

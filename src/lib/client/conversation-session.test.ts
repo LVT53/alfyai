@@ -473,30 +473,29 @@ describe("conversation-session", () => {
 			selectedAttachmentIds: [],
 		});
 
-		it("deletes only after a save on its way has been answered", async () => {
+		it("deletes at once, and again when a save on its way has been answered", async () => {
 			const { fetchMock, deletes, answerAll } = heldSaves();
 			const persistence = createDraftPersistence(fetchMock, 400);
 			void persistence.persist(save("conv-123", "an earlier version"), true);
 
+			// The landing page navigates straight after this: nothing may wait.
 			void persistence.deleteDraft("conv-123");
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			expect(deletes()).toEqual([]);
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
 
 			await answerAll();
-			expect(deletes()).toEqual([draftUrl("conv-123")]);
+			expect(deletes()).toEqual([draftUrl("conv-123"), draftUrl("conv-123")]);
 		});
 
-		it("holds the delete of an emptied draft back the same way", async () => {
+		it("does the same for the delete of an emptied draft", async () => {
 			const { fetchMock, deletes, answerAll } = heldSaves();
 			const persistence = createDraftPersistence(fetchMock, 400);
 			void persistence.persist(save("conv-123", "an earlier version"), true);
 
 			void persistence.persist(save("conv-123", ""));
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			expect(deletes()).toEqual([]);
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
 
 			await answerAll();
-			expect(deletes()).toEqual([draftUrl("conv-123")]);
+			expect(deletes()).toEqual([draftUrl("conv-123"), draftUrl("conv-123")]);
 		});
 
 		it("deletes behind a save that failed", async () => {
@@ -514,7 +513,7 @@ describe("conversation-session", () => {
 			});
 		});
 
-		it("leaves alone what this chat saved while the delete waited", async () => {
+		it("does not delete again over what this chat saved after the first delete", async () => {
 			const { fetchMock, deletes, answerAll } = heldSaves();
 			const persistence = createDraftPersistence(fetchMock, 400);
 			void persistence.persist(save("conv-123", "an earlier version"), true);
@@ -523,7 +522,7 @@ describe("conversation-session", () => {
 			void persistence.persist(save("conv-123", "typed since"), true);
 
 			await answerAll();
-			expect(deletes()).toEqual([]);
+			expect(deletes()).toEqual([draftUrl("conv-123")]);
 		});
 
 		it("does not take another chat's save for words typed in this one", async () => {
@@ -535,10 +534,10 @@ describe("conversation-session", () => {
 			void persistence.persist(save("conv-456", "another chat"), true);
 
 			await answerAll();
-			expect(deletes()).toEqual([draftUrl("conv-123")]);
+			expect(deletes()).toEqual([draftUrl("conv-123"), draftUrl("conv-123")]);
 		});
 
-		it("goes straight on when no save is on its way", async () => {
+		it("deletes once when no save is on its way", async () => {
 			const { fetchMock, deletes } = heldSaves();
 			const persistence = createDraftPersistence(fetchMock, 400);
 

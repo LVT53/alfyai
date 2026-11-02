@@ -148,11 +148,11 @@ export async function recordAssistantTurnAnalytics(params: {
 /**
  * A landed turn clears the conversation's saved draft only when that draft is
  * the text the turn sent. The browser deletes the draft itself when the composer
- * sends, behind the saves already on their way; this is the backstop for a draft
- * save that lands after that delete all the same, which a reload would bring back
- * as the message already sent. Any other saved text stays: it is what the person
- * typed while the reply was coming. A draft that cannot be read or cleared never
- * fails the turn.
+ * sends, and again once the saves on their way have been answered; this is the
+ * backstop for a draft save that lands later all the same, which a reload would
+ * bring back as the message already sent. Any other saved text stays, as the
+ * words typed while the reply was coming. A draft that cannot be read or cleared
+ * never fails the turn.
  */
 async function clearDraftTheTurnSent(params: {
 	userId: string;
