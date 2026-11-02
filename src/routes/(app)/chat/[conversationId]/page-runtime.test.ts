@@ -5472,6 +5472,30 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				).not.toBeInTheDocument();
 			});
 
+			it("says another reply is running when the server cannot take a turn, and deletes nothing", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockResolvedValue({
+					ok: false,
+					busy: true,
+					error: new ApiError("Server at capacity. Please try again later.", {
+						status: 503,
+						code: "CAPACITY_EXCEEDED",
+					}),
+				});
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+
+				// Not the model provider's error sentence, which is what a send makes of it.
+				expect(
+					await screen.findByText(
+						"Another reply is still running. Wait for it, then send this edit again.",
+					),
+				).toBeInTheDocument();
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+			});
+
 			it("leaves the edit open and deletes nothing when the check fails", async () => {
 				const deleteMessages = await withDeletesThatWork();
 				checkChatTurnMock.mockRejectedValue(new Error("Network down"));

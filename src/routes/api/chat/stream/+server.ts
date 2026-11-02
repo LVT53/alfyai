@@ -3,10 +3,10 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
 	admitChatTurnStream,
-	checkStreamCapacity,
 	createStreamJsonErrorResponse,
 	parseChatTurnRequest,
 	prepareAdmittedChatTurn,
+	refuseTurnWhenOverCapacity,
 	runChatStreamOrchestrator,
 	startStartedResetGenerationFact,
 } from "$lib/server/services/chat-turn";
@@ -55,34 +55,9 @@ export const POST: RequestHandler = async (event) => {
 	// For reconnects, skip capacity check - the orphan stream will be replaced
 	// when we register the new stream (registerActiveChatStream handles this)
 	if (!isReconnect) {
-		const capacity = checkStreamCapacity(user.id);
+		const refused = refuseTurnWhenOverCapacity(user.id, "CHAT_STREAM");
 		recordPhase(SERVER_STREAM_TIMELINE_MARKS.CAPACITY);
-		if (!capacity.allowed) {
-			console.warn("[CHAT_STREAM] Rejected due to capacity", {
-				userId: user.id,
-				reason: capacity.reason,
-				retryAfterSeconds: capacity.retryAfterSeconds,
-				currentGlobalCount: capacity.currentGlobalCount,
-				currentUserCount: capacity.currentUserCount,
-			});
-
-			return new Response(
-				JSON.stringify({
-					error: "Server at capacity. Please try again later.",
-					code: "CAPACITY_EXCEEDED",
-					reason: capacity.reason,
-					retryAfter: capacity.retryAfterSeconds,
-				}),
-				{
-					status: 503,
-					headers: {
-						"Content-Type": "application/json",
-						"Retry-After": String(capacity.retryAfterSeconds ?? 10),
-						"Cache-Control": "no-store",
-					},
-				},
-			);
-		}
+		if (refused) return refused;
 	} else {
 		recordPhase(SERVER_STREAM_TIMELINE_MARKS.CAPACITY);
 	}

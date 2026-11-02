@@ -37,6 +37,7 @@ import {
 	type StreamTimelineTimingRecord,
 } from "$lib/services/stream-timeline";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
+import { checkStreamCapacity } from "./active-streams";
 import type { ChatTurnRequestError } from "./types";
 
 export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -127,6 +128,48 @@ type StreamToolCallDetails = {
 	// anything the user can see is written.
 	instructionSuggestion?: InstructionSuggestion | null;
 };
+
+/**
+ * The 503 a new turn gets when the server cannot take it: this user's reply is
+ * still running in another chat (`user_limit`, one at a time by default), or the
+ * server is full or draining (`global_limit`). The stream route answers with it
+ * before it admits a turn, and so does the turn check an edit asks before it
+ * deletes anything: a check that left capacity out passed, the delete ran, and the
+ * resend was refused four times. One piece, so the two cannot disagree. Null when
+ * a turn would be taken.
+ */
+export function refuseTurnWhenOverCapacity(
+	userId: string,
+	source: string,
+): Response | null {
+	const capacity = checkStreamCapacity(userId);
+	if (capacity.allowed) return null;
+
+	console.warn(`[${source}] Rejected due to capacity`, {
+		userId,
+		reason: capacity.reason,
+		retryAfterSeconds: capacity.retryAfterSeconds,
+		currentGlobalCount: capacity.currentGlobalCount,
+		currentUserCount: capacity.currentUserCount,
+	});
+
+	return new Response(
+		JSON.stringify({
+			error: "Server at capacity. Please try again later.",
+			code: "CAPACITY_EXCEEDED",
+			reason: capacity.reason,
+			retryAfter: capacity.retryAfterSeconds,
+		}),
+		{
+			status: 503,
+			headers: {
+				...JSON_HEADERS,
+				"Retry-After": String(capacity.retryAfterSeconds ?? 10),
+				"Cache-Control": "no-store",
+			},
+		},
+	);
+}
 
 export function createStreamJsonErrorResponse(
 	error: ChatTurnRequestError,

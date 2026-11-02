@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	parseChatTurnRequest: vi.fn(),
 	checkChatTurn: vi.fn(),
+	checkStreamCapacity: vi.fn(),
 	runChatStreamOrchestrator: vi.fn(),
 	preflightChatTurn: vi.fn(),
 }));
@@ -15,6 +16,10 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: mocks.getConfig,
+}));
+
+vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
+	checkStreamCapacity: mocks.checkStreamCapacity,
 }));
 
 vi.mock("$lib/server/services/chat-turn/request", () => ({
@@ -72,6 +77,7 @@ describe("POST /api/chat/turn-check", () => {
 			value: parsedRequest,
 		});
 		mocks.checkChatTurn.mockResolvedValue({ ok: true });
+		mocks.checkStreamCapacity.mockReturnValue({ allowed: true });
 	});
 
 	it("says ok for a turn the gate takes, having parsed the body the resend sends", async () => {
@@ -138,6 +144,51 @@ describe("POST /api/chat/turn-check", () => {
 			error: "Message must be a non-empty string",
 		});
 		expect(mocks.checkChatTurn).not.toHaveBeenCalled();
+	});
+
+	// The resend of an edit meets the stream route's capacity check before its gate.
+	// A check that left it out passed, the edit deleted its message, and the resend
+	// was refused with 503 four times: a reply running in another chat, one at a
+	// time by default, or a server that is draining.
+	it("refuses with the stream route's 503 when the server cannot take a turn, before it asks the gate", async () => {
+		mocks.checkStreamCapacity.mockReturnValue({
+			allowed: false,
+			reason: "user_limit",
+			retryAfterSeconds: 5,
+			currentGlobalCount: 1,
+			currentUserCount: 1,
+		});
+
+		const response = await POST(makeEvent({ conversationId: "conv-1" }));
+
+		expect(response.status).toBe(503);
+		expect(response.headers.get("Retry-After")).toBe("5");
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(await response.json()).toEqual({
+			error: "Server at capacity. Please try again later.",
+			code: "CAPACITY_EXCEEDED",
+			reason: "user_limit",
+			retryAfter: 5,
+		});
+		expect(mocks.checkChatTurn).not.toHaveBeenCalled();
+		expect(mocks.checkStreamCapacity).toHaveBeenCalledWith("user-1");
+	});
+
+	it("refuses a body the stream would refuse before it looks at capacity", async () => {
+		mocks.parseChatTurnRequest.mockResolvedValue({
+			ok: false,
+			error: { status: 400, error: "Message must be a non-empty string" },
+		});
+		mocks.checkStreamCapacity.mockReturnValue({
+			allowed: false,
+			reason: "global_limit",
+			retryAfterSeconds: 10,
+		});
+
+		const response = await POST(makeEvent({ conversationId: "conv-1" }));
+
+		expect(response.status).toBe(400);
+		expect(mocks.checkStreamCapacity).not.toHaveBeenCalled();
 	});
 
 	it("answers 401 to nobody, and starts no turn whatever it is asked", async () => {

@@ -10,6 +10,7 @@ import {
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
+	AI_SMOKE_REFUSE_SLOWLY_MARKER,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
@@ -776,6 +777,87 @@ test.describe("Editing a message in the composer", () => {
 					before.map((message) => message.id),
 				);
 			} finally {
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		// The stream route turns a turn away before it admits it while this person's
+		// reply is still running in another chat (one at a time by default). The edit's
+		// resend meets that after the delete, so the check meets it first: the edit
+		// stays open and nothing is deleted; once the other reply is over it goes.
+		test("an edit while a reply runs in another chat is turned away before anything is deleted, and goes once it is over", async ({
+			page,
+		}) => {
+			test.setTimeout(120_000);
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const editing = await seedTurns(page, 2, "Chat with the edit");
+			const running = await createEmptyConversation(page, "Chat with a reply");
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const other = await page.context().newPage();
+			await other.setViewportSize({ width: 1280, height: 900 });
+			const requests = watchChatRequests(other);
+			const marked = `${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`;
+			try {
+				await open(other, editing.conversationId);
+				await pressPencil(other, editing.userIds[1]);
+				const composer = other.getByTestId("message-input");
+				await composer.fill("Question number 2, asked again");
+				const before = await savedMessages(other, editing.conversationId);
+
+				// A reply in the other chat: the provider holds its refusal for 1.5 s, so
+				// the server has it running while the edit is sent.
+				await openEmptyChat(page, running);
+				await page.getByTestId("message-input").fill(marked);
+				await page.getByTestId("send-button").click();
+				await expect
+					.poll(() =>
+						fakeProvider
+							.requests()
+							.some((request) =>
+								(JSON.stringify(request.body) ?? "").includes(marked),
+							),
+					)
+					.toBe(true);
+
+				await other.getByTestId("send-button").click();
+				await expect(
+					other.getByText(
+						"Another reply is still running. Wait for it, then send this edit again.",
+					),
+				).toBeVisible();
+				await expect(other.getByTestId("composer-edit-strip")).toBeVisible();
+				await expect(composer).toHaveValue("Question number 2, asked again");
+				await expect(
+					other.getByText("Answer number 2 about the lake."),
+				).toBeVisible();
+				expect(requests).toContain("POST /api/chat/turn-check");
+				expect(requests.filter((r) => r.startsWith("DELETE"))).toEqual([]);
+				expect(requests.filter((r) => r === "POST /api/chat/stream")).toEqual(
+					[],
+				);
+				expect(
+					(await savedMessages(other, editing.conversationId)).map(
+						(message) => message.id,
+					),
+				).toEqual(before.map((message) => message.id));
+
+				// The other reply ends (the model refused it): the same edit goes.
+				await expect(page.getByRole("button", { name: "Retry" })).toBeVisible({
+					timeout: 30_000,
+				});
+				await other.getByTestId("send-button").click();
+				await expect(other.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(other.getByTestId("composer-edit-strip")).toHaveCount(0);
+				await expect(
+					other.getByText("Answer number 2 about the lake."),
+				).toHaveCount(0);
+			} finally {
+				await other.close();
 				await restoreTheUsersModel(page, providerId);
 			}
 		});

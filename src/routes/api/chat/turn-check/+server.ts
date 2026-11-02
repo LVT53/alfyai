@@ -9,6 +9,7 @@ import {
 	checkChatTurn,
 	createStreamJsonErrorResponse,
 	parseChatTurnRequest,
+	refuseTurnWhenOverCapacity,
 } from "$lib/server/services/chat-turn";
 
 // Whether the turn's gate would take this request, asked without starting a turn
@@ -30,6 +31,12 @@ export const POST: RequestHandler = async (event) => {
 	if (!parsedRequest.ok) {
 		return createStreamJsonErrorResponse(parsedRequest.error);
 	}
+
+	// The stream route turns a turn away before it admits it when this user's reply
+	// is still running or the server is draining; the resend would be turned away
+	// the same way, after the delete, so the check says so first.
+	const refused = refuseTurnWhenOverCapacity(user.id, "CHAT_TURN_CHECK");
+	if (refused) return refused;
 
 	const checked = await checkChatTurn({
 		userId: user.id,

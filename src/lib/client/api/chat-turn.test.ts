@@ -122,6 +122,39 @@ describe("checkChatTurn", () => {
 		);
 	});
 
+	// The stream route turns a turn away with this before it admits it (a reply
+	// running in another chat, one at a time by default; a server that is draining),
+	// and the turn check answers the same: the edit then waits, it does not fail.
+	it("says the server is busy when it cannot take a turn now, and not when the gate refuses one", async () => {
+		const busy = vi.fn(async () =>
+			jsonResponse(
+				{
+					error: "Server at capacity. Please try again later.",
+					code: "CAPACITY_EXCEEDED",
+					reason: "user_limit",
+					retryAfter: 5,
+				},
+				503,
+			),
+		);
+		const result = await checkChatTurn(request, busy);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.busy).toBe(true);
+		expect(result.error.code).toBe("CAPACITY_EXCEEDED");
+
+		const refused = vi.fn(async () =>
+			jsonResponse(
+				{ status: 422, error: "Refused", code: "attachment_not_ready" },
+				422,
+			),
+		);
+		const gate = await checkChatTurn(request, refused);
+		expect(gate.ok).toBe(false);
+		if (gate.ok) return;
+		expect(gate.busy).toBeFalsy();
+	});
+
 	it("fails when the request never reaches the server", async () => {
 		const fetchMock = vi.fn(async () => {
 			throw new TypeError("Failed to fetch");

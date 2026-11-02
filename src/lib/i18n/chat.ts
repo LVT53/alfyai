@@ -52,6 +52,10 @@ const chatDict = {
 		// check cannot be made the edit stays as it was (page `handleEdit`).
 		"chat.editCheckFailed":
 			"Couldn't check this edit. Nothing has changed, try again.",
+		// A reply is still running (here, or in another chat, one at a time), or the
+		// server is draining: the check says so before the edit deletes anything.
+		"chat.editReplyRunning":
+			"Another reply is still running. Wait for it, then send this edit again.",
 		"chat.editLaterReplies":
 			"{count} later {count, plural, one {reply} other {replies}} will be deleted.",
 		"chat.emptyConversation": "Start a conversation",
@@ -1301,6 +1305,8 @@ const chatDict = {
 		"chat.edit": "Szerkesztés",
 		"chat.editCheckFailed":
 			"Nem sikerült ellenőrizni a szerkesztést. Nem változott semmi, próbáld újra.",
+		"chat.editReplyRunning":
+			"Még fut egy másik válasz. Várd meg, aztán küldd el újra a szerkesztést.",
 		"chat.editLaterReplies": "{count} későbbi válasz törlődik.",
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.emptyHeadline": "Miben segíthetek?",

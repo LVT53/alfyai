@@ -32,6 +32,7 @@ export { prepareRetryChatTurn } from "./retry";
 export {
 	classifyStreamErrorCause,
 	createStreamJsonErrorResponse,
+	refuseTurnWhenOverCapacity,
 } from "./stream";
 export {
 	runChatStreamOrchestrator,

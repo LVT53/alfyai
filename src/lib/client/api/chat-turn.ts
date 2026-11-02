@@ -24,8 +24,13 @@ export type ChatTurnCheckRequest = {
 
 export type ChatTurnCheck =
 	| { ok: true }
-	/** The gate said no. The error carries what a refused send's error carries, so `toFriendlySendError` says the same sentence. */
-	| { ok: false; error: ApiError };
+	/**
+	 * The turn would be refused. For the gate's own refusal the error carries what a
+	 * refused send's error carries, so `toFriendlySendError` says the same sentence.
+	 * `busy` is the server turning any turn away for now (a reply running in another
+	 * chat, a server that is draining): that has no sentence of its own there.
+	 */
+	| { ok: false; error: ApiError; busy?: boolean };
 
 /**
  * The statuses the turn's gate refuses with (`chat-turn/request.ts`, `preflight.ts`).
@@ -35,6 +40,9 @@ export type ChatTurnCheck =
 const GATE_REFUSAL_STATUSES: ReadonlySet<number> = new Set([
 	400, 403, 404, 409, 422,
 ]);
+
+/** The code of the 503 the stream route, and so the check, answers when it cannot take a turn (`refuseTurnWhenOverCapacity`). */
+const CAPACITY_REFUSAL_CODE = "CAPACITY_EXCEEDED";
 
 /**
  * Asks the server whether the turn's gate would take this request, without
@@ -59,8 +67,13 @@ export async function checkChatTurn(
 		);
 		return { ok: true };
 	} catch (error) {
-		if (error instanceof ApiError && GATE_REFUSAL_STATUSES.has(error.status)) {
-			return { ok: false, error };
+		if (error instanceof ApiError) {
+			if (error.status === 503 && error.code === CAPACITY_REFUSAL_CODE) {
+				return { ok: false, error, busy: true };
+			}
+			if (GATE_REFUSAL_STATUSES.has(error.status)) {
+				return { ok: false, error };
+			}
 		}
 		throw error;
 	}

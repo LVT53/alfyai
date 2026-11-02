@@ -4083,7 +4083,12 @@ async function handleEdit(
 		return;
 	}
 	if (!verdict.ok) {
-		sendError = toFriendlySendError(verdict.error, $t);
+		// A server that cannot take a turn now (a reply running in another chat, one
+		// at a time by default; a server that is draining) has no sentence of its own
+		// in a refused send's, which would blame the model provider.
+		sendError = verdict.busy
+			? $t("chat.editReplyRunning")
+			: toFriendlySendError(verdict.error, $t);
 		return;
 	}
 
