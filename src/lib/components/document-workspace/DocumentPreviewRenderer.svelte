@@ -604,7 +604,7 @@ function downloadFile() {
 	}
 
 	:global(.markdown-document-preview) {
-		/* `ch` follows the font: 81ch of Nimbus is the line 72ch of the serif was. */
+		/* `ch` is the width of this face's zero: 81ch of Nimbus is the line 72ch of the serif was. */
 		max-width: 81ch;
 		margin: 0 auto;
 		font-family: var(--font-sans);

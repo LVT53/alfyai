@@ -3021,8 +3021,8 @@ function saveNoticeText(notice: SaveNotice): string {
 	   that point (h2, p, table, …) is Tiptap-injected markup that never
 	   carries this component's own Svelte scoping hash — a bare descendant
 	   combinator outside `:global(...)` would silently match nothing. */
-	/* `ch` follows the font: 70ch of Nimbus is the line 62ch of the serif was, about
-	   79 characters of Hungarian. */
+	/* `ch` is the width of this face's zero, so 70ch of Nimbus is the line 62ch of the
+	   serif was, about 79 characters of Hungarian. */
 	.document-editor-host :global(.document-content) {
 		font-family: var(--font-sans);
 		font-size: 16px;
