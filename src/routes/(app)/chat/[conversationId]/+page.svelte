@@ -3957,8 +3957,7 @@ async function handleEdit(
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
 	const edit = editingMessage;
-	// The message's record is read beside the gate below, so the read costs the
-	// send no wait of its own.
+	// The message's record is read beside the gate below, so the two waits overlap.
 	const reading = recordedPicturesOf(
 		payload.messageId,
 		$messages.find((m) => m.id === payload.messageId)?.pictures,
