@@ -457,6 +457,46 @@ describe("AtlasActivityRow", () => {
 			);
 		});
 
+		it("offers no lifecycle action when nothing can take one", async () => {
+			render(AtlasActivityRow, { job: doneJob() });
+
+			expect(
+				screen.queryByRole("button", { name: "Revise Atlas" }),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByTestId("atlas-lifecycle-panel"),
+			).not.toBeInTheDocument();
+		});
+
+		it("keeps a half-written revision while the actions are away", async () => {
+			const onLifecycleAction = vi.fn();
+			const view = render(AtlasActivityRow, {
+				job: doneJob(),
+				onLifecycleAction,
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Revise Atlas" }),
+			);
+			await fireEvent.input(
+				within(screen.getByTestId("atlas-lifecycle-panel")).getByRole(
+					"textbox",
+				),
+				{ target: { value: "Shorter, please." } },
+			);
+
+			await view.rerender({ onLifecycleAction: undefined });
+			expect(
+				screen.queryByTestId("atlas-lifecycle-panel"),
+			).not.toBeInTheDocument();
+
+			await view.rerender({ onLifecycleAction });
+			expect(
+				within(screen.getByTestId("atlas-lifecycle-panel")).getByRole(
+					"textbox",
+				),
+			).toHaveValue("Shorter, please.");
+		});
+
 		it("opens the inline lifecycle panel from Revise and submits it", async () => {
 			const onLifecycleAction = vi.fn();
 			render(AtlasActivityRow, { job: doneJob(), onLifecycleAction });
@@ -539,6 +579,7 @@ describe("AtlasActivityRow", () => {
 
 		it("renders a cancelled job as a done row with Continue", async () => {
 			render(AtlasActivityRow, {
+				onLifecycleAction: vi.fn(),
 				job: atlasJob({
 					status: "cancelled",
 					completedAt: NOW,

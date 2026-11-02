@@ -365,10 +365,10 @@ function togglePanel(action: AtlasAction, prefill = "") {
 }
 
 function submitLifecycleAction() {
-	if (!activePanel) return;
+	if (!activePanel || !onLifecycleAction) return;
 	const message = lifecycleMessage.trim();
 	if (!message) return;
-	onLifecycleAction?.({
+	onLifecycleAction({
 		jobId: job.id,
 		action: activePanel,
 		message,
@@ -438,7 +438,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 {/snippet}
 
 {#snippet lifecyclePanel()}
-	{#if activePanel}
+	{#if activePanel && onLifecycleAction}
 		<section class="atlas-panel" aria-label={lifecyclePanelLabel} data-testid="atlas-lifecycle-panel">
 			<textarea
 				bind:value={lifecycleMessage}
@@ -511,33 +511,37 @@ function handleTabKeydown(event: KeyboardEvent) {
 	{:else if isFailed}
 		<div class="atlas-error" data-testid="atlas-failure-reason">{failureReason}</div>
 		<div class="atlas-note">{$t('atlasActivity.retryNote')}</div>
-		<div class="atlas-actions">
-			<button
-				type="button"
-				class="mini-btn"
-				onclick={() => togglePanel('continue', $t('atlasActivity.retryPrompt'))}
-				data-testid="atlas-retry"
-			>
-				<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
-				{$t('atlasActivity.retry')}
-			</button>
-		</div>
+		{#if onLifecycleAction}
+			<div class="atlas-actions">
+				<button
+					type="button"
+					class="mini-btn"
+					onclick={() => togglePanel('continue', $t('atlasActivity.retryPrompt'))}
+					data-testid="atlas-retry"
+				>
+					<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('atlasActivity.retry')}
+				</button>
+			</div>
+		{/if}
 		{@render lifecyclePanel()}
 	{:else if isCancelled}
 		<div class="atlas-note" data-testid="atlas-stopped-note">
 			{$t('atlasActivity.stoppedNote', { count: job.sourceCounts.accepted })}
 		</div>
-		<div class="atlas-actions">
-			<button
-				type="button"
-				class="mini-btn"
-				onclick={() => togglePanel('continue')}
-				aria-label={$t('atlas.action.continue')}
-				data-testid="atlas-continue"
-			>
-				{$t('atlasActivity.continue')}
-			</button>
-		</div>
+		{#if onLifecycleAction}
+			<div class="atlas-actions">
+				<button
+					type="button"
+					class="mini-btn"
+					onclick={() => togglePanel('continue')}
+					aria-label={$t('atlas.action.continue')}
+					data-testid="atlas-continue"
+				>
+					{$t('atlasActivity.continue')}
+				</button>
+			</div>
+		{/if}
 		{@render lifecyclePanel()}
 	{:else}
 		{#if availableTabs.length > 1}
@@ -625,37 +629,39 @@ function handleTabKeydown(event: KeyboardEvent) {
 						{/if}
 					</span>
 				</div>
-				<div class="atlas-actions">
-					<button
-						type="button"
-						class="mini-btn"
-						onclick={() => togglePanel('revise')}
-						title={$t('atlas.action.reviseTooltip')}
-						aria-label={$t('atlas.action.revise')}
-					>
-						<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
-						{$t('atlasActivity.revise')}
-					</button>
-					<button
-						type="button"
-						class="mini-btn"
-						onclick={() => togglePanel('continue')}
-						title={$t('atlas.action.continueTooltip')}
-						aria-label={$t('atlas.action.continue')}
-					>
-						{$t('atlasActivity.continue')}
-					</button>
-					<button
-						type="button"
-						class="mini-btn"
-						onclick={() => togglePanel('fork')}
-						title={$t('atlas.action.forkTooltip')}
-						aria-label={$t('atlas.action.fork')}
-					>
-						<Split size={12} strokeWidth={2} aria-hidden="true" />
-						{$t('atlasActivity.fork')}
-					</button>
-				</div>
+				{#if onLifecycleAction}
+					<div class="atlas-actions">
+						<button
+							type="button"
+							class="mini-btn"
+							onclick={() => togglePanel('revise')}
+							title={$t('atlas.action.reviseTooltip')}
+							aria-label={$t('atlas.action.revise')}
+						>
+							<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+							{$t('atlasActivity.revise')}
+						</button>
+						<button
+							type="button"
+							class="mini-btn"
+							onclick={() => togglePanel('continue')}
+							title={$t('atlas.action.continueTooltip')}
+							aria-label={$t('atlas.action.continue')}
+						>
+							{$t('atlasActivity.continue')}
+						</button>
+						<button
+							type="button"
+							class="mini-btn"
+							onclick={() => togglePanel('fork')}
+							title={$t('atlas.action.forkTooltip')}
+							aria-label={$t('atlas.action.fork')}
+						>
+							<Split size={12} strokeWidth={2} aria-hidden="true" />
+							{$t('atlasActivity.fork')}
+						</button>
+					</div>
+				{/if}
 				{@render lifecyclePanel()}
 			</div>
 		{:else if activeTab === 'evidence' && evidence}

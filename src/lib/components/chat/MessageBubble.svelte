@@ -1314,7 +1314,7 @@ function sendFollowUp(question: string) {
 							{job}
 							onOpenDocument={onOpenDocument}
 							onCancel={onCancelAtlasJob}
-							onLifecycleAction={onAtlasLifecycleAction}
+							onLifecycleAction={readOnly ? undefined : onAtlasLifecycleAction}
 						/>
 					{/each}
 				</div>

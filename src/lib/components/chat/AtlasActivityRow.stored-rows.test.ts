@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import chatDict from "$lib/i18n/chat";
 import type { atlasJobs } from "$lib/server/db/schema";
 import { ATLAS_V3_PHASES } from "$lib/server/services/atlas/progress-details";
@@ -193,7 +193,7 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 				fileProductionJobId: null,
 			}),
 		);
-		render(AtlasActivityRow, { job: card });
+		render(AtlasActivityRow, { job: card, onLifecycleAction: vi.fn() });
 		expect(screen.getByTestId("tool-activity-row")).toHaveAttribute(
 			"data-status",
 			"failed",
@@ -241,7 +241,7 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 				}),
 			}),
 		);
-		render(AtlasActivityRow, { job: card });
+		render(AtlasActivityRow, { job: card, onLifecycleAction: vi.fn() });
 		expect(screen.getByTestId("atlas-continue")).toBeInTheDocument();
 		expectNoRawI18nKeys();
 	});
