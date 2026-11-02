@@ -361,11 +361,11 @@ let {
 	/**
 	 * Rises when another chat has replaced the one on screen and this composer is
 	 * reused for it: what is here was typed in the chat that was left (the page has
-	 * already saved it there), so it all goes, files still uploading included, and
-	 * the draft passed in with it is the new chat's own. Only the host that knows
-	 * a chat was replaced can say so: the landing page's `conversationId` appears
-	 * while the person is typing and must clear nothing, which is why this is not
-	 * worked out from that prop here.
+	 * already saved it there), so it all goes, a send waiting at its gate and files
+	 * still uploading included, and the draft passed in with it is the new chat's
+	 * own. Only the host that knows a chat was replaced can say so: the landing
+	 * page's `conversationId` appears while the person is typing and must clear
+	 * nothing, which is why this is not worked out from that prop here.
 	 *
 	 * A host that passes it (even 0) also owns emptying the composer when the store
 	 * that names the open chat changes, which can be after the draft was given
@@ -1788,11 +1788,14 @@ function clearComposerForNewConversation() {
 /** Another chat has replaced the one on screen: nothing here belongs to the new one. */
 function resetComposerForOtherChat() {
 	clearComposerForNewConversation();
-	// A file still on its way was meant for the chat that was left. Its answer is
-	// dropped when it comes (`uploadFiles`), and the count starts again for the
-	// new chat's own files.
-	uploadEpoch += 1;
+	// A file still on its way, and a send waiting at its gate, were meant for the
+	// chat that was left. Their answers are dropped when they come (`uploadFiles`,
+	// `attemptDispatch`), and the upload count starts again for the new chat's own
+	// files.
+	chatEpoch += 1;
 	pendingUploadCount = 0;
+	// The dropped send no longer holds the composer: the new chat can send now.
+	sendPending = false;
 }
 
 function adjustHeight() {
@@ -2290,15 +2293,21 @@ async function attemptDispatch(nextMessage: string) {
 		dispatchSend(nextMessage);
 		return;
 	}
+	const epoch = chatEpoch;
 	sendPending = true;
 	try {
 		const proceed = await beforeSend();
 		// A pencil pressed during the wait: this text is the set-aside draft now,
 		// and sending it would empty the edit and bring it back as a draft after.
-		if (!proceed || editing) return;
+		// Another chat opened during it: these words were typed in the chat that was
+		// left, where the page has saved them, and sending them here would put them
+		// in a chat they were not written for and delete its own draft.
+		if (!proceed || editing || epoch !== chatEpoch) return;
 		dispatchSend(nextMessage);
 	} finally {
-		sendPending = false;
+		// A send dropped by a reset let go of the flag then, and the flag may be a
+		// newer send's by now.
+		if (epoch === chatEpoch) sendPending = false;
 	}
 }
 
@@ -3531,14 +3540,14 @@ async function uploadFiles(files: FileList | readonly File[] | null) {
 		// three callbacks then drove to -1, retiring the "Uploading…" line and
 		// opening the send gate while the second batch was still in flight.
 		pendingUploadCount += validFiles.length;
-		const epoch = uploadEpoch;
+		const epoch = chatEpoch;
 		onUploadFiles({
 			files: validFiles,
 			conversationId: targetConversationId,
 			done: (result) => {
 				// The chat these files were meant for has been replaced (`resetRequest`):
 				// they belong to it, not to the one on screen.
-				if (epoch === uploadEpoch) addUploadedAttachment(result);
+				if (epoch === chatEpoch) addUploadedAttachment(result);
 			},
 		});
 	} catch (error) {
@@ -3557,9 +3566,9 @@ async function uploadFiles(files: FileList | readonly File[] | null) {
 }
 
 let pendingUploadCount = $state(0);
-// Counts the chats this composer has been reset for. An upload's answer is taken
-// only if it is still the epoch the upload began in.
-let uploadEpoch = 0;
+// Counts the chats this composer has been reset for. The answer of an upload, or
+// of a send's gate, is taken only if it is still the epoch it began in.
+let chatEpoch = 0;
 
 function dropOptimisticUploads(ids: string[]) {
 	if (ids.length === 0) return;

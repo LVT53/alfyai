@@ -7954,6 +7954,105 @@ describe("MessageInput when another chat replaces the one on screen", () => {
 		expect(view.onDraftChange).not.toHaveBeenCalled();
 	});
 
+	// The send gate (the page's privacy check, an open step save) can take
+	// seconds, and a chat can be opened meanwhile. The words were typed in the
+	// chat that was left; the page has saved them there.
+	describe("a send still waiting at its gate", () => {
+		it("is dropped when another chat replaces the one on screen", async () => {
+			let openGate: (proceed: boolean) => void = () => {};
+			const beforeSend = vi.fn(
+				() =>
+					new Promise<boolean>((resolve) => {
+						openGate = resolve;
+					}),
+			);
+			const view = renderComposer({ beforeSend });
+			await fireEvent.input(view.textarea, { target: { value: "for A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
+
+			await view.rerender({
+				conversationId: "conv-2",
+				resetRequest: 1,
+				draftText: "B's own draft",
+				draftVersion: 7,
+			});
+			await waitFor(() => expect(view.textarea.value).toBe("B's own draft"));
+			openGate(true);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(view.onSend).not.toHaveBeenCalled();
+			expect(view.textarea.value).toBe("B's own draft");
+		});
+
+		it("leaves the next chat able to send at once, and the dropped gate's answer does not undo that", async () => {
+			let openGate: (proceed: boolean) => void = () => {};
+			let openSecondGate: (proceed: boolean) => void = () => {};
+			const beforeSend = vi
+				.fn<() => Promise<boolean>>()
+				.mockImplementationOnce(
+					() =>
+						new Promise<boolean>((resolve) => {
+							openGate = resolve;
+						}),
+				)
+				.mockImplementationOnce(
+					() =>
+						new Promise<boolean>((resolve) => {
+							openSecondGate = resolve;
+						}),
+				)
+				.mockResolvedValue(true);
+			const view = renderComposer({ beforeSend });
+			await fireEvent.input(view.textarea, { target: { value: "for A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
+			await view.rerender({
+				conversationId: "conv-2",
+				resetRequest: 1,
+				draftText: "",
+				draftVersion: 0,
+			});
+
+			// The old gate is still open when the person sends in the new chat.
+			await fireEvent.input(view.textarea, { target: { value: "for B" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(2));
+			openGate(true);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			// B's own gate is still the one holding its send: A's answer let nothing go.
+			expect(view.onSend).not.toHaveBeenCalled();
+			expect(view.getByTestId("send-button")).toBeDisabled();
+
+			openSecondGate(true);
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			expect(view.onSend).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "for B", conversationId: "conv-2" }),
+			);
+		});
+
+		it("still goes out when nothing replaced the chat", async () => {
+			let openGate: (proceed: boolean) => void = () => {};
+			const beforeSend = vi.fn(
+				() =>
+					new Promise<boolean>((resolve) => {
+						openGate = resolve;
+					}),
+			);
+			const view = renderComposer({ beforeSend });
+			await fireEvent.input(view.textarea, { target: { value: "for A" } });
+			await fireEvent.click(view.getByTestId("send-button"));
+			await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
+
+			openGate(true);
+
+			await waitFor(() => expect(view.onSend).toHaveBeenCalledTimes(1));
+			expect(view.onSend).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "for A" }),
+			);
+		});
+	});
+
 	// The store that names the open chat changes whenever the shell, the sidebar
 	// or a search result says so, which can be after the page has already given
 	// the composer its draft (a reload, Back). On the chat page `resetRequest`
