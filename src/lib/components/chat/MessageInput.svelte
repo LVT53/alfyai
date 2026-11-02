@@ -2312,7 +2312,10 @@ onMount(() => {
 		}
 		adjustHeight();
 	}
-	syncTextareaValueFromDom();
+	// Text typed before the page hydrated. An empty box is not that: it is only
+	// the server's markup, which has not caught up with a draft applied a moment
+	// ago, and taking it for the person's words deletes that draft on every reload.
+	if (textarea?.value) syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
 	onCapabilitiesReady?.(ensureCapabilitiesLoaded);

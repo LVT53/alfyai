@@ -7098,6 +7098,21 @@ describe("MessageInput editing a sent message", () => {
 		);
 	});
 
+	it("keeps a saved draft when the box mounts empty, as it does on a reload", async () => {
+		const view = renderComposer({
+			draftText: "a saved draft",
+			draftVersion: 5,
+		});
+
+		await waitFor(() => expect(view.textarea.value).toBe("a saved draft"));
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		// An empty emission is how the page deletes a draft from the server.
+		expect(view.onDraftChange).not.toHaveBeenCalledWith(
+			expect.objectContaining({ draftText: "" }),
+		);
+	});
+
 	it("drops the destructive tint while the send button is off", async () => {
 		const view = renderComposer();
 		await view.rerender({ editing: { text: "Hi", laterReplies: 3 } });
