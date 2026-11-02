@@ -197,7 +197,7 @@ test("the board stays where the reader left it when a block they are typing in g
 	await tail.dblclick();
 	await expect(page.locator("textarea:focus")).toBeVisible();
 	await page.keyboard.type(
-		" and a very long line that wraps over several rows of the note, again and again until the note is a good deal taller than it was, and again, and again",
+		" and a very long line that wraps over several rows of the note, again and again until the note is a good deal taller than it was, and again, and again, and again, and again, and again, and again",
 	);
 	await expect
 		.poll(async () => (await tail.boundingBox())?.height ?? 0, {
