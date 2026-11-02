@@ -5292,7 +5292,7 @@ test.describe("marks on the open picture (T6)", () => {
 		});
 	}
 
-	test("other-item-clears: opening another item lets the marks and their chip go (Review Focus 4)", async ({
+	test("other-item-keeps: opening another item keeps the marks and their chip, and the picture draws its boxes again when it is opened (stop losing boxes)", async ({
 		browser,
 	}, testInfo) => {
 		test.setTimeout(180_000);
@@ -5323,23 +5323,32 @@ test.describe("marks on the open picture (T6)", () => {
 			await expect(page.locator(`${DOC_BODY}:visible`).first()).toBeVisible({
 				timeout: 20_000,
 			});
-			await expect(page.locator(MARKS_CHIP)).toHaveCount(0);
+			// Marks stay until they are sent, moved or cleared (c263cf35e, "stop losing
+			// boxes": opening another item used to drop them, and a reader lost boxes they
+			// had drawn). The chip says they are held and lets them go with its x; the
+			// document is not their picture, so it draws none, and the next send carries
+			// them with their picture (F14, below).
+			await expect(page.locator(MARKS_CHIP)).toHaveCount(1);
+			await expect(page.locator(MARK_BOX)).toHaveCount(0);
 			metrics.chipAfterOther = await page.locator(MARKS_CHIP).count();
-			// Back on the picture: nothing of the old marks is left.
+			// Back on the picture: the box is where it was drawn.
 			await backToList(page);
 			await openItem(page, IMAGE_ITEM_TITLE);
 			await expect(page.locator(PANEL_LOADED).first()).toBeVisible({
 				timeout: 20_000,
 			});
+			await expect(page.locator(MARK_BOX)).toHaveCount(1);
 			metrics.boxesBack = await page.locator(MARK_BOX).count();
+			metrics.chipBack = await page.locator(MARKS_CHIP).count();
 		} finally {
-			await saveRecording(flow, "other-item-clears", metrics, {
+			await saveRecording(flow, "other-item-keeps", metrics, {
 				prefix: "t6",
 			});
 		}
 		expect(flow.errors).toEqual([]);
-		expect(metrics.chipAfterOther).toBe(0);
-		expect(metrics.boxesBack).toBe(0);
+		expect(metrics.chipAfterOther).toBe(1);
+		expect(metrics.boxesBack).toBe(1);
+		expect(metrics.chipBack).toBe(1);
 	});
 });
 
