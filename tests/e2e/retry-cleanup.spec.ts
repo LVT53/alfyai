@@ -15,50 +15,40 @@ test.describe("Atomic retry with cleanup", () => {
 		await login(page);
 	});
 
-	test("retry after stream error calls /api/chat/retry endpoint", async ({
+	test("retry after a failed turn sends the message again and leaves the earlier reply", async ({
 		page,
 	}) => {
 		let streamCallCount = 0;
 		let retryCallCount = 0;
 
-		// The /api/chat/retry path (atomic retry with cleanup) is only used when
-		// there is a PERSISTED assistant message to retry. So first complete a
-		// successful turn (persisting an assistant message), then fail the next
-		// turn; the retry of that failure targets /api/chat/retry.
+		// The server keeps nothing of a failed turn, so a Retry has no reply of its
+		// own to replace: it sends the message again through /api/chat/stream, and
+		// /api/chat/retry, which deletes a reply, is not asked.
 		await page.route("**/api/chat/stream", async (route) => {
 			streamCallCount++;
-			if (streamCallCount === 1) {
+			if (streamCallCount === 2) {
 				await route.fulfill({
-					status: 200,
-					headers: {
-						"Content-Type": "text/event-stream",
-						"Cache-Control": "no-cache",
-					},
-					body: buildSseBody("Initial response"),
+					status: 500,
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ error: "Backend failure" }),
 				});
 				return;
 			}
-			await route.fulfill({
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ error: "Backend failure" }),
-			});
-		});
-
-		await page.route("**/api/chat/retry", async (route) => {
-			retryCallCount++;
-			const reqBody = route.request().postDataJSON() as Record<string, unknown>;
-			expect(reqBody.conversationId).toBeTruthy();
-			expect(reqBody.assistantMessageId).toBeTruthy();
-			expect(reqBody.streamId).toBeTruthy();
 			await route.fulfill({
 				status: 200,
 				headers: {
 					"Content-Type": "text/event-stream",
 					"Cache-Control": "no-cache",
 				},
-				body: buildSseBody("Retry cleanup succeeded"),
+				body: buildSseBody(
+					streamCallCount === 1 ? "Initial response" : "Retry succeeded",
+				),
 			});
+		});
+
+		await page.route("**/api/chat/retry", async (route) => {
+			retryCallCount++;
+			await route.abort();
 		});
 
 		await openConversationComposer(page);
@@ -74,14 +64,17 @@ test.describe("Atomic retry with cleanup", () => {
 		await retryBtn.click();
 
 		await expect(page.getByTestId("assistant-message").last()).toContainText(
-			"Retry cleanup succeeded",
+			"Retry succeeded",
 			{ timeout: 15000 },
 		);
-		expect(streamCallCount).toBe(2);
-		expect(retryCallCount).toBe(1);
+		await expect(page.getByTestId("assistant-message").first()).toContainText(
+			"Initial response",
+		);
+		expect(streamCallCount).toBe(3);
+		expect(retryCallCount).toBe(0);
 	});
 
-	test("retry sends conversationId and assistantMessageId", async ({
+	test("regenerate sends conversationId and assistantMessageId", async ({
 		page,
 	}) => {
 		let capturedRetryBody: Record<string, unknown> | null = null;
@@ -96,27 +89,6 @@ test.describe("Atomic retry with cleanup", () => {
 				body: buildSseBody("Initial response"),
 			});
 		});
-
-		await openConversationComposer(page);
-		await sendMessage(page, "First message");
-		await expect(page.getByTestId("assistant-message").first()).toContainText(
-			"Initial response",
-			{
-				timeout: 15000,
-			},
-		);
-
-		await page.route("**/api/chat/stream", async (route) => {
-			await route.fulfill({
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ error: "Fail on second try" }),
-			});
-		});
-
-		await sendMessage(page, "Second message triggers error");
-		const retryBtn = page.getByRole("button", { name: /retry/i });
-		await expect(retryBtn).toBeVisible({ timeout: 15000 });
 
 		await page.route("**/api/chat/retry", async (route) => {
 			capturedRetryBody = route.request().postDataJSON() as Record<
@@ -133,7 +105,16 @@ test.describe("Atomic retry with cleanup", () => {
 			});
 		});
 
-		await retryBtn.click();
+		await openConversationComposer(page);
+		await sendMessage(page, "First message");
+		await expect(page.getByTestId("assistant-message").first()).toContainText(
+			"Initial response",
+			{
+				timeout: 15000,
+			},
+		);
+
+		await page.getByRole("button", { name: "Regenerate" }).click();
 
 		await expect(page.getByTestId("assistant-message").last()).toContainText(
 			"Retry response",
@@ -144,6 +125,7 @@ test.describe("Atomic retry with cleanup", () => {
 		expect(capturedRetryBody).toBeTruthy();
 		expect(capturedRetryBody?.conversationId).toBeTruthy();
 		expect(capturedRetryBody?.assistantMessageId).toBeTruthy();
+		expect(capturedRetryBody?.streamId).toBeTruthy();
 	});
 
 	test("retry after error shows fresh response", async ({ page }) => {
