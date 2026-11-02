@@ -2620,7 +2620,18 @@ test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
 				});
 				const rowBox = row.getBoundingClientRect();
 				const stripBox = rect(strip);
-				const toolsBox = rect(tools);
+				// The tools are items of the row, not a box of their own (`display:
+				// contents`): their extent is that of Before / After and Mark together.
+				const toolRects = tools
+					? [...tools.children].map((child) => child.getBoundingClientRect())
+					: [];
+				const toolsBox =
+					toolRects.length > 0
+						? {
+								left: Math.min(...toolRects.map((box) => box.left)),
+								right: Math.max(...toolRects.map((box) => box.right)),
+							}
+						: null;
 				return {
 					row: { left: rowBox.left, right: rowBox.right, width: rowBox.width },
 					rowOverflows: row.scrollWidth > row.clientWidth + 0.5,

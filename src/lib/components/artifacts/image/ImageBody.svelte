@@ -345,7 +345,10 @@ let markNote = $derived(
 
 	<!-- One row under the picture: the strip, then the tools (Before / After; T6's
 	     Mark). Reserved whatever it holds, so a version landing moves nothing, and
-	     the only row, so the picture has the rest of the height in every shape. -->
+	     the only row, so the picture has the rest of the height in every shape. The
+	     tools are the row's own items, not a box of their own (`display: contents`):
+	     a box as wide as its tools loses its left edge when Before / After arrives
+	     beside Mark, and the browser counts that as a layout shift. -->
 	<div class="image-body-foot" class:has-continue={canContinue} data-testid="image-body-foot">
 		<div class="image-body-strip">
 			<VersionStrip {moments} {conversationId} {title} onOpenHistory={(versionId) => onOpenHistory?.(versionId)} {onAttachPicture} />
@@ -483,10 +486,12 @@ let markNote = $derived(
 		font-size: 0.875rem;
 	}
 
+	/* The tools sit a space-sm apart, and a space-md from the strip (its own space-sm
+	   and the row's). */
 	.image-body-foot {
 		display: flex;
 		align-items: center;
-		gap: var(--space-md);
+		gap: var(--space-sm);
 		flex: none;
 		min-height: 3.5rem;
 	}
@@ -494,28 +499,28 @@ let markNote = $derived(
 	.image-body-strip {
 		flex: 1 1 auto;
 		min-width: 0;
+		margin-inline-end: var(--space-sm);
 	}
 
+	/* No box: Before / After and Mark are items of the row, which ends at Mark. Before /
+	   After arriving beside it moves nothing that was there (the strip's start and Mark's
+	   end stay put), where a box as wide as its tools would lose its left edge: 150 px,
+	   counted as a layout shift though nothing visible moved. */
 	.image-body-toolbar {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		flex: none;
+		display: contents;
 	}
 
 	/* A phone's row has no room for the way back beside Before / After and Mark:
 	   it takes a row of its own under them. */
 	.image-body-foot.has-continue {
 		flex-wrap: wrap;
+		column-gap: var(--space-md);
 		row-gap: var(--space-sm);
 	}
 
 	.has-continue .image-body-strip {
 		flex-basis: 0;
-	}
-
-	.has-continue .image-body-toolbar {
-		display: contents;
+		margin-inline-end: 0;
 	}
 
 	.has-continue :global(.mark-continue) {
