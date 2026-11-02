@@ -481,6 +481,15 @@ function jump(id: string) {
 		border: 0;
 		background: transparent;
 		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	/* The pill clips each half's fill, so the fill carries its radius. */
+	.jr-capsule button:hover {
+		background: var(--surface-page);
+		color: var(--text-primary);
 	}
 
 	.jr-capsule button:focus-visible {
