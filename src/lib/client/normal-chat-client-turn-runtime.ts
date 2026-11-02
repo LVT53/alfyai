@@ -735,13 +735,22 @@ export function createNormalChatClientTurnRuntime(
 	 * with. A read that fails or runs out says nothing (`unknown`), and the caller
 	 * goes on as it always did: if the network is really gone the resend fails by
 	 * itself.
+	 *
+	 * `replacedReplyId` is the reply a regenerate was replacing. The page took it off
+	 * its list, so when the regenerate never reached the server (the network) the
+	 * server still has it and it reads as a new reply: it is counted as held, and is
+	 * never the reply that says a turn landed.
 	 */
-	async function askWhatTheServerHolds(text: string): Promise<ServerOutcome> {
+	async function askWhatTheServerHolds(
+		text: string,
+		replacedReplyId?: string,
+	): Promise<ServerOutcome> {
 		const read = adapters.readChatMessages;
 		if (!read || !text.trim()) return { kind: "unknown" };
 		const heldIds = new Set(
 			adapters.getMessages().map((message) => message.id),
 		);
+		if (replacedReplyId) heldIds.add(replacedReplyId);
 		let serverMessages: ChatMessage[] | null = null;
 		try {
 			serverMessages = await read();
@@ -1255,7 +1264,10 @@ export function createNormalChatClientTurnRuntime(
 			// No stream to reconnect to does not mean the turn failed: it may have
 			// finished meanwhile. The page asks before it shows an error and a Retry
 			// for a message the server has answered.
-			const outcome = await askWhatTheServerHolds(params.message);
+			const outcome = await askWhatTheServerHolds(
+				params.message,
+				params.streamOptions.retryAssistantMessageId,
+			);
 			if (!isTurnConversationActive(params.turnConversationId)) {
 				return;
 			}
@@ -1579,7 +1591,10 @@ export function createNormalChatClientTurnRuntime(
 		retryReading = true;
 		try {
 			if (adapters.readChatMessages) {
-				outcome = await askWhatTheServerHolds(text);
+				outcome = await askWhatTheServerHolds(
+					text,
+					lastSend?.options.retryAssistantMessageId,
+				);
 			}
 			if (outcome.kind !== "landed") {
 				running = await findRunningStream(turnConversationId);

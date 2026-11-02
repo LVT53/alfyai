@@ -1015,6 +1015,51 @@ describe("chat page runtime integration", () => {
 			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
 		});
 
+		// A regenerate that fails before it reaches the server (the network) deletes
+		// nothing there, but the page took the reply off its list. The server still has
+		// it, and it must not read as the reply of a turn that landed.
+		it("replays a regenerate that never reached the server, and does not bring the old reply back", async () => {
+			const turns = [
+				...earlierTurn,
+				{
+					id: "user-2",
+					role: "user" as const,
+					content: "And tomorrow?",
+					timestamp: 3,
+				},
+				{
+					id: "assistant-2",
+					role: "assistant" as const,
+					content: "Tomorrow is busy.",
+					timestamp: 4,
+				},
+			];
+			renderPage(pageData({ messages: turns }));
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({ messages: turns }),
+			);
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Regenerate response" })[1],
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Retry" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations[1].options).toMatchObject({
+				retryAssistantMessageId: "assistant-2",
+				retryUserMessageId: "user-2",
+				retryOrigin: "error_retry",
+			});
+			expect(screen.queryByText("Tomorrow is busy.")).not.toBeInTheDocument();
+		});
+
 		const askedWords = "And what about tomorrow?";
 
 		/** A send that failed in the page: the stream ended in an error, so the bubble stands with the error and a Retry. */

@@ -2664,6 +2664,46 @@ describe("Normal Chat Client Turn Runtime", () => {
 				}
 			});
 
+			// A regenerate that fails before the server deleted the reply (the network):
+			// the page took the reply off its list, so the reply the server still has
+			// reads as new, and the turn before it as the same words again.
+			it("is not found in the reply a regenerate was replacing, and Retry replays the regenerate", async () => {
+				const made = makeAdapters({
+					readChatMessages: vi.fn(async () => earlierTurn()),
+				});
+				// The page's list after the regenerate took the reply off it.
+				made.messages.push(earlierTurn()[0]);
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(
+					{
+						message: "First question",
+						attachmentIds: [],
+						attachments: [],
+						pendingAttachments: [],
+					},
+					{
+						skipUserMessage: true,
+						skipPersistUserMessage: true,
+						retryAssistantMessageId: "assistant-1",
+						retryUserMessageId: "user-1",
+					},
+				);
+				made.streamInvocations[0].callbacks.onError(
+					new Error("Network failed"),
+				);
+
+				await runtime.retry();
+
+				expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+				expect(made.streamInvocations).toHaveLength(2);
+				expect(made.streamInvocations[1].options).toMatchObject({
+					retryAssistantMessageId: "assistant-1",
+					retryUserMessageId: "user-1",
+					retryOrigin: "error_retry",
+				});
+				expect(runtime.snapshot().canRetry).toBe(true);
+			});
+
 			it("goes on as it does today when the server does not hold the turn", async () => {
 				const { adapters, streamInvocations, runtime } = await failedSend({
 					readChatMessages: vi.fn(async () => earlierTurn()),
