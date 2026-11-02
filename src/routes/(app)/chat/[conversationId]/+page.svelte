@@ -3976,12 +3976,12 @@ async function handleEdit(
 	} catch (error) {
 		deleteError = error;
 	}
-	isEditResendPending = false;
 
 	// The person left the chat while the delete ran. The turn must not start in
 	// the chat they are in now, and this text exists nowhere else, so it waits
 	// as that chat's draft, after the draft that was set aside for it.
 	if (data.conversation.id !== conversationId) {
+		isEditResendPending = false;
 		void persistConversationDraft(conversationId, {
 			...draftSetAside,
 			draftText: draftSetAside?.draftText.trim()
@@ -3998,6 +3998,7 @@ async function handleEdit(
 	}
 
 	if (deleteError) {
+		isEditResendPending = false;
 		// The edit stays open with what was typed, on the messages that are
 		// still there, whichever way this ends.
 		if (
@@ -4024,8 +4025,11 @@ async function handleEdit(
 	editingMessage = null;
 	// The rows leaving and the new turn arriving must reach the message list as
 	// two updates: seen as one the list has not grown, and it would not take the
-	// reader to the new turn.
+	// reader to the new turn. The pending flag stays up through it: with the edit
+	// gone and no turn running yet, a send queued behind a file would go out here
+	// in the resend's place, and the resend would be refused.
 	await tick();
+	isEditResendPending = false;
 
 	// `clearDraft` false: the composer has just taken the person's own draft
 	// back, and a resend of an older message is not what that draft was for.

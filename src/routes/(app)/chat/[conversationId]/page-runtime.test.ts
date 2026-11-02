@@ -4298,6 +4298,117 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(0);
 		});
 
+		it("a send queued behind a file waits for the resend's turn, whichever is ready first", async () => {
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
+			const { uploadKnowledgeAttachment } = await import(
+				"$lib/client/api/knowledge"
+			);
+			type KnowledgeUploadResponse = Awaited<
+				ReturnType<typeof uploadKnowledgeAttachment>
+			>;
+			let finishUpload: (value: KnowledgeUploadResponse) => void = () => {};
+			vi.mocked(uploadKnowledgeAttachment).mockReturnValue(
+				new Promise((resolve) => {
+					finishUpload = resolve;
+				}),
+			);
+			// A local model: the gate answers at once, which is the tight case.
+			renderPage(pageData({ messages: conversationTurnFixture() }));
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: "Summarise this" } });
+			await fireEvent.change(
+				document.querySelector('input[type="file"]') as HTMLInputElement,
+				{
+					target: {
+						files: [
+							new File(["scan"], "notes.pdf", { type: "application/pdf" }),
+						],
+					},
+				},
+			);
+			await waitFor(() => {
+				expect(screen.getByText("Uploading file...")).toBeInTheDocument();
+			});
+			await fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+			await waitFor(() => {
+				expect(
+					screen.getByText(
+						"Message will send automatically when file processing finishes.",
+					),
+				).toBeInTheDocument();
+			});
+
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Edit message" })[0],
+			);
+			await waitFor(() => {
+				expect(composer).toHaveValue("What's on my calendar?");
+			});
+			finishUpload({
+				artifact: {
+					id: "artifact-queued-2",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "OCR me",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+				promptReady: true,
+				promptArtifactId: "normalized-queued-2",
+				readinessError: null,
+				extraction: {
+					id: "extraction-queued-2",
+					sourceArtifactId: "artifact-queued-2",
+					normalizedArtifactId: "normalized-queued-2",
+					status: "succeeded",
+					intakeRoute: "mineru",
+					fileName: "notes.pdf",
+					attemptCount: 1,
+					maxAttempts: 3,
+					retryable: false,
+					cancelable: false,
+					error: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					startedAt: Date.now(),
+					legacy: false,
+				},
+			});
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			await fireEvent.input(composer, { target: { value: editedText } });
+			await fireEvent.click(screen.getByTestId("send-button"));
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations.length).toBeGreaterThan(0);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe(editedText);
+
+			runtimeHarness.streamInvocations[0].callbacks.onEnd("A new answer.", {
+				assistantMessageId: "assistant-new",
+			});
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations[1].message).toBe(
+				"Summarise this",
+			);
+		});
+
 		it("sends nothing to the next chat when the person leaves during the delete, and keeps the text in the chat they left", async () => {
 			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
 			const { deleteConversationMessages, persistConversationDraft } =
