@@ -1453,12 +1453,15 @@ describe("Normal Chat Client Turn Runtime", () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
-		await runtime.send({
-			message: "First",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-		});
+		await runtime.send(
+			{
+				message: "First",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			},
+			{ clearDraft: true },
+		);
 		runtime.queue({
 			message: "Second",
 			attachmentIds: [],

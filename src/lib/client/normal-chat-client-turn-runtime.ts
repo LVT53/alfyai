@@ -1269,7 +1269,7 @@ export function createNormalChatClientTurnRuntime(
 		adapters.markHasPersistedMessages?.();
 		emitState();
 
-		if (options.clearDraft ?? true) {
+		if (options.clearDraft) {
 			adapters.clearDraft();
 			adapters.deleteDraft?.();
 		}
