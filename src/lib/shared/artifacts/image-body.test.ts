@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+	type ImageMark,
 	type ImageVersionBody,
 	MARK_COLOURS,
+	marksRideWith,
 	parseImageMarks,
 	parseImageVersionBody,
 	parseUserPictures,
+	recordedPictureRequest,
 	serializeImageVersionBody,
 	thumbWidth,
+	type UserPicturesMetadata,
 } from "./image-body";
 
 const body: ImageVersionBody = {
@@ -122,6 +126,113 @@ describe("parseUserPictures uploads", () => {
 				uploads: [{ artifactId: "a", number: "2" }],
 			}),
 		).toEqual({ refs, open: null, marks: null });
+	});
+});
+
+describe("recordedPictureRequest", () => {
+	const box: ImageMark = { letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 };
+	const refs = [
+		{ imageFileId: "f1", number: 1, name: "Sofa" },
+		{ imageFileId: "f2", number: 3, name: "Rug", open: true as const },
+	];
+	const record = (
+		overrides: Partial<UserPicturesMetadata> = {},
+	): UserPicturesMetadata => ({ refs, open: null, marks: null, ...overrides });
+
+	it("gives the card pictures back under the numbers they had, without their names", () => {
+		expect(recordedPictureRequest(record())).toEqual({
+			pictureRefs: [
+				{ imageFileId: "f1", number: 1 },
+				{ imageFileId: "f2", number: 3 },
+			],
+			imageMarks: null,
+		});
+	});
+
+	it("asks for nothing when the message kept no record", () => {
+		expect(recordedPictureRequest(undefined)).toEqual({
+			pictureRefs: [],
+			imageMarks: null,
+		});
+	});
+
+	it("rebuilds the marks from the recorded boxes, on a picture file or on an uploaded photo", () => {
+		expect(
+			recordedPictureRequest(
+				record({
+					marks: {
+						imageFileId: "f1",
+						markedFileId: "marked-1",
+						letters: ["A"],
+						boxes: [box],
+					},
+				}),
+			).imageMarks,
+		).toEqual({ imageFileId: "f1", marks: [box] });
+		expect(
+			recordedPictureRequest(
+				record({
+					marks: {
+						uploadArtifactId: "photo-1",
+						markedFileId: "marked-1",
+						letters: ["A"],
+						boxes: [box],
+					},
+				}),
+			).imageMarks,
+		).toEqual({ uploadArtifactId: "photo-1", marks: [box] });
+	});
+
+	it("has no marks to give for a record from before the boxes were kept", () => {
+		expect(
+			recordedPictureRequest(
+				record({
+					marks: {
+						imageFileId: "f1",
+						markedFileId: "marked-1",
+						letters: ["A"],
+					},
+				}),
+			).imageMarks,
+		).toBeNull();
+	});
+});
+
+describe("marksRideWith", () => {
+	const box: ImageMark = { letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 };
+	const carried = { imageFileIds: ["f1"], attachmentIds: ["photo-1"] };
+
+	it("holds for marks on a card picture that goes along, and not for one that does not", () => {
+		expect(marksRideWith({ imageFileId: "f1", marks: [box] }, carried)).toBe(
+			true,
+		);
+		expect(marksRideWith({ imageFileId: "f9", marks: [box] }, carried)).toBe(
+			false,
+		);
+	});
+
+	it("holds for marks on an uploaded photo only while the message still carries the photo", () => {
+		expect(
+			marksRideWith({ uploadArtifactId: "photo-1", marks: [box] }, carried),
+		).toBe(true);
+		expect(
+			marksRideWith({ uploadArtifactId: "photo-9", marks: [box] }, carried),
+		).toBe(false);
+	});
+
+	it("does not take a picture file for an upload, nor the other way round", () => {
+		expect(
+			marksRideWith(
+				{ imageFileId: "photo-1", marks: [box] },
+				{ imageFileIds: [], attachmentIds: ["photo-1"] },
+			),
+		).toBe(false);
+		expect(
+			marksRideWith(
+				{ uploadArtifactId: "f1", marks: [box] },
+				{ imageFileIds: ["f1"], attachmentIds: [] },
+			),
+		).toBe(false);
 	});
 });
 

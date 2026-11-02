@@ -16,10 +16,8 @@ import { repairConversationMessageSequences } from "$lib/server/services/message
 import { deleteMessages } from "$lib/server/services/messages";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import {
-	type ImageMark,
-	type ImageMarksRequest,
 	parseUserPictures,
-	type UserPicturesMetadata,
+	recordedPictureRequest,
 } from "$lib/shared/artifacts/image-body";
 import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
 import { parseChatTurnRequest, parsePendingSkill } from "./request";
@@ -237,7 +235,9 @@ export async function prepareRetryChatTurn(params: {
 	// with what the person can still read: a picture deleted since, or marks on
 	// a picture that is no longer open, are left out and the reply is still
 	// regenerated.
-	const recordedPictures = readRecordedPictures(precedingUserMsg.metadataJson);
+	const recordedPictures = recordedPictureRequest(
+		readRecordedPictures(precedingUserMsg.metadataJson),
+	);
 	const rebuilt =
 		pictureRefs === undefined || imageMarks === undefined
 			? await keepReadableRecordedPictures({
@@ -247,18 +247,8 @@ export async function prepareRetryChatTurn(params: {
 					// really carry: the browser's when it resent them (maybe only some of
 					// the recorded ones), else the recorded ones.
 					refs:
-						explicitPictureRefs(pictureRefs) ??
-						recordedPictures?.refs.map(({ imageFileId, number }) => ({
-							imageFileId,
-							number,
-						})) ??
-						[],
-					marks: recordedPictures?.marks?.boxes
-						? recordedMarks(
-								recordedPictures.marks,
-								recordedPictures.marks.boxes,
-							)
-						: null,
+						explicitPictureRefs(pictureRefs) ?? recordedPictures.pictureRefs,
+					marks: recordedPictures.imageMarks,
 					attachmentIds: retryAttachmentIds,
 					openImageArtifactId:
 						typeof activeDocumentArtifactId === "string"
@@ -562,19 +552,6 @@ function streamError(error: ChatTurnRequestError): {
 }
 
 /** The refs a browser resent, in the shape the picture helpers read; null when it sent none at all. Invalid entries are left for the request parser to refuse. */
-/** The marks a user message recorded, as the request that would paint them again. */
-function recordedMarks(
-	marks: NonNullable<UserPicturesMetadata["marks"]>,
-	boxes: ImageMark[],
-): ImageMarksRequest | null {
-	if (marks.uploadArtifactId) {
-		return { uploadArtifactId: marks.uploadArtifactId, marks: boxes };
-	}
-	return marks.imageFileId
-		? { imageFileId: marks.imageFileId, marks: boxes }
-		: null;
-}
-
 function explicitPictureRefs(
 	value: unknown,
 ): Array<{ imageFileId: string; number: number }> | null {

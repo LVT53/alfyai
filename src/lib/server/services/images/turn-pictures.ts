@@ -8,10 +8,11 @@
 // number and is sent once.
 import type { ExtraPicture } from "$lib/server/services/vision/turn-images";
 import { oneLineName } from "$lib/server/services/vision/turn-images";
-import type {
-	ImageMarksRequest,
-	PictureRef,
-	UserPicturesMetadata,
+import {
+	type ImageMarksRequest,
+	marksRideWith,
+	type PictureRef,
+	type UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import {
 	getImageFile,
@@ -229,24 +230,23 @@ export async function keepReadableRecordedPictures(params: {
 		if (file) pictureRefs.push(ref);
 	}
 	let imageMarks: ImageMarksRequest | null = null;
-	if (params.marks?.uploadArtifactId) {
-		if (params.attachmentIds.includes(params.marks.uploadArtifactId)) {
+	if (params.marks) {
+		const rides = marksRideWith(params.marks, {
+			imageFileIds: pictureRefs.map((ref) => ref.imageFileId),
+			attachmentIds: params.attachmentIds,
+		});
+		if (rides) {
 			imageMarks = params.marks;
-		}
-	} else if (params.marks) {
-		const markedId = params.marks.imageFileId;
-		const open = pictureRefs.some((ref) => ref.imageFileId === markedId)
-			? null
-			: await resolveOpenPicture({
-					userId: params.userId,
-					conversationId: params.conversationId,
-					openImageArtifactId: params.openImageArtifactId,
-				});
-		if (
-			pictureRefs.some((ref) => ref.imageFileId === markedId) ||
-			open?.fileId === markedId
-		) {
-			imageMarks = params.marks;
+		} else if (params.marks.imageFileId !== undefined) {
+			// Not on a picture that goes along: the one open now may still be it.
+			const open = await resolveOpenPicture({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				openImageArtifactId: params.openImageArtifactId,
+			});
+			if (open?.fileId === params.marks.imageFileId) {
+				imageMarks = params.marks;
+			}
 		}
 	}
 	return { pictureRefs, imageMarks };

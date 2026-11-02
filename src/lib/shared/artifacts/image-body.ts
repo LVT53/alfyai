@@ -277,6 +277,62 @@ export function parseUserPictures(
 	return { refs, ...(uploads ? { uploads } : {}), open, marks };
 }
 
+/**
+ * What a user message's record asks when the message is sent again (a
+ * regenerate, an edit): its card pictures under the numbers they had, and its
+ * marks rebuilt from the recorded boxes (a record from before the boxes were
+ * kept has none to give). Its uploads ride as attachments and the open picture is
+ * the one open when it goes, so neither is here. This is a reading, not a
+ * judgement: whether the pictures can still be read, and whether the marks may go
+ * with them (`marksRideWith`), is for the one who sends.
+ */
+export function recordedPictureRequest(
+	pictures: UserPicturesMetadata | undefined,
+): { pictureRefs: PictureRef[]; imageMarks: ImageMarksRequest | null } {
+	if (!pictures) return { pictureRefs: [], imageMarks: null };
+	const pictureRefs = pictures.refs.map(({ imageFileId, number }) => ({
+		imageFileId,
+		number,
+	}));
+	const { marks } = pictures;
+	const boxes = marks?.boxes;
+	if (!marks || !boxes || boxes.length === 0) {
+		return { pictureRefs, imageMarks: null };
+	}
+	if (marks.uploadArtifactId) {
+		return {
+			pictureRefs,
+			imageMarks: { uploadArtifactId: marks.uploadArtifactId, marks: boxes },
+		};
+	}
+	return {
+		pictureRefs,
+		imageMarks: marks.imageFileId
+			? { imageFileId: marks.imageFileId, marks: boxes }
+			: null,
+	};
+}
+
+/**
+ * Whether marks may go with the pictures a message carries: the card picture
+ * they were drawn on is one of them, or the photo they were drawn on is still one
+ * of its attachments. Marks on any other picture would be refused
+ * (`invalid_image_marks`) unless that picture happens to be the one open when the
+ * message goes, which only the server can tell: so a regenerate gives them up
+ * there, and an edit, which cannot ask, gives them up here.
+ */
+export function marksRideWith(
+	marks: ImageMarksRequest,
+	carried: {
+		imageFileIds: readonly string[];
+		attachmentIds: readonly string[];
+	},
+): boolean {
+	return marks.uploadArtifactId !== undefined
+		? carried.attachmentIds.includes(marks.uploadArtifactId)
+		: carried.imageFileIds.includes(marks.imageFileId);
+}
+
 /** The body a stored string holds, or `null` when it is not a version-1 image body. Never throws. */
 export function parseImageVersionBody(
 	stored: string | null,
