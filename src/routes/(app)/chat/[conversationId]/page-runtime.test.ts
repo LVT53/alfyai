@@ -783,6 +783,177 @@ describe("chat page runtime integration", () => {
 		);
 	});
 
+	// The server keeps nothing of a turn that fails (it saves the message with the
+	// reply, at the end), so after one the page's list ends in a message the server
+	// does not have. Retry sends that message again and touches nothing above it:
+	// it used to take the last reply of the list, an earlier turn's, as its target.
+	describe("Retry after a message that failed", () => {
+		const earlierTurn = [
+			{
+				id: "user-1",
+				role: "user" as const,
+				content: "What is the plan?",
+				timestamp: 1,
+			},
+			{
+				id: "assistant-1",
+				role: "assistant" as const,
+				content: "The plan is to rest.",
+				timestamp: 2,
+			},
+		];
+
+		it("keeps the earlier reply and sends the message again with its file, and the bubble takes the server's id", async () => {
+			const { uploadKnowledgeAttachment } = await import(
+				"$lib/client/api/knowledge"
+			);
+			vi.mocked(uploadKnowledgeAttachment).mockResolvedValue({
+				artifact: {
+					id: "artifact-retry-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+				promptReady: true,
+				promptArtifactId: "normalized-retry-1",
+				readinessError: null,
+				extraction: {
+					id: "extraction-retry-1",
+					sourceArtifactId: "artifact-retry-1",
+					normalizedArtifactId: "normalized-retry-1",
+					status: "succeeded",
+					intakeRoute: "mineru",
+					fileName: "notes.pdf",
+					attemptCount: 1,
+					maxAttempts: 3,
+					retryable: false,
+					cancelable: false,
+					error: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					startedAt: Date.now(),
+					legacy: false,
+				},
+			});
+			renderPage(pageData({ messages: earlierTurn }));
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, {
+				target: { value: "And what about tomorrow?" },
+			});
+			await fireEvent.change(
+				document.querySelector('input[type="file"]') as HTMLInputElement,
+				{
+					target: {
+						files: [new File(["x"], "notes.pdf", { type: "application/pdf" })],
+					},
+				},
+			);
+			await screen.findByTestId("composer-chip-attachment");
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(
+				runtimeHarness.streamInvocations[0].options?.attachmentIds,
+			).toEqual(["artifact-retry-1"]);
+
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Retry" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			const retried = runtimeHarness.streamInvocations[1];
+			expect(retried.message).toBe("And what about tomorrow?");
+			expect(retried.options?.attachmentIds).toEqual(["artifact-retry-1"]);
+			// A message to the stream, not a regenerate of the turn before.
+			expect(retried.options?.retryAssistantMessageId).toBeUndefined();
+			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
+			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+
+			retried.callbacks.onToken("Tomorrow is free.");
+			retried.callbacks.onEnd("Tomorrow is free.", {
+				assistantMessageId: "assistant-2",
+				userMessageId: "user-2",
+			});
+			// The bubble that was on screen, now under the server's id: one bubble,
+			// and the pencil and later edits find the message the server has.
+			await waitFor(() => {
+				expect(
+					document.querySelector('[data-message-id="user-2"]'),
+				).not.toBeNull();
+			});
+			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+			expect(await screen.findByText("Tomorrow is free.")).toBeInTheDocument();
+			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
+			// The file waiting in the composer for the next message was not touched
+			// and nothing was sent a third time.
+			expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		});
+
+		it("aims a failed regenerate's Retry at the reply it was regenerating", async () => {
+			renderPage(
+				pageData({
+					messages: [
+						...earlierTurn,
+						{
+							id: "user-2",
+							role: "user" as const,
+							content: "And tomorrow?",
+							timestamp: 3,
+						},
+						{
+							id: "assistant-2",
+							role: "assistant" as const,
+							content: "Tomorrow is busy.",
+							timestamp: 4,
+						},
+					],
+				}),
+			);
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Regenerate response" })[1],
+			);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].options).toMatchObject({
+				retryAssistantMessageId: "assistant-2",
+				retryUserMessageId: "user-2",
+			});
+
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Retry" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations[1].message).toBe("And tomorrow?");
+			expect(runtimeHarness.streamInvocations[1].options).toMatchObject({
+				retryAssistantMessageId: "assistant-2",
+				retryUserMessageId: "user-2",
+				retryOrigin: "error_retry",
+			});
+			// The turn before keeps its reply.
+			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
+			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+		});
+	});
+
 	// Only a send of what the composer holds clears its draft: the composer's own
 	// send and the landing page's first message. A turn that starts from
 	// anywhere else sends other words, and the draft the person is holding

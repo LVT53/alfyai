@@ -318,6 +318,19 @@ type StartStreamParams = {
 };
 
 /**
+ * The last send, as Retry needs it again. The server keeps nothing of a turn that
+ * fails (it saves the reader's message with the reply, at the end), so after a
+ * failure the page's list ends in a message the server does not have, and Retry
+ * sends that message again with everything it was sent with: the files, the
+ * pictures and their marks, the model and the rest.
+ */
+type RememberedSend = {
+	payload: NormalChatSendPayload;
+	options: SendRuntimeOptions;
+	conversationId: string;
+};
+
+/**
  * Token Display Buffer — requestAnimationFrame-aligned batching layer.
  * Accumulates text chunks and flushes once per animation frame,
  * preventing jank from per-delta Svelte store updates.
@@ -396,6 +409,9 @@ export function createNormalChatClientTurnRuntime(
 	let lastUserMessage = "";
 	let lastAssistantResponse = "";
 	let lastReasoningDepth: ReasoningDepth = "thorough";
+	// What Retry sends again when the list ends in the message that failed. It goes
+	// with the chat (`reset`), and a turn that was not a send of this page holds none.
+	let lastSend: RememberedSend | null = null;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -516,6 +532,53 @@ export function createNormalChatClientTurnRuntime(
 			skill: payload.pendingSkill ?? null,
 			forceWebSearch: payload.forceWebSearch === true,
 		});
+	}
+
+	// What a turn asks of the model: the payload's own choice, else the page's
+	// choice at the moment it goes. A send and a Retry of it ask the same way.
+	function turnChoicesFor(payload: NormalChatSendPayload) {
+		return {
+			modelId: payload.modelId ?? adapters.getSelectedModel(),
+			reasoningDepth: payload.reasoningDepth ?? adapters.getReasoningDepth(),
+			personalityProfileId:
+				payload.personalityProfileId !== undefined
+					? payload.personalityProfileId
+					: adapters.getPersonalityProfileId(),
+		};
+	}
+
+	// The request a send makes of the stream (or, for a regenerate, of the retry
+	// route). One place for a send and for the Retry that sends it again.
+	function streamOptionsFor(
+		payload: NormalChatSendPayload,
+		options: SendRuntimeOptions,
+		choices: ReturnType<typeof turnChoicesFor>,
+	): StreamChatOptions {
+		return {
+			modelId: choices.modelId,
+			skipPersistUserMessage: options.skipPersistUserMessage ?? false,
+			attachmentIds: payload.attachmentIds ?? [],
+			linkedSources: payload.linkedSources ?? [],
+			pendingSkill: payload.pendingSkill ?? null,
+			reasoningDepth: choices.reasoningDepth,
+			forceWebSearch: payload.forceWebSearch === true,
+			enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
+			activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+			pictureRefs: payload.pictureRefs,
+			imageMarks: payload.imageMarks ?? null,
+			personalityProfileId: choices.personalityProfileId,
+			retryAssistantMessageId: options.retryAssistantMessageId,
+			retryUserMessageId: options.retryUserMessageId,
+			retryUserMessage: options.retryAssistantMessageId
+				? payload.message
+				: undefined,
+			confirmForkedSourceHistoryMutation:
+				options.confirmForkedSourceHistoryMutation,
+			isEditResend: payload.isEditResend === true,
+			retryOrigin: options.retryAssistantMessageId
+				? (options.retryOrigin ?? "regenerate")
+				: undefined,
+		};
 	}
 
 	function createUserMessage(params: {
@@ -666,6 +729,10 @@ export function createNormalChatClientTurnRuntime(
 		if (!isTurnConversationActive(params.turnConversationId)) return;
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
+		// This page did not send the turn that failed (a reload put it back into
+		// it), so there is no payload to send again, only the text; and an earlier
+		// send's payload is not this message's.
+		lastSend = null;
 		if (text.trim()) {
 			const tail = adapters.getMessages().at(-1);
 			if (tail?.role !== "user" || tail.content !== text) {
@@ -1251,14 +1318,9 @@ export function createNormalChatClientTurnRuntime(
 		// captured once, up front. See `StartStreamParams.turnConversationId`.
 		const turnConversationId = adapters.getConversationId();
 
-		const modelIdForTurn = payload.modelId ?? adapters.getSelectedModel();
-		const reasoningDepthForTurn =
-			payload.reasoningDepth ?? adapters.getReasoningDepth();
-		adapters.setConversationModelSelection(modelIdForTurn);
-		const personalityProfileIdForTurn =
-			payload.personalityProfileId !== undefined
-				? payload.personalityProfileId
-				: adapters.getPersonalityProfileId();
+		const choices = turnChoicesFor(payload);
+		const reasoningDepthForTurn = choices.reasoningDepth;
+		adapters.setConversationModelSelection(choices.modelId);
 
 		adapters.setSendError(null);
 		beginTurn();
@@ -1267,6 +1329,11 @@ export function createNormalChatClientTurnRuntime(
 		lastUserMessage = text;
 		lastReasoningDepth = reasoningDepthForTurn;
 		canRetry = true;
+		lastSend = {
+			payload: copySendPayload(payload),
+			options: { ...options },
+			conversationId: turnConversationId,
+		};
 		adapters.markHasPersistedMessages?.();
 		emitState();
 
@@ -1325,28 +1392,64 @@ export function createNormalChatClientTurnRuntime(
 			turnConversationId,
 			onForkedSourceHistoryConfirmationRequired:
 				options.onForkedSourceHistoryConfirmationRequired,
+			streamOptions: streamOptionsFor(payload, options, choices),
+		});
+	}
+
+	/**
+	 * The list ends in the message that failed, which the server does not have, or
+	 * whose reply a failed regenerate was replacing. Retry sends that message again
+	 * and touches nothing above it: not an earlier reply, which is another turn's,
+	 * and not a second bubble, since this one is on screen already and takes the
+	 * server's id when the turn lands (the pencil and later edits need it).
+	 *
+	 * It is the last send again, with its payload and its options (`lastSend`): the
+	 * files, the pictures and their marks, the model and the rest; an edit's resend
+	 * stays one, and a regenerate stays a request for the reply it was replacing.
+	 * After a reload there is no send to repeat, only the text. A Retry clears no
+	 * draft and none of the files waiting in the composer: they belong to whatever
+	 * the person has started since.
+	 */
+	function resendFailedMessage(bubble: ChatMessage) {
+		const turnConversationId = adapters.getConversationId();
+		// A send of another chat is never sent into this one (the page resets the
+		// runtime on a switch; this holds if it did not).
+		if (lastSend && lastSend.conversationId !== turnConversationId) return;
+		const payload: NormalChatSendPayload = lastSend?.payload ?? {
+			message: lastUserMessage,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		};
+		const options: SendRuntimeOptions = lastSend?.options ?? {};
+
+		adapters.setSendError(null);
+		beginTurn();
+		adapters.markHasPersistedMessages?.();
+
+		const placeholderId = adapters.randomId();
+		adapters.applyMessageListEvent({
+			type: "appendAssistantPlaceholder",
+			placeholder: createAssistantPlaceholder(
+				placeholderId,
+				undefined,
+				options.retryUserIntent ?? userIntentForPayload(payload),
+			),
+		});
+
+		startStream({
+			message: payload.message,
+			placeholderId,
+			clientUserMessageId: bubble.id,
+			payload,
+			turnConversationId,
+			onForkedSourceHistoryConfirmationRequired:
+				options.onForkedSourceHistoryConfirmationRequired,
 			streamOptions: {
-				modelId: modelIdForTurn,
-				skipPersistUserMessage: options.skipPersistUserMessage ?? false,
-				attachmentIds: payload.attachmentIds ?? [],
-				linkedSources: payload.linkedSources ?? [],
-				pendingSkill: payload.pendingSkill ?? null,
-				reasoningDepth: reasoningDepthForTurn,
-				forceWebSearch: payload.forceWebSearch === true,
-				enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
-				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
-				pictureRefs: payload.pictureRefs,
-				imageMarks: payload.imageMarks ?? null,
-				personalityProfileId: personalityProfileIdForTurn,
-				retryAssistantMessageId: options.retryAssistantMessageId,
-				retryUserMessageId: options.retryUserMessageId,
-				retryUserMessage: options.retryAssistantMessageId ? text : undefined,
-				confirmForkedSourceHistoryMutation:
-					options.confirmForkedSourceHistoryMutation,
-				isEditResend: payload.isEditResend === true,
-				retryOrigin: options.retryAssistantMessageId
-					? (options.retryOrigin ?? "regenerate")
-					: undefined,
+				...streamOptionsFor(payload, options, turnChoicesFor(payload)),
+				// The Retry button only appears after a failed turn: a verdict on the
+				// failure, not on the answer, so not a counted regenerate.
+				retryOrigin: "error_retry",
 			},
 		});
 	}
@@ -1355,6 +1458,13 @@ export function createNormalChatClientTurnRuntime(
 		if (adapters.isReadOnly() || !canRetry || !lastUserMessage) {
 			return;
 		}
+		const tail = adapters.getMessages().at(-1);
+		if (tail?.role === "user") {
+			resendFailedMessage(tail);
+			return;
+		}
+
+		// The list really ends in an assistant message: Retry regenerates it.
 		adapters.setSendError(null);
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
@@ -1484,6 +1594,7 @@ export function createNormalChatClientTurnRuntime(
 		lastUserMessage = "";
 		lastAssistantResponse = "";
 		lastReasoningDepth = "thorough";
+		lastSend = null;
 		emitState();
 	}
 
@@ -1673,6 +1784,22 @@ function cloneSendPayload(
 		atlasAction: payload.atlasAction ?? "create",
 		parentAtlasJobId: payload.parentAtlasJobId ?? null,
 		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
+	};
+}
+
+/**
+ * A send as Retry sends it again: a copy, so that nothing its caller does later
+ * reaches it. `cloneSendPayload` fills in a queued turn's open choices; a Retry
+ * asks the page again for what the payload left open, as the send did, and an
+ * edit's resend stays one.
+ */
+function copySendPayload(
+	payload: NormalChatSendPayload,
+): NormalChatSendPayload {
+	return {
+		...cloneSendPayload(payload),
+		personalityProfileId: payload.personalityProfileId,
+		isEditResend: payload.isEditResend,
 	};
 }
 

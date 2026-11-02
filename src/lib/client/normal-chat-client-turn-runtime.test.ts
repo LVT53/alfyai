@@ -1915,6 +1915,393 @@ describe("Normal Chat Client Turn Runtime", () => {
 		);
 	});
 
+	// The server keeps nothing of a turn that fails: it saves the reader's message
+	// with the reply, at the end. So after a failed turn the page's list ends in a
+	// user message the server does not have, and Retry sends that message again and
+	// touches nothing above it. (A list that really ends in an assistant message is
+	// the older path, which the two tests above hold.)
+	describe("Retry when the list ends in the message that failed", () => {
+		const earlierTurn = (): ChatMessage[] => [
+			{ id: "user-1", role: "user", content: "First question", timestamp: 1 },
+			{
+				id: "assistant-1",
+				role: "assistant",
+				content: "First answer",
+				timestamp: 2,
+				modelId: "model1",
+			},
+		];
+		const box = { letter: "A" as const, x: 0.1, y: 0.1, w: 0.4, h: 0.4 };
+
+		/** Every message the runtime asked the page to take out of the list. */
+		function removedIds(
+			messageListEvents: ReturnType<typeof makeAdapters>["messageListEvents"],
+		) {
+			return messageListEvents.removeMessage.mock.calls.map(([id]) => id);
+		}
+
+		it("keeps every earlier reply and sends the message again with everything it was sent with", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters({
+					// The page's choice now is not the failed send's: the send's own wins.
+					getSelectedModel: vi.fn(() => "fallback-model" as ModelId),
+					getReasoningDepth: vi.fn((): ReasoningDepth => "thorough"),
+					getPersonalityProfileId: vi.fn(() => "page-persona"),
+					getActiveDocumentArtifactId: vi.fn(() => "open-image-item"),
+					deleteDraft: vi.fn(),
+				});
+			messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(
+				{
+					message: "Second question",
+					attachmentIds: ["photo-1"],
+					attachments: [],
+					pendingAttachments: [],
+					pictureRefs: [{ imageFileId: "file-cottage", number: 2 }],
+					imageMarks: { imageFileId: "file-cottage", marks: [box] },
+					modelId: "model2",
+					reasoningDepth: "quick",
+					personalityProfileId: "persona-1",
+					forceWebSearch: true,
+				},
+				{ clearDraft: true },
+			);
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			expect(messages.map((message) => message.id)).toEqual([
+				"user-1",
+				"assistant-1",
+				"id-1",
+			]);
+
+			runtime.retry();
+
+			// Nothing above the failed message left the list, and no second bubble.
+			expect(removedIds(messageListEvents)).toEqual(["id-2"]);
+			expect(messageListEvents.appendUserMessage).toHaveBeenCalledTimes(1);
+			expect(messages.map((message) => message.id)).toEqual([
+				"user-1",
+				"assistant-1",
+				"id-1",
+				"id-3",
+			]);
+			// It is the same send again, to the stream and not to the retry route.
+			expect(streamInvocations).toHaveLength(2);
+			expect(streamInvocations[1].message).toBe("Second question");
+			expect(streamInvocations[1].options).toMatchObject({
+				modelId: "model2",
+				reasoningDepth: "quick",
+				personalityProfileId: "persona-1",
+				attachmentIds: ["photo-1"],
+				pictureRefs: [{ imageFileId: "file-cottage", number: 2 }],
+				imageMarks: { imageFileId: "file-cottage", marks: [box] },
+				forceWebSearch: true,
+				skipPersistUserMessage: false,
+				isEditResend: false,
+			});
+			expect(
+				streamInvocations[1].options?.retryAssistantMessageId,
+			).toBeUndefined();
+			expect(streamInvocations[1].options?.retryUserMessageId).toBeUndefined();
+			expect(streamInvocations[1].options?.retryUserMessage).toBeUndefined();
+			// Retry clears no draft: the composer's send did that, once, and the
+			// person may have typed something new since.
+			expect(adapters.clearDraft).toHaveBeenCalledTimes(1);
+			expect(adapters.deleteDraft).toHaveBeenCalledTimes(1);
+			// ...and the files waiting in the composer are the next message's.
+			expect(adapters.clearAttachedArtifacts).toHaveBeenCalledTimes(1);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: true,
+				active: true,
+				canRetry: true,
+				lastUserMessage: "Second question",
+			});
+		});
+
+		it("lets the bubble on screen take the server's id when the retried turn lands", async () => {
+			const { adapters, streamInvocations, messageListEvents } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Second question",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			runtime.retry();
+
+			const metadata: StreamMetadata = {
+				assistantMessageId: "assistant-2",
+				userMessageId: "user-2",
+			};
+			streamInvocations[1].callbacks.onEnd("Answer", metadata);
+
+			// The page swaps the bubble's client id for the server's: the pencil and
+			// later edits need the server's. It is the bubble the first send drew.
+			expect(messageListEvents.appendUserMessage).toHaveBeenCalledTimes(1);
+			expect(messageListEvents.finalizeStreamingMessage).toHaveBeenCalledWith({
+				placeholderId: "id-3",
+				clientUserMessageId: "id-1",
+				metadata,
+			});
+			expect(runtime.snapshot()).toMatchObject({ canRetry: false });
+		});
+
+		it("sends the resend of an edit as an edit's resend again", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters();
+			messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Edited question",
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+				pictureRefs: [{ imageFileId: "file-cottage", number: 1 }],
+				isEditResend: true,
+			});
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			runtime.retry();
+
+			expect(removedIds(messageListEvents)).toEqual(["id-2"]);
+			// A picture gone since is dropped by the server, not refused, as for the
+			// first try: the edited message is not on the server to go back to.
+			expect(streamInvocations[1].options).toMatchObject({
+				isEditResend: true,
+				attachmentIds: ["photo-1"],
+				pictureRefs: [{ imageFileId: "file-cottage", number: 1 }],
+			});
+			expect(
+				streamInvocations[1].options?.retryAssistantMessageId,
+			).toBeUndefined();
+		});
+
+		it("aims a failed regenerate's Retry at the reply it was regenerating, not at the turn before", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters();
+			// What the page shows after the regenerate cut the reply from the list.
+			messages.push(...earlierTurn(), {
+				id: "user-2",
+				role: "user",
+				content: "Second question",
+				timestamp: 3,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(
+				{
+					message: "Second question",
+					attachmentIds: ["photo-1"],
+					attachments: [],
+					pendingAttachments: [],
+					reasoningDepth: "quick",
+				},
+				{
+					skipUserMessage: true,
+					skipPersistUserMessage: true,
+					retryAssistantMessageId: "assistant-2",
+					retryUserMessageId: "user-2",
+					retryOrigin: "answer_now",
+				},
+			);
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			runtime.retry();
+
+			expect(removedIds(messageListEvents)).toEqual(["id-1"]);
+			expect(messages.map((message) => message.id)).toEqual([
+				"user-1",
+				"assistant-1",
+				"user-2",
+				"id-2",
+			]);
+			expect(streamInvocations[1].message).toBe("Second question");
+			expect(streamInvocations[1].options).toMatchObject({
+				retryAssistantMessageId: "assistant-2",
+				retryUserMessageId: "user-2",
+				retryUserMessage: "Second question",
+				// The Retry button is a verdict on the failure, not on the answer,
+				// whichever button started the regenerate.
+				retryOrigin: "error_retry",
+				reasoningDepth: "quick",
+				attachmentIds: ["photo-1"],
+			});
+			// The message it regenerates for is on screen already and stays one.
+			expect(messageListEvents.appendUserMessage).not.toHaveBeenCalled();
+		});
+
+		it("sends only the text for a turn that failed after a reload, and touches no earlier reply", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters({
+					loadPersistedData: vi.fn(async () => {
+						messages.length = 0;
+						messages.push(...earlierTurn());
+					}),
+				});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			// An earlier send in this very page, with a file, must not be mistaken for
+			// this message's payload: the runtime holds no payload for a reconnected turn.
+			await runtime.send({
+				message: "Question with a file",
+				attachmentIds: ["old-file"],
+				attachments: [],
+				pendingAttachments: [],
+				modelId: "model2",
+			});
+			streamInvocations[0].callbacks.onEnd("Done", {
+				assistantMessageId: "assistant-9",
+				userMessageId: "user-9",
+			});
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[1].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+			expect(messages.map((message) => message.content)).toEqual([
+				"First question",
+				"First answer",
+				"Resume me",
+			]);
+			messageListEvents.removeMessage.mockClear();
+
+			runtime.retry();
+
+			expect(removedIds(messageListEvents)).toEqual([]);
+			expect(streamInvocations).toHaveLength(3);
+			expect(streamInvocations[2].message).toBe("Resume me");
+			expect(
+				streamInvocations[2].options?.retryAssistantMessageId,
+			).toBeUndefined();
+			expect(streamInvocations[2].options?.attachmentIds ?? []).toEqual([]);
+			expect(streamInvocations[2].options?.reconnectToStreamId).toBeUndefined();
+			expect(streamInvocations[2].options?.modelId).toBe("model1");
+		});
+
+		it("does the same on a second failure and a second press as on the first", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters({ deleteDraft: vi.fn() });
+			messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(
+				{
+					message: "Second question",
+					attachmentIds: ["photo-1"],
+					attachments: [],
+					pendingAttachments: [],
+					modelId: "model2",
+				},
+				{ clearDraft: true },
+			);
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			runtime.retry();
+			streamInvocations[1].callbacks.onError(new Error("Network failed again"));
+			expect(runtime.snapshot().canRetry).toBe(true);
+			runtime.retry();
+
+			expect(streamInvocations).toHaveLength(3);
+			expect(streamInvocations[2].message).toBe("Second question");
+			expect(streamInvocations[2].options).toMatchObject({
+				modelId: "model2",
+				attachmentIds: ["photo-1"],
+			});
+			expect(
+				streamInvocations[2].options?.retryAssistantMessageId,
+			).toBeUndefined();
+			// Only the placeholders came out: one per try that failed.
+			expect(removedIds(messageListEvents)).toEqual(["id-2", "id-3"]);
+			expect(messageListEvents.appendUserMessage).toHaveBeenCalledTimes(1);
+			expect(adapters.clearDraft).toHaveBeenCalledTimes(1);
+			expect(adapters.deleteDraft).toHaveBeenCalledTimes(1);
+			expect(messages.map((message) => message.id)).toEqual([
+				"user-1",
+				"assistant-1",
+				"id-1",
+				"id-4",
+			]);
+		});
+
+		it("forgets what it remembered when the chat changes, so a Retry never replays a message into another chat", async () => {
+			let conversationId = "conv-1";
+			const { adapters, streamInvocations, messages } = makeAdapters({
+				getConversationId: vi.fn(() => conversationId),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Second question",
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+			// The page moved to another chat without resetting the runtime (it does
+			// reset it on a switch): the message is still not sent into it.
+			conversationId = "conv-2";
+			messages.length = 0;
+			messages.push({
+				id: "other-user",
+				role: "user",
+				content: "Second question",
+				timestamp: 1,
+			});
+			runtime.retry();
+			expect(streamInvocations).toHaveLength(1);
+
+			// And a reset, which the page does on every switch, ends it for good.
+			conversationId = "conv-1";
+			runtime.reset();
+			runtime.retry();
+			expect(streamInvocations).toHaveLength(1);
+			expect(runtime.snapshot()).toMatchObject({
+				canRetry: false,
+				lastUserMessage: "",
+			});
+		});
+
+		it("still regenerates the last reply when the list really ends in an assistant message", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Regenerate this",
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			// The server did keep the turn, and the page read it back.
+			messages.length = 0;
+			messages.push(
+				{
+					id: "user-saved",
+					role: "user",
+					content: "Regenerate this",
+					timestamp: 1,
+				},
+				{
+					id: "assistant-saved",
+					role: "assistant",
+					content: "A",
+					timestamp: 2,
+				},
+			);
+
+			runtime.retry();
+
+			expect(removedIds(messageListEvents)).toContain("assistant-saved");
+			expect(streamInvocations[1].options).toMatchObject({
+				retryAssistantMessageId: "assistant-saved",
+				retryUserMessageId: "user-saved",
+				retryUserMessage: "Regenerate this",
+				retryOrigin: "error_retry",
+			});
+		});
+	});
+
 	it("reconnects to an orphaned stream and hands waiting state to polling", async () => {
 		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
 			checkForOrphanedStream: vi.fn(async () => "stream-1"),
