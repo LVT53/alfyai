@@ -1000,6 +1000,128 @@ describe("chat page runtime integration", () => {
 			expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
 			expect(screen.getAllByTestId("user-message")).toHaveLength(2);
 		});
+
+		// A dropped connection does not end the turn: the server keeps running it and
+		// can save the message and its reply while the page shows an error and a Retry.
+		// Retry asks the server what it holds before it sends anything.
+		describe("when the server may have finished the turn", () => {
+			const askedWords = "And what about tomorrow?";
+			const serverUser = {
+				id: "user-2",
+				role: "user" as const,
+				content: askedWords,
+				timestamp: 3,
+			};
+			const serverReply = {
+				id: "assistant-2",
+				role: "assistant" as const,
+				content: "Tomorrow is free.",
+				timestamp: 4,
+			};
+
+			/** A send that failed in the page: the stream ended in an error, so the bubble stands with the error and a Retry. */
+			async function failASend() {
+				renderPage(pageData({ messages: earlierTurn }));
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: askedWords } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					new Error("boom"),
+				);
+				return await screen.findByRole("button", { name: "Retry" });
+			}
+
+			it("loads the turn and sends nothing when the server answered it", async () => {
+				const retryButton = await failASend();
+				vi.mocked(fetchConversationDetail).mockResolvedValue(
+					conversationDetailFixture({
+						messages: [...earlierTurn, serverUser, serverReply],
+					}),
+				);
+				await fireEvent.click(retryButton);
+
+				expect(
+					await screen.findByText("Tomorrow is free."),
+				).toBeInTheDocument();
+				// Nothing was sent a second time, the error is gone, and nothing is left
+				// to retry; every message is on the page once.
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+				expect(
+					screen.queryByRole("button", { name: "Retry" }),
+				).not.toBeInTheDocument();
+				expect(screen.getAllByTestId("user-message")).toHaveLength(2);
+			});
+
+			it("sends a message the server holds without a reply as a retry of it, not a second copy", async () => {
+				const retryButton = await failASend();
+				vi.mocked(fetchConversationDetail).mockResolvedValue(
+					conversationDetailFixture({
+						messages: [...earlierTurn, serverUser],
+					}),
+				);
+				await fireEvent.click(retryButton);
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				const retried = runtimeHarness.streamInvocations[1];
+				expect(retried.message).toBe(askedWords);
+				// The retry route, naming the message the server holds; the reply it names
+				// is the new placeholder's, which no reply of the chat has.
+				expect(retried.options?.retryUserMessageId).toBe("user-2");
+				expect(retried.options?.retryAssistantMessageId).toEqual(
+					expect.any(String),
+				);
+				expect(retried.options?.retryAssistantMessageId).not.toBe(
+					"assistant-1",
+				);
+				expect(retried.options?.retryOrigin).toBe("error_retry");
+				// The turn before keeps its reply.
+				expect(screen.getByText("The plan is to rest.")).toBeInTheDocument();
+			});
+
+			it("sends the message as it always did when the server cannot be read", async () => {
+				const retryButton = await failASend();
+				vi.mocked(fetchConversationDetail).mockRejectedValue(
+					new Error("offline"),
+				);
+				await fireEvent.click(retryButton);
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				expect(runtimeHarness.streamInvocations[1].message).toBe(askedWords);
+				expect(
+					runtimeHarness.streamInvocations[1].options?.retryAssistantMessageId,
+				).toBeUndefined();
+			});
+
+			it("sends once when Retry is pressed twice while the server is read", async () => {
+				const retryButton = await failASend();
+				let answer: (detail: ConversationDetail) => void = () => {};
+				vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+					new Promise<ConversationDetail>((resolve) => {
+						answer = resolve;
+					}),
+				);
+				await fireEvent.click(retryButton);
+				await fireEvent.click(retryButton);
+				answer(conversationDetailFixture({ messages: earlierTurn }));
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				// Let a second send, if there were one, arrive.
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+		});
 	});
 
 	// Only a send of what the composer holds clears its draft: the composer's own

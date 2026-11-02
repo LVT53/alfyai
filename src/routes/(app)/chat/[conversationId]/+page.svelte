@@ -1080,6 +1080,13 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	loadPersistedData: () => {
 		return loadPersistedData();
 	},
+	readChatMessages: async () =>
+		(
+			await withinOrNull(
+				fetchConversationDetail(data.conversation.id),
+				SERVER_MESSAGES_READ_MAX_MS,
+			)
+		)?.messages ?? null,
 	mergeGeneratedFiles: (files) => {
 		markDetailMetadataFreshnessBoundary();
 		const existingIds = new Set(generatedFiles.map((file) => file.id));
@@ -3784,7 +3791,8 @@ async function handleRetry() {
 	// check at all.
 	const proceed = await prepareTurn();
 	if (!proceed || editingMessage) return;
-	normalChatRuntime.retry();
+	// The runtime asks the server whether the turn was finished before it sends.
+	void normalChatRuntime.retry();
 }
 
 // "Answer now" — polls the runtime's own `isSending` snapshot (updated
@@ -3969,6 +3977,9 @@ const MESSAGE_RECORD_READ_MAX_MS = 2000;
 
 /** The turn's gate, asked before an edit deletes: an answer that has not come by now is no answer, and the edit stays open. */
 const EDIT_CHECK_MAX_MS = 10_000;
+
+/** What the server holds of the chat, asked before a failed message is sent again: no answer by now is "not known", and Retry goes on. */
+const SERVER_MESSAGES_READ_MAX_MS = 5000;
 
 /**
  * What the server recorded of a message's pictures, which an edit's resend must

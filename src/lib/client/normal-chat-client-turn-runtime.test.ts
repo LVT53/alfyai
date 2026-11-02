@@ -2450,6 +2450,425 @@ describe("Normal Chat Client Turn Runtime", () => {
 				retryOrigin: "error_retry",
 			});
 		});
+
+		// A dropped connection never reads the chat, and the server keeps running the
+		// turn: it can save the message and its reply while the page shows an error and
+		// a Retry. The page asks the server before it believes the message failed.
+		describe("a turn the server finished", () => {
+			const askedWords = "Second question";
+			const serverUser = (id = "user-2", text = askedWords): ChatMessage => ({
+				id,
+				role: "user",
+				content: text,
+				timestamp: 5,
+			});
+			const serverReply = (id = "assistant-2"): ChatMessage => ({
+				id,
+				role: "assistant",
+				content: "Done",
+				timestamp: 6,
+			});
+
+			/** Words sent from the composer to a server that is reachable, with the first try failed. */
+			async function failedSend(
+				overrides: Parameters<typeof makeAdapters>[0] = {},
+			) {
+				const made = makeAdapters(overrides);
+				made.messages.push(...earlierTurn());
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send({
+					message: askedWords,
+					attachmentIds: ["photo-1"],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				made.streamInvocations[0].callbacks.onError(
+					new Error("Network failed"),
+				);
+				return { ...made, runtime };
+			}
+
+			it("is not sent again: Retry loads the chat the server holds, clears the error and sends nothing", async () => {
+				const readChatMessages = vi.fn(async () => [
+					...earlierTurn(),
+					serverUser(),
+					serverReply(),
+				]);
+				const { adapters, streamInvocations, runtime } = await failedSend({
+					readChatMessages,
+				});
+				vi.mocked(adapters.setSendError).mockClear();
+
+				await runtime.retry();
+
+				expect(readChatMessages).toHaveBeenCalledTimes(1);
+				expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(streamInvocations).toHaveLength(1);
+				expect(adapters.setSendError).toHaveBeenCalledWith(null);
+				expect(runtime.snapshot()).toMatchObject({
+					canRetry: false,
+					isSending: false,
+					active: false,
+				});
+			});
+
+			it("is found by the words trimmed, and by a reply the page does not hold", async () => {
+				const { adapters, streamInvocations, runtime } = await failedSend({
+					readChatMessages: vi.fn(async () => [
+						...earlierTurn(),
+						serverUser("user-2", `  ${askedWords}\n`),
+						serverReply(),
+					]),
+				});
+
+				await runtime.retry();
+
+				expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("is not mistaken for an earlier turn with the same words: the ids tell them apart", async () => {
+				const earlier: ChatMessage[] = [
+					{ id: "q-old", role: "user", content: askedWords, timestamp: 1 },
+					{ id: "a-old", role: "assistant", content: "Old", timestamp: 2 },
+				];
+				const made = makeAdapters({
+					// The chat as the server has it: the earlier turn, which the page holds.
+					readChatMessages: vi.fn(async () => earlier),
+				});
+				made.messages.push(...earlier);
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send({
+					message: askedWords,
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				made.streamInvocations[0].callbacks.onError(
+					new Error("Network failed"),
+				);
+
+				await runtime.retry();
+
+				expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+				expect(made.streamInvocations).toHaveLength(2);
+				expect(made.streamInvocations[1].message).toBe(askedWords);
+			});
+
+			it("goes on as it does today when the chat cannot be read", async () => {
+				for (const readChatMessages of [
+					vi.fn(async () => null),
+					vi.fn(async () => {
+						throw new Error("Network down");
+					}),
+				]) {
+					const { adapters, streamInvocations, runtime } = await failedSend({
+						readChatMessages,
+					});
+
+					await runtime.retry();
+
+					expect(readChatMessages).toHaveBeenCalledTimes(1);
+					expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].options?.attachmentIds).toEqual([
+						"photo-1",
+					]);
+				}
+			});
+
+			it("goes on as it does today when the server does not hold the turn", async () => {
+				const { adapters, streamInvocations, runtime } = await failedSend({
+					readChatMessages: vi.fn(async () => earlierTurn()),
+				});
+
+				await runtime.retry();
+
+				expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+				expect(streamInvocations).toHaveLength(2);
+				expect(
+					streamInvocations[1].options?.retryAssistantMessageId,
+				).toBeUndefined();
+			});
+
+			it("sends a message the server holds without a reply through the retry route, never as a plain send that would save it twice", async () => {
+				const { streamInvocations, messageListEvents, runtime } =
+					await failedSend({
+						readChatMessages: vi.fn(async () => [
+							...earlierTurn(),
+							serverUser(),
+						]),
+					});
+
+				await runtime.retry();
+
+				expect(streamInvocations).toHaveLength(2);
+				const placeholder =
+					messageListEvents.appendAssistantPlaceholder.mock.calls.at(-1)?.[0];
+				expect(streamInvocations[1].message).toBe(askedWords);
+				expect(streamInvocations[1].options).toMatchObject({
+					// The reply is not there: its id is the new placeholder's, an id the
+					// chat holds no reply under.
+					retryAssistantMessageId: placeholder?.id,
+					retryUserMessageId: "user-2",
+					retryUserMessage: askedWords,
+					retryOrigin: "error_retry",
+					// What the person sent it with goes along; the server rebuilds the rest.
+					attachmentIds: ["photo-1"],
+				});
+			});
+
+			it("does the same for a turn that failed after a reload, which holds no payload: the files come back from the record", async () => {
+				const { adapters, streamInvocations, messages, messageListEvents } =
+					makeAdapters({
+						loadPersistedData: vi.fn(async () => {
+							messages.length = 0;
+							messages.push(
+								...earlierTurn(),
+								serverUser("user-2", "Resume me"),
+							);
+						}),
+						readChatMessages: vi.fn(async () => [
+							...earlierTurn(),
+							serverUser("user-2", "Resume me"),
+						]),
+					});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				streamInvocations[0].callbacks.onError(new Error("The model refused."));
+				await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+				// The chat as the server has it: the message ends it, and no copy is added.
+				expect(messages.map((message) => message.id)).toEqual([
+					"user-1",
+					"assistant-1",
+					"user-2",
+				]);
+
+				await runtime.retry();
+
+				const placeholder =
+					messageListEvents.appendAssistantPlaceholder.mock.calls.at(-1)?.[0];
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].options).toMatchObject({
+					retryAssistantMessageId: placeholder?.id,
+					retryUserMessageId: "user-2",
+					retryUserMessage: "Resume me",
+					retryOrigin: "error_retry",
+				});
+				expect(streamInvocations[1].options?.attachmentIds ?? []).toEqual([]);
+				// The bubble the reconnect drew; the retry adds none.
+				expect(messageListEvents.appendUserMessage).toHaveBeenCalledTimes(1);
+			});
+
+			it("leaves a failed regenerate to the retry it remembers", async () => {
+				const made = makeAdapters({
+					readChatMessages: vi.fn(async () => [
+						...earlierTurn(),
+						serverUser("user-2"),
+					]),
+				});
+				made.messages.push(...earlierTurn(), {
+					...serverUser("user-2"),
+					timestamp: 3,
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(
+					{
+						message: askedWords,
+						attachmentIds: [],
+						attachments: [],
+						pendingAttachments: [],
+					},
+					{
+						skipUserMessage: true,
+						skipPersistUserMessage: true,
+						retryAssistantMessageId: "assistant-2",
+						retryUserMessageId: "user-2",
+					},
+				);
+				made.streamInvocations[0].callbacks.onError(
+					new Error("Network failed"),
+				);
+
+				await runtime.retry();
+
+				expect(made.streamInvocations[1].options).toMatchObject({
+					retryAssistantMessageId: "assistant-2",
+					retryUserMessageId: "user-2",
+					retryOrigin: "error_retry",
+				});
+			});
+
+			it("shows no error and no Retry when a dropped connection is followed by a turn the server finished", async () => {
+				const readChatMessages = vi.fn(async () => [
+					...earlierTurn(),
+					serverUser(),
+					serverReply(),
+				]);
+				const { adapters, streamInvocations, messages, messageListEvents } =
+					makeAdapters({ readChatMessages });
+				messages.push(...earlierTurn());
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send({
+					message: askedWords,
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				// Words had come when the connection dropped, and the server has no stream
+				// left to reconnect to: it finished.
+				streamInvocations[0].callbacks.onToken("The lake");
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+				await vi.waitFor(() =>
+					expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1),
+				);
+
+				expect(readChatMessages).toHaveBeenCalledTimes(1);
+				expect(
+					vi
+						.mocked(adapters.setSendError)
+						.mock.calls.filter(([message]) => message !== null),
+				).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					canRetry: false,
+					isSending: false,
+				});
+				expect(removedIds(messageListEvents)).toContain("id-2");
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("still shows the error and the Retry when the server does not hold the turn after all", async () => {
+				const { adapters, streamInvocations, messages } = makeAdapters({
+					readChatMessages: vi.fn(async () => earlierTurn()),
+				});
+				messages.push(...earlierTurn());
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send({
+					message: askedWords,
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				streamInvocations[0].callbacks.onToken("The lake");
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+				await vi.waitFor(() =>
+					expect(adapters.setSendError).toHaveBeenCalledWith("Network failed"),
+				);
+
+				expect(runtime.snapshot().canRetry).toBe(true);
+				expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+			});
+
+			it("adds no ghost message and no error when the reconnect that failed had finished on the server", async () => {
+				const { adapters, streamInvocations, messages } = makeAdapters({
+					loadPersistedData: vi.fn(async () => {
+						messages.length = 0;
+						messages.push(
+							...earlierTurn(),
+							serverUser("user-9", "Resume me"),
+							serverReply("assistant-9"),
+						);
+					}),
+				});
+				messages.push(...earlierTurn());
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				streamInvocations[0].callbacks.onError(
+					new Error("Stream closed before a terminal completion event"),
+				);
+				await vi.waitFor(() =>
+					expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+
+				expect(messages.map((message) => message.id)).toEqual([
+					"user-1",
+					"assistant-1",
+					"user-9",
+					"assistant-9",
+				]);
+				expect(
+					vi
+						.mocked(adapters.setSendError)
+						.mock.calls.filter(([message]) => message !== null),
+				).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					canRetry: false,
+					isSending: false,
+				});
+			});
+
+			it("does not run twice when Retry is pressed twice, and does not mistake the first press's reply for one", async () => {
+				const { streamInvocations, messageListEvents, runtime } =
+					await failedSend();
+
+				void runtime.retry();
+				void runtime.retry();
+
+				expect(streamInvocations).toHaveLength(2);
+				// Only the first try's placeholder was ever removed.
+				expect(removedIds(messageListEvents)).toEqual(["id-2"]);
+			});
+
+			it("does not run twice either while the chat is being read", async () => {
+				let answer: (messages: ChatMessage[] | null) => void = () => {};
+				const readChatMessages = vi.fn(
+					() =>
+						new Promise<ChatMessage[] | null>((resolve) => {
+							answer = resolve;
+						}),
+				);
+				const { streamInvocations, runtime } = await failedSend({
+					readChatMessages,
+				});
+
+				const first = runtime.retry();
+				const second = runtime.retry();
+				answer(null);
+				await Promise.all([first, second]);
+
+				expect(readChatMessages).toHaveBeenCalledTimes(1);
+				expect(streamInvocations).toHaveLength(2);
+			});
+
+			it("sends nothing when a turn has started, or the chat has changed, while the chat was being read", async () => {
+				let answer: (messages: ChatMessage[] | null) => void = () => {};
+				let conversationId = "conv-1";
+				const readChatMessages = vi.fn(
+					() =>
+						new Promise<ChatMessage[] | null>((resolve) => {
+							answer = resolve;
+						}),
+				);
+				const { streamInvocations, runtime } = await failedSend({
+					readChatMessages,
+					getConversationId: vi.fn(() => conversationId),
+				});
+
+				// A new message goes while the read is out.
+				const first = runtime.retry();
+				void runtime.send({
+					message: "Something else",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				answer(null);
+				await first;
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].message).toBe("Something else");
+
+				// The chat changes while the read is out.
+				streamInvocations[1].callbacks.onError(new Error("Network failed"));
+				const second = runtime.retry();
+				conversationId = "conv-2";
+				answer(null);
+				await second;
+				expect(streamInvocations).toHaveLength(2);
+			});
+		});
 	});
 
 	it("reconnects to an orphaned stream and hands waiting state to polling", async () => {

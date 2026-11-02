@@ -216,6 +216,14 @@ export type NormalChatClientTurnRuntimeAdapters = {
 		clientUserMessageId?: string | null,
 	) => void;
 	loadPersistedData: () => Promise<void> | void;
+	/**
+	 * The chat's messages as the server holds them now, or null when they could not
+	 * be read in time. A dropped connection never reads the chat, and the server
+	 * keeps running the turn: it can save the message and its reply while the page
+	 * shows an error and a Retry. The runtime asks before it believes a message
+	 * failed (`askWhatTheServerHolds`).
+	 */
+	readChatMessages?: () => Promise<ChatMessage[] | null>;
 	mergeGeneratedFiles?: (
 		files: NonNullable<StreamMetadata["generatedFiles"]>,
 	) => void;
@@ -412,6 +420,8 @@ export function createNormalChatClientTurnRuntime(
 	// What Retry sends again when the list ends in the message that failed. It goes
 	// with the chat (`reset`), and a turn that was not a send of this page holds none.
 	let lastSend: RememberedSend | null = null;
+	// True while Retry reads the chat from the server: a second press is the same press.
+	let retryReading = false;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -711,6 +721,28 @@ export function createNormalChatClientTurnRuntime(
 		}
 	}
 
+	/**
+	 * Asks the server what it holds of a message the page thinks failed. The page's
+	 * list is read before the answer is waited for: it is what the answer is compared
+	 * with. A read that fails or runs out says nothing (`unknown`), and the caller
+	 * goes on as it always did: if the network is really gone the resend fails by
+	 * itself.
+	 */
+	async function askWhatTheServerHolds(text: string): Promise<ServerOutcome> {
+		const read = adapters.readChatMessages;
+		if (!read || !text.trim()) return { kind: "unknown" };
+		const heldIds = new Set(
+			adapters.getMessages().map((message) => message.id),
+		);
+		let serverMessages: ChatMessage[] | null = null;
+		try {
+			serverMessages = await read();
+		} catch {
+			serverMessages = null;
+		}
+		return judgeServerMessages(serverMessages, text, heldIds);
+	}
+
 	function restoreQueuedTurnToDraft() {
 		if (!queuedTurn) return;
 		const nextQueuedTurn = cloneSendPayload(queuedTurn);
@@ -731,10 +763,25 @@ export function createNormalChatClientTurnRuntime(
 		params: StartStreamParams,
 		error: Error,
 	) {
+		// What the page holds now is what the chat it is about to load is compared with.
+		const heldIds = new Set(
+			adapters.getMessages().map((message) => message.id),
+		);
 		await adapters.loadPersistedData();
 		if (!isTurnConversationActive(params.turnConversationId)) return;
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
+		// The reconnect only lost the end of a turn the server finished: the chat
+		// just loaded holds it, so there is nothing to put back and nothing failed.
+		if (
+			judgeServerMessages(adapters.getMessages(), text, heldIds).kind ===
+			"landed"
+		) {
+			lastSend = null;
+			canRetry = false;
+			emitState();
+			return;
+		}
 		// After a reload this page did not send the turn that failed, so there is no
 		// payload to send again, only the text. After a dropped connection on the
 		// page that did send it, the remembered send is this very message and Retry
@@ -1197,11 +1244,27 @@ export function createNormalChatClientTurnRuntime(
 			if (!isTurnConversationActive(params.turnConversationId)) {
 				return;
 			}
+			// No stream to reconnect to does not mean the turn failed: it may have
+			// finished meanwhile. The page asks before it shows an error and a Retry
+			// for a message the server has answered.
+			const outcome = await askWhatTheServerHolds(params.message);
+			if (!isTurnConversationActive(params.turnConversationId)) {
+				return;
+			}
 			adapters.applyMessageListEvent({
 				type: "remove",
 				messageId: params.placeholderId,
 			});
+			// A new turn can have started while the page asked: it owns the state.
+			if (isSending) return;
 			completeTurn();
+			if (outcome.kind === "landed") {
+				lastSend = null;
+				canRetry = false;
+				emitState();
+				await adapters.loadPersistedData();
+				return;
+			}
 			adapters.setSendError(adapters.toFriendlySendError(originalError));
 			canRetry = true;
 			emitState();
@@ -1420,7 +1483,7 @@ export function createNormalChatClientTurnRuntime(
 	 * draft and none of the files waiting in the composer: they belong to whatever
 	 * the person has started since.
 	 */
-	function resendFailedMessage(bubble: ChatMessage) {
+	function resendFailedMessage(bubble: ChatMessage, outcome: ServerOutcome) {
 		const turnConversationId = adapters.getConversationId();
 		// A send of another chat is never sent into this one (the page resets the
 		// runtime on a switch; this holds if it did not).
@@ -1431,13 +1494,29 @@ export function createNormalChatClientTurnRuntime(
 			attachments: [],
 			pendingAttachments: [],
 		};
-		const options: SendRuntimeOptions = lastSend?.options ?? {};
+		const remembered: SendRuntimeOptions = lastSend?.options ?? {};
 
 		adapters.setSendError(null);
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
 
 		const placeholderId = adapters.randomId();
+		// The server holds this message and no reply (a regenerate that failed in the
+		// model left it so): sent as a new message it would be saved twice. It goes
+		// through the retry route as a retry whose reply is gone, named by the new
+		// placeholder's id, which no reply of the chat has; the server rebuilds the
+		// files and pictures from the message's record. A remembered regenerate
+		// already is such a request and keeps its own ids.
+		const options: SendRuntimeOptions =
+			outcome.kind === "unanswered" && !remembered.retryAssistantMessageId
+				? {
+						...remembered,
+						retryAssistantMessageId: placeholderId,
+						retryUserMessageId: outcome.userMessageId,
+						retryUserIntent:
+							remembered.retryUserIntent ?? userIntentForPayload(payload),
+					}
+				: remembered;
 		adapters.applyMessageListEvent({
 			type: "appendAssistantPlaceholder",
 			placeholder: createAssistantPlaceholder(
@@ -1464,13 +1543,57 @@ export function createNormalChatClientTurnRuntime(
 		});
 	}
 
-	function retry() {
-		if (adapters.isReadOnly() || !canRetry || !lastUserMessage) {
+	async function retry() {
+		// A turn is running (a second press while the first waits in the page's gate
+		// would otherwise take the first press's placeholder for a reply), or the first
+		// press is still reading the chat.
+		if (
+			adapters.isReadOnly() ||
+			isSending ||
+			retryReading ||
+			!canRetry ||
+			!lastUserMessage
+		) {
+			return;
+		}
+		const text = lastUserMessage;
+		const turnConversationId = adapters.getConversationId();
+
+		// Before the message is sent again the server is asked whether it has it: a
+		// dropped connection does not mean the turn failed. Without the adapter, or
+		// when the read fails, nothing is known and Retry goes on as it always did.
+		let outcome: ServerOutcome = { kind: "unknown" };
+		if (adapters.readChatMessages) {
+			retryReading = true;
+			try {
+				outcome = await askWhatTheServerHolds(text);
+			} finally {
+				retryReading = false;
+			}
+			// A turn can have started, or the chat changed, while the page asked.
+			if (
+				adapters.isReadOnly() ||
+				isSending ||
+				!canRetry ||
+				lastUserMessage !== text ||
+				!isTurnConversationActive(turnConversationId)
+			) {
+				return;
+			}
+		}
+		if (outcome.kind === "landed") {
+			// The server finished the turn: the chat it holds is the page's now, and
+			// there is nothing to send, no error to show and nothing to retry.
+			lastSend = null;
+			canRetry = false;
+			adapters.setSendError(null);
+			emitState();
+			await adapters.loadPersistedData();
 			return;
 		}
 		const tail = adapters.getMessages().at(-1);
 		if (tail?.role === "user") {
-			resendFailedMessage(tail);
+			resendFailedMessage(tail, outcome);
 			return;
 		}
 
@@ -1478,8 +1601,6 @@ export function createNormalChatClientTurnRuntime(
 		adapters.setSendError(null);
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
-
-		const turnConversationId = adapters.getConversationId();
 
 		const retryMessages = adapters.getMessages();
 		const lastAssistantMsg = retryMessages.findLast(
@@ -1795,6 +1916,43 @@ function cloneSendPayload(
 		parentAtlasJobId: payload.parentAtlasJobId ?? null,
 		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	};
+}
+
+/**
+ * What the server holds of a message the page thinks failed.
+ *
+ * - `landed`: the server finished the turn. Its list ends in an assistant message
+ *   the page's list does not hold (the ids tell it from an earlier turn with the
+ *   same words), right after a user message with these words, trimmed.
+ * - `unanswered`: its list ends in a user message with these words and no reply,
+ *   the state a regenerate leaves when the model fails (the retry deleted the
+ *   reply first). Sending the words as a new message would save them twice.
+ * - `unknown`: anything else, and a list that could not be read.
+ */
+type ServerOutcome =
+	| { kind: "landed" }
+	| { kind: "unanswered"; userMessageId: string }
+	| { kind: "unknown" };
+
+function judgeServerMessages(
+	serverMessages: readonly ChatMessage[] | null,
+	text: string,
+	heldIds: ReadonlySet<string>,
+): ServerOutcome {
+	const words = text.trim();
+	const last = serverMessages?.at(-1);
+	if (!serverMessages || !last || !words) return { kind: "unknown" };
+	if (last.role === "assistant") {
+		const before = serverMessages.at(-2);
+		return !heldIds.has(last.id) &&
+			before?.role === "user" &&
+			before.content.trim() === words
+			? { kind: "landed" }
+			: { kind: "unknown" };
+	}
+	return last.role === "user" && last.content.trim() === words
+		? { kind: "unanswered", userMessageId: last.id }
+		: { kind: "unknown" };
 }
 
 /**
