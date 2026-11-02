@@ -266,7 +266,7 @@ let {
 	draftClientAtlasTurnId = null,
 	draftVersion = 0,
 	draftTakeoverVersion = 0,
-	resetRequest = 0,
+	resetRequest = undefined,
 	pictureRefs = [],
 	draftPictureOrder = [],
 	onRemovePictureRef = undefined,
@@ -366,8 +366,14 @@ let {
 	 * a chat was replaced can say so: the landing page's `conversationId` appears
 	 * while the person is typing and must clear nothing, which is why this is not
 	 * worked out from that prop here.
+	 *
+	 * A host that passes it (even 0) also owns emptying the composer when the store
+	 * that names the open chat changes, which can be after the draft was given
+	 * (a reload, Back) and would wipe a draft that holds a file and no words. A
+	 * host that does not, the landing page, keeps the composer's own reaction to
+	 * that store.
 	 */
-	resetRequest?: number;
+	resetRequest?: number | undefined;
 	/**
 	 * Card, strip and History pictures waiting in this message (Attach), held by
 	 * the page. They are numbered with the uploaded photos in the order they
@@ -1744,7 +1750,11 @@ $effect(() => {
 	lastConversationId = activeConversationId;
 	// Only clear if we actually switched conversations, not on initial load if it already has text.
 	if (!message) {
-		clearComposerForNewConversation();
+		// A host that passes `resetRequest` empties the composer itself, for the
+		// right chat, and then gives it that chat's draft. This store can name the
+		// chat after that draft is in (a reload, Back, the shell's late update), and
+		// emptying a composer whose draft holds a file and no words would wipe it.
+		if (resetRequest === undefined) clearComposerForNewConversation();
 		if (!isMobile()) {
 			setTimeout(() => textarea?.focus(), 0);
 		}

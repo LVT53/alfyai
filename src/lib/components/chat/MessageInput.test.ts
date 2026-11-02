@@ -15,6 +15,7 @@ import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { currentConversationId } from "$lib/stores/ui";
 import {
 	resetDisabledFileTypeIds,
 	setDisabledFileTypeIds,
@@ -7951,5 +7952,101 @@ describe("MessageInput when another chat replaces the one on screen", () => {
 		await new Promise((resolve) => setTimeout(resolve, 30));
 
 		expect(view.onDraftChange).not.toHaveBeenCalled();
+	});
+
+	// The store that names the open chat changes whenever the shell, the sidebar
+	// or a search result says so, which can be after the page has already given
+	// the composer its draft (a reload, Back). On the chat page `resetRequest`
+	// empties the composer, so the store must not.
+	describe("the store that names the open chat", () => {
+		beforeEach(() => {
+			currentConversationId.set(null);
+		});
+
+		afterEach(() => {
+			currentConversationId.set(null);
+		});
+
+		it("does not wipe a draft that holds a file and no words, when it names the chat after the draft is in", async () => {
+			const view = renderComposer({
+				resetRequest: 0,
+				draftText: "",
+				draftAttachments: [attachmentOf("a-file", "a-file.pdf")],
+				draftVersion: 1,
+			});
+			await waitFor(() => expect(view.getByText("a-file.pdf")).toBeTruthy());
+
+			currentConversationId.set("conv-1");
+			await tick();
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(view.getByText("a-file.pdf")).toBeTruthy();
+		});
+
+		it("does not wipe the next chat's file-only draft when it names the chat after a switch", async () => {
+			const view = renderComposer({ resetRequest: 0 });
+			currentConversationId.set("conv-1");
+			await tick();
+
+			await view.rerender({
+				conversationId: "conv-2",
+				resetRequest: 1,
+				draftText: "",
+				draftAttachments: [attachmentOf("b-file", "b-file.pdf")],
+				draftVersion: 7,
+			});
+			await waitFor(() => expect(view.getByText("b-file.pdf")).toBeTruthy());
+			currentConversationId.set("conv-2");
+			await tick();
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(view.getByText("b-file.pdf")).toBeTruthy();
+		});
+
+		it("saves the next keystroke with the file the draft held", async () => {
+			const view = renderComposer({
+				resetRequest: 0,
+				draftText: "",
+				draftAttachments: [attachmentOf("a-file", "a-file.pdf")],
+				draftVersion: 1,
+			});
+			await waitFor(() => expect(view.getByText("a-file.pdf")).toBeTruthy());
+			currentConversationId.set("conv-1");
+			await tick();
+
+			await fireEvent.input(view.textarea, { target: { value: "x" } });
+
+			await waitFor(() =>
+				expect(view.onDraftChange).toHaveBeenCalledWith(
+					expect.objectContaining({
+						draftText: "x",
+						selectedAttachmentIds: ["a-file"],
+					}),
+				),
+			);
+		});
+
+		it("still focuses an empty composer when it names another chat", async () => {
+			const view = renderComposer({ resetRequest: 0 });
+			view.textarea.blur();
+
+			currentConversationId.set("conv-1");
+
+			await waitFor(() => expect(document.activeElement).toBe(view.textarea));
+		});
+
+		it("still empties the composer of a host that does not pass resetRequest (the landing page)", async () => {
+			const view = renderComposer();
+			await view.pickFile("a-file.pdf");
+			view.finishUpload(0, {
+				success: true,
+				attachment: attachmentOf("a-file", "a-file.pdf"),
+			});
+			await waitFor(() => expect(view.getByText("a-file.pdf")).toBeTruthy());
+
+			currentConversationId.set("conv-1");
+
+			await waitFor(() => expect(view.queryByText("a-file.pdf")).toBeNull());
+		});
 	});
 });
