@@ -7098,6 +7098,18 @@ describe("MessageInput editing a sent message", () => {
 		);
 	});
 
+	it("drops the destructive tint while the send button is off", async () => {
+		const view = renderComposer();
+		await view.rerender({ editing: { text: "Hi", laterReplies: 3 } });
+		const composer = view.getByTestId("message-input") as HTMLTextAreaElement;
+
+		await fireEvent.input(composer, { target: { value: "   " } });
+
+		const send = view.getByTestId("send-button");
+		expect(send).toBeDisabled();
+		expect(send).not.toHaveClass("composer-send--destructive");
+	});
+
 	it("says '1 later reply' for one", async () => {
 		const view = renderComposer();
 		await view.rerender({ editing: { text: "Hi", laterReplies: 1 } });

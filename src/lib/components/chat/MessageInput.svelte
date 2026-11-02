@@ -4504,7 +4504,7 @@ async function emitDraftChange(force = false) {
 						type="button"
 						onclick={() => (editing ? submitEdit() : send())}
 						disabled={editing ? !canEditSubmit : !canSend || isComposerDisabled}
-						class:composer-send--destructive={Boolean(editing && editing.laterReplies > 0)}
+						class:composer-send--destructive={Boolean(editing && editing.laterReplies > 0 && canEditSubmit)}
 						aria-label={$t('chat.sendMessage')}
 						class="btn-primary composer-send flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-elevated disabled:text-icon-muted animate-in"
 					>
