@@ -1176,3 +1176,254 @@ describe("preflightChatTurn pictures", () => {
 		expect(mocks.validatePictureRequest).not.toHaveBeenCalled();
 	});
 });
+
+// An edit deletes the message and everything after it and only then resends it,
+// so a turn the gate refuses would leave the person with neither. `checkChatTurn`
+// asks the same gate first, and writes nothing: it is the turn's own checks
+// (pictures, then attachments for the turn's model), run alone.
+describe("checkChatTurn", () => {
+	function readinessRefusal(reason: string) {
+		return {
+			status: 422,
+			message: "Photo.png does not contain enough readable text.",
+			code: "attachment_not_ready",
+			attachmentIds: ["attachment-1"],
+			items: [],
+			readiness: [{ artifactId: "attachment-1", name: "Photo.png", reason }],
+		};
+	}
+
+	beforeEach(() => {
+		resetPreflightMocks();
+	});
+
+	it("lets through a turn the gate lets through", async () => {
+		const { checkChatTurn } = await import("./preflight");
+
+		const result = await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({ attachmentIds: ["attachment-1"] }),
+		});
+
+		expect(result).toEqual({ ok: true });
+		expect(mocks.getConversation).toHaveBeenCalledWith("user-1", "conv-1");
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
+	});
+
+	it("writes nothing: it resolves no linked source, no skill and no depth, whatever the request names", async () => {
+		const { checkChatTurn } = await import("./preflight");
+
+		const result = await checkChatTurn({
+			userId: "user-1",
+			request: makeHeavyRequest(),
+		});
+
+		expect(result).toEqual({ ok: true });
+		// Reading the attachments is the point; these three are what a turn writes
+		// or spends a model call on, and an edit's resend carries none of them.
+		expect(mocks.assertPromptReadyAttachments).toHaveBeenCalledTimes(1);
+		expect(mocks.addConversationLinkedContextSources).not.toHaveBeenCalled();
+		expect(mocks.resolvePendingSkillApplication).not.toHaveBeenCalled();
+		expect(mocks.resolveReasoningDepthSelection).not.toHaveBeenCalled();
+	});
+
+	it("refuses with the answer the turn's own gate gives, for an attachment the model cannot read", async () => {
+		const { checkChatTurn, preflightChatTurn } = await import("./preflight");
+		mocks.isAttachmentReadinessError.mockReturnValue(true);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(
+			readinessRefusal("not_text_readable"),
+		);
+		const request = makeRequest({ attachmentIds: ["attachment-1"] });
+
+		const checked = await checkChatTurn({ userId: "user-1", request });
+		const turn = await preflightChatTurn({ userId: "user-1", request });
+
+		expect(checked.ok).toBe(false);
+		expect(checked).toEqual(turn);
+		expect(checked).toMatchObject({
+			ok: false,
+			error: {
+				status: 422,
+				code: "attachment_not_ready",
+				attachmentReadiness: [
+					{
+						artifactId: "attachment-1",
+						name: "Photo.png",
+						reason: "not_text_readable",
+					},
+				],
+			},
+		});
+	});
+
+	it("refuses with the picture check's answer, before reading any attachment", async () => {
+		const { checkChatTurn, preflightChatTurn } = await import("./preflight");
+		mocks.validatePictureRequest.mockResolvedValue({
+			status: 404,
+			error: "Picture not found",
+			code: "picture_not_found",
+		});
+		const request = makeRequest({
+			attachmentIds: ["attachment-1"],
+			pictureRefs: [{ imageFileId: "not-mine", number: 1 }],
+		});
+
+		const checked = await checkChatTurn({ userId: "user-1", request });
+		const turn = await preflightChatTurn({ userId: "user-1", request });
+
+		expect(checked).toEqual({
+			ok: false,
+			error: {
+				status: 404,
+				error: "Picture not found",
+				code: "picture_not_found",
+			},
+		});
+		expect(checked).toEqual(turn);
+		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+	});
+
+	it("excuses a picture the turn's model can see, as the turn does, and asks for it once", async () => {
+		const { checkChatTurn } = await import("./preflight");
+		mocks.isAttachmentReadinessError.mockReturnValue(true);
+		mocks.modelIdCanSeeImages.mockResolvedValue(true);
+		mocks.assertPromptReadyAttachments.mockImplementation(
+			async (params: { exemptImages?: boolean }) => {
+				if (params.exemptImages) {
+					return { displayArtifacts: [], promptArtifacts: [] };
+				}
+				throw readinessRefusal("not_text_readable");
+			},
+		);
+
+		const seeing = await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				modelId: "seeing-model",
+				attachmentIds: ["attachment-1"],
+			}),
+		});
+		expect(seeing).toEqual({ ok: true });
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledTimes(1);
+		expect(mocks.modelIdCanSeeImages).toHaveBeenCalledWith("seeing-model");
+
+		// The same message on a model that cannot see is refused: the case an edit
+		// used to meet only after its message was deleted.
+		mocks.modelIdCanSeeImages.mockResolvedValue(false);
+		const blind = await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				modelId: "blind-model",
+				attachmentIds: ["attachment-1"],
+			}),
+		});
+		expect(blind).toMatchObject({
+			ok: false,
+			error: { status: 422, code: "attachment_not_ready" },
+		});
+	});
+
+	it("asks nothing of the model when nothing is attached", async () => {
+		const { checkChatTurn } = await import("./preflight");
+
+		await checkChatTurn({ userId: "user-1", request: makeRequest() });
+
+		expect(mocks.modelIdCanSeeImages).not.toHaveBeenCalled();
+		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+		expect(mocks.validatePictureRequest).not.toHaveBeenCalled();
+	});
+
+	it("drops a picture gone since from the resend of an edit and refuses it from a plain send, as the turn does", async () => {
+		const { checkChatTurn } = await import("./preflight");
+		mocks.keepReadableRecordedPictures.mockResolvedValue({
+			pictureRefs: [{ imageFileId: "still-here", number: 2 }],
+			imageMarks: null,
+		});
+		const refs = [
+			{ imageFileId: "deleted", number: 1 },
+			{ imageFileId: "still-here", number: 2 },
+		];
+
+		const edit = await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({ turnOrigin: "edit_resend", pictureRefs: refs }),
+		});
+
+		expect(edit).toEqual({ ok: true });
+		expect(mocks.keepReadableRecordedPictures).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				refs,
+			}),
+		);
+		expect(mocks.validatePictureRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pictureRefs: [{ imageFileId: "still-here", number: 2 }],
+			}),
+		);
+
+		mocks.keepReadableRecordedPictures.mockClear();
+		await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({ turnOrigin: "send", pictureRefs: refs }),
+		});
+		expect(mocks.keepReadableRecordedPictures).not.toHaveBeenCalled();
+	});
+
+	it("refuses a conversation that is not the person's", async () => {
+		const { checkChatTurn } = await import("./preflight");
+		mocks.getConversation.mockResolvedValue(null);
+
+		const result = await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({ attachmentIds: ["attachment-1"] }),
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			error: { status: 404, error: "Conversation not found" },
+		});
+		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+	});
+
+	it("hands the request's abort signal to the bounded wait, so a closed tab releases it", async () => {
+		const { checkChatTurn } = await import("./preflight");
+		mocks.isAttachmentReadinessError.mockReturnValue(true);
+		mocks.assertPromptReadyAttachments.mockRejectedValue({
+			status: 422,
+			message: "Photo.png is still being prepared for chat.",
+			code: "attachment_extraction_pending",
+			attachmentIds: ["attachment-1"],
+			items: [
+				{
+					artifactId: "attachment-1",
+					name: "Photo.png",
+					status: "parsing",
+					errorCode: null,
+					retryable: false,
+				},
+			],
+			readiness: [],
+		});
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
+			{
+				id: "job-1",
+				sourceArtifactId: "attachment-1",
+				status: "parsing",
+				intakeRoute: "mineru",
+			},
+		]);
+		const controller = new AbortController();
+
+		await checkChatTurn({
+			userId: "user-1",
+			request: makeRequest({ attachmentIds: ["attachment-1"] }),
+			signal: controller.signal,
+		});
+
+		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ signal: controller.signal }),
+		);
+	});
+});

@@ -119,11 +119,18 @@ async function withEditResendPictures(
 	return { ...request, ...kept };
 }
 
-async function prepareChatTurn(params: {
+/**
+ * What a request may carry, checked against what the person can still read: the
+ * pictures it names and the attachments for the turn's own model. It only reads,
+ * and it is the one place that decides, for the turn (`prepareChatTurn`) and for
+ * `checkChatTurn` alike. The request it hands back is the one the turn goes on
+ * with: an edit's resend has dropped the pictures it can no longer read.
+ */
+async function checkTurnInputs(params: {
 	userId: string;
 	request: ParsedChatTurnRequest;
 	signal?: AbortSignal;
-}): Promise<ChatTurnPreparationResult> {
+}): Promise<{ ok: true; request: ParsedChatTurnRequest } | PreflightError> {
 	const { userId } = params;
 	const request = await withEditResendPictures(userId, params.request);
 	// The pictures the request names must be the person's own. Their number is
@@ -154,6 +161,42 @@ async function prepareChatTurn(params: {
 		{ exemptImages },
 	);
 	if (attachmentValidation) return attachmentValidation;
+	return { ok: true, request };
+}
+
+/**
+ * Whether the turn's gate would take this request, asked without starting a turn.
+ * It runs the turn's own checks (`checkTurnInputs`) and nothing else, so it writes
+ * nothing: `resolveLinkedSources` adds the sources to the conversation, and the
+ * skill and the depth are for a turn that is going to run. The resend of an edit
+ * carries no linked source and no pending skill, and it is the caller: an edit
+ * deletes its message before the resend meets the gate, so the gate is asked
+ * first, and a refusal leaves the edit open with the message still there.
+ */
+export async function checkChatTurn(params: {
+	userId: string;
+	request: ParsedChatTurnRequest;
+	signal?: AbortSignal;
+}): Promise<{ ok: true } | PreflightError> {
+	const admission = await admitChatTurn(params);
+	if (!admission.ok) return admission;
+	const checked = await checkTurnInputs({
+		userId: params.userId,
+		request: admission.value,
+		signal: params.signal,
+	});
+	return checked.ok ? { ok: true } : checked;
+}
+
+async function prepareChatTurn(params: {
+	userId: string;
+	request: ParsedChatTurnRequest;
+	signal?: AbortSignal;
+}): Promise<ChatTurnPreparationResult> {
+	const { userId } = params;
+	const checked = await checkTurnInputs(params);
+	if (!checked.ok) return checked;
+	const request = checked.request;
 
 	const resolvedLinkedSources = await resolveLinkedSources(userId, request);
 	if (!resolvedLinkedSources.ok) return resolvedLinkedSources;

@@ -21,6 +21,7 @@ export { normalizeAssistantOutputWithSkillControl } from "./normalizer";
 export { runPlainNormalChatSendModel } from "./plain-normal-chat-model-run";
 export {
 	admitChatTurnStream,
+	checkChatTurn,
 	preflightAtlasTurnSources,
 	preflightChatTurn,
 	prepareAdmittedChatTurn,
