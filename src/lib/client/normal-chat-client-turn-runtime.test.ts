@@ -2143,7 +2143,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			const runtime = createNormalChatClientTurnRuntime(adapters);
 			const intent = {
 				skill: { id: "skill-1", displayName: "Planning reviewer" },
-				webSearch: true,
+				webSearch: true as const,
 			};
 
 			await runtime.send(

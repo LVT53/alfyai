@@ -1177,7 +1177,7 @@ describe("streamChat", () => {
 	it("says the skill and the web search of the turn in a retry request", async () => {
 		const intent = {
 			skill: { id: "skill-1", displayName: "Planning reviewer" },
-			webSearch: true,
+			webSearch: true as const,
 		};
 		const { mockFetch, done } = runStreamWithMockedResponse({
 			message: "ignored",
