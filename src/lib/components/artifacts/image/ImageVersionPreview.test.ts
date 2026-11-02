@@ -137,6 +137,59 @@ describe("ImageVersionPreview Attach", () => {
 		await screen.findByTestId("compare-wipe-before");
 		expect(screen.queryByTestId("image-version-preview-attach")).toBeNull();
 	});
+
+	// The version's prompt arrives with it, under the row, and the row moves up by the
+	// prompt's height. A row that moves as it is about to be pressed is a layout shift
+	// (images-motion.spec.ts "move nothing": the strip frame opens History on a version
+	// whose body is still on its way). The row is hidden, not removed, until the first
+	// version has loaded: it keeps its room and nothing visible moves.
+	describe("while the first version is on its way", () => {
+		const rowOf = async () =>
+			(await screen.findByTestId("image-version-preview-attach")).closest(
+				".ivp-actions",
+			);
+
+		it("keeps the row's room but does not show it, and shows it with the prompt once the version has loaded", async () => {
+			let arrive: (body: string) => void = () => {};
+			bodies.versionBody.mockImplementation(
+				() =>
+					new Promise<string>((resolve) => {
+						arrive = resolve;
+					}),
+			);
+			renderPreview({ onAttachPicture: vi.fn(), baseVersionId: null });
+			const row = await rowOf();
+			expect(row).toHaveClass("is-pending");
+			expect(screen.queryByTestId("image-version-prompt")).toBeNull();
+
+			arrive(stored.v2);
+			await screen.findByTestId("image-version-prompt");
+			expect(row).not.toHaveClass("is-pending");
+		});
+
+		it("is hidden by the stylesheet, which keeps its room", () => {
+			const here = path.dirname(fileURLToPath(import.meta.url));
+			const source = readFileSync(
+				path.join(here, "ImageVersionPreview.svelte"),
+				"utf8",
+			);
+			const pending = /\.ivp-actions\.is-pending \{([^}]*)\}/.exec(source)?.[1];
+			expect(pending).toMatch(/visibility:\s*hidden;/);
+			expect(pending).not.toMatch(/display:\s*none/);
+		});
+
+		it("shows the row (disabled) where the version cannot be read: the error is not a wait", async () => {
+			renderPreview({ onAttachPicture: vi.fn(), versionId: "vMissing" });
+			const row = await rowOf();
+			await waitFor(() =>
+				expect(screen.getByTestId("image-version-preview")).toHaveAttribute(
+					"data-status",
+					"error",
+				),
+			);
+			expect(row).not.toHaveClass("is-pending");
+		});
+	});
 });
 
 describe("ImageVersionPreview Edit this version", () => {

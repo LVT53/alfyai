@@ -282,8 +282,11 @@ const tags = $derived(
 	</div>
 	{#if onAttachPicture || canEditHere}
 		<!-- One row, there whether the version has loaded or not, so the picture
-		     above is the same size before and after it loads. -->
-		<div class="ivp-actions">
+		     above is the same size before and after it loads, but not seen until the
+		     first version has: its prompt arrives under the row and the row moves up
+		     by the prompt's height, and a row that moves as it is about to be pressed
+		     is a layout shift. -->
+		<div class="ivp-actions" class:is-pending={status === 'loading' && !shown}>
 			{#if editing}
 				<MarkTools
 					{marking}
@@ -351,8 +354,9 @@ const tags = $derived(
 	   by CSS alone, so a History that changes shape never re-flows it by script.
 	   The picture hangs from History's toolbar, as the Document's preview starts
 	   right under it (V3), instead of floating centred between two empty bands;
-	   the Attach row and the prompt stay at the foot, reserved, so a version
-	   loading never moves them. */
+	   the Attach row keeps its room at the foot and shows once the version has
+	   loaded, together with the prompt under it, so a version loading moves
+	   nothing that can be seen. */
 	.ivp-stage {
 		position: relative;
 		display: grid;
@@ -412,6 +416,12 @@ const tags = $derived(
 		align-items: center;
 		justify-content: flex-start;
 		gap: var(--space-sm);
+	}
+
+	/* Hidden, not removed: it keeps its room, and a box that is not visible does not
+	   count as moving when the prompt arrives under it and pushes it up. */
+	.ivp-actions.is-pending {
+		visibility: hidden;
 	}
 
 	.ivp-attach {
