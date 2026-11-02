@@ -50,6 +50,8 @@ const runtimeHarness = vi.hoisted(() => ({
 	atlasFailure: null as Error | null,
 	/** The stream the server is still running for the chat, when a test says it is: what a page that lost its connection finds when it looks for the turn. */
 	orphanedStreamId: null as string | null,
+	/** When set, the page finds a stream the server is still running for this chat and reconnects to it. */
+	orphanedStream: null as { streamId: string; userMessage: string } | null,
 	/** What the page handed the runtime, for the tests that speak to the page the way the runtime does. */
 	adapters: null as {
 		restorePayloadToDraft: (payload: {
@@ -59,6 +61,7 @@ const runtimeHarness = vi.hoisted(() => ({
 			pendingAttachments: unknown[];
 			conversationId?: string | null;
 		}) => void;
+		hydrateConversationDetail: () => void;
 	} | null,
 }));
 
@@ -387,9 +390,19 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 					return handle;
 				}),
 				checkForOrphanedStream: vi.fn(
-					async () => runtimeHarness.orphanedStreamId,
+					async () =>
+						runtimeHarness.orphanedStream?.streamId ??
+						runtimeHarness.orphanedStreamId,
 				),
-				getStreamBufferInfo: vi.fn(async () => null),
+				getStreamBufferInfo: vi.fn(async () =>
+					runtimeHarness.orphanedStream
+						? {
+								userMessage: runtimeHarness.orphanedStream.userMessage,
+								reasoningDepth: "thorough" as const,
+								createdAt: Date.now(),
+							}
+						: null,
+				),
 				submitAtlasTurn: vi.fn(async (payload) => {
 					runtimeHarness.atlasSubmissions.push({
 						message: payload.message,
@@ -535,6 +548,7 @@ describe("chat page runtime integration", () => {
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
 		runtimeHarness.atlasFailure = null;
+		runtimeHarness.orphanedStream = null;
 		vi.restoreAllMocks();
 	});
 
@@ -1820,6 +1834,177 @@ describe("chat page runtime integration", () => {
 
 			expect(composer).toHaveValue("held words");
 			expect(persistConversationDraft).not.toHaveBeenCalled();
+		});
+
+		// What the composer holds is what it last said or was last told to show. A
+		// load of the chat nulls the page's copy of the draft, and a read can set
+		// one older than the typing that has not been saved yet: neither is what
+		// the composer holds.
+		describe("joins what the composer holds, not the page's copy of the draft", () => {
+			it("after a reconnect that failed and loaded the chat again", async () => {
+				runtimeHarness.orphanedStream = {
+					streamId: "stream-1",
+					userMessage: "The question the reply was for",
+				};
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+				await fireEvent.input(composer, { target: { value: "B queued" } });
+				await fireEvent.click(screen.getByTestId("queue-button"));
+				await fireEvent.input(composer, { target: { value: "C typed since" } });
+
+				// The reconnect fails: the page loads the chat again, which empties its
+				// copy of the draft.
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					new Error("The server restarted"),
+				);
+				await waitFor(() => {
+					expect(fetchConversationDetail).toHaveBeenCalled();
+				});
+				await fireEvent.click(screen.getByTestId("edit-queued-button"));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("C typed since\n\nB queued");
+				});
+				expect(
+					screen.queryByTestId("queued-message-banner"),
+				).not.toBeInTheDocument();
+			});
+
+			it("when a read has set an older copy than the typing", async () => {
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, {
+					target: { value: "typed, not saved yet" },
+				});
+				// A read asked now answers with what the server has: older than the typing.
+				vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+					conversationDetailFixture({
+						draft: {
+							conversationId: "conv-1",
+							draftText: "typed",
+							selectedAttachmentIds: [],
+							selectedAttachments: [],
+							selectedLinkedSources: [],
+							pendingSkill: null,
+							updatedAt: Date.now() - 1000,
+						},
+					}),
+				);
+				runtimeHarness.adapters?.hydrateConversationDetail();
+				for (let step = 0; step < 5; step += 1) await Promise.resolve();
+				await new Promise((resolve) => setTimeout(resolve, 0));
+
+				runtimeHarness.adapters?.restorePayloadToDraft({
+					message: "B queued",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("typed, not saved yet\n\nB queued");
+				});
+			});
+
+			it("when a draft the page was given on arrival is still untouched", async () => {
+				runtimeHarness.atlasFailure = new Error("Atlas is busy");
+				renderPage(
+					pageData({
+						messages: [atlasMessage],
+						atlasJobs: [finishedAtlasJob()],
+						draft: {
+							conversationId: "conv-1",
+							draftText: "a draft from before the reload",
+							selectedAttachmentIds: [],
+							selectedAttachments: [],
+							selectedLinkedSources: [],
+							pendingSkill: null,
+							updatedAt: Date.now() - 5000,
+						},
+					}),
+				);
+				const composer = screen.getByTestId("message-input");
+				await waitFor(() => {
+					expect(composer).toHaveValue("a draft from before the reload");
+				});
+
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Continue Atlas" }),
+				);
+				const panel = screen.getByRole("region", { name: "Continue Atlas" });
+				await fireEvent.input(within(panel).getByRole("textbox"), {
+					target: { value: "Extend the report" },
+				});
+				await fireEvent.click(
+					within(panel).getByRole("button", { name: "Continue Atlas" }),
+				);
+
+				await waitFor(() => {
+					expect(composer).toHaveValue(
+						"a draft from before the reload\n\nExtend the report",
+					);
+				});
+			});
+
+			it("after an earlier restore, which the composer took without saying so", async () => {
+				runtimeHarness.atlasFailure = new Error("Atlas is busy");
+				renderPage(
+					pageData({
+						messages: [atlasMessage],
+						atlasJobs: [finishedAtlasJob()],
+					}),
+				);
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "held words" } });
+				runtimeHarness.adapters?.restorePayloadToDraft({
+					message: "first restore",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				await waitFor(() => {
+					expect(composer).toHaveValue("held words\n\nfirst restore");
+				});
+
+				runtimeHarness.adapters?.restorePayloadToDraft({
+					message: "second restore",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+
+				await waitFor(() => {
+					expect(composer).toHaveValue(
+						"held words\n\nfirst restore\n\nsecond restore",
+					);
+				});
+			});
+
+			it("and an emptied composer holds nothing, however old the page's copy", async () => {
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "sent words" } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+
+				runtimeHarness.adapters?.restorePayloadToDraft({
+					message: "words put back",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("words put back");
+				});
+			});
 		});
 	});
 
@@ -4953,6 +5138,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
 		runtimeHarness.atlasFailure = null;
+		runtimeHarness.orphanedStream = null;
 		vi.restoreAllMocks();
 	});
 
@@ -6789,6 +6975,7 @@ describe("chat page regenerate — later-turns confirm integration (B1)", () => 
 	afterEach(() => {
 		clearAnimationFrameMockTimers();
 		runtimeHarness.atlasFailure = null;
+		runtimeHarness.orphanedStream = null;
 		vi.restoreAllMocks();
 	});
 

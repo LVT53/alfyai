@@ -742,6 +742,14 @@ function isKeptFailedTurnWords(draft: ConversationDraft) {
 		failedTurnWords.text.trim() === draft.draftText.trim()
 	);
 }
+
+// What the composer holds, as far as the page can tell: what it last said
+// (`handleDraftChange`) or was last told to show (a chat's saved draft on
+// arrival, the draft a restore joined). A restore joins this, never
+// `conversationDraft`: a load of the chat sets that to null, and a read can set
+// it to a copy older than typing that is not saved yet, while the composer still
+// holds the typing. Let go when the composer is emptied by a send or a queue.
+let heldDraft: ConversationDraft | null = null;
 let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
@@ -981,6 +989,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	},
 	clearDraft: () => {
 		setConversationDraft(null);
+		heldDraft = null;
 		draftPersistence.clear();
 	},
 	deleteDraft: () => {
@@ -2470,6 +2479,8 @@ function resetState() {
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
 	setConversationDraft(data.draft ?? null);
+	// The composer is given this chat's saved draft, whatever it held before.
+	heldDraft = data.draft ?? null;
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
@@ -3322,7 +3333,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 		return;
 	}
 	const restored = joinRestoredPayload(
-		{ draft: conversationDraft, pictures: composerPictures, marks: heldMarks },
+		{ draft: heldDraft, pictures: composerPictures, marks: heldMarks },
 		payload,
 		{
 			conversationId: data.conversation.id,
@@ -3335,6 +3346,8 @@ function restorePayloadToDraft(payload: SendPayload) {
 	composerPictures = restored.pictures;
 	composerPictureOrder = restored.pictureOrder;
 	setConversationDraft(restored.draft);
+	// The composer takes this draft and says nothing of it.
+	heldDraft = restored.draft;
 	composerDraftTakeoverVersion = restored.draft?.updatedAt ?? 0;
 	void draftPersistence.persist(
 		{
@@ -4420,6 +4433,7 @@ function handleDraftChange(payload: DraftChangePayload) {
 		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 	setConversationDraft(nextDraft);
+	heldDraft = nextDraft;
 	void draftPersistence.persist({
 		conversationId: nextConversationId,
 		draftText: payload.draftText,
