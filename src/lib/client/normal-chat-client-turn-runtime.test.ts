@@ -509,38 +509,6 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
-	it("carries isEditResend through a Retry of the resend, and not past it", () => {
-		const { adapters, streamInvocations } = makeAdapters();
-		const runtime = createNormalChatClientTurnRuntime(adapters);
-		runtime.send({
-			message: "Edited message",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-			isEditResend: true,
-		});
-		streamInvocations[0].callbacks.onError(new Error("Network failed"));
-
-		runtime.retry();
-
-		expect(streamInvocations[1]).toMatchObject({
-			message: "Edited message",
-			options: { isEditResend: true },
-		});
-		streamInvocations[1].callbacks.onError(new Error("Network failed"));
-
-		runtime.send({
-			message: "A new question",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-		});
-		streamInvocations[2].callbacks.onError(new Error("Network failed"));
-		runtime.retry();
-
-		expect(streamInvocations[3].options?.isEditResend).toBeFalsy();
-	});
-
 	it("omits isEditResend (false) for an ordinary send", () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

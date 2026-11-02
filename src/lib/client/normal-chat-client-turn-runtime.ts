@@ -393,9 +393,6 @@ export function createNormalChatClientTurnRuntime(
 	let queuedTurn: NormalChatSendPayload | null = null;
 	let queuedContextCompression = false;
 	let lastUserMessage = "";
-	// A Retry of the resend of an edit is still that resend: the server keeps
-	// the conversation's draft through it, and a plain send would clear it.
-	let lastTurnWasEditResend = false;
 	let lastAssistantResponse = "";
 	let lastReasoningDepth: ReasoningDepth = "thorough";
 
@@ -1267,7 +1264,6 @@ export function createNormalChatClientTurnRuntime(
 		adapters.setSuppressHydration?.(true);
 		adapters.setInitialStreamPending?.(false);
 		lastUserMessage = text;
-		lastTurnWasEditResend = payload.isEditResend === true;
 		lastReasoningDepth = reasoningDepthForTurn;
 		canRetry = true;
 		adapters.markHasPersistedMessages?.();
@@ -1410,7 +1406,6 @@ export function createNormalChatClientTurnRuntime(
 				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
 				retryUserMessageId,
 				retryUserMessage: retryAssistantMessageId ? lastUserMessage : undefined,
-				isEditResend: lastTurnWasEditResend,
 				// The Retry button only appears after a failed turn: a verdict on
 				// the failure, not on the answer, so not a counted regenerate.
 				retryOrigin: "error_retry",
@@ -1486,7 +1481,6 @@ export function createNormalChatClientTurnRuntime(
 		phase = "idle";
 		activePlaceholderId = null;
 		lastUserMessage = "";
-		lastTurnWasEditResend = false;
 		lastAssistantResponse = "";
 		lastReasoningDepth = "thorough";
 		emitState();
