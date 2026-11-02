@@ -1777,7 +1777,7 @@ function handleComposerSend(payload: SendPayload) {
 	composerPictures = [];
 	composerPictureOrder = [];
 	heldMarks = null;
-	return handleSend(payload);
+	return handleSend(payload, false, false, true);
 }
 
 function handleComposerQueue(payload: SendPayload) {
@@ -2341,11 +2341,16 @@ function maybeSendPendingInitialMessage() {
 	void (async () => {
 		const proceed = await prepareTurn();
 		if (!proceed) return;
-		handleSend({
-			...pendingDraft,
-			markedPicture: pendingDraft.markedPicture ?? undefined,
-			pendingAttachments: [],
-		});
+		handleSend(
+			{
+				...pendingDraft,
+				markedPicture: pendingDraft.markedPicture ?? undefined,
+				pendingAttachments: [],
+			},
+			false,
+			false,
+			true,
+		);
 	})();
 }
 
@@ -3041,20 +3046,24 @@ async function handleAtlasLifecycleAction(payload: {
 	// the cloud-warning gate; not one of the three previously-known leaks).
 	const proceed = await prepareTurn();
 	if (!proceed || editingMessage) return;
-	void normalChatRuntime.send({
-		message: payload.message,
-		attachmentIds: [],
-		attachments: [],
-		pendingAttachments: [],
-		linkedSources: [],
-		pendingSkill: null,
-		conversationId: data.conversation.id,
-		atlasMode: true,
-		atlasProfile: payload.profile,
-		atlasAction: payload.action,
-		parentAtlasJobId: payload.jobId,
-		clientAtlasTurnId: createClientAtlasTurnId(),
-	});
+	void normalChatRuntime.send(
+		{
+			message: payload.message,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			linkedSources: [],
+			pendingSkill: null,
+			conversationId: data.conversation.id,
+			atlasMode: true,
+			atlasProfile: payload.profile,
+			atlasAction: payload.action,
+			parentAtlasJobId: payload.jobId,
+			clientAtlasTurnId: createClientAtlasTurnId(),
+		},
+		// The panel's words, not the composer's: the draft stays.
+		{ clearDraft: false },
+	);
 }
 
 /** The tool calls of the reply being streamed: a make_image call running before its card exists keeps the poll on. */
@@ -3682,7 +3691,11 @@ async function handleSend(
 	payload: SendPayload,
 	skipUserMessage = false,
 	skipPersistUserMessage = false,
-	clearDraft = true,
+	// Only a send of what the composer holds clears its draft: the composer's own
+	// send and the landing page's first message pass true. A regenerate, a
+	// follow-up chip and the resend of an edit send other words, and the person
+	// may be holding a draft of their own.
+	clearDraft = false,
 	retryAssistantMessageId?: string,
 	retryUserMessageId?: string,
 	confirmForkedSourceHistoryMutation = false,
@@ -3870,7 +3883,8 @@ async function handleRegenerate(
 		},
 		true,
 		true,
-		true,
+		// The old question again, not the composer's text: the draft stays.
+		false,
 		assistantMessageId,
 		msgs[userIdx].id,
 		confirmForkedSourceHistoryMutation || hasKnownForks,

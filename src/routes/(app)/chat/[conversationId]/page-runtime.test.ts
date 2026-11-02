@@ -390,9 +390,11 @@ vi.mock("$lib/stores/conversations", async (importOriginal) => ({
 import { goto } from "$app/navigation";
 import { fetchConversationPendingWrites } from "$lib/client/api/connection-writes";
 import {
+	deleteConversationDraft,
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	generateConversationTitle,
+	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import {
 	conversations as conversationsStore,
@@ -777,6 +779,178 @@ describe("chat page runtime integration", () => {
 		expect(runtimeHarness.streamInvocations[1].message).toBe(
 			"List the risks in a table",
 		);
+	});
+
+	// Only a send of what the composer holds clears its draft: the composer's own
+	// send and the landing page's first message. A turn that starts from
+	// anywhere else sends other words, and the draft the person is holding
+	// stays on screen and stays saved.
+	describe("the draft the composer is holding", () => {
+		beforeEach(() => {
+			vi.mocked(deleteConversationDraft).mockClear();
+			vi.mocked(persistConversationDraft).mockClear();
+		});
+
+		/** Types into the composer and waits until the draft is saved, as it is a moment after a person stops typing. What happens to the draft from here is what the test looks at. */
+		async function holdADraft(text: string) {
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: text } });
+			await waitFor(() => {
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: text }),
+					expect.anything(),
+				);
+			});
+			vi.mocked(deleteConversationDraft).mockClear();
+			return composer;
+		}
+
+		it("a regenerate leaves it alone", async () => {
+			renderPage(
+				pageData({
+					messages: [
+						{
+							id: "user-1",
+							role: "user" as const,
+							content: "What is the plan?",
+							timestamp: 1,
+						},
+						{
+							id: "assistant-1",
+							role: "assistant" as const,
+							content: "Here is the plan.",
+							timestamp: 2,
+						},
+					],
+				}),
+			);
+			await screen.findByText("Here is the plan.");
+			const composer = await holdADraft("half a thought");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Regenerate response" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe(
+				"What is the plan?",
+			);
+			expect(deleteConversationDraft).not.toHaveBeenCalled();
+			expect(composer).toHaveValue("half a thought");
+		});
+
+		it("a follow-up chip leaves it alone", async () => {
+			renderPage();
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "What is the plan?" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			const firstInvocation = runtimeHarness.streamInvocations[0];
+			firstInvocation.callbacks.onToken("Here is the plan.");
+			firstInvocation.callbacks.onEnd("Here is the plan.", {
+				assistantMessageId: "assistant-1",
+				followUps: ["List the risks in a table"],
+			});
+			const chip = await screen.findByRole("button", {
+				name: "Send: List the risks in a table",
+			});
+			const composer = await holdADraft("half a thought");
+
+			await fireEvent.click(chip);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(2);
+			});
+			expect(runtimeHarness.streamInvocations[1].message).toBe(
+				"List the risks in a table",
+			);
+			expect(deleteConversationDraft).not.toHaveBeenCalled();
+			expect(composer).toHaveValue("half a thought");
+		});
+
+		it("an Atlas action leaves it alone", async () => {
+			renderPage(
+				pageData({
+					messages: [
+						{
+							id: "assistant-atlas-1",
+							role: "assistant",
+							content: "Atlas is complete.",
+							timestamp: 1,
+						},
+					],
+					atlasJobs: [
+						atlasJobFixture({
+							status: "succeeded",
+							completedAt: 121,
+							progress: {
+								percent: 100,
+								stage: "audit",
+								details: { queries: [] },
+							},
+						}),
+					],
+				}),
+			);
+			const composer = await holdADraft("half a thought");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue Atlas" }),
+			);
+			const panel = screen.getByRole("region", { name: "Continue Atlas" });
+			await fireEvent.input(within(panel).getByRole("textbox"), {
+				target: { value: "Extend the report with deployment risks" },
+			});
+			await fireEvent.click(
+				within(panel).getByRole("button", { name: "Continue Atlas" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.atlasSubmissions).toHaveLength(1);
+			});
+			expect(deleteConversationDraft).not.toHaveBeenCalled();
+			expect(composer).toHaveValue("half a thought");
+		});
+
+		it("a send of the composer's own text clears it", async () => {
+			renderPage();
+			await holdADraft("What is the plan?");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(deleteConversationDraft).toHaveBeenCalledWith("conv-1");
+		});
+
+		it("the landing page's first message clears it too", async () => {
+			const { storePendingConversationMessage } = await import(
+				"$lib/client/conversation-session"
+			);
+			storePendingConversationMessage("conv-1", {
+				message: "First message ever",
+				attachmentIds: [],
+				attachments: [],
+			});
+
+			renderPage();
+
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe(
+				"First message ever",
+			);
+			expect(deleteConversationDraft).toHaveBeenCalledWith("conv-1");
+		});
 	});
 
 	it("hides Stop while polling after the stream closes for recovery", async () => {
