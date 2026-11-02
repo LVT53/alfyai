@@ -90,6 +90,8 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - A draft you type while a reply is coming now survives: it was deleted when the
   reply landed, or when you pressed Regenerate or a follow-up suggestion, and
   was gone after a reload or a switch to another chat.
+- Editing a message that had pictures attached, or boxes drawn on a picture, now
+  sends them again with the new words; before, the edited message lost them.
 
 ### Removed
 
