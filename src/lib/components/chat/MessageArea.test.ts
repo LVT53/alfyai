@@ -197,7 +197,7 @@ describe("MessageArea", () => {
 		expect(getByText(/step one\s+step two/)).toBeTruthy();
 	});
 
-	it("shows a warm empty state with a serif headline and a quiet hint", () => {
+	it("shows a warm empty state with a headline and a quiet hint", () => {
 		const { getByText, getByTestId, queryByText } = render(MessageArea, {
 			messages: [],
 			conversationId: "conv-1",

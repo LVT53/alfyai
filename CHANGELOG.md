@@ -39,7 +39,11 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   list.
 - Chat text is now set in the app's sans-serif face, 14px on a desktop and 15px
   on a phone, with smaller headings, the normal text colour and no backticks
-  around inline code; Documents and the Home page keep the serif.
+  around inline code.
+- Documents, the panel around them, Version previews, the login fields and the
+  Knowledge memory cards are now set in the same sans-serif face as the chat, so
+  the serif is left to a page's own top title: the Home and project greeting,
+  and the titles of Settings, Knowledge, the login page and the error page.
 - Incognito is now chosen once, before a chat exists, and stays on for that
   chat's whole life. A mask button sits in the top-right corner of the new-chat
   page (and in the phone header); tapping it tints the stage, dashes the

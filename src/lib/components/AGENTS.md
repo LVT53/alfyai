@@ -178,8 +178,8 @@ Do not:
 - Token categories already defined:
   - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
 - Font ownership:
-  - UI chrome and chat messages (the reply, the person's message, the composer) use `Nimbus Sans L`: 14px with a 1.6 line height on desktop, 15px on a phone (the composer stays 16px there, or iOS zooms on focus)
-  - Documents and the Home headline use `Libre Baskerville`
+  - only a page's own top title wears the serif (`Libre Baskerville`, `--font-serif`): the Home and project greeting, and the page titles of Settings, Knowledge, the login page and the error page. Everything else is sans (`Nimbus Sans L`, `--font-sans`): chat messages, the composer, Documents and the panel around them, Version previews, cards, fields and modal headings. `tests/integration/serif-conventions.test.ts` lists the files that may name the serif and fails on any other
+  - chat text (the reply, the person's message, the composer) is 14px with a 1.6 line height on desktop, 15px on a phone (the composer stays 16px there, or iOS zooms on focus)
   - code uses the mono stack defined in `tailwind.config.ts`
 
 

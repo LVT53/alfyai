@@ -893,8 +893,8 @@ function handleToggle() {
 		border-radius: 0 0 6px 6px;
 		background: var(--surface-elevated);
 		overflow: visible;
-		/* The body sits inside the message's serif prose column; tool detail is
-		   UI, not prose, so it pins the sans face like the row above it. */
+		/* The body sits inside the message's prose column; tool detail is UI, not
+		   prose, so it names the sans face itself like the row above it. */
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		color: var(--text-muted);

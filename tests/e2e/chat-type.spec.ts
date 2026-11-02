@@ -7,7 +7,7 @@ import { createEmptyConversation, login } from "./helpers";
 // The chat's type (the approved refresh): replies, the person's own message and
 // the composer are set in Nimbus Sans, 14px on a desktop and 15px on a phone
 // (the composer stays 16px there so iOS does not zoom on focus), and nothing in
-// the message list is set in the Documents serif. Inline code carries no
+// the message list is set in the serif. Inline code carries no
 // literal backticks.
 
 const REPLY = [
