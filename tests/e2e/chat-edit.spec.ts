@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { messages, users } from "../../src/lib/server/db/schema";
 import {
@@ -148,6 +148,53 @@ async function restoreTheUsersModel(page: Page, providerId: string) {
 		});
 		await fetch(`/api/admin/providers/${id}`, { method: "DELETE" });
 	}, providerId);
+}
+
+/** A chat with nothing said in it yet, open and ready for its first message. */
+async function openEmptyChat(page: Page, conversationId: string) {
+	await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+	await expect(page.getByTestId("message-input")).toBeEnabled();
+	await waitForHydration(page);
+}
+
+/**
+ * Holds the next turn the page sends, at the browser, until `release` is called:
+ * a reply that is still coming, with the composer free to type into. Release it
+ * before the test ends.
+ */
+async function holdTheNextTurn(page: Page) {
+	let release: () => void = () => undefined;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/chat/stream", async (route) => {
+		await held;
+		await route.continue();
+	});
+	return release;
+}
+
+/**
+ * True once the server has finished the turn's own work after the reply. The
+ * reply is on screen before that: the stream ends first, then the server writes
+ * the turn's state (where a landed turn deals with the draft) and only then its
+ * evidence, so a settled evidence status says a draft was left on purpose.
+ */
+async function turnHasSettled(conversationId: string) {
+	const [reply] = await db
+		.select({ metadataJson: messages.metadataJson })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "assistant"),
+			),
+		);
+	const status = reply?.metadataJson
+		? (JSON.parse(reply.metadataJson) as { evidenceStatus?: string })
+				.evidenceStatus
+		: undefined;
+	return status === "ready" || status === "none" || status === "failed";
 }
 
 test.describe("Editing a message in the composer", () => {
@@ -448,6 +495,102 @@ test.describe("Editing a message in the composer", () => {
 				await restoreTheUsersModel(page, providerId);
 			}
 		});
+
+		test("words typed while a reply is coming are still there after it lands and after a reload", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const conversationId = await createEmptyConversation(
+				page,
+				"A draft during a reply",
+			);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const releaseTheReply = await holdTheNextTurn(page);
+			try {
+				await openEmptyChat(page, conversationId);
+				const composer = page.getByTestId("message-input");
+				await composer.fill("What is the plan for the weekend?");
+				await page.getByTestId("send-button").click();
+
+				// The reply is on its way and the composer is the person's again: what
+				// goes into it is saved as the chat's draft.
+				await composer.fill("an idea for after the reply");
+				await expect
+					.poll(() => savedDraft(page, conversationId))
+					.toBe("an idea for after the reply");
+
+				releaseTheReply();
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
+
+				await expect(composer).toHaveValue("an idea for after the reply");
+				expect(await savedDraft(page, conversationId)).toBe(
+					"an idea for after the reply",
+				);
+				await page.reload();
+				await expect(composer).toHaveValue("an idea for after the reply");
+			} finally {
+				releaseTheReply();
+				await page.unroute("**/api/chat/stream");
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		for (const lateSave of [false, true]) {
+			test(`a message sent from the composer leaves no draft behind${lateSave ? ", even when a save of it lands after the send" : ""}`, async ({
+				page,
+			}) => {
+				await page.setViewportSize({ width: 1280, height: 900 });
+				const conversationId = await createEmptyConversation(
+					page,
+					"A sent draft",
+				);
+				const providerId = await pointTheUserAtFakeModel(
+					page,
+					fakeProvider.baseURL,
+				);
+				const releaseTheReply = await holdTheNextTurn(page);
+				const sent = "What is the plan for the weekend?";
+				try {
+					await openEmptyChat(page, conversationId);
+					const composer = page.getByTestId("message-input");
+					await composer.fill(sent);
+					await expect.poll(() => savedDraft(page, conversationId)).toBe(sent);
+
+					await page.getByTestId("send-button").click();
+					// The composer deletes its draft as it sends.
+					await expect.poll(() => savedDraft(page, conversationId)).toBeNull();
+					if (lateSave) {
+						// A save that was on its way when the send went out lands after that
+						// delete: only the turn that sent these words clears it.
+						await saveDraft(page, conversationId, sent);
+						await expect
+							.poll(() => savedDraft(page, conversationId))
+							.toBe(sent);
+					}
+
+					releaseTheReply();
+					await expect(page.getByText(/fake provider response/i)).toBeVisible({
+						timeout: 30_000,
+					});
+					await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
+					expect(await savedDraft(page, conversationId)).toBeNull();
+
+					await page.reload();
+					await expect(composer).toHaveValue("");
+					expect(await savedDraft(page, conversationId)).toBeNull();
+				} finally {
+					releaseTheReply();
+					await page.unroute("**/api/chat/stream");
+					await restoreTheUsersModel(page, providerId);
+				}
+			});
+		}
 	});
 
 	test.describe("a 360 px phone", () => {
