@@ -1181,6 +1181,49 @@ describe("chat page runtime integration", () => {
 				).toBeUndefined();
 			});
 
+			// The load replaces the page's list and ends the turn state, so a message sent
+			// while it is out lost its bubble and its turn lost `isSending`. The composer
+			// is held instead, and what is sent meanwhile goes after.
+			it("holds the composer while it loads a turn the server finished, and sends what was typed then", async () => {
+				const retryButton = await failASend();
+				const landed = conversationDetailFixture({
+					messages: [...earlierTurn, serverUser, serverReply],
+				});
+				let finishTheLoad: (detail: ConversationDetail) => void = () => {};
+				vi.mocked(fetchConversationDetail).mockClear();
+				vi.mocked(fetchConversationDetail)
+					.mockResolvedValueOnce(landed)
+					.mockReturnValueOnce(
+						new Promise<ConversationDetail>((resolve) => {
+							finishTheLoad = resolve;
+						}),
+					);
+				await fireEvent.click(retryButton);
+				await waitFor(() => {
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(2);
+				});
+
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, {
+					target: { value: "Sent meanwhile" },
+				});
+				await fireEvent.click(screen.getByTestId("queue-button"));
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+
+				finishTheLoad(landed);
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				expect(runtimeHarness.streamInvocations[1].message).toBe(
+					"Sent meanwhile",
+				);
+				// The turn the server finished is on screen, once, and so is the new bubble.
+				expect(
+					await screen.findByText("Tomorrow is free."),
+				).toBeInTheDocument();
+				expect(screen.getAllByTestId("user-message")).toHaveLength(3);
+			});
+
 			it("sends nothing when a pencil is pressed while the server is read, and leaves that edit open", async () => {
 				const retryButton = await failASend();
 				let answer: (detail: ConversationDetail) => void = () => {};

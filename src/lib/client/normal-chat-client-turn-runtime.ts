@@ -760,6 +760,26 @@ export function createNormalChatClientTurnRuntime(
 		return judgeServerMessages(serverMessages, text, heldIds);
 	}
 
+	/**
+	 * Reads the chat back from the server (`loadPersistedData`) and holds the turn
+	 * state while it does, the way polling recovery holds it. The load replaces the
+	 * page's list, and its last step (`completePollingRecovery`) ends the turn state:
+	 * a message sent while it is out would lose its bubble to the new list and its
+	 * turn would lose `isSending` under the live stream. Held, the composer queues
+	 * what is sent instead (`drainPostTurnQueue` sends it after). A load that throws
+	 * before it ended the hold ends it here.
+	 */
+	async function loadChatHoldingTheTurn() {
+		beginTurn();
+		try {
+			await adapters.loadPersistedData();
+		} finally {
+			if (isSending && !activeStream && activePlaceholderId === null) {
+				completeTurn();
+			}
+		}
+	}
+
 	function restoreQueuedTurnToDraft() {
 		if (!queuedTurn) return;
 		const nextQueuedTurn = cloneSendPayload(queuedTurn);
@@ -784,7 +804,7 @@ export function createNormalChatClientTurnRuntime(
 		const heldIds = new Set(
 			adapters.getMessages().map((message) => message.id),
 		);
-		await adapters.loadPersistedData();
+		await loadChatHoldingTheTurn();
 		if (!isTurnConversationActive(params.turnConversationId)) return;
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
@@ -797,6 +817,7 @@ export function createNormalChatClientTurnRuntime(
 			lastSend = null;
 			canRetry = false;
 			emitState();
+			await drainPostTurnQueue();
 			return;
 		}
 		// After a reload this page did not send the turn that failed, so there is no
@@ -1282,7 +1303,8 @@ export function createNormalChatClientTurnRuntime(
 				lastSend = null;
 				canRetry = false;
 				emitState();
-				await adapters.loadPersistedData();
+				await loadChatHoldingTheTurn();
+				await drainPostTurnQueue();
 				return;
 			}
 			adapters.setSendError(adapters.toFriendlySendError(originalError));
@@ -1621,7 +1643,8 @@ export function createNormalChatClientTurnRuntime(
 			canRetry = false;
 			adapters.setSendError(null);
 			emitState();
-			await adapters.loadPersistedData();
+			await loadChatHoldingTheTurn();
+			await drainPostTurnQueue();
 			return;
 		}
 		if (running) {

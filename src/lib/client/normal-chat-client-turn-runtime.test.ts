@@ -2355,7 +2355,12 @@ describe("Normal Chat Client Turn Runtime", () => {
 				"stream-1",
 			);
 			streamInvocations[1].callbacks.onError(new Error("The model refused."));
-			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+			// Retry was possible all along, so it is the error that says the page is done.
+			await vi.waitFor(() =>
+				expect(adapters.setSendError).toHaveBeenCalledWith(
+					"The model refused.",
+				),
+			);
 			expect(messages.map((message) => message.content)).toEqual([
 				"First question",
 				"First answer",
@@ -3920,6 +3925,148 @@ describe("Normal Chat Client Turn Runtime", () => {
 			);
 
 			expect(runtime.snapshot().canRetry).toBe(false);
+		});
+	});
+
+	// The page replaces its list with the chat it reads back, and the last thing its
+	// load does is end the turn state (`completePollingRecovery`). A message sent
+	// while the read is out would lose its bubble to the new list, and its turn would
+	// lose `isSending` under the live stream. So the turn state is held through the
+	// read, as polling recovery holds it, and what is sent meanwhile is queued.
+	describe("reading the chat back for a turn that landed", () => {
+		const words = "Plan the weekend";
+		const earlier: ChatMessage[] = [
+			{ id: "user-1", role: "user", content: "First question", timestamp: 1 },
+			{ id: "assistant-1", role: "assistant", content: "First", timestamp: 2 },
+		];
+		const answered: ChatMessage[] = [
+			...earlier,
+			{ id: "user-2", role: "user", content: words, timestamp: 3 },
+			{ id: "assistant-2", role: "assistant", content: "Done", timestamp: 4 },
+		];
+		const aSend = (message: string) => ({
+			message,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		it("Retry holds the turn state through the load, queues what is sent meanwhile and sends it after", async () => {
+			let finishTheLoad: () => void = () => {};
+			const made = makeAdapters({
+				readChatMessages: vi.fn(async () => answered),
+				loadPersistedData: vi.fn(
+					() =>
+						new Promise<void>((resolve) => {
+							finishTheLoad = resolve;
+						}),
+				),
+			});
+			made.messages.push(...earlier);
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(aSend(words));
+			made.streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+			const pressed = runtime.retry();
+			await vi.waitFor(() =>
+				expect(made.adapters.loadPersistedData).toHaveBeenCalled(),
+			);
+
+			// While the chat is read back the composer is held: nothing starts, and what
+			// the person sends waits in the queue.
+			expect(runtime.snapshot().isSending).toBe(true);
+			await runtime.send(aSend("Sent meanwhile"));
+			expect(made.streamInvocations).toHaveLength(1);
+			runtime.queue(aSend("Queued meanwhile"));
+			expect(runtime.snapshot().queuedTurn?.message).toBe("Queued meanwhile");
+
+			finishTheLoad();
+			await pressed;
+
+			expect(made.streamInvocations).toHaveLength(2);
+			expect(made.streamInvocations[1].message).toBe("Queued meanwhile");
+			expect(runtime.snapshot().queuedTurn).toBeNull();
+		});
+
+		it("Retry lets the turn state go when the load fails before it does", async () => {
+			const made = makeAdapters({
+				readChatMessages: vi.fn(async () => answered),
+				loadPersistedData: vi.fn(async () => {
+					throw new Error("The page could not read the chat");
+				}),
+			});
+			made.messages.push(...earlier);
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send(aSend(words));
+			made.streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+			await expect(runtime.retry()).rejects.toThrow("could not read");
+
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+			});
+		});
+
+		it("the give-up of the recovery holds it too", async () => {
+			vi.useFakeTimers();
+			try {
+				let duringTheLoad: boolean | undefined;
+				const held: {
+					runtime?: ReturnType<typeof createNormalChatClientTurnRuntime>;
+				} = {};
+				const made = makeAdapters({
+					schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+					checkForOrphanedStream: vi.fn(async () => null),
+					readChatMessages: vi.fn(async () => answered),
+					loadPersistedData: vi.fn(async () => {
+						duringTheLoad = held.runtime?.snapshot().isSending;
+					}),
+				});
+				made.messages.push(...earlier);
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				held.runtime = runtime;
+				await runtime.send(aSend(words));
+				made.streamInvocations[0].callbacks.onToken("Plan");
+				made.streamInvocations[0].callbacks.onError(
+					new Error("Failed to fetch"),
+				);
+				await vi.runOnlyPendingTimersAsync();
+				await vi.runOnlyPendingTimersAsync();
+				await vi.runOnlyPendingTimersAsync();
+
+				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(duringTheLoad).toBe(true);
+				expect(runtime.snapshot().isSending).toBe(false);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("so does the load after a reconnect that failed", async () => {
+			let duringTheLoad: boolean | undefined;
+			const held: {
+				runtime?: ReturnType<typeof createNormalChatClientTurnRuntime>;
+			} = {};
+			const made = makeAdapters({
+				loadPersistedData: vi.fn(async () => {
+					duringTheLoad = held.runtime?.snapshot().isSending;
+				}),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			held.runtime = runtime;
+
+			await runtime.reconnectToOrphanedStream("stream-1", words);
+			made.streamInvocations[0].callbacks.onError(new Error("It failed."));
+			await vi.waitFor(() =>
+				expect(made.adapters.setSendError).toHaveBeenCalledWith("It failed."),
+			);
+
+			expect(duringTheLoad).toBe(true);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: true,
+			});
 		});
 	});
 
