@@ -110,8 +110,10 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 - The words in the message box now stay with the chat you typed them in: moving
   to another chat no longer carries them along or loses them, a message put
   back after Stop or a failure joins what you have typed since instead of
-  replacing it, and words you have already sent no longer come back while a
-  file, picture or report is being made.
+  replacing it, words you have already sent no longer come back while a
+  file, picture or report is being made, a message waiting behind a running
+  reply is kept in its chat when you go to another chat or leave the page, and
+  a draft that holds only a file keeps it through a reload.
 
 ### Removed
 
