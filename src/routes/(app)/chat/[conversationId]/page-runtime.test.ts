@@ -22,6 +22,7 @@ import type {
 	StreamCallbacks,
 	StreamChatOptions,
 } from "$lib/services/streaming";
+import { FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE } from "./lifecycle-guards";
 
 const runtimeHarness = vi.hoisted(() => ({
 	streamInvocations: [] as Array<{
@@ -273,6 +274,7 @@ vi.mock("$lib/client/api/conversations", () => ({
 	deletePreparedConversation: vi.fn(async () => undefined),
 	deleteConversationDraft: vi.fn(),
 	deleteConversationMessages: vi.fn(),
+	persistConversationDraft: vi.fn(async () => undefined),
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
 	fetchMessageEvidence: vi.fn(),
 	generateConversationTitle: vi.fn(),
@@ -4132,6 +4134,179 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			).not.toBeInTheDocument();
 			expect(screen.getByTestId("message-input")).toHaveValue(
 				"a half-written thought",
+			);
+		});
+	});
+
+	describe("an edit that does not go through", () => {
+		const editedText = "What's on my calendar tomorrow?";
+
+		async function sendEditOfFirstMessage() {
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Edit message" })[0],
+			);
+			const composer = screen.getByTestId("message-input");
+			await waitFor(() => {
+				expect(composer).toHaveValue("What's on my calendar?");
+			});
+			await fireEvent.input(composer, { target: { value: editedText } });
+			await fireEvent.click(screen.getByTestId("send-button"));
+		}
+
+		function expectTheEditStillOpen() {
+			expect(screen.getByTestId("composer-edit-strip")).toBeInTheDocument();
+			expect(screen.getByTestId("message-input")).toHaveValue(editedText);
+			expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		}
+
+		it("a failed delete changes nothing, and keeps what was typed", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockRejectedValue(new Error("Network down"));
+			renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+			await sendEditOfFirstMessage();
+
+			await waitFor(() => {
+				expect(deleteConversationMessages).toHaveBeenCalledTimes(1);
+			});
+			await waitFor(() => {
+				expect(screen.getByTestId("message-input")).toBeEnabled();
+			});
+			expectTheEditStillOpen();
+			expect(screen.getByText("Network down")).toBeInTheDocument();
+		});
+
+		it("keeps the messages on screen until the server has deleted them", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			let finishDelete: (count: number) => void = () => {};
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockReturnValue(
+					new Promise((resolve) => {
+						finishDelete = resolve;
+					}),
+				);
+			renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+			await sendEditOfFirstMessage();
+			await waitFor(() => {
+				expect(deleteConversationMessages).toHaveBeenCalledTimes(1);
+			});
+
+			expectTheEditStillOpen();
+			// Past the point of no return: Cancel must not pretend otherwise.
+			await fireEvent.click(screen.getByTestId("composer-edit-cancel"));
+			expectTheEditStillOpen();
+
+			finishDelete(2);
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+			expect(runtimeHarness.streamInvocations[0].message).toBe(editedText);
+			expect(
+				screen.queryByText("You have a 2pm meeting."),
+			).not.toBeInTheDocument();
+		});
+
+		it("declining the server's fork question leaves the edit open", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockRejectedValue(
+					Object.assign(new Error("Confirm"), {
+						code: FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE,
+					}),
+				);
+			const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+			renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+			await sendEditOfFirstMessage();
+
+			await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+			await waitFor(() => {
+				expect(screen.getByTestId("message-input")).toBeEnabled();
+			});
+			expectTheEditStillOpen();
+			confirm.mockRestore();
+		});
+
+		it("Cancel while the gate is still waiting stops the delete", async () => {
+			let answerGate: (answer: { shouldWarn: boolean }) => void = () => {};
+			checkCloudWarningMock.mockReturnValue(
+				new Promise((resolve) => {
+					answerGate = resolve;
+				}),
+			);
+			const { deleteConversationMessages } = await import(
+				"$lib/client/api/conversations"
+			);
+			vi.mocked(deleteConversationMessages).mockReset().mockResolvedValue(2);
+			renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+			await sendEditOfFirstMessage();
+			await waitFor(() => expect(checkCloudWarningMock).toHaveBeenCalled());
+			await fireEvent.click(screen.getByTestId("composer-edit-cancel"));
+
+			answerGate({ shouldWarn: false });
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(deleteConversationMessages).not.toHaveBeenCalled();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+		});
+
+		it("sends nothing to the next chat when the person leaves during the delete, and keeps the text in the chat they left", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+			const { deleteConversationMessages, persistConversationDraft } =
+				await import("$lib/client/api/conversations");
+			vi.mocked(persistConversationDraft).mockClear();
+			let finishDelete: (count: number) => void = () => {};
+			vi.mocked(deleteConversationMessages)
+				.mockReset()
+				.mockReturnValue(
+					new Promise((resolve) => {
+						finishDelete = resolve;
+					}),
+				);
+			const first = cloudModelPageData({
+				messages: conversationTurnFixture(),
+			});
+			const view = renderPage(first);
+			await sendEditOfFirstMessage();
+			await waitFor(() => {
+				expect(deleteConversationMessages).toHaveBeenCalledTimes(1);
+			});
+
+			const next = cloudModelPageData({
+				conversation: { ...first.conversation, id: "conversation-next" },
+				messages: [],
+			});
+			await view.rerender({
+				data: next,
+				params: { conversationId: "conversation-next" },
+			});
+			finishDelete(2);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+			expect(persistConversationDraft).toHaveBeenCalledWith(
+				first.conversation.id,
+				expect.objectContaining({ draftText: editedText }),
 			);
 		});
 	});

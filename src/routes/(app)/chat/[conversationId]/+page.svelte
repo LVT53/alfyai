@@ -42,6 +42,7 @@ import {
 import {
 	deleteConversation,
 	deleteConversationDraft,
+	persistConversationDraft,
 	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchMessageEvidence,
@@ -431,13 +432,18 @@ let sendError = $state<string | null>(null);
 let isSending = $state(false);
 let isEditResendPending = $state(false);
 // A sent message being edited in the composer (the pencil on its bubble). The
-// composer shows `text`, the bubble dims, and `laterReplies` is how many other
-// replies the resend deletes. Null when nothing is being edited.
-let editingMessage = $state<{
-	id: string;
-	text: string;
-	laterReplies: number;
-} | null>(null);
+// composer shows `text` and the bubble dims. Null when nothing is being edited.
+let editingMessage = $state<{ id: string; text: string } | null>(null);
+// What the composer is told. The count comes from the list as it stands, so the
+// red line stays true if the list changes under an open edit.
+let composerEditing = $derived(
+	editingMessage
+		? {
+				text: editingMessage.text,
+				laterReplies: countLaterReplies($messages, editingMessage.id),
+			}
+		: null,
+);
 let normalChatRuntimeActive = $state(false);
 let normalChatRuntimePhase = $state<NormalChatRuntimePhase>("idle");
 // R1 (ADR-0060) — canRetry crosses the seam now: the runtime already
@@ -3881,17 +3887,14 @@ async function handleRegenerate(
 // not while a turn is running or an earlier edit is still going out.
 function handleStartEdit(payload: { messageId: string }) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
-	const list = $messages;
-	const target = list.find((m) => m.id === payload.messageId);
+	const target = $messages.find((m) => m.id === payload.messageId);
 	if (!target || target.role !== "user") return;
-	editingMessage = {
-		id: target.id,
-		text: target.content,
-		laterReplies: countLaterReplies(list, target.id),
-	};
+	editingMessage = { id: target.id, text: target.content };
 }
 
 function handleEditCancel() {
+	// Once the delete has gone out there is nothing left to back out of.
+	if (isEditResendPending) return;
 	editingMessage = null;
 }
 
@@ -3913,9 +3916,18 @@ async function handleEdit(
 	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, newText } = payload;
+	// That wait can last seconds and the composer stays live through it, so a
+	// second press may have got here first, or a Cancel or Esc may have ended
+	// the edit: then nothing goes.
+	if (isEditResendPending || editingMessage?.id !== messageId) return;
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
-	if (editIdx === -1) return;
+	if (editIdx === -1) {
+		// The message has left the list, so there is nothing to edit any more:
+		// close the edit rather than leave a send button that does nothing.
+		editingMessage = null;
+		return;
+	}
 
 	// Snapshot original attachments before deleting the message so they survive edit+resubmit.
 	const originalAttachments = msgs[editIdx].attachments ?? [];
@@ -3944,42 +3956,59 @@ async function handleEdit(
 		return;
 	}
 
-	// Every gate that can send the person back to their edit has passed (the
-	// privacy check, the fork confirmation): from here the edit is going out, so
-	// the composer lets go of it and takes its own draft back.
-	editingMessage = null;
-
+	const conversationId = data.conversation.id;
 	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
-
-	// Remove all messages from the edited one onwards
-	messages.update((m) => m.slice(0, editIdx));
 
 	sendError = null;
 	isEditResendPending = true;
+	let deleteError: unknown = null;
 	try {
-		await deleteConversationMessages(data.conversation.id, idsToDelete, {
+		await deleteConversationMessages(conversationId, idsToDelete, {
 			confirmForkedSourceHistoryMutation:
 				confirmForkedSourceHistoryMutation || hasKnownForks,
 		});
 	} catch (error) {
-		messages.set(msgs);
+		deleteError = error;
+	}
+	isEditResendPending = false;
+
+	// The person left the chat while the delete ran. The turn must not start in
+	// the chat they are in now, and this text exists nowhere else, so it waits
+	// in the chat it belongs to, in the place of any draft saved there.
+	if (data.conversation.id !== conversationId) {
+		void persistConversationDraft(conversationId, {
+			draftText: newText,
+			selectedAttachmentIds: editAttachmentIds,
+		}).catch(() => undefined);
+		return;
+	}
+
+	if (deleteError) {
+		// The edit stays open with what was typed, on the messages that are
+		// still there, whichever way this ends.
 		if (
 			!confirmForkedSourceHistoryMutation &&
-			isForkedSourceHistoryConfirmationRequired(error)
+			isForkedSourceHistoryConfirmationRequired(deleteError)
 		) {
-			isEditResendPending = false;
 			if (window.confirm(get(t)("fork.editWarning"))) {
 				void handleEdit(payload, true);
 			}
 			return;
 		}
 		sendError =
-			error instanceof Error ? error.message : "Failed to delete messages";
-		isEditResendPending = false;
+			deleteError instanceof Error
+				? deleteError.message
+				: "Failed to delete messages";
 		return;
 	}
 
-	isEditResendPending = false;
+	// The message and everything after it are gone: only now do they leave the
+	// screen, and only now does the composer let go of the edit and take its
+	// own draft back.
+	const deletedIds = new Set(idsToDelete);
+	messages.update((m) => m.filter((message) => !deletedIds.has(message.id)));
+	editingMessage = null;
+
 	// `clearDraft` false: the composer has just taken the person's own draft
 	// back, and a resend of an older message is not what that draft was for.
 	handleSend(
@@ -4509,7 +4538,7 @@ function handleDrop(event: DragEvent) {
 				draftAtlasProfile={conversationDraft?.atlasProfile ?? null}
 				draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
-				editing={editingMessage}
+				editing={composerEditing}
 				onEditSubmit={handleEditSubmit}
 				onEditCancel={handleEditCancel}
 				onUploadReady={handleUploadReady}
