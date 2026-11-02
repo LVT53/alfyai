@@ -601,6 +601,7 @@ export async function finalizeChatTurn(
 				userMessageId: userMessage?.id ?? null,
 				assistantMessageId: assistantMessage.id,
 				analytics: params.analytics,
+				keepConversationDraft: params.turnOrigin === "edit_resend",
 			});
 		} else if (assistantMessage) {
 			// ADR-0042 amendment — a turn that skips the full turn-state

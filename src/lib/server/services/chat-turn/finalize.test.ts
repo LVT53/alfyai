@@ -1971,6 +1971,37 @@ describe("finalizeChatTurn", () => {
 		);
 	});
 
+	it("clears the conversation's draft when a turn lands, unless the turn asks to keep it", async () => {
+		const { clearConversationDraft } = await import(
+			"$lib/server/services/conversation-drafts"
+		);
+		const { persistAssistantTurnState } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
+		const turn = {
+			userId: "user-1",
+			conversationId: "conv-1",
+			normalizedMessage: "A question.",
+			assistantResponse: "An answer.",
+			attachmentIds: [],
+			activeDocumentArtifactId: undefined,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			userMessageId: "user-message-1",
+			assistantMessageId: "assistant-message-1",
+			analytics: null,
+		};
+
+		vi.mocked(clearConversationDraft).mockClear();
+		await persistAssistantTurnState({ ...turn, keepConversationDraft: true });
+		expect(clearConversationDraft).not.toHaveBeenCalled();
+
+		await persistAssistantTurnState(turn);
+		expect(clearConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+	});
+
 	it("does not record document refinement when Working Document Selection ignores a stale active document", async () => {
 		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
 			typeof vi.fn
@@ -2487,6 +2518,32 @@ describe("finalizeChatTurn", () => {
 				modelId: "model-1",
 				kind: "edit_resend",
 			});
+		});
+
+		it("keeps the conversation's draft through the resend of an edit, and only then", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				responseLanguage: "en",
+				persistUserMessage: true,
+				turnOrigin: "edit_resend",
+			});
+			expect(mockPersistAssistantTurnState).toHaveBeenLastCalledWith(
+				expect.objectContaining({ keepConversationDraft: true }),
+			);
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				responseLanguage: "en",
+				persistUserMessage: true,
+				turnOrigin: "send",
+			});
+			expect(mockPersistAssistantTurnState).toHaveBeenLastCalledWith(
+				expect.objectContaining({ keepConversationDraft: false }),
+			);
 		});
 
 		it("does not count an Answer-now or an error Retry as a regenerate", async () => {

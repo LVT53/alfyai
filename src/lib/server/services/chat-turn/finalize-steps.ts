@@ -256,9 +256,11 @@ export async function persistAssistantTurnState(
 		params.userId,
 		params.conversationId,
 	).catch(() => null);
-	await clearConversationDraft(params.userId, params.conversationId).catch(
-		() => undefined,
-	);
+	if (!params.keepConversationDraft) {
+		await clearConversationDraft(params.userId, params.conversationId).catch(
+			() => undefined,
+		);
+	}
 
 	return {
 		activeWorkingSet,

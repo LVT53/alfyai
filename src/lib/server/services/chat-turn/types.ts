@@ -113,8 +113,10 @@ export type ParsedChatTurnRequest = {
 	// only ever yields "send" or "edit_resend" (the client's edit-and-resend
 	// flow); chat-turn/retry.ts overwrites it with the regenerate family.
 	// chat-turn/finalize.ts records the activity_events "regenerate" /
-	// "edit_resend" rows from it. Otherwise unused by turn processing itself —
-	// an edit-resend is, and remains, an ordinary send. Deliberately NOT
+	// "edit_resend" rows from it, and an edit-resend keeps the conversation's
+	// draft (it was not what that draft was for). Otherwise unused by turn
+	// processing itself — an edit-resend is, and remains, an ordinary send.
+	// Deliberately NOT
 	// derived from skipPersistUserMessage: /api/chat/stream accepts that flag
 	// straight from the client body.
 	turnOrigin: ChatTurnOrigin;
@@ -210,6 +212,8 @@ export type PersistAssistantTurnStateParams = {
 	userMessageId?: string | null;
 	assistantMessageId: string;
 	analytics?: AssistantAnalytics | null;
+	/** The turn did not send the conversation's draft, so a landed turn leaves it. */
+	keepConversationDraft?: boolean;
 };
 
 export type PersistAssistantTurnStateResult = {
