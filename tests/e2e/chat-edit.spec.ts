@@ -239,6 +239,36 @@ test.describe("Editing a message in the composer", () => {
 		await expect(page.getByTestId("user-message")).toHaveCount(3);
 	});
 
+	test("a reload keeps the saved draft, in the middle of an edit too", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		const { conversationId, userIds } = await seedTurns(page, 2);
+		await open(page, conversationId);
+		const composer = page.getByTestId("message-input");
+		await composer.fill("a half-written thought");
+		await expect
+			.poll(() => savedDraft(page, conversationId))
+			.toBe("a half-written thought");
+
+		await page.reload();
+		await expect(composer).toHaveValue("a half-written thought");
+
+		await waitForHydration(page);
+		await pressPencil(page, userIds[0]);
+		await composer.fill("words that were never sent");
+		await page.reload();
+
+		// The edit is gone with the page, and it never became the draft.
+		await expect(composer).toHaveValue("a half-written thought");
+		await expect(page.getByTestId("composer-edit-strip")).toHaveCount(0);
+		// Past the page's draft debounce, so anything wrongly emitted has landed.
+		await page.waitForTimeout(600);
+		expect(await savedDraft(page, conversationId)).toBe(
+			"a half-written thought",
+		);
+	});
+
 	for (const setAside of ["", "a draft of chat one"]) {
 		test(`moving to another chat keeps both chats' drafts (${setAside ? "a draft set aside" : "nothing set aside"})`, async ({
 			page,
