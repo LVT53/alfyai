@@ -22,8 +22,10 @@ import {
  * narrows the chat column, the composer spans the full column and the button
  * at its right edge sat underneath the composer's textarea. The button now
  * follows the composer layer's measured height, so it stays above it at every
- * width; this test opens the panel at a desktop size and proves the button is
- * the topmost element at its own centre with a real gap above the composer.
+ * width. The panel narrows the chat enough that the Chat Scroller's capsule takes
+ * the button's place (it has the same chevron), so this test opens the panel at a
+ * desktop size and proves the capsule is the topmost element at its own centre
+ * with a real gap above the composer.
  */
 
 let seededConversationId: string | null = null;
@@ -104,14 +106,15 @@ async function seedConversationWithArtifact(page: Page): Promise<string> {
 	return conversationId;
 }
 
-async function jumpButtonClearance(page: Page): Promise<{
+async function clearanceAboveComposer(
+	page: Page,
+	testId: string,
+): Promise<{
 	gap: number;
 	topmost: boolean;
 }> {
-	return page.evaluate(() => {
-		const button = document.querySelector(
-			'[data-testid="jump-to-latest-button"]',
-		);
+	return page.evaluate((id) => {
+		const button = document.querySelector(`[data-testid="${id}"]`);
 		const composer = document.querySelector(".composer-layer");
 		if (
 			!(button instanceof HTMLElement) ||
@@ -129,10 +132,10 @@ async function jumpButtonClearance(page: Page): Promise<{
 			gap: c.top - b.bottom,
 			topmost: Boolean(atCenter && button.contains(atCenter)),
 		};
-	});
+	}, testId);
 }
 
-test("the jump-to-latest button stays above a full-width composer", async ({
+test("the way back to the latest message stays above a full-width composer", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1440, height: 900 });
@@ -149,19 +152,21 @@ test("the jump-to-latest button stays above a full-width composer", async ({
 		element.scrollTop = 0;
 		element.dispatchEvent(new Event("scroll", { bubbles: true }));
 	});
-	const button = page.getByTestId("jump-to-latest-button");
-	await expect(button).toBeVisible();
+	await expect(page.getByTestId("jump-to-latest-button")).toBeVisible();
 
 	await page.getByTestId("artifact-count-button").click();
 	await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
-	await waitForStableBoundingBox(button);
+	const capsule = page.getByTestId("jump-rail-capsule");
+	await expect(capsule).toBeVisible();
+	await expect(page.getByTestId("jump-to-latest-button")).toHaveCount(0);
+	await waitForStableBoundingBox(capsule);
 
-	const clearance = await jumpButtonClearance(page);
-	expect(clearance.topmost, "the composer must not cover the button").toBe(
+	const clearance = await clearanceAboveComposer(page, "jump-rail-capsule");
+	expect(clearance.topmost, "the composer must not cover the capsule").toBe(
 		true,
 	);
 	expect(
 		clearance.gap,
-		"the button must sit above the composer, not inside it",
+		"the capsule must sit above the composer, not inside it",
 	).toBeGreaterThanOrEqual(6);
 });

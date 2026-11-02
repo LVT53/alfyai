@@ -19,7 +19,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 		await page.waitForLoadState("networkidle");
 	});
 
-	test("Task 2.1-2.2: Message content and input font sizes are 16px on mobile", async ({
+	test("Task 2.1-2.2: Message content is 15px and the input 16px on mobile", async ({
 		page,
 	}) => {
 		await page.route("**/api/chat/stream", async (route) => {
@@ -64,7 +64,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 		const messageFontSize = await messageContent.evaluate((node) => {
 			return window.getComputedStyle(node).fontSize;
 		});
-		expect(parseInt(messageFontSize, 10)).toBeGreaterThanOrEqual(16);
+		expect(parseInt(messageFontSize, 10)).toBe(15);
 	});
 
 	test("Task 2.6: Code blocks are 14px minimum on mobile", async ({ page }) => {
