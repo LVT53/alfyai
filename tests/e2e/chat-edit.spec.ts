@@ -1054,6 +1054,90 @@ test.describe("Editing a message in the composer", () => {
 			}
 		});
 
+		// The server saves a turn's message when the turn ends, so while it still runs a
+		// turn whose connection dropped, the chat does not hold the message. A resend was
+		// turned away for the person's one reply at a time, and the capacity backoff
+		// posted it again for a few seconds without asking; a turn that ended in that
+		// window ran a second time. Retry now finds the stream the server is still
+		// running and joins it. The fake model refuses the turn after a pause, so the
+		// turn is still running when Retry is pressed and fails when it is over.
+		test("Retry while the server is still running the turn whose connection dropped joins it and runs it once", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const { conversationId } = await seedTurns(page, 1);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const requests = watchChatRequests(page);
+			const streamBodies: Array<Record<string, unknown>> = [];
+			page.on("request", (request) => {
+				if (
+					request.method() === "POST" &&
+					new URL(request.url()).pathname === "/api/chat/stream"
+				) {
+					streamBodies.push(request.postDataJSON());
+				}
+			});
+			const question = `${AI_SMOKE_REFUSE_SLOWLY_MARKER} And the lake?`;
+			/** How many times the model was asked for this turn. */
+			const modelRequests = () =>
+				fakeProvider
+					.requests()
+					.filter((request) =>
+						(JSON.stringify(request.body) ?? "").includes(
+							AI_SMOKE_REFUSE_SLOWLY_MARKER,
+						),
+					).length;
+			try {
+				await open(page, conversationId);
+
+				// The server gets the request and runs the turn; the page's connection
+				// drops a moment later, with the turn still running.
+				await page.route("**/api/chat/stream", async (route) => {
+					void route.fetch().catch(() => undefined);
+					await page.waitForTimeout(300);
+					await route.abort("connectionreset");
+				});
+				await page.getByTestId("message-input").fill(question);
+				await page.getByTestId("send-button").click();
+				const retry = page.getByRole("button", { name: "Retry" });
+				await expect(retry).toBeVisible({ timeout: 30_000 });
+				await page.unroute("**/api/chat/stream");
+
+				await retry.click();
+
+				// The page joined the turn: a second request to the stream route that
+				// reconnects to it, and no request that sends the message again.
+				await expect.poll(() => streamBodies.length).toBe(2);
+				expect(streamBodies[1]).toMatchObject({
+					reconnectToStreamId: expect.any(String),
+				});
+				expect(requests).not.toContain("POST /api/chat/retry");
+
+				// The turn fails, the joined connection ends with the failure and the
+				// message is back with its error and a Retry. The model was asked for
+				// the one turn only: no later request of it, and no later post of the
+				// message, as the backoff made, while the first turn ran and after it.
+				await expect(retry).toHaveCount(0);
+				await expect(retry).toBeVisible({ timeout: 30_000 });
+				const asked = modelRequests();
+				expect(asked).toBeGreaterThan(0);
+				await page.waitForTimeout(3_000);
+				expect(modelRequests()).toBe(asked);
+				expect(streamBodies).toHaveLength(2);
+				expect(
+					(await savedMessages(page, conversationId)).map(
+						(message) => message.role,
+					),
+				).toEqual(["user", "assistant"]);
+			} finally {
+				await page.unroute("**/api/chat/stream").catch(() => undefined);
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
 		test("words typed while a reply is coming are still there after it lands and after a reload", async ({
 			page,
 		}) => {
