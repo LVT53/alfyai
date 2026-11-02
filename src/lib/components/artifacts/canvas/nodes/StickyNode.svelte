@@ -95,7 +95,7 @@ function startEditing(): void {
 		min-height: 64px;
 		padding: 9px 10px;
 		color: var(--text-primary);
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 12.5px;
 		line-height: 1.45;
 		cursor: default;

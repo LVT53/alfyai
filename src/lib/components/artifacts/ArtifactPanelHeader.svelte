@@ -191,7 +191,7 @@ let KindIcon = $derived(ARTIFACT_KIND_ICONS[kind]);
 	.artifact-panel-header-title {
 		margin: 0;
 		overflow-wrap: break-word;
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 1.375rem;
 		font-weight: 400;
 		line-height: 1.25;

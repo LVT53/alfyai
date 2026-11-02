@@ -628,7 +628,7 @@ const reviewOverflowFocusTrap = focusTrap({
 			transition:panelScale={{ duration: 150, start: 0.96 }}
 		>
 			<div class="flex items-center justify-between border-b border-border px-5 py-4">
-				<h3 id="memory-review-overflow-title" class="text-xl font-serif text-text-primary">{$t("memoryProfile.needsReview")}</h3>
+				<h3 id="memory-review-overflow-title" class="text-xl font-sans text-text-primary">{$t("memoryProfile.needsReview")}</h3>
 				<button
 					type="button"
 					class="btn-icon-bare h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
@@ -728,7 +728,7 @@ const reviewOverflowFocusTrap = focusTrap({
 				</button>
 			</div>
 			<div class="memory-remove-quote border-b border-border px-4 py-3">
-				<p class="break-words font-serif text-xs leading-[1.5] text-text-primary">&ldquo;{removeStatement}&rdquo;</p>
+				<p class="break-words font-sans text-xs leading-[1.5] text-text-primary">&ldquo;{removeStatement}&rdquo;</p>
 			</div>
 			<p class="px-4 py-3 text-xs font-sans leading-[1.5] text-text-muted border-b border-border">{$t("memoryProfile.removeFraming")}</p>
 			<div class="flex flex-col gap-1.5 p-2">
@@ -1206,7 +1206,7 @@ const reviewOverflowFocusTrap = focusTrap({
 			onclick={(event) => event.stopPropagation()}
 		>
 			<div class="border-b border-border px-5 py-4">
-				<h3 id="memory-review-edit-title" class="text-xl font-serif text-text-primary">{$t("memoryProfile.editReviewItem")}</h3>
+				<h3 id="memory-review-edit-title" class="text-xl font-sans text-text-primary">{$t("memoryProfile.editReviewItem")}</h3>
 			</div>
 			<div class="px-5 py-5">
 				<label class="block text-sm font-sans font-medium text-text-primary" for="memory-review-statement">

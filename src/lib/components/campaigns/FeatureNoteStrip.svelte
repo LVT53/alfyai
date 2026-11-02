@@ -184,7 +184,7 @@ function followAction(): void {
 		min-width: 0;
 		margin: 0;
 		color: var(--text-primary);
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 15px;
 		font-weight: 400;
 		line-height: 1.3;

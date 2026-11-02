@@ -469,7 +469,7 @@ onMount(() => {
 
 	.tour-title {
 		margin: 0.5rem 0 0.375rem;
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 1.0625rem;
 		font-weight: 400;
 		line-height: 1.35;

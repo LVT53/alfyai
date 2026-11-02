@@ -340,7 +340,7 @@ const tone = $derived(
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
 		background: var(--surface-page);
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 1rem;
 		line-height: 1.65;
 		color: var(--text-primary);

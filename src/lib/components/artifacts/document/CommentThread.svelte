@@ -324,7 +324,7 @@ let foldedA11yLabel = $derived(
 	}
 
 	/* The quote is a line with an amber rule, not a button that looks like a
-	   button: italic serif (it quotes the document), muted, and only
+	   button: italic (it quotes the document), muted, and only
 	   underlined when it is going somewhere. A removed-text thread's rule is
 	   dashed and its words struck through. */
 	.comment-thread-quote-row {
@@ -344,7 +344,7 @@ let foldedA11yLabel = $derived(
 		background: none;
 		padding: 0;
 		color: var(--text-muted);
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 0.78125rem;
 		font-style: italic;
 		text-align: left;

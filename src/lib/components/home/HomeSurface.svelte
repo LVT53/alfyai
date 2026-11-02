@@ -1324,7 +1324,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 				{/if}
 
 				{#if error}
-					<div class="w-full rounded-md border border-danger bg-surface-page p-md text-sm font-serif text-danger shadow-sm" role="alert">
+					<div class="w-full rounded-md border border-danger bg-surface-page p-md text-sm font-sans text-danger shadow-sm" role="alert">
 						{error}
 					</div>
 				{/if}

@@ -3022,7 +3022,7 @@ function saveNoticeText(notice: SaveNotice): string {
 	   carries this component's own Svelte scoping hash — a bare descendant
 	   combinator outside `:global(...)` would silently match nothing. */
 	.document-editor-host :global(.document-content) {
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 16px;
 		line-height: 1.72;
 		color: var(--text-primary);
@@ -3137,7 +3137,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		list-style: none;
 		margin: 6px 0 16px;
 		padding: 0;
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 	}
 
 	/* The editor stores every task item as its own block, so a checklist is a

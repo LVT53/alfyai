@@ -399,7 +399,7 @@ function downloadFile() {
 	}
 
 	:global(.docx-preview) {
-		font-family: 'Libre Baskerville', serif;
+		font-family: var(--font-sans);
 		line-height: 1.6;
 		color: var(--text-primary);
 	}
@@ -606,7 +606,7 @@ function downloadFile() {
 	:global(.markdown-document-preview) {
 		max-width: 72ch;
 		margin: 0 auto;
-		font-family: 'Libre Baskerville', serif;
+		font-family: var(--font-sans);
 		font-size: 0.96rem;
 		line-height: 1.72;
 		color: var(--text-primary);

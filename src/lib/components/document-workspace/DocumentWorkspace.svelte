@@ -3577,7 +3577,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		border: none;
 		background: transparent;
 		padding: 0;
-		font-family: 'Libre Baskerville', serif;
+		font-family: var(--font-sans);
 		font-size: 1rem;
 		line-height: 1.35;
 		color: var(--text-primary);

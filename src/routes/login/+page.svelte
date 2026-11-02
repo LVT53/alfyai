@@ -303,7 +303,7 @@ async function verifySecondStep(event?: SubmitEvent) {
               disabled={loading}
               oninput={() => error = ''}
               onkeydown={handleFormKeydown}
-              class="box-border block w-full min-h-[44px] rounded-md border border-border bg-surface-page px-md py-sm font-serif text-base text-text-primary shadow-sm transition-shadow focus:border-focus-ring focus:bg-surface-overlay focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
+              class="box-border block w-full min-h-[44px] rounded-md border border-border bg-surface-page px-md py-sm font-sans text-base text-text-primary shadow-sm transition-shadow focus:border-focus-ring focus:bg-surface-overlay focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
               placeholder="you@example.com"
             />
           </div>
@@ -336,7 +336,7 @@ async function verifySecondStep(event?: SubmitEvent) {
               disabled={loading}
               oninput={() => error = ''}
               onkeydown={handleFormKeydown}
-              class="box-border block w-full min-h-[44px] rounded-md border border-border bg-surface-page px-md py-sm font-serif text-base text-text-primary shadow-sm transition-shadow focus:border-focus-ring focus:bg-surface-overlay focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
+              class="box-border block w-full min-h-[44px] rounded-md border border-border bg-surface-page px-md py-sm font-sans text-base text-text-primary shadow-sm transition-shadow focus:border-focus-ring focus:bg-surface-overlay focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
               placeholder="••••••••"
             />
           </div>

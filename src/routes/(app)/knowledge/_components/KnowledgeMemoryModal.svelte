@@ -134,7 +134,7 @@ const dialogFocusTrap = focusTrap({
 		<div class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 			<div>
 				<div class="text-xs font-sans uppercase text-text-muted">{$t("memory.title")}</div>
-				<h3 id="memory-profile-item-title" class="mt-1 text-xl font-serif text-text-primary">
+				<h3 id="memory-profile-item-title" class="mt-1 text-xl font-sans text-text-primary">
 					{$t("memoryProfile.itemTitle")}
 				</h3>
 			</div>

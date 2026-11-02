@@ -92,7 +92,7 @@ let paragraphs = $derived.by<string[]>(() => {
 >
 	<div class="flex flex-wrap items-start justify-between gap-3">
 		<div class="flex min-w-0 items-center gap-1.5">
-			<h3 id="persona-summary-title" class="text-xl font-serif text-text-primary">
+			<h3 id="persona-summary-title" class="text-xl font-sans text-text-primary">
 				{$t("memoryProfile.summaryTitle")}
 			</h3>
 			<InfoTooltip
@@ -191,8 +191,8 @@ let paragraphs = $derived.by<string[]>(() => {
 			{#each paragraphs as paragraph, index (index)}
 				<p
 					class={flush
-						? "break-words font-serif text-[0.9rem] leading-[1.7] text-text-primary"
-						: "break-words font-serif text-[0.98rem] leading-[1.7] text-text-primary"}
+						? "break-words font-sans text-[0.9rem] leading-[1.7] text-text-primary"
+						: "break-words font-sans text-[0.98rem] leading-[1.7] text-text-primary"}
 				>
 					{paragraph}
 				</p>
