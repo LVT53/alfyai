@@ -613,6 +613,251 @@ describe("prepareRetryChatTurn", () => {
 		expect(deleteMessages).not.toHaveBeenCalled();
 	});
 
+	// A retry deletes the reply it replaces before the model runs, and the server
+	// keeps nothing of a turn that fails, so when the model fails the reply is gone
+	// and the user message ends the chat. The Retry button then asks again for a
+	// reply that is not there: the turn that user message never got is what it needs.
+	describe("a reply that is already gone", () => {
+		const gone = {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-3",
+			userMessageId: "user-3",
+			userMessage: "latest prompt",
+			retryOrigin: "error_retry",
+		};
+
+		beforeEach(() => {
+			// What an earlier attempt left: the reply and all that followed it are gone.
+			const at = mockConversationMessages.findIndex(
+				(message) => message.id === "assistant-3",
+			);
+			mockConversationMessages.splice(at, 1);
+		});
+
+		it("runs the retry on the user message that ends the conversation, and deletes nothing", async () => {
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: { ...gone, reasoningDepth: "max" },
+			});
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			// Nothing to delete, nothing to clean, no fork of a reply that is not there.
+			expect(deleteMessages).not.toHaveBeenCalled();
+			expect(cleanupFailedTurn).not.toHaveBeenCalled();
+			expect(listChildForksBySourceMessages).not.toHaveBeenCalled();
+			// The user message stays the one copy: the turn does not save it again.
+			expect(capturedSyntheticBodies[0]).toEqual(
+				expect.objectContaining({
+					message: "latest prompt",
+					conversationId: "conv-1",
+					reasoningDepth: "max",
+					skipPersistUserMessage: true,
+				}),
+			);
+			expect(result.value.orchestratorInput.turn).toEqual(
+				expect.objectContaining({
+					normalizedMessage: "latest prompt",
+					skipPersistUserMessage: true,
+					turnOrigin: "error_retry",
+				}),
+			);
+			expect(result.value.orchestratorInput.upstreamMessage).toBe(
+				"latest prompt",
+			);
+		});
+
+		it("runs it for a conversation that is only the user message", async () => {
+			mockConversationMessages.splice(0, mockConversationMessages.length, {
+				id: "user-3",
+				role: "user",
+				content: "latest prompt",
+			});
+
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: gone,
+			});
+
+			expect(result.ok).toBe(true);
+			expect(deleteMessages).not.toHaveBeenCalled();
+		});
+
+		it("still takes the user message's own attachments and pictures", async () => {
+			mockMessageAttachments.set("user-3", [
+				{
+					id: "link-1",
+					artifactId: "source-pdf-1",
+					name: "Report.pdf",
+					type: "source_document",
+					mimeType: "application/pdf",
+					sizeBytes: 1234,
+					conversationId: "conv-1",
+					messageId: "user-3",
+					createdAt: 1,
+				},
+			]);
+			const boxes = [{ letter: "A", x: 0.1, y: 0.1, w: 0.4, h: 0.4 }];
+			const user3 = mockConversationMessages.find((m) => m.id === "user-3");
+			if (!user3) throw new Error("fixture");
+			user3.metadataJson = JSON.stringify({
+				pictures: {
+					refs: [{ imageFileId: "file-1", number: 2, name: "Rug" }],
+					open: null,
+					marks: {
+						imageFileId: "file-1",
+						markedFileId: "file-9",
+						letters: ["A"],
+						boxes,
+					},
+				},
+			});
+
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: gone,
+			});
+
+			expect(result.ok).toBe(true);
+			expect(capturedSyntheticBodies[0]).toEqual(
+				expect.objectContaining({
+					attachmentIds: ["source-pdf-1"],
+					pictureRefs: [{ imageFileId: "file-1", number: 2 }],
+					imageMarks: { imageFileId: "file-1", marks: boxes },
+				}),
+			);
+		});
+
+		it("reads the user's choices as none: there is no reply to read them from", async () => {
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: gone,
+			});
+
+			expect(result.ok).toBe(true);
+			expect(capturedSyntheticBodies[0].pendingSkill).toBeUndefined();
+			expect(capturedSyntheticBodies[0].forceWebSearch).toBeUndefined();
+			expect(resolveAppliedSkill).not.toHaveBeenCalled();
+		});
+
+		it("is still refused with 404 when anything follows the user message", async () => {
+			mockConversationMessages.push({
+				id: "assistant-other",
+				role: "assistant",
+				content: "a reply to something else",
+			});
+
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: gone,
+			});
+
+			expect(result).toEqual({
+				ok: false,
+				error: {
+					error: "Assistant message not found",
+					status: 404,
+					responseShape: "json",
+				},
+			});
+			expect(deleteMessages).not.toHaveBeenCalled();
+			expect(cleanupFailedTurn).not.toHaveBeenCalled();
+		});
+
+		it("is still refused with 404 when another message ends the conversation", async () => {
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: {
+					...gone,
+					userMessageId: "user-2",
+					userMessage: "historical prompt",
+				},
+			});
+
+			expect(result).toEqual({
+				ok: false,
+				error: {
+					error: "Assistant message not found",
+					status: 404,
+					responseShape: "json",
+				},
+			});
+			expect(deleteMessages).not.toHaveBeenCalled();
+		});
+
+		it("is still refused with 404 when the message it names is not a user message, or not there", async () => {
+			mockConversationMessages.splice(
+				0,
+				mockConversationMessages.length,
+				{ id: "user-1", role: "user", content: "first prompt" },
+				{ id: "assistant-2", role: "assistant", content: "a reply" },
+			);
+			for (const userMessageId of ["assistant-2", "no-such-message"]) {
+				const result = await prepareRetryChatTurn({
+					userId: "user-1",
+					runtimeConfig: makeRuntimeConfig(),
+					body: { ...gone, userMessageId, userMessage: "a reply" },
+				});
+				expect(result).toEqual({
+					ok: false,
+					error: {
+						error: "Assistant message not found",
+						status: 404,
+						responseShape: "json",
+					},
+				});
+			}
+			expect(deleteMessages).not.toHaveBeenCalled();
+		});
+
+		it("is still refused with 409 when the text is not the user message's", async () => {
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: { ...gone, userMessage: "a different prompt" },
+			});
+
+			expect(result).toEqual({
+				ok: false,
+				error: {
+					error: "Retry user message text does not match persisted message",
+					status: 409,
+					responseShape: "json",
+				},
+			});
+			expect(deleteMessages).not.toHaveBeenCalled();
+			expect(cleanupFailedTurn).not.toHaveBeenCalled();
+		});
+
+		it("leaves a reply that is there to the retry it always was", async () => {
+			mockConversationMessages.push({
+				id: "assistant-3",
+				role: "assistant",
+				content: "latest answer",
+			});
+
+			const result = await prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: gone,
+			});
+
+			expect(result.ok).toBe(true);
+			expect(cleanupFailedTurn).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+			});
+			expect(deleteMessages).toHaveBeenCalledWith(["assistant-3"]);
+		});
+	});
+
 	it("requires explicit confirmation before mutating source history with child forks", async () => {
 		(
 			listChildForksBySourceMessages as ReturnType<typeof vi.fn>

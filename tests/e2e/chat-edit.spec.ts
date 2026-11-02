@@ -151,6 +151,19 @@ async function restoreTheUsersModel(page: Page, providerId: string) {
 	}, providerId);
 }
 
+/** Where the provider's model is asked: an address nothing listens on is a model that is down, the fake provider's own is a model that is back. */
+async function setProviderBaseUrl(
+	page: Page,
+	providerId: string,
+	baseUrl: string,
+) {
+	const response = await page.request.put(
+		`/api/admin/providers/${providerId}`,
+		{ data: { baseUrl } },
+	);
+	expect(response.ok(), `provider update -> ${response.status()}`).toBe(true);
+}
+
 /** A chat with nothing said in it yet, open and ready for its first message. */
 async function openEmptyChat(page: Page, conversationId: string) {
 	await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
@@ -758,6 +771,113 @@ test.describe("Editing a message in the composer", () => {
 					before.map((message) => message.id),
 				);
 			} finally {
+				await restoreTheUsersModel(page, providerId);
+			}
+		});
+
+		// A regenerate deletes its reply before the model runs, and the server keeps
+		// nothing of a turn that fails, so when the model is down the reply is gone and
+		// the user message ends the chat. The Retry button asks again for that reply:
+		// the server answered "not found" for ever; it now runs the retry on the
+		// message that has no reply, deleting nothing.
+		test("Retry after a regenerate that failed gets the reply, and a reload finds every message once", async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width: 1280, height: 900 });
+			const { conversationId } = await seedTurns(page, 2);
+			const providerId = await pointTheUserAtFakeModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			const retryBodies: Array<Record<string, unknown>> = [];
+			page.on("request", (request) => {
+				if (
+					request.method() === "POST" &&
+					new URL(request.url()).pathname === "/api/chat/retry"
+				) {
+					retryBodies.push(request.postDataJSON());
+				}
+			});
+			try {
+				await open(page, conversationId);
+				const before = await savedMessages(page, conversationId);
+				expect(before.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+					"user",
+					"assistant",
+				]);
+				const [firstQuestion, firstReply, secondQuestion, secondReply] = before;
+
+				// The model is down: its address is one nothing listens on.
+				await setProviderBaseUrl(page, providerId, "http://127.0.0.1:1/v1");
+				await page.getByRole("button", { name: "Regenerate" }).last().click();
+				await expect(page.getByRole("button", { name: "Retry" })).toBeVisible({
+					timeout: 30_000,
+				});
+
+				// The reply was deleted on the server before the model failed, and the
+				// page shows the chat as the server has it: the question has no reply.
+				expect(
+					(await savedMessages(page, conversationId)).map(
+						(message) => message.id,
+					),
+				).toEqual([firstQuestion.id, firstReply.id, secondQuestion.id]);
+				await expect(page.getByTestId("assistant-message")).toHaveCount(1);
+				await expect(page.getByTestId("user-message")).toHaveCount(2);
+
+				// The model is back; Retry asks for the reply that is gone.
+				await setProviderBaseUrl(page, providerId, fakeProvider.baseURL);
+				const answered = page.waitForResponse(
+					(response) =>
+						response.request().method() === "POST" &&
+						new URL(response.url()).pathname === "/api/chat/retry" &&
+						response.request().postDataJSON()?.retryOrigin === "error_retry",
+					{ timeout: 10_000 },
+				);
+				await page.getByRole("button", { name: "Retry" }).click();
+				expect((await answered).status()).toBe(200);
+				await expect(page.getByText(/fake provider response/i)).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+				await expect(page.getByTestId("user-message")).toHaveCount(2);
+				expect(retryBodies).toHaveLength(2);
+				expect(retryBodies[1]).toMatchObject({
+					conversationId,
+					assistantMessageId: secondReply.id,
+					userMessageId: secondQuestion.id,
+					retryOrigin: "error_retry",
+				});
+
+				// The first question and its reply were never touched, the second
+				// question is there once, and the new reply follows it: after a reload too.
+				await expect
+					.poll(async () => (await savedMessages(page, conversationId)).length)
+					.toBe(4);
+				await page.reload();
+				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
+				await expect(page.getByTestId("user-message")).toHaveCount(2);
+				const after = await savedMessages(page, conversationId);
+				expect(after.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+					"user",
+					"assistant",
+				]);
+				expect(after.slice(0, 3).map((message) => message.id)).toEqual([
+					firstQuestion.id,
+					firstReply.id,
+					secondQuestion.id,
+				]);
+				expect(after[3].content).toMatch(/fake provider response/i);
+				expect(
+					after.filter((message) => message.content === secondQuestion.content),
+				).toHaveLength(1);
+			} finally {
+				await setProviderBaseUrl(page, providerId, fakeProvider.baseURL).catch(
+					() => undefined,
+				);
 				await restoreTheUsersModel(page, providerId);
 			}
 		});

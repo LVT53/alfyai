@@ -140,25 +140,13 @@ export async function prepareRetryChatTurn(params: {
 		.where(eq(messages.conversationId, conversationId))
 		.orderBy(...messageOrderAsc());
 
-	const assistantIndex = conversationMessages.findIndex(
-		(message: ConversationMessage) => message.id === assistantMessageId,
+	const target = findRetryTarget(
+		conversationMessages,
+		assistantMessageId,
+		userMessageId,
 	);
-	const assistantMsg =
-		assistantIndex >= 0 ? conversationMessages[assistantIndex] : null;
-	if (assistantMsg?.role !== "assistant") {
-		return jsonError("Assistant message not found", 404);
-	}
-
-	const precedingUserMsg = conversationMessages[assistantIndex - 1];
-	if (
-		precedingUserMsg?.role !== "user" ||
-		precedingUserMsg.id !== userMessageId
-	) {
-		return jsonError(
-			"Retry target does not match the preceding user message",
-			409,
-		);
-	}
+	if (!target.ok) return target;
+	const { assistantMsg, userMsg: precedingUserMsg, trailingMessages } = target;
 
 	if (precedingUserMsg.content.trim() !== userMessage.trim()) {
 		return jsonError(
@@ -173,8 +161,11 @@ export async function prepareRetryChatTurn(params: {
 	// (`getConversation` above) filtered to `conversationId`, so a record
 	// belonging to another user or another conversation is never in reach.
 	// Absent (a message persisted before the record existed) and malformed both
-	// read as "the user chose nothing" — a plain retry.
-	const recordedUserIntent = readRecordedUserIntent(assistantMsg.metadataJson);
+	// read as "the user chose nothing" — a plain retry. So does a reply that is
+	// already gone: there is no record left to read.
+	const recordedUserIntent = assistantMsg
+		? readRecordedUserIntent(assistantMsg.metadataJson)
+		: undefined;
 
 	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
 	// resolves: a fresh send with an unavailable `pendingSkill` is rightly
@@ -195,7 +186,7 @@ export async function prepareRetryChatTurn(params: {
 		requestText: precedingUserMsg.content,
 	});
 
-	const trailingMessages = conversationMessages.slice(assistantIndex);
+	// Nothing trails a reply that is gone, so there is no fork of it to ask about.
 	if (confirmForkedSourceHistoryMutation !== true) {
 		const trailingAssistantMessageIds = trailingMessages
 			.filter((message: ConversationMessage) => message.role === "assistant")
@@ -261,32 +252,37 @@ export async function prepareRetryChatTurn(params: {
 		(rebuilt?.pictureRefs.length ? rebuilt.pictureRefs : undefined);
 	const retryImageMarks = imageMarks ?? rebuilt?.imageMarks ?? undefined;
 
-	try {
-		const cleanupResult = await cleanupFailedTurn({
-			userId,
-			conversationId,
-			assistantMessageId,
-		});
-		if (cleanupResult.warnings.length > 0) {
-			console.warn("[RETRY] Cleanup warnings:", cleanupResult.warnings);
+	// A reply that is gone has nothing to clean up and nothing to delete: the
+	// attempt that took it cleaned up before it failed, and the user message is the
+	// one copy there is.
+	if (assistantMsg) {
+		try {
+			const cleanupResult = await cleanupFailedTurn({
+				userId,
+				conversationId,
+				assistantMessageId,
+			});
+			if (cleanupResult.warnings.length > 0) {
+				console.warn("[RETRY] Cleanup warnings:", cleanupResult.warnings);
+			}
+		} catch (error) {
+			console.error("[RETRY] Cleanup failed:", error);
+			return {
+				ok: false,
+				error: {
+					status: 500,
+					error: "Retry cleanup failed",
+					details: error instanceof Error ? error.message : String(error),
+					responseShape: "json",
+				},
+			};
 		}
-	} catch (error) {
-		console.error("[RETRY] Cleanup failed:", error);
-		return {
-			ok: false,
-			error: {
-				status: 500,
-				error: "Retry cleanup failed",
-				details: error instanceof Error ? error.message : String(error),
-				responseShape: "json",
-			},
-		};
-	}
 
-	const trailingMessageIds = trailingMessages.map(
-		(message: ConversationMessage) => message.id,
-	);
-	await deleteMessages(trailingMessageIds);
+		const trailingMessageIds = trailingMessages.map(
+			(message: ConversationMessage) => message.id,
+		);
+		await deleteMessages(trailingMessageIds);
+	}
 
 	if (!precedingUserMsg.content.trim()) {
 		return jsonError("No user message found to retry", 400);
@@ -350,6 +346,67 @@ export async function prepareRetryChatTurn(params: {
 					turn.appliedSkill?.instructionsEnvelope ?? undefined,
 			},
 		},
+	};
+}
+
+type RetryTarget =
+	| {
+			ok: true;
+			/** The reply being replaced, or null when it is already gone. */
+			assistantMsg: ConversationMessage | null;
+			/** The user message the reply answers, which stays and is not saved again. */
+			userMsg: ConversationMessage;
+			/** What the retry deletes: the reply and all that follows it, nothing when the reply is gone. */
+			trailingMessages: ConversationMessage[];
+	  }
+	| { ok: false; error: RetryPreparationError };
+
+/**
+ * The reply a retry replaces and the user message it answers. The reply is
+ * normally there, directly after its user message. It is gone when an earlier
+ * attempt of the same retry deleted it and then failed in the model: the server
+ * keeps nothing of a failed turn, so the user message ends the conversation, and
+ * the Retry button asks again for a reply that is not there. Then the retry is
+ * the turn that user message never got. Only that: a missing reply with anything
+ * after the user message, or with another message at the end, is still not found.
+ */
+function findRetryTarget(
+	conversationMessages: ConversationMessage[],
+	assistantMessageId: string,
+	userMessageId: string,
+): RetryTarget {
+	const assistantIndex = conversationMessages.findIndex(
+		(message: ConversationMessage) => message.id === assistantMessageId,
+	);
+	if (assistantIndex === -1) {
+		const last = conversationMessages.at(-1);
+		if (last?.role !== "user" || last.id !== userMessageId) {
+			return jsonError("Assistant message not found", 404);
+		}
+		return {
+			ok: true,
+			assistantMsg: null,
+			userMsg: last,
+			trailingMessages: [],
+		};
+	}
+
+	const assistantMsg = conversationMessages[assistantIndex];
+	if (assistantMsg.role !== "assistant") {
+		return jsonError("Assistant message not found", 404);
+	}
+	const userMsg = conversationMessages[assistantIndex - 1];
+	if (userMsg?.role !== "user" || userMsg.id !== userMessageId) {
+		return jsonError(
+			"Retry target does not match the preceding user message",
+			409,
+		);
+	}
+	return {
+		ok: true,
+		assistantMsg,
+		userMsg,
+		trailingMessages: conversationMessages.slice(assistantIndex),
 	};
 }
 
