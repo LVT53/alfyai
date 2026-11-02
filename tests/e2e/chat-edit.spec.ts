@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	fileProductionJobs,
@@ -209,8 +209,7 @@ async function holdTheNextTurn(page: Page) {
  * True once the server has finished the turn's own work after the reply. The
  * reply is on screen before that: the stream ends first, then the server writes
  * the turn's state (where a landed turn deals with the draft) and only then its
- * evidence, so a settled evidence status says a draft was left on purpose. It is
- * the chat's newest reply that is looked at.
+ * evidence, so a settled evidence status says a draft was left on purpose.
  */
 async function turnHasSettled(conversationId: string) {
 	const [reply] = await db
@@ -221,9 +220,7 @@ async function turnHasSettled(conversationId: string) {
 				eq(messages.conversationId, conversationId),
 				eq(messages.role, "assistant"),
 			),
-		)
-		.orderBy(desc(messages.createdAt))
-		.limit(1);
+		);
 	const status = reply?.metadataJson
 		? (JSON.parse(reply.metadataJson) as { evidenceStatus?: string })
 				.evidenceStatus
@@ -1038,13 +1035,9 @@ test.describe("Editing a message in the composer", () => {
 				).toHaveLength(1);
 				expect(requests).not.toContain("POST /api/chat/retry");
 
-				// A reload finds the turn once, and none of its words saved as a draft: the
-				// page had saved them when it saw the turn fail, and the server had cleared
-				// the draft of a turn it finished before that.
-				await expect.poll(() => savedDraft(page, conversationId)).toBeNull();
+				// A reload finds the turn once.
 				await page.reload();
 				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
-				await expect(page.getByTestId("message-input")).toHaveValue("");
 				const saved = await savedMessages(page, conversationId);
 				expect(saved.map((message) => message.role)).toEqual([
 					"user",
@@ -1055,102 +1048,6 @@ test.describe("Editing a message in the composer", () => {
 				expect(
 					saved.filter((message) => message.content === question),
 				).toHaveLength(1);
-			} finally {
-				await page.unroute("**/api/chat/stream").catch(() => undefined);
-				await restoreTheUsersModel(page, providerId);
-			}
-		});
-
-		// The server keeps nothing of a turn that fails, so the words of an edit whose
-		// resend failed were in the bubble only, and a reload lost them. They are saved
-		// as the chat's draft now: the composer stays empty beside the bubble and its
-		// Retry, and the reload puts them in the composer.
-		test("the words of an edit whose resend failed are in the composer after a reload", async ({
-			page,
-		}) => {
-			await page.setViewportSize({ width: 1280, height: 900 });
-			const { conversationId, userIds } = await seedTurns(page, 2);
-			const providerId = await pointTheUserAtFakeModel(
-				page,
-				fakeProvider.baseURL,
-			);
-			const edited = "Question number 1, asked another way";
-			try {
-				await open(page, conversationId);
-				await page.route("**/api/chat/stream", (route) =>
-					route.fulfill({
-						status: 500,
-						json: { error: "The model provider failed." },
-					}),
-				);
-				await pressPencil(page, userIds[0]);
-				const composer = page.getByTestId("message-input");
-				await composer.fill(edited);
-				await page.getByTestId("send-button").click();
-				await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
-
-				// The edit deleted the message and what followed it, and the resend failed:
-				// the bubble holds the words, the composer is empty, and the words are saved.
-				await expect(composer).toHaveValue("");
-				await expect(page.getByTestId("user-message")).toHaveCount(1);
-				await expect.poll(() => savedDraft(page, conversationId)).toBe(edited);
-				expect(await savedMessages(page, conversationId)).toEqual([]);
-
-				await page.unroute("**/api/chat/stream");
-				await page.reload();
-				await expect(composer).toBeEnabled();
-				await waitForHydration(page);
-				await expect(composer).toHaveValue(edited);
-				await expect(page.getByTestId("user-message")).toHaveCount(0);
-			} finally {
-				await page.unroute("**/api/chat/stream").catch(() => undefined);
-				await restoreTheUsersModel(page, providerId);
-			}
-		});
-
-		test("a failed send whose Retry lands leaves no draft behind, after a reload either", async ({
-			page,
-		}) => {
-			await page.setViewportSize({ width: 1280, height: 900 });
-			const { conversationId } = await seedTurns(page, 1);
-			const providerId = await pointTheUserAtFakeModel(
-				page,
-				fakeProvider.baseURL,
-			);
-			const question = "And what is the lake called?";
-			try {
-				await open(page, conversationId);
-				await page.route("**/api/chat/stream", (route) =>
-					route.fulfill({
-						status: 500,
-						json: { error: "The model provider failed." },
-					}),
-				);
-				const composer = page.getByTestId("message-input");
-				await composer.fill(question);
-				await page.getByTestId("send-button").click();
-				const retry = page.getByRole("button", { name: "Retry" });
-				await expect(retry).toBeVisible();
-				// The failed message's words are saved: a reload now would bring them back.
-				await expect
-					.poll(() => savedDraft(page, conversationId))
-					.toBe(question);
-				await expect(composer).toHaveValue("");
-
-				await page.unroute("**/api/chat/stream");
-				await retry.click();
-				await expect(page.getByText(/fake provider response/i)).toBeVisible({
-					timeout: 30_000,
-				});
-				await expect.poll(() => turnHasSettled(conversationId)).toBe(true);
-
-				// The landed turn cleared its own draft, by the rule that clears a draft equal
-				// to the message it sent.
-				await expect.poll(() => savedDraft(page, conversationId)).toBeNull();
-				await page.reload();
-				await expect(page.getByTestId("assistant-message")).toHaveCount(2);
-				await expect(composer).toHaveValue("");
-				expect(await savedDraft(page, conversationId)).toBeNull();
 			} finally {
 				await page.unroute("**/api/chat/stream").catch(() => undefined);
 				await restoreTheUsersModel(page, providerId);

@@ -104,9 +104,7 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   another reply still running), so a message that cannot be sent no longer takes
   the original and its replies with it.
 - Retry no longer sends a message twice after a dropped connection: when the
-  server had already finished the turn, Retry loads it instead, and the words of
-  a message that failed for good are kept as the chat's draft, so a reload
-  brings them back.
+  server had already finished the turn, Retry loads it instead.
 - The words in the message box now stay with the chat you typed them in: moving
   to another chat no longer carries them along or loses them, a message put
   back after Stop or a failure joins what you have typed since instead of

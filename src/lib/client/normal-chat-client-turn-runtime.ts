@@ -224,24 +224,6 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	 * failed (`askWhatTheServerHolds`).
 	 */
 	readChatMessages?: () => Promise<ChatMessage[] | null>;
-	/**
-	 * A message failed for good: the server keeps nothing of a turn that fails (it
-	 * saves a message with its reply, at the end), so its words are in the bubble
-	 * only, and a reload would find neither. The page saves them, with their files,
-	 * as the chat's draft on the server, when the composer holds nothing of its own;
-	 * the composer stays as it is, and the bubble with its Retry stays the one copy.
-	 */
-	keepFailedTurnWords?: (words: string, attachmentIds: string[]) => void;
-	/**
-	 * The words kept for a failed turn are not the page's to hold any more: another
-	 * turn started, Retry found the turn the server had finished, or the chat was
-	 * left. `deleteSavedCopy` takes the saved draft away too when it is still those
-	 * words (a reload must not bring back a message that was answered or given up);
-	 * false leaves it for whoever returns to the chat. A Retry that lands in the
-	 * stream releases nothing: the server clears the draft of a landed turn itself,
-	 * a moment after the stream ends, and until then the words stay kept.
-	 */
-	releaseFailedTurnWords?: (options: { deleteSavedCopy: boolean }) => void;
 	mergeGeneratedFiles?: (
 		files: NonNullable<StreamMetadata["generatedFiles"]>,
 	) => void;
@@ -761,19 +743,6 @@ export function createNormalChatClientTurnRuntime(
 		return judgeServerMessages(serverMessages, text, heldIds);
 	}
 
-	/**
-	 * A new message that failed for good hands its words to the page. A regenerate
-	 * or a Retry of a reply that is gone has its message on the server, so there is
-	 * nothing to keep.
-	 */
-	function keepWordsOfFailedTurn(params: StartStreamParams) {
-		if (params.streamOptions.retryAssistantMessageId) return;
-		adapters.keepFailedTurnWords?.(
-			params.message,
-			params.streamOptions.attachmentIds ?? [],
-		);
-	}
-
 	function restoreQueuedTurnToDraft() {
 		if (!queuedTurn) return;
 		const nextQueuedTurn = cloneSendPayload(queuedTurn);
@@ -1207,7 +1176,6 @@ export function createNormalChatClientTurnRuntime(
 
 				adapters.setSendError(adapters.toFriendlySendError(err));
 				canRetry = true;
-				keepWordsOfFailedTurn(params);
 				emitState();
 			},
 		};
@@ -1299,7 +1267,6 @@ export function createNormalChatClientTurnRuntime(
 			}
 			adapters.setSendError(adapters.toFriendlySendError(originalError));
 			canRetry = true;
-			keepWordsOfFailedTurn(params);
 			emitState();
 			return;
 		}
@@ -1430,10 +1397,6 @@ export function createNormalChatClientTurnRuntime(
 
 		adapters.setSendError(null);
 		beginTurn();
-		// The failed turn before this one is not retried any more, so the words kept
-		// for it go, with their saved copy: a reload must not bring back a message the
-		// person has moved on from.
-		adapters.releaseFailedTurnWords?.({ deleteSavedCopy: true });
 		adapters.setSuppressHydration?.(true);
 		adapters.setInitialStreamPending?.(false);
 		lastUserMessage = text;
@@ -1624,10 +1587,6 @@ export function createNormalChatClientTurnRuntime(
 			lastSend = null;
 			canRetry = false;
 			adapters.setSendError(null);
-			// The words the page saved when the connection dropped are of a turn that
-			// has landed: the server finished it before the page saw it fail, so it
-			// did not clear them.
-			adapters.releaseFailedTurnWords?.({ deleteSavedCopy: true });
 			emitState();
 			await adapters.loadPersistedData();
 			return;
@@ -1781,9 +1740,6 @@ export function createNormalChatClientTurnRuntime(
 		lastAssistantResponse = "";
 		lastReasoningDepth = "thorough";
 		lastSend = null;
-		// The words kept for a failed turn stay saved for whoever returns to the chat;
-		// the page forgets that it holds them.
-		adapters.releaseFailedTurnWords?.({ deleteSavedCopy: false });
 		emitState();
 	}
 

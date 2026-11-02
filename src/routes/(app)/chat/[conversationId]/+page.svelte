@@ -691,57 +691,6 @@ function setConversationDraft(next: ConversationDraft | null) {
 	conversationDraft = next;
 	draftEpoch += 1;
 }
-// The words of a message that failed for good. The server keeps nothing of a failed
-// turn, so they are in the bubble only; they are saved as the chat's draft on the
-// server so that a reload brings them back, and `conversationDraft` and the composer
-// stay as they are: the bubble with its Retry is the one copy on screen. A read of
-// the chat that carries this very draft must not put them in the composer too
-// (`hydrateConversationDetail`), so the page remembers which words it saved.
-let failedTurnWords: { conversationId: string; text: string } | null = null;
-
-function keepFailedTurnWords(words: string, attachmentIds: string[]) {
-	// What the composer holds is the person's own, and the chat has one saved draft.
-	if (!words.trim() || conversationDraft) return;
-	failedTurnWords = { conversationId: data.conversation.id, text: words };
-	void draftPersistence.persist(
-		{
-			conversationId: data.conversation.id,
-			draftText: words,
-			selectedAttachmentIds: attachmentIds,
-			selectedLinkedSources: [],
-			pendingSkill: null,
-		},
-		true,
-	);
-}
-
-function releaseFailedTurnWords({
-	deleteSavedCopy,
-}: {
-	deleteSavedCopy: boolean;
-}) {
-	const kept = failedTurnWords;
-	failedTurnWords = null;
-	// Anything in the composer is the person's own draft, which has replaced the
-	// kept words as the chat's saved draft: that one is not ours to delete.
-	if (
-		!deleteSavedCopy ||
-		!kept ||
-		kept.conversationId !== data.conversation.id ||
-		conversationDraft
-	) {
-		return;
-	}
-	draftPersistence.clear();
-	void draftPersistence.deleteDraft(kept.conversationId);
-}
-
-function isKeptFailedTurnWords(draft: ConversationDraft) {
-	return (
-		failedTurnWords?.conversationId === data.conversation.id &&
-		failedTurnWords.text.trim() === draft.draftText.trim()
-	);
-}
 
 // What the composer holds, as far as the page can tell: what it last said
 // (`handleDraftChange`) or was last told to show (a chat's saved draft on
@@ -1147,8 +1096,6 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 				SERVER_MESSAGES_READ_MAX_MS,
 			)
 		)?.messages ?? null,
-	keepFailedTurnWords,
-	releaseFailedTurnWords,
 	mergeGeneratedFiles: (files) => {
 		markDetailMetadataFreshnessBoundary();
 		const existingIds = new Set(generatedFiles.map((file) => file.id));
@@ -3001,11 +2948,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		}
 		// The draft the read carries is the one from when it was asked: if this
 		// page changed the draft since, it says nothing about it (`draftEpoch`).
-		if (
-			requestDraftEpoch === draftEpoch &&
-			payload.draft &&
-			!isKeptFailedTurnWords(payload.draft)
-		) {
+		if (requestDraftEpoch === draftEpoch && payload.draft) {
 			conversationDraft = payload.draft;
 		}
 		forkOrigin = payload.forkOrigin ?? forkOrigin;

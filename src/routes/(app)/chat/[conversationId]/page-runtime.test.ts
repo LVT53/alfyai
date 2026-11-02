@@ -1136,207 +1136,26 @@ describe("chat page runtime integration", () => {
 			});
 		});
 
-		// The server keeps nothing of a message that failed, so a reload would lose its
-		// words. They are saved as the chat's draft on the server only: the composer
-		// stays as it is, and the bubble with its Retry is the one copy on screen.
-		describe("the words of a message that failed for good", () => {
-			beforeEach(() => {
-				vi.mocked(persistConversationDraft).mockClear();
-				vi.mocked(deleteConversationDraft).mockClear();
-			});
-
-			const savedDraftOfTheWords = () => ({
-				conversationId: "conv-1",
-				draftText: askedWords,
-				selectedAttachmentIds: [],
-				selectedAttachments: [],
-				selectedLinkedSources: [],
-				pendingSkill: null,
-				updatedAt: Date.now(),
-			});
-
-			async function untilTheReadHasBeenApplied() {
-				for (let step = 0; step < 5; step += 1) await Promise.resolve();
-				await new Promise((resolve) => setTimeout(resolve, 0));
-			}
-
-			it("are saved as the chat's draft, and the composer stays empty", async () => {
-				await failASend();
-
-				await waitFor(() => {
-					expect(persistConversationDraft).toHaveBeenCalledWith(
-						"conv-1",
-						expect.objectContaining({
-							draftText: askedWords,
-							selectedAttachmentIds: [],
-						}),
-						expect.anything(),
-					);
-				});
-				expect(screen.getByTestId("message-input")).toHaveValue("");
-				expect(screen.getAllByTestId("user-message")).toHaveLength(2);
-			});
-
-			it("are not saved over words the composer holds", async () => {
-				renderPage(pageData({ messages: earlierTurn }));
-				const composer = screen.getByTestId("message-input");
-				await fireEvent.input(composer, { target: { value: askedWords } });
-				await fireEvent.click(
-					screen.getByRole("button", { name: "Send message" }),
-				);
-				await waitFor(() => {
-					expect(runtimeHarness.streamInvocations).toHaveLength(1);
-				});
-				// Words typed while the message was on its way are the next message's.
-				await fireEvent.input(composer, {
-					target: { value: "a thought for later" },
-				});
-				vi.mocked(persistConversationDraft).mockClear();
-
-				runtimeHarness.streamInvocations[0].callbacks.onError(
-					new Error("boom"),
-				);
-				await screen.findByRole("button", { name: "Retry" });
-				await untilTheReadHasBeenApplied();
-
-				expect(persistConversationDraft).not.toHaveBeenCalledWith(
-					"conv-1",
-					expect.objectContaining({ draftText: askedWords }),
-					expect.anything(),
-				);
-				expect(composer).toHaveValue("a thought for later");
-			});
-
-			it("are not put into the composer by a read of the chat, whose draft is those words until the server clears it", async () => {
-				const retryButton = await failASend();
-				await waitFor(() => {
-					expect(persistConversationDraft).toHaveBeenCalled();
-				});
-				const composer = screen.getByTestId("message-input");
-				vi.mocked(fetchConversationDetail).mockResolvedValue(
-					conversationDetailFixture({ draft: savedDraftOfTheWords() }),
-				);
-				await fireEvent.click(retryButton);
-				await waitFor(() => {
-					expect(runtimeHarness.streamInvocations).toHaveLength(2);
-				});
-
-				// The Retry lands; the stream ends before the server has cleared the draft
-				// of the turn, and the read the end asks for still carries it.
-				const retried = runtimeHarness.streamInvocations[1];
-				vi.mocked(fetchConversationDetail).mockClear();
-				retried.callbacks.onToken("Tomorrow is free.");
-				retried.callbacks.onEnd("Tomorrow is free.", {
-					assistantMessageId: "assistant-2",
-					userMessageId: "user-2",
-				});
-				await waitFor(() => {
-					expect(fetchConversationDetail).toHaveBeenCalled();
-				});
-				await untilTheReadHasBeenApplied();
-
-				expect(composer).toHaveValue("");
-			});
-
-			it("are taken back from the server when Retry finds the turn the server had finished", async () => {
-				const retryButton = await failASend();
-				await waitFor(() => {
-					expect(persistConversationDraft).toHaveBeenCalled();
-				});
-				vi.mocked(fetchConversationDetail).mockResolvedValue(
-					conversationDetailFixture({
-						messages: [
-							...earlierTurn,
-							{
-								id: "user-2",
-								role: "user" as const,
-								content: askedWords,
-								timestamp: 3,
-							},
-							{
-								id: "assistant-2",
-								role: "assistant" as const,
-								content: "Tomorrow is free.",
-								timestamp: 4,
-							},
-						],
-					}),
-				);
-				vi.mocked(deleteConversationDraft).mockClear();
-
-				await fireEvent.click(retryButton);
-
-				// The server finished the turn before the page saw it fail, so it did not
-				// clear the draft the page saved: a reload would put the answered message
-				// back in the composer.
-				await waitFor(() => {
-					expect(deleteConversationDraft).toHaveBeenCalledWith(
-						"conv-1",
-						expect.any(Function),
-					);
-				});
+		// A message that failed is in its bubble and nowhere else: nothing of it is saved
+		// as the chat's draft, so the composer and the saved draft stay as they were.
+		it("a message that failed is not saved as the chat's draft", async () => {
+			renderPage(pageData({ messages: earlierTurn }));
+			const composer = screen.getByTestId("message-input");
+			await fireEvent.input(composer, { target: { value: askedWords } });
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			await waitFor(() => {
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
 			});
+			vi.mocked(persistConversationDraft).mockClear();
 
-			it("leave words typed since alone when Retry finds the turn the server had finished", async () => {
-				const retryButton = await failASend();
-				const composer = screen.getByTestId("message-input");
-				await fireEvent.input(composer, {
-					target: { value: "a thought for later" },
-				});
-				vi.mocked(fetchConversationDetail).mockResolvedValue(
-					conversationDetailFixture({
-						messages: [
-							...earlierTurn,
-							{
-								id: "user-2",
-								role: "user" as const,
-								content: askedWords,
-								timestamp: 3,
-							},
-							{
-								id: "assistant-2",
-								role: "assistant" as const,
-								content: "Tomorrow is free.",
-								timestamp: 4,
-							},
-						],
-					}),
-				);
-				vi.mocked(deleteConversationDraft).mockClear();
+			runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+			await screen.findByRole("button", { name: "Retry" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
-				await fireEvent.click(retryButton);
-				expect(
-					await screen.findByText("Tomorrow is free."),
-				).toBeInTheDocument();
-				await untilTheReadHasBeenApplied();
-
-				// The draft saved now is the person's own, which replaced the kept words.
-				expect(deleteConversationDraft).not.toHaveBeenCalled();
-				expect(composer).toHaveValue("a thought for later");
-			});
-
-			it("are let go of, with their saved copy, when another turn starts", async () => {
-				await failASend();
-				await waitFor(() => {
-					expect(persistConversationDraft).toHaveBeenCalled();
-				});
-				vi.mocked(deleteConversationDraft).mockClear();
-
-				// A regenerate sends other words and is not the composer's own send. The
-				// failed message is a later turn of the reply it regenerates.
-				vi.spyOn(window, "confirm").mockReturnValue(true);
-				await fireEvent.click(
-					screen.getByRole("button", { name: "Regenerate response" }),
-				);
-
-				await waitFor(() => {
-					expect(deleteConversationDraft).toHaveBeenCalledWith(
-						"conv-1",
-						expect.any(Function),
-					);
-				});
-			});
+			expect(persistConversationDraft).not.toHaveBeenCalled();
+			expect(composer).toHaveValue("");
 		});
 	});
 
