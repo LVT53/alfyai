@@ -80,6 +80,17 @@ async function savedDraft(page: Page, conversationId: string) {
 	}, conversationId);
 }
 
+/** The files the server holds in this chat's draft. */
+async function savedDraftFileIds(page: Page, conversationId: string) {
+	return page.evaluate(async (id) => {
+		const response = await fetch(`/api/conversations/${id}`);
+		const detail = (await response.json()) as {
+			draft?: { selectedAttachmentIds: string[] } | null;
+		};
+		return detail.draft?.selectedAttachmentIds ?? [];
+	}, conversationId);
+}
+
 async function saveDraft(page: Page, conversationId: string, text: string) {
 	await page.evaluate(
 		async ({ id, draftText }) => {
@@ -1414,6 +1425,54 @@ test.describe("The words in the composer stay with their chat", () => {
 		expect(stored).toHaveLength(4);
 	});
 
+	test("a draft that holds a file and no words keeps its chip through a reload and through Back, and the next keystroke saves it with the file", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		const chatA = await seedTurns(page, 1, "Chat A");
+		const chatB = await seedTurns(page, 1, "Chat B");
+		await open(page, chatA.conversationId);
+		await ensureSidebarExpanded(page);
+		const composer = page.getByTestId("message-input");
+		const chip = page
+			.getByTestId("composer-chip-attachment")
+			.filter({ hasText: "notes.txt" });
+		const fileId = await attachTextFile(
+			page,
+			"notes.txt",
+			"A few lines the draft keeps.",
+		);
+		await expect
+			.poll(() => savedDraftFileIds(page, chatA.conversationId))
+			.toEqual([fileId]);
+
+		await page.reload();
+		await expect(composer).toBeEnabled();
+		await waitForHydration(page);
+		await expect(chip).toBeVisible();
+		await expect(composer).toHaveValue("");
+
+		// Away to the other chat and Back: the shell names the open chat after the
+		// page has given the composer its draft.
+		await page
+			.locator(
+				`[data-testid="conversation-item"][data-conversation-id="${chatB.conversationId}"]`,
+			)
+			.click();
+		await expect(page).toHaveURL(new RegExp(chatB.conversationId));
+		await expect(chip).toHaveCount(0);
+		await page.goBack();
+		await expect(page).toHaveURL(new RegExp(chatA.conversationId));
+		await expect(chip).toBeVisible();
+
+		await composer.fill("x");
+		await page.waitForTimeout(600);
+		expect(await savedDraftFileIds(page, chatA.conversationId)).toEqual([
+			fileId,
+		]);
+		await expect(chip).toBeVisible();
+	});
+
 	test.describe("with a model that answers", () => {
 		const fakeProvider = createOpenAICompatibleProviderHarness();
 
@@ -1428,6 +1487,84 @@ test.describe("The words in the composer stay with their chat", () => {
 		test.beforeEach(async () => {
 			await fakeProvider.reset();
 		});
+
+		// A message queued behind a running reply lives only in the page's queue.
+		for (const destination of ["another chat", "Settings"] as const) {
+			test(`a queued message stays with its chat when the person goes to ${destination} and back: it is in the composer, nothing was sent, and a reload keeps it`, async ({
+				page,
+			}) => {
+				await page.setViewportSize({ width: 1280, height: 900 });
+				const chatA = await seedTurns(page, 1, "Chat A");
+				const chatB = await seedTurns(page, 1, "Chat B");
+				const providerId = await pointTheUserAtFakeModel(
+					page,
+					fakeProvider.baseURL,
+				);
+				const releaseTheReply = await holdTheNextTurn(page);
+				const sidebarItem = (conversationId: string) =>
+					page.locator(
+						`[data-testid="conversation-item"][data-conversation-id="${conversationId}"]`,
+					);
+				const queued = "B: queued behind the reply";
+				try {
+					await open(page, chatA.conversationId);
+					await ensureSidebarExpanded(page);
+					const composer = page.getByTestId("message-input");
+					await composer.fill("A: the next question");
+					await page.getByTestId("send-button").click();
+					// The reply is on its way, and B waits behind it.
+					await composer.fill(queued);
+					await page.getByTestId("queue-button").click();
+					await expect(page.getByTestId("queued-message-banner")).toContainText(
+						queued,
+					);
+
+					if (destination === "another chat") {
+						await sidebarItem(chatB.conversationId).click();
+						await expect(page).toHaveURL(new RegExp(chatB.conversationId));
+						await expect(composer).toHaveValue("");
+						await sidebarItem(chatA.conversationId).click();
+					} else {
+						await page.getByRole("button", { name: "Open settings" }).click();
+						await expect(page).toHaveURL(/\/settings/);
+						await page.goBack();
+					}
+
+					await expect(page).toHaveURL(new RegExp(chatA.conversationId));
+					await expect(page.getByTestId("message-input")).toHaveValue(queued);
+					await expect(page.getByTestId("queued-message-banner")).toHaveCount(
+						0,
+					);
+					await expect
+						.poll(() => savedDraft(page, chatA.conversationId))
+						.toBe(queued);
+
+					await page.reload();
+					await expect(page.getByTestId("message-input")).toHaveValue(queued);
+					// Nothing was sent: the model heard nothing, and each chat still holds
+					// its one seeded turn.
+					expect(
+						fakeProvider
+							.requests()
+							.filter((request) => request.method === "POST"),
+					).toHaveLength(0);
+					const stored = await db
+						.select({ id: messages.id })
+						.from(messages)
+						.where(
+							inArray(messages.conversationId, [
+								chatA.conversationId,
+								chatB.conversationId,
+							]),
+						);
+					expect(stored).toHaveLength(4);
+				} finally {
+					releaseTheReply();
+					await page.unroute("**/api/chat/stream");
+					await restoreTheUsersModel(page, providerId);
+				}
+			});
+		}
 
 		test("a turn that is stopped puts its queued message behind the words typed since: the composer, a reload and the send hold both", async ({
 			page,
