@@ -260,6 +260,7 @@ function makeAdapters(
 		getMessages: vi.fn(() => messages),
 		isReadOnly: vi.fn(() => false),
 		isEditResendPending: vi.fn(() => false),
+		isEditOpen: vi.fn(() => false),
 		isBrowserHidden: vi.fn(() => false),
 		randomId: vi.fn(() => `id-${++idSequence}`),
 		schedule: vi.fn((callback, _delay) => {
@@ -2918,6 +2919,96 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 				expect(readChatMessages).toHaveBeenCalledTimes(1);
 				expect(streamInvocations).toHaveLength(2);
+			});
+
+			// The read can take seconds and the page stays live: a pencil pressed meanwhile
+			// opens an edit, and the Retry that lands after it would send the old words,
+			// give the failed bubble the server's id (so the edit's submit finds no message
+			// and closes with what was typed), or load a chat that no longer holds it.
+			describe("when an edit is opened while the page asks", () => {
+				async function pressedWithAnEditOpenedMeanwhile(
+					overrides: Parameters<typeof makeAdapters>[0],
+					answerWith: ChatMessage[] | null,
+				) {
+					let editOpen = false;
+					let answer: (messages: ChatMessage[] | null) => void = () => {};
+					const state = await failedSend({
+						isEditOpen: vi.fn(() => editOpen),
+						readChatMessages: vi.fn(
+							() =>
+								new Promise<ChatMessage[] | null>((resolve) => {
+									answer = resolve;
+								}),
+						),
+						...overrides,
+					});
+					const pressed = state.runtime.retry();
+					editOpen = true;
+					answer(answerWith);
+					await pressed;
+					return {
+						...state,
+						closeTheEdit: () => {
+							editOpen = false;
+						},
+						answerTheNextRead: (messages: ChatMessage[] | null) =>
+							answer(messages),
+					};
+				}
+
+				it("sends nothing, and the message can still be retried once the edit is over", async () => {
+					const {
+						streamInvocations,
+						runtime,
+						closeTheEdit,
+						answerTheNextRead,
+					} = await pressedWithAnEditOpenedMeanwhile({}, null);
+
+					expect(streamInvocations).toHaveLength(1);
+					expect(runtime.snapshot().canRetry).toBe(true);
+
+					closeTheEdit();
+					const again = runtime.retry();
+					answerTheNextRead(null);
+					await again;
+					expect(streamInvocations).toHaveLength(2);
+				});
+
+				it("loads nothing when the server turned out to have the turn", async () => {
+					const { adapters, streamInvocations } =
+						await pressedWithAnEditOpenedMeanwhile({}, [
+							...earlierTurn(),
+							serverUser(),
+							serverReply(),
+						]);
+
+					expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+					expect(streamInvocations).toHaveLength(1);
+				});
+
+				it("joins nothing when the server turned out to be running the turn", async () => {
+					const { streamInvocations } = await pressedWithAnEditOpenedMeanwhile(
+						{
+							checkForOrphanedStream: vi.fn(async () => "stream-1"),
+						},
+						null,
+					);
+
+					expect(streamInvocations).toHaveLength(1);
+				});
+
+				it("does not ask at all while an edit is open", async () => {
+					const readChatMessages = vi.fn(async () => null);
+					const { streamInvocations, runtime } = await failedSend({
+						isEditOpen: vi.fn(() => true),
+						readChatMessages,
+					});
+
+					await runtime.retry();
+
+					expect(readChatMessages).not.toHaveBeenCalled();
+					expect(streamInvocations).toHaveLength(1);
+				});
 			});
 
 			it("sends nothing when a turn has started, or the chat has changed, while the chat was being read", async () => {

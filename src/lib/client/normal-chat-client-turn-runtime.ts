@@ -166,6 +166,13 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	getMessages: () => ChatMessage[];
 	isReadOnly: () => boolean;
 	isEditResendPending: () => boolean;
+	/**
+	 * An edit of a message is open in the composer. Retry sends nothing then: the
+	 * edit deletes what a turn makes, and the failed bubble the edit is of takes the
+	 * server's id when the turn lands, so the edit's submit would find no message and
+	 * close with what was typed.
+	 */
+	isEditOpen: () => boolean;
 	isBrowserHidden: () => boolean;
 	randomId: () => string;
 	schedule: (
@@ -1550,6 +1557,7 @@ export function createNormalChatClientTurnRuntime(
 		// press is still reading the chat.
 		if (
 			adapters.isReadOnly() ||
+			adapters.isEditOpen() ||
 			isSending ||
 			retryReading ||
 			!canRetry ||
@@ -1579,9 +1587,11 @@ export function createNormalChatClientTurnRuntime(
 		} finally {
 			retryReading = false;
 		}
-		// A turn can have started, or the chat changed, while the page asked.
+		// A turn can have started, an edit been opened or the chat changed while the
+		// page asked, which can take seconds with the page live.
 		if (
 			adapters.isReadOnly() ||
+			adapters.isEditOpen() ||
 			isSending ||
 			!canRetry ||
 			lastUserMessage !== text ||

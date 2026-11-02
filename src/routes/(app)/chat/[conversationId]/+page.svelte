@@ -915,6 +915,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	getMessages: () => $messages,
 	isReadOnly: () => isConversationReadOnlyForChat,
 	isEditResendPending: () => isEditResendPending,
+	isEditOpen: () => editingMessage !== null,
 	isBrowserHidden: () =>
 		browser && typeof document !== "undefined"
 			? document.visibilityState === "hidden"

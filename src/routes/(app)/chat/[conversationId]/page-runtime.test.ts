@@ -1136,6 +1136,39 @@ describe("chat page runtime integration", () => {
 				).toBeUndefined();
 			});
 
+			it("sends nothing when a pencil is pressed while the server is read, and leaves that edit open", async () => {
+				const retryButton = await failASend();
+				let answer: (detail: ConversationDetail) => void = () => {};
+				vi.mocked(fetchConversationDetail).mockClear();
+				vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+					new Promise<ConversationDetail>((resolve) => {
+						answer = resolve;
+					}),
+				);
+				await fireEvent.click(retryButton);
+				await waitFor(() => {
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1);
+				});
+
+				// The read can take seconds and the page is live: the person opens an edit
+				// of the failed message. The Retry that lands after it would send the old
+				// words and give that bubble the server's id, which the edit cannot find.
+				const pencils = screen.getAllByRole("button", { name: "Edit message" });
+				await fireEvent.click(pencils[pencils.length - 1]);
+				const composer = screen.getByTestId("message-input");
+				await waitFor(() => {
+					expect(composer).toHaveValue(askedWords);
+				});
+				answer(conversationDetailFixture({ messages: earlierTurn }));
+				await new Promise((resolve) => setTimeout(resolve, 30));
+
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				expect(composer).toHaveValue(askedWords);
+				expect(
+					screen.getByRole("button", { name: "Cancel" }),
+				).toBeInTheDocument();
+			});
+
 			it("sends once when Retry is pressed twice while the server is read", async () => {
 				const retryButton = await failASend();
 				let answer: (detail: ConversationDetail) => void = () => {};
