@@ -2178,6 +2178,103 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(streamInvocations[2].options?.modelId).toBe("model1");
 		});
 
+		it("keeps the message's files and pictures when a dropped connection on this page is followed by a reconnect that fails", async () => {
+			const { adapters, streamInvocations, messages, messageListEvents } =
+				makeAdapters({
+					// The turn is still running on the server when the page looks for it.
+					checkForOrphanedStream: vi.fn(async () => "stream-1"),
+					getStreamBufferInfo: vi.fn(async () => ({
+						exists: true,
+						userMessage: "Second question",
+					})),
+					// What the server holds once the turn has failed: nothing of it.
+					loadPersistedData: vi.fn(async () => {
+						messages.length = 0;
+						messages.push(...earlierTurn());
+					}),
+				});
+			messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Second question",
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+				pictureRefs: [{ imageFileId: "file-cottage", number: 2 }],
+				imageMarks: { imageFileId: "file-cottage", marks: [box] },
+				modelId: "model2",
+				reasoningDepth: "quick",
+			});
+			// Words had come when the connection dropped: the page reconnects to the
+			// turn the server is still running, and that turn then fails.
+			streamInvocations[0].callbacks.onToken("The lake");
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			await vi.waitFor(() => expect(streamInvocations).toHaveLength(2));
+			expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
+				"stream-1",
+			);
+			streamInvocations[1].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() => expect(runtime.snapshot().canRetry).toBe(true));
+			expect(messages.map((message) => message.content)).toEqual([
+				"First question",
+				"First answer",
+				"Second question",
+			]);
+			messageListEvents.removeMessage.mockClear();
+
+			runtime.retry();
+
+			// The message the page itself sent, so it goes again as it went: with its
+			// files, its pictures and its choices.
+			expect(removedIds(messageListEvents)).toEqual([]);
+			expect(streamInvocations).toHaveLength(3);
+			expect(streamInvocations[2].message).toBe("Second question");
+			expect(streamInvocations[2].options).toMatchObject({
+				modelId: "model2",
+				reasoningDepth: "quick",
+				attachmentIds: ["photo-1"],
+				pictureRefs: [{ imageFileId: "file-cottage", number: 2 }],
+				imageMarks: { imageFileId: "file-cottage", marks: [box] },
+			});
+			expect(
+				streamInvocations[2].options?.retryAssistantMessageId,
+			).toBeUndefined();
+			expect(streamInvocations[2].options?.reconnectToStreamId).toBeUndefined();
+		});
+
+		it("forgets the send when the reconnect that fails is for another message", async () => {
+			const { adapters, streamInvocations, messages } = makeAdapters({
+				loadPersistedData: vi.fn(async () => {
+					messages.length = 0;
+					messages.push(...earlierTurn());
+				}),
+			});
+			messages.push(...earlierTurn());
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send({
+				message: "Second question",
+				attachmentIds: ["photo-1"],
+				attachments: [],
+				pendingAttachments: [],
+				modelId: "model2",
+			});
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			// A turn of another tab, say, that this page reconnects to and that fails.
+			await runtime.reconnectToOrphanedStream("stream-9", "Another message");
+			streamInvocations[1].callbacks.onError(new Error("The model refused."));
+			await vi.waitFor(() =>
+				expect(messages.at(-1)?.content).toBe("Another message"),
+			);
+
+			runtime.retry();
+
+			expect(streamInvocations[2].message).toBe("Another message");
+			expect(streamInvocations[2].options?.attachmentIds ?? []).toEqual([]);
+			expect(streamInvocations[2].options?.modelId).toBe("model1");
+		});
+
 		it("does the same on a second failure and a second press as on the first", async () => {
 			const { adapters, streamInvocations, messages, messageListEvents } =
 				makeAdapters({ deleteDraft: vi.fn() });

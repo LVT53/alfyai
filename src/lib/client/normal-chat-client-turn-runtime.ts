@@ -729,10 +729,14 @@ export function createNormalChatClientTurnRuntime(
 		if (!isTurnConversationActive(params.turnConversationId)) return;
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
-		// This page did not send the turn that failed (a reload put it back into
-		// it), so there is no payload to send again, only the text; and an earlier
-		// send's payload is not this message's.
-		lastSend = null;
+		// After a reload this page did not send the turn that failed, so there is no
+		// payload to send again, only the text. After a dropped connection on the
+		// page that did send it, the remembered send is this very message and Retry
+		// still carries its files and pictures. Any other send's payload is not
+		// this message's.
+		if (lastSend && lastSend.payload.message.trim() !== text.trim()) {
+			lastSend = null;
+		}
 		if (text.trim()) {
 			const tail = adapters.getMessages().at(-1);
 			if (tail?.role !== "user" || tail.content !== text) {
