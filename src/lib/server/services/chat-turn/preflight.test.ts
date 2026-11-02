@@ -14,10 +14,12 @@ const mocks = vi.hoisted(() => ({
 	getExtractionConfig: vi.fn(),
 	modelIdCanSeeImages: vi.fn(),
 	validatePictureRequest: vi.fn(),
+	keepReadableRecordedPictures: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/images/turn-pictures", () => ({
 	validatePictureRequest: mocks.validatePictureRequest,
+	keepReadableRecordedPictures: mocks.keepReadableRecordedPictures,
 }));
 
 vi.mock("$lib/server/services/extraction", () => ({
@@ -1082,6 +1084,62 @@ describe("preflightChatTurn pictures", () => {
 			},
 		});
 		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
+	});
+
+	it("drops a picture gone since from the resend of an edit, whose message is already deleted", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.keepReadableRecordedPictures.mockResolvedValue({
+			pictureRefs: [{ imageFileId: "still-here", number: 2 }],
+			imageMarks: null,
+		});
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				turnOrigin: "edit_resend",
+				pictureRefs: [
+					{ imageFileId: "deleted", number: 1 },
+					{ imageFileId: "still-here", number: 2 },
+				],
+			}),
+		});
+
+		expect(mocks.keepReadableRecordedPictures).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				refs: [
+					{ imageFileId: "deleted", number: 1 },
+					{ imageFileId: "still-here", number: 2 },
+				],
+			}),
+		);
+		expect(mocks.validatePictureRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pictureRefs: [{ imageFileId: "still-here", number: 2 }],
+			}),
+		);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.value.pictureRefs).toEqual([
+				{ imageFileId: "still-here", number: 2 },
+			]);
+		}
+	});
+
+	it("still refuses a plain send's picture that is not there", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.keepReadableRecordedPictures.mockClear();
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				turnOrigin: "send",
+				pictureRefs: [{ imageFileId: "file-1", number: 1 }],
+			}),
+		});
+
+		expect(mocks.keepReadableRecordedPictures).not.toHaveBeenCalled();
 	});
 
 	it("refuses marks on a picture that is neither attached nor open, instead of dropping them", async () => {

@@ -6,7 +6,10 @@ import {
 	getExtractionJobsForArtifacts,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
-import { validatePictureRequest } from "$lib/server/services/images/turn-pictures";
+import {
+	keepReadableRecordedPictures,
+	validatePictureRequest,
+} from "$lib/server/services/images/turn-pictures";
 import {
 	assertPromptReadyAttachments,
 	isAttachmentReadinessError,
@@ -89,12 +92,40 @@ async function admitChatTurn(params: {
 	};
 }
 
+/**
+ * The pictures the resend of an edit may take along. They are its message's own,
+ * and that message is already deleted when the resend gets here, so a picture
+ * gone since is dropped, as a regenerate drops it: refusing the turn now would
+ * leave the person with neither the message nor the reply.
+ */
+async function withEditResendPictures(
+	userId: string,
+	request: ParsedChatTurnRequest,
+): Promise<ParsedChatTurnRequest> {
+	if (
+		request.turnOrigin !== "edit_resend" ||
+		(request.pictureRefs.length === 0 && !request.imageMarks)
+	) {
+		return request;
+	}
+	const kept = await keepReadableRecordedPictures({
+		userId,
+		conversationId: request.conversationId,
+		refs: request.pictureRefs,
+		marks: request.imageMarks,
+		openImageArtifactId: request.activeDocumentArtifactId ?? null,
+		attachmentIds: request.attachmentIds,
+	});
+	return { ...request, ...kept };
+}
+
 async function prepareChatTurn(params: {
 	userId: string;
 	request: ParsedChatTurnRequest;
 	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
-	const { userId, request } = params;
+	const { userId } = params;
+	const request = await withEditResendPictures(userId, params.request);
 	// The pictures the request names must be the person's own. Their number is
 	// not checked: a message carries any number of them (the model is shown at
 	// most MAX_TURN_IMAGES as pixels, a fact of the context build, never a refusal).
