@@ -38,6 +38,39 @@ describe("ServerUpdateNotice", () => {
 		expect(onRefresh).toHaveBeenCalledTimes(1);
 	});
 
+	// A message that waits for the update has not reached the server, and a reload
+	// now would lose it: the notice stays down until the wait is over.
+	it("stays down while a message waits for the update, and comes up as soon as it does not", async () => {
+		const { rerender } = render(ServerUpdateNotice, {
+			visible: true,
+			held: true,
+			onRefresh: vi.fn(),
+		});
+
+		expect(
+			screen.queryByRole("dialog", { name: "Update available" }),
+		).not.toBeInTheDocument();
+
+		await rerender({ visible: true, held: false, onRefresh: vi.fn() });
+
+		expect(
+			screen.getByRole("dialog", { name: "Update available" }),
+		).toBeVisible();
+	});
+
+	it("stays hidden while held even when there is no update to offer yet", async () => {
+		const { rerender } = render(ServerUpdateNotice, {
+			visible: false,
+			held: true,
+			onRefresh: vi.fn(),
+		});
+		await rerender({ visible: false, held: false, onRefresh: vi.fn() });
+
+		expect(
+			screen.queryByRole("dialog", { name: "Update available" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("uses Hungarian copy when the UI language is Hungarian", () => {
 		uiLanguage.set("hu");
 

@@ -59,6 +59,7 @@ and are not read by the app (app runtime variables are in
 | `DB_BACKUP_KEEP` | `7` | How many database backups are retained in `shared/backups/`. The backup taken by the current deploy is never pruned, whatever the ordering says. |
 | `DB_BACKUP_REQUIRED` | `1` | When `1`, a failed database backup **aborts the deploy before any migration runs**. Set to `0` to deploy anyway with an unprotected database. |
 | `DB_BACKUP_TIMEOUT` | `600` | Wall-clock ceiling (seconds) for the backup copy and for the integrity check, so a stalled filesystem cannot hang a deploy. |
+| `DRAIN_TIMEOUT_SECONDS` | `180` | How long step 7b waits for running replies to finish before the cutover restarts the server (`0` does not wait; anything that is not a number is `180`). A reply still running when it ends is cut by the restart. See [Health Check](#health-check). |
 
 ### Database backups
 
@@ -493,6 +494,14 @@ Expected response:
 back, and — when `ALFYAI_API_SIGNING_KEY` is set — it posts to `/api/admin/drain` and then watches
 `activeStreams` fall to zero before restarting, so in-flight chat streams are not cut mid-response.
 Without the signing key it skips the drain and relies on graceful shutdown alone.
+
+While the server drains, a new message is refused with a 503 whose `reason` is `draining` (the
+code stays `CAPACITY_EXCEEDED`), and an open page shows the message "AlfyAI is being updated" and
+waits for the update instead of failing. The drain waits for the running replies for up to
+`DRAIN_TIMEOUT_SECONDS` (default `180`; `0` does not wait), printing a progress line every 30
+seconds with how many replies are still running. Waiting here keeps the site up for everyone; a
+reply that is still running when the wait ends is cut by the restart (the page then says so and
+offers Retry). Raise it for a deploy at a busy hour: `DRAIN_TIMEOUT_SECONDS=300 scripts/deploy.sh`.
 
 ## Web Research Deployment
 

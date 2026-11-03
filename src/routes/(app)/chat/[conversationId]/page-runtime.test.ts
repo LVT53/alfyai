@@ -285,6 +285,11 @@ vi.mock("$app/state", () => ({
 		url: new URL("http://localhost/chat/conv-1"),
 		state: {},
 	},
+	// SvelteKit's version check: no new version unless a test says so.
+	updated: {
+		current: false,
+		check: vi.fn(async () => false),
+	},
 }));
 
 vi.mock("$app/navigation", () => ({
@@ -346,6 +351,16 @@ vi.mock("$lib/client/api/connection-writes", () => ({
 
 vi.mock("$lib/client/api/chat-turn", () => ({
 	checkChatTurn: checkChatTurnMock,
+}));
+
+// The server's health, as a message that waits for an update asks it, and as a
+// reply cut by a failed connection asks whether the server is being updated. The
+// server is well unless a test says otherwise (reset after every test, below).
+const fetchServerHealthMock = vi.hoisted(() =>
+	vi.fn(async () => ({ reachable: true, draining: false })),
+);
+vi.mock("$lib/client/api/health", () => ({
+	fetchServerHealth: fetchServerHealthMock,
 }));
 
 vi.mock("$lib/client/api/connections", () => ({
@@ -457,6 +472,11 @@ import Page from "./+page.svelte";
 // Every test starts with a gate that takes the message, whatever the one before it said.
 afterEach(() => {
 	checkChatTurnMock.mockReset();
+	fetchServerHealthMock.mockReset();
+	fetchServerHealthMock.mockResolvedValue({
+		reachable: true,
+		draining: false,
+	});
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -2416,6 +2436,191 @@ describe("chat page runtime integration", () => {
 				expect(saves.at(-1)?.[1]).toMatchObject({
 					draftText: "C typed since\n\nB queued",
 				});
+			});
+		});
+
+		// ADR-0054, "An Update During A Turn". A message the server turned away because
+		// it is being updated has not reached the server: it waits for the update, Stop
+		// ends the wait with the words back in the composer, and leaving the chat keeps
+		// them in that chat's draft.
+		describe("a message waiting for a server update", () => {
+			const turnedAwayForTheUpdate = () =>
+				Object.assign(
+					new Error("Server at capacity. Please try again later."),
+					{
+						status: 503,
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+					},
+				);
+
+			beforeEach(() => {
+				// The update goes on: a message that waits keeps waiting.
+				fetchServerHealthMock.mockResolvedValue({
+					reachable: true,
+					draining: true,
+				});
+			});
+
+			/** "A question" is sent, the server turns it away for the update and it waits; "B queued" waits behind it, and C is typed when given. */
+			async function waitingWithBQueued(typedSince?: string) {
+				const view = renderPage(chat("conv-1").data);
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "A question" } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					turnedAwayForTheUpdate(),
+				);
+				await fireEvent.input(composer, { target: { value: "B queued" } });
+				await fireEvent.click(screen.getByTestId("queue-button"));
+				if (typedSince) {
+					await fireEvent.input(composer, { target: { value: typedSince } });
+				}
+				return { view, composer };
+			}
+
+			it("keeps the question on screen and Stop within reach, and sends nothing meanwhile", async () => {
+				renderPage();
+				await fireEvent.input(screen.getByTestId("message-input"), {
+					target: { value: "A question" },
+				});
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					turnedAwayForTheUpdate(),
+				);
+
+				await waitFor(() => {
+					expect(screen.getByTestId("stop-button")).toBeInTheDocument();
+				});
+				expect(screen.getAllByTestId("user-message")).toHaveLength(1);
+				// No error and no Retry: nothing failed, it is waiting.
+				expect(
+					screen.queryByRole("button", { name: /retry/i }),
+				).not.toBeInTheDocument();
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("puts the words back in the composer on Stop and removes the bubble the server never got", async () => {
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "A question" } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					turnedAwayForTheUpdate(),
+				);
+				await waitFor(() => {
+					expect(screen.getByTestId("stop-button")).toBeInTheDocument();
+				});
+
+				await fireEvent.click(screen.getByTestId("stop-button"));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("A question");
+				});
+				expect(screen.queryAllByTestId("user-message")).toHaveLength(0);
+				expect(screen.queryByTestId("stop-button")).not.toBeInTheDocument();
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("joins the words typed since behind nothing of its own: the held words first, then the stopped message", async () => {
+				renderPage();
+				const composer = screen.getByTestId("message-input");
+				await fireEvent.input(composer, { target: { value: "A question" } });
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Send message" }),
+				);
+				runtimeHarness.streamInvocations[0].callbacks.onError(
+					turnedAwayForTheUpdate(),
+				);
+				await fireEvent.input(composer, { target: { value: "C typed since" } });
+
+				await fireEvent.click(screen.getByTestId("stop-button"));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("C typed since\n\nA question");
+				});
+			});
+
+			it("is saved as the draft of the chat it was sent in when the person moves to another, and sent nowhere", async () => {
+				const { view, composer } = await waitingWithBQueued();
+
+				await view.rerender(chat("conv-2", "B's own draft"));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("B's own draft");
+				});
+				// The waiting message first, the one queued behind it after it, in one save.
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: "A question\n\nB queued" }),
+					expect.anything(),
+				);
+				expect(persistConversationDraft).not.toHaveBeenCalledWith(
+					"conv-2",
+					expect.anything(),
+					expect.anything(),
+				);
+				// The server comes back, and nothing is sent into the chat now on screen.
+				fetchServerHealthMock.mockResolvedValue({
+					reachable: true,
+					draining: false,
+				});
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				expect(fetchServerHealthMock).not.toHaveBeenCalled();
+			});
+
+			it("joins the words typed since, which are saved with it", async () => {
+				const { view } = await waitingWithBQueued("C typed since");
+
+				await view.rerender(chat("conv-2"));
+
+				const saves = vi
+					.mocked(persistConversationDraft)
+					.mock.calls.filter(([conversationId]) => conversationId === "conv-1");
+				expect(saves.at(-1)?.[1]).toMatchObject({
+					draftText: "C typed since\n\nA question\n\nB queued",
+				});
+			});
+
+			it("is saved the same way when the person leaves the chat page", async () => {
+				const { view } = await waitingWithBQueued();
+
+				view.unmount();
+
+				expect(persistConversationDraft).toHaveBeenCalledWith(
+					"conv-1",
+					expect.objectContaining({ draftText: "A question\n\nB queued" }),
+					expect.anything(),
+				);
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			it("comes back in the composer when the person returns to the chat", async () => {
+				const { view, composer } = await waitingWithBQueued();
+				await view.rerender(chat("conv-2"));
+				await waitFor(() => {
+					expect(composer).toHaveValue("");
+				});
+				const saved = vi
+					.mocked(persistConversationDraft)
+					.mock.calls.findLast(
+						([conversationId]) => conversationId === "conv-1",
+					);
+
+				await view.rerender(chat("conv-1", saved?.[1].draftText));
+
+				await waitFor(() => {
+					expect(composer).toHaveValue("A question\n\nB queued");
+				});
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
 			});
 		});
 	});
@@ -6258,6 +6463,36 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 						"Another reply is still running. Wait for it, then send this edit again.",
 					),
 				).toBeInTheDocument();
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+			});
+
+			// A server that is draining for a deploy is an update in progress, not a
+			// reply to wait for: the page says so, and the edit stays open the same way.
+			it("says AlfyAI is being updated when the server is draining, and deletes nothing", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockResolvedValue({
+					ok: false,
+					busy: true,
+					updating: true,
+					error: new ApiError("Server at capacity. Please try again later.", {
+						status: 503,
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+					}),
+				});
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+
+				expect(
+					await screen.findByText(
+						"AlfyAI is being updated. Send this edit again when it's done.",
+					),
+				).toBeInTheDocument();
+				expect(
+					screen.queryByText(/Another reply is still running/),
+				).not.toBeInTheDocument();
 				expect(deleteMessages).not.toHaveBeenCalled();
 				expectTheEditStillOpen();
 			});

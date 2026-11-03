@@ -697,7 +697,10 @@ describe("active chat streams registry", () => {
 			setDraining(false);
 		});
 
-		it("refuses new streams with the existing global_limit reason while draining", () => {
+		// A draining server names itself: a page waits for an update that ends by
+		// itself, and a full server (`global_limit`) is a different wait with
+		// another sentence. The 503 keeps the CAPACITY_EXCEEDED code either way.
+		it("refuses new streams with the draining reason while draining", () => {
 			expect(isDraining()).toBe(false);
 			setDraining(true);
 			expect(isDraining()).toBe(true);
@@ -706,7 +709,7 @@ describe("active chat streams registry", () => {
 
 			expect(check).toEqual({
 				allowed: false,
-				reason: "global_limit",
+				reason: "draining",
 				retryAfterSeconds: 10,
 				currentGlobalCount: expect.any(Number),
 				currentUserCount: expect.any(Number),

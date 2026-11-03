@@ -256,7 +256,11 @@ export type NormalChatRuntimePhase =
 	| "preparing"
 	| "generating"
 	| "finalizing"
-	| "polling";
+	| "polling"
+	// The server is being updated (a deploy) and this turn waits for it: its
+	// request was turned away, or the reply it was reading was cut off. The bubble
+	// says so (`chat.awaitingUpdate`) and Stop ends the wait.
+	| "awaiting_update";
 
 export interface ChatMessage {
 	id: string;

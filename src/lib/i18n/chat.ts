@@ -20,6 +20,11 @@ const chatDict = {
 		"chat.artifacts.keepAsDocumentError": "Could not open this as a document.",
 		"chat.artifacts.openExistingDocument": "Open document",
 		"chat.attachmentLabel": "Attach file",
+		// The server is being updated (a deploy). A message waits for it, and the
+		// bubble says so (`awaiting_update`, MessageBubble); a reply the update cut
+		// off, a wait that ran out and an edit refused meanwhile have a sentence each.
+		"chat.awaitingUpdate":
+			"AlfyAI is being updated. Waiting for it to come back…",
 		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
 		// The drag-and-drop overlay over the whole chat page
@@ -56,6 +61,8 @@ const chatDict = {
 		// server is draining: the check says so before the edit deletes anything.
 		"chat.editReplyRunning":
 			"Another reply is still running. Wait for it, then send this edit again.",
+		"chat.editUpdating":
+			"AlfyAI is being updated. Send this edit again when it's done.",
 		"chat.editLaterReplies":
 			"{count} later {count, plural, one {reply} other {replies}} will be deleted.",
 		"chat.emptyConversation": "Start a conversation",
@@ -314,6 +321,10 @@ const chatDict = {
 		// A conversation nothing has named yet (F5): the stored default is one
 		// English sentence, and a reader sees this one in their own language.
 		"chat.untitledConversation": "New Conversation",
+		"chat.updateCutReply":
+			"AlfyAI was updated while this reply was being written, so it was cut off. Press Retry to send your message again.",
+		"chat.updateStillRunning":
+			"AlfyAI is still being updated. Try again in a few minutes.",
 		"chat.uploadAllFailed": "Failed to upload {count} file(s).",
 		"chat.uploadAttachmentFailed": "Failed to upload attachment.",
 		"chat.uploadError": "Upload failed",
@@ -1278,6 +1289,7 @@ const chatDict = {
 			"Ezt nem sikerült dokumentumként megnyitni.",
 		"chat.artifacts.openExistingDocument": "Dokumentum megnyitása",
 		"chat.attachmentLabel": "Fájl csatolása",
+		"chat.awaitingUpdate": "Az AlfyAI frissül. Várunk, amíg újra elérhető…",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
 		"chat.dropZone.attach":
@@ -1307,6 +1319,8 @@ const chatDict = {
 			"Nem sikerült ellenőrizni a szerkesztést. Nem változott semmi, próbáld újra.",
 		"chat.editReplyRunning":
 			"Még fut egy másik válasz. Várd meg, aztán küldd el újra a szerkesztést.",
+		"chat.editUpdating":
+			"Az AlfyAI frissül. Küldd el újra a szerkesztést, ha végzett.",
 		"chat.editLaterReplies": "{count} későbbi válasz törlődik.",
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.emptyHeadline": "Miben segíthetek?",
@@ -1510,6 +1524,10 @@ const chatDict = {
 		"chat.thoughtStep.hideFullReasoning": "Teljes gondolatmenet elrejtése",
 		"chat.thoughtStep.showFullReasoning": "Teljes gondolatmenet megjelenítése",
 		"chat.untitledConversation": "Új beszélgetés",
+		"chat.updateCutReply":
+			"A válasz írása közben frissült az AlfyAI, ezért megszakadt. Az Újrapróbálom gombbal újra elküldheted az üzenetedet.",
+		"chat.updateStillRunning":
+			"Az AlfyAI még frissül. Próbáld újra pár perc múlva.",
 		"chat.uploadAllFailed": "Nem sikerült feltölteni {count} fájlt.",
 		"chat.uploadAttachmentFailed": "A fájl csatolása nem sikerült.",
 		"chat.uploadError": "Feltöltés sikertelen",

@@ -10,7 +10,11 @@ import {
 	oldBrowserSseNamedTokenEvent,
 } from "../../../tests/fixtures/ai-sdk-ui-stream-contract";
 import type { StreamCallbacks, StreamMetadata } from "./streaming";
-import { streamChat } from "./streaming";
+import {
+	isServerUpdateRefusal,
+	isStreamTransportFailure,
+	streamChat,
+} from "./streaming";
 import {
 	buildControlledFetchResponse,
 	endEvent,
@@ -1425,6 +1429,221 @@ describe("streamChat", () => {
 				}),
 			}),
 		);
+	});
+
+	// A request the server turns away before a turn begins carries what it
+	// answered, so the runtime can tell an update (wait, send again) from a
+	// refusal (back off, or fail): the status, the body's `reason`, and
+	// `serverUnavailable` when the reverse proxy answered instead of the app.
+	describe("a request refused before the turn began", () => {
+		async function refusalOf(response: Response) {
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				response,
+				callbacks: makeCallbacks(),
+			});
+			await done;
+			expect(cb.onError).toHaveBeenCalledOnce();
+			return vi.mocked(cb.onError).mock.calls[0][0] as Error & {
+				status?: number;
+				reason?: string;
+				code?: string;
+				serverUnavailable?: boolean;
+			};
+		}
+
+		it("names a draining server: the status and the reason, with the code a full server has", async () => {
+			const error = await refusalOf(
+				new Response(
+					JSON.stringify({
+						error: "Server at capacity. Please try again later.",
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+						retryAfter: 10,
+					}),
+					{ status: 503, headers: { "Content-Type": "application/json" } },
+				),
+			);
+
+			expect(error.status).toBe(503);
+			expect(error.reason).toBe("draining");
+			expect(error.code).toBe("CAPACITY_EXCEEDED");
+			// The app answered, so it is not the proxy's page.
+			expect(error.serverUnavailable).toBeUndefined();
+			expect(isServerUpdateRefusal(error)).toBe(true);
+		});
+
+		it("keeps the reasons of a full server and of a second reply as limits, not updates", async () => {
+			for (const reason of ["global_limit", "user_limit"]) {
+				const error = await refusalOf(
+					new Response(
+						JSON.stringify({
+							error: "Server at capacity. Please try again later.",
+							code: "CAPACITY_EXCEEDED",
+							reason,
+						}),
+						{ status: 503, headers: { "Content-Type": "application/json" } },
+					),
+				);
+
+				expect(error.status).toBe(503);
+				expect(error.reason).toBe(reason);
+				expect(error.code).toBe("CAPACITY_EXCEEDED");
+				expect(isServerUpdateRefusal(error)).toBe(false);
+			}
+		});
+
+		it("marks the proxy's maintenance page, a 503 with HTML, as the server being away", async () => {
+			const error = await refusalOf(
+				new Response("<html><body>AlfyAI is being updated</body></html>", {
+					status: 503,
+					headers: { "Content-Type": "text/html" },
+				}),
+			);
+
+			expect(error.status).toBe(503);
+			expect(error.serverUnavailable).toBe(true);
+			expect(error.code).toBeUndefined();
+			expect(error.reason).toBeUndefined();
+			expect(error.message).toBe("HTTP 503");
+			expect(isServerUpdateRefusal(error)).toBe(true);
+		});
+
+		it.each([
+			502, 504,
+		])("takes a %i with no body, or a JSON body with neither error nor code, for the server being away", async (status) => {
+			for (const body of [null, "{}", '{"detail":"upstream"}']) {
+				const error = await refusalOf(new Response(body, { status }));
+
+				expect(error.status).toBe(status);
+				expect(error.serverUnavailable).toBe(true);
+				expect(isServerUpdateRefusal(error)).toBe(true);
+			}
+		});
+
+		it("does not take the app's own 503 JSON, or its SvelteKit error, for the server being away", async () => {
+			for (const body of [
+				{ error: "Chat model unavailable" },
+				{ code: "provider_down" },
+				{ message: "Service unavailable" },
+			]) {
+				const error = await refusalOf(
+					new Response(JSON.stringify(body), {
+						status: 503,
+						headers: { "Content-Type": "application/json" },
+					}),
+				);
+
+				expect(error.status).toBe(503);
+				expect(error.serverUnavailable).toBeUndefined();
+				expect(isServerUpdateRefusal(error)).toBe(false);
+			}
+		});
+
+		it("does not take a status that is not a gateway's for the server being away, whatever the body", async () => {
+			for (const status of [400, 401, 404, 409, 429, 500]) {
+				const error = await refusalOf(
+					new Response("<html>Nope</html>", {
+						status,
+						headers: { "Content-Type": "text/html" },
+					}),
+				);
+
+				expect(error.status).toBe(status);
+				expect(error.serverUnavailable).toBeUndefined();
+				expect(isServerUpdateRefusal(error)).toBe(false);
+			}
+		});
+
+		it("is the only kind of error that carries a status: a stream that failed after it was accepted has none", async () => {
+			const frame = await (async () => {
+				const { callbacks: cb, done } = runStreamWithMockedResponse({
+					responseChunks: [
+						uiFrame({ type: "data-stream-error", data: { message: "Boom" } }),
+					],
+					callbacks: makeCallbacks(),
+				});
+				await done;
+				return vi.mocked(cb.onError).mock.calls[0][0] as Error & {
+					status?: number;
+				};
+			})();
+			expect(frame.status).toBeUndefined();
+
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+			const cb = makeCallbacks();
+			await runStreamAndWait("m", "conv-1", cb as unknown as StreamCallbacks);
+			const thrown = vi.mocked(cb.onError).mock.calls[0][0] as Error & {
+				status?: number;
+			};
+			expect(thrown.status).toBeUndefined();
+			expect(isServerUpdateRefusal(thrown)).toBe(false);
+		});
+	});
+
+	describe("isStreamTransportFailure", () => {
+		// The Fetch standard rejects a request or a body that fails on the network
+		// with a TypeError, in every browser.
+		it("is a fetch or a reader failing on the network, which the transport passes on as it is", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+			const cb = makeCallbacks();
+			await runStreamAndWait("m", "conv-1", cb as unknown as StreamCallbacks);
+
+			const error = vi.mocked(cb.onError).mock.calls[0][0];
+			expect(isStreamTransportFailure(error)).toBe(true);
+		});
+
+		it("is a response that ends without its terminal event: the connection was cut", async () => {
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [tokenEvent("Half an answ")],
+				callbacks: makeCallbacks(),
+			});
+			await done;
+
+			const error = vi.mocked(cb.onError).mock.calls[0][0];
+			expect(error.message).toBe(
+				"Stream closed before a terminal completion event",
+			);
+			expect(isStreamTransportFailure(error)).toBe(true);
+		});
+
+		it("is not the server saying something: a refusal's status, the stream's own code, or an error frame with none", async () => {
+			expect(
+				isStreamTransportFailure(
+					Object.assign(new Error("HTTP 503"), { status: 503 }),
+				),
+			).toBe(false);
+			expect(
+				isStreamTransportFailure(
+					Object.assign(new Error("Stream timeout"), { code: "timeout" }),
+				),
+			).toBe(false);
+			// A TypeError that carries what the server said is the server's.
+			expect(
+				isStreamTransportFailure(
+					Object.assign(new TypeError("x"), { code: "timeout" }),
+				),
+			).toBe(false);
+
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					uiFrame({
+						type: "data-stream-error",
+						data: { message: "The model refused." },
+					}),
+				],
+				callbacks: makeCallbacks(),
+			});
+			await done;
+			expect(
+				isStreamTransportFailure(vi.mocked(cb.onError).mock.calls[0][0]),
+			).toBe(false);
+
+			expect(isStreamTransportFailure(new Error("Network failed"))).toBe(false);
+			expect(isStreamTransportFailure(null)).toBe(false);
+			expect(isStreamTransportFailure("Failed to fetch")).toBe(false);
+		});
 	});
 
 	it("reports error timing when an ok response has no body", async () => {

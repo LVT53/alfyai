@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount, onDestroy, untrack } from "svelte";
+import { get } from "svelte/store";
 import { page, navigating, updated } from "$app/state";
 import { browser } from "$app/environment";
 import { goto, replaceState } from "$app/navigation";
@@ -39,6 +40,8 @@ import {
 	type FeatureNote,
 } from "$lib/client/api/campaigns";
 import { conversationExists } from "$lib/client/api/conversations";
+import { fetchServerHealth } from "$lib/client/api/health";
+import { createServerUpdateWatch } from "$lib/client/server-update-watch";
 import {
 	mayAutoShowCampaign,
 	shouldPersistCampaignCompletion,
@@ -72,6 +75,10 @@ import {
 	setDisabledFileTypeIds,
 } from "$lib/stores/upload-format-gate";
 import { sessionExpiry } from "$lib/stores/session";
+import {
+	serverUpdateSign,
+	turnWaitingForUpdate,
+} from "$lib/stores/server-update";
 import { showToast } from "$lib/stores/toast";
 import { t } from "$lib/i18n";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
@@ -131,6 +138,27 @@ let serverUpdateSuppressionTimeout: number | null = null;
 // itself once the deploy's restart completes (see scheduleServerDrainingPoll).
 let serverDraining = $state(false);
 let serverDrainingPollTimeout: number | null = null;
+// The watch a sign of an update starts (the $effect on serverUpdateSign below).
+// It decides when to look and when to stop; this layout owns what is drawn: the
+// banner while the server drains, and during a watch while it does not answer
+// (the restart; unless the browser itself is offline), and the Refresh notice.
+const serverUpdateWatch = createServerUpdateWatch({
+	fetchHealth: fetchServerHealth,
+	checkVersion: () => updated.check(),
+	now: () => Date.now(),
+	setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+	clearTimer: (handle) => window.clearTimeout(handle as number),
+	onLook: (look) => {
+		serverDraining =
+			look.draining || (look.away && !(browser && navigator.onLine === false));
+		if (look.versionChanged && !isServerUpdateNoticeSuppressed()) {
+			serverUpdateAvailable = true;
+		}
+	},
+	onEnd: () => {
+		serverDraining = false;
+	},
+});
 // The session row and its announcement read the same store, which the browser
 // transports update from the server's own refusals (see $lib/stores/session).
 // Not $state: it is only ever compared against the store's counter inside the
@@ -337,6 +365,21 @@ $effect(() => {
 	}
 });
 
+// A sign of a server update (a message the server turned away for it, a reply it
+// cut off): watch the server for a while, so the banner and the Refresh notice
+// come up within seconds and not when SvelteKit's own poll next looks, up to a
+// minute later (see $lib/client/server-update-watch.ts). Not $state: it only
+// compares against the store's counter inside the effect below. A sign from before
+// this shell existed (it is rebuilt after a sign-in in the same tab) is not one to
+// watch for.
+let watchedUpdateSign = get(serverUpdateSign);
+$effect(() => {
+	const sign = $serverUpdateSign;
+	if (!browser || sign === watchedUpdateSign) return;
+	watchedUpdateSign = sign;
+	untrack(() => serverUpdateWatch.sign());
+});
+
 // The row at the top says the session ended; this says it again at the moment
 // it bites, so pressing something that the server just refused is never
 // silent. Throttled in the store, so a page-load burst of refused calls is one
@@ -442,20 +485,12 @@ const SERVER_DRAINING_POLL_MS = 3000;
 async function checkServerHealth() {
 	if (!browser) return;
 
-	try {
-		const response = await fetch("/api/health", { cache: "no-store" });
-		if (response.ok) {
-			const data = (await response.json()) as { draining?: unknown };
-			serverDraining = data.draining === true;
-		}
-		// A non-ok response leaves serverDraining at its last known value —
-		// the server may be mid-restart, which is exactly the window
-		// draining exists for. The poll below keeps checking either way.
-	} catch (error) {
-		if (!isTransientRefreshError(error)) {
-			console.warn("Failed to check server health:", error);
-		}
-	}
+	const health = await fetchServerHealth();
+	// A server that does not answer (a failed request, the proxy's maintenance
+	// page) leaves serverDraining at its last known value — the server may be
+	// mid-restart, which is exactly the window draining exists for. The poll
+	// below keeps checking either way.
+	if (health.reachable) serverDraining = health.draining;
 
 	if (serverDraining) scheduleServerDrainingPoll();
 }
@@ -887,6 +922,7 @@ onDestroy(() => {
 		window.clearTimeout(serverDrainingPollTimeout);
 		serverDrainingPollTimeout = null;
 	}
+	serverUpdateWatch.stop();
 	document.removeEventListener("visibilitychange", handleVisibilityChange);
 	window.removeEventListener("focus", handleWindowFocus);
 });
@@ -941,7 +977,12 @@ onDestroy(() => {
 		</main>
 	</div>
 	<ServerDrainingNotice visible={serverDraining} />
-	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
+	<!-- Held while a message waits for the update: it has not reached the server, and a reload now would lose it. It shows as soon as that is over. -->
+	<ServerUpdateNotice
+		visible={serverUpdateAvailable}
+		held={$turnWaitingForUpdate}
+		onRefresh={refreshForServerUpdate}
+	/>
 </div>
 
 <!-- B3: single shared toast mount point for the whole app shell. -->

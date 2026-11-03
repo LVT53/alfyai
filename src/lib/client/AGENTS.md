@@ -13,6 +13,7 @@ api/
   auth.ts          - Login/logout calls
   http.ts          - Base fetch wrapper, error handling
   chat-turn.ts     - Ask the turn's gate whether it would take a request (an edit asks before it deletes)
+  health.ts        - Read /api/health: does the server answer, and is it draining (an update in progress)
   conversations.ts - Conversation detail, evidence, titles, drafts
   knowledge.ts     - Uploads, library, memory
   workspace-search.ts - Global shell Workspace Search
@@ -30,6 +31,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
 | HTTP errors, base fetch | `api/http.ts` |
 | Admin user management | `api/admin.ts` |
 | The turn's gate, asked without a turn | `api/chat-turn.ts` |
+| Whether the server answers and is draining (an update in progress) | `api/health.ts` |
 | Conversation detail, drafts | `api/conversations.ts` |
 | Knowledge uploads, library, memory | `api/knowledge.ts` |
 | Global shell Workspace Search | `api/workspace-search.ts` |
@@ -68,6 +70,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
   - [`src/lib/client/api/auth.ts`](api/auth.ts)
   - [`src/lib/client/api/http.ts`](api/http.ts)
   - [`src/lib/client/api/chat-turn.ts`](api/chat-turn.ts)
+  - [`src/lib/client/api/health.ts`](api/health.ts)
   - [`src/lib/client/api/conversations.ts`](api/conversations.ts)
   - [`src/lib/client/api/knowledge.ts`](api/knowledge.ts)
   - [`src/lib/client/api/workspace-search.ts`](api/workspace-search.ts)
@@ -81,6 +84,7 @@ conversation-session.ts - Landing draft IDs, pending message replay
 Rules:
 
 - `client/api/` owns reusable request/response parsing and shared HTTP behavior.
+- `src/lib/client/api/health.ts` owns the one read of `/api/health` (`fetchServerHealth`: `reachable` is false for a failed or slow request, a status that is not OK and a body that is not the health JSON, which is the proxy's maintenance page during a restart). It is a plain `fetch` on purpose: the route is public, so a success says nothing of the session, and the wrapper in `http.ts` would read it as "the session works" and take down the shell's signed-out row. The shell's banner and watch and the chat runtime's wait for an update all read it from here (`src/lib/components/chat/AGENTS.md`, "An Update During A Turn").
 - `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
 - `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls, and the sidebar's batch call (`runConversationBatch`: at most 50 chats per request, sent one request after another, one result per chat in id order; a pin sends its chunks last first, because the server stacks each request on top of Pinned, so the first chat ends on top; a request that fails marks its chats `unknown` and never throws).
 - `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.

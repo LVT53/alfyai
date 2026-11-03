@@ -3,14 +3,20 @@ import { t } from "$lib/i18n";
 
 let {
 	visible,
+	held = false,
 	onRefresh,
 }: {
 	visible: boolean;
+	/**
+	 * A message waits for the update: it has not reached the server, and a reload
+	 * now would lose it. The notice stays down until this is false.
+	 */
+	held?: boolean;
 	onRefresh: () => void;
 } = $props();
 </script>
 
-{#if visible}
+{#if visible && !held}
 	<div
 		role="dialog"
 		aria-modal="false"

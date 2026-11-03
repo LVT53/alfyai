@@ -228,19 +228,41 @@ function readAttachmentReadiness(
 	return rows.length > 0 ? rows : undefined;
 }
 
+/**
+ * What the server answered when it turned a request away before any turn began
+ * (the `!res.ok` branch of `streamChat`). It is carried on the error that
+ * `onError` receives: an error with a `status` is such a refusal, and one without
+ * came after the stream was accepted (the connection dropped, the server's own
+ * `data-stream-error`).
+ */
+type StreamRefusal = {
+	status: number;
+	/** The body's `reason`: a 503 `CAPACITY_EXCEEDED` says `draining`, `global_limit` or `user_limit`. */
+	reason?: string;
+	/** The reverse proxy answered, not the app: a 502, 503 or 504 whose body is not the app's JSON. */
+	serverUnavailable?: boolean;
+};
+
 function toStreamError(
 	message: string,
 	code?: string,
 	attachmentExtraction?: AttachmentExtractionStatusItem[],
 	attachmentReadiness?: AttachmentReadinessItem[],
+	refusal?: StreamRefusal,
 ): Error {
-	const error = new Error(message) as Error & {
-		code?: string;
-		attachmentExtraction?: AttachmentExtractionStatusItem[];
-		attachmentReadiness?: AttachmentReadinessItem[];
-	};
+	const error = new Error(message) as Error &
+		Partial<StreamRefusal> & {
+			code?: string;
+			attachmentExtraction?: AttachmentExtractionStatusItem[];
+			attachmentReadiness?: AttachmentReadinessItem[];
+		};
 	if (code) {
 		error.code = code;
+	}
+	if (refusal) {
+		error.status = refusal.status;
+		if (refusal.reason) error.reason = refusal.reason;
+		if (refusal.serverUnavailable) error.serverUnavailable = true;
 	}
 	if (attachmentExtraction) {
 		// The send gate's refusals are the one class of send error whose message
@@ -253,6 +275,54 @@ function toStreamError(
 	}
 	return error;
 }
+
+/**
+ * The response ended without its terminal event: the connection was cut, or the
+ * server's side of it closed early. Marked `transport` (`isStreamTransportFailure`):
+ * it is the connection failing, not the server naming a cause.
+ */
+function toStreamClosedError(): Error {
+	return Object.assign(
+		toStreamError("Stream closed before a terminal completion event"),
+		{ transport: true },
+	);
+}
+
+/**
+ * Whether the server turned this request away because it is being updated: it
+ * said so (`reason: "draining"` on the 503 of a server getting ready for a
+ * restart), or the reverse proxy answered instead of it (`serverUnavailable`: a
+ * 502, 503 or 504 that is not the app's JSON, the maintenance page a restart
+ * shows). Either way the turn never began, so the same request can be sent again
+ * once the server is back.
+ */
+export function isServerUpdateRefusal(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const refusal = error as { reason?: unknown; serverUnavailable?: unknown };
+	return refusal.reason === "draining" || refusal.serverUnavailable === true;
+}
+
+/**
+ * Whether the error is the connection failing, as opposed to the server saying
+ * something: a fetch or a reader that fails (the Fetch standard rejects those with
+ * a `TypeError`, in every browser) or the stream closing with no terminal event
+ * (marked `transport` below), and no HTTP status (so not a refusal) and no code
+ * (so not the server's own `data-stream-error`, which names its cause). During an
+ * update these are what the restart looks like from a reply that was running.
+ */
+export function isStreamTransportFailure(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const { status, code, transport } = error as {
+		status?: unknown;
+		code?: unknown;
+		transport?: unknown;
+	};
+	if (typeof status === "number" || typeof code === "string") return false;
+	return error instanceof TypeError || transport === true;
+}
+
+/** The statuses a reverse proxy answers with when the app behind it is away or does not answer. */
+const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 
 const TOOL_CALLS_BLOCK_PATTERN =
 	/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi;
@@ -831,12 +901,23 @@ export function streamChat(
 			if (!res.ok) {
 				let errorMessage = `HTTP ${res.status}`;
 				let errorCode: string | undefined;
+				let errorReason: string | undefined;
+				let isAppResponse = false;
 				let attachmentExtraction: AttachmentExtractionStatusItem[] | undefined;
 				let attachmentReadiness: AttachmentReadinessItem[] | undefined;
 				try {
 					const json = await res.json();
 					errorMessage = json.error ?? errorMessage;
 					errorCode = json.code;
+					errorReason =
+						typeof json.reason === "string" ? json.reason : undefined;
+					// The app answers in JSON with an `error` or a `code` (or, for
+					// SvelteKit's own errors, a `message`); a body that is none of them
+					// is not the app's (the proxy's page, an empty reply).
+					isAppResponse =
+						typeof json.error === "string" ||
+						typeof json.code === "string" ||
+						typeof json.message === "string";
 					attachmentExtraction = readAttachmentExtraction(
 						json.attachmentExtraction,
 					);
@@ -863,6 +944,14 @@ export function streamChat(
 						errorCode,
 						attachmentExtraction,
 						attachmentReadiness,
+						{
+							status: res.status,
+							reason: errorReason,
+							// The restart window: the reverse proxy answers its maintenance
+							// page (a 503 with HTML) for as long as the app does not.
+							serverUnavailable:
+								!isAppResponse && GATEWAY_STATUSES.has(res.status),
+						},
 					),
 				);
 				return;
@@ -1023,9 +1112,7 @@ export function streamChat(
 						}
 						markTimingPhase(BROWSER_STREAM_TIMING_MARKS.END);
 						reportTiming("closed");
-						callbacks.onError(
-							toStreamError("Stream closed before a terminal completion event"),
-						);
+						callbacks.onError(toStreamClosedError());
 						break;
 					}
 

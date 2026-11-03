@@ -174,6 +174,31 @@ describe("POST /api/chat/turn-check", () => {
 		expect(mocks.checkStreamCapacity).toHaveBeenCalledWith("user-1");
 	});
 
+	// A draining server says so on the wire: the page waits for the update, and an
+	// edit says the update is running instead of blaming another reply. The code
+	// stays CAPACITY_EXCEEDED, which pages loaded before `draining` read.
+	it("names a draining server, with the code a full one has", async () => {
+		mocks.checkStreamCapacity.mockReturnValue({
+			allowed: false,
+			reason: "draining",
+			retryAfterSeconds: 10,
+			currentGlobalCount: 0,
+			currentUserCount: 0,
+		});
+
+		const response = await POST(makeEvent({ conversationId: "conv-1" }));
+
+		expect(response.status).toBe(503);
+		expect(response.headers.get("Retry-After")).toBe("10");
+		expect(await response.json()).toEqual({
+			error: "Server at capacity. Please try again later.",
+			code: "CAPACITY_EXCEEDED",
+			reason: "draining",
+			retryAfter: 10,
+		});
+		expect(mocks.checkChatTurn).not.toHaveBeenCalled();
+	});
+
 	it("refuses a body the stream would refuse before it looks at capacity", async () => {
 		mocks.parseChatTurnRequest.mockResolvedValue({
 			ok: false,

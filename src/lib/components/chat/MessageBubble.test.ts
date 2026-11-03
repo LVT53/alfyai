@@ -674,6 +674,71 @@ describe("MessageBubble", () => {
 		expect(screen.queryByText("Drafting response...")).not.toBeInTheDocument();
 	});
 
+	// The server is being updated and the turn waits for it (ADR-0054): one quiet
+	// line says so, in place of "Preparing response...", and beside any text the
+	// bubble already holds (a reply the update cut off).
+	describe("while the turn waits for a server update", () => {
+		const waiting = (content: string): ChatMessage => ({
+			id: "assistant-awaiting-update",
+			renderKey: "assistant-awaiting-update",
+			role: "assistant",
+			content,
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			runtimePhase: "awaiting_update",
+		});
+
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		it("says so in one polite status line, and not that a response is being prepared", () => {
+			const { container } = render(MessageBubble, { message: waiting("") });
+
+			const line = screen.getByTestId("awaiting-update-status");
+			expect(line).toHaveTextContent(
+				"AlfyAI is being updated. Waiting for it to come back…",
+			);
+			expect(line).toHaveAttribute("aria-live", "polite");
+			// The same quiet look as the other status lines.
+			expect(line).toHaveClass("preparing-status");
+			expect(container.querySelectorAll(".preparing-status")).toHaveLength(1);
+			expect(
+				screen.queryByText("Preparing response..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("says it beside text the bubble already holds", async () => {
+			render(MessageBubble, { message: waiting("Half an answer") });
+
+			expect(await screen.findByText("Half an answer")).toBeInTheDocument();
+			expect(screen.getByTestId("awaiting-update-status")).toBeInTheDocument();
+		});
+
+		it("says it in Hungarian for a Hungarian reader", () => {
+			uiLanguage.set("hu");
+
+			render(MessageBubble, { message: waiting("") });
+
+			expect(screen.getByTestId("awaiting-update-status")).toHaveTextContent(
+				"Az AlfyAI frissül. Várunk, amíg újra elérhető…",
+			);
+		});
+
+		it("is gone when the turn goes on: the preparing line comes back", () => {
+			const { rerender } = render(MessageBubble, { message: waiting("") });
+			expect(screen.getByTestId("awaiting-update-status")).toBeInTheDocument();
+
+			rerender({ message: { ...waiting(""), runtimePhase: "preparing" } });
+
+			expect(
+				screen.queryByTestId("awaiting-update-status"),
+			).not.toBeInTheDocument();
+			expect(screen.getByText("Preparing response...")).toBeInTheDocument();
+		});
+	});
+
 	it("keeps completed assistant messages without a runtime phase compatible", () => {
 		const message: ChatMessage = {
 			id: "assistant-complete",
