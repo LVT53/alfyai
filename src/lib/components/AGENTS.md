@@ -178,7 +178,7 @@ Do not:
 - Token categories already defined:
   - semantic surface, text, icon, border, status, radius, spacing, duration, and shadow variables
 - Font ownership:
-  - only a page's own top title wears the serif (`Libre Baskerville`, `--font-serif`): the Home and project greeting, and the page titles of Settings, Knowledge, the login page and the error page. Everything else is sans (`Nimbus Sans L`, `--font-sans`): chat messages, the composer, Documents and the panel around them, Version previews, cards, fields and modal headings. `tests/integration/serif-conventions.test.ts` lists the files that may name the serif and fails on any other
+  - only a page's own top title wears the serif (`Libre Baskerville`, `--font-serif`): the Home and project greeting, and the page titles of Settings, Knowledge, the login page and the error page. Everything else is sans (`Nimbus Sans L`, `--font-sans`): chat messages, the composer, Documents and the panel around them, Version previews, cards, fields and modal headings. The Apps the model writes are sans too, but through their contract and not the test below, which cannot read model output: `src/lib/server/services/artifacts/app/contract.ts` names the stack in full (the frame inherits no token) and the audit's `no-serif` note reports a serif in a generated App. `tests/integration/serif-conventions.test.ts` lists the files that may name the serif and fails on any other
   - chat text (the reply, the person's message, the composer) is 14px with a 1.6 line height on desktop, 15px on a phone (the composer stays 16px there, or iOS zooms on focus)
   - code uses the mono stack defined in `tailwind.config.ts`
 

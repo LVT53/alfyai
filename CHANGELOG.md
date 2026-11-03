@@ -44,6 +44,9 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   Knowledge memory cards are now set in the same sans-serif face as the chat, so
   the serif is left to a page's own top title: the Home and project greeting,
   and the titles of Settings, Knowledge, the login page and the error page.
+- Apps that Alfy makes are now set in sans-serif throughout, headings included,
+  to match the rest of the app; their headings used to be serif. An app made
+  earlier keeps its look until you ask Alfy to change it.
 - Incognito is now chosen once, before a chat exists, and stays on for that
   chat's whole life. A mask button sits in the top-right corner of the new-chat
   page (and in the phone header); tapping it tints the stage, dashes the

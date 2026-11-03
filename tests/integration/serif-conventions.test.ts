@@ -20,7 +20,16 @@ import { describe, expect, it } from "vitest";
 // A new page title is a new entry in MAY_NAME_THE_SERIF with the title it sets.
 // Anything else that wants the serif is a design decision for the owner, not an
 // entry here. Test files are not read: they ship nothing, and some say what a
-// surface must not use (the App contract's tests name Georgia and the token).
+// surface must not use (the App contract's test names Georgia, Times and the
+// token to say the App prompt may not use them, and the audit's tests write
+// serif faces to show it flags them).
+//
+// The Apps the model writes are sans too, but nothing here can read them: they
+// are model output. Their rule is the App contract, which names the sans stack
+// (artifacts/app/contract.ts), and the audit's `no-serif` note, which reports a
+// serif in a generated App (artifacts/app/audit.ts). That audit is a source file
+// this test does read, so it names the faces in patterns and never in a font
+// declaration of its own.
 
 const ROOT = process.cwd();
 const SRC_DIR = join(ROOT, "src");
