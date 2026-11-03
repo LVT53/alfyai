@@ -285,6 +285,11 @@ vi.mock("$app/state", () => ({
 		url: new URL("http://localhost/chat/conv-1"),
 		state: {},
 	},
+	// SvelteKit's version check: no new version unless a test says so.
+	updated: {
+		current: false,
+		check: vi.fn(async () => false),
+	},
 }));
 
 vi.mock("$app/navigation", () => ({
@@ -348,11 +353,11 @@ vi.mock("$lib/client/api/chat-turn", () => ({
 	checkChatTurn: checkChatTurnMock,
 }));
 
-// The server's health, as a message that waits for an update asks it. It is away
-// unless a test says otherwise (reset after every test, below): a message that
-// waits keeps waiting.
+// The server's health, as a message that waits for an update asks it, and as a
+// reply cut by a failed connection asks whether the server is being updated. The
+// server is well unless a test says otherwise (reset after every test, below).
 const fetchServerHealthMock = vi.hoisted(() =>
-	vi.fn(async () => ({ reachable: false, draining: false })),
+	vi.fn(async () => ({ reachable: true, draining: false })),
 );
 vi.mock("$lib/client/api/health", () => ({
 	fetchServerHealth: fetchServerHealthMock,
@@ -469,7 +474,7 @@ afterEach(() => {
 	checkChatTurnMock.mockReset();
 	fetchServerHealthMock.mockReset();
 	fetchServerHealthMock.mockResolvedValue({
-		reachable: false,
+		reachable: true,
 		draining: false,
 	});
 	runtimeHarness.orphanedStreamId = null;
@@ -2448,6 +2453,14 @@ describe("chat page runtime integration", () => {
 						reason: "draining",
 					},
 				);
+
+			beforeEach(() => {
+				// The update goes on: a message that waits keeps waiting.
+				fetchServerHealthMock.mockResolvedValue({
+					reachable: true,
+					draining: true,
+				});
+			});
 
 			/** "A question" is sent, the server turns it away for the update and it waits; "B queued" waits behind it, and C is typed when given. */
 			async function waitingWithBQueued(typedSince?: string) {

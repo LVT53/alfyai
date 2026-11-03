@@ -1582,18 +1582,33 @@ describe("streamChat", () => {
 	});
 
 	describe("isStreamTransportFailure", () => {
-		it("is the connection failing: no status and no code", () => {
-			expect(isStreamTransportFailure(new TypeError("Failed to fetch"))).toBe(
-				true,
-			);
-			expect(
-				isStreamTransportFailure(
-					new Error("Stream closed before a terminal completion event"),
-				),
-			).toBe(true);
+		// The Fetch standard rejects a request or a body that fails on the network
+		// with a TypeError, in every browser.
+		it("is a fetch or a reader failing on the network, which the transport passes on as it is", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+			const cb = makeCallbacks();
+			await runStreamAndWait("m", "conv-1", cb as unknown as StreamCallbacks);
+
+			const error = vi.mocked(cb.onError).mock.calls[0][0];
+			expect(isStreamTransportFailure(error)).toBe(true);
 		});
 
-		it("is not the server saying something: a refusal's status or the stream's own code", () => {
+		it("is a response that ends without its terminal event: the connection was cut", async () => {
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [tokenEvent("Half an answ")],
+				callbacks: makeCallbacks(),
+			});
+			await done;
+
+			const error = vi.mocked(cb.onError).mock.calls[0][0];
+			expect(error.message).toBe(
+				"Stream closed before a terminal completion event",
+			);
+			expect(isStreamTransportFailure(error)).toBe(true);
+		});
+
+		it("is not the server saying something: a refusal's status, the stream's own code, or an error frame with none", async () => {
 			expect(
 				isStreamTransportFailure(
 					Object.assign(new Error("HTTP 503"), { status: 503 }),
@@ -1604,6 +1619,28 @@ describe("streamChat", () => {
 					Object.assign(new Error("Stream timeout"), { code: "timeout" }),
 				),
 			).toBe(false);
+			// A TypeError that carries what the server said is the server's.
+			expect(
+				isStreamTransportFailure(
+					Object.assign(new TypeError("x"), { code: "timeout" }),
+				),
+			).toBe(false);
+
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					uiFrame({
+						type: "data-stream-error",
+						data: { message: "The model refused." },
+					}),
+				],
+				callbacks: makeCallbacks(),
+			});
+			await done;
+			expect(
+				isStreamTransportFailure(vi.mocked(cb.onError).mock.calls[0][0]),
+			).toBe(false);
+
+			expect(isStreamTransportFailure(new Error("Network failed"))).toBe(false);
 			expect(isStreamTransportFailure(null)).toBe(false);
 			expect(isStreamTransportFailure("Failed to fetch")).toBe(false);
 		});

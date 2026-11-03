@@ -23,7 +23,7 @@ import {
 	marksAfterUndo,
 	marksRequest,
 } from "$lib/components/chat/composer-pictures";
-import { page } from "$app/state";
+import { page, updated } from "$app/state";
 import { goto, invalidate, pushState, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
@@ -56,6 +56,7 @@ import {
 } from "$lib/client/api/atlas";
 import { checkChatTurn } from "$lib/client/api/chat-turn";
 import { fetchServerHealth } from "$lib/client/api/health";
+import { isServerBeingUpdated } from "$lib/client/server-update-watch";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	chatFileStillExists,
@@ -1111,6 +1112,14 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	fetchServerHealth,
 	onServerUpdateSign: reportServerUpdateSign,
 	setTurnWaitingForUpdate,
+	// A reply cut by a failed connection: is that an update? The server says so
+	// (draining), or does not answer (the restart), or a new version is live.
+	isServerUpdating: () =>
+		isServerBeingUpdated({
+			fetchHealth: fetchServerHealth,
+			checkVersion: () => updated.check(),
+			isOffline: () => browser && navigator.onLine === false,
+		}),
 	mergeGeneratedFiles: (files) => {
 		markDetailMetadataFreshnessBoundary();
 		const existingIds = new Set(generatedFiles.map((file) => file.id));
@@ -1147,9 +1156,13 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			sendError = get(t)("fork.regenerateWarning");
 			return;
 		}
-		// The sentence for a wait for a server update that ran out.
+		// The sentences for a server update: a wait that ran out, and a reply it cut.
 		if (message === "chat.updateStillRunning") {
 			sendError = $t("chat.updateStillRunning");
+			return;
+		}
+		if (message === "chat.updateCutReply") {
+			sendError = $t("chat.updateCutReply");
 			return;
 		}
 		sendError = message;

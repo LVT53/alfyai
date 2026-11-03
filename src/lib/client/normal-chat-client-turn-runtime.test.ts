@@ -289,6 +289,7 @@ function makeAdapters(
 		fetchServerHealth: vi.fn(
 			async (): Promise<ServerHealth> => ({ reachable: true, draining: false }),
 		),
+		isServerUpdating: vi.fn(async () => false),
 		mergeGeneratedFiles: vi.fn(),
 		setContextCompressionMarkers: vi.fn(),
 		maybeTriggerTitleGeneration: vi.fn(),
@@ -4827,6 +4828,404 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
 					false,
 				);
+			});
+		});
+	});
+
+	// ADR-0054, "An Update During A Turn". A reply that was running when the server
+	// restarted is cut off by a connection that fails. Before that is put down to
+	// the provider, the page is asked whether the server is being updated; if it
+	// is, the turn waits for the server, asks what it holds (it may have finished
+	// the turn while the browser was cut off), and otherwise says an update cut the
+	// reply. It is never sent again by itself: tools may have run (a produced file,
+	// a Document), and sending it again is the person's choice, through Retry.
+	describe("a reply cut off while the server is updated", () => {
+		const POLL_MS = 3000;
+		const WELL: ServerHealth = { reachable: true, draining: false };
+		const DRAINING: ServerHealth = { reachable: true, draining: true };
+
+		/** What a restart looks like from a reply that was running. */
+		const connectionFailed = () => new TypeError("network error");
+		const closedEarly = () =>
+			Object.assign(
+				new Error("Stream closed before a terminal completion event"),
+				{ transport: true },
+			);
+
+		const question = "Write the report";
+		const heldByTheServer: ChatMessage[] = [
+			{ id: "user-server", role: "user", content: question, timestamp: 1 },
+			{
+				id: "assistant-server",
+				role: "assistant",
+				content: "The report",
+				timestamp: 2,
+			},
+		];
+
+		function cutAdapters(
+			overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+		) {
+			vi.useFakeTimers();
+			const server = {
+				health: DRAINING,
+				updating: true,
+				// What the chat holds on the server now: nothing of this turn.
+				chat: [] as ChatMessage[],
+			};
+			const made = makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				fetchServerHealth: vi.fn(async () => server.health),
+				isServerUpdating: vi.fn(async () => server.updating),
+				onServerUpdateSign: vi.fn(),
+				setTurnWaitingForUpdate: vi.fn(),
+				readChatMessages: vi.fn(async () => server.chat),
+				...overrides,
+			});
+			return { ...made, server };
+		}
+
+		const send = (
+			runtime: ReturnType<typeof createNormalChatClientTurnRuntime>,
+		) =>
+			runtime.send({
+				message: question,
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+
+		function sentenceShown(adapters: NormalChatClientTurnRuntimeAdapters) {
+			return vi
+				.mocked(adapters.setSendError)
+				.mock.calls.map(([message]) => message)
+				.filter((message) => message !== null);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		describe("after some of it was read", () => {
+			/** The reply is read for a while, the connection fails, and the three looks for its stream (3.5 s) find none. */
+			async function cutAfterSomeText(
+				made: ReturnType<typeof cutAdapters>,
+				failure: Error = connectionFailed(),
+			) {
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onToken("Half an");
+				made.streamInvocations[0].callbacks.onError(failure);
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+				return runtime;
+			}
+
+			it("waits in awaiting_update for the server instead of giving up on the three looks, and tells the shell", async () => {
+				const made = cutAdapters();
+				const runtime = await cutAfterSomeText(made);
+
+				// The look for the stream found nothing, and the page was asked.
+				expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
+				expect(made.adapters.isServerUpdating).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+				expect(runtime.snapshot()).toMatchObject({
+					phase: "awaiting_update",
+					isSending: true,
+				});
+				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					true,
+				);
+				// Nothing was asked of the chat yet: the server is still away.
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+			});
+
+			it("loads the turn the server finished meanwhile, with no error, and sends nothing", async () => {
+				const made = cutAdapters();
+				const runtime = await cutAfterSomeText(made);
+
+				made.server.health = WELL;
+				made.server.chat = heldByTheServer;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+			});
+
+			it("says an update cut the reply when the server holds nothing of it, offers Retry, and sends nothing by itself", async () => {
+				const made = cutAdapters();
+				const runtime = await cutAfterSomeText(made);
+
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				// The question stays on screen, the half reply goes, Retry is offered.
+				expect(made.messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				// Never sent again by itself, however long the server has been back.
+				await vi.advanceTimersByTimeAsync(60_000);
+				expect(made.streamInvocations).toHaveLength(1);
+				expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+			});
+
+			it("gives the same answer after the cap, when the server never came back", async () => {
+				const made = cutAdapters();
+				const runtime = await cutAfterSomeText(made);
+
+				await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("goes on as it always did when the server is not being updated", async () => {
+				const made = cutAdapters();
+				made.server.updating = false;
+				const runtime = await cutAfterSomeText(made);
+
+				// The provider sentence for the failure, now.
+				expect(sentenceShown(made.adapters)).toEqual(["network error"]);
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(made.messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+			});
+
+			it("does not ask about an update for an error the server named, a model failure say", async () => {
+				const made = cutAdapters();
+				await cutAfterSomeText(
+					made,
+					Object.assign(new Error("The model failed."), { code: "timeout" }),
+				);
+
+				expect(made.adapters.isServerUpdating).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual(["The model failed."]);
+			});
+
+			it("does not take the turn state back from a turn that started while it was looking", async () => {
+				const made = cutAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onToken("Half an");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+
+				// The composer is free while the three looks go on: another message starts.
+				await runtime.send({
+					message: "Another",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+				expect(made.streamInvocations).toHaveLength(2);
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+
+				// The new turn owns the state, as it did before an update could be asked about.
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+				});
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+		});
+
+		describe("before any of it was read", () => {
+			it("waits for the server instead of showing the provider's error, keeping the question", async () => {
+				const made = cutAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.isServerUpdating).toHaveBeenCalledTimes(1);
+				expect(made.messages.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+				]);
+				expect(made.messages[1].runtimePhase).toBe("awaiting_update");
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+
+				// The server comes back holding nothing: the sentence, Retry, no resend.
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				expect(made.messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("loads a turn that landed while the browser was cut off", async () => {
+				const made = cutAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+				made.server.health = WELL;
+				made.server.chat = heldByTheServer;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.streamInvocations).toHaveLength(1);
+				expect(runtime.snapshot().canRetry).toBe(false);
+			});
+
+			it("is the failure it always was when the server is not being updated", async () => {
+				const made = cutAdapters();
+				made.server.updating = false;
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(sentenceShown(made.adapters)).toEqual(["network error"]);
+				expect(made.messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			});
+
+			it("ends the wait on Stop, and asks the server what it holds before it says so", async () => {
+				const made = cutAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+				expect(runtime.snapshot().phase).toBe("awaiting_update");
+
+				expect(runtime.stop()).toBe(true);
+				await vi.advanceTimersByTimeAsync(0);
+
+				// No words to restore: the server may hold the message, so the question
+				// stays and Retry asks the server before it sends anything.
+				expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("has no words to hand to a page that is being left, and drops the wait", async () => {
+				const made = cutAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+		});
+
+		describe("a reconnect that ends on a failed connection", () => {
+			it("waits for the server, then reads the chat and says an update cut it when the server kept nothing", async () => {
+				const made = cutAdapters({
+					loadPersistedData: vi.fn(async () => {
+						made.messages.length = 0;
+					}),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+				expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				await vi.waitFor(() =>
+					expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]),
+				);
+				expect(
+					made.messages.map((message) => [message.role, message.content]),
+				).toEqual([["user", "Resume me"]]);
+				expect(runtime.snapshot()).toMatchObject({
+					canRetry: true,
+					isSending: false,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("takes the proxy's maintenance page for the same wait", async () => {
+				const made = cutAdapters({
+					loadPersistedData: vi.fn(async () => {
+						made.messages.length = 0;
+					}),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				made.streamInvocations[0].callbacks.onError(
+					Object.assign(new Error("HTTP 503"), {
+						status: 503,
+						serverUnavailable: true,
+					}),
+				);
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(runtime.snapshot().phase).toBe("awaiting_update");
+			});
+
+			it("is the failure it always was when the server is not being updated", async () => {
+				const made = cutAdapters({
+					loadPersistedData: vi.fn(async () => {
+						made.messages.length = 0;
+					}),
+				});
+				made.server.updating = false;
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(0);
+
+				await vi.waitFor(() =>
+					expect(sentenceShown(made.adapters)).toEqual(["network error"]),
+				);
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
 			});
 		});
 	});

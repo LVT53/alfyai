@@ -277,6 +277,18 @@ function toStreamError(
 }
 
 /**
+ * The response ended without its terminal event: the connection was cut, or the
+ * server's side of it closed early. Marked `transport` (`isStreamTransportFailure`):
+ * it is the connection failing, not the server naming a cause.
+ */
+function toStreamClosedError(): Error {
+	return Object.assign(
+		toStreamError("Stream closed before a terminal completion event"),
+		{ transport: true },
+	);
+}
+
+/**
  * Whether the server turned this request away because it is being updated: it
  * said so (`reason: "draining"` on the 503 of a server getting ready for a
  * restart), or the reverse proxy answered instead of it (`serverUnavailable`: a
@@ -292,15 +304,21 @@ export function isServerUpdateRefusal(error: unknown): boolean {
 
 /**
  * Whether the error is the connection failing, as opposed to the server saying
- * something: no HTTP status (so not a refusal) and no code (so not the server's
- * own `data-stream-error`, which names its cause). A fetch that throws, a reader
- * that fails and a stream that closes with no terminal event are this; during an
- * update they are what the restart looks like from a reply that was running.
+ * something: a fetch or a reader that fails (the Fetch standard rejects those with
+ * a `TypeError`, in every browser) or the stream closing with no terminal event
+ * (marked `transport` below), and no HTTP status (so not a refusal) and no code
+ * (so not the server's own `data-stream-error`, which names its cause). During an
+ * update these are what the restart looks like from a reply that was running.
  */
 export function isStreamTransportFailure(error: unknown): boolean {
 	if (!error || typeof error !== "object") return false;
-	const { status, code } = error as { status?: unknown; code?: unknown };
-	return typeof status !== "number" && typeof code !== "string";
+	const { status, code, transport } = error as {
+		status?: unknown;
+		code?: unknown;
+		transport?: unknown;
+	};
+	if (typeof status === "number" || typeof code === "string") return false;
+	return error instanceof TypeError || transport === true;
 }
 
 /** The statuses a reverse proxy answers with when the app behind it is away or does not answer. */
@@ -1094,9 +1112,7 @@ export function streamChat(
 						}
 						markTimingPhase(BROWSER_STREAM_TIMING_MARKS.END);
 						reportTiming("closed");
-						callbacks.onError(
-							toStreamError("Stream closed before a terminal completion event"),
-						);
+						callbacks.onError(toStreamClosedError());
 						break;
 					}
 

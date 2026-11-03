@@ -27,6 +27,7 @@ import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
 	isServerUpdateRefusal,
+	isStreamTransportFailure,
 	type StreamBufferInfo,
 	type StreamCallbacks,
 	type StreamChatOptions,
@@ -240,6 +241,12 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	 * waiting for an update asks it every few seconds.
 	 */
 	fetchServerHealth: () => Promise<ServerHealth>;
+	/**
+	 * Whether the server is being updated right now: it is draining, it does not
+	 * answer (the restart), or a new version is live. Asked when a reply was cut by
+	 * a connection that failed, before the failure is put down to the provider.
+	 */
+	isServerUpdating: () => Promise<boolean>;
 	/**
 	 * A turn waits for an update: the shell watches the server while it does (the
 	 * draining banner, the Refresh notice), so it is told once per wait.
@@ -735,6 +742,164 @@ export function createNormalChatClientTurnRuntime(
 		emitState();
 	}
 
+	/** Whether the page says the server is being updated; no answer in time is no. */
+	async function askServerUpdating(): Promise<boolean> {
+		return (
+			(await answerWithin(
+				adapters.isServerUpdating(),
+				AWAIT_UPDATE_QUESTION_MAX_MS,
+			)) === true
+		);
+	}
+
+	/**
+	 * A reply was cut by a connection that failed (no status, no code of the
+	 * server's own, or the proxy answering instead of the app). A restart looks like
+	 * that from a reply that was running, so before the failure is put down to the
+	 * provider the page is asked whether the server is being updated. If it is, the
+	 * turn is held in `awaiting_update` (the placeholder keeps any text it has) until
+	 * the server is back, the cap passes or Stop is pressed, and the caller then
+	 * asks the server what it holds: it may have finished the turn while the browser
+	 * was cut off. The reply is never sent again by itself: tools may have run (a
+	 * produced file, a Document), and sending it again is the person's choice,
+	 * through Retry.
+	 *
+	 * - `not_updating`: nothing to wait for; the caller goes on as it always did.
+	 * - `waited`: the wait is over, and the turn state is still held for the caller.
+	 * - `abandoned`: the chat on screen changed; the caller does nothing more.
+	 *
+	 * `ownsTurn` is false when the stream's error already let the turn go (the
+	 * composer was free meanwhile): the turn is taken back, unless another turn has
+	 * started since.
+	 */
+	async function holdTurnWhileServerUpdates(held: {
+		placeholderId: string;
+		turnConversationId: string;
+		ownsTurn: boolean;
+	}): Promise<"not_updating" | "waited" | "abandoned"> {
+		const updating = await askServerUpdating();
+		if (!isTurnConversationActive(held.turnConversationId)) return "abandoned";
+		if (!updating) return "not_updating";
+		if (!held.ownsTurn) {
+			if (isSending) return "not_updating";
+			isSending = true;
+			activePlaceholderId = held.placeholderId;
+		}
+		setActiveStream(null);
+		return new Promise((resolve) => {
+			beginUpdateWait({
+				placeholderId: held.placeholderId,
+				turnConversationId: held.turnConversationId,
+				// A cut reply has no words to keep: the server may well hold the message.
+				unsentPayload: null,
+				onEnd: () => resolve("waited"),
+			});
+		});
+	}
+
+	/**
+	 * A reply that was cut and has no stream left to join. No stream does not mean
+	 * the turn failed: it may have finished meanwhile. The page asks before it shows
+	 * an error and a Retry for a message the server has answered. A turn that was
+	 * held for an update says so (`chat.updateCutReply`), not "the provider failed".
+	 */
+	async function settleCutReply(
+		params: StartStreamParams,
+		originalError: Error,
+		options: { heldForUpdate: boolean },
+	) {
+		const outcome = await askWhatTheServerHolds(
+			params.message,
+			params.streamOptions.retryAssistantMessageId,
+		);
+		if (!isTurnConversationActive(params.turnConversationId)) {
+			return;
+		}
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		// A new turn can have started while the page asked: it owns the state. (A
+		// turn held for an update is this one's own: nothing else could start.)
+		if (isSending && !options.heldForUpdate) return;
+		completeTurn();
+		if (outcome.kind === "landed") {
+			lastSend = null;
+			canRetry = false;
+			emitState();
+			await loadChatHoldingTheTurn();
+			await drainPostTurnQueue();
+			return;
+		}
+		if (options.heldForUpdate) {
+			// What was queued behind the reply goes back to the composer, as for any
+			// turn that ends in an error.
+			if (takeQueuedContextCompression()) {
+				void adapters.runManualContextCompression();
+			}
+			restoreQueuedTurnToDraft();
+			adapters.setSendError("chat.updateCutReply");
+		} else {
+			adapters.setSendError(adapters.toFriendlySendError(originalError));
+		}
+		canRetry = true;
+		emitState();
+	}
+
+	/**
+	 * A stream died before any text with a failed connection. If the server is
+	 * being updated the reply is waited for; otherwise it is the failure it always
+	 * was.
+	 */
+	async function settleReplyThatDiedBeforeContent(
+		params: StartStreamParams,
+		error: Error,
+	) {
+		const hold = await holdTurnWhileServerUpdates({
+			placeholderId: params.placeholderId,
+			turnConversationId: params.turnConversationId,
+			ownsTurn: true,
+		});
+		if (hold === "abandoned") {
+			completeStaleTurn(params.placeholderId);
+			return;
+		}
+		if (hold === "not_updating") {
+			endTurnWithError(params, adapters.toFriendlySendError(error));
+			return;
+		}
+		await settleCutReply(params, error, { heldForUpdate: true });
+	}
+
+	/**
+	 * A reconnect (a reload, a tab back from the background) ended on a failed
+	 * connection. Same question: is the server being updated? Then the reply is
+	 * waited for and, once the server is back, the chat is read for the turn
+	 * (`showFailedReconnectedTurn`).
+	 */
+	async function settleReconnectThatFailed(
+		params: StartStreamParams,
+		error: Error,
+	) {
+		const hold = await holdTurnWhileServerUpdates({
+			placeholderId: params.placeholderId,
+			turnConversationId: params.turnConversationId,
+			ownsTurn: true,
+		});
+		if (hold === "abandoned") {
+			completeStaleTurn(params.placeholderId);
+			return;
+		}
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		completeTurn();
+		await showFailedReconnectedTurn(params, error, {
+			cutByUpdate: hold === "waited",
+		});
+	}
+
 	function createAssistantPlaceholder(
 		id: string,
 		generationDurationMs?: number,
@@ -1012,11 +1177,14 @@ export function createNormalChatClientTurnRuntime(
 	 * reader's message with the reply, at the end), so what it has now is an empty
 	 * chat or a chat without this message, and the reader saw nothing say it failed
 	 * (FB-8's note). Their message goes back where it was, with the error and a
-	 * Retry, as for a failure they watched.
+	 * Retry, as for a failure they watched. When an update cut the reconnect
+	 * (`cutByUpdate`: the turn was held until the server came back) the sentence says
+	 * that, not that the provider failed.
 	 */
 	async function showFailedReconnectedTurn(
 		params: StartStreamParams,
 		error: Error,
+		options: { cutByUpdate?: boolean } = {},
 	) {
 		// What the page holds now is what the chat it is about to load is compared with.
 		const heldIds = new Set(
@@ -1062,7 +1230,11 @@ export function createNormalChatClientTurnRuntime(
 			lastUserMessage = text;
 			canRetry = true;
 		}
-		adapters.setSendError(adapters.toFriendlySendError(error));
+		adapters.setSendError(
+			options.cutByUpdate
+				? "chat.updateCutReply"
+				: adapters.toFriendlySendError(error),
+		);
 		emitState();
 	}
 
@@ -1391,6 +1563,36 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 
+				// ADR-0054 — a reply that died before any text, with a failed
+				// connection (no status, no code of the server's own): a restart
+				// looks like that too. Before it is put down to the provider the
+				// page is asked whether the server is being updated; if it is, the
+				// turn waits for the server and then asks what it holds. If not,
+				// this is the failure it always was.
+				if (
+					!isBackgroundAbort &&
+					!params.isReconnect &&
+					!hasStreamedContent &&
+					!isPendingSkillError &&
+					!isForkedHistoryError &&
+					isStreamTransportFailure(err)
+				) {
+					void settleReplyThatDiedBeforeContent(params, err);
+					return;
+				}
+
+				// The same for a reconnect that ended on a failed connection, or on
+				// the proxy's page: the reload that found the turn running met the
+				// restart.
+				if (
+					!isBackgroundAbort &&
+					params.isReconnect &&
+					(isStreamTransportFailure(err) || isServerUpdateRefusal(err))
+				) {
+					void settleReconnectThatFailed(params, err);
+					return;
+				}
+
 				adapters.applyMessageListEvent({
 					type: "remove",
 					messageId: params.placeholderId,
@@ -1519,34 +1721,24 @@ export function createNormalChatClientTurnRuntime(
 			if (!isTurnConversationActive(params.turnConversationId)) {
 				return;
 			}
+			// ADR-0054 — three looks over 3.5 seconds find no stream when the server
+			// is restarting, and then the reply would be put down to the provider.
+			// If the server is being updated the turn waits for it first, and only
+			// then asks what the server holds.
+			let heldForUpdate = false;
+			if (isStreamTransportFailure(originalError)) {
+				const hold = await holdTurnWhileServerUpdates({
+					placeholderId: params.placeholderId,
+					turnConversationId: params.turnConversationId,
+					ownsTurn: false,
+				});
+				if (hold === "abandoned") return;
+				heldForUpdate = hold === "waited";
+			}
 			// No stream to reconnect to does not mean the turn failed: it may have
 			// finished meanwhile. The page asks before it shows an error and a Retry
 			// for a message the server has answered.
-			const outcome = await askWhatTheServerHolds(
-				params.message,
-				params.streamOptions.retryAssistantMessageId,
-			);
-			if (!isTurnConversationActive(params.turnConversationId)) {
-				return;
-			}
-			adapters.applyMessageListEvent({
-				type: "remove",
-				messageId: params.placeholderId,
-			});
-			// A new turn can have started while the page asked: it owns the state.
-			if (isSending) return;
-			completeTurn();
-			if (outcome.kind === "landed") {
-				lastSend = null;
-				canRetry = false;
-				emitState();
-				await loadChatHoldingTheTurn();
-				await drainPostTurnQueue();
-				return;
-			}
-			adapters.setSendError(adapters.toFriendlySendError(originalError));
-			canRetry = true;
-			emitState();
+			await settleCutReply(params, originalError, { heldForUpdate });
 			return;
 		}
 
