@@ -155,6 +155,53 @@ describe("checkChatTurn", () => {
 		expect(gate.busy).toBeFalsy();
 	});
 
+	// A server that is draining for a deploy is busy for a cause of its own: an
+	// update, which the page names in its own words, not a reply to wait for.
+	it("says the server is updating, as well as busy, when it is draining for a deploy", async () => {
+		const draining = vi.fn(async () =>
+			jsonResponse(
+				{
+					error: "Server at capacity. Please try again later.",
+					code: "CAPACITY_EXCEEDED",
+					reason: "draining",
+					retryAfter: 10,
+				},
+				503,
+			),
+		);
+
+		const result = await checkChatTurn(request, draining);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.busy).toBe(true);
+		expect(result.updating).toBe(true);
+	});
+
+	it.each([
+		"global_limit",
+		"user_limit",
+		undefined,
+	])("does not call a busy server updating for the reason %s", async (reason) => {
+		const busy = vi.fn(async () =>
+			jsonResponse(
+				{
+					error: "Server at capacity. Please try again later.",
+					code: "CAPACITY_EXCEEDED",
+					...(reason ? { reason } : {}),
+				},
+				503,
+			),
+		);
+
+		const result = await checkChatTurn(request, busy);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.busy).toBe(true);
+		expect(result.updating).toBeFalsy();
+	});
+
 	it("fails when the request never reaches the server", async () => {
 		const fetchMock = vi.fn(async () => {
 			throw new TypeError("Failed to fetch");

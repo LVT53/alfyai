@@ -4157,10 +4157,13 @@ async function handleEdit(
 	if (!verdict.ok) {
 		// A server that cannot take a turn now (a reply running in another chat, one
 		// at a time by default; a server that is draining) has no sentence of its own
-		// in a refused send's, which would blame the model provider.
-		sendError = verdict.busy
-			? $t("chat.editReplyRunning")
-			: toFriendlySendError(verdict.error, $t);
+		// in a refused send's, which would blame the model provider. A draining one
+		// is an update in progress, not a reply to wait for, and says so.
+		sendError = verdict.updating
+			? $t("chat.editUpdating")
+			: verdict.busy
+				? $t("chat.editReplyRunning")
+				: toFriendlySendError(verdict.error, $t);
 		return;
 	}
 	// A turn can have started under the open edit while the check was out (the page

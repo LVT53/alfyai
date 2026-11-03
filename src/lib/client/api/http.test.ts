@@ -97,6 +97,46 @@ describe("ApiError surfacing", () => {
 		expect((error as ApiError).details).toEqual({ a: 1 });
 	});
 
+	// A refusal with one code for several causes says which in `reason` (the 503
+	// CAPACITY_EXCEEDED of a full server, a second reply and a server that is
+	// draining for a deploy): a caller that has to treat the causes differently
+	// reads it from here.
+	it("carries the server's reason beside its code", async () => {
+		const error = await requestJson(
+			"/api/chat/turn-check",
+			undefined,
+			"failed",
+			async () =>
+				jsonResponse(
+					{
+						error: "Server at capacity. Please try again later.",
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+						retryAfter: 10,
+					},
+					503,
+				),
+		).catch((err: unknown) => err);
+
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).code).toBe("CAPACITY_EXCEEDED");
+		expect((error as ApiError).reason).toBe("draining");
+	});
+
+	it("leaves the reason out when the body has none, or has one that is not a word", async () => {
+		for (const body of [
+			{ error: "Nope", code: "x" },
+			{ error: "Nope", code: "x", reason: 7 },
+			{ error: "Nope", code: "x", reason: "  " },
+		]) {
+			const error = await requestJson("/api/x", undefined, "failed", async () =>
+				jsonResponse(body, 409),
+			).catch((err: unknown) => err);
+
+			expect((error as ApiError).reason).toBeUndefined();
+		}
+	});
+
 	it("carries the gate's own code to the caller", async () => {
 		const error = await requestJson(
 			"/api/conversations",

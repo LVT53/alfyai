@@ -11,6 +11,13 @@ export type FetchLike = (
 
 export class ApiError extends Error {
 	readonly code?: string;
+	/**
+	 * The server's `reason`, verbatim, when the body carries one: a refusal that
+	 * has one code for several causes says which (the 503 `CAPACITY_EXCEEDED` of a
+	 * full server, a user's second reply and a server that is draining for a
+	 * deploy: `global_limit`, `user_limit`, `draining`).
+	 */
+	readonly reason?: string;
 	readonly errorKey?: string;
 	readonly fieldErrors?: Record<string, string>;
 	/**
@@ -51,6 +58,7 @@ export class ApiError extends Error {
 		message: string,
 		options: {
 			code?: string;
+			reason?: string;
 			errorKey?: string;
 			fieldErrors?: Record<string, string>;
 			details?: Record<string, unknown>;
@@ -62,6 +70,7 @@ export class ApiError extends Error {
 		super(message);
 		this.name = "ApiError";
 		this.code = options.code;
+		this.reason = options.reason;
 		this.errorKey = options.errorKey;
 		this.fieldErrors = options.fieldErrors;
 		this.details = options.details;
@@ -202,6 +211,7 @@ async function throwRequestError(
 	const error = await readErrorPayload(response, errorMessage);
 	throw new ApiError(error.message, {
 		code: error.code,
+		reason: error.reason,
 		errorKey: error.errorKey,
 		fieldErrors: error.fieldErrors,
 		details: error.details,
@@ -214,6 +224,7 @@ async function throwRequestError(
 type ErrorPayload = {
 	message: string;
 	code?: string;
+	reason?: string;
 	errorKey?: string;
 	fieldErrors?: Record<string, string>;
 	details?: Record<string, unknown>;
@@ -259,6 +270,10 @@ async function parseErrorPayload(
 				typeof parsed.code === "string" && parsed.code.trim()
 					? parsed.code
 					: undefined;
+			const reason =
+				typeof parsed.reason === "string" && parsed.reason.trim()
+					? parsed.reason
+					: undefined;
 			const errorKey =
 				typeof parsed.errorKey === "string" && parsed.errorKey.trim()
 					? parsed.errorKey
@@ -283,6 +298,7 @@ async function parseErrorPayload(
 				return {
 					message,
 					code,
+					reason,
 					errorKey,
 					fieldErrors,
 					details,
@@ -292,6 +308,7 @@ async function parseErrorPayload(
 			}
 			if (
 				code ||
+				reason ||
 				errorKey ||
 				fieldErrors ||
 				details ||
@@ -301,6 +318,7 @@ async function parseErrorPayload(
 				return {
 					message: fallback,
 					code,
+					reason,
 					errorKey,
 					fieldErrors,
 					details,

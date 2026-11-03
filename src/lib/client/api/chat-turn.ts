@@ -29,8 +29,10 @@ export type ChatTurnCheck =
 	 * refused send's error carries, so `toFriendlySendError` says the same sentence.
 	 * `busy` is the server turning any turn away for now (a reply running in another
 	 * chat, a server that is draining): that has no sentence of its own there.
+	 * `updating` is the one cause of `busy` that is an update in progress (the server
+	 * is draining for a deploy), which the page says in its own words.
 	 */
-	| { ok: false; error: ApiError; busy?: boolean };
+	| { ok: false; error: ApiError; busy?: boolean; updating?: boolean };
 
 /**
  * The statuses the turn's gate refuses with (`chat-turn/request.ts`, `preflight.ts`).
@@ -43,6 +45,9 @@ const GATE_REFUSAL_STATUSES: ReadonlySet<number> = new Set([
 
 /** The code of the 503 the stream route, and so the check, answers when it cannot take a turn (`refuseTurnWhenOverCapacity`). */
 const CAPACITY_REFUSAL_CODE = "CAPACITY_EXCEEDED";
+
+/** Its `reason` when the server is draining for a deploy restart (`checkStreamCapacity`). */
+const DRAINING_REFUSAL_REASON = "draining";
 
 /**
  * Asks the server whether the turn's gate would take this request, without
@@ -69,7 +74,14 @@ export async function checkChatTurn(
 	} catch (error) {
 		if (error instanceof ApiError) {
 			if (error.status === 503 && error.code === CAPACITY_REFUSAL_CODE) {
-				return { ok: false, error, busy: true };
+				return {
+					ok: false,
+					error,
+					busy: true,
+					...(error.reason === DRAINING_REFUSAL_REASON
+						? { updating: true }
+						: {}),
+				};
 			}
 			if (GATE_REFUSAL_STATUSES.has(error.status)) {
 				return { ok: false, error };

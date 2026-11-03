@@ -6262,6 +6262,36 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 				expectTheEditStillOpen();
 			});
 
+			// A server that is draining for a deploy is an update in progress, not a
+			// reply to wait for: the page says so, and the edit stays open the same way.
+			it("says AlfyAI is being updated when the server is draining, and deletes nothing", async () => {
+				const deleteMessages = await withDeletesThatWork();
+				checkChatTurnMock.mockResolvedValue({
+					ok: false,
+					busy: true,
+					updating: true,
+					error: new ApiError("Server at capacity. Please try again later.", {
+						status: 503,
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+					}),
+				});
+				renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+				await sendEditOfFirstMessage();
+
+				expect(
+					await screen.findByText(
+						"AlfyAI is being updated. Send this edit again when it's done.",
+					),
+				).toBeInTheDocument();
+				expect(
+					screen.queryByText(/Another reply is still running/),
+				).not.toBeInTheDocument();
+				expect(deleteMessages).not.toHaveBeenCalled();
+				expectTheEditStillOpen();
+			});
+
 			it("leaves the edit open and deletes nothing when the check fails", async () => {
 				const deleteMessages = await withDeletesThatWork();
 				checkChatTurnMock.mockRejectedValue(new Error("Network down"));
