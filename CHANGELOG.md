@@ -53,11 +53,15 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   meets the restart waits and is sent again by itself, and starts once.
 - A phone that loses its signal, and a tab that is a deploy behind, are no longer
   taken for an update: they get the error they always got. A reply cut off while
-  the server was only getting ready to restart is joined again instead of waited
-  for.
+  the server was only getting ready to restart, or just after a new version went
+  live, is joined again when the server still runs it, instead of being waited
+  for or blamed on the update.
 - If you leave a chat while a message waits for the update, its words are saved
   as that chat's draft even if the save meets the restart: it is tried again
-  every 3 seconds until it lands.
+  every 3 seconds until it lands, for up to 8 minutes, and so is whatever you
+  type in that chat meanwhile. If you come back to the chat before the words
+  have landed, they are in the message box, and the "Update available" notice
+  waits until they have landed.
 - Editing a message you sent now happens in the message box at the bottom, not
   in a box inside the message: the pencil puts the text there, the original
   steps back, and what you were writing comes back when you send or cancel. If

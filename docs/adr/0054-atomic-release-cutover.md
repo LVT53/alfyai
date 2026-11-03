@@ -251,3 +251,23 @@ Review follow-ups (2026-11-03):
   the wait too.
 - **Health says four things** (`up`, `draining`, `proxy_down`, `unreachable`), because a phone that lost its
   signal is not a restart and a tab that missed a deploy is not an update this turn saw.
+
+Second review follow-ups (2026-11-03):
+
+- **A chat's words are held, not one save.** Words that exist nowhere else (a message that waited for the
+  update when its chat was left, words a stopped turn gave back) are held by one keeper per chat in the
+  tab, which sends the newest save that has not landed every 3 seconds until it lands, is refused for
+  good, or the chat's draft is deleted. Every later save of that chat takes it over, so what the person
+  types in the chat meanwhile is held too and older words are never sent after newer ones (one try is out
+  at a time per chat). The 8 minutes count from the first words held. A page that opens the chat before
+  the words have landed shows them, and the shell holds its Refresh notice while any are held.
+- **A reply is looked for before it is put down to an update.** When the server answers (it drains, or a
+  new version went live during the turn), a cut reply's running stream is joined if it is there, at most
+  three times over; only a reply with no stream left is settled, and the cause then chooses the wording.
+  A join takes nothing off the screen unless it can happen: a message sent since the drop holds the turn
+  state, and the reply is then settled around it.
+- **A page that was left starts nothing.** Work a turn had out when the page went (a backoff, a
+  recovery, a Retry's reads) starts no stream, wait or sign for the shell; only the page's own entry
+  points (a send, Retry, the reconnect on mount) bring the page back.
+- **A message queued behind a request that ends without a reply** (Stop on a regenerate whose chat cannot be
+  read, an Atlas kickoff that did not start) goes back to the composer behind the request's words.
