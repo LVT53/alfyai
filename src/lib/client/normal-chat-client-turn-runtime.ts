@@ -823,6 +823,12 @@ export function createNormalChatClientTurnRuntime(
 		}
 		if (held === null) {
 			completeTurn();
+			// What was queued behind it while the chat was being read goes back to the
+			// composer, as for any turn that ends in an error (`settleCutReply`).
+			if (takeQueuedContextCompression()) {
+				void adapters.runManualContextCompression();
+			}
+			restoreQueuedTurnToDraft();
 			adapters.setSendError("chat.updateStillRunning");
 			canRetry = true;
 			emitState();
@@ -2138,8 +2144,9 @@ export function createNormalChatClientTurnRuntime(
 
 	/**
 	 * An Atlas kickoff that did not start: both bubbles go, the words return to the
-	 * composer (with the Atlas mode they were sent in), and the sentence says why,
-	 * if there is one. There is no Retry: it would send the words as a plain turn.
+	 * composer (with the Atlas mode they were sent in), a message queued behind it
+	 * follows them, and the sentence says why, if there is one. There is no Retry: it
+	 * would send the words as a plain turn.
 	 */
 	function failAtlasTurn(params: AtlasTurnParams, sentence: string | null) {
 		adapters.applyMessageListEvent({
@@ -2153,7 +2160,14 @@ export function createNormalChatClientTurnRuntime(
 			});
 		}
 		completeTurn();
+		// A message queued behind the kickoff (the composer queues while it is out, and
+		// while it waits for an update) goes back to the composer behind its words, as
+		// for any turn that ends without a reply: nothing drains the queue after this.
+		if (takeQueuedContextCompression()) {
+			void adapters.runManualContextCompression();
+		}
 		adapters.restorePayloadToDraft(params.payload);
+		restoreQueuedTurnToDraft();
 		if (sentence) adapters.setSendError(sentence);
 		canRetry = false;
 		emitState();

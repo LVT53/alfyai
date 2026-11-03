@@ -4798,6 +4798,80 @@ describe("Normal Chat Client Turn Runtime", () => {
 				});
 			});
 
+			// The composer queues what is sent while the kickoff is out and while it waits.
+			// Nothing drains that queue when the kickoff ends without a reply.
+			it("gives a message queued behind the kickoff back to the composer, behind the kickoff's words, on Stop", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+				runtime.queue(words("Queued behind the kickoff"));
+
+				runtime.stop();
+
+				expect(
+					vi
+						.mocked(made.adapters.restorePayloadToDraft)
+						.mock.calls.map(([restored]) => restored.message),
+				).toEqual(["Research the market", "Queued behind the kickoff"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					queuedTurn: null,
+				});
+				await vi.advanceTimersByTimeAsync(60_000);
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(1);
+				expect(made.streamInvocations).toHaveLength(0);
+			});
+
+			it("gives it back at the cap too, and runs a context compression queued meanwhile", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+				runtime.queue(words("Queued behind the kickoff"));
+				runtime.compact();
+
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+
+				expect(sentenceShown(made.adapters)).toEqual([
+					"chat.updateStillRunning",
+				]);
+				expect(
+					vi
+						.mocked(made.adapters.restorePayloadToDraft)
+						.mock.calls.map(([restored]) => restored.message),
+				).toEqual(["Research the market", "Queued behind the kickoff"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					queuedTurn: null,
+					queuedContextCompression: false,
+				});
+				expect(made.adapters.runManualContextCompression).toHaveBeenCalledTimes(
+					1,
+				);
+			});
+
+			it("gives it back when the kickoff fails for a reason that is not an update, too", async () => {
+				const made = atlasAdapters({
+					submitAtlasTurn: vi.fn(async () => {
+						throw Object.assign(new Error("Atlas is currently disabled."), {
+							status: 503,
+							code: "ATLAS_DISABLED",
+						});
+					}),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				const sending = runtime.send(atlasWords());
+				// The composer queues while the submit is out.
+				runtime.queue(words("Queued behind the kickoff"));
+				await sending;
+
+				expect(
+					vi
+						.mocked(made.adapters.restorePayloadToDraft)
+						.mock.calls.map(([restored]) => restored.message),
+				).toEqual(["Research the market", "Queued behind the kickoff"]);
+				expect(runtime.snapshot().queuedTurn).toBeNull();
+			});
+
 			it("hands its words to a page that is being left, and submits nothing", async () => {
 				const made = atlasAdapters();
 				const runtime = createNormalChatClientTurnRuntime(made.adapters);
@@ -5189,6 +5263,69 @@ describe("Normal Chat Client Turn Runtime", () => {
 						isSending: false,
 						canRetry: true,
 					});
+				});
+
+				// The composer queues what is sent while the chat is read back (the turn state
+				// is held through the read). When the chat cannot be read nothing drains that
+				// queue, so what was typed during the read must go back to the composer.
+				it("gives a message queued while the chat was being read back to the composer when the chat cannot be read", async () => {
+					let finishRead: (messages: ChatMessage[] | null) => void = () => {};
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(
+							() =>
+								new Promise<ChatMessage[] | null>((resolve) => {
+									finishRead = resolve;
+								}),
+						),
+					});
+
+					made.runtime.stop();
+					made.runtime.queue(words("Typed during the read"));
+					expect(made.runtime.snapshot().queuedTurn?.message).toBe(
+						"Typed during the read",
+					);
+					finishRead(null);
+					await vi.advanceTimersByTimeAsync(0);
+
+					expect(sentenceShown(made.adapters)).toEqual([
+						"chat.updateStillRunning",
+					]);
+					// Not stranded in the queue banner with no turn to send it, not sent.
+					expect(made.runtime.snapshot()).toMatchObject({
+						isSending: false,
+						queuedTurn: null,
+					});
+					expect(
+						vi
+							.mocked(made.adapters.restorePayloadToDraft)
+							.mock.calls.map(([restored]) => restored.message),
+					).toEqual(["Typed during the read"]);
+					expect(made.streamInvocations).toHaveLength(1);
+					await vi.advanceTimersByTimeAsync(60_000);
+					expect(made.streamInvocations).toHaveLength(1);
+				});
+
+				it("runs a context compression queued during that read, as every turn that ends does", async () => {
+					let finishRead: (messages: ChatMessage[] | null) => void = () => {};
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(
+							() =>
+								new Promise<ChatMessage[] | null>((resolve) => {
+									finishRead = resolve;
+								}),
+						),
+					});
+
+					made.runtime.stop();
+					made.runtime.compact();
+					expect(made.runtime.snapshot().queuedContextCompression).toBe(true);
+					finishRead(null);
+					await vi.advanceTimersByTimeAsync(0);
+
+					expect(
+						made.adapters.runManualContextCompression,
+					).toHaveBeenCalledTimes(1);
+					expect(made.runtime.snapshot().queuedContextCompression).toBe(false);
 				});
 
 				it("does not wait for a read that never answers: five seconds is a chat that cannot be read", async () => {
