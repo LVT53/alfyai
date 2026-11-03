@@ -623,9 +623,10 @@ export function createNormalChatClientTurnRuntime(
 	function beginUpdateWait(init: Omit<UpdateWait, "detached">) {
 		const wait: UpdateWait = { ...init, detached: false };
 		updateWait = wait;
-		setPhase("awaiting_update", wait.placeholderId);
-		adapters.onServerUpdateSign?.();
+		// The shell first: its Refresh notice is held before the bubble says why.
 		adapters.setTurnWaitingForUpdate?.(true);
+		adapters.onServerUpdateSign?.();
+		setPhase("awaiting_update", wait.placeholderId);
 
 		const live = (): boolean => {
 			if (updateWait !== wait || wait.detached) return false;
