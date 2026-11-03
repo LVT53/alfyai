@@ -463,8 +463,10 @@ function runDrainAndHealthSteps(
 		"  fi",
 		'  n=$(cat "$COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$COUNT"',
 		"  idx=$((n - 1))",
-		'  if [ "$idx" -ge "${#bodies[@]}" ]; then idx=$((${#bodies[@]} - 1)); fi',
-		'  echo "${bodies[$idx]}"',
+		// Written with an escaped `${` so Biome does not read the shell's expansion as
+		// a mis-typed JS template placeholder.
+		`  if [ "$idx" -ge "\${#bodies[@]}" ]; then idx=$((\${#bodies[@]} - 1)); fi`,
+		`  echo "\${bodies[$idx]}"`,
 		"}",
 		drainStepOf(script),
 		options.betweenSteps ?? "",
@@ -549,9 +551,11 @@ describe.each([
 					healthWaitStepOf(script)
 						.split("\n")
 						.slice(
-							healthWaitStepOf(script).split("\n").findIndex((line) =>
-								line.startsWith("# The new process is up and undrained"),
-							),
+							healthWaitStepOf(script)
+								.split("\n")
+								.findIndex((line) =>
+									line.startsWith("# The new process is up and undrained"),
+								),
 						)
 						.join("\n"),
 					"false",
@@ -566,7 +570,12 @@ describe.each([
 
 	it("does not take the old process, which still says draining, for the new one", () => {
 		const result = runDrainAndHealthSteps(script, {
-			healthBodies: [DRAINING_BODY, DRAINING_BODY, DRAINING_BODY, UNDRAINED_BODY],
+			healthBodies: [
+				DRAINING_BODY,
+				DRAINING_BODY,
+				DRAINING_BODY,
+				UNDRAINED_BODY,
+			],
 		});
 
 		expect(result.status).toBe(0);
