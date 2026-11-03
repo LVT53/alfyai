@@ -37,11 +37,19 @@
 // not exist. Reported as a deviation from the slice spec's literal text; the
 // code (and this contract) match the app's actual dark-mode mechanism.
 //
-// Font stacks stay Helvetica/Georgia, never `--font-sans`/`--font-serif`:
+// One sans stack, written out in full, never `--font-sans`/`--font-serif`:
 // an iframe inherits nothing from the parent document, so a variable
 // reference with no local definition would silently fall back to the
-// browser default. Excluded from the token drift assertion for the same
-// reason — there is nothing in `src/app.css` to compare them against.
+// browser default. The stack is the app's own face first (`--font-sans` in
+// `src/app.css` is Nimbus Sans L), then Helvetica and Arial. The frame is
+// sandboxed and has no network, so no web font loads in it: Nimbus Sans L
+// applies only on a device that has it installed, and Helvetica or Arial is
+// what most people see. There is no serif in an App, its h1 included: the
+// serif belongs to the top titles of the app's own pages ("Font ownership" in
+// `src/lib/components/AGENTS.md`), and an App is not one of those. The stack is
+// not one of the six tokens, so the token drift assertion leaves it out;
+// `contract.test.ts` checks only that its first face is the one `--font-sans`
+// names.
 
 export interface AppContractToken {
 	name: string;
@@ -95,7 +103,7 @@ Hard rules for the document:
 3. AlfyAI design tokens. Define them on :root and use them everywhere:
    ${APP_CONTRACT_TOKEN_CSS}
    body background var(--surface-page), cards and inputs var(--surface-elevated), text var(--text-primary), secondary text var(--text-muted), borders 1px solid var(--border-default), accent var(--accent). Do not invent other colours and never use #fff or #000.
-4. Typography: body uses the Helvetica stack (Helvetica, Arial, sans-serif); h1, h2, h3 use Georgia, 'Times New Roman', serif. No @font-face, no font imports.
+4. Typography: every element, headings included, uses one sans-serif stack: 'Nimbus Sans L', Helvetica, Arial, sans-serif. No serif fonts, no @font-face, no font imports.
 5. Persistence only through the host API that is already injected:
    const saved = await window.alfy.storage.get('my-key');  // stored value, or null
    await window.alfy.storage.set('my-key', value);         // value must be JSON-serialisable
@@ -131,7 +139,8 @@ export interface AppContractRule {
  * `no-navigate`, `no-webrtc`) and one from ADR-0068 (`no-nested-frames`).
  * Order matches the prototype's for the original fifteen, since the eval
  * harness and this list must agree on "one entry per rule, in this order"
- * (A2); the newer ones are appended.
+ * (A2); the newer ones are appended. One of the fifteen has changed its id
+ * and its meaning, in place: the prototype's `georgia` is `no-serif`.
  */
 export const APP_CONTRACT_RULES = [
 	{
@@ -162,7 +171,11 @@ export const APP_CONTRACT_RULES = [
 		label: "No #fff / #000 hardcoding",
 		severity: "note",
 	},
-	{ id: "georgia", label: "Georgia for headings", severity: "note" },
+	// The prototype's `georgia` (asks for Georgia in headings) was a note and is
+	// this one now, in the same place: the Apps went sans, so the check is that
+	// no font declaration names a serif. Only glitch ids are stored on an App
+	// (`glitchRuleIdsOf`), so renaming a note leaves nothing behind.
+	{ id: "no-serif", label: "No serif fonts", severity: "note" },
 	{ id: "helvetica", label: "Helvetica for UI text", severity: "note" },
 	{
 		id: "alfy-storage",

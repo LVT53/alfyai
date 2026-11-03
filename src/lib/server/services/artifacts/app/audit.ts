@@ -3,7 +3,9 @@
 // `APP_CONTRACT_RULES`, ported unchanged from the prototype's `extract.ts`
 // (`contractChecks`) — these exact regexes are what caught the two prototype
 // apps that reached for something they should not have, and a "tidy-up"
-// here changes what the product calls a glitch.
+// here changes what the product calls a glitch. The one of the fifteen that is
+// not a port is `no-serif`: it stands where `georgia` stood, which asked for
+// Georgia in the headings, and asks for no serif anywhere.
 //
 // The audit is advisory, never a gate: `auditAppHtml` has no path back to
 // "do not show the app" (Owner decision 9). A `glitch` becomes one of three
@@ -75,6 +77,31 @@ const WEBRTC_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/\biceServers\b/, "iceServers"],
 	[/["'`]\s{0,16}(?:stuns?|turns?):[\w.[-]/i, "a stun: or turn: address"],
 ];
+
+// `no-serif` reads the declarations that set a font: a font-family declaration
+// and the font shorthand (its family list is its tail), wherever the text has
+// one, in a <style> block, in a style attribute or in a string a script sets.
+// The value runs to the semicolon, brace or angle bracket that ends the
+// declaration, so a style attribute's value stops at the end of its own tag and
+// the page text after it is never read as part of it. Bounded like the checks
+// above (a real family list is under a hundred characters): the audit runs on
+// the server's one thread, on text a model wrote. Not read: a stack held in a
+// custom property, an SVG font-family attribute, and anything a script sets
+// (`style.fontFamily`, a canvas `font`). The contract has the model write the
+// stack out, and this rule is a note.
+const FONT_DECLARATION_RE =
+	/(?<![\w-])font(?:-family)?\s{0,16}:([^;{}<>]{0,400})/gi;
+
+// What makes a font value a serif's: the generic (`serif`, `ui-serif`) or one of
+// the faces the old contract and this app's own title type reached for. A
+// model ends a serif stack with the generic, so these catch nearly every stack
+// that would set one; the list is not every serif there is. Whole words only: a
+// hyphen before "serif" ("sans-serif", "ui-sans-serif") is the sans generic,
+// "sans serif" with a space is a sans face's name ("MS Sans Serif"), and
+// "Georgian" is not Georgia. Both patterns are global and only ever read with
+// `match` and `matchAll`, which start from the beginning.
+const SERIF_NAME_RE =
+	/(?<![\w-])(?:(?<!sans\s)(?:ui-)?serif|georgia|times|baskerville|garamond)(?![\w-])/gi;
 
 const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	"no-script-src": (html) => {
@@ -148,9 +175,17 @@ const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 		];
 		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
-	georgia: (html) => {
-		const present = /Georgia/i.test(html);
-		return { passed: present, detail: present ? "present" : "missing" };
+	"no-serif": (html) => {
+		const found = new Set<string>();
+		for (const [, value] of html.matchAll(FONT_DECLARATION_RE)) {
+			for (const name of value.match(SERIF_NAME_RE) ?? []) {
+				found.add(name.toLowerCase());
+			}
+		}
+		return {
+			passed: found.size === 0,
+			detail: [...found].join(", ") || "none",
+		};
 	},
 	helvetica: (html) => {
 		const present = /Helvetica/i.test(html);

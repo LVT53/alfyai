@@ -22,6 +22,12 @@
   since a git worktree is still nested on disk — makes Biome report a
   "nested root configuration" error across the WHOLE repo, not just this
   file. See the slice report.
+
+  A third edit, for the typography rule (the Apps went sans): the raw output set
+  its h1 and both h2 in Georgia, and its body in Helvetica and Arial. All four
+  now use the contract's one stack, 'Nimbus Sans L', Helvetica, Arial,
+  sans-serif, so this stays the fixture of an app that passes the audit's
+  `no-serif` note.
 -->
 <!doctype html>
 <html lang="en">
@@ -33,9 +39,9 @@
 :root{--pg:#fafaf8;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--bd:rgba(0,0,0,.08);--ac:#c15f3c}
 @media (prefers-color-scheme:dark){:root{--pg:#1a1a1a;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--bd:rgba(255,255,255,.08);--ac:#d4836b}}
 *{box-sizing:border-box}
-body{margin:0;padding:20px;background:var(--pg);color:var(--tx);font:15px/1.5 Helvetica,Arial,sans-serif}
+body{margin:0;padding:20px;background:var(--pg);color:var(--tx);font:15px/1.5 'Nimbus Sans L',Helvetica,Arial,sans-serif}
 main{max-width:720px;margin:0 auto;display:grid;gap:14px}
-h1{font:400 22px Georgia,'Times New Roman',serif;margin:0}
+h1{font:400 22px 'Nimbus Sans L',Helvetica,Arial,sans-serif;margin:0}
 .card{background:var(--el);border:1px solid var(--bd);border-radius:10px;padding:12px;display:grid;gap:8px}
 label{display:grid;gap:4px;font-size:13px;color:var(--mu)}
 input,select{min-height:40px;padding:6px 8px;border:1px solid var(--bd);border-radius:8px;background:var(--pg);color:var(--tx);font:inherit}
@@ -63,11 +69,11 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--bd);text-align:left}
 </form>
 </section>
 <section class="card">
-<h2 style="font:400 17px Georgia,serif;margin:0">Balances</h2>
+<h2 style="font:400 17px 'Nimbus Sans L',Helvetica,Arial,sans-serif;margin:0">Balances</h2>
 <div id="balances" aria-live="polite"></div>
 </section>
 <section class="card">
-<h2 style="font:400 17px Georgia,serif;margin:0">Expenses</h2>
+<h2 style="font:400 17px 'Nimbus Sans L',Helvetica,Arial,sans-serif;margin:0">Expenses</h2>
 <table><tbody id="list"></tbody></table>
 </section>
 </main>

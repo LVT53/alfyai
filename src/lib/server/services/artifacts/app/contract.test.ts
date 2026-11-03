@@ -81,6 +81,22 @@ describe("APP_TOKENS vs src/app.css", () => {
 			].sort(),
 		);
 	});
+
+	// The font is not a token (the frame has nothing to read `--font-sans` from,
+	// so the contract spells the stack out), but its first face is the app's own,
+	// and that is worth keeping true: if `--font-sans` changes face, the contract
+	// must say so too.
+	it("starts the font stack with the face --font-sans names", () => {
+		const face = light
+			.get("--font-sans")
+			?.split(",")[0]
+			?.trim()
+			.replace(/^["']|["']$/g, "");
+		expect(face).toBe("Nimbus Sans L");
+		expect(APP_CONTRACT_PROMPT).toContain(
+			`'${face}', Helvetica, Arial, sans-serif`,
+		);
+	});
 });
 
 describe("APP_CONTRACT_PROMPT", () => {
@@ -108,9 +124,21 @@ describe("APP_CONTRACT_PROMPT", () => {
 		expect(APP_CONTRACT_PROMPT).toMatch(/prefers-color-scheme:\s*dark/);
 	});
 
-	it("keeps the Helvetica/Georgia font stacks rather than --font-sans/--font-serif", () => {
-		expect(APP_CONTRACT_PROMPT).toContain("Helvetica");
-		expect(APP_CONTRACT_PROMPT).toContain("Georgia");
+	// The Apps are sans, headings included: the whole UI is, a page's own top
+	// title apart. The stack is written out in full because the frame inherits
+	// nothing, so a variable with no local definition would fall back silently.
+	it("names one sans stack for every element and no serif, never --font-sans/--font-serif", () => {
+		expect(APP_CONTRACT_PROMPT).toContain(
+			"uses one sans-serif stack: 'Nimbus Sans L', Helvetica, Arial, sans-serif.",
+		);
+		expect(APP_CONTRACT_PROMPT).not.toMatch(
+			/\b(?:georgia|times|baskerville|garamond)\b/i,
+		);
+		// The word "serif" stands alone once, in the prohibition, and is otherwise
+		// the tail of "sans-serif": no stack in the prompt ends in the serif generic.
+		const withoutSans = APP_CONTRACT_PROMPT.replaceAll("sans-serif", "");
+		expect(withoutSans.match(/serif/gi)).toHaveLength(1);
+		expect(withoutSans).toContain("No serif fonts");
 		expect(APP_CONTRACT_PROMPT).not.toContain("--font-sans");
 		expect(APP_CONTRACT_PROMPT).not.toContain("--font-serif");
 	});
@@ -137,6 +165,21 @@ describe("APP_CONTRACT_RULES", () => {
 		for (const rule of APP_CONTRACT_RULES) {
 			expect(["glitch", "note", "violation"]).toContain(rule.severity);
 		}
+	});
+
+	// The prototype's `georgia` note asked for Georgia in the headings. The Apps
+	// went sans, so its place in the list (the eval harness reads the list in this
+	// order) is `no-serif` now. It must stay a note: only glitch ids are stored
+	// on an App (`glitchRuleIdsOf`), which is why the rename leaves nothing behind.
+	it("has no-serif where the Georgia note was, still a note", () => {
+		const ids: string[] = APP_CONTRACT_RULES.map((rule) => rule.id);
+		expect(ids).not.toContain("georgia");
+		expect(ids.indexOf("no-serif")).toBe(ids.indexOf("helvetica") - 1);
+		expect(APP_CONTRACT_RULES.find((rule) => rule.id === "no-serif")).toEqual({
+			id: "no-serif",
+			label: "No serif fonts",
+			severity: "note",
+		});
 	});
 
 	it("maps exactly the seven glitch-severity rules into APP_GLITCH_RULE_IDS", () => {

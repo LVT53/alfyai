@@ -44,7 +44,8 @@ describe("auditAppHtml", () => {
 		expect(glitches).toEqual([]);
 		expect(notes.length).toBeLessThanOrEqual(2);
 		// The one expected note failure: this fixture predates the token
-		// rename and still uses the prototype's shorthand names.
+		// rename and still uses the prototype's shorthand names. (`no-serif`
+		// passes: its fonts were edited to the sans stack when the Apps went sans.)
 		expect(notes.map((n) => n.rule)).toEqual(["tokens"]);
 	});
 
@@ -144,13 +145,13 @@ describe("auditAppHtml", () => {
 			).toBe(true);
 		});
 
-		it("georgia / helvetica: case-insensitive presence", () => {
-			expect(checkFor(auditAppHtml("font: georgia"), "georgia").passed).toBe(
-				true,
-			);
+		it("helvetica: case-insensitive presence", () => {
 			expect(
 				checkFor(auditAppHtml("font: HELVETICA"), "helvetica").passed,
 			).toBe(true);
+			expect(checkFor(auditAppHtml("font: Arial"), "helvetica").passed).toBe(
+				false,
+			);
 		});
 
 		it("alfy-storage: detects window.alfy.storage usage with flexible spacing", () => {
@@ -186,6 +187,145 @@ describe("auditAppHtml", () => {
 			expect(checkFor(auditAppHtml(long), "size").passed).toBe(false);
 			const short = Array.from({ length: 10 }, () => "x").join("\n");
 			expect(checkFor(auditAppHtml(short), "size").passed).toBe(true);
+		});
+	});
+
+	// The Apps went sans (the whole UI did, a page's own top title apart) and the
+	// contract asks for one sans stack on every element. This note says whether a
+	// document set a serif anyway. It is a note, for the eval and never shown.
+	describe("no-serif: no font declaration names a serif", () => {
+		const serif = (html: string) => checkFor(auditAppHtml(html), "no-serif");
+
+		it("fails a heading set in Georgia with the serif generic behind it, and names both", () => {
+			const check = serif("<style>h1 { font-family: Georgia, serif; }</style>");
+			expect(check.passed).toBe(false);
+			expect(check.severity).toBe("note");
+			expect(check.detail).toBe("georgia, serif");
+		});
+
+		it("fails the generic on its own", () => {
+			expect(serif("body { font-family: serif; }").passed).toBe(false);
+		});
+
+		it("passes the contract's stack, written in the font shorthand", () => {
+			const check = serif(
+				"h1 { font: 400 22px 'Nimbus Sans L', Helvetica, Arial, sans-serif; }",
+			);
+			expect(check.passed).toBe(true);
+			expect(check.detail).toBeNull();
+		});
+
+		it("passes a document whose only serif is the one in sans-serif, and one with no fonts at all", () => {
+			expect(serif("body { font-family: sans-serif; }").passed).toBe(true);
+			expect(serif("button { font: inherit; }").passed).toBe(true);
+			expect(serif("<p>hello</p>").passed).toBe(true);
+			expect(serif("").passed).toBe(true);
+		});
+
+		it.each([
+			["the generic", "serif"],
+			["the user-interface generic", "ui-serif"],
+			["Georgia", "Georgia"],
+			["Times", "Times, Arial"],
+			["Times New Roman", "'Times New Roman', Arial"],
+			["Baskerville", "Baskerville, Arial"],
+			["Libre Baskerville", "'Libre Baskerville', Arial"],
+			["Garamond", "Garamond, Arial"],
+			["a Garamond with a name in front", "'EB Garamond', Arial"],
+		])("fails %s, in a font-family declaration and in the font shorthand", (_name, family) => {
+			expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(false);
+			expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(false);
+		});
+
+		it.each([
+			["the sans generic", "sans-serif"],
+			["the sans generic in capitals", "SANS-SERIF"],
+			["the user-interface sans generic", "ui-sans-serif, system-ui"],
+			["the contract's stack", "'Nimbus Sans L', Helvetica, Arial, sans-serif"],
+			["a monospace stack", "ui-monospace, Menlo, Consolas, monospace"],
+			["a sans face with the word in its name", "'MS Sans Serif', sans-serif"],
+			[
+				"names that only begin like a serif's",
+				"'Georgian Sans', 'Timesheet Sans', sans-serif",
+			],
+		])("passes %s, in a font-family declaration and in the font shorthand", (_name, family) => {
+			expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(true);
+			expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(true);
+		});
+
+		it("reads capitals, a space before the colon and a family list over several lines", () => {
+			expect(serif("h1 { FONT-FAMILY : GEORGIA }").passed).toBe(false);
+			expect(serif("h1 { Font:italic 12px/1.4 TIMES NEW ROMAN }").passed).toBe(
+				false,
+			);
+			expect(
+				serif(
+					"h1 { font-family: 'Nimbus Sans L',\n\t\tHelvetica,\n\t\tgeorgia; }",
+				).passed,
+			).toBe(false);
+		});
+
+		it("reads a style attribute, in either kind of quote", () => {
+			expect(
+				serif('<h2 style="font:400 17px Georgia,serif;margin:0">Balances</h2>')
+					.passed,
+			).toBe(false);
+			expect(
+				serif(`<p style='font-family:"Times New Roman"'>x</p>`).passed,
+			).toBe(false);
+			expect(
+				serif(
+					`<p style="font-family:'Nimbus Sans L',Arial,sans-serif;margin:0">x</p>`,
+				).passed,
+			).toBe(true);
+		});
+
+		it("reads the declaration and nothing around it", () => {
+			// A word on the page, a class, a token, another font property, what comes
+			// after the declaration's semicolon or brace and the text after a style
+			// attribute are not a font declaration that names a serif.
+			for (const html of [
+				"<p>Serif faces have little feet; Georgia is one.</p>",
+				"h1 { font-family: Arial, sans-serif; content: 'Georgia'; }",
+				"h1 { font-family: Arial } p::after { content: 'Georgia' }",
+				".font-serif { color: red; }",
+				":root { --font-serif: var(--other); }",
+				"h1::after { content: 'serif'; }",
+				"h1 { font-size: 22px; font-weight: 700; font-style: italic; }",
+				'<h2 style="font-family: Arial">Why serif and Georgia matter</h2>',
+			]) {
+				expect(serif(html).passed, html).toBe(true);
+			}
+		});
+
+		it("names each serif it found once, in lowercase, for the eval's readout", () => {
+			const check = serif(
+				"h1 { font-family: Georgia, 'Times New Roman', serif; } p { font: 12px GEORGIA, serif; }",
+			);
+			expect(check.detail).toBe("georgia, times, serif");
+		});
+
+		it("passes the prototype's passing app, whose headings are in the sans stack", () => {
+			expect(serif(PASSING_FIXTURE).passed).toBe(true);
+		});
+
+		// The audit runs on the server's one thread on text a model wrote: every
+		// pattern is bounded, so a document made to cost time costs milliseconds.
+		// The ceiling is generous on purpose: a busy machine is not what is measured.
+		it("audits documents made to be slow for it in well under a second", () => {
+			const hostile = [
+				"font-family:".repeat(8_000),
+				`font:${"a".repeat(96_000)}`,
+				`font${" ".repeat(96_000)}:`,
+				"font:;".repeat(16_000),
+				`font-family:${"serif,".repeat(19_000)}`,
+				"font-family:Georgia;".repeat(5_000),
+			];
+			const startedAt = performance.now();
+			for (const html of hostile) {
+				expect(() => auditAppHtml(html)).not.toThrow();
+			}
+			expect(performance.now() - startedAt).toBeLessThan(1_000);
 		});
 	});
 
