@@ -38,6 +38,35 @@ function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 }
 
 describe("Atlas client API", () => {
+	// The restart: the proxy answers its own page for the app. The runtime waits for
+	// the update on it and submits again (the server de-duplicates the kickoff by
+	// clientAtlasTurnId), so the refusal has to say what it is.
+	it("marks the proxy's maintenance page, which a restart answers a kickoff with, as the server being unavailable", async () => {
+		const fetchImpl = vi.fn<FetchLike>(
+			async () =>
+				new Response("<html><body>AlfyAI is being updated</body></html>", {
+					status: 503,
+					headers: { "Content-Type": "text/html" },
+				}),
+		);
+
+		const error = await submitAtlasTurn(
+			{
+				conversationId: "conv-1",
+				message: "Research durable UI state",
+				attachmentIds: [],
+				profile: "in-depth",
+				action: "create",
+				clientAtlasTurnId: "client-atlas-1",
+			},
+			fetchImpl,
+		).catch((thrown: unknown) => thrown);
+
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).status).toBe(503);
+		expect((error as ApiError).serverUnavailable).toBe(true);
+	});
+
 	it("submits Atlas turns through the Normal Chat send route shape", async () => {
 		const atlasJob = atlasJobFixture();
 		const fetchImpl = vi.fn<FetchLike>(async () => {

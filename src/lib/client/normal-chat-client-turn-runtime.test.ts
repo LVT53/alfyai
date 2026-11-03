@@ -4640,6 +4640,226 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(sentenceShown(adapters)).toEqual(["HTTP 503"]);
 		});
 
+		// `/api/chat/send` takes an Atlas turn through a drain (its job is recovered
+		// after the restart); it is the restart itself that answers the proxy's page.
+		// The server de-duplicates the kickoff by `clientAtlasTurnId`, so the turn waits
+		// like a message that was turned away and is submitted again under the same id.
+		describe("an Atlas kickoff turned away by the restart", () => {
+			const atlasWords = (
+				clientAtlasTurnId: string | null = "client-atlas-1",
+			) => ({
+				...words("Research the market"),
+				atlasMode: true,
+				atlasProfile: "in-depth" as const,
+				atlasAction: "create" as const,
+				clientAtlasTurnId,
+			});
+
+			function atlasAdapters(
+				overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+			) {
+				const atlas = { down: true };
+				const made = updateAdapters({
+					submitAtlasTurn: vi.fn(async () => {
+						if (atlas.down) throw refusedByTheProxy();
+						return {
+							message: "Atlas is queued.",
+							atlasJob: atlasJobFixture(),
+						};
+					}),
+					...overrides,
+				});
+				return { ...made, atlas };
+			}
+
+			it("waits in awaiting_update with both bubbles, and tells the shell", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+				await runtime.send(atlasWords());
+
+				expect(made.messages.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+				]);
+				expect(made.messages[1].runtimePhase).toBe("awaiting_update");
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					true,
+				);
+				expect(runtime.snapshot()).toMatchObject({
+					phase: "awaiting_update",
+					isSending: true,
+				});
+			});
+
+			it("is submitted again under the same clientAtlasTurnId once the server is up, and starts as it would have", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+
+				made.atlas.down = false;
+				made.server.health = DRAINING;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(1);
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(2);
+				const [first, second] = vi
+					.mocked(made.adapters.submitAtlasTurn)
+					.mock.calls.map(([submitted]) => submitted);
+				expect(second).toEqual(first);
+				expect(second.clientAtlasTurnId).toBe("client-atlas-1");
+				expect(made.messages[1]).toMatchObject({
+					content: "Atlas is queued.",
+					isStreaming: false,
+				});
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+				expect(made.adapters.hydrateConversationDetail).toHaveBeenCalledTimes(
+					1,
+				);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+			});
+
+			it("keeps the id the runtime made when the composer gave none", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords(null));
+
+				made.atlas.down = false;
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+
+				const ids = vi
+					.mocked(made.adapters.submitAtlasTurn)
+					.mock.calls.map(([submitted]) => submitted.clientAtlasTurnId);
+				expect(ids).toHaveLength(2);
+				expect(ids[0]).toBeTruthy();
+				expect(ids[1]).toBe(ids[0]);
+			});
+
+			it("ends on Stop as a kickoff that did not start: both bubbles go and the words return in Atlas mode, with no sentence", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+
+				expect(runtime.stop()).toBe(true);
+
+				expect(made.messages).toEqual([]);
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({
+						message: "Research the market",
+						atlasMode: true,
+						atlasProfile: "in-depth",
+						clientAtlasTurnId: "client-atlas-1",
+					}),
+				);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					phase: "idle",
+					canRetry: false,
+				});
+				made.atlas.down = false;
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(1);
+			});
+
+			it("ends at the cap the same way, with the sentence for a wait that did not end", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+
+				expect(sentenceShown(made.adapters)).toEqual([
+					"chat.updateStillRunning",
+				]);
+				expect(made.messages).toEqual([]);
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({ atlasMode: true }),
+				);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+			});
+
+			it("hands its words to a page that is being left, and submits nothing", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.send(atlasWords());
+
+				runtime.detach();
+				made.atlas.down = false;
+				made.server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(1);
+				expect(runtime.takeWaitingRequest()).toMatchObject({
+					message: "Research the market",
+					atlasMode: true,
+					clientAtlasTurnId: "client-atlas-1",
+				});
+			});
+
+			it("fails like any other kickoff after being sent again three times and refused each time", async () => {
+				const made = atlasAdapters();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				made.server.health = WELL;
+
+				await runtime.send(atlasWords());
+				for (let sent = 0; sent < 3; sent += 1) {
+					await vi.advanceTimersByTimeAsync(POLL_MS);
+				}
+
+				expect(made.adapters.submitAtlasTurn).toHaveBeenCalledTimes(4);
+				expect(sentenceShown(made.adapters)).toEqual([
+					refusedByTheProxy().message,
+				]);
+				expect(made.messages).toEqual([]);
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: false,
+				});
+			});
+
+			it("does not wait for a failure that is not an update: it fails as it did", async () => {
+				const made = atlasAdapters({
+					submitAtlasTurn: vi.fn(async () => {
+						throw Object.assign(new Error("Atlas is currently disabled."), {
+							status: 503,
+							code: "ATLAS_DISABLED",
+						});
+					}),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+
+				await runtime.send(atlasWords());
+
+				expect(sentenceShown(made.adapters)).toEqual([
+					"Atlas is currently disabled.",
+				]);
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+				expect(made.messages).toEqual([]);
+			});
+		});
+
 		// A tab that sleeps (a phone locked in a pocket) wakes to find the cap passed.
 		// The poll that would have noticed the server was back never ran, so the cap
 		// asks once more before it gives up.

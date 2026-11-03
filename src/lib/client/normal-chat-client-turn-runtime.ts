@@ -2054,14 +2054,21 @@ export function createNormalChatClientTurnRuntime(
 		);
 	}
 
-	async function startAtlasTurn(params: {
+	/** What an Atlas turn is asked with, and how many times it has been sent again after an update. */
+	type AtlasTurnParams = {
 		payload: NormalChatSendPayload;
 		placeholderId: string;
 		clientUserMessageId: string | null;
 		turnConversationId: string;
-	}) {
+		/** The id the server de-duplicates the kickoff by: a turn sent again keeps it, so the job is made once. */
+		clientAtlasTurnId?: string;
+		updateResendCount?: number;
+	};
+
+	async function startAtlasTurn(params: AtlasTurnParams) {
 		const clientAtlasTurnId =
-			params.payload.clientAtlasTurnId?.trim() || adapters.randomId();
+			params.clientAtlasTurnId ??
+			(params.payload.clientAtlasTurnId?.trim() || adapters.randomId());
 		try {
 			const result = await adapters.submitAtlasTurn({
 				conversationId:
@@ -2107,26 +2114,83 @@ export function createNormalChatClientTurnRuntime(
 				completeStaleTurn(params.placeholderId);
 				return;
 			}
-			adapters.applyMessageListEvent({
-				type: "remove",
-				messageId: params.placeholderId,
-			});
-			if (params.clientUserMessageId) {
-				adapters.applyMessageListEvent({
-					type: "remove",
-					messageId: params.clientUserMessageId,
-				});
+			// ADR-0054 — a deploy drains the server, and `/api/chat/send` takes an Atlas
+			// turn through that (its job is recovered after the restart); the restart
+			// itself is where the proxy answers its own page. The kickoff is
+			// de-duplicated by `clientAtlasTurnId`, so a request that waits and is sent
+			// again makes the job once, whether or not the first one got through.
+			if (
+				!detached &&
+				isServerUpdateRefusal(error) &&
+				(params.updateResendCount ?? 0) < AWAIT_UPDATE_MAX_RESENDS
+			) {
+				holdAtlasTurnForUpdate({ ...params, clientAtlasTurnId });
+				return;
 			}
-			completeTurn();
-			adapters.restorePayloadToDraft(params.payload);
-			adapters.setSendError(
+			failAtlasTurn(
+				params,
 				adapters.toFriendlySendError(
 					error instanceof Error ? error : new Error(String(error)),
 				),
 			);
-			canRetry = false;
-			emitState();
 		}
+	}
+
+	/**
+	 * An Atlas kickoff that did not start: both bubbles go, the words return to the
+	 * composer (with the Atlas mode they were sent in), and the sentence says why,
+	 * if there is one. There is no Retry: it would send the words as a plain turn.
+	 */
+	function failAtlasTurn(params: AtlasTurnParams, sentence: string | null) {
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		if (params.clientUserMessageId) {
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: params.clientUserMessageId,
+			});
+		}
+		completeTurn();
+		adapters.restorePayloadToDraft(params.payload);
+		if (sentence) adapters.setSendError(sentence);
+		canRetry = false;
+		emitState();
+	}
+
+	/**
+	 * The Atlas kickoff was turned away for the update. It waits like a refused
+	 * message and is submitted again, under the same `clientAtlasTurnId`, once the
+	 * server says it is up. At the cap, and on Stop, it ends like a kickoff that did
+	 * not start (`failAtlasTurn`): the words return to the composer, with the
+	 * sentence for the cap and none for Stop.
+	 */
+	function holdAtlasTurnForUpdate(
+		params: AtlasTurnParams & { clientAtlasTurnId: string },
+	) {
+		const waiting = beginUpdateWait({
+			placeholderId: params.placeholderId,
+			turnConversationId: params.turnConversationId,
+			// The proxy's page is no answer from the app: the kickoff never got through.
+			unsentPayload: params.payload,
+			onEnd: (end) => {
+				if (end === "back") {
+					if (detached) return;
+					setPhase("preparing", params.placeholderId);
+					void startAtlasTurn({
+						...params,
+						updateResendCount: (params.updateResendCount ?? 0) + 1,
+					});
+					return;
+				}
+				failAtlasTurn(
+					params,
+					end === "timeout" ? "chat.updateStillRunning" : null,
+				);
+			},
+		});
+		if (!waiting) completeStaleTurn(params.placeholderId);
 	}
 
 	async function send(
