@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount, onDestroy, untrack } from "svelte";
+import { get } from "svelte/store";
 import { page, navigating, updated } from "$app/state";
 import { browser } from "$app/environment";
 import { goto, replaceState } from "$app/navigation";
@@ -149,8 +150,7 @@ const serverUpdateWatch = createServerUpdateWatch({
 	clearTimer: (handle) => window.clearTimeout(handle as number),
 	onLook: (look) => {
 		serverDraining =
-			look.draining ||
-			(look.away && !(browser && navigator.onLine === false));
+			look.draining || (look.away && !(browser && navigator.onLine === false));
 		if (look.versionChanged && !isServerUpdateNoticeSuppressed()) {
 			serverUpdateAvailable = true;
 		}
@@ -369,8 +369,10 @@ $effect(() => {
 // cut off): watch the server for a while, so the banner and the Refresh notice
 // come up within seconds and not when SvelteKit's own poll next looks, up to a
 // minute later (see $lib/client/server-update-watch.ts). Not $state: it only
-// compares against the store's counter inside the effect below.
-let watchedUpdateSign = 0;
+// compares against the store's counter inside the effect below. A sign from before
+// this shell existed (it is rebuilt after a sign-in in the same tab) is not one to
+// watch for.
+let watchedUpdateSign = get(serverUpdateSign);
 $effect(() => {
 	const sign = $serverUpdateSign;
 	if (!browser || sign === watchedUpdateSign) return;
