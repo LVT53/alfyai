@@ -1622,6 +1622,13 @@ export function createNormalChatClientTurnRuntime(
 				turnConversationId,
 				STREAM_QUESTION_MAX_MS,
 			);
+			// The stream says whose message it runs. Another device's message in this
+			// chat is not this turn: joining it would clear the error with this message
+			// unsent. Retry goes on, to the chat and to the resend, whose capacity
+			// backoff handles the rest.
+			if (running && isForAnotherMessage(running.bufferInfo, text)) {
+				running = null;
+			}
 			if (!running && adapters.readChatMessages) {
 				outcome = await askWhatTheServerHolds(
 					text,
@@ -1921,16 +1928,19 @@ export function createNormalChatClientTurnRuntime(
 		});
 	}
 
-	/** Joins a running stream: its replay goes into a placeholder, under the bubble that is on screen. */
+	/**
+	 * Joins a running stream: its replay goes into a placeholder, under the bubble that
+	 * is on screen, which is the one whose text is `userMessage`.
+	 */
 	function joinRunningStream(
 		running: { streamId: string; bufferInfo: StreamBufferInfo | null },
-		fallbackMessage: string,
+		userMessage: string,
 		turnConversationId: string = adapters.getConversationId(),
 	) {
 		const { streamId, bufferInfo } = running;
 		return reconnectToOrphanedStream(
 			streamId,
-			bufferInfo?.userMessage ?? fallbackMessage,
+			userMessage,
 			0,
 			bufferInfo?.reasoningDepth,
 			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
@@ -1944,7 +1954,7 @@ export function createNormalChatClientTurnRuntime(
 		}
 		const running = await findRunningStream(adapters.getConversationId());
 		if (!running) return false;
-		return joinRunningStream(running, "");
+		return joinRunningStream(running, running.bufferInfo?.userMessage ?? "");
 	}
 
 	async function recoverBackgroundInterruptedStream() {
@@ -2064,6 +2074,20 @@ type ServerOutcome =
 	| { kind: "landed" }
 	| { kind: "unanswered"; userMessageId: string }
 	| { kind: "unknown" };
+
+/**
+ * Whether a running stream is for a message other than `text` (trimmed). A stream
+ * that says nothing of its message is taken for this one: the status said a turn
+ * runs for this chat, and one the person's own connection dropped over is the likely
+ * one.
+ */
+function isForAnotherMessage(
+	bufferInfo: StreamBufferInfo | null,
+	text: string,
+): boolean {
+	const streamMessage = bufferInfo?.userMessage?.trim();
+	return Boolean(streamMessage) && streamMessage !== text.trim();
+}
 
 function judgeServerMessages(
 	serverMessages: readonly ChatMessage[] | null,

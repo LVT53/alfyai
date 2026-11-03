@@ -1225,6 +1225,24 @@ describe("chat page runtime integration", () => {
 				expect(screen.getAllByTestId("user-message")).toHaveLength(3);
 			});
 
+			// Another device's message in the same chat is refused for the person's one
+			// reply at a time, and the stream that runs is that one's.
+			it("does not join a stream that runs another message, and sends this one", async () => {
+				const retryButton = await failASend();
+				runtimeHarness.orphanedStream = {
+					streamId: "stream-other",
+					userMessage: "A question from another device",
+				};
+				await fireEvent.click(retryButton);
+
+				await waitFor(() => {
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+				});
+				const resent = runtimeHarness.streamInvocations[1];
+				expect(resent.message).toBe(askedWords);
+				expect(resent.options?.reconnectToStreamId).toBeUndefined();
+			});
+
 			it("sends nothing when a pencil is pressed while the server is read, and leaves that edit open", async () => {
 				const retryButton = await failASend();
 				let answer: (detail: ConversationDetail) => void = () => {};

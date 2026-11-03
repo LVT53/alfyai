@@ -3245,6 +3245,90 @@ describe("Normal Chat Client Turn Runtime", () => {
 				);
 			});
 
+			// The stream says whose message it runs. Another device's message in the same
+			// chat is refused for the person's one reply at a time, and the stream that
+			// runs is that one's: joining it would clear the error with this message
+			// unsent, and a reload would lose it.
+			describe("a stream that is another message's", () => {
+				const streamOf = (userMessage: string) => ({
+					schedule: patientClock(),
+					checkForOrphanedStream: vi.fn(async () => "stream-other"),
+					getStreamBufferInfo: vi.fn(async () => ({
+						exists: true,
+						userMessage,
+					})),
+				});
+
+				it("is not this turn: Retry goes on to the chat and to the resend, as it would with no stream", async () => {
+					const readChatMessages = vi.fn(async () => earlierTurn());
+					const { adapters, streamInvocations, runtime } = await failedSend({
+						...streamOf("A question from another device"),
+						readChatMessages,
+					});
+
+					await runtime.retry();
+
+					expect(readChatMessages).toHaveBeenCalledTimes(1);
+					expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].message).toBe(askedWords);
+					expect(
+						streamInvocations[1].options?.reconnectToStreamId,
+					).toBeUndefined();
+				});
+
+				it("still finds this turn in the chat when it has landed", async () => {
+					const { adapters, streamInvocations, runtime } = await failedSend({
+						...streamOf("A question from another device"),
+						readChatMessages: vi.fn(async () => [
+							...earlierTurn(),
+							serverUser(),
+							serverReply(),
+						]),
+					});
+
+					await runtime.retry();
+
+					expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+					expect(streamInvocations).toHaveLength(1);
+				});
+
+				it("is this turn when only the white space differs, and the bubble on screen stays the one", async () => {
+					const { streamInvocations, messages, runtime } = await failedSend({
+						...streamOf(`  ${askedWords}\n`),
+					});
+
+					await runtime.retry();
+
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].options).toMatchObject({
+						reconnectToStreamId: "stream-other",
+						reconnectUserMessage: askedWords,
+					});
+					expect(
+						messages.filter(
+							(message) =>
+								message.role === "user" && message.content === askedWords,
+						),
+					).toHaveLength(1);
+				});
+
+				it("is this turn when the stream says nothing of its message", async () => {
+					const { streamInvocations, runtime } = await failedSend({
+						schedule: patientClock(),
+						checkForOrphanedStream: vi.fn(async () => "stream-1"),
+						getStreamBufferInfo: vi.fn(async () => ({ exists: false })),
+					});
+
+					await runtime.retry();
+
+					expect(streamInvocations).toHaveLength(2);
+					expect(streamInvocations[1].options?.reconnectToStreamId).toBe(
+						"stream-1",
+					);
+				});
+			});
+
 			// A stalled connection must not hold Retry for as long as the browser takes
 			// to give up: the questions about the stream are bounded, on the clock the
 			// runtime already uses (`schedule`), and no answer is no stream. The press
