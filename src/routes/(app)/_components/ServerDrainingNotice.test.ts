@@ -27,7 +27,14 @@ describe("ServerDrainingNotice", () => {
 		expect(
 			screen.getByRole("status", { name: "Update in progress" }),
 		).toBeVisible();
-		expect(screen.getByText(/finishing a brief update/)).toBeVisible();
+		// It promises only what happens: the running reply finishes, a new message
+		// is sent when the update is done (it used to say it "will retry
+		// automatically", which a send that gave up after four seconds did not do).
+		expect(
+			screen.getByText(
+				"AlfyAI is being updated. A reply that's running finishes first, and a new message is sent when the update is done.",
+			),
+		).toBeVisible();
 	});
 
 	it("uses Hungarian copy when the UI language is Hungarian", () => {
@@ -40,6 +47,10 @@ describe("ServerDrainingNotice", () => {
 		expect(
 			screen.getByRole("status", { name: "Frissítés folyamatban" }),
 		).toBeVisible();
-		expect(screen.getByText(/rövid frissítést fejez be/)).toBeVisible();
+		expect(
+			screen.getByText(
+				"Az AlfyAI frissül. A futó válasz előbb befejeződik, az új üzenet pedig a frissítés után megy el.",
+			),
+		).toBeVisible();
 	});
 });
