@@ -40,6 +40,7 @@ import {
 } from "$lib/client/api/campaigns";
 import { conversationExists } from "$lib/client/api/conversations";
 import { fetchServerHealth } from "$lib/client/api/health";
+import { createServerUpdateWatch } from "$lib/client/server-update-watch";
 import {
 	mayAutoShowCampaign,
 	shouldPersistCampaignCompletion,
@@ -73,6 +74,10 @@ import {
 	setDisabledFileTypeIds,
 } from "$lib/stores/upload-format-gate";
 import { sessionExpiry } from "$lib/stores/session";
+import {
+	serverUpdateSign,
+	turnWaitingForUpdate,
+} from "$lib/stores/server-update";
 import { showToast } from "$lib/stores/toast";
 import { t } from "$lib/i18n";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
@@ -132,6 +137,28 @@ let serverUpdateSuppressionTimeout: number | null = null;
 // itself once the deploy's restart completes (see scheduleServerDrainingPoll).
 let serverDraining = $state(false);
 let serverDrainingPollTimeout: number | null = null;
+// The watch a sign of an update starts (the $effect on serverUpdateSign below).
+// It decides when to look and when to stop; this layout owns what is drawn: the
+// banner while the server drains, and during a watch while it does not answer
+// (the restart; unless the browser itself is offline), and the Refresh notice.
+const serverUpdateWatch = createServerUpdateWatch({
+	fetchHealth: fetchServerHealth,
+	checkVersion: () => updated.check(),
+	now: () => Date.now(),
+	setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+	clearTimer: (handle) => window.clearTimeout(handle as number),
+	onLook: (look) => {
+		serverDraining =
+			look.draining ||
+			(look.away && !(browser && navigator.onLine === false));
+		if (look.versionChanged && !isServerUpdateNoticeSuppressed()) {
+			serverUpdateAvailable = true;
+		}
+	},
+	onEnd: () => {
+		serverDraining = false;
+	},
+});
 // The session row and its announcement read the same store, which the browser
 // transports update from the server's own refusals (see $lib/stores/session).
 // Not $state: it is only ever compared against the store's counter inside the
@@ -336,6 +363,19 @@ $effect(() => {
 	if (updated.current && !isServerUpdateNoticeSuppressed()) {
 		serverUpdateAvailable = true;
 	}
+});
+
+// A sign of a server update (a message the server turned away for it, a reply it
+// cut off): watch the server for a while, so the banner and the Refresh notice
+// come up within seconds and not when SvelteKit's own poll next looks, up to a
+// minute later (see $lib/client/server-update-watch.ts). Not $state: it only
+// compares against the store's counter inside the effect below.
+let watchedUpdateSign = 0;
+$effect(() => {
+	const sign = $serverUpdateSign;
+	if (!browser || sign === watchedUpdateSign) return;
+	watchedUpdateSign = sign;
+	untrack(() => serverUpdateWatch.sign());
 });
 
 // The row at the top says the session ended; this says it again at the moment
@@ -880,6 +920,7 @@ onDestroy(() => {
 		window.clearTimeout(serverDrainingPollTimeout);
 		serverDrainingPollTimeout = null;
 	}
+	serverUpdateWatch.stop();
 	document.removeEventListener("visibilitychange", handleVisibilityChange);
 	window.removeEventListener("focus", handleWindowFocus);
 });
@@ -934,7 +975,12 @@ onDestroy(() => {
 		</main>
 	</div>
 	<ServerDrainingNotice visible={serverDraining} />
-	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
+	<!-- Held while a message waits for the update: it has not reached the server, and a reload now would lose it. It shows as soon as that is over. -->
+	<ServerUpdateNotice
+		visible={serverUpdateAvailable}
+		held={$turnWaitingForUpdate}
+		onRefresh={refreshForServerUpdate}
+	/>
 </div>
 
 <!-- B3: single shared toast mount point for the whole app shell. -->
