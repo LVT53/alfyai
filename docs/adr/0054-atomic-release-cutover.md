@@ -237,3 +237,17 @@ up to a minute after the person had acted. Nothing said "update". Four changes:
   reload would lose it.
 
 The page-side rules are in `src/lib/components/chat/AGENTS.md`, "An Update During A Turn".
+
+Review follow-ups (2026-11-03):
+
+- **The drain is undone if the deploy stops before the restart.** Step 7b sets an exit trap that posts
+  `{"draining":false}` (bounded, never failing the deploy); step 10 clears it once the new process answers.
+  Step 10 passes only on a health answer that says `"draining":false`, since the old process answers
+  `"draining":true` until the restart takes it down.
+- **`/api/chat/retry` is turned away for `draining`** (and only for it: the limits were never its to apply),
+  with the same 503 body, so a regenerate pressed during the drain waits as a new message does.
+- **`DRAIN_TIMEOUT_SECONDS` stays short.** The 8 minutes a message waits are sized for the 180-second
+  default (the drain, a stop of up to 2 minutes, the health wait, slack); raising the drain means raising
+  the wait too.
+- **Health says four things** (`up`, `draining`, `proxy_down`, `unreachable`), because a phone that lost its
+  signal is not a restart and a tab that missed a deploy is not an update this turn saw.

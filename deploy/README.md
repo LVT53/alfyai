@@ -59,7 +59,7 @@ and are not read by the app (app runtime variables are in
 | `DB_BACKUP_KEEP` | `7` | How many database backups are retained in `shared/backups/`. The backup taken by the current deploy is never pruned, whatever the ordering says. |
 | `DB_BACKUP_REQUIRED` | `1` | When `1`, a failed database backup **aborts the deploy before any migration runs**. Set to `0` to deploy anyway with an unprotected database. |
 | `DB_BACKUP_TIMEOUT` | `600` | Wall-clock ceiling (seconds) for the backup copy and for the integrity check, so a stalled filesystem cannot hang a deploy. |
-| `DRAIN_TIMEOUT_SECONDS` | `180` | How long step 7b waits for running replies to finish before the cutover restarts the server (`0` does not wait; anything that is not a number is `180`). A reply still running when it ends is cut by the restart. See [Health Check](#health-check). |
+| `DRAIN_TIMEOUT_SECONDS` | `180` | How long step 7b waits for running replies to finish before the cutover restarts the server (`0` does not wait; anything that is not a number is `180`). A reply still running when it ends is cut by the restart. A message waiting for the update gives up after 8 minutes, a time sized for this 180-second default (the drain, a stop of up to 2 minutes, the health wait and some slack), so do not raise this without raising that too (`AWAIT_UPDATE_MAX_MS` in `src/lib/client/normal-chat-client-turn-runtime.ts`, the shell's watch and the draft save that is sent again share it). See [Health Check](#health-check). |
 
 ### Database backups
 
@@ -501,7 +501,15 @@ waits for the update instead of failing. The drain waits for the running replies
 `DRAIN_TIMEOUT_SECONDS` (default `180`; `0` does not wait), printing a progress line every 30
 seconds with how many replies are still running. Waiting here keeps the site up for everyone; a
 reply that is still running when the wait ends is cut by the restart (the page then says so and
-offers Retry). Raise it for a deploy at a busy hour: `DRAIN_TIMEOUT_SECONDS=300 scripts/deploy.sh`.
+offers Retry). Keep it short: a page's message waits for the update for 8 minutes at most, a time
+sized for the 180-second default, so the drain is not raised without raising that too.
+
+The drain is a flag on the running process. If the deploy stops after step 7b set it and before the
+restart made a new process (a step that fails, `^C`, a closed session), an exit trap undoes it
+(`POST /api/admin/drain` with `{"draining":false}`), so the site is not left turning new messages
+away; step 10 clears the trap once the new process answers. Step 10 passes only on a health answer
+that says `"draining":false`: the old process answers `"draining":true` until the restart takes it
+down (and for good if the restart did not happen), and a new process starts undrained.
 
 ## Web Research Deployment
 

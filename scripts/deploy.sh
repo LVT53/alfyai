@@ -215,6 +215,15 @@ if [ -n "$ALFYAI_API_SIGNING_KEY" ]; then
   case "$DRAIN_TIMEOUT_SECONDS" in
     '' | *[!0-9]*) DRAIN_TIMEOUT_SECONDS=180 ;;
   esac
+  # The drain is a flag on the process that runs now. If the deploy stops before
+  # the restart has made a new process (a step that fails under set -e, ^C), that
+  # process would turn every new message away until someone restarted it by hand,
+  # so the exit undoes the drain. Step 10 clears the trap once the new process is
+  # up (a new process starts undrained, so a finished deploy needs no undo).
+  undo_drain() {
+    curl -fsS --max-time 10 -X POST -H "Authorization: Bearer $ALFYAI_API_SIGNING_KEY" -H "Content-Type: application/json" -d '{"draining":false}' "http://localhost:$HEALTH_PORT/api/admin/drain" >/dev/null 2>&1 || true
+  }
+  trap undo_drain EXIT
   curl -fsS --max-time 10 -X POST -H "Authorization: Bearer $ALFYAI_API_SIGNING_KEY" -H "Content-Type: application/json" -d '{"draining":true}' "http://localhost:$HEALTH_PORT/api/admin/drain" >/dev/null 2>&1 || true
   DRAIN_OK=""
   DRAIN_STARTED=$SECONDS
@@ -267,7 +276,10 @@ echo -e "${YELLOW}10. Waiting for /api/health ...${NC}"
 HEALTH_OK=""
 # shellcheck disable=SC2034  # the counter is the point; the body ignores it.
 for attempt in $(seq 1 30); do
-  if curl -fsS "http://localhost:$HEALTH_PORT/api/health" >/dev/null 2>&1; then
+  # The new process starts undrained. The old one answers "draining":true until the
+  # restart takes it down, and for good if the restart did not happen, so an answer
+  # that still says so is not the release that was just cut over to.
+  if curl -fsS --max-time 5 "http://localhost:$HEALTH_PORT/api/health" 2>/dev/null | grep -q '"draining":false'; then
     HEALTH_OK=1
     break
   fi
@@ -289,6 +301,8 @@ if [ -z "$HEALTH_OK" ]; then
   fi
   exit 1
 fi
+# The new process is up and undrained: nothing is left to undo.
+trap - EXIT
 echo -e "${GREEN}✓ Health check passed${NC}"
 echo ""
 

@@ -398,6 +398,247 @@ describe.each([
 });
 
 // ---------------------------------------------------------------------------
+// The drain is a flag on the process that runs now. A deploy that stops after step
+// 7b set it and before the restart made a new process would leave that process
+// turning every new message away until someone restarted it by hand, so the exit
+// undoes it; step 10 clears the undo once the new process answers, undrained. And
+// step 10 must not take the old process, which answers "draining":true until the
+// restart takes it down (and for good if the restart did not happen), for the new.
+// Executed in a real bash with a fake curl, as step 7b is above.
+// ---------------------------------------------------------------------------
+
+/** Step 10 of a deploy script: from its heading to the line before step 11. */
+function healthWaitStepOf(script: string): string {
+	const heading = script.indexOf("10. Waiting for /api/health");
+	const next = script.indexOf("11. Pruning old releases", heading);
+	if (heading === -1 || next === -1) throw new Error("step 10 not found");
+	// From the start of its heading's line to the start of the next step's.
+	return script.slice(
+		script.lastIndexOf("\n", heading) + 1,
+		script.lastIndexOf("\n", next) + 1,
+	);
+}
+
+const DRAINING_BODY = '{"status":"OK","draining":true,"activeStreams":0}';
+const UNDRAINED_BODY = '{"status":"OK","draining":false,"activeStreams":0}';
+
+/**
+ * Runs step 7b, then `betweenSteps` (a shell command: what goes wrong, if
+ * anything), then step 10 with the health route answering `healthBodies` in turn
+ * (the last one for ever). Every POST to the drain route is logged with its body.
+ */
+function runDrainAndHealthSteps(
+	script: string,
+	options: {
+		signingKey?: string | null;
+		betweenSteps?: string;
+		healthBodies: string[];
+	},
+): { status: number; output: string; posts: string[]; healthReads: number } {
+	const dir = mkdtempSync(join(tmpdir(), "alfyai-deploy-drain-"));
+	const log = join(dir, "log");
+	const count = join(dir, "count");
+	const signingKey =
+		options.signingKey === undefined ? "test-key" : options.signingKey;
+	const harness = [
+		"set -e",
+		"YELLOW=''; GREEN=''; RED=''; NC=''",
+		"HEALTH_PORT=3001",
+		signingKey === null
+			? "unset ALFYAI_API_SIGNING_KEY"
+			: `ALFYAI_API_SIGNING_KEY=${signingKey}`,
+		"DRAIN_TIMEOUT_SECONDS=0",
+		"RELEASE_SHA=new; PREVIOUS_SHA=old",
+		`LOG='${log}'; COUNT='${count}'; PHASE=drain`,
+		`bodies=(${options.healthBodies.map((body) => `'${body}'`).join(" ")})`,
+		"sleep() { :; }",
+		"ln() { :; }",
+		"mv() { :; }",
+		'restart_service() { echo "restart_service" >> "$LOG"; return 0; }',
+		"curl() {",
+		'  case "$*" in *"-X POST"*) echo "POST $*" >> "$LOG"; return 0 ;; esac',
+		'  if [ "$PHASE" = drain ]; then',
+		`    echo '${DRAINING_BODY}'`,
+		"    return 0",
+		"  fi",
+		'  n=$(cat "$COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$COUNT"',
+		"  idx=$((n - 1))",
+		'  if [ "$idx" -ge "${#bodies[@]}" ]; then idx=$((${#bodies[@]} - 1)); fi',
+		'  echo "${bodies[$idx]}"',
+		"}",
+		drainStepOf(script),
+		options.betweenSteps ?? "",
+		"PHASE=health",
+		healthWaitStepOf(script),
+		'echo "reached the end"',
+	].join("\n");
+	const result = spawnSync("bash", ["-c", harness], {
+		encoding: "utf8",
+		env: { PATH: process.env.PATH ?? "" },
+	});
+	const logged = existsSync(log) ? readFileSync(log, "utf8") : "";
+	const healthReads = existsSync(count)
+		? Number(readFileSync(count, "utf8").trim())
+		: 0;
+	rmSync(dir, { recursive: true, force: true });
+	return {
+		status: result.status ?? -1,
+		output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+		posts: logged
+			.split("\n")
+			.filter((line) => line.startsWith("POST "))
+			.map((line) => (line.match(/-d (\{[^}]*\})/) ?? [])[1] ?? line),
+		healthReads,
+	};
+}
+
+describe.each([
+	["scripts/deploy.sh", deployScript],
+	["scripts/deploy-dev.sh", deployDevScript],
+])("%s undoes a drain it did not finish", (_label, script) => {
+	it("undoes the drain when a step fails after it was set and before the restart", () => {
+		const result = runDrainAndHealthSteps(script, {
+			betweenSteps: "false",
+			healthBodies: [UNDRAINED_BODY],
+		});
+
+		expect(result.status).not.toBe(0);
+		expect(result.output).not.toContain("reached the end");
+		// Set, then undone by the exit.
+		expect(result.posts).toEqual(['{"draining":true}', '{"draining":false}']);
+		expect(result.healthReads).toBe(0);
+	});
+
+	it("undoes it when the deploy is interrupted (^C, a terminated session) too", () => {
+		for (const signal of ["INT", "TERM", "HUP"]) {
+			const result = runDrainAndHealthSteps(script, {
+				betweenSteps: `kill -${signal} $$; sleep 5`,
+				healthBodies: [UNDRAINED_BODY],
+			});
+
+			expect(result.status).not.toBe(0);
+			expect(result.posts).toEqual(['{"draining":true}', '{"draining":false}']);
+		}
+	});
+
+	it("leaves the drain alone once the new process answers undrained: a new process needs no undo", () => {
+		const result = runDrainAndHealthSteps(script, {
+			healthBodies: [UNDRAINED_BODY],
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("Health check passed");
+		expect(result.output).toContain("reached the end");
+		expect(result.posts).toEqual(['{"draining":true}']);
+	});
+
+	it("clears the undo before anything after step 10 can fail (the prune)", () => {
+		const result = runDrainAndHealthSteps(script, {
+			healthBodies: [UNDRAINED_BODY],
+		});
+		// Past step 10 the harness fails, as a prune that aborts under set -e would.
+		const afterwards = spawnSync(
+			"bash",
+			[
+				"-c",
+				[
+					"set -e",
+					"YELLOW=''; GREEN=''; RED=''; NC=''",
+					"trap 'echo UNDO-RAN' EXIT",
+					// What step 10 does on success, up to and including the clear.
+					healthWaitStepOf(script)
+						.split("\n")
+						.slice(
+							healthWaitStepOf(script).split("\n").findIndex((line) =>
+								line.startsWith("# The new process is up and undrained"),
+							),
+						)
+						.join("\n"),
+					"false",
+				].join("\n"),
+			],
+			{ encoding: "utf8", env: { PATH: process.env.PATH ?? "" } },
+		);
+
+		expect(result.posts).toEqual(['{"draining":true}']);
+		expect(afterwards.stdout).not.toContain("UNDO-RAN");
+	});
+
+	it("does not take the old process, which still says draining, for the new one", () => {
+		const result = runDrainAndHealthSteps(script, {
+			healthBodies: [DRAINING_BODY, DRAINING_BODY, DRAINING_BODY, UNDRAINED_BODY],
+		});
+
+		expect(result.status).toBe(0);
+		// Three answers of the old process were not enough; the fourth passed.
+		expect(result.healthReads).toBe(4);
+		expect(result.output).toContain("Health check passed");
+		expect(result.output).not.toContain("Health check failed");
+	});
+
+	it("fails the health check, rolls back and undoes the drain when only the old process ever answers", () => {
+		const result = runDrainAndHealthSteps(script, {
+			healthBodies: [DRAINING_BODY],
+		});
+
+		expect(result.healthReads).toBe(30);
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("Health check failed");
+		expect(result.output).toContain("Rolling back to previous release");
+		expect(result.output).not.toContain("reached the end");
+		// The old process is left serving, undrained, as the release `current` points
+		// at again.
+		expect(result.posts).toEqual(['{"draining":true}', '{"draining":false}']);
+	});
+
+	it("reads a health answer that does not say draining false (an HTML page, a server error) as not up", () => {
+		const result = runDrainAndHealthSteps(script, {
+			healthBodies: [
+				"<html>Back soon</html>",
+				'{"status":"OK"}',
+				UNDRAINED_BODY,
+			],
+		});
+
+		expect(result.healthReads).toBe(3);
+		expect(result.status).toBe(0);
+	});
+
+	it("sets no drain and no undo without the signing key", () => {
+		const result = runDrainAndHealthSteps(script, {
+			signingKey: null,
+			betweenSteps: "false",
+			healthBodies: [UNDRAINED_BODY],
+		});
+
+		expect(result.status).not.toBe(0);
+		expect(result.posts).toEqual([]);
+	});
+
+	it("bounds the curl of the health wait, so a server that never answers cannot hold it", () => {
+		const step = healthWaitStepOf(script);
+		const curls = step.match(/curl -fsS[^\n]*/g) ?? [];
+
+		expect(curls.length).toBeGreaterThanOrEqual(1);
+		for (const curl of curls) {
+			expect(curl).toMatch(/--max-time \d+/);
+		}
+	});
+
+	it("installs the undo before the drain request, and clears it before the health check is reported passed", () => {
+		const trapSet = script.indexOf("trap undo_drain EXIT");
+		const drainPost = script.indexOf(`'{"draining":true}'`);
+		const trapCleared = script.indexOf("trap - EXIT");
+		const passed = script.indexOf("Health check passed");
+
+		expect(trapSet).toBeGreaterThan(-1);
+		expect(trapSet).toBeLessThan(drainPost);
+		expect(trapCleared).toBeGreaterThan(script.indexOf("10. Waiting"));
+		expect(trapCleared).toBeLessThan(passed);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // Python sandbox packages.
 //
 // The 2026-09-17 outage: the deploy built a venv with the HOST python (3.12 on
