@@ -1591,6 +1591,64 @@ describe("streamChat", () => {
 			}
 		});
 
+		// Detaching (the page was left) aborts the body read, and an aborted read of an
+		// app's JSON looks like the proxy's page: a refusal that reached the runtime
+		// then would start a wait, and a resend, on a page nobody sees.
+		it("reports nothing of a refusal whose body was being read when the stream was detached", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockImplementation(
+				async (_input: RequestInfo | URL, init?: RequestInit) =>
+					({
+						ok: false,
+						status: 503,
+						headers: new Headers(),
+						json: () =>
+							new Promise((_resolve, reject) => {
+								init?.signal?.addEventListener("abort", () =>
+									reject(new DOMException("aborted", "AbortError")),
+								);
+							}),
+					}) as unknown as Response,
+			);
+			const cb = makeCallbacks();
+
+			const handle = streamChat(
+				"m",
+				"conv-1",
+				cb as unknown as StreamCallbacks,
+			);
+			await flushMicrotasks();
+			handle.detach();
+			await flushMicrotasks(10);
+
+			expect(cb.onError).not.toHaveBeenCalled();
+			expect(cb.onEnd).not.toHaveBeenCalled();
+		});
+
+		it("still reports that refusal while the stream is attached, whose aborted read looks like the proxy's page", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockImplementation(
+				async () =>
+					({
+						ok: false,
+						status: 503,
+						headers: new Headers(),
+						json: async () => {
+							throw new SyntaxError("Unexpected end of JSON input");
+						},
+					}) as unknown as Response,
+			);
+			const cb = makeCallbacks();
+
+			streamChat("m", "conv-1", cb as unknown as StreamCallbacks);
+			await flushMicrotasks(10);
+
+			expect(cb.onError).toHaveBeenCalledOnce();
+			expect(
+				isServerUpdateRefusal(vi.mocked(cb.onError).mock.calls[0][0]),
+			).toBe(true);
+		});
+
 		it("is the only kind of error that carries a status: a stream that failed after it was accepted has none", async () => {
 			const frame = await (async () => {
 				const { callbacks: cb, done } = runStreamWithMockedResponse({

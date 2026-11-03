@@ -935,6 +935,11 @@ export function streamChat(
 				// with it so a route's own "Unauthorized" is caught too, not only
 				// the gate's header that `observeSessionFromResponse` above saw.
 				reportAuthFailure(res.status, errorMessage, res);
+				// The page was left while the refusal's body was read. Detaching aborts
+				// that read, which makes a 503 from the app look like the proxy's page
+				// (no JSON to say otherwise), and a refusal that reaches the runtime now
+				// would start a wait on a page nobody sees.
+				if (detached) return;
 				callbacks.onError(
 					toStreamError(
 						errorMessage,

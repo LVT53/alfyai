@@ -485,15 +485,29 @@ const MAX_REJOINS_WHILE_DRAINING = 3;
 const NO_ANSWER: ServerHealth = { state: "unreachable" };
 
 /**
+ * A cut reply the runtime is deciding about (what is the server doing? is its
+ * stream still running?). The stream that failed is gone, so a Stop pressed
+ * meanwhile has nothing to stop: it is recorded here, and the decision honours it.
+ */
+type CutReplyQuestion = {
+	stopped: boolean;
+	/** The handle of the stream that failed; Stop still asks the server to stop the run it may have. */
+	deadStream: StreamHandle | null;
+};
+
+/**
  * How a hold on a cut reply ends (`holdTurnWhileServerUpdates`).
  * - `none`: nothing says an update; the failure is what it always was.
  * - `draining`: the old process is alive and finishes the replies it runs, so the
  *   reply is probably still running there: look for its stream, do not wait.
  * - `cut`: an update cut the reply (the restart, or a version that went live during
  *   this turn). The server is back, and the turn state is held for the caller.
- * - `abandoned`: the chat on screen changed; the caller does nothing more.
+ * - `stopped`: Stop was pressed while the page was asked; nothing is waited for and
+ *   the turn ends.
+ * - `abandoned`: the chat on screen changed, or the page was left; the caller does
+ *   nothing more.
  */
-type CutReplyVerdict = "none" | "draining" | "cut" | "abandoned";
+type CutReplyVerdict = "none" | "draining" | "cut" | "stopped" | "abandoned";
 
 /** How a wait for an update ends (a page that is left ends it without one). */
 type UpdateWaitEnd = "back" | "timeout" | "stopped";
@@ -537,11 +551,19 @@ export function createNormalChatClientTurnRuntime(
 	let retryReading = false;
 	// The turn that waits for the server to come back from an update, if any.
 	let updateWait: UpdateWait | null = null;
+	// True from `detach()` (the page is going away, or the chat is switched) until the
+	// next send, Retry or reconnect of a page that is there. `isTurnConversationActive`
+	// stays true after a page is destroyed (its chat id never changes), so this is
+	// what keeps a refusal, a cut reply or a question that answers late from starting
+	// a wait, a resend or a sign for the shell on a page nobody sees.
+	let detached = false;
+	// The cut reply being asked about, if any (`CutReplyQuestion`).
+	let cutReplyQuestion: CutReplyQuestion | null = null;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
 			phase,
-			active: Boolean(activeStream),
+			active: Boolean(activeStream) || cutReplyQuestion !== null,
 			isSending,
 			isPollingForCompletion,
 			streamInterruptedByBackground,
@@ -651,7 +673,10 @@ export function createNormalChatClientTurnRuntime(
 	 * Each tick checks that the wait is still this one and the chat is still on
 	 * screen, so nothing is sent from a chat the person has left.
 	 */
-	function beginUpdateWait(init: Omit<UpdateWait, "detached">) {
+	function beginUpdateWait(init: Omit<UpdateWait, "detached">): boolean {
+		// A page that was left starts no wait: nothing could be sent from it, and the
+		// shell must not hold its Refresh notice back for words nobody will send.
+		if (detached) return false;
 		const wait: UpdateWait = { ...init, detached: false };
 		updateWait = wait;
 		// The shell first: its Refresh notice is held before the bubble says why.
@@ -666,14 +691,15 @@ export function createNormalChatClientTurnRuntime(
 			completeStaleTurn(wait.placeholderId);
 			return false;
 		};
+		const askHealth = async () =>
+			(await answerWithin(
+				adapters.fetchServerHealth(),
+				AWAIT_UPDATE_QUESTION_MAX_MS,
+			)) ?? NO_ANSWER;
 		const poll = () => {
 			if (!live()) return;
 			void (async () => {
-				const health =
-					(await answerWithin(
-						adapters.fetchServerHealth(),
-						AWAIT_UPDATE_QUESTION_MAX_MS,
-					)) ?? NO_ANSWER;
+				const health = await askHealth();
 				if (!live()) return;
 				// Only `up` ends it. Draining and the restart wait, and so does a server
 				// that cannot be reached: a wait cannot tell it from the restart.
@@ -686,8 +712,18 @@ export function createNormalChatClientTurnRuntime(
 		};
 		adapters.schedule(poll, AWAIT_UPDATE_POLL_MS);
 		adapters.schedule(() => {
-			if (live()) endUpdateWait(wait, "timeout");
+			if (!live()) return;
+			// A tab that slept through the wait wakes to find the cap passed, and the
+			// poll that would have noticed the server was back never ran: the server may
+			// have been up for minutes. So it is asked once more before the wait is given
+			// up, and only a server that is still not back ends it as a timeout.
+			void (async () => {
+				const health = await askHealth();
+				if (!live()) return;
+				endUpdateWait(wait, health.state === "up" ? "back" : "timeout");
+			})();
 		}, AWAIT_UPDATE_MAX_MS);
+		return true;
 	}
 
 	/**
@@ -705,12 +741,13 @@ export function createNormalChatClientTurnRuntime(
 		const serverNeverGotIt = Boolean(
 			params.payload && !params.streamOptions.retryAssistantMessageId,
 		);
-		beginUpdateWait({
+		const waiting = beginUpdateWait({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
 			unsentPayload: serverNeverGotIt ? (params.payload ?? null) : null,
 			onEnd: (end) => {
 				if (end === "back") {
+					if (detached) return;
 					setPhase("preparing", params.placeholderId);
 					startStream({
 						...params,
@@ -725,17 +762,16 @@ export function createNormalChatClientTurnRuntime(
 				}
 				// Stop. The placeholder goes. A message the server never got goes too,
 				// with its bubble, and its words return to the composer (joined to what
-				// it holds, as for any restore); a regenerate is left as a failed one is,
-				// the question ending the list, with no sentence.
+				// it holds, as for any restore).
 				adapters.applyMessageListEvent({
 					type: "remove",
 					messageId: params.placeholderId,
 				});
-				completeTurn();
-				if (takeQueuedContextCompression()) {
-					void adapters.runManualContextCompression();
-				}
 				if (serverNeverGotIt && params.payload) {
+					completeTurn();
+					if (takeQueuedContextCompression()) {
+						void adapters.runManualContextCompression();
+					}
 					if (params.clientUserMessageId) {
 						adapters.applyMessageListEvent({
 							type: "remove",
@@ -745,13 +781,55 @@ export function createNormalChatClientTurnRuntime(
 					adapters.restorePayloadToDraft(params.payload);
 					lastSend = null;
 					canRetry = false;
-				} else {
-					canRetry = true;
+					restoreQueuedTurnToDraft();
+					emitState();
+					return;
+				}
+				// A request the server knows (a regenerate, a Retry of a message it holds
+				// without a reply): it never ran, but the page took the reply it replaces
+				// off the screen when the request began, so the chat is read back.
+				if (takeQueuedContextCompression()) {
+					void adapters.runManualContextCompression();
 				}
 				restoreQueuedTurnToDraft();
-				emitState();
+				void settleStoppedRequestTheServerKnows(params);
 			},
 		});
+		// A page that was left starts no wait (its words are the page's to keep).
+		if (!waiting) completeStaleTurn(params.placeholderId);
+	}
+
+	/**
+	 * Stop on a wait for a request the server knows. The old reply is gone from the
+	 * screen (the page removed it when the regenerate began) and the request never
+	 * ran, so the chat is read back, and the reply the server holds returns. The turn
+	 * state is held through the read (the composer queues what is sent meanwhile),
+	 * which is bounded; a chat that cannot be read (the restart is still on) leaves
+	 * the question with the sentence for a wait that did not end, and Retry: Retry
+	 * renders only beside a sentence, and asks the server before it sends anything.
+	 */
+	async function settleStoppedRequestTheServerKnows(params: StartStreamParams) {
+		activePlaceholderId = null;
+		phase = "preparing";
+		canRetry = true;
+		emitState();
+		const read = adapters.readChatMessages;
+		const held = read
+			? await answerWithin(read(), STREAM_QUESTION_MAX_MS)
+			: undefined;
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
+			// The page was left or moved on; its own reset has ended the turn state.
+			return;
+		}
+		if (held === null) {
+			completeTurn();
+			adapters.setSendError("chat.updateStillRunning");
+			canRetry = true;
+			emitState();
+			return;
+		}
+		await loadChatHoldingTheTurn();
+		await drainPostTurnQueue();
 	}
 
 	/**
@@ -817,9 +895,18 @@ export function createNormalChatClientTurnRuntime(
 		turnConversationId: string;
 		ownsTurn: boolean;
 		versionWasLive: boolean;
+		/** Open while the page is asked, for a turn that still holds the turn state: a Stop pressed meanwhile lands here. */
+		question?: CutReplyQuestion;
 	}): Promise<CutReplyVerdict> {
 		const kind = await askServerUpdate(held.versionWasLive);
-		if (!isTurnConversationActive(held.turnConversationId)) return "abandoned";
+		const stopped = held.question?.stopped === true;
+		if (held.question) closeCutReplyQuestion(held.question);
+		// The page may have been left while it was asked: nothing is started from it.
+		if (detached || !isTurnConversationActive(held.turnConversationId)) {
+			return "abandoned";
+		}
+		// Stop was pressed meanwhile: no wait, the turn ends.
+		if (stopped) return "stopped";
 		if (kind === "none") return "none";
 		if (kind === "draining") {
 			adapters.onServerUpdateSign?.();
@@ -837,14 +924,34 @@ export function createNormalChatClientTurnRuntime(
 			return "cut";
 		}
 		return new Promise((resolve) => {
-			beginUpdateWait({
+			const waiting = beginUpdateWait({
 				placeholderId: held.placeholderId,
 				turnConversationId: held.turnConversationId,
 				// A cut reply has no words to keep: the server may well hold the message.
 				unsentPayload: null,
 				onEnd: () => resolve("cut"),
 			});
+			if (!waiting) resolve("abandoned");
 		});
+	}
+
+	/**
+	 * Opens the question a cut reply's turn is asking: its stream is gone, so Stop has
+	 * nothing to stop but the run the server may still have, and is recorded
+	 * (`stop()`). While it is open the turn counts as active, so Stop stays within
+	 * reach for the moment the page is asked.
+	 */
+	function openCutReplyQuestion(deadStream: StreamHandle | null) {
+		const question: CutReplyQuestion = { stopped: false, deadStream };
+		cutReplyQuestion = question;
+		emitState();
+		return question;
+	}
+
+	function closeCutReplyQuestion(question: CutReplyQuestion) {
+		if (cutReplyQuestion !== question) return;
+		cutReplyQuestion = null;
+		emitState();
 	}
 
 	/**
@@ -869,7 +976,7 @@ export function createNormalChatClientTurnRuntime(
 			params.turnConversationId,
 			STREAM_QUESTION_MAX_MS,
 		);
-		if (!isTurnConversationActive(params.turnConversationId)) {
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			return "abandoned";
 		}
 		if (!running || isForAnotherMessage(running.bufferInfo, params.message)) {
@@ -911,7 +1018,7 @@ export function createNormalChatClientTurnRuntime(
 			params.message,
 			params.streamOptions.retryAssistantMessageId,
 		);
-		if (!isTurnConversationActive(params.turnConversationId)) {
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			return;
 		}
 		adapters.applyMessageListEvent({
@@ -958,12 +1065,14 @@ export function createNormalChatClientTurnRuntime(
 		params: StartStreamParams,
 		error: Error,
 		versionWasLive: boolean,
+		deadStream: StreamHandle | null,
 	) {
 		const hold = await holdTurnWhileServerUpdates({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
 			versionWasLive,
+			question: openCutReplyQuestion(deadStream),
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
@@ -971,6 +1080,15 @@ export function createNormalChatClientTurnRuntime(
 		}
 		if (hold === "none") {
 			endTurnWithError(params, adapters.toFriendlySendError(error));
+			return;
+		}
+		if (hold === "stopped") {
+			// Stop was pressed while the page was asked: no wait, and nothing is joined.
+			// The turn ends, after the server has said whether it holds the message.
+			await settleCutReply(params, error, {
+				ownsTurn: true,
+				cutByUpdate: false,
+			});
 			return;
 		}
 		if (hold === "draining") {
@@ -998,12 +1116,14 @@ export function createNormalChatClientTurnRuntime(
 		params: StartStreamParams,
 		error: Error,
 		versionWasLive: boolean,
+		deadStream: StreamHandle | null,
 	) {
 		const hold = await holdTurnWhileServerUpdates({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
 			versionWasLive,
+			question: openCutReplyQuestion(deadStream),
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
@@ -1584,7 +1704,7 @@ export function createNormalChatClientTurnRuntime(
 				// ownership-checked completeStaleTurn (not completeTurn) — a
 				// different, currently-active turn may already own the shared
 				// runtime state by the time this fires.
-				if (!isTurnConversationActive(params.turnConversationId)) {
+				if (detached || !isTurnConversationActive(params.turnConversationId)) {
 					completeStaleTurn(params.placeholderId);
 					return;
 				}
@@ -1714,7 +1834,16 @@ export function createNormalChatClientTurnRuntime(
 					!isForkedHistoryError &&
 					isStreamTransportFailure(err)
 				) {
-					void settleReplyThatDiedBeforeContent(params, err, versionWasLive);
+					// The stream that failed is nothing to stop: it is let go before the
+					// page is asked, and a Stop pressed meanwhile is the question's.
+					const deadStream = activeStream;
+					activeStream = null;
+					void settleReplyThatDiedBeforeContent(
+						params,
+						err,
+						versionWasLive,
+						deadStream,
+					);
 					return;
 				}
 
@@ -1726,7 +1855,14 @@ export function createNormalChatClientTurnRuntime(
 					params.isReconnect &&
 					(isStreamTransportFailure(err) || isServerUpdateRefusal(err))
 				) {
-					void settleReconnectThatFailed(params, err, versionWasLive);
+					const deadStream = activeStream;
+					activeStream = null;
+					void settleReconnectThatFailed(
+						params,
+						err,
+						versionWasLive,
+						deadStream,
+					);
 					return;
 				}
 
@@ -2007,6 +2143,9 @@ export function createNormalChatClientTurnRuntime(
 			return;
 		}
 
+		// A page that sends is there: what a `detach()` left behind is over.
+		detached = false;
+
 		// R1 (ADR-0060, defect 2) — the conversation this turn belongs to,
 		// captured once, up front. See `StartStreamParams.turnConversationId`.
 		const turnConversationId = adapters.getConversationId();
@@ -2104,6 +2243,7 @@ export function createNormalChatClientTurnRuntime(
 	 * the person has started since.
 	 */
 	function resendFailedMessage(bubble: ChatMessage, outcome: ServerOutcome) {
+		detached = false;
 		const turnConversationId = adapters.getConversationId();
 		// A send of another chat is never sent into this one (the page resets the
 		// runtime on a switch; this holds if it did not).
@@ -2251,6 +2391,7 @@ export function createNormalChatClientTurnRuntime(
 		}
 
 		// The list really ends in an assistant message: Retry regenerates it.
+		detached = false;
 		adapters.setSendError(null);
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
@@ -2366,6 +2507,14 @@ export function createNormalChatClientTurnRuntime(
 			endUpdateWait(updateWait, "stopped");
 			return true;
 		}
+		// A cut reply whose page is being asked what the server is doing: its stream
+		// is gone, so the Stop is recorded for the question to honour, and the run the
+		// server may still have is asked to stop.
+		if (cutReplyQuestion && !detached) {
+			cutReplyQuestion.stopped = true;
+			cutReplyQuestion.deadStream?.stop();
+			return true;
+		}
 		if (!canStopActiveStream()) return false;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
@@ -2383,6 +2532,10 @@ export function createNormalChatClientTurnRuntime(
 		// A wait does nothing more once the page is going away, but the page may
 		// still take its words (`takeWaitingRequest`).
 		if (updateWait) updateWait.detached = true;
+		// And nothing that is still out (a refusal, a cut reply, a question) starts a
+		// wait, a resend or a sign for the shell from here.
+		detached = true;
+		cutReplyQuestion = null;
 		phase = "idle";
 		activePlaceholderId = null;
 		emitState();
@@ -2441,6 +2594,7 @@ export function createNormalChatClientTurnRuntime(
 		if (isSending || activeStream) return false;
 		if (!isTurnConversationActive(turnConversationId)) return false;
 
+		detached = false;
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
 		const placeholderId = adapters.randomId();

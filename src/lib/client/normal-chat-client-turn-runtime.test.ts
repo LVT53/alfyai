@@ -4640,6 +4640,154 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(sentenceShown(adapters)).toEqual(["HTTP 503"]);
 		});
 
+		// A tab that sleeps (a phone locked in a pocket) wakes to find the cap passed.
+		// The poll that would have noticed the server was back never ran, so the cap
+		// asks once more before it gives up.
+		describe("at the cap", () => {
+			it("asks the server once more, and sends the request when it is back", async () => {
+				const { adapters, streamInvocations, server } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				// The server is away for the whole wait, and the last poll before the cap
+				// was a moment before it came back.
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS - 100);
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(100);
+
+				expect(sentenceShown(adapters)).toEqual([]);
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].message).toBe("Hello during an update");
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+			});
+
+			it("gives up only if that look finds the server still not back", async () => {
+				const { adapters, streamInvocations, messages } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				const looksBefore = () =>
+					vi.mocked(adapters.fetchServerHealth).mock.calls.length;
+
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS - 1);
+				const looked = looksBefore();
+				await vi.advanceTimersByTimeAsync(1);
+
+				// One more look, at the cap, and it found the server still draining.
+				expect(looksBefore()).toBe(looked + 1);
+				expect(sentenceShown(adapters)).toEqual(["chat.updateStillRunning"]);
+				expect(messages.map((message) => message.role)).toEqual(["user"]);
+			});
+
+			it("takes a tab that slept past the cap, and woke to timers that are all overdue at once, for a server that is back", async () => {
+				// A phone tab frozen in the background: nothing runs while it is frozen,
+				// and on resume every overdue timer runs in due order, each as its own
+				// task, while a network answer needs a later task.
+				const timers: Array<{ at: number; seq: number; callback: () => void }> =
+					[];
+				let now = 0;
+				let seq = 0;
+				const answers: Array<(health: ServerHealth) => void> = [];
+				const { adapters, streamInvocations } = updateAdapters({
+					schedule: vi.fn((callback, delay) => {
+						timers.push({ at: now + delay, seq: seq++, callback });
+						return seq as unknown as ReturnType<typeof setTimeout>;
+					}),
+					fetchServerHealth: vi.fn(
+						() =>
+							new Promise<ServerHealth>((resolve) => {
+								answers.push(resolve);
+							}),
+					),
+				});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				// The phone wakes 12 minutes later; the update ended at minute 5.
+				now = 12 * 60 * 1000;
+				for (;;) {
+					timers.sort((a, b) => a.at - b.at || a.seq - b.seq);
+					const next = timers[0];
+					if (!next || next.at > now) break;
+					timers.shift();
+					next.callback();
+					for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+				}
+				// Every question is out on the network, and nothing has been decided.
+				expect(answers.length).toBeGreaterThanOrEqual(2);
+				expect(sentenceShown(adapters)).toEqual([]);
+
+				for (const answer of answers.splice(0)) answer(WELL);
+				for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+
+				expect(sentenceShown(adapters)).toEqual([]);
+				expect(streamInvocations).toHaveLength(2);
+			});
+		});
+
+		// The page was left (Home, Settings) while a refusal, or the question about a
+		// cut reply, was still out. `isTurnConversationActive` stays true for a page
+		// that is destroyed, so it is the runtime's own `detach()` that stops a wait,
+		// a resend and a sign for the shell from starting on a page nobody sees.
+		describe("a refusal that arrives after the page was left", () => {
+			it("starts no wait, tells the shell nothing and sends nothing", async () => {
+				const { adapters, streamInvocations, server } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(words());
+
+				runtime.detach();
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				streamInvocations[0].callbacks.onError(refusedByTheProxy());
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+
+				expect(adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(adapters.fetchServerHealth).not.toHaveBeenCalled();
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("is over for the next send of a page that is there: it waits as it always did", async () => {
+				const { adapters, streamInvocations, messages, server } =
+					updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(words("Left behind"));
+				// A switch of chat: the page resets the runtime, and sends in the next chat.
+				runtime.reset();
+
+				await runtime.send(words("In the next chat"));
+				streamInvocations[1].callbacks.onError(refusedAsDraining());
+
+				expect(messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+				expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+				expect(streamInvocations).toHaveLength(3);
+				expect(streamInvocations[2].message).toBe("In the next chat");
+			});
+
+			it("is over for a reconnect of a page that is there, too", async () => {
+				const { adapters, streamInvocations, messages } = updateAdapters({
+					askServerUpdate: vi.fn(
+						async (): Promise<ServerUpdateKind> => "restarting",
+					),
+				});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				runtime.reset();
+
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				streamInvocations[0].callbacks.onError(new TypeError("network error"));
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+				expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+			});
+		});
+
 		describe("Stop, and leaving the chat, while it waits", () => {
 			it("ends the wait on Stop: the unsent bubble and the placeholder go, and the words return to the composer", async () => {
 				const { adapters, streamInvocations, messages, server } =
@@ -4704,41 +4852,166 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(runtime.snapshot().queuedTurn).toBeNull();
 			});
 
-			it("leaves a stopped regenerate the way a failed one is left, with no sentence and no words to restore", async () => {
-				const { adapters, streamInvocations, messages } = updateAdapters();
-				const runtime = createNormalChatClientTurnRuntime(adapters);
-				// The page took the reply it replaces off the list, and the question stays.
-				messages.push({
+			// The server holds a regenerate's message, and the page took the reply it
+			// replaces off the screen when the request began. The request never ran, so
+			// on Stop the chat is read back and the reply the server holds returns.
+			describe("a regenerate, which the server knows, stopped while it waits", () => {
+				const oldReply: ChatMessage = {
+					id: "assistant-old",
+					role: "assistant",
+					content: "The old answer",
+					timestamp: 2,
+				};
+				const question: ChatMessage = {
 					id: "user-1",
 					role: "user",
 					content: "The old question",
 					timestamp: 1,
+				};
+
+				async function waitingRegenerate(
+					overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+				) {
+					const made = updateAdapters(overrides);
+					const runtime = createNormalChatClientTurnRuntime(made.adapters);
+					// The page took the reply it replaces off the list, and the question stays.
+					made.messages.push({ ...question });
+					await runtime.send(words("The old question"), {
+						skipUserMessage: true,
+						skipPersistUserMessage: true,
+						retryAssistantMessageId: "assistant-old",
+						retryUserMessageId: "user-1",
+					});
+					made.streamInvocations[0].callbacks.onError(refusedAsDraining());
+					expect(made.messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+					return { ...made, runtime };
+				}
+
+				it("reads the chat back, so the reply the server holds returns, with no sentence and no words to restore", async () => {
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(async () => [question, oldReply]),
+						loadPersistedData: vi.fn(async () => {
+							made.messages.length = 0;
+							made.messages.push(question, oldReply);
+						}),
+					});
+
+					expect(made.runtime.stop()).toBe(true);
+					await vi.advanceTimersByTimeAsync(0);
+
+					// The placeholder went, the chat was read, and the old reply is back.
+					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+					expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+					expect(made.messages.map((message) => message.id)).toEqual([
+						"user-1",
+						"assistant-old",
+					]);
+					expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					expect(
+						made.adapters.setTurnWaitingForUpdate,
+					).toHaveBeenLastCalledWith(false);
+					expect(made.runtime.snapshot()).toMatchObject({
+						isSending: false,
+						phase: "idle",
+					});
+					// And the request is not sent, whatever the server does.
+					made.server.health = WELL;
+					await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+					expect(made.streamInvocations).toHaveLength(1);
 				});
 
-				await runtime.send(words("The old question"), {
-					skipUserMessage: true,
-					skipPersistUserMessage: true,
-					retryAssistantMessageId: "assistant-old",
-					retryUserMessageId: "user-1",
+				it("holds the turn state through the read, so a message sent meanwhile is queued, then sent after", async () => {
+					let finishRead: (messages: ChatMessage[] | null) => void = () => {};
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(
+							() =>
+								new Promise<ChatMessage[] | null>((resolve) => {
+									finishRead = resolve;
+								}),
+						),
+					});
+
+					made.runtime.stop();
+					expect(made.runtime.snapshot()).toMatchObject({ isSending: true });
+					// The composer sees a turn that is not over: it queues.
+					made.runtime.queue(words("Typed while the chat was being read"));
+					expect(made.runtime.snapshot().queuedTurn?.message).toBe(
+						"Typed while the chat was being read",
+					);
+
+					finishRead([question, oldReply]);
+					await vi.advanceTimersByTimeAsync(0);
+
+					expect(made.streamInvocations).toHaveLength(2);
+					expect(made.streamInvocations[1].message).toBe(
+						"Typed while the chat was being read",
+					);
 				});
-				streamInvocations[0].callbacks.onError(refusedAsDraining());
-				expect(messages.at(-1)?.runtimePhase).toBe("awaiting_update");
 
-				runtime.stop();
+				it("ends with the sentence for a wait that did not end, and Retry, when the chat cannot be read (the restart)", async () => {
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(async () => null),
+					});
 
-				// The placeholder goes; the question, which the server holds, stays; and
-				// the question's words are not put in the composer as if unsent.
-				expect(messages.map((message) => message.id)).toEqual(["user-1"]);
-				expect(adapters.restorePayloadToDraft).not.toHaveBeenCalled();
-				expect(sentenceShown(adapters)).toEqual([]);
-				expect(runtime.snapshot()).toMatchObject({
-					isSending: false,
-					canRetry: true,
+					made.runtime.stop();
+					await vi.advanceTimersByTimeAsync(0);
+
+					expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+					expect(sentenceShown(made.adapters)).toEqual([
+						"chat.updateStillRunning",
+					]);
+					expect(made.messages.map((message) => message.id)).toEqual([
+						"user-1",
+					]);
+					expect(made.adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+					expect(made.runtime.snapshot()).toMatchObject({
+						isSending: false,
+						canRetry: true,
+					});
+				});
+
+				it("does not wait for a read that never answers: five seconds is a chat that cannot be read", async () => {
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(
+							() => new Promise<ChatMessage[] | null>(() => {}),
+						),
+					});
+
+					made.runtime.stop();
+					await vi.advanceTimersByTimeAsync(4999);
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					await vi.advanceTimersByTimeAsync(1);
+
+					expect(sentenceShown(made.adapters)).toEqual([
+						"chat.updateStillRunning",
+					]);
+					expect(made.runtime.snapshot()).toMatchObject({
+						isSending: false,
+						canRetry: true,
+					});
+				});
+
+				it("gives a message queued behind it back to the composer", async () => {
+					const made = await waitingRegenerate({
+						readChatMessages: vi.fn(async () => [question, oldReply]),
+					});
+					made.runtime.queue(words("Queued behind the regenerate"));
+
+					made.runtime.stop();
+
+					expect(
+						vi
+							.mocked(made.adapters.restorePayloadToDraft)
+							.mock.calls.map(([restored]) => restored.message),
+					).toEqual(["Queued behind the regenerate"]);
 				});
 			});
 
 			it("does the same for a request with no payload at all, the regenerate Retry makes of a reply", async () => {
-				const { adapters, streamInvocations, messages } = updateAdapters();
+				const { adapters, streamInvocations, messages } = updateAdapters({
+					readChatMessages: vi.fn(async () => null),
+				});
 				const runtime = createNormalChatClientTurnRuntime(adapters);
 
 				await runtime.send(words("Question"));
@@ -4759,6 +5032,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				streamInvocations[1].callbacks.onError(refusedAsDraining());
 				expect(runtime.snapshot().phase).toBe("awaiting_update");
 				runtime.stop();
+				await vi.advanceTimersByTimeAsync(0);
 
 				expect(adapters.restorePayloadToDraft).not.toHaveBeenCalled();
 				expect(messages.map((message) => message.role)).toEqual(["user"]);
@@ -4766,6 +5040,8 @@ describe("Normal Chat Client Turn Runtime", () => {
 					isSending: false,
 					canRetry: true,
 				});
+				// "Network failed" is the first send's; the last sentence is the Stop's.
+				expect(sentenceShown(adapters).at(-1)).toBe("chat.updateStillRunning");
 			});
 
 			it("sends nothing from a chat the person left: a reset drops the wait", async () => {
@@ -5293,6 +5569,144 @@ describe("Normal Chat Client Turn Runtime", () => {
 					expect(sentenceShown(made.adapters)).toEqual(["network error"]),
 				);
 				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			});
+		});
+
+		// The page asks what the server is doing for up to five seconds, and the person
+		// can leave the chat, or press Stop, meanwhile.
+		describe("while the page is asked what the server is doing", () => {
+			function askedLate(
+				overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+			) {
+				let answer: (kind: ServerUpdateKind) => void = () => {};
+				const made = cutAdapters({
+					askServerUpdate: vi.fn(
+						() =>
+							new Promise<ServerUpdateKind>((resolve) => {
+								answer = resolve;
+							}),
+					),
+					...overrides,
+				});
+				return { ...made, answer: (kind: ServerUpdateKind) => answer(kind) };
+			}
+
+			it("starts no wait on a page that was left meanwhile, and the shell hears nothing", async () => {
+				const made = askedLate();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				// Before any text, the connection fails (a phone losing signal looks the same).
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+
+				// The person leaves the chat page, which takes the words it holds.
+				runtime.detach();
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				expect(runtime.takeQueuedTurn()).toBeNull();
+				made.answer("restarting");
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+				expect(made.adapters.fetchServerHealth).not.toHaveBeenCalled();
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("keeps Stop within reach: the turn counts as active, though the stream that failed is gone", async () => {
+				const made = askedLate();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+
+				expect(runtime.snapshot()).toMatchObject({
+					active: true,
+					isSending: true,
+					phase: "preparing",
+				});
+				made.answer("none");
+				await vi.advanceTimersByTimeAsync(0);
+				expect(runtime.snapshot().active).toBe(false);
+			});
+
+			// Stop used to land on the stream that had already failed: it reported true
+			// and nothing ended, and the turn waited for the update after all.
+			it("honours a Stop pressed meanwhile: it asks the server to stop the run, waits for nothing and ends the turn", async () => {
+				const made = askedLate();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+
+				expect(runtime.stop()).toBe(true);
+				// The run the server may still have is asked to stop, once.
+				expect(made.streamInvocations[0].handle.stop).toHaveBeenCalledTimes(1);
+				made.answer("restarting");
+				await vi.advanceTimersByTimeAsync(0);
+
+				// No wait, no sign: the turn ended, after the server was asked what it holds.
+				expect(
+					made.messages.some(
+						(message) => message.runtimePhase === "awaiting_update",
+					),
+				).toBe(false);
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					active: false,
+					phase: "idle",
+				});
+				await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+				expect(made.adapters.fetchServerHealth).not.toHaveBeenCalled();
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("loads the turn when the server finished it meanwhile, after a Stop", async () => {
+				const made = askedLate();
+				made.server.chat = heldByTheServer;
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+
+				runtime.stop();
+				made.answer("restarting");
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+
+			it("ends a Stop pressed during a reconnect's question the same way", async () => {
+				const made = askedLate({
+					loadPersistedData: vi.fn(async () => {
+						made.messages.length = 0;
+					}),
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+
+				expect(runtime.stop()).toBe(true);
+				made.answer("restarting");
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				await vi.waitFor(() =>
+					expect(runtime.snapshot()).toMatchObject({ isSending: false }),
+				);
+			});
+
+			it("has nothing to stop once the question is answered and the turn is over", async () => {
+				const made = askedLate();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+				made.answer("none");
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(runtime.stop()).toBe(false);
+				expect(made.streamInvocations[0].handle.stop).not.toHaveBeenCalled();
 			});
 		});
 
