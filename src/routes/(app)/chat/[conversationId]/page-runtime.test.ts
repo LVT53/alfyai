@@ -2668,6 +2668,10 @@ describe("chat page runtime integration", () => {
 
 				afterEach(() => {
 					vi.useRealTimers();
+					// Back to a save that lands, whatever a test made it do.
+					vi.mocked(persistConversationDraft)
+						.mockReset()
+						.mockResolvedValue(undefined);
 				});
 
 				it("is sent again every three seconds after the person left the chat page, until it lands", async () => {
