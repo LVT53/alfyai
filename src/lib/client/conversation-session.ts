@@ -774,7 +774,7 @@ export function createDraftPersistence(
 }
 
 /** One save of a chat's draft, as the composer and the chat page ask for it. */
-export type DraftSaveRequest = {
+type DraftSaveRequest = {
 	conversationId: string;
 	draftText: string;
 	selectedAttachmentIds: string[];
