@@ -2549,29 +2549,59 @@ describe("chat page runtime integration", () => {
 			});
 
 			it("is saved as the draft of the chat it was sent in when the person moves to another, and sent nowhere", async () => {
-				const { view, composer } = await waitingWithBQueued();
+				// The poll for the server is 3 seconds away, so the clock has to pass it:
+				// a test that looks a moment after the move proves nothing.
+				vi.useFakeTimers();
+				try {
+					const { view, composer } = await waitingWithBQueued();
 
-				await view.rerender(chat("conv-2", "B's own draft"));
+					await view.rerender(chat("conv-2", "B's own draft"));
 
-				await waitFor(() => {
-					expect(composer).toHaveValue("B's own draft");
-				});
-				// The waiting message first, the one queued behind it after it, in one save.
-				expect(persistConversationDraft).toHaveBeenCalledWith(
-					"conv-1",
-					expect.objectContaining({ draftText: "A question\n\nB queued" }),
-					expect.anything(),
-				);
-				expect(persistConversationDraft).not.toHaveBeenCalledWith(
-					"conv-2",
-					expect.anything(),
-					expect.anything(),
-				);
-				// The server comes back, and nothing is sent into the chat now on screen.
-				fetchServerHealthMock.mockResolvedValue({ state: "up" });
-				await new Promise((resolve) => setTimeout(resolve, 0));
-				expect(runtimeHarness.streamInvocations).toHaveLength(1);
-				expect(fetchServerHealthMock).not.toHaveBeenCalled();
+					await vi.waitFor(() => {
+						expect(composer).toHaveValue("B's own draft");
+					});
+					// The waiting message first, the one queued behind it after it, in one save.
+					expect(persistConversationDraft).toHaveBeenCalledWith(
+						"conv-1",
+						expect.objectContaining({ draftText: "A question\n\nB queued" }),
+						expect.anything(),
+					);
+					expect(persistConversationDraft).not.toHaveBeenCalledWith(
+						"conv-2",
+						expect.anything(),
+						expect.anything(),
+					);
+					// The server comes back, the clock passes the poll and the cap, and nothing
+					// is sent into the chat now on screen: the server is not even asked.
+					fetchServerHealthMock.mockResolvedValue({ state: "up" });
+					await vi.advanceTimersByTimeAsync(8 * 60 * 1000 + 10_000);
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+					expect(fetchServerHealthMock).not.toHaveBeenCalled();
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			// The control for the test above: the same wait, with the person still in the
+			// chat, is sent when the clock passes the poll. Without it "sent nowhere"
+			// could pass for a clock that never got there.
+			it("is sent when the server is back and the person is still in the chat", async () => {
+				vi.useFakeTimers();
+				try {
+					await waitingWithBQueued();
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+
+					fetchServerHealthMock.mockResolvedValue({ state: "up" });
+					await vi.advanceTimersByTimeAsync(3000);
+
+					expect(fetchServerHealthMock).toHaveBeenCalledTimes(1);
+					expect(runtimeHarness.streamInvocations).toHaveLength(2);
+					expect(runtimeHarness.streamInvocations[1].message).toBe(
+						"A question",
+					);
+				} finally {
+					vi.useRealTimers();
+				}
 			});
 
 			it("joins the words typed since, which are saved with it", async () => {

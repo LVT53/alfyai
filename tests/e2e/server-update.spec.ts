@@ -82,8 +82,10 @@ test.describe("An update during a turn", () => {
 	});
 
 	test.afterEach(async ({ page }) => {
-		// The worker's server outlives this file: it must not stay draining.
-		await setDraining(page, false).catch(() => undefined);
+		// The worker's server outlives this file: it must not stay draining, and a
+		// put-back that fails fails this test (setDraining asserts the answer), so the
+		// next file does not meet a server that turns its messages away.
+		await setDraining(page, false);
 	});
 
 	test("a message sent while the server drains waits and says so, and Stop returns the words", {
@@ -168,24 +170,30 @@ test.describe("An update during a turn", () => {
 			{ timeout: 20_000 },
 		);
 
-		// The deploy is live: the version file now names another release.
-		let versionLooks = 0;
-		await page.route("**/_app/version.json", async (route) => {
-			versionLooks += 1;
-			await route.fulfill({ json: { version: "a-newer-release" } });
-		});
 		turns.draining = true;
 		await setDraining(page, true);
 		await send(page, "And the day after?");
 		await expect(page.getByTestId("awaiting-update-status")).toBeVisible();
+		// The shell's watch has looked at the draining server: its banner is up.
+		await expect(page.getByTestId("server-draining-notice")).toBeVisible();
+		await expect(page.getByTestId("server-update-notice")).toHaveCount(0);
 
-		// The shell looks at the version within seconds of the sign (SvelteKit's own
-		// poll is a minute apart) and has the notice ready; a reload now would lose
-		// the message, so it is held back.
-		await expect
-			.poll(() => versionLooks, { timeout: 10_000 })
-			.toBeGreaterThanOrEqual(1);
+		// The deploy is live: the version file now names another release.
+		await page.route("**/_app/version.json", (route) =>
+			route.fulfill({ json: { version: "a-newer-release" } }),
+		);
+
+		// The watch asks for the version every few seconds, and it ends on the first
+		// look that finds a new one, which takes its draining banner down. So the
+		// banner going is the sign that the version was read and the shell has its
+		// notice ready (the layout sets it before the watch ends), and the check
+		// below is a real one: if the notice were not held it would be on the screen
+		// in the same frame as the banner leaves.
+		await expect(page.getByTestId("server-draining-notice")).toHaveCount(0, {
+			timeout: 15_000,
+		});
 		await expect(page.getByTestId("awaiting-update-status")).toBeVisible();
+		// A reload now would lose the message, so the notice is held back.
 		await expect(page.getByTestId("server-update-notice")).toHaveCount(0);
 
 		// The message goes, and the notice comes up as soon as nothing waits.
@@ -197,6 +205,7 @@ test.describe("An update during a turn", () => {
 		await expect(page.getByTestId("assistant-message").nth(1)).toContainText(
 			"It will stay dry all day",
 		);
+		await expect(page.getByTestId("awaiting-update-status")).toHaveCount(0);
 	});
 
 	test("the proxy's maintenance page is waited out the same way", async ({
@@ -238,13 +247,12 @@ test.describe("An update during a turn", () => {
 		await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
 	});
 
-	test("a reply cut off by the update says so and is not sent again by itself", async ({
-		page,
-	}) => {
-		let calls = 0;
+	// A reply is cut when the connection fails: some of the reply, and then the
+	// stream ends without its terminal event.
+	async function cutEveryReply(page: Page) {
+		const state = { calls: 0 };
 		await page.route("**/api/chat/stream", async (route) => {
-			calls += 1;
-			// Some of a reply, and then the connection ends without its terminal event.
+			state.calls += 1;
 			await route.fulfill({
 				status: 200,
 				headers: sseHeaders,
@@ -254,15 +262,35 @@ test.describe("An update during a turn", () => {
 				].join(""),
 			});
 		});
+		return state;
+	}
+
+	test("a reply cut off by the restart says so and is not sent again by itself", async ({
+		page,
+	}) => {
+		const stream = await cutEveryReply(page);
+		// The restart: the app process is away, and Apache answers its own 503 page for
+		// the health route too. That, and not a lost connection, is what says it.
+		const restart = { on: false };
+		await page.route("**/api/health", async (route) => {
+			if (!restart.on) {
+				await route.continue();
+				return;
+			}
+			await route.fulfill({
+				status: 503,
+				headers: { "Content-Type": "text/html" },
+				body: "<html><body>AlfyAI is being updated</body></html>",
+			});
+		});
 		await openEmptyChat(page);
-		// The update has begun: a reply that was already running is not refused
-		// for it, it is cut when the server stops.
-		await setDraining(page, true);
+		restart.on = true;
 
 		await send(page, "Write the report");
 
-		// The page looks for the reply's stream, finds none, and asks whether the
-		// server is being updated: it says so, and keeps what it has of the reply.
+		// The page looks for the reply's stream, finds none, and asks what the server
+		// is doing: the proxy answers for it, so the restart cut the reply. It waits,
+		// and keeps what it has of the reply.
 		await expect(page.getByTestId("awaiting-update-status")).toHaveText(
 			UPDATING,
 			{ timeout: 20_000 },
@@ -274,13 +302,70 @@ test.describe("An update during a turn", () => {
 
 		// The server is back and holds nothing of the turn: the sentence for it,
 		// and Retry, which is the person's to press.
-		await setDraining(page, false);
+		restart.on = false;
 		await expect(page.getByText(CUT)).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("button", { name: /retry/i })).toBeVisible();
 		await expect(page.getByTestId("user-message")).toHaveCount(1);
 		await expect(page.getByTestId("assistant-message")).toHaveCount(0);
 		// Nothing was sent again, however long the server has been back.
 		await expect(page.getByTestId("awaiting-update-status")).toHaveCount(0);
-		expect(calls).toBe(1);
+		expect(stream.calls).toBe(1);
+	});
+
+	// The server is only getting ready to restart: the old process is alive, finishes
+	// the replies it runs and answers its health route. A connection that failed
+	// meanwhile did not end the turn, so there is nothing to wait for: the page looks
+	// for the reply's stream and, finding none, asks the server what it holds.
+	test("a reply cut off while the server only drains is not waited for", async ({
+		page,
+	}) => {
+		const stream = await cutEveryReply(page);
+		await openEmptyChat(page);
+		await setDraining(page, true);
+
+		await send(page, "Write the report");
+
+		// Retry is on the screen within seconds. Had the page waited for an update
+		// it would be on the screen eight minutes from now, and the server is still
+		// draining.
+		await expect(page.getByRole("button", { name: /retry/i })).toBeVisible({
+			timeout: 20_000,
+		});
+		// The error it always was, not the sentence for an update.
+		await expect(
+			page.getByText(/model provider returned an error/i),
+		).toBeVisible();
+		await expect(page.getByText(CUT)).toHaveCount(0);
+		await expect(page.getByTestId("awaiting-update-status")).toHaveCount(0);
+		await expect(page.getByTestId("user-message")).toHaveCount(1);
+		expect(stream.calls).toBe(1);
+	});
+
+	// A phone that lost its signal looks like a restart to a reply that was running,
+	// and it is not one.
+	test("a reply cut off by a lost connection is not taken for an update", async ({
+		page,
+	}) => {
+		const stream = await cutEveryReply(page);
+		// The health route cannot be reached either, as when the phone has no signal.
+		const offline = { on: false };
+		await page.route("**/api/health", async (route) => {
+			if (offline.on) {
+				await route.abort("connectionfailed");
+				return;
+			}
+			await route.continue();
+		});
+		await openEmptyChat(page);
+		offline.on = true;
+
+		await send(page, "Write the report");
+
+		await expect(page.getByRole("button", { name: /retry/i })).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.getByText(CUT)).toHaveCount(0);
+		await expect(page.getByTestId("awaiting-update-status")).toHaveCount(0);
+		expect(stream.calls).toBe(1);
 	});
 });
