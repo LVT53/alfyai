@@ -45,7 +45,19 @@ Add work under [Unreleased] as it lands and rename that heading on release.
   update, without a reload or switching tabs, and says what happens: a reply that
   is running finishes first, and a new message is sent when the update is done.
 - Editing a message while AlfyAI is being updated now says so ("Send this edit
-  again when it's done") instead of saying another reply is running.
+  again when it's done") instead of saying another reply is running, and it does
+  so during the restart too, when it used to say the check had failed.
+- A regenerate, "Answer now" or Retry pressed while AlfyAI is being updated now
+  waits like a new message, instead of starting a reply the restart then cuts,
+  and Stop brings the reply you had back. A deep research (Atlas) request that
+  meets the restart waits and is sent again by itself, and starts once.
+- A phone that loses its signal, and a tab that is a deploy behind, are no longer
+  taken for an update: they get the error they always got. A reply cut off while
+  the server was only getting ready to restart is joined again instead of waited
+  for.
+- If you leave a chat while a message waits for the update, its words are saved
+  as that chat's draft even if the save meets the restart: it is tried again
+  every 3 seconds until it lands.
 - Editing a message you sent now happens in the message box at the bottom, not
   in a box inside the message: the pencil puts the text there, the original
   steps back, and what you were writing comes back when you send or cancel. If
@@ -146,11 +158,17 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 - The deploy now waits up to 3 minutes for running replies to finish before it
   restarts the server (it used to wait 2 minutes), prints how many are still running every 30
-  seconds, and says how long it waited if it gives up. Set
-  `DRAIN_TIMEOUT_SECONDS` to change it (`0` does not wait). While it waits, new
-  messages are turned away with the reason `draining` and wait in the browser, so
-  the site stays up for everyone; a reply still running at the end is cut by the
-  restart.
+  seconds, and says how long it waited if it gives up. `DRAIN_TIMEOUT_SECONDS`
+  sets it (`0` does not wait); a message waiting for an update gives up after 8
+  minutes, a time sized for the 180-second default, so do not raise it without
+  raising that too. While it waits, new messages (and a regenerate) are turned
+  away with the reason `draining` and wait in the browser, so the site stays up
+  for everyone; a reply still running at the end is cut by the restart.
+- If a deploy stops after it started the drain and before the restart, it now
+  undoes the drain on exit; before, the server went on turning new messages away
+  until someone restarted it by hand. The deploy also takes only a health answer
+  that says the server is not draining for the new server, so the old process
+  that is still shutting down does not pass for it.
 - Session tokens are stored as SHA-256 hashes, so a copy of the database or a
   backup holds no session anyone can use.
 - A five-minute auth sweep deletes sessions that have ended, any row a deploy
