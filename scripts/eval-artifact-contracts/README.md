@@ -284,6 +284,13 @@ recorded bad answer as a failure of the gate, not as a measurement of the model,
 committed bad answer would turn CI red on yesterday's model rather than on today's
 scorer. The rates above are over all three passes; the raw runs are not committed.
 
+**The App answers predate the sans rule.** The committed `app` answers were recorded
+under the contract that asked for Georgia headings. The Apps are sans now (rule 4 of
+`APP_CONTRACT_PROMPT`) and the audit's `georgia` note became `no-serif`, so replayed,
+each of the ten reports the `no-serif` note (`georgia, times, serif`). No verdict moves,
+because a note never moves one. They are not edited: they are the old contract's output,
+and the next recording of the suite measures the new one.
+
 **What this does not measure, and what each measurement stands in for.**
 
 - *Thinking.* The chat turn runs with thinking on unless the reader chose Quick

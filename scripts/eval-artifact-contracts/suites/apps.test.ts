@@ -51,7 +51,7 @@ const CLEAN_APP_HTML = `<!doctype html>
 <html>
 <head><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root { --surface-page:#fafaf8; --surface-elevated:#f4f3ee; --text-primary:#1a1a1a; --text-muted:#6b6b6b; --border-default:rgba(0,0,0,.08); --accent:#c15f3c; font-family: Georgia, Helvetica, sans-serif; }
+:root { --surface-page:#fafaf8; --surface-elevated:#f4f3ee; --text-primary:#1a1a1a; --text-muted:#6b6b6b; --border-default:rgba(0,0,0,.08); --accent:#c15f3c; font-family: 'Nimbus Sans L', Helvetica, Arial, sans-serif; }
 @media (prefers-color-scheme: dark) { :root { --surface-page:#1a1a1a; --surface-elevated:#242424; --text-primary:#ececec; --text-muted:#a0a0a0; --border-default:rgba(255,255,255,.08); --accent:#d4836b; } }
 body { background: var(--surface-page); color: var(--text-primary); border: 1px solid var(--border-default); }
 button { background: var(--surface-elevated); color: var(--accent); }
@@ -76,6 +76,32 @@ describe("scoreAppEval", () => {
 			response: fence(CLEAN_APP_HTML),
 		});
 		expect(result.verdict).toBe("good");
+		expect(
+			result.reasons.filter((reason) => reason.startsWith("note:")),
+		).toEqual([]);
+	});
+
+	// The Apps went sans; the old contract asked for Georgia headings. A serif in
+	// an answer is the `no-serif` NOTE: it is named in the reasons and never moves
+	// the verdict. The committed answers (fixtures/app/responses/) were recorded
+	// under the old contract and are replayed as they were, so each names this note
+	// until the suite is recorded again against the new contract; they are not
+	// edited to look compliant.
+	it("names a serif as the no-serif note and leaves the verdict alone", () => {
+		const withSerifFont = CLEAN_APP_HTML.replace(
+			"font-family: 'Nimbus Sans L', Helvetica, Arial, sans-serif;",
+			"font-family: Georgia, 'Times New Roman', serif;",
+		);
+		const result = scoreAppEval(baseCase, {
+			caseId: baseCase.id,
+			suite: "app",
+			response: fence(withSerifFont),
+		});
+		expect(result.verdict).toBe("good");
+		const note = result.reasons.find((reason) =>
+			reason.startsWith("note: no-serif"),
+		);
+		expect(note).toContain("georgia, times, serif");
 	});
 
 	it("scores acceptable when a glitch-severity rule fires (a remote script), never bad", () => {
