@@ -3,7 +3,7 @@ import {
 	deletePreparedConversation,
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
-import type { FetchLike } from "$lib/client/api/http";
+import { ApiError, type FetchLike } from "$lib/client/api/http";
 import type { ComposerMarks } from "$lib/components/chat/composer-pictures";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -20,6 +20,10 @@ import {
 	type ImageMarksRequest,
 	parseImageMarks,
 } from "$lib/shared/artifacts/image-body";
+import {
+	SERVER_UPDATE_WATCH_MAX_MS,
+	SERVER_UPDATE_WATCH_POLL_MS,
+} from "./server-update-watch";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";
@@ -507,22 +511,47 @@ export function createConversationDraftRecord(params: {
 	};
 }
 
+/**
+ * The newest save or delete of each chat's draft that anything in this tab has
+ * made. A save that is tried again after its request failed (`persistUntilSaved`)
+ * holds the number it started under and stops when the chat's has moved: an older
+ * save must never land on top of newer words. Module-level, not per persistence:
+ * the chat page is rebuilt when the person leaves a chat and comes back, and the
+ * save its earlier page left trying is still going.
+ */
+const newestDraftChange = new Map<string, number>();
+
+function noteDraftChange(conversationId: string): number {
+	const next = (newestDraftChange.get(conversationId) ?? 0) + 1;
+	newestDraftChange.set(conversationId, next);
+	return next;
+}
+
+/** How often a draft save that failed is tried again, and for how long (a message waits for an update the same). */
+const DRAFT_SAVE_RETRY_MS = SERVER_UPDATE_WATCH_POLL_MS;
+const DRAFT_SAVE_RETRY_MAX_MS = SERVER_UPDATE_WATCH_MAX_MS;
+
+/**
+ * Whether a failed save may land if it is sent again: the request did not reach
+ * the app or the app failed (the network, the proxy's page during a restart, a 5xx).
+ * An answer that refuses the request (a deleted chat, an expired session) never will.
+ */
+function mayLandWhenSentAgain(failure: unknown): boolean {
+	if (failure instanceof ApiError) {
+		return (
+			failure.status >= 500 || failure.status === 408 || failure.status === 429
+		);
+	}
+	return true;
+}
+
 export function createDraftPersistence(
 	fetchImpl: FetchLike = fetch,
 	delayMs = 400,
 ) {
 	let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastPersistKey = "";
-	let pendingRequest: {
-		conversationId: string;
-		draftText: string;
-		selectedAttachmentIds: string[];
-		selectedLinkedSources?: LinkedContextSource[];
-		pendingSkill?: PendingSkillSelection | null;
-		atlasMode?: boolean;
-		atlasProfile?: AtlasProfile | null;
-		clientAtlasTurnId?: string | null;
-	} | null = null;
+	let pendingRequest: DraftSaveRequest | null = null;
 	// The saves sent and not yet answered, and the last one each chat sent.
 	const saving = new Set<Promise<void>>();
 	const lastSave = new Map<string, Promise<void>>();
@@ -557,6 +586,7 @@ export function createDraftPersistence(
 	 * gone. A save this chat sends meanwhile holds words typed since, so it stands.
 	 */
 	async function deleteDraft(conversationId: string): Promise<void> {
+		noteDraftChange(conversationId);
 		const last = lastSave.get(conversationId);
 		const onTheirWay = [...saving];
 		await deleteQuietly(conversationId);
@@ -567,36 +597,27 @@ export function createDraftPersistence(
 		}
 	}
 
-	async function runPersist(request: {
-		conversationId: string;
-		draftText: string;
-		selectedAttachmentIds: string[];
-		selectedLinkedSources?: LinkedContextSource[];
-		pendingSkill?: PendingSkillSelection | null;
-		atlasMode?: boolean;
-		atlasProfile?: AtlasProfile | null;
-		clientAtlasTurnId?: string | null;
-	}): Promise<void> {
-		const selectedLinkedSources = request.selectedLinkedSources ?? [];
-		const pendingSkill = request.pendingSkill ?? null;
-		if (
-			!hasMeaningfulDraft(
-				request.draftText,
-				request.selectedAttachmentIds,
-				selectedLinkedSources,
-				pendingSkill,
-				request.atlasMode === true,
-			)
-		) {
-			await deleteDraft(request.conversationId);
-			return;
-		}
+	function isMeaningful(request: DraftSaveRequest): boolean {
+		return hasMeaningfulDraft(
+			request.draftText,
+			request.selectedAttachmentIds,
+			request.selectedLinkedSources ?? [],
+			request.pendingSkill ?? null,
+			request.atlasMode === true,
+		);
+	}
 
+	/**
+	 * One save, sent. Resolves with why it failed, or undefined when it landed; a
+	 * failure is swallowed here as it always was, and the caller that wants to try
+	 * again reads it.
+	 */
+	async function saveOnce(request: DraftSaveRequest): Promise<unknown> {
 		const payload = {
 			draftText: request.draftText,
 			selectedAttachmentIds: request.selectedAttachmentIds,
-			selectedLinkedSources,
-			pendingSkill,
+			selectedLinkedSources: request.selectedLinkedSources ?? [],
+			pendingSkill: request.pendingSkill ?? null,
 			...(request.atlasMode === true
 				? {
 						atlasMode: true,
@@ -605,10 +626,55 @@ export function createDraftPersistence(
 					}
 				: {}),
 		};
+		let failure: unknown;
 		await onItsWay(
 			request.conversationId,
-			persistConversationDraft(request.conversationId, payload, fetchImpl),
+			persistConversationDraft(
+				request.conversationId,
+				payload,
+				fetchImpl,
+			).catch((error: unknown) => {
+				failure = error ?? new Error("The draft was not saved");
+			}),
 		);
+		return failure;
+	}
+
+	async function runPersist(request: DraftSaveRequest): Promise<void> {
+		if (!isMeaningful(request)) {
+			await deleteDraft(request.conversationId);
+			return;
+		}
+		await saveOnce(request);
+	}
+
+	/**
+	 * Words that exist nowhere else (a message that waited for an update when the
+	 * person left its chat) must not be lost to a request that failed: a restart
+	 * answers a save with the proxy's page. So a failed save is sent again every few
+	 * seconds, for as long as a message waits for an update, until it lands. It stops
+	 * at once when anything has saved or deleted this chat's draft since (that is
+	 * newer; nothing older may land on top of it) or when the answer refuses the
+	 * save for good. It holds no page: it goes on after the chat page is gone.
+	 */
+	async function runPersistUntilSaved(
+		request: DraftSaveRequest,
+	): Promise<void> {
+		if (!isMeaningful(request)) {
+			await deleteDraft(request.conversationId);
+			return;
+		}
+		const generation = newestDraftChange.get(request.conversationId);
+		const startedAt = Date.now();
+		for (;;) {
+			const failure = await saveOnce(request);
+			if (failure === undefined || !mayLandWhenSentAgain(failure)) return;
+			await new Promise<void>((resolve) =>
+				setTimeout(resolve, DRAFT_SAVE_RETRY_MS),
+			);
+			if (newestDraftChange.get(request.conversationId) !== generation) return;
+			if (Date.now() - startedAt >= DRAFT_SAVE_RETRY_MAX_MS) return;
+		}
 	}
 
 	async function doFlush(): Promise<void> {
@@ -624,67 +690,67 @@ export function createDraftPersistence(
 		}
 	}
 
+	async function submit(
+		request: DraftSaveRequest,
+		immediate: boolean,
+		untilSaved: boolean,
+	): Promise<void> {
+		const key = `${request.conversationId}:${JSON.stringify({
+			draftText: request.draftText,
+			selectedAttachmentIds: request.selectedAttachmentIds,
+			selectedLinkedSources: request.selectedLinkedSources ?? [],
+			pendingSkill: request.pendingSkill ?? null,
+			atlasMode: request.atlasMode === true,
+			atlasProfile: request.atlasProfile ?? null,
+			clientAtlasTurnId: request.clientAtlasTurnId ?? null,
+		})}`;
+		if (!immediate && key === lastPersistKey) {
+			return;
+		}
+
+		lastPersistKey = key;
+		noteDraftChange(request.conversationId);
+		pendingRequest = request;
+		const shouldPersistImmediately = immediate || !isMeaningful(request);
+
+		if (draftPersistTimer) {
+			clearTimeout(draftPersistTimer);
+			draftPersistTimer = null;
+		}
+
+		if (shouldPersistImmediately) {
+			const nextRequest = pendingRequest;
+			pendingRequest = null;
+			if (nextRequest) {
+				await (untilSaved
+					? runPersistUntilSaved(nextRequest)
+					: runPersist(nextRequest));
+			}
+			return;
+		}
+
+		draftPersistTimer = setTimeout(() => {
+			const nextRequest = pendingRequest;
+			pendingRequest = null;
+			draftPersistTimer = null;
+			if (nextRequest) {
+				void runPersist(nextRequest);
+			}
+		}, delayMs);
+	}
+
 	return {
-		async persist(
-			request: {
-				conversationId: string;
-				draftText: string;
-				selectedAttachmentIds: string[];
-				selectedLinkedSources?: LinkedContextSource[];
-				pendingSkill?: PendingSkillSelection | null;
-				atlasMode?: boolean;
-				atlasProfile?: AtlasProfile | null;
-				clientAtlasTurnId?: string | null;
-			},
-			immediate = false,
-		): Promise<void> {
-			const key = `${request.conversationId}:${JSON.stringify({
-				draftText: request.draftText,
-				selectedAttachmentIds: request.selectedAttachmentIds,
-				selectedLinkedSources: request.selectedLinkedSources ?? [],
-				pendingSkill: request.pendingSkill ?? null,
-				atlasMode: request.atlasMode === true,
-				atlasProfile: request.atlasProfile ?? null,
-				clientAtlasTurnId: request.clientAtlasTurnId ?? null,
-			})}`;
-			if (!immediate && key === lastPersistKey) {
-				return;
-			}
+		persist(request: DraftSaveRequest, immediate = false): Promise<void> {
+			return submit(request, immediate, false);
+		},
 
-			lastPersistKey = key;
-			pendingRequest = request;
-			const shouldPersistImmediately =
-				immediate ||
-				!hasMeaningfulDraft(
-					request.draftText,
-					request.selectedAttachmentIds,
-					request.selectedLinkedSources ?? [],
-					request.pendingSkill ?? null,
-					request.atlasMode === true,
-				);
-
-			if (draftPersistTimer) {
-				clearTimeout(draftPersistTimer);
-				draftPersistTimer = null;
-			}
-
-			if (shouldPersistImmediately) {
-				const nextRequest = pendingRequest;
-				pendingRequest = null;
-				if (nextRequest) {
-					await runPersist(nextRequest);
-				}
-				return;
-			}
-
-			draftPersistTimer = setTimeout(() => {
-				const nextRequest = pendingRequest;
-				pendingRequest = null;
-				draftPersistTimer = null;
-				if (nextRequest) {
-					void runPersist(nextRequest);
-				}
-			}, delayMs);
+		/**
+		 * `persist(request, true)` for words that must not be lost to a failed request
+		 * (`runPersistUntilSaved`). The promise settles when the save has landed or
+		 * has been given up, which can be minutes away; callers do not wait for it.
+		 */
+		persistUntilSaved(request: DraftSaveRequest): Promise<void> {
+			return submit(request, true, true);
 		},
 
 		async flush(): Promise<void> {
@@ -706,6 +772,18 @@ export function createDraftPersistence(
 		},
 	};
 }
+
+/** One save of a chat's draft, as the composer and the chat page ask for it. */
+export type DraftSaveRequest = {
+	conversationId: string;
+	draftText: string;
+	selectedAttachmentIds: string[];
+	selectedLinkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
+};
 
 export function cleanupPreparedConversation(params: {
 	conversationId: string;

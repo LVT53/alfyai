@@ -3343,9 +3343,11 @@ function restorePayloadToDraft(payload: SendPayload) {
 	// The composer takes this draft and says nothing of it.
 	heldDraft = restored.draft;
 	composerDraftTakeoverVersion = restored.draft?.updatedAt ?? 0;
-	void draftPersistence.persist(
+	// Words a turn gave back are in no other place than this draft: a save that
+	// fails (the server restarting) is sent again, so that leaving the chat after
+	// it does not lose them.
+	void draftPersistence.persistUntilSaved(
 		draftSaveOf(data.conversation.id, restored.draft),
-		true,
 	);
 }
 
@@ -3392,7 +3394,13 @@ function saveQueuedTurnInDraftOf(conversationId: string) {
 	}
 	// Saved at once: it replaces the save of the words typed since that is still
 	// waiting, which the joined draft holds, and the flush after finds nothing.
-	void draftPersistence.persist(draftSaveOf(conversationId, held.draft), true);
+	// These words are in no other place, and the server may be restarting (which is
+	// what a waiting message is waiting for): a save that fails is sent again every
+	// few seconds, for as long as a message waits, until it lands, and goes on after
+	// this page is gone. A newer save or delete of this chat's draft ends it.
+	void draftPersistence.persistUntilSaved(
+		draftSaveOf(conversationId, held.draft),
+	);
 }
 
 function restoreQueuedTurnToDraft() {

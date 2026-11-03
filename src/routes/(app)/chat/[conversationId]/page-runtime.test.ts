@@ -462,6 +462,7 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import { ApiError } from "$lib/client/api/http";
+import { createDraftPersistence } from "$lib/client/conversation-session";
 import {
 	conversations as conversationsStore,
 	renameConversation,
@@ -2621,6 +2622,98 @@ describe("chat page runtime integration", () => {
 					expect(composer).toHaveValue("A question\n\nB queued");
 				});
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+
+			// The words exist nowhere else, and the server is restarting, which is what
+			// the message was waiting for: the save answers with the proxy's page.
+			describe("when the save of those words fails because the server is restarting", () => {
+				const restarting = () =>
+					new ApiError("<html>Back soon</html>", {
+						status: 503,
+						serverUnavailable: true,
+					});
+				const savesOfFirstChat = () =>
+					vi
+						.mocked(persistConversationDraft)
+						.mock.calls.filter(
+							([conversationId]) => conversationId === "conv-1",
+						)
+						.map(([, payload]) => payload.draftText);
+
+				afterEach(() => {
+					vi.useRealTimers();
+				});
+
+				it("is sent again every three seconds after the person left the chat page, until it lands", async () => {
+					vi.useFakeTimers();
+					const { view } = await waitingWithBQueued();
+					vi.mocked(persistConversationDraft).mockClear();
+					vi.mocked(persistConversationDraft)
+						.mockRejectedValueOnce(restarting())
+						.mockRejectedValueOnce(restarting());
+
+					view.unmount();
+					expect(savesOfFirstChat()).toEqual(["A question\n\nB queued"]);
+
+					// The page is gone; the save is not.
+					await vi.advanceTimersByTimeAsync(3000);
+					expect(savesOfFirstChat()).toHaveLength(2);
+					await vi.advanceTimersByTimeAsync(3000);
+					expect(savesOfFirstChat()).toEqual([
+						"A question\n\nB queued",
+						"A question\n\nB queued",
+						"A question\n\nB queued",
+					]);
+
+					// The third landed: nothing more is sent.
+					await vi.advanceTimersByTimeAsync(60_000);
+					expect(savesOfFirstChat()).toHaveLength(3);
+					expect(runtimeHarness.streamInvocations).toHaveLength(1);
+				});
+
+				it("is sent again after a move to another chat too", async () => {
+					vi.useFakeTimers();
+					const { view } = await waitingWithBQueued();
+					vi.mocked(persistConversationDraft).mockClear();
+					vi.mocked(persistConversationDraft).mockRejectedValueOnce(
+						restarting(),
+					);
+
+					await view.rerender(chat("conv-2"));
+					await vi.advanceTimersByTimeAsync(3000);
+
+					expect(savesOfFirstChat()).toEqual([
+						"A question\n\nB queued",
+						"A question\n\nB queued",
+					]);
+				});
+
+				it("is not sent again once the draft of that chat has been saved newer", async () => {
+					vi.useFakeTimers();
+					const { view } = await waitingWithBQueued();
+					vi.mocked(persistConversationDraft).mockClear();
+					vi.mocked(persistConversationDraft).mockRejectedValue(restarting());
+
+					view.unmount();
+					expect(savesOfFirstChat()).toHaveLength(1);
+					// The person is back in the chat (another page) and has typed: its save
+					// is newer than the one that keeps failing.
+					const later = createDraftPersistence();
+					void later.persist(
+						{
+							conversationId: "conv-1",
+							draftText: "Typed after coming back",
+							selectedAttachmentIds: [],
+						},
+						true,
+					);
+					await vi.advanceTimersByTimeAsync(30_000);
+
+					expect(savesOfFirstChat()).toEqual([
+						"A question\n\nB queued",
+						"Typed after coming back",
+					]);
+				});
 			});
 		});
 	});

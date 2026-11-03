@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import {
 	cleanupPreparedConversation,
@@ -650,6 +650,221 @@ describe("conversation-session", () => {
 			await expect(
 				persistence.deleteDraft("conv-123"),
 			).resolves.toBeUndefined();
+		});
+	});
+
+	// Words taken from a message that waited for a server update are in no other
+	// place. The restart answers a save with the proxy's page, so a save that fails is
+	// tried again, from the persistence and not from the page: the person may have
+	// gone Home meanwhile.
+	describe("a save that must not be lost to a failed request", () => {
+		const draftUrl = (id: string) => `/api/conversations/${id}/draft`;
+		const save = (conversationId: string, draftText: string) => ({
+			conversationId,
+			draftText,
+			selectedAttachmentIds: [],
+		});
+		const proxyPage = () =>
+			new Response("<html><body>Back soon</body></html>", {
+				status: 503,
+				headers: { "Content-Type": "text/html" },
+			});
+		const ok = () => new Response(null, { status: 200 });
+		const puts = (fetchMock: ReturnType<typeof vi.fn>) =>
+			fetchMock.mock.calls
+				.filter(([, init]) => init?.method === "PUT")
+				.map(([input, init]) => [
+					input,
+					JSON.parse(String(init.body)).draftText,
+				]);
+		/** A server that is away (the proxy's page) until `backAtMs`, then well. */
+		function serverBackAt(backAtMs: number) {
+			const start = Date.now();
+			return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				Date.now() - start < backAtMs ? proxyPage() : ok(),
+			);
+		}
+
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("sends it again every three seconds until it lands, and then stops", async () => {
+			const fetchMock = serverBackAt(6000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(puts(fetchMock)).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(2999);
+			expect(puts(fetchMock)).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(puts(fetchMock)).toHaveLength(2);
+			// The server is back at six seconds: the third try lands.
+			await vi.advanceTimersByTimeAsync(3000);
+			expect(puts(fetchMock)).toEqual([
+				[draftUrl("conv-a"), "A question"],
+				[draftUrl("conv-a"), "A question"],
+				[draftUrl("conv-a"), "A question"],
+			]);
+
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(puts(fetchMock)).toHaveLength(3);
+		});
+
+		it("saves once, as `persist` does, when the first request lands", async () => {
+			const fetchMock = vi.fn(async () => ok());
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			await persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(puts(fetchMock)).toEqual([[draftUrl("conv-a"), "A question"]]);
+		});
+
+		it("tries again after a request that never reached the server, too", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+				.mockResolvedValue(ok());
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(3000);
+
+			expect(puts(fetchMock)).toHaveLength(2);
+		});
+
+		it("does not send an answer that refuses the save again: it never lands", async () => {
+			const fetchMock = vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "Conversation not found" }), {
+						status: 404,
+						headers: { "Content-Type": "application/json" },
+					}),
+			);
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(puts(fetchMock)).toHaveLength(1);
+		});
+
+		it("goes on after the page that made it is gone: clearing the persistence does not stop it", async () => {
+			const fetchMock = serverBackAt(6000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			// What a chat switch does to the persistence, and a page that is left
+			// simply stops calling it.
+			persistence.clear();
+			await persistence.flush();
+			await vi.advanceTimersByTimeAsync(9000);
+
+			expect(puts(fetchMock)).toHaveLength(3);
+		});
+
+		it("stops when a newer save of that chat has been made: an older save never lands on top of it", async () => {
+			const fetchMock = serverBackAt(9000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The person is back in the chat and types: the save waits out its delay.
+			void persistence.persist(save("conv-a", "Typed since"));
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			expect(puts(fetchMock).map(([, text]) => text)).toEqual([
+				"A question",
+				"Typed since",
+			]);
+		});
+
+		it("stops when another persistence of the tab has saved that chat's draft: the page is rebuilt when the person comes back", async () => {
+			const fetchMock = serverBackAt(9000);
+			const earlier = createDraftPersistence(fetchMock, 400);
+			void earlier.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			const later = createDraftPersistence(fetchMock, 400);
+			void later.persist(save("conv-a", "Typed since"), true);
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			expect(puts(fetchMock).map(([, text]) => text)).toEqual([
+				"A question",
+				"Typed since",
+			]);
+		});
+
+		it("stops when that chat's draft is deleted", async () => {
+			const fetchMock = serverBackAt(9000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			await persistence.deleteDraft("conv-a");
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			expect(puts(fetchMock)).toHaveLength(1);
+		});
+
+		it("is not stopped by the draft of another chat", async () => {
+			const fetchMock = serverBackAt(6000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			void persistence.persist(save("conv-b", "Another chat"), true);
+			await persistence.deleteDraft("conv-c");
+			await vi.advanceTimersByTimeAsync(9000);
+
+			expect(
+				puts(fetchMock).filter(([url]) => url === draftUrl("conv-a")),
+			).toHaveLength(3);
+		});
+
+		it("gives up after the eight minutes a message waits for an update", async () => {
+			const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+			const persistence = createDraftPersistence(fetchMock, 400);
+
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			await vi.advanceTimersByTimeAsync(8 * 60 * 1000 - 1);
+			const triedByThen = puts(fetchMock).length;
+			expect(triedByThen).toBeGreaterThan(100);
+
+			await vi.advanceTimersByTimeAsync(60_000);
+			const tried = puts(fetchMock).length;
+			expect(tried).toBeLessThanOrEqual(triedByThen + 1);
+			await vi.advanceTimersByTimeAsync(5 * 60_000);
+			expect(puts(fetchMock)).toHaveLength(tried);
+		});
+
+		it("lets a delete wait for the try that is on its way, as for any save", async () => {
+			const answers: Array<() => void> = [];
+			const fetchMock = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					init?.method === "DELETE"
+						? Promise.resolve(ok())
+						: new Promise<Response>((resolve) => {
+								answers.push(() => resolve(proxyPage()));
+							}),
+			);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save("conv-a", "A question"));
+
+			void persistence.deleteDraft("conv-a");
+			for (const answer of answers.splice(0)) answer();
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			const calls = fetchMock.mock.calls.map(([, init]) => init?.method);
+			expect(calls.filter((method) => method === "PUT")).toHaveLength(1);
+			expect(calls.filter((method) => method === "DELETE")).toHaveLength(2);
 		});
 	});
 
