@@ -754,6 +754,21 @@ describe("conversation-session", () => {
 			expect(puts(fetchMock)).toHaveLength(3);
 		});
 
+		it("settles the promise of the words when they land, however many tries it takes, and not before", async () => {
+			const fetchMock = serverBackAt(6000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			let settled = false;
+
+			void persistence.persistUntilSaved(save(chat, "A question")).then(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(5999);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(settled).toBe(true);
+		});
+
 		it("saves once, as `persist` does, when the first request lands", async () => {
 			const fetchMock = vi.fn(async () => ok());
 			const persistence = createDraftPersistence(fetchMock, 400);

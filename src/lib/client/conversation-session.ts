@@ -543,9 +543,10 @@ function isMeaningfulSave(request: DraftSaveRequest): boolean {
  * The saves of each chat's draft that are on their way (sent, not answered) and
  * the last one each chat sent. Module-level, not per persistence: the chat page is
  * rebuilt when the person leaves a chat and comes back, and the save its earlier
- * page left is still out. A save is never sent while an earlier save of that chat
- * is unanswered where it must not land before it (`keepDraftSave`), and a delete
- * is repeated behind the saves that were out when it was sent (`deleteDraft`).
+ * page left is still out. Words a keeper holds (`DraftKeeper`) are sent only once
+ * the saves of that chat that are out have been answered, so older words never
+ * land after newer ones, and a delete is repeated behind the saves that were out
+ * when it was sent (`deleteDraft`).
  */
 const savesOnTheirWay = new Map<string, Set<Promise<void>>>();
 const lastSaveSent = new Map<string, Promise<void>>();
@@ -653,7 +654,6 @@ type DraftKeeper = {
 };
 
 type DraftTicket = {
-	order: number;
 	/** True for `persistUntilSaved`, which settles when the words have landed or been given up; a plain `persist` settles when its first try is answered. */
 	untilSaved: boolean;
 	settle: () => void;
@@ -735,11 +735,10 @@ async function runDraftKeeper(keeper: DraftKeeper): Promise<void> {
 			}
 			if (!newest) continue;
 			// A plain save is not waited on for longer than its first try.
-			for (const ticket of [...keeper.tickets]) {
-				if (!ticket.untilSaved && ticket.order <= order) {
-					keeper.tickets.splice(keeper.tickets.indexOf(ticket), 1);
-					ticket.settle();
-				}
+			const waiting = keeper.tickets;
+			keeper.tickets = waiting.filter((ticket) => ticket.untilSaved);
+			for (const ticket of waiting) {
+				if (!ticket.untilSaved) ticket.settle();
 			}
 			// Refused for good (a deleted chat, an expired session): it never lands.
 			if (!mayLandWhenSentAgain(failure)) return;
@@ -768,7 +767,7 @@ function keepDraftSave(
 	draftSaveCount += 1;
 	const order = draftSaveCount;
 	return new Promise<void>((settle) => {
-		const ticket: DraftTicket = { order, untilSaved, settle };
+		const ticket: DraftTicket = { untilSaved, settle };
 		const existing = draftKeepers.get(conversationId);
 		if (existing) {
 			// The older words are moot now: whoever waited on them is released.
