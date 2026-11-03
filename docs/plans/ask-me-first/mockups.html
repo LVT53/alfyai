@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask Me First Mockups</title>
+<style>
+/* ---------- The board around the mockups ---------- */
+:root {
+	--board-bg: #ebe9e4;
+	--board-ink: #1a1a1a;
+	--board-muted: #5c5a55;
+	--board-line: rgba(0, 0, 0, 0.12);
+	--board-panel: #f6f5f1;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--board-bg: #111111;
+		--board-ink: #ececec;
+		--board-muted: #a3a3a3;
+		--board-line: rgba(255, 255, 255, 0.12);
+		--board-panel: #1c1c1c;
+	}
+}
+:root[data-theme="dark"] {
+	--board-bg: #111111;
+	--board-ink: #ececec;
+	--board-muted: #a3a3a3;
+	--board-line: rgba(255, 255, 255, 0.12);
+	--board-panel: #1c1c1c;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	margin: 0;
+	background: var(--board-bg);
+	color: var(--board-ink);
+	font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+.board { max-width: 1304px; margin: 0 auto; padding: 48px 16px 96px; }
+@media (min-width: 700px) { .board { padding: 56px 32px 96px; } }
+.eyebrow { font-size: 13px; color: var(--board-muted); margin: 0 0 10px; letter-spacing: 0.01em; }
+h1 { font-size: 44px; line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 14px; }
+.lede { font-size: 18px; line-height: 1.5; color: var(--board-muted); max-width: 860px; margin: 0; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 0; margin: 22px 0 0; list-style: none; font-size: 14px; }
+.toc a { color: var(--board-ink); text-decoration: none; border-bottom: 1px solid var(--board-line); }
+section { margin-top: 76px; }
+h2 { font-size: 28px; line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 8px; }
+h3.sub { font-size: 17px; margin: 40px 0 6px; }
+.cap { font-size: 15px; line-height: 1.55; color: var(--board-muted); max-width: 880px; margin: 0 0 22px; }
+.row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.fit { width: max-content; max-width: none; }
+.tag-note { font-size: 12.5px; color: var(--board-muted); margin: 10px 2px 0; max-width: 390px; line-height: 1.5; }
+.state-title { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+
+/* ---------- AlfyAI tokens (src/app.css), light and dark ---------- */
+.app {
+	--font-sans: "Nimbus Sans L", "Helvetica Neue", Helvetica, Arial, sans-serif;
+	--font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+	font-family: var(--font-sans);
+	background: var(--surface-page);
+	color: var(--text-primary);
+	font-size: 14px;
+	line-height: 1.6;
+}
+.t-light {
+	--surface-page: #fafaf8;
+	--surface-elevated: #f4f3ee;
+	--surface-overlay: #f7f6f2;
+	--surface-message-user: #f4f3ee;
+	--text-primary: #1a1a1a;
+	--text-muted: #6b6b6b;
+	--icon-muted: #6b6b6b;
+	--border-default: rgba(0, 0, 0, 0.08);
+	--border-subtle: rgba(0, 0, 0, 0.04);
+	--border-strong: rgba(0, 0, 0, 0.16);
+	--control: rgba(0, 0, 0, 0.32);
+	--accent: #c15f3c;
+	--accent-text: #9f5135;
+	--accent-tint: color-mix(in srgb, #c15f3c 12%, transparent);
+	--accent-tint-strong: color-mix(in srgb, #c15f3c 22%, transparent);
+	--success: #15803d;
+	--warning: #d97706;
+	--warning-text: #8a4b06;
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+	--shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+	--frame-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+	--tip-bg: #1a1a1a;
+	--tip-ink: #fafaf8;
+}
+.t-dark {
+	--surface-page: #1a1a1a;
+	--surface-elevated: #242424;
+	--surface-overlay: #2a2a2a;
+	--surface-message-user: #2f2f2f;
+	--text-primary: #ececec;
+	--text-muted: #a0a0a0;
+	--icon-muted: #a0a0a0;
+	--border-default: rgba(255, 255, 255, 0.08);
+	--border-subtle: rgba(255, 255, 255, 0.04);
+	--border-strong: rgba(255, 255, 255, 0.18);
+	--control: rgba(255, 255, 255, 0.36);
+	--accent: #d4836b;
+	--accent-text: #e0937c;
+	--accent-tint: color-mix(in srgb, #d4836b 14%, transparent);
+	--accent-tint-strong: color-mix(in srgb, #d4836b 24%, transparent);
+	--success: #22c55e;
+	--warning: #f59e0b;
+	--warning-text: #f5b04a;
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+	--shadow-md: 0 2px 8px rgba(0, 0, 0, 0.25);
+	--frame-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+	--tip-bg: #ececec;
+	--tip-ink: #1a1a1a;
+}
+
+.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.i-sm { width: 14px; height: 14px; }
+.i-xs { width: 13px; height: 13px; stroke-width: 2.2; }
+
+/* Desktop frame (1100 wide, like the after-refresh pictures) */
+.desk { position: relative; display: flex; width: 1100px; border: 1px solid var(--border-default); border-radius: 14px; overflow: hidden; box-shadow: var(--frame-shadow); }
+.rail { flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; padding: 14px 0 16px; border-right: 1px solid var(--border-default); color: var(--icon-muted); }
+.logo { font-family: "Libre Baskerville", Georgia, serif; color: var(--accent); opacity: 0.75; font-size: 15px; line-height: 1; }
+.rail-icons { display: flex; flex-direction: column; gap: 20px; margin-top: 30px; }
+.rail-icons .i:first-child { color: var(--accent); }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+.chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.titlebar { flex: 0 0 40px; display: grid; place-items: center; font-size: 12.5px; border-bottom: 1px solid var(--border-subtle); }
+.scroll { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 172px; }
+.col { width: 680px; margin: 0 auto; }
+
+/* Messages */
+.umsg { display: flex; flex-direction: column; align-items: flex-end; margin: 0 0 40px; }
+.bubble { background: var(--surface-message-user); border-radius: 12px; padding: 12px 16px; max-width: 470px; }
+.umeta { display: flex; align-items: center; gap: 14px; margin-top: 14px; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+.reply p { margin: 0 0 12px; }
+.reply p:last-child { margin-bottom: 0; }
+.reply ul { margin: 0 0 12px; padding-left: 22px; }
+.reply li { margin: 0 0 4px; }
+.reply strong { font-weight: 700; }
+.thought { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); font-size: 13.4px; margin: 0 0 10px; }
+.thought.after { margin-top: 10px; }
+.ractions { display: flex; gap: 22px; margin-top: 18px; color: var(--icon-muted); }
+
+/* Composer */
+.composer { position: absolute; left: 50%; bottom: 10px; width: 780px; transform: translateX(-50%); background: var(--surface-elevated); border: 1px solid var(--border-default); border-radius: 16px; box-shadow: var(--shadow-md); }
+.composer.static { position: static; transform: none; width: 100%; }
+.c-input { height: 76px; padding: 18px 20px 0; color: var(--text-muted); }
+.c-input.typed { color: var(--text-primary); }
+.caret { display: inline-block; width: 1.5px; height: 1.15em; background: var(--accent); vertical-align: -0.2em; margin-left: 1px; }
+.c-tools { display: flex; align-items: center; gap: 18px; padding: 10px 12px 10px 20px; border-top: 1px solid var(--border-subtle); color: var(--icon-muted); }
+.c-tools .brain { color: var(--accent); }
+.c-send { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-page); color: var(--icon-muted); }
+.c-send.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- The question card (ArtifactCard's shell, like the permission card) ---------- */
+.ask { position: relative; margin: 16px 0 0; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-page); box-shadow: var(--shadow-sm); overflow: hidden; }
+.ask-body { padding: 14px 14px 12px; }
+.q + .q { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.q-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 2px 10px; font-weight: 600; line-height: 1.45; }
+.q-num { color: var(--text-muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.q-hint { color: var(--text-muted); font-weight: 400; font-size: 12.5px; }
+.opts { display: flex; flex-direction: column; gap: 6px; }
+.opt { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 12px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-page); cursor: pointer; transition: background-color 0.15s, border-color 0.15s; }
+.opt:hover { background: var(--surface-elevated); border-color: var(--border-strong); }
+.opt.sel { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.dot, .box { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid var(--control); display: grid; place-items: center; }
+.dot { border-radius: 50%; }
+.box { border-radius: 4px; color: #fff; }
+.box .i { width: 11px; height: 11px; stroke-width: 3; opacity: 0; }
+.sel .dot { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--surface-page); }
+.sel .box { border-color: var(--accent); background: var(--accent); }
+.sel .box .i { opacity: 1; }
+.opt-main { display: flex; flex-direction: column; min-width: 0; }
+.opt-label { line-height: 1.45; }
+.opt-note { color: var(--text-muted); font-size: 13px; line-height: 1.4; margin-top: 1px; }
+.pick { display: inline-block; white-space: nowrap; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--accent-tint); color: var(--accent-text); font-size: 11.5px; font-weight: 600; line-height: 1.5; vertical-align: 1px; }
+.own { color: var(--text-muted); align-items: center; }
+.own .i { margin: 0 1px; }
+.own-field { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface-page); box-shadow: 0 0 0 3px var(--accent-tint); }
+.own-field .i { color: var(--accent); margin: 0 1px; }
+.own-field .typed { flex: 1; min-width: 0; }
+.own-field .mini-send { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: #fff; }
+.own-field .mini-send .i { color: #fff; margin: 0; }
+.ask-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--border-subtle); }
+.quiet { font: inherit; font-size: 13px; color: var(--text-muted); background: none; border: 0; padding: 4px 8px; margin-left: -8px; border-radius: 6px; cursor: pointer; }
+.quiet:hover { background: var(--surface-elevated); color: var(--text-primary); }
+.btn-send { font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: var(--accent); border: 0; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.waking .opt, .waking .quiet { opacity: 0.5; cursor: default; }
+.ask-err { display: flex; align-items: flex-start; gap: 8px; margin: 10px 2px 0; color: var(--warning-text); font-size: 13px; line-height: 1.45; }
+.ask-err .i { color: var(--warning); margin-top: 2px; }
+.ask-x { position: absolute; top: 9px; right: 9px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--icon-muted); cursor: pointer; }
+.ask-x:hover { background: var(--surface-elevated); color: var(--text-primary); }
+.ask .q:first-child .q-text { padding-right: 30px; }
+.phone .ask-x { top: 4px; right: 4px; width: 44px; height: 44px; }
+.phone .ask .q:first-child .q-text { padding-right: 36px; }
+.waking .ask-x { opacity: 0.5; cursor: default; }
+.composer:has(.waiting) { opacity: 0.5; }
+.ask + .composer.static { margin-top: 16px; }
+.rec-shut { display: inline-flex; color: var(--text-muted); }
+
+/* The folded line once it is answered (ToolActivityRow's look) */
+.rec { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 12px -8px 2px; padding: 2px 8px; border-radius: 6px; color: var(--text-muted); font-size: 13.4px; line-height: 1.4; cursor: pointer; }
+.rec:hover { background: var(--surface-elevated); }
+.rec-ok { display: inline-flex; color: var(--success); }
+.rec-q { flex: 0 1 auto; max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rec-a { flex: 0 1 auto; min-width: 0; color: var(--text-primary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rec-x { flex: none; white-space: nowrap; }
+.rec-chev { margin-left: auto; color: var(--icon-muted); }
+.rec.open { background: var(--surface-elevated); border-radius: 6px 6px 0 0; margin-bottom: 0; }
+.rec.open .rec-chev { transform: rotate(180deg); }
+.rec-body { margin: 0 -8px 2px; padding: 4px 8px 12px 30px; background: var(--surface-elevated); border-radius: 0 0 6px 6px; font-size: 13.4px; line-height: 1.45; }
+.rp + .rp { margin-top: 8px; }
+.rp-q { color: var(--text-muted); }
+.rp-a { color: var(--text-primary); }
+
+/* Close-up panels */
+.pad { width: 600px; padding: 20px 20px 22px; border: 1px solid var(--border-default); border-radius: 12px; box-shadow: var(--frame-shadow); }
+.pad.narrow { width: 390px; }
+.pad > p { margin: 0 0 4px; }
+.pad > .ask:first-child { margin-top: 0; }
+.row > div { min-width: 0; max-width: 100%; }
+.mini-label { font-size: 12px; color: var(--text-muted); margin: 0 0 8px; }
+.mini-label + .composer, .composer + .mini-label { margin-top: 0; }
+.composer.static + .mini-label { margin-top: 20px; }
+.rec-label { font-size: 12px; color: var(--text-muted); margin: 16px 0 0; }
+.rec-label:first-child { margin-top: 0; }
+.rec-label + .rec { margin-top: 4px; }
+
+/* Sidebar crop */
+.sb { width: 300px; padding: 12px 10px 14px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-overlay); box-shadow: var(--frame-shadow); position: relative; }
+.sb-row { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 6px 0 8px; border-radius: 8px; font-size: 13px; color: var(--text-primary); position: relative; }
+.sb-row.cur { background: var(--surface-elevated); }
+.sb-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sb-mark { display: inline-flex; color: var(--accent); }
+.sb-dots { color: var(--icon-muted); opacity: 0; }
+.sb-row.cur .sb-dots { opacity: 1; }
+
+/* Phone frame (390 x 844) */
+.phone { position: relative; display: flex; flex-direction: column; width: 390px; height: 844px; border: 1px solid var(--border-default); border-radius: 24px; overflow: hidden; box-shadow: var(--frame-shadow); font-size: 15px; }
+.ph-head { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--border-subtle); color: var(--icon-muted); }
+.ph-title { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); }
+.ph-scroll { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 16px 140px; }
+.phone .composer { left: 12px; right: 12px; width: auto; transform: none; }
+.phone .c-input { height: 62px; padding-top: 16px; }
+.phone .c-tools { gap: 22px; }
+.phone .c-send { width: 36px; height: 36px; }
+.phone .bubble { max-width: 300px; }
+.phone .opt { min-height: 44px; padding: 10px 12px; }
+.phone .opt-note { font-size: 13.5px; }
+.phone .ask-foot { padding: 6px 14px; }
+.phone .quiet { font-size: 14px; padding: 8px; }
+
+/* Words and decisions */
+table.words { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 14px; background: var(--board-panel); border-radius: 10px; overflow: hidden; }
+.words th, .words td { text-align: left; vertical-align: top; padding: 9px 14px; border-bottom: 1px solid var(--board-line); line-height: 1.45; }
+.words th { font-size: 12.5px; color: var(--board-muted); font-weight: 600; }
+.words tr:last-child td { border-bottom: 0; }
+.words td:first-child { color: var(--board-muted); width: 38%; }
+.decided { display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 1100px; }
+@media (min-width: 900px) { .decided { grid-template-columns: 1fr 1fr; } }
+.decided > div { background: var(--board-panel); border-radius: 10px; padding: 18px 22px 8px; }
+.decided h3 { font-size: 16px; margin: 0 0 10px; }
+.decided ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.55; }
+.decided li { margin: 0 0 10px; }
+.wrap-table { overflow-x: auto; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+	<defs>
+		<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+		<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+		<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+		<symbol id="i-clip" viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></symbol>
+		<symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+		<symbol id="i-brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></symbol>
+		<symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+		<symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+		<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+		<symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+		<symbol id="i-branch" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+		<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+		<symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+		<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 12h16"/><path d="M4 6h16"/><path d="M4 18h16"/></symbol>
+		<symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+		<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+		<symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+		<symbol id="i-newchat" viewBox="0 0 24 24"><path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.378 15.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/></symbol>
+		<symbol id="i-logout" viewBox="0 0 24 24"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></symbol>
+		<symbol id="i-question" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+		<symbol id="i-penline" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></symbol>
+		<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+		<symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+		<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+	</defs>
+</svg>
+
+<div class="board">
+	<header>
+		<p class="eyebrow">AlfyAI · backlog item 5 · mockups v1 · 3 November 2026</p>
+		<h1>Ask me first</h1>
+		<p class="lede">Alfy stops in the middle of a reply, asks you, and carries on from your answer in the same reply. Questions and answers are Alfy's own words, in the chat's language. The app adds only the small labels (section 8).</p>
+		<ul class="toc">
+			<li><a href="#s1">1 · Alfy stops and asks</a></li>
+			<li><a href="#s2">2 · Several questions</a></li>
+			<li><a href="#s3">3 · The same reply carries on</a></li>
+			<li><a href="#s4">4 · Your own answer</a></li>
+			<li><a href="#s5">5 · Somewhere else</a></li>
+			<li><a href="#s6">6 · On a phone</a></li>
+			<li><a href="#s7">7 · Small states</a></li>
+			<li><a href="#s8">8 · Words</a></li>
+			<li><a href="#s9">9 · What is decided</a></li>
+		</ul>
+	</header>
+
+	<!-- 1 ------------------------------------------------------------------>
+	<section id="s1">
+		<h2>1 · Alfy stops and asks</h2>
+		<p class="cap">The reply pauses where the question is. The words above it stay where they are, and the reply's own buttons (copy, retry) wait until it is finished. A question with one pick always has a Recommended answer, which Alfy marks. With one question and one pick, a click answers at once. The X closes the question without an answer. While it waits, the message box is off and what you type goes into the card's own line (section 4).</p>
+		<div class="fit" data-w="1100">
+			<div class="app t-light desk" style="height:900px">
+				<aside class="rail">
+					<span class="logo">A</span>
+					<div class="rail-icons">
+						<svg class="i"><use href="#i-newchat"/></svg>
+						<svg class="i"><use href="#i-search"/></svg>
+						<svg class="i"><use href="#i-book"/></svg>
+					</div>
+					<div class="rail-foot">
+						<span class="avatar">A</span>
+						<svg class="i"><use href="#i-logout"/></svg>
+					</div>
+				</aside>
+				<div class="chat">
+					<div class="titlebar">Dad's 60th</div>
+					<div class="scroll">
+						<div class="col">
+							<div class="umsg">
+								<div class="bubble">I'd like to do something special for my dad's 60th in March. Can you help me think it through?</div>
+								<div class="umeta"><span>16:55</span><svg class="i i-sm"><use href="#i-pencil"/></svg><svg class="i i-sm"><use href="#i-copy"/></svg></div>
+							</div>
+							<div class="reply">
+								<div class="thought"><span>Thought for 4s</span><svg class="i i-sm"><use href="#i-chev"/></svg></div>
+								<p>Happy to. Sixty is worth marking properly, and March leaves you about four months, which is plenty for anything short of a trip abroad.</p>
+								<p>Three things usually decide how it goes: how many people you want there, how much organising you're up for, and whether your dad enjoys being the centre of attention.</p>
+								<p>The biggest fork is the shape of the day itself, so let's settle that first.</p>
+								<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+									<div class="ask-body">
+										<div class="q">
+											<div class="q-text"><span>Which way should we take it?</span></div>
+											<div class="opts">
+												<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span><span class="opt-note">Easiest to organise, and the whole family can come</span></span></div>
+												<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span><span class="opt-note">Quieter; book three or four weeks ahead</span></span></div>
+												<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A weekend away together</span><span class="opt-note">The most memorable, and the most to arrange</span></span></div>
+												<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+											</div>
+										</div>
+									</div>
+									<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+								</article>
+							</div>
+						</div>
+					</div>
+					<div class="composer">
+						<div class="c-input waiting">Type a message...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 2 ------------------------------------------------------------------>
+	<section id="s2">
+		<h2>2 · Several questions in one card</h2>
+		<p class="cap">Up to three questions in one card, here before Alfy makes a packing-list PDF. A question can take more than one pick, and there a Recommended mark is optional (here there is none). "Type my own" opens a line inside the card. Send works once every question has an answer, "Up to you" leaves all of them to Alfy, and the X closes the whole card. Left light, right dark.</p>
+		<div class="row">
+			<div class="fit" data-w="600">
+				<div class="app t-light pad reply">
+					<p>Before I make the PDF, two quick things.</p>
+					<article class="ask" aria-label="Alfy's questions (2)"><button class="ask-x" type="button" aria-label="Close the questions"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+						<div class="ask-body">
+							<div class="q">
+								<div class="q-text"><span class="q-num">1</span><span>Who's coming?</span><span class="q-hint">Pick any</span></div>
+								<div class="opts">
+									<div class="opt sel"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Adults</span></span></div>
+									<div class="opt sel"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Kids</span></span></div>
+									<div class="opt"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Grandma</span></span></div>
+									<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+								</div>
+							</div>
+							<div class="q">
+								<div class="q-text"><span class="q-num">2</span><span>How should the list be split?</span></div>
+								<div class="opts">
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">One shared list<span class="pick">Recommended</span></span><span class="opt-note">Shortest; you tick things off together</span></span></div>
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A list per person</span><span class="opt-note">Everyone packs their own</span></span></div>
+									<div class="own-field"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="typed">One list, with a section for the kids' things<span class="caret"></span></span></div>
+								</div>
+							</div>
+						</div>
+						<footer class="ask-foot"><button class="quiet" type="button">Up to you</button><button class="btn-send" type="button">Send</button></footer>
+					</article>
+				</div>
+			</div>
+			<div class="fit" data-w="600">
+				<div class="app t-dark pad reply">
+					<p>Before I make the PDF, two quick things.</p>
+					<article class="ask" aria-label="Alfy's questions (2)"><button class="ask-x" type="button" aria-label="Close the questions"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+						<div class="ask-body">
+							<div class="q">
+								<div class="q-text"><span class="q-num">1</span><span>Who's coming?</span><span class="q-hint">Pick any</span></div>
+								<div class="opts">
+									<div class="opt sel"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Adults</span></span></div>
+									<div class="opt sel"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Kids</span></span></div>
+									<div class="opt"><span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="opt-main"><span class="opt-label">Grandma</span></span></div>
+									<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+								</div>
+							</div>
+							<div class="q">
+								<div class="q-text"><span class="q-num">2</span><span>How should the list be split?</span></div>
+								<div class="opts">
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">One shared list<span class="pick">Recommended</span></span><span class="opt-note">Shortest; you tick things off together</span></span></div>
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A list per person</span><span class="opt-note">Everyone packs their own</span></span></div>
+									<div class="own-field"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="typed">One list, with a section for the kids' things<span class="caret"></span></span></div>
+								</div>
+							</div>
+						</div>
+						<footer class="ask-foot"><button class="quiet" type="button">Up to you</button><button class="btn-send" type="button">Send</button></footer>
+					</article>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 3 ------------------------------------------------------------------>
+	<section id="s3">
+		<h2>3 · After you answer, the same reply carries on</h2>
+		<p class="cap">The card folds into one line, like a finished step, and your answer is not repeated as a message of its own. Alfy carries on below that line, still holding everything it found before it asked. The reply's buttons come back at the very end.</p>
+		<div class="fit" data-w="1100">
+			<div class="app t-light desk" style="height:780px">
+				<aside class="rail">
+					<span class="logo">A</span>
+					<div class="rail-icons">
+						<svg class="i"><use href="#i-newchat"/></svg>
+						<svg class="i"><use href="#i-search"/></svg>
+						<svg class="i"><use href="#i-book"/></svg>
+					</div>
+					<div class="rail-foot">
+						<span class="avatar">A</span>
+						<svg class="i"><use href="#i-logout"/></svg>
+					</div>
+				</aside>
+				<div class="chat">
+					<div class="titlebar">Dad's 60th</div>
+					<div class="scroll">
+						<div class="col">
+							<div class="umsg">
+								<div class="bubble">I'd like to do something special for my dad's 60th in March. Can you help me think it through?</div>
+								<div class="umeta"><span>16:55</span><svg class="i i-sm"><use href="#i-pencil"/></svg><svg class="i i-sm"><use href="#i-copy"/></svg></div>
+							</div>
+							<div class="reply">
+								<div class="thought"><span>Thought for 4s</span><svg class="i i-sm"><use href="#i-chev"/></svg></div>
+								<p>Happy to. Sixty is worth marking properly, and March leaves you about four months, which is plenty for anything short of a trip abroad.</p>
+								<p>Three things usually decide how it goes: how many people you want there, how much organising you're up for, and whether your dad enjoys being the centre of attention.</p>
+								<p>The biggest fork is the shape of the day itself, so let's settle that first.</p>
+								<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">A party at home</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+								<div class="thought after"><span>Thought for 3s</span><svg class="i i-sm"><use href="#i-chev"/></svg></div>
+								<p>A party at home it is. Here's a first shape for it:</p>
+								<ul>
+									<li><strong>When:</strong> the Saturday closest to his birthday, from about 3 pm, so older guests can head home before dark.</li>
+									<li><strong>Who:</strong> family and his closest friends, about 25 to 30 people.</li>
+									<li><strong>Food:</strong> one big dish he loves, and the cake from the bakery he always talks about.</li>
+									<li><strong>The moment:</strong> a short slideshow of old photos after the cake. I can help you pick them from your photo library.</li>
+								</ul>
+								<p>How many people are you thinking of? Then I'll draw up a timeline for the four months.</p>
+								<div class="ractions">
+									<svg class="i i-sm"><use href="#i-info"/></svg>
+									<svg class="i i-sm"><use href="#i-retry"/></svg>
+									<svg class="i i-sm"><use href="#i-branch"/></svg>
+									<svg class="i i-sm"><use href="#i-file"/></svg>
+									<svg class="i i-sm"><use href="#i-copy"/></svg>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="composer">
+						<div class="c-input">Type a message...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<h3 class="sub">The folded line, every way it can end</h3>
+		<p class="cap">A press opens it to show each question with its answer. Left English, right a Hungarian chat in dark.</p>
+		<div class="row">
+			<div class="fit" data-w="600">
+				<div class="app t-light pad">
+					<div class="rec-label">You picked an answer</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">A party at home</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">You wrote your own</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">“Smaller, maybe a picnic by the lake”</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">You pressed "Up to you"</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">A party at home</span><span class="rec-x">· left to Alfy</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">You closed it with the X</div>
+					<div class="rec"><span class="rec-shut"><svg class="i i-sm"><use href="#i-x"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-x">· closed</span></div>
+					<div class="rec-label">Several questions, opened</div>
+					<div class="rec open"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">2 questions</span><span class="rec-a">Adults, Kids · One list, with a section for the kids' things</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-body">
+						<div class="rp"><div class="rp-q">Who's coming?</div><div class="rp-a">Adults, Kids</div></div>
+						<div class="rp"><div class="rp-q">How should the list be split?</div><div class="rp-a">“One list, with a section for the kids' things”</div></div>
+					</div>
+				</div>
+			</div>
+			<div class="fit" data-w="600">
+				<div class="app t-dark pad" lang="hu">
+					<div class="rec-label">Választottál</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Merre induljunk el?</span><span class="rec-a">Házibuli otthon</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">Saját választ írtál</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Merre induljunk el?</span><span class="rec-a">„Kisebbet, talán egy piknik a tónál”</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">A „Rád bízom” gombot nyomtad</div>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Merre induljunk el?</span><span class="rec-a">Házibuli otthon</span><span class="rec-x">· Alfyra bízva</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-label">Az X-szel bezártad</div>
+					<div class="rec"><span class="rec-shut"><svg class="i i-sm"><use href="#i-x"/></svg></span><span class="rec-q">Merre induljunk el?</span><span class="rec-x">· bezárva</span></div>
+					<div class="rec-label">Több kérdés, kinyitva</div>
+					<div class="rec open"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">2 kérdés</span><span class="rec-a">Felnőttek, gyerekek · Egy lista, külön résszel a gyerekek holmijának</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="rec-body">
+						<div class="rp"><div class="rp-q">Kik jönnek?</div><div class="rp-a">Felnőttek, gyerekek</div></div>
+						<div class="rp"><div class="rp-q">Hogyan osszuk fel a listát?</div><div class="rp-a">„Egy lista, külön résszel a gyerekek holmijának”</div></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 4 ------------------------------------------------------------------>
+	<section id="s4">
+		<h2>4 · Writing your own answer</h2>
+		<p class="cap">While a question waits, what you type goes into the card's own line, not the message box. The box stays off until you answer or close the question, and anything you had typed in it waits there. Enter sends your line. The folded line then quotes your words, and the same reply carries on.</p>
+		<div class="row">
+			<div class="fit" data-w="600">
+				<div class="app t-light pad reply">
+					<div class="mini-label">You start typing</div>
+					<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+						<div class="ask-body">
+							<div class="q">
+								<div class="q-text"><span>Which way should we take it?</span></div>
+								<div class="opts">
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span><span class="opt-note">Easiest to organise, and the whole family can come</span></span></div>
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span><span class="opt-note">Quieter; book three or four weeks ahead</span></span></div>
+									<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A weekend away together</span><span class="opt-note">The most memorable, and the most to arrange</span></span></div>
+									<div class="own-field"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="typed">Smaller, maybe a picnic by the lake<span class="caret"></span></span><span class="mini-send"><svg class="i i-sm"><use href="#i-send"/></svg></span></div>
+								</div>
+							</div>
+						</div>
+						<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+					</article>
+					<div class="composer static">
+						<div class="c-input waiting">Type a message...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="fit" data-w="600">
+				<div class="app t-light pad reply">
+					<div class="mini-label">After you send it</div>
+					<p>The biggest fork is the shape of the day itself, so let's settle that first.</p>
+					<div class="rec"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">“Smaller, maybe a picnic by the lake”</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+					<div class="thought after"><span>Thought for 2s</span><svg class="i i-sm"><use href="#i-chev"/></svg></div>
+					<p>A picnic it is, and a lovely way to mark sixty. Here's a first shape for it:</p>
+					<ul>
+						<li><strong>Where:</strong> the meadow by the lake, close to the car park, so nobody carries chairs far.</li>
+						<li><strong>When:</strong> late March can be cold, so pick a Sunday in April and keep a spare date.</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 5 ------------------------------------------------------------------>
+	<section id="s5">
+		<h2>5 · When you are somewhere else</h2>
+		<p class="cap">A chat that waits for your answer gets a small question mark before its title in the sidebar, where the fork and incognito marks sit, until you answer. Opening it on any device, or after a reload, shows the same waiting card.</p>
+		<div class="row">
+			<div class="fit" data-w="300">
+				<div class="app t-light sb">
+					<div class="sb-row cur"><span class="sb-title">Vienna packing list</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-mark" role="img" aria-label="Waiting for your answer"><svg class="i i-xs"><use href="#i-question"/></svg></span><span class="sb-title">Dad's 60th</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Napelem</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Inverter settings</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Garden shed plans</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+				</div>
+			</div>
+			<div class="fit" data-w="300">
+				<div class="app t-dark sb" lang="hu">
+					<div class="sb-row cur"><span class="sb-title">Bécsi pakolólista</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-mark" role="img" aria-label="A válaszodra vár"><svg class="i i-xs"><use href="#i-question"/></svg></span><span class="sb-title">Apa 60. szülinapja</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Napelem</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Inverter beállítások</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+					<div class="sb-row"><span class="sb-title">Kerti fészer</span><svg class="i i-sm sb-dots"><use href="#i-dots"/></svg></div>
+				</div>
+			</div>
+		</div>
+		<p class="tag-note">No words on screen: the icon is enough. A screen reader still says "Waiting for your answer". On a phone the same icon is in the menu's list.</p>
+	</section>
+
+	<!-- 6 ------------------------------------------------------------------>
+	<section id="s6">
+		<h2>6 · On a phone</h2>
+		<p class="cap">The card stays in the reply on a phone too, with no sheet over the words it asks about. Every answer is a full-width row at least 44 px tall. Left light, middle dark, right a Hungarian chat, where only the small labels come from the app.</p>
+		<div class="row">
+			<div class="fit" data-w="390">
+				<div class="app t-light phone">
+					<div class="ph-head"><svg class="i"><use href="#i-menu"/></svg><span class="ph-title"><span class="logo">A</span>Dad's 60th</span><svg class="i"><use href="#i-user"/></svg></div>
+					<div class="ph-scroll">
+						<div class="reply">
+							<p>Happy to. Sixty is worth marking properly, and March leaves you about four months, which is plenty for anything short of a trip abroad.</p>
+							<p>Three things usually decide how it goes: how many people you want there, how much organising you're up for, and whether your dad enjoys being the centre of attention.</p>
+							<p>The biggest fork is the shape of the day itself, so let's settle that first.</p>
+							<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+								<div class="ask-body">
+									<div class="q">
+										<div class="q-text"><span>Which way should we take it?</span></div>
+										<div class="opts">
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span><span class="opt-note">Easiest to organise, and the whole family can come</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span><span class="opt-note">Quieter; book three or four weeks ahead</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A weekend away together</span><span class="opt-note">The most memorable, and the most to arrange</span></span></div>
+											<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+										</div>
+									</div>
+								</div>
+								<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+							</article>
+						</div>
+					</div>
+					<div class="composer">
+						<div class="c-input waiting">Type a message...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="fit" data-w="390">
+				<div class="app t-dark phone">
+					<div class="ph-head"><svg class="i"><use href="#i-menu"/></svg><span class="ph-title"><span class="logo">A</span>Dad's 60th</span><svg class="i"><use href="#i-user"/></svg></div>
+					<div class="ph-scroll">
+						<div class="reply">
+							<p>Happy to. Sixty is worth marking properly, and March leaves you about four months, which is plenty for anything short of a trip abroad.</p>
+							<p>Three things usually decide how it goes: how many people you want there, how much organising you're up for, and whether your dad enjoys being the centre of attention.</p>
+							<p>The biggest fork is the shape of the day itself, so let's settle that first.</p>
+							<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+								<div class="ask-body">
+									<div class="q">
+										<div class="q-text"><span>Which way should we take it?</span></div>
+										<div class="opts">
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span><span class="opt-note">Easiest to organise, and the whole family can come</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span><span class="opt-note">Quieter; book three or four weeks ahead</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A weekend away together</span><span class="opt-note">The most memorable, and the most to arrange</span></span></div>
+											<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+										</div>
+									</div>
+								</div>
+								<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+							</article>
+						</div>
+					</div>
+					<div class="composer">
+						<div class="c-input waiting">Type a message...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="fit" data-w="390">
+				<div class="app t-light phone" lang="hu">
+					<div class="ph-head"><svg class="i"><use href="#i-menu"/></svg><span class="ph-title"><span class="logo">A</span>Apa 60. szülinapja</span><svg class="i"><use href="#i-user"/></svg></div>
+					<div class="ph-scroll">
+						<div class="reply">
+							<p>Szívesen. A hatvanat érdemes rendesen megünnepelni, és márciusig nagyjából négy hónapod van: ez egy külföldi úton kívül bármire elég.</p>
+							<p>Három dolgon múlik leginkább: hányan legyenek ott, mennyi szervezést vállalsz, és apukád szereti-e, ha ő van a középpontban.</p>
+							<p>A legnagyobb elágazás maga a nap formája, ezt döntsük el először.</p>
+							<article class="ask" aria-label="Alfy kérdése"><button class="ask-x" type="button" aria-label="Kérdés bezárása"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+								<div class="ask-body">
+									<div class="q">
+										<div class="q-text"><span>Merre induljunk el?</span></div>
+										<div class="opts">
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Házibuli otthon<span class="pick">Javasolt</span></span><span class="opt-note">Ezt a legkönnyebb megszervezni, és az egész család ott lehet</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Vacsora étteremben, szűk családdal</span><span class="opt-note">Csendesebb; 3–4 héttel előre foglalj</span></span></div>
+											<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Közös hétvége valahol</span><span class="opt-note">Ez a legemlékezetesebb, de ezzel a legtöbb a szervezés</span></span></div>
+											<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Saját válasz...</span></div>
+										</div>
+									</div>
+								</div>
+								<footer class="ask-foot"><button class="quiet" type="button">Rád bízom</button></footer>
+							</article>
+						</div>
+					</div>
+					<div class="composer">
+						<div class="c-input waiting">Írj üzenetet...</div>
+						<div class="c-tools">
+							<svg class="i"><use href="#i-plus"/></svg>
+							<svg class="i"><use href="#i-clip"/></svg>
+							<svg class="i"><use href="#i-plug"/></svg>
+							<svg class="i brain"><use href="#i-brain"/></svg>
+							<span class="c-send"><svg class="i i-sm"><use href="#i-send"/></svg></span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 7 ------------------------------------------------------------------>
+	<section id="s7">
+		<h2>7 · Small states</h2>
+		<p class="cap">Three moments worth drawing. Alfy may ask as often as the conversation needs, so a reply can hold more than one card. On the right, the Recommended answer is second: it stays where Alfy put it.</p>
+		<div class="row">
+			<div>
+				<p class="state-title">Just appeared</p>
+				<div class="fit" data-w="390">
+					<div class="app t-light pad narrow reply">
+						<article class="ask waking" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+							<div class="ask-body">
+								<div class="q">
+									<div class="q-text"><span>Which way should we take it?</span></div>
+									<div class="opts">
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span></span></div>
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span></span></div>
+										<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+									</div>
+								</div>
+							</div>
+							<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+						</article>
+					</div>
+				</div>
+				<p class="tag-note">For a moment after it appears its answers take no tap, as on the permission card, so a tap meant for something else cannot answer it.</p>
+			</div>
+			<div>
+				<p class="state-title">The answer did not go through</p>
+				<div class="fit" data-w="390">
+					<div class="app t-light pad narrow reply">
+						<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+							<div class="ask-body">
+								<div class="q">
+									<div class="q-text"><span>Which way should we take it?</span></div>
+									<div class="opts">
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">A party at home<span class="pick">Recommended</span></span></span></div>
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Dinner out, just close family</span></span></div>
+										<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+									</div>
+								</div>
+								<div class="ask-err" role="alert"><svg class="i i-sm"><use href="#i-alert"/></svg><span>Couldn't send your answer. Try again.</span></div>
+							</div>
+							<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+						</article>
+					</div>
+				</div>
+				<p class="tag-note">The card stays answerable. Nothing was lost, so the line is not red.</p>
+			</div>
+			<div>
+				<p class="state-title">Asking again, later in the same reply</p>
+				<div class="fit" data-w="390">
+					<div class="app t-light pad narrow reply">
+						<div class="rec" style="margin-top:0"><span class="rec-ok"><svg class="i i-sm"><use href="#i-check"/></svg></span><span class="rec-q">Which way should we take it?</span><span class="rec-a">A party at home</span><svg class="i i-sm rec-chev"><use href="#i-chev"/></svg></div>
+						<p style="margin-top:10px">A party at home it is. With 25 to 30 people, the next fork is where they all fit.</p>
+						<article class="ask" aria-label="Alfy's question"><button class="ask-x" type="button" aria-label="Close the question"><svg class="i i-sm"><use href="#i-x"/></svg></button>
+							<div class="ask-body">
+								<div class="q">
+									<div class="q-text"><span>Inside or in the garden?</span></div>
+									<div class="opts">
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">Inside</span><span class="opt-note">No weather worries, but tight for 30</span></span></div>
+										<div class="opt"><span class="dot"></span><span class="opt-main"><span class="opt-label">In the garden, with a tent<span class="pick">Recommended</span></span><span class="opt-note">Room for everyone; book the tent by February</span></span></div>
+										<div class="opt own"><svg class="i i-sm"><use href="#i-penline"/></svg><span class="opt-label">Type my own...</span></div>
+									</div>
+								</div>
+							</div>
+							<footer class="ask-foot"><button class="quiet" type="button">Up to you</button></footer>
+						</article>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 8 ------------------------------------------------------------------>
+	<section id="s8">
+		<h2>8 · Words the app adds</h2>
+		<p class="cap">Everything else on the card is Alfy's, in the chat's language. These come from the app, in English and Hungarian.</p>
+		<div class="wrap-table">
+			<table class="words">
+				<thead><tr><th>Where</th><th>English</th><th>Magyar</th></tr></thead>
+				<tbody>
+					<tr><td>Mark on the answer Alfy recommends (always one on a one-pick question)</td><td>Recommended</td><td>Javasolt</td></tr>
+					<tr><td>The row for your own words</td><td>Type my own...</td><td>Saját válasz...</td></tr>
+					<tr><td>The X at the top right (screen readers)</td><td>Close the question</td><td>Kérdés bezárása</td></tr>
+					<tr><td>Beside a question that takes several picks</td><td>Pick any</td><td>Több is lehet</td></tr>
+					<tr><td>Take the Recommended answers</td><td>Up to you</td><td>Rád bízom</td></tr>
+					<tr><td>Send (several questions, or several picks)</td><td>Send</td><td>Küldés</td></tr>
+					<tr><td>Folded line, after the X</td><td>closed</td><td>bezárva</td></tr>
+					<tr><td>Folded line, several questions</td><td>2 questions</td><td>2 kérdés</td></tr>
+					<tr><td>Folded line, after "Up to you"</td><td>left to Alfy</td><td>Alfyra bízva</td></tr>
+					<tr><td>Sidebar icon (screen readers only)</td><td>Waiting for your answer</td><td>A válaszodra vár</td></tr>
+					<tr><td>An answer that did not go through</td><td>Couldn't send your answer. Try again.</td><td>Nem sikerült elküldeni a válaszodat. Próbáld újra.</td></tr>
+					<tr><td>The card (screen readers)</td><td>Alfy's question</td><td>Alfy kérdése</td></tr>
+					<tr><td>A card with several (screen readers)</td><td>Alfy's questions ({n})</td><td>Alfy kérdései ({n})</td></tr>
+					<tr><td>The recommended answer (screen readers)</td><td>{answer}, recommended</td><td>{answer}, javasolt</td></tr>
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	<!-- 9 ------------------------------------------------------------------>
+	<section id="s9">
+		<h2>9 · What is decided</h2>
+		<p class="cap">Yours on the left, from today's conversation. Mine on the right: change any of them.</p>
+		<div class="decided">
+			<div>
+				<h3>Yours</h3>
+				<ul>
+					<li>After you answer, the same reply carries on, instead of a second round in a new reply.</li>
+					<li>A card holds 1 to 3 questions with 2 to 3 answers each and an optional one-line note. A question may take several picks. "Type my own" is always there, and "Up to you" lets Alfy decide.</li>
+					<li>A question with one pick always has a Recommended answer, and Alfy marks which one. On a question with several picks it is optional.</li>
+					<li>An X at the card's top right closes the question: it tells Alfy the question was off, or to guess.</li>
+					<li>Your own answer is typed in the card's own line, not the message box.</li>
+					<li>No timer: a question waits for you.</li>
+					<li>Once answered, the card folds into one line and cannot be changed. Retry runs the whole reply again.</li>
+					<li>A chat that waits for you shows a small icon before its title in the sidebar, with no words.</li>
+					<li>No limit on when or how often Alfy asks: before it makes something, at a fork in a conversation, or while you talk an idea through.</li>
+				</ul>
+			</div>
+			<div>
+				<h3>My calls</h3>
+				<ul>
+					<li>The paused reply is saved, and your answer or the X starts it again, from any device, at any time. Nothing stays connected while it waits.</li>
+					<li>After the X, Alfy hears that you closed the question without answering. It carries on with its best guess or asks differently, and does not ask the same thing again.</li>
+					<li>While a question waits, the message box is off. Your answer or the X turns it back on, and anything you had typed in it is still there.</li>
+					<li>The Recommended mark stays where Alfy put it, so an order like small, medium, large keeps its sense. On a question with several picks the mark may sit on several answers, or none.</li>
+					<li>"Up to you" stays, as in the design you approved. Where a question with several picks has no Recommended, it is how you leave the choice to Alfy.</li>
+					<li>One question with one pick answers on a click. Several questions, or a question with several picks, need Send.</li>
+					<li>Its answers take no tap for a moment after it appears, as on the permission card.</li>
+					<li>What Alfy does after your answer is drawn below the folded line, never above it: nothing may push the words being read.</li>
+					<li>Your answer shows in the folded line only, not as a message bubble.</li>
+					<li>The sidebar mark is a small question mark where the fork and incognito marks sit, not the dot a finished research run uses, so the two cannot be confused. A screen reader hears "Waiting for your answer".</li>
+					<li>A question has no short heading of its own: fewer words for Alfy to write and for the tool list to carry.</li>
+					<li>On a phone the card stays in the reply; no sheet.</li>
+					<li>"Up to you" and "Rád bízom" say your "Skip, you decide" in fewer words.</li>
+					<li>Not in this version: pictures as answers (which of these photos), changing an answer, and a phone notification when Alfy asks.</li>
+				</ul>
+			</div>
+		</div>
+	</section>
+</div>
+
+<script>
+	// Shrinks a fixed-size frame to fit a narrow screen; on a wide one it stays 1:1.
+	function fitFrames() {
+		document.querySelectorAll(".fit").forEach((el) => {
+			const width = Number(el.dataset.w);
+			const available = (el.closest("section") || document.body).clientWidth;
+			el.style.zoom = available > 0 && available < width ? String(available / width) : "1";
+		});
+	}
+	addEventListener("resize", fitFrames);
+	fitFrames();
+</script>
+</body>
+</html>
