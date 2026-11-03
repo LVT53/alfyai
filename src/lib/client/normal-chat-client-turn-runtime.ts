@@ -591,6 +591,19 @@ export function createNormalChatClientTurnRuntime(
 		return adapters.getConversationId() === turnConversationId;
 	}
 
+	/**
+	 * Whether a turn can start in `turnConversationId` now: the page is there (it was
+	 * not left, `detached`), the chat is on screen and no turn holds the turn state.
+	 */
+	function canStartTurnIn(turnConversationId: string): boolean {
+		return (
+			!detached &&
+			!isSending &&
+			!activeStream &&
+			isTurnConversationActive(turnConversationId)
+		);
+	}
+
 	function setActiveStream(nextStream: StreamHandle | null) {
 		activeStream = nextStream;
 		emitState();
@@ -971,6 +984,12 @@ export function createNormalChatClientTurnRuntime(
 	 * goes into a fresh placeholder under the bubble on screen, which supersedes this
 	 * one). Nothing is waited for. At most three times over, so a stream that keeps
 	 * failing on a server that keeps answering is not followed for ever.
+	 *
+	 * "none" says nothing was joined and nothing was taken off the screen: no stream,
+	 * the stream of another message, the limit, or a turn that holds the turn state (a
+	 * join needs it free; the composer is free after a drop, so a message sent since is
+	 * a turn). The caller then settles the reply like any other that cannot be joined
+	 * (`settleCutReply`), which leaves that turn alone.
 	 */
 	async function joinRunningStreamOfCutReply(
 		params: StartStreamParams,
@@ -982,6 +1001,7 @@ export function createNormalChatClientTurnRuntime(
 		) {
 			return "none";
 		}
+		if (!ownsTurn && isSending) return "none";
 		const running = await findRunningStream(
 			params.turnConversationId,
 			STREAM_QUESTION_MAX_MS,
@@ -992,12 +1012,15 @@ export function createNormalChatClientTurnRuntime(
 		if (!running || isForAnotherMessage(running.bufferInfo, params.message)) {
 			return "none";
 		}
+		// A reconnect needs the turn state free, and nothing can start between this and
+		// it. (For a reply that does not own it, a turn can have started while the page
+		// asked.)
+		if (ownsTurn) completeTurn();
+		if (!canStartTurnIn(params.turnConversationId)) return "none";
 		adapters.applyMessageListEvent({
 			type: "remove",
 			messageId: params.placeholderId,
 		});
-		// A reconnect needs the turn state free, and nothing can start between this and it.
-		if (ownsTurn) completeTurn();
 		await reconnectToOrphanedStream(
 			running.streamId,
 			params.message,
@@ -2691,9 +2714,7 @@ export function createNormalChatClientTurnRuntime(
 		// and everything else that gets here (the recoveries, a Retry that joins, the
 		// capacity backoff) is a turn's own work, which starts nothing for a page that
 		// was left.
-		if (detached) return false;
-		if (isSending || activeStream) return false;
-		if (!isTurnConversationActive(turnConversationId)) return false;
+		if (!canStartTurnIn(turnConversationId)) return false;
 
 		beginTurn();
 		adapters.markHasPersistedMessages?.();

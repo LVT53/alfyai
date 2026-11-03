@@ -6560,6 +6560,117 @@ describe("Normal Chat Client Turn Runtime", () => {
 				expect(runtime.stop()).toBe(true);
 				expect(made.streamInvocations[1].handle.stop).toHaveBeenCalledTimes(1);
 			});
+
+			// The composer is free after a drop, so a message sent while the looks go on
+			// is a turn that holds the turn state, and a join needs it free. The reply is
+			// then settled like any cut reply that cannot be joined (`settleCutReply`),
+			// around that turn, as a network-drop recovery does for any other answer.
+			describe("when a turn started since the reply was cut", () => {
+				const drainRefusal = () =>
+					Object.assign(
+						new Error("Server at capacity. Please try again later."),
+						{ status: 503, code: "CAPACITY_EXCEEDED", reason: "draining" },
+					);
+				const another = {
+					message: "Another",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				};
+
+				it("asks for no stream it cannot join, settles the reply around that turn and leaves the turn alone", async () => {
+					const made = drainingAdapters();
+					streamAppearsOnTheFourthLook(made);
+					const runtime = createNormalChatClientTurnRuntime(made.adapters);
+					await send(runtime);
+					const cutReplyId = made.messages.at(-1)?.id;
+					made.streamInvocations[0].callbacks.onToken("Half an");
+					made.streamInvocations[0].callbacks.onError(connectionFailed());
+					// The drain turns the next message away, and it waits.
+					await runtime.send(another);
+					made.streamInvocations[1].callbacks.onError(drainRefusal());
+					expect(runtime.snapshot().phase).toBe("awaiting_update");
+
+					await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+
+					// The three looks of the drop found nothing, and a fourth could not be used.
+					expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
+					expect(made.streamInvocations).toHaveLength(2);
+					// The server was asked what it holds of the cut reply, and the reply left
+					// the screen with no error: the chat brings it back when it is read.
+					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+					expect(
+						made.messages.find((message) => message.id === cutReplyId),
+					).toBeUndefined();
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					// The turn that waits for the update is as it was, and still goes.
+					expect(runtime.snapshot()).toMatchObject({
+						phase: "awaiting_update",
+						isSending: true,
+					});
+					made.server.health = WELL;
+					await vi.advanceTimersByTimeAsync(POLL_MS);
+					expect(made.streamInvocations).toHaveLength(3);
+					expect(made.streamInvocations[2].message).toBe("Another");
+				});
+
+				it("takes nothing off the screen for a stream it finds after a turn started meanwhile", async () => {
+					const made = drainingAdapters();
+					let streamFound: (streamId: string | null) => void = () => {};
+					vi.mocked(made.adapters.checkForOrphanedStream)
+						.mockResolvedValueOnce(null)
+						.mockResolvedValueOnce(null)
+						.mockResolvedValueOnce(null)
+						.mockImplementation(
+							() =>
+								new Promise<string | null>((resolve) => {
+									streamFound = resolve;
+								}),
+						);
+					vi.mocked(made.adapters.getStreamBufferInfo).mockResolvedValue({
+						exists: true,
+						userMessage: question,
+					});
+					const runtime = createNormalChatClientTurnRuntime(made.adapters);
+					await send(runtime);
+					const cutReplyId = made.messages.at(-1)?.id;
+					made.streamInvocations[0].callbacks.onToken("Half an");
+					made.streamInvocations[0].callbacks.onError(connectionFailed());
+					await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+					expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(4);
+
+					// The fourth look is out when the person sends, and the server runs it.
+					await runtime.send(another);
+					expect(made.streamInvocations).toHaveLength(2);
+					streamFound("stream-1");
+					await vi.advanceTimersByTimeAsync(0);
+
+					// Nothing was joined: the stream is the cut reply's, the state is the new turn's.
+					expect(made.streamInvocations).toHaveLength(2);
+					expect(
+						made.streamInvocations[1].options?.reconnectToStreamId,
+					).toBeUndefined();
+					expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+					expect(
+						made.messages.find((message) => message.id === cutReplyId),
+					).toBeUndefined();
+					// And it stayed on the screen until the server had been asked.
+					const removals = made.messageListEvents.removeMessage.mock;
+					expect(
+						vi.mocked(made.adapters.readChatMessages as () => Promise<unknown>)
+							.mock.invocationCallOrder[0],
+					).toBeLessThan(
+						removals.invocationCallOrder[
+							removals.calls.findIndex(([id]) => id === cutReplyId)
+						],
+					);
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					expect(runtime.snapshot()).toMatchObject({
+						isSending: true,
+						active: true,
+					});
+				});
+			});
 		});
 
 		// A version that went live during this turn, with the server answering: the
