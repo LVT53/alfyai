@@ -330,7 +330,7 @@ read from the environment and can also be set in `Settings > Administration > Sy
 ## Deployment And Runtime Wrapper Variables
 
 These configure the adapter-node server wrapper and framework runtime, not app features. Deploy-script
-variables (`APP_DIR`, `DEPLOY_BRANCH`, `SERVICE_NAME`, `HEALTH_PORT`, `RELEASES_TO_KEEP`) are
+variables (`APP_DIR`, `DEPLOY_BRANCH`, `SERVICE_NAME`, `HEALTH_PORT`, `RELEASES_TO_KEEP`, `DRAIN_TIMEOUT_SECONDS`) are
 documented in [deploy/README.md](../deploy/README.md).
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |

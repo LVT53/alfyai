@@ -59,6 +59,7 @@ and are not read by the app (app runtime variables are in
 | `DB_BACKUP_KEEP` | `7` | How many database backups are retained in `shared/backups/`. The backup taken by the current deploy is never pruned, whatever the ordering says. |
 | `DB_BACKUP_REQUIRED` | `1` | When `1`, a failed database backup **aborts the deploy before any migration runs**. Set to `0` to deploy anyway with an unprotected database. |
 | `DB_BACKUP_TIMEOUT` | `600` | Wall-clock ceiling (seconds) for the backup copy and for the integrity check, so a stalled filesystem cannot hang a deploy. |
+| `DRAIN_TIMEOUT_SECONDS` | `180` | How long step 7b waits for running replies to finish before the cutover restarts the server (`0` does not wait; anything that is not a number is `180`). A reply still running when it ends is cut by the restart. See [Health Check](#health-check). |
 
 ### Database backups
 
