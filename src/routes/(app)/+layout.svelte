@@ -39,6 +39,7 @@ import {
 	type FeatureNote,
 } from "$lib/client/api/campaigns";
 import { conversationExists } from "$lib/client/api/conversations";
+import { fetchServerHealth } from "$lib/client/api/health";
 import {
 	mayAutoShowCampaign,
 	shouldPersistCampaignCompletion,
@@ -442,20 +443,12 @@ const SERVER_DRAINING_POLL_MS = 3000;
 async function checkServerHealth() {
 	if (!browser) return;
 
-	try {
-		const response = await fetch("/api/health", { cache: "no-store" });
-		if (response.ok) {
-			const data = (await response.json()) as { draining?: unknown };
-			serverDraining = data.draining === true;
-		}
-		// A non-ok response leaves serverDraining at its last known value —
-		// the server may be mid-restart, which is exactly the window
-		// draining exists for. The poll below keeps checking either way.
-	} catch (error) {
-		if (!isTransientRefreshError(error)) {
-			console.warn("Failed to check server health:", error);
-		}
-	}
+	const health = await fetchServerHealth();
+	// A server that does not answer (a failed request, the proxy's maintenance
+	// page) leaves serverDraining at its last known value — the server may be
+	// mid-restart, which is exactly the window draining exists for. The poll
+	// below keeps checking either way.
+	if (health.reachable) serverDraining = health.draining;
 
 	if (serverDraining) scheduleServerDrainingPoll();
 }
