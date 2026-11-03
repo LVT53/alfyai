@@ -55,6 +55,7 @@ import {
 	submitAtlasTurn,
 } from "$lib/client/api/atlas";
 import { checkChatTurn } from "$lib/client/api/chat-turn";
+import { fetchServerHealth } from "$lib/client/api/health";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	chatFileStillExists,
@@ -133,6 +134,10 @@ import {
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import { projects } from "$lib/stores/projects";
+import {
+	reportServerUpdateSign,
+	setTurnWaitingForUpdate,
+} from "$lib/stores/server-update";
 import {
 	selectedModel,
 	selectedReasoningDepth,
@@ -230,6 +235,7 @@ import {
 	withinOrNull,
 	buildPendingFileProductionJobPlaceholder,
 	joinRestoredPayload,
+	type HeldComposer,
 	marksOutdated,
 	composerPlaceholderKey,
 	dropPendingFileProductionJobs,
@@ -455,9 +461,11 @@ let normalChatRuntimePhase = $state<NormalChatRuntimePhase>("idle");
 // will be refused.
 let normalChatRuntimeCanRetry = $state(false);
 let normalChatRuntimeCanStop = $derived(
-	normalChatRuntimeActive &&
+	(normalChatRuntimeActive &&
 		(normalChatRuntimePhase === "preparing" ||
-			normalChatRuntimePhase === "generating"),
+			normalChatRuntimePhase === "generating")) ||
+		// A turn that waits for an update has no stream, and Stop ends the wait.
+		normalChatRuntimePhase === "awaiting_update",
 );
 let queuedTurn = $state<SendPayload | null>(null);
 // Pictures waiting in the composer (plan 2b T5): a card's, a strip frame's or a
@@ -1097,6 +1105,12 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 				SERVER_MESSAGES_READ_MAX_MS,
 			)
 		)?.messages ?? null,
+	// A message that waits for a server update asks the health route, and tells the
+	// shell: it watches the server while one waits and holds its Refresh notice (the
+	// stores hold the state; the layout acts on it).
+	fetchServerHealth,
+	onServerUpdateSign: reportServerUpdateSign,
+	setTurnWaitingForUpdate,
 	mergeGeneratedFiles: (files) => {
 		markDetailMetadataFreshnessBoundary();
 		const existingIds = new Set(generatedFiles.map((file) => file.id));
@@ -1131,6 +1145,11 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		}
 		if (message === "fork.regenerateWarning") {
 			sendError = get(t)("fork.regenerateWarning");
+			return;
+		}
+		// The sentence for a wait for a server update that ran out.
+		if (message === "chat.updateStillRunning") {
+			sendError = $t("chat.updateStillRunning");
 			return;
 		}
 		sendError = message;
@@ -3333,26 +3352,34 @@ function draftSaveOf(conversationId: string, draft: ConversationDraft | null) {
 
 /**
  * A message queued behind a running reply is the person's words in that chat, and
- * the queue goes with the chat: a switch resets the runtime and a page that is left
- * is destroyed. So first its words join the draft of the chat they were queued in
- * and are saved for it, and come back when the person returns; nothing is sent.
+ * so is a message that waits for a server update (it has not reached the server):
+ * both go with the chat, since a switch resets the runtime and a page that is left
+ * is destroyed. So first their words join the draft of the chat they were typed in
+ * and are saved for it, and come back when the person returns; nothing is sent. The
+ * waiting message was sent before whatever was queued behind it, so it comes first.
  * `restorePayloadToDraft` cannot do this: it reads `data.conversation.id`, which is
  * already the next chat's when a switch is seen.
  */
 function saveQueuedTurnInDraftOf(conversationId: string) {
-	const queued = normalChatRuntime.takeQueuedTurn();
-	if (!queued) return;
-	const joined = joinRestoredPayload(
-		{ draft: heldDraft, pictures: composerPictures, marks: heldMarks },
-		queued,
-		{ conversationId, updatedAt: Date.now() },
-	);
+	const words = [
+		normalChatRuntime.takeWaitingRequest(),
+		normalChatRuntime.takeQueuedTurn(),
+	].filter((payload) => payload !== null);
+	if (words.length === 0) return;
+	let held: HeldComposer = {
+		draft: heldDraft,
+		pictures: composerPictures,
+		marks: heldMarks,
+	};
+	for (const payload of words) {
+		held = joinRestoredPayload(held, payload, {
+			conversationId,
+			updatedAt: Date.now(),
+		});
+	}
 	// Saved at once: it replaces the save of the words typed since that is still
 	// waiting, which the joined draft holds, and the flush after finds nothing.
-	void draftPersistence.persist(
-		draftSaveOf(conversationId, joined.draft),
-		true,
-	);
+	void draftPersistence.persist(draftSaveOf(conversationId, held.draft), true);
 }
 
 function restoreQueuedTurnToDraft() {

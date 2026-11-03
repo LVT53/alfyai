@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ServerHealth } from "$lib/client/api/health";
 import {
 	createNormalChatClientTurnRuntime,
 	type NormalChatClientTurnRuntimeAdapters,
@@ -283,6 +284,11 @@ function makeAdapters(
 		hydrateConversationDetail: vi.fn(),
 		pollForCompletion: vi.fn(),
 		loadPersistedData: vi.fn(),
+		// A server that answers and is not draining: nothing waits for an update
+		// unless a test says the server is away.
+		fetchServerHealth: vi.fn(
+			async (): Promise<ServerHealth> => ({ reachable: true, draining: false }),
+		),
 		mergeGeneratedFiles: vi.fn(),
 		setContextCompressionMarkers: vi.fn(),
 		maybeTriggerTitleGeneration: vi.fn(),
@@ -4258,6 +4264,569 @@ describe("Normal Chat Client Turn Runtime", () => {
 			expect(runtime.snapshot()).toMatchObject({
 				isSending: false,
 				canRetry: true,
+			});
+		});
+	});
+
+	// ADR-0054, "An Update During A Turn". A deploy drains the server (a new
+	// message is turned away with the reason "draining"), then restarts it (the
+	// reverse proxy answers its maintenance page). A request refused for that ran
+	// nothing, so the turn waits for the server to come back and sends the same
+	// request again, instead of counting down three tries and blaming the provider.
+	describe("a request refused while the server is updated", () => {
+		const POLL_MS = 3000;
+		const EIGHT_MINUTES_MS = 8 * 60 * 1000;
+		const AWAY: ServerHealth = { reachable: false, draining: false };
+		const DRAINING: ServerHealth = { reachable: true, draining: true };
+		const WELL: ServerHealth = { reachable: true, draining: false };
+
+		function refusedAsDraining(): Error {
+			return Object.assign(
+				new Error("Server at capacity. Please try again later."),
+				{ status: 503, code: "CAPACITY_EXCEEDED", reason: "draining" },
+			);
+		}
+
+		function refusedByTheProxy(): Error {
+			return Object.assign(new Error("HTTP 503"), {
+				status: 503,
+				serverUnavailable: true,
+			});
+		}
+
+		function refusedAsFull(reason: "global_limit" | "user_limit"): Error {
+			return Object.assign(
+				new Error("Server at capacity. Please try again later."),
+				{ status: 503, code: "CAPACITY_EXCEEDED", reason },
+			);
+		}
+
+		const words = (text = "Hello during an update") => ({
+			message: text,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		/**
+		 * Adapters whose clock is the test's (`schedule` is a timer vitest advances)
+		 * and whose server is whatever `server.health` says.
+		 */
+		function updateAdapters(
+			overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+		) {
+			vi.useFakeTimers();
+			const server = { health: DRAINING };
+			const made = makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				fetchServerHealth: vi.fn(async () => server.health),
+				onServerUpdateSign: vi.fn(),
+				setTurnWaitingForUpdate: vi.fn(),
+				...overrides,
+			});
+			return { ...made, server };
+		}
+
+		/** What the page was told through `setSendError`, ignoring the clearing a send does. */
+		function sentenceShown(adapters: NormalChatClientTurnRuntimeAdapters) {
+			return vi
+				.mocked(adapters.setSendError)
+				.mock.calls.map(([message]) => message)
+				.filter((message) => message !== null);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("waits in awaiting_update while the server drains, then sends the same request again", async () => {
+			const { adapters, streamInvocations, messages, server } =
+				updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+			// Not the capacity backoff, and no error: the placeholder waits, saying so.
+			expect(adapters.schedule).not.toHaveBeenCalledWith(
+				expect.any(Function),
+				500,
+			);
+			expect(sentenceShown(adapters)).toEqual([]);
+			expect(messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+			]);
+			expect(messages[1].runtimePhase).toBe("awaiting_update");
+			expect(runtime.snapshot()).toMatchObject({
+				phase: "awaiting_update",
+				isSending: true,
+				active: false,
+			});
+			// The shell is told, once, and holds its Refresh notice.
+			expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+			expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(true);
+
+			// The first look is a poll away, and the server is still draining.
+			await vi.advanceTimersByTimeAsync(POLL_MS - 1);
+			expect(adapters.fetchServerHealth).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			expect(adapters.fetchServerHealth).toHaveBeenCalledTimes(1);
+			expect(streamInvocations).toHaveLength(1);
+
+			// It is back: the same request goes again, to the same two bubbles.
+			server.health = WELL;
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(adapters.fetchServerHealth).toHaveBeenCalledTimes(2);
+			expect(streamInvocations).toHaveLength(2);
+			expect(streamInvocations[1]).toMatchObject({
+				message: "Hello during an update",
+				conversationId: "conv-1",
+			});
+			expect(streamInvocations[1].options).toBe(streamInvocations[0].options);
+			expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(false);
+			expect(messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+			]);
+			expect(messages[1].runtimePhase).toBe("preparing");
+			expect(runtime.snapshot()).toMatchObject({
+				phase: "preparing",
+				isSending: true,
+				active: true,
+			});
+
+			// And it streams like any turn: no sentence was ever shown.
+			streamInvocations[1].callbacks.onToken("Hi");
+			streamInvocations[1].callbacks.onEnd("Hi", {
+				assistantMessageId: "assistant-1",
+			});
+			expect(sentenceShown(adapters)).toEqual([]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				canRetry: false,
+			});
+		});
+
+		it("takes the proxy's maintenance page for the same wait, and goes on waiting through the restart", async () => {
+			const { adapters, streamInvocations, messages, server } =
+				updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedByTheProxy());
+
+			expect(messages[1].runtimePhase).toBe("awaiting_update");
+			expect(adapters.schedule).not.toHaveBeenCalledWith(
+				expect.any(Function),
+				500,
+			);
+
+			// The restart: the health route does not answer at all.
+			server.health = AWAY;
+			await vi.advanceTimersByTimeAsync(POLL_MS * 5);
+			expect(streamInvocations).toHaveLength(1);
+			expect(messages[1].runtimePhase).toBe("awaiting_update");
+
+			server.health = WELL;
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(streamInvocations).toHaveLength(2);
+			expect(sentenceShown(adapters)).toEqual([]);
+		});
+
+		it("gives up after eight minutes: the placeholder goes, the question stays with Retry and the sentence for it", async () => {
+			const { adapters, streamInvocations, messages } = updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+			await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS - 1);
+			expect(runtime.snapshot().phase).toBe("awaiting_update");
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(sentenceShown(adapters)).toEqual(["chat.updateStillRunning"]);
+			expect(messages.map((message) => message.role)).toEqual(["user"]);
+			expect(runtime.snapshot()).toMatchObject({
+				isSending: false,
+				active: false,
+				canRetry: true,
+			});
+			expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(false);
+			expect(streamInvocations).toHaveLength(1);
+
+			// The polls stop with the wait.
+			const looks = vi.mocked(adapters.fetchServerHealth).mock.calls.length;
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(vi.mocked(adapters.fetchServerHealth)).toHaveBeenCalledTimes(
+				looks,
+			);
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("does not let a health question that never answers hold the polls back", async () => {
+			const { adapters, streamInvocations } = updateAdapters({
+				fetchServerHealth: vi.fn(() => new Promise<ServerHealth>(() => {})),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+			expect(adapters.fetchServerHealth).toHaveBeenCalledTimes(1);
+			// No answer in five seconds is "away", and the next look comes a poll later.
+			await vi.advanceTimersByTimeAsync(5000 + POLL_MS);
+			expect(adapters.fetchServerHealth).toHaveBeenCalledTimes(2);
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("sends a Retry that is refused the same way again once the server is back", async () => {
+			const { adapters, streamInvocations, messages, server } =
+				updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words("Question"));
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+			await runtime.retry();
+			expect(streamInvocations).toHaveLength(2);
+
+			streamInvocations[1].callbacks.onError(refusedAsDraining());
+			expect(messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+			expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+
+			server.health = WELL;
+			await vi.advanceTimersByTimeAsync(POLL_MS);
+
+			expect(streamInvocations).toHaveLength(3);
+			expect(streamInvocations[2].message).toBe("Question");
+			// Still the same user bubble and one placeholder.
+			expect(messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+			]);
+		});
+
+		it.each([
+			"global_limit",
+			"user_limit",
+		] as const)("keeps the old three-step backoff for a refusal that says %s", async (reason) => {
+			const { adapters, streamInvocations, messages } = updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedAsFull(reason));
+
+			// Backing off, the old way: no wait, no sign, no awaiting phase.
+			expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
+			expect(adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			expect(adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+			expect(messages[1].runtimePhase).not.toBe("awaiting_update");
+
+			await vi.advanceTimersByTimeAsync(500);
+			expect(streamInvocations).toHaveLength(2);
+		});
+
+		it("still ends a full server's refusals with the capacity sentence after three tries", async () => {
+			const { adapters, streamInvocations } = updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			await runtime.send(words());
+			streamInvocations[0].callbacks.onError(refusedAsFull("global_limit"));
+			await vi.advanceTimersByTimeAsync(500);
+			streamInvocations[1].callbacks.onError(refusedAsFull("global_limit"));
+			await vi.advanceTimersByTimeAsync(1000);
+			streamInvocations[2].callbacks.onError(refusedAsFull("global_limit"));
+			await vi.advanceTimersByTimeAsync(2000);
+			streamInvocations[3].callbacks.onError(refusedAsFull("global_limit"));
+
+			expect(streamInvocations).toHaveLength(4);
+			expect(sentenceShown(adapters)).toEqual([
+				"Server at capacity. Please try again later.",
+			]);
+			expect(runtime.snapshot()).toMatchObject({
+				canRetry: true,
+				isSending: false,
+			});
+		});
+
+		it("sends a request again only a few times when the server calls itself well and keeps refusing it as an update", async () => {
+			const { adapters, streamInvocations, server } = updateAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			server.health = WELL;
+
+			await runtime.send(words());
+			// Refused, waited, sent again: three times over.
+			for (let sent = 0; sent < 3; sent += 1) {
+				streamInvocations[sent].callbacks.onError(refusedByTheProxy());
+				await vi.advanceTimersByTimeAsync(POLL_MS);
+				expect(streamInvocations).toHaveLength(sent + 2);
+			}
+			expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(3);
+
+			// The fourth refusal is not waited for: it fails like any other.
+			streamInvocations[3].callbacks.onError(refusedByTheProxy());
+			expect(adapters.onServerUpdateSign).toHaveBeenCalledTimes(3);
+			expect(runtime.snapshot()).toMatchObject({
+				phase: "idle",
+				isSending: false,
+				canRetry: true,
+			});
+			expect(sentenceShown(adapters)).toEqual(["HTTP 503"]);
+		});
+
+		describe("Stop, and leaving the chat, while it waits", () => {
+			it("ends the wait on Stop: the unsent bubble and the placeholder go, and the words return to the composer", async () => {
+				const { adapters, streamInvocations, messages, server } =
+					updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				const payload = {
+					...words("Words that never arrived"),
+					attachmentIds: ["file-1"],
+				};
+
+				await runtime.send(payload);
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				expect(runtime.snapshot().phase).toBe("awaiting_update");
+
+				// Stop is not "nothing to stop" now: it ends the wait, at once.
+				expect(runtime.stop()).toBe(true);
+
+				expect(messages).toEqual([]);
+				expect(adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+				expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+					expect.objectContaining({
+						message: "Words that never arrived",
+						attachmentIds: ["file-1"],
+					}),
+				);
+				// No sentence: the person stopped it. And nothing is left to retry.
+				expect(sentenceShown(adapters)).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					phase: "idle",
+					isSending: false,
+					canRetry: false,
+				});
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+
+				// Nothing is sent afterwards, whatever the server does.
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 4);
+				expect(streamInvocations).toHaveLength(1);
+				expect(adapters.fetchServerHealth).not.toHaveBeenCalled();
+			});
+
+			it("returns a message queued behind the waiting one after it, so the words keep their order", async () => {
+				const { adapters, streamInvocations } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words("First"));
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				runtime.queue(words("Second, typed while it waited"));
+				expect(runtime.snapshot().queuedTurn?.message).toBe(
+					"Second, typed while it waited",
+				);
+
+				runtime.stop();
+
+				expect(
+					vi
+						.mocked(adapters.restorePayloadToDraft)
+						.mock.calls.map(([restored]) => restored.message),
+				).toEqual(["First", "Second, typed while it waited"]);
+				expect(runtime.snapshot().queuedTurn).toBeNull();
+			});
+
+			it("leaves a stopped regenerate the way a failed one is left, with no sentence and no words to restore", async () => {
+				const { adapters, streamInvocations, messages } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				// The page took the reply it replaces off the list, and the question stays.
+				messages.push({
+					id: "user-1",
+					role: "user",
+					content: "The old question",
+					timestamp: 1,
+				});
+
+				await runtime.send(words("The old question"), {
+					skipUserMessage: true,
+					skipPersistUserMessage: true,
+					retryAssistantMessageId: "assistant-old",
+					retryUserMessageId: "user-1",
+				});
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				expect(messages.at(-1)?.runtimePhase).toBe("awaiting_update");
+
+				runtime.stop();
+
+				// The placeholder goes; the question, which the server holds, stays; and
+				// the question's words are not put in the composer as if unsent.
+				expect(messages.map((message) => message.id)).toEqual(["user-1"]);
+				expect(adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+				expect(sentenceShown(adapters)).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+			});
+
+			it("does the same for a request with no payload at all, the regenerate Retry makes of a reply", async () => {
+				const { adapters, streamInvocations, messages } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words("Question"));
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+				// The list now ends in a reply (something else put it there): Retry asks
+				// for it again.
+				messages.push({
+					id: "reply-1",
+					role: "assistant",
+					content: "An answer",
+					timestamp: 3,
+				});
+				await runtime.retry();
+				expect(streamInvocations[1].options?.retryAssistantMessageId).toBe(
+					"reply-1",
+				);
+
+				streamInvocations[1].callbacks.onError(refusedAsDraining());
+				expect(runtime.snapshot().phase).toBe("awaiting_update");
+				runtime.stop();
+
+				expect(adapters.restorePayloadToDraft).not.toHaveBeenCalled();
+				expect(messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+			});
+
+			it("sends nothing from a chat the person left: a reset drops the wait", async () => {
+				const { adapters, streamInvocations, server } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				runtime.reset();
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(EIGHT_MINUTES_MS);
+				expect(streamInvocations).toHaveLength(1);
+				expect(adapters.fetchServerHealth).not.toHaveBeenCalled();
+				expect(sentenceShown(adapters)).toEqual([]);
+			});
+
+			it("sends nothing when the chat on screen changed and the page has not reset the runtime yet", async () => {
+				let shown = "conv-1";
+				const { adapters, streamInvocations, server } = updateAdapters({
+					getConversationId: vi.fn(() => shown),
+				});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				shown = "conv-2";
+
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+
+				expect(streamInvocations).toHaveLength(1);
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					phase: "idle",
+				});
+				expect(sentenceShown(adapters)).toEqual([]);
+			});
+
+			it("does not touch a turn of the chat that is on screen now when a wait of the one left ends", async () => {
+				let shown = "conv-1";
+				const { adapters, streamInvocations, server } = updateAdapters({
+					getConversationId: vi.fn(() => shown),
+				});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words("Left behind"));
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+				shown = "conv-2";
+				runtime.reset();
+				await runtime.send(words("In the new chat"));
+				expect(streamInvocations).toHaveLength(2);
+
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+
+				// The new chat's turn is exactly as it was.
+				expect(streamInvocations).toHaveLength(2);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+				});
+			});
+
+			it("hands the waiting words to a page that is being left, and sends nothing", async () => {
+				const { adapters, streamInvocations, server } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send({ ...words("Mine"), attachmentIds: ["file-1"] });
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				const taken = runtime.takeWaitingRequest();
+
+				expect(taken).toMatchObject({
+					message: "Mine",
+					attachmentIds: ["file-1"],
+				});
+				// A copy: the page may change it, and the wait is over.
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("hands them over after the page was detached, and the detached wait sends nothing meanwhile", async () => {
+				const { adapters, streamInvocations, server } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+
+				await runtime.send(words("Mine"));
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				// The page's destroy: detach first, then it takes the words.
+				runtime.detach();
+				server.health = WELL;
+				await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+				expect(streamInvocations).toHaveLength(1);
+				expect(runtime.takeWaitingRequest()).toMatchObject({ message: "Mine" });
+			});
+
+			it("has no words to hand over for a regenerate, which the server holds, or when nothing waits", async () => {
+				const { adapters, streamInvocations } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				expect(runtime.takeWaitingRequest()).toBeNull();
+
+				await runtime.send(words("The old question"), {
+					skipUserMessage: true,
+					skipPersistUserMessage: true,
+					retryAssistantMessageId: "assistant-old",
+					retryUserMessageId: "user-1",
+				});
+				streamInvocations[0].callbacks.onError(refusedAsDraining());
+
+				expect(runtime.takeWaitingRequest()).toBeNull();
+				expect(adapters.setTurnWaitingForUpdate).toHaveBeenLastCalledWith(
+					false,
+				);
 			});
 		});
 	});

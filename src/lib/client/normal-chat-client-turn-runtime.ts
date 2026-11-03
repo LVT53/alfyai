@@ -1,5 +1,6 @@
 import type { RetryOrigin } from "$lib/chat-turn-origin";
 import { submitAtlasTurn } from "$lib/client/api/atlas";
+import type { ServerHealth } from "$lib/client/api/health";
 import { PENDING_FILE_PRODUCTION_JOB_ID_PREFIX } from "$lib/components/chat/file-production-helpers";
 import {
 	buildMessageUserIntent,
@@ -25,6 +26,7 @@ import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
+	isServerUpdateRefusal,
 	type StreamBufferInfo,
 	type StreamCallbacks,
 	type StreamChatOptions,
@@ -232,6 +234,23 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	 * failed (`askWhatTheServerHolds`).
 	 */
 	readChatMessages?: () => Promise<ChatMessage[] | null>;
+	/**
+	 * The server's `/api/health` as far as an update goes (`client/api/health.ts`):
+	 * whether it answers, and whether it is draining for a deploy restart. A message
+	 * waiting for an update asks it every few seconds.
+	 */
+	fetchServerHealth: () => Promise<ServerHealth>;
+	/**
+	 * A turn waits for an update: the shell watches the server while it does (the
+	 * draining banner, the Refresh notice), so it is told once per wait.
+	 */
+	onServerUpdateSign?: () => void;
+	/**
+	 * Whether a message is waiting for the update to finish. It has not reached the
+	 * server, so the shell holds back its Refresh notice while this is true: a
+	 * reload then would lose the message.
+	 */
+	setTurnWaitingForUpdate?: (waiting: boolean) => void;
 	mergeGeneratedFiles?: (
 		files: NonNullable<StreamMetadata["generatedFiles"]>,
 	) => void;
@@ -324,6 +343,12 @@ type StartStreamParams = {
 	// server is draining ahead of a deploy restart. Mirrors
 	// `reconnectRetryCount`'s backoff idiom below.
 	capacityRetryCount?: number;
+	// ADR-0054 (an update during a turn): how many times this request has been
+	// sent again after waiting for the server to come back from an update. A
+	// request the server keeps turning away as an update while its health says it
+	// is well is not an update, and fails like any other once it reaches
+	// `AWAIT_UPDATE_MAX_RESENDS`.
+	updateResendCount?: number;
 	// R1 (ADR-0060, defect 1): bounded retry count for a *fresh* send whose
 	// connection dropped after content had already streamed. Mirrors
 	// `capacityRetryCount`'s backoff idiom, but recovers via the orphaned
@@ -411,6 +436,45 @@ export function createBrowserNormalChatClientTurnRuntime(
 /** How long Retry waits for the server to say whether it still runs the turn before it goes on without an answer. */
 const STREAM_QUESTION_MAX_MS = 5000;
 
+// A turn that waits for a server update (ADR-0054, "An Update During A Turn"):
+
+/** How often it asks whether the server is back. */
+const AWAIT_UPDATE_POLL_MS = 3000;
+
+/**
+ * How long it waits before it gives up, 8 minutes: the deploy's drain (3
+ * minutes), a stop of up to 2 minutes (the unit's TimeoutStopSec=120), then the
+ * health wait after the cutover and some slack.
+ */
+const AWAIT_UPDATE_MAX_MS = 8 * 60 * 1000;
+
+/** A health question that has not answered by now is taken for "the server is away"; the poll goes on. */
+const AWAIT_UPDATE_QUESTION_MAX_MS = 5000;
+
+/** A request sent again this many times and turned away as an update each time, while health says the server is well, fails like any other request. */
+const AWAIT_UPDATE_MAX_RESENDS = 3;
+
+/** What the poll takes for the answer of a health question that did not come. */
+const SERVER_AWAY: ServerHealth = { reachable: false, draining: false };
+
+/** How a wait for an update ends (a page that is left ends it without one). */
+type UpdateWaitEnd = "back" | "timeout" | "stopped";
+
+/**
+ * The one turn that waits for the server to come back. `onEnd` runs once, when
+ * the server is back, the cap passes or Stop is pressed; a wait that is dropped
+ * (`reset`) or taken (`takeWaitingRequest`) does not run it.
+ */
+type UpdateWait = {
+	placeholderId: string;
+	turnConversationId: string;
+	/** The words of a message the server never got, for a page that is left to keep. Null when the server holds the message (a regenerate) or the wait is for a reply it was reading. */
+	unsentPayload: NormalChatSendPayload | null;
+	/** `detach` was called: the page is going away, so the wait does nothing more, but it can still be taken. */
+	detached: boolean;
+	onEnd: (end: UpdateWaitEnd) => void;
+};
+
 export function createNormalChatClientTurnRuntime(
 	adapters: NormalChatClientTurnRuntimeAdapters,
 ) {
@@ -433,6 +497,8 @@ export function createNormalChatClientTurnRuntime(
 	let lastSend: RememberedSend | null = null;
 	// True while Retry reads the chat from the server: a second press is the same press.
 	let retryReading = false;
+	// The turn that waits for the server to come back from an update, if any.
+	let updateWait: UpdateWait | null = null;
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -518,6 +584,155 @@ export function createNormalChatClientTurnRuntime(
 		return (
 			Boolean(activeStream) && (phase === "preparing" || phase === "generating")
 		);
+	}
+
+	// ---- A turn that waits for the server to come back from an update ----------
+	//
+	// A deploy drains the server (new messages are turned away, with the reason
+	// "draining") and then restarts it (the reverse proxy answers a maintenance
+	// page). A request refused for that ran nothing, so it waits and is sent again
+	// when the server is back; a reply the restart cut is asked about instead
+	// (`holdTurnWhileServerUpdates`), never sent again by itself.
+
+	function dropUpdateWait() {
+		if (!updateWait) return;
+		updateWait = null;
+		adapters.setTurnWaitingForUpdate?.(false);
+	}
+
+	function endUpdateWait(wait: UpdateWait, end: UpdateWaitEnd) {
+		if (updateWait !== wait) return;
+		dropUpdateWait();
+		wait.onEnd(end);
+	}
+
+	/**
+	 * Starts the wait: the bubble says it (`awaiting_update`), the shell is told and
+	 * watches the server too, and every few seconds the server is asked whether it is
+	 * back, until it answers and is not draining, the cap passes or Stop is pressed.
+	 * Each tick checks that the wait is still this one and the chat is still on
+	 * screen, so nothing is sent from a chat the person has left.
+	 */
+	function beginUpdateWait(init: Omit<UpdateWait, "detached">) {
+		const wait: UpdateWait = { ...init, detached: false };
+		updateWait = wait;
+		setPhase("awaiting_update", wait.placeholderId);
+		adapters.onServerUpdateSign?.();
+		adapters.setTurnWaitingForUpdate?.(true);
+
+		const live = (): boolean => {
+			if (updateWait !== wait || wait.detached) return false;
+			if (isTurnConversationActive(wait.turnConversationId)) return true;
+			dropUpdateWait();
+			completeStaleTurn(wait.placeholderId);
+			return false;
+		};
+		const poll = () => {
+			if (!live()) return;
+			void (async () => {
+				const health =
+					(await answerWithin(
+						adapters.fetchServerHealth(),
+						AWAIT_UPDATE_QUESTION_MAX_MS,
+					)) ?? SERVER_AWAY;
+				if (!live()) return;
+				if (health.reachable && !health.draining) {
+					endUpdateWait(wait, "back");
+					return;
+				}
+				adapters.schedule(poll, AWAIT_UPDATE_POLL_MS);
+			})();
+		};
+		adapters.schedule(poll, AWAIT_UPDATE_POLL_MS);
+		adapters.schedule(() => {
+			if (live()) endUpdateWait(wait, "timeout");
+		}, AWAIT_UPDATE_MAX_MS);
+	}
+
+	/**
+	 * A request the server turned away because it is being updated (it is draining
+	 * for a deploy, or the proxy answers its maintenance page for the restart). The
+	 * turn never began, so the same request is sent again when the server is back;
+	 * meanwhile the placeholder stays, saying so. The give-up and Stop mirror what a
+	 * request that fails does, without the provider's error sentence.
+	 */
+	function holdRefusedRequestForUpdate(params: StartStreamParams) {
+		// The refused request has no stream, and nothing to stop.
+		setActiveStream(null);
+		// A new message is a request the server never got; a regenerate, and a Retry of
+		// a message the server holds without a reply, are requests it knows.
+		const serverNeverGotIt = Boolean(
+			params.payload && !params.streamOptions.retryAssistantMessageId,
+		);
+		beginUpdateWait({
+			placeholderId: params.placeholderId,
+			turnConversationId: params.turnConversationId,
+			unsentPayload: serverNeverGotIt ? (params.payload ?? null) : null,
+			onEnd: (end) => {
+				if (end === "back") {
+					setPhase("preparing", params.placeholderId);
+					startStream({
+						...params,
+						capacityRetryCount: 0,
+						updateResendCount: (params.updateResendCount ?? 0) + 1,
+					});
+					return;
+				}
+				if (end === "timeout") {
+					endTurnWithError(params, "chat.updateStillRunning");
+					return;
+				}
+				// Stop. The placeholder goes. A message the server never got goes too,
+				// with its bubble, and its words return to the composer (joined to what
+				// it holds, as for any restore); a regenerate is left as a failed one is,
+				// the question ending the list, with no sentence.
+				adapters.applyMessageListEvent({
+					type: "remove",
+					messageId: params.placeholderId,
+				});
+				completeTurn();
+				if (takeQueuedContextCompression()) {
+					void adapters.runManualContextCompression();
+				}
+				if (serverNeverGotIt && params.payload) {
+					if (params.clientUserMessageId) {
+						adapters.applyMessageListEvent({
+							type: "remove",
+							messageId: params.clientUserMessageId,
+						});
+					}
+					adapters.restorePayloadToDraft(params.payload);
+					lastSend = null;
+					canRetry = false;
+				} else {
+					canRetry = true;
+				}
+				restoreQueuedTurnToDraft();
+				emitState();
+			},
+		});
+	}
+
+	/**
+	 * The turn ends with a sentence and a Retry, as a request that failed does:
+	 * the placeholder goes, the user's bubble stays, a message queued behind it
+	 * returns to the composer.
+	 */
+	function endTurnWithError(params: StartStreamParams, message: string) {
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		completeTurn();
+		if (!params.isReconnect) {
+			if (takeQueuedContextCompression()) {
+				void adapters.runManualContextCompression();
+			}
+			restoreQueuedTurnToDraft();
+		}
+		adapters.setSendError(message);
+		canRetry = true;
+		emitState();
 	}
 
 	function createAssistantPlaceholder(
@@ -1096,9 +1311,28 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 
+				// An update, not a full server (ADR-0054): the server is draining
+				// for a deploy (its refusal says "draining"), or the proxy answers
+				// its maintenance page for the restart. A fresh request refused for
+				// that ran nothing, so it waits for the server to come back and is
+				// sent again, instead of counting down the three tries below and
+				// blaming the capacity or the provider. The bounded count keeps a
+				// request the server refuses as an update while its health says it
+				// is well from being sent again for ever.
+				if (
+					!isBackgroundAbort &&
+					!params.isReconnect &&
+					isServerUpdateRefusal(err) &&
+					(params.updateResendCount ?? 0) < AWAIT_UPDATE_MAX_RESENDS
+				) {
+					holdRefusedRequestForUpdate(params);
+					return;
+				}
+
 				// D2 (drain + graceful deploy): a *fresh* send (not a reconnect)
-				// can also hit a capacity/global_limit rejection — most commonly
-				// because the server is draining ahead of a deploy restart.
+				// can also hit a capacity/global_limit rejection — a full server.
+				// (A server that is draining ahead of a deploy restart used to land
+				// here too; it is an update and waits, above.)
 				// Degrade the same way the reconnect path already does: back off
 				// and retry the same stream a bounded number of times instead of
 				// surfacing a hard error on the first rejection. The assistant
@@ -1785,6 +2019,12 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function stop() {
+		// A turn that waits for an update has no stream: Stop ends the wait, and the
+		// turn ends the way the wait's own give-up decides.
+		if (updateWait && !updateWait.detached) {
+			endUpdateWait(updateWait, "stopped");
+			return true;
+		}
 		if (!canStopActiveStream()) return false;
 		activeTokenBuffer?.flush();
 		activeThinkingBuffer?.flush();
@@ -1799,12 +2039,32 @@ export function createNormalChatClientTurnRuntime(
 		activeThinkingBuffer = null;
 		activeStream?.detach();
 		activeStream = null;
+		// A wait does nothing more once the page is going away, but the page may
+		// still take its words (`takeWaitingRequest`).
+		if (updateWait) updateWait.detached = true;
 		phase = "idle";
 		activePlaceholderId = null;
 		emitState();
 	}
 
+	/**
+	 * Hands the request that waits for an update to the caller and ends the wait:
+	 * nothing is sent. For a page that is being left, whose words would otherwise go
+	 * with the wait (`reset`, a page that is destroyed); the caller saves them in the
+	 * draft of the chat they were typed in, ahead of the queued message
+	 * (`takeQueuedTurn`), which was typed after them. Null when nothing waits, and
+	 * when what waits is a request the server holds (a regenerate) or a reply that an
+	 * update cut: there are no words to keep.
+	 */
+	function takeWaitingRequest(): NormalChatSendPayload | null {
+		const wait = updateWait;
+		if (!wait) return null;
+		dropUpdateWait();
+		return wait.unsentPayload ? cloneSendPayload(wait.unsentPayload) : null;
+	}
+
 	function reset() {
+		dropUpdateWait();
 		detach();
 		isSending = false;
 		isPollingForCompletion = false;
@@ -1972,6 +2232,7 @@ export function createNormalChatClientTurnRuntime(
 		queue,
 		clearQueuedTurn,
 		takeQueuedTurn,
+		takeWaitingRequest,
 		editQueuedTurn,
 		compact,
 		stop,
