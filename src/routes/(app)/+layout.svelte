@@ -76,6 +76,7 @@ import {
 } from "$lib/stores/upload-format-gate";
 import { sessionExpiry } from "$lib/stores/session";
 import {
+	pendingDraftSaves,
 	serverUpdateSign,
 	turnWaitingForUpdate,
 } from "$lib/stores/server-update";
@@ -979,10 +980,10 @@ onDestroy(() => {
 		</main>
 	</div>
 	<ServerDrainingNotice visible={serverDraining} />
-	<!-- Held while a message waits for the update: it has not reached the server, and a reload now would lose it. It shows as soon as that is over. -->
+	<!-- Held while a message waits for the update, and while words a chat left behind (a save being sent again) have not reached the server: a reload now would lose them. It shows as soon as that is over. -->
 	<ServerUpdateNotice
 		visible={serverUpdateAvailable}
-		held={$turnWaitingForUpdate}
+		held={$turnWaitingForUpdate || $pendingDraftSaves > 0}
 		onRefresh={refreshForServerUpdate}
 	/>
 </div>

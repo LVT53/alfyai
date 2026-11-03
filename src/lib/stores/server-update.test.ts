@@ -1,8 +1,10 @@
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import {
+	pendingDraftSaves,
 	reportServerUpdateSign,
 	serverUpdateSign,
+	setPendingDraftSaves,
 	setTurnWaitingForUpdate,
 	turnWaitingForUpdate,
 } from "./server-update";
@@ -23,5 +25,13 @@ describe("server update store", () => {
 
 		setTurnWaitingForUpdate(false);
 		expect(get(turnWaitingForUpdate)).toBe(false);
+	});
+
+	it("counts the chats whose words have not reached the server, so the shell can hold its notice for them too", () => {
+		setPendingDraftSaves(2);
+		expect(get(pendingDraftSaves)).toBe(2);
+
+		setPendingDraftSaves(0);
+		expect(get(pendingDraftSaves)).toBe(0);
 	});
 });

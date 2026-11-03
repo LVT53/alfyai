@@ -30,3 +30,16 @@ export const turnWaitingForUpdate = writable(false);
 export function setTurnWaitingForUpdate(waiting: boolean): void {
 	turnWaitingForUpdate.set(waiting);
 }
+
+/**
+ * How many chats hold words that have not reached the server yet: a draft save
+ * that failed and is being sent again (`createDraftPersistence`), say the words of
+ * a message that waited for the update when its chat was left. Like a message that
+ * waits, they exist nowhere else, so the shell holds its Refresh notice while this
+ * is above zero. The persistence reports; the count itself means nothing more.
+ */
+export const pendingDraftSaves = writable(0);
+
+export function setPendingDraftSaves(count: number): void {
+	pendingDraftSaves.set(count);
+}
