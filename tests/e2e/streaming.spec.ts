@@ -371,24 +371,23 @@ test.describe("SSE streaming verification", () => {
 		);
 	});
 
-	// D2 (drain + graceful deploy, ADR-0054 amendment): while the server
-	// drains ahead of a deploy restart, a stream that is already in flight
-	// finishes normally (draining only gates *new* admission), and the next
-	// fresh send that lands on `checkStreamCapacity`'s `global_limit`
-	// rejection retries itself with backoff instead of surfacing a hard
-	// error. This suite has no real backend — every other test here drives
-	// the same behavior purely by intercepting `/api/chat/stream` responses
-	// (see `page.route` above) — so this test simulates the drain window the
-	// same way: the 2nd network call returns the real server's
-	// `CAPACITY_EXCEEDED` / `global_limit` shape (see
-	// `buildChatSendCapacityResponse` in `src/routes/api/chat/send/+server.ts`),
-	// and the 3rd call (the client's automatic retry) succeeds once the
-	// simulated drain window has cleared. There is no test-only toggle for
-	// the real `draining` flag reachable from Playwright's mocked network
-	// layer, so this does not exercise the real `/api/admin/drain` endpoint
-	// or `active-streams.ts` — those are covered by
-	// `src/lib/server/services/chat-turn/active-streams.test.ts` and
-	// `src/routes/api/admin/drain/drain.test.ts`.
+	// D2 (drain + graceful deploy, ADR-0054 amendment): a stream that is already
+	// in flight finishes normally while the server drains (draining only gates
+	// *new* admission), and a fresh send that lands on `checkStreamCapacity`'s
+	// `global_limit` rejection, a full server, retries itself with backoff
+	// instead of surfacing a hard error. A server that is DRAINING no longer
+	// answers that way: its refusal says `reason: "draining"`, and the page waits
+	// for the update instead of counting down these three tries (ADR-0054, "An
+	// Update During A Turn"; tests/e2e/server-update.spec.ts drives the real
+	// `/api/admin/drain` for it). This test keeps the `global_limit` shape, which
+	// the backoff is still for. This suite has no real backend for it: like every
+	// other test here it intercepts `/api/chat/stream` (see `page.route` above),
+	// and the 2nd network call returns the real server's `CAPACITY_EXCEEDED` /
+	// `global_limit` shape (see `buildChatSendCapacityResponse` in
+	// `src/routes/api/chat/send/+server.ts`), and the 3rd call (the client's
+	// automatic retry) succeeds once the simulated window has cleared. The server
+	// side is covered by `src/lib/server/services/chat-turn/active-streams.test.ts`
+	// and `src/routes/api/admin/drain/drain.test.ts`.
 	test("an in-flight stream survives draining and the next send retries a capacity rejection instead of erroring", async ({
 		page,
 	}) => {
