@@ -1243,6 +1243,76 @@ describe("chat page runtime integration", () => {
 				expect(resent.options?.reconnectToStreamId).toBeUndefined();
 			});
 
+			// A load of the chat answers for the chat it was asked about. Out across a switch
+			// to another chat, it put the first chat's messages in the second.
+			it("a load that is out across a switch to another chat shows nothing of the chat it was asked for", async () => {
+				const first = pageData({
+					messages: [
+						{
+							id: "a-user",
+							role: "user",
+							content: "Question for chat A",
+							timestamp: 1,
+						},
+					],
+				});
+				const view = renderPage(first);
+				let answer: (detail: ConversationDetail) => void = () => {};
+				vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+					new Promise<ConversationDetail>((resolve) => {
+						answer = resolve;
+					}),
+				);
+				const loading = runtimeHarness.adapters?.loadPersistedData();
+
+				await view.rerender({
+					data: pageData({
+						conversation: conversationFixture("conv-2"),
+						messages: [
+							{
+								id: "b-user",
+								role: "user",
+								content: "Question for chat B",
+								timestamp: 1,
+							},
+						],
+					}),
+					params: { conversationId: "conv-2" },
+				});
+				// The next chat is on screen when the answer for the first one comes.
+				expect(
+					await screen.findByText("Question for chat B"),
+				).toBeInTheDocument();
+				answer(
+					conversationDetailFixture({
+						messages: [
+							{
+								id: "a-user",
+								role: "user",
+								content: "Question for chat A",
+								timestamp: 1,
+							},
+							{
+								id: "a-reply",
+								role: "assistant",
+								content: "Answer from chat A",
+								timestamp: 2,
+							},
+						],
+					}),
+				);
+				await loading;
+				await new Promise((resolve) => setTimeout(resolve, 30));
+
+				expect(screen.getByText("Question for chat B")).toBeInTheDocument();
+				expect(
+					screen.queryByText("Question for chat A"),
+				).not.toBeInTheDocument();
+				expect(
+					screen.queryByText("Answer from chat A"),
+				).not.toBeInTheDocument();
+			});
+
 			it("sends nothing when a pencil is pressed while the server is read, and leaves that edit open", async () => {
 				const retryButton = await failASend();
 				let answer: (detail: ConversationDetail) => void = () => {};

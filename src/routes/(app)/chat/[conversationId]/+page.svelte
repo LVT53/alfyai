@@ -2768,20 +2768,30 @@ async function pollForCompletion(
 
 async function loadPersistedData() {
 	console.info("[CHAT] Loading persisted data after polling timeout");
+	// The chat this read is for. A switch to another chat while it is out makes its
+	// answer another chat's: it writes nothing then (`hydrateConversationDetail`
+	// holds to the same rule).
+	const conversationId = data.conversation.id;
 	hasPersistedMessages = true;
-	const detail = await fetchConversationDetail(data.conversation.id).catch(
+	const detail = await fetchConversationDetail(conversationId).catch(
 		() => null,
 	);
-	if (detail) {
+	const stillHere = data.conversation.id === conversationId;
+	if (detail && stillHere) {
 		messages.set([...(detail.messages ?? [])]);
 		applyConversationDetailMetadata(detail);
 		forkOrigin = detail.forkOrigin ?? forkOrigin;
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
 		setConversationDraft(null);
-		const pending = consumePendingConversationMessage(data.conversation.id);
+		const pending = consumePendingConversationMessage(conversationId);
 		void pending;
 	}
-	normalChatRuntime.completePollingRecovery();
+	// The recovery state ends whatever the answer was. After a switch the reset
+	// that came with it has ended it already, and a turn the next chat has started
+	// since owns the state now, which this must not clear.
+	if (stillHere || !isSending) {
+		normalChatRuntime.completePollingRecovery();
+	}
 }
 
 async function checkForOrphanedStreamOnMount() {
