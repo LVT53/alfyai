@@ -1472,6 +1472,43 @@ describe("streamChat", () => {
 			expect(isServerUpdateRefusal(error)).toBe(true);
 		});
 
+		// A regenerate, "Answer now" and a Retry go through the retry route, which
+		// turns a draining server's request away as the stream route does.
+		it("reads the retry route's refusal the same way, so a regenerate pressed during the drain waits too", async () => {
+			const {
+				mockFetch,
+				callbacks: cb,
+				done,
+			} = runStreamWithMockedResponse({
+				response: new Response(
+					JSON.stringify({
+						error: "Server at capacity. Please try again later.",
+						code: "CAPACITY_EXCEEDED",
+						reason: "draining",
+						retryAfter: 10,
+					}),
+					{ status: 503, headers: { "Content-Type": "application/json" } },
+				),
+				options: {
+					retryAssistantMessageId: "assistant-1",
+					retryUserMessageId: "user-1",
+				},
+			});
+			await done;
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				"/api/chat/retry",
+				expect.anything(),
+			);
+			const error = vi.mocked(cb.onError).mock.calls[0][0] as Error & {
+				status?: number;
+				reason?: string;
+			};
+			expect(error.status).toBe(503);
+			expect(error.reason).toBe("draining");
+			expect(isServerUpdateRefusal(error)).toBe(true);
+		});
+
 		it("keeps the reasons of a full server and of a second reply as limits, not updates", async () => {
 			for (const reason of ["global_limit", "user_limit"]) {
 				const error = await refusalOf(

@@ -37,7 +37,10 @@ import {
 	type StreamTimelineTimingRecord,
 } from "$lib/services/stream-timeline";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
-import { checkStreamCapacity } from "./active-streams";
+import {
+	checkStreamCapacity,
+	type StreamCapacityCheck,
+} from "./active-streams";
 import type { ChatTurnRequestError } from "./types";
 
 export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -147,7 +150,32 @@ export function refuseTurnWhenOverCapacity(
 ): Response | null {
 	const capacity = checkStreamCapacity(userId);
 	if (capacity.allowed) return null;
+	return capacityRefusal(capacity, source, userId);
+}
 
+/**
+ * The same 503 for the one cause that is not a limit: the server is draining for a
+ * deploy. For the routes that start a turn without ever having asked about
+ * capacity (a regenerate, "Answer now" and Retry go through `/api/chat/retry`): a
+ * turn they started now would be cut by the restart, so they are turned away like
+ * a new message, and the page waits and asks again. Only `draining` is refused;
+ * the global and per-user limits are not this route's to apply (adding them would
+ * change what a regenerate does on a full server, unrelated to an update).
+ */
+export function refuseTurnWhenDraining(
+	userId: string,
+	source: string,
+): Response | null {
+	const capacity = checkStreamCapacity(userId);
+	if (capacity.reason !== "draining") return null;
+	return capacityRefusal(capacity, source, userId);
+}
+
+function capacityRefusal(
+	capacity: StreamCapacityCheck,
+	source: string,
+	userId: string,
+): Response {
 	console.warn(`[${source}] Rejected due to capacity`, {
 		userId,
 		reason: capacity.reason,

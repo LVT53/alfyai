@@ -8,6 +8,7 @@ import { getConfig } from "$lib/server/config-store";
 import {
 	createStreamJsonErrorResponse,
 	prepareRetryChatTurn,
+	refuseTurnWhenDraining,
 	runChatStreamOrchestrator,
 } from "$lib/server/services/chat-turn";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
@@ -18,6 +19,11 @@ export const POST: RequestHandler = async (event) => {
 	if (!user) {
 		return createJsonErrorResponse("Unauthorized", 401);
 	}
+	// Before anything is read or deleted: a regenerate deletes the reply it replaces
+	// before the model runs, and a turn started while the server drains is cut by the
+	// restart. Refused like a new message (the page waits for the update).
+	const refused = refuseTurnWhenDraining(user.id, "CHAT_RETRY");
+	if (refused) return refused;
 	const runtimeConfig = getConfig();
 
 	let body: Record<string, unknown>;

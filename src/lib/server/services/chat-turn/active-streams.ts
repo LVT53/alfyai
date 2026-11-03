@@ -22,8 +22,10 @@ const pendingStops = new Map<string, ReturnType<typeof setTimeout>>();
 // D2 (draining): process-local flag gating admission of *new* streams ahead
 // of a deploy restart. In-flight streams are already registered in
 // `activeStreams` and are untouched by this flag — it only affects
-// `checkStreamCapacity`. Never survives a restart (new process starts
-// undrained), so a completed deploy needs no explicit un-drain.
+// `checkStreamCapacity`, and `/api/chat/retry` turns a regenerate away for it
+// too. Never survives a restart (new process starts undrained), so a completed
+// deploy needs no explicit un-drain; a deploy that stops before the restart
+// undoes it itself (the trap in scripts/deploy.sh).
 let draining = false;
 
 export function setDraining(value: boolean): void {

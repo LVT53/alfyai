@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -54,6 +54,7 @@ vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 }));
 
 import { getConfig } from "$lib/server/config-store";
+import { setDraining } from "$lib/server/services/chat-turn/active-streams";
 import { prepareRetryChatTurn } from "$lib/server/services/chat-turn/retry";
 import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
 import { POST } from "./+server";
@@ -179,5 +180,64 @@ describe("POST /api/chat/retry", () => {
 			attachmentIds: ["att-1"],
 		});
 		expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+	});
+
+	// A deploy drains the server before it restarts it: a new message is turned away
+	// (and the page waits), and a turn started now is cut by the restart. A
+	// regenerate, "Answer now" and a Retry go through this route, which never asked.
+	describe("while the server drains for a deploy", () => {
+		const retryBody = {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			userMessageId: "user-1",
+			userMessage: "retry prompt",
+		};
+
+		afterEach(() => {
+			setDraining(false);
+			// Back to the config the file mocks, whatever a test gave it.
+			vi.mocked(getConfig).mockReset();
+		});
+
+		it("turns the retry away with the 503 a new message gets, having prepared and deleted nothing", async () => {
+			setDraining(true);
+
+			const response = await POST(makeEvent(retryBody));
+
+			expect(response.status).toBe(503);
+			expect(response.headers.get("Retry-After")).toBe("10");
+			expect(await response.json()).toEqual({
+				error: "Server at capacity. Please try again later.",
+				code: "CAPACITY_EXCEEDED",
+				reason: "draining",
+				retryAfter: 10,
+			});
+			expect(prepareRetryChatTurn).not.toHaveBeenCalled();
+			expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+		});
+
+		it("takes the retry again once the drain is undone", async () => {
+			setDraining(true);
+			await POST(makeEvent(retryBody));
+			setDraining(false);
+
+			const response = await POST(makeEvent(retryBody));
+
+			expect(response.status).toBe(200);
+			expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+		});
+
+		it("applies no limit of the stream route's: a full server still takes a retry", async () => {
+			vi.mocked(getConfig).mockReturnValue({
+				concurrentStreamLimit: 0,
+				perUserStreamLimit: 0,
+				maxMessageLength: 10000,
+			} as ReturnType<typeof getConfig>);
+
+			const response = await POST(makeEvent(retryBody));
+
+			expect(response.status).toBe(200);
+			expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+		});
 	});
 });
