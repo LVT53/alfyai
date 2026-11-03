@@ -131,8 +131,11 @@ type StreamToolCallDetails = {
 
 /**
  * The 503 a new turn gets when the server cannot take it: this user's reply is
- * still running in another chat (`user_limit`, one at a time by default), or the
- * server is full or draining (`global_limit`). The stream route answers with it
+ * still running in another chat (`user_limit`, one at a time by default), the
+ * server is full (`global_limit`) or it is draining for a deploy (`draining`, which
+ * ends by itself: a page waits for it). Every one keeps the code
+ * `CAPACITY_EXCEEDED`, which pages that do not know `draining` read. The stream
+ * route answers with it
  * before it admits a turn, and so does the turn check an edit asks before it
  * deletes anything: a check that left capacity out passed, the delete ran, and the
  * resend was refused four times. One piece, so the two cannot disagree. Null when

@@ -205,20 +205,40 @@ echo ""
 
 echo -e "${YELLOW}7b. Draining in-flight streams before cutover...${NC}"
 if [ -n "$ALFYAI_API_SIGNING_KEY" ]; then
-  curl -fsS -X POST -H "Authorization: Bearer $ALFYAI_API_SIGNING_KEY" -H "Content-Type: application/json" -d '{"draining":true}' "http://localhost:$HEALTH_PORT/api/admin/drain" >/dev/null 2>&1 || true
+  # While it drains the site stays up for everyone: the replies already running
+  # finish, and a message sent now waits for the update (the page says so). A
+  # reply still running when the wait ends is cut by the restart, so the wait is
+  # minutes, not seconds. DRAIN_TIMEOUT_SECONDS sets it (default 180); a value
+  # that is not a number is the default. Each curl is bounded so a wedged server
+  # cannot hold the deploy past the cap.
+  DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-180}"
+  case "$DRAIN_TIMEOUT_SECONDS" in
+    '' | *[!0-9]*) DRAIN_TIMEOUT_SECONDS=180 ;;
+  esac
+  curl -fsS --max-time 10 -X POST -H "Authorization: Bearer $ALFYAI_API_SIGNING_KEY" -H "Content-Type: application/json" -d '{"draining":true}' "http://localhost:$HEALTH_PORT/api/admin/drain" >/dev/null 2>&1 || true
   DRAIN_OK=""
-  for attempt in $(seq 1 60); do
-    ACTIVE_STREAMS=$(curl -fsS "http://localhost:$HEALTH_PORT/api/health" 2>/dev/null | grep -o '"activeStreams":[0-9]*' | sed 's/[^0-9]*//g')
+  DRAIN_STARTED=$SECONDS
+  DRAIN_NEXT_REPORT=30
+  while true; do
+    ACTIVE_STREAMS=$(curl -fsS --max-time 5 "http://localhost:$HEALTH_PORT/api/health" 2>/dev/null | grep -o '"activeStreams":[0-9]*' | sed 's/[^0-9]*//g')
     if [ -z "$ACTIVE_STREAMS" ] || [ "$ACTIVE_STREAMS" -le 0 ]; then
       DRAIN_OK=1
       break
+    fi
+    DRAIN_WAITED=$((SECONDS - DRAIN_STARTED))
+    if [ "$DRAIN_WAITED" -ge "$DRAIN_TIMEOUT_SECONDS" ]; then
+      break
+    fi
+    if [ "$DRAIN_WAITED" -ge "$DRAIN_NEXT_REPORT" ]; then
+      echo "  ${DRAIN_WAITED}s: ${ACTIVE_STREAMS} still running (waiting up to ${DRAIN_TIMEOUT_SECONDS}s)"
+      DRAIN_NEXT_REPORT=$((DRAIN_WAITED / 30 * 30 + 30))
     fi
     sleep 2
   done
   if [ -n "$DRAIN_OK" ]; then
     echo -e "${GREEN}✓ Drained: 0 active streams${NC}"
   else
-    echo -e "${YELLOW}⚠ Drain wait timed out after 120s; proceeding to cutover anyway${NC}"
+    echo -e "${YELLOW}⚠ Drain wait timed out after ${DRAIN_WAITED}s with ${ACTIVE_STREAMS} still running; proceeding to cutover anyway (the restart cuts them)${NC}"
   fi
 else
   echo -e "${YELLOW}⚠ ALFYAI_API_SIGNING_KEY not set; skipping drain (graceful shutdown alone covers it)${NC}"

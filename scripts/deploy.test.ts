@@ -234,9 +234,14 @@ describe.each([
 			);
 			expect(drainBlockMatch).not.toBeNull();
 			const drainBlock = drainBlockMatch?.[0] ?? "";
-			// 60 attempts * 2s sleep = 120s hard cap.
-			expect(drainBlock).toMatch(/seq 1 60/);
+			// The cap is DRAIN_TIMEOUT_SECONDS (default 180 s), measured on the clock
+			// and not by counting 2 s sleeps: it was 60 sleeps (120 s), and a reply
+			// that outlives the drain is cut by the restart.
+			expect(drainBlock).toMatch(
+				/DRAIN_TIMEOUT_SECONDS="\$\{DRAIN_TIMEOUT_SECONDS:-180\}"/,
+			);
 			expect(drainBlock).toMatch(/sleep 2/);
+			expect(drainBlock).not.toMatch(/seq 1 60/);
 		});
 
 		it("never fails the deploy on the drain step (no bare exit 1 inside the drain block)", () => {
@@ -246,6 +251,149 @@ describe.each([
 
 			expect(drainBlock).not.toMatch(/\bexit 1\b/);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The drain step, executed. The text assertions above say it is there; these run
+// step 7b in a real bash with a fake curl and a fake sleep that moves `$SECONDS`,
+// because what matters is behaviour: how long it waits, what it says every 30
+// seconds, what the timeout line says, and that it leaves at once when nothing is
+// running. `$SECONDS` counts whole clock seconds, so a run can read a second more
+// than the fake sleeps made; the checks allow for that.
+// ---------------------------------------------------------------------------
+
+/** Step 7b of a deploy script: from its heading to the line before the next step. */
+function drainStepOf(script: string): string {
+	const heading = script.indexOf("7b. Draining in-flight streams");
+	const end = script.indexOf('PREVIOUS_SHA=""', heading);
+	if (heading === -1 || end === -1) throw new Error("step 7b not found");
+	// The step starts at the beginning of its heading's line (an `echo -e`).
+	return script.slice(script.lastIndexOf("\n", heading) + 1, end);
+}
+
+/**
+ * Runs step 7b with `lines` set before it (shell assignments). The fake health
+ * answer says 2 replies are running until the fake clock reaches
+ * `streamsUntilSecond`, and 0 after.
+ */
+function runDrainStep(
+	script: string,
+	options: { lines?: string[]; streamsUntilSecond: number },
+): { status: number; output: string } {
+	const harness = [
+		"set -e",
+		"YELLOW=''; GREEN=''; NC=''",
+		"HEALTH_PORT=3001",
+		"ALFYAI_API_SIGNING_KEY=test-key",
+		...(options.lines ?? []),
+		"sleep() { SECONDS=$((SECONDS + $1)); }",
+		"curl() {",
+		'  case "$*" in *"-X POST"*) return 0 ;; esac',
+		`  if [ "$SECONDS" -lt ${options.streamsUntilSecond} ]; then`,
+		`    echo '{"status":"OK","draining":true,"activeStreams":2}'`,
+		"  else",
+		`    echo '{"status":"OK","draining":true,"activeStreams":0}'`,
+		"  fi",
+		"}",
+		drainStepOf(script),
+	].join("\n");
+	const result = spawnSync("bash", ["-c", harness], {
+		encoding: "utf8",
+		env: { PATH: process.env.PATH ?? "" },
+	});
+	return {
+		status: result.status ?? -1,
+		output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+	};
+}
+
+describe.each([
+	["scripts/deploy.sh", deployScript],
+	["scripts/deploy-dev.sh", deployDevScript],
+])("%s step 7b (executed)", (_label, script) => {
+	it("waits up to DRAIN_TIMEOUT_SECONDS, reports every 30 seconds, and states the wait when it gives up", () => {
+		const result = runDrainStep(script, {
+			lines: ["DRAIN_TIMEOUT_SECONDS=90"],
+			streamsUntilSecond: 100_000,
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.output).toMatch(
+			/\b3[01]s: 2 still running \(waiting up to 90s\)/,
+		);
+		expect(result.output).toMatch(
+			/\b6[01]s: 2 still running \(waiting up to 90s\)/,
+		);
+		// Two reports, then the cap: nothing is reported at the moment it gives up.
+		expect(result.output.match(/still running \(waiting up to/g)).toHaveLength(
+			2,
+		);
+		expect(result.output).toMatch(
+			/timed out after 9[0-2]s with 2 still running/,
+		);
+		expect(result.output).not.toContain("Drained: 0 active streams");
+		// The old line said 120s whatever the loop did.
+		expect(result.output).not.toContain("120s");
+	});
+
+	it("leaves as soon as the replies are done, having reported while it waited", () => {
+		const result = runDrainStep(script, { streamsUntilSecond: 45 });
+
+		expect(result.status).toBe(0);
+		expect(result.output).toMatch(
+			/\b3[01]s: 2 still running \(waiting up to 180s\)/,
+		);
+		expect(result.output).toContain("Drained: 0 active streams");
+		expect(result.output).not.toContain("timed out");
+	});
+
+	it("leaves at once, saying nothing of waiting, when nothing is running", () => {
+		const result = runDrainStep(script, { streamsUntilSecond: 0 });
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("Drained: 0 active streams");
+		expect(result.output).not.toContain("still running");
+	});
+
+	it("takes 180 seconds when DRAIN_TIMEOUT_SECONDS is unset, empty or not a number", () => {
+		for (const lines of [
+			[],
+			["DRAIN_TIMEOUT_SECONDS="],
+			["DRAIN_TIMEOUT_SECONDS=soon"],
+		]) {
+			const result = runDrainStep(script, {
+				lines,
+				streamsUntilSecond: 100_000,
+			});
+
+			expect(result.status).toBe(0);
+			expect(result.output).toMatch(
+				/timed out after 18[0-2]s with 2 still running/,
+			);
+		}
+	});
+
+	it("does not wait at all for DRAIN_TIMEOUT_SECONDS=0, and still never fails the deploy", () => {
+		const result = runDrainStep(script, {
+			lines: ["DRAIN_TIMEOUT_SECONDS=0"],
+			streamsUntilSecond: 100_000,
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.output).toMatch(
+			/timed out after [0-1]s with 2 still running/,
+		);
+	});
+
+	it("bounds each curl, so a server that never answers cannot hold the deploy past the cap", () => {
+		const step = drainStepOf(script);
+		const curls = step.match(/curl -fsS[^\n]*/g) ?? [];
+
+		expect(curls.length).toBeGreaterThanOrEqual(2);
+		for (const curl of curls) {
+			expect(curl).toMatch(/--max-time \d+/);
+		}
 	});
 });
 

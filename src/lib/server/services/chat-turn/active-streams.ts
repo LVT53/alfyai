@@ -598,7 +598,14 @@ export function wasActiveChatStreamStopRequested(params: {
 
 export interface StreamCapacityCheck {
 	allowed: boolean;
-	reason?: "global_limit" | "user_limit";
+	/**
+	 * Why a new turn is turned away. `draining` is the server getting ready for a
+	 * deploy restart: it ends by itself, and a page waits for the update instead of
+	 * treating it as a full server. The 503 it makes keeps the `CAPACITY_EXCEEDED`
+	 * code (`refuseTurnWhenOverCapacity`), so a page loaded before this reason
+	 * existed still backs off on the code.
+	 */
+	reason?: "global_limit" | "user_limit" | "draining";
 	retryAfterSeconds?: number;
 	currentGlobalCount?: number;
 	currentUserCount?: number;
@@ -622,7 +629,7 @@ export function checkStreamCapacity(userId: string): StreamCapacityCheck {
 	if (draining) {
 		return {
 			allowed: false,
-			reason: "global_limit",
+			reason: "draining",
 			retryAfterSeconds: 10,
 			currentGlobalCount,
 			currentUserCount,

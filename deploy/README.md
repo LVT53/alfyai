@@ -494,6 +494,14 @@ back, and — when `ALFYAI_API_SIGNING_KEY` is set — it posts to `/api/admin/d
 `activeStreams` fall to zero before restarting, so in-flight chat streams are not cut mid-response.
 Without the signing key it skips the drain and relies on graceful shutdown alone.
 
+While the server drains, a new message is refused with a 503 whose `reason` is `draining` (the
+code stays `CAPACITY_EXCEEDED`), and an open page shows the message "AlfyAI is being updated" and
+waits for the update instead of failing. The drain waits for the running replies for up to
+`DRAIN_TIMEOUT_SECONDS` (default `180`; `0` does not wait), printing a progress line every 30
+seconds with how many replies are still running. Waiting here keeps the site up for everyone; a
+reply that is still running when the wait ends is cut by the restart (the page then says so and
+offers Retry). Raise it for a deploy at a busy hour: `DRAIN_TIMEOUT_SECONDS=300 scripts/deploy.sh`.
+
 ## Web Research Deployment
 
 Web work runs through the app-owned `research_web` AI SDK tool (and `fetch_url`), which are only
