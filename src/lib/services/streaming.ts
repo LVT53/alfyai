@@ -1,4 +1,4 @@
-import { reportAuthFailure } from "$lib/client/api/http";
+import { GATEWAY_STATUSES, reportAuthFailure } from "$lib/client/api/http";
 import {
 	type MessageUserIntent,
 	parseMessageUserIntent,
@@ -320,9 +320,6 @@ export function isStreamTransportFailure(error: unknown): boolean {
 	if (typeof status === "number" || typeof code === "string") return false;
 	return error instanceof TypeError || transport === true;
 }
-
-/** The statuses a reverse proxy answers with when the app behind it is away or does not answer. */
-const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 
 const TOOL_CALLS_BLOCK_PATTERN =
 	/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi;

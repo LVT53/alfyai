@@ -9,6 +9,15 @@ export type FetchLike = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
+/**
+ * The statuses a reverse proxy answers with when the app behind it is away or
+ * does not answer: Apache's maintenance page for a restart is a 503 with HTML.
+ * Whether one is the proxy's and not the app's depends on its body (the app's
+ * errors are JSON); `ApiError.serverUnavailable`, the stream transport's
+ * `serverUnavailable` and the health read all ask the same question of this set.
+ */
+export const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
 export class ApiError extends Error {
 	readonly code?: string;
 	/**
@@ -18,6 +27,12 @@ export class ApiError extends Error {
 	 * deploy: `global_limit`, `user_limit`, `draining`).
 	 */
 	readonly reason?: string;
+	/**
+	 * The reverse proxy answered instead of the app: a 502, 503 or 504 whose body is
+	 * not the app's JSON (`GATEWAY_STATUSES`). During a deploy's restart that is
+	 * Apache's maintenance page. Set only when true.
+	 */
+	readonly serverUnavailable?: boolean;
 	readonly errorKey?: string;
 	readonly fieldErrors?: Record<string, string>;
 	/**
@@ -59,6 +74,7 @@ export class ApiError extends Error {
 		options: {
 			code?: string;
 			reason?: string;
+			serverUnavailable?: boolean;
 			errorKey?: string;
 			fieldErrors?: Record<string, string>;
 			details?: Record<string, unknown>;
@@ -71,6 +87,7 @@ export class ApiError extends Error {
 		this.name = "ApiError";
 		this.code = options.code;
 		this.reason = options.reason;
+		if (options.serverUnavailable) this.serverUnavailable = true;
 		this.errorKey = options.errorKey;
 		this.fieldErrors = options.fieldErrors;
 		this.details = options.details;
@@ -212,6 +229,7 @@ async function throwRequestError(
 	throw new ApiError(error.message, {
 		code: error.code,
 		reason: error.reason,
+		serverUnavailable: error.serverUnavailable,
 		errorKey: error.errorKey,
 		fieldErrors: error.fieldErrors,
 		details: error.details,
@@ -225,6 +243,7 @@ type ErrorPayload = {
 	message: string;
 	code?: string;
 	reason?: string;
+	serverUnavailable?: boolean;
 	errorKey?: string;
 	fieldErrors?: Record<string, string>;
 	details?: Record<string, unknown>;
@@ -255,11 +274,38 @@ export async function readErrorPayload(
 	return payload;
 }
 
+/**
+ * Whether a body is one the app wrote: its errors are JSON with an `error`, a
+ * `message` (SvelteKit's own) or a `code`. The proxy's page, and an empty reply,
+ * are not.
+ */
+function isAppErrorBody(text: string): boolean {
+	try {
+		const parsed = JSON.parse(text) as unknown;
+		return (
+			isRecord(parsed) &&
+			(typeof parsed.error === "string" ||
+				typeof parsed.code === "string" ||
+				typeof parsed.message === "string")
+		);
+	} catch {
+		return false;
+	}
+}
+
 async function parseErrorPayload(
 	response: Response,
 	fallback: string,
 ): Promise<ErrorPayload> {
 	const text = await response.text().catch(() => "");
+	const payload = payloadFromErrorBody(text, fallback);
+	if (GATEWAY_STATUSES.has(response.status) && !isAppErrorBody(text)) {
+		payload.serverUnavailable = true;
+	}
+	return payload;
+}
+
+function payloadFromErrorBody(text: string, fallback: string): ErrorPayload {
 	if (!text) return { message: fallback };
 
 	try {

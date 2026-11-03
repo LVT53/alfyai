@@ -137,6 +137,71 @@ describe("ApiError surfacing", () => {
 		}
 	});
 
+	// While the app process is away the reverse proxy answers with its own page (a
+	// restart: Apache's maintenance 503). That is a different thing from an error
+	// the app wrote, and a caller that has to tell them apart reads the flag.
+	describe("the reverse proxy's page", () => {
+		const proxyPage = (status: number) => () =>
+			new Response("<html><body>AlfyAI is being updated</body></html>", {
+				status,
+				headers: { "content-type": "text/html" },
+			});
+
+		it.each([
+			502, 503, 504,
+		])("marks a %s with an HTML body as the server being unavailable", async (status) => {
+			const error = await requestJson("/api/x", undefined, "failed", async () =>
+				proxyPage(status)(),
+			).catch((err: unknown) => err);
+
+			expect(error).toBeInstanceOf(ApiError);
+			expect((error as ApiError).status).toBe(status);
+			expect((error as ApiError).serverUnavailable).toBe(true);
+		});
+
+		it("marks a gateway status with no body at all", async () => {
+			const error = await requestVoid(
+				"/api/x",
+				undefined,
+				"failed",
+				async () => new Response(null, { status: 502 }),
+			).catch((err: unknown) => err);
+
+			expect((error as ApiError).serverUnavailable).toBe(true);
+		});
+
+		it("does not mark an error the app wrote, whatever its status", async () => {
+			for (const [body, status] of [
+				[{ error: "Nope" }, 503],
+				[{ message: "Service unavailable" }, 503],
+				[{ error: "Server at capacity.", code: "CAPACITY_EXCEEDED" }, 503],
+				[{ code: "model_timeout" }, 504],
+			] as const) {
+				const error = await requestJson(
+					"/api/x",
+					undefined,
+					"failed",
+					async () => jsonResponse(body, status),
+				).catch((err: unknown) => err);
+
+				expect((error as ApiError).serverUnavailable).toBeUndefined();
+			}
+		});
+
+		it("does not mark a status the proxy does not use, even with an HTML body", async () => {
+			for (const status of [400, 404, 409, 500]) {
+				const error = await requestJson(
+					"/api/x",
+					undefined,
+					"failed",
+					async () => proxyPage(status)(),
+				).catch((err: unknown) => err);
+
+				expect((error as ApiError).serverUnavailable).toBeUndefined();
+			}
+		});
+	});
+
 	it("carries the gate's own code to the caller", async () => {
 		const error = await requestJson(
 			"/api/conversations",

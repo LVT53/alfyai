@@ -202,6 +202,39 @@ describe("checkChatTurn", () => {
 		expect(result.updating).toBeFalsy();
 	});
 
+	// The restart itself: the app process is away and the reverse proxy answers its
+	// own page. An edit made then is an edit made during an update, not a check
+	// that failed.
+	it.each([
+		502, 503, 504,
+	])("says the server is updating when the proxy answers its own %s page", async (status) => {
+		const proxyPage = vi.fn(
+			async () =>
+				new Response("<html><body>AlfyAI is being updated</body></html>", {
+					status,
+					headers: { "content-type": "text/html" },
+				}),
+		);
+
+		const result = await checkChatTurn(request, proxyPage);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.busy).toBe(true);
+		expect(result.updating).toBe(true);
+		expect(result.error.serverUnavailable).toBe(true);
+	});
+
+	it("still throws for a server error the app wrote, which says nothing about the turn", async () => {
+		const failed = vi.fn(async () =>
+			jsonResponse({ error: "Internal Server Error" }, 500),
+		);
+
+		await expect(checkChatTurn(request, failed)).rejects.toBeInstanceOf(
+			ApiError,
+		);
+	});
+
 	it("fails when the request never reaches the server", async () => {
 		const fetchMock = vi.fn(async () => {
 			throw new TypeError("Failed to fetch");

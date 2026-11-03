@@ -30,7 +30,9 @@ export type ChatTurnCheck =
 	 * `busy` is the server turning any turn away for now (a reply running in another
 	 * chat, a server that is draining): that has no sentence of its own there.
 	 * `updating` is the one cause of `busy` that is an update in progress (the server
-	 * is draining for a deploy), which the page says in its own words.
+	 * is draining for a deploy, or the restart is on and the reverse proxy answers
+	 * its own page: `ApiError.serverUnavailable`), which the page says in its own
+	 * words. Without the second an edit made during the restart said the check failed.
 	 */
 	| { ok: false; error: ApiError; busy?: boolean; updating?: boolean };
 
@@ -73,6 +75,9 @@ export async function checkChatTurn(
 		return { ok: true };
 	} catch (error) {
 		if (error instanceof ApiError) {
+			if (error.serverUnavailable) {
+				return { ok: false, error, busy: true, updating: true };
+			}
 			if (error.status === 503 && error.code === CAPACITY_REFUSAL_CODE) {
 				return {
 					ok: false,
