@@ -552,10 +552,14 @@ export function createNormalChatClientTurnRuntime(
 	// The turn that waits for the server to come back from an update, if any.
 	let updateWait: UpdateWait | null = null;
 	// True from `detach()` (the page is going away, or the chat is switched) until the
-	// next send, Retry or reconnect of a page that is there. `isTurnConversationActive`
-	// stays true after a page is destroyed (its chat id never changes), so this is
-	// what keeps a refusal, a cut reply or a question that answers late from starting
-	// a wait, a resend or a sign for the shell on a page nobody sees.
+	// page calls an entry point again: `send` (a regenerate and an edit's resend are
+	// sends), `retry`, or `checkForOrphanedStreamOnMount`, each of which clears it
+	// synchronously, before it awaits anything. Nothing else clears it. A turn's
+	// work that was out when the page went (a refusal, a cut reply, a question, a
+	// backoff or recovery timer, a Retry's reads) gets back to a runtime that is
+	// still set, and while it is set it starts nothing: no stream, no resend, no
+	// wait, no sign for the shell. `isTurnConversationActive` alone cannot say so: a
+	// destroyed page keeps its chat id.
 	let detached = false;
 	// The cut reply being asked about, if any (`CutReplyQuestion`).
 	let cutReplyQuestion: CutReplyQuestion | null = null;
@@ -1342,7 +1346,8 @@ export function createNormalChatClientTurnRuntime(
 			await adapters.runManualContextCompression();
 		}
 
-		if (queuedTurn) {
+		// A page that was left sends nothing: the queue went with it (`takeQueuedTurn`).
+		if (queuedTurn && !detached) {
 			const nextQueuedTurn = cloneSendPayload(queuedTurn);
 			queuedTurn = null;
 			emitState();
@@ -1444,7 +1449,8 @@ export function createNormalChatClientTurnRuntime(
 			adapters.getMessages().map((message) => message.id),
 		);
 		await loadChatHoldingTheTurn();
-		if (!isTurnConversationActive(params.turnConversationId)) return;
+		if (detached || !isTurnConversationActive(params.turnConversationId))
+			return;
 		// After the load, which ends the page's own recovery state: set this one last.
 		const text = params.message;
 		// The reconnect only lost the end of a turn the server finished: the chat
@@ -1948,7 +1954,9 @@ export function createNormalChatClientTurnRuntime(
 		// genuinely new turn may already own the shared runtime state —
 		// completeStaleTurn only resets that state if this (stale) turn still
 		// owns it, never clobbering a different turn's live stream.
-		if (!isTurnConversationActive(params.turnConversationId)) {
+		// The same for a page that was left (`detached`): a capacity backoff that was
+		// scheduled before it, or a resend that waited for the update, goes nowhere.
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			completeStaleTurn(params.placeholderId);
 			return;
 		}
@@ -1976,13 +1984,16 @@ export function createNormalChatClientTurnRuntime(
 		retryCount: number,
 		versionWasLive: boolean,
 	) {
-		if (!isTurnConversationActive(params.turnConversationId)) {
+		// A recovery that was scheduled before the page was left reconnects nothing
+		// from it, and asks nothing of the server.
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			return;
 		}
 
 		const streamId = await adapters.checkForOrphanedStream(
 			params.turnConversationId,
 		);
+		if (detached) return;
 
 		if (!streamId) {
 			if (retryCount < 3) {
@@ -2038,7 +2049,7 @@ export function createNormalChatClientTurnRuntime(
 			params.turnConversationId,
 		);
 
-		if (!isTurnConversationActive(params.turnConversationId)) {
+		if (detached || !isTurnConversationActive(params.turnConversationId)) {
 			return;
 		}
 
@@ -2221,7 +2232,9 @@ export function createNormalChatClientTurnRuntime(
 			return;
 		}
 
-		// A page that sends is there: what a `detach()` left behind is over.
+		// An entry point the page calls: a page that sends is there, and what a
+		// `detach()` left behind is over. (The queue's own sends, `drainPostTurnQueue`,
+		// are not entry points: they check `detached` and never clear it.)
 		detached = false;
 
 		// R1 (ADR-0060, defect 2) — the conversation this turn belongs to,
@@ -2319,9 +2332,11 @@ export function createNormalChatClientTurnRuntime(
 	 * After a reload there is no send to repeat, only the text. A Retry clears no
 	 * draft and none of the files waiting in the composer: they belong to whatever
 	 * the person has started since.
+	 *
+	 * Only `retry` calls it, right after it looked at `detached` for the last time:
+	 * a resend is not an entry point, and clears nothing.
 	 */
 	function resendFailedMessage(bubble: ChatMessage, outcome: ServerOutcome) {
-		detached = false;
 		const turnConversationId = adapters.getConversationId();
 		// A send of another chat is never sent into this one (the page resets the
 		// runtime on a switch; this holds if it did not).
@@ -2395,6 +2410,9 @@ export function createNormalChatClientTurnRuntime(
 		) {
 			return;
 		}
+		// An entry point the page calls: it clears `detached` here, before it awaits
+		// anything, and looks at it again after the reads.
+		detached = false;
 		const text = lastUserMessage;
 		const turnConversationId = adapters.getConversationId();
 
@@ -2432,8 +2450,9 @@ export function createNormalChatClientTurnRuntime(
 			retryReading = false;
 		}
 		// A turn can have started, an edit been opened or the chat changed while the
-		// page asked, which can take seconds with the page live.
+		// page asked, which can take seconds with the page live, or the page been left.
 		if (
+			detached ||
 			adapters.isReadOnly() ||
 			adapters.isEditOpen() ||
 			isSending ||
@@ -2469,7 +2488,6 @@ export function createNormalChatClientTurnRuntime(
 		}
 
 		// The list really ends in an assistant message: Retry regenerates it.
-		detached = false;
 		adapters.setSendError(null);
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
@@ -2669,10 +2687,14 @@ export function createNormalChatClientTurnRuntime(
 		replayElapsedMs?: number,
 		turnConversationId: string = adapters.getConversationId(),
 	) {
+		// Not an entry point: the page's reconnect is `checkForOrphanedStreamOnMount`,
+		// and everything else that gets here (the recoveries, a Retry that joins, the
+		// capacity backoff) is a turn's own work, which starts nothing for a page that
+		// was left.
+		if (detached) return false;
 		if (isSending || activeStream) return false;
 		if (!isTurnConversationActive(turnConversationId)) return false;
 
-		detached = false;
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
 		const placeholderId = adapters.randomId();
@@ -2781,7 +2803,20 @@ export function createNormalChatClientTurnRuntime(
 		);
 	}
 
+	/**
+	 * The page's reconnect on mount: an entry point, so it clears `detached` before
+	 * it awaits anything (the page has just been built; `joinRunningStreamOfChat`
+	 * is the same look for the runtime's own callers, which do not).
+	 */
 	async function checkForOrphanedStreamOnMount() {
+		if (isSending || activeStream) {
+			return false;
+		}
+		detached = false;
+		return joinRunningStreamOfChat();
+	}
+
+	async function joinRunningStreamOfChat() {
 		if (isSending || activeStream) {
 			return false;
 		}
@@ -2791,7 +2826,7 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	async function recoverBackgroundInterruptedStream() {
-		const reconnected = await checkForOrphanedStreamOnMount();
+		const reconnected = await joinRunningStreamOfChat();
 		if (!reconnected) {
 			await adapters.loadPersistedData();
 			await drainPostTurnQueue();

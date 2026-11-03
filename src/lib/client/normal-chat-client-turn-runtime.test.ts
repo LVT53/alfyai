@@ -4130,6 +4130,296 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	// A page that is left (`detach()`: it is destroyed, or the chat is switched) leaves
+	// work behind that answers later: a backoff or recovery timer, a look at the
+	// server, a Retry's reads, the load of the chat. None of it may start a stream, a
+	// wait or a sign for the shell from a page nobody sees, and none of it brings the
+	// page back: only an entry point the page calls does (a send, a Retry, the
+	// reconnect on mount), at its start, before it awaits anything.
+	describe("work that is out when the page is left", () => {
+		const aSend = (message: string) => ({
+			message,
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const capacityRefusal = () =>
+			Object.assign(new Error("Server at capacity"), {
+				status: 503,
+				code: "CAPACITY_EXCEEDED",
+				reason: "global_limit",
+			});
+		/** A question the test answers when it chooses. */
+		function answerLater<T>() {
+			let answer: (value: T) => void = () => {};
+			const question = new Promise<T>((resolve) => {
+				answer = resolve;
+			});
+			return { question, answer: (value: T) => answer(value) };
+		}
+		/** A clock the test advances, with the wait and the shell's sign watched. */
+		function onTheClock(
+			overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+		) {
+			vi.useFakeTimers();
+			return makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				setTurnWaitingForUpdate: vi.fn(),
+				onServerUpdateSign: vi.fn(),
+				...overrides,
+			});
+		}
+		/** A clock that never runs out: the questions a Retry asks are bounded on `schedule`, which the adapters' default fires at once. */
+		const patientClock = () =>
+			vi.fn(() => 1 as unknown as ReturnType<typeof setTimeout>);
+		/** A reply that streamed some text and lost its connection: the recovery is scheduled. */
+		async function cutAfterSomeText(
+			made: ReturnType<typeof makeAdapters>,
+			runtime: ReturnType<typeof createNormalChatClientTurnRuntime>,
+		) {
+			await runtime.send(aSend("Write"));
+			made.streamInvocations[0].callbacks.onToken("Half");
+			made.streamInvocations[0].callbacks.onError(
+				new TypeError("network error"),
+			);
+			expect(made.adapters.schedule).toHaveBeenCalledWith(
+				expect.any(Function),
+				500,
+			);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("sends nothing from a capacity backoff that was scheduled before", async () => {
+			const { adapters, streamInvocations } = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send(aSend("Hello"));
+			streamInvocations[0].callbacks.onError(capacityRefusal());
+			expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
+
+			runtime.detach();
+			await vi.advanceTimersByTimeAsync(500);
+
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("looks for no stream, joins none and starts no wait from a recovery that was scheduled before", async () => {
+			const made = onTheClock({
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+				askServerUpdate: vi.fn(
+					async (): Promise<ServerUpdateKind> => "restarting",
+				),
+			});
+			const { adapters, streamInvocations, messageListEvents } = made;
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await cutAfterSomeText(made, runtime);
+
+			// The page is destroyed: it detaches, then takes the wait (there is none).
+			runtime.detach();
+			expect(runtime.takeWaitingRequest()).toBeNull();
+			await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+
+			expect(adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+			expect(streamInvocations).toHaveLength(1);
+			expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+			expect(adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+			expect(adapters.onServerUpdateSign).not.toHaveBeenCalled();
+		});
+
+		it("joins no stream that the look finds after the page was left, and keeps the partial reply", async () => {
+			const look = answerLater<string | null>();
+			const made = onTheClock({
+				checkForOrphanedStream: vi.fn(() => look.question),
+			});
+			const { adapters, streamInvocations, messageListEvents } = made;
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await cutAfterSomeText(made, runtime);
+			await vi.advanceTimersByTimeAsync(500);
+			expect(adapters.checkForOrphanedStream).toHaveBeenCalledTimes(1);
+
+			runtime.detach();
+			look.answer("stream-1");
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(adapters.getStreamBufferInfo).not.toHaveBeenCalled();
+			expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("does not swap the partial reply for a replay when the page was left while the stream was described", async () => {
+			const described = answerLater<{ exists: boolean; userMessage: string }>();
+			const made = onTheClock({
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+				getStreamBufferInfo: vi.fn(() => described.question),
+			});
+			const { adapters, streamInvocations, messageListEvents } = made;
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await cutAfterSomeText(made, runtime);
+			await vi.advanceTimersByTimeAsync(500);
+			expect(adapters.getStreamBufferInfo).toHaveBeenCalledTimes(1);
+
+			runtime.detach();
+			described.answer({ exists: true, userMessage: "Write" });
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("retries no reconnect whose backoff was scheduled before", async () => {
+			const { adapters, streamInvocations } = onTheClock();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[0].callbacks.onError(capacityRefusal());
+			expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
+
+			runtime.detach();
+			await vi.advanceTimersByTimeAsync(500);
+
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("is not brought back by a reconnect: the runtime's own join starts nothing", async () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			runtime.reset();
+
+			expect(
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me"),
+			).toBe(false);
+
+			expect(streamInvocations).toHaveLength(0);
+		});
+
+		it("is not brought back by the queue either: a message queued behind the turn is not sent", async () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send(aSend("Still going"));
+			runtime.queue(aSend("Queued behind it"));
+			runtime.detach();
+
+			await runtime.drainPostTurnQueue();
+
+			expect(streamInvocations).toHaveLength(1);
+			expect(runtime.snapshot().queuedTurn?.message).toBe("Queued behind it");
+		});
+
+		it("joins nothing when the tab comes back to a page that was left", async () => {
+			let browserHidden = true;
+			const { adapters, streamInvocations } = makeAdapters({
+				isBrowserHidden: vi.fn(() => browserHidden),
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.send(aSend("Write"));
+			const backgrounded = new Error("backgrounded");
+			backgrounded.name = "AbortError";
+			streamInvocations[0].callbacks.onError(backgrounded);
+			expect(runtime.snapshot().streamInterruptedByBackground).toBe(true);
+			runtime.detach();
+
+			browserHidden = false;
+			await runtime.handleVisibilityVisible();
+
+			expect(adapters.checkForOrphanedStream).toHaveBeenCalledWith("conv-1");
+			expect(streamInvocations).toHaveLength(1);
+		});
+
+		it("shows no failure for a reconnected turn whose chat was being loaded when the page was left", async () => {
+			const load = answerLater<void>();
+			const { adapters, streamInvocations } = makeAdapters({
+				loadPersistedData: vi.fn(() => load.question),
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+			await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+			streamInvocations[0].callbacks.onError(new Error("It failed."));
+			await vi.waitFor(() =>
+				expect(adapters.loadPersistedData).toHaveBeenCalledTimes(1),
+			);
+
+			runtime.detach();
+			load.answer();
+			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
+
+			expect(adapters.setSendError).not.toHaveBeenCalledWith("It failed.");
+			expect(runtime.snapshot().canRetry).toBe(false);
+		});
+
+		describe("a Retry that is out", () => {
+			const savedList = (): ChatMessage[] => [
+				{ id: "user-saved", role: "user", content: "Write", timestamp: 1 },
+				{
+					id: "assistant-saved",
+					role: "assistant",
+					content: "A",
+					timestamp: 2,
+				},
+			];
+
+			it("takes nothing off the list and starts nothing when the page is left while it asks", async () => {
+				const look = answerLater<string | null>();
+				const { adapters, streamInvocations, messages, messageListEvents } =
+					makeAdapters({
+						schedule: patientClock(),
+						checkForOrphanedStream: vi.fn(() => look.question),
+					});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(aSend("Write"));
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+				// The server kept the turn, and the page read it back: the list ends in a reply.
+				messages.length = 0;
+				messages.push(...savedList());
+				messageListEvents.removeMessage.mockClear();
+
+				const pressed = runtime.retry();
+				runtime.detach();
+				look.answer(null);
+				await pressed;
+
+				expect(streamInvocations).toHaveLength(1);
+				expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+				expect(messages.map((message) => message.id)).toEqual([
+					"user-saved",
+					"assistant-saved",
+				]);
+			});
+
+			it("loads no chat when the page is left while the server is asked what it holds", async () => {
+				const read = answerLater<ChatMessage[] | null>();
+				const { adapters, streamInvocations } = makeAdapters({
+					schedule: patientClock(),
+					readChatMessages: vi.fn(() => read.question),
+				});
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(aSend("Write"));
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+				const pressed = runtime.retry();
+				runtime.detach();
+				read.answer(savedList());
+				await pressed;
+
+				expect(adapters.loadPersistedData).not.toHaveBeenCalled();
+				expect(streamInvocations).toHaveLength(1);
+			});
+
+			it("is an entry point: a page that presses it is there, and sends the message again", async () => {
+				const { adapters, streamInvocations } = makeAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
+				await runtime.send(aSend("Write"));
+				streamInvocations[0].callbacks.onError(new Error("Network failed"));
+				runtime.detach();
+
+				await runtime.retry();
+
+				expect(streamInvocations).toHaveLength(2);
+				expect(streamInvocations[1].message).toBe("Write");
+			});
+		});
+	});
+
 	// The page replaces its list with the chat it reads back, and the last thing its
 	// load does is end the turn state (`completePollingRecovery`). A message sent
 	// while the read is out would lose its bubble to the new list, and its turn would
@@ -5069,11 +5359,17 @@ describe("Normal Chat Client Turn Runtime", () => {
 					askServerUpdate: vi.fn(
 						async (): Promise<ServerUpdateKind> => "restarting",
 					),
+					checkForOrphanedStream: vi.fn(async () => "stream-1"),
+					getStreamBufferInfo: vi.fn(async () => ({
+						exists: true,
+						userMessage: "Resume me",
+					})),
 				});
 				const runtime = createNormalChatClientTurnRuntime(adapters);
 				runtime.reset();
 
-				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+				// The page's reconnect on mount is an entry point: the page is here.
+				expect(await runtime.checkForOrphanedStreamOnMount()).toBe(true);
 				streamInvocations[0].callbacks.onError(new TypeError("network error"));
 				await vi.advanceTimersByTimeAsync(0);
 
