@@ -36,6 +36,7 @@ import {
 	getConversationModelSelection,
 	getConversationPersonalitySelection,
 	hasMeaningfulDraft,
+	pendingDraftSave,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
 } from "$lib/client/conversation-session";
@@ -235,6 +236,7 @@ import {
 	awaitOpenStepSave,
 	withinOrNull,
 	buildPendingFileProductionJobPlaceholder,
+	arrivalDraftOf,
 	joinRestoredPayload,
 	type HeldComposer,
 	marksOutdated,
@@ -319,7 +321,14 @@ const initialTotalTokens = getData().totalTokens ?? 0;
 const initialAttachedArtifacts = getData().attachedArtifacts ?? [];
 const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
-const initialConversationDraft = getData().draft ?? null;
+// What a chat is opened with: the saved draft, or newer words this tab still holds
+// for it (`arrivalDraftOf`). The composer takes its first draft from here, and only an
+// empty composer takes another later.
+const initialConversationDraft = arrivalDraftOf(
+	getData().conversation.id,
+	getData().draft ?? null,
+	pendingDraftSave(getData().conversation.id),
+);
 const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
@@ -2467,9 +2476,15 @@ function resetState() {
 	attachedArtifacts = data.attachedArtifacts ?? [];
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
-	setConversationDraft(data.draft ?? null);
-	// The composer is given this chat's saved draft, whatever it held before.
-	heldDraft = data.draft ?? null;
+	// The composer is given this chat's draft, whatever it held before: the saved
+	// one, or newer words this tab still holds for the chat (`arrivalDraftOf`).
+	const arrivalDraft = arrivalDraftOf(
+		data.conversation.id,
+		data.draft ?? null,
+		pendingDraftSave(data.conversation.id),
+	);
+	setConversationDraft(arrivalDraft);
+	heldDraft = arrivalDraft;
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
@@ -3366,6 +3381,7 @@ function draftSaveOf(conversationId: string, draft: ConversationDraft | null) {
 		conversationId,
 		draftText: draft?.draftText ?? "",
 		selectedAttachmentIds: draft?.selectedAttachmentIds ?? [],
+		selectedAttachments: draft?.selectedAttachments ?? [],
 		selectedLinkedSources: draft?.selectedLinkedSources ?? [],
 		pendingSkill: draft?.pendingSkill ?? null,
 		atlasMode: draft?.atlasMode === true,
@@ -4492,6 +4508,7 @@ function handleDraftChange(payload: DraftChangePayload) {
 		conversationId: nextConversationId,
 		draftText: payload.draftText,
 		selectedAttachmentIds: payload.selectedAttachmentIds,
+		selectedAttachments: payload.selectedAttachments,
 		selectedLinkedSources: payload.selectedLinkedSources,
 		pendingSkill: payload.pendingSkill,
 		atlasMode: payload.atlasMode === true,

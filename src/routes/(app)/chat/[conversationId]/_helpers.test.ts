@@ -18,6 +18,7 @@ import {
 	appendTokenChunkToMessageList,
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
+	arrivalDraftOf,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
 	awaitOpenStepSave,
@@ -2894,5 +2895,120 @@ describe("the pictures an edit's resend carries", () => {
 				[],
 			),
 		).toEqual({});
+	});
+});
+
+describe("the draft a chat is opened with", () => {
+	const chat = "conv-1";
+	const attachment = (id: string): PendingAttachment => ({
+		artifact: {
+			id,
+			type: "source_document",
+			retrievalClass: "durable",
+			name: `${id}.pdf`,
+			mimeType: "application/pdf",
+			sizeBytes: 1,
+			conversationId: chat,
+			summary: null,
+			createdAt: 1,
+			updatedAt: 1,
+		},
+		promptReady: true,
+	});
+	const saved = (
+		overrides: Partial<ConversationDraft> = {},
+	): ConversationDraft => ({
+		conversationId: chat,
+		draftText: "What the server has",
+		selectedAttachmentIds: [],
+		selectedAttachments: [],
+		selectedLinkedSources: [],
+		pendingSkill: null,
+		updatedAt: 5_000,
+		...overrides,
+	});
+	const pendingWords = (
+		overrides: Partial<NonNullable<Parameters<typeof arrivalDraftOf>[2]>> = {},
+	) => ({
+		conversationId: chat,
+		draftText: "Words still being sent",
+		selectedAttachmentIds: [],
+		...overrides,
+	});
+
+	it("is the server's copy when this tab holds no words for the chat", () => {
+		expect(arrivalDraftOf(chat, saved(), null)).toEqual(saved());
+		expect(arrivalDraftOf(chat, null, null)).toBeNull();
+	});
+
+	it("is the words still being sent when the tab holds some, whatever the server has", () => {
+		expect(arrivalDraftOf(chat, saved(), pendingWords())?.draftText).toBe(
+			"Words still being sent",
+		);
+		expect(arrivalDraftOf(chat, null, pendingWords())).toMatchObject({
+			conversationId: chat,
+			draftText: "Words still being sent",
+		});
+	});
+
+	it("is newer than the copy it replaces, so the composer takes it", () => {
+		const arrival = arrivalDraftOf(
+			chat,
+			saved({ updatedAt: Date.now() + 60_000 }),
+			pendingWords(),
+		);
+
+		expect(arrival?.updatedAt).toBe(Date.now() + 60_000 + 1);
+	});
+
+	it("keeps the files the held words were saved with, else the saved draft's by id", () => {
+		const own = arrivalDraftOf(
+			chat,
+			saved(),
+			pendingWords({
+				selectedAttachmentIds: ["a1"],
+				selectedAttachments: [attachment("a1")],
+			}),
+		);
+		expect(own?.selectedAttachments.map((entry) => entry.artifact.id)).toEqual([
+			"a1",
+		]);
+
+		const fromTheServer = arrivalDraftOf(
+			chat,
+			saved({
+				selectedAttachmentIds: ["a1", "a2"],
+				selectedAttachments: [attachment("a1"), attachment("a2")],
+			}),
+			pendingWords({ selectedAttachmentIds: ["a2"] }),
+		);
+		expect(
+			fromTheServer?.selectedAttachments.map((entry) => entry.artifact.id),
+		).toEqual(["a2"]);
+		expect(fromTheServer?.selectedAttachmentIds).toEqual(["a2"]);
+	});
+
+	it("carries the skill and the Atlas mode of the held words", () => {
+		const arrival = arrivalDraftOf(
+			chat,
+			null,
+			pendingWords({
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Skill",
+				},
+				atlasMode: true,
+				atlasProfile: "overview",
+				clientAtlasTurnId: "atlas-1",
+			}),
+		);
+
+		expect(arrival).toMatchObject({
+			pendingSkill: { id: "skill-1" },
+			atlasMode: true,
+			atlasProfile: "overview",
+			clientAtlasTurnId: "atlas-1",
+		});
 	});
 });

@@ -2758,6 +2758,95 @@ describe("chat page runtime integration", () => {
 						"Typed after coming back",
 					]);
 				});
+
+				// The page that opens the chat reads its draft from the server, which does not
+				// have the words yet (or has older ones): the words still being sent are the
+				// newest there are.
+				describe("when the person returns to the chat before they have landed", () => {
+					async function leftAndBack(serverCopy?: string) {
+						vi.useFakeTimers();
+						const { view, composer } = await waitingWithBQueued();
+						vi.mocked(persistConversationDraft).mockClear();
+						// The move's save fails; the typed words' first try after it does too.
+						vi.mocked(persistConversationDraft)
+							.mockRejectedValueOnce(restarting())
+							.mockRejectedValueOnce(restarting());
+						await view.rerender(chat("conv-2"));
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("");
+						});
+						await view.rerender(chat("conv-1", serverCopy));
+						return { view, composer };
+					}
+
+					it("shows them, not the server's older copy", async () => {
+						const { composer } = await leftAndBack("An older draft");
+
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("A question\n\nB queued");
+						});
+					});
+
+					it("shows them in a page built after the person left the chat page, too", async () => {
+						vi.useFakeTimers();
+						const { view } = await waitingWithBQueued();
+						vi.mocked(persistConversationDraft).mockRejectedValueOnce(
+							restarting(),
+						);
+						view.unmount();
+
+						renderPage(chat("conv-1", "An older draft").data);
+
+						await vi.waitFor(() => {
+							expect(screen.getByTestId("message-input")).toHaveValue(
+								"A question\n\nB queued",
+							);
+						});
+					});
+
+					it("shows them when the server has no draft at all", async () => {
+						const { composer } = await leftAndBack();
+
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("A question\n\nB queued");
+						});
+					});
+
+					it("holds what is typed from there the same way: the older words are not sent again, the newer land", async () => {
+						const { composer } = await leftAndBack("An older draft");
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("A question\n\nB queued");
+						});
+
+						await fireEvent.input(composer, {
+							target: { value: "A question\n\nB queued!" },
+						});
+						await vi.advanceTimersByTimeAsync(30_000);
+
+						expect(savesOfFirstChat()).toEqual([
+							"A question\n\nB queued",
+							"A question\n\nB queued!",
+							"A question\n\nB queued!",
+						]);
+					});
+
+					it("shows the server's copy once the words have landed", async () => {
+						vi.useFakeTimers();
+						const { view, composer } = await waitingWithBQueued();
+						// The move's save lands (the mock lets it), so nothing is held.
+						await view.rerender(chat("conv-2"));
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("");
+						});
+						await vi.advanceTimersByTimeAsync(0);
+
+						await view.rerender(chat("conv-1", "What the server has"));
+
+						await vi.waitFor(() => {
+							expect(composer).toHaveValue("What the server has");
+						});
+					});
+				});
 			});
 		});
 	});

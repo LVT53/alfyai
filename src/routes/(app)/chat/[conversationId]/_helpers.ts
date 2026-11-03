@@ -1,4 +1,7 @@
-import { createConversationDraftRecord } from "$lib/client/conversation-session";
+import {
+	createConversationDraftRecord,
+	type DraftSaveRequest,
+} from "$lib/client/conversation-session";
 import { buildAppRebuildActivity } from "$lib/components/artifacts/app/app-rebuild-activity";
 import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
@@ -1267,6 +1270,41 @@ export function joinDraftText(held: string, added: string): string {
 	if (!held.trim()) return added;
 	if (held.trim() === added.trim()) return held;
 	return `${held}\n\n${added}`;
+}
+
+/**
+ * The draft a chat is opened with. The server's copy (`saved`) is older than words
+ * this tab still holds for the chat: a save that failed and is being sent again
+ * (`pendingDraftSave`, a message that waited for an update when the chat was left).
+ * Those are the newest words there are, so the composer shows them, and the page's
+ * own saves from there take the hold over (`createDraftPersistence`). Files come from
+ * the held save when it carries them, else from the saved draft, by id.
+ */
+export function arrivalDraftOf(
+	conversationId: string,
+	saved: ConversationDraft | null,
+	pending: DraftSaveRequest | null,
+): ConversationDraft | null {
+	if (!pending) return saved;
+	const savedAttachments = saved?.selectedAttachments ?? [];
+	const arrival = createConversationDraftRecord({
+		conversationId,
+		draftText: pending.draftText,
+		selectedAttachmentIds: pending.selectedAttachmentIds,
+		selectedAttachments:
+			pending.selectedAttachments ??
+			savedAttachments.filter((attachment) =>
+				pending.selectedAttachmentIds.includes(attachment.artifact.id),
+			),
+		selectedLinkedSources: pending.selectedLinkedSources,
+		pendingSkill: pending.pendingSkill,
+		atlasMode: pending.atlasMode === true,
+		atlasProfile: pending.atlasProfile ?? null,
+		clientAtlasTurnId: pending.clientAtlasTurnId ?? null,
+		// The composer takes a draft by its version: newer than the copy it replaces.
+		updatedAt: Math.max(Date.now(), (saved?.updatedAt ?? 0) + 1),
+	});
+	return arrival ?? saved;
 }
 
 /** What the composer holds, as far as the page knows: its last draft, the card pictures waiting in it and the marks. */
