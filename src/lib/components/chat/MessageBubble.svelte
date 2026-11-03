@@ -329,6 +329,10 @@ let sentUploadNumbers = $derived(
 );
 let hasThinking = $derived(Boolean(message.thinking?.trim()));
 let isFinalizing = $derived(message.runtimePhase === "finalizing");
+// The server is being updated and this turn waits for it (its request was turned
+// away, or the reply it was reading was cut off): one quiet line says so, whether
+// the bubble holds any text or not.
+let isAwaitingUpdate = $derived(message.runtimePhase === "awaiting_update");
 const isStreaming = $derived(
 	Boolean(message.isStreaming || message.isThinkingStreaming),
 );
@@ -608,6 +612,7 @@ let preparingStatusLabel = $derived(
 let showPreparingStatus = $derived(
 	!isUser &&
 		isGenerating &&
+		!isAwaitingUpdate &&
 		!hasVisibleContent &&
 		!hasThinking &&
 		!hasVisibleThinkingSegments &&
@@ -1272,6 +1277,9 @@ function sendFollowUp(question: string) {
 						</div>
 					{/each}
 				</div>
+			{/if}
+			{#if isAwaitingUpdate}
+				<div class="preparing-status" aria-live="polite" data-testid="awaiting-update-status">{$t('chat.awaitingUpdate')}</div>
 			{/if}
 			{#if showPreparingStatus}
 				<div class="preparing-status" aria-live="polite">{preparingStatusLabel}</div>
