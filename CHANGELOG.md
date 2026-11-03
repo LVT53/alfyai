@@ -28,6 +28,24 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ### Changed
 
+- A message you send while AlfyAI is being updated now waits instead of failing:
+  the message shows "AlfyAI is being updated. Waiting for it to come back..." and
+  is sent by itself once the update is done, so you do not press anything. Stop
+  ends the wait and puts your words back in the message box, and leaving the chat
+  keeps them in its draft. If the update is still running after 8 minutes, the
+  message stays with Retry and says to try again in a few minutes.
+- A reply that an update cut off now says so ("AlfyAI was updated while this
+  reply was being written, so it was cut off") and offers Retry, instead of
+  blaming the model provider. If the server finished the reply meanwhile, it
+  appears with no error. The reply is never sent again unless you press Retry.
+- The "Update available" notice now comes up within seconds of the update instead
+  of up to a minute later, and it waits until a message that is waiting for the
+  update has been sent, because refreshing the page would lose that message. The
+  "update in progress" banner now shows as soon as a message of yours meets the
+  update, without a reload or switching tabs, and says what happens: a reply that
+  is running finishes first, and a new message is sent when the update is done.
+- Editing a message while AlfyAI is being updated now says so ("Send this edit
+  again when it's done") instead of saying another reply is running.
 - Editing a message you sent now happens in the message box at the bottom, not
   in a box inside the message: the pencil puts the text there, the original
   steps back, and what you were writing comes back when you send or cancel. If
@@ -123,6 +141,13 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ### Security and operations
 
+- The deploy now waits up to 3 minutes for running replies to finish before it
+  restarts the server (it used to wait 2 minutes), prints how many are still running every 30
+  seconds, and says how long it waited if it gives up. Set
+  `DRAIN_TIMEOUT_SECONDS` to change it (`0` does not wait). While it waits, new
+  messages are turned away with the reason `draining` and wait in the browser, so
+  the site stays up for everyone; a reply still running at the end is cut by the
+  restart.
 - Session tokens are stored as SHA-256 hashes, so a copy of the database or a
   backup holds no session anyone can use.
 - A five-minute auth sweep deletes sessions that have ended, any row a deploy

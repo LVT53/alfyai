@@ -144,16 +144,17 @@ window graceful instead of error-producing.
 **Draining is a Stream Admission capacity rejection ([ADR-0041]).** A process-local `draining` flag
 lives beside the active-stream registry (`active-streams.ts`). While `draining` is set,
 `checkStreamCapacity()` refuses *new* streams with the existing `reason: "global_limit"` rejection —
-the same rejection the client already treats as a capacity error and backs off on — **before** the
-`Response` is produced. This is exactly the admission-time capacity rejection ADR-0041 requires; it
+the same rejection the client already treats as a capacity error and backs off on (amended 2026-11-03:
+the reason is now `"draining"`, and the client waits for the update; see the last amendment) —
+**before** the `Response` is produced. This is exactly the admission-time capacity rejection ADR-0041 requires; it
 adds no new rejection vocabulary and no new stream part names. In-flight streams are untouched: they
 are already registered, and draining only gates admission. The flag is idempotent and reversible,
 and it does not survive a restart (the new process starts undrained), so a completed deploy needs no
 explicit un-drain.
 
 **The deploy drains before it flips.** Before the cutover, `deploy.sh` sets `draining` on the live
-process, then polls `/api/health` until `activeStreams === 0` (hard cap 120 s), then flips and
-restarts. Restarting with zero in-flight streams means no user turn is interrupted. `/api/health`
+process, then polls `/api/health` until `activeStreams === 0` (hard cap 120 s; amended 2026-11-03:
+`DRAIN_TIMEOUT_SECONDS`, 180 by default), then flips and restarts. Restarting with zero in-flight streams means no user turn is interrupted. `/api/health`
 gains `draining` and `activeStreams` fields while keeping the legacy `{ "status": "OK" }` shape that
 `deploy/README.md` documents. Toggling drain is `POST /api/admin/drain`, authorized by **either** an
 admin session (`requireAdmin`, for the admin UI) **or** a bearer token equal to
@@ -206,3 +207,33 @@ operator-owned `/var/www/alfyai-maintenance/` on every deploy. A side benefit ov
 an *unexpected* crash also shows the friendly page instead of a raw 503 (Sentry still records the
 crash). The vhost edit and Apache reload require operator root — outside the deploy user's
 restart-only sudo — so they are a one-time operator step.
+
+### Amendment (2026-11-03) — draining names itself, the drain waits minutes, an open page waits
+
+A message sent while a deploy drained the server failed after four seconds with a sentence about the
+model provider, a message sent during the restart got Apache's 503 page and the same sentence, a reply
+that outlived the drain was cut at the restart with the same sentence again, and the Refresh notice came
+up to a minute after the person had acted. Nothing said "update". Four changes:
+
+- **Draining names itself.** While `draining` is set, `checkStreamCapacity()` refuses with
+  `reason: "draining"`, no longer `"global_limit"`. The 503 keeps `code: "CAPACITY_EXCEEDED"`, so a page
+  loaded before this release still backs off on the code. A full server and a user's second reply keep
+  `global_limit` and `user_limit`, and the browser's three-step backoff.
+- **The drain waits minutes.** Step 7b of both deploy scripts waits up to `DRAIN_TIMEOUT_SECONDS`
+  (default 180, measured on the clock; it was 60 attempts of 2 seconds), prints a progress line every
+  30 seconds with how many replies still run, and names the real number of seconds when it gives up.
+  Waiting in the drain keeps the site up for everyone; a reply that outlives it is cut by the restart.
+  `deploy/langflow-chat.service` and the shutdown handler are unchanged.
+- **An open page waits through the update.** A fresh request refused for it (`reason: "draining"`, or
+  the proxy's 502, 503 or 504 whose body is not the app's JSON) keeps its placeholder, which says so, and
+  is sent again when `/api/health` answers and is not draining; it gives up after 8 minutes (the drain's
+  3, a stop of up to 2, the health wait after the cutover and slack) with a sentence and Retry. A refusal
+  at admission ran nothing, so sending it again is safe. A reply that dies on a failed connection is
+  checked once the server is back (it may have finished the turn) and is **never sent again by itself**:
+  tools may have run, and sending it again is the person's choice, through Retry.
+- **The shell watches.** A sign of an update starts a watch (health and the version every 3 seconds, the
+  banner while the server drains or does not answer), so the Refresh notice comes up within seconds
+  instead of at SvelteKit's own once-a-minute poll; the notice is held while a message waits, since a
+  reload would lose it.
+
+The page-side rules are in `src/lib/components/chat/AGENTS.md`, "An Update During A Turn".
