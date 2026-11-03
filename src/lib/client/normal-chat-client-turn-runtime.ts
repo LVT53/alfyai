@@ -478,8 +478,8 @@ const AWAIT_UPDATE_QUESTION_MAX_MS = 5000;
 /** A request sent again this many times and turned away as an update each time, while health says the server is well, fails like any other request. */
 const AWAIT_UPDATE_MAX_RESENDS = 3;
 
-/** A reply that was cut off is rejoined at most this many times while the server drains (a stream that keeps failing on a server that keeps answering is not an update). */
-const MAX_REJOINS_WHILE_DRAINING = 3;
+/** A reply that was cut off is rejoined at most this many times over while the server answers (a stream that keeps failing on a server that keeps answering is not an update). */
+const MAX_REJOINS_OF_A_CUT_REPLY = 3;
 
 /** What the poll takes for the answer of a health question that did not come: the server cannot be told from it, and the wait goes on. */
 const NO_ANSWER: ServerHealth = { state: "unreachable" };
@@ -500,14 +500,25 @@ type CutReplyQuestion = {
  * - `none`: nothing says an update; the failure is what it always was.
  * - `draining`: the old process is alive and finishes the replies it runs, so the
  *   reply is probably still running there: look for its stream, do not wait.
- * - `cut`: an update cut the reply (the restart, or a version that went live during
- *   this turn). The server is back, and the turn state is held for the caller.
+ * - `new_version`: the server answers and runs a version that went live during this
+ *   turn. The restart is over and probably cut the reply, but whatever answers may
+ *   still run it, so its stream is looked for first, as when the server drains, and
+ *   only a reply with no stream left is put down to the update. The turn state is
+ *   held for the caller.
+ * - `cut`: the restart cut the reply and the server is back (or the wait passed its
+ *   cap). The turn state is held for the caller.
  * - `stopped`: Stop was pressed while the page was asked; nothing is waited for and
  *   the turn ends.
  * - `abandoned`: the chat on screen changed, or the page was left; the caller does
  *   nothing more.
  */
-type CutReplyVerdict = "none" | "draining" | "cut" | "stopped" | "abandoned";
+type CutReplyVerdict =
+	| "none"
+	| "draining"
+	| "new_version"
+	| "cut"
+	| "stopped"
+	| "abandoned";
 
 /** How a wait for an update ends (a page that is left ends it without one). */
 type UpdateWaitEnd = "back" | "timeout" | "stopped";
@@ -897,16 +908,18 @@ export function createNormalChatClientTurnRuntime(
 	 * is doing (`versionWasLive` is what the page knew of the version when the failure
 	 * was handled):
 	 *
-	 * - the proxy answers instead of the app, or a version went live during this turn:
-	 *   an update cut the reply (`cut`). Unless the server already answers, the turn is
-	 *   held in `awaiting_update` (the placeholder keeps any text it has) until the
-	 *   server is back or the cap passes, and the caller then asks the server what it
-	 *   holds: it may have finished the turn while the browser was cut off. The reply
+	 * - the proxy answers instead of the app (`cut`): the restart cut the reply. The
+	 *   turn is held in `awaiting_update` (the placeholder keeps any text it has) until
+	 *   the server is back or the cap passes, and the caller then asks the server what
+	 *   it holds: it may have finished the turn while the browser was cut off. The reply
 	 *   is never sent again by itself: tools may have run (a produced file, a
 	 *   Document), and sending it again is the person's choice, through Retry.
 	 * - the server is draining (`draining`): the old process is alive and finishes
 	 *   the replies it runs, so this one is probably still running there. Nothing is
 	 *   waited for; the caller looks for its stream and joins it.
+	 * - a version went live during this turn and the server answers (`new_version`):
+	 *   the restart is over. Nothing is waited for either, and the caller looks for the
+	 *   stream first and joins it, as when the server drains.
 	 * - nothing says an update (`none`), which is what a lost connection looks like.
 	 *
 	 * `ownsTurn` is false when the stream's error already let the turn go (the
@@ -944,7 +957,7 @@ export function createNormalChatClientTurnRuntime(
 		if (kind === "new_version") {
 			// The restart is over and the server answers: nothing to wait for.
 			adapters.onServerUpdateSign?.();
-			return "cut";
+			return "new_version";
 		}
 		return new Promise((resolve) => {
 			const waiting = beginUpdateWait({
@@ -978,12 +991,13 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	/**
-	 * The server is draining, and a reply of this chat was cut by a connection that
-	 * failed: the old process is alive, finishes the replies it runs and has probably
-	 * not stopped this one. So its stream is looked for again and joined (the replay
-	 * goes into a fresh placeholder under the bubble on screen, which supersedes this
-	 * one). Nothing is waited for. At most three times over, so a stream that keeps
-	 * failing on a server that keeps answering is not followed for ever.
+	 * The server answers (it is draining, or a new version went live) and a reply of
+	 * this chat was cut by a connection that failed: the old process may be alive and
+	 * has probably not stopped this reply. So its stream is looked for again and
+	 * joined (the replay goes into a fresh placeholder under the bubble on screen,
+	 * which supersedes this one). Nothing is waited for. At most three times over, so
+	 * a stream that keeps failing on a server that keeps answering is not followed
+	 * for ever.
 	 *
 	 * "none" says nothing was joined and nothing was taken off the screen: no stream,
 	 * the stream of another message, the limit, or a turn that holds the turn state (a
@@ -997,7 +1011,7 @@ export function createNormalChatClientTurnRuntime(
 	): Promise<"joined" | "none" | "abandoned"> {
 		if (
 			params.isReconnect &&
-			(params.reconnectRetryCount ?? 0) >= MAX_REJOINS_WHILE_DRAINING
+			(params.reconnectRetryCount ?? 0) >= MAX_REJOINS_OF_A_CUT_REPLY
 		) {
 			return "none";
 		}
@@ -1124,7 +1138,7 @@ export function createNormalChatClientTurnRuntime(
 			});
 			return;
 		}
-		if (hold === "draining") {
+		if (hold === "draining" || hold === "new_version") {
 			const joined = await joinRunningStreamOfCutReply(params, true);
 			if (joined === "abandoned") {
 				completeStaleTurn(params.placeholderId);
@@ -1134,7 +1148,7 @@ export function createNormalChatClientTurnRuntime(
 		}
 		await settleCutReply(params, error, {
 			ownsTurn: true,
-			cutByUpdate: hold === "cut",
+			cutByUpdate: hold === "cut" || hold === "new_version",
 		});
 	}
 
@@ -1162,7 +1176,7 @@ export function createNormalChatClientTurnRuntime(
 			completeStaleTurn(params.placeholderId);
 			return;
 		}
-		if (hold === "draining") {
+		if (hold === "draining" || hold === "new_version") {
 			const joined = await joinRunningStreamOfCutReply(params, true);
 			if (joined === "abandoned") {
 				completeStaleTurn(params.placeholderId);
@@ -1176,7 +1190,7 @@ export function createNormalChatClientTurnRuntime(
 		});
 		completeTurn();
 		await showFailedReconnectedTurn(params, error, {
-			cutByUpdate: hold === "cut",
+			cutByUpdate: hold === "cut" || hold === "new_version",
 		});
 	}
 
@@ -2051,11 +2065,20 @@ export function createNormalChatClientTurnRuntime(
 					versionWasLive,
 				});
 				if (hold === "abandoned") return;
-				if (hold === "draining") {
-					const joined = await joinRunningStreamOfCutReply(params, false);
-					if (joined !== "none") return;
+				if (hold === "draining" || hold === "new_version") {
+					// A drain leaves the turn state alone; a new version took it back for
+					// this reply (unless a turn has started since: `none`).
+					const joined = await joinRunningStreamOfCutReply(
+						params,
+						hold === "new_version",
+					);
+					if (joined === "abandoned") {
+						completeStaleTurn(params.placeholderId);
+						return;
+					}
+					if (joined === "joined") return;
 				}
-				cutByUpdate = hold === "cut";
+				cutByUpdate = hold === "cut" || hold === "new_version";
 			}
 			// No stream to reconnect to does not mean the turn failed: it may have
 			// finished meanwhile. The page asks before it shows an error and a Retry

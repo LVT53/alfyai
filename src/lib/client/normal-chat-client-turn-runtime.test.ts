@@ -6677,7 +6677,169 @@ describe("Normal Chat Client Turn Runtime", () => {
 		// restart is over and it cut the reply. Nothing is waited for, and the page says
 		// so after it has asked the server what it holds.
 		describe("when a new version went live during the turn and the server answers", () => {
-			it("asks the server what it holds and says an update cut the reply, without a wait", async () => {
+			/** The three looks for the stream after a drop (3.5 s) find none; the look the new version sends it to finds it. */
+			function streamAppearsOnTheFourthLook(
+				made: ReturnType<typeof cutAdapters>,
+			) {
+				vi.mocked(made.adapters.checkForOrphanedStream)
+					.mockResolvedValueOnce(null)
+					.mockResolvedValueOnce(null)
+					.mockResolvedValueOnce(null)
+					.mockResolvedValue("stream-1");
+				vi.mocked(made.adapters.getStreamBufferInfo).mockResolvedValue({
+					exists: true,
+					userMessage: question,
+				});
+			}
+
+			it("joins the reply's stream when the old process still runs it, with nothing waited for", async () => {
+				const made = cutAdapters();
+				made.server.update = "new_version";
+				made.server.health = WELL;
+				streamAppearsOnTheFourthLook(made);
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onToken("Half an");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+
+				expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(4);
+				expect(made.streamInvocations).toHaveLength(2);
+				expect(made.streamInvocations[1].options?.reconnectToStreamId).toBe(
+					"stream-1",
+				);
+				// No sentence, no wait, no read of the chat: it is a live reconnect.
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(
+					made.messages.some(
+						(message) => message.runtimePhase === "awaiting_update",
+					),
+				).toBe(false);
+				expect(made.messages.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+				]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+				});
+				// The shell still hears that the server was updated.
+				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
+			});
+
+			it("joins the stream of a reply that died before any text, too", async () => {
+				const made = cutAdapters();
+				made.server.update = "new_version";
+				made.server.health = WELL;
+				vi.mocked(made.adapters.checkForOrphanedStream).mockResolvedValue(
+					"stream-1",
+				);
+				vi.mocked(made.adapters.getStreamBufferInfo).mockResolvedValue({
+					exists: true,
+					userMessage: question,
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.streamInvocations).toHaveLength(2);
+				expect(made.streamInvocations[1].options?.reconnectToStreamId).toBe(
+					"stream-1",
+				);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: true,
+					active: true,
+				});
+			});
+
+			it("says an update cut a reply that died before any text when there is no stream either", async () => {
+				const made = cutAdapters();
+				made.server.update = "new_version";
+				made.server.health = WELL;
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+
+				made.streamInvocations[0].callbacks.onError(closedEarly());
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(1);
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				expect(made.messages.map((message) => message.role)).toEqual(["user"]);
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					canRetry: true,
+				});
+				expect(made.streamInvocations).toHaveLength(1);
+			});
+
+			it("rejoins a reconnect that failed, at most three times over, and then says an update cut it", async () => {
+				const made = cutAdapters();
+				made.server.update = "new_version";
+				made.server.health = WELL;
+				vi.mocked(made.adapters.checkForOrphanedStream).mockResolvedValue(
+					"stream-1",
+				);
+				vi.mocked(made.adapters.getStreamBufferInfo).mockResolvedValue({
+					exists: true,
+					userMessage: "Resume me",
+				});
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
+
+				for (let failure = 0; failure < 4; failure += 1) {
+					made.streamInvocations[failure].callbacks.onError(connectionFailed());
+					await vi.advanceTimersByTimeAsync(0);
+				}
+
+				// The first connection and three rejoins; the fourth failure is not followed.
+				expect(made.streamInvocations).toHaveLength(4);
+				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
+				expect(made.adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+			});
+
+			it("lets the turn state go when the chat was changed while the stream was looked for", async () => {
+				let conversationId = "conv-1";
+				let streamFound: (streamId: string | null) => void = () => {};
+				const made = cutAdapters({
+					getConversationId: vi.fn(() => conversationId),
+				});
+				made.server.update = "new_version";
+				made.server.health = WELL;
+				vi.mocked(made.adapters.checkForOrphanedStream)
+					.mockResolvedValueOnce(null)
+					.mockResolvedValueOnce(null)
+					.mockResolvedValueOnce(null)
+					.mockImplementation(
+						() =>
+							new Promise<string | null>((resolve) => {
+								streamFound = resolve;
+							}),
+					);
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await send(runtime);
+				made.streamInvocations[0].callbacks.onToken("Half an");
+				made.streamInvocations[0].callbacks.onError(connectionFailed());
+				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+				// The turn state is held for the reply while its stream is looked for.
+				expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(4);
+				expect(runtime.snapshot().isSending).toBe(true);
+
+				conversationId = "conv-2";
+				streamFound("stream-1");
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(runtime.snapshot().isSending).toBe(false);
+				expect(made.streamInvocations).toHaveLength(1);
+				expect(sentenceShown(made.adapters)).toEqual([]);
+			});
+
+			it("looks for the stream first, and says an update cut the reply only when there is none, after asking the server what it holds, without a wait", async () => {
 				const made = cutAdapters();
 				made.server.update = "new_version";
 				made.server.health = WELL;
@@ -6688,6 +6850,8 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 				await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
 
+				// The three looks of the drop, and the one the new version sends it to.
+				expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(4);
 				expect(sentenceShown(made.adapters)).toEqual(["chat.updateCutReply"]);
 				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
 				expect(made.adapters.onServerUpdateSign).toHaveBeenCalledTimes(1);
