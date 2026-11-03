@@ -1,28 +1,39 @@
-import type { FetchLike } from "./http";
+import { type FetchLike, GATEWAY_STATUSES } from "./http";
 
 /**
- * What `/api/health` says of the server this page is served by: whether it
- * answers at all, and whether it is draining for a deploy restart (it still
- * answers, and turns new messages away). The app's own words for an update in
- * progress read it: the shell's banner and its watch, and a message that waits
- * for the update (`normal-chat-client-turn-runtime.ts`).
+ * What `/api/health` says of the server this page is served by, in the four ways
+ * the app has to tell apart (rules: `src/lib/components/chat/AGENTS.md`, "An
+ * Update During A Turn"):
+ *
+ * - `up`: the app answers and is not draining.
+ * - `draining`: the app answers and is draining for a deploy restart. It is alive,
+ *   finishes the replies it runs, and turns new messages away.
+ * - `proxy_down`: the reverse proxy answered instead of the app (a 502, 503 or
+ *   504 whose body is not the health JSON). The app process is away: a restart.
+ * - `unreachable`: nothing says what the server is doing. The request failed or
+ *   did not answer in time, or the answer is none of the above. A phone without
+ *   signal looks like this too, and that is not an update.
  */
-export type ServerHealth = {
-	reachable: boolean;
-	draining: boolean;
-};
+export type ServerHealthState =
+	| "up"
+	| "draining"
+	| "proxy_down"
+	| "unreachable";
 
-const UNREACHABLE: ServerHealth = { reachable: false, draining: false };
+export type ServerHealth = { state: ServerHealthState };
+
+const UNREACHABLE: ServerHealth = { state: "unreachable" };
 
 /** An answer that has not come by now is no answer: a stalled request must not hold a poll back. */
 export const HEALTH_REQUEST_MAX_MS = 5000;
 
 /**
- * Reads `/api/health` once. `reachable` is false when the request fails or does
- * not answer in time, when the status is not OK, and when the body is not the
- * health JSON: during the restart the reverse proxy answers its own maintenance
- * page (a 503 with HTML), and that is the server being away, not a server that is
- * well.
+ * Reads `/api/health` once. A 200 with the health JSON is `up` or `draining`. The
+ * proxy's maintenance page, a 502, 503 or 504 with a body that is not the health
+ * JSON, is `proxy_down`: the app is away, which is what a restart looks like. Every
+ * other answer, a request that fails and one that does not answer in time are
+ * `unreachable`: they say nothing of the server, and the caller must not take them
+ * for an update.
  *
  * Plain `fetch`, deliberately not the wrapper in `http.ts`. The route is public,
  * so a 200 from it says nothing about this tab's session, and the wrapper reads
@@ -39,14 +50,28 @@ export async function fetchServerHealth(
 			cache: "no-store",
 			signal: controller.signal,
 		});
-		if (!response.ok) return UNREACHABLE;
-		const body: unknown = await response.json();
-		if (!isHealthBody(body)) return UNREACHABLE;
-		return { reachable: true, draining: body.draining === true };
+		const body = await readJsonBody(response);
+		if (isHealthBody(body)) {
+			if (response.ok) {
+				return { state: body.draining === true ? "draining" : "up" };
+			}
+			return UNREACHABLE;
+		}
+		return GATEWAY_STATUSES.has(response.status)
+			? { state: "proxy_down" }
+			: UNREACHABLE;
 	} catch {
 		return UNREACHABLE;
 	} finally {
 		clearTimeout(timer);
+	}
+}
+
+async function readJsonBody(response: Response): Promise<unknown> {
+	try {
+		return await response.json();
+	} catch {
+		return undefined;
 	}
 }
 

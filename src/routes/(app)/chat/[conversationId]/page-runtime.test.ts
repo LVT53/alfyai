@@ -357,9 +357,14 @@ vi.mock("$lib/client/api/chat-turn", () => ({
 // reply cut by a failed connection asks whether the server is being updated. The
 // server is well unless a test says otherwise (reset after every test, below).
 const fetchServerHealthMock = vi.hoisted(() =>
-	vi.fn(async () => ({ reachable: true, draining: false })),
+	vi.fn(
+		async (): Promise<import("$lib/client/api/health").ServerHealth> => ({
+			state: "up",
+		}),
+	),
 );
-vi.mock("$lib/client/api/health", () => ({
+vi.mock("$lib/client/api/health", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/client/api/health")>()),
 	fetchServerHealth: fetchServerHealthMock,
 }));
 
@@ -474,10 +479,7 @@ import Page from "./+page.svelte";
 afterEach(() => {
 	checkChatTurnMock.mockReset();
 	fetchServerHealthMock.mockReset();
-	fetchServerHealthMock.mockResolvedValue({
-		reachable: true,
-		draining: false,
-	});
+	fetchServerHealthMock.mockResolvedValue({ state: "up" });
 	runtimeHarness.orphanedStreamId = null;
 });
 
@@ -2457,10 +2459,7 @@ describe("chat page runtime integration", () => {
 
 			beforeEach(() => {
 				// The update goes on: a message that waits keeps waiting.
-				fetchServerHealthMock.mockResolvedValue({
-					reachable: true,
-					draining: true,
-				});
+				fetchServerHealthMock.mockResolvedValue({ state: "draining" });
 			});
 
 			/** "A question" is sent, the server turns it away for the update and it waits; "B queued" waits behind it, and C is typed when given. */
@@ -2569,10 +2568,7 @@ describe("chat page runtime integration", () => {
 					expect.anything(),
 				);
 				// The server comes back, and nothing is sent into the chat now on screen.
-				fetchServerHealthMock.mockResolvedValue({
-					reachable: true,
-					draining: false,
-				});
+				fetchServerHealthMock.mockResolvedValue({ state: "up" });
 				await new Promise((resolve) => setTimeout(resolve, 0));
 				expect(runtimeHarness.streamInvocations).toHaveLength(1);
 				expect(fetchServerHealthMock).not.toHaveBeenCalled();

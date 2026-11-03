@@ -140,8 +140,9 @@ let serverDraining = $state(false);
 let serverDrainingPollTimeout: number | null = null;
 // The watch a sign of an update starts (the $effect on serverUpdateSign below).
 // It decides when to look and when to stop; this layout owns what is drawn: the
-// banner while the server drains, and during a watch while it does not answer
-// (the restart; unless the browser itself is offline), and the Refresh notice.
+// banner while the server drains, and during a watch while the proxy answers
+// instead of the app (the restart: `away`, which a lost connection is not), and
+// the Refresh notice.
 const serverUpdateWatch = createServerUpdateWatch({
 	fetchHealth: fetchServerHealth,
 	checkVersion: () => updated.check(),
@@ -149,8 +150,7 @@ const serverUpdateWatch = createServerUpdateWatch({
 	setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
 	clearTimer: (handle) => window.clearTimeout(handle as number),
 	onLook: (look) => {
-		serverDraining =
-			look.draining || (look.away && !(browser && navigator.onLine === false));
+		serverDraining = look.draining || look.away;
 		if (look.versionChanged && !isServerUpdateNoticeSuppressed()) {
 			serverUpdateAvailable = true;
 		}
@@ -486,11 +486,13 @@ async function checkServerHealth() {
 	if (!browser) return;
 
 	const health = await fetchServerHealth();
-	// A server that does not answer (a failed request, the proxy's maintenance
-	// page) leaves serverDraining at its last known value — the server may be
-	// mid-restart, which is exactly the window draining exists for. The poll
+	// A server that does not answer as the app (the proxy's maintenance page, a
+	// failed request) leaves serverDraining at its last known value — the server may
+	// be mid-restart, which is exactly the window draining exists for. The poll
 	// below keeps checking either way.
-	if (health.reachable) serverDraining = health.draining;
+	if (health.state === "up" || health.state === "draining") {
+		serverDraining = health.state === "draining";
+	}
 
 	if (serverDraining) scheduleServerDrainingPoll();
 }

@@ -1,6 +1,11 @@
 import type { RetryOrigin } from "$lib/chat-turn-origin";
 import { submitAtlasTurn } from "$lib/client/api/atlas";
 import type { ServerHealth } from "$lib/client/api/health";
+import {
+	SERVER_UPDATE_WATCH_MAX_MS,
+	SERVER_UPDATE_WATCH_POLL_MS,
+	type ServerUpdateKind,
+} from "$lib/client/server-update-watch";
 import { PENDING_FILE_PRODUCTION_JOB_ID_PREFIX } from "$lib/components/chat/file-production-helpers";
 import {
 	buildMessageUserIntent,
@@ -237,16 +242,27 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	readChatMessages?: () => Promise<ChatMessage[] | null>;
 	/**
 	 * The server's `/api/health` as far as an update goes (`client/api/health.ts`):
-	 * whether it answers, and whether it is draining for a deploy restart. A message
-	 * waiting for an update asks it every few seconds.
+	 * up, draining for a deploy restart, the proxy answering instead of the app (the
+	 * restart), or unreachable (nothing says what it is doing). A message waiting for
+	 * an update asks it every few seconds and goes when it says `up`.
 	 */
 	fetchServerHealth: () => Promise<ServerHealth>;
 	/**
-	 * Whether the server is being updated right now: it is draining, it does not
-	 * answer (the restart), or a new version is live. Asked when a reply was cut by
-	 * a connection that failed, before the failure is put down to the provider.
+	 * Whether a newer version of the app is live, as the page knows it right now: a
+	 * synchronous read (SvelteKit's `updated.current`). The runtime reads it the
+	 * moment a reply's connection fails, before it awaits anything, and hands it to
+	 * `askServerUpdate`: a version that was already live then is not this reply's
+	 * update (a tab that missed a deploy has one for ever).
 	 */
-	isServerUpdating: () => Promise<boolean>;
+	isNewVersionLive: () => boolean;
+	/**
+	 * Whether the server is being updated, and how (`judgeServerUpdate`): draining,
+	 * the proxy answering instead of the app, a version that went live since
+	 * `versionWasLive` was read, or none of those, which a lost connection is. Asked
+	 * when a reply was cut by a connection that failed, before the failure is put
+	 * down to the provider.
+	 */
+	askServerUpdate: (versionWasLive: boolean) => Promise<ServerUpdateKind>;
 	/**
 	 * A turn waits for an update: the shell watches the server while it does (the
 	 * draining banner, the Refresh notice), so it is told once per wait.
@@ -445,15 +461,16 @@ const STREAM_QUESTION_MAX_MS = 5000;
 
 // A turn that waits for a server update (ADR-0054, "An Update During A Turn"):
 
-/** How often it asks whether the server is back. */
-const AWAIT_UPDATE_POLL_MS = 3000;
+/** How often it asks whether the server is back; the shell's watch looks as often. */
+const AWAIT_UPDATE_POLL_MS = SERVER_UPDATE_WATCH_POLL_MS;
 
 /**
  * How long it waits before it gives up, 8 minutes: the deploy's drain (3
  * minutes), a stop of up to 2 minutes (the unit's TimeoutStopSec=120), then the
- * health wait after the cutover and some slack.
+ * health wait after the cutover and some slack. One number with the shell's watch
+ * and the draft save that is sent again (`conversation-session.ts`).
  */
-const AWAIT_UPDATE_MAX_MS = 8 * 60 * 1000;
+const AWAIT_UPDATE_MAX_MS = SERVER_UPDATE_WATCH_MAX_MS;
 
 /** A health question that has not answered by now is taken for "the server is away"; the poll goes on. */
 const AWAIT_UPDATE_QUESTION_MAX_MS = 5000;
@@ -461,8 +478,22 @@ const AWAIT_UPDATE_QUESTION_MAX_MS = 5000;
 /** A request sent again this many times and turned away as an update each time, while health says the server is well, fails like any other request. */
 const AWAIT_UPDATE_MAX_RESENDS = 3;
 
-/** What the poll takes for the answer of a health question that did not come. */
-const SERVER_AWAY: ServerHealth = { reachable: false, draining: false };
+/** A reply that was cut off is rejoined at most this many times while the server drains (a stream that keeps failing on a server that keeps answering is not an update). */
+const MAX_REJOINS_WHILE_DRAINING = 3;
+
+/** What the poll takes for the answer of a health question that did not come: the server cannot be told from it, and the wait goes on. */
+const NO_ANSWER: ServerHealth = { state: "unreachable" };
+
+/**
+ * How a hold on a cut reply ends (`holdTurnWhileServerUpdates`).
+ * - `none`: nothing says an update; the failure is what it always was.
+ * - `draining`: the old process is alive and finishes the replies it runs, so the
+ *   reply is probably still running there: look for its stream, do not wait.
+ * - `cut`: an update cut the reply (the restart, or a version that went live during
+ *   this turn). The server is back, and the turn state is held for the caller.
+ * - `abandoned`: the chat on screen changed; the caller does nothing more.
+ */
+type CutReplyVerdict = "none" | "draining" | "cut" | "abandoned";
 
 /** How a wait for an update ends (a page that is left ends it without one). */
 type UpdateWaitEnd = "back" | "timeout" | "stopped";
@@ -642,9 +673,11 @@ export function createNormalChatClientTurnRuntime(
 					(await answerWithin(
 						adapters.fetchServerHealth(),
 						AWAIT_UPDATE_QUESTION_MAX_MS,
-					)) ?? SERVER_AWAY;
+					)) ?? NO_ANSWER;
 				if (!live()) return;
-				if (health.reachable && !health.draining) {
+				// Only `up` ends it. Draining and the restart wait, and so does a server
+				// that cannot be reached: a wait cannot tell it from the restart.
+				if (health.state === "up") {
 					endUpdateWait(wait, "back");
 					return;
 				}
@@ -743,71 +776,136 @@ export function createNormalChatClientTurnRuntime(
 		emitState();
 	}
 
-	/** Whether the page says the server is being updated; no answer in time is no. */
-	async function askServerUpdating(): Promise<boolean> {
+	/** What the page says the server is doing; no answer in time is none. */
+	async function askServerUpdate(
+		versionWasLive: boolean,
+	): Promise<ServerUpdateKind> {
 		return (
 			(await answerWithin(
-				adapters.isServerUpdating(),
+				adapters.askServerUpdate(versionWasLive),
 				AWAIT_UPDATE_QUESTION_MAX_MS,
-			)) === true
+			)) ?? "none"
 		);
 	}
 
 	/**
 	 * A reply was cut by a connection that failed (no status, no code of the
 	 * server's own, or the proxy answering instead of the app). A restart looks like
-	 * that from a reply that was running, so before the failure is put down to the
-	 * provider the page is asked whether the server is being updated. If it is, the
-	 * turn is held in `awaiting_update` (the placeholder keeps any text it has) until
-	 * the server is back, the cap passes or Stop is pressed, and the caller then
-	 * asks the server what it holds: it may have finished the turn while the browser
-	 * was cut off. The reply is never sent again by itself: tools may have run (a
-	 * produced file, a Document), and sending it again is the person's choice,
-	 * through Retry.
+	 * that from a reply that was running, and so does a phone that lost its signal, so
+	 * before the failure is put down to the provider the page is asked what the server
+	 * is doing (`versionWasLive` is what the page knew of the version when the failure
+	 * was handled):
 	 *
-	 * - `not_updating`: nothing to wait for; the caller goes on as it always did.
-	 * - `waited`: the wait is over, and the turn state is still held for the caller.
-	 * - `abandoned`: the chat on screen changed; the caller does nothing more.
+	 * - the proxy answers instead of the app, or a version went live during this turn:
+	 *   an update cut the reply (`cut`). Unless the server already answers, the turn is
+	 *   held in `awaiting_update` (the placeholder keeps any text it has) until the
+	 *   server is back or the cap passes, and the caller then asks the server what it
+	 *   holds: it may have finished the turn while the browser was cut off. The reply
+	 *   is never sent again by itself: tools may have run (a produced file, a
+	 *   Document), and sending it again is the person's choice, through Retry.
+	 * - the server is draining (`draining`): the old process is alive and finishes
+	 *   the replies it runs, so this one is probably still running there. Nothing is
+	 *   waited for; the caller looks for its stream and joins it.
+	 * - nothing says an update (`none`), which is what a lost connection looks like.
 	 *
 	 * `ownsTurn` is false when the stream's error already let the turn go (the
-	 * composer was free meanwhile): the turn is taken back, unless another turn has
-	 * started since.
+	 * composer was free meanwhile): the turn is taken back for a `cut`, unless another
+	 * turn has started since.
 	 */
 	async function holdTurnWhileServerUpdates(held: {
 		placeholderId: string;
 		turnConversationId: string;
 		ownsTurn: boolean;
-	}): Promise<"not_updating" | "waited" | "abandoned"> {
-		const updating = await askServerUpdating();
+		versionWasLive: boolean;
+	}): Promise<CutReplyVerdict> {
+		const kind = await askServerUpdate(held.versionWasLive);
 		if (!isTurnConversationActive(held.turnConversationId)) return "abandoned";
-		if (!updating) return "not_updating";
+		if (kind === "none") return "none";
+		if (kind === "draining") {
+			adapters.onServerUpdateSign?.();
+			return "draining";
+		}
 		if (!held.ownsTurn) {
-			if (isSending) return "not_updating";
+			if (isSending) return "none";
 			isSending = true;
 			activePlaceholderId = held.placeholderId;
+			emitState();
 		}
-		setActiveStream(null);
+		if (kind === "new_version") {
+			// The restart is over and the server answers: nothing to wait for.
+			adapters.onServerUpdateSign?.();
+			return "cut";
+		}
 		return new Promise((resolve) => {
 			beginUpdateWait({
 				placeholderId: held.placeholderId,
 				turnConversationId: held.turnConversationId,
 				// A cut reply has no words to keep: the server may well hold the message.
 				unsentPayload: null,
-				onEnd: () => resolve("waited"),
+				onEnd: () => resolve("cut"),
 			});
 		});
 	}
 
 	/**
+	 * The server is draining, and a reply of this chat was cut by a connection that
+	 * failed: the old process is alive, finishes the replies it runs and has probably
+	 * not stopped this one. So its stream is looked for again and joined (the replay
+	 * goes into a fresh placeholder under the bubble on screen, which supersedes this
+	 * one). Nothing is waited for. At most three times over, so a stream that keeps
+	 * failing on a server that keeps answering is not followed for ever.
+	 */
+	async function joinRunningStreamOfCutReply(
+		params: StartStreamParams,
+		ownsTurn: boolean,
+	): Promise<"joined" | "none" | "abandoned"> {
+		if (
+			params.isReconnect &&
+			(params.reconnectRetryCount ?? 0) >= MAX_REJOINS_WHILE_DRAINING
+		) {
+			return "none";
+		}
+		const running = await findRunningStream(
+			params.turnConversationId,
+			STREAM_QUESTION_MAX_MS,
+		);
+		if (!isTurnConversationActive(params.turnConversationId)) {
+			return "abandoned";
+		}
+		if (!running || isForAnotherMessage(running.bufferInfo, params.message)) {
+			return "none";
+		}
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		// A reconnect needs the turn state free, and nothing can start between this and it.
+		if (ownsTurn) completeTurn();
+		await reconnectToOrphanedStream(
+			running.streamId,
+			params.message,
+			params.isReconnect ? (params.reconnectRetryCount ?? 0) + 1 : 0,
+			running.bufferInfo?.reasoningDepth ?? params.streamOptions.reasoningDepth,
+			running.bufferInfo?.createdAt
+				? Date.now() - running.bufferInfo.createdAt
+				: undefined,
+			params.turnConversationId,
+		);
+		return "joined";
+	}
+
+	/**
 	 * A reply that was cut and has no stream left to join. No stream does not mean
 	 * the turn failed: it may have finished meanwhile. The page asks before it shows
-	 * an error and a Retry for a message the server has answered. A turn that was
-	 * held for an update says so (`chat.updateCutReply`), not "the provider failed".
+	 * an error and a Retry for a message the server has answered. A reply an update
+	 * cut (`cutByUpdate`) says so (`chat.updateCutReply`), not "the provider failed".
+	 * `ownsTurn` is whether this turn holds the turn state: false for a recovery that
+	 * let it go while it looked, which then leaves a turn that started since alone.
 	 */
 	async function settleCutReply(
 		params: StartStreamParams,
 		originalError: Error,
-		options: { heldForUpdate: boolean },
+		options: { ownsTurn: boolean; cutByUpdate: boolean },
 	) {
 		const outcome = await askWhatTheServerHolds(
 			params.message,
@@ -821,8 +919,8 @@ export function createNormalChatClientTurnRuntime(
 			messageId: params.placeholderId,
 		});
 		// A new turn can have started while the page asked: it owns the state. (A
-		// turn held for an update is this one's own: nothing else could start.)
-		if (isSending && !options.heldForUpdate) return;
+		// turn that holds the state is this one's own: nothing else could start.)
+		if (isSending && !options.ownsTurn) return;
 		completeTurn();
 		if (outcome.kind === "landed") {
 			lastSend = null;
@@ -832,64 +930,92 @@ export function createNormalChatClientTurnRuntime(
 			await drainPostTurnQueue();
 			return;
 		}
-		if (options.heldForUpdate) {
+		if (options.ownsTurn) {
 			// What was queued behind the reply goes back to the composer, as for any
 			// turn that ends in an error.
 			if (takeQueuedContextCompression()) {
 				void adapters.runManualContextCompression();
 			}
 			restoreQueuedTurnToDraft();
-			adapters.setSendError("chat.updateCutReply");
-		} else {
-			adapters.setSendError(adapters.toFriendlySendError(originalError));
 		}
+		adapters.setSendError(
+			options.cutByUpdate
+				? "chat.updateCutReply"
+				: adapters.toFriendlySendError(originalError),
+		);
 		canRetry = true;
 		emitState();
 	}
 
 	/**
-	 * A stream died before any text with a failed connection. If the server is
-	 * being updated the reply is waited for; otherwise it is the failure it always
-	 * was.
+	 * A stream died before any text with a failed connection. What the server is
+	 * doing decides: an update cut it (waited for, then the server is asked what it
+	 * holds), the old process still runs it (its stream is joined, or the server is
+	 * asked what it holds), or nothing says an update, and it is the failure it
+	 * always was.
 	 */
 	async function settleReplyThatDiedBeforeContent(
 		params: StartStreamParams,
 		error: Error,
+		versionWasLive: boolean,
 	) {
 		const hold = await holdTurnWhileServerUpdates({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
+			versionWasLive,
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
 			return;
 		}
-		if (hold === "not_updating") {
+		if (hold === "none") {
 			endTurnWithError(params, adapters.toFriendlySendError(error));
 			return;
 		}
-		await settleCutReply(params, error, { heldForUpdate: true });
+		if (hold === "draining") {
+			const joined = await joinRunningStreamOfCutReply(params, true);
+			if (joined === "abandoned") {
+				completeStaleTurn(params.placeholderId);
+				return;
+			}
+			if (joined === "joined") return;
+		}
+		await settleCutReply(params, error, {
+			ownsTurn: true,
+			cutByUpdate: hold === "cut",
+		});
 	}
 
 	/**
 	 * A reconnect (a reload, a tab back from the background) ended on a failed
-	 * connection. Same question: is the server being updated? Then the reply is
-	 * waited for and, once the server is back, the chat is read for the turn
-	 * (`showFailedReconnectedTurn`).
+	 * connection. Same question: what is the server doing? An update cut it: the
+	 * reply is waited for and, once the server is back, the chat is read for the turn
+	 * (`showFailedReconnectedTurn`). The old process still runs it: its stream is
+	 * joined again.
 	 */
 	async function settleReconnectThatFailed(
 		params: StartStreamParams,
 		error: Error,
+		versionWasLive: boolean,
 	) {
 		const hold = await holdTurnWhileServerUpdates({
 			placeholderId: params.placeholderId,
 			turnConversationId: params.turnConversationId,
 			ownsTurn: true,
+			versionWasLive,
 		});
 		if (hold === "abandoned") {
 			completeStaleTurn(params.placeholderId);
 			return;
+		}
+		if (hold === "draining") {
+			const joined = await joinRunningStreamOfCutReply(params, true);
+			if (joined === "abandoned") {
+				completeStaleTurn(params.placeholderId);
+				return;
+			}
+			if (joined === "joined") return;
 		}
 		adapters.applyMessageListEvent({
 			type: "remove",
@@ -897,7 +1023,7 @@ export function createNormalChatClientTurnRuntime(
 		});
 		completeTurn();
 		await showFailedReconnectedTurn(params, error, {
-			cutByUpdate: hold === "waited",
+			cutByUpdate: hold === "cut",
 		});
 	}
 
@@ -1435,6 +1561,9 @@ export function createNormalChatClientTurnRuntime(
 				void drainPostTurnQueue();
 			},
 			onError(error) {
+				// Read before anything is awaited: it is what the page knew of the
+				// version when this failure was handled (`isNewVersionLive`).
+				const versionWasLive = adapters.isNewVersionLive();
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
 
@@ -1558,7 +1687,12 @@ export function createNormalChatClientTurnRuntime(
 						const delay = 2 ** retryCount * 500;
 						completeTurn();
 						adapters.schedule(() => {
-							void recoverNetworkDroppedStream(params, err, retryCount + 1);
+							void recoverNetworkDroppedStream(
+								params,
+								err,
+								retryCount + 1,
+								versionWasLive,
+							);
 						}, delay);
 						return;
 					}
@@ -1566,10 +1700,12 @@ export function createNormalChatClientTurnRuntime(
 
 				// ADR-0054 — a reply that died before any text, with a failed
 				// connection (no status, no code of the server's own): a restart
-				// looks like that too. Before it is put down to the provider the
-				// page is asked whether the server is being updated; if it is, the
-				// turn waits for the server and then asks what it holds. If not,
-				// this is the failure it always was.
+				// looks like that too, and so does a phone that lost its signal.
+				// Before it is put down to the provider the page is asked what the
+				// server is doing: if an update cut it, the turn waits for the server
+				// and then asks what it holds; if the old process still runs it, its
+				// stream is joined; if nothing says an update, this is the failure it
+				// always was.
 				if (
 					!isBackgroundAbort &&
 					!params.isReconnect &&
@@ -1578,7 +1714,7 @@ export function createNormalChatClientTurnRuntime(
 					!isForkedHistoryError &&
 					isStreamTransportFailure(err)
 				) {
-					void settleReplyThatDiedBeforeContent(params, err);
+					void settleReplyThatDiedBeforeContent(params, err, versionWasLive);
 					return;
 				}
 
@@ -1590,7 +1726,7 @@ export function createNormalChatClientTurnRuntime(
 					params.isReconnect &&
 					(isStreamTransportFailure(err) || isServerUpdateRefusal(err))
 				) {
-					void settleReconnectThatFailed(params, err);
+					void settleReconnectThatFailed(params, err, versionWasLive);
 					return;
 				}
 
@@ -1696,6 +1832,7 @@ export function createNormalChatClientTurnRuntime(
 		params: StartStreamParams,
 		originalError: Error,
 		retryCount: number,
+		versionWasLive: boolean,
 	) {
 		if (!isTurnConversationActive(params.turnConversationId)) {
 			return;
@@ -1713,6 +1850,7 @@ export function createNormalChatClientTurnRuntime(
 							params,
 							originalError,
 							retryCount + 1,
+							versionWasLive,
 						);
 					},
 					2 ** retryCount * 500,
@@ -1724,22 +1862,32 @@ export function createNormalChatClientTurnRuntime(
 			}
 			// ADR-0054 — three looks over 3.5 seconds find no stream when the server
 			// is restarting, and then the reply would be put down to the provider.
-			// If the server is being updated the turn waits for it first, and only
-			// then asks what the server holds.
-			let heldForUpdate = false;
+			// If an update cut it the turn waits for the server first, and only then
+			// asks what the server holds. If the server is draining its old process
+			// is alive and probably still runs the reply: its stream is looked for
+			// once more and joined, with nothing waited for.
+			let cutByUpdate = false;
 			if (isStreamTransportFailure(originalError)) {
 				const hold = await holdTurnWhileServerUpdates({
 					placeholderId: params.placeholderId,
 					turnConversationId: params.turnConversationId,
 					ownsTurn: false,
+					versionWasLive,
 				});
 				if (hold === "abandoned") return;
-				heldForUpdate = hold === "waited";
+				if (hold === "draining") {
+					const joined = await joinRunningStreamOfCutReply(params, false);
+					if (joined !== "none") return;
+				}
+				cutByUpdate = hold === "cut";
 			}
 			// No stream to reconnect to does not mean the turn failed: it may have
 			// finished meanwhile. The page asks before it shows an error and a Retry
 			// for a message the server has answered.
-			await settleCutReply(params, originalError, { heldForUpdate });
+			await settleCutReply(params, originalError, {
+				ownsTurn: cutByUpdate,
+				cutByUpdate,
+			});
 			return;
 		}
 

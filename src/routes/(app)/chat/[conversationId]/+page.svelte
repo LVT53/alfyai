@@ -56,7 +56,7 @@ import {
 } from "$lib/client/api/atlas";
 import { checkChatTurn } from "$lib/client/api/chat-turn";
 import { fetchServerHealth } from "$lib/client/api/health";
-import { isServerBeingUpdated } from "$lib/client/server-update-watch";
+import { judgeServerUpdate } from "$lib/client/server-update-watch";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	chatFileStillExists,
@@ -1112,13 +1112,22 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	fetchServerHealth,
 	onServerUpdateSign: reportServerUpdateSign,
 	setTurnWaitingForUpdate,
-	// A reply cut by a failed connection: is that an update? The server says so
-	// (draining), or does not answer (the restart), or a new version is live.
-	isServerUpdating: () =>
-		isServerBeingUpdated({
+	// A reply cut by a failed connection: is that an update, and how? The runtime
+	// reads `updated.current` the moment the failure is handled (before it awaits
+	// anything), and asks with that: a version that was already live then is an
+	// earlier deploy this tab missed, not this reply's. The server draining, the
+	// proxy answering instead of the app, or a version that went live since each
+	// say something else; a connection that is merely lost says nothing.
+	isNewVersionLive: () => updated.current,
+	askServerUpdate: (versionWasLive) =>
+		judgeServerUpdate({
 			fetchHealth: fetchServerHealth,
 			checkVersion: () => updated.check(),
+			versionWasLive,
 			isOffline: () => browser && navigator.onLine === false,
+			setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+			clearTimer: (handle) =>
+				clearTimeout(handle as ReturnType<typeof setTimeout>),
 		}),
 	mergeGeneratedFiles: (files) => {
 		markDetailMetadataFreshnessBoundary();
