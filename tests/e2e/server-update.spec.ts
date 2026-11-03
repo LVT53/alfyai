@@ -208,6 +208,67 @@ test.describe("An update during a turn", () => {
 		await expect(page.getByTestId("awaiting-update-status")).toHaveCount(0);
 	});
 
+	test("the Refresh notice waits for the words of a chat that was left, and comes up once they have reached the server", async ({
+		page,
+	}) => {
+		// The restart answers the draft's save with the proxy's page, as it answers
+		// everything: the words a waiting message left behind are in no other place.
+		let serverIsAway = true;
+		const draftSaves: string[] = [];
+		await page.route("**/api/conversations/*/draft", async (route) => {
+			const request = route.request();
+			if (request.method() !== "PUT") {
+				await route.continue();
+				return;
+			}
+			draftSaves.push(
+				(JSON.parse(request.postData() ?? "{}") as { draftText: string })
+					.draftText,
+			);
+			if (serverIsAway) {
+				await route.fulfill({
+					status: 503,
+					contentType: "text/html",
+					body: "<html><body>Back soon</body></html>",
+				});
+				return;
+			}
+			await route.continue();
+		});
+		await openEmptyChat(page);
+		await setDraining(page, true);
+		await send(page, "Words that wait");
+		await expect(page.getByTestId("awaiting-update-status")).toBeVisible();
+		await expect(page.getByTestId("server-draining-notice")).toBeVisible();
+
+		// The person goes Home, client side: the waiting message is saved as the chat's
+		// draft, and the save meets the restart.
+		await page.getByTestId("new-conversation").click();
+		await expect(page).toHaveURL("/");
+		await expect.poll(() => draftSaves.length).toBeGreaterThan(0);
+
+		// The deploy is live. The banner going is the sign that the version was read.
+		await page.route("**/_app/version.json", (route) =>
+			route.fulfill({ json: { version: "a-newer-release" } }),
+		);
+		await expect(page.getByTestId("server-draining-notice")).toHaveCount(0, {
+			timeout: 15_000,
+		});
+		// A reload now would lose the words, which have not reached the server: the
+		// save is sent again every few seconds, and the notice is held back.
+		await expect
+			.poll(() => draftSaves.length, { timeout: 15_000 })
+			.toBeGreaterThan(1);
+		await expect(page.getByTestId("server-update-notice")).toHaveCount(0);
+
+		// The server is back: the save lands, and the notice comes up.
+		serverIsAway = false;
+		await expect(page.getByTestId("server-update-notice")).toBeVisible({
+			timeout: 20_000,
+		});
+		expect(new Set(draftSaves)).toEqual(new Set(["Words that wait"]));
+	});
+
 	test("the proxy's maintenance page is waited out the same way", async ({
 		page,
 	}) => {

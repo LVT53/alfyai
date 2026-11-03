@@ -93,7 +93,7 @@ Rules:
 - `src/lib/client/api/models.ts` owns reusable model-list browser calls.
 - `src/lib/client/api/settings.ts` owns reusable settings/account/avatar/admin/analytics browser calls.
 - `src/lib/client/api/settings.ts` re-exports admin functions from `api/admin.ts` for backward compat; admin calls live in `api/admin.ts`
-- `conversation-session.ts` owns landing draft IDs, pending first-message replay, previous-conversation markers, and draft cleanup rules.
+- `conversation-session.ts` owns landing draft IDs, pending first-message replay, previous-conversation markers, draft cleanup rules, and the hold on a chat's words that a failed save must not lose (`DraftKeeper`: one per chat, module-level; "The Draft" in `src/lib/components/chat/AGENTS.md`).
 
 
 Do not:

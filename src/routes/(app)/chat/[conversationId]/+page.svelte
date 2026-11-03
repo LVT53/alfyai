@@ -3405,8 +3405,9 @@ function saveQueuedTurnInDraftOf(conversationId: string) {
 	// waiting, which the joined draft holds, and the flush after finds nothing.
 	// These words are in no other place, and the server may be restarting (which is
 	// what a waiting message is waiting for): a save that fails is sent again every
-	// few seconds, for as long as a message waits, until it lands, and goes on after
-	// this page is gone. A newer save or delete of this chat's draft ends it.
+	// few seconds until it lands (for at most the 8 minutes an update takes), and
+	// goes on after this page is gone. A newer save of this chat's draft takes the
+	// words over and is held the same way; a delete of it ends the hold.
 	void draftPersistence.persistUntilSaved(
 		draftSaveOf(conversationId, held.draft),
 	);

@@ -467,7 +467,10 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import { ApiError } from "$lib/client/api/http";
-import { createDraftPersistence } from "$lib/client/conversation-session";
+import {
+	clearConversationSessionState,
+	createDraftPersistence,
+} from "$lib/client/conversation-session";
 import {
 	conversations as conversationsStore,
 	renameConversation,
@@ -475,8 +478,11 @@ import {
 } from "$lib/stores/conversations";
 import Page from "./+page.svelte";
 
-// Every test starts with a gate that takes the message, whatever the one before it said.
+// Every test starts with a gate that takes the message, whatever the one before it said,
+// and with no words held for a chat: a save that was still being sent again when its
+// test ended (the clock was a fake one) would show in the next test's composer.
 afterEach(() => {
+	clearConversationSessionState();
 	checkChatTurnMock.mockReset();
 	fetchServerHealthMock.mockReset();
 	fetchServerHealthMock.mockResolvedValue({ state: "up" });
@@ -2718,16 +2724,20 @@ describe("chat page runtime integration", () => {
 					]);
 				});
 
-				it("is not sent again once the draft of that chat has been saved newer", async () => {
+				it("is not sent again once the draft of that chat has been saved newer: the newer words are sent until they land", async () => {
 					vi.useFakeTimers();
 					const { view } = await waitingWithBQueued();
 					vi.mocked(persistConversationDraft).mockClear();
-					vi.mocked(persistConversationDraft).mockRejectedValue(restarting());
+					// The left page's save, then the first two tries of the newer words.
+					vi.mocked(persistConversationDraft)
+						.mockRejectedValueOnce(restarting())
+						.mockRejectedValueOnce(restarting())
+						.mockRejectedValueOnce(restarting());
 
 					view.unmount();
 					expect(savesOfFirstChat()).toHaveLength(1);
 					// The person is back in the chat (another page) and has typed: its save
-					// is newer than the one that keeps failing.
+					// is newer than the one that keeps failing, and takes the hold over.
 					const later = createDraftPersistence();
 					void later.persist(
 						{
@@ -2739,8 +2749,12 @@ describe("chat page runtime integration", () => {
 					);
 					await vi.advanceTimersByTimeAsync(30_000);
 
+					// The older words went once. The newer go at once and every three seconds
+					// after, and stop when they land.
 					expect(savesOfFirstChat()).toEqual([
 						"A question\n\nB queued",
+						"Typed after coming back",
+						"Typed after coming back",
 						"Typed after coming back",
 					]);
 				});

@@ -1,5 +1,7 @@
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import { pendingDraftSaves } from "$lib/stores/server-update";
 import {
 	cleanupPreparedConversation,
 	clearConversationSessionState,
@@ -12,6 +14,7 @@ import {
 	getLandingDraftConversationId,
 	hasPendingConversationMessage,
 	markPreviousConversationId,
+	pendingDraftSave,
 	readComposerMarks,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
@@ -656,9 +659,15 @@ describe("conversation-session", () => {
 	// Words taken from a message that waited for a server update are in no other
 	// place. The restart answers a save with the proxy's page, so a save that fails is
 	// tried again, from the persistence and not from the page: the person may have
-	// gone Home meanwhile.
+	// gone Home meanwhile. A chat's words are held by one keeper in this tab, and every
+	// later save of that chat takes it over.
 	describe("a save that must not be lost to a failed request", () => {
 		const draftUrl = (id: string) => `/api/conversations/${id}/draft`;
+		// A chat of its own for each test: the keepers are module-level, as the chat page
+		// is rebuilt when the person comes back.
+		let chat = "";
+		let otherChat = "";
+		let chatsMade = 0;
 		const save = (conversationId: string, draftText: string) => ({
 			conversationId,
 			draftText,
@@ -669,6 +678,11 @@ describe("conversation-session", () => {
 				status: 503,
 				headers: { "Content-Type": "text/html" },
 			});
+		const refused = () =>
+			new Response(JSON.stringify({ error: "Conversation not found" }), {
+				status: 404,
+				headers: { "Content-Type": "application/json" },
+			});
 		const ok = () => new Response(null, { status: 200 });
 		const puts = (fetchMock: ReturnType<typeof vi.fn>) =>
 			fetchMock.mock.calls
@@ -677,6 +691,8 @@ describe("conversation-session", () => {
 					input,
 					JSON.parse(String(init.body)).draftText,
 				]);
+		const putTexts = (fetchMock: ReturnType<typeof vi.fn>) =>
+			puts(fetchMock).map(([, text]) => text);
 		/** A server that is away (the proxy's page) until `backAtMs`, then well. */
 		function serverBackAt(backAtMs: number) {
 			const start = Date.now();
@@ -684,11 +700,33 @@ describe("conversation-session", () => {
 				Date.now() - start < backAtMs ? proxyPage() : ok(),
 			);
 		}
+		/** A server whose saves are answered when the test says so, in the order they were sent. */
+		function heldServer() {
+			const answers: Array<(response: Response) => void> = [];
+			const fetchMock = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					init?.method === "DELETE"
+						? Promise.resolve(ok())
+						: new Promise<Response>((resolve) => {
+								answers.push(resolve);
+							}),
+			);
+			const answer = async (index: number, response: Response) => {
+				answers[index](response);
+				await vi.advanceTimersByTimeAsync(0);
+			};
+			return { fetchMock, answer };
+		}
 
 		beforeEach(() => {
 			vi.useFakeTimers();
+			clearConversationSessionState();
+			chatsMade += 1;
+			chat = `conv-held-${chatsMade}`;
+			otherChat = `conv-held-${chatsMade}-other`;
 		});
 		afterEach(() => {
+			clearConversationSessionState();
 			vi.useRealTimers();
 		});
 
@@ -696,7 +734,7 @@ describe("conversation-session", () => {
 			const fetchMock = serverBackAt(6000);
 			const persistence = createDraftPersistence(fetchMock, 400);
 
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(0);
 			expect(puts(fetchMock)).toHaveLength(1);
 
@@ -707,9 +745,9 @@ describe("conversation-session", () => {
 			// The server is back at six seconds: the third try lands.
 			await vi.advanceTimersByTimeAsync(3000);
 			expect(puts(fetchMock)).toEqual([
-				[draftUrl("conv-a"), "A question"],
-				[draftUrl("conv-a"), "A question"],
-				[draftUrl("conv-a"), "A question"],
+				[draftUrl(chat), "A question"],
+				[draftUrl(chat), "A question"],
+				[draftUrl(chat), "A question"],
 			]);
 
 			await vi.advanceTimersByTimeAsync(60_000);
@@ -720,10 +758,10 @@ describe("conversation-session", () => {
 			const fetchMock = vi.fn(async () => ok());
 			const persistence = createDraftPersistence(fetchMock, 400);
 
-			await persistence.persistUntilSaved(save("conv-a", "A question"));
+			await persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(60_000);
 
-			expect(puts(fetchMock)).toEqual([[draftUrl("conv-a"), "A question"]]);
+			expect(puts(fetchMock)).toEqual([[draftUrl(chat), "A question"]]);
 		});
 
 		it("tries again after a request that never reached the server, too", async () => {
@@ -733,23 +771,17 @@ describe("conversation-session", () => {
 				.mockResolvedValue(ok());
 			const persistence = createDraftPersistence(fetchMock, 400);
 
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(3000);
 
 			expect(puts(fetchMock)).toHaveLength(2);
 		});
 
 		it("does not send an answer that refuses the save again: it never lands", async () => {
-			const fetchMock = vi.fn(
-				async () =>
-					new Response(JSON.stringify({ error: "Conversation not found" }), {
-						status: 404,
-						headers: { "Content-Type": "application/json" },
-					}),
-			);
+			const fetchMock = vi.fn(async () => refused());
 			const persistence = createDraftPersistence(fetchMock, 400);
 
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(60_000);
 
 			expect(puts(fetchMock)).toHaveLength(1);
@@ -758,7 +790,7 @@ describe("conversation-session", () => {
 		it("goes on after the page that made it is gone: clearing the persistence does not stop it", async () => {
 			const fetchMock = serverBackAt(6000);
 			const persistence = createDraftPersistence(fetchMock, 400);
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(0);
 
 			// What a chat switch does to the persistence, and a page that is left
@@ -770,79 +802,278 @@ describe("conversation-session", () => {
 			expect(puts(fetchMock)).toHaveLength(3);
 		});
 
-		it("stops when a newer save of that chat has been made: an older save never lands on top of it", async () => {
-			const fetchMock = serverBackAt(9000);
+		it("is not stopped by the draft of another chat", async () => {
+			const fetchMock = serverBackAt(6000);
 			const persistence = createDraftPersistence(fetchMock, 400);
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(0);
 
-			// The person is back in the chat and types: the save waits out its delay.
-			void persistence.persist(save("conv-a", "Typed since"));
-			await vi.advanceTimersByTimeAsync(20_000);
+			void persistence.persist(save(otherChat, "Another chat"), true);
+			await persistence.deleteDraft(`${otherChat}-third`);
+			await vi.advanceTimersByTimeAsync(9000);
 
-			expect(puts(fetchMock).map(([, text]) => text)).toEqual([
-				"A question",
-				"Typed since",
-			]);
+			expect(
+				puts(fetchMock).filter(([url]) => url === draftUrl(chat)),
+			).toHaveLength(3);
 		});
 
-		it("stops when another persistence of the tab has saved that chat's draft: the page is rebuilt when the person comes back", async () => {
-			const fetchMock = serverBackAt(9000);
-			const earlier = createDraftPersistence(fetchMock, 400);
-			void earlier.persistUntilSaved(save("conv-a", "A question"));
-			await vi.advanceTimersByTimeAsync(0);
+		// What the person types while the server is away is the newest of the chat's
+		// words, and the older ones must not be sent again: but it is these newer words
+		// that must land, so a save of that chat takes the hold over.
+		describe("when a newer save of that chat is made", () => {
+			it("holds the newer words the same way: the older are never sent again, the newer land", async () => {
+				const fetchMock = serverBackAt(9000);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
 
-			const later = createDraftPersistence(fetchMock, 400);
-			void later.persist(save("conv-a", "Typed since"), true);
-			await vi.advanceTimersByTimeAsync(20_000);
+				// The person is back in the chat and types: the save waits out its delay.
+				void persistence.persist(save(chat, "Typed since"));
+				await vi.advanceTimersByTimeAsync(20_000);
 
-			expect(puts(fetchMock).map(([, text]) => text)).toEqual([
-				"A question",
-				"Typed since",
-			]);
+				const texts = putTexts(fetchMock);
+				expect(texts[0]).toBe("A question");
+				// Never again once the newer words were out; those are tried until the
+				// server is back (nine seconds in) and then no more.
+				expect(texts.slice(1).every((text) => text === "Typed since")).toBe(
+					true,
+				);
+				expect(texts.slice(1)).toHaveLength(4);
+				const server = fetchMock.mock.results.map((result) => result.value);
+				expect((await server.at(-1)).status).toBe(200);
+				await vi.advanceTimersByTimeAsync(60_000);
+				expect(puts(fetchMock)).toHaveLength(texts.length);
+			});
+
+			it("does so for a save of another persistence of the tab: the page is rebuilt when the person comes back", async () => {
+				const fetchMock = serverBackAt(9000);
+				const earlier = createDraftPersistence(fetchMock, 400);
+				void earlier.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+
+				const later = createDraftPersistence(fetchMock, 400);
+				void later.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(20_000);
+
+				// The newer words go at once, without waiting for the pause, and again every
+				// three seconds: at 0, 3, 6 and 9 seconds, where the server is back.
+				expect(putTexts(fetchMock)).toEqual([
+					"A question",
+					"Typed since",
+					"Typed since",
+					"Typed since",
+					"Typed since",
+				]);
+			});
+
+			it("does so for the save a flush sends: the page that is left sends what it was about to", async () => {
+				const fetchMock = serverBackAt(7000);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "Restored words"));
+				await vi.advanceTimersByTimeAsync(1000);
+
+				// The person adds a character and leaves the chat before the delay is out.
+				void persistence.persist(save(chat, "Restored words!"));
+				await persistence.flush();
+				await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+				const texts = putTexts(fetchMock);
+				expect(texts.filter((text) => text === "Restored words")).toHaveLength(
+					1,
+				);
+				expect(texts.at(-1)).toBe("Restored words!");
+				expect(pendingDraftSave(chat)).toBeNull();
+			});
+
+			it("sends the newer words only when the try that is out has been answered", async () => {
+				const { fetchMock, answer } = heldServer();
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+				expect(puts(fetchMock)).toHaveLength(1);
+
+				void persistence.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(10_000);
+				// The older request is still out: it may yet land, and the newer must go after it.
+				expect(puts(fetchMock)).toHaveLength(1);
+
+				await answer(0, ok());
+				expect(putTexts(fetchMock)).toEqual(["A question", "Typed since"]);
+				await answer(1, ok());
+				await vi.advanceTimersByTimeAsync(60_000);
+				expect(puts(fetchMock)).toHaveLength(2);
+			});
+
+			it("goes on to the newer words when the older are refused", async () => {
+				const { fetchMock, answer } = heldServer();
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+				void persistence.persist(save(chat, "Typed since"), true);
+
+				await answer(0, refused());
+
+				expect(putTexts(fetchMock)).toEqual(["A question", "Typed since"]);
+			});
+
+			it("sends the first try of a held save behind a save another persistence has out", async () => {
+				const { fetchMock, answer } = heldServer();
+				const earlier = createDraftPersistence(fetchMock, 400);
+				void earlier.persist(save(chat, "Typed"), true);
+				await vi.advanceTimersByTimeAsync(0);
+				expect(puts(fetchMock)).toHaveLength(1);
+
+				const later = createDraftPersistence(fetchMock, 400);
+				void later.persistUntilSaved(save(chat, "Restored words"));
+				await vi.advanceTimersByTimeAsync(5000);
+				expect(puts(fetchMock)).toHaveLength(1);
+
+				await answer(0, ok());
+				expect(putTexts(fetchMock)).toEqual(["Typed", "Restored words"]);
+			});
+
+			it("ends the hold when the newer words are refused", async () => {
+				const fetchMock = vi
+					.fn()
+					.mockResolvedValueOnce(proxyPage())
+					.mockResolvedValue(refused());
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+
+				void persistence.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(60_000);
+
+				expect(putTexts(fetchMock)).toEqual(["A question", "Typed since"]);
+				expect(pendingDraftSave(chat)).toBeNull();
+			});
+
+			it("lets the caller of the older words go when the newer take them over", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				let olderSettled = false;
+				void persistence
+					.persistUntilSaved(save(chat, "A question"))
+					.then(() => {
+						olderSettled = true;
+					});
+				await vi.advanceTimersByTimeAsync(0);
+				expect(olderSettled).toBe(false);
+
+				void persistence.persistUntilSaved(save(chat, "Put back again"));
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(olderSettled).toBe(true);
+				expect(pendingDraftSave(chat)?.draftText).toBe("Put back again");
+			});
+
+			it("lets a plain save wait for no longer than its first try", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+				let settled = false;
+
+				void persistence.persist(save(chat, "Typed since"), true).then(() => {
+					settled = true;
+				});
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(settled).toBe(true);
+				// ...while the words go on being held.
+				expect(pendingDraftSave(chat)?.draftText).toBe("Typed since");
+			});
 		});
 
-		it("stops when that chat's draft is deleted", async () => {
+		it("stops when that chat's draft is deleted: a delete wins", async () => {
 			const fetchMock = serverBackAt(9000);
 			const persistence = createDraftPersistence(fetchMock, 400);
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 			await vi.advanceTimersByTimeAsync(0);
 
-			await persistence.deleteDraft("conv-a");
+			await persistence.deleteDraft(chat);
+			// The pause between tries is over with it, not left to run out.
+			expect(vi.getTimerCount()).toBe(0);
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			expect(puts(fetchMock)).toHaveLength(1);
+			expect(pendingDraftSave(chat)).toBeNull();
+		});
+
+		it("stops when the draft is emptied, which deletes it", async () => {
+			const fetchMock = serverBackAt(9000);
+			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save(chat, "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			await persistence.persist(save(chat, ""));
 			await vi.advanceTimersByTimeAsync(20_000);
 
 			expect(puts(fetchMock)).toHaveLength(1);
 		});
 
-		it("is not stopped by the draft of another chat", async () => {
-			const fetchMock = serverBackAt(6000);
-			const persistence = createDraftPersistence(fetchMock, 400);
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
-			await vi.advanceTimersByTimeAsync(0);
-
-			void persistence.persist(save("conv-b", "Another chat"), true);
-			await persistence.deleteDraft("conv-c");
-			await vi.advanceTimersByTimeAsync(9000);
-
-			expect(
-				puts(fetchMock).filter(([url]) => url === draftUrl("conv-a")),
-			).toHaveLength(3);
-		});
-
-		it("gives up after the eight minutes a message waits for an update", async () => {
+		it("does not hold words saved after a delete: they are a plain save again", async () => {
 			const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
 			const persistence = createDraftPersistence(fetchMock, 400);
+			void persistence.persistUntilSaved(save(chat, "A question"));
+			await vi.advanceTimersByTimeAsync(0);
+			await persistence.deleteDraft(chat);
 
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
-			await vi.advanceTimersByTimeAsync(8 * 60 * 1000 - 1);
-			const triedByThen = puts(fetchMock).length;
-			expect(triedByThen).toBeGreaterThan(100);
-
+			await persistence.persist(save(chat, "Typed since"), true);
 			await vi.advanceTimersByTimeAsync(60_000);
-			const tried = puts(fetchMock).length;
-			expect(tried).toBeLessThanOrEqual(triedByThen + 1);
-			await vi.advanceTimersByTimeAsync(5 * 60_000);
-			expect(puts(fetchMock)).toHaveLength(tried);
+
+			expect(putTexts(fetchMock)).toEqual(["A question", "Typed since"]);
+		});
+
+		// The eight minutes are an update's: the longest a message waits for one. They
+		// count from the first words the chat held, so a person who keeps typing through
+		// a long outage does not keep the notice back, or the server asked, for ever.
+		describe("the eight minutes an update takes", () => {
+			it("gives up after them", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(8 * 60 * 1000 - 1);
+				const triedByThen = puts(fetchMock).length;
+				expect(triedByThen).toBeGreaterThan(100);
+
+				await vi.advanceTimersByTimeAsync(60_000);
+				const tried = puts(fetchMock).length;
+				expect(tried).toBeLessThanOrEqual(triedByThen + 1);
+				await vi.advanceTimersByTimeAsync(5 * 60_000);
+				expect(puts(fetchMock)).toHaveLength(tried);
+			});
+
+			it("count from the first words the chat held, not from the save that took over", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(7 * 60 * 1000);
+
+				void persistence.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+				const tried = puts(fetchMock).length;
+				await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+				// Held to the eight minutes, not to fifteen.
+				expect(puts(fetchMock)).toHaveLength(tried);
+				expect(pendingDraftSave(chat)).toBeNull();
+			});
+
+			it("start over for words held after the others were given up", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+				const tried = puts(fetchMock).length;
+
+				void persistence.persistUntilSaved(save(chat, "Put back later"));
+				await vi.advanceTimersByTimeAsync(10_000);
+
+				expect(puts(fetchMock).length).toBeGreaterThan(tried + 1);
+				expect(putTexts(fetchMock).at(-1)).toBe("Put back later");
+			});
 		});
 
 		it("lets a delete wait for the try that is on its way, as for any save", async () => {
@@ -856,15 +1087,101 @@ describe("conversation-session", () => {
 							}),
 			);
 			const persistence = createDraftPersistence(fetchMock, 400);
-			void persistence.persistUntilSaved(save("conv-a", "A question"));
+			void persistence.persistUntilSaved(save(chat, "A question"));
 
-			void persistence.deleteDraft("conv-a");
+			void persistence.deleteDraft(chat);
 			for (const answer of answers.splice(0)) answer();
 			await vi.advanceTimersByTimeAsync(20_000);
 
 			const calls = fetchMock.mock.calls.map(([, init]) => init?.method);
 			expect(calls.filter((method) => method === "PUT")).toHaveLength(1);
 			expect(calls.filter((method) => method === "DELETE")).toHaveLength(2);
+		});
+
+		describe("what a page that opens the chat is told", () => {
+			it("is the newest words that have not landed, and nothing once they have", async () => {
+				const fetchMock = serverBackAt(4000);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				expect(pendingDraftSave(chat)).toBeNull();
+
+				void persistence.persistUntilSaved({
+					...save(chat, "A question"),
+					selectedAttachmentIds: ["file-1"],
+				});
+				await vi.advanceTimersByTimeAsync(0);
+				expect(pendingDraftSave(chat)).toMatchObject({
+					conversationId: chat,
+					draftText: "A question",
+					selectedAttachmentIds: ["file-1"],
+				});
+
+				void persistence.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(0);
+				expect(pendingDraftSave(chat)?.draftText).toBe("Typed since");
+				expect(pendingDraftSave(otherChat)).toBeNull();
+
+				await vi.advanceTimersByTimeAsync(10_000);
+				expect(pendingDraftSave(chat)).toBeNull();
+			});
+
+			it("is nothing once the session is over", async () => {
+				const fetchMock = serverBackAt(Number.POSITIVE_INFINITY);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				await vi.advanceTimersByTimeAsync(0);
+
+				clearConversationSessionState();
+				await vi.advanceTimersByTimeAsync(60_000);
+
+				expect(pendingDraftSave(chat)).toBeNull();
+				expect(puts(fetchMock)).toHaveLength(1);
+			});
+		});
+
+		// The shell holds its Refresh notice while words are on their way: a reload
+		// now would lose them.
+		describe("the count the shell holds its notice for", () => {
+			it("is the chats whose words have not landed, and returns to nothing as they do", async () => {
+				const fetchMock = serverBackAt(4000);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				expect(get(pendingDraftSaves)).toBe(0);
+
+				void persistence.persistUntilSaved(save(chat, "A question"));
+				void persistence.persistUntilSaved(save(otherChat, "Another chat"));
+				await vi.advanceTimersByTimeAsync(0);
+				expect(get(pendingDraftSaves)).toBe(2);
+
+				// A newer save of a chat that is held is the same chat's words.
+				void persistence.persist(save(chat, "Typed since"), true);
+				await vi.advanceTimersByTimeAsync(0);
+				expect(get(pendingDraftSaves)).toBe(2);
+
+				await vi.advanceTimersByTimeAsync(10_000);
+				expect(get(pendingDraftSaves)).toBe(0);
+			});
+
+			it("goes down with a delete, a refusal and the end of the eight minutes", async () => {
+				const fetchMock = vi.fn(
+					async (_input: RequestInfo | URL, init?: RequestInit) =>
+						init?.method === "DELETE"
+							? ok()
+							: String(_input).includes("refused")
+								? refused()
+								: proxyPage(),
+				);
+				const persistence = createDraftPersistence(fetchMock, 400);
+				void persistence.persistUntilSaved(save(`${chat}-deleted`, "Words"));
+				void persistence.persistUntilSaved(save(`${chat}-refused`, "Words"));
+				void persistence.persistUntilSaved(save(`${chat}-capped`, "Words"));
+				await vi.advanceTimersByTimeAsync(0);
+				expect(get(pendingDraftSaves)).toBe(2);
+
+				await persistence.deleteDraft(`${chat}-deleted`);
+				expect(get(pendingDraftSaves)).toBe(1);
+
+				await vi.advanceTimersByTimeAsync(8 * 60 * 1000 + 3000);
+				expect(get(pendingDraftSaves)).toBe(0);
+			});
 		});
 	});
 

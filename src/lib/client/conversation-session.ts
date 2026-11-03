@@ -20,6 +20,7 @@ import {
 	type ImageMarksRequest,
 	parseImageMarks,
 } from "$lib/shared/artifacts/image-body";
+import { setPendingDraftSaves } from "$lib/stores/server-update";
 import {
 	SERVER_UPDATE_WATCH_MAX_MS,
 	SERVER_UPDATE_WATCH_POLL_MS,
@@ -511,23 +512,97 @@ export function createConversationDraftRecord(params: {
 	};
 }
 
-/**
- * The newest save or delete of each chat's draft that anything in this tab has
- * made. A save that is tried again after its request failed (`persistUntilSaved`)
- * holds the number it started under and stops when the chat's has moved: an older
- * save must never land on top of newer words. Module-level, not per persistence:
- * the chat page is rebuilt when the person leaves a chat and comes back, and the
- * save its earlier page left trying is still going.
- */
-const newestDraftChange = new Map<string, number>();
+/** One save of a chat's draft, as the composer and the chat page ask for it. */
+export type DraftSaveRequest = {
+	conversationId: string;
+	draftText: string;
+	selectedAttachmentIds: string[];
+	/**
+	 * The files themselves, for a page that shows these words again
+	 * (`pendingDraftSave`). Never sent: the server keeps only the ids.
+	 */
+	selectedAttachments?: PendingAttachment[];
+	selectedLinkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
+};
 
-function noteDraftChange(conversationId: string): number {
-	const next = (newestDraftChange.get(conversationId) ?? 0) + 1;
-	newestDraftChange.set(conversationId, next);
-	return next;
+function isMeaningfulSave(request: DraftSaveRequest): boolean {
+	return hasMeaningfulDraft(
+		request.draftText,
+		request.selectedAttachmentIds,
+		request.selectedLinkedSources ?? [],
+		request.pendingSkill ?? null,
+		request.atlasMode === true,
+	);
 }
 
-/** How often a draft save that failed is tried again, and for how long (a message waits for an update the same). */
+/**
+ * The saves of each chat's draft that are on their way (sent, not answered) and
+ * the last one each chat sent. Module-level, not per persistence: the chat page is
+ * rebuilt when the person leaves a chat and comes back, and the save its earlier
+ * page left is still out. A save is never sent while an earlier save of that chat
+ * is unanswered where it must not land before it (`keepDraftSave`), and a delete
+ * is repeated behind the saves that were out when it was sent (`deleteDraft`).
+ */
+const savesOnTheirWay = new Map<string, Set<Promise<void>>>();
+const lastSaveSent = new Map<string, Promise<void>>();
+
+function onItsWay(conversationId: string, save: Promise<void>): Promise<void> {
+	const answered: Promise<void> = save
+		.catch(() => {
+			// Ignore transient persistence failures in the composer.
+		})
+		.finally(() => {
+			savesOnTheirWay.get(conversationId)?.delete(answered);
+		});
+	let onTheirWay = savesOnTheirWay.get(conversationId);
+	if (!onTheirWay) {
+		onTheirWay = new Set();
+		savesOnTheirWay.set(conversationId, onTheirWay);
+	}
+	onTheirWay.add(answered);
+	lastSaveSent.set(conversationId, answered);
+	return answered;
+}
+
+/**
+ * One save, sent. Resolves with why it failed, or undefined when it landed; a
+ * failure is swallowed here as it always was, and the caller that wants to try
+ * again reads it.
+ */
+async function sendDraftSave(
+	request: DraftSaveRequest,
+	fetchImpl: FetchLike,
+): Promise<unknown> {
+	const payload = {
+		draftText: request.draftText,
+		selectedAttachmentIds: request.selectedAttachmentIds,
+		selectedLinkedSources: request.selectedLinkedSources ?? [],
+		pendingSkill: request.pendingSkill ?? null,
+		...(request.atlasMode === true
+			? {
+					atlasMode: true,
+					atlasProfile: request.atlasProfile ?? null,
+					clientAtlasTurnId: request.clientAtlasTurnId ?? null,
+				}
+			: {}),
+	};
+	let failure: unknown;
+	await onItsWay(
+		request.conversationId,
+		persistConversationDraft(request.conversationId, payload, fetchImpl).catch(
+			(error: unknown) => {
+				failure = error ?? new Error("The draft was not saved");
+			},
+		),
+	);
+	return failure;
+}
+
+/** How often a draft save that failed is tried again, and for how long a chat's words are held (the longest an update takes, as for a message that waits for one). */
 const DRAFT_SAVE_RETRY_MS = SERVER_UPDATE_WATCH_POLL_MS;
 const DRAFT_SAVE_RETRY_MAX_MS = SERVER_UPDATE_WATCH_MAX_MS;
 
@@ -545,6 +620,182 @@ function mayLandWhenSentAgain(failure: unknown): boolean {
 	return true;
 }
 
+/**
+ * The words of one chat that must not be lost to a failed request: a message that
+ * waited for an update when the person left its chat, or words a stopped turn gave
+ * back, exist nowhere else, and a restart answers a save with the proxy's page. One
+ * keeper per chat, in this tab, holds the newest save that has not landed and sends
+ * it again every few seconds (a failure that may land when sent again) until it
+ * lands, the answer refuses it, the chat's draft is deleted, or the longest an
+ * update takes has passed since the chat's words were first held.
+ *
+ * Every later save of that chat (typed since, flushed on leaving, put back by
+ * another turn) takes the keeper over: it replaces the words, with its own try
+ * made at once if the keeper is waiting out its pause, and is held the same way.
+ * Older words are never sent after newer ones: one try is out at a time, and a
+ * newer save waits for the answer to the try that is out. A keeper holds no page:
+ * it goes on after the page that made it is gone.
+ */
+type DraftKeeper = {
+	conversationId: string;
+	/** The newest save of the chat that has not landed: what the next try sends. */
+	request: DraftSaveRequest;
+	/** The number of that save; a try of an older one tells the loop a newer one came. */
+	order: number;
+	fetchImpl: FetchLike;
+	/** When the chat's words were first held: the cap counts from here, not from each save. */
+	startedAt: number;
+	/** Wakes the pause between tries, for a save that takes over and for an end. */
+	wake: (() => void) | null;
+	/** The callers of `persist` and `persistUntilSaved` still waiting on their save. */
+	tickets: DraftTicket[];
+	ended: boolean;
+};
+
+type DraftTicket = {
+	order: number;
+	/** True for `persistUntilSaved`, which settles when the words have landed or been given up; a plain `persist` settles when its first try is answered. */
+	untilSaved: boolean;
+	settle: () => void;
+};
+
+const draftKeepers = new Map<string, DraftKeeper>();
+let draftSaveCount = 0;
+
+function reportPendingDraftSaves(): void {
+	setPendingDraftSaves(draftKeepers.size);
+}
+
+function endDraftKeeper(keeper: DraftKeeper): void {
+	keeper.ended = true;
+	keeper.wake?.();
+	if (draftKeepers.get(keeper.conversationId) === keeper) {
+		draftKeepers.delete(keeper.conversationId);
+		reportPendingDraftSaves();
+	}
+	for (const ticket of keeper.tickets.splice(0)) ticket.settle();
+}
+
+/**
+ * Whether a chat has words that have not landed yet, and which: the newest save
+ * this tab holds for it. The page that opens the chat shows these, not the copy
+ * the server has (older, or none), and its own saves take them over.
+ */
+export function pendingDraftSave(
+	conversationId: string,
+): DraftSaveRequest | null {
+	const request = draftKeepers.get(conversationId)?.request;
+	return request ? { ...request } : null;
+}
+
+/** Ends every chat's hold: the session is over, and the words are the person who left's. */
+function endAllDraftKeepers(): void {
+	for (const keeper of [...draftKeepers.values()]) endDraftKeeper(keeper);
+}
+
+async function afterEarlierSavesAreAnswered(
+	conversationId: string,
+): Promise<void> {
+	for (;;) {
+		const onTheirWay = savesOnTheirWay.get(conversationId);
+		if (!onTheirWay || onTheirWay.size === 0) return;
+		await Promise.all([...onTheirWay]);
+	}
+}
+
+function pauseBetweenTries(keeper: DraftKeeper): Promise<void> {
+	return new Promise<void>((resolve) => {
+		const timer = setTimeout(wakeUp, DRAFT_SAVE_RETRY_MS);
+		function wakeUp() {
+			clearTimeout(timer);
+			if (keeper.wake === wakeUp) keeper.wake = null;
+			resolve();
+		}
+		keeper.wake = wakeUp;
+	});
+}
+
+async function runDraftKeeper(keeper: DraftKeeper): Promise<void> {
+	const { conversationId } = keeper;
+	try {
+		for (;;) {
+			// An earlier save of the chat may still land: the words go after it.
+			if (savesOnTheirWay.get(conversationId)?.size) {
+				await afterEarlierSavesAreAnswered(conversationId);
+			}
+			if (keeper.ended) return;
+			const { request, order } = keeper;
+			const failure = await sendDraftSave(request, keeper.fetchImpl);
+			if (keeper.ended) return;
+			const newest = keeper.order === order;
+			if (failure === undefined) {
+				if (newest) return;
+				// A newer save took over while this one was out: it goes at once.
+				continue;
+			}
+			if (!newest) continue;
+			// A plain save is not waited on for longer than its first try.
+			for (const ticket of [...keeper.tickets]) {
+				if (!ticket.untilSaved && ticket.order <= order) {
+					keeper.tickets.splice(keeper.tickets.indexOf(ticket), 1);
+					ticket.settle();
+				}
+			}
+			// Refused for good (a deleted chat, an expired session): it never lands.
+			if (!mayLandWhenSentAgain(failure)) return;
+			if (Date.now() - keeper.startedAt >= DRAFT_SAVE_RETRY_MAX_MS) return;
+			await pauseBetweenTries(keeper);
+			if (keeper.ended) return;
+			if (Date.now() - keeper.startedAt >= DRAFT_SAVE_RETRY_MAX_MS) return;
+		}
+	} finally {
+		endDraftKeeper(keeper);
+	}
+}
+
+/**
+ * Holds a save of a chat's draft: it starts the chat's keeper, or, when the chat
+ * has one, takes it over. Resolves when the words have landed or been given up (for
+ * `untilSaved`), or when the first try is answered (a plain save that happened to
+ * meet a keeper), or at once when a newer save replaced this one.
+ */
+function keepDraftSave(
+	request: DraftSaveRequest,
+	fetchImpl: FetchLike,
+	untilSaved: boolean,
+): Promise<void> {
+	const { conversationId } = request;
+	draftSaveCount += 1;
+	const order = draftSaveCount;
+	return new Promise<void>((settle) => {
+		const ticket: DraftTicket = { order, untilSaved, settle };
+		const existing = draftKeepers.get(conversationId);
+		if (existing) {
+			// The older words are moot now: whoever waited on them is released.
+			for (const older of existing.tickets.splice(0)) older.settle();
+			existing.request = request;
+			existing.order = order;
+			existing.fetchImpl = fetchImpl;
+			existing.tickets.push(ticket);
+			existing.wake?.();
+			return;
+		}
+		const keeper: DraftKeeper = {
+			conversationId,
+			request,
+			order,
+			fetchImpl,
+			startedAt: Date.now(),
+			wake: null,
+			tickets: [ticket],
+			ended: false,
+		};
+		draftKeepers.set(conversationId, keeper);
+		reportPendingDraftSaves();
+		void runDraftKeeper(keeper);
+	});
+}
+
 export function createDraftPersistence(
 	fetchImpl: FetchLike = fetch,
 	delayMs = 400,
@@ -552,22 +803,6 @@ export function createDraftPersistence(
 	let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastPersistKey = "";
 	let pendingRequest: DraftSaveRequest | null = null;
-	// The saves sent and not yet answered, and the last one each chat sent.
-	const saving = new Set<Promise<void>>();
-	const lastSave = new Map<string, Promise<void>>();
-
-	function onItsWay(conversationId: string, save: Promise<void>) {
-		const answered = save
-			.catch(() => {
-				// Ignore transient persistence failures in the composer.
-			})
-			.finally(() => {
-				saving.delete(answered);
-			});
-		saving.add(answered);
-		lastSave.set(conversationId, answered);
-		return answered;
-	}
 
 	async function deleteQuietly(conversationId: string): Promise<void> {
 		try {
@@ -584,97 +819,39 @@ export function createDraftPersistence(
 	 * sent, not an earlier version of it. The first delete never waits: the landing
 	 * page navigates straight after it, and the chat page's read must find the draft
 	 * gone. A save this chat sends meanwhile holds words typed since, so it stands.
+	 * Words held for the chat (`DraftKeeper`) are let go first: a delete wins.
 	 */
 	async function deleteDraft(conversationId: string): Promise<void> {
-		noteDraftChange(conversationId);
-		const last = lastSave.get(conversationId);
-		const onTheirWay = [...saving];
+		const keeper = draftKeepers.get(conversationId);
+		if (keeper) endDraftKeeper(keeper);
+		const last = lastSaveSent.get(conversationId);
+		const onTheirWay = [...(savesOnTheirWay.get(conversationId) ?? [])];
 		await deleteQuietly(conversationId);
 		if (onTheirWay.length === 0) return;
 		await Promise.all(onTheirWay);
-		if (lastSave.get(conversationId) === last) {
+		if (lastSaveSent.get(conversationId) === last) {
 			await deleteQuietly(conversationId);
 		}
 	}
 
-	function isMeaningful(request: DraftSaveRequest): boolean {
-		return hasMeaningfulDraft(
-			request.draftText,
-			request.selectedAttachmentIds,
-			request.selectedLinkedSources ?? [],
-			request.pendingSkill ?? null,
-			request.atlasMode === true,
-		);
-	}
-
 	/**
-	 * One save, sent. Resolves with why it failed, or undefined when it landed; a
-	 * failure is swallowed here as it always was, and the caller that wants to try
-	 * again reads it.
+	 * One save, as it is sent when its turn comes: an empty draft deletes; words
+	 * that must not be lost (`untilSaved`), and any save of a chat that has words held,
+	 * go through the chat's keeper (`DraftKeeper`); the rest are sent once.
 	 */
-	async function saveOnce(request: DraftSaveRequest): Promise<unknown> {
-		const payload = {
-			draftText: request.draftText,
-			selectedAttachmentIds: request.selectedAttachmentIds,
-			selectedLinkedSources: request.selectedLinkedSources ?? [],
-			pendingSkill: request.pendingSkill ?? null,
-			...(request.atlasMode === true
-				? {
-						atlasMode: true,
-						atlasProfile: request.atlasProfile ?? null,
-						clientAtlasTurnId: request.clientAtlasTurnId ?? null,
-					}
-				: {}),
-		};
-		let failure: unknown;
-		await onItsWay(
-			request.conversationId,
-			persistConversationDraft(
-				request.conversationId,
-				payload,
-				fetchImpl,
-			).catch((error: unknown) => {
-				failure = error ?? new Error("The draft was not saved");
-			}),
-		);
-		return failure;
-	}
-
-	async function runPersist(request: DraftSaveRequest): Promise<void> {
-		if (!isMeaningful(request)) {
-			await deleteDraft(request.conversationId);
-			return;
-		}
-		await saveOnce(request);
-	}
-
-	/**
-	 * Words that exist nowhere else (a message that waited for an update when the
-	 * person left its chat) must not be lost to a request that failed: a restart
-	 * answers a save with the proxy's page. So a failed save is sent again every few
-	 * seconds, for as long as a message waits for an update, until it lands. It stops
-	 * at once when anything has saved or deleted this chat's draft since (that is
-	 * newer; nothing older may land on top of it) or when the answer refuses the
-	 * save for good. It holds no page: it goes on after the chat page is gone.
-	 */
-	async function runPersistUntilSaved(
+	async function save(
 		request: DraftSaveRequest,
+		untilSaved: boolean,
 	): Promise<void> {
-		if (!isMeaningful(request)) {
+		if (!isMeaningfulSave(request)) {
 			await deleteDraft(request.conversationId);
 			return;
 		}
-		const generation = newestDraftChange.get(request.conversationId);
-		const startedAt = Date.now();
-		for (;;) {
-			const failure = await saveOnce(request);
-			if (failure === undefined || !mayLandWhenSentAgain(failure)) return;
-			await new Promise<void>((resolve) =>
-				setTimeout(resolve, DRAFT_SAVE_RETRY_MS),
-			);
-			if (newestDraftChange.get(request.conversationId) !== generation) return;
-			if (Date.now() - startedAt >= DRAFT_SAVE_RETRY_MAX_MS) return;
+		if (untilSaved || draftKeepers.has(request.conversationId)) {
+			await keepDraftSave(request, fetchImpl, untilSaved);
+			return;
 		}
+		await sendDraftSave(request, fetchImpl);
 	}
 
 	async function doFlush(): Promise<void> {
@@ -686,7 +863,7 @@ export function createDraftPersistence(
 		const nextRequest = pendingRequest;
 		pendingRequest = null;
 		if (nextRequest) {
-			await runPersist(nextRequest);
+			await save(nextRequest, false);
 		}
 	}
 
@@ -709,9 +886,8 @@ export function createDraftPersistence(
 		}
 
 		lastPersistKey = key;
-		noteDraftChange(request.conversationId);
 		pendingRequest = request;
-		const shouldPersistImmediately = immediate || !isMeaningful(request);
+		const shouldPersistImmediately = immediate || !isMeaningfulSave(request);
 
 		if (draftPersistTimer) {
 			clearTimeout(draftPersistTimer);
@@ -722,9 +898,7 @@ export function createDraftPersistence(
 			const nextRequest = pendingRequest;
 			pendingRequest = null;
 			if (nextRequest) {
-				await (untilSaved
-					? runPersistUntilSaved(nextRequest)
-					: runPersist(nextRequest));
+				await save(nextRequest, untilSaved);
 			}
 			return;
 		}
@@ -734,7 +908,7 @@ export function createDraftPersistence(
 			pendingRequest = null;
 			draftPersistTimer = null;
 			if (nextRequest) {
-				void runPersist(nextRequest);
+				void save(nextRequest, false);
 			}
 		}, delayMs);
 	}
@@ -746,8 +920,8 @@ export function createDraftPersistence(
 
 		/**
 		 * `persist(request, true)` for words that must not be lost to a failed request
-		 * (`runPersistUntilSaved`). The promise settles when the save has landed or
-		 * has been given up, which can be minutes away; callers do not wait for it.
+		 * (`DraftKeeper`). The promise settles when the save has landed or has been
+		 * given up, which can be minutes away; callers do not wait for it.
 		 */
 		persistUntilSaved(request: DraftSaveRequest): Promise<void> {
 			return submit(request, true, true);
@@ -773,18 +947,6 @@ export function createDraftPersistence(
 	};
 }
 
-/** One save of a chat's draft, as the composer and the chat page ask for it. */
-type DraftSaveRequest = {
-	conversationId: string;
-	draftText: string;
-	selectedAttachmentIds: string[];
-	selectedLinkedSources?: LinkedContextSource[];
-	pendingSkill?: PendingSkillSelection | null;
-	atlasMode?: boolean;
-	atlasProfile?: AtlasProfile | null;
-	clientAtlasTurnId?: string | null;
-};
-
 export function cleanupPreparedConversation(params: {
 	conversationId: string;
 	removeLocal?: (conversationId: string) => void;
@@ -807,6 +969,7 @@ export function cleanupPreparedConversation(params: {
 }
 
 export function clearConversationSessionState(): void {
+	endAllDraftKeepers();
 	const storage = getSessionStorage();
 	if (!storage) return;
 
