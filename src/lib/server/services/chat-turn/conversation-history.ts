@@ -248,13 +248,23 @@ function userText(message: HistoryMessage): string {
 		.join("\n");
 }
 
-function flattenToolLine(segment: ToolCallSegment): string {
-	const digest = buildHistoryToolDigest(segment);
+// What flatten mode says of a tool call and its result: `[used research_web:
+// Found 2 sources.]`, cut to one line. A stored call says it from its digest
+// (below) and the continuation of a reply that asked from the result the model
+// was handed (`ask-capture.ts`'s renderAskContinuationAsText), in the same words.
+export function flattenedToolLine(
+	name: string,
+	digest: HistoryToolDigest,
+): string {
 	const detail = digest.detail ? ` ${digest.detail}` : "";
-	return `[used ${segment.name}: ${digest.summary}${detail}]`.slice(
+	return `[used ${name}: ${digest.summary}${detail}]`.slice(
 		0,
 		MAX_FLATTENED_TOOL_LINE_CHARS,
 	);
+}
+
+function flattenToolLine(segment: ToolCallSegment): string {
+	return flattenedToolLine(segment.name, buildHistoryToolDigest(segment));
 }
 
 // A call with the id its tool-call part and its tool-result part share.
@@ -295,15 +305,25 @@ function toolResultPart({ segment, id }: HistoryCall) {
 // result reads it (the picks, the person's words, or why nothing was answered).
 // The scaffold is ASCII English (ruling 79); the questions and the answer's
 // summary hold the model's labels and the person's own words, data in whatever
-// language they were written.
-function askedLines(segment: ToolCallSegment): string[] {
-	const questions = parseAskQuestions(segment.input?.questions);
+// language they were written. Shared with the continuation of a reply that asked
+// (see flattenedToolLine).
+export function flattenedAskLines(
+	input: Record<string, unknown> | undefined,
+	answer: string,
+): string[] {
+	const questions = parseAskQuestions(input?.questions);
 	const asked = questions
 		? `[asked the user: ${questions.map(({ question }) => question).join(" / ")}]`
 		: "[asked the user]";
-	const answer = `[the user's answer: ${buildHistoryToolDigest(segment).summary}]`;
-	return [asked, answer].map((line) =>
+	return [asked, `[the user's answer: ${answer}]`].map((line) =>
 		line.slice(0, MAX_FLATTENED_TOOL_LINE_CHARS),
+	);
+}
+
+function askedLines(segment: ToolCallSegment): string[] {
+	return flattenedAskLines(
+		segment.input,
+		buildHistoryToolDigest(segment).summary,
 	);
 }
 

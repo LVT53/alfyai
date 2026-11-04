@@ -36,6 +36,7 @@ const NOTHING_STORED: StoredProvenanceSources = {
 function turn(
 	options: {
 		requestText?: string;
+		userTexts?: readonly string[];
 		stored?: StoredProvenanceSources | (() => Promise<StoredProvenanceSources>);
 	} = {},
 ) {
@@ -50,6 +51,7 @@ function turn(
 			userId: "user-1",
 			conversationId: "conversation-1",
 			requestText: options.requestText,
+			userTexts: options.userTexts,
 			loadStored,
 		}),
 	};
@@ -120,6 +122,60 @@ describe("the turn's provenance: the user's own words", () => {
 
 		expect(verdict.allowed).toEqual(["https://earlier.example/page"]);
 		expect(loadStored).toHaveBeenCalledTimes(1);
+	});
+
+	// A reply that stopped to ask goes on in a new turn, and the words the person
+	// typed into their answers are theirs (docs/plans/ask-me-first): counted like the
+	// message the turn answers, without reading the database.
+	it("knows an address the user wrote in an answer", async () => {
+		const { provenance, loadStored } = turn({
+			requestText: "Redo the room",
+			userTexts: [
+				"use the palette on https://paint.example/palettes?id=3",
+				"and paint.example/finish",
+			],
+		});
+
+		const verdict = await provenance.partition([
+			"https://paint.example/palettes?id=3",
+			"https://paint.example/finish",
+			"https://paint.example/palettes?id=3&leak=PRIVATE",
+			"https://elsewhere.example/",
+		]);
+
+		expect(verdict).toEqual({
+			allowed: [
+				"https://paint.example/palettes?id=3",
+				"https://paint.example/finish",
+			],
+			refusedCount: 2,
+		});
+		expect(provenance.isKnown("https://paint.example/finish")).toBe(true);
+		expect(provenance.isKnown("https://elsewhere.example/")).toBe(false);
+		expect(loadStored).toHaveBeenCalledTimes(1);
+	});
+
+	it("allows an address from an answer without reading the stored messages", async () => {
+		const { provenance, loadStored } = turn({
+			userTexts: ["try https://paint.example/palettes"],
+		});
+
+		const verdict = await provenance.partition([
+			"https://paint.example/palettes",
+		]);
+
+		expect(verdict.allowed).toEqual(["https://paint.example/palettes"]);
+		expect(loadStored).not.toHaveBeenCalled();
+	});
+
+	it("knows nothing more from a turn whose answers are empty", () => {
+		const { provenance } = turn({
+			requestText: "see https://a.example/x",
+			userTexts: [],
+		});
+
+		expect(provenance.isKnown("https://a.example/x")).toBe(true);
+		expect(provenance.isKnown("https://b.example/y")).toBe(false);
 	});
 });
 

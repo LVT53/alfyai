@@ -42,6 +42,7 @@ export {
 	type AddressPartition,
 	NON_PROVENANCE_RESULT_TOOLS,
 	PROVENANCE_RESULT_TOOLS,
+	type ResumeProvenance,
 	type ToolResultObservation,
 	type TurnUrlProvenance,
 } from "./turn";
@@ -55,6 +56,8 @@ export function createTurnUrlProvenance(params: {
 	conversationId: string;
 	/** The turn's own user message: it is not stored while the turn runs. */
 	requestText?: string;
+	/** The person's own words that are not stored messages (a resume's answers). */
+	userTexts?: readonly string[];
 }): TurnUrlProvenance {
 	return createTurnProvenance({
 		...params,

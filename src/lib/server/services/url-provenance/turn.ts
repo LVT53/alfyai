@@ -15,8 +15,12 @@
  * of:
  * - an address in the turn's own user message (not stored yet while the turn
  *   runs, so it comes from the tool context), a bare `example.com/page` included;
+ * - an address in the words the person typed into an answer, when the turn carries
+ *   on a reply that stopped to ask them (`ResumeProvenance.userTexts`, counted
+ *   like the message above);
  * - an address in a stored user message of this conversation;
- * - an address in a result a tool handed the model earlier in this turn;
+ * - an address in a result a tool handed the model earlier in this turn (or, for
+ *   that resume, in the paused segment: `ResumeProvenance.priorResults`);
  * - an address a tool returned in an earlier turn (stored candidates and result
  *   digests);
  * - an address on the page the context step read for the user before the turn
@@ -244,11 +248,28 @@ export interface TurnUrlProvenance {
 	isKnown(url: unknown): boolean;
 }
 
+/**
+ * What a reply that stopped to ask the person ("Ask me first") brings to the
+ * address check of the run that carries it on: the words the person typed into
+ * their answers, which are theirs, and the results the paused segment's tools
+ * handed the model, which are still tools' results. The resume is a new turn with
+ * a new tool set, and neither is stored anywhere the turn's check would read.
+ */
+export interface ResumeProvenance {
+	userTexts: readonly string[];
+	priorResults: readonly ToolResultObservation[];
+}
+
 export interface TurnUrlProvenanceParams {
 	userId: string;
 	conversationId: string;
 	/** The turn's own user message: it is not stored while the turn runs. */
 	requestText?: string;
+	/**
+	 * More of the user's own words that are not stored messages (a resume's
+	 * answers). Counted exactly like the request text.
+	 */
+	userTexts?: readonly string[];
 	/** Reads what the conversation's stored messages say (the messages service). */
 	loadStored: () => Promise<StoredProvenanceSources>;
 }
@@ -266,6 +287,9 @@ export function createTurnProvenance(
 		if (!requestKeys) {
 			requestKeys = new Set();
 			if (params.requestText) addUserTextKeys(requestKeys, params.requestText);
+			for (const text of params.userTexts ?? []) {
+				addUserTextKeys(requestKeys, text);
+			}
 		}
 		return requestKeys;
 	};

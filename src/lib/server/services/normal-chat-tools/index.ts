@@ -36,6 +36,7 @@ import {
 	createTurnUrlProvenance,
 	imagesLeftOutWarning,
 	logRefusedAddresses,
+	type ResumeProvenance,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
 import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
@@ -319,6 +320,10 @@ export interface CreateNormalChatToolsContext {
 	// every turn's catalogue either way, and where the run cannot pause it
 	// answers `not_available` and the model goes on.
 	canPause?: boolean;
+	// A run that carries on a reply that stopped to ask the person: the words they
+	// typed into their answers and the results the paused segment's tools handed the
+	// model, which this turn's address check has not seen (url-provenance/turn.ts).
+	resumeProvenance?: ResumeProvenance;
 }
 
 // Added to make_image's description while the explicit-picture filter applies
@@ -609,7 +614,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		userId: ctx.userId,
 		conversationId: ctx.conversationId,
 		requestText: ctx.requestText,
+		userTexts: ctx.resumeProvenance?.userTexts,
 	});
+	// A reply that stopped to ask goes on in this turn: what its earlier segments'
+	// tools handed the model counts as tools' results, the same as if this turn had
+	// read it.
+	for (const result of ctx.resumeProvenance?.priorResults ?? []) {
+		urlProvenance.noteToolResult(result);
+	}
 	const recorder = withUrlProvenance(ctx.recorder ?? createToolCallRecorder(), {
 		userId: ctx.userId,
 		provenance: urlProvenance,

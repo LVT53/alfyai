@@ -4,6 +4,8 @@ import { getConfig } from "$lib/server/config-store";
 import { db, sqlite } from "$lib/server/db";
 import { conversations, messages, users } from "$lib/server/db/schema";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import { capturedProvenanceResults } from "$lib/server/services/chat-turn/ask-capture";
+import type { AskResumeCapture } from "$lib/server/services/chat-turn/ask-questions";
 import {
 	distillConnectorPayload,
 	hasLocalDistillEnabled,
@@ -1007,6 +1009,145 @@ describe("produce_file leaves out a picture whose address has no source", () => 
 		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(1);
 		expect(second.reused).toBe(true);
 		expect(second.jobId).toBe(first.jobId);
+	});
+});
+
+// A reply that stopped to ask goes on in a new turn with a new tool set. What the
+// paused segment read is still what tools handed the model, and what the person
+// typed into their answers is still theirs, so the new turn knows both
+// (docs/plans/ask-me-first, design 5.5).
+describe("a reply that carries on from the person's answer", () => {
+	const FOUND = "https://found.example/palette";
+	const TYPED = "https://typed.example/finish?id=3";
+
+	const capture: AskResumeCapture = {
+		v: 1,
+		messages: [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "call-search",
+						toolName: "research_web",
+						input: { query: `colours ${EXFIL}` },
+					},
+					{
+						type: "tool-call",
+						toolCallId: "call-python",
+						toolName: "run_python",
+						input: { code: "print(1)" },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-search",
+						toolName: "research_web",
+						output: {
+							type: "json",
+							value: {
+								answerBriefMarkdown: `See [the palette](${FOUND}). The query said ${EXFIL}.`,
+							},
+						},
+					},
+					{
+						type: "tool-result",
+						toolCallId: "call-python",
+						toolName: "run_python",
+						output: {
+							type: "json",
+							value: { stdout: "https://printed.example/by-code\n" },
+						},
+					},
+				],
+			},
+		],
+		results: [
+			{
+				toolCallId: "call-search",
+				toolName: "research_web",
+				localDistilled: false,
+				digest: { ok: true, summary: "Found 1 source." },
+			},
+			{
+				toolCallId: "call-python",
+				toolName: "run_python",
+				localDistilled: false,
+				digest: { ok: true, summary: "Ran." },
+			},
+		],
+	};
+
+	function resumed(userTexts: readonly string[] = []) {
+		return tools({
+			resumeProvenance: {
+				userTexts,
+				priorResults: capturedProvenanceResults(capture),
+			},
+		});
+	}
+
+	it("knows an address a captured result carried", async () => {
+		const set = resumed();
+
+		await fetchUrl(set, [FOUND]);
+
+		expect(parallelCallUrls()).toEqual([FOUND]);
+	});
+
+	it("does not take an address the model wrote into the captured call, or one a tool of its own words printed", async () => {
+		const set = resumed();
+
+		await fetchUrl(set, [EXFIL, "https://printed.example/by-code"]);
+
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+	});
+
+	it("knows an address the person wrote in an answer, a bare domain included", async () => {
+		const set = resumed([`try ${TYPED} and other.example/page`]);
+
+		await fetchUrl(set, [TYPED, "https://other.example/page", EXFIL]);
+
+		expect(parallelCallUrls()).toEqual([TYPED, "https://other.example/page"]);
+	});
+
+	it("refuses an address with something added to one the person gave", async () => {
+		const set = resumed([`try ${TYPED}`]);
+
+		await fetchUrl(set, [`${TYPED}&leak=PRIVATE-DATA`]);
+
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+	});
+
+	it("takes a captured result into account before the first tool call, without any call", async () => {
+		const set = tools({
+			resumeProvenance: {
+				userTexts: [],
+				priorResults: [
+					{
+						toolName: "research_web",
+						payload: { answerBriefMarkdown: `see ${FOUND}` },
+						entry: { input: {}, candidates: [] },
+					},
+				],
+			},
+		});
+
+		await fetchUrl(set, [FOUND]);
+
+		expect(parallelCallUrls()).toEqual([FOUND]);
+	});
+
+	it("knows nothing from a tool set made for an ordinary turn", async () => {
+		const set = tools();
+
+		await fetchUrl(set, [FOUND]);
+
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
 	});
 });
 
