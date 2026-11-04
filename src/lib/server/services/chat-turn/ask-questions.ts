@@ -387,6 +387,23 @@ function readAnswer(json: string | null): AskAnswer | null {
 	return json === null ? null : parseAskAnswer(parseJson(json));
 }
 
+/**
+ * What a row says: its questions, and its answer when it has one. Null when
+ * either cannot be read. This is the one test of "readable": the lists skip a
+ * row that fails it, and the sidebar mark and the refusal count only rows that
+ * pass it, so a chat is never refused a message while it shows no card.
+ */
+function readRow(
+	row: Pick<AskQuestionRow, "questionsJson" | "answerJson">,
+): { questions: AskQuestion[]; answer: AskAnswer | null } | null {
+	const questions = parseAskQuestions(parseJson(row.questionsJson));
+	const answer = readAnswer(row.answerJson);
+	if (questions === null || (row.answerJson !== null && answer === null)) {
+		return null;
+	}
+	return { questions, answer };
+}
+
 /** How a row's status reads to the browser; null for a row it is not shown. */
 function shownStatus(
 	row: AskQuestionRow,
@@ -415,9 +432,8 @@ function toDto(
 ): AskQuestionDto | null {
 	const status = shownStatus(row, streamRuns);
 	if (status === null) return null;
-	const questions = parseAskQuestions(parseJson(row.questionsJson));
-	const answer = readAnswer(row.answerJson);
-	if (questions === null || (row.answerJson !== null && answer === null)) {
+	const read = readRow(row);
+	if (read === null) {
 		// One row nobody can read must not fail the person's whole list. It is
 		// named by its id: the questions and the answer are the person's words.
 		console.warn("[ASK_QUESTIONS] Skipped a question that cannot be read", {
@@ -430,9 +446,9 @@ function toDto(
 		conversationId: row.conversationId,
 		assistantMessageId: row.assistantMessageId,
 		toolCallId: row.toolCallId,
-		questions,
+		questions: read.questions,
 		status,
-		answer,
+		answer: read.answer,
 		createdAt: row.createdAt.getTime(),
 	};
 }
@@ -473,9 +489,11 @@ export async function listConversationAskQuestions(p: {
 /**
  * Which of these chats the sidebar marks as waiting for an answer: those with a
  * saved question that waits, or that is `answering` with no resume live for it
- * (its card is back). It reads the person's open questions, which are few, and
- * keeps those in the chats asked about, so a long list of chat ids never
- * reaches the query.
+ * (its card is back), and that the list can read, so a mark always has a card
+ * behind it. It reads the person's open questions, which are few, and keeps
+ * those in the chats asked about, so a long list of chat ids never reaches the
+ * query. It is asked on every sidebar load, so it does not log a row it skips:
+ * the list does.
  */
 export async function listWaitingAskConversationIds(p: {
 	userId: string;
@@ -489,6 +507,8 @@ export async function listWaitingAskConversationIds(p: {
 			id: askQuestions.id,
 			conversationId: askQuestions.conversationId,
 			status: askQuestions.status,
+			questionsJson: askQuestions.questionsJson,
+			answerJson: askQuestions.answerJson,
 		})
 		.from(askQuestions)
 		.where(
@@ -502,22 +522,29 @@ export async function listWaitingAskConversationIds(p: {
 	for (const row of open) {
 		if (!asked.has(row.conversationId)) continue;
 		if (row.status === "answering" && liveResumes.has(row.id)) continue;
+		if (readRow(row) === null) continue;
 		marked.add(row.conversationId);
 	}
 	return marked;
 }
 
 /**
- * Whether the chat holds a saved question that waits or answers: the reason a
- * new message is refused. An answering question counts whether or not its
- * resume is live: the reply is on its way, or its card is back.
+ * Whether the chat holds a saved question that waits or answers, and that the
+ * list can read: the reason a new message is refused. An answering question
+ * counts whether or not its resume is live: the reply is on its way, or its
+ * card is back. A question the list skips does not count, so a chat is never
+ * refused a message while it shows no card to answer. It is asked on every
+ * send, so it does not log a row it skips: the list does.
  */
 export async function hasWaitingAskQuestion(p: {
 	userId: string;
 	conversationId: string;
 }): Promise<boolean> {
-	const row = db
-		.select({ id: askQuestions.id })
+	const open = db
+		.select({
+			questionsJson: askQuestions.questionsJson,
+			answerJson: askQuestions.answerJson,
+		})
 		.from(askQuestions)
 		.where(
 			and(
@@ -527,7 +554,6 @@ export async function hasWaitingAskQuestion(p: {
 				inArray(askQuestions.status, ["waiting", "answering"]),
 			),
 		)
-		.limit(1)
-		.get();
-	return row !== undefined;
+		.all();
+	return open.some((row) => readRow(row) !== null);
 }

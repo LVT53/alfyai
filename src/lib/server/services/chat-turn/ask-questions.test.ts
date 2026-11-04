@@ -861,6 +861,54 @@ describe("the lists", () => {
 		await discardAskQuestion({ userId: USER, questionId: discarded });
 		expect(await hasWaiting()).toBe(false);
 	});
+
+	it("counts only the questions the list shows: a stamped one it cannot read refuses nothing and marks nothing", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		seedChat("chat-2", USER, ["c2-m1"]);
+		seedChat("chat-3", USER, ["c3-m1"]);
+		const badQuestions = await askStamped("m1");
+		const badAnswer = await askStamped("c2-m1", "chat-2");
+		const staleBad = await askStamped("c3-m1", "chat-3");
+		setColumn(badQuestions, "questions_json", "{ not json");
+		setColumn(
+			badAnswer,
+			"answer_json",
+			JSON.stringify({ kind: "answered", answers: "nope" }),
+		);
+		// answering with no resume live, which reads as waiting, with no questions
+		setColumn(staleBad, "status", "answering");
+		setColumn(staleBad, "questions_json", "[]");
+		const chats = [CHAT, "chat-2", "chat-3"];
+
+		// the list shows no card in any of the three chats, and says so in the log
+		for (const chat of chats) expect(await list(chat)).toEqual([]);
+		expect(warn).toHaveBeenCalledTimes(3);
+		warn.mockClear();
+
+		// so none of them refuses a new message
+		for (const chat of chats) expect(await hasWaiting(chat)).toBe(false);
+		// and none is marked in the sidebar
+		expect(
+			await listWaitingAskConversationIds({
+				userId: USER,
+				conversationIds: chats,
+			}),
+		).toEqual(new Set());
+		// The counts are asked on every send and every sidebar load, so they stay
+		// quiet: the list is where an unreadable row is reported.
+		expect(warn).not.toHaveBeenCalled();
+
+		// a readable question beside an unreadable one still shows, refuses and marks
+		const good = await askStamped("m2");
+		expect((await list()).map((q) => q.id)).toEqual([good]);
+		expect(await hasWaiting()).toBe(true);
+		expect(
+			await listWaitingAskConversationIds({
+				userId: USER,
+				conversationIds: chats,
+			}),
+		).toEqual(new Set([CHAT]));
+	});
 });
 
 // --- the capture ------------------------------------------------------------
