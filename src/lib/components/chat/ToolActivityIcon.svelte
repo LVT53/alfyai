@@ -70,6 +70,10 @@ let { iconType, size = 14 }: { iconType: ToolCallIconType; size?: number } =
 	<GitBranch class="tool-activity-icon" data-tool-icon="repos" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'tasks'}
 	<ListTodo class="tool-activity-icon" data-tool-icon="tasks" {size} strokeWidth={2} aria-hidden="true" />
+{:else if iconType === 'ask'}
+	<!-- A folded question draws no tool glyph (mockup, section 3): the tick or the
+	     X before the words says what happened. Named here so it never falls
+	     through to the wrench below. -->
 {:else}
 	<Wrench class="tool-activity-icon" data-tool-icon="generic" {size} strokeWidth={2} aria-hidden="true" />
 {/if}

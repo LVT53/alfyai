@@ -45,8 +45,17 @@ import {
 	type Translate,
 } from "$lib/utils/tool-evidence-presentation";
 
-/** `skipped`: it ended with nothing done and nothing wrong, as a declined write does. */
-export type ToolActivityStatus = "running" | "done" | "failed" | "skipped";
+/**
+ * `skipped`: it ended with nothing done and nothing wrong, as a declined write does.
+ * `closed`: a question the person shut with the X instead of answering it; drawn as a
+ * muted X, because nothing failed and nothing was done either.
+ */
+export type ToolActivityStatus =
+	| "running"
+	| "done"
+	| "failed"
+	| "skipped"
+	| "closed";
 
 /**
  * A runtime mirror of `ArtifactKind` (`$lib/shared/artifacts/kinds`, a
@@ -132,6 +141,11 @@ export type ToolActivityBody =
 	// And for a connection write once it is settled: what it was, threaded in
 	// by WriteConfirmCard.svelte.
 	| { kind: "write" }
+	// A question Alfy asked once it no longer waits ("Ask me first"): each
+	// question with the answer the person gave, as `buildAskFoldedItem`
+	// (components/chat/ask-card-view.ts) worded it. A card the person closed has no
+	// body: there is nothing to show but the line.
+	| { kind: "ask"; pairs: Array<{ question: string; answer: string }> }
 	// A make_image call's picture card (plan 2b T2): the card itself is found
 	// by the chat page's image cards, by `cardId`, or while the call still runs
 	// by the take whose tool call this is (`cardId` null until the call names it).
@@ -152,6 +166,8 @@ export type ToolActivityItem = {
 	verb: string;
 	/** Primary text — the thing the tool acted on. May be empty. */
 	object: string;
+	/** Muted text right after the object, for a row whose object alone would mislead ("· left to Alfy", "· closed"). */
+	objectSuffix?: string;
 	/** Right-hand fact ("6 sources", "27 km · 34 min", "12 KB", "Failed"). */
 	meta: string;
 	/** Short label for the collapsed summary strip ("Searched 6 sources"). */

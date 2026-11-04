@@ -6,6 +6,7 @@ import {
 	getHumanReadableToolNameKey,
 	getToolCallIconType,
 	isArtifactToolCall,
+	isAskToolCall,
 	isConnectionToolName,
 	isConnectionWriteToolName,
 	isFileProductionToolName,
@@ -188,5 +189,44 @@ describe("tool-calls utils", () => {
 		expect(
 			isArtifactToolCall({ type: "text", content: "create_artifact" }),
 		).toBe(false);
+	});
+
+	// "Ask me first": the question is drawn from its question row, as a card and then a
+	// folded line, never as a step of the rail. The call is taken out of the rail by
+	// its name alone (Ruling 15), so a call the tool refused or that never finished
+	// leaves it too, and the folded line has no tool glyph to draw.
+	it("knows the ask call and gives it the ask icon type", () => {
+		const call = (
+			name: string,
+			status: "running" | "done" | "failed" = "done",
+			metadata?: Record<string, string | number | boolean | null>,
+		): ThinkingSegment => ({
+			type: "tool_call",
+			input: {},
+			name,
+			status,
+			...(metadata ? { metadata } : {}),
+		});
+
+		expect(getToolCallIconType("ask_user")).toBe("ask");
+
+		expect(isAskToolCall(call("ask_user"))).toBe(true);
+		expect(isAskToolCall(call("ask_user", "running"))).toBe(true);
+		expect(isAskToolCall(call("ask_user", "failed"))).toBe(true);
+		// a call the tool refused is a finished ask_user call marked ok: false
+		expect(isAskToolCall(call("ask_user", "done", { ok: false }))).toBe(true);
+		// one that paused the reply, and one that asked nobody, both leave
+		expect(isAskToolCall(call("ask_user", "done", { paused: true }))).toBe(
+			true,
+		);
+
+		// Every other tool stays a step of the rail, an artifact call included.
+		expect(isAskToolCall(call("research_web"))).toBe(false);
+		expect(isAskToolCall(call("create_artifact"))).toBe(false);
+		expect(isAskToolCall(call("use_skill"))).toBe(false);
+		expect(isAskToolCall(call("ask_user_later"))).toBe(false);
+		expect(isAskToolCall({ type: "text", content: "ask_user" })).toBe(false);
+		expect(isArtifactToolCall(call("ask_user"))).toBe(false);
+		expect(getToolCallIconType("create_artifact")).toBe("artifact");
 	});
 });

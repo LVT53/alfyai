@@ -956,3 +956,217 @@ describe("ToolActivityRow, a picture card whose Image is gone (plan 2b T2)", () 
 		);
 	});
 });
+
+// "Ask me first": a question that no longer waits folds into the line every finished
+// step is drawn as (docs/plans/ask-me-first/mockups.html, section 3). These rows are
+// literal items; `buildAskFoldedItem` makes the real ones and has its own test.
+describe("ToolActivityRow, a question's folded line (Ask me first)", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	function askItem(
+		overrides: Partial<ToolActivityItem> = {},
+	): ToolActivityItem {
+		return {
+			key: "ask-q-1",
+			status: "done",
+			iconType: "ask",
+			verb: "Which way should we take it?",
+			object: "A party at home",
+			meta: "",
+			summaryLabel: "Which way should we take it?",
+			pinned: true,
+			alwaysOpen: false,
+			body: null,
+			title: "Which way should we take it? A party at home",
+			...overrides,
+		};
+	}
+
+	const stylesheet = readFileSync(
+		`${process.cwd()}/src/lib/components/chat/ToolActivityRow.svelte`,
+		"utf-8",
+	);
+
+	it("draws a closed row with a muted X and its suffix after the object", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: askItem({ status: "closed", objectSuffix: "· closed" }),
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("closed");
+		// A question the person shut is not a failure: no red row.
+		expect(row.classList.contains("is-failed")).toBe(false);
+		const glyph = row.querySelector(".act-status");
+		expect(glyph?.classList.contains("closed")).toBe(true);
+		expect(glyph?.classList.contains("failed")).toBe(false);
+		expect(glyph?.querySelector(".lucide-x")).not.toBeNull();
+		expect(glyph?.querySelector(".lucide-check")).toBeNull();
+		// The question, what was answered, then the muted suffix after it.
+		const label = row.querySelector(".act-label");
+		expect(
+			[...(label?.children ?? [])].map((node) => node.textContent),
+		).toEqual(["Which way should we take it?", "A party at home", "· closed"]);
+		expect(label?.querySelector(".act-object-suffix")?.textContent).toBe(
+			"· closed",
+		);
+
+		// jsdom applies no component CSS, so the stylesheet is the subject for "muted".
+		const mutedGlyph =
+			stylesheet.match(
+				/\.act-status\.skipped,\s*\.act-status\.closed \{([\s\S]*?)\}/,
+			)?.[1] ?? "";
+		expect(mutedGlyph).toMatch(/color:\s*var\(--text-muted\)/);
+		const suffixRule =
+			stylesheet.match(/\.act-object-suffix \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(suffixRule).toMatch(/color:\s*var\(--text-muted\)/);
+		expect(suffixRule).toMatch(/white-space:\s*nowrap/);
+	});
+
+	it("draws a closed question with nothing to open as a plain line, not a button", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: askItem({
+				status: "closed",
+				object: "",
+				objectSuffix: "· closed",
+				title: "Which way should we take it? · closed",
+			}),
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.tagName.toLowerCase()).toBe("div");
+		expect(row.querySelector(".act-chevron")).toBeNull();
+		expect(row.querySelector(".act-object")).toBeNull();
+		expect(row.getAttribute("title")).toBe(
+			"Which way should we take it? · closed",
+		);
+		// The question, then the suffix straight after it: no empty answer between.
+		expect(
+			[...(row.querySelector(".act-label")?.children ?? [])].map(
+				(node) => node.textContent,
+			),
+		).toEqual(["Which way should we take it?", "· closed"]);
+	});
+
+	it("ticks a question that was answered, and draws no suffix when there is none", () => {
+		const { getByTestId } = render(ToolActivityRow, { item: askItem() });
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("done");
+		expect(row.querySelector(".act-status .lucide-check")).not.toBeNull();
+		expect(row.querySelector(".act-object-suffix")).toBeNull();
+	});
+
+	it("lists each question with its answer in an ask body", async () => {
+		const onToggle = vi.fn();
+		const folded = askItem({
+			verb: "2 questions",
+			object: "Adults, Kids · “One list, with a section for the kids' things”",
+			body: {
+				kind: "ask",
+				pairs: [
+					{ question: "Who's coming?", answer: "Adults, Kids" },
+					{
+						question: "How should the list be split?",
+						answer: "“One list, with a section for the kids' things”",
+					},
+				],
+			},
+		});
+		const { getByTestId, queryByTestId, rerender } = render(ToolActivityRow, {
+			item: folded,
+			onToggle,
+		});
+
+		// Folded: a button with a chevron, and nothing below it.
+		const row = getByTestId("tool-activity-row");
+		expect(row.tagName.toLowerCase()).toBe("button");
+		expect(row.getAttribute("aria-expanded")).toBe("false");
+		expect(row.querySelector(".act-chevron")).not.toBeNull();
+		expect(queryByTestId("tool-activity-body")).toBeNull();
+		await fireEvent.click(row);
+		expect(onToggle).toHaveBeenCalledWith("ask-q-1");
+
+		await rerender({ item: folded, open: true, onToggle });
+		expect(getByTestId("tool-activity-row").getAttribute("aria-expanded")).toBe(
+			"true",
+		);
+		const pairs = [
+			...getByTestId("tool-activity-body").querySelectorAll(".act-ask-pair"),
+		];
+		expect(
+			pairs.map((pair) => [
+				pair.querySelector(".act-ask-question")?.textContent,
+				pair.querySelector(".act-ask-answer")?.textContent,
+			]),
+		).toEqual([
+			["Who's coming?", "Adults, Kids"],
+			[
+				"How should the list be split?",
+				"“One list, with a section for the kids' things”",
+			],
+		]);
+
+		// The mockup's `.rp` rows: the question muted, the answer in the primary text.
+		const question =
+			stylesheet.match(/\.act-ask-question \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(question).toMatch(/color:\s*var\(--text-muted\)/);
+		const answer =
+			stylesheet.match(/\.act-ask-answer \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(answer).toMatch(/color:\s*var\(--text-primary\)/);
+	});
+
+	it("draws no tool icon for an ask row", () => {
+		const { getByTestId } = render(ToolActivityRow, { item: askItem() });
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.iconType).toBe("ask");
+		expect(row.querySelector("[data-tool-icon]")).toBeNull();
+		expect(row.querySelector(".tool-activity-icon")).toBeNull();
+		// Only the tick stands before the words.
+		expect(row.querySelectorAll("svg")).toHaveLength(1);
+	});
+
+	it("lets a long question give way to its answer, on an ask row only", () => {
+		const ask = render(ToolActivityRow, { item: askItem() });
+		expect(
+			ask
+				.getByTestId("tool-activity-row")
+				.querySelector(".act-verb")
+				?.classList.contains("act-verb-question"),
+		).toBe(true);
+		ask.unmount();
+
+		const other = render(ToolActivityRow, { item: item(searchSegment) });
+		expect(
+			other
+				.getByTestId("tool-activity-row")
+				.querySelector(".act-verb")
+				?.classList.contains("act-verb-question"),
+		).toBe(false);
+	});
+
+	it("names what Alfy did with the question to a screen reader, the suffix included", () => {
+		const { getByRole } = render(ToolActivityRow, {
+			item: askItem({
+				objectSuffix: "· left to Alfy",
+				body: {
+					kind: "ask",
+					pairs: [
+						{
+							question: "Which way should we take it?",
+							answer: "A party at home",
+						},
+					],
+				},
+			}),
+		});
+
+		expect(
+			getByRole("button", {
+				name: "Which way should we take it? A party at home · left to Alfy",
+			}),
+		).toBeInTheDocument();
+	});
+});

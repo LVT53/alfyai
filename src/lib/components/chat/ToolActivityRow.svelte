@@ -9,6 +9,11 @@
 // Anatomy (approved mockup):
 //   [status 14px] [tool icon 14px] verb  object …………………… meta  [chevron]
 //
+// A question Alfy asked ("Ask me first") folds into this same row once it no longer
+// waits: the question is the verb, the answer the object, a muted suffix may follow
+// it ("· left to Alfy"), there is no tool icon, and a question the person closed
+// takes a muted X for its status glyph. Its body lists each question with its answer.
+//
 // Only rows with something to show carry a chevron, and only those render as
 // a <button> — a row with no body must never look clickable. Opening joins
 // the row and its body into one soft block on --surface-elevated (the row's
@@ -411,6 +416,12 @@ const isStandaloneCard = $derived(
 		item.body?.kind === "image-card",
 );
 const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
+// What a screen reader hears for a row that is a button (the label stands in for
+// its contents): the words in order, the muted suffix included, since "· left to
+// Alfy" is part of what happened.
+const rowLabel = $derived(
+	[item.verb, item.object, item.objectSuffix].filter(Boolean).join(" ").trim(),
+);
 
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
@@ -453,10 +464,12 @@ function handleToggle() {
 </script>
 
 {#snippet statusGlyph(status: ToolActivityStatus)}
-	<span class="act-status" class:running={status === 'running'} class:failed={status === 'failed'} class:skipped={status === 'skipped'} aria-hidden="true">
+	<span class="act-status" class:running={status === 'running'} class:failed={status === 'failed'} class:skipped={status === 'skipped'} class:closed={status === 'closed'} aria-hidden="true">
 		{#if status === 'running'}
 			<LoaderCircle size={14} strokeWidth={2.4} aria-hidden="true" />
-		{:else if status === 'failed'}
+		{:else if status === 'failed' || status === 'closed'}
+			<!-- The same X; what tells a closed question from a failed call is the
+			     colour (muted here, red there), and the row's own words. -->
 			<X size={13} strokeWidth={2.2} aria-hidden="true" />
 		{:else if status === 'skipped'}
 			<Minus size={13} strokeWidth={2.2} aria-hidden="true" />
@@ -470,9 +483,12 @@ function handleToggle() {
 	{@render statusGlyph(item.status)}
 	<ToolActivityIcon iconType={item.iconType} />
 	<span class="act-label">
-		<span class="act-verb">{item.verb}</span>
+		<span class="act-verb" class:act-verb-question={item.iconType === 'ask'}>{item.verb}</span>
 		{#if item.object}
 			<span class="act-object">{item.object}</span>
+		{/if}
+		{#if item.objectSuffix}
+			<span class="act-object-suffix">{item.objectSuffix}</span>
 		{/if}
 	</span>
 	{#if item.meta}
@@ -542,7 +558,7 @@ function handleToggle() {
 			data-icon-type={item.iconType}
 			title={item.title}
 			aria-expanded={isOpen}
-			aria-label={`${item.verb} ${item.object}`.trim()}
+			aria-label={rowLabel}
 			onclick={handleToggle}
 		>
 			{@render rowContents()}
@@ -672,6 +688,17 @@ function handleToggle() {
 				{/if}
 			{:else if body.kind === 'atlas' || body.kind === 'write'}
 				{@render bodyContent?.()}
+			{:else if body.kind === 'ask'}
+				<!-- A folded question: each question with the answer given, the mockup's
+				     `.rp` rows. A definition list, since that is what it is. -->
+				<dl class="act-ask-pairs">
+					{#each body.pairs as pair, index (index)}
+						<div class="act-ask-pair">
+							<dt class="act-ask-question">{pair.question}</dt>
+							<dd class="act-ask-answer">{pair.answer}</dd>
+						</div>
+					{/each}
+				</dl>
 			{:else if body.kind === 'text'}
 				<div class="act-excerpt">{body.text}</div>
 			{:else if body.kind === 'bullets'}
@@ -793,7 +820,9 @@ function handleToggle() {
 		color: var(--danger);
 	}
 
-	.act-status.skipped {
+	/* A declined write and a question the person shut: nothing failed, nothing was done. */
+	.act-status.skipped,
+	.act-status.closed {
 		color: var(--text-muted);
 	}
 
@@ -844,6 +873,31 @@ function handleToggle() {
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
+	}
+
+	/* "· left to Alfy", "· closed": muted, right after the object, never clipped. */
+	.act-object-suffix {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	/* A folded question is the row's verb, and a question can be long, so it can be
+	   cut with an ellipsis (the mockup's `.rec-q`). With no answer after it, as on a
+	   closed question, it shrinks to leave the suffix its room. While an answer
+	   shares the line the question takes at most 46% of it, or its own width if
+	   that is less ("2 questions" is never cut), and the answer gives way instead. */
+	.act-verb-question {
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.act-verb-question:has(+ .act-object) {
+		flex-shrink: 0;
+		max-width: 46%;
 	}
 
 	.act-meta {
@@ -1111,6 +1165,34 @@ function handleToggle() {
 		flex: 1 1 auto;
 		min-width: 0;
 		overflow-wrap: anywhere;
+		color: var(--text-primary);
+	}
+
+	/* A folded question's body: the mockup's `.rp` rows, each question muted with its
+	   answer under it in the primary text, 8px between the pairs. The row's own size,
+	   not the body's smaller one: the answers are what the person came to read. */
+	.act-ask-pairs {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 0;
+		margin: 0;
+		font-size: var(--text-sm);
+		line-height: 1.45;
+	}
+
+	.act-ask-pair {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.act-ask-question {
+		margin: 0;
+		color: var(--text-muted);
+	}
+
+	.act-ask-answer {
+		margin: 0;
 		color: var(--text-primary);
 	}
 

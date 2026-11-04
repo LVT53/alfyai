@@ -19,6 +19,13 @@ const chatDict = {
 		"chat.artifacts.keepAsDocumentBusy": "Opening…",
 		"chat.artifacts.keepAsDocumentError": "Could not open this as a document.",
 		"chat.artifacts.openExistingDocument": "Open document",
+		// "Ask me first": the line a question folds into once it no longer waits
+		// (ask-card-view.ts). The quote marks are the reader's own: the person's words
+		// are set in them, in the folded line and in its open body.
+		"chat.ask.closed": "closed",
+		"chat.ask.leftToAlfy": "left to Alfy",
+		"chat.ask.ownAnswerQuote": "“{text}”",
+		"chat.ask.questionCount": "{count} questions",
 		"chat.attachmentLabel": "Attach file",
 		// The server is being updated (a deploy). A message waits for it, and the
 		// bubble says so (`awaiting_update`, MessageBubble); a reply the update cut
@@ -1288,6 +1295,10 @@ const chatDict = {
 		"chat.artifacts.keepAsDocumentError":
 			"Ezt nem sikerült dokumentumként megnyitni.",
 		"chat.artifacts.openExistingDocument": "Dokumentum megnyitása",
+		"chat.ask.closed": "bezárva",
+		"chat.ask.leftToAlfy": "Alfyra bízva",
+		"chat.ask.ownAnswerQuote": "„{text}”",
+		"chat.ask.questionCount": "{count} kérdés",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.awaitingUpdate": "Az AlfyAI frissül. Várunk, amíg újra elérhető…",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",

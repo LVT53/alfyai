@@ -1,5 +1,6 @@
 import type { I18nKey } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import { isAskToolName } from "$lib/shared/ask-user";
 
 const FILE_PRODUCTION_TOOL_IDENTIFIERS = [
 	"produce_file",
@@ -147,6 +148,19 @@ export function isArtifactToolCall(
 	);
 }
 
+/**
+ * An ask_user call, whatever became of it: it paused the reply, the tool refused
+ * it, or it never finished (Ruling 15). The question is drawn from its question
+ * row, as a card and then as a folded line below the words that asked it, so the
+ * rail never draws the call as a step, and a refused or unfinished one leaves it
+ * too: there is no question for them to be drawn from.
+ */
+export function isAskToolCall(
+	segment: ThinkingSegment,
+): segment is ThinkingSegment & { type: "tool_call" } {
+	return segment.type === "tool_call" && isAskToolName(segment.name);
+}
+
 export function isVisibleThinkingSegment(segment: ThinkingSegment): boolean {
 	if (segment.type === "text") {
 		return segment.content.trim().length > 0;
@@ -209,6 +223,12 @@ export type ToolCallIconType =
 	// and edit_artifact share this one icon type; ArtifactCard's own per-kind
 	// glyph (Document/App/Canvas/Slides) lives in the card body, not the row.
 	| "artifact"
+	// The folded line of a question Alfy asked ("Ask me first"): the mockup draws
+	// it with no tool glyph, only the tick (or X) and the words, so
+	// ToolActivityIcon renders nothing for this type. The ask_user call itself is
+	// never a row (isAskToolCall takes it out of the rail), which is why
+	// getHumanReadableToolNameKey has no label to match this type.
+	| "ask"
 	| "calendar"
 	| "contacts"
 	| "email"
@@ -234,6 +254,7 @@ const CONNECTION_TOOL_ICON_TYPES: Record<string, ToolCallIconType> = {
 
 export function getToolCallIconType(name: string): ToolCallIconType {
 	const normalized = normalizeToolNameForComparison(name);
+	if (isAskToolName(name)) return "ask";
 	if (isWebSearchToolName(normalized)) return "web-search";
 	if (normalized === "image_search") return "image-search";
 	if (normalized === "memory_context") return "memory";
