@@ -4,6 +4,7 @@ import { getConfig } from "$lib/server/config-store";
 import {
 	admitChatTurnStream,
 	createStreamJsonErrorResponse,
+	findWaitingQuestionRefusal,
 	parseChatTurnRequest,
 	prepareAdmittedChatTurn,
 	refuseTurnWhenOverCapacity,
@@ -60,6 +61,19 @@ export const POST: RequestHandler = async (event) => {
 		if (refused) return refused;
 	} else {
 		recordPhase(SERVER_STREAM_TIMELINE_MARKS.CAPACITY);
+	}
+
+	// "Ask me first": a chat that holds a saved question that waits takes no new
+	// message (the page reads the questions again and puts the words back in the
+	// draft). A reconnect is no new message, and neither is an edit's resend: the
+	// edit of an earlier message removes the rows after it, the question with the
+	// row that asked it.
+	if (!isReconnect && parsedRequest.value.turnOrigin !== "edit_resend") {
+		const questionWaiting = await findWaitingQuestionRefusal({
+			userId: user.id,
+			conversationId: parsedRequest.value.conversationId,
+		});
+		if (questionWaiting) return createStreamJsonErrorResponse(questionWaiting);
 	}
 
 	const admission = await admitChatTurnStream({

@@ -60,6 +60,8 @@ logout/                # Logout page
 | `api/chat/files/[id]/download/+server.ts` | Generated file download |
 | `api/conversations/[id]/+server.ts` | Conversation detail CRUD adapter; GET delegates to `conversation-detail/read-model` |
 | `api/conversations/[id]/context-status/+server.ts` | Conversation context status |
+| `api/conversations/[id]/questions/+server.ts` | List a chat's "Ask me first" questions (`AskQuestionDto`, never the capture the resume starts from) |
+| `api/conversations/[id]/questions/[questionId]/answer/+server.ts` | Answer one: checks, claims, streams the resume; gives the claim back on every path until the orchestrator holds it (`chat-turn/AGENTS.md`) |
 | `api/conversations/batch/+server.ts` | Sidebar multi-select: delete, move or pin up to 50 chats in one request, one result per id (contract in `$lib/shared/conversation-batch`; the services run the single-chat logic per id) |
 | `api/knowledge/upload/+server.ts` | File upload handler |
 | `api/knowledge/[id]/+server.ts` | Artifact CRUD |

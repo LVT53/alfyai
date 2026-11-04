@@ -7,6 +7,7 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
 	createStreamJsonErrorResponse,
+	findWaitingQuestionRefusal,
 	prepareRetryChatTurn,
 	refuseTurnWhenDraining,
 	runChatStreamOrchestrator,
@@ -31,6 +32,18 @@ export const POST: RequestHandler = async (event) => {
 		body = await event.request.json();
 	} catch {
 		return createJsonErrorResponse("Invalid JSON body", 400);
+	}
+
+	// "Ask me first": a retry deletes the reply it replaces while it prepares, before
+	// the stream's arbiter has seen the turn. While the chat holds a saved question
+	// that waits, or whose answer is being carried on, that reply may be the row the
+	// resume continues, so the retry is turned away like a new message.
+	if (typeof body.conversationId === "string" && body.conversationId.trim()) {
+		const questionWaiting = await findWaitingQuestionRefusal({
+			userId: user.id,
+			conversationId: body.conversationId.trim(),
+		});
+		if (questionWaiting) return createStreamJsonErrorResponse(questionWaiting);
 	}
 
 	const preparedRetry = await prepareRetryChatTurn({

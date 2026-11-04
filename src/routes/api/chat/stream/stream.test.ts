@@ -46,6 +46,10 @@ vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 
 import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
 import {
+	removeSeededAskUser,
+	seedWaitingAskQuestion,
+} from "$lib/server/services/chat-turn/ask-questions.test-helpers";
+import {
 	admitChatTurnStream,
 	prepareAdmittedChatTurn,
 } from "$lib/server/services/chat-turn/preflight";
@@ -524,5 +528,97 @@ describe("POST /api/chat/stream route adapter", () => {
 		expect(mocks.preflightChatTurn).not.toHaveBeenCalled();
 		expect(prepareAdmittedChatTurn).not.toHaveBeenCalled();
 		expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+	});
+
+	// "Ask me first": the chat holds a saved question that waits. A new message is
+	// turned away after the capacity check, before anything is admitted, and the
+	// page reads the questions again. Two requests are not new messages: a
+	// reconnect to a stream, and an edit's resend (an edit of an earlier message
+	// removes the rows after it, the question with the row that asked it).
+	it("refuses a new message with 409 QUESTION_WAITING while a question waits, and lets a reconnect and an edit's resend through", async () => {
+		const waiting = await seedWaitingAskQuestion();
+		try {
+			const user = {
+				id: waiting.userId,
+				displayName: "Test User",
+				email: "test@example.com",
+			};
+			const inThatChat = (overrides: Record<string, unknown> = {}) => ({
+				ok: true,
+				value: {
+					...parsedRequest,
+					conversationId: waiting.conversationId,
+					...overrides,
+				},
+			});
+
+			// a new message
+			mocks.parseChatTurnRequest.mockResolvedValueOnce(inThatChat());
+			const refused = await POST(
+				makeEvent(
+					{ message: "Hello", conversationId: waiting.conversationId },
+					user,
+				),
+			);
+
+			expect(refused.status).toBe(409);
+			expect(refused.headers.get("Content-Type")).toBe("application/json");
+			expect(await refused.json()).toEqual({
+				status: 409,
+				error: "Answer the question Alfy asked before sending a new message",
+				code: "QUESTION_WAITING",
+			});
+			expect(checkStreamCapacity).toHaveBeenCalledWith(waiting.userId);
+			expect(admitChatTurnStream).not.toHaveBeenCalled();
+			expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+
+			// an edit's resend
+			mocks.parseChatTurnRequest.mockResolvedValueOnce(
+				inThatChat({ turnOrigin: "edit_resend" }),
+			);
+			const resend = await POST(
+				makeEvent(
+					{
+						message: "Hello, edited",
+						conversationId: waiting.conversationId,
+						isEditResend: true,
+					},
+					user,
+				),
+			);
+
+			expect(resend.status).toBe(200);
+			expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+
+			// a reconnect to the stream that is running
+			const reconnectRequest = {
+				...inThatChat().value,
+				streamId: "orphan-stream",
+				reconnectToStreamId: "orphan-stream",
+				normalizedMessage: "",
+			};
+			mocks.parseChatTurnRequest.mockResolvedValueOnce({
+				ok: true,
+				value: reconnectRequest,
+			});
+			mocks.admitChatTurnStream.mockResolvedValueOnce({
+				ok: true,
+				value: reconnectRequest,
+			});
+			const reconnect = await POST(
+				makeEvent(
+					{
+						reconnectToStreamId: "orphan-stream",
+						conversationId: waiting.conversationId,
+					},
+					user,
+				),
+			);
+
+			expect(reconnect.status).toBe(200);
+			expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(2);
+		} finally {
+			await removeSeededAskUser(waiting.userId);
+		}
 	});
 });

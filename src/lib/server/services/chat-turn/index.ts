@@ -11,6 +11,12 @@
 // reach past this file into them.
 
 export { checkStreamCapacity } from "./active-streams";
+export {
+	claimAskQuestion,
+	getAskQuestion,
+	listConversationAskQuestions,
+	releaseAskQuestion,
+} from "./ask-questions";
 export { findWaitingQuestionRefusal, prepareAskResumeTurn } from "./ask-resume";
 export type {
 	FinalizeChatTurnDurableReceipt,

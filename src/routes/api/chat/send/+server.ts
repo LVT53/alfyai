@@ -15,6 +15,7 @@ import {
 	checkStreamCapacity,
 	classifyStreamErrorCause,
 	finalizeChatTurn,
+	findWaitingQuestionRefusal,
 	normalizeAssistantOutputWithSkillControl,
 	type ParsedChatTurnRequest,
 	parseChatTurnRequest,
@@ -44,6 +45,22 @@ import type { RequestHandler } from "./$types";
 type PreflightChatTurnResult = Awaited<ReturnType<typeof preflightChatTurn>>;
 type SendTurn = Extract<PreflightChatTurnResult, { ok: true }>["value"];
 
+// "Ask me first": a chat that holds a saved question that waits takes no new
+// message, from either branch of this route (the page reads the questions again and
+// puts the words back in the draft).
+async function refuseWhileQuestionWaits(
+	userId: string,
+	conversationId: string,
+): Promise<Response | null> {
+	const waiting = await findWaitingQuestionRefusal({ userId, conversationId });
+	return waiting
+		? json(
+				{ error: waiting.error, code: waiting.code },
+				{ status: waiting.status },
+			)
+		: null;
+}
+
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
@@ -65,6 +82,11 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	if (parsedRequest.value.atlasMode) {
+		const atlasRefused = await refuseWhileQuestionWaits(
+			user.id,
+			parsedRequest.value.conversationId,
+		);
+		if (atlasRefused) return atlasRefused;
 		return runAtlasSendTurn({
 			user,
 			turn: parsedRequest.value,
@@ -79,6 +101,11 @@ export const POST: RequestHandler = async (event) => {
 	if (capacityResponse) {
 		return capacityResponse;
 	}
+	const sendRefused = await refuseWhileQuestionWaits(
+		user.id,
+		parsedRequest.value.conversationId,
+	);
+	if (sendRefused) return sendRefused;
 
 	const preflight = await preflightChatTurn({
 		userId: user.id,

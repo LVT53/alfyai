@@ -53,13 +53,23 @@ vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
 }));
 
+import { eq } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import { askQuestions } from "$lib/server/db/schema";
 import { setDraining } from "$lib/server/services/chat-turn/active-streams";
+import {
+	removeSeededAskUser,
+	seedWaitingAskQuestion,
+} from "$lib/server/services/chat-turn/ask-questions.test-helpers";
 import { prepareRetryChatTurn } from "$lib/server/services/chat-turn/retry";
 import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
 import { POST } from "./+server";
 
-function makeEvent(body: Record<string, unknown>) {
+function makeEvent(
+	body: Record<string, unknown>,
+	user: { id: string } = { id: "user-1" },
+) {
 	return {
 		request: new Request("http://localhost/api/chat/retry", {
 			method: "POST",
@@ -68,9 +78,9 @@ function makeEvent(body: Record<string, unknown>) {
 		}),
 		locals: {
 			user: {
-				id: "user-1",
 				email: "user@example.com",
 				displayName: "User",
+				...user,
 			},
 		},
 		params: {},
@@ -238,6 +248,76 @@ describe("POST /api/chat/retry", () => {
 
 			expect(response.status).toBe(200);
 			expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	// "Ask me first": a retry deletes the reply it replaces while it prepares, before
+	// the stream's arbiter has seen the turn. While the chat holds a saved question
+	// that waits, or whose answer is being carried on, that reply may be the row the
+	// resume continues, so the retry is turned away like a new message.
+	describe("while a question waits in the chat", () => {
+		it("turns the retry away with the 409 a new message gets, having prepared and deleted nothing", async () => {
+			const waiting = await seedWaitingAskQuestion();
+			try {
+				for (const status of ["waiting", "answering"] as const) {
+					db.update(askQuestions)
+						.set({ status })
+						.where(eq(askQuestions.id, waiting.questionId))
+						.run();
+
+					const response = await POST(
+						makeEvent(
+							{
+								conversationId: waiting.conversationId,
+								assistantMessageId: waiting.messageId,
+								userMessageId: "user-message-1",
+								userMessage: "retry prompt",
+							},
+							{ id: waiting.userId },
+						),
+					);
+
+					expect(response.status).toBe(409);
+					expect(await response.json()).toEqual({
+						status: 409,
+						error:
+							"Answer the question Alfy asked before sending a new message",
+						code: "QUESTION_WAITING",
+					});
+				}
+				expect(prepareRetryChatTurn).not.toHaveBeenCalled();
+				expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+			} finally {
+				await removeSeededAskUser(waiting.userId);
+			}
+		});
+
+		it("takes the retry again once the question is answered", async () => {
+			const waiting = await seedWaitingAskQuestion();
+			try {
+				db.update(askQuestions)
+					.set({ status: "answered" })
+					.where(eq(askQuestions.id, waiting.questionId))
+					.run();
+
+				const response = await POST(
+					makeEvent(
+						{
+							conversationId: waiting.conversationId,
+							assistantMessageId: waiting.messageId,
+							userMessageId: "user-message-1",
+							userMessage: "retry prompt",
+						},
+						{ id: waiting.userId },
+					),
+				);
+
+				expect(response.status).toBe(200);
+				expect(prepareRetryChatTurn).toHaveBeenCalledTimes(1);
+				expect(runChatStreamOrchestrator).toHaveBeenCalledTimes(1);
+			} finally {
+				await removeSeededAskUser(waiting.userId);
+			}
 		});
 	});
 });

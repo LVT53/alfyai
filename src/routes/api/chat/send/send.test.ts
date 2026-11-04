@@ -203,6 +203,10 @@ import {
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
 import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
+import {
+	removeSeededAskUser,
+	seedWaitingAskQuestion,
+} from "$lib/server/services/chat-turn/ask-questions.test-helpers";
 import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
@@ -539,6 +543,52 @@ describe("POST /api/chat/send", () => {
 		expect(mockCheckStreamCapacity).not.toHaveBeenCalled();
 		expect(mockCreateMessage).not.toHaveBeenCalled();
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+	});
+
+	// "Ask me first": the chat holds a saved question that waits. Both branches of
+	// the route turn a new message away with the code the stream route uses, before
+	// a message is written or a model or an Atlas job is started.
+	it("refuses an Atlas kickoff and a plain send while a question waits", async () => {
+		const waiting = await seedWaitingAskQuestion();
+		try {
+			const user = { id: waiting.userId, email: "test@example.com" };
+			const refusal = {
+				error: "Answer the question Alfy asked before sending a new message",
+				code: "QUESTION_WAITING",
+			};
+
+			const plain = await POST(
+				makeEvent(
+					{ message: "Hello", conversationId: waiting.conversationId },
+					user,
+				),
+			);
+
+			expect(plain.status).toBe(409);
+			expect(await plain.json()).toEqual(refusal);
+			expect(mockCheckStreamCapacity).toHaveBeenCalledWith(waiting.userId);
+
+			const atlas = await POST(
+				makeEvent(
+					{
+						message: "Research Atlas transport",
+						conversationId: waiting.conversationId,
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "client-atlas-waiting",
+					},
+					user,
+				),
+			);
+
+			expect(atlas.status).toBe(409);
+			expect(await atlas.json()).toEqual(refusal);
+			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+			expect(mockCreateMessage).not.toHaveBeenCalled();
+			expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+		} finally {
+			await removeSeededAskUser(waiting.userId);
+		}
 	});
 
 	// D1 routing (Phase B of the v3-only consolidation): the parent lookup for
