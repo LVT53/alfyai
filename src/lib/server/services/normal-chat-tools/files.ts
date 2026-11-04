@@ -102,6 +102,12 @@ export type FilesToolModelPayload = {
 	message: string;
 	results: FilesToolResultItem[];
 	citations: FilesCitation[];
+	// Set by "list" only: the folder's size before the bounded page, its file
+	// extension mix, and the offset of the next page (null when this page is
+	// the whole folder). Other actions leave them unset.
+	total?: number;
+	byType?: Array<{ ext: string; count: number }>;
+	nextOffset?: number | null;
 	// Only set for a successful "save" action — the write has NOT executed,
 	// this is the id the user's confirm/cancel decision applies to (4.3).
 	pendingWriteId?: string;
@@ -124,6 +130,11 @@ const WRITE_ACTIONS = new Set<FilesToolInput["action"]>([
 ]);
 
 const MAX_SEARCH_RESULTS = 20;
+// A folder of any size must not turn into a tool result that can eat the
+// model's whole context window (a 4,312-entry folder once produced a
+// 237k-token result and a provider 400). "list" returns the newest
+// MAX_LIST_RESULTS entries plus a summary of the folder instead.
+const MAX_LIST_RESULTS = 50;
 // The Nextcloud read adapter already caps raw bytes at 25MB (chat-context
 // reads only); this is a second, much tighter cap on the *text* we inline
 // into the model's context so one large text file can't blow the prompt
@@ -427,6 +438,59 @@ function searchOutcome(
 	});
 }
 
+// mtime arrives in whatever format the provider reports (Nextcloud: RFC 1123,
+// OneDrive: ISO 8601), so ordering parses it rather than comparing strings. A
+// missing or unparseable timestamp means "unknown age": such entries sort
+// after every dated entry instead of pretending to be newest or oldest.
+function mtimeMs(mtime: string | null): number | null {
+	if (!mtime) return null;
+	const parsed = Date.parse(mtime);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Locale-independent name order, so the page is deterministic everywhere.
+function compareNames(a: string, b: string): number {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function compareListEntries(a: FileEntry, b: FileEntry): number {
+	const aTime = mtimeMs(a.mtime);
+	const bTime = mtimeMs(b.mtime);
+	if (aTime !== null && bTime !== null) {
+		if (aTime !== bTime) return bTime - aTime;
+		return compareNames(a.name, b.name);
+	}
+	if (aTime !== null) return -1;
+	if (bTime !== null) return 1;
+	return compareNames(a.name, b.name);
+}
+
+// The extension shown in the list summary: lowercased, without the dot, and
+// "" when the name has none (including a leading-dot name such as ".env").
+function extensionOf(name: string): string {
+	const dot = name.lastIndexOf(".");
+	if (dot <= 0 || dot === name.length - 1) return "";
+	return name.slice(dot + 1).toLowerCase();
+}
+
+// The summary's file-extension mix, over the whole folder rather than the
+// returned page: it is what tells the model what the unseen rest contains.
+// Folders are not files and have no type, so they are not counted here.
+function summarizeTypes(
+	files: FileEntry[],
+): Array<{ ext: string; count: number }> {
+	const counts = new Map<string, number>();
+	for (const file of files) {
+		if (file.isDir) continue;
+		const ext = extensionOf(file.name);
+		counts.set(ext, (counts.get(ext) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.map(([ext, count]) => ({ ext, count }))
+		.sort((a, b) => b.count - a.count || compareNames(a.ext, b.ext))
+		.slice(0, 5);
+}
+
 function listOutcome(
 	conn: ConnectionPublic,
 	path: string | undefined,
@@ -434,7 +498,11 @@ function listOutcome(
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
-	const results: FilesToolResultItem[] = files.map((file) => ({
+	// Newest first, then a stable name order, so the bounded page is both
+	// deterministic and the part of the folder most likely to matter.
+	const ordered = [...files].sort(compareListEntries);
+	const page = ordered.slice(0, MAX_LIST_RESULTS);
+	const results: FilesToolResultItem[] = page.map((file) => ({
 		name: file.name,
 		path: file.path,
 		isDir: file.isDir,
@@ -443,7 +511,9 @@ function listOutcome(
 		mtime: file.mtime,
 	}));
 	// Only concrete files get a clickable citation — folders aren't documents.
-	const citations: FilesCitation[] = files
+	// Citations describe the returned page, never the entries the page left
+	// out, so evidence candidates stay one-per-visible-entry.
+	const citations: FilesCitation[] = page
 		.filter((file) => !file.isDir)
 		.map((file) => ({
 			label: file.name,
@@ -451,19 +521,33 @@ function listOutcome(
 			url: webUrlForConn(conn, file.path, file.webUrl),
 		}));
 	const folderLabel = path?.trim() ? path.trim() : "your Files root";
+	const total = files.length;
 	const dirCount = files.filter((file) => file.isDir).length;
-	const fileCount = files.length - dirCount;
+	const fileCount = total - dirCount;
+	const byType = summarizeTypes(files);
+	const nextOffset = results.length < total ? results.length : null;
 	const baseMessage =
-		files.length === 0
+		total === 0
 			? `${folderLabel} is empty.`
-			: `${folderLabel} contains ${files.length} ${files.length === 1 ? "item" : "items"} (${fileCount} ${fileCount === 1 ? "file" : "files"}, ${dirCount} ${dirCount === 1 ? "folder" : "folders"}).`;
-	return buildPayload({
+			: total > results.length
+				? `${folderLabel} contains ${total} items (${fileCount} ${fileCount === 1 ? "file" : "files"}, ${dirCount} ${dirCount === 1 ? "folder" : "folders"}), newest first — showing 1–${results.length}. Narrow the path or use \`search\` for a specific name.`
+				: `${folderLabel} contains ${total} ${total === 1 ? "item" : "items"} (${fileCount} ${fileCount === 1 ? "file" : "files"}, ${dirCount} ${dirCount === 1 ? "folder" : "folders"}).`;
+	const outcome = buildPayload({
 		success: true,
 		action: "list",
 		message: withAmbiguityPrefix(baseMessage, ambiguous, conn, connections),
 		results,
 		citations,
 	});
+	return {
+		...outcome,
+		modelPayload: {
+			...outcome.modelPayload,
+			total,
+			byType,
+			nextOffset,
+		},
+	};
 }
 
 // Best-effort check for whether `path` is a folder. A GET on a folder
