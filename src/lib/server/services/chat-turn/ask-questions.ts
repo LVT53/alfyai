@@ -54,25 +54,40 @@ export type AskResumeCapture = {
 	results: AskCapturedResult[];
 };
 
+/**
+ * A won claim carries its `claim`: the token that release and settle must
+ * present. Only the holder of the live claim can release or settle the question.
+ */
 export type AskClaimResult =
-	| { ok: true; row: AskQuestionRow }
+	| { ok: true; row: AskQuestionRow; claim: string }
 	| { ok: false; reason: "not_found" | "not_waiting" };
 
-// The ids of the questions whose resume is running in this process. A row that
-// says `answering` cannot tell whether a resume stands behind it: a restart or a
-// crash leaves such rows with nothing behind them. This set tells.
+// The questions whose resume is running in this process, each with the token of
+// the claim that started it. A row that says `answering` cannot tell whether a
+// resume stands behind it: a restart or a crash leaves such rows with nothing
+// behind them. This map tells.
 //
-// A won claim adds its id in the same synchronous step as its UPDATE; release
-// and settle always take it out; a restart empties it. A claim releases an
-// `answering` row only when its id is not in the set, so a second device's
-// answer can never undo a first one whose stream has not registered yet: the
-// route prepares the turn between the claim and the stream, and the chat's
-// stream registry (`getOrphanedStream`) says nothing in that window.
+// A won claim sets its token in the same synchronous step as its UPDATE and
+// hands it to its caller. Release and settle act only for the token they hold,
+// and then clear the entry whether or not their UPDATE changed a row. Any other
+// call (a second release for one claim, a settle from a superseded attempt)
+// changes neither the row nor the map, so it can never undo another device's
+// later claim. A restart empties the map. A claim releases an `answering` row
+// only when the map has no entry for it, so a second device's answer can never
+// undo a first one whose stream has not registered yet: the route prepares the
+// turn between the claim and the stream, and the chat's stream registry
+// (`getOrphanedStream`) says nothing in that window.
 //
-// Every path after a won claim must end in a release or a settle (the route's
-// errors and throws, the orchestrator's `finally`), or the chat would refuse new
-// messages, with no card to answer, until a restart.
-const liveResumes = new Set<string>();
+// Every path after a won claim must end in one release or one settle with its
+// token (the route's errors and throws, the orchestrator's `finally`), or the
+// chat would refuse new messages, with no card to answer, until a restart.
+const liveResumes = new Map<string, string>();
+
+/** Whether `claim` is the claim the live resume of this question was started under. */
+function holdsLiveClaim(questionId: string, claim: string): boolean {
+	const live = liveResumes.get(questionId);
+	return live !== undefined && live === claim;
+}
 
 // --- writing ----------------------------------------------------------------
 
@@ -191,11 +206,13 @@ export async function getAskQuestion(p: {
 
 /**
  * Claims a waiting question for an answer, so that one answer wins across
- * devices and double taps. The caller has checked the answer against the
- * questions (`checkAskAnswer`). A won claim writes the answer and leaves the
- * question `answering`, with its id in the live-resume set: the caller owes it a
- * release or a settle. A claim that loses answers `not_waiting`; `not_found`
- * means this person has no such question in this chat.
+ * devices and double taps. The caller passes the answer that `checkAskAnswer`
+ * returned: one that `parseAskAnswer` rejects is a caller's bug and throws. A
+ * won claim writes the answer (as it reads back), leaves the question
+ * `answering` and hands back the `claim` token that its one release or settle
+ * must present. A claim that loses answers `not_waiting`, and so does a row the
+ * list cannot read (`readRow`), which shows no card to answer; `not_found` means
+ * this person has no such question in this chat.
  */
 export async function claimAskQuestion(p: {
 	userId: string;
@@ -203,19 +220,29 @@ export async function claimAskQuestion(p: {
 	questionId: string;
 	answer: AskAnswer;
 }): Promise<AskClaimResult> {
+	const answer = parseAskAnswer(p.answer);
+	if (answer === null) {
+		throw new Error(
+			"claimAskQuestion was given an answer that does not parse.",
+		);
+	}
 	const question = and(
 		eq(askQuestions.id, p.questionId),
 		eq(askQuestions.userId, p.userId),
 		eq(askQuestions.conversationId, p.conversationId),
 	);
 
-	// This block has no `await` in it, and must stay so. The check of the
-	// live-resume set, the release of a stale row, the claim UPDATE and the set
-	// add run as one step for every caller in this process, because nothing else
-	// can run between two synchronous statements. An `await` between one claim's
-	// UPDATE and its set add would let a second claim see the row `answering`
-	// with no resume live for it and release it; both devices would then win and
-	// each start a resume.
+	// No `await` anywhere below, and none may be added. The read, the check of
+	// the live-resume map, the release of a stale row, the claim UPDATE and the
+	// map set run as one step for every caller in this process, because nothing
+	// else can run between two synchronous statements. An `await` between one
+	// claim's UPDATE and its map set would let a second claim see the row
+	// `answering` with no resume live for it and release it; both devices would
+	// then win and each start a resume.
+	const current = db.select().from(askQuestions).where(question).get();
+	if (!current) return { ok: false, reason: "not_found" };
+	// a row the list cannot read shows no card, so nothing can answer it
+	if (readRow(current) === null) return { ok: false, reason: "not_waiting" };
 	if (!liveResumes.has(p.questionId)) {
 		// `answering` with no resume behind it: a restart or a crash left it
 		db.update(askQuestions)
@@ -227,7 +254,7 @@ export async function claimAskQuestion(p: {
 		.update(askQuestions)
 		.set({
 			status: "answering",
-			answerJson: JSON.stringify(p.answer),
+			answerJson: JSON.stringify(answer),
 			answeredAt: new Date(),
 		})
 		.where(
@@ -239,27 +266,31 @@ export async function claimAskQuestion(p: {
 		)
 		.returning()
 		.get();
-	if (won) {
-		liveResumes.add(p.questionId);
-		return { ok: true, row: won };
-	}
-	const exists = db
-		.select({ id: askQuestions.id })
-		.from(askQuestions)
-		.where(question)
-		.get();
-	return { ok: false, reason: exists ? "not_waiting" : "not_found" };
+	if (!won) return { ok: false, reason: "not_waiting" };
+	const claim = randomUUID();
+	liveResumes.set(p.questionId, claim);
+	return { ok: true, row: won, claim };
 }
 
 /**
  * The resume did not land: puts the question back to waiting, the answer kept,
- * so the card comes back with it. Takes the id out of the live-resume set
- * whether or not a row changed. True when a row changed.
+ * so the card comes back with it. It acts only for the holder of the live claim,
+ * with the `claim` its won claim handed back; any other call (a second release
+ * for the same claim, one from a superseded attempt) changes neither the row nor
+ * the map and answers false. The holder always clears its claim, whether or not
+ * its UPDATE changed a row. True when a row changed.
  */
 export async function releaseAskQuestion(p: {
 	userId: string;
 	questionId: string;
+	claim: string;
 }): Promise<boolean> {
+	// No `await` from here to the return, and none may be added: the check of the
+	// token, the clearing of the claim and the UPDATE are one step, like the
+	// claim's. An `await` between the clearing and the UPDATE would let a second
+	// claim win in the gap, and this UPDATE would then put that new winner's row
+	// back to `waiting`.
+	if (!holdsLiveClaim(p.questionId, p.claim)) return false;
 	liveResumes.delete(p.questionId);
 	const released = db
 		.update(askQuestions)
@@ -277,14 +308,19 @@ export async function releaseAskQuestion(p: {
 
 /**
  * The resume's segment was saved: the question is `answered`, or `closed` when
- * the answer was the X, and the capture is dropped. Takes the id out of the
- * live-resume set whether or not a row changed. Answers the settled row (which
- * still holds the answer), or null when no question was answering.
+ * the answer was the X, and the capture is dropped. Like release, it acts only
+ * for the holder of the live claim and then always clears the claim; any other
+ * call (a settle from a superseded attempt) changes neither the row nor the map
+ * and answers null. Answers the settled row (which still holds the answer), or
+ * null when no question was answering.
  */
 export async function settleAskQuestion(p: {
 	userId: string;
 	questionId: string;
+	claim: string;
 }): Promise<AskQuestionRow | null> {
+	// No `await` from here to the return, and none may be added; see release.
+	if (!holdsLiveClaim(p.questionId, p.claim)) return null;
 	liveResumes.delete(p.questionId);
 	const answering = and(
 		eq(askQuestions.id, p.questionId),

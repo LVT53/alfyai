@@ -201,17 +201,29 @@ async function askStamped(
 const claim = (
 	questionId: string,
 	answer: AskAnswer,
+	conversationId = CHAT,
 ): Promise<AskClaimResult> =>
-	claimAskQuestion({ userId: USER, conversationId: CHAT, questionId, answer });
+	claimAskQuestion({ userId: USER, conversationId, questionId, answer });
+
+/** Claims a question and hands back the token of the claim; the test fails if the claim loses. */
+async function win(
+	questionId: string,
+	answer: AskAnswer,
+	conversationId = CHAT,
+): Promise<string> {
+	const result = await claim(questionId, answer, conversationId);
+	if (!result.ok) throw new Error(`the claim lost: ${result.reason}`);
+	return result.claim;
+}
 
 const list = (conversationId = CHAT, userId = USER) =>
 	listConversationAskQuestions({ userId, conversationId });
 
-const release = (questionId: string) =>
-	releaseAskQuestion({ userId: USER, questionId });
+const release = (questionId: string, claimToken: string) =>
+	releaseAskQuestion({ userId: USER, questionId, claim: claimToken });
 
-const settle = (questionId: string) =>
-	settleAskQuestion({ userId: USER, questionId });
+const settle = (questionId: string, claimToken: string) =>
+	settleAskQuestion({ userId: USER, questionId, claim: claimToken });
 
 const hasWaiting = (conversationId = CHAT, userId = USER) =>
 	hasWaitingAskQuestion({ userId, conversationId });
@@ -397,6 +409,9 @@ describe("claiming a question", () => {
 		// the row holds the answer of the claim that won, and only that one
 		expect(answerOf(id)).toEqual(a.ok ? PICKED_FIRST : CLOSED);
 		expect(rowOf(id).status).toBe("answering");
+		// the winner, and only the winner, is handed the token of its claim
+		expect(a.ok ? a : b).toMatchObject({ ok: true, claim: expect.any(String) });
+		expect(a.ok ? b : a).not.toHaveProperty("claim");
 	});
 
 	it("hands the winner the claimed row, with the answer, the time and the capture", async () => {
@@ -406,6 +421,7 @@ describe("claiming a question", () => {
 
 		expect(won).toMatchObject({
 			ok: true,
+			claim: expect.any(String),
 			row: { id, status: "answering", assistantMessageId: "m1" },
 		});
 		const row = rowOf(id);
@@ -453,8 +469,7 @@ describe("claiming a question", () => {
 		expect(rowOf(id)).toMatchObject({ status: "waiting", answerJson: null });
 
 		// there, but past waiting: answered, and discarded
-		expect((await claim(id, PICKED_FIRST)).ok).toBe(true);
-		await settle(id);
+		await settle(id, await win(id, PICKED_FIRST));
 		expect(await claim(id, CLOSED)).toEqual({
 			ok: false,
 			reason: "not_waiting",
@@ -516,6 +531,70 @@ describe("claiming a question", () => {
 		expect(a.ok ? b : a).toEqual({ ok: false, reason: "not_waiting" });
 		expect(answerOf(id)).toEqual(a.ok ? LEFT_TO_ALFY : CLOSED);
 	});
+
+	it("refuses a row the list cannot read, and throws on an answer that does not parse", async () => {
+		const badQuestions = await askStamped("m1");
+		const badAnswer = await askStamped("m2");
+		const unreadableAnswer = JSON.stringify({
+			kind: "answered",
+			answers: "nope",
+		});
+		setColumn(badQuestions, "questions_json", "{ not json");
+		// a waiting question whose last answer cannot be read
+		setColumn(badAnswer, "answer_json", unreadableAnswer);
+
+		// The list shows no card for either, so neither can be answered; and
+		// nothing is written to them.
+		for (const id of [badQuestions, badAnswer]) {
+			expect(await claim(id, PICKED_FIRST)).toEqual({
+				ok: false,
+				reason: "not_waiting",
+			});
+			expect(rowOf(id).status).toBe("waiting");
+		}
+		expect(rowOf(badQuestions).answerJson).toBeNull();
+		expect(rowOf(badAnswer).answerJson).toBe(unreadableAnswer);
+
+		// An answer that parseAskAnswer rejects is a caller's bug (the route passes
+		// the answer checkAskAnswer returned): it throws, and touches nothing.
+		const id = await askStamped("m3");
+		const rejected = [
+			null,
+			{ kind: "someone" },
+			{ kind: "answered", answers: [] },
+			{
+				kind: "answered",
+				answers: [{ picked: [0], ownWords: "x".repeat(501) }],
+			},
+		];
+		for (const answer of rejected) {
+			await expect(claim(id, answer as unknown as AskAnswer)).rejects.toThrow();
+		}
+		expect(rowOf(id)).toMatchObject({ status: "waiting", answerJson: null });
+		// and none of them left a claim behind: a row a restart left answering is
+		// still released by the next claim, which then wins
+		setColumn(id, "status", "answering");
+		expect((await claim(id, PICKED_FIRST)).ok).toBe(true);
+	});
+
+	it("writes the answer the way it will be read back", async () => {
+		const id = await askStamped("m1");
+		const padded: AskAnswer = {
+			kind: "answered",
+			answers: [{ picked: [], ownWords: "  Green, please  " }],
+		};
+		const trimmed: AskAnswer = {
+			kind: "answered",
+			answers: [{ picked: [], ownWords: "Green, please" }],
+		};
+
+		expect((await claim(id, padded)).ok).toBe(true);
+
+		expect(answerOf(id)).toEqual(trimmed);
+		expect(await list()).toMatchObject([
+			{ id, status: "answering", answer: trimmed },
+		]);
+	});
 });
 
 // --- release and settle -----------------------------------------------------
@@ -523,12 +602,12 @@ describe("claiming a question", () => {
 describe("releasing and settling a claimed question", () => {
 	it("puts a released question back to waiting with its answer, which the list reports", async () => {
 		const id = await askStamped("m1");
-		await claim(id, PICKED_FIRST);
+		const token = await win(id, PICKED_FIRST);
 		expect(await list()).toMatchObject([
 			{ id, status: "answering", answer: PICKED_FIRST },
 		]);
 
-		expect(await release(id)).toBe(true);
+		expect(await release(id, token)).toBe(true);
 
 		expect(rowOf(id).status).toBe("waiting");
 		expect(await list()).toMatchObject([
@@ -553,35 +632,163 @@ describe("releasing and settling a claimed question", () => {
 		expect(rowOf(id).status).toBe("answering");
 	});
 
-	it("releases only a question that is answering", async () => {
+	it("releases only for the claim that holds the question, and only the person's own", async () => {
 		const waiting = await askStamped("m1");
 		const unstamped = await ask();
 
-		expect(await release(waiting)).toBe(false);
-		expect(await release(unstamped)).toBe(false);
-		expect(await release("no-such-question")).toBe(false);
-		expect(
-			await releaseAskQuestion({ userId: OTHER_USER, questionId: waiting }),
-		).toBe(false);
+		// no claim holds a question that was never claimed
+		expect(await release(waiting, "no-such-claim")).toBe(false);
+		expect(await release(unstamped, "no-such-claim")).toBe(false);
+		expect(await release("no-such-question", "no-such-claim")).toBe(false);
 
-		await claim(waiting, PICKED_FIRST);
+		// A restart left a row answering and nothing holds it: a call that carries
+		// no claim at all must not match the empty place in the map.
+		const stale = await askStamped("m2");
+		setColumn(stale, "status", "answering");
 		expect(
-			await releaseAskQuestion({ userId: OTHER_USER, questionId: waiting }),
+			await releaseAskQuestion({
+				userId: USER,
+				questionId: stale,
+				claim: undefined as unknown as string,
+			}),
+		).toBe(false);
+		expect(rowOf(stale).status).toBe("answering");
+
+		// the holder's UPDATE is the person's own: another person's call changes no row
+		const token = await win(waiting, PICKED_FIRST);
+		expect(
+			await releaseAskQuestion({
+				userId: OTHER_USER,
+				questionId: waiting,
+				claim: token,
+			}),
 		).toBe(false);
 		expect(rowOf(waiting).status).toBe("answering");
+	});
+
+	it("never lets a second release for one claim undo a later claim", async () => {
+		const id = await askStamped("m1");
+		const first = await win(id, PICKED_FIRST);
+		expect(await release(id, first)).toBe(true);
+		const second = await win(id, CLOSED);
+
+		// the first claim's release lands again: a retry, a late error path
+		expect(await release(id, first)).toBe(false);
+
+		// The second claim is as it was: its row answering with its answer, and a
+		// third claim still loses.
+		expect(rowOf(id).status).toBe("answering");
+		expect(answerOf(id)).toEqual(CLOSED);
+		expect(await claim(id, LEFT_TO_ALFY)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+		// and it still owns its own release
+		expect(await release(id, second)).toBe(true);
+		expect(rowOf(id).status).toBe("waiting");
+	});
+
+	it("leaves another claim's row alone when a superseded attempt settles", async () => {
+		const id = await askStamped("m1");
+		const first = await win(id, PICKED_FIRST);
+		expect(await release(id, first)).toBe(true);
+		const second = await win(id, CLOSED);
+
+		expect(await settle(id, first)).toBeNull();
+
+		// the row keeps the second claim: answering, its answer, its capture
+		expect(rowOf(id)).toMatchObject({ status: "answering", settledAt: null });
+		expect(answerOf(id)).toEqual(CLOSED);
+		expect(readAskCapture(rowOf(id))).toEqual(CAPTURE);
+		expect(await claim(id, LEFT_TO_ALFY)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+		// and the second claim settles it, as the X
+		expect(await settle(id, second)).toMatchObject({ status: "closed" });
+	});
+
+	it("leaves exactly one live claim when a release races a claim", async () => {
+		const races: Array<(id: string, first: string) => Promise<AskClaimResult>> =
+			[
+				// the release starts first, the claim right behind it
+				async (id, first) => {
+					const [, second] = await Promise.all([
+						release(id, first),
+						claim(id, CLOSED),
+					]);
+					return second;
+				},
+				// the claim starts first, while the first claim is still live
+				async (id, first) => {
+					const [second] = await Promise.all([
+						claim(id, CLOSED),
+						release(id, first),
+					]);
+					return second;
+				},
+			];
+
+		for (const [n, race] of races.entries()) {
+			const id = await askStamped(`m${n + 1}`);
+			const first = await win(id, PICKED_FIRST);
+
+			const second = await race(id, first);
+			const third = await claim(id, LEFT_TO_ALFY);
+
+			// Either order is legitimate. Never both: two live claims would start two
+			// resumes for one question.
+			const winners = [second, third].filter((result) => result.ok);
+			expect(winners).toHaveLength(1);
+			expect(rowOf(id).status).toBe("answering");
+			expect(answerOf(id)).toEqual(second.ok ? CLOSED : LEFT_TO_ALFY);
+		}
+	});
+
+	it("leaves a settled question settled when a settle races a claim", async () => {
+		const races: Array<(id: string, first: string) => Promise<AskClaimResult>> =
+			[
+				async (id, first) => {
+					const [, second] = await Promise.all([
+						settle(id, first),
+						claim(id, CLOSED),
+					]);
+					return second;
+				},
+				async (id, first) => {
+					const [second] = await Promise.all([
+						claim(id, CLOSED),
+						settle(id, first),
+					]);
+					return second;
+				},
+			];
+
+		for (const [n, race] of races.entries()) {
+			const id = await askStamped(`m${n + 1}`);
+			const first = await win(id, PICKED_FIRST);
+
+			const second = await race(id, first);
+
+			// The settle is the first claim's to make and the question is answered
+			// for good: the racing claim never wins, in either order.
+			expect(second).toEqual({ ok: false, reason: "not_waiting" });
+			expect(rowOf(id).status).toBe("answered");
+			expect(answerOf(id)).toEqual(PICKED_FIRST);
+		}
 	});
 
 	it("settles an answer as answered and the X as closed, and drops the capture", async () => {
 		const answered = await askStamped("m1");
 		const closed = await askStamped("m2");
 		const leftToAlfy = await askStamped("m3");
-		await claim(answered, PICKED_FIRST);
-		await claim(closed, CLOSED);
-		await claim(leftToAlfy, LEFT_TO_ALFY);
+		const answeredClaim = await win(answered, PICKED_FIRST);
+		const closedClaim = await win(closed, CLOSED);
+		const leftToAlfyClaim = await win(leftToAlfy, LEFT_TO_ALFY);
 
-		const a = await settle(answered);
-		const c = await settle(closed);
-		const l = await settle(leftToAlfy);
+		const a = await settle(answered, answeredClaim);
+		const c = await settle(closed, closedClaim);
+		const l = await settle(leftToAlfy, leftToAlfyClaim);
 
 		expect(a).toMatchObject({
 			id: answered,
@@ -611,36 +818,60 @@ describe("releasing and settling a claimed question", () => {
 		]);
 
 		// nothing is settled twice, and nothing that was never claimed
-		expect(await settle(answered)).toBeNull();
+		expect(await settle(answered, answeredClaim)).toBeNull();
 		const waiting = await askStamped("m4");
-		expect(await settle(waiting)).toBeNull();
+		expect(await settle(waiting, "no-such-claim")).toBeNull();
 		expect(rowOf(waiting)).toMatchObject({
 			status: "waiting",
 			settledAt: null,
 		});
 		expect(
-			await settleAskQuestion({ userId: OTHER_USER, questionId: waiting }),
+			await settleAskQuestion({
+				userId: OTHER_USER,
+				questionId: waiting,
+				claim: "no-such-claim",
+			}),
 		).toBeNull();
 	});
 
-	it("takes the id out of the live set on release and on settle, whether or not a row changed", async () => {
+	it("lets the holder of the live claim clear it on release and on settle, whether or not its UPDATE changed a row", async () => {
 		const id = await askStamped("m1");
 
 		// release: the row is changed behind the store's back, so it changes nothing
-		await claim(id, PICKED_FIRST);
+		const first = await win(id, PICKED_FIRST);
 		setColumn(id, "status", "waiting");
-		expect(await release(id)).toBe(false);
-		// The id left the set anyway: a row that says answering with no resume
+		expect(await release(id, first)).toBe(false);
+		// The claim was cleared anyway: a row that says answering with no resume
 		// live for it is released by the next claim, which then wins.
 		setColumn(id, "status", "answering");
-		expect((await claim(id, CLOSED)).ok).toBe(true);
+		const second = await win(id, CLOSED);
 
 		// settle: the same
 		setColumn(id, "status", "waiting");
-		expect(await settle(id)).toBeNull();
+		expect(await settle(id, second)).toBeNull();
 		setColumn(id, "status", "answering");
 		expect((await claim(id, PICKED_FIRST)).ok).toBe(true);
 		expect(answerOf(id)).toEqual(PICKED_FIRST);
+	});
+
+	it("changes nothing when a call holds no live claim", async () => {
+		const id = await askStamped("m1");
+		const token = await win(id, PICKED_FIRST);
+
+		// an unknown claim, and another question's: neither releases or settles
+		expect(await release(id, "no-such-claim")).toBe(false);
+		expect(await settle(id, "no-such-claim")).toBeNull();
+		const other = await askStamped("m2");
+		expect(await release(id, await win(other, CLOSED))).toBe(false);
+		expect(rowOf(id)).toMatchObject({ status: "answering", settledAt: null });
+		expect(rowOf(other).status).toBe("answering");
+
+		// and the live claim was left in place by all of them: nothing else wins
+		expect(await claim(id, CLOSED)).toEqual({
+			ok: false,
+			reason: "not_waiting",
+		});
+		expect(await settle(id, token)).toMatchObject({ id, status: "answered" });
 	});
 });
 
@@ -772,20 +1003,9 @@ describe("the lists", () => {
 		const settled = await askStamped("chat-5-m1", "chat-5");
 		const discarded = await ask({ conversationId: "chat-6" });
 		await discardAskQuestion({ userId: USER, questionId: discarded });
-		await claimAskQuestion({
-			userId: USER,
-			conversationId: "chat-3",
-			questionId: live,
-			answer: PICKED_FIRST,
-		});
+		const liveClaim = await win(live, PICKED_FIRST, "chat-3");
 		setColumn(stale, "status", "answering");
-		await claimAskQuestion({
-			userId: USER,
-			conversationId: "chat-5",
-			questionId: settled,
-			answer: PICKED_FIRST,
-		});
-		await settle(settled);
+		await settle(settled, await win(settled, PICKED_FIRST, "chat-5"));
 		const everyChat = [CHAT, "chat-2", "chat-3", "chat-4", "chat-5", "chat-6"];
 
 		// stamped and waiting (CHAT), and answering with no resume live (chat-4);
@@ -819,7 +1039,7 @@ describe("the lists", () => {
 		).toEqual(new Set());
 
 		// a resume that ends without landing puts its chat back on the sidebar
-		await release(live);
+		await release(live, liveClaim);
 		expect(
 			await listWaitingAskConversationIds({
 				userId: USER,
@@ -845,16 +1065,15 @@ describe("the lists", () => {
 		expect(await hasWaiting(CHAT, OTHER_USER)).toBe(false);
 
 		// answering, with its resume live: the reply is on its way, still no new message
-		await claim(id, PICKED_FIRST);
+		const first = await win(id, PICKED_FIRST);
 		expect(await hasWaiting()).toBe(true);
 
 		// answering, with no resume live for it (a restart): the card is back, still refused
-		await release(id);
+		await release(id, first);
 		setColumn(id, "status", "answering");
 		expect(await hasWaiting()).toBe(true);
 
-		await claim(id, CLOSED);
-		await settle(id);
+		await settle(id, await win(id, CLOSED));
 		expect(await hasWaiting()).toBe(false);
 
 		const discarded = await ask();
