@@ -25,6 +25,7 @@ function createDeps(overrides: Partial<StreamTerminalDeps> = {}) {
 		flushNativeToolCalls: vi.fn(),
 		flushBufferedStreamOutput: vi.fn(() => true),
 		wasStopRequested: vi.fn(() => false),
+		isPaused: vi.fn(() => false),
 		hasVisibleAssistantAnswerOutput: vi.fn(() => false),
 		hasCompletedFileProductionToolCall: vi.fn(() => false),
 		hasCompletedNonFileToolCall: vi.fn(() => false),
@@ -57,6 +58,7 @@ describe("createStreamTerminal", () => {
 			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
 				wasStopped: false,
 				streamClosedWithoutFinish: false,
+				paused: false,
 			});
 		});
 
@@ -68,6 +70,7 @@ describe("createStreamTerminal", () => {
 			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
 				wasStopped: true,
 				streamClosedWithoutFinish: false,
+				paused: false,
 			});
 		});
 
@@ -81,6 +84,19 @@ describe("createStreamTerminal", () => {
 			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
 				wasStopped: false,
 				streamClosedWithoutFinish: true,
+				paused: false,
+			});
+		});
+
+		it("hands a pause to the finalize call and logs it as a success", async () => {
+			const deps = createDeps();
+			const terminal = createStreamTerminal(deps);
+			await terminal.completeSuccess(false, { paused: true });
+			expect(deps.logPhaseTiming).toHaveBeenCalledWith("success");
+			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+				wasStopped: false,
+				streamClosedWithoutFinish: false,
+				paused: true,
 			});
 		});
 
@@ -178,6 +194,7 @@ describe("createStreamTerminal", () => {
 			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
 				wasStopped: true,
 				streamClosedWithoutFinish: false,
+				paused: false,
 			});
 		});
 
@@ -190,6 +207,92 @@ describe("createStreamTerminal", () => {
 			expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
 				wasStopped: false,
 				streamClosedWithoutFinish: true,
+				paused: false,
+			});
+		});
+
+		describe("a reply that asked the person and paused", () => {
+			// The pause is the one ending whose run stops on purpose, so the checks
+			// that read a missing answer as a failed run must never see it.
+			it("completes a paused run as paused, before the whole-generation fallback", async () => {
+				const fallbackRunner = vi.fn(async () => null);
+				const deps = createDeps({
+					isPaused: vi.fn(() => true),
+					// the reply has no words: only the ask call, a completed tool call
+					hasVisibleAssistantAnswerOutput: vi.fn(() => false),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+					getFallbackRunner: vi.fn(() => fallbackRunner),
+				});
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: true,
+				});
+				expect(fallbackRunner).not.toHaveBeenCalled();
+				expect(deps.emitError).not.toHaveBeenCalled();
+			});
+
+			it("completes a paused run that spoke before it asked as paused too", async () => {
+				const deps = createDeps({
+					isPaused: vi.fn(() => true),
+					hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+					hasCompletedNonFileToolCall: vi.fn(() => true),
+				});
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: false,
+					paused: true,
+				});
+			});
+
+			it("completes a paused run whose stream closed without a finish as paused, naming the closure", async () => {
+				const deps = createDeps({ isPaused: vi.fn(() => true) });
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("stream_closed");
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: false,
+					streamClosedWithoutFinish: true,
+					paused: true,
+				});
+			});
+
+			it("lets a stop asked before the pause win", async () => {
+				const deps = createDeps({
+					isPaused: vi.fn(() => true),
+					wasStopRequested: vi.fn(() => true),
+				});
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith({
+					wasStopped: true,
+					streamClosedWithoutFinish: false,
+					paused: false,
+				});
+			});
+
+			it("does not pause when the buffered output could not flush", async () => {
+				const deps = createDeps({
+					isPaused: vi.fn(() => true),
+					flushBufferedStreamOutput: vi.fn(() => false),
+				});
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
+				expect(deps.runCompleteStreamTurn).not.toHaveBeenCalled();
+			});
+
+			it("never asks for a pause of a run that did not ask", async () => {
+				const deps = createDeps({
+					hasVisibleAssistantAnswerOutput: vi.fn(() => true),
+				});
+				const terminal = createStreamTerminal(deps);
+				await terminal.completeOrRecoverAfterUpstreamEnd("end_event");
+				expect(deps.runCompleteStreamTurn).toHaveBeenCalledWith(
+					expect.objectContaining({ paused: false }),
+				);
 			});
 		});
 

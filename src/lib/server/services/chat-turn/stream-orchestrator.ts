@@ -23,6 +23,12 @@ import {
 	unsubscribeFromStream,
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
+import { buildAskResumeCapture } from "$lib/server/services/chat-turn/ask-capture";
+import {
+	type AskResumeCapture,
+	discardAskQuestion,
+	discardStaleAskQuestions,
+} from "$lib/server/services/chat-turn/ask-questions";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
@@ -104,7 +110,10 @@ import {
 	createFileProductionCapture,
 	looksLikeFileProductionLeak,
 } from "./file-production-capture";
-import type { StreamingNormalChatPreparedContext } from "./streaming-normal-chat-model-run";
+import type {
+	StreamingNormalChatPreparedContext,
+	StreamingNormalChatSendModelResult,
+} from "./streaming-normal-chat-model-run";
 
 function getStreamTimeoutMs(): number {
 	return Math.max(60_000, getConfig().requestTimeoutMs);
@@ -810,6 +819,38 @@ export function runChatStreamOrchestrator(
 				preparedTurn?.depthMetadata;
 			let latestUpstreamFinishReason: FinishReason | null = null;
 			let latestUpstreamRawFinishReason: string | null = null;
+			// The streaming model run of this turn, once it exists. What the reply
+			// asked the person (ask_user) and what the run said and read are read
+			// from it at the ending, long after the closures below were made. The
+			// non-stream fallback has none and never asks.
+			let streamingRun: StreamingNormalChatSendModelResult | null = null;
+			const readTurnAsk = () => streamingRun?.getTurnAsk() ?? null;
+			// The pause of a reply that asked: its question and what the resume
+			// starts from. The tool calls are the prefetched ones and every call the
+			// run recorded, evidence-ready or not, since a failed call's result is in
+			// the messages too. No earlier segment's rows yet (`priorResults`): the
+			// resume turn passes its own.
+			const buildAskPause = (): {
+				questionId: string;
+				capture: AskResumeCapture;
+			} | null => {
+				const run = streamingRun;
+				const ask = readTurnAsk();
+				if (!run || !ask) return null;
+				return {
+					questionId: ask.questionId,
+					capture: buildAskResumeCapture({
+						continuationGiven: run.continuationGiven,
+						responseMessages: run.getResponseMessages(),
+						toolCalls: [
+							...run.prefetchedToolCalls,
+							...run.getNormalChatToolCalls(),
+						],
+						priorResults: [],
+						askToolCallId: ask.toolCallId,
+					}),
+				};
+			};
 			let fileProductionJobIdsAtStart: StreamCompletionFact<FileProductionStartSnapshot> | null =
 				null;
 			const ensureFileProductionJobIdsAtStart = () => {
@@ -831,6 +872,7 @@ export function runChatStreamOrchestrator(
 			const runCompleteStreamTurn = async (args: {
 				wasStopped: boolean;
 				streamClosedWithoutFinish: boolean;
+				paused: boolean;
 			}) => {
 				await completeStreamTurn({
 					uiLanguage: user.uiLanguage,
@@ -897,6 +939,7 @@ export function runChatStreamOrchestrator(
 					upstreamFinishReason: latestUpstreamFinishReason,
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
 					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
+					askPause: args.paused ? buildAskPause() : null,
 					serverTimeline: createTerminalStreamTimelinePayload(phaseTimingMs),
 					touchConversation,
 					enqueueChunk,
@@ -926,6 +969,7 @@ export function runChatStreamOrchestrator(
 				flushNativeToolCalls: () => chunkRuntime.flushNativeToolCalls(),
 				flushBufferedStreamOutput,
 				wasStopRequested,
+				isPaused: () => readTurnAsk() !== null,
 				hasVisibleAssistantAnswerOutput,
 				hasCompletedFileProductionToolCall,
 				hasCompletedNonFileToolCall,
@@ -1167,6 +1211,26 @@ export function runChatStreamOrchestrator(
 				});
 				ensureFileProductionJobIdsAtStart();
 				ensurePendingWriteIdsAtStart();
+				// A crash, or a turn that could not save, leaves questions that no reply
+				// was saved with. This chat's go before this turn can ask its own (the
+				// arbiter above lets one stream run per chat, so none of them is a
+				// question being asked now). Best-effort: a store that is down must
+				// not stop the turn.
+				try {
+					await discardStaleAskQuestions({
+						userId: user.id,
+						conversationId,
+					});
+				} catch (error) {
+					console.warn(
+						"[CHAT_STREAM] Could not clear the chat's stale questions",
+						{
+							conversationId,
+							streamId,
+							error,
+						},
+					);
+				}
 
 				if (personalityProfileId) {
 					const profile = await getPersonalityProfile(
@@ -1239,6 +1303,7 @@ export function runChatStreamOrchestrator(
 				if (!modelRun) {
 					return;
 				}
+				streamingRun = modelRun;
 				latestModelId = modelRun.modelId ?? latestModelId;
 				latestModelDisplayName =
 					modelRun.modelDisplayName ?? latestModelDisplayName;
@@ -1580,6 +1645,30 @@ export function runChatStreamOrchestrator(
 					unregisterActiveChatStream(streamId, upstreamAbortController);
 				}
 				cancelStream = () => undefined;
+				// A question the run recorded stays only if the reply that asked it was
+				// saved, paused and tied to it (finalize stamps it before the terminal
+				// frame). Whatever else ended the turn (a stop, an error, a fallback, a
+				// chat deleted meanwhile, a stamp that failed) leaves it with no reply
+				// to belong to, so it goes. The store ignores a stamped question.
+				const askedQuestion = readTurnAsk();
+				if (askedQuestion) {
+					try {
+						await discardAskQuestion({
+							userId: user.id,
+							questionId: askedQuestion.questionId,
+						});
+					} catch (error) {
+						console.warn(
+							"[CHAT_STREAM] Could not discard an unsaved question",
+							{
+								conversationId,
+								streamId,
+								questionId: askedQuestion.questionId,
+								error,
+							},
+						);
+					}
+				}
 			}
 		},
 		cancel() {

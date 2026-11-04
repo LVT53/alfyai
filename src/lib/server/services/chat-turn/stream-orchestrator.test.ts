@@ -1,9 +1,11 @@
+import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	appendToStreamBuffer,
 	clearStreamBuffer,
 	getOrCreateStreamBuffer,
 	getStreamBuffer,
+	isStreamActive,
 	registerActiveChatStream,
 	requestActiveChatStreamStop,
 	subscribeToStream,
@@ -62,6 +64,17 @@ vi.mock(
 
 vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 	runPlainNormalChatSendModel: vi.fn(),
+}));
+
+// The store of the questions Alfy asks (tested on a real database in
+// ask-questions.test.ts). Down here, the orchestrator tests assert what the turn
+// asks of it: the sweep at its start, the stamp of a paused reply, the discard
+// of a question no reply was saved with. resetCompletionMocks() sets the
+// defaults after every vi.resetAllMocks().
+vi.mock("$lib/server/services/chat-turn/ask-questions", () => ({
+	stampAskQuestion: vi.fn(),
+	discardAskQuestion: vi.fn(),
+	discardStaleAskQuestions: vi.fn(),
 }));
 
 // P2 — the instant-acknowledgment control call is mocked at this seam so the
@@ -129,8 +142,19 @@ vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
 	),
 }));
 
+// The activity rows a turn's tool calls leave are not what these tests are
+// about, and the messages they would point at are mocked: left real, each write
+// fails its foreign key and logs. Plain functions, so vi.resetAllMocks() leaves them.
+vi.mock("$lib/server/services/activity-events", () => ({
+	recordToolCallActivityEvents: async () => undefined,
+	recordSkillUseActivityEvent: async () => undefined,
+	recordTurnOriginActivityEvent: async () => undefined,
+}));
+
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
 	nameConversationAfterTurn: vi.fn(),
+	// a stopped turn records only its analytics instead of the turn state
+	recordAssistantTurnAnalytics: vi.fn(() => Promise.resolve()),
 	persistAssistantEvidence: vi.fn(() => Promise.resolve()),
 	persistAssistantTurnState: vi.fn(() =>
 		Promise.resolve({
@@ -363,6 +387,12 @@ function createNeutralStreamingResult(
 		prefetchedToolCalls: [],
 		getNormalChatToolCalls: () => normalChatToolCalls,
 		getToolCalls: () => normalChatToolCalls,
+		// A run that asked the person says so through getTurnAsk, and hands over
+		// what it said and read (getResponseMessages) after what it was given
+		// (continuationGiven): a test of a pause overrides them.
+		getTurnAsk: () => null,
+		getResponseMessages: () => [],
+		continuationGiven: [],
 		...overrides,
 	};
 }
@@ -442,6 +472,7 @@ async function resetCompletionMocks() {
 		persistAssistantEvidence,
 		persistAssistantTurnState,
 		persistUserTurnAttachments,
+		recordAssistantTurnAnalytics,
 		runPostTurnTasks,
 	} = await import("$lib/server/services/chat-turn/finalize-steps");
 	const { getChatFilesForAssistantMessage, syncGeneratedFilesToMemory } =
@@ -456,6 +487,8 @@ async function resetCompletionMocks() {
 		listPendingWritesForConversation,
 	} = await import("$lib/server/services/connections/pending-writes");
 	const { estimateTokenCount } = await import("$lib/utils/tokens");
+	const { stampAskQuestion, discardAskQuestion, discardStaleAskQuestions } =
+		await import("$lib/server/services/chat-turn/ask-questions");
 	const { resolveTurnAcknowledgment } = await import(
 		"$lib/server/services/chat-turn/turn-acknowledgment"
 	);
@@ -487,6 +520,9 @@ async function resetCompletionMocks() {
 		undefined,
 	);
 	(runPostTurnTasks as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+	(recordAssistantTurnAnalytics as ReturnType<typeof vi.fn>).mockResolvedValue(
+		undefined,
+	);
 	(
 		getChatFilesForAssistantMessage as ReturnType<typeof vi.fn>
 	).mockResolvedValue([]);
@@ -512,6 +548,9 @@ async function resetCompletionMocks() {
 		job: { id: "job-recovered-1" },
 	});
 	(estimateTokenCount as ReturnType<typeof vi.fn>).mockReturnValue(100);
+	(stampAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+	(discardAskQuestion as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+	(discardStaleAskQuestions as ReturnType<typeof vi.fn>).mockResolvedValue(0);
 	// P3b — default no-op session: samples nothing, returns no steps. Tests
 	// that exercise the classifier wiring itself override this per-test.
 	(
@@ -3244,5 +3283,538 @@ describe("stream-orchestrator SSE contract", () => {
 			);
 		});
 		expect(upstreamSignal?.aborted).toBe(false);
+	});
+});
+
+// "Ask me first": a reply that asks the person stops where it asks, is saved as
+// a segment with what its resume needs, and is never regenerated from scratch.
+describe("stream-orchestrator: a reply that asks the person", () => {
+	const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
+	const questions = [
+		{
+			question: "Which one?",
+			options: [{ label: "A", recommended: true }, { label: "B" }],
+		},
+	];
+	const ask = { questionId: "q-1", toolCallId: "call-ask", questions };
+	const askEntry = {
+		callId: "call-ask",
+		name: "ask_user",
+		input: { questions },
+		status: "done",
+		outputSummary: "Asked the user; the reply paused for the answer.",
+		sourceType: "tool",
+		metadata: { paused: true, questionId: "q-1" },
+	};
+	const fetchEntry = {
+		callId: "pre-1",
+		name: "fetch_url",
+		input: { urls: ["https://example.com/a"] },
+		status: "done" as const,
+		outputSummary: "Fetched 1 page.",
+		sourceType: "web" as const,
+	};
+	const searchEntry = {
+		callId: "call-search",
+		name: "research_web",
+		input: { query: "wall colours" },
+		status: "done",
+		outputSummary: "Found 2 sources.",
+		resultDigest: "Source B prefers grey.",
+		sourceType: "web",
+		candidates: [],
+		metadata: { ok: true, evidenceReady: true },
+	};
+	// what the model was given before it ran: the page the server fetched
+	const continuationGiven: ModelMessage[] = [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "pre-1",
+					toolName: "fetch_url",
+					input: { urls: ["https://example.com/a"] },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "pre-1",
+					toolName: "fetch_url",
+					output: { type: "json", value: { page: "the whole page" } },
+				},
+			],
+		},
+	];
+	// what the run said and read until it stopped
+	const responseMessages: ModelMessage[] = [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "call-search",
+					toolName: "research_web",
+					input: { query: "wall colours" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-search",
+					toolName: "research_web",
+					output: { type: "json", value: { sources: ["the whole result"] } },
+				},
+			],
+		},
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Which one?" },
+				{
+					type: "tool-call",
+					toolCallId: "call-ask",
+					toolName: "ask_user",
+					input: { questions },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-ask",
+					toolName: "ask_user",
+					output: { type: "json", value: { status: "waiting_for_user" } },
+				},
+			],
+		},
+	];
+	const searchEvents: NeutralStreamEvent[] = [
+		{
+			type: "tool_call",
+			callId: "call-search",
+			toolName: "research_web",
+			input: { query: "wall colours" },
+		},
+		{
+			type: "tool_result",
+			callId: "call-search",
+			toolName: "research_web",
+			output: { success: true },
+		},
+	];
+	const askEvents: NeutralStreamEvent[] = [
+		{
+			type: "tool_call",
+			callId: "call-ask",
+			toolName: "ask_user",
+			input: { questions },
+		},
+		{
+			type: "tool_result",
+			callId: "call-ask",
+			toolName: "ask_user",
+			output: { status: "waiting_for_user" },
+		},
+	];
+	const askingRun = {
+		normalChatToolCalls: [searchEntry, askEntry],
+		prefetchedToolCalls: [fetchEntry],
+		continuationGiven,
+		getResponseMessages: () => responseMessages,
+		getTurnAsk: () => ask,
+	};
+
+	beforeEach(async () => {
+		vi.resetAllMocks();
+		await resetCompletionMocks();
+	});
+
+	async function mockRun(
+		events: NeutralStreamEvent[],
+		overrides: Record<string, unknown> = askingRun,
+	) {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(createNeutralStreamingResult(events, overrides));
+		return runStreamingNormalChatSendModel;
+	}
+
+	function terminalMetadata(chunks: string[]) {
+		return uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+	}
+
+	it("ends a run that asked as a paused segment: no fallback, and the question named at the end", async () => {
+		await mockRun([
+			{ type: "text_delta", text: "Let me look first." },
+			...searchEvents,
+			{ type: "text_delta", text: "Which one?" },
+			...askEvents,
+			{ type: "usage", usage: { inputTokens: 11, outputTokens: 7 } },
+			finishEvent,
+		]);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		const { stampAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		const chunks = await readSseResponse(runStream());
+		const parts = parseUiStreamParts(chunks);
+
+		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+		expect(
+			parts.some(
+				(part) => part !== "[DONE]" && part.type === "data-stream-error",
+			),
+		).toBe(false);
+		// the question is tied to the row that asked it, with what the resume
+		// needs: the page it was given and what it said and read since
+		expect(stampAskQuestion).toHaveBeenCalledTimes(1);
+		expect(stampAskQuestion).toHaveBeenCalledWith({
+			userId: "u1",
+			questionId: "q-1",
+			assistantMessageId: "msg-1",
+			capture: {
+				v: 1,
+				messages: [...continuationGiven, ...responseMessages],
+				results: [
+					expect.objectContaining({
+						toolCallId: "pre-1",
+						toolName: "fetch_url",
+						localDistilled: false,
+					}),
+					expect.objectContaining({
+						toolCallId: "call-search",
+						toolName: "research_web",
+						localDistilled: false,
+						digest: expect.objectContaining({ summary: "Found 2 sources." }),
+					}),
+				],
+			},
+		});
+		const metadata = terminalMetadata(chunks);
+		expect(metadata).toMatchObject({
+			waitingQuestionId: "q-1",
+			assistantMessageId: "msg-1",
+			wasStopped: false,
+		});
+		expect(metadata).not.toHaveProperty("followUps");
+		expect(parts).toContainEqual({ type: "finish", finishReason: "stop" });
+	});
+
+	it("ends a run that asked before saying a word as a paused segment, and never regenerates it from scratch", async () => {
+		// only the ask call: no visible answer, but a completed tool call, which
+		// is exactly what the whole-generation fallback is for when a run dies
+		await mockRun([...askEvents, finishEvent]);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		const { stampAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+
+		const chunks = await readSseResponse(runStream());
+		const parts = parseUiStreamParts(chunks);
+
+		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+		expect(
+			parts.some(
+				(part) => part !== "[DONE]" && part.type === "data-stream-error",
+			),
+		).toBe(false);
+		expect(stampAskQuestion).toHaveBeenCalledWith(
+			expect.objectContaining({ questionId: "q-1" }),
+		);
+		expect(terminalMetadata(chunks)).toMatchObject({
+			waitingQuestionId: "q-1",
+		});
+		expect(createMessage).toHaveBeenCalledWith(
+			"test-conv",
+			"assistant",
+			"",
+			undefined,
+			expect.arrayContaining([
+				expect.objectContaining({ type: "tool_call", name: "ask_user" }),
+			]),
+			expect.anything(),
+		);
+	});
+
+	it("discards the question of a run that failed after asking", async () => {
+		await mockRun([
+			...askEvents,
+			{
+				type: "error",
+				error: "Provider rejected the model response after tool use.",
+			},
+		]);
+		const { stampAskQuestion, discardAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		const parts = parseUiStreamParts(await readSseResponse(runStream()));
+
+		expect(parts).toContainEqual({ type: "finish", finishReason: "error" });
+		expect(stampAskQuestion).not.toHaveBeenCalled();
+		// the discard runs when the turn ends, a moment after the stream closes
+		await vi.waitFor(() =>
+			expect(discardAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+			}),
+		);
+	});
+
+	it("does not pause a reply the non-stream fallback recovered, and discards its question", async () => {
+		await mockRun([
+			...askEvents,
+			{ type: "error", error: "socket terminated" },
+		]);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
+			{
+				text: "Recovered answer.",
+				contextStatus: null,
+				taskState: null,
+				contextDebug: null,
+				providerUsage: null,
+				normalChatToolCalls: [],
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			},
+		);
+		const { stampAskQuestion, discardAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		const chunks = await readSseResponse(runStream());
+
+		// the fallback never pauses: it is given no way to
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.not.objectContaining({ canPause: true }),
+		);
+		expect(chunks.join("\n\n")).toContain("Recovered answer.");
+		const metadata = terminalMetadata(chunks);
+		expect(metadata).not.toHaveProperty("waitingQuestionId");
+		expect(stampAskQuestion).not.toHaveBeenCalled();
+		await vi.waitFor(() =>
+			expect(discardAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+			}),
+		);
+	});
+
+	it("saves a reply stopped after it asked as stopped, discards its question and pauses nothing", async () => {
+		let atGate!: () => void;
+		const reachedGate = new Promise<void>((resolve) => {
+			atGate = resolve;
+		});
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await mockRun([], {
+			...askingRun,
+			stream: (async function* () {
+				yield { type: "text_delta", text: "Which one?" };
+				for (const event of askEvents) yield event;
+				atGate();
+				await gate;
+				yield finishEvent;
+			})(),
+		});
+		const { stampAskQuestion, discardAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+
+		const reading = readSseResponse(
+			runStream({
+				conversationId: "stopped-ask-conv",
+				streamId: "stopped-ask-stream",
+			}),
+		);
+		await reachedGate;
+		// the person stops the reply after the question was asked, before the run
+		// ends and the pause is decided
+		expect(
+			requestActiveChatStreamStop({
+				streamId: "stopped-ask-stream",
+				userId: "u1",
+			}),
+		).toBe(true);
+		release();
+		const chunks = await reading;
+
+		const metadata = terminalMetadata(chunks);
+		expect(metadata).toMatchObject({ wasStopped: true });
+		expect(metadata).not.toHaveProperty("waitingQuestionId");
+		expect(stampAskQuestion).not.toHaveBeenCalled();
+		// a later turn's history must not read a question still open
+		expect(createMessage).toHaveBeenCalledWith(
+			"stopped-ask-conv",
+			"assistant",
+			"Which one?",
+			undefined,
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "tool_call",
+					name: "ask_user",
+					outputSummary: STOPPED_BEFORE_ANSWER,
+					resultDigest: STOPPED_BEFORE_ANSWER,
+				}),
+			]),
+			expect.anything(),
+		);
+		await vi.waitFor(() =>
+			expect(discardAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+			}),
+		);
+	});
+
+	it("does not discard anything for a run that never asked", async () => {
+		await mockRun([{ type: "text_delta", text: "Done." }, finishEvent], {});
+		const { stampAskQuestion, discardAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		const chunks = await readSseResponse(
+			runStream({
+				conversationId: "never-asked-conv",
+				streamId: "never-asked-stream",
+			}),
+		);
+		// the turn's own ending (its `finally`) has run once the stream is gone
+		await vi.waitFor(() =>
+			expect(
+				isStreamActive({
+					streamId: "never-asked-stream",
+					userId: "u1",
+					conversationId: "never-asked-conv",
+				}),
+			).toBe(false),
+		);
+
+		expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
+		expect(stampAskQuestion).not.toHaveBeenCalled();
+		expect(discardAskQuestion).not.toHaveBeenCalled();
+	});
+
+	it("discards a chat's stale unstamped questions when a turn starts, before the model runs", async () => {
+		const runStreaming = await mockRun(
+			[{ type: "text_delta", text: "Hi" }, finishEvent],
+			{},
+		);
+		const { discardStaleAskQuestions } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		await readSseResponse(runStream({ conversationId: "sweep-conv" }));
+
+		expect(discardStaleAskQuestions).toHaveBeenCalledTimes(1);
+		expect(discardStaleAskQuestions).toHaveBeenCalledWith({
+			userId: "u1",
+			conversationId: "sweep-conv",
+		});
+		expect(
+			vi.mocked(discardStaleAskQuestions).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(runStreaming).mock.invocationCallOrder[0]);
+	});
+
+	it("starts the turn when the sweep fails", async () => {
+		await mockRun(
+			[{ type: "text_delta", text: "Still here." }, finishEvent],
+			{},
+		);
+		const { discardStaleAskQuestions } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+		vi.mocked(discardStaleAskQuestions).mockRejectedValue(
+			new Error("database is locked"),
+		);
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		try {
+			const chunks = await readSseResponse(runStream());
+
+			expect(chunks.join("\n\n")).toContain("Still here.");
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("questions"),
+				expect.anything(),
+			);
+		} finally {
+			warnSpy.mockRestore();
+		}
+	});
+
+	it("does not sweep when the connection only reconnects to a running stream", async () => {
+		const { discardStaleAskQuestions } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+		const ownerController = new AbortController();
+		registerActiveChatStream({
+			streamId: "sweep-reconnect-stream",
+			userId: "u1",
+			conversationId: "sweep-reconnect-conv",
+			controller: ownerController,
+		});
+		getOrCreateStreamBuffer({
+			streamId: "sweep-reconnect-stream",
+			userId: "u1",
+			conversationId: "sweep-reconnect-conv",
+			userMessage: "Hello",
+			reasoningDepth: "thorough",
+		});
+
+		try {
+			const response = runChatStreamOrchestrator({
+				user: { id: "u1", displayName: "User", email: "u@test.com" },
+				turn: createAdmittedTurn({
+					conversationId: "sweep-reconnect-conv",
+					streamId: "sweep-reconnect-stream",
+				}),
+				prepareTurn: async () => {
+					throw new Error("Preparation must not run for active reconnects");
+				},
+				upstreamMessage: "Hello",
+				downstreamAbortSignal: new AbortController().signal,
+				requestStartTime: Date.now(),
+				isReconnect: true,
+			});
+			const reader = response.body?.getReader();
+			if (!reader) throw new Error("Missing response body");
+			await readNextSseChunk(reader);
+
+			expect(discardStaleAskQuestions).not.toHaveBeenCalled();
+
+			await reader.cancel().catch(() => undefined);
+		} finally {
+			clearStreamBuffer("sweep-reconnect-stream");
+			unregisterActiveChatStream("sweep-reconnect-stream", ownerController);
+		}
 	});
 });

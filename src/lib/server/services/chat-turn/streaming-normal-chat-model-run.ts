@@ -34,6 +34,7 @@ import {
 	runStreamingNormalChatModelRun,
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
+import type { TurnAsk } from "$lib/server/services/normal-chat-tools/ask-user";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
@@ -105,6 +106,16 @@ export type StreamingNormalChatSendModelResult = {
 	getNormalChatToolCalls: () => ToolCallEntry[];
 	getToolCalls: () => ToolCallEntry[];
 	depthMetadata?: DepthMetadata;
+	/** What this turn asked the person with `ask_user`, once the tool recorded it; null until then. */
+	getTurnAsk: () => TurnAsk | null;
+	/**
+	 * Everything the run has said and read, as of the last step that finished
+	 * (the SDK's cumulative `response.messages`, tool results whole). Read it when
+	 * the stream sends `finish`: the SDK has finished that step's callback by then.
+	 */
+	getResponseMessages: () => ModelMessage[];
+	/** What the model was given after the person's message: the page the server fetched before it ran. */
+	continuationGiven: ModelMessage[];
 };
 
 export async function runStreamingNormalChatSendModel(
@@ -122,6 +133,9 @@ export async function runStreamingNormalChatSendModel(
 		...params,
 		disableTools: false,
 		forceProduceFileTool: false,
+		// The one run that can stop a reply to wait for the person's answer to
+		// `ask_user`. The plain run, and so the non-stream fallback, never sets it.
+		canPause: true,
 	};
 
 	const runtime = await resolveProviderRuntime(baseParams);
@@ -162,11 +176,17 @@ export async function runStreamingNormalChatSendModel(
 		prepared.inputValue,
 		prepared.turnGuidance,
 	);
+	const continuationGiven: ModelMessage[] = [
+		...(prepared.prefetchedToolMessages ?? []),
+	];
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
 		buildCurrentUserMessage(finalInputValue, prepared.turnPictureImages),
-		...(prepared.prefetchedToolMessages ?? []),
+		...continuationGiven,
 	];
+	// What the run has said and read, as of its last finished step. A plain
+	// assignment: the SDK swallows whatever a step callback throws.
+	let responseMessages: ModelMessage[] = [];
 	logOutboundMessageShape({
 		label: "stream",
 		systemPrompt: prepared.systemPrompt,
@@ -219,6 +239,9 @@ export async function runStreamingNormalChatSendModel(
 		firstStepToolChoice: undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
+		onStepMessages: (messages) => {
+			responseMessages = messages;
+		},
 	});
 
 	return {
@@ -248,5 +271,8 @@ export async function runStreamingNormalChatSendModel(
 			...getNormalChatToolCalls().filter(isEvidenceReadyToolCall),
 		],
 		depthMetadata: activeDepthEffort?.depthMetadata,
+		getTurnAsk: () => toolPack.getTurnAsk(),
+		getResponseMessages: () => responseMessages,
+		continuationGiven,
 	};
 }

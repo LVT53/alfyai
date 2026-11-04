@@ -816,6 +816,8 @@ describe("runStreamingNormalChatSendModel", () => {
 				push: expect.any(Function),
 				drain: expect.any(Function),
 			}),
+			// The streaming run is the one that can stop a reply to ask the person.
+			canPause: true,
 		});
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1254,6 +1256,116 @@ describe("runStreamingNormalChatSendModel", () => {
 		expect(typeof toolsQueue.push).toBe("function");
 		expect(typeof toolsQueue.drain).toBe("function");
 		expect(runQueue).toBe(toolsQueue);
+	});
+
+	// "Ask me first": the streaming run is the one run that can stop a reply to
+	// wait for the person. The turn needs three things back from it to save the
+	// reply as a paused segment: what was asked, what the run said and read, and
+	// what it was given before it ran.
+	describe("pausing to ask the person", () => {
+		const ask = {
+			questionId: "q-1",
+			toolCallId: "call-ask",
+			questions: [
+				{
+					question: "Which one?",
+					options: [{ label: "A", recommended: true }, { label: "B" }],
+				},
+			],
+		};
+		const prefetchedToolMessages = [
+			{
+				role: "assistant" as const,
+				content: [
+					{
+						type: "tool-call" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						input: { urls: ["https://example.com/source"] },
+					},
+				],
+			},
+			{
+				role: "tool" as const,
+				content: [
+					{
+						type: "tool-result" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						output: { type: "json" as const, value: { success: true } },
+					},
+				],
+			},
+		];
+		let recordedAsk: typeof ask | null;
+
+		beforeEach(() => {
+			recordedAsk = null;
+			mocks.createNormalChatTools.mockReturnValue({
+				tools: { research_web: { __testTool: true } },
+				getToolCalls: () => [],
+				getTurnAsk: () => recordedAsk,
+			});
+		});
+
+		it("lets the streaming run pause, and returns the turn's ask, its response messages and the continuation it was given", async () => {
+			mocks.prepareOutboundChatContext.mockResolvedValue({
+				inputValue: "What does this page say? https://example.com/source",
+				systemPrompt: "Prepared system prompt",
+				contextStatus: { status: "ready" },
+				taskState: null,
+				contextDebug: null,
+				contextTraceSections: [],
+				prefetchedToolMessages,
+			});
+
+			const result = await runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "What does this page say? https://example.com/source",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+			});
+
+			// the tools are told the run can stop to wait
+			expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+				expect.objectContaining({ canPause: true }),
+			);
+			// the page the server fetched before the model ran
+			expect(result.continuationGiven).toEqual(prefetchedToolMessages);
+			// nothing asked, nothing said yet
+			expect(result.getTurnAsk()).toBeNull();
+			expect(result.getResponseMessages()).toEqual([]);
+
+			// the run reports each step with everything said and read so far
+			const runParams = mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0];
+			expect(runParams?.onStepMessages).toBeTypeOf("function");
+			const onStepMessages = runParams.onStepMessages as (
+				messages: unknown[],
+			) => void;
+			const firstStep = [prefetchedToolMessages[0]];
+			const secondStep = [...firstStep, prefetchedToolMessages[1]];
+			onStepMessages(firstStep);
+			expect(result.getResponseMessages()).toEqual(firstStep);
+			onStepMessages(secondStep);
+			expect(result.getResponseMessages()).toEqual(secondStep);
+
+			// the tool recorded the question
+			recordedAsk = ask;
+			expect(result.getTurnAsk()).toEqual(ask);
+		});
+
+		it("hands an empty continuation to a turn that prefetched nothing", async () => {
+			const result = await runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "Plan my week",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+			});
+
+			expect(result.continuationGiven).toEqual([]);
+		});
 	});
 
 	it("does not share a queue between two turns", async () => {

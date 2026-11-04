@@ -75,6 +75,7 @@ function runTerminal() {
 		flushNativeToolCalls: vi.fn(),
 		flushBufferedStreamOutput: vi.fn(() => true),
 		wasStopRequested: vi.fn(() => false),
+		isPaused: vi.fn(() => false),
 		hasVisibleAssistantAnswerOutput: vi.fn(() => false),
 		hasCompletedFileProductionToolCall: vi.fn(() => false),
 		hasCompletedNonFileToolCall: vi.fn(() => false),

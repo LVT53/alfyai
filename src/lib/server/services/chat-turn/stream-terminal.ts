@@ -7,7 +7,8 @@ import type { StreamErrorCode } from "$lib/services/stream-protocol";
  *
  * Owns the three ways a chat stream can end plus the "upstream ended, now what?"
  * decision tree that used to be four sibling closures in the orchestrator:
- *  - {@link StreamTerminal.completeSuccess} — happy-path / stopped / closed-without-finish
+ *  - {@link StreamTerminal.completeSuccess} — happy-path / stopped / paused (the reply asked
+ *    the person and stops there) / closed-without-finish
  *    finalization (delegates the actual finalize payload to the driver via
  *    {@link StreamTerminalDeps.runCompleteStreamTurn}, so the `completeStreamTurn`
  *    boundary is not widened here — that is C5's concern).
@@ -48,11 +49,18 @@ export interface StreamTerminalDeps {
 	runCompleteStreamTurn: (args: {
 		wasStopped: boolean;
 		streamClosedWithoutFinish: boolean;
+		/** The reply asked the person and stops there: it is saved as a paused segment. */
+		paused: boolean;
 	}) => Promise<void>;
 	// completeOrRecoverAfterUpstreamEnd collaborators
 	flushNativeToolCalls: () => void;
 	flushBufferedStreamOutput: () => boolean;
 	wasStopRequested: () => boolean;
+	/**
+	 * The model run asked the person (`ask_user`) and its own stop condition ended
+	 * it: the reply is paused for the answer, not finished and not failed.
+	 */
+	isPaused: () => boolean;
 	hasVisibleAssistantAnswerOutput: () => boolean;
 	hasCompletedFileProductionToolCall: () => boolean;
 	hasCompletedNonFileToolCall: () => boolean;
@@ -75,7 +83,7 @@ export interface StreamTerminalDeps {
 export interface StreamTerminal {
 	completeSuccess: (
 		wasStopped?: boolean,
-		options?: { streamClosedWithoutFinish?: boolean },
+		options?: { streamClosedWithoutFinish?: boolean; paused?: boolean },
 	) => Promise<void>;
 	failStream: (code: StreamErrorCode) => void;
 	failPreparedTurnStream: (error: ChatTurnRequestError) => void;
@@ -87,7 +95,7 @@ export interface StreamTerminal {
 export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 	const completeSuccess = async (
 		wasStopped = false,
-		options: { streamClosedWithoutFinish?: boolean } = {},
+		options: { streamClosedWithoutFinish?: boolean; paused?: boolean } = {},
 	) => {
 		if (deps.isEnded()) return;
 		deps.markEnded();
@@ -101,6 +109,7 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 		await deps.runCompleteStreamTurn({
 			wasStopped,
 			streamClosedWithoutFinish: options.streamClosedWithoutFinish === true,
+			paused: options.paused === true,
 		});
 	};
 
@@ -140,6 +149,19 @@ export function createStreamTerminal(deps: StreamTerminalDeps): StreamTerminal {
 		}
 		if (deps.wasStopRequested()) {
 			await completeSuccess(true);
+			return;
+		}
+		// A reply that asked the person stops where it asks, on purpose, and is
+		// saved as it is. This is decided here, after the stop (a stop asked first
+		// wins) and before the checks below: a run that asked before saying a word
+		// has no visible answer but a completed tool call, which the branch below
+		// reads as a run that died after its tools and answers with a second,
+		// whole generation that would ask again or answer for the person.
+		if (deps.isPaused()) {
+			await completeSuccess(false, {
+				streamClosedWithoutFinish: reason === "stream_closed",
+				paused: true,
+			});
 			return;
 		}
 		if (
