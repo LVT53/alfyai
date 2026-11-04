@@ -57,8 +57,9 @@ export interface StreamTerminalDeps {
 	flushBufferedStreamOutput: () => boolean;
 	wasStopRequested: () => boolean;
 	/**
-	 * The model run asked the person (`ask_user`) and its own stop condition ended
-	 * it: the reply is paused for the answer, not finished and not failed.
+	 * The model run asked the person (`ask_user`), its own stop condition ended it
+	 * and what it said and read holds the ask's result, which a resume answers:
+	 * the reply is paused for the answer, not finished and not failed.
 	 */
 	isPaused: () => boolean;
 	hasVisibleAssistantAnswerOutput: () => boolean;

@@ -3290,6 +3290,7 @@ describe("stream-orchestrator SSE contract", () => {
 // a segment with what its resume needs, and is never regenerated from scratch.
 describe("stream-orchestrator: a reply that asks the person", () => {
 	const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
+	const ENDED_BEFORE_ANSWER = "The reply ended before the user answered.";
 	const questions = [
 		{
 			question: "Which one?",
@@ -3459,6 +3460,41 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		)[0];
 	}
 
+	// The turn's own ending asks the store to discard the question the run asked,
+	// and the store ignores one that is stamped. So the stamp has to come first, and
+	// the ending has to wait for the completion. Were it not awaited, every pause
+	// would be discarded while every test here, with the store mocked, still passed.
+	async function expectStampedBeforeDiscarded() {
+		const { stampAskQuestion, discardAskQuestion } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+		await vi.waitFor(() =>
+			expect(discardAskQuestion).toHaveBeenCalledWith({
+				userId: "u1",
+				questionId: "q-1",
+			}),
+		);
+		expect(
+			vi.mocked(stampAskQuestion).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(discardAskQuestion).mock.invocationCallOrder[0]);
+	}
+
+	// What a failing run writes to the log by itself: the upstream error and the
+	// fallback that follows it. Caught here, so a test names the lines it causes
+	// and the rest of the output stays quiet.
+	function captureStreamLogs() {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		return {
+			error,
+			warn,
+			restore() {
+				error.mockRestore();
+				warn.mockRestore();
+			},
+		};
+	}
+
 	it("ends a run that asked as a paused segment: no fallback, and the question named at the end", async () => {
 		await mockRun([
 			{ type: "text_delta", text: "Let me look first." },
@@ -3517,6 +3553,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		});
 		expect(metadata).not.toHaveProperty("followUps");
 		expect(parts).toContainEqual({ type: "finish", finishReason: "stop" });
+		await expectStampedBeforeDiscarded();
 	});
 
 	it("ends a run that asked before saying a word as a paused segment, and never regenerates it from scratch", async () => {
@@ -3556,43 +3593,128 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 			]),
 			expect.anything(),
 		);
+		await expectStampedBeforeDiscarded();
 	});
 
 	it("discards the question of a run that failed after asking", async () => {
-		await mockRun([
-			...askEvents,
-			{
-				type: "error",
-				error: "Provider rejected the model response after tool use.",
-			},
-		]);
-		const { stampAskQuestion, discardAskQuestion } = await import(
-			"$lib/server/services/chat-turn/ask-questions"
-		);
+		const logs = captureStreamLogs();
+		try {
+			await mockRun([
+				...askEvents,
+				{
+					type: "error",
+					error: "Provider rejected the model response after tool use.",
+				},
+			]);
+			const { stampAskQuestion, discardAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
 
-		const parts = parseUiStreamParts(await readSseResponse(runStream()));
+			const parts = parseUiStreamParts(await readSseResponse(runStream()));
 
-		expect(parts).toContainEqual({ type: "finish", finishReason: "error" });
-		expect(stampAskQuestion).not.toHaveBeenCalled();
-		// the discard runs when the turn ends, a moment after the stream closes
-		await vi.waitFor(() =>
-			expect(discardAskQuestion).toHaveBeenCalledWith({
-				userId: "u1",
-				questionId: "q-1",
-			}),
-		);
+			expect(parts).toContainEqual({ type: "finish", finishReason: "error" });
+			expect(stampAskQuestion).not.toHaveBeenCalled();
+			// the discard runs when the turn ends, a moment after the stream closes
+			await vi.waitFor(() =>
+				expect(discardAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+				}),
+			);
+			expect(logs.error).toHaveBeenCalledWith(
+				"[STREAM] Upstream error event payload",
+				expect.objectContaining({
+					errorMessage: "Provider rejected the model response after tool use.",
+				}),
+			);
+		} finally {
+			logs.restore();
+		}
 	});
 
-	it("does not pause a reply the non-stream fallback recovered, and discards its question", async () => {
-		await mockRun([
-			...askEvents,
-			{ type: "error", error: "socket terminated" },
-		]);
-		const { runPlainNormalChatSendModel } = await import(
-			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
-			{
+	it("saves a run that asked and then failed with its words, its ask call reading that the reply ended, and its question discarded", async () => {
+		const logs = captureStreamLogs();
+		try {
+			await mockRun([
+				{ type: "text_delta", text: "Which one?" },
+				...askEvents,
+				{
+					type: "error",
+					error: "Provider rejected the model response after tool use.",
+				},
+			]);
+			const { stampAskQuestion, discardAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const { createMessage } = await import("$lib/server/services/messages");
+
+			const chunks = await readSseResponse(
+				runStream({
+					conversationId: "failed-ask-conv",
+					streamId: "failed-ask-stream",
+				}),
+			);
+
+			// saved as an ordinary turn: its words are kept, nothing is paused
+			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
+			expect(stampAskQuestion).not.toHaveBeenCalled();
+			// the question goes, so the call that asked it must not read as open
+			expect(createMessage).toHaveBeenCalledWith(
+				"failed-ask-conv",
+				"assistant",
+				"Which one?",
+				undefined,
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "tool_call",
+						name: "ask_user",
+						outputSummary: ENDED_BEFORE_ANSWER,
+						resultDigest: null,
+					}),
+				]),
+				expect.anything(),
+			);
+			await vi.waitFor(() =>
+				expect(discardAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+				}),
+			);
+			expect(logs.error).toHaveBeenCalledWith(
+				"[STREAM] Upstream error event payload",
+				expect.objectContaining({
+					errorMessage: "Provider rejected the model response after tool use.",
+				}),
+			);
+		} finally {
+			logs.restore();
+		}
+	});
+
+	it.each([
+		[
+			"a run that searched and then asked",
+			[...searchEvents, ...askEvents],
+			[searchEntry, askEntry],
+			true,
+		],
+		["a run that only asked", askEvents, [askEntry], false],
+	])("recovers %s through the fallback without pausing it, and hands the fallback no ask call", async (_label, events, recorded, searched) => {
+		const logs = captureStreamLogs();
+		try {
+			await mockRun(
+				[...events, { type: "error", error: "socket terminated" }],
+				{
+					...askingRun,
+					normalChatToolCalls: recorded,
+				},
+			);
+			const { runPlainNormalChatSendModel } = await import(
+				"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+			);
+			(
+				runPlainNormalChatSendModel as ReturnType<typeof vi.fn>
+			).mockResolvedValue({
 				text: "Recovered answer.",
 				contextStatus: null,
 				taskState: null,
@@ -3601,29 +3723,157 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				normalChatToolCalls: [],
 				modelId: "model1",
 				modelDisplayName: "Model One",
-			},
-		);
-		const { stampAskQuestion, discardAskQuestion } = await import(
-			"$lib/server/services/chat-turn/ask-questions"
-		);
+			});
+			const { stampAskQuestion, discardAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const { createMessage } = await import("$lib/server/services/messages");
 
-		const chunks = await readSseResponse(runStream());
+			const chunks = await readSseResponse(
+				runStream({
+					conversationId: "recovered-ask-conv",
+					streamId: "recovered-ask-stream",
+				}),
+			);
 
-		// the fallback never pauses: it is given no way to
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
-			expect.not.objectContaining({ canPause: true }),
-		);
-		expect(chunks.join("\n\n")).toContain("Recovered answer.");
-		const metadata = terminalMetadata(chunks);
-		expect(metadata).not.toHaveProperty("waitingQuestionId");
-		expect(stampAskQuestion).not.toHaveBeenCalled();
-		await vi.waitFor(() =>
-			expect(discardAskQuestion).toHaveBeenCalledWith({
-				userId: "u1",
-				questionId: "q-1",
-			}),
-		);
+			// the fallback never pauses: it is given no way to
+			expect(runPlainNormalChatSendModel).toHaveBeenCalledTimes(1);
+			expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
+				expect.not.objectContaining({ canPause: true }),
+			);
+			// It is handed what the run did, in its system context and in the replay
+			// of its tool calls, and never the ask: a question nobody can answer.
+			const given = vi.mocked(runPlainNormalChatSendModel).mock.calls[0]?.[0];
+			const handedOver = JSON.stringify({
+				context: given?.systemPromptAppendix,
+				replay: given?.continuationMessages,
+			});
+			expect(handedOver).not.toContain("ask_user");
+			expect(handedOver).not.toContain("Asked the user");
+			expect(handedOver.includes("research_web")).toBe(searched);
+			expect(chunks.join("\n\n")).toContain("Recovered answer.");
+			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
+			expect(stampAskQuestion).not.toHaveBeenCalled();
+			// the reply it saves does not read the question as open
+			expect(createMessage).toHaveBeenCalledWith(
+				"recovered-ask-conv",
+				"assistant",
+				"Recovered answer.",
+				undefined,
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "tool_call",
+						name: "ask_user",
+						outputSummary: ENDED_BEFORE_ANSWER,
+						resultDigest: null,
+					}),
+				]),
+				expect.anything(),
+			);
+			await vi.waitFor(() =>
+				expect(discardAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+				}),
+			);
+			expect(logs.error).toHaveBeenCalledWith(
+				"[STREAM] Upstream error event payload",
+				expect.objectContaining({ errorMessage: "socket terminated" }),
+			);
+			expect(logs.warn).toHaveBeenCalledWith(
+				expect.stringContaining("Falling back to non-stream provider run"),
+				expect.objectContaining({ errorMessage: "socket terminated" }),
+			);
+		} finally {
+			logs.restore();
+		}
+	});
+
+	describe("a stream that closed without a finish", () => {
+		// A resume answers the ask's result, so a pause is saved only when what the
+		// run said and read holds it. A stream that closed can end before the last
+		// step was captured.
+		it("pauses a run whose captured messages hold the ask's result, naming the closure", async () => {
+			await mockRun([{ type: "text_delta", text: "Which one?" }, ...askEvents]);
+			const { runPlainNormalChatSendModel } = await import(
+				"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+			);
+			const { stampAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+
+			const chunks = await readSseResponse(runStream());
+
+			expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+			expect(stampAskQuestion).toHaveBeenCalledWith(
+				expect.objectContaining({
+					questionId: "q-1",
+					capture: expect.objectContaining({
+						messages: [...continuationGiven, ...responseMessages],
+					}),
+				}),
+			);
+			expect(terminalMetadata(chunks)).toMatchObject({
+				waitingQuestionId: "q-1",
+				streamClosedWithoutFinish: true,
+				completionWarningCodes: ["stream_closed_without_finish"],
+			});
+			await expectStampedBeforeDiscarded();
+		});
+
+		it.each([
+			["the stream closed without a finish", []],
+			["a finish came before the step was captured", [finishEvent]],
+		])("does not pause a run whose captured messages lack the ask's result when %s: it ends as a turn that never paused", async (_label, ending) => {
+			// only the search step was captured; the step that asked was not
+			await mockRun(
+				[{ type: "text_delta", text: "Which one?" }, ...askEvents, ...ending],
+				{
+					...askingRun,
+					getResponseMessages: () => responseMessages.slice(0, 2),
+				},
+			);
+			const { runPlainNormalChatSendModel } = await import(
+				"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+			);
+			const { stampAskQuestion, discardAskQuestion } = await import(
+				"$lib/server/services/chat-turn/ask-questions"
+			);
+			const { createMessage } = await import("$lib/server/services/messages");
+
+			const chunks = await readSseResponse(
+				runStream({
+					conversationId: "uncaptured-ask-conv",
+					streamId: "uncaptured-ask-stream",
+				}),
+			);
+
+			// its words stand, so nothing is regenerated, and nothing is paused
+			expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
+			expect(stampAskQuestion).not.toHaveBeenCalled();
+			expect(createMessage).toHaveBeenCalledWith(
+				"uncaptured-ask-conv",
+				"assistant",
+				"Which one?",
+				undefined,
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "tool_call",
+						name: "ask_user",
+						outputSummary: ENDED_BEFORE_ANSWER,
+						resultDigest: null,
+					}),
+				]),
+				expect.anything(),
+			);
+			await vi.waitFor(() =>
+				expect(discardAskQuestion).toHaveBeenCalledWith({
+					userId: "u1",
+					questionId: "q-1",
+				}),
+			);
+		});
 	});
 
 	it("saves a reply stopped after it asked as stopped, discards its question and pauses nothing", async () => {
@@ -3683,7 +3933,7 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 					type: "tool_call",
 					name: "ask_user",
 					outputSummary: STOPPED_BEFORE_ANSWER,
-					resultDigest: STOPPED_BEFORE_ANSWER,
+					resultDigest: null,
 				}),
 			]),
 			expect.anything(),
@@ -3743,6 +3993,20 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		expect(
 			vi.mocked(discardStaleAskQuestions).mock.invocationCallOrder[0],
 		).toBeLessThan(vi.mocked(runStreaming).mock.invocationCallOrder[0]);
+	});
+
+	it("runs no sweep for a turn that holds no stream: it is not arbitrated and may overlap another turn of the chat", async () => {
+		await mockRun([{ type: "text_delta", text: "Hi" }, finishEvent], {});
+		const { discardStaleAskQuestions } = await import(
+			"$lib/server/services/chat-turn/ask-questions"
+		);
+
+		const chunks = await readSseResponse(
+			runStream({ conversationId: "no-stream-conv", streamId: undefined }),
+		);
+
+		expect(chunks.join("\n\n")).toContain("Hi");
+		expect(discardStaleAskQuestions).not.toHaveBeenCalled();
 	});
 
 	it("starts the turn when the sweep fails", async () => {

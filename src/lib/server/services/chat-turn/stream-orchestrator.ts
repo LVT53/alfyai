@@ -23,7 +23,10 @@ import {
 	unsubscribeFromStream,
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
-import { buildAskResumeCapture } from "$lib/server/services/chat-turn/ask-capture";
+import {
+	buildAskResumeCapture,
+	holdsAskResult,
+} from "$lib/server/services/chat-turn/ask-capture";
 import {
 	type AskResumeCapture,
 	discardAskQuestion,
@@ -103,6 +106,7 @@ import {
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
 import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
+import { isAskToolName } from "$lib/shared/ask-user";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
@@ -825,6 +829,21 @@ export function runChatStreamOrchestrator(
 			// non-stream fallback has none and never asks.
 			let streamingRun: StreamingNormalChatSendModelResult | null = null;
 			const readTurnAsk = () => streamingRun?.getTurnAsk() ?? null;
+			// The reply is paused when the run asked and what it said and read holds
+			// the ask's result. A resume answers that result, so a capture without it
+			// (a stream that closed without a finish can end before the step that
+			// asked was captured) could never be answered: such a turn ends as one
+			// that never paused, and its question is discarded.
+			const isPausedReply = (): boolean => {
+				const ask = readTurnAsk();
+				return (
+					ask !== null &&
+					holdsAskResult(
+						streamingRun?.getResponseMessages() ?? [],
+						ask.toolCallId,
+					)
+				);
+			};
 			// The pause of a reply that asked: its question and what the resume
 			// starts from. The tool calls are the prefetched ones and every call the
 			// run recorded, evidence-ready or not, since a failed call's result is in
@@ -969,7 +988,7 @@ export function runChatStreamOrchestrator(
 				flushNativeToolCalls: () => chunkRuntime.flushNativeToolCalls(),
 				flushBufferedStreamOutput,
 				wasStopRequested,
-				isPaused: () => readTurnAsk() !== null,
+				isPaused: isPausedReply,
 				hasVisibleAssistantAnswerOutput,
 				hasCompletedFileProductionToolCall,
 				hasCompletedNonFileToolCall,
@@ -1086,6 +1105,13 @@ export function runChatStreamOrchestrator(
 					},
 				);
 
+				// What the fallback is handed of the interrupted run: its tool calls, in
+				// its system context and in the replay of them. Never an ask: the
+				// fallback cannot ask and the question is discarded, so a call that reads
+				// as waiting for the person would only mislead it.
+				const interruptedToolCalls = chunkRuntime.toolCallRecords.filter(
+					(record) => !isAskToolName(record.name),
+				);
 				const recovered = await runNonStreamFallback({
 					runPlainNormalChatSendModel,
 					sendParams: {
@@ -1146,10 +1172,9 @@ export function runChatStreamOrchestrator(
 						});
 					},
 					onResponseActivity: emitResponseActivity,
-					completedToolCallContext: buildCompletedToolCallFallbackContext(
-						chunkRuntime.toolCallRecords,
-					),
-					completedToolCalls: chunkRuntime.toolCallRecords,
+					completedToolCallContext:
+						buildCompletedToolCallFallbackContext(interruptedToolCalls),
+					completedToolCalls: interruptedToolCalls,
 				});
 				if (!recovered && !ended) {
 					emitResponseActivity({
@@ -1212,24 +1237,28 @@ export function runChatStreamOrchestrator(
 				ensureFileProductionJobIdsAtStart();
 				ensurePendingWriteIdsAtStart();
 				// A crash, or a turn that could not save, leaves questions that no reply
-				// was saved with. This chat's go before this turn can ask its own (the
-				// arbiter above lets one stream run per chat, so none of them is a
-				// question being asked now). Best-effort: a store that is down must
-				// not stop the turn.
-				try {
-					await discardStaleAskQuestions({
-						userId: user.id,
-						conversationId,
-					});
-				} catch (error) {
-					console.warn(
-						"[CHAT_STREAM] Could not clear the chat's stale questions",
-						{
+				// was saved with. A turn that holds the chat's stream (the arbiter above
+				// ran for it: it has a streamId) clears this chat's before it can ask its
+				// own; the arbiter lets one stream run per chat, so none of them is being
+				// asked now. A turn with no streamId is not arbitrated and may overlap
+				// another turn of the chat, so it leaves them to a turn that holds the
+				// stream. Best-effort: a store that is down must not stop the turn.
+				if (isMainStream) {
+					try {
+						await discardStaleAskQuestions({
+							userId: user.id,
 							conversationId,
-							streamId,
-							error,
-						},
-					);
+						});
+					} catch (error) {
+						console.warn(
+							"[CHAT_STREAM] Could not clear the chat's stale questions",
+							{
+								conversationId,
+								streamId,
+								error,
+							},
+						);
+					}
 				}
 
 				if (personalityProfileId) {

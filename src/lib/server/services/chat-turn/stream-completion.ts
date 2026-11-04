@@ -260,11 +260,16 @@ export async function completeStreamTurn(
 	// segment is saved stopped and its question is discarded (the orchestrator).
 	const askPause = wasStopped ? null : askPauseHandedOver;
 	// The segments saved with the message are what a later turn's history replays
-	// of this one. A stopped turn that had asked saves its ask call as stopped,
-	// so that history does not read a question still open.
-	const savedSegments = wasStopped
-		? settleStoppedAskCalls(serverSegments)
-		: serverSegments;
+	// of this one. A turn saved without a pause has its question discarded, so an
+	// ask call it recorded (the run asked, then was stopped, failed, was recovered
+	// by the fallback or declined to pause) is saved as ended, not as waiting, and
+	// that history does not read a question still open.
+	const savedSegments = askPause
+		? serverSegments
+		: settleUnansweredAskCalls(
+				serverSegments,
+				wasStopped ? STOPPED_BEFORE_ANSWER : ENDED_BEFORE_ANSWER,
+			);
 
 	// E1 — truncation/content-filter/file-production-failure notices used to
 	// be English sentences appended into `fullResponse` (and therefore into
@@ -1039,26 +1044,27 @@ function getSameTurnFileProductionJobIds(
 	return jobIds;
 }
 
-// What a later turn's history reads of an ask call whose reply was stopped
-// before the person answered: the question was discarded with the stop, so
-// nothing is open. Both fields say it, the summary and the digest the history
-// replays as the call's result.
+// What a later turn's history reads of an ask call whose question was discarded
+// with its reply: nothing is open. Model-facing, so ASCII English (ruling 79).
+// The summary says it and the digest stays as it was, which for a call that
+// paused is none: history replays the summary and the digest as two fields of
+// the call's result, so setting both would say the sentence twice.
 const STOPPED_BEFORE_ANSWER = "The user stopped the reply before answering.";
+const ENDED_BEFORE_ANSWER = "The reply ended before the user answered.";
 
-// Settles the ask calls of a stopped turn. Only a call that really asked (the
-// tool recorded `paused`) is rewritten: a card the tool refused asked nobody
-// and keeps what the model was told.
-function settleStoppedAskCalls(segments: ThinkingSegment[]): ThinkingSegment[] {
+// Settles the ask calls of a reply saved without a pause. Only a call that
+// really asked (the tool recorded `paused`) is rewritten: a card the tool
+// refused asked nobody and keeps what the model was told.
+function settleUnansweredAskCalls(
+	segments: ThinkingSegment[],
+	summary: string,
+): ThinkingSegment[] {
 	return segments.map((segment) =>
 		segment.type === "tool_call" &&
 		isAskToolName(segment.name) &&
 		segment.status === "done" &&
 		segment.metadata?.paused === true
-			? {
-					...segment,
-					outputSummary: STOPPED_BEFORE_ANSWER,
-					resultDigest: STOPPED_BEFORE_ANSWER,
-				}
+			? { ...segment, outputSummary: summary }
 			: segment,
 	);
 }

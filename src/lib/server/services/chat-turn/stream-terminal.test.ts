@@ -249,6 +249,9 @@ describe("createStreamTerminal", () => {
 				});
 			});
 
+			// `isPaused` already holds the capture check (the orchestrator's: a stream
+			// that closed can end before the step that asked was captured, and then
+			// says false, tested in stream-orchestrator.test.ts). The terminal trusts it.
 			it("completes a paused run whose stream closed without a finish as paused, naming the closure", async () => {
 				const deps = createDeps({ isPaused: vi.fn(() => true) });
 				const terminal = createStreamTerminal(deps);

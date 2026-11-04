@@ -2844,6 +2844,7 @@ describe("completeStreamTurn", () => {
 	describe("a reply that paused to ask", () => {
 		const STOPPED_BEFORE_ANSWER =
 			"The user stopped the reply before answering.";
+		const ENDED_BEFORE_ANSWER = "The reply ended before the user answered.";
 		const capture: AskResumeCapture = {
 			v: 1,
 			messages: [
@@ -2977,14 +2978,12 @@ describe("completeStreamTurn", () => {
 				toolCallRecords: [askCall],
 			});
 
-			// a later turn's history must not read a question still open
+			// A later turn's history must not read a question still open. The summary
+			// says it and the digest stays as it was (the paused call has none), so
+			// history reads the sentence once, not as both summary and detail.
 			expect(getSavedAssistantSegments()).toEqual([
 				{ type: "text", content: "Which one?" },
-				{
-					...askSegment,
-					outputSummary: STOPPED_BEFORE_ANSWER,
-					resultDigest: STOPPED_BEFORE_ANSWER,
-				},
+				{ ...askSegment, outputSummary: STOPPED_BEFORE_ANSWER },
 			]);
 			expect(mockStampAskQuestion).not.toHaveBeenCalled();
 			const payload = getLatestEndPayload();
@@ -2992,7 +2991,27 @@ describe("completeStreamTurn", () => {
 			expect(payload).not.toHaveProperty("waitingQuestionId");
 		});
 
-		it("leaves the other calls of a stopped turn, and an ask that did not pause, as they were", async () => {
+		it("saves the ask call of a turn that ended without pausing as ended before the user answered", async () => {
+			// an error ending that kept the words, the whole-generation fallback, or a
+			// pause the turn declined: the question is discarded, so nothing is open
+			await completeStreamTurn({
+				...defaultParams,
+				serverSegments: [{ type: "text", content: "Which one?" }, askSegment],
+				toolCallRecords: [askCall],
+			});
+
+			expect(getSavedAssistantSegments()).toEqual([
+				{ type: "text", content: "Which one?" },
+				{ ...askSegment, outputSummary: ENDED_BEFORE_ANSWER },
+			]);
+			expect(mockStampAskQuestion).not.toHaveBeenCalled();
+			expect(getLatestEndPayload()).not.toHaveProperty("waitingQuestionId");
+		});
+
+		it.each([
+			["a stopped turn", true],
+			["a turn that ended without pausing", false],
+		])("leaves the other calls of %s, and an ask that did not pause, as they were", async (_label, wasStopped) => {
 			const searchSegment = {
 				type: "tool_call" as const,
 				callId: "call-search",
@@ -3012,7 +3031,7 @@ describe("completeStreamTurn", () => {
 
 			await completeStreamTurn({
 				...defaultParams,
-				wasStopped: true,
+				wasStopped,
 				serverSegments: [searchSegment, refusedAsk],
 				toolCallRecords: [],
 			});

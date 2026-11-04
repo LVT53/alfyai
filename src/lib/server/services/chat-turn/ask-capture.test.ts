@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
-import { buildAskResumeCapture } from "./ask-capture";
+import { buildAskResumeCapture, holdsAskResult } from "./ask-capture";
 import type { AskCapturedResult } from "./ask-questions";
 
 // A page the server fetched before the model ran, as the prepared context hands
@@ -335,5 +335,50 @@ describe("buildAskResumeCapture", () => {
 		expect(JSON.stringify({ prior, continuation, response })).toBe(before);
 		expect(result.messages).not.toBe(continuation);
 		expect(prior).toEqual([]);
+	});
+});
+
+// A resume answers the ask's result, so a capture that does not hold it cannot be
+// answered: the turn pauses only when what the run said and read holds it.
+describe("holdsAskResult", () => {
+	it("holds the ask's result when a tool message has it", () => {
+		expect(holdsAskResult(RESPONSE, "call-ask")).toBe(true);
+	});
+
+	it("does not hold it when the run stopped before the step of the ask was captured", () => {
+		// only the search step was captured
+		expect(holdsAskResult(RESPONSE.slice(0, 2), "call-ask")).toBe(false);
+	});
+
+	it("does not hold it for the call alone", () => {
+		// the assistant message that made the call, without the tool message after it
+		expect(holdsAskResult(RESPONSE.slice(0, 3), "call-ask")).toBe(false);
+	});
+
+	it("does not hold it when nothing was captured", () => {
+		expect(holdsAskResult([], "call-ask")).toBe(false);
+	});
+
+	it("reads the call's id, not the tool's name", () => {
+		// a result of another ask call is not this ask's
+		expect(holdsAskResult(RESPONSE, "call-ask-other")).toBe(false);
+	});
+
+	it("holds it whatever the result said: a resume replaces that result with the answer", () => {
+		const refused: ModelMessage[] = [
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						output: { type: "error-text", value: "The tool timed out." },
+					},
+				],
+			},
+		];
+
+		expect(holdsAskResult(refused, "call-ask")).toBe(true);
 	});
 });

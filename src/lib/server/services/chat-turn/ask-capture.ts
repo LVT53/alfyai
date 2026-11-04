@@ -61,3 +61,25 @@ export function buildAskResumeCapture(p: {
 
 	return { v: 1, messages, results };
 }
+
+/**
+ * Whether `messages` (what the run said and read, as of its last finished step)
+ * hold a tool result for the ask call. A resume answers that result: it swaps
+ * the person's answer in for whatever the result said, so a capture without it
+ * cannot be answered. A run that ends with a `finish` has it, because the SDK
+ * finishes the last step's callback first; a stream that closed without one can
+ * end before the step that asked was captured. Such a turn is not paused.
+ */
+export function holdsAskResult(
+	messages: ModelMessage[],
+	askToolCallId: string,
+): boolean {
+	return messages.some(
+		(message) =>
+			message.role === "tool" &&
+			message.content.some(
+				(part) =>
+					part.type === "tool-result" && part.toolCallId === askToolCallId,
+			),
+	);
+}
