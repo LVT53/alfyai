@@ -46,6 +46,7 @@ import {
 	SKILL_DRAFT_GUIDANCE,
 } from "$lib/server/services/skills/prompt-context";
 import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
+import type { ResumeProvenance } from "$lib/server/services/url-provenance";
 import { scheduleImageDescriptions } from "$lib/server/services/vision/describe";
 import { providerCanSeeImages } from "$lib/server/services/vision/model-vision";
 import {
@@ -137,6 +138,12 @@ export function estimateTurnPromptTokens(params: {
 	prepared: PreparedModelContext;
 	inputValue: string;
 	tools: ToolPack["tools"];
+	/**
+	 * What follows the person's message and is not in `prepared`: the continuation
+	 * a resume of a reply that asked is sent (a long first segment, a big page read
+	 * before the question, is part of what the provider receives).
+	 */
+	continuationMessages?: ModelMessage[];
 }): number {
 	return (
 		estimateOutboundPromptTokenTotal({
@@ -146,6 +153,10 @@ export function estimateTurnPromptTokens(params: {
 		}) +
 		estimateHistoryMessagesTokens(
 			params.prepared.historyMessages ?? [],
+			estimateTokenCount,
+		) +
+		estimateHistoryMessagesTokens(
+			params.continuationMessages ?? [],
 			estimateTokenCount,
 		) +
 		sumTurnImageTokens(params.prepared.turnPictureImages)
@@ -195,8 +206,28 @@ export type NormalChatSendModelBaseParams = {
 	// normal-chat-context.ts's buildTurnGuidance.
 	pendingSkillInstructions?: string | null;
 	// Messages appended after the current user turn (a non-streaming
-	// continuation replays the interrupted attempt's tool calls/results here).
+	// continuation replays the interrupted attempt's tool calls/results here; a
+	// resume of a reply that asked carries the reply so far and the person's
+	// answer: the streaming run reads it too, after the prefetched page).
 	continuationMessages?: ModelMessage[];
+	// The rest of what a resume of a reply that asked ("Ask me first") changes in a
+	// run. The history ends before this message, the person's own, which the
+	// resume sends again as the current one (`continuationMessages` carries the
+	// reply from there).
+	historyBeforeMessageId?: string;
+	// The page for a pasted address was read when the reply began; read nothing.
+	skipWebPrefetch?: boolean;
+	// The turn's rule for the messages of each model attempt, applied by the model
+	// run with the provider that attempt runs on (`gateCapturedConnectorResults`):
+	// a resume's captured connector results stay where the person keeps them. It
+	// must not change the array or the messages it is given.
+	gateMessagesForAttempt?: (
+		messages: ModelMessage[],
+		provider: NormalChatModelRunProvider,
+	) => ModelMessage[];
+	// What the paused segment's tools handed the model and the words the person
+	// typed into their answers, for this turn's address check (ADR-0068).
+	resumeProvenance?: ResumeProvenance;
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -227,6 +258,20 @@ export type NormalChatSendModelBaseParams = {
 	 */
 	canPause?: boolean;
 };
+
+/**
+ * What a resume of a reply that asked adds to a run's params, for the types that
+ * carry a run's params on without being this one (the streaming run's, the
+ * non-stream fallback's). All optional: an ordinary turn sets none.
+ */
+export type ResumeRunParams = Pick<
+	NormalChatSendModelBaseParams,
+	| "continuationMessages"
+	| "historyBeforeMessageId"
+	| "skipWebPrefetch"
+	| "gateMessagesForAttempt"
+	| "resumeProvenance"
+>;
 
 export type DepthEffort = Awaited<
 	ReturnType<typeof resolveReasoningDepthEffort>
@@ -417,6 +462,8 @@ export async function prepareOutboundContext(
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		pictureRefs: params.pictureRefs,
 		imageMarks: params.imageMarks,
+		historyBeforeMessageId: params.historyBeforeMessageId,
+		skipWebPrefetch: params.skipWebPrefetch,
 		attachmentTraceId: params.attachmentTraceId,
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
@@ -528,6 +575,9 @@ export async function createToolPack(
 		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(params.canPause ? { canPause: true } : {}),
+		...(params.resumeProvenance
+			? { resumeProvenance: params.resumeProvenance }
+			: {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }

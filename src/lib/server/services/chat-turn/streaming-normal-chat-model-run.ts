@@ -15,6 +15,7 @@ import {
 	isEvidenceReadyToolCall,
 	type NormalChatSendModelBaseParams,
 	prepareOutboundContext,
+	type ResumeRunParams,
 	resolveActiveDepthEffort,
 	resolveProviderRuntime,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
@@ -34,6 +35,7 @@ import {
 	runStreamingNormalChatModelRun,
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
+import { resolveHistoryToolMessagesMode } from "$lib/server/services/normal-chat-model/provider-compatibility";
 import type { TurnAsk } from "$lib/server/services/normal-chat-tools/ask-user";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { buildCurrentUserMessage } from "$lib/server/services/vision/turn-images";
@@ -44,9 +46,10 @@ import type {
 	UserPicturesMetadata,
 } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import { renderAskContinuationAsText } from "./ask-capture";
 import { logOutboundMessageShape } from "./outbound-debug";
 
-export type StreamingNormalChatSendModelParams = {
+export type StreamingNormalChatSendModelParams = ResumeRunParams & {
 	userId: string;
 	runtimeConfig: RuntimeConfig;
 	message: string;
@@ -114,7 +117,11 @@ export type StreamingNormalChatSendModelResult = {
 	 * the stream sends `finish`: the SDK has finished that step's callback by then.
 	 */
 	getResponseMessages: () => ModelMessage[];
-	/** What the model was given after the person's message: the page the server fetched before it ran. */
+	/**
+	 * What the model was given after the person's message, as messages: the page the
+	 * server fetched before it ran and, on a resume, the continuation it carried on
+	 * from.
+	 */
 	continuationGiven: ModelMessage[];
 };
 
@@ -176,13 +183,33 @@ export async function runStreamingNormalChatSendModel(
 		prepared.inputValue,
 		prepared.turnGuidance,
 	);
+	// A resume of a reply that asked carries the reply so far and the person's
+	// answer, after the page the server fetched (a resume reads no page, so the two
+	// never meet). A provider that takes no tool messages is sent them as text. The
+	// model run's gate cannot find a connector's result in text, so for that
+	// provider the gate runs here first, on the provider the run starts with.
+	const continuation = params.continuationMessages ?? [];
+	const continuationSent =
+		continuation.length > 0 &&
+		resolveHistoryToolMessagesMode(runtime.provider) === "flatten"
+			? renderAskContinuationAsText(
+					params.gateMessagesForAttempt
+						? params.gateMessagesForAttempt(continuation, runtime.provider)
+						: continuation,
+				)
+			: continuation;
+	// What the model was given after the person's message, as a reply that asks
+	// again is captured from (`buildAskResumeCapture`): the messages as they were,
+	// not the text a provider that takes no tool messages was sent.
 	const continuationGiven: ModelMessage[] = [
 		...(prepared.prefetchedToolMessages ?? []),
+		...continuation,
 	];
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
 		buildCurrentUserMessage(finalInputValue, prepared.turnPictureImages),
-		...continuationGiven,
+		...(prepared.prefetchedToolMessages ?? []),
+		...continuationSent,
 	];
 	// What the run has said and read, as of its last finished step. A plain
 	// assignment: the SDK swallows whatever a step callback throws.
@@ -239,6 +266,9 @@ export async function runStreamingNormalChatSendModel(
 		firstStepToolChoice: undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
+		// The turn's rule for each attempt's messages (a resume's captured connector
+		// results stay where the person keeps them); the run decides it per attempt.
+		gateMessagesForAttempt: params.gateMessagesForAttempt,
 		onStepMessages: (messages) => {
 			responseMessages = messages;
 		},
@@ -255,6 +285,7 @@ export async function runStreamingNormalChatSendModel(
 				prepared,
 				inputValue: finalInputValue,
 				tools: toolPack.tools,
+				continuationMessages: continuationSent,
 			}),
 			instructionsApplied: prepared.instructionsApplied,
 			userPictures: prepared.turnPictures.metadata ?? undefined,

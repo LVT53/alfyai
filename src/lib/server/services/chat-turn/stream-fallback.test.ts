@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
@@ -403,6 +404,129 @@ describe("runNonStreamFallback", () => {
 		expect(mockOnRecoveredToolCalls).toHaveBeenCalledWith([
 			producedFileToolCall,
 		]);
+	});
+
+	// "Ask me first": the rerun of a reply that asked carries the same continuation
+	// the stream was given, and what a resume adds to the turn (the history cut, no
+	// second page read, the gate, the provenance), or it would answer a different
+	// conversation from the one the person is in.
+	describe("a rerun of a reply that carries on from the person's answer", () => {
+		const continuation: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						input: { questions: [] },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						output: { type: "json", value: { status: "answered" } },
+					},
+				],
+			},
+		];
+		const completedToolCalls = [
+			{
+				callId: "call-own",
+				name: "research_web",
+				input: { query: "wall colours" },
+				status: "done" as const,
+				outputSummary: "Found 1 source.",
+			},
+		];
+		const gate = vi.fn((messages: ModelMessage[]) => messages);
+		const resumeProvenance = {
+			userTexts: ["use https://typed.example/a"],
+			priorResults: [],
+		};
+		const resumeSendParams = {
+			...defaultSendParams,
+			continuationMessages: continuation,
+			historyBeforeMessageId: "message-asked",
+			skipWebPrefetch: true,
+			gateMessagesForAttempt: gate,
+			resumeProvenance,
+		};
+
+		it("keeps the continuation before the fallback's own messages", async () => {
+			await callFallback({
+				sendParams: resumeSendParams,
+				completedToolCalls,
+				completedToolCallContext: "Tool 1: research_web",
+			});
+
+			const sent = mockRunPlainNormalChatSendModel.mock.calls[0]?.[0]
+				.continuationMessages as ModelMessage[];
+			// the continuation first, then the replay of the fallback's own calls
+			expect(sent.slice(0, continuation.length)).toEqual(continuation);
+			expect(sent).toHaveLength(continuation.length + 2);
+			expect(sent[continuation.length]).toMatchObject({
+				role: "assistant",
+				content: [
+					expect.objectContaining({
+						type: "tool-call",
+						toolCallId: "call-own",
+						toolName: "research_web",
+					}),
+				],
+			});
+			expect(sent[continuation.length + 1]).toMatchObject({ role: "tool" });
+		});
+
+		it("sends the continuation alone when the fallback has completed nothing of its own", async () => {
+			await callFallback({ sendParams: resumeSendParams });
+
+			expect(
+				mockRunPlainNormalChatSendModel.mock.calls[0]?.[0].continuationMessages,
+			).toEqual(continuation);
+		});
+
+		it("sends no continuation when there is neither", async () => {
+			await callFallback();
+
+			expect(
+				mockRunPlainNormalChatSendModel.mock.calls[0]?.[0].continuationMessages,
+			).toBeUndefined();
+		});
+
+		it("carries the history cut, the prefetch skip, the gate and the provenance to every attempt", async () => {
+			mockHasVisibleAssistantText
+				.mockReturnValueOnce(false)
+				.mockReturnValueOnce(true);
+
+			await callFallback({ sendParams: resumeSendParams });
+
+			expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
+			for (const [params] of mockRunPlainNormalChatSendModel.mock.calls) {
+				expect(params).toMatchObject({
+					historyBeforeMessageId: "message-asked",
+					skipWebPrefetch: true,
+					gateMessagesForAttempt: gate,
+					resumeProvenance,
+					continuationMessages: continuation,
+				});
+			}
+		});
+
+		it("adds nothing of it to the rerun of an ordinary turn", async () => {
+			await callFallback();
+
+			const params = mockRunPlainNormalChatSendModel.mock.calls[0]?.[0];
+			expect(params.historyBeforeMessageId).toBeUndefined();
+			expect(params.skipWebPrefetch).toBeUndefined();
+			expect(params.gateMessagesForAttempt).toBeUndefined();
+			expect(params.resumeProvenance).toBeUndefined();
+		});
 	});
 
 	it("retries once when fallback text normalizes to no visible output", async () => {

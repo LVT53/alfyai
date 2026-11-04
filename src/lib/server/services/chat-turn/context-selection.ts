@@ -1295,15 +1295,36 @@ type SessionPromptContext = {
 };
 
 /**
+ * The rows before the one named, in the order they came: the named row and every
+ * later row are dropped. The whole list when no row is named, or when none of
+ * them has that id (nothing says where to end the history, and a history with a
+ * gap is worse than a longer one).
+ */
+function rowsBefore<T extends { id: string }>(
+	rows: T[],
+	messageId: string | undefined,
+): T[] {
+	if (!messageId) return rows;
+	const index = rows.findIndex((row) => row.id === messageId);
+	return index === -1 ? rows : rows.slice(0, index);
+}
+
+/**
  * Load the local continuity context for a turn: the conversation's own stored
  * messages (with message sequences for compaction-aware filtering) plus its
  * maintained conversation summary.
+ *
+ * `historyBeforeMessageId` ends the stored messages before that one, which a
+ * resume of a reply that asked needs: the reply so far comes back as the run's
+ * continuation, so the person's message and the rows the reply was saved as are
+ * not read from the chat a second time.
  */
 async function loadSessionPromptContext(params: {
 	userId: string;
 	conversationId: string;
+	historyBeforeMessageId?: string;
 }): Promise<SessionPromptContext> {
-	const [storedMessages, sourceMessages, summary] = await Promise.all([
+	const [storedRows, sourceMessages, summary] = await Promise.all([
 		listMessages(params.conversationId).catch(() => []),
 		listContextCompressionSourceMessages(params.conversationId).catch(() => []),
 		getConversationSummary({
@@ -1311,6 +1332,7 @@ async function loadSessionPromptContext(params: {
 			conversationId: params.conversationId,
 		}).catch(() => null),
 	]);
+	const storedMessages = rowsBefore(storedRows, params.historyBeforeMessageId);
 
 	const sequenceByMessageId = new Map(
 		sourceMessages.map((message) => [message.id, message.messageSequence]),
@@ -1498,6 +1520,7 @@ async function buildShallowConstructedContext(params: {
 	compactionThreshold: number;
 	maxModelContext: number;
 	historyToolMessages: HistoryToolMessagesMode;
+	historyBeforeMessageId?: string;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1582,6 +1605,7 @@ async function buildShallowConstructedContext(params: {
 		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
+			historyBeforeMessageId: params.historyBeforeMessageId,
 		}),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,
@@ -1837,6 +1861,10 @@ export async function buildConstructedContext(params: {
 	// uploads they are the turn's numbered pictures (images/turn-pictures.ts).
 	pictureRefs?: readonly PictureRef[];
 	imageMarks?: ImageMarksRequest | null;
+	// A resume of a reply that asked ("Ask me first"): the history ends before this
+	// message, which is the person's own. That message and every later row (the
+	// segments the reply was saved as) come back as the run's continuation.
+	historyBeforeMessageId?: string;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1891,6 +1919,7 @@ export async function buildConstructedContext(params: {
 			compactionThreshold,
 			maxModelContext,
 			historyToolMessages,
+			historyBeforeMessageId: params.historyBeforeMessageId,
 		});
 	}
 	const projectIdPromise = getConversationProjectId(
@@ -1921,6 +1950,7 @@ export async function buildConstructedContext(params: {
 		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
+			historyBeforeMessageId: params.historyBeforeMessageId,
 		}),
 		resolvePromptAttachmentArtifacts(params.userId, attachmentIds),
 		listConversationSourceArtifactIds(

@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
@@ -8,6 +9,8 @@ import type {
 import { emptyTurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import { resolvePromptContextLimits } from "$lib/server/services/normal-chat-context";
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { estimateHistoryMessagesTokens } from "./conversation-history";
 
 const mocks = vi.hoisted(() => ({
 	prepareOutboundChatContext: vi.fn(),
@@ -705,6 +708,56 @@ describe("estimateTurnPromptTokens", () => {
 			}),
 		);
 	});
+
+	// Review Focus 4 (docs/plans/ask-me-first): a resume sends the reply so far after
+	// the person's message, so a long first segment (a big page read before the
+	// question) is part of what the provider is sent.
+	it("counts the continuation in the prompt estimate", () => {
+		const continuation: ModelMessage[] = [
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-1",
+						toolName: "fetch_url",
+						output: {
+							type: "json",
+							value: { page: "A long page. ".repeat(500) },
+						},
+					},
+				],
+			},
+		];
+		const without = estimateTurnPromptTokens({
+			prepared: prepared([]),
+			inputValue: "hello",
+			tools: undefined,
+		});
+		const withContinuation = estimateTurnPromptTokens({
+			prepared: prepared([]),
+			inputValue: "hello",
+			tools: undefined,
+			continuationMessages: continuation,
+		});
+
+		expect(withContinuation - without).toBe(
+			estimateHistoryMessagesTokens(continuation, estimateTokenCount),
+		);
+		expect(withContinuation - without).toBeGreaterThan(1_000);
+	});
+
+	it("is unchanged for an empty continuation", () => {
+		const base = {
+			prepared: prepared([]),
+			inputValue: "hello",
+			tools: undefined,
+		};
+
+		expect(
+			estimateTurnPromptTokens({ ...base, continuationMessages: [] }),
+		).toBe(estimateTurnPromptTokens(base));
+	});
 });
 
 describe("prepareOutboundContext standing instructions wiring", () => {
@@ -764,6 +817,73 @@ describe("prepareOutboundContext standing instructions wiring", () => {
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].instructions,
 		).toEqual({ personal: "Use metric units.", project: null });
+	});
+});
+
+// The resume of a reply that asked (docs/plans/ask-me-first) ends the history
+// before the person's message and reads no page again; the preparation hears of
+// both here, and an ordinary turn tells it neither.
+describe("prepareOutboundContext and a resume", () => {
+	const provider = {
+		id: "provider-1",
+		name: "local",
+		displayName: "Local",
+		baseUrl: "http://local-model/v1",
+		modelName: "local-model",
+		apiKey: "local-key",
+	} as NormalChatModelRunProvider;
+	const params = {
+		userId: "user-1",
+		runtimeConfig,
+		message: "Redo the room.",
+		conversationId: "conv-1",
+		modelId: "model1" as const,
+		user: { id: "user-1" },
+		overrideProvider: provider,
+	};
+
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		mocks.resolveTurnInstructions.mockResolvedValue({
+			personal: null,
+			project: null,
+		});
+	});
+
+	it("hands the history cut and the prefetch skip to context preparation", async () => {
+		const resumeParams = {
+			...params,
+			historyBeforeMessageId: "message-asked",
+			skipWebPrefetch: true,
+		};
+		const runtime = await resolveProviderRuntime(resumeParams);
+
+		await prepareOutboundContext(resumeParams, runtime, null, new Set());
+
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				historyBeforeMessageId: "message-asked",
+				skipWebPrefetch: true,
+			}),
+		);
+	});
+
+	it("tells an ordinary turn's preparation neither", async () => {
+		const runtime = await resolveProviderRuntime(params);
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		const sent = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+		expect(sent.historyBeforeMessageId).toBeUndefined();
+		expect(sent.skipWebPrefetch).toBeUndefined();
 	});
 });
 

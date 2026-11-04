@@ -200,6 +200,9 @@ async function runPlainModelRun(params: ModelRunParams) {
 		firstStepToolChoice: tools ? firstStepToolChoice : undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
+		// The turn's rule for each attempt's messages (a resume's captured connector
+		// results stay where the person keeps them); the run decides it per attempt.
+		gateMessagesForAttempt: modelRunParams.gateMessagesForAttempt,
 	});
 }
 
@@ -235,6 +238,7 @@ function buildRunResult(
 				prepared.turnGuidance,
 			),
 			tools: toolPack.tools,
+			continuationMessages: input.params.continuationMessages,
 		}),
 		prefetchedToolCalls: prepared.prefetchedToolCalls,
 		normalChatToolCalls,

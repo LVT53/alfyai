@@ -997,6 +997,117 @@ describe("buildConstructedContext", () => {
 		});
 	});
 
+	// A reply that asked is carried on by a continuation that holds the reply so far
+	// (docs/plans/ask-me-first, Plan's call 20), so the resume's history ends before
+	// the person's message: that message and every row after it, the segments that
+	// asked, are left out of what the history is built from.
+	describe("the history of a resume", () => {
+		const limits = {
+			maxModelContext: 16_000,
+			compactionUiThreshold: 12_000,
+			targetConstructedContext: 8_000,
+		};
+
+		beforeEach(() => {
+			resetConstructedContextMocks();
+			mocks.getConfig.mockReturnValue({
+				contextDiagnosticsDebug: false,
+				nativeHistoryEnabled: true,
+			});
+			mocks.listMessages.mockResolvedValue([
+				{ id: "u1", role: "user", content: "FIRST_QUESTION", timestamp: 1 },
+				{ id: "a1", role: "assistant", content: "FIRST_ANSWER", timestamp: 2 },
+				{ id: "u2", role: "user", content: "THE_ASKED_MESSAGE", timestamp: 3 },
+				{
+					id: "a2",
+					role: "assistant",
+					content: "THE_SEGMENT_THAT_ASKED",
+					timestamp: 4,
+				},
+				{
+					id: "a3",
+					role: "assistant",
+					content: "THE_SEGMENT_AFTER",
+					timestamp: 5,
+				},
+			]);
+		});
+
+		function shallow(extra: { historyBeforeMessageId?: string } = {}) {
+			return buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Thanks, that helps.",
+				modelId: "local-model",
+				contextLimits: limits,
+				...extra,
+			});
+		}
+
+		function deep(extra: { historyBeforeMessageId?: string } = {}) {
+			return buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				// Deep-tier intent so buildConstructedContext takes the deep branch.
+				message:
+					"Summarize the attached document and cite the evidence from earlier.",
+				attachmentIds: ["attachment-1"],
+				modelId: "local-model",
+				contextLimits: limits,
+				...extra,
+			});
+		}
+
+		it("ends the history before historyBeforeMessageId: that message and every later row are left out", async () => {
+			const constructed = await shallow({ historyBeforeMessageId: "u2" });
+
+			const history = JSON.stringify(constructed.historyMessages);
+			expect(history).toContain("FIRST_QUESTION");
+			expect(history).toContain("FIRST_ANSWER");
+			expect(history).not.toContain("THE_ASKED_MESSAGE");
+			expect(history).not.toContain("THE_SEGMENT_THAT_ASKED");
+			expect(history).not.toContain("THE_SEGMENT_AFTER");
+			expect(constructed.historyWindow).toEqual({
+				includedTurnCount: 1,
+				omittedTurnCount: 0,
+			});
+		});
+
+		it("ends the full build's history there too", async () => {
+			const constructed = await deep({ historyBeforeMessageId: "u2" });
+
+			const history = JSON.stringify(constructed.historyMessages);
+			expect(history).toContain("FIRST_QUESTION");
+			expect(history).not.toContain("THE_ASKED_MESSAGE");
+			expect(history).not.toContain("THE_SEGMENT_THAT_ASKED");
+			expect(history).not.toContain("THE_SEGMENT_AFTER");
+		});
+
+		it("keeps the whole history for a turn that names no cut", async () => {
+			const constructed = await shallow();
+
+			const history = JSON.stringify(constructed.historyMessages);
+			expect(history).toContain("THE_ASKED_MESSAGE");
+			expect(history).toContain("THE_SEGMENT_AFTER");
+		});
+
+		it("keeps the whole history when the message it should end before is not in the chat", async () => {
+			const constructed = await shallow({
+				historyBeforeMessageId: "gone",
+			});
+
+			expect(JSON.stringify(constructed.historyMessages)).toContain(
+				"THE_SEGMENT_AFTER",
+			);
+		});
+
+		it("leaves no history when the cut is the chat's first message", async () => {
+			const constructed = await shallow({ historyBeforeMessageId: "u1" });
+
+			expect(constructed.historyMessages).toEqual([]);
+		});
+	});
+
 	describe("pictures in the history", () => {
 		const attachment = (
 			artifactId: string,

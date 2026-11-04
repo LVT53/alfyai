@@ -1,6 +1,9 @@
+import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { estimateHistoryMessagesTokens } from "./conversation-history";
 
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
@@ -8,7 +11,28 @@ const mocks = vi.hoisted(() => ({
 	prepareOutboundChatContext: vi.fn(),
 	resolveNormalChatModelRunProvider: vi.fn(),
 	runStreamingNormalChatModelRun: vi.fn(),
+	// No provider takes the "flatten" mode today, so a test that needs one says so
+	// here; `null` leaves the real answer.
+	historyMode: { value: null as "native" | "flatten" | null },
 }));
+
+vi.mock(
+	"$lib/server/services/normal-chat-model/provider-compatibility",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("$lib/server/services/normal-chat-model/provider-compatibility")
+			>();
+		return {
+			...actual,
+			resolveHistoryToolMessagesMode: (
+				...args: Parameters<typeof actual.resolveHistoryToolMessagesMode>
+			) =>
+				mocks.historyMode.value ??
+				actual.resolveHistoryToolMessagesMode(...args),
+		};
+	},
+);
 
 vi.mock("$lib/server/services/connections/resolve", () => ({
 	resolveActiveCapabilities: mocks.resolveActiveCapabilities,
@@ -113,6 +137,7 @@ describe("runStreamingNormalChatSendModel", () => {
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runStreamingNormalChatModelRun.mockReset();
+		mocks.historyMode.value = null;
 		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
@@ -1365,6 +1390,308 @@ describe("runStreamingNormalChatSendModel", () => {
 			});
 
 			expect(result.continuationGiven).toEqual([]);
+		});
+	});
+
+	// "Ask me first": a reply that asked goes on from the continuation saved with
+	// its question (docs/plans/ask-me-first, Plan's calls 20 and 22): the reply so
+	// far and the person's answer, after the person's message and whatever the
+	// server fetched before the model ran.
+	describe("carrying on from a saved continuation", () => {
+		const prefetchedToolMessages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						input: { urls: ["https://example.com/source"] },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						output: { type: "json", value: { success: true } },
+					},
+				],
+			},
+		];
+		const continuation: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "call-cal",
+						toolName: "calendar",
+						input: { action: "list_events" },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-cal",
+						toolName: "calendar",
+						output: {
+							type: "json",
+							value: { events: [{ title: "Dentist with Dr. Kovacs" }] },
+						},
+					},
+				],
+			},
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "Which one?" },
+					{
+						type: "tool-call",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						input: {
+							questions: [
+								{
+									question: "Which colour?",
+									options: [{ label: "White" }, { label: "Grey" }],
+								},
+							],
+						},
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						output: { type: "json", value: { status: "answered" } },
+					},
+				],
+			},
+		];
+		const userMessage = {
+			role: "user",
+			content: [{ type: "text", text: "Redo the room" }],
+		};
+
+		beforeEach(() => {
+			mocks.prepareOutboundChatContext.mockResolvedValue({
+				inputValue: "Redo the room",
+				systemPrompt: "Prepared system prompt",
+				contextStatus: { status: "ready" },
+				taskState: null,
+				contextDebug: null,
+				contextTraceSections: [],
+				prefetchedToolMessages,
+			});
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+		});
+
+		function send(
+			extra: Partial<
+				Parameters<typeof runStreamingNormalChatSendModel>[0]
+			> = {},
+		) {
+			mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
+			return runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message: "Redo the room",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1",
+				...extra,
+			});
+		}
+
+		function sentMessages(): ModelMessage[] {
+			return mocks.runStreamingNormalChatModelRun.mock.calls.at(-1)?.[0]
+				.messages;
+		}
+
+		it("puts the continuation after the current message and the prefetched exchange", async () => {
+			const result = await send({ continuationMessages: continuation });
+
+			expect(sentMessages()).toEqual([
+				userMessage,
+				...prefetchedToolMessages,
+				...continuation,
+			]);
+			// what a reply that asks again is captured from: everything the model was
+			// given after the person's message
+			expect(result.continuationGiven).toEqual([
+				...prefetchedToolMessages,
+				...continuation,
+			]);
+		});
+
+		it("sends an ordinary turn the messages it always sent", async () => {
+			const result = await send();
+
+			expect(sentMessages()).toEqual([userMessage, ...prefetchedToolMessages]);
+			expect(result.continuationGiven).toEqual(prefetchedToolMessages);
+		});
+
+		// Review Focus 4: a long first segment (a big page read before the question)
+		// is in the continuation the resume sends, so the figure the context ring
+		// shows when the provider reports none must count it.
+		it("counts the continuation in the prompt estimate", async () => {
+			const without = await send();
+			const withContinuation = await send({
+				continuationMessages: continuation,
+			});
+
+			expect(
+				(withContinuation.prepared.estimatedPromptTokens ?? 0) -
+					(without.prepared.estimatedPromptTokens ?? 0),
+			).toBe(estimateHistoryMessagesTokens(continuation, estimateTokenCount));
+		});
+
+		it("folds the continuation into text for a provider that takes no tool messages", async () => {
+			mocks.historyMode.value = "flatten";
+
+			const result = await send({ continuationMessages: continuation });
+
+			// the person's message and the page are as they were; the continuation is
+			// one assistant message of text
+			const sent = sentMessages();
+			expect(sent).toHaveLength(prefetchedToolMessages.length + 2);
+			expect(sent.slice(0, -1)).toEqual([
+				userMessage,
+				...prefetchedToolMessages,
+			]);
+			expect(sent.at(-1)).toEqual({
+				role: "assistant",
+				content: [
+					'[used calendar: {"events":[{"title":"Dentist with Dr. Kovacs"}]}]',
+					"Which one?",
+					"[asked the user: Which colour?]",
+					`[the user's answer: {"status":"answered"}]`,
+				].join("\n"),
+			});
+			// the capture of a reply that asks again keeps the messages as they were,
+			// not the text a provider that cannot take them was sent
+			expect(result.continuationGiven).toEqual([
+				...prefetchedToolMessages,
+				...continuation,
+			]);
+		});
+
+		it("counts what a provider that takes no tool messages is sent, the text, in the prompt estimate", async () => {
+			const without = await send();
+			mocks.historyMode.value = "flatten";
+			const flattened = await send({ continuationMessages: continuation });
+			const folded = sentMessages().slice(-1);
+
+			expect(
+				(flattened.prepared.estimatedPromptTokens ?? 0) -
+					(without.prepared.estimatedPromptTokens ?? 0),
+			).toBe(estimateHistoryMessagesTokens(folded, estimateTokenCount));
+		});
+
+		it("leaves the continuation as messages for a provider that takes them", async () => {
+			mocks.historyMode.value = "native";
+
+			await send({ continuationMessages: continuation });
+
+			expect(sentMessages().slice(-continuation.length)).toEqual(continuation);
+		});
+
+		it("applies the turn's gate to the continuation before folding it, so a provider that takes no tool messages is not handed what an attempt off the person's box may not see", async () => {
+			mocks.historyMode.value = "flatten";
+			const gate = vi.fn((messages: ModelMessage[]) =>
+				messages.map((message) =>
+					message.role === "tool"
+						? {
+								...message,
+								content: message.content.map((part) =>
+									part.type === "tool-result" && part.toolCallId === "call-cal"
+										? {
+												...part,
+												output: {
+													type: "json" as const,
+													value: { ok: true, summary: "Found 1 event." },
+												},
+											}
+										: part,
+								),
+							}
+						: message,
+				),
+			);
+
+			await send({
+				continuationMessages: continuation,
+				gateMessagesForAttempt: gate,
+			});
+
+			const folded = sentMessages().at(-1)?.content as string;
+			expect(folded).toContain("[used calendar: Found 1 event.]");
+			expect(folded).not.toContain("Dr. Kovacs");
+			// the gate was asked with the provider the run starts on
+			expect(gate).toHaveBeenCalledWith(
+				continuation,
+				expect.objectContaining({ id: "provider-1" }),
+			);
+		});
+
+		it("does not ask the gate itself for a provider that takes tool messages: the model run decides for each attempt", async () => {
+			const gate = vi.fn((messages: ModelMessage[]) => messages);
+
+			await send({
+				continuationMessages: continuation,
+				gateMessagesForAttempt: gate,
+			});
+
+			expect(gate).not.toHaveBeenCalled();
+			expect(
+				mocks.runStreamingNormalChatModelRun.mock.calls.at(-1)?.[0]
+					.gateMessagesForAttempt,
+			).toBe(gate);
+		});
+
+		it("hands the history cut and the prefetch skip to context preparation, and the provenance to the tools", async () => {
+			const resumeProvenance = {
+				userTexts: ["use https://typed.example/a"],
+				priorResults: [],
+			};
+
+			await send({
+				continuationMessages: continuation,
+				historyBeforeMessageId: "message-asked",
+				skipWebPrefetch: true,
+				resumeProvenance,
+			});
+
+			expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+				expect.objectContaining({
+					historyBeforeMessageId: "message-asked",
+					skipWebPrefetch: true,
+				}),
+			);
+			expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+				expect.objectContaining({ resumeProvenance, canPause: true }),
+			);
+		});
+
+		it("asks nothing extra of an ordinary turn", async () => {
+			await send();
+
+			const prepared = mocks.prepareOutboundChatContext.mock.calls.at(-1)?.[0];
+			expect(prepared.historyBeforeMessageId).toBeUndefined();
+			expect(prepared.skipWebPrefetch).toBeUndefined();
+			expect(
+				mocks.createNormalChatTools.mock.calls.at(-1)?.[0],
+			).not.toHaveProperty("resumeProvenance");
 		});
 	});
 

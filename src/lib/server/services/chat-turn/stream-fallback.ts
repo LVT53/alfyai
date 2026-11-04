@@ -19,8 +19,14 @@ import type {
 	PictureRef,
 } from "$lib/shared/artifacts/image-body";
 import { renderHistoryTurn } from "./conversation-history";
+import type { ResumeRunParams } from "./shared-normal-chat-model-run-helpers";
 
-export interface NonStreamFallbackSendParams {
+// `ResumeRunParams` is what a resume of a reply that asked ("Ask me first") adds:
+// its continuation (the reply so far and the person's answer), the history cut,
+// the page that is not read again, the gate and the provenance. The rerun carries
+// them to every attempt, or it would answer a different conversation from the one
+// the person is in.
+export interface NonStreamFallbackSendParams extends ResumeRunParams {
 	runtimeConfig: RuntimeConfig;
 	upstreamMessage: string;
 	conversationId: string;
@@ -70,6 +76,10 @@ export interface NonStreamFallbackDeps {
 		systemPromptAppendix?: string;
 		pendingSkillInstructions?: string;
 		continuationMessages?: ModelMessage[];
+		historyBeforeMessageId?: string;
+		skipWebPrefetch?: boolean;
+		gateMessagesForAttempt?: ResumeRunParams["gateMessagesForAttempt"];
+		resumeProvenance?: ResumeRunParams["resumeProvenance"];
 		personalityPrompt?: string;
 		thinkingMode?: ThinkingMode;
 		depthMetadata?: DepthMetadata;
@@ -216,6 +226,12 @@ function buildFallbackAttemptParams(
 		(Boolean(context.completedToolCallContext) &&
 			!context.shouldAllowForcedFileTool) ||
 		context.attempt > 1;
+	// The continuation a resume was given comes first, then the replay of the
+	// calls the interrupted attempt completed since: the order they happened in.
+	const continuation = [
+		...(sendParams.continuationMessages ?? []),
+		...(buildContinuationMessages(context.completedToolCalls) ?? []),
+	];
 
 	return {
 		userId: user.id,
@@ -232,7 +248,18 @@ function buildFallbackAttemptParams(
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
 		pendingSkillInstructions: context.pendingSkillInstructions,
-		continuationMessages: buildContinuationMessages(context.completedToolCalls),
+		continuationMessages: continuation.length > 0 ? continuation : undefined,
+		// What a resume adds to the turn, to every attempt (see ResumeRunParams).
+		...(sendParams.historyBeforeMessageId
+			? { historyBeforeMessageId: sendParams.historyBeforeMessageId }
+			: {}),
+		...(sendParams.skipWebPrefetch ? { skipWebPrefetch: true } : {}),
+		...(sendParams.gateMessagesForAttempt
+			? { gateMessagesForAttempt: sendParams.gateMessagesForAttempt }
+			: {}),
+		...(sendParams.resumeProvenance
+			? { resumeProvenance: sendParams.resumeProvenance }
+			: {}),
 		personalityPrompt,
 		thinkingMode: sendParams.thinkingMode,
 		depthMetadata: sendParams.depthMetadata,

@@ -1967,6 +1967,15 @@ type PrepareOutboundChatContextParams = {
 	// numbered pictures (images/turn-pictures.ts).
 	pictureRefs?: readonly PictureRef[];
 	imageMarks?: ImageMarksRequest | null;
+	// A resume of a reply that stopped to ask the person ("Ask me first"): the
+	// history ends before this message (the person's own, which the resume sends
+	// again as the current one), because the reply so far comes back after it as
+	// the run's continuation. Carried by `constructedContextParams` so the rebuild
+	// after automatic compression ends at the same message.
+	historyBeforeMessageId?: string;
+	// The page for a pasted address was read when the reply began and the
+	// continuation carries it, so this turn reads no page.
+	skipWebPrefetch?: boolean;
 	logLabel: string;
 };
 
@@ -2112,6 +2121,19 @@ async function runForcedWebPrefetchStage(input: {
 		"inputValue" | "prefetchedToolCalls" | "prefetchedToolMessages"
 	>
 > {
+	// A resume of a reply that asked reads nothing again: the page for a pasted
+	// address was read when the reply began, and the continuation carries it as the
+	// finished fetch_url exchange it was. (A provider in flatten mode got that page
+	// spliced into the person's message instead, which the resume rebuilds without
+	// it, so such a resume goes on without the page. No provider uses flatten mode
+	// today.)
+	if (input.params.skipWebPrefetch) {
+		return {
+			inputValue: input.state.inputValue,
+			prefetchedToolCalls: [],
+			prefetchedToolMessages: [],
+		};
+	}
 	const webPrefetch = await maybePrefetchWebSearch({
 		inputValue: input.state.inputValue,
 		message: input.params.message,
@@ -2261,6 +2283,7 @@ export async function prepareOutboundChatContext(
 				collectImages: params.collectImages,
 				pictureRefs: params.pictureRefs,
 				imageMarks: params.imageMarks,
+				historyBeforeMessageId: params.historyBeforeMessageId,
 			}
 		: null;
 	// The guidance rides the user turn (see appendTurnGuidance): automatic

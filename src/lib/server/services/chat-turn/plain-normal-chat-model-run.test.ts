@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { estimateHistoryMessagesTokens } from "./conversation-history";
 import {
 	createPlainNormalChatModelRunResult,
 	createPlainNormalChatPreparedContext,
@@ -410,6 +412,77 @@ describe("runPlainNormalChatSendModel", () => {
 				],
 			}),
 		);
+	});
+
+	// "Ask me first": the non-stream fallback of a reply that asked runs this
+	// model run with the same continuation, so what a resume adds travels here too.
+	describe("carrying on from a saved continuation", () => {
+		const continuationMessages = [
+			{ role: "assistant" as const, content: "[the user's answer: Grey]" },
+		];
+
+		it("hands the turn's gate to the model run, which applies it to each attempt", async () => {
+			const gate = vi.fn((messages: unknown[]) => messages);
+
+			await runSubject({
+				continuationMessages,
+				gateMessagesForAttempt: gate as never,
+			});
+
+			expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+				expect.objectContaining({ gateMessagesForAttempt: gate }),
+			);
+		});
+
+		it("counts the continuation in the prompt estimate", async () => {
+			const without = await runSubject();
+			const withContinuation = await runSubject({ continuationMessages });
+
+			expect(
+				(withContinuation.estimatedPromptTokens ?? 0) -
+					(without.estimatedPromptTokens ?? 0),
+			).toBe(
+				estimateHistoryMessagesTokens(continuationMessages, estimateTokenCount),
+			);
+		});
+
+		it("hands the history cut and the prefetch skip to context preparation, and the provenance to the tools", async () => {
+			const resumeProvenance = {
+				userTexts: ["use https://typed.example/a"],
+				priorResults: [],
+			};
+
+			await runSubject({
+				historyBeforeMessageId: "message-asked",
+				skipWebPrefetch: true,
+				resumeProvenance,
+			});
+
+			expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+				expect.objectContaining({
+					historyBeforeMessageId: "message-asked",
+					skipWebPrefetch: true,
+				}),
+			);
+			expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+				expect.objectContaining({ resumeProvenance }),
+			);
+		});
+
+		it("leaves all of it out of an ordinary turn", async () => {
+			await runSubject();
+
+			const prepared = mocks.prepareOutboundChatContext.mock.calls[0]?.[0];
+			expect(prepared.historyBeforeMessageId).toBeUndefined();
+			expect(prepared.skipWebPrefetch).toBeUndefined();
+			expect(mocks.createNormalChatTools.mock.calls[0]?.[0]).not.toHaveProperty(
+				"resumeProvenance",
+			);
+			expect(
+				mocks.runPlainNormalChatModelRun.mock.calls[0]?.[0]
+					.gateMessagesForAttempt,
+			).toBeUndefined();
+		});
 	});
 
 	it("sends every picture of the message as a labelled image part after the text: an upload, the open picture and the marked copy", async () => {

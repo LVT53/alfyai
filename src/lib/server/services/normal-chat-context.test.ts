@@ -3364,6 +3364,128 @@ describe("prepareOutboundChatContext", () => {
 		]);
 	});
 
+	// A reply that stopped to ask goes on in a new turn (docs/plans/ask-me-first):
+	// the page for a pasted address was read when the reply began and the
+	// continuation carries it, so this turn reads nothing again.
+	describe("a turn that skips the web prefetch", () => {
+		const url = "https://example.com/source";
+		const params = (extra: Record<string, unknown> = {}) => ({
+			message: `What does this page say? ${url}`,
+			sessionId: "conv-skip",
+			user: { id: "user-1" },
+			modelConfig,
+			modelId: "model1",
+			skipWebPrefetch: true,
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+			logLabel: "provider request",
+			...extra,
+		});
+
+		beforeEach(() => {
+			resetUrlProvenanceForTests();
+			mocks.buildConstructedContext.mockResolvedValue(
+				createConstructedContextResult(`What does this page say? ${url}`),
+			);
+		});
+
+		it("reads no page for a pasted address when the turn skips the web prefetch", async () => {
+			const prepared = await prepareOutboundChatContext(params());
+
+			expect(mocks.fetchUrlViaParallel).not.toHaveBeenCalled();
+			expect(prepared.inputValue).toBe(`What does this page say? ${url}`);
+			expect(prepared.prefetchedToolCalls).toEqual([]);
+			expect(prepared.prefetchedToolMessages ?? []).toEqual([]);
+		});
+
+		it("notes nothing for the user: no page was read, so there is no source to note", async () => {
+			await prepareOutboundChatContext(params());
+
+			expect(hasSourceHost("user-1", "example.com")).toBe(false);
+		});
+
+		it("splices nothing into the message for a provider that takes no tool messages either", async () => {
+			const prepared = await prepareOutboundChatContext(
+				params({ historyToolMessages: "flatten" }),
+			);
+
+			expect(mocks.fetchUrlViaParallel).not.toHaveBeenCalled();
+			expect(prepared.inputValue).not.toContain("## Current Web Research");
+			expect(prepared.prefetchedToolCalls).toEqual([]);
+		});
+
+		it("still reads the page when the turn does not skip", async () => {
+			await prepareOutboundChatContext(params({ skipWebPrefetch: false }));
+
+			expect(mocks.fetchUrlViaParallel).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	// The history of a resume ends before the person's message (Plan's call 20). It
+	// is a turn input like any other, so the context built again after automatic
+	// compression must end at the same message.
+	it("hands the history cut to the constructed context, and to the rebuild after compression", async () => {
+		const reuseData = {
+			relevantArtifacts: [],
+			preparedContext: null,
+			artifactSnippets: new Map(),
+		};
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Current User Message\nSummarize this context.",
+					{
+						_reuseData: reuseData,
+						historyWindow: { includedTurnCount: 4, omittedTurnCount: 6 },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Context Compression Snapshot\nCompressed.\n\n## Current User Message\nSummarize this context.",
+				),
+			);
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			{
+				id: "m1",
+				messageSequence: 1,
+				role: "user",
+				content: "Earlier conversation context. ".repeat(20_000),
+				thinking: null,
+				toolCalls: null,
+			},
+		]);
+
+		await prepareOutboundChatContext({
+			message: "Summarize this context.",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model2",
+			historyBeforeMessageId: "message-asked",
+			contextLimits: {
+				maxModelContext: 50_000,
+				compactionUiThreshold: 40_000,
+				targetConstructedContext: 20_000,
+			},
+			compressionControlMessageSender: vi.fn() as never,
+			logLabel: "provider request",
+		});
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		const [[firstArgs], [rebuildArgs]] =
+			mocks.buildConstructedContext.mock.calls;
+		expect(firstArgs).toMatchObject({
+			historyBeforeMessageId: "message-asked",
+		});
+		expect(rebuildArgs).toMatchObject({
+			historyBeforeMessageId: "message-asked",
+		});
+	});
+
 	it("sizes the pasted-URL prefetch brief to the selected model (model-aware maxCharsTotal)", async () => {
 		const url = "https://example.com/source";
 		// model1 and model2 advertise different context windows; the prefetch's
