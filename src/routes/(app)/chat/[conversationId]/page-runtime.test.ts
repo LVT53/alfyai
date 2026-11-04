@@ -363,6 +363,51 @@ vi.mock("$lib/client/api/ask-questions", () => ({
 	fetchConversationQuestions: vi.fn(async () => []),
 }));
 
+// The props the page gives its two children, as the latest mounted page gave them. The
+// children are the real ones (the wrappers below only record and pass on), but while a
+// question waits they draw none of the buttons that start a turn, so a test that wants
+// to know the page's own guards hold calls the handler it was given directly: the way
+// a stale tab, a race or a stray key would reach it.
+type PageChildProps = Record<string, (...args: never[]) => unknown>;
+const pageChildren = vi.hoisted(() => ({
+	pane: null as PageChildProps | null,
+	composer: null as PageChildProps | null,
+}));
+
+vi.mock("./_components/ChatMessagePane.svelte", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("./_components/ChatMessagePane.svelte")
+		>();
+	const real = actual.default as unknown as (
+		anchor: unknown,
+		props: PageChildProps,
+	) => unknown;
+	return {
+		default: (anchor: unknown, props: PageChildProps) => {
+			pageChildren.pane = props;
+			return real(anchor, props);
+		},
+	};
+});
+
+vi.mock("./_components/ChatComposerPanel.svelte", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("./_components/ChatComposerPanel.svelte")
+		>();
+	const real = actual.default as unknown as (
+		anchor: unknown,
+		props: PageChildProps,
+	) => unknown;
+	return {
+		default: (anchor: unknown, props: PageChildProps) => {
+			pageChildren.composer = props;
+			return real(anchor, props);
+		},
+	};
+});
+
 vi.mock("$lib/client/api/chat-turn", () => ({
 	checkChatTurn: checkChatTurnMock,
 }));
@@ -8325,11 +8370,78 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 	const questionReads = () =>
 		vi.mocked(fetchConversationQuestions).mock.calls.length;
 
+	const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
+
+	/**
+	 * A page on a cloud model, with a connection on: a turn that reaches the page's
+	 * gate (`prepareTurn`) brings the cloud-connector warning up when a test makes the
+	 * check say so, so a call that got as far as the gate is seen, not only one that
+	 * started a turn.
+	 */
+	function cloudPage(overrides: Record<string, unknown> = {}) {
+		return pageData({
+			userModel: CLOUD_MODEL_ID,
+			availableModels: [
+				{
+					id: CLOUD_MODEL_ID,
+					displayName: "Cloud Model",
+					isThirdParty: true,
+					iconAssetId: null,
+					iconUrl: null,
+				},
+			],
+			...overrides,
+		});
+	}
+
+	/** The handler the page gave its message pane, called as the pane would. */
+	const fromPane = (name: string, ...args: unknown[]) =>
+		(pageChildren.pane?.[name] as ((...a: unknown[]) => unknown) | undefined)?.(
+			...args,
+		);
+
+	/** The handler the page gave its composer panel, called as the panel would. */
+	const fromComposer = (name: string, ...args: unknown[]) =>
+		(
+			pageChildren.composer?.[name] as
+				| ((...a: unknown[]) => unknown)
+				| undefined
+		)?.(...args);
+
+	/** What the composer sends for the words typed in it. */
+	const sendPayload = (message: string) => ({
+		message,
+		attachmentIds: [],
+		attachments: [],
+		pendingAttachments: [],
+		linkedSources: [],
+		pendingSkill: null,
+		conversationId: "conv-1",
+	});
+
+	/** The page reads a question of Alfy's for a row it holds (another device asked, say), and the message box goes off. */
+	async function hearOfAQuestionOn(messageId: string) {
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([
+			askedQuestion({ assistantMessageId: messageId }),
+		]);
+		runtimeHarness.adapters?.refreshQuestions?.();
+		await waitFor(() =>
+			expect(screen.getByTestId("composer-box")).toHaveAttribute(
+				"data-waiting-for-answer",
+				"true",
+			),
+		);
+	}
+
 	it("starts nothing while a question waits: send, regenerate, Retry, chips, Atlas actions, an edit, a drop", async () => {
+		// The cloud-connector warning comes up for any turn that reaches the page's gate, so
+		// a call that got that far shows, even if a check after the gate would have stopped it.
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
 		const { uploadKnowledgeAttachment } = await import(
 			"$lib/client/api/knowledge"
 		);
 		vi.mocked(uploadKnowledgeAttachment).mockClear();
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 		const earlier: ChatMessage[] = [
 			{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
 			{
@@ -8354,7 +8466,10 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 				progress: { percent: 100, stage: "audit", details: { queries: [] } },
 			}),
 		];
-		const view = renderPage(pageData({ messages: earlier, atlasJobs }));
+		const view = renderPage(cloudPage({ messages: earlier, atlasJobs }));
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
 		const page = screen.getByRole("region", { name: "Chat page" });
 		const dropFile = async (name: string) =>
 			fireEvent.drop(page, {
@@ -8384,7 +8499,7 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 
 		// A question is read for the last reply.
 		await view.rerender({
-			data: pageData({
+			data: cloudPage({
 				messages: earlier,
 				atlasJobs,
 				questions: [askedQuestion()],
@@ -8406,18 +8521,67 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			screen.queryByRole("button", { name: "Send: Anything to do first?" }),
 		).toBeNull();
 
-		// The box takes nothing, and a drop on the page uploads nothing.
-		await fireEvent.input(composer, { target: { value: "Typing anyway" } });
-		await fireEvent.keyDown(composer, { key: "Enter" });
-		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		// The buttons are gone, but the page's handlers are not: each path is called
+		// directly, as a stale tab, a race or a stray key would reach it.
+		const gateReads = checkCloudWarningMock.mock.calls.length;
+		await fromComposer("onSend", sendPayload("Typing anyway"));
+		await fromPane("onSendFollowUp", { text: "Anything to do first?" });
+		await fromPane("onRegenerate", { messageId: "assistant-1" });
+		await fromPane("onAtlasLifecycleAction", {
+			jobId: "atlas-job-1",
+			action: "continue",
+			message: "Add the risks",
+			profile: "in-depth",
+		});
+		await fromPane("onStartEdit", { messageId: "user-1" });
 		await dropFile("more.txt");
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(uploadKnowledgeAttachment).toHaveBeenCalledTimes(1);
+
+		// No turn started and none reached the gate; no edit opened; nothing uploaded.
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 		expect(runtimeHarness.atlasSubmissions).toHaveLength(0);
+		expect(checkCloudWarningMock.mock.calls.length).toBe(gateReads);
+		expect(screen.queryByTestId("cloud-connector-warning")).toBeNull();
+		expect(confirmSpy).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("composer-edit-strip")).toBeNull();
+		expect(uploadKnowledgeAttachment).toHaveBeenCalledTimes(1);
 		view.unmount();
 
 		// Retry too, of a message that failed before the page heard of the question.
+		renderPage(
+			cloudPage({
+				messages: [
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+				],
+			}),
+		);
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		checkCloudWarningMock.mockResolvedValueOnce({ shouldWarn: false });
+		await typeAndSend("And tomorrow?");
+		await waitFor(() =>
+			expect(runtimeHarness.streamInvocations).toHaveLength(1),
+		);
+		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+		await screen.findByRole("button", { name: "Retry" });
+		await hearOfAQuestionOn("assistant-0");
+
+		const gateReadsBeforeRetry = checkCloudWarningMock.mock.calls.length;
+		await fromComposer("onRetry");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		expect(checkCloudWarningMock.mock.calls.length).toBe(gateReadsBeforeRetry);
+		expect(screen.queryByTestId("cloud-connector-warning")).toBeNull();
+	});
+
+	it("queues no chip behind a running turn while a question waits", async () => {
 		renderPage(
 			pageData({
 				messages: [
@@ -8432,20 +8596,106 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			}),
 		);
 		await typeAndSend("And tomorrow?");
-		expect(runtimeHarness.streamInvocations).toHaveLength(1);
-		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
-		const retry = await screen.findByRole("button", { name: "Retry" });
-		vi.mocked(fetchConversationQuestions).mockResolvedValue([
-			askedQuestion({ assistantMessageId: "assistant-0" }),
-		]);
-		runtimeHarness.adapters?.refreshQuestions?.();
 		await waitFor(() =>
-			expect(screen.getByTestId("message-input")).toBeDisabled(),
+			expect(runtimeHarness.streamInvocations).toHaveLength(1),
+		);
+		// A turn runs, and the page hears of a question for the reply before it.
+		await hearOfAQuestionOn("assistant-0");
+
+		await fromPane("onSendFollowUp", { text: "Another chip" });
+
+		expect(screen.queryByTestId("queued-message-banner")).toBeNull();
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+	});
+
+	it("gives an edit's words back to the draft when a question that stays still waits after the delete", async () => {
+		const { deleteConversationMessages } = await import(
+			"$lib/client/api/conversations"
+		);
+		let finishDelete: (count: number) => void = () => {};
+		vi.mocked(deleteConversationMessages)
+			.mockReset()
+			.mockReturnValue(
+				new Promise((resolve) => {
+					finishDelete = resolve;
+				}),
+			);
+		renderPage(
+			pageData({
+				messages: [
+					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "Earlier answer",
+						timestamp: 2,
+					},
+					{ id: "user-1", role: "user", content: PLAN, timestamp: 3 },
+					{
+						id: "assistant-1",
+						role: "assistant",
+						content: FIRST_WORDS,
+						timestamp: 4,
+					},
+				],
+			}),
+		);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Edit message" })[1],
+		);
+		const composer = screen.getByTestId("message-input");
+		await waitFor(() => expect(composer).toHaveValue(PLAN));
+		await fireEvent.input(composer, { target: { value: "Plan dad's 61st" } });
+		await fireEvent.click(screen.getByTestId("send-button"));
+		await waitFor(() =>
+			expect(deleteConversationMessages).toHaveBeenCalledTimes(1),
 		);
 
-		await fireEvent.click(retry);
+		// While the delete is out the page hears of a question on a row that stays.
+		await hearOfAQuestionOn("assistant-0");
+		finishDelete(2);
+
+		// It still waits, so the resend must not start; and its words, which exist
+		// nowhere else once the message is deleted, are the person's again in the box
+		// (the edit is over: the box shows the draft that was set aside, with them joined).
+		await waitFor(() =>
+			expect(screen.queryByTestId("composer-edit-strip")).toBeNull(),
+		);
+		await waitFor(() => expect(composer).toHaveValue("Plan dad's 61st"));
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		expect(composer).toHaveValue("Plan dad's 61st");
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+	});
+
+	it("shows a file dragged over the page as blocked while a question waits", async () => {
+		const view = renderPage(pageData({ messages: askedChat() }));
+		const page = screen.getByRole("region", { name: "Chat page" });
+		const drag = {
+			dataTransfer: {
+				types: ["Files"],
+				files: [new File(["x"], "notes.txt", { type: "text/plain" })],
+			},
+		};
+		await fireEvent.dragEnter(page, drag);
+		expect(await screen.findByTestId("drop-zone-overlay")).toHaveTextContent(
+			"Drop files to attach",
+		);
+		await fireEvent.dragLeave(page, drag);
+
+		await view.rerender({
+			data: pageData({ messages: askedChat(), questions: [askedQuestion()] }),
+			params: { conversationId: "conv-1" },
+		});
+		await waitFor(() =>
+			expect(screen.getByTestId("composer-box")).toHaveAttribute(
+				"data-waiting-for-answer",
+				"true",
+			),
+		);
+		await fireEvent.dragEnter(page, drag);
+		expect(await screen.findByTestId("drop-zone-overlay")).toHaveTextContent(
+			"Cannot upload while generating",
+		);
 	});
 
 	it("regenerates a reply that asked from its first segment", async () => {
@@ -8853,24 +9103,6 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 	});
 
 	describe("the answer", () => {
-		const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
-		const cloudModelPageData = (overrides: Record<string, unknown> = {}) =>
-			pageData({
-				userModel: CLOUD_MODEL_ID,
-				availableModels: [
-					{
-						id: CLOUD_MODEL_ID,
-						displayName: "Cloud Model",
-						isThirdParty: true,
-						iconAssetId: null,
-						iconUrl: null,
-					},
-				],
-				messages: askedChat(),
-				questions: [askedQuestion()],
-				...overrides,
-			});
-
 		it("is taken once: the card is off before anything is awaited, and the same reply goes on from the person's message", async () => {
 			renderAskedChat();
 			const dinner = await screen.findByRole("button", { name: "Dinner out" });
@@ -8902,7 +9134,9 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		it("passes the page's gate first, like every fresh turn, and a cancelled warning leaves the card answerable", async () => {
 			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
 			ackCloudConnectorMock.mockResolvedValue(undefined);
-			renderPage(cloudModelPageData());
+			renderPage(
+				cloudPage({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
 			await waitFor(() => {
 				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 			});
@@ -9189,50 +9423,24 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			});
 		});
 	});
-
-	// A Retry or a regenerate waits at the page's gate (the cloud-connector warning) with
-	// nothing wrong yet; while the person reads the warning the page hears that the
-	// reply stopped to ask. Going on would start a turn under an open question.
+	// A Retry, a regenerate or an Atlas action waits at the page's gate (the
+	// cloud-connector warning) with nothing wrong yet; while the person reads the warning
+	// the page hears that a reply stopped to ask. Going on would start a turn under an
+	// open question.
 	describe("a turn waiting at the page's gate when a question appears", () => {
-		const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
-		const cloudPage = (messages: ChatMessage[]) =>
-			pageData({
-				userModel: CLOUD_MODEL_ID,
-				availableModels: [
-					{
-						id: CLOUD_MODEL_ID,
-						displayName: "Cloud Model",
-						isThirdParty: true,
-						iconAssetId: null,
-						iconUrl: null,
-					},
-				],
-				messages,
-			});
-
-		async function hearOfAQuestionOn(messageId: string) {
-			vi.mocked(fetchConversationQuestions).mockResolvedValue([
-				askedQuestion({ assistantMessageId: messageId }),
-			]);
-			runtimeHarness.adapters?.refreshQuestions?.();
-			await waitFor(() =>
-				expect(screen.getByTestId("message-input")).toBeDisabled(),
-			);
-		}
+		const earlierTurn: ChatMessage[] = [
+			{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+			{
+				id: "assistant-0",
+				role: "assistant",
+				content: "Earlier answer",
+				timestamp: 2,
+			},
+		];
 
 		it("is not started: a Retry", async () => {
 			ackCloudConnectorMock.mockResolvedValue(undefined);
-			renderPage(
-				cloudPage([
-					{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
-					{
-						id: "assistant-0",
-						role: "assistant",
-						content: "Earlier answer",
-						timestamp: 2,
-					},
-				]),
-			);
+			renderPage(cloudPage({ messages: earlierTurn }));
 			await waitFor(() => {
 				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 			});
@@ -9258,7 +9466,7 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		it("is not started: a regenerate, and the reply stays", async () => {
 			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
 			ackCloudConnectorMock.mockResolvedValue(undefined);
-			renderPage(cloudPage(askedChat()));
+			renderPage(cloudPage({ messages: askedChat() }));
 			await waitFor(() => {
 				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 			});
@@ -9274,6 +9482,126 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(runtimeHarness.streamInvocations).toHaveLength(0);
 			expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+		});
+
+		it("is not started: an Atlas action", async () => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+			renderPage(cloudPage({ messages: earlierTurn }));
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+
+			const action = fromPane("onAtlasLifecycleAction", {
+				jobId: "atlas-job-1",
+				action: "continue",
+				message: "Add the risks",
+				profile: "in-depth",
+			});
+			await screen.findByTestId("cloud-connector-warning");
+			await hearOfAQuestionOn("assistant-0");
+			await fireEvent.click(screen.getByTestId("cloud-warning-send"));
+			await action;
+
+			expect(runtimeHarness.atlasSubmissions).toHaveLength(0);
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+	});
+
+	// The page's own refusals of an answer: it sets nothing and does not get as far as the
+	// gate, so the card stays answerable. The warning is made to come up for any answer
+	// that reaches the gate, which is how a refusal that was left out shows.
+	describe("an answer the page refuses", () => {
+		const earlierTurn: ChatMessage[] = [
+			{ id: "user-0", role: "user", content: "Earlier", timestamp: 1 },
+			{
+				id: "assistant-0",
+				role: "assistant",
+				content: "Earlier answer",
+				timestamp: 2,
+			},
+		];
+
+		beforeEach(() => {
+			checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+			ackCloudConnectorMock.mockResolvedValue(undefined);
+		});
+
+		async function answerIsRefused() {
+			const gateReads = checkCloudWarningMock.mock.calls.length;
+			await fromPane("onAnswerQuestion", "q-1", DINNER);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(checkCloudWarningMock.mock.calls.length).toBe(gateReads);
+			expect(screen.queryByTestId("cloud-connector-warning")).toBeNull();
+		}
+
+		it("in a sealed chat", async () => {
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion(),
+			]);
+			renderPage(
+				cloudPage({
+					conversation: conversationFixture("conv-1", { status: "sealed" }),
+					messages: askedChat(),
+					questions: [askedQuestion()],
+				}),
+			);
+			await screen.findByTestId("ask-card");
+
+			await answerIsRefused();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+
+		it("while an edit is open", async () => {
+			renderPage(cloudPage({ messages: [...earlierTurn, ...askedChat()] }));
+			await fireEvent.click(
+				screen.getAllByRole("button", { name: "Edit message" })[0],
+			);
+			await screen.findByTestId("composer-edit-strip");
+			await hearOfAQuestionOn("assistant-1");
+
+			await answerIsRefused();
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		});
+
+		it("while a turn runs", async () => {
+			renderPage(cloudPage({ messages: earlierTurn }));
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			checkCloudWarningMock.mockResolvedValueOnce({ shouldWarn: false });
+			await typeAndSend("And tomorrow?");
+			await waitFor(() =>
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
+			);
+			await hearOfAQuestionOn("assistant-0");
+
+			await answerIsRefused();
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
+		it("that is already out", async () => {
+			renderPage(
+				cloudPage({ messages: askedChat(), questions: [askedQuestion()] }),
+			);
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				askedQuestion(),
+			]);
+			await waitFor(() => {
+				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+			});
+			await chooseOnCard("Dinner out");
+			// The first answer waits at the gate, the card off.
+			await screen.findByTestId("cloud-connector-warning");
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+
+			// A second one, however it got there, takes nothing, and does not give the first
+			// one's card back to the person while it waits.
+			await fromPane("onAnswerQuestion", "q-1", DINNER);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(screen.getByRole("button", { name: "Dinner out" })).toBeDisabled();
+			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
 		});
 	});
 
