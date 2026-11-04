@@ -20,6 +20,7 @@ import {
 	pictureKey,
 } from "$lib/components/chat/composer-pictures";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
+import { continuesRowAbove } from "$lib/components/chat/reply-segments";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -470,20 +471,31 @@ export function isConversationReadOnly(conversation: {
  * comes back, so only the assistant messages after that are "later replies". A
  * message whose turn failed has no reply of its own, so every reply after it
  * counts. 0 for an id the list does not hold.
+ *
+ * A reply that paused to ask the person is several rows (segments), each carrying
+ * on from the row above it. That is one reply: it counts once, and a row that
+ * carries on from the one above is no reply of its own.
  */
 export function countLaterReplies(
-	messages: readonly Pick<ChatMessage, "id" | "role">[],
+	messages: readonly Pick<ChatMessage, "id" | "role" | "continuesMessageId">[],
 	editedMessageId: string,
 ): number {
 	const editedIndex = messages.findIndex(
 		(message) => message.id === editedMessageId,
 	);
 	if (editedIndex === -1) return 0;
-	const after = messages.slice(editedIndex + 1);
-	const repliesAfter = after.filter(
-		(message) => message.role === "assistant",
-	).length;
-	return after[0]?.role === "assistant" ? repliesAfter - 1 : repliesAfter;
+	let repliesAfter = 0;
+	for (let index = editedIndex + 1; index < messages.length; index += 1) {
+		if (
+			messages[index].role === "assistant" &&
+			!continuesRowAbove(messages, index)
+		) {
+			repliesAfter += 1;
+		}
+	}
+	return messages[editedIndex + 1]?.role === "assistant"
+		? repliesAfter - 1
+		: repliesAfter;
 }
 
 export function shouldHydrateFileProductionJobsOnToolCall(
@@ -761,6 +773,21 @@ export function withQuestionStamped(
 		question.id === questionId && question.assistantMessageId === null
 			? { ...question, assistantMessageId }
 			: question,
+	);
+}
+
+/**
+ * Whether an assistant row has landed, as polling for a reply judges it: it has
+ * words, or it asked a question. A segment that paused to ask can have no words at
+ * all, and without the second rule polling would wait for it for ever.
+ */
+export function landedAssistantRow(
+	row: ChatMessage,
+	questions: readonly AskQuestionDto[],
+): boolean {
+	return (
+		Boolean(row.content) ||
+		questions.some((question) => question.assistantMessageId === row.id)
 	);
 }
 

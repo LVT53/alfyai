@@ -45,6 +45,7 @@ import {
 	isQuestionOpen,
 	joinDraftText,
 	joinRestoredPayload,
+	landedAssistantRow,
 	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
 	marksOutdated,
@@ -548,6 +549,40 @@ describe("countLaterReplies", () => {
 	it("is 0 for a message the list does not hold", () => {
 		expect(countLaterReplies([...turn(1), ...turn(2)], "missing")).toBe(0);
 	});
+
+	it("counts a reply in segments once among the later replies", () => {
+		// A reply that paused to ask is several assistant rows, each carrying on from
+		// the row above it. It is one reply to the person, so it goes as one.
+		const inSegments = (n: number, segments: number) => [
+			{ id: `u${n}`, role: "user" as const },
+			...Array.from({ length: segments }, (_, index) => ({
+				id: index === 0 ? `a${n}` : `a${n}.${index}`,
+				role: "assistant" as const,
+				...(index === 0
+					? {}
+					: {
+							continuesMessageId: index === 1 ? `a${n}` : `a${n}.${index - 1}`,
+						}),
+			})),
+		];
+		const list = [
+			...inSegments(1, 1),
+			...inSegments(2, 3),
+			...inSegments(3, 2),
+		];
+
+		// Reply 2 (three segments) and reply 3 (two) are two later replies, not four.
+		expect(countLaterReplies(list, "u1")).toBe(2);
+		// An edit of message 2 brings its own reply back, all of its segments with it.
+		expect(countLaterReplies(list, "u2")).toBe(1);
+		expect(countLaterReplies(list, "u3")).toBe(0);
+		// A link to a row that is not right above starts a reply of its own.
+		const unlinked = [
+			...inSegments(1, 1),
+			{ id: "a9", role: "assistant" as const, continuesMessageId: "gone" },
+		];
+		expect(countLaterReplies(unlinked, "u1")).toBe(1);
+	});
 });
 
 describe("Ask me first: the page's question helpers", () => {
@@ -578,6 +613,10 @@ describe("Ask me first: the page's question helpers", () => {
 			createdAt: 1_000,
 			...overrides,
 		};
+	}
+
+	function assistantRow(id: string, content: string): ChatMessage {
+		return { id, role: "assistant", content, timestamp: 1 };
 	}
 
 	it("opens a waiting question and gives the composer back while its answer is out", () => {
@@ -647,6 +686,31 @@ describe("Ask me first: the page's question helpers", () => {
 			answered,
 		);
 		expect(withQuestionAnswering([other], "q-9", OWN_WORDS)).toEqual([other]);
+	});
+
+	it("takes a paused row with no words as landed when it has a question", () => {
+		const paused = assistantRow("a-1", "");
+
+		// A row that says nothing and asked nothing has not landed...
+		expect(landedAssistantRow(paused, [])).toBe(false);
+		expect(
+			landedAssistantRow(paused, [
+				askedQuestion({ assistantMessageId: "a-2" }),
+			]),
+		).toBe(false);
+		// ...an unstamped question belongs to no saved row...
+		expect(
+			landedAssistantRow(paused, [askedQuestion({ assistantMessageId: null })]),
+		).toBe(false);
+		// ...but one that asked has, whatever has become of its question.
+		expect(landedAssistantRow(paused, [askedQuestion()])).toBe(true);
+		expect(
+			landedAssistantRow(paused, [askedQuestion({ status: "answered" })]),
+		).toBe(true);
+		// Words are enough, as they always were.
+		expect(
+			landedAssistantRow(assistantRow("a-1", "Let's settle that."), []),
+		).toBe(true);
 	});
 });
 

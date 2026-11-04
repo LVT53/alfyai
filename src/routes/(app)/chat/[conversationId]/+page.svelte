@@ -187,7 +187,10 @@ import {
 	createBrowserNormalChatClientTurnRuntime,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
-import { personMessageOfReply } from "$lib/components/chat/reply-segments";
+import {
+	personMessageOfReply,
+	replyFirstMessageId,
+} from "$lib/components/chat/reply-segments";
 import type { StreamTimingSnapshot } from "$lib/services/streaming";
 import {
 	buildChatSourceMessageHref,
@@ -259,6 +262,7 @@ import {
 	countLaterReplies,
 	hasActiveFileProductionJobs,
 	isQuestionOpen,
+	landedAssistantRow,
 	mergeFileProductionJob,
 	removeMessageById,
 	patchInstructionSuggestionInMessageList,
@@ -2827,7 +2831,8 @@ async function pollForCompletion(
 	}
 
 	console.info("[CHAT] Polling for completion, attempt:", attempt + 1);
-	const detail = await fetchConversationDetail(data.conversation.id).catch(
+	const conversationId = data.conversation.id;
+	const detail = await fetchConversationDetail(conversationId).catch(
 		() => null,
 	);
 
@@ -2851,12 +2856,20 @@ async function pollForCompletion(
 	const newMessages = detail.messages ?? [];
 
 	// Find NEW assistant messages (ones not already in our list)
-	const newAssistantMessages = newMessages.filter(
+	const unseenAssistantMessages = newMessages.filter(
 		(m: ChatMessage) =>
-			m.role === "assistant" &&
-			m.content &&
-			m.content.length > 0 &&
-			!currentMessageIds.includes(m.id),
+			m.role === "assistant" && !currentMessageIds.includes(m.id),
+	);
+	// "Ask me first": a segment that stopped to ask can have no words at all, only a
+	// question of its own, so a row is judged landed (`landedAssistantRow`) against the
+	// questions as they are now. They are read once there is a row to judge.
+	if (unseenAssistantMessages.length > 0) {
+		await refreshQuestions();
+		// The person may have moved to another chat while they were read.
+		if (conversationId !== data.conversation.id) return;
+	}
+	const newAssistantMessages = unseenAssistantMessages.filter(
+		(m: ChatMessage) => landedAssistantRow(m, questions),
 	);
 
 	if (newAssistantMessages.length > 0) {
@@ -2910,7 +2923,20 @@ async function pollForCompletion(
 		if (newAssistant.id) {
 			void pollMessageEvidence(newAssistant.id);
 		}
-		void normalChatRuntime.drainPostTurnQueue();
+		// "Ask me first": the segment that landed stopped to ask. The reply is not over,
+		// so what was queued behind it goes back to the draft, as when a Stop ends a turn,
+		// and no new turn starts under an open question.
+		const pausedToAsk = questions.some(
+			(question) =>
+				question.assistantMessageId === newAssistant.id &&
+				question.status === "waiting",
+		);
+		if (pausedToAsk) {
+			markWaitingForAnswer(true);
+			normalChatRuntime.restoreQueuedTurnToDraft();
+		} else {
+			void normalChatRuntime.drainPostTurnQueue();
+		}
 
 		return;
 	}
@@ -4300,10 +4326,15 @@ async function handleRegenerate(
 	// the time the stop above has settled, `messageId` may only match the
 	// finalized message's renderKey — match either, or the whole action
 	// silently no-ops.
-	const assistantIdx = msgs.findIndex(
+	const pressedIdx = msgs.findIndex(
 		(m) => m.id === messageId || m.renderKey === messageId,
 	);
-	if (assistantIdx === -1) return;
+	if (pressedIdx === -1) return;
+	// "Ask me first": a reply that paused to ask is several rows, and the button sits
+	// under the last. Redoing it redoes it all, from its first segment (the row the
+	// person's message is right before); the turns it would drop are counted from its last.
+	const firstSegmentId = replyFirstMessageId(msgs, msgs[pressedIdx].id);
+	const assistantIdx = msgs.findIndex((m) => m.id === firstSegmentId);
 	const assistantMessageId = msgs[assistantIdx].id;
 	// Captured before the slice below removes this message from the timeline.
 	const assistantUserIntent = msgs[assistantIdx].userIntent;

@@ -69,7 +69,7 @@ export function getClipboardText(content: string): string {
  * not the one above starts a reply of its own.
  */
 export function continuesRowAbove(
-	messages: readonly ChatMessage[],
+	messages: readonly Pick<ChatMessage, "id" | "role" | "continuesMessageId">[],
 	index: number,
 ): boolean {
 	const row = messages[index];

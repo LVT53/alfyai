@@ -1,3 +1,4 @@
+import { replyEndIndex } from "$lib/components/chat/reply-segments";
 import type { I18nKey } from "$lib/i18n";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 
@@ -30,16 +31,19 @@ export function hasForkedAssistantInRange(
 }
 
 /**
- * Number of messages that follow `assistantIdx` in `messages` — i.e. how
- * many later turns a destructive regenerate at that index would discard.
- * Returns 0 when `assistantIdx` is the last message (or out of range).
+ * Number of messages that follow the reply at `assistantIdx` in `messages` — i.e.
+ * how many later turns a destructive regenerate at that index would discard.
+ * Returns 0 when the reply is the last thing in the list (or the index is out of
+ * range). A reply that paused to ask is several rows, and a regenerate redoes all
+ * of them, so the count starts after the reply's last segment, whichever segment
+ * `assistantIdx` names.
  */
 export function laterTurnCount(
 	messages: ChatMessage[],
 	assistantIdx: number,
 ): number {
 	if (assistantIdx < 0 || assistantIdx >= messages.length) return 0;
-	return messages.length - 1 - assistantIdx;
+	return messages.length - 1 - replyEndIndex(messages, assistantIdx);
 }
 
 /**

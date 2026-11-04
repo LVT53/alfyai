@@ -100,6 +100,62 @@ describe("chat lifecycle guards", () => {
 			expect(regenerateDropsLaterTurns(messages, 3)).toBe(false);
 		});
 
+		it("counts later turns from a reply's last segment", () => {
+			// A reply that paused to ask is several rows, each carrying on from the row
+			// above it. Redoing it redoes all of them, so the turns it would drop are the
+			// ones after its LAST segment, whichever segment the count starts from.
+			const asked: ChatMessage[] = [
+				{
+					id: "user-1",
+					role: "user",
+					content: "Plan dad's 60th",
+					timestamp: 1,
+				},
+				{
+					id: "assistant-1",
+					role: "assistant",
+					content: "First",
+					timestamp: 2,
+				},
+				{
+					id: "assistant-2",
+					role: "assistant",
+					content: "Second",
+					timestamp: 3,
+					continuesMessageId: "assistant-1",
+				},
+				{
+					id: "assistant-3",
+					role: "assistant",
+					content: "Third",
+					timestamp: 4,
+					continuesMessageId: "assistant-2",
+				},
+				{ id: "user-2", role: "user", content: "Thanks", timestamp: 5 },
+				{
+					id: "assistant-4",
+					role: "assistant",
+					content: "Welcome",
+					timestamp: 6,
+				},
+			];
+
+			expect(laterTurnCount(asked, 1)).toBe(2);
+			expect(laterTurnCount(asked, 2)).toBe(2);
+			expect(laterTurnCount(asked, 3)).toBe(2);
+			expect(regenerateDropsLaterTurns(asked, 1)).toBe(true);
+			// A reply in segments that ends the chat drops nothing but itself.
+			expect(laterTurnCount(asked.slice(0, 4), 1)).toBe(0);
+			expect(regenerateDropsLaterTurns(asked.slice(0, 4), 1)).toBe(false);
+			// A link to a row that is not right above starts a reply of its own.
+			const unlinked: ChatMessage[] = [
+				asked[0],
+				asked[1],
+				{ ...asked[2], continuesMessageId: "assistant-9" },
+			];
+			expect(laterTurnCount(unlinked, 1)).toBe(1);
+		});
+
 		it("still reports later turns when a fork is in range — callers must not double-prompt", () => {
 			// Documents the single-prompt interaction: when
 			// hasForkedAssistantInRange(messages, assistantIdx) is also true, the

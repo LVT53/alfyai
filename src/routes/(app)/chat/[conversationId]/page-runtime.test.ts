@@ -8448,6 +8448,122 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		expect(runtimeHarness.streamInvocations).toHaveLength(1);
 	});
 
+	it("regenerates a reply that asked from its first segment", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "user-0",
+						role: "user",
+						content: "First question",
+						timestamp: 1,
+					},
+					{
+						id: "assistant-0",
+						role: "assistant",
+						content: "First answer",
+						timestamp: 2,
+					},
+					{ id: "user-1", role: "user", content: PLAN, timestamp: 3 },
+					{
+						id: "assistant-1",
+						role: "assistant",
+						content: FIRST_WORDS,
+						timestamp: 4,
+					},
+					{
+						id: "assistant-2",
+						role: "assistant",
+						content: SECOND_WORDS,
+						timestamp: 5,
+						continuesMessageId: "assistant-1",
+					},
+					{ id: "user-2", role: "user", content: "Thanks", timestamp: 6 },
+					{
+						id: "assistant-3",
+						role: "assistant",
+						content: "You are welcome.",
+						timestamp: 7,
+					},
+				],
+				questions: [answeredQuestion()],
+			}),
+		);
+
+		// One button for each reply: the reply that asked has it once, under its last segment.
+		await screen.findByText(SECOND_WORDS);
+		const regenerate = screen.getAllByRole("button", {
+			name: "Regenerate response",
+		});
+		expect(regenerate).toHaveLength(3);
+		await fireEvent.click(regenerate[1]);
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		// The turns it would drop are counted from the reply's last segment...
+		expect(confirmSpy).toHaveBeenCalledTimes(1);
+		expect(confirmSpy).toHaveBeenCalledWith(
+			"This removes 2 later messages in this conversation. Continue?",
+		);
+		// ...and it is the whole reply that is redone, from the person's message.
+		const regenerated = runtimeHarness.streamInvocations[0];
+		expect(regenerated.message).toBe(PLAN);
+		expect(regenerated.options?.retryAssistantMessageId).toBe("assistant-1");
+		expect(regenerated.options?.retryUserMessageId).toBe("user-1");
+		expect(screen.queryByText(FIRST_WORDS)).not.toBeInTheDocument();
+		expect(screen.queryByText(SECOND_WORDS)).not.toBeInTheDocument();
+		expect(screen.queryByText("Thanks")).not.toBeInTheDocument();
+		expect(await screen.findByText("First answer")).toBeInTheDocument();
+	});
+
+	it("gives a queued message back to the draft when polling finds a paused segment", async () => {
+		let resolveDetail: (
+			value: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveDetail = resolve;
+			}),
+		);
+		renderPage();
+		await typeAndSend(PLAN);
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		runtimeHarness.streamInvocations[0].callbacks.onWaiting?.();
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Queued after waiting" },
+		});
+		await fireEvent.click(screen.getByTestId("queue-button"));
+		expect(screen.getByTestId("queued-message-banner")).toHaveTextContent(
+			"Queued after waiting",
+		);
+
+		// The reply landed as a segment that paused: it says nothing, and it asked.
+		vi.mocked(fetchConversationQuestions).mockResolvedValue([askedQuestion()]);
+		resolveDetail({
+			...conversationDetailFixture(),
+			conversation: conversationFixture("conv-1"),
+			messages: [
+				{ id: "user-1", role: "user", content: PLAN, timestamp: 1 },
+				{ id: "assistant-1", role: "assistant", content: "", timestamp: 2 },
+			],
+		});
+
+		expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+		// No new turn starts under an open question: the message is the person's again.
+		await waitFor(() => {
+			expect(screen.getByTestId("message-input")).toHaveValue(
+				"Queued after waiting",
+			);
+		});
+		expect(screen.queryByTestId("queued-message-banner")).toBeNull();
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		expect(screen.getByTestId("message-input")).toBeDisabled();
+		expect(sidebarMark()).toBe(true);
+	});
+
 	it("keeps the composer's draft through the pause and the answer", async () => {
 		renderPage();
 		const composer = screen.getByTestId("message-input") as HTMLTextAreaElement;
