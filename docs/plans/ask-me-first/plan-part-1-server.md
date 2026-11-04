@@ -426,7 +426,7 @@ export function updateAssistantToolCallResult(p: { conversationId: string; messa
   outputSummary: string; resultDigest: string }): Promise<boolean>; // messages.ts: rewrites one tool_call segment of tool_calls
 ```
 
-History (Plan's call 21): for an assistant message whose tool calls include an `ask_user` call, `renderHistoryTurn` emits `assistant(other tool calls)`, `tool(their digests)` (both only when there are other calls), then `assistant([text part when there is text, the ask tool-call part])`, then `tool(the ask's digest)`. Flatten mode: the other calls' `[used …]` lines, the text, then `[asked the user: <questions joined by " / ">]` and `[the user's answer: <the digest's summary>]`, each within `MAX_FLATTENED_TOOL_LINE_CHARS`. A message with no ask renders as today.
+History (Plan's call 21): for an assistant message whose tool calls include an `ask_user` call that paused the reply (`askCallPausedTheReply` in `$lib/shared/ask-user`, Ruling 9; refused and unfinished ask calls render as any call), `renderHistoryTurn` emits `assistant(other tool calls)`, `tool(their digests)` (both only when there are other calls), then `assistant([text part when there is text, the ask tool-call part])`, then `tool(the ask's digest)`. Flatten mode: the other calls' `[used …]` lines, the text, then `[asked the user: <questions joined by " / ">]` and `[the user's answer: <the digest's summary>]`, each within `MAX_FLATTENED_TOOL_LINE_CHARS`. A message with no ask renders as today.
 
 - [ ] **Step 1: Write the failing tests.**
 
