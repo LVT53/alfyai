@@ -85,7 +85,10 @@ export const t = derived(uiLanguage, ($uiLanguage) => {
 				),
 				(_, one: string, other: string) => (count === 1 ? one : other),
 			);
-			value = value.replaceAll(`{${name}}`, String(replacement));
+			// A function, so the text goes in as it is: a string replacement would read
+			// `$$`, `$&`, `$`` and `$'` in it as patterns, and a parameter is often a
+			// person's words, a label, a filename or a title.
+			value = value.replaceAll(`{${name}}`, () => String(replacement));
 		}
 		return value;
 	};

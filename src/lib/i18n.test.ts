@@ -180,6 +180,52 @@ describe("i18n composer and skills namespaces", () => {
 		);
 	});
 
+	it("inserts a parameter's text as it is, even when it reads like a replacement pattern", () => {
+		// A parameter is a person's own words, Alfy's labels, a filename or a title, so
+		// whatever it holds is text. `String.replaceAll` reads `$$`, `$&`, `$`` and `$'`
+		// in a replacement STRING as patterns (a dollar sign, the `{name}` it replaces,
+		// what comes before it, what comes after it), which rewrote such text and left
+		// the raw placeholder showing.
+		const translate = get(t);
+
+		for (const text of ["$&", "$$", "$`", "$'"]) {
+			expect(translate("chat.removeAttachment", { name: text })).toBe(
+				`Remove ${text}`,
+			);
+		}
+		const words = "Under $$ please, not $& or $` or $' either";
+		expect(translate("chat.removeAttachment", { name: words })).toBe(
+			`Remove ${words}`,
+		);
+		// and a plural beside a plain parameter that holds patterns still resolves
+		expect(
+			translate("knowledge.uploadFailuresAll", {
+				count: 2,
+				details: "quota $& $$",
+			}),
+		).toBe("Failed to upload 2 files: quota $& $$");
+	});
+
+	it("still fills a plain parameter, and a plural one beside a plain one, as it did", () => {
+		const translate = get(t);
+
+		expect(translate("chat.removeAttachment", { name: "report.pdf" })).toBe(
+			"Remove report.pdf",
+		);
+		expect(
+			translate("knowledge.uploadFailuresAll", {
+				count: 1,
+				details: "disk full",
+			}),
+		).toBe("Failed to upload 1 file: disk full");
+		expect(
+			translate("knowledge.uploadFailuresAll", {
+				count: 3,
+				details: "disk full",
+			}),
+		).toBe("Failed to upload 3 files: disk full");
+	});
+
 	it("keeps every interpolation parameter on both sides of a key", () => {
 		// The Hungarian collapsed-activity strip lost `{verb}` and hardcoded the
 		// settled form ("Emlékek felidézve"), so a recall still in flight said
