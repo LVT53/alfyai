@@ -1128,7 +1128,7 @@ describe("ToolActivityRow, a question's folded line (Ask me first)", () => {
 		expect(row.querySelectorAll("svg")).toHaveLength(1);
 	});
 
-	it("lets a long question give way to its answer, on an ask row only", () => {
+	it("marks the verb of an ask row, and of no other row, as a question that can be cut", () => {
 		const ask = render(ToolActivityRow, { item: askItem() });
 		expect(
 			ask
@@ -1145,6 +1145,37 @@ describe("ToolActivityRow, a question's folded line (Ask me first)", () => {
 				.querySelector(".act-verb")
 				?.classList.contains("act-verb-question"),
 		).toBe(false);
+	});
+
+	it("cuts a long question with an ellipsis, and caps it at 46% only while an answer shares the line", () => {
+		// jsdom applies no component CSS, so the stylesheet is the subject, as for the
+		// muted look above. The question is the row's verb, and a question can be long.
+		const question =
+			stylesheet.match(/\.act-verb-question \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(question).toMatch(/flex:\s*0 1 auto/);
+		expect(question).toMatch(/min-width:\s*0/);
+		expect(question).toMatch(/overflow:\s*hidden/);
+		expect(question).toMatch(/text-overflow:\s*ellipsis/);
+		expect(question).toMatch(/white-space:\s*nowrap/);
+		// No cap of its own: a closed question has nothing after it and keeps the line.
+		expect(question).not.toMatch(/max-width/);
+
+		// Beside an answer it takes at most 46%, or its own width when that is less
+		// ("2 questions" is never cut), and it does not shrink further: the answer does.
+		const capped =
+			stylesheet.match(
+				/\.act-verb-question:has\(\+ \.act-object\) \{([\s\S]*?)\}/,
+			)?.[1] ?? "";
+		expect(capped).toMatch(/max-width:\s*46%/);
+		expect(capped).toMatch(/flex-shrink:\s*0/);
+		const answer = stylesheet.match(/\.act-object \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(answer).toMatch(/min-width:\s*0/);
+		expect(answer).toMatch(/text-overflow:\s*ellipsis/);
+
+		// The suffix keeps its room whatever the question and the answer do.
+		const suffix =
+			stylesheet.match(/\.act-object-suffix \{([\s\S]*?)\}/)?.[1] ?? "";
+		expect(suffix).toMatch(/flex:\s*0 0 auto/);
 	});
 
 	it("names what Alfy did with the question to a screen reader, the suffix included", () => {

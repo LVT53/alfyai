@@ -16,23 +16,6 @@ import type { Translate } from "$lib/utils/tool-evidence-presentation";
 /** Between the answers to the questions of one card, in the line. */
 const ANSWER_SEPARATOR = " · ";
 
-/** Stands for the person's words while the marks they go between are read off the dictionary. */
-const WORDS_MARK = "\u0000";
-
-/**
- * The person's own words in the reader's quote marks (“…” in English, „…” in
- * Hungarian). The marks are `chat.ask.ownAnswerQuote`'s, and the words go between
- * them here and not through `t`: `t` fills `{text}` with `String.replaceAll`, which
- * reads `$&` and `$$` in the text it inserts as patterns, and a person's own words
- * are quoted exactly as typed.
- */
-function quoted(words: string, t: Translate): string {
-	const [before = "", after = ""] = t("chat.ask.ownAnswerQuote", {
-		text: WORDS_MARK,
-	}).split(WORDS_MARK);
-	return `${before}${words}${after}`;
-}
-
 /** The labels of the options picked, in the order they were picked; a pick that names no option is skipped, as the server skips it when it words the answer for the model. */
 function pickedLabels(
 	question: AskQuestion,
@@ -77,7 +60,9 @@ export function askAnswerText(
 			const given = answer.answers[index];
 			if (!given) return "";
 			const words = given.ownWords?.trim();
-			return words ? quoted(words, t) : pickedLabels(question, given.picked);
+			return words
+				? t("chat.ask.ownAnswerQuote", { text: words })
+				: pickedLabels(question, given.picked);
 		}
 	}
 }
@@ -106,10 +91,11 @@ export function buildAskFoldedItem(
 	const closed = answer?.kind === "closed";
 	const leftToAlfy = answer?.kind === "left_to_alfy";
 
-	const answers =
-		answer === null
-			? []
-			: questions.map((asked, index) => askAnswerText(asked, answer, index, t));
+	// `!answer`, not `=== null`: a row read from JSON that lacks the key gives
+	// undefined, and that is as missing as null (`answer?.kind` above already is).
+	const answers = !answer
+		? []
+		: questions.map((asked, index) => askAnswerText(asked, answer, index, t));
 	const object = answers.filter((text) => text !== "").join(ANSWER_SEPARATOR);
 	const suffix = leftToAlfy
 		? `· ${t("chat.ask.leftToAlfy")}`
@@ -119,7 +105,7 @@ export function buildAskFoldedItem(
 
 	// Nothing to open on a closed card, and nothing to show when the answer is missing.
 	let body: ToolActivityItem["body"] = null;
-	if (answer !== null && !closed) {
+	if (answer && !closed) {
 		body = {
 			kind: "ask",
 			pairs: questions.map((asked, index) => ({

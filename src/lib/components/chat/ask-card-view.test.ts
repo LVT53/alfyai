@@ -99,6 +99,13 @@ const answered = (
 	...answers: OneAnswer[]
 ): AskQuestionDto => card(questions, { kind: "answered", answers });
 
+// A row read from JSON that lacks the key has no `answer` at all, whatever the type says.
+function withoutAnswer(questions: AskQuestion[]): AskQuestionDto {
+	const row: Partial<AskQuestionDto> = card(questions, null);
+	delete row.answer;
+	return row as AskQuestionDto;
+}
+
 const LEFT: AskAnswer = { kind: "left_to_alfy" };
 const CLOSED: AskAnswer = { kind: "closed" };
 
@@ -156,8 +163,8 @@ describe("buildAskFoldedItem", () => {
 	});
 
 	it("puts the person's words in the marks exactly as typed, $ signs included", () => {
-		// The translator fills {text} with String.replaceAll, which reads `$&` and `$$`
-		// in what it is given as patterns. These are the person's own words.
+		// The words go through the translator's {text} parameter, which must put them in
+		// as they are: `$$`, `$&` and `$'` are not patterns when a person types them.
 		const typed = "Nothing fancy: $$ at most, not $& or $' either";
 		const item = buildAskFoldedItem(answered([WAY], own(typed)), en);
 
@@ -263,29 +270,33 @@ describe("buildAskFoldedItem", () => {
 		).toMatchObject({ status: "done", objectSuffix: "· left to Alfy" });
 	});
 
-	it("draws a plain done line with its question and an empty object when the answer is unexpectedly null", () => {
-		const item = buildAskFoldedItem(card([WAY], null, "answered"), en);
+	it("draws a plain done line with its question and an empty object when the answer is unexpectedly null or missing", () => {
+		// null is the row's own "no answer"; a row without the key reads undefined. Both
+		// are missing, and neither may reach the answer's kind.
+		for (const missing of [
+			(questions: AskQuestion[]) => card(questions, null, "answered"),
+			withoutAnswer,
+		]) {
+			const item = buildAskFoldedItem(missing([WAY]), en);
 
-		expect(item).toMatchObject({
-			key: "ask-q-1",
-			status: "done",
-			iconType: "ask",
-			verb: "Which way should we take it?",
-			object: "",
-			body: null,
-		});
-		expect(item.objectSuffix).toBeUndefined();
+			expect(item).toMatchObject({
+				key: "ask-q-1",
+				status: "done",
+				iconType: "ask",
+				verb: "Which way should we take it?",
+				object: "",
+				body: null,
+			});
+			expect(item.objectSuffix).toBeUndefined();
 
-		const several = buildAskFoldedItem(
-			card([WHO, SPLIT], null, "answered"),
-			en,
-		);
-		expect(several).toMatchObject({
-			status: "done",
-			verb: "2 questions",
-			object: "",
-			body: null,
-		});
+			const several = buildAskFoldedItem(missing([WHO, SPLIT]), en);
+			expect(several).toMatchObject({
+				status: "done",
+				verb: "2 questions",
+				object: "",
+				body: null,
+			});
+		}
 	});
 
 	it("says left to Alfy in the open line for a question with no Recommended answer", () => {
