@@ -3663,6 +3663,132 @@ describe("MessageInput Connections toggle", () => {
 			"composer-face--on",
 		);
 	});
+
+	// "Ask me first": the person's answer starts a turn that is not a send of the composer,
+	// and it must carry the connections a send would. So the composer hands the page the
+	// function its own send uses for `enabledConnectionCapabilities`, beside the one that
+	// waits for the connections to load (`onCapabilitiesReady`), and a send is built from
+	// that same function.
+	describe("the selection it hands up for a turn that is not its own send", () => {
+		async function handedUp(onCapabilitiesReady = vi.fn()) {
+			const view = render(MessageInput, { onCapabilitiesReady });
+			await waitFor(() => {
+				expect(onCapabilitiesReady).toHaveBeenCalledOnce();
+			});
+			const [ensureLoaded, enabledForSend] = onCapabilitiesReady.mock
+				.calls[0] as [() => Promise<void>, () => string[] | undefined];
+			return { ...view, ensureLoaded, enabledForSend };
+		}
+
+		it("is the selection once the connections have loaded, and the empty list when they are all switched off", async () => {
+			fetchActiveCapabilitiesMock.mockResolvedValue({
+				served: ["calendar", "files"],
+				defaultOn: ["files"],
+				accounts: [],
+			});
+			const { ensureLoaded, enabledForSend, getByTestId } = await handedUp();
+			await ensureLoaded();
+
+			expect(enabledForSend()).toEqual(["files"]);
+
+			// Switched off, a send carries [] (the server then gives the turn no connections,
+			// where saying nothing would leave it the person's defaults).
+			await flipConnections(getByTestId("connections-toggle"));
+			expect(enabledForSend()).toEqual([]);
+		});
+
+		it("says nothing before the connections have loaded, as a send does", async () => {
+			let finishLoad: (value: unknown) => void = () => {};
+			fetchActiveCapabilitiesMock.mockReturnValue(
+				new Promise((resolve) => {
+					finishLoad = resolve;
+				}),
+			);
+			const sendSpy = vi.fn();
+			const onCapabilitiesReady = vi.fn();
+			const { getByPlaceholderText, getByRole } = render(MessageInput, {
+				onCapabilitiesReady,
+				onSend: sendSpy,
+			});
+			await waitFor(() => {
+				expect(onCapabilitiesReady).toHaveBeenCalledOnce();
+			});
+			const [ensureLoaded, enabledForSend] = onCapabilitiesReady.mock
+				.calls[0] as [() => Promise<void>, () => string[] | undefined];
+
+			expect(enabledForSend()).toBeUndefined();
+			await fireEvent.input(getByPlaceholderText("Type a message..."), {
+				target: { value: "Check my schedule" },
+			});
+			await fireEvent.click(getByRole("button", { name: "Send message" }));
+			expect(sendSpy.mock.calls[0][0].enabledConnectionCapabilities).toBe(
+				undefined,
+			);
+
+			finishLoad({
+				served: ["calendar"],
+				defaultOn: ["calendar"],
+				accounts: [],
+			});
+			await ensureLoaded();
+			expect(enabledForSend()).toEqual(["calendar"]);
+		});
+
+		it("says nothing after a failed load, or when no connection is served, as a send does", async () => {
+			fetchActiveCapabilitiesMock.mockRejectedValue(new Error("offline"));
+			const failed = await handedUp();
+			await failed.ensureLoaded();
+			expect(failed.enabledForSend()).toBeUndefined();
+			failed.unmount();
+
+			fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
+				served: [],
+				defaultOn: [],
+				accounts: [],
+			});
+			const none = await handedUp();
+			await none.ensureLoaded();
+			expect(none.enabledForSend()).toBeUndefined();
+		});
+
+		it("is what a send carries, whichever state the connections are in", async () => {
+			fetchActiveCapabilitiesMock.mockResolvedValue({
+				served: ["calendar", "files"],
+				defaultOn: ["files"],
+				accounts: [],
+			});
+			const sendSpy = vi.fn();
+			const onCapabilitiesReady = vi.fn();
+			const { getByPlaceholderText, getByRole, getByTestId } = render(
+				MessageInput,
+				{ onCapabilitiesReady, onSend: sendSpy },
+			);
+			await waitFor(() => {
+				expect(onCapabilitiesReady).toHaveBeenCalledOnce();
+			});
+			const [ensureLoaded, enabledForSend] = onCapabilitiesReady.mock
+				.calls[0] as [() => Promise<void>, () => string[] | undefined];
+			await ensureLoaded();
+			const type = (text: string) =>
+				fireEvent.input(getByPlaceholderText("Type a message..."), {
+					target: { value: text },
+				});
+
+			await type("First");
+			await fireEvent.click(getByRole("button", { name: "Send message" }));
+			expect(sendSpy.mock.calls[0][0].enabledConnectionCapabilities).toEqual(
+				enabledForSend(),
+			);
+
+			await flipConnections(getByTestId("connections-toggle"));
+			await type("Second");
+			await fireEvent.click(getByRole("button", { name: "Send message" }));
+			expect(sendSpy.mock.calls[1][0].enabledConnectionCapabilities).toEqual(
+				enabledForSend(),
+			);
+			expect(enabledForSend()).toEqual([]);
+		});
+	});
 });
 
 // Issue 7.4 fix pass — the cloud-warning check + modal (previously local to

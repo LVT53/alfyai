@@ -557,8 +557,16 @@ let cloudWarningResolve: ((proceed: boolean) => void) | null = null;
 // page — but `ensureCloudWarningAcked` degrades gracefully if so, by simply
 // reading whatever `composerActiveCapabilities` currently holds).
 let ensureComposerCapabilitiesLoaded: (() => Promise<void>) | null = null;
-function handleCapabilitiesReady(ensureLoaded: () => Promise<void>) {
+// Handed up with it: the function the composer's own send uses for the connections it
+// carries. The turn an answer starts carries them by the same rule (see the adapter
+// `getEnabledConnectionCapabilities`), and `handleAnswerQuestion` waits for the load first.
+let composerEnabledCapabilities: (() => string[] | undefined) | null = null;
+function handleCapabilitiesReady(
+	ensureLoaded: () => Promise<void>,
+	enabledForSend: () => string[] | undefined,
+) {
 	ensureComposerCapabilitiesLoaded = ensureLoaded;
+	composerEnabledCapabilities = enabledForSend;
 }
 
 function shouldCheckCloudWarning(): boolean {
@@ -678,6 +686,9 @@ function handleFlushReady(flush: (() => Promise<void>) | null) {
 
 /** A save that has not answered by now is left to finish on its own: a stalled connection never holds a message back. */
 const ARTIFACT_STEP_SAVE_MAX_MS = 2000;
+
+/** The composer's load of the person's connections that has not answered by now is left: an answer then goes with none said, as a send of the composer would, and a stalled connection never holds it back. */
+const CAPABILITIES_LOAD_MAX_MS = 2000;
 
 /** What every fresh turn passes first: the open artifact's pending step is saved, then the cloud-connector warning is settled. True once the turn may go. */
 function prepareTurn(): Promise<boolean> {
@@ -1152,10 +1163,12 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	getAnsweringQuestionMessageId: () =>
 		questions.find((question) => question.status === "answering")
 			?.assistantMessageId ?? null,
-	// The array a send would carry, empty included: the server falls back to the
-	// person's defaults only for a request that names nothing, so a master switch that
-	// is off must go as [] and not as no word at all. It narrows access, never widens it.
-	getEnabledConnectionCapabilities: () => [...composerActiveCapabilities],
+	// What a send of the composer would carry as `enabledConnectionCapabilities`, by the
+	// composer's own rule: the switched-on connections once they are known, the empty
+	// list when they are all off (that gives the turn none), and nothing said before
+	// they are known, after a failed load or when none is served (the server then gives
+	// the person's defaults, as for a send).
+	getEnabledConnectionCapabilities: () => composerEnabledCapabilities?.(),
 	pollMessageEvidence: (assistantMessageId) => {
 		void pollMessageEvidence(assistantMessageId);
 	},
@@ -4140,6 +4153,18 @@ async function handleAnswerQuestion(questionId: string, answer: AskAnswer) {
 	const proceed = await prepareTurn();
 	// A chat the person left takes nothing of this: its state was reset with it.
 	if (conversationId !== data.conversation.id) return;
+	// The answer goes with the connections the composer has, by the rule a send follows,
+	// and that is not known until they have loaded (a send before that says nothing, so
+	// the server gives the turn the person's defaults, and after a failed load too). So
+	// it waits for them, the load being left to finish if it is slow. The gate above waits
+	// for them only on a cloud model.
+	if (proceed) {
+		await withinOrNull(
+			ensureComposerCapabilitiesLoaded?.() ?? Promise.resolve(),
+			CAPABILITIES_LOAD_MAX_MS,
+		);
+		if (conversationId !== data.conversation.id) return;
+	}
 	// The gate can wait for seconds with the page live (a warning to settle, a step to
 	// save): look again. A warning that was cancelled, or a page that changed meanwhile,
 	// leaves the card as it was, answerable, with no error line.

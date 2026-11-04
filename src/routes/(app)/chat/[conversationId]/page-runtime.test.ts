@@ -9174,32 +9174,120 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			});
 		});
 
-		it("carries the connections the composer has switched on, and none when they are all off", async () => {
-			renderAskedChat();
-			await waitFor(() => {
-				expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-			});
-			await chooseOnCard("Dinner out");
-			await waitFor(() =>
-				expect(runtimeHarness.streamInvocations).toHaveLength(1),
-			);
-			expect(
-				runtimeHarness.streamInvocations[0].options
-					?.enabledConnectionCapabilities,
-			).toEqual(["calendar"]);
-			expect(
-				runtimeHarness.adapters?.getEnabledConnectionCapabilities?.(),
-			).toEqual(["calendar"]);
+		// The answer starts a turn on the connections the composer has, by the rule its own
+		// send follows (`enabledConnectionCapabilities`): the switched-on ones once they are
+		// known, the empty list when the person switched them all off, and nothing said
+		// (so the server gives the turn the person's defaults) while they are not known, as
+		// after a failed load, or when none is served. The answer waits for the load first.
+		describe("carries the connections a send would carry", () => {
+			const SERVED_CALENDAR = {
+				served: ["calendar"],
+				defaultOn: ["calendar"],
+				accounts: [],
+			};
 
-			// The master switch off: the composer would send [], and so does the answer
-			// (nothing is left to the person's defaults, which the server falls back to).
-			await fireEvent.click(screen.getByTestId("connections-toggle"));
-			await fireEvent.click(
-				within(screen.getByTestId("connections-popover")).getByRole("switch"),
-			);
-			expect(
-				runtimeHarness.adapters?.getEnabledConnectionCapabilities?.(),
-			).toEqual([]);
+			it("waits for the composer's connections to load, then carries the ones it has switched on", async () => {
+				let finishLoad: (value: unknown) => void = () => {};
+				fetchActiveCapabilitiesMock.mockReset().mockReturnValue(
+					new Promise((resolve) => {
+						finishLoad = resolve;
+					}),
+				);
+				renderAskedChat();
+				await chooseOnCard("Dinner out");
+
+				// The answer waits for the load, the card off, and nothing is sent meanwhile.
+				await new Promise((resolve) => setTimeout(resolve, 30));
+				expect(runtimeHarness.streamInvocations).toHaveLength(0);
+				expect(
+					screen.getByRole("button", { name: "Dinner out" }),
+				).toBeDisabled();
+
+				finishLoad(SERVED_CALENDAR);
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				expect(
+					runtimeHarness.streamInvocations[0].options
+						?.enabledConnectionCapabilities,
+				).toEqual(["calendar"]);
+			});
+
+			it("does not wait for ever for a load that never answers: it goes with none said", async () => {
+				fetchActiveCapabilitiesMock
+					.mockReset()
+					.mockReturnValue(new Promise(() => {}));
+				renderAskedChat();
+				await chooseOnCard("Dinner out");
+
+				await waitFor(
+					() => expect(runtimeHarness.streamInvocations).toHaveLength(1),
+					{ timeout: 4000 },
+				);
+				expect(
+					runtimeHarness.streamInvocations[0].options
+						?.enabledConnectionCapabilities,
+				).toBeUndefined();
+			});
+
+			it("goes with none said after a load that failed", async () => {
+				fetchActiveCapabilitiesMock
+					.mockReset()
+					.mockRejectedValue(new Error("offline"));
+				renderAskedChat();
+				await chooseOnCard("Dinner out");
+
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				expect(
+					runtimeHarness.streamInvocations[0].options
+						?.enabledConnectionCapabilities,
+				).toBeUndefined();
+			});
+
+			it("goes with none said when the person has no connection served", async () => {
+				fetchActiveCapabilitiesMock
+					.mockReset()
+					.mockResolvedValue({ served: [], defaultOn: [], accounts: [] });
+				renderAskedChat();
+				await chooseOnCard("Dinner out");
+
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				expect(
+					runtimeHarness.streamInvocations[0].options
+						?.enabledConnectionCapabilities,
+				).toBeUndefined();
+			});
+
+			it("goes with the empty list when the person switched their connections off", async () => {
+				fetchActiveCapabilitiesMock
+					.mockReset()
+					.mockResolvedValue(SERVED_CALENDAR);
+				renderAskedChat();
+				await waitFor(() =>
+					expect(screen.getByTestId("connections-toggle")).not.toHaveAttribute(
+						"aria-disabled",
+						"true",
+					),
+				);
+				await fireEvent.click(screen.getByTestId("connections-toggle"));
+				await fireEvent.click(
+					within(screen.getByTestId("connections-popover")).getByRole("switch"),
+				);
+
+				await chooseOnCard("Dinner out");
+
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				expect(
+					runtimeHarness.streamInvocations[0].options
+						?.enabledConnectionCapabilities,
+				).toEqual([]);
+			});
 		});
 
 		it("keeps the card folded when a read that began before the answer was taken up answers after it", async () => {

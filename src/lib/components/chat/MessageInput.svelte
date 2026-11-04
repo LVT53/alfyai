@@ -520,8 +520,17 @@ let {
 	// the matching comment on `ensureCloudWarningAcked` in +page.svelte for
 	// the full race this closes (maybeSendPendingInitialMessage firing before
 	// this component's own on-mount fetch resolves).
+	//
+	// It also hands up `enabledForSend`: the function this composer's own send
+	// uses for `enabledConnectionCapabilities` (the selection once the user's
+	// connections are known, nothing before that, after a failed load or when none
+	// is served). A turn that is not a send of this composer, the person's answer
+	// to a question of Alfy's, carries the connections by the same rule.
 	onCapabilitiesReady?:
-		| ((ensureLoaded: () => Promise<void>) => void)
+		| ((
+				ensureLoaded: () => Promise<void>,
+				enabledForSend: () => string[] | undefined,
+		  ) => void)
 		| undefined;
 } = $props();
 
@@ -1288,6 +1297,16 @@ function computeActiveCapabilities(): Set<string> {
 		);
 	}
 	return connectionsEnabled ? new Set(defaultOnCapabilities) : new Set();
+}
+
+// What a turn of this composer carries as `enabledConnectionCapabilities`: the active
+// set once the user's connections are known (the empty list when they are all switched
+// off, which gives the turn none), and nothing at all until then, after a failed load
+// and when none is served, so that the server falls back to the person's defaults. A
+// send is built from this, and it is handed to the page (`onCapabilitiesReady`) for the
+// turn an answer starts, so the two follow one rule.
+function enabledCapabilitiesForSend(): string[] | undefined {
+	return availableCapabilities.length > 0 ? [...activeCapabilities] : undefined;
 }
 
 // Issue 7.4 race-fix follow-up — caches the (possibly still in-flight)
@@ -2230,8 +2249,7 @@ function buildSendPayload(nextMessage = message): SendPayload {
 		personalityProfileId: selectedPersonalityId,
 		reasoningDepth,
 		forceWebSearch: selectedAtlasProfile ? false : forceWebSearch,
-		enabledConnectionCapabilities:
-			availableCapabilities.length > 0 ? [...activeCapabilities] : undefined,
+		enabledConnectionCapabilities: enabledCapabilitiesForSend(),
 		atlasMode: Boolean(selectedAtlasProfile),
 		atlasProfile: selectedAtlasProfile,
 		atlasAction: "create",
@@ -2422,7 +2440,7 @@ onMount(() => {
 	if (textarea?.value) syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
-	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
+	onCapabilitiesReady?.(ensureCapabilitiesLoaded, enabledCapabilitiesForSend);
 	// One poller for the composer's whole attachment list, armed by the
 	// effect below only while something it holds is unfinished. Created here
 	// rather than in that effect so there is exactly one for the component's

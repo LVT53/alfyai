@@ -205,8 +205,13 @@ let {
 	checkingCloudWarning?: boolean;
 	// Issue 7.4 race-fix follow-up — pass-through to MessageInput; see its
 	// prop doc for the full race this closes.
+	// It also hands up the function the composer's own send uses for
+	// `enabledConnectionCapabilities`, for the turn an answer starts.
 	onCapabilitiesReady?:
-		| ((ensureLoaded: () => Promise<void>) => void)
+		| ((
+				ensureLoaded: () => Promise<void>,
+				enabledForSend: () => string[] | undefined,
+		  ) => void)
 		| undefined;
 	children?: Snippet;
 	/**
