@@ -92,6 +92,10 @@ const AUDITED_PREFIXES = [
 	"sidebar.pinned",
 	"sidebar.reorderItem",
 	"sidebar.unpinFromSidebar",
+	// Ask me first: the screen-reader name of the question mark a chat that
+	// waits for the person's answer wears in the sidebar. The icon is all the
+	// screen shows, so this label is the only thing that names it.
+	"sidebar.waitingForAnswer",
 ] as const;
 
 const DICT_SUFFIX = "Dict";

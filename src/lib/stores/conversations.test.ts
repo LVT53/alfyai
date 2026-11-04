@@ -28,6 +28,7 @@ import {
 	setConversationsSidebarPinned,
 	toggleConversationSidebarPin,
 	updateConversationMemoryIncognitoLocal,
+	updateConversationWaitingForAnswerLocal,
 	upsertConversationLocal,
 	watchConversationTitle,
 } from "./conversations";
@@ -290,6 +291,73 @@ describe("conversations store", () => {
 		upsertConversationLocal("conv-prepared", "New Conversation", 500);
 		expect(get(conversations)).toEqual([
 			conversationItem("conv-prepared", "New Conversation", 500),
+		]);
+	});
+
+	// Ask me first — the sidebar's question mark follows the open chat's card
+	// without waiting for the next server snapshot, which stays the truth.
+	it("shows a local waiting flag at once, and the next snapshot's value wins", () => {
+		reconcileConversationSnapshot([
+			conversationItem("conv-1", "One", 100),
+			conversationItem("conv-2", "Two", 50),
+		]);
+
+		updateConversationWaitingForAnswerLocal("conv-1", true);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-1", "One", 100, { waitingForAnswer: true }),
+			conversationItem("conv-2", "Two", 50),
+		]);
+
+		// The answer was accepted: the flag goes, and the key with it (the
+		// server's flag is "present only when true").
+		updateConversationWaitingForAnswerLocal("conv-1", false);
+		expect(get(conversations)[0]).not.toHaveProperty("waitingForAnswer");
+
+		// A snapshot that lists the chat as waiting wins over the local "no" ...
+		reconcileConversationSnapshot([
+			conversationItem("conv-1", "One", 100, { waitingForAnswer: true }),
+			conversationItem("conv-2", "Two", 50),
+		]);
+		expect(get(conversations)[0].waitingForAnswer).toBe(true);
+
+		// ... and a snapshot that does not wins over the local "yes".
+		updateConversationWaitingForAnswerLocal("conv-2", true);
+		expect(get(conversations)[1].waitingForAnswer).toBe(true);
+		reconcileConversationSnapshot([
+			conversationItem("conv-1", "One", 100),
+			conversationItem("conv-2", "Two", 50),
+		]);
+		for (const row of get(conversations)) {
+			expect(row).not.toHaveProperty("waitingForAnswer");
+		}
+	});
+
+	it("keeps a local waiting flag on a chat the snapshot does not list yet", () => {
+		// A first turn's chat can be missing from the list until the turn is
+		// stored: the page's own row stands in, with the flag it was given.
+		upsertConversationLocal("conv-local", "Draft", 500);
+		updateConversationWaitingForAnswerLocal("conv-local", true);
+
+		reconcileConversationSnapshot([
+			conversationItem("conv-remote", "Remote", 100),
+		]);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-local", "Draft", 500, { waitingForAnswer: true }),
+			conversationItem("conv-remote", "Remote", 100),
+		]);
+	});
+
+	it("leaves the list alone for a waiting flag on a chat it does not hold", () => {
+		// No row is made for it: the snapshot that lists the chat brings the
+		// server's flag.
+		reconcileConversationSnapshot([conversationItem("conv-1", "One", 100)]);
+
+		updateConversationWaitingForAnswerLocal("conv-elsewhere", true);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-1", "One", 100),
 		]);
 	});
 

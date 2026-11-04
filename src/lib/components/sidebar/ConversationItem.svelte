@@ -6,6 +6,7 @@ import {
 	EllipsisVertical,
 	Folder,
 	GitBranch,
+	MessageCircleQuestionMark,
 	Pencil,
 	Pin,
 	SquareCheck,
@@ -518,6 +519,20 @@ onMount(() => {
 						<VenetianMask size={13} strokeWidth={2.2} aria-hidden="true" />
 					</span>
 				{/if}
+				<!-- Ask me first: a question mark in the same slot for a chat that
+				     waits for the person's answer. The icon is all it shows: no
+				     words on screen and no `title`, so the label is for a screen
+				     reader. -->
+				{#if conversation.waitingForAnswer}
+					<span
+						class="fork-indicator waiting-mark"
+						data-testid="conversation-waiting-mark"
+						role="img"
+						aria-label={$t('sidebar.waitingForAnswer')}
+					>
+						<MessageCircleQuestionMark size={13} strokeWidth={2.2} aria-hidden="true" />
+					</span>
+				{/if}
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-[13px] font-sans text-text-primary">
 					<ConversationTitleText title={conversation.title} />
@@ -758,5 +773,14 @@ onMount(() => {
 	/* The mask shares the fork mark's box; only its glyph differs. */
 	.incognito-mark {
 		color: var(--text-muted);
+	}
+
+	/* The question mark of a chat that waits for the person's answer shares the
+	   fork mark's box too, in the accent colour. It has no `title`, so it does
+	   not ask for the help cursor either: it is part of the row, which opens
+	   the chat. */
+	.waiting-mark {
+		color: var(--accent);
+		cursor: inherit;
 	}
 </style>

@@ -238,6 +238,158 @@ describe("ConversationItem Component", () => {
 		});
 	});
 
+	// Ask me first — a chat that waits for the person's answer gets a question
+	// mark before its title, in the slot the fork, Atlas and incognito marks
+	// use. No words on screen and no native title either: the label is for a
+	// screen reader.
+	describe("waiting-for-answer mark", () => {
+		const forkSummary = {
+			sourceTitle: "Source title",
+			forkSequence: 2,
+			sourceConversationId: "source-conv",
+			sourceConversationIdAvailable: true,
+		};
+
+		it("draws the question mark before the title with an aria-label and no title text", () => {
+			render(ConversationItemWrapper, {
+				conversation: { ...mockConversation, waitingForAnswer: true },
+			});
+
+			const mark = screen.getByTestId("conversation-waiting-mark");
+			expect(mark).toHaveAttribute("role", "img");
+			expect(mark).toHaveAttribute("aria-label", "Waiting for your answer");
+			expect(mark).not.toHaveAttribute("title");
+			expect(mark).toHaveClass("fork-indicator", "waiting-mark");
+			expect(mark.tagName.toLowerCase()).not.toBe("button");
+			expect(screen.getByRole("img", { name: "Waiting for your answer" })).toBe(
+				mark,
+			);
+
+			// Only the glyph, 13 px at stroke 2.2, hidden from assistive tech (the
+			// mark carries the name), and no words anywhere on the row.
+			expect(mark.textContent?.trim()).toBe("");
+			expect(
+				screen.queryByText("Waiting for your answer"),
+			).not.toBeInTheDocument();
+			const icon = mark.querySelector("svg");
+			expect(icon).not.toBeNull();
+			expect(icon).toHaveClass("lucide-message-circle-question-mark");
+			expect(icon).toHaveAttribute("aria-hidden", "true");
+			expect(icon).toHaveAttribute("width", "13");
+			expect(icon).toHaveAttribute("height", "13");
+			expect(icon).toHaveAttribute("stroke-width", "2.2");
+
+			// Leading, not trailing: the mark comes before the title in the DOM
+			// and the three-dots button is still there after it.
+			const title = screen.getByText("Test Conversation");
+			expect(
+				mark.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			const menuButton = screen.getByRole("button", {
+				name: "Conversation options",
+			});
+			expect(
+				mark.compareDocumentPosition(menuButton) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		});
+
+		it("draws nothing for a chat that does not wait", () => {
+			render(ConversationItemWrapper, { conversation: mockConversation });
+
+			expect(
+				screen.queryByTestId("conversation-waiting-mark"),
+			).not.toBeInTheDocument();
+			expect(screen.queryByRole("img")).not.toBeInTheDocument();
+		});
+
+		it("comes with the flag and goes with it, on the same row", async () => {
+			const { rerender } = render(ConversationItemWrapper, {
+				conversation: mockConversation,
+			});
+			expect(
+				screen.queryByTestId("conversation-waiting-mark"),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				conversation: { ...mockConversation, waitingForAnswer: true },
+			});
+			expect(
+				screen.getByTestId("conversation-waiting-mark"),
+			).toBeInTheDocument();
+
+			await rerender({ conversation: mockConversation });
+			expect(
+				screen.queryByTestId("conversation-waiting-mark"),
+			).not.toBeInTheDocument();
+		});
+
+		it("sits in the slot of the other marks, after them and before the title", () => {
+			render(ConversationItemWrapper, {
+				conversation: {
+					...mockConversation,
+					waitingForAnswer: true,
+					memoryIncognito: true,
+					forkSummary,
+					atlasBadge: {
+						status: "succeeded",
+						label: "Completed Atlas report",
+					},
+				},
+			});
+
+			const fork = screen.getByLabelText("Fork of Source title, fork 2");
+			const atlas = screen.getByLabelText("Completed Atlas report");
+			const mask = screen.getByTestId("conversation-incognito-mark");
+			const waiting = screen.getByTestId("conversation-waiting-mark");
+			for (const other of [fork, atlas, mask]) {
+				expect(other.parentElement).toBe(waiting.parentElement);
+			}
+			const marks = Array.from(waiting.parentElement?.children ?? []);
+			expect(marks.indexOf(fork)).toBeLessThan(marks.indexOf(atlas));
+			expect(marks.indexOf(atlas)).toBeLessThan(marks.indexOf(mask));
+			expect(marks.indexOf(mask)).toBeLessThan(marks.indexOf(waiting));
+			// The title still follows, and still truncates.
+			const titleBox = screen
+				.getByText("Test Conversation")
+				.closest(".truncate");
+			expect(titleBox).not.toBeNull();
+			expect(marks.indexOf(waiting)).toBeLessThan(
+				marks.indexOf(titleBox?.parentElement as Element),
+			);
+		});
+
+		it("stays on the row while a selection is open, after the box", () => {
+			render(ConversationItemWrapper, {
+				conversation: { ...mockConversation, waitingForAnswer: true },
+				selecting: true,
+			});
+
+			const checkbox = screen.getByTestId("conversation-select-checkbox");
+			const mark = screen.getByTestId("conversation-waiting-mark");
+			expect(
+				checkbox.compareDocumentPosition(mark) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			expect(checkbox.parentElement).toBe(mark.parentElement);
+		});
+
+		it("names itself in Hungarian too", () => {
+			uiLanguage.set("hu");
+			try {
+				render(ConversationItemWrapper, {
+					conversation: { ...mockConversation, waitingForAnswer: true },
+				});
+				expect(screen.getByTestId("conversation-waiting-mark")).toHaveAttribute(
+					"aria-label",
+					"A válaszodra vár",
+				);
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+	});
+
 	it("renders a compact completed Atlas badge without replacing the hover menu", () => {
 		render(ConversationItemWrapper, {
 			conversation: {

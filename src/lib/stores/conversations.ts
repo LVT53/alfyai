@@ -639,6 +639,29 @@ export function updateConversationMemoryIncognitoLocal(
 	);
 }
 
+/**
+ * "Ask me first": the open chat just paused on a question that waits for the
+ * person, or its answer was accepted. Mirrors it onto the sidebar row so the
+ * question mark comes and goes with the card, the way a generated title lands
+ * without waiting for the next snapshot. A local value only: the next snapshot
+ * that lists the chat replaces the row, so the server's flag has the last word.
+ * The server's flag is "present only when true", and `false` takes the key away
+ * to match. A chat the list does not hold gets nothing; its row comes with the
+ * flag from the snapshot that lists it.
+ */
+export function updateConversationWaitingForAnswerLocal(
+	id: string,
+	waiting: boolean,
+): void {
+	conversations.update((items) =>
+		items.map((conversation) => {
+			if (conversation.id !== id) return conversation;
+			const { waitingForAnswer: _previous, ...rest } = conversation;
+			return waiting ? { ...rest, waitingForAnswer: true as const } : rest;
+		}),
+	);
+}
+
 type SidebarState = {
 	sidebarPinned: boolean;
 	sidebarSortOrder: number | null;
