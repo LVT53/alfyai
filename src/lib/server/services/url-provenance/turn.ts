@@ -86,8 +86,9 @@ export const PROVENANCE_RESULT_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * Tools whose results are the model's own text coming back (what `run_python`
- * printed, an artifact or file it made, the acknowledgement of its own offer):
- * an address in them proves nothing about where the address came from.
+ * printed, an artifact or file it made, the acknowledgement of its own offer, the
+ * labels of its own question): an address in them proves nothing about where the
+ * address came from.
  */
 export const NON_PROVENANCE_RESULT_TOOLS: ReadonlySet<string> = new Set([
 	"run_python",
@@ -96,6 +97,7 @@ export const NON_PROVENANCE_RESULT_TOOLS: ReadonlySet<string> = new Set([
 	"read_artifact",
 	"edit_artifact",
 	"suggest_instruction",
+	"ask_user",
 	"done",
 ]);
 

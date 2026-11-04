@@ -1774,5 +1774,72 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
         ]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ask_user",
+      "description": "Ask the user 1-3 questions, each with 2-3 options, when the choice is truly theirs: before you make something, at a fork in the conversation, or while talking an idea through. Your reply pauses here until they choose, then goes on in the same reply with their choice as this call's result. Mark exactly one option recommended on a one-pick question (any number with multiple: true). Phrase questions and options in the conversation's language. Do not use it for what you can find out or decide yourself, or to ask again what the user closed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "maxLength": 160,
+                  "description": "The question itself, one short sentence."
+                },
+                "multiple": {
+                  "description": "true when the user may pick several options.",
+                  "type": "boolean"
+                },
+                "options": {
+                  "minItems": 2,
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 50,
+                        "description": "The option, a few words."
+                      },
+                      "note": {
+                        "description": "Optional one-line note on what this option means.",
+                        "type": "string",
+                        "maxLength": 100
+                      },
+                      "recommended": {
+                        "description": "Your recommendation.",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  },
+                  "description": "2-3 options, in the order to show them."
+                }
+              },
+              "required": [
+                "question",
+                "options"
+              ]
+            },
+            "description": "1-3 questions, in the order to ask them."
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      }
+    }
   }
 ]

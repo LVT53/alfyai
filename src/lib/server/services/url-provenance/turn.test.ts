@@ -565,4 +565,12 @@ describe("the classification of tools", () => {
 		expect(resultCountsAsProvenance("run_python")).toBe(false);
 		expect(resultCountsAsProvenance("a_tool_nobody_classified")).toBe(false);
 	});
+
+	// What ask_user hands the model back is its own labels (the pause, and later
+	// the picks among them); the person's own words reach provenance as their
+	// words, not as a tool's result.
+	it("names ask_user among the tools whose result is the model's own text", () => {
+		expect(NON_PROVENANCE_RESULT_TOOLS.has("ask_user")).toBe(true);
+		expect(resultCountsAsProvenance("ask_user")).toBe(false);
+	});
 });

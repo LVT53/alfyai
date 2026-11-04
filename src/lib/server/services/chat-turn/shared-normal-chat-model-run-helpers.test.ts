@@ -5,6 +5,7 @@ import type {
 	DepthAppliedProfile,
 	DepthMetadata,
 } from "$lib/server/services/chat-turn/depth-metadata-types";
+import { emptyTurnPictureIndex } from "$lib/server/services/images/turn-pictures";
 import { resolvePromptContextLimits } from "$lib/server/services/normal-chat-context";
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
 
@@ -62,6 +63,12 @@ vi.mock("$lib/server/services/vision/describe", () => ({
 	scheduleImageDescriptions: mocks.scheduleImageDescriptions,
 }));
 
+// The question store is the database; the tool's own decisions are held in
+// normal-chat-tools/ask-user.test.ts, and this file only checks what reaches it.
+vi.mock("$lib/server/services/chat-turn/ask-questions", () => ({
+	recordAskQuestion: vi.fn(async () => ({ id: "question-1" })),
+}));
+
 vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 	const actual =
 		await importOriginal<
@@ -82,6 +89,7 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 });
 
 import {
+	createToolPack,
 	type DepthEffort,
 	estimateTurnPromptTokens,
 	type PreparedModelContext,
@@ -756,5 +764,64 @@ describe("prepareOutboundContext standing instructions wiring", () => {
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].instructions,
 		).toEqual({ personal: "Use metric units.", project: null });
+	});
+});
+
+describe("createToolPack and the permission to pause", () => {
+	const ask = {
+		questions: [
+			{
+				question: "Which one?",
+				options: [{ label: "A", recommended: true }, { label: "B" }],
+			},
+		],
+	};
+
+	function buildPack(canPause?: boolean) {
+		return createToolPack(
+			{
+				userId: "user-1",
+				runtimeConfig,
+				message: "Help me choose.",
+				conversationId: "conv-1",
+				modelId: "model1",
+				...(canPause === undefined ? {} : { canPause }),
+			},
+			"turn-1",
+			null,
+			"model1",
+			new Set(),
+			emptyTurnPictureIndex(),
+		);
+	}
+
+	// Only the streaming run can stop a reply to wait for a person; every other
+	// run gets the same tool in its catalogue and the answer that it cannot.
+	it("builds the tools unable to pause unless the params say the turn can", async () => {
+		const pack = await buildPack();
+
+		expect(
+			await pack.tools?.ask_user?.execute(ask, {
+				toolCallId: "call-1",
+				messages: [],
+			}),
+		).toMatchObject({ status: "not_available" });
+		expect(pack.getTurnAsk()).toBeNull();
+	});
+
+	it("builds the tools able to pause, and hands back what the turn asked", async () => {
+		const pack = await buildPack(true);
+
+		expect(
+			await pack.tools?.ask_user?.execute(ask, {
+				toolCallId: "call-2",
+				messages: [],
+			}),
+		).toMatchObject({ status: "waiting_for_user" });
+		expect(pack.getTurnAsk()).toEqual({
+			questionId: "question-1",
+			toolCallId: "call-2",
+			questions: ask.questions,
+		});
 	});
 });

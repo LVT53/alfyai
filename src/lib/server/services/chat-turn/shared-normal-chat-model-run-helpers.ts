@@ -39,6 +39,7 @@ import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
+import type { TurnAsk } from "$lib/server/services/normal-chat-tools/ask-user";
 import {
 	buildSkillCatalogueBlock,
 	listSkillCatalogueEntries,
@@ -219,6 +220,12 @@ export type NormalChatSendModelBaseParams = {
 	 * a second so the stream's idle watchdog counts the wait as activity.
 	 */
 	onToolActivity?: () => void;
+	/**
+	 * Whether this run can stop a reply to wait for the person's answer to
+	 * `ask_user` (the streaming run). Without it the tool is still in the
+	 * catalogue and answers `not_available`, so the catalogue never varies.
+	 */
+	canPause?: boolean;
 };
 
 export type DepthEffort = Awaited<
@@ -249,6 +256,8 @@ export type ToolPack = {
 	tools: NormalChatModelTools | undefined;
 	recorder: ReturnType<typeof createToolCallRecorder>;
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
+	/** What the turn asked with `ask_user`, once the question is recorded; null before. */
+	getTurnAsk: () => TurnAsk | null;
 	/**
 	 * This turn's queue of pictures a tool wants the model to see (the photos
 	 * tool queues Immich thumbnails when the model asks to look). The tools are
@@ -518,6 +527,7 @@ export async function createToolPack(
 		...(explicitPictureFilter === null ? {} : { explicitPictureFilter }),
 		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
+		...(params.canPause ? { canPause: true } : {}),
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(routingCoverage.transit
 			? { routingTransitCoverageLabel: routingCoverage.transit }
@@ -558,6 +568,7 @@ export async function createToolPack(
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
+		getTurnAsk: normalChatTools.getTurnAsk,
 		stepImages,
 	};
 }

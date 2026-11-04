@@ -77,6 +77,7 @@ import {
 	readArtifactInputSchema,
 	runReadArtifactTool,
 } from "./artifact-tools/read";
+import { createAskUserTool } from "./ask-user";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -313,6 +314,11 @@ export interface CreateNormalChatToolsContext {
 	// callers that stage the worker themselves (0 means "report whatever the job
 	// already says, do not wait").
 	fileProductionVerdictWaitMs?: number;
+	// Whether this run can stop a reply to wait for the person's answer to
+	// ask_user (the streaming Normal Chat run). Default false: the tool is in
+	// every turn's catalogue either way, and where the run cannot pause it
+	// answers `not_available` and the model goes on.
+	canPause?: boolean;
 }
 
 // Added to make_image's description while the explicit-picture filter applies
@@ -427,6 +433,11 @@ const TOOL_TEXT: ToolText = {
 		description:
 			'Offer to add a standing instruction when the user just stated a rule for the future ("from now on…", "always…", "never…"), in their own words: {"text": "Only suggest trains, no flights.", "scope": "project"}. The user sees a row with Review and Dismiss; nothing is saved until they review it. Do not use it for a one-off request, to restate an offer you already made, or when the user asked to save a skill — draft the skill instead.',
 		errorPrefix: "Recording the instruction suggestion failed",
+	},
+	ask_user: {
+		description:
+			"Ask the user 1-3 questions, each with 2-3 options, when the choice is truly theirs: before you make something, at a fork in the conversation, or while talking an idea through. Your reply pauses here until they choose, then goes on in the same reply with their choice as this call's result. Mark exactly one option recommended on a one-pick question (any number with multiple: true). Phrase questions and options in the conversation's language. Do not use it for what you can find out or decide yourself, or to ask again what the user closed.",
+		errorPrefix: "Asking the user failed",
 	},
 };
 
@@ -732,6 +743,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const includeTasksTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("tasks"),
 	);
+	// ask_user is registered on every turn, so the catalogue never varies by
+	// message, account or run; whether this run can stop to wait for the answer
+	// is the ctx's. It records through the same recorder as every tool and
+	// hands the turn what it asked.
+	const askUser = createAskUserTool({
+		userId: ctx.userId,
+		conversationId: ctx.conversationId,
+		canPause: ctx.canPause ?? false,
+		recorder,
+		text: i18n.ask_user,
+	});
 
 	const tools = {
 		// research_web + fetch_url are Parallel-backed. Register them ONLY when
@@ -3213,6 +3235,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				note: "If the final answer has not been written yet, write it now in full; otherwise you are finished.",
 			}),
 		}),
+		// Last, so the cached prompt prefix moves only at its end.
+		ask_user: askUser.tool,
 	};
 
 	// Honest degradation: a backend the health registry currently reports as
@@ -3227,6 +3251,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		tools: hintedTools,
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
+		getTurnAsk: askUser.getTurnAsk,
 	};
 }
 

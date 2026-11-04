@@ -7,6 +7,7 @@ import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import { createArtifact } from "$lib/server/services/artifacts";
+import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -109,6 +110,11 @@ vi.mock("$lib/server/services/memory-context", () => ({
 }));
 vi.mock("$lib/server/services/image-search", () => ({
 	searchImages: vi.fn(),
+}));
+// The question store is the database. ask-user.test.ts holds what the tool
+// itself decides; here only how this factory registers and wires it.
+vi.mock("$lib/server/services/chat-turn/ask-questions", () => ({
+	recordAskQuestion: vi.fn(),
 }));
 // The read itself is the database; the adapter around it — what the tool hands
 // the model and what it records — is what these tests are about. Everything
@@ -5748,7 +5754,10 @@ describe("tool description hygiene", () => {
 	// 2026-10-30: make_image tells the model how to make several pictures in
 	// one turn (asked for by the owner): 33 measured tokens, raised by exactly
 	// that. No margin.
-	const CATALOGUE_TOKEN_CEILING = 5357;
+	// 2026-11-04: ask_user (docs/plans/ask-me-first, design 5.2) adds 136 measured
+	// tokens, paid by a measured raise (design my call 10, put to the owner on
+	// 2026-11-03). No margin.
+	const CATALOGUE_TOKEN_CEILING = 5493;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -5860,6 +5869,7 @@ describe("tool description hygiene", () => {
 				.sort(),
 		).toEqual(
 			[
+				"ask_user",
 				"calendar",
 				"contacts",
 				"create_artifact",
@@ -5916,6 +5926,26 @@ describe("tool description hygiene", () => {
 
 	it("make_image waits inside a 120 s envelope", () => {
 		expect(TOOL_TIMEOUTS_MS.make_image).toBe(120_000);
+	});
+
+	it("ask_user says what it is for and what it is not for, within the per-tool ceiling", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "ask_user",
+		);
+		expect(entry?.description).toContain(NEGATIVE_CASE_MARKER);
+		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(
+			PER_TOOL_TOKEN_CEILING,
+		); // 136 today
+	});
+
+	// The catalogue is the cached prompt prefix, so the new tool goes at its end:
+	// everything before it keeps its place and its cache.
+	it("ask_user is the catalogue's last tool", () => {
+		expect(Object.keys(buildFullToolSet()).at(-1)).toBe("ask_user");
+	});
+
+	it("ask_user waits inside a 10 s envelope", () => {
+		expect(TOOL_TIMEOUTS_MS.ask_user).toBe(10_000);
 	});
 
 	it("every tool description states the case where it must NOT be called", () => {
@@ -6479,6 +6509,88 @@ describe("suggest_instruction tool", () => {
 		expect(tools.suggest_instruction.description).toContain(
 			"when the user asked to save a skill — draft the skill instead",
 		);
+	});
+});
+
+// "Ask me first": the tool's own decisions are held in ask-user.test.ts; this is
+// how the factory registers it, threads the turn's permission to pause into it
+// and hands the turn what it asked.
+describe("ask_user tool registration", () => {
+	const recordAskQuestionMock = vi.mocked(recordAskQuestion);
+	const card = [
+		{
+			question: "Which format should the summary take?",
+			options: [
+				{ label: "Short bullets", recommended: true },
+				{ label: "A paragraph" },
+			],
+		},
+	];
+
+	beforeEach(() => {
+		recordAskQuestionMock.mockReset();
+		recordAskQuestionMock.mockResolvedValue({ id: "question-1" });
+	});
+
+	function buildTools(canPause?: boolean) {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			...(canPause === undefined ? {} : { canPause }),
+		});
+	}
+
+	it("is in every turn's tool set, whether or not the turn can pause", () => {
+		for (const canPause of [undefined, false, true]) {
+			expect(Object.keys(buildTools(canPause).tools)).toContain("ask_user");
+		}
+	});
+
+	it("answers not_available and asks nothing unless the turn can pause", async () => {
+		const { tools, getToolCalls, getTurnAsk } = buildTools();
+
+		const result = await tools.ask_user.execute(
+			{ questions: card },
+			{ toolCallId: "tool-call-ask-1", messages: [] },
+		);
+
+		expect(result).toMatchObject({ status: "not_available" });
+		expect(recordAskQuestionMock).not.toHaveBeenCalled();
+		expect(getTurnAsk()).toBeNull();
+		expect(getToolCalls()).toMatchObject([
+			{ name: "ask_user", status: "done", metadata: { ok: false } },
+		]);
+	});
+
+	it("asks, records the call and hands the turn its ask when the turn can pause", async () => {
+		const { tools, getToolCalls, getTurnAsk } = buildTools(true);
+
+		const result = await tools.ask_user.execute(
+			{ questions: card },
+			{ toolCallId: "tool-call-ask-2", messages: [] },
+		);
+
+		expect(result).toMatchObject({ status: "waiting_for_user" });
+		expect(recordAskQuestionMock).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			toolCallId: "tool-call-ask-2",
+			questions: card,
+		});
+		expect(getTurnAsk()).toEqual({
+			questionId: "question-1",
+			toolCallId: "tool-call-ask-2",
+			questions: card,
+		});
+		expect(getToolCalls()).toMatchObject([
+			{
+				callId: "tool-call-ask-2",
+				name: "ask_user",
+				status: "done",
+				metadata: { paused: true, questionId: "question-1" },
+			},
+		]);
 	});
 });
 
