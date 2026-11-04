@@ -58,6 +58,7 @@ import {
 	shouldHydrateFileProductionJobsOnToolCall,
 	shouldPollImageCards,
 	toFriendlySendError,
+	waitingQuestionsWithoutRow,
 	withinOrNull,
 	withQuestionAnswering,
 	withQuestionStamped,
@@ -619,35 +620,94 @@ describe("Ask me first: the page's question helpers", () => {
 		return { id, role: "assistant", content, timestamp: 1 };
 	}
 
+	// The rows the page holds: the one the default question was asked on is among them.
+	const ROWS = [{ id: "a-0" }, { id: "a-1" }];
+
 	it("opens a waiting question and gives the composer back while its answer is out", () => {
 		const waiting = askedQuestion();
 
-		expect(isQuestionOpen([], {})).toBe(false);
-		expect(isQuestionOpen([waiting], {})).toBe(true);
+		expect(isQuestionOpen([], {}, ROWS)).toBe(false);
+		expect(isQuestionOpen([waiting], {}, ROWS)).toBe(true);
 		// The answer is out: the person may queue a message behind the resume, and
 		// the page's guards are the running turn's from there.
-		expect(isQuestionOpen([waiting], { "q-1": { busy: true } })).toBe(false);
+		expect(isQuestionOpen([waiting], { "q-1": { busy: true } }, ROWS)).toBe(
+			false,
+		);
 		// It did not go through: busy came off, the question waits again, and is open.
-		expect(isQuestionOpen([waiting], { "q-1": { busy: false } })).toBe(true);
+		expect(isQuestionOpen([waiting], { "q-1": { busy: false } }, ROWS)).toBe(
+			true,
+		);
 		// Only that question's own state counts.
-		expect(isQuestionOpen([waiting], { "q-2": { busy: true } })).toBe(true);
+		expect(isQuestionOpen([waiting], { "q-2": { busy: true } }, ROWS)).toBe(
+			true,
+		);
 		// Not before its segment is saved: the stream that asked it still runs, and if it
 		// fails before it pauses the question is never saved, which must not leave the
 		// box off with no card to answer.
 		expect(
-			isQuestionOpen([askedQuestion({ assistantMessageId: null })], {}),
+			isQuestionOpen([askedQuestion({ assistantMessageId: null })], {}, ROWS),
 		).toBe(false);
 		// A question that no longer waits holds nothing back.
 		for (const status of ["answering", "answered", "closed"] as const) {
-			expect(isQuestionOpen([askedQuestion({ status })], {})).toBe(false);
+			expect(isQuestionOpen([askedQuestion({ status })], {}, ROWS)).toBe(false);
 		}
 		// One open question is enough.
 		expect(
 			isQuestionOpen(
 				[askedQuestion({ id: "q-0", status: "answered" }), waiting],
 				{},
+				ROWS,
 			),
 		).toBe(true);
+	});
+
+	it("counts a waiting question only while the page holds the row that asked it", () => {
+		const waiting = askedQuestion();
+
+		// The card is drawn on its row: without the row there is no card to answer, and a
+		// box turned off for it would stay off (the job poll, a picture or a pause whose row
+		// the list lacks all read the questions without reading the rows).
+		expect(isQuestionOpen([waiting], {}, [])).toBe(false);
+		expect(isQuestionOpen([waiting], {}, [{ id: "a-2" }])).toBe(false);
+		expect(isQuestionOpen([waiting], {}, [{ id: "a-2" }, { id: "a-1" }])).toBe(
+			true,
+		);
+		// Each question is judged by its own row.
+		const other = askedQuestion({ id: "q-2", assistantMessageId: "a-2" });
+		expect(isQuestionOpen([waiting, other], {}, [{ id: "a-2" }])).toBe(true);
+		expect(isQuestionOpen([waiting, other], {}, [{ id: "a-3" }])).toBe(false);
+	});
+
+	it("names the waiting questions whose row the page lacks, the ones the chat is read for", () => {
+		const waiting = askedQuestion();
+		const other = askedQuestion({ id: "q-2", assistantMessageId: "a-2" });
+
+		expect(waitingQuestionsWithoutRow([waiting, other], [])).toEqual([
+			waiting,
+			other,
+		]);
+		expect(
+			waitingQuestionsWithoutRow([waiting, other], [{ id: "a-1" }]),
+		).toEqual([other]);
+		expect(
+			waitingQuestionsWithoutRow(
+				[waiting, other],
+				[{ id: "a-1" }, { id: "a-2" }],
+			),
+		).toEqual([]);
+		// A question that is not stamped yet belongs to a stream that still runs, and one
+		// that no longer waits has no card to wait for: neither is read for.
+		expect(
+			waitingQuestionsWithoutRow(
+				[
+					askedQuestion({ assistantMessageId: null }),
+					askedQuestion({ id: "q-3", status: "answered" }),
+					askedQuestion({ id: "q-4", status: "answering" }),
+					askedQuestion({ id: "q-5", status: "closed" }),
+				],
+				[],
+			),
+		).toEqual([]);
 	});
 
 	it("folds a question locally once its answer is accepted, and wakes it once stamped", () => {

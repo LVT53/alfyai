@@ -269,6 +269,7 @@ import {
 	patchSkillDraftInMessageList,
 	toFriendlySendError,
 	updateMessageById,
+	waitingQuestionsWithoutRow,
 	withQuestionAnswering,
 	withQuestionStamped,
 	isPendingSkillUnavailableError,
@@ -876,6 +877,10 @@ let askActionState = $state<
 // moment the server takes the answer up, and the runtime's event names only the question.
 // Not drawn from, so not state.
 const answersOnTheirWay = new Map<string, AskAnswer>();
+// The questions the chat was read for because they waited on a row the page did not hold
+// (`readChatForQuestionsWithoutRow`): one read each, so a chat that does not bring the row
+// is not read again and again. Not drawn from, so not state.
+const chatReadForQuestion = new Set<string>();
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -899,8 +904,12 @@ let isConversationReadOnlyForChat = $derived(
 // A question of Alfy's waits for the person's answer. Nothing else starts a turn
 // meanwhile (the guards below, as for an open edit), the messages are drawn read-only
 // and the message box is off and dimmed, with its words and saved draft untouched. It
-// ends when the answer is on its way: from then on it is the running turn's guards.
-let questionOpen = $derived(isQuestionOpen(questions, askActionState));
+// ends when the answer is on its way: from then on it is the running turn's guards. A
+// question counts only while the page holds the row that asked it: the card is drawn on
+// that row.
+let questionOpen = $derived(
+	isQuestionOpen(questions, askActionState, $messages),
+);
 // What the cards are given: the page's state, except that in a chat that is sealed
 // (archived) a waiting card is drawn off, since nothing it sends could run. Without
 // this a card that looks answerable would do nothing on a press (Ruling 23).
@@ -2576,6 +2585,7 @@ function resetState() {
 	questions = [...(data.questions ?? [])];
 	askActionState = {};
 	answersOnTheirWay.clear();
+	chatReadForQuestion.clear();
 	questionsReads += 1;
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
@@ -2800,7 +2810,28 @@ async function refreshQuestions(): Promise<AskQuestionDto[] | null> {
 		return null;
 	}
 	questions = fresh;
+	readChatForQuestionsWithoutRow();
 	return fresh;
+}
+
+/**
+ * A read that brings a question waiting on a row the page does not hold (the job poll
+ * of a picture or an Atlas run, a read of the files, a pause whose row the list lacks, a
+ * question another device asked) has no card to show yet: the card is drawn on that row.
+ * The chat is read once for it, so the row and the card appear. Once per question and
+ * never in a loop: a chat that does not bring the row (the question's reply was deleted
+ * meanwhile) is not read again for it, and the box stays on (`isQuestionOpen`). A turn
+ * that runs owns the chat's state (`readChatAfterQuestions` leaves it be), so nothing is
+ * marked then and the next read of the questions asks again.
+ */
+function readChatForQuestionsWithoutRow() {
+	if (isSending) return;
+	const missing = waitingQuestionsWithoutRow(questions, get(messages)).filter(
+		(question) => !chatReadForQuestion.has(question.id),
+	);
+	if (missing.length === 0) return;
+	for (const question of missing) chatReadForQuestion.add(question.id);
+	void readChatAfterQuestions();
 }
 
 let pendingWritesReads = 0;
@@ -3470,6 +3501,7 @@ $effect(() => {
 		questions = [...(data.questions ?? [])];
 		// A fresh load is the newest word: a read that was out before it is older.
 		questionsReads += 1;
+		untrack(readChatForQuestionsWithoutRow);
 	}
 });
 

@@ -9805,6 +9805,262 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 			);
 		});
 
+		// Several reads fetch the questions without the rows (the job poll of a picture or
+		// an Atlas run, the files read, a write's confirm, a pause whose row the list lacks).
+		// The card is drawn on its row, so a waiting question whose row the page does not
+		// hold has no card to answer and must not turn the message box off; the chat is read
+		// once for it, and then the card shows.
+		describe("a question whose row the page does not hold", () => {
+			const person: ChatMessage = {
+				id: "user-1",
+				role: "user",
+				content: PLAN,
+				timestamp: 1,
+			};
+
+			/** The chat's detail, held back until the test lets it go. */
+			function holdTheChatRead() {
+				let release: (detail: ConversationDetail) => void = () => {};
+				vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+					new Promise((resolve) => {
+						release = resolve;
+					}),
+				);
+				return (messages: ChatMessage[]) =>
+					release(conversationDetailFixture({ messages }));
+			}
+
+			/**
+			 * A chat that comes back without the row, as often as it is asked. A page that read
+			 * the chat again for the same question would loop on it, answers coming back at once:
+			 * past a few reads the chat does not answer, so that a loop fails the test on the
+			 * count of reads and does not starve it.
+			 */
+			function chatThatNeverBringsTheRow() {
+				let reads = 0;
+				vi.mocked(fetchConversationDetail).mockImplementation(async () => {
+					reads += 1;
+					if (reads > 5) return new Promise<ConversationDetail>(() => {});
+					return conversationDetailFixture({ messages: [person] });
+				});
+			}
+
+			async function expectTheBoxStaysOn() {
+				const composer = screen.getByTestId("message-input");
+				expect(composer).toBeEnabled();
+				expect(screen.getByTestId("composer-box")).not.toHaveAttribute(
+					"data-waiting-for-answer",
+				);
+				expect(screen.queryByTestId("ask-card")).toBeNull();
+			}
+
+			it("keeps the box on while the chat is read once for it, and then the card shows", async () => {
+				renderPage(pageData({ messages: [person] }));
+				const releaseTheChat = holdTheChatRead();
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion(),
+				]);
+
+				runtimeHarness.adapters?.refreshQuestions?.();
+
+				// The chat is being read; until it is, there is no card and the box is on.
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+				await expectTheBoxStaysOn();
+				releaseTheChat(askedChat());
+
+				expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+				await waitFor(() =>
+					expect(screen.getByTestId("message-input")).toBeDisabled(),
+				);
+				expect(screen.getByTestId("composer-box")).toHaveAttribute(
+					"data-waiting-for-answer",
+					"true",
+				);
+
+				// One read for the question: asking again reads the questions, not the chat.
+				const readsOfTheChat = vi.mocked(fetchConversationDetail).mock.calls
+					.length;
+				const readsOfTheQuestions = questionReads();
+				runtimeHarness.adapters?.refreshQuestions?.();
+				await waitFor(() =>
+					expect(questionReads()).toBeGreaterThan(readsOfTheQuestions),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+					readsOfTheChat,
+				);
+			});
+
+			it("reads the chat only once even when the chat does not bring the row", async () => {
+				renderPage(pageData({ messages: [person] }));
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion({ assistantMessageId: "assistant-9" }),
+				]);
+				chatThatNeverBringsTheRow();
+
+				runtimeHarness.adapters?.refreshQuestions?.();
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+				// The chat's own load reads the questions again, and then more reads follow.
+				await waitFor(() => expect(questionReads()).toBeGreaterThanOrEqual(2));
+				for (let again = 0; again < 3; again += 1) {
+					runtimeHarness.adapters?.refreshQuestions?.();
+				}
+				await new Promise((resolve) => setTimeout(resolve, 50));
+
+				expect(fetchConversationDetail).toHaveBeenCalledTimes(1);
+				await expectTheBoxStaysOn();
+			});
+
+			it("reads it for a pause whose row the list lacks", async () => {
+				renderPage(pageData({ messages: [person] }));
+				const releaseTheChat = holdTheChatRead();
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion(),
+				]);
+
+				runtimeHarness.adapters?.onAskEvent?.({
+					type: "paused",
+					questionId: "q-1",
+					assistantMessageId: "assistant-1",
+				});
+
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+				await expectTheBoxStaysOn();
+				releaseTheChat(askedChat());
+				expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+			});
+
+			it("reads it for the questions a reload of the chat brings", async () => {
+				const view = renderPage(pageData({ messages: [person] }));
+				const releaseTheChat = holdTheChatRead();
+
+				await view.rerender({
+					data: pageData({ messages: [person], questions: [askedQuestion()] }),
+					params: { conversationId: "conv-1" },
+				});
+
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+				await expectTheBoxStaysOn();
+				releaseTheChat(askedChat());
+				expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+			});
+
+			it("is left unread while a turn runs, and read when the questions are read after it", async () => {
+				renderPage(pageData({ messages: [person] }));
+				await typeAndSend("And tomorrow?");
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(1),
+				);
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion(),
+				]);
+				vi.mocked(fetchConversationDetail).mockResolvedValue(
+					conversationDetailFixture({ messages: askedChat() }),
+				);
+
+				// A read of the chat would end the state of the turn that runs.
+				runtimeHarness.adapters?.refreshQuestions?.();
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				expect(fetchConversationDetail).not.toHaveBeenCalled();
+
+				runtimeHarness.streamInvocations[0].callbacks.onToken("Fine.");
+				runtimeHarness.streamInvocations[0].callbacks.onEnd("Fine.", {
+					assistantMessageId: "assistant-7",
+					...END_TOTALS,
+				});
+				await waitFor(() =>
+					expect(screen.getByText("Fine.")).toBeInTheDocument(),
+				);
+				runtimeHarness.adapters?.refreshQuestions?.();
+
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+			});
+
+			it("reads nothing for a question whose row the page holds, and nothing for one that no longer waits", async () => {
+				renderPage(pageData({ messages: askedChat() }));
+				const readsBefore = questionReads();
+
+				// The row is on the page: the card shows, the box is off, and no chat is read.
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion(),
+				]);
+				runtimeHarness.adapters?.refreshQuestions?.();
+				expect(await screen.findByTestId("ask-card")).toBeInTheDocument();
+				// A question that was answered, or closed, has no card waiting on a row.
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion({
+						id: "q-2",
+						assistantMessageId: "assistant-9",
+						status: "answered",
+						answer: DINNER,
+					}),
+					askedQuestion({
+						id: "q-3",
+						assistantMessageId: "assistant-8",
+						status: "closed",
+					}),
+					askedQuestion({ id: "q-4", assistantMessageId: null }),
+				]);
+				const readsOfTheQuestions = questionReads();
+				runtimeHarness.adapters?.refreshQuestions?.();
+				await waitFor(() =>
+					expect(questionReads()).toBeGreaterThan(readsOfTheQuestions),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 30));
+
+				expect(questionReads()).toBeGreaterThan(readsBefore);
+				expect(fetchConversationDetail).not.toHaveBeenCalled();
+			});
+
+			it("reads again for the same question when the person comes back to the chat", async () => {
+				const view = renderPage(pageData({ messages: [person] }));
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([
+					askedQuestion(),
+				]);
+				// A chat that never brings the row, so the question stays without it.
+				chatThatNeverBringsTheRow();
+				runtimeHarness.adapters?.refreshQuestions?.();
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+				await waitFor(() => expect(questionReads()).toBeGreaterThanOrEqual(2));
+
+				// Another chat, and back: the marks belong to the visit.
+				await view.rerender({
+					data: pageData({
+						conversation: conversationFixture("conv-2", {
+							title: "Second chat",
+							createdAt: 2,
+							updatedAt: 2,
+						}),
+						messages: [],
+						questions: [],
+					}),
+					params: { conversationId: "conv-2" },
+				});
+				await view.rerender({
+					data: pageData({ messages: [person] }),
+					params: { conversationId: "conv-1" },
+				});
+				vi.mocked(fetchConversationDetail).mockClear();
+				runtimeHarness.adapters?.refreshQuestions?.();
+
+				await waitFor(() =>
+					expect(fetchConversationDetail).toHaveBeenCalledTimes(1),
+				);
+			});
+		});
+
 		it("forgets the questions, and an answer in flight, when the person moves to another chat", async () => {
 			const view = renderPage(
 				pageData({ messages: askedChat(), questions: [askedQuestion()] }),

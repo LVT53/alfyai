@@ -715,27 +715,50 @@ export function attachUnassignedPendingWritesToAssistant(
 
 /**
  * Whether a question holds the chat for the person: it waits, its segment is saved,
- * and no answer of theirs is out. While one is open nothing else may start a turn and
- * the message box is off (its words and saved draft untouched); once the answer is on
- * its way (`busy`) the box is theirs again, and what the page does next is the running
- * turn's: a message queues behind the resume. A question that no longer waits
- * (answering, answered, closed) holds nothing.
+ * the page holds the row that asked it, and no answer of theirs is out. While one is
+ * open nothing else may start a turn and the message box is off (its words and saved
+ * draft untouched); once the answer is on its way (`busy`) the box is theirs again, and
+ * what the page does next is the running turn's: a message queues behind the resume. A
+ * question that no longer waits (answering, answered, closed) holds nothing.
  *
  * A question not stamped yet (`assistantMessageId` null) is one the stream that asked
  * it is still running: the reply has not paused, the running turn's own guards hold,
  * and Stop still works. Counting it would also leave a question behind for good if
  * that stream failed before it paused (the server never saves it), with the box off
  * and no card to answer. The pause stamps it (`withQuestionStamped`), and then it opens.
+ *
+ * The card is drawn on the row that asked, so a question whose row the page does not
+ * hold (several reads fetch the questions without the rows) has no card to answer and
+ * holds nothing: a box turned off for it would stay off with nothing to do about it.
+ * The page reads the chat once for such a question, and then it opens.
  */
 export function isQuestionOpen(
 	questions: readonly AskQuestionDto[],
 	actionState: Record<string, { busy?: boolean }>,
+	messages: readonly Pick<ChatMessage, "id">[],
 ): boolean {
 	return questions.some(
 		(question) =>
 			question.status === "waiting" &&
 			question.assistantMessageId !== null &&
-			actionState[question.id]?.busy !== true,
+			actionState[question.id]?.busy !== true &&
+			messages.some((row) => row.id === question.assistantMessageId),
+	);
+}
+
+/**
+ * The questions that wait with their segment saved while the page does not hold the
+ * row that asked them (see `isQuestionOpen`): the ones the chat is read for.
+ */
+export function waitingQuestionsWithoutRow(
+	questions: readonly AskQuestionDto[],
+	messages: readonly Pick<ChatMessage, "id">[],
+): AskQuestionDto[] {
+	return questions.filter(
+		(question) =>
+			question.status === "waiting" &&
+			question.assistantMessageId !== null &&
+			!messages.some((row) => row.id === question.assistantMessageId),
 	);
 }
 
