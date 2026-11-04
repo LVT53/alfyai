@@ -30,6 +30,7 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
+import { ASK_USER_TOOL_NAME, isAskPauseOutput } from "$lib/shared/ask-user";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { DEFAULT_MODEL_MAX_RETRIES } from "../normal-chat-model-config";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
@@ -155,8 +156,31 @@ function doneAfterAnswer(): StopCondition<ToolSet> {
 	};
 }
 
+// `ask_user` pauses the reply: the run ends right after the step whose ask
+// result is the pause marker, and the turn keeps what the run said and read so
+// the answer can carry the same reply on. Only that result counts. `hasToolCall`
+// would also stop on a call the schema refused or the tool declined, and the
+// model must get its turn after those to fix the call or go on without asking.
+function askedTheUser(): StopCondition<ToolSet> {
+	return ({ steps }) => {
+		const last = steps.at(-1);
+		return (
+			last?.toolResults?.some(
+				(result) =>
+					result.toolName === ASK_USER_TOOL_NAME &&
+					isAskPauseOutput(result.output),
+			) ?? false
+		);
+	};
+}
+
 function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
-	return [doneAfterAnswer(), stagnantProgress(), stepCountIs(maxToolSteps)];
+	return [
+		doneAfterAnswer(),
+		askedTheUser(),
+		stagnantProgress(),
+		stepCountIs(maxToolSteps),
+	];
 }
 
 // Forces a specific tool choice on the FIRST model step only (stepNumber is
@@ -322,6 +346,13 @@ export type NormalChatModelRunBaseParams = {
 	maxOutputTokens?: number | null;
 };
 
+// What the turn does to an attempt's messages: given the ones the attempt would
+// be sent and the provider it runs on, it returns the ones to send.
+type NormalChatModelRunMessageGate = (
+	messages: ModelMessage[],
+	provider: NormalChatModelRunProvider,
+) => ModelMessage[];
+
 export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	tools?: ToolSet;
 	toolChoice?: ToolChoice<ToolSet>;
@@ -338,6 +369,12 @@ export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	stepImages?: StepImageQueue;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
+	// The turn's own rule for what each attempt may be sent, applied after the
+	// pictures a model that cannot see are taken out. Every attempt, the first
+	// and each failover, is rebuilt from the original `messages` through it with
+	// the provider that attempt runs on, so the rule is decided per provider and
+	// never once for the run (see messagesForAttempt).
+	gateMessagesForAttempt?: NormalChatModelRunMessageGate;
 };
 
 export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
@@ -350,6 +387,14 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 	firstOutputTimeoutMs?: number | null;
+	// Called as each step of an attempt finishes, with everything that attempt
+	// has said and read so far (the SDK's cumulative `response.messages`, tool
+	// results whole). A reply that pauses on `ask_user` is carried on from the
+	// last call. A failover starts its next attempt's messages afresh, so the
+	// last call holds the final attempt's alone.
+	onStepMessages?: (messages: ModelMessage[]) => void;
+	// See PlainNormalChatModelRunParams.gateMessagesForAttempt.
+	gateMessagesForAttempt?: NormalChatModelRunMessageGate;
 };
 
 export type PlainNormalChatModelRunResult = {
@@ -1241,12 +1286,18 @@ function isUnsupportedToolsRequestError(error: unknown): boolean {
 // A model that cannot see is never sent a picture, whichever attempt it is
 // (vision/AGENTS.md, Failover): the primary may be ticked "Can see images" and
 // the fallback it fails over to not, or be a cloud model nobody ticked. Both the
-// plain loop and the streaming failover build every attempt's messages here.
+// plain loop and the streaming failover build every attempt's messages here,
+// from the original messages each time, and then hand them to the turn's gate
+// (if it gave one) with the provider the attempt runs on.
 function messagesForAttempt(
 	messages: ModelMessage[],
 	provider: NormalChatModelRunProvider,
+	gate?: NormalChatModelRunMessageGate,
 ): ModelMessage[] {
-	return providerCanSeeImages(provider) ? messages : stripImageParts(messages);
+	const stripped = providerCanSeeImages(provider)
+		? messages
+		: stripImageParts(messages);
+	return gate ? gate(stripped, provider) : stripped;
 }
 
 export async function runPlainNormalChatModelRun(
@@ -1293,6 +1344,7 @@ export async function runPlainNormalChatModelRun(
 		const attemptMessages = messagesForAttempt(
 			params.messages,
 			currentProvider,
+			params.gateMessagesForAttempt,
 		);
 		const attemptParams = {
 			...params,
@@ -1536,6 +1588,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 		const attemptMessages = messagesForAttempt(
 			params.messages,
 			currentProvider,
+			params.gateMessagesForAttempt,
 		);
 		const attemptParams = {
 			...params,
@@ -1740,6 +1793,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 			stepNumber,
 			finishReason,
 			usage,
+			response,
 		}: OnStepFinishEvent<ToolSet>) => {
 			console.warn("[NORMAL_CHAT_MODEL] stream step finish", {
 				providerId: params.provider.id,
@@ -1748,6 +1802,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 				inputTokens: usage.inputTokens,
 				outputTokens: usage.outputTokens,
 			});
+			// The SDK has finished this callback before it sends `finish`, so a turn
+			// that reads what it was handed when `finish` arrives has the last step's.
+			params.onStepMessages?.(response.messages);
 		},
 	});
 

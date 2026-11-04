@@ -6092,3 +6092,394 @@ describe("Normal Chat Model Run thumbnails a tool asked the model to see", () =>
 		});
 	});
 });
+
+describe("Normal Chat Model Run asking the user", () => {
+	// The run logs every step it finishes; these tests read the requests instead.
+	let warn: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		mocks.getProviderByName.mockReset();
+		mocks.getProviderWithSecrets.mockReset();
+		mocks.getProviderModel.mockReset();
+		mocks.listEnabledProviderModels.mockReset();
+		mocks.decryptApiKey.mockReset();
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue(null);
+		mocks.getProviderModel.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
+		mocks.decryptApiKey.mockReturnValue("plain-secret");
+	});
+
+	afterEach(() => {
+		warn.mockRestore();
+	});
+
+	const provider = {
+		id: "provider-1",
+		name: "fireworks",
+		displayName: "Fireworks",
+		baseUrl: "https://api.fireworks.ai/inference/v1",
+		modelName: "accounts/fireworks/models/kimi-k2p6",
+		apiKey: "plain-secret",
+	};
+	const usage = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 };
+	const askInput = {
+		questions: [
+			{
+				question: "How do you want to shape the day?",
+				options: [{ label: "Slow" }, { label: "Packed" }],
+			},
+		],
+	};
+	// What the real tool returns when it pauses the reply: the run reads the
+	// result off the step and never imports the tool (normal-chat-tools).
+	const pauseResult = {
+		status: "waiting_for_user",
+		note: "The question is on the screen. Wait for the answer.",
+	};
+
+	function createAskUserTool(execute: () => unknown = async () => pauseResult) {
+		return tool({
+			description: "Ask the person a question.",
+			inputSchema: z.object({
+				questions: z.array(
+					z.object({
+						question: z.string(),
+						options: z.array(z.object({ label: z.string() })),
+					}),
+				),
+			}),
+			execute,
+		});
+	}
+
+	/** A step that may say something first, and then calls ask_user. */
+	function askingStep(text?: string) {
+		return createStreamResponse([
+			...(text === undefined ? [] : [{ content: text }]),
+			{
+				toolCalls: [
+					{
+						id: "call-ask",
+						name: "ask_user",
+						arguments: JSON.stringify(askInput),
+					},
+				],
+			},
+			{ finishReason: "tool_calls", usage },
+		]);
+	}
+
+	function researchStep() {
+		return createStreamResponse([
+			{
+				toolCalls: [
+					{
+						id: "call-research",
+						name: "research_web",
+						arguments: JSON.stringify({ query: "Saturday plans" }),
+					},
+				],
+			},
+			{ finishReason: "tool_calls", usage },
+		]);
+	}
+
+	function answeringStep(text: string) {
+		return createStreamResponse([
+			{ content: text },
+			{ finishReason: "stop", usage },
+		]);
+	}
+
+	it("stops right after the step whose ask_user result is the pause", async () => {
+		const execute = vi.fn(async () => pauseResult);
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				askingStep("The biggest fork is the shape of the day itself."),
+			)
+			// A second step would be this one; the run must never ask for it.
+			.mockResolvedValueOnce(answeringStep("Saturday it is."));
+
+		const events = await collectStreamingEvents({
+			provider,
+			messages: [userTextMessage("Plan my Saturday")],
+			tools: { ask_user: createAskUserTool(execute) },
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "The biggest fork is the shape of the day itself.",
+		});
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call-ask",
+			toolName: "ask_user",
+			output: pauseResult,
+		});
+		expect(events).not.toContainEqual({
+			type: "text_delta",
+			text: "Saturday it is.",
+		});
+		expect(events.at(-1)).toMatchObject({ type: "finish" });
+	});
+
+	it("goes on after an ask_user call that was refused", async () => {
+		// The call reached the tool and the tool refused it: the model must see
+		// why and get its turn, where `hasToolCall` would have ended the run.
+		const refused = {
+			ok: false,
+			errorCode: "invalid_questions",
+			message: "Each question needs 2 or 3 options.",
+		};
+		const execute = vi.fn(async () => refused);
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(askingStep())
+			.mockResolvedValueOnce(
+				answeringStep("Then I will plan a slow Saturday."),
+			);
+
+		const events = await collectStreamingEvents({
+			provider,
+			messages: [userTextMessage("Plan my Saturday")],
+			tools: { ask_user: createAskUserTool(execute) },
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(parseRequestBody(fetch, 1))).toContain(
+			"Each question needs 2 or 3 options.",
+		);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "Then I will plan a slow Saturday.",
+		});
+	});
+
+	it("hands onStepMessages the attempt's cumulative response messages, the ask's result in full", async () => {
+		const onStepMessages = vi.fn();
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(researchStep())
+			.mockResolvedValueOnce(
+				askingStep("The biggest fork is the shape of the day itself."),
+			);
+
+		// The turn reads the capture when `finish` arrives, so both steps' messages
+		// must be handed over by then.
+		const handedOverAtFinish: number[] = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			provider,
+			messages: [userTextMessage("Plan my Saturday")],
+			tools: {
+				research_web: createResearchWebTool(async () => ({
+					answerBrief: "Brief",
+				})),
+				ask_user: createAskUserTool(),
+			},
+			onStepMessages,
+			fetch,
+			maxRetries: 0,
+		})) {
+			if (event.type === "finish") {
+				handedOverAtFinish.push(onStepMessages.mock.calls.length);
+			}
+		}
+
+		expect(handedOverAtFinish).toEqual([2]);
+		expect(onStepMessages).toHaveBeenCalledTimes(2);
+		// After the first step: the research call and its result.
+		expect(onStepMessages.mock.calls[0]?.[0]).toHaveLength(2);
+		// After the last: all the attempt said and read, the ask's result whole.
+		expect(onStepMessages.mock.calls[1]?.[0]).toEqual([
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "call-research",
+						toolName: "research_web",
+						input: { query: "Saturday plans" },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-research",
+						toolName: "research_web",
+						output: { type: "json", value: { answerBrief: "Brief" } },
+					},
+				],
+			},
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "text",
+						text: "The biggest fork is the shape of the day itself.",
+					},
+					{
+						type: "tool-call",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						input: askInput,
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-ask",
+						toolName: "ask_user",
+						output: { type: "json", value: pauseResult },
+					},
+				],
+			},
+		]);
+	});
+
+	describe("the gate on each attempt's messages", () => {
+		const primary = {
+			id: "model1",
+			name: "model1",
+			displayName: "Model One",
+			baseUrl: "https://model-one.example/v1",
+			modelName: "model-one",
+			apiKey: "model-one-secret",
+		};
+
+		function failoverConfig() {
+			return {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never;
+		}
+
+		/** A gate that adds a line naming the provider it was asked for. */
+		function createGate() {
+			return vi.fn(
+				(messages: ChatRunMessage[], attemptProvider: { id: string }) => [
+					...messages,
+					userTextMessage(`gated for ${attemptProvider.id}`),
+				],
+			);
+		}
+
+		function timeoutError() {
+			return Object.assign(new Error("provider timed out"), {
+				name: "TimeoutError",
+			});
+		}
+
+		function expectEachAttemptGated(
+			gate: ReturnType<typeof createGate>,
+			fetch: FetchMock,
+		) {
+			// Once per attempt, with the provider that attempt runs on ...
+			expect(gate).toHaveBeenCalledTimes(2);
+			expect(gate.mock.calls[0]?.[1]).toBe(primary);
+			expect(gate.mock.calls[1]?.[1]).toMatchObject({
+				id: "model2",
+				modelName: "model-two",
+			});
+			// ... each time from the original messages, never the last gate's output ...
+			expect(gate.mock.calls[0]?.[0]).toEqual([userTextMessage("Hello")]);
+			expect(gate.mock.calls[1]?.[0]).toEqual([userTextMessage("Hello")]);
+			// ... and each request carries what its own attempt's gate returned.
+			const wires = [0, 1].map((call) =>
+				JSON.stringify(parseRequestBody(fetch, call)),
+			);
+			expect(wires[0]).toContain("gated for model1");
+			expect(wires[0]).not.toContain("gated for model2");
+			expect(wires[1]).toContain("gated for model2");
+			expect(wires[1]).not.toContain("gated for model1");
+		}
+
+		it("rebuilds each attempt's messages through gateMessagesForAttempt, with that attempt's provider", async () => {
+			// The primary fails before any output, so the stream may fail over.
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockRejectedValueOnce(timeoutError())
+				.mockResolvedValueOnce(answeringStep("Model 2 answer"));
+			const gate = createGate();
+
+			const events = await collectStreamingEvents({
+				provider: primary,
+				modelId: "model1",
+				runtimeConfig: failoverConfig(),
+				messages: [userTextMessage("Hello")],
+				gateMessagesForAttempt: gate,
+				fetch,
+				maxRetries: 0,
+			});
+
+			expect(events).toContainEqual({
+				type: "text_delta",
+				text: "Model 2 answer",
+			});
+			expectEachAttemptGated(gate, fetch);
+		});
+
+		it("passes the plain run's attempts through the gate too", async () => {
+			const fetch = vi
+				.fn<typeof globalThis.fetch>()
+				.mockRejectedValueOnce(timeoutError())
+				.mockResolvedValueOnce(
+					createMockChatCompletionResponse({
+						message: { role: "assistant", content: "Model 2 answer" },
+					}),
+				);
+			const gate = createGate();
+
+			const result = await runPlainNormalChatModelRun({
+				provider: primary,
+				modelId: "model1",
+				runtimeConfig: failoverConfig(),
+				messages: [userTextMessage("Hello")],
+				gateMessagesForAttempt: gate,
+				fetch,
+				maxRetries: 0,
+			});
+
+			expect(result.text).toBe("Model 2 answer");
+			expectEachAttemptGated(gate, fetch);
+		});
+	});
+});
