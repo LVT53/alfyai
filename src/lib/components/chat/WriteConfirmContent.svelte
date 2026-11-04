@@ -46,7 +46,7 @@ let {
 		</div>
 	</div>
 
-	{#if view.message || view.risk || error}
+	{#if view.thumbnails.length > 0 || view.message || view.risk || error}
 		<div class="write-content__body">
 			<WriteConfirmDetails {view} />
 			{#if error}

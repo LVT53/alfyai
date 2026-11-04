@@ -1387,7 +1387,44 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				calendarId: "primary",
 				eventId: "evt-1",
 				event: { location: "New Room" },
+				// The event as it stands, for the person's card: what the update
+				// changes is read against it.
+				current: {
+					summary: "Therapy session — anxiety follow-up",
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					location: "123 Clinic Rd",
+				},
 			});
+		});
+
+		it("delete_event keeps the event as it stands beside the payload, so the card can say which one goes", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(existingEvent());
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "delete_event", eventId: "evt-1" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(JSON.parse(call?.content ?? "{}")).toEqual({
+				calendarId: "primary",
+				eventId: "evt-1",
+				current: {
+					summary: "Therapy session — anxiety follow-up",
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					location: "123 Clinic Rd",
+				},
+			});
+			// Kept in the row for the person only: the model's copy never has it.
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+				"2026-07-09T09:00:00-04:00",
+			);
 		});
 
 		it("delete_event on a not-found event returns a note, no pending row", async () => {
@@ -1571,6 +1608,12 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				eventId: "evt-1",
 				event: { location: "New Room" },
 				recurringScope: "this_event",
+				current: {
+					summary: "Therapy session — anxiety follow-up",
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					location: "123 Clinic Rd",
+				},
 			});
 		});
 
@@ -1850,6 +1893,12 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 						location: "New Room",
 					},
 					recurring: false,
+					current: {
+						summary: "Therapy session — anxiety follow-up",
+						start: "2026-07-09T09:00:00-04:00",
+						end: "2026-07-09T09:30:00-04:00",
+						location: "123 Clinic Rd",
+					},
 				});
 			});
 
@@ -1898,7 +1947,13 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 					"ENTIRE recurring series",
 				);
 				const content = JSON.parse(call?.content ?? "{}");
-				expect(content).toMatchObject({ recurring: true });
+				expect(content).toMatchObject({
+					recurring: true,
+					current: {
+						summary: "Therapy session — anxiety follow-up",
+						start: "2026-07-09T09:00:00-04:00",
+					},
+				});
 			});
 
 			it("delete_event on a not-found event returns a note, no pending row", async () => {

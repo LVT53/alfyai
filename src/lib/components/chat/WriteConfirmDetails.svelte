@@ -1,8 +1,9 @@
 <script lang="ts">
-// What goes with the name of a pending write, if anything: the text of an email,
-// and the one sentence a person should read before answering. The same block on
-// the card, in the phone sheet, and under the row a settled write folds into,
-// which adds the small lines the card keeps by the name.
+// What goes with the name of a pending write, if anything: the photos it adds,
+// the text of an email, and the one sentence a person should read before
+// answering. The same block on the card, in the phone sheet, and under the row
+// a settled write folds into, which adds the small lines the card keeps by the
+// name.
 import { AlertTriangle } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import WriteConfirmFacts from "./WriteConfirmFacts.svelte";
@@ -33,6 +34,13 @@ const isLong = $derived(
 			view.message.split("\n").length > FOLD_LINES),
 );
 const risk = $derived(settled ? null : view.risk);
+
+// A photo the account no longer has, or a server that does not answer, leaves
+// no broken-image box: the count above still says how many.
+function hideBrokenPhoto(event: Event): void {
+	const img = event.currentTarget;
+	if (img instanceof HTMLImageElement) img.style.display = "none";
+}
 </script>
 
 <div class="write-details" class:write-details--settled={settled}>
@@ -42,6 +50,14 @@ const risk = $derived(settled ? null : view.risk);
 
 	{#if settled}
 		<WriteConfirmFacts facts={view.facts} />
+	{/if}
+
+	{#if view.thumbnails.length > 0}
+		<div class="write-details__photos" data-testid="write-confirm-photos">
+			{#each view.thumbnails as src}
+				<img {src} alt="" loading="lazy" decoding="async" onerror={hideBrokenPhoto} />
+			{/each}
+		</div>
 	{/if}
 
 	{#if view.message}
@@ -93,6 +109,28 @@ const risk = $derived(settled ? null : view.risk);
 
 	.write-details__note {
 		color: var(--text-muted);
+	}
+
+	/* The activity rail's photo strip, which wraps: a sheet has no room to
+	   scroll sideways inside a swipe. */
+	.write-details__photos {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.write-details__photos img {
+		width: 48px;
+		height: 48px;
+		border-radius: 6px;
+		border: 1px solid var(--border-default);
+		background: var(--surface-elevated);
+		object-fit: cover;
+	}
+
+	.write-details--settled .write-details__photos img {
+		width: 40px;
+		height: 40px;
 	}
 
 	.write-details__message {

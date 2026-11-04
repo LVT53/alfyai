@@ -1,3 +1,4 @@
+import { isPhotoProxyPath } from "$lib/shared/artifacts/block-urls";
 import type {
 	PendingWrite,
 	WriteCard,
@@ -20,6 +21,12 @@ import { WRITE_WARNING, type WriteOperation } from "./write-guard";
 
 /** An email's text past this is cut for the card. The email itself is not. */
 const MESSAGE_LIMIT = 8_000;
+
+/** An event's new notes get a line, not a page: the line says they change and how they begin. */
+const NOTES_LIMIT = 120;
+
+/** A strip of the photos, not the whole set: the count says how many. */
+const THUMBNAIL_LIMIT = 8;
 
 function parseObject(content: string): Record<string, unknown> | null {
 	try {
@@ -50,12 +57,34 @@ function parentFolder(path: string): string {
 	return `/${segments.slice(0, -1).join("/")}`;
 }
 
-function cutMessage(message: unknown): string | null {
-	const shown = text(message);
+function cut(value: unknown, limit: number): string | null {
+	const shown = text(value);
 	if (!shown) return null;
-	return shown.length > MESSAGE_LIMIT
-		? `${shown.slice(0, MESSAGE_LIMIT).trimEnd()}…`
-		: shown;
+	return shown.length > limit ? `${shown.slice(0, limit).trimEnd()}…` : shown;
+}
+
+const NAMED_ADDRESS = /^\s*"?(.*?)"?\s*<([^<>]*)>\s*$/;
+
+/** "Anna Kovács <anna@example.com>" by the name a mail app shows; an address alone as it is. */
+function senderName(from: unknown): string | null {
+	const shown = text(from);
+	if (!shown) return null;
+	const named = NAMED_ADDRESS.exec(shown);
+	if (!named) return shown.trim();
+	return named[1]?.trim() || named[2]?.trim() || null;
+}
+
+// Who sent an email and when it came, read off the mailbox when the write was
+// proposed: many emails share a subject, and the card is how the person tells
+// which one this is.
+function receivedFacts(
+	payload: Record<string, unknown> | null,
+): WriteCardFact[] {
+	const from = senderName(payload?.from);
+	return [
+		...(from ? [{ key: "from" as const, value: from }] : []),
+		...fact("sent", payload?.date),
+	];
 }
 
 function emailCard(
@@ -70,14 +99,14 @@ function emailCard(
 			kind: "email.send",
 			subject,
 			facts: [...fact("to", payload?.to), ...fact("cc", payload?.cc)],
-			message: cutMessage(payload?.body),
+			message: cut(payload?.body, MESSAGE_LIMIT),
 		};
 	}
 	if (op.action === "email.trash") {
 		return {
 			kind: "email.trash",
 			subject: text(op.target?.label) ?? "",
-			facts: [],
+			facts: receivedFacts(payload),
 			message: null,
 		};
 	}
@@ -89,16 +118,65 @@ function emailCard(
 			"flagged:false": "email.unflag",
 		};
 		const kind = flagKind[`${payload?.flag}:${payload?.value}`];
-		return kind ? { kind, subject: "", facts: [], message: null } : null;
+		return kind
+			? {
+					kind,
+					subject: text(op.target?.label) ?? "",
+					facts: receivedFacts(payload),
+					message: null,
+				}
+			: null;
 	}
 	return null;
 }
 
-function eventWhen(event: Record<string, unknown>): WriteCardFact[] {
+function eventWhen(
+	event: Record<string, unknown>,
+	key: "when" | "new_when" = "when",
+): WriteCardFact[] {
 	const start = text(event.start);
 	if (!start) return [];
 	const end = text(event.end);
-	return [{ key: "when", value: start, ...(end ? { end } : {}) }];
+	return [{ key, value: start, ...(end ? { end } : {}) }];
+}
+
+// One moment can be written two ways ("08:00Z", "09:00+01:00"), and that is no
+// change. A bare day is compared as it is written.
+function sameTime(a: string | null, b: string | null): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	const left = Date.parse(a);
+	return !Number.isNaN(left) && left === Date.parse(b);
+}
+
+// What an update changes, against the event as it stood when it was proposed.
+// Google's payload holds only the fields it sends and Apple's the whole event,
+// so a field counts where it differs and nowhere else.
+function eventChanges(
+	current: Record<string, unknown>,
+	event: Record<string, unknown>,
+): WriteCardFact[] {
+	const changes: WriteCardFact[] = [];
+	const name = text(event.summary);
+	if (name && name !== text(current.summary)) {
+		changes.push({ key: "new_name", value: name });
+	}
+	const start = text(event.start) ?? text(current.start);
+	const end = text(event.end) ?? text(current.end);
+	const moved =
+		!sameTime(start, text(current.start)) || !sameTime(end, text(current.end));
+	if (moved) {
+		changes.push(...eventWhen({ start, end }, "new_when"));
+	}
+	const place = text(event.location);
+	if (place && place !== text(current.location)) {
+		changes.push({ key: "new_where", value: place });
+	}
+	const notes = text(event.description);
+	if (notes && notes !== text(current.description)) {
+		changes.push({ key: "new_notes", value: cut(notes, NOTES_LIMIT) ?? notes });
+	}
+	return changes;
 }
 
 function calendarCard(
@@ -115,10 +193,33 @@ function calendarCard(
 	};
 	const kind = kinds[op.action];
 	if (!kind || !payload) return null;
+
+	// An update or a delete keeps the event as it stood beside its payload: a
+	// delete carries no event of its own, and an update only what it changes, so
+	// without it the card could not say which event this is. A row stored before
+	// it was kept reads as it always did.
+	const current =
+		kind !== "calendar.create_event" &&
+		payload.current !== null &&
+		typeof payload.current === "object"
+			? (payload.current as Record<string, unknown>)
+			: null;
+	if (!current) {
+		return {
+			kind,
+			subject: label,
+			facts: [...eventWhen(event), ...fact("where", event.location)],
+			message: null,
+		};
+	}
 	return {
 		kind,
-		subject: label,
-		facts: [...eventWhen(event), ...fact("where", event.location)],
+		// The event's own name: a title the request carried names nothing yet.
+		subject: text(current.summary) ?? label,
+		facts:
+			kind === "calendar.delete_event"
+				? [...eventWhen(current), ...fact("where", current.location)]
+				: [...eventWhen(current), ...eventChanges(current, event)],
 		message: null,
 	};
 }
@@ -195,17 +296,31 @@ function filesCard(
 function photosCard(
 	op: WriteOperation,
 	content: string,
+	connectionId: string,
 ): Omit<WriteCard, "risks" | "danger"> | null {
 	if (op.action !== "immich.add_to_album") return null;
 	const payload = parseObject(content);
 	const album = text(payload?.albumName);
 	const assetIds = payload?.assetIds;
 	if (!album || !Array.isArray(assetIds)) return null;
+	// Each through the app's own proxy for the row's account, the one a confirm
+	// runs against, and the one image address a board may load too
+	// (block-urls.ts): the ids came from the model, and an id the route would
+	// refuse is left out rather than sent.
+	const thumbnails = assetIds
+		.map((id) =>
+			typeof id === "string"
+				? `/api/connections/immich/thumbnail/${id}?connectionId=${encodeURIComponent(connectionId)}`
+				: null,
+		)
+		.filter(isPhotoProxyPath)
+		.slice(0, THUMBNAIL_LIMIT);
 	return {
 		kind: "photos.add_to_album",
 		subject: album,
 		facts: [{ key: "photos", value: String(assetIds.length) }],
 		message: null,
+		thumbnails,
 	};
 }
 
@@ -256,7 +371,10 @@ function isDanger(op: WriteOperation): boolean {
 
 /** The card for a stored write, or null for one this version cannot read: the card then falls back to the sentence the write was proposed with. */
 export function buildWriteCard(
-	record: Pick<PendingWriteRecord, "op" | "content" | "preview">,
+	record: Pick<
+		PendingWriteRecord,
+		"op" | "content" | "preview" | "connectionId"
+	>,
 ): WriteCard | null {
 	const { op, content } = record;
 	if (!op?.action) return null;
@@ -264,7 +382,7 @@ export function buildWriteCard(
 		emailCard(op, content) ??
 		calendarCard(op, content) ??
 		filesCard(op, content) ??
-		photosCard(op, content);
+		photosCard(op, content, record.connectionId);
 	if (!card) return null;
 	return { ...card, risks: risksOf(record), danger: isDanger(op) };
 }

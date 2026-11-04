@@ -1055,10 +1055,13 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			});
 			expect(call?.op.target).toEqual({ id: "42", label: "Invoice #123" });
 			// Fix 3 — the captured INBOX UIDVALIDITY rides along in content so
-			// imap-write.ts can re-check it at execute time.
+			// imap-write.ts can re-check it at execute time. Who sent it and
+			// when ride along for the person's card, which names the email.
 			expect(JSON.parse(call?.content ?? "{}")).toEqual({
 				uid: 42,
 				uidValidity: "111",
+				from: "billing@vendor.com",
+				date: "2026-07-01T00:00:00.000Z",
 			});
 			// The DB-persisted preview keeps the real subject — never redacted.
 			expect(call?.preview.title).toContain("Invoice #123");
@@ -1153,9 +1156,22 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 		});
 
-		it("allowWrites=true: creates a PENDING row for the flag change (never applies it inline), no message read needed", async () => {
+		const flaggedMessage = {
+			header: {
+				uid: 42,
+				from: "Anna Kovács <anna@example.com>",
+				subject: "Q3 numbers",
+				date: "2026-11-02T13:05:00.000Z",
+				seen: false,
+			},
+			text: "irrelevant",
+			attachments: [],
+		};
+
+		it("allowWrites=true: reads the message it changes so the card can name it, and creates a PENDING row (never applies it inline)", async () => {
 			const conn = makeWritableConn();
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockResolvedValue(flaggedMessage);
 
 			const outcome = await runEmailTool(
 				"user-1",
@@ -1168,6 +1184,10 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.message).toContain(
 				"has NOT been applied yet",
 			);
+			// The same mailbox the executor acts in: INBOX, by the same uid.
+			expect(imapReadMessageMock).toHaveBeenCalledWith("user-1", "conn-1", {
+				uid: 42,
+			});
 
 			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
 			const call = createPendingWriteMock.mock.calls[0]?.[1];
@@ -1178,19 +1198,73 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 				destructive: false,
 				reversible: true,
 			});
+			expect(call?.op.target).toEqual({ id: "42", label: "Q3 numbers" });
 			// Fix 3 — the captured INBOX UIDVALIDITY rides along in content so
-			// imap-write.ts can re-check it at execute time.
+			// imap-write.ts can re-check it at execute time; who sent the email
+			// and when ride along for the card.
 			expect(JSON.parse(call?.content ?? "{}")).toEqual({
 				uid: 42,
 				flag: "flagged",
 				value: false,
 				uidValidity: "111",
+				from: "Anna Kovács <anna@example.com>",
+				date: "2026-11-02T13:05:00.000Z",
 			});
-			expect(imapReadMessageMock).not.toHaveBeenCalled();
 			expect(imapGetInboxUidValidityMock).toHaveBeenCalledWith(
 				"user-1",
 				"conn-1",
 			);
+		});
+
+		it("does not propose a change to a message that is not there", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockRejectedValue(
+				new ImapError("Message not found", "message_not_found"),
+			);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 999, flag: "seen", value: true },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("couldn't be found");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("Option A on + cloud: the model-facing payload never names the message; the DB row does", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockResolvedValue({
+				...flaggedMessage,
+				header: {
+					...flaggedMessage.header,
+					subject: "Your lab results are ready",
+				},
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "A message about medical results.",
+			});
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 42, flag: "seen", value: true },
+				"whichever-model",
+			);
+
+			const serializedModelPayload = JSON.stringify(outcome.modelPayload);
+			expect(serializedModelPayload).not.toContain("lab results");
+			expect(serializedModelPayload).not.toContain("Anna");
+			expect(outcome.modelPayload.message).toContain(
+				"A message about medical results.",
+			);
+
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op.target?.label).toBe("Your lab results are ready");
 		});
 
 		// Fix 3 (write-safety hardening) — UIDVALIDITY binding, propose side.
@@ -1198,6 +1272,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			it("omits uidValidity from content when the capture itself returns null (server didn't report one)", async () => {
 				const conn = makeWritableConn();
 				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				imapReadMessageMock.mockResolvedValue(flaggedMessage);
 				imapGetInboxUidValidityMock.mockResolvedValue(null);
 
 				await runEmailTool(
@@ -1211,12 +1286,15 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					uid: 42,
 					flag: "seen",
 					value: true,
+					from: "Anna Kovács <anna@example.com>",
+					date: "2026-11-02T13:05:00.000Z",
 				});
 			});
 
 			it("a failure capturing UIDVALIDITY is surfaced gracefully — no pending row is created", async () => {
 				const conn = makeWritableConn();
 				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				imapReadMessageMock.mockResolvedValue(flaggedMessage);
 				imapGetInboxUidValidityMock.mockRejectedValue(
 					new ImapError("Failed to reach the mailbox", "request_failed"),
 				);

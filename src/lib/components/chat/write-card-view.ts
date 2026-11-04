@@ -12,6 +12,7 @@ import type {
 	WriteCardKind,
 	WriteCardRisk,
 } from "$lib/server/services/connections/pending-write-dto";
+import { isPhotoProxyPath } from "$lib/shared/artifacts/block-urls";
 import { intlLocale } from "$lib/utils/locale";
 import type {
 	ToolActivityItem,
@@ -133,16 +134,28 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 };
 
 // A line either speaks for itself (a time, a place, a folder) or needs its word
-// ("To anna@example.com"). The ones a person checks before saying yes stay in
-// the reading colour; a location is a footnote to the name above it.
+// ("To anna@example.com", "New time …"). The ones a person checks before saying
+// yes stay in the reading colour; a location, and the day an email came, are
+// footnotes to the name above them.
 const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 	{
 		to: { label: "connections.writeConfirm.fact.to", quiet: false },
 		cc: { label: "connections.writeConfirm.fact.cc", quiet: false },
+		from: { label: "connections.writeConfirm.fact.from", quiet: false },
+		sent: { quiet: true },
 		when: { quiet: false },
 		where: { quiet: true },
 		folder: { quiet: true },
 		new_name: { label: "connections.writeConfirm.fact.newName", quiet: false },
+		new_when: { label: "connections.writeConfirm.fact.newTime", quiet: false },
+		new_where: {
+			label: "connections.writeConfirm.fact.newPlace",
+			quiet: false,
+		},
+		new_notes: {
+			label: "connections.writeConfirm.fact.newNotes",
+			quiet: false,
+		},
 		photos: { label: "connections.writeConfirm.fact.photos", quiet: false },
 	};
 
@@ -198,6 +211,8 @@ export type WriteCardView = {
 	subject: string;
 	facts: WriteCardFactLine[];
 	message: string | null;
+	/** The photos a write adds, each one of the app's own thumbnail addresses. */
+	thumbnails: string[];
 	/** One sentence at most: a second warning only makes the first one easier to skip. */
 	risk: { tone: WriteRiskTone; text: string } | null;
 	approveLabel: string;
@@ -215,7 +230,7 @@ function parseEventDate(value: string): Date | null {
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** An event's time in the reader's language and clock. A string that is no date is shown as it is. */
+/** An event's time, or when an email came, in the reader's language and clock. A string that is no date is shown as it is. */
 export function formatEventWhen(
 	start: string,
 	end: string | undefined,
@@ -243,7 +258,7 @@ export function formatEventWhen(
 }
 
 function factValue(fact: WriteCardFact, language: string): string {
-	return fact.key === "when"
+	return fact.key === "when" || fact.key === "new_when" || fact.key === "sent"
 		? formatEventWhen(fact.value, fact.end, language)
 		: fact.value;
 }
@@ -279,6 +294,7 @@ export function buildWriteCardView(
 			subject: write.preview.title,
 			facts: [],
 			message: null,
+			thumbnails: [],
 			risk: write.preview.warnings[0]
 				? {
 						tone: write.preview.destructive ? "danger" : "caution",
@@ -298,7 +314,8 @@ export function buildWriteCardView(
 		question: t(copy.question),
 		qualifier,
 		name: card.subject || null,
-		// Marking an email as read names no email: the row still says what it did.
+		// A flag change stored before it named its email has no name: the row
+		// still says what it did.
 		subject: card.subject || approveLabel,
 		facts: card.facts.map((fact) => {
 			const line = FACT_LINE[fact.key];
@@ -310,6 +327,9 @@ export function buildWriteCardView(
 			};
 		}),
 		message: card.message,
+		// The server builds these, and the address is checked again where it
+		// becomes a request nobody clicked, as a board's photo is.
+		thumbnails: (card.thumbnails ?? []).filter(isPhotoProxyPath),
 		risk: gravestRisk(card.risks, t),
 		approveLabel,
 		doneLabel: t(copy.done),
@@ -355,6 +375,7 @@ export function buildSettledWriteItem(
 					: t("connections.writeConfirm.status.cancelled");
 	const hasDetails =
 		view.facts.length > 0 ||
+		view.thumbnails.length > 0 ||
 		view.message !== null ||
 		settledWriteNote(write, t) !== null;
 	return {
